@@ -1908,11 +1908,12 @@ async function hexScenario(fixtures) {
  * exceptions - a control that is merely removed while a saved style still names
  * a scheme would leave somebody on a set they cannot change.
  *
- * THE ZIP is a flat coloured page and falls back to monochrome on a selected
- * row, because an indigo page on an indigo accent is exactly the collision that
- * fallback exists for. THE COMIC is artwork - a keylined sunburst under a
- * halftone under a splat - and never falls back, because five colours cannot
- * all collide with one accent.
+ * THE ZIP is a flat coloured page. It fell back to monochrome on a selected
+ * row while a selection was an accent SLAB, an indigo page on an indigo fill
+ * being the collision that fallback existed for. A marked row is a light tint
+ * now (owner, 2026-10-03), so it keeps its colour there too. THE COMIC is
+ * artwork - a keylined sunburst under a halftone under a splat - and never
+ * fell back at all.
  *
  * The coloured icon is also MASKED rather than painted in layers: painting the
  * band over the page leaves a hairline of page colour around the outside, and
@@ -1956,12 +1957,12 @@ async function iconSchemeScenario(fixtures) {
     // Read as the token rather than a hex, because the point is that it moves
     // with the style; the unit tests measure what the token resolves to.
     // bundle.zip is
-    // the open row, so it is selected and must be the fallback; the others are
-    // not, and must be coloured.
+    // the open row, so it is selected; on the tint it keeps its colour like
+    // the rest (a marked row is no longer an accent slab, 2026-10-03).
     const open = await icon('bundle.zip')
     ok(open !== null, 'the tree draws an icon for bundle.zip')
     ok(open.selected, 'and it is the selected row')
-    ok(!open.masked, 'a SELECTED zip falls back to monochrome')
+    ok(open.masked, 'a SELECTED zip keeps its colour on the tint')
 
     const zip = await icon('wrapped.zip')
     ok(zip !== null && zip.masked, 'an unselected zip is coloured with no scheme on')
@@ -7115,6 +7116,620 @@ async function archiveScenario(fixtures) {
   }
 }
 
+/**
+ * THE SWEEP RECTANGLE AND ONE ROW SIZE (#257; owner, 2026-10-03: "let me
+ * highlight files by holding down left click ... that transparent quadrant",
+ * and "the rows are too big in explorer ... matching the ide sizing").
+ * Real pointer presses, in the tree and in the Explorer's list: a sweep from
+ * blank space marks what it covers live and leaves no rectangle behind; Ctrl
+ * adds; Escape puts back what was marked; a press on a name is still the
+ * file's drag. And the Explorer's row is MEASURED against the tree's.
+ */
+async function marqueeScenario(fixtures) {
+  console.log('sweep rectangle and row size')
+  const dir = join(fixtures, 'marquee')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const names = ['a1.txt', 'a2.txt', 'a3.txt', 'a4.txt', 'a5.txt', 'a6.txt', 'a7.txt', 'a8.txt']
+  for (const n of names) writeFileSync(join(dir, n), `sweep ${n}\n`)
+  const { app, win } = await launch(join(dir, 'a1.txt'))
+  /** Press, travel in steps, optionally do something mid-way, release. */
+  const sweep = async (from, to, { ctrl = false, mid } = {}) => {
+    if (ctrl) await win.keyboard.down('Control')
+    await win.mouse.move(from.x, from.y)
+    await win.mouse.down()
+    await win.mouse.move(to.x, to.y, { steps: 12 })
+    await sleep(120)
+    const during = mid ? await mid() : undefined
+    await win.mouse.up()
+    if (ctrl) await win.keyboard.up('Control')
+    await sleep(200)
+    return during
+  }
+  const band = (scope) => win.evaluate((s) => document.querySelectorAll(`${s} [data-sweep-band]`).length, scope)
+  try {
+    /* ---------- the tree ---------- */
+    await win.waitForSelector('aside [data-row]', { timeout: 10000 })
+    await sleep(500)
+    const treeRow = async (i) => {
+      const r = win.locator('aside [data-row]').nth(i)
+      return { box: await r.boundingBox(), path: await r.getAttribute('data-row') }
+    }
+    const treeMarked = () =>
+      win.evaluate(() =>
+        [...document.querySelectorAll('aside [data-row][data-selected]')].map((r) => /[^\\]*$/.exec(r.getAttribute('data-row') ?? '')?.[0])
+      )
+    const r0 = await treeRow(0)
+    const r2 = await treeRow(2)
+    const r4 = await treeRow(4)
+    const r5 = await treeRow(5)
+    const r6 = await treeRow(6)
+    const r7 = await treeRow(7)
+    ok(!!r0.box && !!r7.box, 'the tree shows the eight files')
+    const blankX = r0.box.x + r0.box.width - 12
+    // From the space under the last row, up to the third: a3..a8.
+    const treeMid = await sweep(
+      { x: blankX, y: r7.box.y + r7.box.height + 40 },
+      { x: r0.box.x + 30, y: r2.box.y + 6 },
+      {
+        mid: async () => {
+          await win.screenshot({ path: join(SHOTS, 'marquee-tree.png') })
+          return { band: await band('aside'), marked: await treeMarked() }
+        }
+      }
+    )
+    ok(treeMid.band === 1, `the tree draws the rectangle while sweeping (${treeMid.band})`)
+    ok(['a3.txt', 'a8.txt'].every((n) => treeMid.marked.includes(n)), `and marks rows live (${treeMid.marked})`)
+    ok((await band('aside')) === 0, 'the rectangle is gone after the release')
+    let marked = await treeMarked()
+    ok(
+      ['a3.txt', 'a4.txt', 'a5.txt', 'a6.txt', 'a7.txt', 'a8.txt'].every((n) => marked.includes(n)) && !marked.includes('a2.txt'),
+      `a sweep from the space under the rows marks what it covered (${marked})`
+    )
+    ok(!(await win.locator('.cm-editor').textContent().catch(() => '')).includes('sweep a8'), 'and opened nothing')
+    // Plain sweep from a row's blank space replaces: a5..a6.
+    await sweep({ x: blankX, y: r4.box.y + r4.box.height / 2 }, { x: blankX - 10, y: r5.box.y + r5.box.height / 2 })
+    marked = await treeMarked()
+    ok(marked.includes('a5.txt') && marked.includes('a6.txt') && !marked.includes('a8.txt'), `a plain sweep from a row's blank space replaces the marks (${marked})`)
+    // Ctrl adds: a7..a8 on top.
+    await sweep({ x: blankX, y: r6.box.y + r6.box.height / 2 }, { x: blankX - 10, y: r7.box.y + r7.box.height / 2 }, { ctrl: true })
+    marked = await treeMarked()
+    ok(['a5.txt', 'a6.txt', 'a7.txt', 'a8.txt'].every((n) => marked.includes(n)), `Ctrl+sweep adds to them (${marked})`)
+    // Escape mid-sweep puts them back.
+    const before = (await treeMarked()).sort().join()
+    const escMid = await sweep({ x: blankX, y: r7.box.y + r7.box.height + 30 }, { x: blankX - 20, y: r0.box.y + 4 }, {
+      mid: async () => {
+        const during = (await treeMarked()).length
+        await win.keyboard.press('Escape')
+        await sleep(150)
+        return { during, band: await band('aside') }
+      }
+    })
+    ok(escMid.during >= 8, `the sweep had marked every row (${escMid.during})`)
+    ok(escMid.band === 0, 'Escape takes the rectangle away at once')
+    ok((await treeMarked()).sort().join() === before, `and puts back what was marked (${await treeMarked()})`)
+    // A press on a NAME is the file's drag, never a sweep.
+    await win.evaluate(() => {
+      globalThis.__sweepDrag = 0
+      window.addEventListener('dragstart', () => (globalThis.__sweepDrag += 1), { once: true, capture: true })
+    })
+    const nameBox = await win.locator('aside [data-row]').nth(1).locator('span.truncate').boundingBox()
+    await win.mouse.move(nameBox.x + 6, nameBox.y + nameBox.height / 2)
+    await win.mouse.down()
+    await win.mouse.move(nameBox.x + 6, nameBox.y + 60, { steps: 10 })
+    await sleep(150)
+    const treeNameBand = await band('aside')
+    await win.mouse.up()
+    await sleep(300)
+    await win.keyboard.press('Escape')
+    ok(treeNameBand === 0, 'a press on a name never draws the rectangle')
+    ok((await win.evaluate(() => globalThis.__sweepDrag)) === 1, 'it starts the file drag instead')
+    // The gap between the icon and the name is the row's too (review of #257:
+    // a drag from there drew a rectangle and marked rows).
+    const treeGap = await win.evaluate(() => {
+      const row = document.querySelectorAll('aside [data-row]')[1]
+      const icon = row?.querySelector('svg')?.getBoundingClientRect()
+      const name = row?.querySelector('span.truncate')?.getBoundingClientRect()
+      return icon && name ? { x: (icon.right + name.left) / 2, y: name.top + name.height / 2 } : null
+    })
+    await win.evaluate(() => {
+      globalThis.__sweepDrag = 0
+      window.addEventListener('dragstart', () => (globalThis.__sweepDrag += 1), { once: true, capture: true })
+    })
+    await win.mouse.move(treeGap.x, treeGap.y)
+    await win.mouse.down()
+    await win.mouse.move(treeGap.x, treeGap.y + 60, { steps: 10 })
+    await sleep(150)
+    const treeGapBand = await band('aside')
+    await win.mouse.up()
+    await sleep(300)
+    await win.keyboard.press('Escape')
+    ok(treeGapBand === 0, 'a press between the icon and the name never draws the rectangle')
+    ok((await win.evaluate(() => globalThis.__sweepDrag)) === 1, 'it drags the file as the name does')
+    // A right press on the space under the rows clears the marks, as any press
+    // there did before the sweep.
+    await sweep({ x: blankX, y: r4.box.y + r4.box.height / 2 }, { x: blankX - 10, y: r6.box.y + r6.box.height / 2 })
+    ok((await treeMarked()).length >= 3, `marks are lit before the right press (${await treeMarked()})`)
+    await win.mouse.click(blankX, r7.box.y + r7.box.height + 40, { button: 'right' })
+    await sleep(250)
+    await win.keyboard.press('Escape')
+    await sleep(150)
+    marked = await treeMarked()
+    ok(!marked.includes('a5.txt') && !marked.includes('a7.txt'), `a right press under the rows clears the marks (${marked})`)
+
+    // The tree's row, for the Explorer to be measured against.
+    const treeLook = await win.evaluate(() => {
+      const row = document.querySelector('aside [data-row]')
+      const icon = row?.querySelector('svg')
+      const cs = row ? getComputedStyle(row) : null
+      return { h: row?.getBoundingClientRect().height, font: cs?.fontSize, icon: icon?.getBoundingClientRect().height, gap: cs?.columnGap }
+    })
+
+    /* ---------- the Explorer ---------- */
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="marquee"]').dblclick()
+    ok(
+      await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 8, 10000),
+      'the Explorer walked into the folder of eight'
+    )
+    await sleep(400)
+    const list = win.locator('[data-testid="browse-list"]')
+    const rowAt = (i) => list.locator(`[data-browse-index="${i}"]`)
+    const exLook = await win.evaluate(() => {
+      const row = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path]')
+      const icon = row?.querySelector('.browse-name > svg')
+      const cs = row ? getComputedStyle(row) : null
+      const name = row?.querySelector('.browse-name')
+      return {
+        h: row?.getBoundingClientRect().height,
+        font: cs?.fontSize,
+        icon: icon?.getBoundingClientRect().height,
+        gap: name ? getComputedStyle(name).columnGap : null
+      }
+    })
+    ok(exLook.h === treeLook.h, `an Explorer row is the tree's height (${exLook.h} and ${treeLook.h})`)
+    ok(exLook.font === treeLook.font, `in the tree's text size (${exLook.font} and ${treeLook.font})`)
+    ok(exLook.icon === treeLook.icon, `with the tree's icon size (${exLook.icon} and ${treeLook.icon})`)
+    ok(exLook.gap === treeLook.gap, `and the tree's gap after it (${exLook.gap} and ${treeLook.gap})`)
+    await win.screenshot({ path: join(SHOTS, 'explorer-rows.png') })
+
+    const exMarked = () =>
+      win.evaluate(() =>
+        [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]')].map(
+          (r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0]
+        )
+      )
+    const listBox = await list.boundingBox()
+    const e0 = await rowAt(0).boundingBox()
+    const e2 = await rowAt(2).boundingBox()
+    const e7 = await rowAt(7).boundingBox()
+    ok(e7.y + e7.height + 60 < listBox.y + listBox.height, 'there is blank space under the rows')
+    const exMid = await sweep(
+      { x: listBox.x + listBox.width * 0.6, y: e7.y + e7.height + 40 },
+      { x: e0.x + 40, y: e2.y + 6 },
+      {
+        mid: async () => {
+          await win.screenshot({ path: join(SHOTS, 'marquee-explorer.png') })
+          return { band: await band('[data-testid="browse-list"]'), marked: await exMarked() }
+        }
+      }
+    )
+    ok(exMid.band === 1, `the Explorer draws the rectangle while sweeping (${exMid.band})`)
+    ok(exMid.marked.length === 6, `and marks rows live (${exMid.marked})`)
+    ok((await band('[data-testid="browse-list"]')) === 0, 'the rectangle is gone after the release')
+    let ex = await exMarked()
+    ok(ex.sort().join() === 'a3.txt,a4.txt,a5.txt,a6.txt,a7.txt,a8.txt', `a sweep from the space under the rows marks what it covered (${ex})`)
+    ok(/6 selected/.test((await win.locator('.browse-status').textContent()) ?? ''), 'and the status line counts them')
+    // Selecting a file opened the preview pane beside the list, which made
+    // the list narrower: every point after this is measured again.
+    await sleep(400)
+    const box2 = await list.boundingBox()
+    const f0 = await rowAt(0).boundingBox()
+    const f3 = await rowAt(3).boundingBox()
+    const f4 = await rowAt(4).boundingBox()
+    const f7 = await rowAt(7).boundingBox()
+    const exBlank = f0.x + f0.width - 30
+    // A plain click on a row's blank space, without moving, is still a click.
+    await win.mouse.click(exBlank, f0.y + f0.height / 2)
+    await sleep(250)
+    ex = await exMarked()
+    ok(ex.join() === 'a1.txt', `a plain click on a row's blank space selects that row alone (${ex})`)
+    // Ctrl adds: a4..a5 swept from a row's blank space.
+    await sweep({ x: exBlank, y: f3.y + f3.height / 2 }, { x: exBlank - 10, y: f4.y + f4.height / 2 }, { ctrl: true })
+    ex = await exMarked()
+    ok(ex.sort().join() === 'a1.txt,a4.txt,a5.txt', `Ctrl+sweep adds to what was marked (${ex})`)
+    // Escape restores.
+    const exEsc = await sweep({ x: box2.x + box2.width * 0.6, y: f7.y + f7.height + 40 }, { x: exBlank, y: f0.y + 4 }, {
+      mid: async () => {
+        const during = (await exMarked()).length
+        await win.keyboard.press('Escape')
+        await sleep(150)
+        return { during, band: await band('[data-testid="browse-list"]') }
+      }
+    })
+    ok(exEsc.during === 8, `the sweep had marked every row (${exEsc.during})`)
+    ok(exEsc.band === 0, 'Escape takes the rectangle away at once')
+    ex = await exMarked()
+    ok(ex.sort().join() === 'a1.txt,a4.txt,a5.txt', `and puts back what was marked (${ex})`)
+    // A right press on one of several marked rows: the menu acts on all of
+    // them and offers nothing that is one row's (review of #257).
+    await rowAt(3).click({ button: 'right', position: { x: 30, y: f3.height / 2 } })
+    const multiMenu = await win
+      .locator('[role="menu"]')
+      .last()
+      .textContent({ timeout: 3000 })
+      .catch(() => '')
+    ok(/Delete 3 items/.test(multiMenu) && /Copy 3 items/.test(multiMenu), `the menu names all three marked rows (${multiMenu})`)
+    ok(!/Rename|Open|Properties/.test(multiMenu), 'and offers nothing that acts on one row')
+    await win.keyboard.press('Escape')
+    await sleep(200)
+    ex = await exMarked()
+    ok(ex.sort().join() === 'a1.txt,a4.txt,a5.txt', `the marks are still the three (${ex})`)
+    // A press in the gap between a file's icon and its name drags the file.
+    const exGap = await win.evaluate(() => {
+      const row = document.querySelector('[data-testid="browse-list"] [data-browse-index="2"]')
+      const icon = row?.querySelector('.browse-name > svg')?.getBoundingClientRect()
+      const name = row?.querySelector('.browse-name-text')?.getBoundingClientRect()
+      return icon && name ? { x: (icon.right + name.left) / 2, y: name.top + name.height / 2 } : null
+    })
+    await win.evaluate(() => {
+      globalThis.__sweepDrag = 0
+      window.addEventListener('dragstart', () => (globalThis.__sweepDrag += 1), { once: true, capture: true })
+    })
+    await win.mouse.move(exGap.x, exGap.y)
+    await win.mouse.down()
+    await win.mouse.move(exGap.x, exGap.y + 80, { steps: 10 })
+    await sleep(150)
+    const exGapBand = await band('[data-testid="browse-list"]')
+    await win.mouse.up()
+    await sleep(300)
+    await win.keyboard.press('Escape')
+    ok(exGapBand === 0, 'a press between the icon and the name never draws the rectangle')
+    ok((await win.evaluate(() => globalThis.__sweepDrag)) === 1, 'it drags the file as the name does')
+    // A press on a file's name drags the file.
+    await win.evaluate(() => {
+      globalThis.__sweepDrag = 0
+      window.addEventListener('dragstart', () => (globalThis.__sweepDrag += 1), { once: true, capture: true })
+    })
+    const exName = await rowAt(1).locator('.browse-name-text').boundingBox()
+    await win.mouse.move(exName.x + 6, exName.y + exName.height / 2)
+    await win.mouse.down()
+    await win.mouse.move(exName.x + 6, exName.y + 80, { steps: 10 })
+    await sleep(150)
+    const exNameBand = await band('[data-testid="browse-list"]')
+    await win.mouse.up()
+    await sleep(300)
+    await win.keyboard.press('Escape')
+    ok(exNameBand === 0, 'a press on a name never draws the rectangle')
+    ok((await win.evaluate(() => globalThis.__sweepDrag)) === 1, 'it starts the file drag instead')
+    // No button held, no rectangle: the failure that took the old sweep away.
+    await win.mouse.move(box2.x + 50, f7.y + f7.height + 40)
+    await win.mouse.move(box2.x + 80, f0.y + 4, { steps: 8 })
+    ok((await band('[data-testid="browse-list"]')) === 0, 'moving with no button held draws nothing')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * TWO HIGHLIGHTS FROM ONE ACCENT (owner, 2026-10-03, with a screenshot of an
+ * opaque grey slab in the Explorer: "i want more saturated" for the settings
+ * page that is chosen, and "more transparent like selecting files in file
+ * explorer" for files). A marked file row is a light accent TINT with a faint
+ * edge and keeps its own text colours, in the Explorer and the tree, on a dark
+ * style and a light one; the Settings rail's chosen page is the accent SOLID
+ * even with the accent's alpha turned down. Measured off computed styles.
+ */
+async function markTintScenario(fixtures) {
+  console.log('marked rows are a tint, the chosen page is solid')
+  const dir = join(fixtures, 'marktint')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['m1.txt', 'm2.txt', 'm3.txt', 'm4.txt', 'm5.txt', 'm6.txt']) writeFileSync(join(dir, n), `tint ${n}\n`)
+  const { app, win } = await launch(join(dir, 'm1.txt'))
+  let styleBefore = null
+  let draftBefore = null
+  const alphaOf = (c) => {
+    const n = (c.match(/[\d.]+/g) ?? []).map(Number)
+    return n.length > 3 ? n[3] : 1
+  }
+  const token = (name) =>
+    win.evaluate((n) => {
+      const probe = document.createElement('span')
+      probe.style.backgroundColor = `var(${n})`
+      document.body.appendChild(probe)
+      const c = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return c
+    }, name)
+  /** The marked Explorer row against a plain one: fill, edge and inks. */
+  const explorerLook = () =>
+    win.evaluate(() => {
+      const rows = [...document.querySelectorAll('[data-testid="browse-list"] .browse-row[data-browse-path]')]
+      const sel = rows.find((r) => r.hasAttribute('data-selected') && !r.hasAttribute('data-menu'))
+      const plain = rows.find((r) => !r.hasAttribute('data-selected') && !r.hasAttribute('data-menu'))
+      if (!sel || !plain) return null
+      const ink = (r, s) => getComputedStyle(r.querySelector(s)).color
+      return {
+        bg: getComputedStyle(sel).backgroundColor,
+        shadow: getComputedStyle(sel).boxShadow,
+        name: [ink(sel, '.browse-name'), ink(plain, '.browse-name')],
+        size: [ink(sel, '.browse-column-size'), ink(plain, '.browse-column-size')],
+        type: [ink(sel, '.browse-column-type'), ink(plain, '.browse-column-type')]
+      }
+    })
+  const checkExplorer = async (label) => {
+    const look = await explorerLook()
+    ok(look !== null, `${label}: a marked row and a plain one are on screen`)
+    if (!look) return
+    const a = alphaOf(look.bg)
+    ok(a >= 0.18 && a <= 0.25, `${label}: the marked row is a light tint (${look.bg})`)
+    ok(look.shadow !== 'none' && /inset/.test(look.shadow), `${label}: with a faint edge (${look.shadow.slice(0, 60)})`)
+    ok(look.name[0] === look.name[1], `${label}: its name keeps the plain row's colour (${look.name.join(' / ')})`)
+    ok(look.size[0] === look.size[1] && look.type[0] === look.type[1], `${label}: and so do its quiet columns (${look.size.join(' / ')})`)
+  }
+  try {
+    draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
+    styleBefore = await switchStyle(win, 'aurora', 'dark')
+    await sleep(400)
+
+    /* ---------- the tree ---------- */
+    await win.waitForSelector('aside [data-row]', { timeout: 10000 })
+    const treeRow = win.locator('aside [data-row]').nth(2)
+    await treeRow.click()
+    // Away from the rows: a hovered row wears the hover ink.
+    await win.mouse.move(5, 5)
+    await sleep(300)
+    const tree = await win.evaluate(() => {
+      const rows = [...document.querySelectorAll('aside [data-row]')]
+      const sel = rows.find((r) => r.hasAttribute('data-selected'))
+      const plain = rows.find((r) => !r.hasAttribute('data-selected'))
+      return sel && plain
+        ? { bg: getComputedStyle(sel).backgroundColor, ink: [getComputedStyle(sel).color, getComputedStyle(plain).color] }
+        : null
+    })
+    ok(tree !== null, 'the tree has a marked row and a plain one')
+    if (tree) {
+      const a = alphaOf(tree.bg)
+      ok(a >= 0.18 && a <= 0.25, `a marked tree row is a light tint too (${tree.bg})`)
+      ok(tree.ink[0] === tree.ink[1], `and keeps the plain row's text colour (${tree.ink.join(' / ')})`)
+    }
+    await win.screenshot({ path: join(SHOTS, 'marktint-tree-dark.png') })
+
+    /* ---------- the Explorer, dark ---------- */
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="marktint"]').dblclick()
+    ok(
+      await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 6, 10000),
+      'the Explorer walked into the folder of six'
+    )
+    await sleep(300)
+    const list = win.locator('[data-testid="browse-list"]')
+    await list.locator('[data-browse-index="1"] .browse-name-text').click()
+    await list.locator('[data-browse-index="2"] .browse-name-text').click({ modifiers: ['Control'] })
+    await win.mouse.move(5, 5)
+    await sleep(300)
+    await checkExplorer('dark')
+    // NO STRIPES (owner, 2026-10-03: "try no alternating row bg for
+    // explorer"): every unmarked row is the plain ground, odd and even alike.
+    const grounds = await win.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="browse-list"] .browse-row')]
+        .filter((r) => !r.hasAttribute('data-selected') && !r.hasAttribute('data-menu'))
+        .map((r) => getComputedStyle(r).backgroundColor)
+    )
+    ok(grounds.length >= 4, `there are plain rows to compare (${grounds.length})`)
+    ok(
+      grounds.every((g) => alphaOf(g) === 0 || g === 'transparent'),
+      `no Explorer row carries a stripe (${[...new Set(grounds)].join(' / ')})`
+    )
+    // THE EDGE IS SOFTER (same day: "the border i think contrast is slightly
+    // too much"): it was the accent at 0.5, it is a hint now.
+    const lineA = alphaOf(await token('--p-sel-line'))
+    ok(lineA > 0.2 && lineA < 0.32, `the marked block's edge is a hint, alpha ${lineA} where it was 0.5`)
+    // Two marked neighbours are one block: no edge between them.
+    const join2 = await win.evaluate(() => {
+      const r = (i) => document.querySelector(`[data-testid="browse-list"] [data-browse-index="${i}"]`)
+      return { first: r(1)?.hasAttribute('data-join-down'), second: r(2)?.hasAttribute('data-join-up'), shadow: r(2) ? getComputedStyle(r(2)).boxShadow : '' }
+    })
+    ok(join2.first && join2.second, 'two marked neighbours join into one block')
+    ok((join2.shadow.match(/inset/g) ?? []).length === 3, `and the second draws its sides and foot, no edge along the first (${join2.shadow})`)
+    await win.screenshot({ path: join(SHOTS, 'marktint-explorer-dark.png') })
+
+    /* ---------- the Explorer, light ---------- */
+    await switchStyle(win, 'paper', 'light')
+    ok(await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light')), 'in a light style (Paper)')
+    await sleep(400)
+    await checkExplorer('light')
+    await win.screenshot({ path: join(SHOTS, 'marktint-explorer-light.png') })
+    await switchStyle(win, 'aurora', 'dark')
+    await sleep(400)
+
+    /* ---------- the Settings rail, accent alpha below 1 ---------- */
+    await win.evaluate((d) => {
+      const v = { ...JSON.parse(d ?? '{}'), accentAlpha: 0.4 }
+      localStorage.setItem('prism.style.draft', JSON.stringify(v))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+    }, draftBefore)
+    await sleep(300)
+    ok(alphaOf(await token('--p-sel-bg')) < 1, `the accent's alpha is down: its fills are see-through (${await token('--p-sel-bg')})`)
+    await win.click('[aria-label="Settings"]')
+    const rail = win.locator('aside button[aria-label="Style"]')
+    await rail.waitFor({ timeout: 8000 })
+    await rail.click()
+    await win.mouse.move(5, 5)
+    await sleep(300)
+    const railBg = await rail.evaluate((el) => getComputedStyle(el).backgroundColor)
+    const solid = await token('--p-sel-solid')
+    ok(alphaOf(railBg) === 1, `the chosen Settings page is solid all the same (${railBg})`)
+    ok(railBg === solid, `in the accent, whole (${railBg} and ${solid})`)
+    await win.screenshot({ path: join(SHOTS, 'marktint-settings-rail.png') })
+    // Explorer marks still a tint at this alpha, the same one.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await sleep(400)
+    await checkExplorer('accent alpha 40%')
+    // THE SELECTION IS ITS OWN COLOUR (owner, 2026-10-03: "the settings accent
+    // colour for the tab should be separated from the explorer accent colour").
+    // A green Selection at 22% tints the marks; the rail keeps the accent.
+    await win.evaluate((d) => {
+      const v = { ...JSON.parse(d ?? '{}'), accentAlpha: 0.4, selection: '#2ecc7138' }
+      localStorage.setItem('prism.style.draft', JSON.stringify(v))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+    }, draftBefore)
+    await sleep(300)
+    const green = await explorerLook()
+    ok(green !== null && /^rgba\(46, 204, 113, 0\.2\d*\)$/.test(green.bg), `a picked Selection is the marked row's tint (${green?.bg})`)
+    ok(green !== null && green.name[0] === green.name[1], 'and the row keeps its own text colour')
+    ok((await token('--p-sel-solid')) === solid, `the accent's solid fill is untouched (${await token('--p-sel-solid')})`)
+    await win.screenshot({ path: join(SHOTS, 'marktint-selection-picked.png') })
+    // Quick access's "you are here" wears the selection's tint (owner,
+    // 2026-10-03: "i want that colour for the sidebar on the explorer page too").
+    // Walking into a place is only a listing: nothing there is touched.
+    await win.locator('.folder-browser .browse-place').first().click()
+    await win.mouse.move(5, 5)
+    const placeOn = await until(async () => (await win.locator('.folder-browser .browse-place[aria-current]').count()) > 0, 8000)
+    ok(placeOn, 'a Quick access place is the current one')
+    if (placeOn) {
+      await sleep(300)
+      const place = await win.locator('.folder-browser .browse-place[aria-current]').first().evaluate((el) => {
+        const cs = getComputedStyle(el)
+        return { bg: cs.backgroundColor, ink: cs.color, plain: getComputedStyle(document.querySelector('.folder-browser .browse-place:not([aria-current])')).color }
+      })
+      const a = Number((/rgba\([^)]*,\s*([0-9.]+)\)/.exec(place.bg) ?? [])[1] ?? 1)
+      ok(a > 0.1 && a < 0.4, `the Explorer's current place is the selection tint, not a solid block (${place.bg})`)
+      ok(/^rgba\(46, 204, 113,/.test(place.bg), `in the picked Selection colour (${place.bg})`)
+      ok(place.ink !== place.plain || place.ink.length > 0, `and its text keeps a text colour (${place.ink})`)
+    }
+    // The Settings rail still wears the accent, solid, as before the pick.
+    await win.click('[aria-label="Settings"]')
+    await rail.waitFor({ timeout: 8000 })
+    await rail.click()
+    await win.mouse.move(5, 5)
+    await sleep(300)
+    const railAfter = await rail.evaluate((el) => getComputedStyle(el).backgroundColor)
+    ok(railAfter === railBg, `the Settings rail keeps the accent (${railAfter}, was ${railBg})`)
+  } finally {
+    await win
+      .evaluate((d) => {
+        if (d === null) localStorage.removeItem('prism.style.draft')
+        else localStorage.setItem('prism.style.draft', d)
+        window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+      }, draftBefore)
+      .catch(() => {})
+    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    await app.close().catch(() => {})
+  }
+
+  /* ---------- a zip's list is a file selection too ---------- */
+  const AdmZip = (await import('adm-zip')).default
+  const zip = new AdmZip()
+  for (const n of ['z1.txt', 'z2.txt', 'z3.txt', 'z4.txt']) zip.addFile(n, Buffer.from(`zip ${n}`))
+  zip.writeZip(join(dir, 'tint.zip'))
+  const z = await launch(join(dir, 'tint.zip'))
+  try {
+    await switchStyle(z.win, 'aurora', 'dark')
+    await z.win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+    await z.win.locator('[data-arc-row="z1.txt"]').click()
+    await z.win.locator('[data-arc-row="z2.txt"]').click({ modifiers: ['Control'] })
+    await z.win.mouse.move(5, 5)
+    await sleep(300)
+    const arc = await z.win.evaluate(() => {
+      const r = (n) => document.querySelector(`[data-arc-row="${n}"]`)
+      const name = (el) => getComputedStyle(el.querySelector('span.truncate')).color
+      return {
+        bg: getComputedStyle(r('z1.txt')).backgroundColor,
+        names: [name(r('z1.txt')), name(r('z3.txt'))],
+        joined: getComputedStyle(r('z2.txt')).boxShadow
+      }
+    })
+    const a = alphaOf(arc.bg)
+    ok(a >= 0.18 && a <= 0.25, `a marked row in a zip is the same light tint (${arc.bg})`)
+    ok(arc.names[0] === arc.names[1], `and keeps the plain row's name colour (${arc.names.join(' / ')})`)
+    ok((arc.joined.match(/inset/g) ?? []).length === 3, `two marked neighbours in a zip are one block (${arc.joined})`)
+    await z.win.screenshot({ path: join(SHOTS, 'marktint-archive-dark.png') })
+  } finally {
+    if (styleBefore) await switchStyle(z.win, styleBefore[0], styleBefore[1]).catch(() => {})
+    await z.app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * EXPLORER SIZE (owner, 2026-10-03: "size options for explorer in the
+ * appearance menu, let the current be medium the old be big, and make a
+ * slightly smaller version too"). Settings > Style > Explorer size, Small /
+ * Medium / Large: 22, 26 and 40px rows with their text and icon, picked the way
+ * a user picks, measured off the rows, and remembered across a restart. The
+ * tree keeps its own size.
+ */
+async function explorerSizeScenario(fixtures) {
+  console.log('explorer size')
+  const dir = join(fixtures, 'exsize')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['z1.txt', 'z2.txt', 'z3.txt']) writeFileSync(join(dir, n), `size ${n}\n`)
+  let { app, win } = await launch(join(dir, 'z1.txt'))
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) !== 3)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="exsize"]').dblclick()
+    return until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 3, 10000)
+  }
+  const rowLook = () =>
+    win.evaluate(() => {
+      const row = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]')
+      const icon = row?.querySelector('.browse-name > svg')
+      return {
+        h: row?.getBoundingClientRect().height,
+        font: row ? getComputedStyle(row).fontSize : null,
+        icon: icon?.getBoundingClientRect().height,
+        tree: document.querySelector('aside [data-row]')?.getBoundingClientRect().height ?? null,
+        place: document.querySelector('.folder-browser .browse-place')?.getBoundingClientRect().height ?? null,
+        placeIcon: document.querySelector('.folder-browser .browse-place > svg')?.getBoundingClientRect().height ?? null,
+        placeFont: (() => {
+          const el = document.querySelector('.folder-browser .browse-place')
+          return el ? getComputedStyle(el).fontSize : null
+        })()
+      }
+    })
+  try {
+    ok(await intoFolder(), 'the Explorer shows the folder of three')
+    const medium = await rowLook()
+    ok(medium.h === 26 && medium.font === '12.5px' && medium.icon === 14, `Medium is the default: 26px rows of 12.5px text, a 14px icon (${JSON.stringify(medium)})`)
+    const want = { Small: [22, '11.5px', 12], Medium: [26, '12.5px', 14], Large: [40, '15px', 18] }
+    for (const name of ['Small', 'Large', 'Medium', 'Large']) {
+      await pickStyleSegment(win, 'explorer-size', name)
+      ok(await intoFolder(), `${name}: back in the Explorer`)
+      await sleep(250)
+      const got = await rowLook()
+      const [h, font, icon] = want[name]
+      ok(got.h === h && got.font === font && got.icon === icon, `${name}: ${h}px rows of ${font} text, a ${icon}px icon (${JSON.stringify(got)})`)
+      ok(got.tree === medium.tree, `${name}: and the tree's rows stay as they were (${got.tree})`)
+      // Quick access follows the same one setting (owner, 2026-10-03).
+      ok(
+        got.place === h && got.placeIcon === icon && got.placeFont === font,
+        `${name}: Quick access has the same rows (${got.place}px, ${got.placeFont}, a ${got.placeIcon}px icon)`
+      )
+      await win.screenshot({ path: join(SHOTS, `explorer-size-${name.toLowerCase()}.png`) })
+    }
+    ok((await win.evaluate(() => localStorage.getItem('prism.explorer.size'))) === 'large', 'the choice is stored')
+    await app.close()
+    await sleep(900)
+    ;({ app, win } = await launch(join(dir, 'z1.txt')))
+    ok(await intoFolder(), 'after a restart the Explorer shows the folder again')
+    await sleep(250)
+    const again = await rowLook()
+    ok(again.h === 40 && again.font === '15px', `and remembers Large (${JSON.stringify(again)})`)
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+  } finally {
+    await win.evaluate(() => localStorage.removeItem('prism.explorer.size')).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 async function selectionScenario(fixtures) {
   console.log('explorer selection')
   // 2026-08-22: the tree keeps its quick-look single click; shift and ctrl
@@ -7412,19 +8027,74 @@ async function styleColoursScenario(fixtures) {
     const slider = (name) => pop.locator(`[role="slider"][aria-label="${name}"]`)
     await fieldOf('c-bg').waitFor({ timeout: 8000 })
     ok((await win.locator('#c-glass').count()) === 0, 'there is no Acrylic slider')
-    for (const id of ['c-bg', 'c-chrome', 'c-text', 'c-folder-icon', 'c-accent'])
+    for (const id of ['c-bg', 'c-chrome', 'c-text', 'c-folder-icon', 'c-accent', 'c-selection'])
       ok((await rowOf(id).locator('[data-colour-swatch]').count()) === 1, `${id} is the core picker`)
+    // By importance, with Selection right after the Accent it came out of
+    // (#257; owner, 2026-10-03).
+    const order = await win.evaluate(() => [...document.querySelectorAll('[data-colour-row]')].map((r) => r.getAttribute('data-colour-row')))
+    const want = ['c-bg', 'c-chrome', 'c-accent', 'c-selection', 'c-text', 'c-folder-icon']
+    ok(
+      JSON.stringify(order.filter((id) => want.includes(id))) === JSON.stringify(want),
+      `the colours run Primary, Secondary, Accent, Selection, Text, Folder icons (${order.join(', ')})`
+    )
     ok((await win.locator('[data-pref="c-bg"] input[type="color"], [data-pref] input[type="color"]').count()) === 0, 'no native colour input is left')
 
     // #71's guard: tabbing through a row writes nothing (Folder icons
     // follows the accent, the Accent row is a scheme).
-    for (const id of ['c-folder-icon', 'c-accent']) {
+    for (const id of ['c-folder-icon', 'c-accent', 'c-selection']) {
       await fieldOf(id).focus()
       await win.keyboard.press('Tab')
       await win.keyboard.press('Tab')
     }
     await sleep(200)
-    ok(JSON.stringify(await draft()) === '{}', `tabbing through Folder icons and Accent writes nothing (${JSON.stringify(await draft())})`)
+    ok(JSON.stringify(await draft()) === '{}', `tabbing through Folder icons, Accent and Selection writes nothing (${JSON.stringify(await draft())})`)
+
+    // SELECTION, unset, shows the accent's tint at its 22%, and a pick stores
+    // the colour with its alpha; Escape puts the unset row back, and Reset
+    // forgets a kept pick.
+    const tintShown = await fieldOf('c-selection').inputValue()
+    ok(/^#[0-9a-f]{6}38$/.test(tintShown), `unset, Selection shows the accent's tint at 22% (${tintShown})`)
+    await rowOf('c-selection').locator('[data-colour-swatch]').click()
+    await pop.waitFor({ timeout: 5000 })
+    await slider('Hue').focus()
+    for (let i = 0; i < 6; i++) await slider('Hue').press('Shift+ArrowRight')
+    await sleep(150)
+    ok(/^#[0-9a-f]{6}38$/.test((await draft()).selection ?? ''), `a hue edit stores the colour with its alpha (${(await draft()).selection})`)
+    await slider('Hue').press('Escape')
+    await sleep(200)
+    ok((await pop.count()) === 0 && (await draft()).selection === undefined, 'Escape puts the unset Selection back')
+    const accentBefore = await token('--p-sel-solid')
+    await rowOf('c-selection').locator('[data-colour-swatch]').click()
+    await pop.waitFor({ timeout: 5000 })
+    await slider('Hue').focus()
+    for (let i = 0; i < 6; i++) await slider('Hue').press('Shift+ArrowRight')
+    await sleep(150)
+    await fieldOf('c-text').click()
+    await sleep(150)
+    const kept = (await draft()).selection ?? ''
+    ok(/^#[0-9a-f]{8}$/.test(kept), `a press outside keeps the pick (${kept})`)
+    const tint = await token('--p-sel-tint')
+    // The token must be the PICK, not merely a tint of the same strength: the
+    // unset accent tint is also at 0x38, so only its colour tells them apart.
+    const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+    const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 1)
+    ok(
+      near(tint.slice(0, 3), rgbOf(kept)) && !near(tint.slice(0, 3), rgbOf(tintShown)) && Math.abs(tint[3] - 0x38 / 255) < 0.01,
+      `and it is the tint (${tint.join(',')} for ${kept}, unset was ${tintShown})`
+    )
+    // The sweep band wears the Selection too (Windows' drag box is the
+    // selection colour), so a box dragged over green marks is not blue.
+    const hue = await token('--p-sel-hue')
+    ok(near(hue.slice(0, 3), rgbOf(kept)), `the sweep band's hue is the pick (${hue.join(',')} for ${kept})`)
+    ok(JSON.stringify(await token('--p-sel-solid')) === JSON.stringify(accentBefore), 'the accent fill does not move')
+    await rowOf('c-selection').scrollIntoViewIfNeeded()
+    await win.screenshot({ path: join(SHOTS, 'style-colours-selection.png') })
+    const reset = rowOf('c-selection').locator('button', { hasText: 'Reset' })
+    ok((await reset.count()) === 1, 'a picked Selection offers Reset')
+    await reset.click()
+    await sleep(200)
+    ok((await draft()).selection === undefined, `Reset forgets it (${JSON.stringify(await draft())})`)
+    ok((await fieldOf('c-selection').inputValue()) === tintShown, 'and the row shows the accent tint again')
 
     // Escape in a picker after a change puts the row back as it was: unset.
     await rowOf('c-folder-icon').locator('[data-colour-swatch]').click()
@@ -7625,8 +8295,12 @@ async function dragScenario(fixtures) {
         !!overInto && overInto.bg !== 'rgba(0, 0, 0, 0)' && overInto.bg !== 'transparent',
         `the marked folder is filled (${overInto?.bg})`
       )
+      // Every drag here is taken by the row's NAME: since the sweep (#257) a
+      // press on a row's blank space draws the rectangle, as in Explorer, and
+      // a locator's centre is that blank space on a wide row.
       await win
         .locator('[role="treeitem"]:has-text("movable.txt")')
+        .locator('span.truncate')
         .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
       await win.waitForFunction(
         () => !/movable\.txt/.test(document.querySelector('aside')?.textContent ?? ''),
@@ -7704,6 +8378,7 @@ async function dragScenario(fixtures) {
       await sleep(400)
       await win
         .locator('[role="treeitem"]:has-text("movable.txt")')
+        .locator('span.truncate')
         .dragTo(win.locator('[role="treeitem"]:has-text("anchor.txt")').first())
       await sleep(1400)
       ok(existsSync(join(box, 'movable.txt')), 'dropping on a FILE moves into that folder')
@@ -7734,6 +8409,7 @@ async function dragScenario(fixtures) {
       const before = await win.evaluate(() => document.querySelector('video')?.currentTime ?? 0)
       await win
         .locator('[role="treeitem"]:has-text("watching.mp4")')
+        .locator('span.truncate')
         .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
       let followed = true
       await win
@@ -7780,6 +8456,7 @@ async function dragScenario(fixtures) {
       ok(sidecar, 'the Dolby sound is on through the sidecar decoder')
       await win
         .locator('[role="treeitem"]:has-text("dolby-watching.mkv")')
+        .locator('span.truncate')
         .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
       let followed = true
       await win
@@ -7824,6 +8501,7 @@ async function dragScenario(fixtures) {
       await win
         .locator('aside [role="treeitem"]:has-text("out")')
         .first()
+        .locator('span.truncate')
         .dragTo(win.locator('[role="tablist"]'), {
           targetPosition: { x: strip.width - 40, y: strip.height / 2 }
         })
@@ -7841,6 +8519,7 @@ async function dragScenario(fixtures) {
       await win
         .locator('aside [role="treeitem"]:has-text("dragzip.zip")')
         .first()
+        .locator('span.truncate')
         .dragTo(win.locator('body'), {
           targetPosition: { x: viewer.width - 220, y: viewer.height / 2 }
         })
@@ -9852,6 +10531,9 @@ await run(selectionScenario)
 await run(accentOpacityScenario)
 await run(styleColoursScenario)
 await run(dragScenario)
+await run(marqueeScenario)
+await run(markTintScenario)
+await run(explorerSizeScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
 await run(phoneDocsScenario)

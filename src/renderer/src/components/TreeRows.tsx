@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type JSX, type RefObject } from 'react'
 import type { FileKind, ViewerFile } from '@shared/types'
 import { treeWindow, type PaintRow } from '../lib/treePaint'
-import type { TREE_SIZES } from '../lib/treePrefs'
+import { ROW_GAP, ROW_ICON, ROW_PAD_X, type TREE_SIZES } from '../lib/treePrefs'
+import { bandBox, type Band } from '../lib/marquee'
+import { ALONE, markedLook } from '../lib/markedLook'
 import { useTree } from '../lib/treeContext'
 import { dragIncludesPath } from '../lib/dragDrop'
 import {
@@ -151,7 +153,7 @@ export function KindIcon({
   color,
   ext,
   name,
-  size = 14,
+  size = ROW_ICON,
   bg = 'var(--p-side-flat)',
   selected = false
 }: {
@@ -183,13 +185,13 @@ export function KindIcon({
   const lang = langFor(kind, name, ext)
   const ident = identityFor(key, lang, ext)
   const c = ICON_COLOURS[ident]
-  // A SELECTED ROW FALLS BACK TO MONOCHROME (owner instruction, 2026-09-01),
-  // and it is the only thing that can work. The selection fill is the user's
-  // ACCENT and the icon colour is the scheme's, so the two are picked by
-  // different people and will eventually collide - a blue video icon on a blue
-  // fill is an invisible icon, and no amount of choosing better colours fixes
-  // it. Monochrome measures its ink against whatever is actually behind it, so
-  // it is legible on every accent by construction.
+  // `selected` MEANS A ROW FILLED SOLID, and such a row falls back to
+  // monochrome (owner instruction, 2026-09-01): the fill and the icon colour are
+  // picked by different people and will eventually collide (a blue video icon
+  // on a blue fill is an invisible icon), while monochrome measures its ink
+  // against whatever is behind it. Since #257 a MARKED file is a light tint and
+  // keeps its colours, so callers pass it only for the right-click row's grey
+  // fill; the rule stays for any solid fill that comes back.
   // THE COMIC WEARS ITS EXPLORER ARTWORK, always and in colour: a keylined
   // sunburst under a halftone under a splat. It never falls back on a selected
   // row the way a flat page does, because five colours cannot all collide with
@@ -350,7 +352,7 @@ export function KindIcon({
 
 export function FolderIcon({ color }: { color: string }): JSX.Element {
   return (
-    <svg viewBox="0 0 24 24" width={14} height={14} fill={color} className="shrink-0" aria-hidden>
+    <svg viewBox="0 0 24 24" width={ROW_ICON} height={ROW_ICON} fill={color} className="shrink-0" aria-hidden>
       <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
     </svg>
   )
@@ -475,16 +477,6 @@ function Guides({ depth, indent }: { depth: number; indent: number }): JSX.Eleme
   )
 }
 
-/** Rounding for a selected row whose neighbours are selected too, so a
- *  contiguous selection reads as one block. */
-function joined(j: { top: boolean; bottom: boolean }): CSSProperties {
-  return {
-    borderTopLeftRadius: j.top ? 0 : undefined,
-    borderTopRightRadius: j.top ? 0 : undefined,
-    borderBottomLeftRadius: j.bottom ? 0 : undefined,
-    borderBottomRightRadius: j.bottom ? 0 : undefined
-  }
-}
 
 function FolderRow({ path, name, depth }: { path: string; name: string; depth: number }): JSX.Element {
   const t = useTree()
@@ -561,14 +553,15 @@ function FolderRow({ path, name, depth }: { path: string; name: string; depth: n
           t.onDelete(path, name, true)
         }
       }}
-      className={`relative flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none focus-visible:outline-none ${
+      className={`relative flex w-full items-center rounded-[var(--p-radius-sm)] text-left outline-none focus-visible:outline-none ${
         // The folder a drag hovers is MARKED, in the grey the menu's
         // target wears, not ringed in the accent (2026-09-14, #140):
         // the accent means selected, and a drop destination is not.
         t.dropTarget === path
           ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
           : onCursor || t.selected.has(path)
-            ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
+            ? // The tint is in `style` (markedLook); the text keeps its colour.
+              'text-[var(--p-text-soft)]'
             : onMenuHl
               ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
               : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
@@ -576,11 +569,16 @@ function FolderRow({ path, name, depth }: { path: string; name: string; depth: n
       style={{
         height: t.size.row,
         paddingLeft: pad,
+        paddingRight: ROW_PAD_X,
+        gap: ROW_GAP,
         fontSize: t.size.font,
         // A cut row is half gone already, and looks it (Explorer's cue).
         opacity: t.cut.has(path.toLowerCase()) ? 0.45 : undefined,
         // Contiguous selected rows fuse: shared edges drop their rounding.
-        ...(t.selected.has(path) ? joined(t.selJoin(path)) : {})
+        // A drop target's grey wins over the tint, as its class does.
+        ...(t.dropTarget !== path && (onCursor || t.selected.has(path))
+          ? markedLook(t.selected.has(path) ? t.selJoin(path) : ALONE)
+          : {})
       }}
     >
       {/* The chevron keeps its single-click expand; it opts out of the
@@ -595,7 +593,7 @@ function FolderRow({ path, name, depth }: { path: string; name: string; depth: n
       >
         <Chevron open={open} />
       </span>
-      <FolderIcon color={onCursor || t.selected.has(path) ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'} />
+      <FolderIcon color="var(--p-tree-folder)" />
       <Label name={name} />
     </button>
   )
@@ -696,9 +694,10 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
             t.onDelete(f.path, f.name, false)
           }
         }}
-        className={`relative flex w-full items-center gap-1.5 rounded-md pr-2 text-left outline-none focus-visible:outline-none ${
+        className={`relative flex w-full items-center rounded-md text-left outline-none focus-visible:outline-none ${
           onSel
-            ? `bg-[var(--p-sel-bg)] text-[var(--p-on-accent)] ${unsaved ? 'font-bold' : 'font-medium'}`
+            ? // The tint is in `style` (markedLook); the text keeps its colour.
+              `text-[var(--p-text-soft)] ${unsaved ? 'font-bold text-[var(--p-text)]' : ''}`
             : onMenuHl
               ? `bg-[var(--p-hover-hi)] text-[var(--p-text)] ${unsaved ? 'font-bold' : ''}`
               : `text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] ${
@@ -708,28 +707,63 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
         style={{
           height: t.size.row,
           paddingLeft: pad + 19,
+          paddingRight: ROW_PAD_X,
+          gap: ROW_GAP,
           fontSize: t.size.font,
           // A cut row is half gone already, and looks it (Explorer's cue).
           opacity: t.cut.has(f.path.toLowerCase()) ? 0.45 : undefined,
           // Contiguous selected rows fuse: shared edges drop rounding.
-          ...(onSel ? joined(t.selJoin(f.path)) : {})
+          ...(onSel ? markedLook(t.selected.has(f.path) ? t.selJoin(f.path) : ALONE) : {})
         }}
       >
         <KindIcon
           kind={f.kind}
-          // The knockout only applies on the filled row, which is now the
-          // selection's rather than the open file's.
-          selected={onSel}
-          color={onSel ? 'var(--p-on-accent)' : iconColour(f.kind)}
-          // The knockouts take what is BEHIND the row, which on a
-          // selected one is the accent fill and not the panel.
-          bg={onSel ? 'var(--p-sel-knockout-side)' : undefined}
+          // A marked row is a tint now, so the icon keeps its own colours:
+          // the monochrome fallback was for an accent SLAB a coloured icon
+          // could vanish into, and a fifth of the accent is not one.
+          color={iconColour(f.kind)}
+          // The knockouts take what is BEHIND the row: the tint as seen.
+          bg={onSel ? 'var(--p-sel-tint-side)' : undefined}
           ext={f.ext}
           name={f.name}
         />
         <Label name={unsaved ? `${f.name}*` : f.name} />
       </button>
     </>
+  )
+}
+
+/**
+ * The sweep rectangle (#257): the Selection colour (the accent while none is
+ * picked) at a low strength with a thin light edge, Explorer's look in this
+ * app's colours; Windows draws its drag box in the selection colour too.
+ * `color-mix` against transparent keeps an accent that is itself see-through
+ * see-through. Never animated: it is where the pointer is, and nothing else.
+ */
+export function SweepBand({ band, as = 'li' }: { band: Band; as?: 'li' | 'div' }): JSX.Element {
+  const box = bandBox(band)
+  const style: CSSProperties = {
+    left: box.left,
+    top: box.top,
+    width: box.width,
+    height: box.height,
+    background: 'color-mix(in srgb, var(--p-sel-hue) 16%, transparent)',
+    // The edge is the hue pulled toward the text colour: a pure accent edge
+    // vanished into the rows it crossed when a mark was a solid accent fill
+    // (MEASURED in the first screenshot, #257), and it still has to stand
+    // apart from the marked rows' own edges, which are the same hue.
+    border: '1px solid color-mix(in srgb, var(--p-sel-hue-hi) 45%, var(--p-text))',
+    borderRadius: 2
+  }
+  const Tag = as
+  return (
+    <Tag
+      role={as === 'li' ? 'none' : undefined}
+      aria-hidden
+      data-sweep-band
+      className="pointer-events-none absolute z-20"
+      style={style}
+    />
   )
 }
 
@@ -748,10 +782,13 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
  */
 export function TreeWindow({
   rows,
-  scroller
+  scroller,
+  band = null
 }: {
   rows: readonly PaintRow[]
   scroller: RefObject<HTMLDivElement | null>
+  /** The sweep rectangle (#257), in this list's own coordinates. */
+  band?: Band | null
 }): JSX.Element {
   const t = useTree()
   const list = useRef<HTMLUListElement>(null)
@@ -837,6 +874,7 @@ export function TreeWindow({
           </li>
         )
       })}
+      {band && <SweepBand band={band} />}
       {/* The space beneath the list means the root (#126): the line goes
           under the last row, since the root has no row of its own. */}
       {t.dropRow === 'end' && rows.length > 0 && (

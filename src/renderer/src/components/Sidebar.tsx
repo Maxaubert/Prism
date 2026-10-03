@@ -6,7 +6,8 @@ import {
   useState,
   type DragEvent,
   type JSX,
-  type MouseEvent
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent
 } from 'react'
 import type { OpenWithApp, ViewerFile } from '@shared/types'
 import type { TreeState } from '../lib/tabs'
@@ -34,6 +35,8 @@ import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
+import { nearestRow, onRowOwnPart, rowsInBand, sweepSelect } from '../lib/marquee'
+import { useSweep } from '../hooks/useSweep'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
@@ -366,7 +369,13 @@ export function Sidebar({
       const el = e.target as HTMLElement | null
       if (!el) return
       hasFocus.current = !!panel.current?.contains(el)
-      if (el.closest('[data-row],[role="menu"],[role="dialog"],[data-owns-escape],input,textarea'))
+      // The tree's own scroll box answers its presses itself since the sweep
+      // (#257): a plain press there still clears, a Ctrl press must not.
+      if (
+        el.closest(
+          '[data-row],[data-tree-sweep],[role="menu"],[role="dialog"],[data-owns-escape],input,textarea'
+        )
+      )
         return
       setSel((s) => (s.items.size ? emptySelection : s))
     }
@@ -704,6 +713,79 @@ export function Sidebar({
     },
     [size.row]
   )
+
+  /**
+   * THE SWEEP (#257). Drawn from the tree's blank space: under the last row, or
+   * a row's own space to the right of its name. A press on a chevron, an icon
+   * or a name is still the row's (click, drag). Plain replaces what is marked,
+   * Ctrl adds to it, Escape puts back what was marked at the press. The rows
+   * are found by index (`paintRef` and the fixed row height), so a row that
+   * has scrolled out of the window is still swept.
+   */
+  const sweepFrom = useRef<{ base: Selection; add: boolean }>({ base: emptySelection, add: false })
+  const treeList = (): HTMLElement | null =>
+    scroller.current?.querySelector<HTMLElement>('[role="tree"]') ?? null
+  const sweep = useSweep({
+    scroller: () => scroller.current,
+    toList: (x, y) => {
+      const box = scroller.current
+      const r = treeList()?.getBoundingClientRect()
+      if (!box || !r) return { x: 0, y: 0 }
+      // Clamped to the scroll box's content, so the rectangle never pushes
+      // the box wider or longer than its rows.
+      const top = box.getBoundingClientRect().top - box.scrollTop - r.top
+      return {
+        x: Math.min(r.width, Math.max(0, x - r.left)),
+        y: Math.min(top + box.scrollHeight, Math.max(top, y - r.top))
+      }
+    },
+    hitsBetween: (top, bottom, py) => {
+      const rows = paintRef.current
+      const span = rowsInBand(top, bottom, size.row, rows.length)
+      if (!span) return { paths: [], near: null }
+      const paths: string[] = []
+      for (let i = span.first; i <= span.last; i++) {
+        const r = rows[i]
+        if (r.kind !== 'note') paths.push(r.path)
+      }
+      const n = rows[nearestRow(py, size.row, span.first, span.last)]
+      return { paths, near: n && n.kind !== 'note' ? n.path : (paths[paths.length - 1] ?? null) }
+    },
+    scrollBy: (dy) => {
+      if (scroller.current) scroller.current.scrollTop += dy
+    },
+    onChange: (paths) => {
+      const { base, add } = sweepFrom.current
+      setSel({
+        anchor: base.anchor ?? paths[0] ?? null,
+        items: sweepSelect(add ? base.items : emptySelection.items, paths)
+      })
+    },
+    onEnd: (_paths, near) => {
+      if (near) setSel((s) => ({ anchor: near, items: s.items }))
+    },
+    onCancel: () => setSel(sweepFrom.current.base)
+  })
+  const onTreePointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    const el = e.target as HTMLElement
+    if (el.closest('input,textarea')) return
+    const row = el.closest<HTMLElement>('[data-row]')
+    // Any press on the space under the rows that is not a Ctrl or Shift press
+    // clears, whatever the button, as it did before the sweep took this box
+    // out of `away` above: a right press there opens the folder's menu, and
+    // the old marks lit beside it would read as what that menu acts on.
+    if (!row && e.button !== 0 && !e.ctrlKey && !e.shiftKey)
+      setSel((s) => (s.items.size ? emptySelection : s))
+    if (e.button !== 0) return
+    // The row up to the end of its name (indent, chevron, icon, name and the
+    // gaps between) is the row's: a click opens or selects, a drag carries
+    // the file. Only the blank space past the name sweeps.
+    if (row && onRowOwnPart(e.clientX, [...row.children].map((c) => c.getBoundingClientRect()))) return
+    sweepFrom.current = { base: selRef.current, add: e.ctrlKey }
+    // A plain press on the space under the rows clears, as it always has.
+    if (!row && !e.ctrlKey && !e.shiftKey) setSel((s) => (s.items.size ? emptySelection : s))
+    sweep.begin(e, row)
+  }
 
   // Follow the open file. While the panel is shut nothing moves, so the scroll
   // it wakes up with is the one it went to sleep with; the reveal then happens
@@ -1305,7 +1387,9 @@ export function Sidebar({
         {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
         <div
           ref={scroller}
-          className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          data-tree-sweep={query.trim() ? undefined : ''}
+          onPointerDown={query.trim() ? undefined : onTreePointerDown}
+          className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden data-[sweeping]:select-none"
           // A right-click that lands on no row is about the PLACE, not about a
           // file. Rows stop it themselves, exactly as the archive panel's do.
           onContextMenu={(e) => {
@@ -1400,7 +1484,7 @@ export function Sidebar({
               }}
             >
               {rootListing ? (
-                <TreeWindow rows={paint} scroller={scroller} />
+                <TreeWindow rows={paint} scroller={scroller} band={sweep.band} />
               ) : (
                 <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--p-dim2)]">
                   loading…

@@ -76,6 +76,9 @@ export interface Style {
   /** How solid the accent's FILLS are, 0.1 to 1 (#249). Unset is 1, which is
    *  every style saved before it existed. Read it through accentAlphaOf. */
   accentAlpha?: number
+  /** The marked-file tint's own colour and strength (#257), six or eight hex
+   *  digits. Unset, it follows the accent at TINT_ALPHA. */
+  selection?: string
   font: FontId
   size: '12' | '12.5' | '13.5'
   corners: '2' | '8' | '14'
@@ -498,6 +501,61 @@ export function selectionFor(
   return selectionOver(withAlpha(accent, a), grounds)
 }
 
+/**
+ * A MARKED FILE IS A TINT, NOT A SLAB (owner, 2026-10-03, with a screenshot of
+ * an opaque grey selection in the Explorer: "more transparent like selecting
+ * files in file explorer"). Rows in the Explorer, the tree and search results
+ * wear the accent at about a fifth over their ground with a faint accent edge,
+ * and keep their own text and icon colours, as Windows does. The tint is taken
+ * from the accent as picked, never from its alpha: the accent's alpha is a
+ * choice about solid fills, and a tint that went fainter with it would vanish.
+ */
+export const TINT_ALPHA = 0.22
+/** Below a tenth the tint stops reading as a mark at all. */
+export const TINT_MIN = 0.1
+/**
+ * The edge round a marked row, at the tint's own strength. It was 0.5 and read
+ * as a frame round the block (owner, 2026-10-03: "the border i think contrast
+ * is slightly too much"); at 0.28 it is a hint of the block's outline, about
+ * half the step off the tint it used to be, and still there on paper and on
+ * void. A stronger or fainter picked tint scales it with itself, up to LINE_MAX.
+ */
+export const TINT_LINE = 0.28
+const LINE_MAX = 0.5
+
+/**
+ * How strong the tint can be on these grounds while every ink still reads at
+ * its floor: TINT_ALPHA where it can, less where a ground needs it. The inks
+ * are the row's own colours, which stay as they are on a marked row, so it is
+ * the tint that gives way.
+ */
+export function selectionTintAlpha(
+  tint: string,
+  inks: Array<[ink: string, floor: number]>,
+  grounds: string[],
+  start = TINT_ALPHA
+): number {
+  const reads = (a: number): boolean =>
+    grounds.every((g) => {
+      const seen = composite(withAlpha(tint, a), g)
+      return inks.every(([ink, floor]) => contrast(ink, seen) >= floor)
+    })
+  // A picked Selection asks for its own strength (`start`, its alpha), and
+  // gets it whole when the inks read on it; else whole percents down from
+  // there, the steps the derived tint has always taken. A pick fainter than
+  // TINT_MIN is the user's to make, so the floor is never above it.
+  const floor = Math.min(TINT_MIN, start)
+  if (reads(start)) return start
+  for (let step = Math.ceil(start * 100) - 1; step > Math.round(floor * 100); step -= 1) {
+    const a = step / 100
+    if (reads(a)) return a
+  }
+  return floor
+}
+
+/** The edge's alpha for a tint of strength `a`: TINT_LINE at TINT_ALPHA. */
+export const tintLineAlpha = (a: number): number => Math.min(LINE_MAX, (TINT_LINE * a) / TINT_ALPHA)
+
 /** The per-kind tints, dark enough to read on a light surface. */
 export const KIND_TINTS: Record<string, string> = {
   image: '#6fb2a8',
@@ -551,21 +609,75 @@ export function derive(input: Style): Record<string, string> {
   // style, is untouched.
   const flat = alpha < 1 && paintedAlpha(style) < 1 ? composite(withAlpha(selection.fill, alpha), bg) : null
 
+  // File names sit just off the text colour; labels a step back; hints
+  // quieter still, and none of them below their floor.
+  const textSoft = dimmed(style.text, side, 0.14, 7)
+  const dim = dimmed(style.text, side, 0.38, 4.5)
+  const dim2 = dimmed(style.text, side, 0.55, 3.2)
+  // The marked-file tint (see TINT_ALPHA): from `hi`, the accent already
+  // moved far enough off the ground to be seen, so a deep accent on a dark
+  // style still tints. Names hold 4.5:1 on it; the quiet columns beside them
+  // (type, size, date) hold the 3.2:1 every hint in the app is held to.
+  // A picked Selection (owner, 2026-10-03: the Explorer's highlight "should be
+  // taken out and called something like selected item colour") is the tint's
+  // colour and strength as picked, held to the same floors: past them only
+  // its strength gives way, never its hue. Unset, it is `hi` at TINT_ALPHA,
+  // byte for byte what it was before the row existed.
+  const sideG = sideGround(style)
+  const picked = style.selection ? parseColour(style.selection) : null
+  const tintHue = picked ? toStored({ ...picked, a: 1 }) : hi
+  const tintA = selectionTintAlpha(
+    tintHue,
+    [
+      [style.text, 4.5],
+      [textSoft, 4.5],
+      [dim, 3.2]
+    ],
+    [bg, sideG],
+    picked ? picked.a : TINT_ALPHA
+  )
+  const tint = withAlpha(tintHue, tintA)
+  // The sweep band's colour (Windows draws its drag box in the selection
+  // colour): unset, the accent fill and `hi` it has always been drawn from, so
+  // nobody's band changes; picked, the pick, lifted off the stage for its edge
+  // the way `hi` is lifted from the accent.
+  const accentFill = alpha >= 1 ? accent : (flat ?? fillOf(selection.fill, alpha))
+  let bandHi = tintHue
+  if (picked) {
+    for (let i = 0; i < 14 && contrast(bandHi, stage) < 3; i += 1) {
+      bandHi = light ? mix(bandHi, '#000000', 0.1) : mix(bandHi, '#ffffff', 0.1)
+    }
+  }
+
   return {
     '--p-bg': bg,
     '--p-side-flat': side,
     '--p-text': style.text,
-    // File names sit just off the text colour; labels a step back; hints
-    // quieter still, and none of them below their floor.
-    '--p-text-soft': dimmed(style.text, side, 0.14, 7),
-    '--p-dim': dimmed(style.text, side, 0.38, 4.5),
-    '--p-dim2': dimmed(style.text, side, 0.55, 3.2),
+    '--p-text-soft': textSoft,
+    '--p-dim': dim,
+    '--p-dim2': dim2,
+    // A marked file row: the tint, its faint edge, and the tint as the eye
+    // gets it over the viewer and over the sidebar, opaque, for an icon's
+    // knockouts (a see-through knockout would show the icon's own ink).
+    '--p-sel-tint': tint,
+    '--p-sel-line': withAlpha(tintHue, tintLineAlpha(tintA)),
+    '--p-sel-tint-seen': composite(tint, bg),
+    '--p-sel-tint-side': composite(tint, sideG),
+    // The sweep band: its fill's colour and its edge's (see `bandHi`).
+    '--p-sel-hue': picked ? tintHue : accentFill,
+    '--p-sel-hue-hi': picked ? bandHi : hi,
+    // A chosen PAGE (the settings rail, a chosen card): the accent solid and
+    // whole whatever its alpha (owner, 2026-10-03: "the selected tab which i
+    // want more saturated"), nudged only as far as its label needs for 4.5:1.
+    // At 100% it is exactly the --p-sel-bg the rail always wore.
+    '--p-sel-solid': selectionBg(accent),
+    '--p-on-sel-solid': readableOn(selectionBg(accent)),
     // A FILL: carries the opacity (#249), and is the plain hex at 100%.
     // Below 100% it is the SELECTION's fill, not the raw accent: buttons and
     // chips print --p-on-accent on it, and that ink was chosen so the
     // selection's fill clears 4.5:1 on every ground. The raw accent at the
     // same alpha does not (MEASURED in review: Frost at 80% gave 3.78:1).
-    '--p-accent': alpha >= 1 ? accent : (flat ?? fillOf(selection.fill, alpha)),
+    '--p-accent': accentFill,
     // The accent as picked, never see-through: lines, rings, a progress bar
     // against its track and native controls, which the alpha must not reach
     // (the owner's pick was fills only).
@@ -989,6 +1101,8 @@ export interface Overrides {
   iconScheme?: IconScheme
   /** The accent fills' opacity, 0.1 to 1 (#249). */
   accentAlpha?: number
+  /** The marked-file tint, with its alpha (#257). */
+  selection?: string
 }
 
 const HEX6_8 = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i
@@ -1014,7 +1128,7 @@ function cleanColour(v: unknown): string | null {
 export function cleanDraft(o: Overrides): Overrides {
   if (!o || typeof o !== 'object') return {}
   const next: Overrides = { ...o }
-  for (const k of ['bg', 'side', 'title', 'tabs', 'text', 'folderIcon'] as const) {
+  for (const k of ['bg', 'side', 'title', 'tabs', 'text', 'folderIcon', 'selection'] as const) {
     if (!(k in next)) continue
     const c = cleanColour(next[k])
     if (c) next[k] = c
@@ -1070,7 +1184,7 @@ export function cleanPresets(raw: unknown): Style[] {
         s.glass = glassAt(level)
       }
     }
-    for (const k of ['side', 'title', 'tabs', 'folderIcon'] as const) {
+    for (const k of ['side', 'title', 'tabs', 'folderIcon', 'selection'] as const) {
       if (s[k] === undefined) continue
       const c = cleanColour(s[k])
       if (c) s[k] = c
@@ -1196,6 +1310,7 @@ export const isEdited = (): boolean =>
     draft.corners ||
     draft.folderIcon ||
     draft.iconScheme ||
+    draft.selection ||
     draft.accentAlpha !== undefined ||
     draft.acrylic !== undefined
   )
@@ -1218,9 +1333,11 @@ function edited(s: Style): Style {
     corners: draft.corners ?? s.corners,
     folderIcon: draft.folderIcon ?? s.folderIcon,
     iconScheme: draft.iconScheme ?? s.iconScheme,
-    accentAlpha: draft.accentAlpha ?? s.accentAlpha
+    accentAlpha: draft.accentAlpha ?? s.accentAlpha,
+    selection: draft.selection ?? s.selection
   }
   if (out.accentAlpha === undefined) delete out.accentAlpha
+  if (out.selection === undefined) delete out.selection
   if (draft.acrylic !== undefined) {
     // Zero frost is just a solid window; anything above it is acrylic at the
     // alpha the slider asks for.
@@ -1363,7 +1480,8 @@ export function setOverride(
     | 'borders'
     | 'corners'
     | 'folderIcon'
-    | 'iconScheme',
+    | 'iconScheme'
+    | 'selection',
   value: string | null
 ): void {
   let next: Overrides = { ...draft }
@@ -1494,6 +1612,38 @@ export function setAccentColour(stored: string): void {
     if (a === accentAlphaOf(byId(current).accentAlpha)) delete next.accentAlpha
     else next.accentAlpha = a
   }
+  commitDraft(next)
+}
+
+/**
+ * THE SELECTION IS ITS OWN COLOUR (#257; owner, 2026-10-03: "the settings
+ * accent colour for the tab should be separated from the explorer accent
+ * colour ... called something like selected item colour"). What the Selection
+ * row shows: the pick as stored, or, unset, the tint the accent gives today,
+ * so the picker opens on what is on screen.
+ */
+export function selectionValue(s: Style): string {
+  return s.selection ?? derive(s)['--p-sel-tint']
+}
+
+/**
+ * The Selection row's picker. The colour is stored WITH its alpha, which is
+ * the tint's strength. Picking your way back to what the style gives (its own
+ * pick, or the accent's tint when it has none) is not an edit, as with any
+ * colour put back.
+ */
+export function setSelection(stored: string): void {
+  const p = parseColour(stored)
+  if (!p) return
+  const value = toStored(p)
+  const base = byId(current)
+  const shown = edited(base)
+  const next: Overrides = { ...draft }
+  const own = base.selection
+    ? isStylesOwn(base, 'selection', value)
+    : value === selectionValue({ ...shown, selection: undefined })
+  if (own) delete next.selection
+  else next.selection = value
   commitDraft(next)
 }
 

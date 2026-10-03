@@ -2507,6 +2507,8 @@ export default function App(): JSX.Element {
     y: number
     entry: BrowseEntry
     source?: 'more'
+    /** Several marked rows, when the press was on one of them (#257). */
+    paths?: string[]
     canPaste?: boolean
     apps?: OpenWithApp[] | null
   } | null>(null)
@@ -3936,6 +3938,7 @@ export default function App(): JSX.Element {
                 searchState={browsing.searchState}
                 onSearchRange={browsing.searchRange}
                 onCancelSearch={browsing.cancelSearch}
+                owner={active.id}
                 selectedPath={browsing.location.selected}
                 scrollTop={browsing.location.scrollTop}
                 query={browsing.location.query}
@@ -3958,6 +3961,8 @@ export default function App(): JSX.Element {
                 onNewTerminal={termTabAt}
                 onCopy={(entry) => void copyFilePaths([entry.path])}
                 onCut={(entry) => void copyFilePaths([entry.path], true)}
+                onCopyPaths={(paths, cut) => void copyFilePaths(paths, cut)}
+                onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
                 onPaste={(directory) => void pasteFiles(directory)}
                 onRename={(entry) => setBrowseRename(entry)}
                 onDelete={(entry) =>
@@ -3976,8 +3981,8 @@ export default function App(): JSX.Element {
                       setRefreshKey((key) => key + 1)
                     })
                 }}
-                onContextMenu={(event, entry, source) =>
-                  setBrowseMenu({ x: event.clientX, y: event.clientY, entry, source })
+                onContextMenu={(event, entry, source, paths) =>
+                  setBrowseMenu({ x: event.clientX, y: event.clientY, entry, source, paths })
                 }
                 previewEnabled={active.browse.preview}
                 previewVisible={previewSlide.out}
@@ -4614,7 +4619,25 @@ export default function App(): JSX.Element {
           x={browseMenu.x}
           y={browseMenu.y}
           onClose={() => setBrowseMenu(null)}
-          items={[
+          items={browseMenu.paths && browseMenu.paths.length > 1 ? (() => {
+            // Several rows marked: only what acts on all of them, and each
+            // says how many, so the menu and the marks agree (review of #257).
+            // Open, Rename, Duplicate and Properties are one row's; the
+            // toolbar switches them off in the same state.
+            const paths = browseMenu.paths
+            const n = `${paths.length} items`
+            return [
+              { label: `Cut ${n}`, icon: <FileMenuIcon name="cut" />, hint: 'Ctrl+X', onPick: () => void copyFilePaths(paths, true) },
+              { label: `Copy ${n}`, icon: <FileMenuIcon name="copy" />, hint: 'Ctrl+C', onPick: () => void copyFilePaths(paths) },
+              {
+                label: `Delete ${n}`,
+                icon: <FileMenuIcon name="delete" />,
+                hint: 'Del',
+                danger: true,
+                onPick: () => setAsk({ kind: 'delete-many', paths })
+              }
+            ]
+          })() : [
             {
               label: 'Open',
               icon: <FileMenuIcon name="open" />,

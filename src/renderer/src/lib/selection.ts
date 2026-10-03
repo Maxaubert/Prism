@@ -1,8 +1,9 @@
 // The selection model, pure. Shared by the sidebar tree, the archive view and
 // the search results: each hands in its visible order and gets the next
-// selection back. Shift ranges and ctrl toggles - drag-to-select was tried
-// and REMOVED (owner, 2026-08-22): its pointer state outlived real drags and
-// a dropped folder would start a phantom sweep with no button held.
+// selection back. Shift ranges and ctrl toggles. Drag-to-select was tried and
+// REMOVED (owner, 2026-08-22): its pointer state outlived real drags and a
+// dropped folder started a phantom sweep. It came back on the owner's word
+// (#257) as hooks/useSweep.ts, built so that cannot happen.
 
 export interface Selection {
   /** Where a shift-range or sweep grows from: the last plain-clicked row. */

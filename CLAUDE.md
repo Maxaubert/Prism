@@ -64,7 +64,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
 - **The accent's alpha is stored beside it** (`accentAlpha`, 1/255 steps), never inside a hex: a
   scheme accent keeps its palette for the visualizer. Fills carry it, lines read `--p-accent-solid`.
 - **Under glass, text-bearing fills are flattened** (`--p-accent`, `--p-sel-bg` opaque over the flat
-  ground) so their label keeps 4.5:1. Text and Folder icons with an alpha are drawn as the core's
+  ground) so their label keeps 4.5:1. Not the marked-file tint (`--p-sel-tint`, #257): see there. Text and Folder icons with an alpha are drawn as the core's
   `legibleOn` composite. Tokens are hex or hex8, never `rgba()` for an accent fill.
 - Settings' Escape yields to an open `[data-colour-popover]` (it undoes the picker's writes).
 
@@ -508,6 +508,53 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   outside the rows at all, CLEARS the marks in both surfaces: highlighting says
   "these are what I am about to act on", so it must not outlive walking away from
   them. What stays marked is the OPEN file, which is marked for being open.
+  THE SWEEP CAME BACK FOR THE TREE AND THE EXPLORER (#257; owner, 2026-10-03: "let me
+  highlight files by holding down left click ... that transparent quadrant"). Built ONCE
+  (`hooks/useSweep.ts`, pure half `lib/marquee.ts`): a press on a row's BLANK space (right of
+  its name, other columns included) or under the rows draws the rectangle; a press on a
+  chevron, icon or name is still the row's click and drag. Plain replaces, Ctrl adds, Escape
+  puts back, auto-scroll at the edges. Rows are hit by INDEX (both lists are virtual). It
+  cannot outlive a drag: it starts only from a real left press, ends on up, cancel, blur,
+  Escape or any move with the button up, and switches the row's `draggable` off for the
+  press. The Explorer gained MULTI-SELECT with it (Ctrl and Shift clicks too; Copy, Cut,
+  Delete and a drag act on all; Open, Rename and More act on one and are off). The
+  Explorer's MEDIUM row is the tree's default row (`rowLook()` in `treePrefs`). The `marquee`
+  e2e measures both; a drag in a test is taken by the row's NAME, since a locator's centre is
+  blank space.
+  **EXPLORER SIZE IS A SETTING** (owner, 2026-10-03: "let the current be medium the old be
+  big, and make a slightly smaller version too"). Settings > Style > Explorer size
+  (`lib/explorerSize.ts`, `prism.explorer.size`, unknown reads Medium): Small 22px / 11.5px /
+  12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
+  its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
+  ALONE: the tree keeps General's Font size. `explorerSize` e2e.
+  **A MARKED FILE IS A TINT, A CHOSEN PAGE IS SOLID** (owner, same day: "more transparent like
+  selecting files in file explorer" for files, "more saturated" for the settings page).
+  Explorer, tree, sidebar search and archive rows wear `--p-sel-tint` (`hi` at 22%, stepped down only
+  where a name would fall under 4.5:1 or a quiet column under 3.2:1) with a faint
+  `--p-sel-line` edge round the BLOCK (`lib/markedLook.ts`, `data-join-up/down`), and keep
+  their own text and icon colours (no on-accent ink, no monochrome icon fallback). The
+  Settings rail and the chosen card use `--p-sel-solid` / `--p-accent-solid`. Neither moves
+  with the accent's alpha. Quick access's current place wears the tint too. `theme.selection.test.ts`,
+  `markTint` e2e. The menu's grey
+  row is unchanged (its icon's knockouts are its own grey). THE TINT IS NOT FLATTENED UNDER
+  GLASS, on purpose: it carries no label of its own, only the row's ordinary text, which sits
+  on the same glass marked or not, and a flattened tint is the opaque slab the owner rejected.
+  **THE SELECTION IS ITS OWN COLOUR** (owner, 2026-10-03: "the settings accent colour for the
+  tab should be separated from the explorer accent colour ... called something like selected
+  item colour"). Style row **Selection** right after Accent (Primary, Secondary, Accent,
+  Selection, Text, Folder icons), the core picker with alpha (min 10%): the pick's colour and
+  alpha ARE `--p-sel-tint` everywhere the tint is used (`Style.selection` / draft `selection`,
+  six or eight hex, `cleanColour` on load, kept by a saved style). UNSET is `hi` at 22% byte
+  for byte and the picker shows that; nothing is stored until a pick, and picking the shown
+  value back is no edit. A pick past the floors (names 4.5:1, quiet columns 3.2:1) keeps its
+  hue and loses strength (`selectionTintAlpha`'s `start`). The Accent keeps the rail, buttons,
+  progress. The edge is SOFTER: `TINT_LINE` 0.28 (was 0.5; "the border contrast is slightly
+  too much"), scaled with a picked strength up to 0.5 (`tintLineAlpha`). The SWEEP BAND (the
+  Explorer's and the archive's drag box) wears it too, as Windows' does: `--p-sel-hue` /
+  `--p-sel-hue-hi`, which unset are `--p-accent` / `--p-accent-hi` exactly.
+  `theme.selectionColour.test.ts`, `markTint` and `styleColours` e2e.
+  **NO STRIPES IN THE EXPLORER** (owner, same day: "try no alternating row bg for explorer"):
+  every `.browse-row` is the plain ground. The archive view keeps its zebra (`p-zebra`).
   ARRIVING NEVER SELECTS (2026-09-22, owner: "no file should be selected when I haven't
   clicked any ... either because I clicked it or it's the current file displaying, or I've
   navigated onto it with the arrow keys"). In the Explorer, walking into a folder by a sidebar
@@ -576,7 +623,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   shell keep their own Ctrl+A.
   Tabs reorder by dragging along the strip (`reorderTabs`, pure and tested), with a
   hairline showing where one would land.
-  Selection is the accent fill (`data-selected`); `aria-selected` still means the OPEN
+  Selection is the accent tint (`data-selected`); `aria-selected` still means the OPEN
   file, which is what the e2e leans on. Keyboard unchanged: arrows land-and-open, Enter
   opens, F2/Delete act on the row (Delete takes the whole selection when the row is in
   one).
