@@ -7554,6 +7554,15 @@ async function marqueeQuietScenario(fixtures) {
       }, 10000),
       'and a plain click previews and plays the film clicked'
     )
+    // A click on the list's EMPTY space clears the pick and leaves the film
+    // alone (owner, 2026-10-03: "i can pause a video by clicking empty space in
+    // the file list, i should have to click the video or the pause icon").
+    const space = await list.boundingBox()
+    await win.mouse.click(space.x + space.width / 2, space.y + space.height - 12)
+    await sleep(600)
+    f = await films()
+    ok(f.pane === 'v2.mp4' && f.playing.includes('v2.mp4'), `a click on empty space keeps the film playing (${f.pane}, ${f.playing})`)
+    ok((await exMarked()).length === 0, 'and clears the pick')
     await win.evaluate(() => document.querySelectorAll('video,audio').forEach((v) => v.pause()))
   } finally {
     await app.close().catch(() => {})

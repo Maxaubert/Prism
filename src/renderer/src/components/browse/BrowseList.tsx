@@ -451,8 +451,11 @@ export function BrowseList(props: Props): JSX.Element {
             columnScroller.current.scrollLeft = e.currentTarget.scrollLeft
           if (!props.loading) props.onScroll(e.currentTarget.scrollTop)
         }}
+        // Empty space clears the pick QUIETLY: it is not a request to stop what
+        // the preview plays (owner, 2026-10-03: "i should have to click the
+        // video or the pause icon"). A right press on an unmarked row too.
         onClick={(e) => {
-          if (e.target === e.currentTarget) props.onSelect(null)
+          if (e.target === e.currentTarget) props.onSelect(null, true)
         }}
       >
         {props.message ? (
@@ -464,7 +467,7 @@ export function BrowseList(props: Props): JSX.Element {
             className="browse-row-space"
             style={{ height: spaceHeight }}
             onClick={(e) => {
-              if (e.target === e.currentTarget) props.onSelect(null)
+              if (e.target === e.currentTarget) props.onSelect(null, true)
             }}
           >
             <div
@@ -538,7 +541,7 @@ export function BrowseList(props: Props): JSX.Element {
                     onContextMenu={(e) => {
                       if (props.onContextMenu) {
                         e.preventDefault()
-                        if (!selected) props.onSelect(null)
+                        if (!selected) props.onSelect(null, true)
                         props.onContextMenu(e, entry)
                       }
                     }}
