@@ -114,10 +114,10 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const markedEntries = marked ? entries.filter((entry) => marked.has(entry.path)) : []
   const many = markedEntries.length > 1
   const markedPaths = (): string[] => markedEntries.map((entry) => entry.path)
-  const pickOne = (path: string | null): void => {
+  const pickOne = (path: string | null, quiet = false): void => {
     setMarks(null)
     anchor.current = path
-    props.onSelect(path)
+    props.onSelect(path, quiet)
   }
   const order = (): string[] =>
     indexedRows
@@ -138,18 +138,21 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     // back out; then any row still marked, or none.
     const primary = next.items.has(entry.path) ? entry.path : ([...next.items][0] ?? null)
     setMarks(next.items.size > 1 ? { key: marksKey, items: next.items } : null)
-    props.onSelect(primary)
+    // Quiet, even when it leaves one row (#263): a Ctrl or Shift click marks,
+    // it does not preview or play what it lands on.
+    props.onSelect(primary, true)
   }
   const swept = (paths: string[], near: string | null, add: boolean): void => {
     const base: ReadonlySet<string> = add
       ? (marked ?? new Set(props.selectedPath ? [props.selectedPath] : []))
       : new Set()
     const items = sweepSelect(base, paths)
-    if (items.size <= 1) return pickOne([...items][0] ?? null)
+    // A sweep is marking, however few rows it caught (#263).
+    if (items.size <= 1) return pickOne([...items][0] ?? null, true)
     const primary = near && items.has(near) ? near : [...items][0]
     anchor.current = primary
     setMarks({ key: marksKey, items })
-    props.onSelect(primary)
+    props.onSelect(primary, true)
   }
   const activate = (entry: BrowseEntry): void => {
     if (entry.isFolder) {

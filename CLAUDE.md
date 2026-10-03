@@ -521,6 +521,13 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Explorer's MEDIUM row is the tree's default row (`rowLook()` in `treePrefs`). The `marquee`
   e2e measures both; a drag in a test is taken by the row's NAME, since a locator's centre is
   blank space.
+  **MARKING IS NOT PICKING** (#263; owner, 2026-10-03: "when you multiselect like this it picks
+  a file so here this drag starts one of the videos ... same is the case if i ctrl select it
+  shouldnt start or preview anything"). In the Explorer a sweep and a Ctrl or Shift click call
+  `browsing.select(path, true)`, a QUIET select: it moves the tab's selected path (the
+  keyboard's place) and nothing else, so the preview keeps its file, nothing plays or pauses
+  and a shut pane stays shut. A plain click and the arrows preview and play as before. The
+  `marqueeQuiet` e2e holds it with four films.
   **EXPLORER SIZE IS A SETTING** (owner, 2026-10-03: "let the current be medium the old be
   big, and make a slightly smaller version too"). Settings > Style > Explorer size
   (`lib/explorerSize.ts`, `prism.explorer.size`, unknown reads Medium): Small 22px / 11.5px /
