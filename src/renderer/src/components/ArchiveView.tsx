@@ -13,6 +13,7 @@ import { ImageView } from './ImageView'
 import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
 import { KindIcon, iconColour } from './TreeRows'
+import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
 import { archivePassword, rememberArchivePassword } from '../lib/archivePass'
@@ -839,10 +840,11 @@ function ArchiveInner({
     }
   })
 
-  /** The quiet columns are dim, except on a selected row, where dim on the
-   *  accent fill is unreadable. */
+  /** The quiet columns are dim2, and --p-dim on a marked row: the tint is
+   *  held down until --p-dim reads 3.2:1 on it (theme.ts), and dim2 was never
+   *  measured there. */
   const colTone = (path: string): string =>
-    sel.items.has(path) ? 'text-[var(--p-on-accent)] opacity-75' : 'text-[var(--p-dim2)]'
+    sel.items.has(path) ? 'text-[var(--p-dim)]' : 'text-[var(--p-dim2)]'
 
   /** Every FILE member inside a folder, at any depth. A folder in a zip is a
    *  prefix, not a container, so its verbs act on what carries that prefix. */
@@ -1206,9 +1208,19 @@ function ArchiveInner({
                             dropTarget === r.path
                               ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
                               : sel.items.has(r.path)
-                                ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
+                                ? // The tint is in `style`: a zip's list is a
+                                  // file selection like the Explorer's (#257).
+                                  'text-[var(--p-text-soft)]'
                                 : `${rowIndex % 2 === 1 ? 'p-zebra ' : ''}text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]`
                           }`}
+                          style={
+                            dropTarget !== r.path && sel.items.has(r.path)
+                              ? markedLook({
+                                  top: rowIndex > 0 && sel.items.has(rows[rowIndex - 1].path),
+                                  bottom: rowIndex < rows.length - 1 && sel.items.has(rows[rowIndex + 1].path)
+                                })
+                              : undefined
+                          }
                           // A drag out is a move or an extraction and a drop in
                           // is a write, and the phone has neither (#106).
                           draggable={caps.drag}
@@ -1259,16 +1271,11 @@ function ArchiveInner({
                           ) : (
                             <KindIcon
                               kind={fileKind(extOf(r.name), r.name)}
-                              // Same rule as the tree: a row filled with the
-                              // accent takes the monochrome icon, whose ink is
-                              // measured against what is behind it.
-                              selected={sel.items.has(r.path)}
-                              color={
-                                sel.items.has(r.path)
-                                  ? 'var(--p-on-accent)'
-                                  : iconColour(fileKind(extOf(r.name), r.name))
-                              }
-                              bg={sel.items.has(r.path) ? 'var(--p-sel-knockout)' : undefined}
+                              // A marked row is a tint, so the icon keeps its
+                              // colours, as in the tree and the Explorer; its
+                              // knockouts are the tint as seen over the viewer.
+                              color={iconColour(fileKind(extOf(r.name), r.name))}
+                              bg={sel.items.has(r.path) ? 'var(--p-sel-tint-seen)' : undefined}
                               ext={extOf(r.name)}
                               name={r.name}
                             />

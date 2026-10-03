@@ -185,13 +185,13 @@ export function KindIcon({
   const lang = langFor(kind, name, ext)
   const ident = identityFor(key, lang, ext)
   const c = ICON_COLOURS[ident]
-  // A SELECTED ROW FALLS BACK TO MONOCHROME (owner instruction, 2026-09-01),
-  // and it is the only thing that can work. The selection fill is the user's
-  // ACCENT and the icon colour is the scheme's, so the two are picked by
-  // different people and will eventually collide - a blue video icon on a blue
-  // fill is an invisible icon, and no amount of choosing better colours fixes
-  // it. Monochrome measures its ink against whatever is actually behind it, so
-  // it is legible on every accent by construction.
+  // `selected` MEANS A ROW FILLED SOLID, and such a row falls back to
+  // monochrome (owner instruction, 2026-09-01): the fill and the icon colour are
+  // picked by different people and will eventually collide (a blue video icon
+  // on a blue fill is an invisible icon), while monochrome measures its ink
+  // against whatever is behind it. Since #257 a MARKED file is a light tint and
+  // keeps its colours, so callers pass it only for the right-click row's grey
+  // fill; the rule stays for any solid fill that comes back.
   // THE COMIC WEARS ITS EXPLORER ARTWORK, always and in colour: a keylined
   // sunburst under a halftone under a splat. It never falls back on a selected
   // row the way a flat page does, because five colours cannot all collide with
@@ -747,9 +747,10 @@ export function SweepBand({ band, as = 'li' }: { band: Band; as?: 'li' | 'div' }
     width: box.width,
     height: box.height,
     background: 'color-mix(in srgb, var(--p-accent) 16%, transparent)',
-    // The edge is the accent pulled toward the text colour: the rows it
-    // crosses turn accent as they are marked, and a pure accent edge vanished
-    // into them (MEASURED in the first screenshot, #257).
+    // The edge is the accent pulled toward the text colour: a pure accent
+    // edge vanished into the rows it crossed when a mark was a solid accent
+    // fill (MEASURED in the first screenshot, #257), and it still has to stand
+    // apart from the marked rows' own accent edges.
     border: '1px solid color-mix(in srgb, var(--p-accent-hi) 45%, var(--p-text))',
     borderRadius: 2
   }

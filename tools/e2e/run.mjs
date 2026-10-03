@@ -7554,6 +7554,17 @@ async function markTintScenario(fixtures) {
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await sleep(400)
     await checkExplorer('accent alpha 40%')
+    // Quick access's "you are here" is the rail's job, so the rail's solid.
+    // Walking into a place is only a listing: nothing there is touched.
+    await win.locator('.folder-browser .browse-place').first().click()
+    await win.mouse.move(5, 5)
+    const placeOn = await until(async () => (await win.locator('.folder-browser .browse-place[aria-current]').count()) > 0, 8000)
+    ok(placeOn, 'a Quick access place is the current one')
+    if (placeOn) {
+      await sleep(300)
+      const place = await win.locator('.folder-browser .browse-place[aria-current]').first().evaluate((el) => getComputedStyle(el).backgroundColor)
+      ok(place === solid, `the Explorer's current place is solid too (${place})`)
+    }
   } finally {
     await win
       .evaluate((d) => {
@@ -7564,6 +7575,38 @@ async function markTintScenario(fixtures) {
       .catch(() => {})
     if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
     await app.close().catch(() => {})
+  }
+
+  /* ---------- a zip's list is a file selection too ---------- */
+  const AdmZip = (await import('adm-zip')).default
+  const zip = new AdmZip()
+  for (const n of ['z1.txt', 'z2.txt', 'z3.txt', 'z4.txt']) zip.addFile(n, Buffer.from(`zip ${n}`))
+  zip.writeZip(join(dir, 'tint.zip'))
+  const z = await launch(join(dir, 'tint.zip'))
+  try {
+    await switchStyle(z.win, 'aurora', 'dark')
+    await z.win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+    await z.win.locator('[data-arc-row="z1.txt"]').click()
+    await z.win.locator('[data-arc-row="z2.txt"]').click({ modifiers: ['Control'] })
+    await z.win.mouse.move(5, 5)
+    await sleep(300)
+    const arc = await z.win.evaluate(() => {
+      const r = (n) => document.querySelector(`[data-arc-row="${n}"]`)
+      const name = (el) => getComputedStyle(el.querySelector('span.truncate')).color
+      return {
+        bg: getComputedStyle(r('z1.txt')).backgroundColor,
+        names: [name(r('z1.txt')), name(r('z3.txt'))],
+        joined: getComputedStyle(r('z2.txt')).boxShadow
+      }
+    })
+    const a = alphaOf(arc.bg)
+    ok(a >= 0.18 && a <= 0.25, `a marked row in a zip is the same light tint (${arc.bg})`)
+    ok(arc.names[0] === arc.names[1], `and keeps the plain row's name colour (${arc.names.join(' / ')})`)
+    ok((arc.joined.match(/inset/g) ?? []).length === 3, `two marked neighbours in a zip are one block (${arc.joined})`)
+    await z.win.screenshot({ path: join(SHOTS, 'marktint-archive-dark.png') })
+  } finally {
+    if (styleBefore) await switchStyle(z.win, styleBefore[0], styleBefore[1]).catch(() => {})
+    await z.app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
 }

@@ -552,7 +552,9 @@ export function BrowseList(props: Props): JSX.Element {
                         entry.file && (
                           // A marked row is a tint, so its icon keeps its own
                           // colours; only the menu's grey row still draws it
-                          // in the row's ink, as it always has.
+                          // in the row's ink, as it always has. Its knockouts
+                          // are that grey (browse.css [data-menu]), not the
+                          // accent, or they show as accent spots on it.
                           <KindIcon
                             kind={entry.file.kind}
                             ext={entry.file.ext}
@@ -560,7 +562,7 @@ export function BrowseList(props: Props): JSX.Element {
                             color={onMenu ? 'currentColor' : iconColour(entry.file.kind)}
                             selected={onMenu}
                             size={look.icon}
-                            bg={onMenu ? 'var(--p-sel-seen)' : selected ? 'var(--p-sel-tint-seen)' : 'var(--p-bg)'}
+                            bg={onMenu ? 'color-mix(in srgb, var(--p-text) 14%, var(--p-bg))' : selected ? 'var(--p-sel-tint-seen)' : 'var(--p-bg)'}
                           />
                         )
                       )}

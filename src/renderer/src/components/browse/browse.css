@@ -287,10 +287,12 @@
   width: 18px;
   height: 18px;
 }
+/* "You are here", the settings rail's job in the Explorer, so the rail's solid
+   accent: the accent's alpha does not fade it (#257). */
 .folder-browser .browse-place[aria-current],
 .folder-browser .browse-place[aria-current]:hover {
-  background: var(--p-sel-bg);
-  color: var(--p-on-accent);
+  background: var(--p-sel-solid);
+  color: var(--p-on-sel-solid);
 }
 .browse-actions {
   grid-column: 2 / -1;
