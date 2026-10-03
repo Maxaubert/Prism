@@ -1287,11 +1287,23 @@ async function dictationScenario(fixtures) {
     await sleep(400)
 
     // A MEDIA VIEWER FIRST: no terminal showing, so Right Alt is nobody's key.
+    // Arming dictation WARMS the engine on purpose (the core starts the server
+    // so the first word is not a cold start), so the count is taken once that
+    // has settled and the press must not ADD one. Counting from zero raced the
+    // warm-up and failed the runner's gate twice (Prism #254, #264).
+    let warm = ourSpeechServers()
+    for (let i = 0; i < 20; i++) {
+      await sleep(500)
+      const now = ourSpeechServers()
+      if (now === warm && i >= 3) break
+      warm = now
+    }
     await win.keyboard.down('AltRight')
     await sleep(700)
     ok((await pill().count()) === 0, 'with no terminal showing, holding Right Alt does nothing')
     await win.keyboard.up('AltRight')
-    ok(ourSpeechServers() === 0, 'and no speech server was started')
+    await sleep(500)
+    ok(ourSpeechServers() === warm, `and the press started no speech server (${ourSpeechServers()} after, ${warm} warm before)`)
 
     await win.locator('aside [aria-label="Terminal"]').click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
@@ -1310,12 +1322,16 @@ async function dictationScenario(fixtures) {
     await sleep(4000)
     await win.screenshot({ path: join(SHOTS, 'dictation-listening.png') })
     await sleep(5000)
-    const before = await text()
     await win.keyboard.up('AltRight')
     const heard = await waitUntil(async () => /ask not what your country/i.test((await text()).replace(/\s+/g, ' ')), 30000)
     ok(heard, 'the spoken sentence arrives on the prompt line')
     ok(await waitUntil(async () => (await pill().count()) === 0, 5000), 'and the pill goes away')
-    ok(((await text()).match(/PS [^>]*>/g) ?? []).length === (before.match(/PS [^>]*>/g) ?? []).length, 'NO ENTER was sent: there is no new prompt')
+    // NO ENTER: had one gone through, PowerShell would have run the sentence
+    // and answered that its first word is not a command. Counting prompts on
+    // screen was the old test, and a long sentence that wraps scrolls the
+    // prompt out of view, so it read as "a prompt went missing".
+    await sleep(1500)
+    ok(!/is not recognized|CommandNotFoundException/i.test(await text()), 'NO ENTER was sent: the sentence was not run')
     ok(ourSpeechServers() === 1, 'one speech server is resident while dictation is on')
 
     // Hiding the terminal mid-way is "not showing" again.
