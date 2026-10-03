@@ -1,9 +1,9 @@
 {
   "name": "prism",
-  "version": "0.78.1",
+  "version": "0.80.0",
   "description": "A fast, universal media viewer for Windows.",
   "author": "Max",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -81,7 +81,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.2",
     "@types/adm-zip": "^0.5.8",
     "@types/node": "^26.1.1",
