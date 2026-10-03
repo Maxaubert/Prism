@@ -11,6 +11,7 @@ import {
   type QuickAccessPin
 } from '../../lib/quickAccess'
 import { BrowseIcon } from './BrowseIcon'
+import { PeekPinButton } from '../PanelToggle'
 import type { BrowsePlace, FolderBrowserProps } from './types'
 import './quick-access.css'
 import { useFolderDrop } from './useFolderDrop'
@@ -31,6 +32,11 @@ type Props = Pick<
   | 'onOpenNewTab'
 >
 
+type PlacesProps = Props & {
+  /** Set only while the panel PEEKS (#250): the header's toggle pins it. */
+  onPin?: () => void
+}
+
 function isPinDrag(event: DragEvent): boolean {
   return event.dataTransfer.types.includes(QUICK_ACCESS_PIN_MIME)
 }
@@ -47,8 +53,9 @@ export function BrowsePlaces({
   onUnpinQuickAccess,
   onMoveQuickAccess,
   onPinQuickAccessPaths,
-  onDropInto
-}: Props): JSX.Element {
+  onDropInto,
+  onPin
+}: PlacesProps): JSX.Element {
   const folderDrop = useFolderDrop(onDropInto)
   const pins =
     quickAccess ??
@@ -98,6 +105,11 @@ export function BrowsePlaces({
     : -1
   return (
     <aside className="browse-places" aria-label="Locations">
+      {onPin && (
+        <div className="browse-places-peekhead">
+          <PeekPinButton onPin={onPin} />
+        </div>
+      )}
       <nav>
         <section
           aria-label="Quick access"

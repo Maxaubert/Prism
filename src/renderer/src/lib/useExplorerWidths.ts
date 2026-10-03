@@ -41,9 +41,11 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
   const listMin = Math.min(240, available / 3)
   const previewMin = previewVisible ? Math.min(240, available / 3) : 0
   const placesMax = Math.max(minimum, available - listMin - previewMin)
-  const placesWidth = placesVisible
-    ? clamp(preferred.places ?? (available <= 760 ? 160 : 210), minimum, placesMax)
-    : 0
+  // The width the places panel HAS when shown, kept while it is hidden too:
+  // a peek (#250) lays it over the list at that width, not at the zero its
+  // column collapses to.
+  const placesOwn = clamp(preferred.places ?? (available <= 760 ? 160 : 210), minimum, placesMax)
+  const placesWidth = placesVisible ? placesOwn : 0
   const previewMax = Math.max(previewMin, available - placesWidth - listMin)
   const previewWidth = previewVisible
     ? clamp(preferred.preview ?? Math.min(720, available * 0.4), previewMin, previewMax)
@@ -68,6 +70,7 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
     resize,
     style: {
       '--explorer-places-width': `${placesWidth}px`,
+      '--explorer-places-peek-width': `${placesOwn}px`,
       '--browse-preview-width': `${previewWidth}px`
     } as CSSProperties
   }

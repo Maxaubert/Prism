@@ -38,6 +38,36 @@
 .folder-browser[data-places-hidden] .browse-places {
   pointer-events: none;
 }
+/* A HIDDEN PLACES PANEL PEEKS (#250): laid over the list rather than in its
+   column, so the column stays at zero and nothing beside it moves. Under the
+   toolbar row, as the panel sits when it is shown. The slide and the shadow
+   are index.css's .p-peek-* rules, applied to the same element here. */
+.folder-browser {
+  position: relative;
+}
+.folder-browser[data-places-peek] .browse-places {
+  position: absolute;
+  grid-column: auto;
+  grid-row: auto;
+  top: 48px;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+  width: var(--explorer-places-peek-width, 210px);
+  background-color: var(--p-side-flat, var(--p-bg));
+  box-shadow: 10px 0 28px -8px rgb(0 0 0 / 0.45);
+  pointer-events: auto;
+  animation: p-peek-in-left 180ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.folder-browser[data-places-peek='out'] .browse-places {
+  pointer-events: none;
+  animation-name: p-peek-out-left;
+}
+.browse-places-peekhead {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px 0;
+}
 .folder-browser button,
 .folder-browser input {
   font: inherit;

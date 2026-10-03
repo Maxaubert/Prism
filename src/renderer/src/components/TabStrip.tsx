@@ -63,7 +63,8 @@ export function TabStrip({
   onDropIntoTab,
   onReorder,
   onOpenRecent,
-  wash
+  wash,
+  inTitleRow = false
 }: {
   tabs: Tab[]
   activeId: string | null
@@ -93,6 +94,10 @@ export function TabStrip({
   /** Whether the style's light reaches the strip. Follows the title bar, so
    *  the setup's mode wipe does not tear between the two rows. */
   wash: boolean
+  /** The title bar is hidden (#250): the strip fills the middle of the one
+   *  row, between the panel toggle and the bar's buttons, and that row draws
+   *  the height and the rule under it. */
+  inTitleRow?: boolean
 }): JSX.Element | null {
   const indicator = useAgentIndicator()
   const width = useTabWidth()
@@ -274,7 +279,7 @@ export function TabStrip({
       // closed hand, children included: a tab is made of a label button, an
       // icon slot and an X, each with a cursor of its own, and letting them
       // answer for themselves made it flicker under the moving pointer.
-      className={`${dragInFlight ? 'no-drag' : 'drag'} p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-tabs)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
+      className={`${dragInFlight ? 'no-drag' : 'drag'} p-styled-font flex ${inTitleRow ? 'min-w-0 flex-1' : 'h-8 shrink-0 border-b border-[var(--p-divider)]'} items-stretch gap-0 overflow-x-auto bg-[var(--p-tabs)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
         carry?.live ? 'cursor-grabbing [&_*]:cursor-grabbing' : ''
       } ${wash ? 'p-wash' : ''}`}
     >

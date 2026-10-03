@@ -123,6 +123,9 @@ const ComicView = lazy(() =>
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { TabStrip } from './components/TabStrip'
+import { PanelToggle } from './components/PanelToggle'
+import { useTitleBarMode } from './lib/titleBarPrefs'
+import { useSidebarPeek } from './lib/useSidebarPeek'
 import { Onboarding } from './components/Onboarding'
 import { ACCENT_THEME_ID } from './lib/viz/styles'
 import {
@@ -277,7 +280,6 @@ function TopBar({
   /** The Tools menu, opened at the button's bottom-left corner. */
   onTools: (x: number, y: number) => void
 }): JSX.Element {
-  const w = window.prism
   return (
     // The bar changes colour on a curve rather than in a frame: during the
     // setup's mode wipe it is the one surface the still doesn't cover, and a
@@ -288,36 +290,10 @@ function TopBar({
       data-title-bar
       className={`drag p-styled-font flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
     >
-      {/* One button, one idea: collapse the panel on the left. Over Settings the
-          tree isn't there, so it collapses that page's rail to its glyphs. */}
       {!setup && onTogglePanel && (
-        <button
-          className={`no-drag grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
-            panelOpen
-              ? 'text-[var(--p-accent-hi)]'
-              : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
-          }`}
-          onClick={onTogglePanel}
-          title={settingsOpen ? 'Collapse the rail (Ctrl+B)' : 'Files (Ctrl+B)'}
-          aria-label={settingsOpen ? 'Collapse the settings rail' : 'Toggle file tree'}
-          aria-pressed={panelOpen}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width={15}
-            height={15}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <path d="M9 4v16" />
-          </svg>
-        </button>
+        <PanelToggle open={panelOpen} settingsOpen={settingsOpen} onToggle={onTogglePanel} />
       )}
-      <span className={`font-semibold text-[var(--p-accent-hi)] ${setup ? '-ml-0.5' : ''}`}>
+      <span data-wordmark className={`font-semibold text-[var(--p-accent-hi)] ${setup ? '-ml-0.5' : ''}`}>
         Prism
       </span>
       <span data-testid="titlebar-file-name" className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{name}</span>
@@ -331,6 +307,47 @@ function TopBar({
         />
       )}
       {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
+      <TitleButtons
+        setup={setup}
+        chip={chip}
+        onTools={onTools}
+        editable={editable}
+        editing={editing}
+        onToggleEdit={onToggleEdit}
+        settingsOpen={settingsOpen}
+        onToggleSettings={onToggleSettings}
+      />
+    </div>
+  )
+}
+
+/**
+ * The title bar's right end: the update chip, Tools, the pencil, the cog and
+ * the three window buttons. Its own component because with the title bar
+ * hidden (#250) the same group sits at the end of the tab row instead.
+ */
+function TitleButtons({
+  setup,
+  chip,
+  onTools,
+  editable,
+  editing,
+  onToggleEdit,
+  settingsOpen,
+  onToggleSettings
+}: {
+  setup: boolean
+  chip?: ReactNode
+  onTools: (x: number, y: number) => void
+  editable: boolean
+  editing: boolean
+  onToggleEdit: () => void
+  settingsOpen: boolean
+  onToggleSettings: () => void
+}): JSX.Element {
+  const w = window.prism
+  return (
+    <>
       {/* The update chip: a quiet pill, present only while there is something
           to install, and the SAME component as Prism Terminal's (#168). The
           rule it was built to keep is this bar's own (owner pick from 12
@@ -432,23 +449,29 @@ function TopBar({
         <button
           className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
           onClick={() => w.minimize()}
+          aria-label="Minimize"
+          data-window-button
         >
           –
         </button>
         <button
           className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
           onClick={() => w.toggleMaximize()}
+          aria-label="Maximize"
+          data-window-button
         >
           ▢
         </button>
         <button
           className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-red-500/80 hover:text-[var(--p-text)]"
           onClick={() => w.close()}
+          aria-label="Close window"
+          data-window-button
         >
           ✕
         </button>
       </div>
-    </div>
+    </>
   )
 }
 
@@ -1079,7 +1102,20 @@ export default function App(): JSX.Element {
       return !on
     })
   }, [])
+  // A Ctrl+B or a click on the toggle while the panel PEEKS pins it where it
+  // stands (#250): it is already out, so it must not slide in from nothing.
+  const peekingRef = useRef(false)
+  const pinPanel = useCallback(() => {
+    if (active && isExplorerTab(active)) {
+      setPlacesVisible(true)
+      localStorage.setItem('prism.explorer.places', '1')
+    } else {
+      setSidebar(true)
+      localStorage.setItem(SIDEBAR_KEY, '1')
+    }
+  }, [active])
   const togglePanel = useCallback(() => {
+    if (peekingRef.current && !settingsOpen) return pinPanel()
     if (settingsOpen) toggleRail()
     else if (active && isExplorerTab(active)) {
       if (active.browse.surface !== 'folder') return
@@ -1090,7 +1126,7 @@ export default function App(): JSX.Element {
       })
     }
     else toggleSidebar()
-  }, [settingsOpen, active, toggleRail, toggleSidebar, slidePanel])
+  }, [settingsOpen, active, toggleRail, toggleSidebar, slidePanel, pinPanel])
   const pickTransport = useCallback((s: TransportStyle) => {
     setTransportStyle(s)
     localStorage.setItem(TRANSPORT_KEY, s)
@@ -2418,6 +2454,46 @@ export default function App(): JSX.Element {
   const termView = active?.term?.view ?? 'hidden'
   const viewingFile =
     !!file && !!active && isExplorerTab(active) && !browsing.folder && termView !== 'full'
+  // THE COLLAPSED PANEL PEEKS (#250): which panel is collapsed and could come
+  // out over the content right now. Never over Settings (its rail collapses to
+  // glyphs, it does not hide), the first-run setup or fullscreen, and on an
+  // Explorer tab only over a folder, where the places panel lives.
+  const titleBar = useTitleBarMode()
+  const peekTarget =
+    !active || fullscreen || setup || settingsOpen
+      ? null
+      : isExplorerTab(active)
+        ? browsing.folder && active.browse.surface === 'folder' && !placesVisible
+          ? `places:${active.id}`
+          : null
+        : !sidebar
+          ? `tree:${active.id}`
+          : null
+  const peekPlaces = !!peekTarget?.startsWith('places:')
+  const { phase: peekPhase, end: endPeek } = useSidebarPeek({
+    target: peekTarget,
+    side: peekPlaces ? 'left' : treeSide,
+    zone: () => document.querySelector<HTMLElement>('.browse-workspace'),
+    panel: () =>
+      document.querySelector<HTMLElement>(
+        peekPlaces ? '[data-testid="folder-browser"] .browse-places' : '[data-project-sidebar]'
+      )
+  })
+  peekingRef.current = peekPhase === 'in'
+  // The peeking panel's own toggle pins it; so does Ctrl+B (togglePanel).
+  const pinFromPeek = useCallback(() => {
+    endPeek()
+    pinPanel()
+  }, [endPeek, pinPanel])
+  // Opening a file from a peeking tree is what the peek was FOR: it goes, and
+  // the file has the window.
+  const openFromPeekableTree = useCallback(
+    (path: string) => {
+      endPeek()
+      openFromTree(path)
+    },
+    [endPeek, openFromTree]
+  )
   const viewerDirectory = file
     ? (browseParent(file.path) ?? active?.browse.path)
     : active?.browse.path
@@ -3583,6 +3659,45 @@ export default function App(): JSX.Element {
   // isn't on screen.
   const pos = many && termView !== 'full' ? `${view!.index + 1} / ${view!.files.length}` : ''
 
+  // What both shapes of the chrome carry (#250): the bar and the tab row draw
+  // the same toggle, chip and strip from one place.
+  const panelPinned = settingsOpen
+    ? !compactRail
+    : active && isExplorerTab(active)
+      ? placesVisible
+      : sidebar
+  const panelToggle = viewingFile && !settingsOpen ? undefined : togglePanel
+  // Only markdown takes the pencil. Code and plain text have no rendered form
+  // to leave, so they are simply editable where they sit. A FULL terminal
+  // hides it: the document is not on screen to edit, the same reason the bar
+  // drops the file's name there.
+  const editable = termView !== 'full' && file?.kind === 'text' && isMarkdown(file.name)
+  const chip = (
+    <UpdateChip
+      info={update.state.info}
+      phase={update.state.phase}
+      onOpen={update.open}
+      // Under the chip only while the window is not up to say it itself.
+      notice={update.state.open ? null : update.state.notice}
+      onDismissNotice={update.dismissNotice}
+    />
+  )
+  const stripProps = {
+    tabs,
+    activeId,
+    workingIds,
+    doneIds,
+    agentIds,
+    onDropFile: openInNewTab,
+    onDropIntoTab,
+    onReorder: reorderTab,
+    onOpenRecent: openRecent,
+    onPick: pickTab,
+    onClose: closeOneTab,
+    onNew: newTab,
+    wash: washed
+  }
+
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
   return (
@@ -3600,7 +3715,7 @@ export default function App(): JSX.Element {
         aria-hidden
         className="pointer-events-none fixed inset-0 z-[300] bg-black opacity-0 will-change-[opacity]"
       />
-      {!fullscreen && (
+      {!fullscreen && (setup || titleBar === 'shown') && (
         <TopBar
           // The tree already names (and highlights) the open file; the bar only
           // repeats it when the tree isn't there to say it. A FULL terminal
@@ -3612,30 +3727,15 @@ export default function App(): JSX.Element {
           pos={pos}
           settingsOpen={settingsOpen}
           onToggleSettings={toggleSettings}
-          panelOpen={
-            settingsOpen ? !compactRail : active && isExplorerTab(active) ? placesVisible : sidebar
-          }
-          onTogglePanel={viewingFile && !settingsOpen ? undefined : togglePanel}
+          panelOpen={panelPinned}
+          onTogglePanel={panelToggle}
           setup={setup}
           wash={washed}
-          // Only markdown takes the pencil. Code and plain text have no
-          // rendered form to leave, so they are simply editable where they sit.
-          // A FULL terminal hides it: the document is not on screen to edit,
-          // the same reason the bar drops the file's name there.
-          editable={termView !== 'full' && file?.kind === 'text' && isMarkdown(file.name)}
+          editable={editable}
           editing={editMode}
           dirty={dirtyPaths.size > 0}
           onToggleEdit={() => setEditMode((v) => !v)}
-          chip={
-            <UpdateChip
-              info={update.state.info}
-              phase={update.state.phase}
-              onOpen={update.open}
-              // Under the chip only while the window is not up to say it itself.
-              notice={update.state.open ? null : update.state.notice}
-              onDismissNotice={update.dismissNotice}
-            />
-          }
+          chip={chip}
           onTools={(x, y) => setToolsMenu({ x, y })}
         />
       )}
@@ -3643,22 +3743,56 @@ export default function App(): JSX.Element {
           the chrome Prism has always had, so someone quick-looking a single
           photo never meets a workspace element. Gone in fullscreen with the
           rest of it. */}
-      {!fullscreen && (
-        <TabStrip
-          tabs={tabs}
-          activeId={activeId}
-          workingIds={workingIds}
-          doneIds={doneIds}
-          agentIds={agentIds}
-          onDropFile={openInNewTab}
-          onDropIntoTab={onDropIntoTab}
-          onReorder={reorderTab}
-          onOpenRecent={openRecent}
-          onPick={pickTab}
-          onClose={closeOneTab}
-          onNew={newTab}
-          wash={washed}
-        />
+      {!fullscreen && (setup || titleBar === 'shown') && <TabStrip {...stripProps} />}
+      {/* NO TITLE BAR (#250; owner, 2026-10-02: "normal prism should also have
+          no titlebar option", Prism Terminal's #91): ONE row. The panel toggle
+          first, then the tabs and their +, then what the bar carried on its
+          right. The wordmark and the file's name go: the tab and the tree
+          already say where you are. The strip's own empty space is the handle
+          the window moves by; tabs and buttons are no-drag, as in the bar.
+          The first-run setup keeps the bar it was designed with. */}
+      {!fullscreen && !setup && titleBar === 'hidden' && (
+        <div
+          data-title-bar="tabs"
+          className={`drag p-styled-font flex h-9 shrink-0 items-stretch border-b border-[var(--p-divider)] bg-[var(--p-tabs)] text-[13px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${washed ? 'p-wash' : ''}`}
+        >
+          {panelToggle && (
+            <div className="flex shrink-0 items-center pl-1.5 pr-1">
+              <PanelToggle open={panelPinned} settingsOpen={settingsOpen} onToggle={panelToggle} />
+            </div>
+          )}
+          {tabs.length > 0 ? (
+            <>
+              <TabStrip {...stripProps} inTitleRow />
+              {/* A handle that is always there: with Dynamic tab width about
+                  five tabs fill the strip, and its empty space was then the
+                  only place to grab the window (review of #250). */}
+              <span data-drag-spacer className="w-10 shrink-0" />
+            </>
+          ) : (
+            <span className="min-w-0 flex-1" />
+          )}
+          <div className="flex shrink-0 items-center gap-3 pl-2 pr-3">
+            {dirtyPaths.size > 0 && (
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--p-accent-hi)]"
+                title="Unsaved changes (Ctrl+S)"
+                aria-label="Unsaved changes"
+              />
+            )}
+            {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
+            <TitleButtons
+              setup={false}
+              chip={chip}
+              onTools={(x, y) => setToolsMenu({ x, y })}
+              editable={editable}
+              editing={editMode}
+              onToggleEdit={() => setEditMode((v) => !v)}
+              settingsOpen={settingsOpen}
+              onToggleSettings={toggleSettings}
+            />
+          </div>
+        </div>
       )}
       {/* Settings covers this area. Hiding it (rather than leaving it painted
           underneath) is what lets a translucent style show its material through
@@ -3711,6 +3845,8 @@ export default function App(): JSX.Element {
           <Sidebar
             open={sidebar && !isExplorerTab(active)}
             sliding={panelSliding}
+            peek={peekPlaces ? null : peekPhase}
+            onPin={pinFromPeek}
             root={active.root}
             tabId={active.id}
             onOpenFolder={rerootHere}
@@ -3759,7 +3895,7 @@ export default function App(): JSX.Element {
             dirtyPaths={dirtyPaths}
             onNav={onNav}
             refreshKey={refreshKey}
-            onOpenFile={openFromTree}
+            onOpenFile={openFromPeekableTree}
             // Renaming or binning the edited file (or a folder over it) would
             // silently drop the editor's unsaved text; those ask first too.
             onRename={(p, name) => void runRename(p, name, 'ask')}
@@ -3792,6 +3928,9 @@ export default function App(): JSX.Element {
                 }
                 placesVisible={isExplorerTab(active) ? placesVisible : false}
                 placesSliding={isExplorerTab(active) && panelSliding}
+                placesPeek={peekPlaces ? peekPhase : null}
+                onPinPlaces={pinFromPeek}
+                onPlacePicked={endPeek}
                 onOpenProject={isExplorerTab(active) ? openAsProject : undefined}
                 onOpenNewTab={openInNewTab}
                 searchState={browsing.searchState}
