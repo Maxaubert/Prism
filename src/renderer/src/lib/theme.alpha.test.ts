@@ -122,6 +122,24 @@ describe('Secondary has an alpha of its own, following Primary until moved (deci
   })
 })
 
+describe('a see-through Secondary over a solid window is measured as it is seen', () => {
+  // Review of #251: over an OPAQUE Primary the sidebar on screen is Secondary
+  // laid over Primary, which is knowable, so the inks and fills measured
+  // against the sidebar take that blend rather than the flat Secondary.
+  it('the side ground is the composite, and the inks are floored on it', () => {
+    const own: Style = { ...aurora, side: '#f0f0f040', sideOwn: true }
+    const seen = composite('#f0f0f040', aurora.bg)
+    const v = variablesFor(own)
+    expect(v['--p-side-flat']).toBe(seen)
+    expect(contrast(folderIconOf(own), seen)).toBeGreaterThanOrEqual(3 - 0.05)
+    // On glass the desktop behind is unknown: the flat colour stands.
+    expect(variablesFor({ ...glassy, side: '#f0f0f040', sideOwn: true })['--p-side-flat']).toBe('#f0f0f0')
+    // Six digits, or an own alpha of 100, are the flat colour as before.
+    expect(variablesFor({ ...aurora, side: '#f0f0f0', sideOwn: true })['--p-side-flat']).toBe('#f0f0f0')
+    expect(variablesFor({ ...aurora, side: '#f0f0f0ff', sideOwn: true })['--p-side-flat']).toBe('#f0f0f0')
+  })
+})
+
 describe('Text and Folder icons with an alpha are drawn composited and still read', () => {
   for (const s of STYLES) {
     it(`${s.id}`, () => {
@@ -262,6 +280,17 @@ describe('the Style page writes through the store', () => {
     // Its own alpha stays its own through a hue edit.
     theme.setSecondary('#40302080')
     expect(draftNow().side).toBe('#40302080')
+  })
+  it('Secondary at 100% on glass is a solid panel, kept even in the colour it already had', async () => {
+    // Review of #251: an own `ff` on an unchanged colour was read as the
+    // style's own colour put back (`isStylesOwn` compares stored forms, where
+    // `ff` drops), so the pick was thrown away and the panel stayed glass.
+    const theme = await import('./theme')
+    theme.setPrimary(theme.currentStyle().bg + '99')
+    const side = theme.sideOf(theme.currentStyle())
+    theme.setSecondary(side)
+    expect(draftNow().side).toBe(side + 'ff')
+    expect(theme.variablesFor(theme.currentStyle())['--p-side']).toMatch(/,1\)$/)
   })
   it('the accent: a colour edit keeps the alpha, an alpha edit keeps a scheme', async () => {
     const theme = await import('./theme')

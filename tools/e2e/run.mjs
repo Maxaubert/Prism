@@ -6918,6 +6918,23 @@ async function styleColoursScenario(fixtures) {
     ok(/^#[0-9a-f]{8}$/.test(own), `a moved alpha is its own, eight digits (${own})`)
     await fieldOf('c-chrome').click()
     await sleep(150)
+    // Its own 100 on glass, in the colour the style already had, is a solid
+    // panel kept as `ff` (review of #251: it was read as the style's own
+    // colour put back and thrown away, and the panel stayed glass).
+    await setDraft({ acrylic: 40 })
+    await sleep(250)
+    const styleSide = (await fieldOf('c-chrome').inputValue()).slice(0, 7)
+    await rowOf('c-chrome').locator('[data-colour-swatch]').click()
+    await pop.waitFor({ timeout: 5000 })
+    await slider('Alpha').focus()
+    await slider('Alpha').press('Shift+ArrowLeft')
+    for (let i = 0; i < 6; i++) await slider('Alpha').press('Shift+ArrowRight')
+    await sleep(200)
+    const solidSide = (await draft()).side ?? ''
+    ok(solidSide === styleSide + 'ff', `its own 100 on glass is kept as ff (${solidSide})`)
+    ok((await token('--p-side'))[3] === 1 && (await token('--p-bg'))[3] < 1, 'a solid panel on a see-through window')
+    await fieldOf('c-chrome').click()
+    await sleep(150)
 
     // Text at half alpha still reads at 4.5:1 on the panel.
     await setDraft({})

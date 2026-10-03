@@ -411,7 +411,7 @@ const ownAlpha = (c: string | undefined): number | null =>
  */
 function seenStyle(s: Style): Style {
   if (alphaOf(s.text) >= 1) return s
-  const grounds = [opaque(s.bg), sideOf(s)]
+  const grounds = [opaque(s.bg), sideGround(s)]
   const worst = (c: string): number => Math.min(...grounds.map((g) => contrast(c, g)))
   const picks = grounds.map((g) => legibleOn(s.text, g, 4.5))
   const text = picks.reduce((a, b) => (worst(b) > worst(a) ? b : a))
@@ -541,7 +541,7 @@ export function derive(input: Style): Record<string, string> {
     hi = light ? mix(hi, '#000000', 0.1) : mix(hi, '#ffffff', 0.1)
   }
 
-  const grounds = [...new Set([bg, sideOf(style), titleOf(style)].map((c) => c.toLowerCase()))]
+  const grounds = [...new Set([bg, sideGround(style), titleOf(style)].map((c) => c.toLowerCase()))]
   const selection = selectionFor(accent, alpha, grounds)
   // FILLS UNDER GLASS ARE FLATTENED (decision 5, owner 2026-10-03). On a
   // translucent style the ground behind a see-through fill is the desktop,
@@ -579,7 +579,7 @@ export function derive(input: Style): Record<string, string> {
     // style may colour apart from the viewer: a knockout mixed over the
     // viewer's ground would show there as a patch inside the icon.
     '--p-sel-knockout-side':
-      alpha >= 1 ? accent : (flat ?? composite(withAlpha(selection.fill, alpha), sideOf(style))),
+      alpha >= 1 ? accent : (flat ?? composite(withAlpha(selection.fill, alpha), sideGround(style))),
     // The selection as the eye gets it, opaque, on the viewer's ground: for
     // a knockout that has always painted --p-sel-bg (the browse list), so it
     // looks as it did at 100% and is not see-through below it.
@@ -737,8 +737,8 @@ export function variablesFor(input: Style, opaque = false): Record<string, strin
         : style.borders === 'faint'
           ? style.mode === 'light' ? 0.035 : 0.022
           : style.mode === 'light' ? 0.1 : 0.07
-  const flatSide =
-    ownSide ?? (style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg)
+  // As SEEN: a see-through panel over a solid window is the blend of the two.
+  const flatSide = sideGround(style)
   const edge = style.borders === 'none' ? 'transparent' : mix(flatSide, ink, dividerAlpha)
 
   // A hairline that exists whatever the style says about edges. Settings lists
@@ -836,6 +836,20 @@ export const sideOf = (s: Style): string =>
       ? mix(s.bg, paletteOf(s.accent)[0], 0.07)
       : s.bg
 
+/**
+ * The sidebar as the eye gets it, opaque: what every ink and fill on the panel
+ * is measured against. A panel with an alpha of its own over a SOLID window is
+ * that panel laid over the window, which is knowable, so it is the blend
+ * (review of #251). On glass the desktop behind is not, so it is the flat
+ * colour, as for every panel without an own alpha.
+ */
+export const sideGround = (s: Style): string => {
+  const a = s.sideOwn ? ownAlpha(s.side) : null
+  if (a === null || a >= 1 || s.material === 'acrylic' || s.material === 'mica') return sideOf(s)
+  const under = s.material === 'tinted' ? mix(s.bg, paletteOf(s.accent)[0], 0.07) : s.bg
+  return composite(s.side, opaque(under))
+}
+
 // The tree's inks measure against the SIDEBAR's own ground, not bg: they live
 // on the panel, and the panel can wear its own colour now (sideOwn). For every
 // style without one, sideOf is bg and nothing changes.
@@ -855,8 +869,8 @@ export const folderIconOf = (s: Style): string => {
   // A see-through pick is drawn as it looks on the panel, and never less
   // legible there than the same colour opaque (a mark's 3:1 floor, the core's
   // `legibleOn`). An opaque pick is drawn exactly as picked.
-  if (s.folderIcon) return alphaOf(s.folderIcon) < 1 ? legibleOn(s.folderIcon, sideOf(s), 3) : s.folderIcon
-  const ground = sideOf(s)
+  if (s.folderIcon) return alphaOf(s.folderIcon) < 1 ? legibleOn(s.folderIcon, sideGround(s), 3) : s.folderIcon
+  const ground = sideGround(s)
   let c = paletteOf(s.accent)[0]
   for (let i = 0; i < 14 && contrast(c, ground) < 3; i += 1) {
     c = s.mode === 'light' ? mix(c, '#000000', 0.1) : mix(c, '#ffffff', 0.1)
@@ -903,7 +917,7 @@ export const folderIconOf = (s: Style): string => {
  * background from one side of this to the other.
  */
 export const fileIconOf = (s: Style): string => {
-  const ground = sideOf(s)
+  const ground = sideGround(s)
   const dark = mix('#000000', ground, 0.14)
   return contrast('#ffffff', ground) >= contrast(dark, ground) ? '#ffffff' : dark
 }
@@ -921,7 +935,7 @@ export const zipInkOn = (bg: string): string =>
   contrast('#ffffff', bg) >= contrast('#0b0d12', bg) ? '#ffffff' : '#0b0d12'
 
 export const archiveIconOf = (s: Style): string => {
-  const ground = sideOf(s)
+  const ground = sideGround(s)
   let c = '#d9a53f'
   for (let i = 0; i < 14 && contrast(c, ground) < 3; i += 1) {
     c = s.mode === 'light' ? mix(c, '#000000', 0.1) : mix(c, '#ffffff', 0.1)
@@ -1400,7 +1414,19 @@ function commitDraft(next: Overrides): void {
 
 /** A colour role set on a draft, or cleared when it is the style's own. */
 function withColour(next: Overrides, role: 'bg' | 'chrome' | 'accent', value: string): Overrides {
-  const own = isStylesOwn(byId(current), role, value)
+  // A panel colour with an alpha of its own (eight digits, `ff` included) is
+  // judged on its spelling: `isStylesOwn` compares stored forms, where `ff`
+  // drops, so a solid panel on glass in the colour it already had read as the
+  // style's own put back and was thrown away (review of #251).
+  const base = byId(current)
+  const own =
+    role === 'chrome' && value.length === 9
+      ? [
+          base.sideOwn ? base.side : sideOf(base),
+          base.titleOwn ? base.title : titleOf(base),
+          base.tabsOwn && base.tabs ? base.tabs : tabsOf(base)
+        ].every((c) => c.toLowerCase() === value.toLowerCase())
+      : isStylesOwn(base, role, value)
   if (role === 'chrome') return withChrome(next, own ? null : value)
   if (own) delete next[role]
   else next[role] = value
