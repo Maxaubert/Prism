@@ -6520,6 +6520,236 @@ async function archiveScenario(fixtures) {
   }
 }
 
+/**
+ * THE SWEEP RECTANGLE AND ONE ROW SIZE (#257; owner, 2026-10-03: "let me
+ * highlight files by holding down left click ... that transparent quadrant",
+ * and "the rows are too big in explorer ... matching the ide sizing").
+ * Real pointer presses, in the tree and in the Explorer's list: a sweep from
+ * blank space marks what it covers live and leaves no rectangle behind; Ctrl
+ * adds; Escape puts back what was marked; a press on a name is still the
+ * file's drag. And the Explorer's row is MEASURED against the tree's.
+ */
+async function marqueeScenario(fixtures) {
+  console.log('sweep rectangle and row size')
+  const dir = join(fixtures, 'marquee')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const names = ['a1.txt', 'a2.txt', 'a3.txt', 'a4.txt', 'a5.txt', 'a6.txt', 'a7.txt', 'a8.txt']
+  for (const n of names) writeFileSync(join(dir, n), `sweep ${n}\n`)
+  const { app, win } = await launch(join(dir, 'a1.txt'))
+  /** Press, travel in steps, optionally do something mid-way, release. */
+  const sweep = async (from, to, { ctrl = false, mid } = {}) => {
+    if (ctrl) await win.keyboard.down('Control')
+    await win.mouse.move(from.x, from.y)
+    await win.mouse.down()
+    await win.mouse.move(to.x, to.y, { steps: 12 })
+    await sleep(120)
+    const during = mid ? await mid() : undefined
+    await win.mouse.up()
+    if (ctrl) await win.keyboard.up('Control')
+    await sleep(200)
+    return during
+  }
+  const band = (scope) => win.evaluate((s) => document.querySelectorAll(`${s} [data-sweep-band]`).length, scope)
+  try {
+    /* ---------- the tree ---------- */
+    await win.waitForSelector('aside [data-row]', { timeout: 10000 })
+    await sleep(500)
+    const treeRow = async (i) => {
+      const r = win.locator('aside [data-row]').nth(i)
+      return { box: await r.boundingBox(), path: await r.getAttribute('data-row') }
+    }
+    const treeMarked = () =>
+      win.evaluate(() =>
+        [...document.querySelectorAll('aside [data-row][data-selected]')].map((r) => /[^\\]*$/.exec(r.getAttribute('data-row') ?? '')?.[0])
+      )
+    const r0 = await treeRow(0)
+    const r2 = await treeRow(2)
+    const r4 = await treeRow(4)
+    const r5 = await treeRow(5)
+    const r6 = await treeRow(6)
+    const r7 = await treeRow(7)
+    ok(!!r0.box && !!r7.box, 'the tree shows the eight files')
+    const blankX = r0.box.x + r0.box.width - 12
+    // From the space under the last row, up to the third: a3..a8.
+    const treeMid = await sweep(
+      { x: blankX, y: r7.box.y + r7.box.height + 40 },
+      { x: r0.box.x + 30, y: r2.box.y + 6 },
+      {
+        mid: async () => {
+          await win.screenshot({ path: join(SHOTS, 'marquee-tree.png') })
+          return { band: await band('aside'), marked: await treeMarked() }
+        }
+      }
+    )
+    ok(treeMid.band === 1, `the tree draws the rectangle while sweeping (${treeMid.band})`)
+    ok(['a3.txt', 'a8.txt'].every((n) => treeMid.marked.includes(n)), `and marks rows live (${treeMid.marked})`)
+    ok((await band('aside')) === 0, 'the rectangle is gone after the release')
+    let marked = await treeMarked()
+    ok(
+      ['a3.txt', 'a4.txt', 'a5.txt', 'a6.txt', 'a7.txt', 'a8.txt'].every((n) => marked.includes(n)) && !marked.includes('a2.txt'),
+      `a sweep from the space under the rows marks what it covered (${marked})`
+    )
+    ok(!(await win.locator('.cm-editor').textContent().catch(() => '')).includes('sweep a8'), 'and opened nothing')
+    // Plain sweep from a row's blank space replaces: a5..a6.
+    await sweep({ x: blankX, y: r4.box.y + r4.box.height / 2 }, { x: blankX - 10, y: r5.box.y + r5.box.height / 2 })
+    marked = await treeMarked()
+    ok(marked.includes('a5.txt') && marked.includes('a6.txt') && !marked.includes('a8.txt'), `a plain sweep from a row's blank space replaces the marks (${marked})`)
+    // Ctrl adds: a7..a8 on top.
+    await sweep({ x: blankX, y: r6.box.y + r6.box.height / 2 }, { x: blankX - 10, y: r7.box.y + r7.box.height / 2 }, { ctrl: true })
+    marked = await treeMarked()
+    ok(['a5.txt', 'a6.txt', 'a7.txt', 'a8.txt'].every((n) => marked.includes(n)), `Ctrl+sweep adds to them (${marked})`)
+    // Escape mid-sweep puts them back.
+    const before = (await treeMarked()).sort().join()
+    const escMid = await sweep({ x: blankX, y: r7.box.y + r7.box.height + 30 }, { x: blankX - 20, y: r0.box.y + 4 }, {
+      mid: async () => {
+        const during = (await treeMarked()).length
+        await win.keyboard.press('Escape')
+        await sleep(150)
+        return { during, band: await band('aside') }
+      }
+    })
+    ok(escMid.during >= 8, `the sweep had marked every row (${escMid.during})`)
+    ok(escMid.band === 0, 'Escape takes the rectangle away at once')
+    ok((await treeMarked()).sort().join() === before, `and puts back what was marked (${await treeMarked()})`)
+    // A press on a NAME is the file's drag, never a sweep.
+    await win.evaluate(() => {
+      globalThis.__sweepDrag = 0
+      window.addEventListener('dragstart', () => (globalThis.__sweepDrag += 1), { once: true, capture: true })
+    })
+    const nameBox = await win.locator('aside [data-row]').nth(1).locator('span.truncate').boundingBox()
+    await win.mouse.move(nameBox.x + 6, nameBox.y + nameBox.height / 2)
+    await win.mouse.down()
+    await win.mouse.move(nameBox.x + 6, nameBox.y + 60, { steps: 10 })
+    await sleep(150)
+    const treeNameBand = await band('aside')
+    await win.mouse.up()
+    await sleep(300)
+    await win.keyboard.press('Escape')
+    ok(treeNameBand === 0, 'a press on a name never draws the rectangle')
+    ok((await win.evaluate(() => globalThis.__sweepDrag)) === 1, 'it starts the file drag instead')
+
+    // The tree's row, for the Explorer to be measured against.
+    const treeLook = await win.evaluate(() => {
+      const row = document.querySelector('aside [data-row]')
+      const icon = row?.querySelector('svg')
+      const cs = row ? getComputedStyle(row) : null
+      return { h: row?.getBoundingClientRect().height, font: cs?.fontSize, icon: icon?.getBoundingClientRect().height, gap: cs?.columnGap }
+    })
+
+    /* ---------- the Explorer ---------- */
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="marquee"]').dblclick()
+    ok(
+      await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 8, 10000),
+      'the Explorer walked into the folder of eight'
+    )
+    await sleep(400)
+    const list = win.locator('[data-testid="browse-list"]')
+    const rowAt = (i) => list.locator(`[data-browse-index="${i}"]`)
+    const exLook = await win.evaluate(() => {
+      const row = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path]')
+      const icon = row?.querySelector('.browse-name > svg')
+      const cs = row ? getComputedStyle(row) : null
+      const name = row?.querySelector('.browse-name')
+      return {
+        h: row?.getBoundingClientRect().height,
+        font: cs?.fontSize,
+        icon: icon?.getBoundingClientRect().height,
+        gap: name ? getComputedStyle(name).columnGap : null
+      }
+    })
+    ok(exLook.h === treeLook.h, `an Explorer row is the tree's height (${exLook.h} and ${treeLook.h})`)
+    ok(exLook.font === treeLook.font, `in the tree's text size (${exLook.font} and ${treeLook.font})`)
+    ok(exLook.icon === treeLook.icon, `with the tree's icon size (${exLook.icon} and ${treeLook.icon})`)
+    ok(exLook.gap === treeLook.gap, `and the tree's gap after it (${exLook.gap} and ${treeLook.gap})`)
+    await win.screenshot({ path: join(SHOTS, 'explorer-rows.png') })
+
+    const exMarked = () =>
+      win.evaluate(() =>
+        [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]')].map(
+          (r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0]
+        )
+      )
+    const listBox = await list.boundingBox()
+    const e0 = await rowAt(0).boundingBox()
+    const e2 = await rowAt(2).boundingBox()
+    const e7 = await rowAt(7).boundingBox()
+    ok(e7.y + e7.height + 60 < listBox.y + listBox.height, 'there is blank space under the rows')
+    const exMid = await sweep(
+      { x: listBox.x + listBox.width * 0.6, y: e7.y + e7.height + 40 },
+      { x: e0.x + 40, y: e2.y + 6 },
+      {
+        mid: async () => {
+          await win.screenshot({ path: join(SHOTS, 'marquee-explorer.png') })
+          return { band: await band('[data-testid="browse-list"]'), marked: await exMarked() }
+        }
+      }
+    )
+    ok(exMid.band === 1, `the Explorer draws the rectangle while sweeping (${exMid.band})`)
+    ok(exMid.marked.length === 6, `and marks rows live (${exMid.marked})`)
+    ok((await band('[data-testid="browse-list"]')) === 0, 'the rectangle is gone after the release')
+    let ex = await exMarked()
+    ok(ex.sort().join() === 'a3.txt,a4.txt,a5.txt,a6.txt,a7.txt,a8.txt', `a sweep from the space under the rows marks what it covered (${ex})`)
+    ok(/6 selected/.test((await win.locator('.browse-status').textContent()) ?? ''), 'and the status line counts them')
+    // Selecting a file opened the preview pane beside the list, which made
+    // the list narrower: every point after this is measured again.
+    await sleep(400)
+    const box2 = await list.boundingBox()
+    const f0 = await rowAt(0).boundingBox()
+    const f3 = await rowAt(3).boundingBox()
+    const f4 = await rowAt(4).boundingBox()
+    const f7 = await rowAt(7).boundingBox()
+    const exBlank = f0.x + f0.width - 30
+    // A plain click on a row's blank space, without moving, is still a click.
+    await win.mouse.click(exBlank, f0.y + f0.height / 2)
+    await sleep(250)
+    ex = await exMarked()
+    ok(ex.join() === 'a1.txt', `a plain click on a row's blank space selects that row alone (${ex})`)
+    // Ctrl adds: a4..a5 swept from a row's blank space.
+    await sweep({ x: exBlank, y: f3.y + f3.height / 2 }, { x: exBlank - 10, y: f4.y + f4.height / 2 }, { ctrl: true })
+    ex = await exMarked()
+    ok(ex.sort().join() === 'a1.txt,a4.txt,a5.txt', `Ctrl+sweep adds to what was marked (${ex})`)
+    // Escape restores.
+    const exEsc = await sweep({ x: box2.x + box2.width * 0.6, y: f7.y + f7.height + 40 }, { x: exBlank, y: f0.y + 4 }, {
+      mid: async () => {
+        const during = (await exMarked()).length
+        await win.keyboard.press('Escape')
+        await sleep(150)
+        return { during, band: await band('[data-testid="browse-list"]') }
+      }
+    })
+    ok(exEsc.during === 8, `the sweep had marked every row (${exEsc.during})`)
+    ok(exEsc.band === 0, 'Escape takes the rectangle away at once')
+    ex = await exMarked()
+    ok(ex.sort().join() === 'a1.txt,a4.txt,a5.txt', `and puts back what was marked (${ex})`)
+    // A press on a file's name drags the file.
+    await win.evaluate(() => {
+      globalThis.__sweepDrag = 0
+      window.addEventListener('dragstart', () => (globalThis.__sweepDrag += 1), { once: true, capture: true })
+    })
+    const exName = await rowAt(1).locator('.browse-name-text').boundingBox()
+    await win.mouse.move(exName.x + 6, exName.y + exName.height / 2)
+    await win.mouse.down()
+    await win.mouse.move(exName.x + 6, exName.y + 80, { steps: 10 })
+    await sleep(150)
+    const exNameBand = await band('[data-testid="browse-list"]')
+    await win.mouse.up()
+    await sleep(300)
+    await win.keyboard.press('Escape')
+    ok(exNameBand === 0, 'a press on a name never draws the rectangle')
+    ok((await win.evaluate(() => globalThis.__sweepDrag)) === 1, 'it starts the file drag instead')
+    // No button held, no rectangle: the failure that took the old sweep away.
+    await win.mouse.move(box2.x + 50, f7.y + f7.height + 40)
+    await win.mouse.move(box2.x + 80, f0.y + 4, { steps: 8 })
+    ok((await band('[data-testid="browse-list"]')) === 0, 'moving with no button held draws nothing')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function selectionScenario(fixtures) {
   console.log('explorer selection')
   // 2026-08-22: the tree keeps its quick-look single click; shift and ctrl
@@ -6653,8 +6883,12 @@ async function dragScenario(fixtures) {
         !!overInto && overInto.bg !== 'rgba(0, 0, 0, 0)' && overInto.bg !== 'transparent',
         `the marked folder is filled (${overInto?.bg})`
       )
+      // Every drag here is taken by the row's NAME: since the sweep (#257) a
+      // press on a row's blank space draws the rectangle, as in Explorer, and
+      // a locator's centre is that blank space on a wide row.
       await win
         .locator('[role="treeitem"]:has-text("movable.txt")')
+        .locator('span.truncate')
         .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
       await win.waitForFunction(
         () => !/movable\.txt/.test(document.querySelector('aside')?.textContent ?? ''),
@@ -6732,6 +6966,7 @@ async function dragScenario(fixtures) {
       await sleep(400)
       await win
         .locator('[role="treeitem"]:has-text("movable.txt")')
+        .locator('span.truncate')
         .dragTo(win.locator('[role="treeitem"]:has-text("anchor.txt")').first())
       await sleep(1400)
       ok(existsSync(join(box, 'movable.txt')), 'dropping on a FILE moves into that folder')
@@ -6762,6 +6997,7 @@ async function dragScenario(fixtures) {
       const before = await win.evaluate(() => document.querySelector('video')?.currentTime ?? 0)
       await win
         .locator('[role="treeitem"]:has-text("watching.mp4")')
+        .locator('span.truncate')
         .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
       let followed = true
       await win
@@ -6808,6 +7044,7 @@ async function dragScenario(fixtures) {
       ok(sidecar, 'the Dolby sound is on through the sidecar decoder')
       await win
         .locator('[role="treeitem"]:has-text("dolby-watching.mkv")')
+        .locator('span.truncate')
         .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
       let followed = true
       await win
@@ -6852,6 +7089,7 @@ async function dragScenario(fixtures) {
       await win
         .locator('aside [role="treeitem"]:has-text("out")')
         .first()
+        .locator('span.truncate')
         .dragTo(win.locator('[role="tablist"]'), {
           targetPosition: { x: strip.width - 40, y: strip.height / 2 }
         })
@@ -6869,6 +7107,7 @@ async function dragScenario(fixtures) {
       await win
         .locator('aside [role="treeitem"]:has-text("dragzip.zip")')
         .first()
+        .locator('span.truncate')
         .dragTo(win.locator('body'), {
           targetPosition: { x: viewer.width - 220, y: viewer.height / 2 }
         })
@@ -8875,6 +9114,7 @@ await run(searchQueryScenario)
 await run(videoMenuScenario)
 await run(selectionScenario)
 await run(dragScenario)
+await run(marqueeScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
 await run(phoneDocsScenario)

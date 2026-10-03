@@ -84,6 +84,10 @@ export interface FolderBrowserProps {
   onCut?: (entry: BrowseEntry) => void
   onPaste?: (directory: string) => void
   onDelete?: (entry: BrowseEntry) => void
+  /** Several rows marked (a sweep or a Ctrl click, #257): copy or cut them all. */
+  onCopyPaths?: (paths: string[], cut: boolean) => void
+  /** Several rows marked: one question for all of them, the tree's. */
+  onDeleteMany?: (paths: string[]) => void
   onRefresh?: () => void
   onDropInto?: (directory: string, payload: DragPayload) => void
 }

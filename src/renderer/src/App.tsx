@@ -3819,6 +3819,8 @@ export default function App(): JSX.Element {
                 onNewTerminal={termTabAt}
                 onCopy={(entry) => void copyFilePaths([entry.path])}
                 onCut={(entry) => void copyFilePaths([entry.path], true)}
+                onCopyPaths={(paths, cut) => void copyFilePaths(paths, cut)}
+                onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
                 onPaste={(directory) => void pasteFiles(directory)}
                 onRename={(entry) => setBrowseRename(entry)}
                 onDelete={(entry) =>

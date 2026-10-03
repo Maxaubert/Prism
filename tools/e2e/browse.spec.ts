@@ -2250,7 +2250,10 @@ test('promoted projects keep Explorer controls absent in file, full terminal, sp
     const nestedRow = page
       .getByRole('treeitem')
       .filter({ has: page.getByText('Nested', { exact: true }) })
-    await nestedRow.dragTo(page.getByText('No file selected', { exact: true }))
+    // By its name: a press on a row's blank space sweeps since #257.
+    await nestedRow
+      .getByText('Nested', { exact: true })
+      .dragTo(page.getByText('No file selected', { exact: true }))
     await expect(page.getByRole('tab', { selected: true })).toHaveAttribute('title', h.nested)
     await expectNoExplorerControls(page)
     await expect(page.getByRole('tree')).toContainText('inside.txt')

@@ -484,6 +484,19 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   outside the rows at all, CLEARS the marks in both surfaces: highlighting says
   "these are what I am about to act on", so it must not outlive walking away from
   them. What stays marked is the OPEN file, which is marked for being open.
+  THE SWEEP CAME BACK FOR THE TREE AND THE EXPLORER (#257; owner, 2026-10-03: "let me
+  highlight files by holding down left click ... that transparent quadrant"). Built ONCE
+  (`hooks/useSweep.ts`, pure half `lib/marquee.ts`): a press on a row's BLANK space (right of
+  its name, other columns included) or under the rows draws the rectangle; a press on a
+  chevron, icon or name is still the row's click and drag. Plain replaces, Ctrl adds, Escape
+  puts back, auto-scroll at the edges. Rows are hit by INDEX (both lists are virtual). It
+  cannot outlive a drag: it starts only from a real left press, ends on up, cancel, blur,
+  Escape or any move with the button up, and switches the row's `draggable` off for the
+  press. The Explorer gained MULTI-SELECT with it (Ctrl and Shift clicks too; Copy, Cut,
+  Delete and a drag act on all; Open, Rename and More act on one and are off). The
+  Explorer's rows ARE the tree's rows: `rowLook()` in `treePrefs` (height and text size from
+  the tree size setting, icon, gap, padding). The `marquee` e2e measures both; a drag in a
+  test is taken by the row's NAME, since a locator's centre is blank space.
   ARRIVING NEVER SELECTS (2026-09-22, owner: "no file should be selected when I haven't
   clicked any ... either because I clicked it or it's the current file displaying, or I've
   navigated onto it with the arrow keys"). In the Explorer, walking into a folder by a sidebar

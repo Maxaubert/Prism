@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type JSX, type RefObject } from 'react'
 import type { FileKind, ViewerFile } from '@shared/types'
 import { treeWindow, type PaintRow } from '../lib/treePaint'
-import type { TREE_SIZES } from '../lib/treePrefs'
+import { ROW_GAP, ROW_ICON, ROW_PAD_X, type TREE_SIZES } from '../lib/treePrefs'
+import { bandBox, type Band } from '../lib/marquee'
 import { useTree } from '../lib/treeContext'
 import { dragIncludesPath } from '../lib/dragDrop'
 import {
@@ -151,7 +152,7 @@ export function KindIcon({
   color,
   ext,
   name,
-  size = 14,
+  size = ROW_ICON,
   bg = 'var(--p-side-flat)',
   selected = false
 }: {
@@ -350,7 +351,7 @@ export function KindIcon({
 
 export function FolderIcon({ color }: { color: string }): JSX.Element {
   return (
-    <svg viewBox="0 0 24 24" width={14} height={14} fill={color} className="shrink-0" aria-hidden>
+    <svg viewBox="0 0 24 24" width={ROW_ICON} height={ROW_ICON} fill={color} className="shrink-0" aria-hidden>
       <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
     </svg>
   )
@@ -561,7 +562,7 @@ function FolderRow({ path, name, depth }: { path: string; name: string; depth: n
           t.onDelete(path, name, true)
         }
       }}
-      className={`relative flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none focus-visible:outline-none ${
+      className={`relative flex w-full items-center rounded-[var(--p-radius-sm)] text-left outline-none focus-visible:outline-none ${
         // The folder a drag hovers is MARKED, in the grey the menu's
         // target wears, not ringed in the accent (2026-09-14, #140):
         // the accent means selected, and a drop destination is not.
@@ -576,6 +577,8 @@ function FolderRow({ path, name, depth }: { path: string; name: string; depth: n
       style={{
         height: t.size.row,
         paddingLeft: pad,
+        paddingRight: ROW_PAD_X,
+        gap: ROW_GAP,
         fontSize: t.size.font,
         // A cut row is half gone already, and looks it (Explorer's cue).
         opacity: t.cut.has(path.toLowerCase()) ? 0.45 : undefined,
@@ -696,7 +699,7 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
             t.onDelete(f.path, f.name, false)
           }
         }}
-        className={`relative flex w-full items-center gap-1.5 rounded-md pr-2 text-left outline-none focus-visible:outline-none ${
+        className={`relative flex w-full items-center rounded-md text-left outline-none focus-visible:outline-none ${
           onSel
             ? `bg-[var(--p-sel-bg)] text-[var(--p-on-accent)] ${unsaved ? 'font-bold' : 'font-medium'}`
             : onMenuHl
@@ -708,6 +711,8 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
         style={{
           height: t.size.row,
           paddingLeft: pad + 19,
+          paddingRight: ROW_PAD_X,
+          gap: ROW_GAP,
           fontSize: t.size.font,
           // A cut row is half gone already, and looks it (Explorer's cue).
           opacity: t.cut.has(f.path.toLowerCase()) ? 0.45 : undefined,
@@ -734,6 +739,38 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
 }
 
 /**
+ * The sweep rectangle (#257): the accent at a low strength with a thin light
+ * edge, Explorer's look in this app's colours. `color-mix` against transparent
+ * keeps an accent that is itself see-through see-through. Never animated: it
+ * is where the pointer is, and nothing else.
+ */
+export function SweepBand({ band, as = 'li' }: { band: Band; as?: 'li' | 'div' }): JSX.Element {
+  const box = bandBox(band)
+  const style: CSSProperties = {
+    left: box.left,
+    top: box.top,
+    width: box.width,
+    height: box.height,
+    background: 'color-mix(in srgb, var(--p-accent) 16%, transparent)',
+    // The edge is the accent pulled toward the text colour: the rows it
+    // crosses turn accent as they are marked, and a pure accent edge vanished
+    // into them (MEASURED in the first screenshot, #257).
+    border: '1px solid color-mix(in srgb, var(--p-accent-hi) 45%, var(--p-text))',
+    borderRadius: 2
+  }
+  const Tag = as
+  return (
+    <Tag
+      role={as === 'li' ? 'none' : undefined}
+      aria-hidden
+      data-sweep-band
+      className="pointer-events-none absolute z-20"
+      style={style}
+    />
+  )
+}
+
+/**
  * THE TREE, DRAWN A WINDOW AT A TIME (2026-09-28; owner: "it takes like 3
  * seconds for it to react ... it should never load folders, they should always
  * be there"). MEASURED before: 47,816 rows in the page with Temp open, and a
@@ -748,10 +785,13 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
  */
 export function TreeWindow({
   rows,
-  scroller
+  scroller,
+  band = null
 }: {
   rows: readonly PaintRow[]
   scroller: RefObject<HTMLDivElement | null>
+  /** The sweep rectangle (#257), in this list's own coordinates. */
+  band?: Band | null
 }): JSX.Element {
   const t = useTree()
   const list = useRef<HTMLUListElement>(null)
@@ -837,6 +877,7 @@ export function TreeWindow({
           </li>
         )
       })}
+      {band && <SweepBand band={band} />}
       {/* The space beneath the list means the root (#126): the line goes
           under the last row, since the root has no row of its own. */}
       {t.dropRow === 'end' && rows.length > 0 && (

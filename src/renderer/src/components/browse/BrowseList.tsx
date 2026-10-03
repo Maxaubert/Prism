@@ -1,11 +1,23 @@
-import { useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react'
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type JSX,
+  type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent
+} from 'react'
 import { formatBytes, formatWhen } from '../../lib/format'
 import { folderSizeCoverage, folderSizeLabel } from '../../lib/folderSize'
 import { typeLabel } from '../../lib/typeLabel'
 import { browseParent } from '../../lib/browse'
 import { useFileCut } from '../../lib/fileClipboard'
 import { DRAG_MIME, setDrag } from '../../lib/dragDrop'
-import { FolderIcon, KindIcon, iconColour } from '../TreeRows'
+import { FolderIcon, KindIcon, SweepBand, iconColour } from '../TreeRows'
+import { rowLook, useTreeSize } from '../../lib/treePrefs'
+import { bandBox, inAnyRect, nearestRow, rowsInBand } from '../../lib/marquee'
+import { useSweep } from '../../hooks/useSweep'
 import { BrowseIcon } from './BrowseIcon'
 import { useFolderDrop } from './useFolderDrop'
 import type { BrowseEntry, BrowseSort, FolderBrowserProps } from './types'
@@ -49,13 +61,23 @@ type Props = Pick<
   message: string | null
   loading: boolean
   onVisibleFolders?: (paths: string[]) => void
+  /** Every marked row (the selection plus a sweep's or a Ctrl click's), or
+   *  null when the one `selectedPath` is the whole selection. */
+  marked?: ReadonlySet<string> | null
+  /** A click that carries Ctrl or Shift: FolderBrowser builds the selection. */
+  onPick?: (entry: BrowseEntry, mods: { ctrl: boolean; shift: boolean }) => void
+  /** A sweep let go with the rectangle up: these rows, the keyboard on `near`.
+   *  `add` is a Ctrl sweep, which keeps what was marked before it. */
+  onSweep?: (paths: string[], near: string | null, add: boolean) => void
 }
 
 export function BrowseList(props: Props): JSX.Element {
   const cut = useFileCut()
   const folderDrop = useFolderDrop(props.loading ? undefined : props.onDropInto)
   const searching = !!props.query.trim()
-  const rowHeight = 40
+  // The tree's row (#257): one definition, both lists.
+  const look = rowLook(useTreeSize())
+  const rowHeight = look.height
   const scroller = useRef<HTMLDivElement>(null)
   const columnScroller = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState(600)
@@ -97,6 +119,102 @@ export function BrowseList(props: Props): JSX.Element {
   const rendered = Array.from({ length: Math.max(0, end - first) }, (_, index) =>
     rowAt(first + index)
   )
+  /**
+   * THE SWEEP (#257). From the list's blank space (under the rows, or a row
+   * to the right of its name, the other columns included) a drag draws the
+   * rectangle and marks every row it touches, live. A press on a row's icon
+   * or name is still the file's own drag, so a file still drags out to other
+   * apps. Rows are found by index, never by element: only the rows in view
+   * exist, and a row scrolled away under the rectangle is still in it.
+   */
+  const [sweeping, setSweeping] = useState<{ paths: string[]; add: boolean } | null>(null)
+  const sweepAdd = useRef(false)
+  const geometry = useRef({ count, spaceHeight, height, scale, rowHeight })
+  const rowAtRef = useRef(rowAt)
+  // Mirrored after render (refs are not written while rendering); the sweep
+  // reads them from pointer events, which only come after.
+  useLayoutEffect(() => {
+    geometry.current = { count, spaceHeight, height, scale, rowHeight }
+    rowAtRef.current = rowAt
+  })
+  /** The list's top, in row coordinates, for a scroll position: the rule the
+   *  render uses, so the rectangle and the rows agree when the list is huge. */
+  const logicalTopAt = (top: number): number => {
+    const g = geometry.current
+    return top >= g.spaceHeight - g.height - 1
+      ? Math.max(0, g.count * g.rowHeight - g.height)
+      : top * g.scale
+  }
+  const sweep = useSweep({
+    scroller: () => scroller.current,
+    toList: (x, y) => {
+      const node = scroller.current
+      if (!node) return { x: 0, y: 0 }
+      const r = node.getBoundingClientRect()
+      const g = geometry.current
+      return {
+        x: Math.min(node.scrollWidth, Math.max(0, x - r.left + node.scrollLeft)),
+        y: Math.max(0, Math.min(Math.max(g.count * g.rowHeight, g.height), logicalTopAt(node.scrollTop) + y - r.top))
+      }
+    },
+    hitsBetween: (top, bottom, py) => {
+      const g = geometry.current
+      const span = rowsInBand(top, bottom, g.rowHeight, g.count)
+      if (!span) return { paths: [], near: null }
+      const paths: string[] = []
+      for (let i = span.first; i <= span.last; i++) {
+        const entry = rowAtRef.current(i)
+        if (entry) paths.push(entry.path)
+      }
+      const near = rowAtRef.current(nearestRow(py, g.rowHeight, span.first, span.last))
+      return { paths, near: near?.path ?? paths[paths.length - 1] ?? null }
+    },
+    scrollBy: (dy) => {
+      const node = scroller.current
+      if (!node) return
+      node.scrollTop += dy / geometry.current.scale
+    },
+    onChange: (paths) => setSweeping({ paths, add: sweepAdd.current }),
+    onEnd: (paths, near) => {
+      setSweeping(null)
+      props.onSweep?.(paths, near, sweepAdd.current)
+    },
+    onCancel: () => setSweeping(null)
+  })
+  const onListPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (e.button !== 0 || props.loading || props.message || !props.onSweep) return
+    const el = e.target as HTMLElement
+    const row = el.closest<HTMLElement>('.browse-row')
+    if (row) {
+      // The icon and the name are the file's: they drag it, as before.
+      const name = row.querySelectorAll('.browse-name > svg, .browse-name-text')
+      if (inAnyRect(e.clientX, e.clientY, [...name].map((n) => n.getBoundingClientRect())))
+        return
+    }
+    sweepAdd.current = e.ctrlKey
+    sweep.begin(e, row)
+  }
+  /** What reads as marked: the sweep in progress (plus, for Ctrl, what was
+   *  marked before it), else the selection FolderBrowser holds. */
+  const shownMarks: ReadonlySet<string> | null = sweeping
+    ? new Set([
+        ...(sweeping.add ? (props.marked ?? (props.selectedPath ? [props.selectedPath] : [])) : []),
+        ...sweeping.paths
+      ])
+    : (props.marked ?? null)
+  const isMarked = (path: string): boolean =>
+    shownMarks ? shownMarks.has(path) : path === props.selectedPath
+  const bandStyle = (() => {
+    if (!sweep.band) return null
+    // Row coordinates to the scroll box's own: the rows sit at
+    // scrollTop + (y - logicalTop). Clamped to what is in view, so a sweep
+    // across a hundred thousand rows is still one small element.
+    const b = bandBox(sweep.band)
+    const top = props.scrollTop + b.top - logicalTop
+    const lo = Math.max(top, props.scrollTop - 2)
+    const hi = Math.min(top + b.height, props.scrollTop + height + 2)
+    return { x0: b.left, x1: b.left + b.width, y0: lo, y1: Math.max(lo, hi) }
+  })()
   const onVisibleFolders = props.onVisibleFolders
   const onSearchRange = props.onSearchRange
   const indexed = !!props.indexedRows
@@ -111,10 +229,10 @@ export function BrowseList(props: Props): JSX.Element {
     }
     node.addEventListener('wheel', wheel, { passive: false })
     return () => node.removeEventListener('wheel', wheel)
-  }, [scale, height])
+  }, [scale, height, rowHeight])
   useLayoutEffect(() => {
     if (indexed) onSearchRange?.(Math.floor(logicalTop / rowHeight))
-  }, [indexed, logicalTop, onSearchRange])
+  }, [indexed, logicalTop, onSearchRange, rowHeight])
   useLayoutEffect(() => {
     const top = Math.floor(logicalTop / rowHeight)
     const visibleCount = Math.ceil(height / rowHeight) + 1
@@ -126,7 +244,7 @@ export function BrowseList(props: Props): JSX.Element {
             .filter((entry) => entry.isFolder)
             .map((entry) => entry.path)
     )
-  }, [props.entries, logicalTop, height, onVisibleFolders, indexed])
+  }, [props.entries, logicalTop, height, onVisibleFolders, indexed, rowHeight])
   const onSelect = props.onSelect
   const onScroll = props.onScroll
   const scrollTop = props.scrollTop
@@ -164,7 +282,7 @@ export function BrowseList(props: Props): JSX.Element {
         .querySelector<HTMLElement>(`[data-browse-index="${index}"]`)
         ?.focus({ preventScroll: true })
     )
-  }, [props.indexedRows, props.entries, onSelect, onScroll, onSearchRange, count, scale, scrollTop, height])
+  }, [props.indexedRows, props.entries, onSelect, onScroll, onSearchRange, count, scale, scrollTop, height, rowHeight])
   useLayoutEffect(() => {
     pendingFocus.current = null
     selectionPosition.current = { path: '', index: -1 }
@@ -258,7 +376,19 @@ export function BrowseList(props: Props): JSX.Element {
   }
 
   return (
-    <div className="browse-list-area" data-searching={searching || undefined}>
+    <div
+      className="browse-list-area"
+      data-searching={searching || undefined}
+      style={
+        {
+          '--browse-row-h': `${look.height}px`,
+          '--browse-row-font': `${look.font}px`,
+          '--browse-row-icon': `${look.icon}px`,
+          '--browse-row-gap': `${look.gap}px`,
+          '--browse-row-pad': `${look.padX}px`
+        } as CSSProperties
+      }
+    >
       <div
         className="browse-column-viewport"
         ref={columnScroller}
@@ -309,6 +439,7 @@ export function BrowseList(props: Props): JSX.Element {
         data-testid="browse-list"
         {...folderDrop(props.directory, 'list')}
         onKeyDown={onKeyDown}
+        onPointerDown={onListPointerDown}
         onScroll={(e) => {
           if (
             columnScroller.current &&
@@ -352,7 +483,8 @@ export function BrowseList(props: Props): JSX.Element {
                       </span>
                     </div>
                   )
-                const selected = entry.path === props.selectedPath
+                const primary = entry.path === props.selectedPath
+                const selected = isMarked(entry.path)
                 const highlighted = selected || entry.path === props.menuPath
                 return (
                   <button
@@ -361,7 +493,7 @@ export function BrowseList(props: Props): JSX.Element {
                     aria-selected={selected}
                     aria-posinset={first + offset + 1}
                     aria-setsize={count}
-                    tabIndex={selected ? 0 : -1}
+                    tabIndex={primary ? 0 : -1}
                     className="browse-row"
                     data-cut={cut.has(entry.path.toLowerCase()) || undefined}
                     aria-description={cut.has(entry.path.toLowerCase()) ? 'Cut' : undefined}
@@ -376,13 +508,23 @@ export function BrowseList(props: Props): JSX.Element {
                       entry.path
                     )}
                     onDragStart={(event) => {
-                      setDrag({ kind: 'files', paths: [entry.path] })
+                      // A row inside a multi-selection carries all of it,
+                      // the tree's rule.
+                      const all = props.marked
+                      setDrag({
+                        kind: 'files',
+                        paths: all && all.size > 1 && all.has(entry.path) ? [...all] : [entry.path]
+                      })
                       event.dataTransfer.effectAllowed = 'copyMove'
                       event.dataTransfer.setData(DRAG_MIME, 'files')
                     }}
                     onDragEnd={() => setDrag(null)}
                     title={searching ? entry.path : entry.name}
-                    onClick={() => props.onSelect(entry.path)}
+                    onClick={(e: ReactMouseEvent) => {
+                      if ((e.ctrlKey || e.shiftKey) && props.onPick)
+                        props.onPick(entry, { ctrl: e.ctrlKey, shift: e.shiftKey })
+                      else props.onSelect(entry.path)
+                    }}
                     onDoubleClick={() => props.onActivate(entry)}
                     onContextMenu={(e) => {
                       if (props.onContextMenu) {
@@ -403,7 +545,7 @@ export function BrowseList(props: Props): JSX.Element {
                             name={entry.name}
                             color={highlighted ? 'currentColor' : iconColour(entry.file.kind)}
                             selected={highlighted}
-                            size={18}
+                            size={look.icon}
                             bg={highlighted ? 'var(--p-sel-bg)' : 'var(--p-bg)'}
                           />
                         )
@@ -442,6 +584,7 @@ export function BrowseList(props: Props): JSX.Element {
             </div>
           </div>
         )}
+        {bandStyle && <SweepBand band={bandStyle} as="div" />}
       </div>
     </div>
   )

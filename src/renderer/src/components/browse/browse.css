@@ -340,20 +340,24 @@ body[data-internal-file-drag] .browse-search:focus-within {
   border-radius: 3px;
   color: var(--p-text);
 }
+/* The rows are the project tree's rows (#257): height, text size, icon, the
+   gap after it and the side padding all come from rowLook() in treePrefs, set
+   on .browse-list-area as --browse-row-*. The columns narrowed with the text;
+   the header sits a few pixels taller than a row, in the same text size. */
 .browse-columns,
 .browse-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 150px 90px 160px;
+  grid-template-columns: minmax(160px, 1fr) 128px 76px 136px;
   align-items: center;
-  column-gap: 16px;
-  padding: 0 16px;
+  column-gap: 12px;
+  padding: 0 var(--browse-row-pad, 8px);
 }
 .browse-columns {
   flex-shrink: 0;
-  height: 36px;
+  height: calc(var(--browse-row-h, 26px) + 6px);
   border-bottom: 1px solid var(--p-divider);
   color: var(--p-dim);
-  font-size: 13px;
+  font-size: var(--browse-row-font, 12.5px);
 }
 .browse-column-viewport {
   overflow: hidden;
@@ -363,7 +367,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
+  height: 100%;
   text-align: left;
   white-space: nowrap;
 }
@@ -382,20 +386,29 @@ body[data-internal-file-drag] .browse-search:focus-within {
   transform: rotate(180deg);
 }
 .browse-list {
+  /* The sweep rectangle is drawn inside it, in its scroll coordinates. */
+  position: relative;
   min-height: 0;
   overflow: auto;
   flex: 1;
   scrollbar-gutter: stable;
   outline: none;
 }
+.browse-list[data-sweeping] {
+  user-select: none;
+}
 .browse-row-space {
   min-height: 100%;
 }
 .browse-row {
   width: 100%;
-  height: 40px;
+  height: var(--browse-row-h, 26px);
   text-align: left;
   color: var(--p-text-soft);
+}
+/* Two classes deep, or the browser-wide "button: font inherit" above wins. */
+.folder-browser .browse-row {
+  font-size: var(--browse-row-font, 12.5px);
 }
 .browse-row[data-striped] {
   background: color-mix(in srgb, var(--p-text) 2%, transparent);
@@ -408,7 +421,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
 .browse-name {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--browse-row-gap, 6px);
   color: var(--p-text);
 }
 .browse-name > span {
@@ -429,14 +442,13 @@ body[data-internal-file-drag] .browse-search:focus-within {
 }
 .browse-result-location {
   color: var(--p-dim);
-  font-size: 13px;
 }
 .browse-row:is([data-selected], [data-menu]) .browse-result-location {
   color: inherit;
 }
 .browse-name > svg {
-  width: 18px;
-  height: 18px;
+  width: var(--browse-row-icon, 14px);
+  height: var(--browse-row-icon, 14px);
 }
 .browse-row[data-cut] .browse-name > svg {
   opacity: 0.45;
@@ -446,7 +458,6 @@ body[data-internal-file-drag] .browse-search:focus-within {
 .browse-row .browse-column-size,
 .browse-row .browse-column-modified {
   color: var(--p-dim);
-  font-size: 13px;
 }
 .folder-browser .browse-row[data-selected],
 .folder-browser .browse-row[data-selected]:hover {
@@ -502,7 +513,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
   }
   .browse-columns,
   .browse-row {
-    grid-template-columns: minmax(120px, 1fr) 130px 80px;
+    grid-template-columns: minmax(120px, 1fr) 116px 72px;
   }
 }
 @container (max-width: 510px) {
@@ -511,7 +522,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
   }
   .browse-columns,
   .browse-row {
-    grid-template-columns: minmax(110px, 1fr) 80px;
+    grid-template-columns: minmax(110px, 1fr) 72px;
     column-gap: 10px;
   }
 }
@@ -568,7 +579,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
 
 /* Search keeps the regular row height and dedicates the middle column to location. */
 .browse-list-area[data-searching] :is(.browse-columns, .browse-row) {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 90px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px;
 }
 .browse-list-area[data-searching] :is(.browse-columns, .browse-row-space) {
   min-width: 470px;
