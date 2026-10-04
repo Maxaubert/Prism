@@ -853,8 +853,23 @@ interface WindowState {
 
 const WINDOW_STATE = (): string => join(app.getPath('userData'), 'window-state.json')
 
+/** THE FIRST WINDOW (owner, 2026-10-04, of his own window, saved as 1164 x
+ *  698: "make this the default window size of prism or around this size ...
+ *  the default being what it defaults to when the user has never adjusted the
+ *  window size"). It was 1180 x 780. Centred by Electron, since no position is
+ *  given, and held to 90% of the work area so a small screen still fits it. */
+const FIRST_WINDOW = { width: 1164, height: 698 }
+
+function firstWindow(): WindowState {
+  const area = screen.getPrimaryDisplay().workAreaSize
+  return {
+    width: Math.max(560, Math.min(FIRST_WINDOW.width, Math.round(area.width * 0.9))),
+    height: Math.max(400, Math.min(FIRST_WINDOW.height, Math.round(area.height * 0.9)))
+  }
+}
+
 function readWindowState(): WindowState {
-  const fallback: WindowState = { width: 1180, height: 780 }
+  const fallback = firstWindow()
   try {
     const saved = JSON.parse(readFileSync(WINDOW_STATE(), 'utf8')) as WindowState
     if (!Number.isFinite(saved.width) || !Number.isFinite(saved.height)) return fallback
