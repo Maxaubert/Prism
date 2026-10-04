@@ -4039,7 +4039,7 @@ export default function App(): JSX.Element {
                 onOpen={(file) => void browsing.openFile(file)}
                 menuPath={browseMenu?.entry.path}
                 onScroll={(scrollTop) => browsing.patch({ scrollTop })}
-                onQueryChange={(query) => browsing.patch({ query, scrollTop: 0 })}
+                onQueryChange={browsing.searchFor}
                 onSortChange={(sort) => browsing.patch({ sort, scrollTop: 0 })}
                 onNewTerminal={termTabAt}
                 onCopy={(entry) => void copyFilePaths([entry.path])}
