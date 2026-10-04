@@ -5201,6 +5201,140 @@ async function titleBarScenario(fixtures) {
   }
 }
 
+async function moreMenuScenario(fixtures) {
+  // THE TITLE BAR'S MENU TOGGLES, WEARS THREE DOTS, AND NOTHING HAS A FOCUS BOX
+  // (#272; owner, 2026-10-04, of the old Tools button: "clicking this button
+  // opens the menu each time, it should open then close open close. also
+  // remove the focus effect. go through the ui and remove focus effects like
+  // this. also remote should be where it is but the icon should be a 3
+  // vertical dot menu").
+  console.log('the More menu and focus without a box')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const button = '[data-title-bar] [data-more-button]'
+  const menus = () => win.locator('[role="menu"]').count()
+  const expanded = () => win.locator(button).getAttribute('aria-expanded')
+  /** Keyboard focus on an element, as Chromium decides it: a key first, so
+   *  the focus that follows is :focus-visible, which is where a ring was. */
+  const keyFocus = async (sel) => {
+    await win.keyboard.press('Shift')
+    return win.evaluate((s) => {
+      const el = typeof s === 'string' ? document.querySelector(s) : null
+      if (!el) return null
+      el.focus()
+      const cs = getComputedStyle(el)
+      const filled =
+        cs.backgroundImage.includes('gradient') ||
+        (cs.backgroundColor !== 'transparent' && !/rgba\(0, 0, 0, 0\)/.test(cs.backgroundColor))
+      return {
+        focused: document.activeElement === el,
+        visible: el.matches(':focus-visible'),
+        outline: cs.outlineStyle === 'none' || parseFloat(cs.outlineWidth) === 0 ? 'none' : `${cs.outlineStyle} ${cs.outlineWidth}`,
+        shadow: cs.boxShadow,
+        filled,
+        bg: cs.backgroundImage !== 'none' ? cs.backgroundImage : cs.backgroundColor
+      }
+    }, sel)
+  }
+  try {
+    await win.waitForSelector(button, { timeout: 10000 })
+
+    // THREE VERTICAL DOTS, where Tools was and the size it was.
+    const glyph = await win.evaluate((s) => {
+      const b = document.querySelector(s)
+      const dots = [...(b?.querySelectorAll('[data-more-glyph] circle') ?? [])].map((c) => c.getBoundingClientRect())
+      const r = b?.getBoundingClientRect()
+      const cog = document.querySelector('[data-title-bar] [aria-label="Settings"]')?.getBoundingClientRect()
+      return {
+        label: b?.getAttribute('aria-label'),
+        title: b?.getAttribute('title'),
+        dots: dots.map((d) => ({ x: Math.round(d.x + d.width / 2), y: Math.round(d.y + d.height / 2) })),
+        size: r ? [Math.round(r.width), Math.round(r.height)] : null,
+        cog: cog ? [Math.round(cog.width), Math.round(cog.height)] : null,
+        beforeCog: !!r && !!cog && r.right <= cog.left
+      }
+    }, button)
+    const d = glyph.dots
+    ok(
+      d.length === 3 && d.every((p) => Math.abs(p.x - d[0].x) <= 1) && d[0].y < d[1].y && d[1].y < d[2].y,
+      `the button is three dots in a column (${JSON.stringify(d)})`
+    )
+    ok(glyph.label === 'More' && glyph.title === 'More', `and is called More (${glyph.label}, ${glyph.title})`)
+    ok(
+      JSON.stringify(glyph.size) === JSON.stringify(glyph.cog) && glyph.beforeCog,
+      `the size of its neighbours, left of the cog (${JSON.stringify(glyph)})`
+    )
+    ok((await win.locator('[aria-label="Tools"]').count()) === 0, 'and there is no Tools button any more')
+
+    // OPEN, CLOSE, OPEN, CLOSE.
+    ok((await menus()) === 0 && (await expanded()) === 'false', 'no menu to begin with')
+    await win.click(button)
+    ok(await until(async () => (await menus()) === 1, 3000, 50), 'a click opens the menu')
+    ok((await expanded()) === 'true', 'and the button says so (aria-expanded)')
+    const rows = await win.locator('[role="menu"] [role="menuitem"]').allTextContents()
+    ok(rows[0]?.trim() === 'Phone', `Phone is the menu's first row (${JSON.stringify(rows)})`)
+    await win.screenshot({ path: join(SHOTS, 'more-menu-open.png') })
+    await win.click(button)
+    await sleep(400)
+    ok((await menus()) === 0, 'a second click on the button closes it, and it stays closed')
+    ok((await expanded()) === 'false', 'and the button says so')
+    await win.click(button)
+    ok(await until(async () => (await menus()) === 1, 3000, 50), 'a third click opens it again')
+    await win.click(button)
+    await sleep(400)
+    ok((await menus()) === 0, 'and a fourth closes it')
+    // A press elsewhere still dismisses it, and Escape does too.
+    await win.click(button)
+    await until(async () => (await menus()) === 1, 3000, 50)
+    await win.mouse.click(400, 300)
+    ok(await until(async () => (await menus()) === 0, 3000, 50), 'a press elsewhere still closes it')
+    // The keys: Enter on the focused button opens it, Escape closes it, Enter
+    // again opens it.
+    await keyFocus(button)
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await menus()) === 1, 3000, 50), 'Enter on the focused button opens it')
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await menus()) === 0, 3000, 50), 'Escape closes it')
+
+    // NO FOCUS BOX on the title bar's buttons: the focus is a fill.
+    for (const sel of [button, '[data-title-bar] [aria-label="Settings"]', '[data-title-bar] [aria-label="Minimize"]']) {
+      const f = await keyFocus(sel)
+      ok(
+        !!f && f.focused && f.visible && f.outline === 'none' && f.shadow === 'none' && f.filled,
+        `a keyboard-focused ${sel.replace('[data-title-bar] ', '')} has no outline and a fill (${JSON.stringify(f)})`
+      )
+    }
+    await keyFocus(button)
+    const bar = await win.locator('[data-title-bar]').boundingBox()
+    await win.screenshot({
+      path: join(SHOTS, 'more-focus.png'),
+      clip: { x: Math.max(0, bar.x + bar.width - 320), y: bar.y, width: 320, height: bar.height }
+    })
+
+    // A SETTINGS CONTROL too: a segment and a dropdown.
+    await win.click('[data-title-bar] [aria-label="Settings"]')
+    await win.click('button:has-text("Style")')
+    await win.locator('label[for="title-bar"]').waitFor({ timeout: 8000 })
+    await win.evaluate(() => {
+      const seg = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Hidden')
+      seg?.setAttribute('data-e2e-seg', '')
+      document.querySelector('[data-settings-page] [aria-haspopup="listbox"]')?.setAttribute('data-e2e-select', '')
+    })
+    for (const [name, sel] of [['segment', '[data-e2e-seg]'], ['dropdown', '[data-e2e-select]']]) {
+      const f = await keyFocus(sel)
+      ok(
+        !!f && f.focused && f.visible && f.outline === 'none' && f.shadow === 'none' && f.filled,
+        `a keyboard-focused settings ${name} has no outline and a fill (${JSON.stringify(f)})`
+      )
+    }
+    await win.locator('[data-e2e-seg]').scrollIntoViewIfNeeded()
+    await keyFocus('[data-e2e-seg]')
+    await win.screenshot({ path: join(SHOTS, 'more-settings-focus.png') })
+    await win.click('[data-title-bar] [aria-label="Settings"]')
+  } finally {
+    await app.close()
+  }
+}
+
 async function sidebarPeekScenario(fixtures) {
   // THE COLLAPSED SIDEBAR PEEKS (#250; owner, 2026-10-02: "shows when cursor
   // hits the edge on the side, but it would collapse again once the cursor
@@ -9496,7 +9630,7 @@ async function phoneScenario(fixtures) {
     await ranged.arrayBuffer()
 
     // The dialog on the PC lists the phone.
-    await win.click('[aria-label="Tools"]')
+    await win.click('[aria-label="More"]')
     await win.click('[role="menuitem"]:has-text("Phone")')
     await win.waitForSelector('[data-phone-dialog]', { timeout: 5000 })
     await win.waitForSelector('[data-phone-row]', { timeout: 5000 }).catch(() => {})
@@ -10741,23 +10875,23 @@ async function updateWindowScenario(fixtures) {
       const bar = document.querySelector('[data-title-bar]')
       const box = (sel) => bar?.querySelector(sel)?.getBoundingClientRect() ?? null
       const c = box('[data-update-chip]')
-      const t = box('[aria-label="Tools"]')
+      const t = box('[aria-label="More"]')
       const s = box('[aria-label="Settings"]')
       return c && t && s ? { chipRight: c.right, toolsLeft: t.left, toolsRight: t.right, settingsLeft: s.left } : null
     })
     ok(
       order !== null && order.chipRight <= order.toolsLeft && order.toolsRight <= order.settingsLeft,
-      `the chip is the leftmost of the group: chip, then Tools, then Settings (${JSON.stringify(order)})`
+      `the chip is the leftmost of the group: chip, then More, then Settings (${JSON.stringify(order)})`
     )
     await shot('update-chip-dark')
     // AND THE GROUP STAYS PUT WHEN THE CHIP COMES OR GOES, which is the reason
     // the comment in TopBar gives for the chip leading it. Measured rather
-    // than argued: the chip's own flex item is taken out of the row and Tools
+    // than argued: the chip's own flex item is taken out of the row and More
     // must not have moved a pixel. (The preview's chip never leaves by itself,
     // so it is hidden by hand and put back in the same breath.)
     const toolsShift = await win.evaluate(() => {
       const bar = document.querySelector('[data-title-bar]')
-      const tools = bar?.querySelector('[aria-label="Tools"]')
+      const tools = bar?.querySelector('[aria-label="More"]')
       let item = bar?.querySelector('[data-update-chip]') ?? null
       while (item && item.parentElement !== bar) item = item.parentElement
       if (!bar || !tools || !item) return null
@@ -10770,7 +10904,7 @@ async function updateWindowScenario(fixtures) {
     })
     ok(
       toolsShift !== null && toolsShift.withChip === toolsShift.without && toolsShift.back === toolsShift.withChip,
-      `Tools does not move when the chip goes or comes back (${JSON.stringify(toolsShift)})`
+      `More does not move when the chip goes or comes back (${JSON.stringify(toolsShift)})`
     )
     // AT THE NARROWEST WINDOW PRISM ALLOWS TOO (minWidth 560): the order holds,
     // nothing in the group overlaps, and the chip has not been pushed over the
@@ -10782,7 +10916,7 @@ async function updateWindowScenario(fixtures) {
       const bar = document.querySelector('[data-title-bar]')
       const box = (el) => el?.getBoundingClientRect() ?? null
       const c = box(bar?.querySelector('[data-update-chip]'))
-      const t = box(bar?.querySelector('[aria-label="Tools"]'))
+      const t = box(bar?.querySelector('[aria-label="More"]'))
       const s = box(bar?.querySelector('[aria-label="Settings"]'))
       const n = box(bar?.querySelector('[data-testid="titlebar-file-name"]'))
       return c && t && s && n
@@ -10794,7 +10928,7 @@ async function updateWindowScenario(fixtures) {
         narrow.nameLeft <= narrow.chipLeft &&
         narrow.chipRight <= narrow.toolsLeft &&
         narrow.toolsRight <= narrow.settingsLeft,
-      `and at the minimum window width: name, chip, Tools, Settings, none overlapping (${JSON.stringify(narrow)})`
+      `and at the minimum window width: name, chip, More, Settings, none overlapping (${JSON.stringify(narrow)})`
     )
     await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setSize(w, h), sizeBefore)
     await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
@@ -11380,6 +11514,7 @@ await run(documentScenario, 2000)
 await run(synthAndRawScenario)
 await run(tabsScenario)
 await run(titleBarScenario)
+await run(moreMenuScenario)
 await run(sidebarPeekScenario)
 await run(updateWindowScenario)
 await run(updateGuardScenario)

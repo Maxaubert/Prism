@@ -81,10 +81,13 @@
 .folder-browser button:disabled {
   opacity: 0.4;
 }
+/* No focus ring anywhere in the Explorer (#272; owner, 2026-10-04: "go
+   through the ui and remove focus effects like this"). A focused button gets
+   the grey fill the app's base rule lays over it (index.css), which leaves a
+   marked row's own tint underneath; a field shows focus on its edge. */
 .folder-browser button:focus-visible,
 .folder-browser input:focus-visible {
-  outline: 2px solid var(--p-accent-hi);
-  outline-offset: -2px;
+  outline: none;
 }
 .folder-browser button:not(:disabled):hover {
   background: var(--p-hover);
@@ -122,8 +125,7 @@
   background: var(--p-hover);
 }
 .browse-toolbar input:focus-visible {
-  outline: 2px solid var(--p-accent-hi);
-  outline-offset: -2px;
+  outline: none;
 }
 /* The toolbar's buttons wear no focus BOX (owner, 2026-10-04, of the search
    and preview icons after the popup handed the focus back: "remove focus
@@ -162,9 +164,9 @@
 .browse-field:hover {
   border-color: var(--p-field-edge-hover);
 }
+/* Focus is the edge going a step lighter, not an accent ring (#272). */
 .browse-field:focus-within {
-  outline: 2px solid var(--p-accent-hi);
-  outline-offset: -2px;
+  border-color: color-mix(in srgb, var(--p-text) 28%, transparent);
 }
 .browse-path,
 .browse-path-form {

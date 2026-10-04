@@ -10,11 +10,13 @@ const ACCENT = /--p-(accent|accent-hi|on-accent|sel-bg|sel-solid|on-sel-solid|se
 const between = (from: string, to: string): string => src.slice(src.indexOf(from), src.indexOf(to, src.indexOf(from)))
 
 describe('settings controls', () => {
-  it('the neutral classes carry no accent outside the focus ring', () => {
+  // Focus included since #272 (owner, 2026-10-04: "remove the focus effect"):
+  // a focused control wears its hover look, which is grey too.
+  it('the neutral classes carry no accent, not even on focus', () => {
     for (const name of ['ROW_BUTTON', 'SEGMENT_ON', 'SWITCH_ON', 'SWITCH_KNOB_ON']) {
       const m = src.match(new RegExp(`const ${name} =\\s*'([^']*)'`))
       expect(m, name).not.toBeNull()
-      expect(m![1].replace(/focus-visible:\S+/g, '')).not.toMatch(ACCENT)
+      expect(m![1]).not.toMatch(ACCENT)
     }
   })
 

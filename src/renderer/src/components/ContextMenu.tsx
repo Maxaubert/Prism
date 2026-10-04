@@ -102,11 +102,18 @@ export function ContextMenu({
   x,
   y,
   items,
+  anchor,
   onClose
 }: {
   x: number
   y: number
   items: MenuItem[]
+  /** The button that opened this menu, when a button did (#272). A press on
+   *  it is not "outside": the button's own click shuts the menu, so it
+   *  toggles. Dismissing on that press too reopened the menu on the click
+   *  (owner, 2026-10-04: "clicking this button opens the menu each time, it
+   *  should open then close open close"). */
+  anchor?: HTMLElement | null
   onClose: () => void
 }): JSX.Element {
   const box = useRef<HTMLDivElement>(null)
@@ -196,6 +203,7 @@ export function ContextMenu({
     // that file, not cost you a second click.
     const onDown = (e: PointerEvent): void => {
       const t = e.target as Node
+      if (anchor?.contains(t)) return
       if (!box.current?.contains(t) && !fly.current?.contains(t)) onClose()
     }
     window.addEventListener('keydown', onKey, true)
@@ -206,7 +214,7 @@ export function ContextMenu({
       window.removeEventListener('pointerdown', onDown, true)
       window.removeEventListener('blur', onClose)
     }
-  }, [onClose])
+  }, [onClose, anchor])
 
   const pick = (it: MenuItem): void => {
     if (it.disabled) return
