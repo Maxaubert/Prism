@@ -1,3 +1,4 @@
+import { visitedDirectories } from './visitedDirectories'
 import {
   useCallback,
   useEffect,
@@ -65,6 +66,7 @@ export function useExplorerArrival(
         setSkipped((n) => n + 1)
         return
       }
+      visitedDirectories.remember(directory)
       setState((s) => {
         const added = addExplorerTab(
           s.tabs,

@@ -25,20 +25,37 @@
       #prism-boot button:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }
       #prism-boot #boot-close:hover { background: #c42b1c; color: white; }
       #prism-boot svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1; }
-      #prism-boot main { display: grid; place-items: center; flex: 1; padding: 24px; }
-      #boot-status { margin: 0; max-width: 32em; text-align: center; }
+      /* A SILENT OUTLINE OF THE EXPLORER, NOT A LOADING SCREEN (#271; owner,
+         2026-10-04: "I don't ever want to see that", of the old start-up line).
+         The tab strip, the toolbar, the places rail and the list's header as
+         hairlines, no words and nothing moving, for the few frames before
+         the app draws itself. Owner-approved recommendation 6. */
+      #prism-boot { --boot-line: #ffffff14; }
+      [data-boot-mode='light'] #prism-boot { --boot-line: #00000014; }
+      #prism-boot main { position: relative; flex: 1; display: grid; grid-template-rows: 40px 1fr; }
+      #prism-boot .boot-toolbar { border-bottom: 1px solid var(--boot-line); }
+      #prism-boot .boot-body { display: grid; grid-template-columns: 210px 1fr; min-height: 0; }
+      #prism-boot .boot-places { border-right: 1px solid var(--boot-line); }
+      #prism-boot .boot-columns { height: 32px; border-bottom: 1px solid var(--boot-line); }
+      /* Only a failed start has anything to say; until then it is empty. */
+      #boot-status { position: absolute; inset: 40px 0 0; display: grid; place-items: center; margin: 0; padding: 24px; text-align: center; }
+      #boot-status:empty { display: none; }
     </style>
   </head>
   <body>
     <div id="root">
-      <div id="prism-boot" data-testid="window-loading">
+      <div id="prism-boot" data-testid="window-boot">
         <header>
           <strong>Prism</strong>
           <button id="boot-minimize" aria-label="Minimize"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h10" /></svg></button>
           <button id="boot-maximize" aria-label="Maximize"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9" /></svg></button>
           <button id="boot-close" aria-label="Close"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m1 1 10 10M1 11 11 1" /></svg></button>
         </header>
-        <main><p id="boot-status" role="status">Opening Prism…</p></main>
+        <main>
+          <div class="boot-toolbar"></div>
+          <div class="boot-body"><div class="boot-places"></div><div><div class="boot-columns"></div></div></div>
+          <p id="boot-status" role="status"></p>
+        </main>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

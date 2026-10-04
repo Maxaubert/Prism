@@ -12,6 +12,7 @@ import { clickSelect } from '../../lib/selection'
 import { sweepSelect } from '../../lib/marquee'
 import { explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
+import { useListingPrefetch } from '../../lib/useListingPrefetch'
 import './browse.css'
 
 export type {
@@ -63,7 +64,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   )
   const folderSizes = useFolderSizes(
     folderPaths,
-    !props.loading && !props.searchState?.running && !props.searchState?.window,
+    props.pending === 'none' && !props.searchState?.running && !props.searchState?.window,
     visibleFolders
   )
   const entries = useMemo(
@@ -72,6 +73,15 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     [props.listing, props.query, props.sort, props.searchState, folderSizes]
   )
   const selected = entries.find((entry) => entry.path === props.selectedPath)
+  // READ AHEAD (#271): the folder under the pointer, the selected folder, the
+  // parent, a small folder's subfolders and Quick access.
+  const hoverFolder = useListingPrefetch({
+    directory: props.directory,
+    listing: props.listing,
+    selectedFolder: selected?.isFolder ? selected.path : null,
+    quickAccess: props.quickAccess,
+    ready: props.pending === 'none' && !props.searchState
+  })
   const searchWindow = props.searchState?.window
   const searchWindows = props.searchState?.windows
   const indexedRows = useMemo(() => {
@@ -189,9 +199,13 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       props.onNavigate(entry.path)
     } else if (entry.file) props.onOpen(entry.file)
   }
-  const message = props.loading
-    ? 'Loading folder…'
-    : props.error ||
+  // NO LOADING TEXT, EVER (#271; owner, 2026-10-04: "I don't ever want to see
+  // that"). A folder still on its way says nothing in the list: its old rows
+  // stay, or past 300 ms the header and a thin bar (BrowseList).
+  const message =
+    props.pending !== 'none'
+      ? null
+      : props.error ||
       (props.listing?.unreadable
         ? 'This folder could not be read. Try another location.'
         : !total
@@ -304,6 +318,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     >
       <BrowseToolbar
         {...props}
+        // The address commits at once; the rows follow when they answer.
+        directory={props.pendingPath ?? props.directory}
         trailing={
           <>
             {props.terminalControls && (
@@ -386,7 +402,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       )}
       <BrowseList
         {...props}
-        entries={props.loading ? [] : entries}
+        loading={props.pending !== 'none'}
+        entries={props.pending === 'slow' ? [] : entries}
+        onFolderHover={hoverFolder}
         indexedRows={indexedRows}
         total={total}
         onActivate={activate}
@@ -416,17 +434,29 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         </aside>
       )}
       <div className="browse-status" role="status">
-        <span>{props.loading ? 'Loading…' : `${total} ${total === 1 ? 'item' : 'items'}`}</span>
+        <span>
+          {props.pending === 'slow'
+            ? 'Reading folder'
+            : props.pending === 'quiet' && !props.listing
+              ? ''
+              : `${total} ${total === 1 ? 'item' : 'items'}`}
+        </span>
         {many ? (
           <span>
             {markedEntries.length} selected
-            {markedEntries.some((entry) => entry.file)
+            {/* A total only when every size is known: a file whose size has
+                not arrived yet is unknown, not 0 bytes (#271). */}
+            {markedEntries.some((entry) => entry.file) &&
+            markedEntries.every((entry) => !entry.file || entry.file.size !== undefined)
               ? ` · ${formatBytes(markedEntries.reduce((sum, entry) => sum + (entry.file?.size ?? 0), 0))}`
               : ''}
           </span>
         ) : (
           selected && (
-            <span>1 selected{selected.file ? ` · ${formatBytes(selected.file.size)}` : ''}</span>
+            <span>
+              1 selected
+              {selected.file?.size !== undefined ? ` · ${formatBytes(selected.file.size)}` : ''}
+            </span>
           )
         )}
         {!!props.query.trim() && (

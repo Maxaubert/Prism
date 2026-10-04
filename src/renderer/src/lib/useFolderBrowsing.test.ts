@@ -31,14 +31,15 @@ describe('project and Explorer surface isolation', () => {
     const result = initialBrowsing(restored(role))
     expect(result.folder).toBe(false)
     expect(result.searchState).toBeUndefined()
-    expect(result.loading).toBe(false)
+    expect(result.pending).toBe('none')
   })
 
   it('retains folder browsing and the saved search for Explorer', () => {
     const result = initialBrowsing(restored('explorer'))
     expect(result.folder).toBe(true)
     expect(result.searchState?.running).toBe(true)
-    expect(result.loading).toBe(true)
+    // Waiting for its folder, quietly: no hint before 300 ms, never a message.
+    expect(result.pending).toBe('quiet')
   })
 
   it('keeps a project with a hidden terminal out of the folder surface', () => {

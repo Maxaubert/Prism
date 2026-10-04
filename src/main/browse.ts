@@ -1,7 +1,7 @@
 import { stat } from 'fs/promises'
 import { isAbsolute, resolve } from 'path'
 import type { BrowseDirectory, BrowseShortcut } from '@shared/browse'
-import { listDir } from './dirList'
+import { listDir, listNames } from './dirList'
 import {
   desktopClosed,
   desktopRevision,
@@ -26,10 +26,20 @@ export function browseWatch(
   return setBrowseWatch(tabId, path, emit)
 }
 
+/** A read for the Explorer, with the folder's own modified time beside it so
+ *  the listing cache can tell a changed folder from an unchanged one. */
+export type BrowseRead = BrowseDirectory & { folderMtimeMs: number }
+
+/**
+ * `phase` 'names' is the Explorer's names-first read (#271): rows without size
+ * or date, which `statDetails` fills afterwards. 'full' stats every file first,
+ * as every read did before, for the callers that need sizes in the answer.
+ */
 export async function browseDirectory(
   tabId: string,
-  path: string
-): Promise<BrowseDirectory | null> {
+  path: string,
+  phase: 'full' | 'names' = 'full'
+): Promise<BrowseRead | null> {
   if (
     typeof tabId !== 'string' ||
     !tabId ||
@@ -41,11 +51,12 @@ export async function browseDirectory(
   const dir = resolve(path)
   const revision = desktopRevision(tabId)
   try {
-    if (!(await stat(dir)).isDirectory()) return null
-    const listing = await listDir(dir, true)
+    const info = await stat(dir)
+    if (!info.isDirectory()) return null
+    const listing = phase === 'names' ? await listNames(dir) : await listDir(dir, true)
     if (desktopRevision(tabId) !== revision) return null
     if (!listing.unreadable) grantDesktopDirectory(tabId, dir)
-    return { path: dir, listing }
+    return { path: dir, listing, folderMtimeMs: info.mtimeMs }
   } catch {
     return null
   }

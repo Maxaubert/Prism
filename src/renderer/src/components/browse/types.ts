@@ -4,6 +4,7 @@ import type { QuickAccessPin } from '../../lib/quickAccess'
 import type { DragPayload } from '../../lib/dragDrop'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { BrowseSearchResult } from '@shared/browse'
+import type { ListPending } from '../../lib/usePendingHint'
 
 export interface BrowsePlace {
   path: string
@@ -40,7 +41,12 @@ export interface BrowseSearchState {
 export interface FolderBrowserProps {
   directory: string
   listing: DirListing | null
-  loading: boolean
+  /** A folder that has not answered yet (#271). There is no loading state
+   *  that hides the list: 'quiet' keeps the rows, 'slow' (past 300 ms) shows
+   *  the header with a thin bar. */
+  pending: ListPending
+  /** Where a pending navigation is going, for the address bar. */
+  pendingPath?: string | null
   error?: string
   places: BrowsePlace[]
   placesVisible?: boolean

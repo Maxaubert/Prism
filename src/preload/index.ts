@@ -17,6 +17,7 @@ import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import type {
   ArchiveListing,
+  BrowseDetails,
   DirChange,
   DirListing,
   FileKind,
@@ -39,8 +40,33 @@ import type {
 // `mediaUrl` + the open payload, nothing app-specific.
 
 const api = {
-  browseDirectory: (tabId: string, path: string): Promise<BrowseDirectory | null> =>
-    ipcRenderer.invoke('browse:directory', tabId, path),
+  /** A folder's names now, its sizes and dates after as `onBrowseDetails`
+   *  (#271). `details: false` is a read for its grant only, which must not
+   *  take the disk from the folder on screen. */
+  browseDirectory: (
+    tabId: string,
+    path: string,
+    options?: { details?: boolean }
+  ): Promise<BrowseDirectory | null> =>
+    ipcRenderer.invoke('browse:directory', tabId, path, options),
+  /** The listing cache's copy of a folder, synchronously, or null (#271). */
+  browseCached: (path: string): BrowseDirectory | null => {
+    try {
+      return ipcRenderer.sendSync('browse:cached', path) ?? null
+    } catch {
+      return null
+    }
+  },
+  /** Read a folder ahead of the click (#271); `pin` keeps it in the cache. */
+  browsePrefetch: (path: string, pin = false): Promise<BrowseDirectory | null> =>
+    ipcRenderer.invoke('browse:prefetch', path, pin),
+  onBrowseDetails: (cb: (details: BrowseDetails) => void): (() => void) => {
+    const listener = (_: unknown, details: BrowseDetails): void => cb(details)
+    ipcRenderer.on('browse:details', listener)
+    return () => ipcRenderer.removeListener('browse:details', listener)
+  },
+  /** Settings > General > Remember folders: delete what was kept. */
+  clearListingCache: (): Promise<boolean> => ipcRenderer.invoke('listing-cache:clear'),
   browseSearch: (
     tabId: string,
     path: string,

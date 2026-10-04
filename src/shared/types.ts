@@ -10,10 +10,13 @@ export interface ViewerFile {
   ext: string // lowercased, leading dot
   kind: FileKind
   /** Bytes on disk; 0 if it couldn't be stat'ed. Used to skip preloading files
-   *  so large that warming them would cost more than it saves. */
-  size: number
-  /** Modified time (ms since epoch); 0 if it couldn't be stat'ed. Sorting. */
-  mtimeMs: number
+   *  so large that warming them would cost more than it saves. ABSENT while
+   *  the Explorer's names-first listing has not stat'ed it yet (#271): not
+   *  zero, unknown, and nothing may count it as 0 bytes. */
+  size?: number
+  /** Modified time (ms since epoch); 0 if it couldn't be stat'ed. Sorting.
+   *  Absent, like `size`, until the details arrive. */
+  mtimeMs?: number
 }
 
 /** A subfolder, as the sidebar tree sees it. */
@@ -85,6 +88,18 @@ export interface DirListing {
    *  so a truly empty folder still reads as empty rather than as "0 files
    *  Prism can't open". */
   hidden?: number
+  /** False while the files' sizes and dates are still on their way (#271):
+   *  the Explorer is answered with names first and `browse:details` patches
+   *  follow. Absent means complete. */
+  complete?: boolean
+}
+
+/** Sizes and dates for files of a names-first listing (#271). `done` is the
+ *  last patch of the run: the listing at `path` is complete. */
+export interface BrowseDetails {
+  path: string
+  files: Array<{ path: string; size: number; mtimeMs: number }>
+  done: boolean
 }
 
 /** A folder Prism has open changed, and Prism did not change it (2026-08-30).
@@ -175,6 +190,13 @@ export interface OpenPayload {
   /** Restore only: this saved tab was the ACTIVE one - it takes the front.
    *  The rest restore behind whatever is already showing. */
   restoreActive?: boolean
+  /** Restore only: the tab's place in the saved strip (#271). Explorer tabs
+   *  are sent first and the rest as each is ready, so the page puts every
+   *  restored tab back at its saved place rather than in arrival order. */
+  restoreOrder?: number
+  /** An Explorer tab's listing of the folder it shows (#271), from the cache
+   *  or a names-only read, so its first frame has rows. */
+  listing?: { path: string; listing: DirListing }
 }
 
 /** What the PC remembers about a file (#118, #124): where you had got to and
