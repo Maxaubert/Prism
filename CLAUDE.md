@@ -534,6 +534,13 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
   its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
   ALONE: the tree keeps General's Font size. `explorerSize` e2e.
+  **THE COLUMN HEADER IS FILE EXPLORER'S** (#274; owner, 2026-10-04: the hover "should be inside
+  the whole box"; Size's name "aligned to the left"; the arrow "shows only when you hover over
+  them while the currently sorted item has an arrow at all times"). The header keeps the rows'
+  grid; each cell reaches out by half `--browse-col-gap` each way and the end cells by the row
+  padding, so the cells tile it edge to edge (a narrow layout that hides a column re-points the
+  last cell). Size VALUES stay right-aligned. The arrow is always in the layout and only fades,
+  so a label never moves. Focus is the fill, no box. `columnHeaders` e2e.
   **THE ADDRESS AND THE SEARCH ARE ONE FIELD** (#267; owner, 2026-10-04: "make the url box more
   visible and for the black theme make the grey colours used in search and in the url bar darker
   grey"). Both wear `.browse-field` (`--p-field`, `-edge`, `-edge-hover`, `-hint`). On a ground

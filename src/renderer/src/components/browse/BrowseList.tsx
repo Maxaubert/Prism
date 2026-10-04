@@ -417,14 +417,20 @@ export function BrowseList(props: Props): JSX.Element {
               }
             >
               {label}
-              {props.sort.key === key && (
-                <span
-                  className="browse-sort-arrow"
-                  data-descending={props.sort.direction === 'desc'}
-                >
-                  <BrowseIcon name="up" />
-                </span>
-              )}
+              {/* Every column carries its arrow, as File Explorer's do (owner,
+                  2026-10-04: "that arrow shows only when you hover over them
+                  while the currently sorted item has an arrow at all times").
+                  It is always in the layout and only fades in, so a hover
+                  never moves the label. Unsorted, it points the way a click
+                  would sort (ascending). */}
+              <span
+                className="browse-sort-arrow"
+                aria-hidden="true"
+                data-sorted={props.sort.key === key || undefined}
+                data-descending={props.sort.key === key && props.sort.direction === 'desc'}
+              >
+                <BrowseIcon name="up" />
+              </span>
             </button>
           ))}
         </div>
