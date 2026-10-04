@@ -10,7 +10,10 @@ export function folderSizePartial(size: FolderSizeResult): boolean {
 export function folderSizeLabel(size: FolderSizeResult | null | undefined): string {
   if (size === undefined) return 'Calculating…'
   if (size === null) return 'Unavailable'
-  return `${size.stale || size.source === 'index' ? '≈ ' : folderSizePartial(size) ? '≥ ' : ''}${formatBytes(size.bytes)}`
+  // No "≈" on a saved or indexed size (owner, 2026-10-04: "just remove that
+  // circa sign it doesn't matter for anyone"); the tooltip still says where
+  // the number came from. "≥" stays: part of the folder could not be read.
+  return `${folderSizePartial(size) ? '≥ ' : ''}${formatBytes(size.bytes)}`
 }
 
 export function folderSizeCoverage(size: FolderSizeResult): string {
