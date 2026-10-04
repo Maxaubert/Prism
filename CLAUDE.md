@@ -588,6 +588,13 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   the update window, Settings, another tab or folder; App ignores keys from inside it
   (`data-search-popup`). The `searchPopup` e2e runs with `PRISM_E2E_INDEX_ROOT` elsewhere, so
   it searches by the walk: the e2e's private index did not list fresh files for 60 s (MEASURED).
+  **A SEARCH IS A PLACE IN THE HISTORY, AND GOING SOMEWHERE ENDS IT** (#281; owner, 2026-10-04:
+  "if you click something in the sidebar you're not in search anymore, but if you click back arrow
+  you go to the search list again"). The query once lived on the folder's history entry, so a
+  sidebar place for the folder searched (or a revisit of it) came back filtered. Now
+  `searchBrowseState` (`lib/browse.ts`) pushes an entry with the query; any navigation, the same
+  folder included, lands unfiltered and never takes a search's scroll; Back restores the results;
+  Clear search steps back to the plain entry (Forward returns). `searchNav` e2e.
   **A MARKED FILE IS A TINT, A CHOSEN PAGE IS SOLID** (owner, same day: "more transparent like
   selecting files in file explorer" for files, "more saturated" for the settings page).
   Explorer, tree, sidebar search and archive rows wear `--p-sel-tint` (`hi` at 22%, stepped down only

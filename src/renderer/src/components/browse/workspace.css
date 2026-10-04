@@ -75,10 +75,15 @@
 .browse-viewer-places > .browse-places {
   width: 100%;
 }
+/* NO FULL VIEW BUTTON OVER THE PREVIEW, SO NO STRIP FOR IT (owner,
+   2026-10-04: "remove the fullscreen icon in preview, if the user double
+   clicks the item they see it, and some items like images and movies have
+   another different fullscreen button so it gets confusing"). Every preview
+   starts at the list's top. */
 .browse-workspace [data-browse-preview] {
   position: absolute;
   z-index: 2;
-  top: 88px;
+  top: 48px;
   right: 0;
   bottom: 26px;
   width: var(--browse-preview-width);
@@ -92,8 +97,7 @@
 .browse-workspace[data-preview-sliding] .folder-browser {
   transition: grid-template-columns 180ms cubic-bezier(0.23, 1, 0.32, 1);
 }
-.browse-workspace[data-preview-sliding] [data-browse-preview],
-.browse-workspace[data-preview-sliding] .browse-preview-actions {
+.browse-workspace[data-preview-sliding] [data-browse-preview] {
   transition: width 180ms cubic-bezier(0.23, 1, 0.32, 1);
   overflow: hidden;
 }
@@ -106,20 +110,22 @@
   width: var(--browse-preview-frozen, 100%);
   flex: none;
 }
-.browse-preview-actions {
-  position: absolute;
-  z-index: 3;
-  top: 48px;
-  right: 0;
-  width: var(--browse-preview-width);
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 0 12px;
-  background: var(--p-bg);
-  border-left: 1px solid var(--p-divider);
+/* A TEXT PREVIEW STARTS ON THE COLUMN HEADER'S LINE (#283; owner, 2026-10-04:
+   "the position of the sorting bar with name, type, size etc. that's the
+   height I want the txt files to start at"): the first line is centred in
+   the header's band (--browse-head-h, the 13px font at line-height 1.55),
+   the line numbers with it. */
+.browse-workspace [data-browse-preview][data-preview-flush] .cm-content {
+  /* Centred in the band, then onto the header label's baseline
+     (explorerHeadVars). */
+  padding-top: calc((var(--browse-head-h, 32px) - 1.55em) / 2 + var(--browse-text-dy, 0px));
+}
+/* Line numbers onto their lines' baseline: MEASURED, the gutter's numbers
+   sat about 1px high and move with the text's nudge, so 0.2px more lands
+   them on it. */
+.browse-workspace [data-browse-preview][data-preview-flush] .cm-lineNumbers .cm-gutterElement {
+  position: relative;
+  top: var(--browse-number-dy, 0.2px);
 }
 .browse-return-row {
   position: absolute;
@@ -145,7 +151,6 @@
   color: var(--p-text-soft);
 }
 .browse-return-row button,
-.browse-preview-actions button,
 .browse-terminal-actions button {
   min-height: 32px;
   padding: 4px 8px;
@@ -153,22 +158,12 @@
   white-space: nowrap;
   color: var(--p-text);
 }
-/* The full-view button is an icon now: a square hit box round it. */
-.browse-preview-actions button[data-open-full] {
-  width: 32px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  color: var(--p-text-soft);
-}
 .browse-return-row button:hover,
-.browse-preview-actions button:hover,
 .browse-terminal-actions button:hover {
   background: var(--p-hover);
 }
 /* Focus is the hover's fill, not a ring (#272). */
 .browse-return-row button:focus-visible,
-.browse-preview-actions button:focus-visible,
 .browse-terminal-actions button:focus-visible {
   outline: none;
   background: var(--p-hover);
