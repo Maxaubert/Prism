@@ -87,6 +87,10 @@ never shipped: one small app that opens everything and looks good doing it.
   same terminal as [Prism Terminal](https://github.com/Maxaubert/PrismTerminal), shared code
   rather than a copy, so a fix in one reaches the other. A file dropped on it types its path,
   quoted for the shell it goes to.
+- **Gets back up on its own**: if the window's page crashes or hangs, Prism reloads it, and
+  a window that keeps failing is rebuilt. Opening a file always brings up a working window.
+  Crash reports stay on your PC (in Prism's own folder under `%APPDATA%`) and are never
+  uploaded anywhere.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
 
