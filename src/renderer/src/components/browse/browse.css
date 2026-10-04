@@ -121,10 +121,17 @@
 .browse-toolbar button:not(:disabled):hover {
   background: var(--p-hover);
 }
-.browse-toolbar button:focus-visible,
 .browse-toolbar input:focus-visible {
   outline: 2px solid var(--p-accent-hi);
   outline-offset: -2px;
+}
+/* The toolbar's buttons wear no focus BOX (owner, 2026-10-04, of the search
+   and preview icons after the popup handed the focus back: "remove focus
+   boxes around these"). Focus is still shown, as the hover's grey fill, so a
+   keyboard user can see where the keys are. */
+.folder-browser .browse-toolbar button:focus-visible {
+  outline: none;
+  background: var(--p-hover);
 }
 .browse-history {
   display: flex;
