@@ -82,6 +82,7 @@ export function BrowseList(props: Props): JSX.Element {
   const rowHeight = look.height
   const scroller = useRef<HTMLDivElement>(null)
   const columnScroller = useRef<HTMLDivElement>(null)
+  const scrollIdle = useRef(0)
   const [height, setHeight] = useState(600)
   const typed = useRef({ text: '', at: 0 })
   const pendingFocus = useRef<number | null>(null)
@@ -444,6 +445,12 @@ export function BrowseList(props: Props): JSX.Element {
         onKeyDown={onKeyDown}
         onPointerDown={onListPointerDown}
         onScroll={(e) => {
+          // The scrollbar shows while the list moves (#267): marked for a
+          // moment after each scroll, then it fades back out.
+          const list = e.currentTarget
+          list.setAttribute('data-scrolling', '')
+          window.clearTimeout(scrollIdle.current)
+          scrollIdle.current = window.setTimeout(() => list.removeAttribute('data-scrolling'), 900)
           if (
             columnScroller.current &&
             columnScroller.current.scrollLeft !== e.currentTarget.scrollLeft
