@@ -4,11 +4,22 @@ import type { BrowseSearchProgress, BrowseSearchResult } from '@shared/browse'
 import { SEARCH_WINDOW_MAX, type BrowseSearchWindowRequest, type BrowseSort } from '@shared/browse'
 import { fileKind } from '@shared/fileKind'
 import { parseBrowseQuery } from '@shared/browseQuery'
+import { nameRank } from '@shared/searchSuggest'
 import { filetimeToMs, isDirAttr } from '@shared/everythingQuery'
 import { searchEverythingBrowse, searchEverythingBrowseWindow } from './everythingBrowse'
 import { desktopClosed, grantDesktopDirectory, ownsDesktopDirectory } from './desktopAccess'
 
 const searches = new Map<string, { requestId: string; controller: AbortController }>()
+
+/** The search popup's slot (#267): its suggestions run beside the list's own
+ *  search rather than in its place, so typing in the popup never stops the
+ *  full search the list is showing. The tab's grants are still the tab's. */
+export const suggestSlot = (tabId: string): string => `${tabId}\u0000suggest`
+
+/** What the popup asks for: up to 200 candidates, of which it shows about
+ *  eight. Bounded tighter than the list's search, since a suggestion that
+ *  takes thirty seconds is no suggestion. */
+export const SUGGEST_LIMITS = { maxEntries: 100000, maxHits: 200, maxMs: 3000, candidates: 5000 }
 
 export function cancelBrowseSearch(tabId: string, requestId?: string): void {
   if (requestId === undefined || searches.get(tabId)?.requestId === requestId) {
@@ -21,6 +32,15 @@ interface SearchLimits {
   maxEntries?: number
   maxHits?: number
   maxMs?: number
+  /** The popup's walk (#267): rather than stop at the first `maxHits`, walk
+   *  the whole budget and keep the `maxHits` best by this rank (0 is best).
+   *  Breadth-first alone kept whatever came first, so the one file named as
+   *  typed was lost behind 200 weaker matches nearer the top (review of #268). */
+  rank?: (name: string) => number
+  /** With `rank`, how many rows the index is asked for before the best
+   *  `maxHits` of them are checked. The index answers by name A to Z, so its
+   *  first 200 in a repo full of *.test.ts never reached `test-utils.ts`. */
+  candidates?: number
 }
 
 export function normalizeSearchWindow(value: unknown): BrowseSearchWindowRequest | undefined {
@@ -55,7 +75,8 @@ export async function browseSearch(
   requestId: string,
   emit: (progress: BrowseSearchProgress) => void = () => {},
   limits: SearchLimits = {},
-  requestedWindow?: BrowseSearchWindowRequest
+  requestedWindow?: BrowseSearchWindowRequest,
+  slot: string = tabId
 ): Promise<BrowseSearchResult> {
   const result: BrowseSearchResult = {
     path,
@@ -81,10 +102,10 @@ export async function browseSearch(
     result.unreadable = 1
     return result
   }
-  cancelBrowseSearch(tabId)
+  cancelBrowseSearch(slot)
   const ticket = { requestId, controller: new AbortController() }
-  searches.set(tabId, ticket)
-  const active = (): boolean => searches.get(tabId) === ticket && !desktopClosed(tabId)
+  searches.set(slot, ticket)
+  const active = (): boolean => searches.get(slot) === ticket && !desktopClosed(tabId)
   const { maxEntries = 250000, maxHits = 1000, maxMs = 30000 } = limits
   const window = normalizeSearchWindow(requestedWindow)
   const started = Date.now()
@@ -115,10 +136,29 @@ export async function browseSearch(
     const indexedWindow = window
       ? await searchEverythingBrowseWindow(result.path, query, window, ticket.controller.signal)
       : null
-    const indexed = window
+    const answered = window
       ? (indexedWindow?.rows ?? null)
-      : await searchEverythingBrowse(result.path, query, maxHits, ticket.controller.signal)
+      : await searchEverythingBrowse(
+          result.path,
+          query,
+          limits.rank ? Math.max(maxHits, limits.candidates ?? maxHits) : maxHits,
+          ticket.controller.signal
+        )
     if (!active()) return { ...result, cancelled: true }
+    // Ranked (the popup): the best names of everything the index gave, sorted
+    // from its own paths before any is checked, so only the kept are granted.
+    const indexed =
+      answered && limits.rank && !window
+        ? answered
+            .map((entry, order) => ({
+              entry,
+              order,
+              rank: entry ? limits.rank!(basename(entry.filename)) : Infinity,
+              depth: entry ? entry.filename.split(/[\\/]/).length : Infinity
+            }))
+            .sort((a, b) => a.rank - b.rank || a.depth - b.depth || a.order - b.order)
+            .map(({ entry }) => entry)
+        : answered
     if (window && window.offset > 0 && !indexedWindow) {
       result.notice = 'The search index is temporarily unavailable. Try scrolling again.'
       return result
@@ -203,6 +243,18 @@ export async function browseSearch(
       result.notice = terms.error
       return result
     }
+    type Folder = BrowseSearchResult['listing']['folders'][number]
+    type File = BrowseSearchResult['listing']['files'][number]
+    const rank = limits.rank
+    const best: Array<{ rank: number; folder?: Folder; file?: File }> = []
+    /** The kept candidate a better one replaces: the worst rank, and of
+     *  those the last found, which the breadth-first walk found deepest. */
+    const worst = (): number => {
+      let at = -1
+      for (let index = 0; index < best.length; index++)
+        if (at < 0 || best[index].rank >= best[at].rank) at = index
+      return at
+    }
     const seen = new Set<string>()
     const queue = [result.path]
     let next = 0
@@ -243,6 +295,12 @@ export async function browseSearch(
             progress()
             continue
           }
+          const entryRank = rank ? rank(entry.name) : 0
+          if (rank && best.length >= maxHits && entryRank >= best[worst()].rank) {
+            // Full of candidates at least this good: no stat, no grant.
+            result.truncated = true
+            continue
+          }
           let target: string
           try {
             target = comparable(await realpath(fullPath))
@@ -255,6 +313,38 @@ export async function browseSearch(
           if (!active()) break
           if (target !== root && !target.startsWith(rootPrefix)) {
             result.skippedLinks++
+            continue
+          }
+          if (rank) {
+            let found: { rank: number; folder?: Folder; file?: File } | null = null
+            if (entry.isDirectory())
+              found = { rank: entryRank, folder: { path: fullPath, name: entry.name } }
+            else if (entry.isFile()) {
+              try {
+                const info = await stat(fullPath)
+                if (!active()) break
+                const ext = extname(entry.name).toLowerCase()
+                found = {
+                  rank: entryRank,
+                  file: {
+                    path: fullPath,
+                    name: entry.name,
+                    ext,
+                    kind: fileKind(ext, entry.name),
+                    size: info.size,
+                    mtimeMs: info.mtimeMs
+                  }
+                }
+              } catch {
+                result.unreadable++
+              }
+            }
+            if (!found) continue
+            if (best.length >= maxHits) {
+              best.splice(worst(), 1)
+              result.truncated = true
+            }
+            best.push(found)
             continue
           }
           if (entry.isDirectory()) result.listing.folders.push({ path: fullPath, name: entry.name })
@@ -288,7 +378,14 @@ export async function browseSearch(
         result.unreadable++
       }
       progress()
-      if (result.truncated) break
+      if (result.truncated && !rank) break
+    }
+    // Only what is kept is granted: a candidate pushed out by a better one
+    // never widens what the tab may open.
+    for (const kept of best) {
+      if (kept.folder) result.listing.folders.push(kept.folder)
+      if (kept.file) result.listing.files.push(kept.file)
+      if (active()) grantDesktopDirectory(tabId, dirname((kept.folder ?? kept.file)!.path))
     }
     result.cancelled = !active()
     return snapshot()
@@ -297,6 +394,30 @@ export async function browseSearch(
     result.cancelled = !active()
     return snapshot()
   } finally {
-    if (searches.get(tabId) === ticket) searches.delete(tabId)
+    if (searches.get(slot) === ticket) searches.delete(slot)
   }
+}
+
+/**
+ * The search popup's candidates (#267): main's own search (the index when it
+ * runs, the walk when it does not) in the popup's slot, keeping the BEST
+ * names by `nameRank` rather than the first ones found (review of #268). The
+ * popup ranks again to show its eight.
+ */
+export function browseSuggest(
+  tabId: string,
+  path: string,
+  query: string,
+  requestId: string
+): Promise<BrowseSearchResult> {
+  return browseSearch(
+    tabId,
+    path,
+    query,
+    requestId,
+    () => {},
+    { ...SUGGEST_LIMITS, rank: (name: string) => nameRank(name, typeof query === 'string' ? query : '') },
+    undefined,
+    typeof tabId === 'string' ? suggestSlot(tabId) : tabId
+  )
 }

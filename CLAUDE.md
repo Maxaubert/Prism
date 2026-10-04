@@ -534,6 +534,37 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
   its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
   ALONE: the tree keeps General's Font size. `explorerSize` e2e.
+  **THE ADDRESS AND THE SEARCH ARE ONE FIELD** (#267; owner, 2026-10-04: "make the url box more
+  visible and for the black theme make the grey colours used in search and in the url bar darker
+  grey"). Both wear `.browse-field` (`--p-field`, `-edge`, `-edge-hover`, `-hint`). On a ground
+  MEASURED darker than #121212 (`lib/fieldColours.ts`) the fill is a 2.5% step (Void #060606, was
+  #080808) and a 3:1 edge carries the box; every other style keeps --p-control and --p-divider.
+  The placeholder is held to 4.5:1 on the field. `addressField` e2e.
+  **NO ACTION ROW, A DOLPHIN ADDRESS, SEARCH IS A POPUP** (#267; owner, same day, showing KDE
+  Dolphin and PowerToys Run: "remove our quick action buttons ... the search field should be a
+  search icon only that displays a search pop up on click like this but centered on screen and
+  blurred background behind ... the url bar in the image looks really clean too so copy that
+  style ... a show more which essentially does a normal search like before"). The Explorer's
+  Open / Open as project / Copy / Rename / Delete / "..." row is GONE; every verb is the row's
+  right-click menu and its key (Enter, F2, Del, Ctrl+C/X/V), and the list has the height
+  (`explorerVerbs` e2e proves each). Toolbar: back, forward, up, refresh, the address field,
+  a terminal's own buttons when the tab has one, the preview toggle, the search button. The
+  field: a chevron LEADS every name, the current folder bold, a long path keeps its end and
+  fades its start. Search: the button or Ctrl+F in the Explorer (an editor's or a shell's
+  Ctrl+F is theirs) opens `BrowseSearchPopup`, portalled, centred, the help popup's blur and
+  no shadow. Main's SAME search in its own slot (`browseSuggest`, `suggestSlot`, 3 s) so it
+  never stops the list's, keeping the BEST 200 by `nameRank`, not the first 200 (review of
+  #268: the walk now spends its whole budget, and the index is asked for 5000 by name and
+  ranked in main, so `test.ts` is not lost behind 200 `*.test.ts`); `shared/searchSuggest.ts`
+  ranks the likely 8 (whole name, start, a word's start, inside; then nearer, folder, shorter).
+  Focus stays in the combobox, and a press anywhere in the popup keeps it there (a press on the
+  magnifier once sent it to the page, where Ctrl+T opened a tab underneath); nothing is marked
+  until the arrows, and every edit of the field takes the mark away; Enter on a marked row opens it (a folder is gone into), Enter on
+  nothing or Show more or Ctrl+Enter runs the list's full search, "Clear search" in the status
+  line ends it. ONE LAYER: it does not open over a modal and leaves (for good) on a question,
+  the update window, Settings, another tab or folder; App ignores keys from inside it
+  (`data-search-popup`). The `searchPopup` e2e runs with `PRISM_E2E_INDEX_ROOT` elsewhere, so
+  it searches by the walk: the e2e's private index did not list fresh files for 60 s (MEASURED).
   **A MARKED FILE IS A TINT, A CHOSEN PAGE IS SOLID** (owner, same day: "more transparent like
   selecting files in file explorer" for files, "more saturated" for the settings page).
   Explorer, tree, sidebar search and archive rows wear `--p-sel-tint` (`hi` at 22%, stepped down only
@@ -1392,6 +1423,35 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   such field), so their rows keep the folder they are in as their second line. The e2e matches
   a row's size against the desktop formatter's own shape, so a second formatter rounding
   differently would show up there.
+- **A WINDOWLESS PRISM IS NOT A STATE PRISM CAN STAY IN** (2026-10-03, #265; owner: "prism
+  suddenly stopped opening, not sure why, but that should never happen"). FOUND: a Prism
+  launched from Explorer with an .mp4 was alive and idle 45 minutes later with NO renderer and NO
+  window; it held the single-instance lock, so every later launch handed its file over and
+  exited. No dump, nothing in the event log, not reproduced (5 launches of the same file got a
+  window). The window is shown only once its page is up, nothing listened for the page dying,
+  and the handoff only raised a window. So, for the class (`windowGuard.ts`, `crashBudget.ts`,
+  wired in `createWindow` and `second-instance`): `render-process-gone` logs a line and RELOADS;
+  the third death in 2 minutes REBUILDS the window (new one first, or the last window closing
+  quits); the same run on the rebuilt window QUITS (a dialog, never under `--e2e`), which frees
+  the lock. A page unresponsive for 45 s is restarted the same way; a shorter hang is only
+  logged. A WATCHDOG shows any window not shown within 8 s and reloads a dead page. A SECOND
+  LAUNCH makes a window if there is none and reloads a dead page before it raises, the files
+  waiting in `pendingOpen` for the page to listen. The log is `window-crashes.log` in userData
+  (64 KB, then `.old`). `crashReporter` runs with `uploadToServer: false`: dumps stay in
+  userData's Crashpad folder, never uploaded. Only the window's own close clears `mainWindow`,
+  and per-process IPC listeners are registered once, outside `createWindow`, since it can run
+  twice now. The `neverWindowless` e2e kills the page (`forcefullyCrashRenderer`) through every
+  path; `PRISM_E2E_CRASH_AT_START` and `PRISM_E2E_HOLD_RECOVERY` (E2E only) recreate the
+  2026-10-03 shape and hold the reload so the watchdog and the handoff are proved alone.
+  From the review: a death kills the page's shells and warm spares (`killAll`), since the
+  reloaded page resumes its agents and an old pty would be a second, unseen Claude; from the
+  SECOND death in a run (or after a rebuild) the page comes back WITHOUT its saved tabs
+  (`crashBudget.strained`, logged `restore tabs=skipped`), or a tab that kills the page would
+  kill it at every recovery and every later launch; a startup restore belongs to one page
+  (`pageGen`, bumped per main-frame navigation and window) and an older run stops touching
+  `pendingOpen` and `startupRestored`; a crash ends a pending hang timer; a launch during a quit
+  or an install makes no window (a quit relaunches with the handed files, never under `--e2e`);
+  `crashReporter` starts only once the single-instance lock is won.
 - **NOTHING ON THE STARTUP PATH HOLDS A STDIN PIPE** (2026-09-22, #189; owner: "it currently
   takes about 2 seconds to load. what could be done to make it about instant"). MEASURED: 1,188 ms
   from process start to a visible window, 369 ms after this fix (usable 1,303 -> 477 ms); an empty

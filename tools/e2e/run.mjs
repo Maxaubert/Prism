@@ -4367,6 +4367,179 @@ async function handoff(file) {
 }
 
 /**
+ * A WINDOWLESS PRISM IS NOT A STATE PRISM CAN STAY IN (#265; owner,
+ * 2026-10-03: "prism suddenly stopped opening, not sure why, but that should
+ * never happen"). Found: a Prism alive 45 minutes after launch with no
+ * renderer and no window, holding the single-instance lock, so every later
+ * double-click handed over to it and vanished. Each net is driven on its own:
+ * a page that dies is reloaded, one that keeps dying gets a new window and
+ * then a quit (the lock freed), a page that dies BEFORE the window was shown
+ * comes back, the watchdog shows and reloads a page left dead, and a second
+ * launch into a dead page brings back a working window with the file in it.
+ *
+ * The page is read from MAIN (`executeJavaScript`), never through
+ * Playwright's page object, which is the thing a crash takes away.
+ */
+async function neverWindowlessScenario(fixtures) {
+  console.log('never windowless')
+  const readme = join(fixtures, 'README.md')
+  const logFile = join(PROFILE, 'window-crashes.log')
+  const readLog = () => {
+    try {
+      return readFileSync(logFile, 'utf8')
+    } catch {
+      return ''
+    }
+  }
+  const clearLog = () => rmSync(logFile, { force: true })
+  /** The one window, its page, and whether `sel` is in it. */
+  const state = (app, sel) =>
+    app
+      .evaluate(async ({ BrowserWindow }, sel) => {
+        const all = BrowserWindow.getAllWindows()
+        if (all.length !== 1) return { n: all.length }
+        const w = all[0]
+        const wc = w.webContents
+        const base = { n: 1, id: w.id, visible: w.isVisible(), crashed: wc.isCrashed() }
+        if (base.crashed || wc.isLoading()) return base
+        const found = await Promise.race([
+          wc.executeJavaScript(`!!document.querySelector(${JSON.stringify(sel)})`).catch(() => null),
+          new Promise((r) => setTimeout(() => r(null), 1500))
+        ])
+        return { ...base, found }
+      }, sel)
+      .catch(() => ({ n: -1 }))
+  const live = async (app, sel = '.p-md h1', ms = 20000) =>
+    until(async () => {
+      const s = await state(app, sel)
+      return s.n === 1 && s.visible && !s.crashed && s.found === true ? s : null
+    }, ms, 200)
+  const deaths = () => (readLog().match(/ gone /g) ?? []).length
+  /** Kill the page, and wait until main has HEARD it died (its log line), so
+   *  the next look cannot be at the page from before. */
+  const crash = async (app) => {
+    const before = deaths()
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.forcefullyCrashRenderer())
+    return until(() => deaths() > before, 8000, 50)
+  }
+  // A page killed WHILE Playwright is still attaching to it makes Playwright
+  // throw "Target crashed" from inside its own session handler, out of reach
+  // of any await (MEASURED: it took the whole suite down). Only that, and only
+  // while a scenario here kills pages at launch, is swallowed; the checks
+  // below read the page from main, which needs no Playwright page at all.
+  const swallowAttachCrash = (e) => {
+    if (!/Target crashed/.test(String(e?.message ?? e))) throw e
+  }
+  const start = async (env = {}) => {
+    seedExplorerTab(readme)
+    const app = await launchTestApp({
+      args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'],
+      env: { ...process.env, ...env }
+    })
+    return app
+  }
+
+  // 1-3: a page that dies is reloaded; the third death in two minutes gets a
+  // new window; the same run on the new window ends the process.
+  clearLog()
+  let app = await start()
+  try {
+    const first = await live(app)
+    ok(!!first, 'the window comes up with its page')
+    await offscreen(app)
+    await crash(app)
+    const back = await live(app)
+    ok(!!back, 'a page that dies is reloaded, and its tab is back')
+    ok(back?.id === first?.id, 'in the same window')
+    ok(/ gone reason=\S+ .*action=reload/.test(readLog()), 'the death is logged with its reason and the reload')
+    ok(!/ restore tabs=skipped/.test(readLog()), 'one death keeps the saved tabs')
+
+    // From the second death in a run the page comes back WITHOUT its saved
+    // tabs (one of them may be what kills it): the Explorer, not the README.
+    const EXPLORER = '[data-testid="browse-list"]'
+    await crash(app)
+    const strained = await live(app, EXPLORER)
+    ok(!!strained, 'a second death brings the page back too')
+    ok(/ restore tabs=skipped reason=repeated-deaths/.test(readLog()), 'without its saved tabs, and the log says so')
+    ok((await state(app, '.p-md h1')).found === false, 'the restored README tab is left out')
+    await crash(app)
+    const rebuilt = await until(async () => {
+      const s = await live(app, EXPLORER, 2000)
+      return s && s.id !== first?.id ? s : null
+    }, 20000, 200)
+    ok(!!rebuilt, 'the third death in two minutes gets a NEW window, working, and only one')
+    ok(/action=recreate/.test(readLog()), 'the rebuild is logged')
+
+    const child = app.process()
+    const exited = new Promise((done) => child.once('exit', () => done(true)))
+    await crash(app)
+    await live(app, EXPLORER)
+    await crash(app)
+    await live(app, EXPLORER)
+    await crash(app)
+    ok(await Promise.race([exited, sleep(15000).then(() => false)]), 'when the new window dies as fast, Prism quits rather than sit windowless')
+    ok(/action=give-up/.test(readLog()), 'the give-up is logged')
+  } finally {
+    await app.close().catch(() => {})
+  }
+  reapStrays()
+  await sleep(900)
+
+  process.on('uncaughtException', swallowAttachCrash)
+  try {
+    // 4: the page dies as it commits, before the window was ever shown: the
+    // shape of the 2026-10-03 failure. The reload shows it.
+    clearLog()
+    app = await start({ PRISM_E2E_CRASH_AT_START: '1' })
+    try {
+      ok(!!(await live(app)), 'a page that dies before the window is shown comes back, and the window shows')
+      ok(/ gone .*shown=false .*action=reload/.test(readLog()), 'logged as a death before the window was shown')
+    } finally {
+      await app.close().catch(() => {})
+    }
+    reapStrays()
+    await sleep(900)
+
+    // 5: the same death with recovery HELD, as the bug left it: the watchdog
+    // alone must show the window and reload the page.
+    clearLog()
+    app = await start({ PRISM_E2E_CRASH_AT_START: '1', PRISM_E2E_HOLD_RECOVERY: '1' })
+    try {
+      ok(!!(await live(app, '.p-md h1', 25000)), 'with nothing else acting, the watchdog shows the window and brings its page back')
+      ok(/ watchdog .*gone=true/.test(readLog()), 'the watchdog logs what it found')
+    } finally {
+      await app.close().catch(() => {})
+    }
+    reapStrays()
+    await sleep(900)
+  } finally {
+    process.off('uncaughtException', swallowAttachCrash)
+  }
+
+  // 6: a page left dead (recovery held, the watchdog long past), then a
+  // second launch with a file: the handoff brings the page back and opens it.
+  clearLog()
+  app = await start({ PRISM_E2E_HOLD_RECOVERY: '1' })
+  const launched = Date.now()
+  try {
+    ok(!!(await live(app)), 'the window comes up')
+    await offscreen(app)
+    await sleep(Math.max(0, 9000 - (Date.now() - launched))) // past the watchdog
+    ok(await crash(app), 'the page dies')
+    await sleep(1000)
+    ok((await state(app, 'body')).crashed === true, 'and stays dead, recovery held')
+    await handoff(join(OTHER_ROOT, 'bad.json'))
+    ok(/ handoff window=dead action=reload/.test(readLog()), 'the second launch found the dead page and reloaded it')
+    ok(
+      !!(await live(app, '[data-testid="browse-list"] [aria-selected="true"][data-browse-path$="bad.json" i]', 25000)),
+      'and the handed file is open, selected in the Explorer'
+    )
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
+/**
  * A FILE FROM OUTSIDE OPENS IN THE EXPLORER TAB (owner, 2026-09-22: "that file
  * opened in prism's explorer rather than as a project ... a setting to choose
  * whether to open files maximized or as previews ... default should be
@@ -7837,6 +8010,61 @@ async function markTintScenario(fixtures) {
  * a user picks, measured off the rows, and remembered across a restart. The
  * tree keeps its own size.
  */
+/**
+ * THE FILE LIST'S SCROLLBAR (#267; owner, 2026-10-04: "its visibility is
+ * buggy ... it disappears too abruptly, it should fade quickly but not
+ * instantly"). Prism draws its own over the list: hidden at rest, shown while
+ * the list scrolls, gone again once it has been still a moment, and it FADES
+ * (an opacity transition), where the native one was simply cut.
+ */
+async function listScrollbarScenario(fixtures) {
+  console.log('the file list scrollbar')
+  const dir = join(fixtures, 'scrollbar')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (let i = 0; i < 80; i++) writeFileSync(join(dir, `s${String(i).padStart(2, '0')}.txt`), 'x\n')
+  const { app, win } = await launch(join(dir, 's00.txt'))
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator('[data-testid="browse-list"] [data-browse-path$="s00.txt"]').count()) === 0)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="scrollbar"]').dblclick()
+    ok(await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$="s00.txt"]').count()) === 1, 10000), 'the Explorer shows the folder of 80')
+    const bar = '.folder-browser .browse-overlay-scroll'
+    const look = () =>
+      win.evaluate((s) => {
+        const el = document.querySelector(s)
+        const list = document.querySelector('[data-testid="browse-list"]')
+        if (!el || !list) return null
+        const cs = getComputedStyle(el)
+        return { shown: el.hasAttribute('data-shown'), opacity: Number(cs.opacity), fade: cs.transitionDuration, native: getComputedStyle(list).scrollbarWidth }
+      }, bar)
+    await win.mouse.move(5, 5)
+    await sleep(1500)
+    let l = await look()
+    ok(!!l && !l.shown && l.opacity === 0, `at rest the scrollbar is hidden (${JSON.stringify(l)})`)
+    ok(l?.native === 'none', `and the native one is never drawn (${l?.native})`)
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 400 })
+    ok(await until(async () => (await look())?.shown === true, 2000, 25), 'scrolling shows it')
+    l = await look()
+    ok(/ms|s/.test(l.fade) && l.fade !== '0s', `and it fades in rather than popping (${l.fade})`)
+    ok(await until(async () => (await look())?.shown === false, 3000, 50), 'still a moment, it hides again')
+    l = await look()
+    ok(l.fade !== '0s', `and fades out rather than being cut (${l.fade})`)
+    // The pointer over the list keeps it up; leaving lets it go.
+    const box = await win.locator('[data-testid="browse-list"]').boundingBox()
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    ok(await until(async () => (await look())?.shown === true, 2000, 25), 'the pointer over the list shows it')
+    await sleep(1500)
+    ok((await look())?.shown === true, 'and keeps it while the pointer stays')
+    await win.mouse.move(5, 5)
+    ok(await until(async () => (await look())?.shown === false, 3000, 50), 'leaving the list lets it go')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -7903,6 +8131,486 @@ async function explorerSizeScenario(fixtures) {
     rmSync(dir, { recursive: true, force: true })
   }
 }
+/**
+ * THE ADDRESS IS A DOLPHIN FIELD, AND A FIELD ON BLACK IS A DARK GREY (#267;
+ * owner, 2026-10-04, of the Explorer toolbar on Void: "make the url box more
+ * visible and for the black theme make the grey colours used in search and in
+ * the url bar darker grey", then, showing KDE Dolphin: "the url bar in the
+ * image looks really clean too so copy that style"). One rounded, bordered
+ * field across the toolbar's middle: a chevron LEADS every name, the folder
+ * you are in is bold, a click on a name goes there and a click on the empty
+ * part edits the path. On a near-black ground (MEASURED, not read off the
+ * style's name) the fill is --p-field's dark step; anywhere else it is
+ * --p-control. The toolbar is back, forward, up, refresh, the field, the
+ * preview toggle and the search button, in that order. Screenshots of the
+ * toolbar on Void and on Paper go to .e2e/shots.
+ */
+async function addressFieldScenario(fixtures) {
+  console.log('address field')
+  const dir = join(fixtures, 'addrfield')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['a1.txt', 'a2.txt']) writeFileSync(join(dir, n), `field ${n}\n`)
+  // Deep enough that the path cannot fit the field.
+  const deep = join(dir, 'a-rather-long-folder-name-one', 'another-quite-long-folder-two', 'and-a-third-long-folder-three', 'four-is-also-long', 'five')
+  mkdirSync(deep, { recursive: true })
+  writeFileSync(join(deep, 'end.txt'), 'deep\n')
+  const { app, win } = await launch(join(dir, 'a1.txt'))
+  let before = null
+  const rgb = (c) => (c.match(/[\d.]+/g) ?? []).map(Number)
+  const lum = ([r, g, b]) => {
+    const lin = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+  }
+  const contrast = (a, b) => {
+    const [x, y] = [lum(a), lum(b)]
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+  }
+  const look = () =>
+    win.evaluate(() => {
+      const tb = document.querySelector('.folder-browser [data-testid="browse-toolbar"]')
+      const nav = tb?.querySelector('nav.browse-path')
+      const s = nav ? getComputedStyle(nav) : null
+      const r = nav?.getBoundingClientRect()
+      const crumbs = [...(nav?.querySelectorAll('.browse-crumb') ?? [])]
+      const current = nav?.querySelector('button[aria-current]')
+      const other = nav?.querySelector('.browse-crumb button:not([aria-current])')
+      return {
+        path: s && r ? { h: r.height, w: r.width, radius: s.borderTopLeftRadius, fill: s.backgroundColor, edge: s.borderTopColor, edgeW: s.borderTopWidth } : null,
+        ground: tb ? getComputedStyle(tb).backgroundColor : null,
+        // Each name is led by its chevron: the first child of every crumb.
+        leading: crumbs.length > 0 && crumbs.every((c) => c.firstElementChild?.tagName.toLowerCase() === 'svg'),
+        crumbs: crumbs.length,
+        currentWeight: current ? getComputedStyle(current).fontWeight : null,
+        current: current?.textContent ?? null,
+        crumb: other ? getComputedStyle(other).color : null,
+        // The toolbar's own order, left to right.
+        order: [...(tb?.children ?? [])].flatMap((el) =>
+          el.classList.contains('browse-history')
+            ? [...el.children].map((b) => b.getAttribute('aria-label'))
+            : el.matches('nav.browse-path')
+              ? ['address']
+              : [el.getAttribute('aria-label') ?? el.className]
+        ),
+        inputs: tb?.querySelectorAll('input').length ?? -1
+      }
+    })
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) !== 2)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="addrfield"]').dblclick()
+    return until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 2, 10000)
+  }
+  const shoot = (name) =>
+    win.locator('.folder-browser [data-testid="browse-toolbar"]').first().screenshot({ path: join(SHOTS, `address-field-${name}.png`) })
+  try {
+    ok(await intoFolder(), 'the Explorer shows the folder')
+    before = await switchStyle(win, 'new-void', 'dark')
+    await sleep(500)
+    const v = await look()
+    console.log('  void', JSON.stringify(v))
+    await shoot('void')
+    await switchStyle(win, 'paper', 'light')
+    await sleep(500)
+    const p = await look()
+    console.log('  paper', JSON.stringify(p))
+    await shoot('paper')
+    ok(
+      JSON.stringify(v.order) === JSON.stringify(['Back', 'Forward', 'Up', 'Refresh folder', 'address', 'Preview pane', 'Search this folder and subfolders']),
+      `the toolbar runs back, forward, up, refresh, the field, preview, search (${v.order.join(', ')})`
+    )
+    ok(v.inputs === 0, 'the toolbar holds no search field any more')
+    for (const [name, l] of [['Void', v], ['Paper', p]]) {
+      // One CSS pixel, which Chromium reports in device pixels at 112.5%.
+      ok(l.path && l.path.h === 36 && parseFloat(l.path.edgeW) > 0.5 && parseFloat(l.path.edgeW) <= 1, `${name}: the address is a 36px field with a 1px edge (${l.path?.h}, ${l.path?.edgeW})`)
+      ok(parseFloat(l.path.radius) > 0, `${name}: its corners are rounded (${l.path.radius})`)
+      ok(l.leading, `${name}: a chevron leads every name (${l.crumbs} names)`)
+      ok(Number(l.currentWeight) >= 600 && l.current === 'addrfield', `${name}: the folder you are in is bold (${l.current}, ${l.currentWeight})`)
+      const cr = contrast(rgb(l.crumb), rgb(l.path.fill))
+      ok(cr >= 4.5, `${name}: a name reads on the field (${cr.toFixed(2)}:1)`)
+    }
+    // On Void the fill is DARKER than the old control step (rgb 8,8,8), still
+    // a step off the black, and a quiet edge carries the box (owner,
+    // 2026-10-04: "the white border stands out too much on the black theme").
+    ok(lum(rgb(v.path.fill)) < lum([8, 8, 8]) && lum(rgb(v.path.fill)) > 0, `Void: the field is a darker grey than before (${v.path.fill})`)
+    const edge = contrast(rgb(v.path.edge), rgb(v.ground))
+    ok(edge >= 1.5 && edge < 1.9, `Void: the field's edge is a quiet line, not a white frame (${edge.toFixed(2)}:1)`)
+    ok(p.path.fill === 'rgb(231, 231, 232)', `Paper: the field wears the control fill (${p.path.fill})`)
+    ok(v.path.fill !== p.path.fill, 'Void and Paper fill the field differently')
+    // A hover strengthens the edge and leaves the fill alone.
+    const pathBox = win.locator('.folder-browser [data-testid="browse-toolbar"] nav.browse-path')
+    await pathBox.hover({ position: { x: Math.round(p.path.w) - 12, y: 18 } })
+    await sleep(150)
+    const hovered = await look()
+    ok(hovered.path.fill === p.path.fill && hovered.path.edge !== p.path.edge, `Paper: a hover strengthens the edge only (${hovered.path.edge}, ${hovered.path.fill})`)
+    // A name goes there; the field's empty part edits the path.
+    await win.locator('.folder-browser nav.browse-path .browse-crumb button').nth(v.crumbs - 2).click()
+    ok(await until(async () => (await look()).current !== 'addrfield', 8000), 'a click on a name goes to that folder')
+    await win.keyboard.press('Alt+ArrowLeft')
+    ok(await until(async () => (await look()).current === 'addrfield', 8000), 'and Back returns')
+    await pathBox.click({ position: { x: Math.round(p.path.w) - 12, y: 18 } })
+    const editing = win.locator('.folder-browser input[aria-label="Folder path"]')
+    ok(await until(async () => (await editing.count()) === 1, 5000), 'a click on the empty part edits the path')
+    await editing.fill(deep)
+    await editing.press('Enter')
+    ok(await until(async () => (await look()).current === 'five', 8000), 'and a typed path is gone to')
+    const clip = await win.evaluate(() => {
+      const row = document.querySelector('.folder-browser .browse-crumbs')
+      const field = document.querySelector('.folder-browser nav.browse-path').getBoundingClientRect()
+      const last = row.querySelector('button[aria-current]').getBoundingClientRect()
+      return { clipped: row.hasAttribute('data-clipped'), over: row.scrollWidth > row.clientWidth, inside: last.right <= field.right + 0.5 && last.left >= field.left }
+    })
+    ok(clip.over && clip.clipped && clip.inside, `a long path keeps its end in view and fades its start (${JSON.stringify(clip)})`)
+    await shoot('long-path')
+  } finally {
+    if (before) await switchStyle(win, before[0], before[1]).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * NO ACTION ROW (#267; owner, 2026-10-04: "i think we should remove our quick
+ * action buttons"). Open, Open as project, Copy, Rename, Delete and the "..."
+ * are gone from above the list, which takes their height; every one of them
+ * is still on the row's right-click menu and its key, and this proves each.
+ */
+async function explorerVerbsScenario(fixtures) {
+  console.log('explorer verbs without the action row')
+  const dir = join(fixtures, 'verbs')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'sub'), { recursive: true })
+  for (const n of ['alpha.txt', 'beta.txt']) writeFileSync(join(dir, n), `verbs ${n}\n`)
+  writeFileSync(join(dir, 'sub', 'inner.txt'), 'inner\n')
+  const { app, win } = await launch(join(dir, 'alpha.txt'))
+  const row = (suffix) => win.locator(`[data-testid="browse-list"] [data-browse-path$="${suffix}" i]`).first()
+  const current = () => win.evaluate(() => document.querySelector('.folder-browser nav.browse-path button[aria-current]')?.textContent ?? '')
+  const menu = async (suffix, label) => {
+    await row(suffix).locator('.browse-name-text').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.getByRole('menuitem', { name: new RegExp(`^${label}`) }).first().click()
+  }
+  const projects = () => win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if (!(await row('alpha.txt').count())) await row('\\verbs').dblclick()
+    ok(await until(async () => (await row('alpha.txt').count()) === 1, 10000), 'the Explorer shows the folder')
+
+    const shape = await win.evaluate(() => {
+      const tb = document.querySelector('.folder-browser [data-testid="browse-toolbar"]').getBoundingClientRect()
+      const list = document.querySelector('.folder-browser .browse-list-area').getBoundingClientRect()
+      return {
+        row: document.querySelectorAll('.folder-browser .browse-actions, .folder-browser [aria-label="File actions"], .folder-browser [aria-label="More file actions"]').length,
+        gap: list.top - tb.bottom
+      }
+    })
+    ok(shape.row === 0, 'no action row and no "..." button')
+    ok(Math.abs(shape.gap) <= 1, `the list starts right under the toolbar (${shape.gap}px)`)
+
+    // ENTER opens: a folder is gone into.
+    await row('\\sub').locator('.browse-name-text').click()
+    await win.locator('[data-testid="browse-list"]').focus()
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await current()) === 'sub', 8000), 'Enter on a folder goes into it')
+    await win.keyboard.press('Alt+ArrowUp')
+    ok(await until(async () => (await current()) === 'verbs', 8000), 'Alt+Up comes back')
+
+    // F2 renames.
+    await row('beta.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('F2')
+    const name = win.locator('[role="dialog"] input[aria-label="New name"]')
+    ok(await until(async () => (await name.count()) === 1, 5000), 'F2 asks for a new name')
+    await name.fill('gamma.txt')
+    await name.press('Enter')
+    ok(await until(() => existsSync(join(dir, 'gamma.txt')) && !existsSync(join(dir, 'beta.txt')), 8000), 'and the file is renamed')
+    ok(await until(async () => (await row('gamma.txt').count()) === 1, 8000), 'and the list shows the new name')
+
+    // Ctrl+C copies the file; Ctrl+V pastes a copy beside it.
+    await row('alpha.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'Ctrl+C puts the file on the clipboard')
+    await win.keyboard.press('Control+v')
+    ok(await until(() => existsSync(join(dir, 'alpha (2).txt')), 15000), 'Ctrl+V pastes a copy')
+    // Ctrl+X marks it cut.
+    await row('gamma.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+x')
+    ok(await until(async () => (await row('gamma.txt').getAttribute('data-cut')) !== null, 8000), 'Ctrl+X marks the row cut')
+
+    // Del asks before anything goes to the Recycle Bin; Cancel keeps it.
+    await row('alpha (2).txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Delete')
+    ok(await until(async () => (await win.getByRole('dialog', { name: 'Move to the Recycle Bin?' }).count()) === 1, 5000), 'Del asks to delete')
+    await win.getByRole('button', { name: 'Cancel', exact: true }).click()
+    ok(existsSync(join(dir, 'alpha (2).txt')), 'and Cancel keeps the file')
+
+    // The same verbs from the right-click menu.
+    await menu('alpha (2).txt', 'Delete')
+    ok(await until(async () => (await win.getByRole('dialog', { name: 'Move to the Recycle Bin?' }).count()) === 1, 5000), 'the menu\'s Delete asks too')
+    await win.keyboard.press('Escape')
+    await menu('gamma.txt', 'Rename')
+    ok(await until(async () => (await name.count()) === 1, 5000), 'the menu\'s Rename asks for a name')
+    await win.keyboard.press('Escape')
+    await win.evaluate(() => navigator.clipboard.writeText('').catch(() => {}))
+    await menu('gamma.txt', 'Copy')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'the menu\'s Copy puts the file on the clipboard')
+    const before = await projects()
+    await menu('\\sub', 'Open as project')
+    ok(await until(async () => (await projects()) === before + 1, 8000), 'the menu\'s Open as project opens a project tab')
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await menu('alpha.txt', 'Open')
+    ok(await until(() => win.evaluate(() => !!document.querySelector('.cm-editor')?.getClientRects().length), 10000), 'the menu\'s Open opens the file')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * SEARCH IS A POPUP (#267; owner, 2026-10-04, showing PowerToys Run: "the
+ * search field should be a search icon only that displays a search pop up on
+ * click like this but centered on screen and blurred background behind ... the
+ * most likely ones, and at the bottom there's a show more which essentially
+ * does a normal search like before"). The button and Ctrl+F open it centred
+ * over a blurred window; typing lists the likely names first, the arrows and
+ * Enter open one, Escape puts it away and gives the focus back, and Show more
+ * (or Ctrl+Enter) runs the list's full search. Ctrl+F in an editor or a shell
+ * is still theirs, and the popup leaves when what is in front changes.
+ */
+async function searchPopupScenario(fixtures) {
+  console.log('search popup')
+  const dir = join(fixtures, 'searchpop')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'sub', 'deep'), { recursive: true })
+  mkdirSync(join(dir, 'reports'), { recursive: true })
+  writeFileSync(join(dir, 'report-final.txt'), 'final\n')
+  writeFileSync(join(dir, 'quarterly report.md'), '# q\n')
+  writeFileSync(join(dir, 'notes.txt'), 'notes\n')
+  writeFileSync(join(dir, 'sub', 'report.txt'), 'report\n')
+  writeFileSync(join(dir, 'sub', 'deep', 'old-report-draft.txt'), 'draft\n')
+  writeFileSync(join(dir, 'reports', 'q1.txt'), 'q1\n')
+  // THE WALK, NOT THE INDEX. Under --e2e the index is a private engine built
+  // on demand, and MEASURED here its first build had not listed these files
+  // (only the folder 'reports') after 60 s, for the list's full search as much
+  // as the popup's; a later run found them in 270 ms. A root it may not index
+  // sends main's search to its bounded walk, which is the same search the
+  // popup and the list share, and answers the same way every run.
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  EXTRA_ENV = {}
+  const popup = win.locator('[data-testid="browse-search-popup"]')
+  const field = popup.locator('input[role="combobox"]')
+  const options = popup.locator('[role="option"]:not([data-show-more])')
+  const names = () => popup.locator('[role="option"]:not([data-show-more]) .browse-search-popup-name').allTextContents()
+  const current = () => win.evaluate(() => document.querySelector('.folder-browser nav.browse-path button[aria-current]')?.textContent ?? '')
+  const open = () => win.locator('[data-testid="browse-search-button"]').click()
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await current()) !== 'searchpop') await win.locator('[data-testid="browse-list"] [data-browse-path$="\\searchpop" i]').dblclick()
+    return until(async () => (await current()) === 'searchpop', 10000)
+  }
+  try {
+    ok(await intoFolder(), 'the Explorer shows the folder')
+
+    // THE BUTTON: centred, over a blurred window, no shadow, the field focused.
+    await open()
+    ok(await until(async () => (await popup.count()) === 1, 5000), 'the search button opens the popup')
+    const shape = await win.evaluate(() => {
+      const box = document.querySelector('[data-testid="browse-search-popup"]')
+      const r = box.getBoundingClientRect()
+      const scrim = getComputedStyle(box.parentElement)
+      return {
+        centre: r.left + r.width / 2 - window.innerWidth / 2,
+        blur: scrim.backdropFilter,
+        shadow: getComputedStyle(box).boxShadow,
+        role: box.getAttribute('role'),
+        modal: box.getAttribute('aria-modal'),
+        focused: document.activeElement?.getAttribute('aria-label')
+      }
+    })
+    ok(Math.abs(shape.centre) <= 1, `it is centred in the window (${shape.centre.toFixed(1)}px off)`)
+    ok(/blur\(/.test(shape.blur), `the window behind is blurred (${shape.blur})`)
+    ok(shape.shadow === 'none', `no shadow on it (${shape.shadow})`)
+    ok(shape.role === 'dialog' && shape.modal === 'true', 'it is a modal dialog')
+    ok(shape.focused === 'Search this folder and subfolders', 'and its labelled field has the focus')
+
+    // TYPING lists the likely names, the closest first, each with its folder.
+    await field.fill('report')
+    ok(await until(async () => (await options.count()) >= 4, 15000), `typing lists the likely matches (${await options.count()})`)
+    const listed = await names()
+    console.log('  listed', JSON.stringify(listed))
+    ok(listed[0] === 'report.txt', `the whole name comes first (${listed[0]})`)
+    ok(listed.indexOf('notes.txt') === -1, 'a name that does not match is not listed')
+    ok(listed.indexOf('quarterly report.md') > listed.indexOf('report-final.txt'), 'a name that starts with it comes before one with it inside')
+    const where = await popup.locator('[role="option"]').first().locator('.browse-search-popup-where').textContent()
+    ok(where === 'sub', `each row says its folder (${where})`)
+    ok((await popup.locator('[role="listbox"]').count()) === 1 && (await popup.locator('[data-show-more]').count()) === 1, 'a listbox, with Show more at its foot')
+    const announced = await popup.locator('[role="status"]').textContent()
+    ok(/match/.test(announced ?? ''), `the count is announced (${announced})`)
+    await win.screenshot({ path: join(SHOTS, 'search-popup.png') })
+
+    // A PRESS ANYWHERE IN IT keeps the field's focus (review of #268,
+    // measured: a press on the magnifier sent the focus to the page, where
+    // Escape did nothing and Ctrl+T opened a tab under the popup).
+    await popup.locator('.browse-search-popup-field > svg').click()
+    await popup.click({ position: { x: 4, y: 4 } })
+    ok(await win.evaluate(() => document.activeElement?.getAttribute('role') === 'combobox'), 'a press on the magnifier or the edge keeps the field focused')
+
+    // A MARK BELONGS TO THE WORDS it was made under: one more letter and the
+    // old rows, still on screen until the new answer, are marked no more, so
+    // Enter cannot open a row picked for the text before.
+    await field.press('ArrowDown')
+    ok((await popup.locator('[aria-selected="true"]').count()) === 1, 'Down marks a row')
+    await field.press('s')
+    ok((await popup.locator('[aria-selected="true"]').count()) === 0 && (await field.getAttribute('aria-activedescendant')) === null, 'a letter typed takes the mark away at once')
+    await field.press('Backspace')
+    ok((await popup.locator('[aria-selected="true"]').count()) === 0, 'and taking the letter back does not bring the old mark back')
+    ok(await until(async () => (await popup.locator('.browse-search-popup-spin').count()) === 0 && (await names())[0] === 'report.txt', 15000), 'and the list comes back for the old words')
+
+    // THE ARROWS AND ENTER open the marked file, as a plain open does.
+    ok((await popup.locator('[aria-selected="true"]').count()) === 0, 'nothing is marked before the arrows')
+    await field.press('ArrowDown')
+    ok((await options.first().getAttribute('aria-selected')) === 'true', 'Down marks the first row')
+    ok((await field.getAttribute('aria-activedescendant')) === (await options.first().getAttribute('id')), 'and the field points at it')
+    await field.press('Enter')
+    ok(await until(async () => (await popup.count()) === 0, 5000), 'Enter closes the popup')
+    ok(await until(() => win.evaluate(() => /report/.test(document.querySelector('.cm-editor')?.textContent ?? '')), 10000), 'and opens the file')
+    // A file opens in its own folder, as a double click there would.
+    await win.locator('[data-testid="browse-toolbar"] button[aria-label="Back"]').first().click()
+    ok(await until(async () => (await current()) === 'sub', 10000), 'Back shows the file in its own folder')
+    await win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Back"]').click()
+    ok(await until(async () => (await current()) === 'searchpop', 10000), 'and Back again returns to where the search began')
+
+    // CTRL+F from the Explorer; ESCAPE gives the focus back.
+    await win.locator('[data-testid="browse-list"]').focus()
+    await win.keyboard.press('Control+f')
+    ok(await until(async () => (await popup.count()) === 1, 5000), 'Ctrl+F in the Explorer opens it')
+    // Pressed on its own magnifier first: the keys are still the popup's.
+    const tabsBefore = await win.locator('[role="tablist"] [role="tab"]').count()
+    await popup.locator('.browse-search-popup-field > svg').click()
+    await win.keyboard.press('Control+t')
+    await sleep(300)
+    ok((await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBefore && (await popup.count()) === 1, 'Ctrl+T over it opens no tab underneath')
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await popup.count()) === 0, 5000), 'Escape closes it')
+    ok(await win.evaluate(() => !!document.activeElement?.closest('[data-testid="browse-list"]')), 'and the focus is back in the list')
+    // A click outside closes it too.
+    await open()
+    await popup.waitFor({ timeout: 5000 })
+    // On the status line, where a click lands on nothing that acts.
+    const size = await win.evaluate(() => [window.innerWidth, window.innerHeight])
+    await win.mouse.click(Math.round(size[0] / 2), size[1] - 8)
+    ok(await until(async () => (await popup.count()) === 0, 5000), 'a click outside closes it')
+
+    // A FOLDER is gone into.
+    await open()
+    await field.fill('reports')
+    ok(await until(async () => (await names()).includes('reports'), 15000), 'a folder is listed')
+    const at = (await names()).indexOf('reports')
+    for (let i = 0; i <= at; i++) await field.press('ArrowDown')
+    await field.press('Enter')
+    ok(await until(async () => (await current()) === 'reports', 8000), 'Enter on a folder goes into it')
+    await win.keyboard.press('Alt+ArrowLeft')
+    ok(await until(async () => (await current()) === 'searchpop', 8000), 'Back returns')
+
+    // SHOW MORE runs the full search in the list, Ctrl+Enter the same.
+    await open()
+    await field.fill('report')
+    await until(async () => (await options.count()) >= 4, 15000)
+    await popup.locator('[data-show-more]').click()
+    ok(await until(async () => (await popup.count()) === 0, 5000), 'Show more closes the popup')
+    const searched = () => win.locator('[data-testid="browse-list"] [data-browse-path]').count()
+    ok(await until(async () => (await searched()) >= 5 && (await win.locator('[data-testid="browse-search-status"]').count()) === 1, 15000), `and the list shows every match (${await searched()})`)
+    ok((await win.locator('[data-testid="browse-search-button"]').getAttribute('data-active')) !== null, 'the search button is lit while it does')
+    await win.locator('[data-testid="browse-search-clear"]').click()
+    ok(await until(async () => (await win.locator('[data-testid="browse-search-status"]').count()) === 0, 8000), 'Clear search goes back to the folder')
+    await open()
+    await field.fill('draft')
+    await field.press('Control+Enter')
+    ok(await until(async () => (await popup.count()) === 0 && (await win.locator('[data-testid="browse-list"] [data-browse-path$="old-report-draft.txt"]').count()) === 1, 15000), 'Ctrl+Enter runs the full search too')
+    await win.locator('[data-testid="browse-search-clear"]').click()
+
+    // ONE LAYER: it does not open over a question, and leaves with its tab.
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"] .browse-name-text').click()
+    await win.keyboard.press('Delete')
+    await win.getByRole('dialog', { name: 'Move to the Recycle Bin?' }).waitFor({ timeout: 5000 })
+    await win.locator('[data-testid="browse-search-button"]').evaluate((b) => b.click())
+    await sleep(300)
+    ok((await popup.count()) === 0, 'it does not open over a question')
+    await win.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await open()
+    await popup.waitFor({ timeout: 5000 })
+    await win.evaluate(() => document.querySelector('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]')?.click())
+    ok(await until(async () => (await popup.count()) === 0, 5000), 'a tab switch puts it away')
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await sleep(400)
+    ok((await popup.count()) === 0, 'and it does not come back with the tab')
+
+    // A TERMINAL'S BUTTONS give the address field the room (review of #268,
+    // measured 266px of field at a 913px window with their words). Since #148
+    // no way in the app puts a shell on an Explorer tab, so App's own markup
+    // for them (an icon and its words per button) is put in the toolbar here
+    // and measured with the real CSS at a wide and a narrow Explorer: words
+    // where it is wide, icons where it is not.
+    const fits = await win.evaluate(async () => {
+      const fb = document.querySelector('.folder-browser')
+      const tb = fb.querySelector('[data-testid="browse-toolbar"]')
+      const icon = tb.querySelector('[data-testid="browse-search-button"] svg').outerHTML
+      const box = document.createElement('div')
+      box.className = 'browse-terminal-controls'
+      box.innerHTML =
+        '<div class="browse-terminal-actions">' +
+        ['Return to terminal', 'Terminal folder', 'Use folder in terminal']
+          .map((label, i) => `<button aria-label="${label}"${i === 2 ? ' class="browse-cd"' : ''}>${icon}<span>${label}</span></button>`)
+          .join('') +
+        '</div>'
+      tb.insertBefore(box, tb.querySelector('button[aria-label="Preview pane"]'))
+      const at = async (width) => {
+        fb.style.width = `${width}px`
+        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
+        const field = tb.querySelector('nav.browse-path').getBoundingClientRect().width
+        const words = [...box.querySelectorAll('span')].some((s) => s.getClientRects().length)
+        return { width, field: Math.round(field), words, controls: Math.round(box.getBoundingClientRect().width), overflow: tb.scrollWidth > tb.clientWidth + 1 }
+      }
+      const out = [await at(1400), await at(1000), await at(760)]
+      box.remove()
+      fb.style.width = ''
+      return out
+    })
+    console.log('  terminal controls', JSON.stringify(fits))
+    const [wide, mid, narrow] = fits
+    ok(wide.words && !wide.overflow && wide.field >= 300, `a wide Explorer shows the words and keeps the field (${JSON.stringify(wide)})`)
+    ok(!mid.words && !mid.overflow && mid.field >= 300, `a narrower one shows icons and the field keeps its room (${JSON.stringify(mid)})`)
+    ok(!narrow.words && !narrow.overflow && narrow.field >= 250, `and so does a narrow one (${JSON.stringify(narrow)})`)
+
+    // CTRL+F IN AN EDITOR IS THE EDITOR'S.
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"]').dblclick()
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    await win.locator('.cm-content:visible').first().click()
+    await win.keyboard.press('Control+f')
+    ok(await until(async () => (await win.locator('.cm-search').count()) > 0, 5000), 'Ctrl+F in the editor opens its own find')
+    ok((await popup.count()) === 0, 'and not the popup')
+    await win.keyboard.press('Escape')
+    // AND IN A SHELL, the shell's.
+    await win.keyboard.press('Control+`')
+    const shell = await until(async () => (await win.locator('.xterm').count()) > 0, 20000)
+    if (shell) {
+      await win.waitForFunction(() => !!document.activeElement?.closest('.xterm'), null, { timeout: 10000 }).catch(() => {})
+      await win.keyboard.press('Control+f')
+      await sleep(500)
+      ok((await popup.count()) === 0, 'Ctrl+F in a terminal does not open the popup')
+      await win.keyboard.press('Control+`')
+    } else ok(false, 'a terminal opened for the Ctrl+F check')
+
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function selectionScenario(fixtures) {
   console.log('explorer selection')
   // 2026-08-22: the tree keeps its quick-look single click; shift and ctrl
@@ -10684,6 +11392,7 @@ await run(termCwdScenario)
 await run(agentTitleScenario)
 await run(handoffOverTermScenario)
 await run(openInExplorerScenario)
+await run(neverWindowlessScenario)
 await run(promptLayoutScenario)
 await run(termMenuCopyScenario)
 await run(archiveScenario)
@@ -10708,6 +11417,10 @@ await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
+await run(listScrollbarScenario)
+await run(addressFieldScenario)
+await run(explorerVerbsScenario)
+await run(searchPopupScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
 await run(phoneDocsScenario)
