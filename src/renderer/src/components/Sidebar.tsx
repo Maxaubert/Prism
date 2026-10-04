@@ -1559,7 +1559,8 @@ export function Sidebar({
       >
         <span
           className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent ${
-            !pointerResize && !dragging ? 'group-focus-visible:bg-[var(--p-accent-hi)]' : ''
+            // Grey, not the accent (#272: "remove focus effects like this").
+            !pointerResize && !dragging ? 'group-focus-visible:bg-[color-mix(in_srgb,var(--p-text)_28%,transparent)]' : ''
           }`}
         />
       </div>

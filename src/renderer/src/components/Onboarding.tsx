@@ -48,7 +48,10 @@ function ModeCards({ mode, onPick }: { mode: Mode; onPick?: (m: Mode) => void })
               ? 'border-[var(--p-accent-solid)] shadow-[0_0_0_2px_var(--p-accent-solid)]'
               : 'border-[color:var(--p-line)] hover:-translate-y-0.5'
           }`}
-          style={{ background: 'var(--p-hover)' }}
+          // backgroundColor, not the background shorthand: the inline
+          // shorthand reset the base rule's focus fill (#272 review), so a
+          // card reached by Tab looked exactly like one that was not.
+          style={{ backgroundColor: 'var(--p-hover)' }}
         >
           <ModePreview mode={m} />
           <span className="mt-2.5 block text-[13.5px] font-bold capitalize text-[var(--p-text)]">{m}</span>

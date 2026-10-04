@@ -46,12 +46,11 @@
   width: 2px;
   background: transparent;
 }
+/* A handle the keys are on shows its line in a quiet grey: no accent and no
+   box round it (#272; owner, 2026-10-04: "remove the focus effect. go
+   through the ui and remove focus effects like this"). */
 .explorer-resize:focus-visible:not([data-pointer-resize]):not([data-dragging])::after {
-  background: var(--p-accent-hi);
-}
-.explorer-resize:focus-visible:not([data-pointer-resize]):not([data-dragging]) {
-  outline: 1px solid var(--p-accent-hi);
-  outline-offset: -3px;
+  background: color-mix(in srgb, var(--p-text) 28%, transparent);
 }
 .explorer-resize-places {
   top: 0;
@@ -167,11 +166,12 @@
 .browse-terminal-actions button:hover {
   background: var(--p-hover);
 }
+/* Focus is the hover's fill, not a ring (#272). */
 .browse-return-row button:focus-visible,
 .browse-preview-actions button:focus-visible,
 .browse-terminal-actions button:focus-visible {
-  outline: 2px solid var(--p-accent-solid);
-  outline-offset: -2px;
+  outline: none;
+  background: var(--p-hover);
 }
 .browse-terminal-actions {
   display: flex;

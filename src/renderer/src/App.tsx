@@ -252,7 +252,8 @@ function TopBar({
   editing,
   dirty,
   onToggleEdit,
-  onTools
+  onMore,
+  moreOpen
 }: {
   /** The open file's name - or '' while the sidebar is showing it, so the
    *  same fact isn't said twice on one screen. */
@@ -280,8 +281,9 @@ function TopBar({
    *  state lives in App beside the window it opens, so the bar only gives it
    *  its place. */
   chip?: ReactNode
-  /** The Tools menu, opened at the button's bottom-left corner. */
-  onTools: (x: number, y: number) => void
+  /** The More menu: opened under the button, shut by a second press on it. */
+  onMore: (button: HTMLElement, keyboard?: boolean) => void
+  moreOpen: boolean
 }): JSX.Element {
   return (
     // The bar changes colour on a curve rather than in a frame: during the
@@ -313,7 +315,8 @@ function TopBar({
       <TitleButtons
         setup={setup}
         chip={chip}
-        onTools={onTools}
+        onMore={onMore}
+        moreOpen={moreOpen}
         editable={editable}
         editing={editing}
         onToggleEdit={onToggleEdit}
@@ -325,14 +328,15 @@ function TopBar({
 }
 
 /**
- * The title bar's right end: the update chip, Tools, the pencil, the cog and
+ * The title bar's right end: the update chip, More, the pencil, the cog and
  * the three window buttons. Its own component because with the title bar
  * hidden (#250) the same group sits at the end of the tab row instead.
  */
 function TitleButtons({
   setup,
   chip,
-  onTools,
+  onMore,
+  moreOpen,
   editable,
   editing,
   onToggleEdit,
@@ -341,7 +345,8 @@ function TitleButtons({
 }: {
   setup: boolean
   chip?: ReactNode
-  onTools: (x: number, y: number) => void
+  onMore: (button: HTMLElement, keyboard?: boolean) => void
+  moreOpen: boolean
   editable: boolean
   editing: boolean
   onToggleEdit: () => void
@@ -360,42 +365,26 @@ function TitleButtons({
           2026-09-20, #179: "update button in prism should be the left most
           button, right now it has the remote button to its left"): the one
           control in the bar that comes and goes should not sit BETWEEN two
-          that stay, where its arrival pushes Tools sideways from under the
+          that stay, where its arrival pushes More sideways from under the
           pointer. At the head of the group it only ever takes room from the
           file's name, which truncates. */}
       {!setup && chip}
-      {/* Tools (2026-09-06, #104): a menu of things that are not about the
-          open file. One row today, Phone; the button exists so the next
-          one has a home. Glyph only like its neighbours, and RIGHT of the
-          update chip since 2026-09-20 (#179): it was built to its left. */}
-      {!setup && (
-        <button
-          className="no-drag grid h-7 w-8 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect()
-            onTools(r.left, r.bottom + 2)
-          }}
-          title="Tools"
-          aria-label="Tools"
-          aria-haspopup="menu"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width={15}
-            height={15}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M14.7 6.3a4 4 0 0 0 5 5L13 18a2.1 2.1 0 0 1-3-3l6.7-6.7Z" />
-            <path d="M14.7 6.3 17 4l3 3-2.3 2.3M5 19l3-3" />
-          </svg>
-        </button>
-      )}
-      <div className="no-drag flex items-center gap-1">
+      {/* More (2026-09-06, #104, as Tools): a menu of things that are not
+          about the open file. Glyph only like its neighbours, and RIGHT of the
+          update chip since 2026-09-20 (#179): it was built to its left.
+          THREE VERTICAL DOTS since #272 (owner, 2026-10-04: "remote should be
+          where it is but the icon should be a 3 vertical dot menu where will
+          have multiple things, remote just being one of them"): the pen read
+          as one tool, and the menu is a drawer for several. It TOGGLES ("it
+          should open then close open close"): the menu ignores a press on
+          the button that owns it, so the button's own click is what shuts it. */}
+      {/* TWO GROUPS (owner, 2026-10-04, of More, the cog and the window
+          buttons: "the icons here seem too far apart, or maybe it should be
+          the 3 vertical dots on the inside"): the app's own buttons sit close
+          together with More on the INSIDE, next to the window buttons, where
+          Chrome and VS Code keep it; a wider step then parts them from
+          minimize, maximize and close. */}
+      <div className="no-drag flex items-center gap-0.5">
         {!setup && editable && (
           <button
             className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
@@ -449,6 +438,26 @@ function TitleButtons({
             </svg>
           </button>
         )}
+        {!setup && (
+          <button
+            className="no-drag grid h-7 w-8 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
+            // detail 0 is Enter or Space: the menu then takes the focus.
+            onClick={(e) => onMore(e.currentTarget, e.detail === 0)}
+            title="More"
+            aria-label="More"
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            data-more-button
+          >
+            <svg viewBox="0 0 24 24" width={15} height={15} fill="currentColor" aria-hidden data-more-glyph>
+              <circle cx="12" cy="5.5" r="1.7" />
+              <circle cx="12" cy="12" r="1.7" />
+              <circle cx="12" cy="18.5" r="1.7" />
+            </svg>
+          </button>
+        )}
+      </div>
+      <div className="no-drag ml-2 flex items-center gap-1">
         <button
           className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
           onClick={() => w.minimize()}
@@ -1481,10 +1490,25 @@ export default function App(): JSX.Element {
   const askClose = useRef<() => void>(() => {})
   useEffect(() => window.prism.onAskClose(() => askClose.current()), [])
 
-  // Tools > Phone (#104): the menu under the title bar's Tools button and the
-  // dialog its one row opens. The dialog is handed the ACTIVE tab's root, so
-  // the QR it shows pairs a phone to the folder you are looking at.
-  const [toolsMenu, setToolsMenu] = useState<{ x: number; y: number } | null>(null)
+  // More > Phone (#104; the button was Tools until #272): the menu under the
+  // title bar's three dots and the dialog its first row opens. The dialog is
+  // handed the ACTIVE tab's root, so the QR it shows pairs a phone to the
+  // folder you are looking at. The button TOGGLES the menu (#272): the menu
+  // is told which button owns it, so the press on that button does not shut
+  // it only for the click to open it again.
+  const [moreMenu, setMoreMenu] = useState<{
+    x: number
+    y: number
+    anchor: HTMLElement
+    keyboard: boolean
+  } | null>(null)
+  const toggleMore = useCallback((button: HTMLElement, keyboard = false): void => {
+    setMoreMenu((open) => {
+      if (open) return null
+      const r = button.getBoundingClientRect()
+      return { x: r.left, y: r.bottom + 2, anchor: button, keyboard }
+    })
+  }, [])
   const [phoneOpen, setPhoneOpen] = useState(false)
   /**
    * What STARTS the install once every question has been answered. It is the
@@ -3345,6 +3369,11 @@ export default function App(): JSX.Element {
       // is drawn outside the Explorer (over the whole window), and a chord
       // that reached the app behind it would change what is under it.
       if (el?.closest('[data-search-popup]')) return
+      // A MENU ROW WITH THE FOCUS owns the plain keys (#272): More opened from
+      // the keyboard puts the focus on its first row, and Down there walked
+      // the sidebar's tree too, whose row then took the focus out of the
+      // menu (measured in the moreMenu e2e). The chords stay the app's.
+      if (el?.closest('[role="menu"]') && !e.ctrlKey && !e.altKey && !e.metaKey) return
       const inBrowser = !!el?.closest('.folder-browser')
       if (inBrowser && e.altKey) return
       if (inBrowser && !e.ctrlKey && !e.altKey && e.key !== 'F11') return
@@ -3792,7 +3821,8 @@ export default function App(): JSX.Element {
           dirty={dirtyPaths.size > 0}
           onToggleEdit={() => setEditMode((v) => !v)}
           chip={chip}
-          onTools={(x, y) => setToolsMenu({ x, y })}
+          onMore={toggleMore}
+          moreOpen={!!moreMenu}
         />
       )}
       {/* Under the bar, and only once there are two or more: one tab is exactly
@@ -3840,7 +3870,8 @@ export default function App(): JSX.Element {
             <TitleButtons
               setup={false}
               chip={chip}
-              onTools={(x, y) => setToolsMenu({ x, y })}
+              onMore={toggleMore}
+              moreOpen={!!moreMenu}
               editable={editable}
               editing={editMode}
               onToggleEdit={() => setEditMode((v) => !v)}
@@ -4986,11 +5017,16 @@ export default function App(): JSX.Element {
           choices={[{ label: 'OK', primary: true, onPick: () => setAsk(null) }]}
         />
       )}
-      {toolsMenu && (
+      {moreMenu && (
         <ContextMenu
-          x={toolsMenu.x}
-          y={toolsMenu.y}
-          onClose={() => setToolsMenu(null)}
+          x={moreMenu.x}
+          y={moreMenu.y}
+          anchor={moreMenu.anchor}
+          keyboard={moreMenu.keyboard}
+          onClose={() => setMoreMenu(null)}
+          // One row per thing that is not about the open file (#272: "multiple
+          // things, remote just being one of them"). Phone stays first; a new
+          // row is one more entry here.
           items={[{ label: 'Phone', onPick: () => setPhoneOpen(true) }]}
         />
       )}

@@ -264,10 +264,12 @@ function Section({
  * can easily be seen. same colours as the drop down menus"; "the only ones to
  * keep accented are the save buttons"). The same classes as the terminal
  * core's `fields.tsx`, so both halves of this page match. Every grey is a
- * token the style derives from its own ground.
+ * token the style derives from its own ground. FOCUS IS THE HOVER'S LOOK, not
+ * an accent edge (#272; owner, 2026-10-04: "remove the focus effect. go
+ * through the ui and remove focus effects like this").
  */
 const ROW_BUTTON =
-  'h-8 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-control)] px-3 text-[12px] font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-line)] hover:bg-[var(--p-hover)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none disabled:opacity-50'
+  'h-8 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-control)] px-3 text-[12px] font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-line)] hover:bg-[var(--p-hover)] focus-visible:border-[color:var(--p-line)] focus-visible:bg-[var(--p-hover)] focus-visible:outline-none disabled:opacity-50'
 const SEGMENT_ON = 'bg-[color-mix(in_srgb,var(--p-text)_16%,var(--p-control))] text-[var(--p-text)]'
 const SWITCH_ON = 'bg-[var(--p-text-soft)]'
 const SWITCH_KNOB_ON = 'bg-[var(--p-bg)]'
@@ -1082,7 +1084,8 @@ function Select({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex h-8 min-w-[168px] items-center justify-between gap-2 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-control)] px-2.5 text-[12px] font-medium text-[var(--p-text)] transition-colors hover:border-[color:var(--p-line)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
+        // Focus wears the hover's edge, not the accent (#272).
+        className="flex h-8 min-w-[168px] items-center justify-between gap-2 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-control)] px-2.5 text-[12px] font-medium text-[var(--p-text)] transition-colors hover:border-[color:var(--p-line)] focus-visible:border-[color:var(--p-line)] focus-visible:outline-none"
       >
         <span className="truncate" style={cur?.style}>
           {cur?.name ?? value}
@@ -1418,8 +1421,12 @@ function Swatches({
             className={`h-6 rounded-md transition ${
               on
                 ? 'ring-2 ring-[var(--p-accent-hi)] ring-offset-1 ring-offset-[#0d0f14]'
-                : 'ring-1 ring-white/10 hover:ring-white/30'
+                : 'ring-1 ring-white/10 hover:ring-white/30 focus-visible:ring-white/30'
             }`}
+            // A swatch IS its fill (a colour or a gradient), so the inline
+            // background beats the base focus fill: a focused swatch shows
+            // focus as its hover does, the faint edge a step lighter (#272
+            // review: an unselected swatch reached by Tab looked unfocused).
             style={{ background: it.fill }}
           />
         )

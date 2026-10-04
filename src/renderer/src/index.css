@@ -16,6 +16,47 @@
   color-scheme: dark;
 }
 
+/* NO FOCUS BOXES (#272; owner, 2026-10-04, of the white box round the title
+   bar's menu button: "remove the focus effect. go through the ui and remove
+   focus effects like this"). Chromium draws its own ring on whatever has the
+   keyboard focus; nothing in Prism wears one now. A keyboard user still sees
+   where the keys are: a control shows focus as a grey FILL, the hover's own
+   token, laid over its background as an image so a button that is already
+   filled (Save, a pressed segment) keeps its colour under it. A text field
+   shows it as its EDGE going a step lighter, no ring. In the base layer, so a
+   component's own focus utilities (an accent edge on a rename field) still
+   win over the default. Explorer's toolbar did the same the same day
+   (browse.css), which is where the grey fill was first asked for. */
+@layer base {
+  :focus-visible:where(:not(input, textarea, select, [contenteditable]), input[type='checkbox'], input[type='radio'], input[type='range'], input[type='button'], input[type='submit']) {
+    outline: none;
+  }
+  :where(button, summary, a[href], [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option'], [role='switch'], [role='radio'], [role='checkbox'], [role='listbox'], input[type='checkbox'], input[type='radio']):focus-visible {
+    background-image: linear-gradient(var(--p-hover), var(--p-hover));
+  }
+  /* A slider's box IS its track, a thin one, so the fill is the stronger
+     hover step or it would not read at that size (#272 review: a focused
+     slider measured identical to an unfocused one). */
+  :where(input[type='range']):focus-visible {
+    background-image: linear-gradient(var(--p-hover-hi), var(--p-hover-hi));
+  }
+}
+/* A text field's focus is its EDGE, a step lighter, no ring. In the UTILITIES
+   layer and with the element in the selector (0,1,1), not in base: a field
+   whose edge colour is a class (border-[var(--p-divider)], 0,1,0) beat the
+   base layer whatever its specificity, so it showed no focus at all (#272
+   review, measured on the rename and pairing fields). A component's own
+   focus:border-* (0,2,0) still wins over this one. */
+@layer utilities {
+  input:where(:not([type='checkbox'], [type='radio'], [type='range'], [type='button'], [type='submit'])):focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  :where([contenteditable]):focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--p-text) 28%, transparent);
+  }
+}
+
 /* Seamless scroll for the "Moving" colour-scheme swatches: the inner strip holds
    two identical cyclic-gradient tiles and slides by exactly one tile, so the loop
    is invisible. */
