@@ -25,16 +25,20 @@
   overflow: hidden;
   color: var(--p-text);
   background: var(--p-side-flat);
-  border: 1px solid var(--p-divider);
-  border-radius: var(--p-radius);
+  /* SLEEKER (owner, 2026-10-04: "not as squared and not so many borders"):
+     round corners, and only a faint edge so the panel holds its shape on a
+     ground of its own colour. The field and the list are parted by space, not
+     by rules. */
+  border: 1px solid color-mix(in srgb, var(--p-text) 7%, transparent);
+  border-radius: 14px;
 }
 .browse-search-popup-field {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: 10px;
-  height: 52px;
-  padding: 0 16px;
+  height: 54px;
+  padding: 0 18px;
   color: var(--p-dim);
 }
 .browse-search-popup-field input {
@@ -70,23 +74,24 @@
     animation-duration: 2s;
   }
 }
+/* Up to 50 likely matches (owner, same day: "can hold a bit more items, so
+   you can scroll, say maybe 50"), scrolling inside the panel with a thin bar;
+   about ten rows show before it scrolls. */
 .browse-search-popup-list {
   min-height: 0;
+  max-height: min(440px, calc(100vh - 220px));
   overflow: auto;
   margin: 0;
-  padding: 6px;
+  padding: 2px 8px 8px;
   list-style: none;
-  border-top: 1px solid var(--p-line);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--p-text) 22%, transparent) transparent;
 }
 .browse-search-popup-empty {
   margin: 0;
-  padding: 12px 18px 4px;
-  border-top: 1px solid var(--p-line);
+  padding: 4px 20px 8px;
   color: var(--p-dim);
   font-size: 12.5px;
-}
-.browse-search-popup-empty + .browse-search-popup-list {
-  border-top: 0;
 }
 /* A row: the icon, the name, and where it lives in the dim ink. The marked
    row is the menus' grey, never the accent: it is a place the keys are, not a
@@ -96,9 +101,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 40px;
+  height: 38px;
   padding: 0 12px;
-  border-radius: var(--p-radius-sm, 3px);
+  border-radius: 8px;
   cursor: default;
   font-size: 13.5px;
 }
@@ -123,15 +128,18 @@
   color: var(--p-dim);
   font-size: 12px;
 }
+/* Show more stays in reach at the foot of a long list: it sticks to the
+   bottom of the scroll, on the panel's own ground, with no rule above it. */
 .browse-search-popup-more {
+  position: sticky;
+  bottom: -8px;
   justify-content: space-between;
-  color: var(--p-text-soft);
-}
-.browse-search-popup-row + .browse-search-popup-more {
   margin-top: 4px;
-  box-shadow: 0 -1px 0 var(--p-line);
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+  color: var(--p-text-soft);
+  background: var(--p-side-flat);
+}
+.browse-search-popup-more[data-active] {
+  background: color-mix(in srgb, var(--p-text) 9%, var(--p-side-flat));
 }
 .browse-search-popup-key {
   color: var(--p-dim);

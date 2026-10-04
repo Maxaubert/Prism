@@ -34,7 +34,7 @@ describe('rankSuggestions', () => {
       hit('C:\\work\\b\\old-notes.md'),
       hit('C:\\work\\notes-2024.md'),
       hit('C:\\work\\deep\\x\\notes.txt'),
-      ...Array.from({ length: 20 }, (_, i) => hit(`C:\\work\\f${i}\\notes${i}.log`))
+      ...Array.from({ length: 60 }, (_, i) => hit(`C:\\work\\f${i}\\notes${i}.log`))
     ]
     const top = rankSuggestions(hits, 'notes', root)
     expect(top).toHaveLength(SUGGEST_COUNT)

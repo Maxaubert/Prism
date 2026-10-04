@@ -19,8 +19,9 @@ export interface SuggestHit {
   isFolder: boolean
 }
 
-/** How many the popup shows before "Show more". */
-export const SUGGEST_COUNT = 8
+/** How many the popup holds before "Show more" (owner, 2026-10-04: "can hold
+ *  a bit more items, so you can scroll, say maybe 50"). It was 8. */
+export const SUGGEST_COUNT = 50
 
 const stem = (name: string): string => name.replace(/\.[^.]+$/, '')
 

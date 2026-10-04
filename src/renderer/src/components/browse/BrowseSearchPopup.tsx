@@ -46,6 +46,11 @@ export function BrowseSearchPopup(props: {
     setMark({ list: hits, at: typeof at === 'function' ? at(active) : at })
   const showMore = !!query.trim()
   const optionId = (index: number): string => `${id}-option-${index}`
+  // Fifty rows scroll, so the row the keys are on is kept in view.
+  useEffect(() => {
+    if (active >= 0) document.getElementById(optionId(active))?.scrollIntoView({ block: 'nearest' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active])
 
   useLayoutEffect(() => {
     field.current?.focus()
