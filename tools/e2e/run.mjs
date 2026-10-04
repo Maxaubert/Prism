@@ -11209,11 +11209,13 @@ async function updateWindowScenario(fixtures) {
       const c = box('[data-update-chip]')
       const t = box('[aria-label="More"]')
       const s = box('[aria-label="Settings"]')
-      return c && t && s ? { chipRight: c.right, toolsLeft: t.left, toolsRight: t.right, settingsLeft: s.left } : null
+      return c && t && s ? { chipRight: c.right, toolsLeft: t.left, settingsLeft: s.left, settingsRight: s.right } : null
     })
+    // Since #272 More is on the INSIDE, next to the window buttons (owner,
+    // 2026-10-04), so the order is chip, Settings, More.
     ok(
-      order !== null && order.chipRight <= order.toolsLeft && order.toolsRight <= order.settingsLeft,
-      `the chip is the leftmost of the group: chip, then More, then Settings (${JSON.stringify(order)})`
+      order !== null && order.chipRight <= order.settingsLeft && order.settingsRight <= order.toolsLeft,
+      `the chip is the leftmost of the group: chip, then Settings, then More (${JSON.stringify(order)})`
     )
     await shot('update-chip-dark')
     // AND THE GROUP STAYS PUT WHEN THE CHIP COMES OR GOES, which is the reason
@@ -11252,15 +11254,15 @@ async function updateWindowScenario(fixtures) {
       const s = box(bar?.querySelector('[aria-label="Settings"]'))
       const n = box(bar?.querySelector('[data-testid="titlebar-file-name"]'))
       return c && t && s && n
-        ? { inner: window.innerWidth, nameLeft: n.left, chipLeft: c.left, chipRight: c.right, toolsLeft: t.left, toolsRight: t.right, settingsLeft: s.left }
+        ? { inner: window.innerWidth, nameLeft: n.left, chipLeft: c.left, chipRight: c.right, toolsLeft: t.left, settingsLeft: s.left, settingsRight: s.right }
         : null
     })
     ok(
       narrow !== null &&
         narrow.nameLeft <= narrow.chipLeft &&
-        narrow.chipRight <= narrow.toolsLeft &&
-        narrow.toolsRight <= narrow.settingsLeft,
-      `and at the minimum window width: name, chip, More, Settings, none overlapping (${JSON.stringify(narrow)})`
+        narrow.chipRight <= narrow.settingsLeft &&
+        narrow.settingsRight <= narrow.toolsLeft,
+      `and at the minimum window width: name, chip, Settings, More, none overlapping (${JSON.stringify(narrow)})`
     )
     await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setSize(w, h), sizeBefore)
     await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
