@@ -8825,6 +8825,26 @@ async function explorerVerbsScenario(fixtures) {
     await menu('gamma.txt', 'Copy')
     ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'the menu\'s Copy puts the file on the clipboard')
     const before = await projects()
+    // COPY PATH SITS RIGHT UNDER COPY (#286; owner, 2026-10-04: "copy and
+    // copy path should be right under each other not spread out across the
+    // menu"), on a file's row and a folder's, and Show in File Explorer is
+    // still there below.
+    for (const suffix of ['alpha.txt', '\\sub']) {
+      await row(suffix).locator('.browse-name-text').click({ button: 'right' })
+      await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+      const order = await win.evaluate(() =>
+        [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((e) => (e.textContent ?? '').trim())
+      )
+      const copyAt = order.findIndex((t) => t.startsWith('Copy') && !t.startsWith('Copy path'))
+      const pathAt = order.findIndex((t) => t.startsWith('Copy path'))
+      ok(
+        copyAt >= 0 && pathAt === copyAt + 1 && order.some((t) => t.startsWith('Show in File Explorer')),
+        `${suffix}: Copy path is right under Copy (${JSON.stringify(order)})`
+      )
+      await win.keyboard.press('Escape')
+      await until(() => win.evaluate(() => !document.querySelector('[role="menu"]')), 3000)
+    }
+
     await menu('\\sub', 'Open as project')
     ok(await until(async () => (await projects()) === before + 1, 8000), 'the menu\'s Open as project opens a project tab')
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()

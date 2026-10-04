@@ -4776,6 +4776,12 @@ export default function App(): JSX.Element {
               hint: 'Ctrl+C',
               onPick: () => void copyFilePaths([browseMenu.entry.path])
             },
+            // Copy path right under Copy (#286; owner, 2026-10-04: "copy and
+            // copy path should be right under each other not spread out
+            // across the menu"). Show in File Explorer stays below.
+            ...fileVerbs(browseMenu.entry.path)
+              .filter((item) => item.label === 'Copy path')
+              .map((item) => ({ ...item, icon: <FileMenuIcon name="path" /> })),
             {
               label: 'Paste',
               icon: <FileMenuIcon name="paste" />,
@@ -4836,10 +4842,9 @@ export default function App(): JSX.Element {
                   isFolder: browseMenu.entry.isFolder
                 })
             },
-            ...fileVerbs(browseMenu.entry.path).map((item) => ({
-              ...item,
-              icon: <FileMenuIcon name={item.label === 'Copy path' ? 'path' : 'folder'} />
-            })),
+            ...fileVerbs(browseMenu.entry.path)
+              .filter((item) => item.label !== 'Copy path')
+              .map((item) => ({ ...item, icon: <FileMenuIcon name="folder" /> })),
             { label: 'Properties', icon: <FileMenuIcon name="properties" />, onPick: () => setBrowseProps(browseMenu.entry) }
           ].filter(
             (item) =>
