@@ -299,7 +299,10 @@
   align-items: center;
   height: var(--browse-head-h, 32px);
   margin-top: 0;
-  margin-bottom: 2px;
+  /* None, so the places start where the list's rows do and share their
+     baselines (owner, 2026-10-04, of Home beside the first file: "still like
+     a px off"; MEASURED 5 device px with the old 2px). */
+  margin-bottom: 0;
   /* Onto the header label's BASELINE, not just its band (explorerHeadVars). */
   position: relative;
   top: var(--browse-heading-dy, 0px);

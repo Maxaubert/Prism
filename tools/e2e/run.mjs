@@ -8451,6 +8451,17 @@ async function panelsAlignScenario(fixtures) {
         headBottom: head?.getBoundingClientRect().bottom,
         name: textBox(head?.querySelector('.browse-column-name')),
         heading: textBox(document.querySelector('.folder-browser .browse-places h2')),
+        // The first rows under the band, side by side (owner, 2026-10-04,
+        // a screenshot of Home beside the list's first row: "still like a px
+        // off"): their tops and their text baselines, three of each.
+        places: [...document.querySelectorAll('.folder-browser .browse-places .browse-place')].slice(0, 3).map((el) => ({
+          top: el.getBoundingClientRect().top,
+          base: textBox(el)?.base
+        })),
+        rows: [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path]')].slice(0, 3).map((el) => ({
+          top: el.getBoundingClientRect().top,
+          base: textBox(el.querySelector('.browse-name') ?? el)?.base
+        })),
         line: textBox(lineEl),
         lineRects,
         number: textBox(numEl),
@@ -8461,12 +8472,54 @@ async function panelsAlignScenario(fixtures) {
           : false
       }
     })
+  /** The baseline of an element's words AS DRAWN, in device pixels from
+   *  the window's top: a screenshot of its box, decoded in the page, and the
+   *  lowest ink row most columns reach (a descender or an icon reaches past
+   *  it in only a few). Ink is whatever differs from the box's commonest
+   *  shade, so a dark and a light theme read the same way. */
+  const inkBaseline = async (sel) => {
+    const box = await win.evaluate((q) => {
+      const r = document.querySelector(q)?.getBoundingClientRect()
+      return r ? { x: r.left, y: r.top, width: r.width, height: r.height, dpr: window.devicePixelRatio } : null
+    }, sel)
+    if (!box) return null
+    const png = await win.screenshot({ clip: { x: box.x, y: box.y, width: box.width, height: box.height } })
+    const row = await win.evaluate(async (b64) => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${b64}`
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth
+      c.height = img.naturalHeight
+      const g = c.getContext('2d')
+      g.drawImage(img, 0, 0)
+      const d = g.getImageData(0, 0, c.width, c.height).data
+      const lum = (i) => (d[i] + d[i + 1] + d[i + 2]) / 3
+      const shades = new Map()
+      for (let i = 0; i < d.length; i += 4) {
+        const k = Math.round(lum(i) / 8)
+        shades.set(k, (shades.get(k) ?? 0) + 1)
+      }
+      const ground = [...shades.entries()].sort((a, b) => b[1] - a[1])[0][0] * 8
+      const bottoms = new Map()
+      for (let x = 0; x < c.width; x += 1) {
+        let low = -1
+        for (let y = 0; y < c.height; y += 1) if (Math.abs(lum((y * c.width + x) * 4) - ground) > 60) low = y
+        if (low >= 0) bottoms.set(low, (bottoms.get(low) ?? 0) + 1)
+      }
+      if (!bottoms.size) return null
+      return [...bottoms.entries()].sort((a, b) => b[1] - a[1])[0][0]
+    }, png.toString('base64'))
+    return row === null ? null : Math.round(box.y * box.dpr) + row
+  }
   const r1 = (n) => (typeof n === 'number' ? Math.round(n * 10) / 10 : n)
   const say = (m) =>
     JSON.stringify({
       head: [r1(m.headTop), r1(m.headBottom)],
       name: r1(m.name?.base),
       heading: r1(m.heading?.base),
+      places: m.places?.map((q) => [r1(q.top), r1(q.base)]),
+      rows: m.rows?.map((q) => [r1(q.top), r1(q.base)]),
       line: r1(m.line?.base),
       number: r1(m.number?.base),
       paneTop: r1(m.paneTop),
@@ -8488,6 +8541,20 @@ async function panelsAlignScenario(fixtures) {
     ok(Math.abs((m.heading?.base ?? -99) - ref) <= 0.5, `${label}: the sidebar's first heading is on the header's line (${say(m)})`)
     ok(Math.abs((m.line?.base ?? -99) - ref) <= 0.5, `${label}: the preview's first line of text is on the header's line`)
     if (numbered) ok(Math.abs((m.number?.base ?? -99) - ref) <= 0.5, `${label}: and so is its line number`)
+    ok(
+      m.places?.length === 3 && m.rows?.length === 3 && m.places.every((q, i) => Math.abs(q.top - m.rows[i].top) <= 0.5),
+      `${label}: the sidebar's first rows start where the list's do (${JSON.stringify([m.places, m.rows])})`
+    )
+    // And their words share a baseline IN THE PIXELS. The font-metric measure
+    // above read the list's text wrong by 1-4 device px (its face is one the
+    // canvas does not resolve), so these rows are judged the way the owner
+    // judged them: by where the ink sits.
+    const home = await inkBaseline('.folder-browser .browse-places .browse-place')
+    const file = await inkBaseline('[data-testid="browse-list"] [data-browse-path] .browse-name')
+    ok(
+      home !== null && file !== null && Math.abs(home - file) <= 1,
+      `${label}: Home's words sit on the first file's baseline in the pixels (device rows ${home}, ${file})`
+    )
     ok(!!m.button && m.clickable, `${label}: the full view button is there and takes a click`)
     ok(
       !!m.button && m.lineRects.length > 0 && !m.lineRects.some((q) => overlaps(q, m.button)),
