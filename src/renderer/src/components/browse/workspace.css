@@ -149,6 +149,13 @@
   width: 28px;
   height: 28px;
   min-height: 0;
+  /* The pane's own ground: a code line that does not wrap and runs past the
+     pane passes UNDER the button, and is hidden there rather than drawn
+     through the arrows. */
+  background: var(--p-bg);
+}
+.browse-preview-actions[data-flush] button[data-open-full]:is(:hover, :focus-visible) {
+  background: linear-gradient(var(--p-hover), var(--p-hover)) var(--p-bg);
 }
 .browse-return-row {
   position: absolute;

@@ -8373,21 +8373,6 @@ async function explorerSizeScenario(fixtures) {
   }
 }
 /**
- * THE COLUMN HEADER IS FILE EXPLORER'S (#274; owner, 2026-10-04, of the
- * Explorer list's header: "if I highlight over name, it doesn't reach all the
- * way out to the edges ... that highlight effect should be inside the whole
- * box", "the size column should also have its name aligned to the left", and
- * of the arrows, "that arrow shows only when you hover over them while the
- * currently sorted item has an arrow at all times"). MEASURED: the visible
- * cells tile the header from its left edge to its right with no gap, each as
- * tall as the header; the hover fill is the cell's own box; Size's label
- * starts where the other labels do; an unsorted column's arrow shows only
- * while hovered and the sorted one's always; a hover never moves a label;
- * focus is the fill and no box. Held at Medium, Small and Large, in the
- * search results' columns and at a narrow window. A screenshot of the header
- * with Type hovered goes to .e2e/shots/column-header-hover.png.
- */
-/**
  * THE THREE PANELS START AT ONE HEIGHT (#283; owner, 2026-10-04: "the position
  * of the sorting bar with name, type, size etc. that's the height I want the
  * txt files to start at and the sidebar to start at, that way all three
@@ -8407,6 +8392,10 @@ async function panelsAlignScenario(fixtures) {
   writeFileSync(join(dir, 'notes.txt'), [long, ...Array.from({ length: 60 }, (_, i) => `line ${i + 2} of the notes`)].join('\n'))
   writeFileSync(join(dir, 'main.ts'), ['export const first = 1', ...Array.from({ length: 30 }, (_, i) => `export const v${i} = ${i}`)].join('\n'))
   writeFileSync(join(dir, 'other.txt'), 'other\n')
+  // A picture and a film keep the button's own strip above them (#283 floats
+  // it over text only); they are here to prove that did not move.
+  copyFileSync(join(fixtures, 'one.png'), join(dir, 'one.png'))
+  copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'ep1.mp4'))
   const { app, win } = await launch(join(dir, 'other.txt'))
   // The middle of the first text node's glyph box, and its rects, by a Range.
   const measure = () =>
@@ -8511,8 +8500,64 @@ async function panelsAlignScenario(fixtures) {
       await check(`${size}, notes.txt`, `${size.toLowerCase()}-txt`)
     }
     await pickStyleSegment(win, 'explorer-size', 'Medium')
-    // The full view button still does its job from where it sits now.
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"]').click()
+    ok(await shown('notes.txt'), 'Medium again: notes.txt in the preview pane')
+
+    // A NARROW WINDOW: the three still share a line, and the sidebar, which
+    // lost its top padding to the band, still scrolls.
+    const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 400))
+    await until(() => win.evaluate(() => window.innerWidth <= 800), 4000, 50)
+    await check('Narrow, notes.txt', 'narrow-txt')
+    const scroll = await win.evaluate(async () => {
+      const box = document.querySelector('.folder-browser .browse-places nav')
+      if (!box || box.scrollHeight <= box.clientHeight + 4)
+        return { overflows: false, inner: window.innerHeight, client: box?.clientHeight, content: box?.scrollHeight }
+      box.scrollTop = 60
+      await new Promise((r) => requestAnimationFrame(() => r(null)))
+      const moved = box.scrollTop
+      box.scrollTop = 0
+      return { overflows: true, moved }
+    })
+    ok(scroll.overflows && scroll.moved > 0, `Narrow: the sidebar overflows and still scrolls (${JSON.stringify(scroll)})`)
+    await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setSize(w, h), sizeBefore)
+    await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
+
+    // A LIGHT THEME draws the same line.
+    const styleBefore = await switchStyle(win, 'paper', 'light')
+    await check('Paper, notes.txt', 'paper-txt')
+    await switchStyle(win, styleBefore[0], styleBefore[1])
+
+    // A PICTURE AND A FILM keep the strip: the button over it, the pane under it.
+    for (const name of ['one.png', 'ep1.mp4']) {
+      await win.locator(`[data-testid="browse-list"] [data-browse-path$="${name}"]`).click()
+      ok(
+        await until(() => win.evaluate(() => !!document.querySelector('[data-browse-preview] :is(img, video, canvas)')), 10000),
+        `${name} in the preview pane`
+      )
+      await sleep(400)
+      const m = await win.evaluate(() => {
+        const pane = document.querySelector('[data-browse-preview]')
+        const bar = document.querySelector('.browse-preview-actions')
+        const b = document.querySelector('[data-open-full]')?.getBoundingClientRect()
+        return {
+          flush: pane?.hasAttribute('data-preview-flush'),
+          paneTop: pane?.getBoundingClientRect().top,
+          bar: bar ? [bar.getBoundingClientRect().top, bar.getBoundingClientRect().bottom, bar.hasAttribute('data-flush')] : null,
+          clickable: b ? !!document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)?.closest('[data-open-full]') : false
+        }
+      })
+      ok(
+        !m.flush && !!m.bar && !m.bar[2] && Math.abs(m.bar[1] - m.bar[0] - 40) < 1 && Math.abs(m.paneTop - m.bar[1]) < 1 && m.clickable,
+        `${name}: the pane sits under the 40px strip and the button takes a click (${JSON.stringify(m)})`
+      )
+      await win.screenshot({ path: join(SHOTS, `panels-align-${name.replace('.', '-')}.png`) })
+    }
+
+    // The full view button still does its job from where it sits now.
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"]').click()
+    ok(await shown('notes.txt'), 'notes.txt back in the preview pane')
     await win.locator('[data-open-full]').click()
     ok(
       await until(
@@ -8531,6 +8576,21 @@ async function panelsAlignScenario(fixtures) {
   }
 }
 
+/**
+ * THE COLUMN HEADER IS FILE EXPLORER'S (#274; owner, 2026-10-04, of the
+ * Explorer list's header: "if I highlight over name, it doesn't reach all the
+ * way out to the edges ... that highlight effect should be inside the whole
+ * box", "the size column should also have its name aligned to the left", and
+ * of the arrows, "that arrow shows only when you hover over them while the
+ * currently sorted item has an arrow at all times"). MEASURED: the visible
+ * cells tile the header from its left edge to its right with no gap, each as
+ * tall as the header; the hover fill is the cell's own box; Size's label
+ * starts where the other labels do; an unsorted column's arrow shows only
+ * while hovered and the sorted one's always; a hover never moves a label;
+ * focus is the fill and no box. Held at Medium, Small and Large, in the
+ * search results' columns and at a narrow window. A screenshot of the header
+ * with Type hovered goes to .e2e/shots/column-header-hover.png.
+ */
 async function columnHeadersScenario(fixtures) {
   console.log('column headers')
   const dir = join(fixtures, 'colhead')
