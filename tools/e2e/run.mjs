@@ -8848,6 +8848,107 @@ async function explorerVerbsScenario(fixtures) {
  * (or Ctrl+Enter) runs the list's full search. Ctrl+F in an editor or a shell
  * is still theirs, and the popup leaves when what is in front changes.
  */
+// A SEARCH ENDS WHEN YOU GO SOMEWHERE, AND BACK RETURNS TO IT (#281; owner,
+// 2026-10-04: "if you click into a folder from a search you're not in search
+// anymore, and if you click back then you're back to the search results. if
+// you click something in the sidebar you're not in search anymore, but if you
+// click back arrow you go to the search list again"). It used to stay on: the
+// query lived on the folder's history entry, so the sidebar place of the
+// folder searched (the C drive, in the owner's case) came back filtered.
+async function searchNavScenario(fixtures) {
+  console.log('search nav')
+  const dir = join(fixtures, 'searchnav')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'alpha'), { recursive: true })
+  mkdirSync(join(dir, 'beta'), { recursive: true })
+  writeFileSync(join(dir, 'alpha-root.txt'), 'a\n')
+  writeFileSync(join(dir, 'other.txt'), 'o\n')
+  writeFileSync(join(dir, 'alpha', 'inside.txt'), 'i\n')
+  writeFileSync(join(dir, 'beta', 'alpha-deep.txt'), 'd\n')
+  // The walk, not the index: see searchPopupScenario.
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'other.txt'))
+  EXTRA_ENV = {}
+  const popup = win.locator('[data-testid="browse-search-popup"]')
+  const field = popup.locator('input[role="combobox"]')
+  const list = win.locator('[data-testid="browse-list"]')
+  const status = win.locator('[data-testid="browse-search-status"]')
+  const button = win.locator('[data-testid="browse-search-button"]')
+  const back = win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Back"]')
+  const forward = win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Forward"]')
+  const current = () => win.evaluate(() => document.querySelector('.folder-browser nav.browse-path button[aria-current]')?.textContent ?? '')
+  const rows = () => list.locator('[data-browse-path]').evaluateAll((els) => els.map((el) => el.getAttribute('data-browse-path').split('\\').pop()).sort())
+  // A CSS backslash is itself escaped: `\a` and `\b` would be hex escapes.
+  const row = (name) => list.locator(`[data-browse-path$="\\\\${name}" i]`).first()
+  // In the folder named, unfiltered: no search status, the button unlit, and
+  // the rows exactly the folder's own.
+  const plain = async (name, want) =>
+    until(async () => (await current()) === name && (await status.count()) === 0 && (await button.getAttribute('data-active')) === null && JSON.stringify(await rows()) === JSON.stringify(want), 10000)
+  const searching = async () =>
+    until(async () => (await current()) === 'searchnav' && (await status.count()) === 1 && (await button.getAttribute('data-active')) !== null && JSON.stringify(await rows()) === JSON.stringify(['alpha', 'alpha-deep.txt', 'alpha-root.txt']), 15000)
+  const own = ['alpha', 'alpha-root.txt', 'beta', 'other.txt']
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await current()) !== 'searchnav') await row('searchnav').dblclick()
+    ok(await plain('searchnav', own), 'the Explorer shows the folder')
+
+    // The folder the search runs in, pinned in the sidebar: the owner's C drive.
+    await win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Up"]').click()
+    await until(async () => (await current()) !== 'searchnav', 8000)
+    await row('searchnav').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const pin = win.locator('.browse-places .quick-access-pin[data-quick-access-path$="\\\\searchnav" i]')
+    ok(await until(async () => (await pin.count()) === 1, 5000), 'the folder is pinned in the sidebar')
+    await row('searchnav').dblclick()
+    ok(await plain('searchnav', own), 'and is shown again')
+
+    // The list's full search.
+    await button.click()
+    await field.fill('alpha')
+    await field.press('Control+Enter')
+    ok(await searching(), `a search shows its results (${JSON.stringify(await rows())})`)
+
+    // 1. A FOLDER OPENED FROM THE RESULTS is shown unfiltered.
+    await row('alpha').dblclick()
+    ok(await plain('alpha', ['inside.txt']), `a folder opened from the results is not searched (${JSON.stringify(await rows())})`)
+    await button.click()
+    await popup.waitFor({ timeout: 5000 })
+    ok((await field.inputValue()) === '', `and the search box is empty there (${await field.inputValue()})`)
+    await field.press('Escape')
+    await until(async () => (await popup.count()) === 0, 5000)
+    // 3. BACK is the search again.
+    await back.click()
+    ok(await searching(), 'Back returns to the search results')
+
+    // 2. THE SIDEBAR leaves search, even for the folder the search ran in.
+    await pin.click()
+    ok(await plain('searchnav', own), `a sidebar place shows the folder unfiltered (${JSON.stringify(await rows())})`)
+    await back.click()
+    ok(await searching(), 'Back returns to the search results again')
+    await forward.click()
+    ok(await plain('searchnav', own), 'and Forward to the folder')
+
+    // The search is a place: Back from the results is the folder as it was
+    // before the search, and Clear search goes there too.
+    await back.click()
+    ok(await searching(), 'Back to the results')
+    await back.click()
+    ok(await plain('searchnav', own), 'Back from the results is the folder before the search')
+    await forward.click()
+    ok(await searching(), 'Forward is the search')
+    await win.locator('[data-testid="browse-search-clear"]').click()
+    ok(await plain('searchnav', own), 'Clear search shows the folder')
+    await win.screenshot({ path: join(SHOTS, 'search-nav.png') })
+
+    await pin.click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function searchPopupScenario(fixtures) {
   console.log('search popup')
   const dir = join(fixtures, 'searchpop')
@@ -12491,6 +12592,7 @@ await run(listScrollbarScenario)
 await run(addressFieldScenario)
 await run(explorerVerbsScenario)
 await run(searchPopupScenario)
+await run(searchNavScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
 await run(phoneDocsScenario)

@@ -5,6 +5,7 @@ import {
   browseParent,
   navigateBrowseState,
   newBrowse,
+  searchBrowseState,
   travelBrowseState,
   updateBrowseLocation
 } from './browse'
@@ -95,9 +96,12 @@ describe('folder history', () => {
     expect(state.path).toBe(other)
     expect(browseLocation(state)).toEqual({ ...right, selected: null })
     // A revisit by a crumb or a sidebar place is the same: nothing marked.
+    // And it leaves the search (#281): the only visit was the results, whose
+    // scroll is not the folder's, so it starts at the top.
     state = navigateBrowseState(state, root)
     expect(browseLocation(state).selected).toBeNull()
-    expect(browseLocation(state).scrollTop).toBe(640)
+    expect(browseLocation(state).query).toBe('')
+    expect(browseLocation(state).scrollTop).toBe(0)
   })
 
   it('marks the file on display when you arrive at its folder, and only then', () => {
@@ -224,5 +228,93 @@ describe('browsing alongside sessions', () => {
     expect(newTab(payload, 'file').browse.surface).toBe('viewer')
     expect(newTab({ ...payload, folder: true }, 'folder').browse.surface).toBe('folder')
     expect(newTab({ ...payload, files: [], index: -1 }, 'empty').browse.surface).toBe('folder')
+  })
+})
+
+describe('a search is a place in the history (#281)', () => {
+  // Owner, 2026-10-04: "if you click into a folder from a search you're not in
+  // search anymore, and if you click back then you're back to the search
+  // results. if you click something in the sidebar you're not in search
+  // anymore, but if you click back arrow you go to the search list again."
+  const drive = 'C:\\'
+  const sub = `${root}\\src`
+
+  it('starting a search adds an entry; Back is the folder plain, Forward the results', () => {
+    let state = updateBrowseLocation(newBrowse(root), { scrollTop: 300 })
+    state = searchBrowseState(state, 'notes')
+    expect(state.history.map((entry) => [entry.path, entry.query])).toEqual([
+      [root, ''],
+      [root, 'notes']
+    ])
+    expect(state.path).toBe(root)
+    expect(browseLocation(state).scrollTop).toBe(0)
+    state = travelBrowseState(state, -1)
+    expect(browseLocation(state)).toMatchObject({ query: '', scrollTop: 300 })
+    state = travelBrowseState(state, 1)
+    expect(browseLocation(state).query).toBe('notes')
+  })
+
+  it('a new query refines the search in place', () => {
+    let state = searchBrowseState(newBrowse(root), 'notes')
+    state = searchBrowseState(state, 'readme')
+    expect(state.history.map((entry) => entry.query)).toEqual(['', 'readme'])
+  })
+
+  it('opening a folder from the results leaves search, and Back returns to them', () => {
+    let state = searchBrowseState(newBrowse(root), 'src')
+    state = navigateBrowseState(state, sub)
+    expect(state.path).toBe(sub)
+    expect(browseLocation(state).query).toBe('')
+    state = travelBrowseState(state, -1)
+    expect(state.path).toBe(root)
+    expect(browseLocation(state).query).toBe('src')
+  })
+
+  it('a sidebar place leaves search, also the folder the search ran in', () => {
+    let state = searchBrowseState(newBrowse(drive), 'holiday')
+    // Another place: unfiltered.
+    let away = navigateBrowseState(state, other)
+    expect(browseLocation(away).query).toBe('')
+    expect(browseLocation(travelBrowseState(away, -1)).query).toBe('holiday')
+    // The SAME place (the C drive while searching C:): unfiltered too, and
+    // Back is the search again.
+    away = navigateBrowseState(state, 'c:/')
+    expect(away.history.map((entry) => entry.query)).toEqual(['', 'holiday', ''])
+    expect(browseLocation(away).query).toBe('')
+    state = travelBrowseState(away, -1)
+    expect(browseLocation(state).query).toBe('holiday')
+  })
+
+  it('a revisit takes the plain visit, never a search the place held', () => {
+    let state = updateBrowseLocation(newBrowse(root), { scrollTop: 720 })
+    state = searchBrowseState(state, 'notes')
+    state = updateBrowseLocation(state, { scrollTop: 5000 })
+    state = navigateBrowseState(state, other)
+    state = navigateBrowseState(state, root)
+    expect(browseLocation(state)).toMatchObject({ query: '', scrollTop: 720 })
+  })
+
+  it('clearing goes back to the folder it began in, and Forward is the search', () => {
+    let state = searchBrowseState(newBrowse(root), 'notes')
+    state = searchBrowseState(state, '')
+    expect(state.cursor).toBe(0)
+    expect(browseLocation(state).query).toBe('')
+    state = travelBrowseState(state, 1)
+    expect(browseLocation(state).query).toBe('notes')
+    // A search with no plain entry before it (a restored tab) clears in place.
+    const restored = updateBrowseLocation(newBrowse(root), { query: 'notes' })
+    const cleared = searchBrowseState(restored, '')
+    expect(cleared.history).toHaveLength(1)
+    expect(browseLocation(cleared).query).toBe('')
+  })
+
+  it('a search started after going back drops the forward entries', () => {
+    let state = navigateBrowseState(newBrowse(root), other)
+    state = travelBrowseState(state, -1)
+    state = searchBrowseState(state, 'notes')
+    expect(state.history.map((entry) => [entry.path, entry.query])).toEqual([
+      [root, ''],
+      [root, 'notes']
+    ])
   })
 })

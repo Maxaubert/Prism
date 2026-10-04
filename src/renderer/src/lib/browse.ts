@@ -59,26 +59,71 @@ function arrivalMark(path: string, shown: string | null | undefined, from?: stri
   return from && here(from) ? from : null
 }
 
+/** A history entry that shows a search rather than the folder itself. */
+function isSearch(entry: BrowseLocation): boolean {
+  return !!entry.query.trim()
+}
+
 /** Called after main has successfully resolved the folder. A failed lookup has
- *  no history entry. `shown` is the file on display, if any. */
+ *  no history entry. `shown` is the file on display, if any.
+ *
+ *  GOING SOMEWHERE ENDS A SEARCH (#281; owner, 2026-10-04: "if you click into a
+ *  folder from a search you're not in search anymore ... if you click something
+ *  in the sidebar you're not in search anymore, but if you click back arrow you
+ *  go to the search list again"). The folder you arrive at is shown unfiltered,
+ *  even when it is the folder the search ran in, and the search stays behind
+ *  in the history for Back. */
 export function navigateBrowseState(
   browse: SavedBrowse,
   path: string,
   shown?: string | null
 ): SavedBrowse {
-  if (folderKey(browse.path) === folderKey(path)) return { ...browse, surface: 'folder' }
+  const same = folderKey(browse.path) === folderKey(path)
+  if (same && !isSearch(browseLocation(browse))) return { ...browse, surface: 'folder' }
   // Revisiting a place restores its order and scroll even by a breadcrumb or
-  // shortcut; never its selection (arrivalMark).
-  const previous = browse.history.findLast((entry) => folderKey(entry.path) === folderKey(path))
+  // shortcut; never its selection (arrivalMark) and never a search it held:
+  // the scroll of a result list is not the folder's.
+  const visits = browse.history.filter((entry) => folderKey(entry.path) === folderKey(path))
+  const plain = visits.findLast((entry) => !isSearch(entry))
+  const previous = plain ?? visits.at(-1)
+  const selected = arrivalMark(path, shown, same ? undefined : browse.path)
   const entry = previous
-    ? { ...previous, path, selected: arrivalMark(path, shown, browse.path) }
+    ? { ...previous, path, selected, query: '', scrollTop: plain ? previous.scrollTop : 0 }
     : {
         ...newBrowse(path).history[0],
-        selected: arrivalMark(path, shown, browse.path),
+        selected,
         sort: { ...browseLocation(browse).sort }
       }
   const history = [...browse.history.slice(0, browse.cursor + 1), entry].slice(-MAX_HISTORY)
   return { ...browse, path, history, cursor: history.length - 1, surface: 'folder' }
+}
+
+/**
+ * A search is a PLACE in the history (#281): starting one adds an entry for
+ * the same folder with the query, so Back from a folder opened out of the
+ * results comes back to them, and Back from the results is the folder plain.
+ * A new query while one is showing refines it in place. Clearing it goes back
+ * to the plain folder entry it was started from (Forward returns to the
+ * results), or clears it in place when there is none.
+ */
+export function searchBrowseState(
+  browse: SavedBrowse,
+  query: string,
+  shown?: string | null
+): SavedBrowse {
+  const here = browseLocation(browse)
+  if (!query.trim()) {
+    if (!isSearch(here))
+      return here.query === query ? browse : updateBrowseLocation(browse, { query })
+    const before = browse.history[browse.cursor - 1]
+    if (before && !isSearch(before) && folderKey(before.path) === folderKey(here.path))
+      return travelBrowseState(browse, -1, shown)
+    return updateBrowseLocation(browse, { query: '', scrollTop: 0 })
+  }
+  if (isSearch(here)) return updateBrowseLocation(browse, { query, scrollTop: 0 })
+  const entry: BrowseLocation = { ...here, query, scrollTop: 0, selected: null }
+  const history = [...browse.history.slice(0, browse.cursor + 1), entry].slice(-MAX_HISTORY)
+  return { ...browse, history, cursor: history.length - 1, surface: 'folder' }
 }
 
 export function travelBrowseState(browse: SavedBrowse, delta: number, shown?: string | null): SavedBrowse {
