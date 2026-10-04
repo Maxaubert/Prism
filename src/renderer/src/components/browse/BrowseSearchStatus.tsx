@@ -3,10 +3,14 @@ import type { BrowseSearchState } from './types'
 
 export function BrowseSearchStatus({
   state,
-  onCancel
+  onCancel,
+  onClear
 }: {
   state?: BrowseSearchState
   onCancel?: () => void
+  /** Back to the folder. The search field this used to be is a popup now
+   *  (#267), so the list showing a search says how to leave it. */
+  onClear?: () => void
 }): JSX.Element {
   const phase = state?.running
     ? 'Searching…'
@@ -38,6 +42,11 @@ export function BrowseSearchStatus({
         {state?.notice ? ` · ${state.notice}` : incomplete ? ' · Some locations skipped' : ''}
       </span>
       {state?.running && onCancel && <button onClick={onCancel}>Cancel search</button>}
+      {!state?.running && onClear && (
+        <button onClick={onClear} data-testid="browse-search-clear">
+          Clear search
+        </button>
+      )}
     </div>
   )
 }

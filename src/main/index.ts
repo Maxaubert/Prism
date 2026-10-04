@@ -57,7 +57,13 @@ import {
   validDesktopRoot
 } from './desktopAccess'
 import { browseDirectory, browseLocations, browseWatch } from './browse'
-import { browseSearch, cancelBrowseSearch, normalizeSearchWindow } from './browseSearch'
+import {
+  browseSearch,
+  browseSuggest,
+  cancelBrowseSearch,
+  normalizeSearchWindow,
+  suggestSlot
+} from './browseSearch'
 import { FolderSizeCache } from './folderSizeCache'
 import { getIndexedFolderSizes } from './everythingBrowse'
 import { initializeIndexerRuntime, indexerInstance } from './indexerRuntime'
@@ -2259,6 +2265,16 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on('browse:search-cancel', (_e, tabId: string, requestId: string) =>
       cancelBrowseSearch(tabId, requestId)
     )
+    // The search popup's suggestions (#267): the same search and index as the
+    // list's, in a slot of their own, with no progress (one answer each).
+    ipcMain.handle(
+      'browse:suggest',
+      (_e, tabId: string, path: string, query: string, requestId: string) =>
+        browseSuggest(tabId, path, query, requestId)
+    )
+    ipcMain.on('browse:suggest-cancel', (_e, tabId: string, requestId: string) => {
+      if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId), requestId)
+    })
     ipcMain.handle('browse:watch', (_e, tabId: string, path: string | null) =>
       browseWatch(tabId, path, folderChanged)
     )
@@ -2317,6 +2333,7 @@ if (!app.requestSingleInstanceLock()) {
     })
     ipcMain.on('browse:release', (_e, tabId: string) => {
       cancelBrowseSearch(tabId)
+      if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId))
       releaseDesktop(tabId)
     })
     ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))

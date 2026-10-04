@@ -15,6 +15,7 @@ import { browseParent } from '../../lib/browse'
 import { useFileCut } from '../../lib/fileClipboard'
 import { DRAG_MIME, setDrag } from '../../lib/dragDrop'
 import { FolderIcon, KindIcon, SweepBand, iconColour } from '../TreeRows'
+import { OverlayScrollbar } from './OverlayScrollbar'
 import { explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import { bandBox, nearestRow, onRowOwnPart, rowsInBand } from '../../lib/marquee'
 import { useSweep } from '../../hooks/useSweep'
@@ -603,6 +604,7 @@ export function BrowseList(props: Props): JSX.Element {
         )}
         {bandStyle && <SweepBand band={bandStyle} as="div" />}
       </div>
+      <OverlayScrollbar target={scroller} />
     </div>
   )
 }

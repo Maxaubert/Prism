@@ -73,6 +73,9 @@ export interface FolderBrowserProps {
   previewVisible: boolean
   preview?: ReactNode
   terminalControls?: ReactNode
+  /** Something else is in front (a question, the update window, Settings):
+   *  the search popup does not open, and leaves if it was up (#267). */
+  covered?: boolean
   onNavigate: (path: string) => void
   onBack: () => void
   onForward: () => void

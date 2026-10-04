@@ -2,7 +2,10 @@
   --browse-places-width: var(--explorer-places-width, 210px);
   display: grid;
   grid-template-columns: var(--browse-places-width) minmax(0, 1fr);
-  grid-template-rows: 48px 44px minmax(0, 1fr) 26px;
+  /* No action row (#267; owner, 2026-10-04: "i think we should remove our
+     quick action buttons"): every verb is on the right-click menu and its
+     key, and the list has the row's height. */
+  grid-template-rows: 48px minmax(0, 1fr) 26px;
   min-width: 0;
   min-height: 0;
   width: 100%;
@@ -118,10 +121,17 @@
 .browse-toolbar button:not(:disabled):hover {
   background: var(--p-hover);
 }
-.browse-toolbar button:focus-visible,
 .browse-toolbar input:focus-visible {
   outline: 2px solid var(--p-accent-hi);
   outline-offset: -2px;
+}
+/* The toolbar's buttons wear no focus BOX (owner, 2026-10-04, of the search
+   and preview icons after the popup handed the focus back: "remove focus
+   boxes around these"). Focus is still shown, as the hover's grey fill, so a
+   keyboard user can see where the keys are. */
+.folder-browser .browse-toolbar button:focus-visible {
+  outline: none;
+  background: var(--p-hover);
 }
 .browse-history {
   display: flex;
@@ -138,6 +148,24 @@
   color: var(--p-text-soft);
   flex-shrink: 0;
 }
+/* THE ADDRESS AND THE SEARCH ARE ONE KIND OF FIELD (#267; owner, 2026-10-04:
+   "make the url box more visible"). The breadcrumb sat on the toolbar with no
+   box, so only the search looked like somewhere to type. Both wear this: one
+   height, radius, fill and edge, from the --p-field tokens (lib/fieldColours:
+   on a near-black ground a darker fill and an edge that carries the shape). */
+.browse-field {
+  height: 36px;
+  border: 1px solid var(--p-field-edge);
+  border-radius: 3px;
+  background: var(--p-field);
+}
+.browse-field:hover {
+  border-color: var(--p-field-edge-hover);
+}
+.browse-field:focus-within {
+  outline: 2px solid var(--p-accent-hi);
+  outline-offset: -2px;
+}
 .browse-path,
 .browse-path-form {
   display: flex;
@@ -145,15 +173,10 @@
   min-width: 90px;
   align-items: center;
   height: 36px;
-  border-radius: 3px;
 }
-.browse-path:hover,
-.browse-path:focus-within {
-  background: var(--p-hover);
-}
-.browse-path:focus-within {
-  outline: 2px solid var(--p-accent-hi);
-  outline-offset: -2px;
+/* A gap between the field's edge and a crumb scrolled half out of view. */
+.browse-path {
+  padding-left: 4px;
 }
 .browse-toolbar .browse-path button:not(:disabled):hover {
   background: transparent;
@@ -165,16 +188,28 @@
   overflow: auto hidden;
   scrollbar-width: none;
 }
+/* A path too long for the field keeps its end, and its start fades out
+   rather than stopping mid-letter at the edge. */
+.browse-crumbs[data-clipped] {
+  mask-image: linear-gradient(to right, transparent, #000 28px);
+}
 .browse-crumb {
   display: flex;
   flex-shrink: 0;
   align-items: center;
 }
 .browse-crumb button {
-  height: 36px;
-  padding: 0 8px;
+  /* Inside the field's edge, not over it. */
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 3px;
   white-space: nowrap;
   color: var(--p-text-soft);
+}
+/* A name answers the pointer as a place to go, inside the field. */
+.browse-toolbar .browse-path .browse-crumb button:not(:disabled):hover {
+  background: var(--p-hover);
+  color: var(--p-text);
 }
 .browse-crumb button[aria-current] {
   color: var(--p-text);
@@ -182,7 +217,7 @@
 }
 .browse-file-crumb {
   flex-shrink: 0;
-  padding: 0 8px;
+  padding: 0 6px;
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -190,9 +225,11 @@
   color: var(--p-text);
   font-weight: 600;
 }
+/* The chevron LEADS each name, Dolphin's field (#267): "> C: > Users". */
 .browse-crumb > svg {
   width: 12px;
   height: 12px;
+  margin: 0 1px;
   color: var(--p-dim);
 }
 .browse-edit-path {
@@ -202,47 +239,25 @@
   align-items: center;
   padding: 0 8px;
   min-width: 36px;
-  height: 36px;
+  height: 34px;
   color: var(--p-dim);
 }
 .browse-path-form input {
   width: 100%;
   height: 36px;
-  background: var(--p-control);
+  background: var(--p-field);
   border: 1px solid var(--p-accent-hi);
   padding: 0 10px;
   border-radius: 3px;
 }
-.browse-search {
-  width: clamp(160px, 22%, 300px);
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 8px;
-  height: 36px;
-  border: 1px solid var(--p-divider);
-  border-radius: 3px;
-  padding: 0 10px;
-  color: var(--p-dim);
-  background: var(--p-control);
+/* SEARCH IS A BUTTON (#267): the field became a popup (search-popup.css).
+   Lit in the accent while the list is showing a search's results. */
+.browse-toolbar .browse-search-button[data-active] {
+  color: var(--p-accent-hi);
 }
-.browse-search input {
-  width: 100%;
-  min-width: 0;
-  background: transparent;
-  color: var(--p-text);
-  height: 100%;
-}
-.browse-search:focus-within {
-  outline: 2px solid var(--p-accent-hi);
-  outline-offset: -2px;
-}
-.browse-toolbar .browse-search input:focus-visible {
-  outline: none;
-}
-.browse-search input::placeholder {
-  color: var(--p-dim);
-  opacity: 1;
+.browse-toolbar > .browse-icon-button[aria-pressed='true'] {
+  color: var(--p-accent-hi);
+  background: var(--p-hover);
 }
 .browse-places {
   grid-column: 1;
@@ -307,48 +322,50 @@
   box-shadow: inset 0 0 0 1px var(--p-sel-line);
   color: var(--p-text);
 }
-.browse-actions {
-  grid-column: 2 / -1;
-  grid-row: 2;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  border-bottom: 1px solid var(--p-divider);
-  min-width: 0;
-}
-.browse-actions > button:not(.browse-icon-button) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 8px;
-  border-radius: 3px;
-  white-space: nowrap;
-  color: var(--p-text-soft);
-}
-.browse-actions > button[aria-pressed='true'] {
-  color: var(--p-accent-hi);
-  background: var(--p-hover);
-}
+/* A terminal's own buttons (Return to terminal, Terminal folder, cd here)
+   sit in the toolbar since the action row went (#267). */
 .browse-terminal-controls {
-  margin-left: auto;
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 .browse-terminal-controls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 36px;
   padding: 0 8px;
   color: var(--p-text-soft);
   border-radius: 3px;
   font-size: 13px;
 }
+.browse-terminal-controls button > svg {
+  flex: none;
+}
+/* Words with room, icons without (review of #268, measured: the three words
+   took 369px, and below about 1100px of Explorer the address field, whose job
+   is the folder's name, was what got cut). The container is the Explorer, not
+   the window, so a docked terminal or the sidebar counts. */
+@container (max-width: 1100px) {
+  .browse-terminal-controls button {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .browse-terminal-controls button > span {
+    display: none;
+  }
+}
+@container (max-width: 560px) {
+  .browse-terminal-controls .browse-cd {
+    display: none;
+  }
+}
 .browse-list-area {
   grid-column: 2;
-  grid-row: 3;
+  grid-row: 2;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -362,8 +379,7 @@
   outline: 0 none !important;
 }
 body[data-internal-file-drag] :focus-visible,
-body[data-internal-file-drag] .browse-path:focus-within,
-body[data-internal-file-drag] .browse-search:focus-within {
+body[data-internal-file-drag] .browse-path:focus-within {
   outline: 0 none !important;
   box-shadow: none !important;
 }
@@ -438,11 +454,60 @@ body[data-internal-file-drag] .browse-search:focus-within {
   min-height: 0;
   overflow: auto;
   flex: 1;
-  scrollbar-gutter: stable;
   outline: none;
 }
 .browse-list[data-sweeping] {
   user-select: none;
+}
+/* THE LIST'S SCROLLBAR IS PRISM'S OWN (#267, OverlayScrollbar.tsx): the
+   native one is hidden, since Chromium shows and hides it at random and never
+   fades it. The drawn one sits over the list's right edge: 4px and dim, 6px
+   under the pointer, in quickly and out softly. */
+.browse-list {
+  scrollbar-width: none;
+}
+.browse-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.browse-list-area {
+  position: relative;
+}
+.browse-overlay-scroll {
+  position: absolute;
+  right: 0;
+  z-index: 3;
+  width: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 400ms ease-out;
+}
+.browse-overlay-scroll[data-shown] {
+  opacity: 1;
+  pointer-events: auto;
+  transition-duration: 150ms;
+}
+.browse-overlay-thumb {
+  position: absolute;
+  right: 2px;
+  width: 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--p-text) 24%, transparent);
+  transition:
+    width 120ms ease-out,
+    background-color 120ms ease-out;
+}
+.browse-overlay-scroll:hover .browse-overlay-thumb,
+.browse-overlay-thumb:active {
+  width: 6px;
+  background: color-mix(in srgb, var(--p-text) 42%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .browse-overlay-scroll,
+  .browse-overlay-thumb {
+    transition: none;
+  }
 }
 .browse-row-space {
   min-height: 100%;
@@ -550,7 +615,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
 }
 .browse-preview-slot {
   grid-column: 3;
-  grid-row: 3;
+  grid-row: 2;
   border-left: 1px solid var(--p-divider);
   min-width: 0;
   min-height: 0;
@@ -559,7 +624,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
 }
 .browse-status {
   grid-column: 2 / -1;
-  grid-row: 4;
+  grid-row: 3;
   display: flex;
   align-items: center;
   gap: 18px;
@@ -607,17 +672,6 @@ body[data-internal-file-drag] .browse-search:focus-within {
     padding: 0 6px;
     gap: 8px;
   }
-  .browse-search {
-    width: 160px;
-  }
-  .browse-actions {
-    gap: 0;
-    padding-inline: 6px;
-  }
-  .browse-actions > button:not(.browse-icon-button) {
-    padding-inline: 5px;
-    gap: 5px;
-  }
 }
 @media (max-width: 760px) {
   .folder-browser {
@@ -625,9 +679,6 @@ body[data-internal-file-drag] .browse-search:focus-within {
   }
 }
 @media (max-width: 560px) {
-  .browse-search {
-    width: 124px;
-  }
   .browse-toolbar {
     gap: 4px;
     padding-inline: 6px;

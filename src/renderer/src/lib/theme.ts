@@ -14,6 +14,7 @@ import {
   withAlpha
 } from 'prism-term-core/renderer/lib/colour'
 import { accentAlphaOf, fillOf } from './accentAlpha'
+import { hintOn, nearBlackField } from './fieldColours'
 
 // The app's look, as one named style. A style owns the material, the six colour
 // roles, the font and the shape of the frame - and nothing else: hover, the
@@ -876,8 +877,19 @@ export function variablesFor(input: Style, opaque = false): Record<string, strin
   // near-black barely lifts off white.
   const washAlpha = style.mode === 'light' ? 0.28 : 0.22
 
+  // THE TOOLBAR'S FIELDS, the address and the search (#267): one fill, one
+  // edge. On a near-black ground (measured) a darker fill and an edge that
+  // carries the shape; elsewhere the search's own control fill and divider.
+  const flat = derive(style)
+  const field = nearBlackField(flat['--p-bg'], style.text)
+  const fieldFill = field?.fill ?? flat['--p-control']
+
   return {
-    ...derive(style),
+    ...flat,
+    '--p-field': fieldFill,
+    '--p-field-edge': field?.edge ?? divider,
+    '--p-field-edge-hover': field?.edgeHover ?? rgba(ink, style.mode === 'light' ? 0.18 : 0.16),
+    '--p-field-hint': hintOn(flat['--p-dim'], style.text, fieldFill),
     // bg and side carry their material; the derived pair above is the flat one.
     '--p-bg': bg,
     '--p-side': side,
