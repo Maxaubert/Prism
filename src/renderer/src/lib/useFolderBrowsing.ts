@@ -23,6 +23,7 @@ import {
 } from './tabs'
 import { fileKind } from '@shared/fileKind'
 import { applyDetails } from './listingMerge'
+import { downloadsPath, isDownloads, viewSort } from './downloadsView'
 import { browseLocation, browseParent } from './browse'
 import { intendToPlay } from './playState'
 import { useBrowseSearch } from './useBrowseSearch'
@@ -104,18 +105,27 @@ export function useFolderBrowsing(
     isExplorerTab(active) &&
     active.browse.surface === 'folder' &&
     (!active.term || active.term.view === 'hidden')
+  // DOWNLOADS (#285): the Known Folder shows its own sort, newest first,
+  // until one is picked there (lib/downloadsView.ts).
+  const downloads = isDownloads(path, downloadsPath(locations))
+  const sort = useMemo(
+    () => (location ? viewSort(location, downloads) : { key: 'name' as const, direction: 'asc' as const }),
+    [location, downloads]
+  )
+  const [weekStart, setWeekStart] = useState<number | undefined>(undefined)
   const search = useBrowseSearch(
     id,
     path,
     location?.query ?? '',
     folder,
     refreshKey + revision,
-    location?.sort ?? { key: 'name', direction: 'asc' },
+    sort,
     location?.selected ?? null
   )
 
   useEffect(() => {
     void window.prism.browseLocations().then(setLocations)
+    void window.prism.weekStart().then(setWeekStart).catch(() => {})
   }, [])
   // Sizes and dates of a names-first answer (#271), laid over the rows in
   // place: the shared snapshot and the list on screen alike.
@@ -435,6 +445,10 @@ export function useFolderBrowsing(
   return {
     folder,
     location,
+    /** The sort the folder is shown in (Downloads' own until picked, #285). */
+    sort,
+    downloads,
+    weekStart,
     listing,
     locations,
     pending,

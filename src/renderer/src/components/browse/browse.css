@@ -571,6 +571,36 @@ body[data-internal-file-drag] .browse-path:focus-within {
 .browse-row-space {
   min-height: 100%;
 }
+/* DOWNLOADS' DATE GROUPS (#285): File Explorer's "Today ----" header, kept
+   quiet. One row high, so the virtual list's arithmetic is unchanged; the
+   label sits low in it, nearer the group it names than the one above, in the
+   dim ink and a step smaller than a name, with a hairline running on in the
+   list's own edge colour. Not a control: no hover, no pointer, no focus. */
+.browse-divider {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: var(--browse-row-h, 26px);
+  padding: 0 var(--browse-row-pad, 8px) calc(var(--browse-row-h, 26px) * 0.18);
+  color: var(--p-dim);
+  font-size: calc(var(--browse-row-font, 12.5px) - 1px);
+  font-weight: 600;
+  line-height: 1;
+  cursor: default;
+  user-select: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.browse-divider > span {
+  flex-shrink: 0;
+}
+.browse-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  margin-bottom: 0.3em;
+  background: var(--p-divider);
+}
 .browse-row {
   width: 100%;
   height: var(--browse-row-h, 26px);

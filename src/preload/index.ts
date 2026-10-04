@@ -65,6 +65,8 @@ const api = {
     ipcRenderer.on('browse:details', listener)
     return () => ipcRenderer.removeListener('browse:details', listener)
   },
+  /** The user's first day of the week, 0 Sunday ... 6 Saturday (#285). */
+  weekStart: (): Promise<number> => ipcRenderer.invoke('system:week-start'),
   /** Settings > General > Remember folders: delete what was kept. */
   clearListingCache: (): Promise<boolean> => ipcRenderer.invoke('listing-cache:clear'),
   browseSearch: (

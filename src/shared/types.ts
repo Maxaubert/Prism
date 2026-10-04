@@ -23,6 +23,10 @@ export interface ViewerFile {
 export interface DirEntry {
   path: string
   name: string
+  /** Modified time, for the Explorer's date order (#285: Downloads mixes
+   *  folders and files by date). Absent until the details arrive (#271), and
+   *  in the tree, which never asks. */
+  mtimeMs?: number
 }
 
 /** A sidebar search hit: enough to draw the row and open the file. */
@@ -95,7 +99,8 @@ export interface DirListing {
 }
 
 /** Sizes and dates for files of a names-first listing (#271). `done` is the
- *  last patch of the run: the listing at `path` is complete. */
+ *  last patch of the run: the listing at `path` is complete. Since #285 the
+ *  folders' dates ride in `files` too; a folder takes only `mtimeMs`. */
 export interface BrowseDetails {
   path: string
   files: Array<{ path: string; size: number; mtimeMs: number }>

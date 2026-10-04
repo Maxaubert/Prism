@@ -30,9 +30,14 @@ export function withDetails(listing: DirListing, details: ReadonlyMap<string, Fi
     const d = details.get(f.path)
     return d ? { ...f, size: d.size, mtimeMs: d.mtimeMs } : f
   })
+  // A folder takes its date only (#285).
+  const folders = listing.folders.map((f) => {
+    const d = details.get(f.path)
+    return d ? { ...f, mtimeMs: d.mtimeMs } : f
+  })
   const { complete: _complete, ...rest } = listing
   void _complete
-  return { ...rest, files }
+  return { ...rest, folders, files }
 }
 
 export interface ExplorerListingDeps {
@@ -88,7 +93,8 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
     }
     start(() => {
       void statDetails(
-        read.listing.files.map((f) => f.path),
+        // Folders first, as the rows are; their dates are #285's.
+        [...read.listing.folders, ...read.listing.files].map((f) => f.path),
         (files, done) => {
           for (const f of files) known.set(f.path, f)
           send('browse:details', { path: read.path, files, done })
@@ -113,7 +119,7 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
       if (listing.folders.length + listing.files.length > prefetchMaxEntries) return null
       const known = new Map<string, FileDetail>()
       await statDetails(
-        listing.files.map((f) => f.path),
+        [...listing.folders, ...listing.files].map((f) => f.path),
         (files) => {
           for (const f of files) known.set(f.path, f)
         },
