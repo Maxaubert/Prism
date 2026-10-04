@@ -6,7 +6,9 @@ import { BrowseSearchStatus } from './BrowseSearchStatus'
 import { BrowseSearchPopup } from './BrowseSearchPopup'
 import { BrowsePlaces } from './BrowsePlaces'
 import { BrowseToolbar } from './BrowseToolbar'
-import { browseEntries } from './entries'
+import { browseEntries, datesKnown } from './entries'
+import { dateDividers } from '../../lib/dateGroups'
+import { dateView } from '../../lib/downloadsView'
 import { useFolderSizes } from '../../hooks/useFolderSizes'
 import { clickSelect } from '../../lib/selection'
 import { sweepSelect } from '../../lib/marquee'
@@ -68,10 +70,27 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     props.pending === 'none' && !props.searchState?.running && !props.searchState?.window,
     visibleFolders
   )
+  // DOWNLOADS BY DATE (#285, lib/downloadsView.ts): files and folders mixed,
+  // newest first, under File Explorer's date groups. Never a search.
+  const dated = dateView(!!props.downloads, props.sort, !!props.query.trim() || !!props.searchState)
   const entries = useMemo(
     () =>
-      browseEntries(props.listing, props.searchState ? '' : props.query, props.sort, folderSizes),
-    [props.listing, props.query, props.sort, props.searchState, folderSizes]
+      browseEntries(
+        props.listing,
+        props.searchState ? '' : props.query,
+        props.sort,
+        folderSizes,
+        dated
+      ),
+    [props.listing, props.query, props.sort, props.searchState, folderSizes, dated]
+  )
+  const weekStart = props.weekStart
+  const dividers = useMemo(
+    () =>
+      dated && datesKnown(props.listing)
+        ? dateDividers(entries, (e) => (e.file ? e.file.mtimeMs : e.mtimeMs), new Date(), weekStart)
+        : undefined,
+    [dated, props.listing, entries, weekStart]
   )
   const selected = entries.find((entry) => entry.path === props.selectedPath)
   // READ AHEAD (#271): the folder under the pointer, the selected folder, the
@@ -409,6 +428,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         entries={props.pending === 'slow' ? [] : entries}
         onFolderHover={hoverFolder}
         indexedRows={indexedRows}
+        dividers={props.pending === 'slow' ? undefined : dividers}
         total={total}
         onActivate={activate}
         onSelect={pickOne}

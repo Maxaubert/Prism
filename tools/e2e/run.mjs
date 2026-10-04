@@ -23,6 +23,7 @@ import {
   rmSync,
   statSync,
   truncateSync,
+  utimesSync,
   writeFileSync
 } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -8636,6 +8637,228 @@ async function panelsAlignScenario(fixtures) {
 }
 
 /**
+ * DOWNLOADS SORTS NEWEST FIRST IN FILE EXPLORER'S DATE GROUPS (#285; owner,
+ * 2026-10-04: "make the downloads folder in prism in the explorer not have
+ * that folders first rule, just like file explorer ... it could have some
+ * dividers like today ... or do it like file explorer"). A fixture stands in
+ * for Downloads (`PRISM_E2E_DOWNLOADS`, e2e only), filled with files AND
+ * folders dated across every group the day allows, named so that name order
+ * and date order disagree. Each item's group is set by construction from this
+ * run's own calendar (the week starting on the day the app says), never by
+ * asking the code under test. Held: Quick access's Downloads is the fixture;
+ * the rows are newest first with folders among the files; a divider stands
+ * before each group's first row and nowhere else, with File Explorer's names;
+ * dividers are not options and take no focus; Down walks every row and never
+ * lands on a divider, Home lands on the first row; a sweep across a divider
+ * marks only rows; type-ahead finds a row in a later group; Name puts folders
+ * first with no dividers, and Date modified brings Downloads' view back,
+ * newest first; another folder sorted by date keeps folders first and has no
+ * dividers. Shots: .e2e/shots/downloads-date.png and downloads-name.png.
+ */
+async function downloadsDateScenario(fixtures) {
+  console.log('downloads by date')
+  const dl = join(fixtures, 'dl-date')
+  rmSync(dl, { recursive: true, force: true })
+  mkdirSync(dl, { recursive: true })
+  EXTRA_ENV = {
+    PRISM_E2E_DOWNLOADS: dl,
+    PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index')
+  }
+  // Launched on a file elsewhere: the Explorer has to go to Downloads itself.
+  const elsewhere = join(fixtures, 'dl-date-other')
+  rmSync(elsewhere, { recursive: true, force: true })
+  mkdirSync(join(elsewhere, 'zz-folder'), { recursive: true })
+  writeFileSync(join(elsewhere, 'a-file.txt'), 'x\n')
+  // Older than the file: by date alone it would come second.
+  utimesSync(join(elsewhere, 'zz-folder'), new Date(2020, 0, 1), new Date(2020, 0, 1))
+  const { app, win } = await launch(join(elsewhere, 'a-file.txt'))
+  EXTRA_ENV = {}
+  const list = '[data-testid="browse-list"]'
+  try {
+    // THE CALENDAR, from the app's own first day of the week.
+    const weekStart = await win.evaluate(() => window.prism.weekStart?.()).catch(() => undefined)
+    const ws = typeof weekStart === 'number' ? weekStart : 1
+    const now = new Date()
+    const dayAt = (offset) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset).getTime()
+    const today = dayAt(0)
+    const back = (now.getDay() - ws + 7) % 7
+    const week = dayAt(-back)
+    const lastWeek = dayAt(-back - 7)
+    const month = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime()
+    const year = new Date(now.getFullYear(), 0, 1).getTime()
+    const H = 3600000
+    // [name, folder?, time, group]; a group whose window is empty today is left out.
+    const plan = [
+      ['m-today.txt', false, Math.max(today + 1000, now.getTime() - 60000), 'Today'],
+      ['b-yesterday folder', true, today - 12 * H, 'Yesterday'],
+      ['k-yesterday.zip', false, today - 13 * H, 'Yesterday'],
+      ...(week + H < today - 24 * H ? [['j-this-week.txt', false, week + H, 'Earlier this week']] : []),
+      ['c-last-week folder', true, lastWeek + 3 * 24 * H, 'Last week'],
+      ['i-last-week.txt', false, lastWeek + 3 * 24 * H - H, 'Last week'],
+      ...(month + H < lastWeek ? [['h-this-month.txt', false, month + H, 'Earlier this month']] : []),
+      ['g-last-month.txt', false, Math.min(lastMonth + 14 * 24 * H, lastWeek - H, month - H), 'Last month'],
+      ...(year + 24 * H < lastMonth ? [['d-this-year folder', true, year + 24 * H, 'Earlier this year']] : []),
+      ['a-long-ago.txt', false, new Date(2023, 4, 1, 12).getTime(), 'A long time ago'],
+      ['e-long-ago folder', true, new Date(2022, 1, 1, 12).getTime(), 'A long time ago']
+    ]
+    for (const [name, folder, t] of plan) {
+      const p = join(dl, name)
+      if (folder) mkdirSync(p)
+      else writeFileSync(p, 'x\n')
+      utimesSync(p, new Date(t), new Date(t))
+    }
+    const order = [...plan].sort((a, b) => b[2] - a[2] || a[0].localeCompare(b[0])).map((p) => p[0])
+    const groups = []
+    for (const [, , , g] of [...plan].sort((a, b) => b[2] - a[2])) if (groups.at(-1) !== g) groups.push(g)
+    // What the list draws, top to bottom: '#Label' for a divider, else a name.
+    const drawn = () =>
+      win.evaluate((sel) => {
+        const space = document.querySelector(`${sel} .browse-row-space > div`)
+        return space
+          ? [...space.children].map((el) =>
+              el.classList.contains('browse-divider')
+                ? `#${el.textContent}`
+                : (el.getAttribute('data-browse-path') ?? '').split(/[\\/]/).pop()
+            )
+          : []
+      }, list)
+    const expected = []
+    {
+      let last = null
+      for (const name of order) {
+        const g = plan.find((p) => p[0] === name)[3]
+        if (g !== last) expected.push(`#${g}`)
+        last = g
+        expected.push(name)
+      }
+    }
+
+    // TO DOWNLOADS: the Known Folder main reports (Quick access's own source;
+    // the profile's pins were seeded on an earlier run, so they name the real
+    // one), reached by typing its path, as a user would.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${list} .browse-row`, { timeout: 10000 })
+    const reported = await win.evaluate(async () => (await window.prism.browseLocations()).find((l) => l.known === 'downloads')?.path ?? null)
+    ok(reported === dl, `main reports the Known Folder Downloads as the fixture (${reported})`)
+    // The preview pane narrows the list past the width that shows Date
+    // modified; this scenario needs the header, so the pane stays shut.
+    const pane = win.locator('[aria-label="Preview pane"]')
+    if ((await pane.getAttribute('aria-pressed')) === 'true') await pane.click()
+    await typePath(win, dl)
+    const settled = await until(async () => (await drawn()).join('|') === expected.join('|'), 10000, 100)
+    ok(settled, `newest first, files and folders mixed, a divider before each group (${(await drawn()).join(' | ')})`)
+    ok(
+      JSON.stringify((await drawn()).filter((x) => x.startsWith('#'))) === JSON.stringify(groups.map((g) => `#${g}`)),
+      `the groups, in order, only those with items: ${groups.join(', ')}`
+    )
+    const rowsShown = (await drawn()).filter((x) => !x.startsWith('#'))
+    const firstFolder = rowsShown.findIndex((n) => / folder$/.test(n))
+    const firstFile = rowsShown.findIndex((n) => !/ folder$/.test(n))
+    ok(
+      firstFile >= 0 && firstFolder >= 0 && firstFile < firstFolder && rowsShown.slice(firstFolder).some((n) => !/ folder$/.test(n)),
+      'a file comes before a folder, and files follow folders: no folders-first rule'
+    )
+    const head = await win.locator(`${list} .browse-divider`).first().evaluate((d) => ({
+      role: d.getAttribute('role'),
+      hidden: d.getAttribute('aria-hidden'),
+      tab: d.getAttribute('tabindex'),
+      h: d.getBoundingClientRect().height,
+      row: document.querySelector('[data-testid="browse-list"] .browse-row')?.getBoundingClientRect().height
+    })).catch(() => null)
+    ok(!!head && head.hidden === 'true' && head.tab === null && head.role === null, `a divider is not an option and takes no focus (${JSON.stringify(head)})`)
+    const told = await win.locator(`${list} [data-browse-path$="${order[0]}"]`).getAttribute('aria-description')
+    ok(told === 'Today', `a row tells a screen reader its group instead (${told})`)
+    ok(!!head && Math.abs(head.h - head.row) < 0.5, `a divider is one row high, so the virtual list's rows stay where they belong (${head?.h} / ${head?.row})`)
+    const listBox = await win.locator(list).boundingBox()
+    await win.screenshot({ path: join(SHOTS, 'downloads-date.png'), clip: { x: listBox.x - 4, y: listBox.y - 40, width: listBox.width + 8, height: Math.min(listBox.height + 44, 520) } })
+
+    // THE ARROWS walk the rows and never stop on a divider.
+    const selectedName = () =>
+      win.evaluate((sel) => (document.querySelector(`${sel} [aria-selected="true"]`)?.getAttribute('data-browse-path') ?? '').split(/[\\/]/).pop(), list)
+    await win.locator(`${list} [data-browse-path$="${order[0]}"] .browse-name-text`).click()
+    const walked = [await selectedName()]
+    for (let i = 1; i < order.length; i++) {
+      await win.keyboard.press('ArrowDown')
+      await until(async () => (await selectedName()) !== walked.at(-1), 2000, 30)
+      walked.push(await selectedName())
+    }
+    ok(walked.join('|') === order.join('|'), `Down walks every row in order, over the dividers (${walked.join(' | ')})`)
+    for (let i = 0; i < order.length; i++) await win.keyboard.press('ArrowUp')
+    await sleep(150)
+    ok((await selectedName()) === order[0], `Up stops on the first row, not the divider above it (${await selectedName()})`)
+    await win.keyboard.press('End')
+    await sleep(150)
+    await win.keyboard.press('Home')
+    await sleep(150)
+    ok((await selectedName()) === order[0], 'Home lands on the first row')
+    const focusIsRow = await win.evaluate(() => !!document.activeElement?.matches('[role="option"]'))
+    ok(focusIsRow, 'and the focus is on a row')
+    // TYPE-AHEAD finds a row under a later group.
+    await win.keyboard.press('a')
+    await until(async () => (await selectedName()) === 'a-long-ago.txt', 2000, 30)
+    ok((await selectedName()) === 'a-long-ago.txt', `type-ahead jumps past the dividers to its row (${await selectedName()})`)
+
+    // THE SWEEP across a divider marks rows only.
+    const rowsTop = await win.locator(`${list} [data-browse-path$="${order[0]}"]`).boundingBox()
+    const rowsBottom = await win.locator(`${list} [data-browse-path$="${order[3]}"]`).boundingBox()
+    const x = rowsTop.x + rowsTop.width - 30
+    await win.mouse.move(x, rowsTop.y + rowsTop.height / 2)
+    await win.mouse.down()
+    await win.mouse.move(x - 10, rowsTop.y + 20, { steps: 3 })
+    await win.mouse.move(x - 20, rowsBottom.y + rowsBottom.height / 2, { steps: 8 })
+    await win.mouse.up()
+    await sleep(200)
+    const marked = await win.evaluate((sel) => ({
+      rows: [...document.querySelectorAll(`${sel} [data-selected]`)].map((r) => (r.getAttribute('data-browse-path') ?? '').split(/[\\/]/).pop()),
+      dividers: document.querySelectorAll(`${sel} .browse-divider[data-selected]`).length
+    }), list)
+    ok(
+      marked.dividers === 0 && marked.rows.join('|') === order.slice(0, 4).join('|'),
+      `a sweep over a divider marks the four rows and nothing else (${JSON.stringify(marked)})`
+    )
+    await win.keyboard.press('Escape')
+
+    // NAME: any folder's view. DATE MODIFIED: Downloads' again, newest first.
+    const cell = (key) => win.locator(`.browse-list-area .browse-columns .browse-column-${key}`)
+    await cell('name').click()
+    const byName = [...plan.filter((p) => p[1]), ...plan.filter((p) => !p[1])]
+      .map((p) => p[0])
+    const nameOrder = [
+      ...byName.filter((n) => / folder$/.test(n)).sort((a, b) => a.localeCompare(b)),
+      ...byName.filter((n) => !/ folder$/.test(n)).sort((a, b) => a.localeCompare(b))
+    ]
+    ok(
+      await until(async () => (await drawn()).join('|') === nameOrder.join('|'), 5000, 100),
+      `Name puts folders first, by name, with no dividers (${(await drawn()).join(' | ')})`
+    )
+    await win.screenshot({ path: join(SHOTS, 'downloads-name.png'), clip: { x: listBox.x - 4, y: listBox.y - 40, width: listBox.width + 8, height: Math.min(listBox.height + 44, 520) } })
+    await cell('modified').click()
+    ok(
+      await until(async () => (await drawn()).join('|') === expected.join('|'), 5000, 100),
+      `Date modified brings Downloads' view back, newest first on the first click (${(await drawn()).join(' | ')})`
+    )
+
+    // ANOTHER FOLDER by date: folders first, no dividers.
+    await win.locator(`${list}`).focus()
+    await win.keyboard.press('Alt+ArrowUp')
+    await until(async () => (await win.locator(`${list} [data-browse-path$="dl-date-other"]`).count()) === 1, 8000, 100)
+    await win.locator(`${list} [data-browse-path$="dl-date-other"]`).dblclick()
+    await until(async () => (await win.locator(`${list} [data-browse-path$="a-file.txt"]`).count()) === 1, 8000, 100)
+    await cell('modified').click()
+    await sleep(400)
+    const other = await drawn()
+    ok(
+      other.join('|') === 'zz-folder|a-file.txt' && !other.some((x) => x.startsWith('#')),
+      `another folder by date keeps folders first and has no dividers (${other.join(' | ')})`
+    )
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dl, { recursive: true, force: true })
+    rmSync(elsewhere, { recursive: true, force: true })
+  }
+}
+/**
  * THE COLUMN HEADER IS FILE EXPLORER'S (#274; owner, 2026-10-04, of the
  * Explorer list's header: "if I highlight over name, it doesn't reach all the
  * way out to the edges ... that highlight effect should be inside the whole
@@ -12865,6 +13088,7 @@ await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(columnHeadersScenario)
 await run(panelsAlignScenario)
+await run(downloadsDateScenario)
 await run(noLoadingEverScenario)
 await run(coldLaunchCachedScenario)
 await run(coldLaunchNoCacheScenario)

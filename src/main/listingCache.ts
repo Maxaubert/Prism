@@ -64,6 +64,9 @@ interface Stored {
   partial?: true
   hidden?: number
   folders: string[]
+  /** The folders' modified times, in `folders`' order (#285). Optional, so a
+   *  cache written before it still reads: its folders are simply undated. */
+  folderTimes?: number[]
   /** [name, size, mtimeMs] */
   files: Array<[string, number, number]>
 }
@@ -83,7 +86,11 @@ export function encodeListing(
   savedAt: number,
   maxEntries = CACHE_LIMITS.entries
 ): Stored {
-  const folders = listing.folders.slice(0, maxEntries).map((f) => f.name)
+  const kept = listing.folders.slice(0, maxEntries)
+  const folders = kept.map((f) => f.name)
+  const folderTimes = kept.every((f) => typeof f.mtimeMs === 'number')
+    ? kept.map((f) => f.mtimeMs as number)
+    : null
   const room = Math.max(0, maxEntries - folders.length)
   const files = listing.files
     .slice(0, room)
@@ -97,6 +104,7 @@ export function encodeListing(
     ...(partial ? { partial: true as const } : {}),
     ...(listing.hidden ? { hidden: listing.hidden } : {}),
     folders,
+    ...(folderTimes && folderTimes.length ? { folderTimes } : {}),
     files
   }
 }
@@ -135,6 +143,13 @@ export function decodeListing(text: string, expectPath?: string): CachedListing 
     return null
   if (expectPath !== undefined && cacheKey(expectPath) !== cacheKey(s.path)) return null
   const base = s.path + sep(s.path)
+  // Dates that do not line up with the names are dropped, never guessed.
+  const times =
+    Array.isArray(s.folderTimes) &&
+    s.folderTimes.length === s.folders.length &&
+    s.folderTimes.every((t) => typeof t === 'number' && Number.isFinite(t))
+      ? s.folderTimes
+      : null
   const files: ViewerFile[] = s.files.map(([name, size, mtimeMs]) => {
     const ext = extname(name).toLowerCase()
     return { path: base + name, name, ext, kind: fileKind(ext, name), size, mtimeMs }
@@ -145,7 +160,10 @@ export function decodeListing(text: string, expectPath?: string): CachedListing 
     savedAt: s.savedAt,
     partial: !!s.partial,
     listing: {
-      folders: s.folders.map((name) => ({ path: base + name, name })),
+      folders: s.folders.map((name, i) => {
+        const t = times?.[i]
+        return t === undefined ? { path: base + name, name } : { path: base + name, name, mtimeMs: t }
+      }),
       files,
       ...(typeof s.hidden === 'number' && s.hidden > 0 ? { hidden: s.hidden } : {})
     }

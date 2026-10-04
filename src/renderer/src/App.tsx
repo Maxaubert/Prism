@@ -4038,7 +4038,9 @@ export default function App(): JSX.Element {
                 selectedPath={browsing.location.selected}
                 scrollTop={browsing.location.scrollTop}
                 query={browsing.location.query}
-                sort={browsing.location.sort}
+                sort={browsing.sort}
+                downloads={browsing.downloads}
+                weekStart={browsing.weekStart}
                 canBack={active.browse.cursor > 0}
                 canForward={active.browse.cursor < active.browse.history.length - 1}
                 onNavigate={(path) => void browsing.navigate(path)}
@@ -4053,7 +4055,8 @@ export default function App(): JSX.Element {
                 menuPath={browseMenu?.entry.path}
                 onScroll={(scrollTop) => browsing.patch({ scrollTop })}
                 onQueryChange={browsing.searchFor}
-                onSortChange={(sort) => browsing.patch({ sort, scrollTop: 0 })}
+                // A header click is a pick made here (#285): Downloads keeps it.
+                onSortChange={(sort) => browsing.patch({ sort, sortChosen: true, scrollTop: 0 })}
                 onNewTerminal={termTabAt}
                 onCopy={(entry) => void copyFilePaths([entry.path])}
                 onCut={(entry) => void copyFilePaths([entry.path], true)}

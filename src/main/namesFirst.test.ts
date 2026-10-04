@@ -25,16 +25,22 @@ describe('names first (#271)', () => {
     writeFileSync(join(box, '.hidden'), '')
     const names = await listNames(box)
     const full = await listDir(box, true)
-    expect(names.folders).toEqual(full.folders)
+    // The full read dates its folders (#285); the names read leaves that to
+    // the details stream.
+    expect(names.folders).toEqual(full.folders.map(({ path, name }) => ({ path, name })))
+    expect(full.folders.every((f) => typeof f.mtimeMs === 'number')).toBe(true)
+    expect(names.folders.every((f) => f.mtimeMs === undefined)).toBe(true)
     expect(names.files.map((f) => f.name)).toEqual(full.files.map((f) => f.name))
     expect(names.files.map((f) => f.kind)).toEqual(full.files.map((f) => f.kind))
     expect(names.files.every((f) => f.size === undefined && f.mtimeMs === undefined)).toBe(true)
     expect(names.complete).toBe(false)
   })
 
-  it('is complete at once when there are no files to stat', async () => {
-    mkdirSync(join(box, 'only'))
+  it('is complete at once only when there is nothing to stat', async () => {
     expect((await listNames(box)).complete).toBeUndefined()
+    // A folder's date is a detail too (#285: Downloads orders by it).
+    mkdirSync(join(box, 'only'))
+    expect((await listNames(box)).complete).toBe(false)
   })
 
   it('flags an unreadable folder instead of throwing', async () => {

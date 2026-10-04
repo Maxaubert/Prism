@@ -20,6 +20,10 @@ export interface BrowseLocation {
   scrollTop: number
   query: string
   sort: BrowseSort
+  /** The user picked this sort HERE, by a column header (#285). Only
+   *  Downloads reads it: there, a sort nobody picked is Downloads' own,
+   *  newest first. Never carried to the next folder. */
+  sortChosen?: true
 }
 
 export interface SavedBrowse {
@@ -63,6 +67,9 @@ export interface BrowseShortcut {
   name: string
   path: string
   group: 'quick' | 'drive'
+  /** The Windows Known Folder this is, as Electron's `app.getPath` resolves
+   *  it (SHGetKnownFolderPath): Downloads is found by this (#285). */
+  known?: 'home' | 'desktop' | 'downloads' | 'documents' | 'pictures' | 'music' | 'videos'
 }
 
 export type BrowseState = SavedBrowse

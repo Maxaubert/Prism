@@ -79,7 +79,10 @@ export async function browseLocations(
   const shortcuts: BrowseShortcut[] = common.map(([key, name]) => ({
     name,
     path: getPath(key),
-    group: 'quick'
+    group: 'quick',
+    // Which Known Folder it is (#285): the page finds Downloads by this,
+    // never by a folder's name.
+    known: key
   }))
   // Check drive roots without spawning a shell or scanning their contents.
   // A missing/removable drive simply has no shortcut until it is available.

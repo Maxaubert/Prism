@@ -47,6 +47,27 @@ describe('names first, then details (#271)', () => {
     ])
   })
 
+  it("lays a folder's date on it, and carries it to a revisit (#285)", () => {
+    const names: DirListing = {
+      folders: [{ path: 'C:\\x\\Sub', name: 'Sub' }],
+      files: [file('a')],
+      complete: false
+    }
+    const done = applyDetails(names, {
+      path: 'C:\\x',
+      files: [
+        { path: 'c:\\x\\sub', size: 0, mtimeMs: 42 },
+        { path: 'C:\\x\\a', size: 1, mtimeMs: 7 }
+      ],
+      done: true
+    })
+    expect(done.folders[0]).toEqual({ path: 'C:\\x\\Sub', name: 'Sub', mtimeMs: 42 })
+    expect(done.complete).toBeUndefined()
+    const again = carryDetails(done, { ...names, files: [file('a')] })
+    expect(again.folders[0].mtimeMs).toBe(42)
+    expect(again.files[0].size).toBe(1)
+  })
+
   it('a size sort waits for every size, in name order, never counting a blank as 0', () => {
     const files = [file('c', 1), file('a'), file('b', 3)]
     expect(sortFiles(files, 'size', 'desc').map((f) => f.name)).toEqual(['a', 'b', 'c'])

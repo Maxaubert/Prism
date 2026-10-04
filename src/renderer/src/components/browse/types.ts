@@ -18,6 +18,8 @@ export interface BrowseEntry {
   isFolder: boolean
   file?: ViewerFile
   folderSize?: FolderSizeResult | null
+  /** Modified time: a folder's own (#285), or the file's. */
+  mtimeMs?: number
 }
 
 export interface BrowseSort {
@@ -73,6 +75,11 @@ export interface FolderBrowserProps {
   query: string
   searchState?: BrowseSearchState
   sort: BrowseSort
+  /** The folder on screen is the user's Downloads (#285): by Date modified it
+   *  mixes files and folders and shows File Explorer's date groups. */
+  downloads?: boolean
+  /** The user's first day of the week for those groups, 0 Sunday. */
+  weekStart?: number
   canBack: boolean
   canForward: boolean
   previewEnabled: boolean
