@@ -534,6 +534,37 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
   its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
   ALONE: the tree keeps General's Font size. `explorerSize` e2e.
+  **THE ADDRESS AND THE SEARCH ARE ONE FIELD** (#267; owner, 2026-10-04: "make the url box more
+  visible and for the black theme make the grey colours used in search and in the url bar darker
+  grey"). Both wear `.browse-field` (`--p-field`, `-edge`, `-edge-hover`, `-hint`). On a ground
+  MEASURED darker than #121212 (`lib/fieldColours.ts`) the fill is a 2.5% step (Void #060606, was
+  #080808) and a 3:1 edge carries the box; every other style keeps --p-control and --p-divider.
+  The placeholder is held to 4.5:1 on the field. `addressField` e2e.
+  **NO ACTION ROW, A DOLPHIN ADDRESS, SEARCH IS A POPUP** (#267; owner, same day, showing KDE
+  Dolphin and PowerToys Run: "remove our quick action buttons ... the search field should be a
+  search icon only that displays a search pop up on click like this but centered on screen and
+  blurred background behind ... the url bar in the image looks really clean too so copy that
+  style ... a show more which essentially does a normal search like before"). The Explorer's
+  Open / Open as project / Copy / Rename / Delete / "..." row is GONE; every verb is the row's
+  right-click menu and its key (Enter, F2, Del, Ctrl+C/X/V), and the list has the height
+  (`explorerVerbs` e2e proves each). Toolbar: back, forward, up, refresh, the address field,
+  a terminal's own buttons when the tab has one, the preview toggle, the search button. The
+  field: a chevron LEADS every name, the current folder bold, a long path keeps its end and
+  fades its start. Search: the button or Ctrl+F in the Explorer (an editor's or a shell's
+  Ctrl+F is theirs) opens `BrowseSearchPopup`, portalled, centred, the help popup's blur and
+  no shadow. Main's SAME search in its own slot (`browseSuggest`, `suggestSlot`, 3 s) so it
+  never stops the list's, keeping the BEST 200 by `nameRank`, not the first 200 (review of
+  #268: the walk now spends its whole budget, and the index is asked for 5000 by name and
+  ranked in main, so `test.ts` is not lost behind 200 `*.test.ts`); `shared/searchSuggest.ts`
+  ranks the likely 8 (whole name, start, a word's start, inside; then nearer, folder, shorter).
+  Focus stays in the combobox, and a press anywhere in the popup keeps it there (a press on the
+  magnifier once sent it to the page, where Ctrl+T opened a tab underneath); nothing is marked
+  until the arrows, and every edit of the field takes the mark away; Enter on a marked row opens it (a folder is gone into), Enter on
+  nothing or Show more or Ctrl+Enter runs the list's full search, "Clear search" in the status
+  line ends it. ONE LAYER: it does not open over a modal and leaves (for good) on a question,
+  the update window, Settings, another tab or folder; App ignores keys from inside it
+  (`data-search-popup`). The `searchPopup` e2e runs with `PRISM_E2E_INDEX_ROOT` elsewhere, so
+  it searches by the walk: the e2e's private index did not list fresh files for 60 s (MEASURED).
   **A MARKED FILE IS A TINT, A CHOSEN PAGE IS SOLID** (owner, same day: "more transparent like
   selecting files in file explorer" for files, "more saturated" for the settings page).
   Explorer, tree, sidebar search and archive rows wear `--p-sel-tint` (`hi` at 22%, stepped down only

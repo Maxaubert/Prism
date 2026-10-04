@@ -3,7 +3,14 @@ import * as fs from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { browseSearch, cancelBrowseSearch, normalizeSearchWindow } from './browseSearch'
+import {
+  SUGGEST_LIMITS,
+  browseSearch,
+  browseSuggest,
+  cancelBrowseSearch,
+  normalizeSearchWindow,
+  suggestSlot
+} from './browseSearch'
 import {
   grantDesktopDirectory,
   insideDesktop,
@@ -401,5 +408,70 @@ describe('recursive desktop Explorer search', () => {
     expect((await pending).cancelled).toBe(true)
     expect(progress).not.toHaveBeenCalled()
     expect(insideDesktop(join(playnite, 'Playnite.exe'))).toBe(false)
+  })
+})
+
+// The search popup (#267; review of #268): the best names, not the first ones.
+describe('search popup candidates', () => {
+  it('walks past the first hits and keeps the name as typed, deep or not', async () => {
+    // Twelve weak matches at the top, the exact name three folders down: a
+    // breadth-first walk that stopped at its cap never reached it.
+    for (let index = 0; index < 12; index++) writeFileSync(join(home, `old-report-${index}.txt`), '')
+    const deep = join(home, 'a', 'b', 'c')
+    mkdirSync(deep, { recursive: true })
+    writeFileSync(join(deep, 'report.txt'), '')
+    const ranked = await browseSearch(
+      'explorer',
+      home,
+      'report',
+      'ranked',
+      () => {},
+      { maxHits: 5, rank: (name) => (name.startsWith('report') ? 0 : 3) },
+      undefined,
+      suggestSlot('explorer')
+    )
+    expect(ranked.listing.files.map((file) => file.name)).toContain('report.txt')
+    expect(ranked.listing.files).toHaveLength(5)
+    expect(ranked.truncated).toBe(true)
+    // Only what was kept is granted.
+    expect(insideDesktop(join(deep, 'report.txt'))).toBe(true)
+    const plain = await browseSearch('explorer', home, 'report', 'plain', () => {}, { maxHits: 5 })
+    expect(plain.listing.files.map((file) => file.name)).not.toContain('report.txt')
+  })
+
+  it('asks the index for many and checks only the best names', async () => {
+    const weak = Array.from({ length: 300 }, (_, index) => ({
+      filename: join(home, `a-test-${String(index).padStart(3, '0')}.ts`),
+      attributes: 32
+    }))
+    const exact = join(playnite, 'test.ts')
+    writeFileSync(exact, '')
+    // Name A to Z: the exact name sorts after every weak one.
+    vi.mocked(searchEverythingBrowse).mockResolvedValue([
+      ...weak,
+      { filename: exact, attributes: 32 }
+    ])
+    const result = await browseSuggest('explorer', home, 'test', 'suggest-indexed')
+    expect(vi.mocked(searchEverythingBrowse).mock.calls.at(-1)![2]).toBe(SUGGEST_LIMITS.candidates)
+    expect(result.listing.files[0].path).toBe(exact)
+    expect(result.truncated).toBe(true)
+    expect(insideDesktop(exact)).toBe(true)
+  })
+
+  it('runs beside the list search rather than cancelling it', async () => {
+    let finish!: (rows: Awaited<ReturnType<typeof searchEverythingBrowse>>) => void
+    vi.mocked(searchEverythingBrowse).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          finish = done
+        })
+    )
+    const list = browseSearch('explorer', home, 'Playnite', 'list')
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    const signal = vi.mocked(searchEverythingBrowse).mock.calls.at(-1)![3]
+    await browseSuggest('explorer', home, 'Playnite', 'popup')
+    expect(signal.aborted).toBe(false)
+    finish([{ filename: join(playnite, 'Playnite.exe'), attributes: 32 }])
+    expect((await list).cancelled).toBe(false)
   })
 })

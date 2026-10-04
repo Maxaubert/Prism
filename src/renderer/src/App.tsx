@@ -84,6 +84,7 @@ import { browseParent } from './lib/browse'
 import { terminalRestoreOrder } from './lib/terminalRestore'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
+import { BrowseIcon } from './components/browse/BrowseIcon'
 import { ExplorerResize } from './components/browse/ExplorerResize'
 import { useExplorerWidths } from './lib/useExplorerWidths'
 import { usePreviewSlide } from './lib/usePreviewSlide'
@@ -2625,22 +2626,33 @@ export default function App(): JSX.Element {
     termCwd.current.has(active.term.id)
   const terminalBrowseControls = active?.term ? (
     <div className="browse-terminal-actions">
+      {/* Each carries an icon and its words: the words go when the Explorer
+          is narrow, so the address field keeps the room (review of #268). */}
       {termView !== 'full' && (
-        <button onClick={openTermFull} title={termFolder(active.term.id)}>
-          Return to terminal
+        <button
+          onClick={openTermFull}
+          aria-label="Return to terminal"
+          title={termFolder(active.term.id)}
+        >
+          <BrowseIcon name="terminal" />
+          <span>Return to terminal</span>
         </button>
       )}
       <button
+        aria-label="Terminal folder"
+        title="Terminal folder"
         onClick={() => {
           const path = termFolder(active.term!.id)
           if (path) void browsing.navigate(path)
         }}
       >
-        Terminal folder
+        <BrowseIcon name="folder" />
+        <span>Terminal folder</span>
       </button>
       {termView !== 'full' && (
         <button
           className="browse-cd"
+          aria-label="Use folder in terminal"
           disabled={!canChangeTerminalFolder}
           title={
             canChangeTerminalFolder
@@ -2659,7 +2671,8 @@ export default function App(): JSX.Element {
             window.prism.termCd(term.id, active.browse.path)
           }}
         >
-          Use folder in terminal
+          <BrowseIcon name="cdHere" />
+          <span>Use folder in terminal</span>
         </button>
       )}
     </div>
@@ -3292,6 +3305,10 @@ export default function App(): JSX.Element {
       // Escape, the arrows - stay the shell's; only the search box, a rename
       // and the text editor keep the full typing shield.
       const inTerm = !!el && !!el.closest('.xterm')
+      // THE EXPLORER'S SEARCH POPUP (#267) owns every key while it is up: it
+      // is drawn outside the Explorer (over the whole window), and a chord
+      // that reached the app behind it would change what is under it.
+      if (el?.closest('[data-search-popup]')) return
       const inBrowser = !!el?.closest('.folder-browser')
       if (inBrowser && e.altKey) return
       if (inBrowser && !e.ctrlKey && !e.altKey && e.key !== 'F11') return
@@ -3807,14 +3824,11 @@ export default function App(): JSX.Element {
             fileName={file?.name}
             canBack={active.browse.cursor > 0}
             canForward={active.browse.cursor < active.browse.history.length - 1}
-            query={browsing.location?.query ?? ''}
-            showSearch={false}
             onReturnToFolder={returnToFolder}
             onBack={() => browsing.travel(-1)}
             onForward={() => browsing.travel(1)}
             onUp={returnToFolder}
             onNavigate={(path) => void browsing.navigate(path)}
-            onQueryChange={(query) => browsing.patch({ query, scrollTop: 0 })}
           />
           {browsing.error && (
             <div className="browse-navigation-error" role="status">
@@ -3988,11 +4002,33 @@ export default function App(): JSX.Element {
                 previewVisible={previewSlide.out}
                 onPreviewToggle={togglePreview}
                 terminalControls={terminalBrowseControls}
+                covered={!!ask || update.state.open || settingsOpen || !!setup}
               />
               {previewSlide.out && browsing.previewFile && (
                 <div className="browse-preview-actions">
-                  <button onClick={() => void browsing.openFile(browsing.previewFile!, true, false)}>
-                    Open full view
+                  {/* An icon, two arrows out to the corners (owner, 2026-10-04:
+                      "make this a fullscreen icon, the one with the two
+                      diagonal arrows, not the frame icon"); the words stay as
+                      its tooltip and its name for a screen reader. */}
+                  <button
+                    data-open-full
+                    aria-label="Open full view"
+                    title="Open full view"
+                    onClick={() => void browsing.openFile(browsing.previewFile!, true, false)}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width={16}
+                      height={16}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.8}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7" />
+                    </svg>
                   </button>
                 </div>
               )}
@@ -4622,8 +4658,8 @@ export default function App(): JSX.Element {
           items={browseMenu.paths && browseMenu.paths.length > 1 ? (() => {
             // Several rows marked: only what acts on all of them, and each
             // says how many, so the menu and the marks agree (review of #257).
-            // Open, Rename, Duplicate and Properties are one row's; the
-            // toolbar switches them off in the same state.
+            // Open, Rename, Duplicate and Properties are one row's, and F2
+            // stands down in the same state.
             const paths = browseMenu.paths
             const n = `${paths.length} items`
             return [
