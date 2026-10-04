@@ -8373,6 +8373,269 @@ async function explorerSizeScenario(fixtures) {
   }
 }
 /**
+ * THE THREE PANELS START AT ONE HEIGHT (#283; owner, 2026-10-04: "the position
+ * of the sorting bar with name, type, size etc. that's the height I want the
+ * txt files to start at and the sidebar to start at, that way all three
+ * panels contents align at the same height"). Measured on the TEXT, not the
+ * boxes: the middle of the column header's "Name", of the sidebar's first
+ * heading and of the preview's first line (its number and its words) are one
+ * line across the window, at every Explorer size. The full view button sits
+ * in that band at the pane's right and never lies over a word of text.
+ */
+async function panelsAlignScenario(fixtures) {
+  console.log('panels align')
+  const dir = join(fixtures, 'panelsalign')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const long =
+    'The first line of these notes runs long on purpose, so that it wraps in the preview pane and the alignment is measured on its first visual line. '.repeat(2)
+  writeFileSync(join(dir, 'notes.txt'), [long, ...Array.from({ length: 60 }, (_, i) => `line ${i + 2} of the notes`)].join('\n'))
+  writeFileSync(join(dir, 'main.ts'), ['export const first = 1', ...Array.from({ length: 30 }, (_, i) => `export const v${i} = ${i}`)].join('\n'))
+  writeFileSync(join(dir, 'other.txt'), 'other\n')
+  // A picture and a film, to show they start at the list's top too.
+  copyFileSync(join(fixtures, 'one.png'), join(dir, 'one.png'))
+  copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'ep1.mp4'))
+  const { app, win } = await launch(join(dir, 'other.txt'))
+  // The middle of the first text node's glyph box, and its rects, by a Range.
+  const measure = () =>
+    win.evaluate(() => {
+      const textBox = (el) => {
+        if (!el) return null
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          if (!n.textContent.trim()) continue
+          const range = document.createRange()
+          range.selectNodeContents(n)
+          const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0)
+          if (!rects.length) continue
+          const r = rects[0]
+          // The BASELINE, which is what the eye lines up (owner, 2026-10-04,
+          // measuring two screenshots: centres matched, baselines did not). A
+          // text rect is the font's content area, so the baseline is its
+          // bottom less the font's own descent, measured on a canvas in the
+          // computed font. (A zero-height inline-block on the baseline read
+          // wrong inside CodeMirror: 4.5px off what the pixels show.)
+          const cs = getComputedStyle(n.parentElement)
+          const ctx = (window.__baseCtx ??= document.createElement('canvas').getContext('2d'))
+          ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+          const base = r.bottom - ctx.measureText('Hg').fontBoundingBoxDescent
+          return {
+            top: r.top,
+            base,
+            mid: (r.top + r.bottom) / 2,
+            rects: rects.map((q) => ({ l: q.left, r: q.right, t: q.top, b: q.bottom }))
+          }
+        }
+        return null
+      }
+      const head = document.querySelector('.browse-list-area .browse-columns')
+      const pane = document.querySelector('[data-browse-preview]')
+      const numEl = [...(pane?.querySelectorAll('.cm-lineNumbers .cm-gutterElement') ?? [])].find(
+        (g) => g.textContent.trim() === '1'
+      )
+      const lineEl = pane?.querySelector('.cm-line')
+      return {
+        headTop: head?.getBoundingClientRect().top,
+        headBottom: head?.getBoundingClientRect().bottom,
+        name: textBox(head?.querySelector('.browse-column-name')),
+        heading: textBox(document.querySelector('.folder-browser .browse-places h2')),
+        // The first rows under the band, side by side (owner, 2026-10-04,
+        // a screenshot of Home beside the list's first row: "still like a px
+        // off"): their tops and their text baselines, three of each.
+        places: [...document.querySelectorAll('.folder-browser .browse-places .browse-place')].slice(0, 3).map((el) => ({
+          top: el.getBoundingClientRect().top,
+          base: textBox(el)?.base
+        })),
+        rows: [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path]')].slice(0, 3).map((el) => ({
+          top: el.getBoundingClientRect().top,
+          base: textBox(el.querySelector('.browse-name') ?? el)?.base
+        })),
+        line: textBox(lineEl),
+        number: textBox(numEl),
+        paneTop: pane?.getBoundingClientRect().top,
+        button: !!document.querySelector('[data-open-full]')
+      }
+    })
+  /** The baseline of an element's words AS DRAWN, in device pixels from
+   *  the window's top: a screenshot of its box, decoded in the page, and the
+   *  lowest ink row most columns reach (a descender or an icon reaches past
+   *  it in only a few). Ink is whatever differs from the box's commonest
+   *  shade, so a dark and a light theme read the same way. */
+  const inkBaseline = async (sel) => {
+    const box = await win.evaluate((q) => {
+      const r = document.querySelector(q)?.getBoundingClientRect()
+      return r ? { x: r.left, y: r.top, width: r.width, height: r.height, dpr: window.devicePixelRatio } : null
+    }, sel)
+    if (!box) return null
+    const png = await win.screenshot({ clip: { x: box.x, y: box.y, width: box.width, height: box.height } })
+    const row = await win.evaluate(async (b64) => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${b64}`
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth
+      c.height = img.naturalHeight
+      const g = c.getContext('2d')
+      g.drawImage(img, 0, 0)
+      const d = g.getImageData(0, 0, c.width, c.height).data
+      const lum = (i) => (d[i] + d[i + 1] + d[i + 2]) / 3
+      const shades = new Map()
+      for (let i = 0; i < d.length; i += 4) {
+        const k = Math.round(lum(i) / 8)
+        shades.set(k, (shades.get(k) ?? 0) + 1)
+      }
+      const ground = [...shades.entries()].sort((a, b) => b[1] - a[1])[0][0] * 8
+      const bottoms = new Map()
+      for (let x = 0; x < c.width; x += 1) {
+        let low = -1
+        for (let y = 0; y < c.height; y += 1) if (Math.abs(lum((y * c.width + x) * 4) - ground) > 60) low = y
+        if (low >= 0) bottoms.set(low, (bottoms.get(low) ?? 0) + 1)
+      }
+      if (!bottoms.size) return null
+      return [...bottoms.entries()].sort((a, b) => b[1] - a[1])[0][0]
+    }, png.toString('base64'))
+    return row === null ? null : Math.round(box.y * box.dpr) + row
+  }
+  const r1 = (n) => (typeof n === 'number' ? Math.round(n * 10) / 10 : n)
+  const say = (m) =>
+    JSON.stringify({
+      head: [r1(m.headTop), r1(m.headBottom)],
+      name: r1(m.name?.base),
+      heading: r1(m.heading?.base),
+      places: m.places?.map((q) => [r1(q.top), r1(q.base)]),
+      rows: m.rows?.map((q) => [r1(q.top), r1(q.base)]),
+      line: r1(m.line?.base),
+      number: r1(m.number?.base),
+      paneTop: r1(m.paneTop),
+      button: m.button
+    })
+  const selected = () =>
+    win.evaluate(() => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')
+  const shown = (name) =>
+    until(async () => {
+      const m = await measure()
+      return !!m.line && !!m.name && !!m.heading && (await selected()).endsWith(name)
+    }, 12000)
+  const check = async (label, shot, numbered = false) => {
+    await sleep(400)
+    const m = await measure()
+    console.log(`  ${label}: ${say(m)}`)
+    const ref = m.name?.base ?? NaN
+    ok(Math.abs((m.heading?.base ?? -99) - ref) <= 0.5, `${label}: the sidebar's first heading is on the header's line (${say(m)})`)
+    ok(Math.abs((m.line?.base ?? -99) - ref) <= 0.5, `${label}: the preview's first line of text is on the header's line`)
+    if (numbered) ok(Math.abs((m.number?.base ?? -99) - ref) <= 0.5, `${label}: and so is its line number`)
+    ok(
+      m.places?.length === 3 && m.rows?.length === 3 && m.places.every((q, i) => Math.abs(q.top - m.rows[i].top) <= 0.5),
+      `${label}: the sidebar's first rows start where the list's do (${JSON.stringify([m.places, m.rows])})`
+    )
+    // And their words share a baseline IN THE PIXELS. The font-metric measure
+    // above read the list's text wrong by 1-4 device px (its face is one the
+    // canvas does not resolve), so these rows are judged the way the owner
+    // judged them: by where the ink sits.
+    const home = await inkBaseline('.folder-browser .browse-places .browse-place')
+    const file = await inkBaseline('[data-testid="browse-list"] [data-browse-path] .browse-name')
+    ok(
+      home !== null && file !== null && Math.abs(home - file) <= 1,
+      `${label}: Home's words sit on the first file's baseline in the pixels (device rows ${home}, ${file})`
+    )
+    // NO FULL VIEW BUTTON over the preview (owner, 2026-10-04: "remove the
+    // fullscreen icon in preview ... it gets confusing"): a double click on
+    // the item opens it, and the pane starts at the list's own top.
+    ok(!m.button, `${label}: there is no full view button over the preview`)
+    ok(Math.abs((m.paneTop ?? -99) - (m.headTop ?? 99)) < 1, `${label}: and the pane starts at the list's top (${r1(m.paneTop)}, ${r1(m.headTop)})`)
+    await win.screenshot({ path: join(SHOTS, `panels-align-${shot}.png`) })
+    return m
+  }
+  try {
+    await handoff(join(dir, 'notes.txt'))
+    ok(await shown('notes.txt'), 'the Explorer shows notes.txt in the preview pane')
+    await check('Medium, notes.txt', 'medium-txt')
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="main.ts"]').click()
+    ok(await shown('main.ts'), 'main.ts in the preview pane')
+    await check('Medium, main.ts', 'medium-ts', true)
+    for (const size of ['Small', 'Large']) {
+      await pickStyleSegment(win, 'explorer-size', size)
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"]').click()
+      ok(await shown('notes.txt'), `${size}: notes.txt in the preview pane`)
+      await check(`${size}, notes.txt`, `${size.toLowerCase()}-txt`)
+    }
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"]').click()
+    ok(await shown('notes.txt'), 'Medium again: notes.txt in the preview pane')
+
+    // A NARROW WINDOW: the three still share a line, and the sidebar, which
+    // lost its top padding to the band, still scrolls.
+    const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 400))
+    await until(() => win.evaluate(() => window.innerWidth <= 800), 4000, 50)
+    await check('Narrow, notes.txt', 'narrow-txt')
+    const scroll = await win.evaluate(async () => {
+      const box = document.querySelector('.folder-browser .browse-places nav')
+      if (!box || box.scrollHeight <= box.clientHeight + 4)
+        return { overflows: false, inner: window.innerHeight, client: box?.clientHeight, content: box?.scrollHeight }
+      box.scrollTop = 60
+      await new Promise((r) => requestAnimationFrame(() => r(null)))
+      const moved = box.scrollTop
+      box.scrollTop = 0
+      return { overflows: true, moved }
+    })
+    ok(scroll.overflows && scroll.moved > 0, `Narrow: the sidebar overflows and still scrolls (${JSON.stringify(scroll)})`)
+    await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setSize(w, h), sizeBefore)
+    await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
+
+    // A LIGHT THEME draws the same line.
+    const styleBefore = await switchStyle(win, 'paper', 'light')
+    await check('Paper, notes.txt', 'paper-txt')
+    await switchStyle(win, styleBefore[0], styleBefore[1])
+
+    // A PICTURE AND A FILM: no button and no strip either; the pane starts at
+    // the list's top like the text's.
+    for (const name of ['one.png', 'ep1.mp4']) {
+      await win.locator(`[data-testid="browse-list"] [data-browse-path$="${name}"]`).click()
+      ok(
+        await until(() => win.evaluate(() => !!document.querySelector('[data-browse-preview] :is(img, video, canvas)')), 10000),
+        `${name} in the preview pane`
+      )
+      await sleep(400)
+      const m = await win.evaluate(() => {
+        const pane = document.querySelector('[data-browse-preview]')
+        return {
+          button: !!document.querySelector('[data-open-full]'),
+          paneTop: pane?.getBoundingClientRect().top,
+          headTop: document.querySelector('.browse-list-area .browse-columns')?.getBoundingClientRect().top
+        }
+      })
+      ok(
+        !m.button && Math.abs(m.paneTop - m.headTop) < 1,
+        `${name}: no full view button, and the pane starts at the list's top (${JSON.stringify(m)})`
+      )
+      await win.screenshot({ path: join(SHOTS, `panels-align-${name.replace('.', '-')}.png`) })
+    }
+
+    // Full view is a double click on the item, the way the owner opens it.
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"]').click()
+    ok(await shown('notes.txt'), 'notes.txt back in the preview pane')
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"]').dblclick()
+    ok(
+      await until(
+        () =>
+          win.evaluate(
+            () =>
+              !!document.querySelector('.cm-editor')?.getClientRects().length &&
+              !document.querySelector('[data-testid="folder-browser"]')?.getClientRects().length
+          ),
+        8000
+      ),
+      'a double click on the item opens it in full view'
+    )
+  } finally {
+    await app.close()
+  }
+}
+
+/**
  * THE COLUMN HEADER IS FILE EXPLORER'S (#274; owner, 2026-10-04, of the
  * Explorer list's header: "if I highlight over name, it doesn't reach all the
  * way out to the edges ... that highlight effect should be inside the whole
@@ -8868,6 +9131,107 @@ async function explorerVerbsScenario(fixtures) {
  * (or Ctrl+Enter) runs the list's full search. Ctrl+F in an editor or a shell
  * is still theirs, and the popup leaves when what is in front changes.
  */
+// A SEARCH ENDS WHEN YOU GO SOMEWHERE, AND BACK RETURNS TO IT (#281; owner,
+// 2026-10-04: "if you click into a folder from a search you're not in search
+// anymore, and if you click back then you're back to the search results. if
+// you click something in the sidebar you're not in search anymore, but if you
+// click back arrow you go to the search list again"). It used to stay on: the
+// query lived on the folder's history entry, so the sidebar place of the
+// folder searched (the C drive, in the owner's case) came back filtered.
+async function searchNavScenario(fixtures) {
+  console.log('search nav')
+  const dir = join(fixtures, 'searchnav')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'alpha'), { recursive: true })
+  mkdirSync(join(dir, 'beta'), { recursive: true })
+  writeFileSync(join(dir, 'alpha-root.txt'), 'a\n')
+  writeFileSync(join(dir, 'other.txt'), 'o\n')
+  writeFileSync(join(dir, 'alpha', 'inside.txt'), 'i\n')
+  writeFileSync(join(dir, 'beta', 'alpha-deep.txt'), 'd\n')
+  // The walk, not the index: see searchPopupScenario.
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'other.txt'))
+  EXTRA_ENV = {}
+  const popup = win.locator('[data-testid="browse-search-popup"]')
+  const field = popup.locator('input[role="combobox"]')
+  const list = win.locator('[data-testid="browse-list"]')
+  const status = win.locator('[data-testid="browse-search-status"]')
+  const button = win.locator('[data-testid="browse-search-button"]')
+  const back = win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Back"]')
+  const forward = win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Forward"]')
+  const current = () => win.evaluate(() => document.querySelector('.folder-browser nav.browse-path button[aria-current]')?.textContent ?? '')
+  const rows = () => list.locator('[data-browse-path]').evaluateAll((els) => els.map((el) => el.getAttribute('data-browse-path').split('\\').pop()).sort())
+  // A CSS backslash is itself escaped: `\a` and `\b` would be hex escapes.
+  const row = (name) => list.locator(`[data-browse-path$="\\\\${name}" i]`).first()
+  // In the folder named, unfiltered: no search status, the button unlit, and
+  // the rows exactly the folder's own.
+  const plain = async (name, want) =>
+    until(async () => (await current()) === name && (await status.count()) === 0 && (await button.getAttribute('data-active')) === null && JSON.stringify(await rows()) === JSON.stringify(want), 10000)
+  const searching = async () =>
+    until(async () => (await current()) === 'searchnav' && (await status.count()) === 1 && (await button.getAttribute('data-active')) !== null && JSON.stringify(await rows()) === JSON.stringify(['alpha', 'alpha-deep.txt', 'alpha-root.txt']), 15000)
+  const own = ['alpha', 'alpha-root.txt', 'beta', 'other.txt']
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await current()) !== 'searchnav') await row('searchnav').dblclick()
+    ok(await plain('searchnav', own), 'the Explorer shows the folder')
+
+    // The folder the search runs in, pinned in the sidebar: the owner's C drive.
+    await win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Up"]').click()
+    await until(async () => (await current()) !== 'searchnav', 8000)
+    await row('searchnav').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const pin = win.locator('.browse-places .quick-access-pin[data-quick-access-path$="\\\\searchnav" i]')
+    ok(await until(async () => (await pin.count()) === 1, 5000), 'the folder is pinned in the sidebar')
+    await row('searchnav').dblclick()
+    ok(await plain('searchnav', own), 'and is shown again')
+
+    // The list's full search.
+    await button.click()
+    await field.fill('alpha')
+    await field.press('Control+Enter')
+    ok(await searching(), `a search shows its results (${JSON.stringify(await rows())})`)
+
+    // 1. A FOLDER OPENED FROM THE RESULTS is shown unfiltered.
+    await row('alpha').dblclick()
+    ok(await plain('alpha', ['inside.txt']), `a folder opened from the results is not searched (${JSON.stringify(await rows())})`)
+    await button.click()
+    await popup.waitFor({ timeout: 5000 })
+    ok((await field.inputValue()) === '', `and the search box is empty there (${await field.inputValue()})`)
+    await field.press('Escape')
+    await until(async () => (await popup.count()) === 0, 5000)
+    // 3. BACK is the search again.
+    await back.click()
+    ok(await searching(), 'Back returns to the search results')
+
+    // 2. THE SIDEBAR leaves search, even for the folder the search ran in.
+    await pin.click()
+    ok(await plain('searchnav', own), `a sidebar place shows the folder unfiltered (${JSON.stringify(await rows())})`)
+    await back.click()
+    ok(await searching(), 'Back returns to the search results again')
+    await forward.click()
+    ok(await plain('searchnav', own), 'and Forward to the folder')
+
+    // The search is a place: Back from the results is the folder as it was
+    // before the search, and Clear search goes there too.
+    await back.click()
+    ok(await searching(), 'Back to the results')
+    await back.click()
+    ok(await plain('searchnav', own), 'Back from the results is the folder before the search')
+    await forward.click()
+    ok(await searching(), 'Forward is the search')
+    await win.locator('[data-testid="browse-search-clear"]').click()
+    ok(await plain('searchnav', own), 'Clear search shows the folder')
+    await win.screenshot({ path: join(SHOTS, 'search-nav.png') })
+
+    await pin.click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function searchPopupScenario(fixtures) {
   console.log('search popup')
   const dir = join(fixtures, 'searchpop')
@@ -12500,6 +12864,7 @@ await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(columnHeadersScenario)
+await run(panelsAlignScenario)
 await run(noLoadingEverScenario)
 await run(coldLaunchCachedScenario)
 await run(coldLaunchNoCacheScenario)
@@ -12511,6 +12876,7 @@ await run(listScrollbarScenario)
 await run(addressFieldScenario)
 await run(explorerVerbsScenario)
 await run(searchPopupScenario)
+await run(searchNavScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
 await run(phoneDocsScenario)

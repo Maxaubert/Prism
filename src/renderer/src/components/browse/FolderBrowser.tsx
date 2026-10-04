@@ -10,7 +10,7 @@ import { browseEntries } from './entries'
 import { useFolderSizes } from '../../hooks/useFolderSizes'
 import { clickSelect } from '../../lib/selection'
 import { sweepSelect } from '../../lib/marquee'
-import { explorerRow, useExplorerSize } from '../../lib/explorerSize'
+import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import { useListingPrefetch } from '../../lib/useListingPrefetch'
 import './browse.css'
@@ -29,7 +29,8 @@ export type {
  */
 export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const shell = useRef<HTMLDivElement>(null)
-  const rowLook = explorerRow(useExplorerSize())
+  const sizeId = useExplorerSize()
+  const rowLook = explorerRow(sizeId)
   const [visibleFolders, setVisibleFolders] = useState<string[]>([])
   const onVisibleFolders = useCallback((paths: string[]) => {
     setVisibleFolders((previous) =>
@@ -230,7 +231,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           '--browse-row-font': `${rowLook.font}px`,
           '--browse-row-icon': `${rowLook.icon}px`,
           '--browse-row-gap': `${rowLook.gap}px`,
-          '--browse-row-pad': `${rowLook.padX}px`
+          '--browse-row-pad': `${rowLook.padX}px`,
+          // The header's band, which Quick access's heading is centred in (#283).
+          ...explorerHeadVars(sizeId)
         } as CSSProperties
       }
       data-preview={props.previewVisible || undefined}
