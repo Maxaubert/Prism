@@ -119,7 +119,8 @@ export function parseBrowse(raw: unknown): SavedBrowse | undefined {
           ? location.sort.key
           : 'name',
         direction: location.sort?.direction === 'desc' ? 'desc' : 'asc'
-      }
+      },
+      ...(location.sortChosen === true ? { sortChosen: true as const } : {})
     })
   })
   if (!history.length)

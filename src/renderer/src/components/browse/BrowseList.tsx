@@ -1,5 +1,6 @@
 import {
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -23,6 +24,8 @@ import { BrowseIcon } from './BrowseIcon'
 import { useFolderDrop } from './useFolderDrop'
 import type { BrowseEntry, BrowseSort, FolderBrowserProps } from './types'
 import type { ListPending } from '../../lib/usePendingHint'
+import { divideRows, type DateDivider } from '../../lib/dateGroups'
+import { nextSort } from '../../lib/downloadsView'
 
 const OVERSCAN = 12
 const columns: Array<{ key: BrowseSort['key']; label: string }> = [
@@ -76,6 +79,11 @@ type Props = Pick<
   /** A sweep let go with the rectangle up: these rows, the keyboard on `near`.
    *  `add` is a Ctrl sweep, which keeps what was marked before it. */
   onSweep?: (paths: string[], near: string | null, add: boolean) => void
+  /** Downloads' date groups (#285): a label row before each group's first
+   *  entry. Never with `indexedRows` (a search is not grouped). */
+  dividers?: readonly DateDivider[]
+  /** This is Downloads: Date modified's first click sorts newest first. */
+  downloads?: boolean
 }
 
 export function BrowseList(props: Props): JSX.Element {
@@ -104,7 +112,31 @@ export function BrowseList(props: Props): JSX.Element {
     if (scroller.current && !props.loading) scroller.current.scrollTop = props.scrollTop
   }, [props.directory, props.scrollTop, props.loading])
 
-  const count = props.total
+  // DOWNLOADS' DATE GROUPS (#285): a divider is a row of the list's own
+  // height, so the rows below it simply move down one index; `rowAt` answers
+  // null on it, which every walk of the list (arrows, Home and End, a pending
+  // focus, the sweep) already steps over.
+  const divided = useMemo(
+    () =>
+      props.dividers?.length && !props.indexedRows
+        ? divideRows(props.entries.length, props.dividers)
+        : null,
+    [props.dividers, props.indexedRows, props.entries.length]
+  )
+  const count = divided ? divided.length : props.total
+  // The dividers are hidden from the listbox (its options are files), so each
+  // row carries the name of its group for a screen reader instead.
+  const groupOf = useMemo(() => {
+    if (!divided || !props.dividers) return null
+    const sorted = [...props.dividers].sort((x, y) => x.before - y.before)
+    const out: string[] = new Array(props.entries.length)
+    let k = -1
+    for (let i = 0; i < props.entries.length; i++) {
+      while (k + 1 < sorted.length && sorted[k + 1].before <= i) k++
+      out[i] = k >= 0 ? sorted[k].label : ''
+    }
+    return out
+  }, [divided, props.dividers, props.entries.length])
   // Chromium caps element dimensions. Compress only the offscreen space for
   // very large indexes; visible rows keep their normal size and hit targets.
   const spaceHeight = Math.min(count * rowHeight, 4000000)
@@ -115,7 +147,10 @@ export function BrowseList(props: Props): JSX.Element {
       : props.scrollTop * scale
   const loadedSelectedIndex = props.indexedRows
     ? ([...props.indexedRows].find(([, entry]) => entry?.path === props.selectedPath)?.[0] ?? -1)
-    : props.entries.findIndex((entry) => entry.path === props.selectedPath)
+    : (() => {
+        const at = props.entries.findIndex((entry) => entry.path === props.selectedPath)
+        return divided && at >= 0 ? divided.rowOf(at) : at
+      })()
   const selectedIndex = loadedSelectedIndex
   useLayoutEffect(() => {
     if (loadedSelectedIndex >= 0 && props.selectedPath)
@@ -123,8 +158,12 @@ export function BrowseList(props: Props): JSX.Element {
   }, [loadedSelectedIndex, props.selectedPath])
   const first = Math.max(0, Math.floor(logicalTop / rowHeight) - OVERSCAN)
   const end = Math.min(count, Math.ceil((logicalTop + height) / rowHeight) + OVERSCAN)
-  const rowAt = (index: number): BrowseEntry | null | undefined =>
-    props.indexedRows ? props.indexedRows.get(index) : props.entries[index]
+  const rowAt = (index: number): BrowseEntry | null | undefined => {
+    if (props.indexedRows) return props.indexedRows.get(index)
+    if (!divided) return props.entries[index]
+    const at = divided.entryAt(index)
+    return at === null ? null : props.entries[at]
+  }
   const rendered = Array.from({ length: Math.max(0, end - first) }, (_, index) =>
     rowAt(first + index)
   )
@@ -248,12 +287,16 @@ export function BrowseList(props: Props): JSX.Element {
     onVisibleFolders?.(
       indexed
         ? []
-        : props.entries
-            .slice(top, top + visibleCount)
-            .filter((entry) => entry.isFolder)
-            .map((entry) => entry.path)
+        : Array.from({ length: visibleCount }, (_, i) => {
+            const row = top + i
+            if (!divided) return props.entries[row]
+            const at = divided.entryAt(row)
+            return at === null ? undefined : props.entries[at]
+          })
+            .filter((entry) => entry?.isFolder)
+            .map((entry) => entry!.path)
     )
-  }, [props.entries, logicalTop, height, onVisibleFolders, indexed, rowHeight])
+  }, [props.entries, divided, logicalTop, height, onVisibleFolders, indexed, rowHeight])
   const onSelect = props.onSelect
   const onScroll = props.onScroll
   const scrollTop = props.scrollTop
@@ -262,11 +305,11 @@ export function BrowseList(props: Props): JSX.Element {
     const node = scroller.current
     if (pending === null || !count || !node) return
     let index = pending === Infinity ? count - 1 : Math.min(pending, count - 1)
-    let entry = props.indexedRows ? props.indexedRows.get(index) : props.entries[index]
+    let entry = rowAt(index)
     const direction = pending === Infinity ? -1 : 1
     while (entry === null && index >= 0 && index < count) {
       index += direction
-      entry = props.indexedRows?.get(index)
+      entry = rowAt(index)
     }
     if (index < 0 || index >= count) {
       pendingFocus.current = null
@@ -291,7 +334,10 @@ export function BrowseList(props: Props): JSX.Element {
         .querySelector<HTMLElement>(`[data-browse-index="${index}"]`)
         ?.focus({ preventScroll: true })
     )
-  }, [props.indexedRows, props.entries, onSelect, onScroll, onSearchRange, count, scale, scrollTop, height, rowHeight])
+    // rowAt reads only what is listed here (the entries, the search rows and
+    // the dividers' layout).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.indexedRows, props.entries, divided, onSelect, onScroll, onSearchRange, count, scale, scrollTop, height, rowHeight])
   useLayoutEffect(() => {
     pendingFocus.current = null
     selectionPosition.current = { path: '', index: -1 }
@@ -302,11 +348,12 @@ export function BrowseList(props: Props): JSX.Element {
     const direction = index === 0 ? 1 : index < selectedIndex || index === count - 1 ? -1 : 1
     while (index >= 0 && index < count && rowAt(index) === null) index += direction
     if (index < 0 || index >= count) return
-    const top = index * rowHeight
+    // A group's first row going up brings its divider into view with it.
+    const top = (divided?.divider(index - 1) ? index - 1 : index) * rowHeight
     const visibleTop = node.scrollTop * scale
     if (top < visibleTop) node.scrollTop = top / scale
-    else if (top + rowHeight > visibleTop + node.clientHeight)
-      node.scrollTop = (top + rowHeight - node.clientHeight) / scale
+    else if (index * rowHeight + rowHeight > visibleTop + node.clientHeight)
+      node.scrollTop = (index * rowHeight + rowHeight - node.clientHeight) / scale
     props.onScroll(node.scrollTop)
     const entry = rowAt(index)
     if (entry) {
@@ -376,7 +423,9 @@ export function BrowseList(props: Props): JSX.Element {
       const matched = props.entries[match]
       next = props.indexedRows
         ? ([...props.indexedRows].find(([, entry]) => entry?.path === matched.path)?.[0] ?? -1)
-        : match
+        : divided
+          ? divided.rowOf(match)
+          : match
       if (next < 0) return
     } else return
     e.preventDefault()
@@ -416,13 +465,7 @@ export function BrowseList(props: Props): JSX.Element {
               className={`browse-column-${key}`}
               title={`Sort by ${label.toLowerCase()}`}
               aria-label={`Sort by ${label.toLowerCase()}${props.sort.key === key ? `, ${props.sort.direction === 'asc' ? 'ascending' : 'descending'}` : ''}`}
-              onClick={() =>
-                props.onSortChange({
-                  key,
-                  direction:
-                    props.sort.key === key && props.sort.direction === 'asc' ? 'desc' : 'asc'
-                })
-              }
+              onClick={() => props.onSortChange(nextSort(props.sort, key, !!props.downloads))}
             >
               {label}
               {/* Every column carries its arrow, as File Explorer's do (owner,
@@ -430,12 +473,17 @@ export function BrowseList(props: Props): JSX.Element {
                   while the currently sorted item has an arrow at all times").
                   It is always in the layout and only fades in, so a hover
                   never moves the label. Unsorted, it points the way a click
-                  would sort (ascending). */}
+                  would sort (ascending; Date modified in Downloads, newest
+                  first, #285). */}
               <span
                 className="browse-sort-arrow"
                 aria-hidden="true"
                 data-sorted={props.sort.key === key || undefined}
-                data-descending={props.sort.key === key && props.sort.direction === 'desc'}
+                data-descending={
+                  props.sort.key === key
+                    ? props.sort.direction === 'desc'
+                    : nextSort(props.sort, key, !!props.downloads).direction === 'desc'
+                }
               >
                 <BrowseIcon name="up" />
               </span>
@@ -495,6 +543,20 @@ export function BrowseList(props: Props): JSX.Element {
               }}
             >
               {rendered.map((entry, offset) => {
+                const divider = divided?.divider(first + offset)
+                if (divider)
+                  // A label, not a row: nothing to pick, focus, drag or drop
+                  // on, and hidden from the listbox, whose options are files.
+                  return (
+                    <div
+                      key={`group-${divider.group}`}
+                      className="browse-divider"
+                      aria-hidden="true"
+                      data-date-group={divider.group}
+                    >
+                      <span>{divider.label}</span>
+                    </div>
+                  )
                 if (!entry)
                   return (
                     <div
@@ -523,12 +585,21 @@ export function BrowseList(props: Props): JSX.Element {
                     key={entry.path}
                     role="option"
                     aria-selected={selected}
-                    aria-posinset={first + offset + 1}
-                    aria-setsize={count}
+                    aria-posinset={
+                      (divided ? (divided.entryAt(first + offset) ?? 0) : first + offset) + 1
+                    }
+                    aria-setsize={divided ? props.entries.length : count}
                     tabIndex={primary ? 0 : -1}
                     className="browse-row"
                     data-cut={cut.has(entry.path.toLowerCase()) || undefined}
-                    aria-description={cut.has(entry.path.toLowerCase()) ? 'Cut' : undefined}
+                    aria-description={
+                      [
+                        groupOf?.[divided?.entryAt(first + offset) ?? -1],
+                        cut.has(entry.path.toLowerCase()) ? 'Cut' : ''
+                      ]
+                        .filter(Boolean)
+                        .join(', ') || undefined
+                    }
                     data-browse-path={entry.path}
                     data-browse-index={first + offset}
                     data-selected={selected || undefined}
@@ -626,7 +697,8 @@ export function BrowseList(props: Props): JSX.Element {
                     </span>
                     {!searching && (
                       <span className="browse-column-modified">
-                        {entry.file ? formatWhen(entry.file.mtimeMs) : ''}
+                        {/* A folder's date too, now it has one (#285). */}
+                        {formatWhen(entry.file ? entry.file.mtimeMs : entry.mtimeMs)}
                       </span>
                     )}
                   </button>

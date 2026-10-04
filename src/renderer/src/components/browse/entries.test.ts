@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DirListing, ViewerFile } from '@shared/types'
-import { browseEntries } from './entries'
+import { browseEntries, datesKnown } from './entries'
 
 function file(name: string, kind: ViewerFile['kind'], size: number): ViewerFile {
   return {
@@ -95,5 +95,70 @@ describe('folder browser entries', () => {
           .slice(0, 2)
           .map((entry) => entry.name)
       ).toEqual(['Folder 10', 'Folder 2'])
+  })
+
+  describe("Downloads' date view (#285)", () => {
+    const dated: DirListing = {
+      folders: [
+        { path: 'C:\\Dl\\Old folder', name: 'Old folder', mtimeMs: 100 },
+        { path: 'C:\\Dl\\New folder', name: 'New folder', mtimeMs: 400 }
+      ],
+      files: [
+        { ...file('b.zip', 'archive', 1), path: 'C:\\Dl\\b.zip', mtimeMs: 300 },
+        { ...file('a.zip', 'archive', 1), path: 'C:\\Dl\\a.zip', mtimeMs: 300 },
+        { ...file('c.exe', 'other', 1), path: 'C:\\Dl\\c.exe', mtimeMs: 200 }
+      ]
+    }
+    const names = (mixed: boolean, direction: 'asc' | 'desc' = 'desc', key: 'modified' | 'name' = 'modified') =>
+      browseEntries(dated, '', { key, direction }, {}, mixed).map((e) => e.name)
+
+    it('mixes files and folders newest first, a name breaking a tie', () => {
+      expect(names(true)).toEqual(['New folder', 'a.zip', 'b.zip', 'c.exe', 'Old folder'])
+      expect(names(true, 'asc')).toEqual(['Old folder', 'c.exe', 'a.zip', 'b.zip', 'New folder'])
+    })
+    it('keeps folders first for any other sort, and anywhere else', () => {
+      expect(names(true, 'asc', 'name')).toEqual(['New folder', 'Old folder', 'a.zip', 'b.zip', 'c.exe'])
+      expect(names(false).slice(0, 2)).toEqual(['New folder', 'Old folder'])
+    })
+    it('waits for every date before it mixes (#271)', () => {
+      const pending = { ...dated, folders: [{ path: 'C:\\Dl\\X', name: 'X' }, ...dated.folders] }
+      expect(datesKnown(pending)).toBe(false)
+      expect(browseEntries(pending, '', { key: 'modified', direction: 'desc' }, {}, true)[0].name).toBe('New folder')
+      expect(browseEntries(pending, '', { key: 'modified', direction: 'desc' }, {}, true)[1].name).toBe('Old folder')
+      expect(datesKnown(dated)).toBe(true)
+    })
+    it('orders folders by their dates too outside Downloads, still first', () => {
+      const byDate = (direction: 'asc' | 'desc') =>
+        browseEntries(
+          {
+            ...dated,
+            folders: [
+              { path: 'C:\\Dl\\A old', name: 'A old', mtimeMs: 100 },
+              { path: 'C:\\Dl\\B new', name: 'B new', mtimeMs: 400 }
+            ]
+          },
+          '',
+          { key: 'modified', direction },
+          {},
+          false
+        ).map((e) => e.name)
+      expect(byDate('desc').slice(0, 2)).toEqual(['B new', 'A old'])
+      expect(byDate('asc').slice(0, 2)).toEqual(['A old', 'B new'])
+      // A folder still undated keeps the name order, so the rows move once.
+      const undated = browseEntries(
+        {
+          ...dated,
+          folders: [
+            { path: 'C:\\Dl\\A old', name: 'A old', mtimeMs: 100 },
+            { path: 'C:\\Dl\\B new', name: 'B new' }
+          ]
+        },
+        '',
+        { key: 'modified', direction: 'desc' },
+        {},
+        false
+      ).map((e) => e.name)
+      expect(undated.slice(0, 2)).toEqual(['A old', 'B new'])
+    })
   })
 })

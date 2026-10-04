@@ -57,6 +57,7 @@ import {
   validDesktopRoot
 } from './desktopAccess'
 import { browseDirectory, browseLocations, browseWatch } from './browse'
+import { weekStart } from './weekStart'
 import { createListingCache } from './listingCache'
 import { createExplorerListings } from './explorerListing'
 import { isLocalFixed, learnDriveKinds } from './driveKinds'
@@ -212,6 +213,12 @@ if (process.argv.includes('--e2e') && process.env.PRISM_E2E_MIC) {
   app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
   app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.PRISM_E2E_MIC)
 }
+
+// THE E2E'S DOWNLOADS IS A FIXTURE (#285): the `downloadsDate` scenario needs a
+// Downloads it can fill with dated files, and must never touch the real one.
+// Only under --e2e, and only the one Known Folder.
+if (process.argv.includes('--e2e') && process.env.PRISM_E2E_DOWNLOADS)
+  app.setPath('downloads', process.env.PRISM_E2E_DOWNLOADS)
 
 // Archive members extracted to temp for viewing: each grant is one exact
 // path, made when archive:extract writes it. The reads that honour the root
@@ -2504,6 +2511,8 @@ if (!app.requestSingleInstanceLock()) {
       browseWatch(tabId, path, folderChanged)
     )
     ipcMain.handle('browse:locations', () => browseLocations((key) => app.getPath(key)))
+    // Downloads' date groups count weeks from the user's first day (#285).
+    ipcMain.handle('system:week-start', () => weekStart())
     ipcMain.handle('folder:sizes-cached', async (_event, paths: unknown) => {
       if (!Array.isArray(paths) || paths.length > 10000) return {}
       const authorized = paths.filter(

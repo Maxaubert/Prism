@@ -43,6 +43,22 @@ describe('the stored form', () => {
     expect(back?.listing).toEqual(listing('C:\\A', 2, 3))
   })
 
+  it("keeps folders' dates, and reads a cache written before they were kept (#285)", () => {
+    const dated = listing('C:\\A', 2, 1)
+    dated.folders = dated.folders.map((f, i) => ({ ...f, mtimeMs: 500 + i }))
+    const stored = encodeListing('C:\\A', dated, 1, 1)
+    expect(stored.folderTimes).toEqual([500, 501])
+    expect(decodeListing(JSON.stringify(stored))?.listing).toEqual(dated)
+    // Old form: no dates, still read, folders simply undated.
+    const old = { ...stored, folderTimes: undefined }
+    expect(decodeListing(JSON.stringify(old))?.listing.folders[0]).toEqual({ path: 'C:\\A\\d0', name: 'd0' })
+    // Dates that do not line up with the names are dropped, not guessed.
+    const bad = { ...stored, folderTimes: [500] }
+    expect(decodeListing(JSON.stringify(bad))?.listing.folders[1].mtimeMs).toBeUndefined()
+    // A listing with any undated folder stores none.
+    expect(encodeListing('C:\\A', listing('C:\\A', 2, 0), 1, 1).folderTimes).toBeUndefined()
+  })
+
   it('keeps a drive root joinable', () => {
     const back = decodeListing(JSON.stringify(encodeListing('C:\\', listing('C:', 1, 1), 1, 1)))
     expect(back?.listing.folders[0].path).toBe('C:\\d0')

@@ -541,6 +541,22 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   padding, so the cells tile it edge to edge (a narrow layout that hides a column re-points the
   last cell). Size VALUES stay right-aligned. The arrow is always in the layout and only fades,
   so a label never moves. Focus is the fill, no box. `columnHeaders` e2e.
+  **DOWNLOADS IS NEWEST FIRST, IN FILE EXPLORER'S DATE GROUPS** (#285; owner, 2026-10-04: "make
+  the downloads folder in prism in the explorer not have that folders first rule, just like file
+  explorer ... or do it like file explorer"). Only the Known Folder (`BrowseShortcut.known`, what
+  `app.getPath('downloads')` resolves), never a folder by its name. A sort nobody picked there is
+  Date modified, newest first (`lib/downloadsView.ts`); a header click sets `sortChosen` and is
+  remembered like any folder's, and Downloads' own sort never travels to the next folder. By Date
+  modified (either way) files and folders MIX, the name breaking a tie, under quiet one-row label
+  dividers (`.browse-divider`, aria-hidden; each row carries its group as `aria-description`); any
+  other column is the ordinary folders-first view, and a search is never grouped. The groups are
+  calendar ones, MEASURED in File Explorer on this machine (Windows 11 26200, read back over UI
+  Automation): Today, Yesterday, Earlier this week, Last week, Earlier this month, Last month,
+  Earlier this year, A long time ago (and Tomorrow ... Sometime in the future), the week starting on
+  the user's iFirstDayOfWeek (`main/weekStart.ts`); `lib/dateGroups.ts` holds the rule and the
+  evidence. Folders now carry `mtimeMs` (details stream, listing cache `folderTimes`), and the rows
+  move once, when every date is in. Explorer's within-group files-before-folders is NOT copied.
+  `downloadsDate` e2e (`PRISM_E2E_DOWNLOADS` points the Known Folder at a fixture, e2e only).
   **THE ADDRESS AND THE SEARCH ARE ONE FIELD** (#267; owner, 2026-10-04: "make the url box more
   visible and for the black theme make the grey colours used in search and in the url bar darker
   grey"). Both wear `.browse-field` (`--p-field`, `-edge`, `-edge-hover`, `-hint`). On a ground
