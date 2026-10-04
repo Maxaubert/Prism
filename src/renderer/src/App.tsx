@@ -1,11 +1,13 @@
 import { useWinEOpen } from './lib/useWinEOpen'
 import { useExplorerArrival } from './lib/useExplorerArrival'
+import { visitedDirectories } from './lib/visitedDirectories'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { OnClash, OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { captureMoveViews, movedPath, releaseMoveViews, restoreMoveViews, type FileMove } from './lib/moveViews'
 import {
   addTab,
+  addRestoredTab,
   addExplorerTab,
   addProjectTab,
   isExplorerTab,
@@ -1174,6 +1176,8 @@ export default function App(): JSX.Element {
     }
   }, [])
 
+  /** Each restored tab's saved place (#271), for the ones still arriving. */
+  const restoreOrders = useRef(new Map<string, number>())
   const open = useCallback(
     (p: OpenPayload | null) => {
       if (!p) return
@@ -1195,16 +1199,22 @@ export default function App(): JSX.Element {
         setHasNavigated(false)
         return
       }
+      // An Explorer tab's first frame has rows (#271): the listing main sent
+      // with it goes into the shared snapshots before the tab exists.
+      if (p.listing) visitedDirectories.remember(p.listing)
       setTabState((s) => {
         // A RESTORED tab is always its own tab: receiveFile's same-root fold is
         // for files arriving from outside, and folding a restore silently
-        // deleted one of two tabs that shared a root.
-        const st = p.restore ? addTab(s.tabs, p, nextTabId()) : receiveFile(s.tabs, p, nextTabId())
-        // For a restore the tab in question is the one just appended; for an
+        // deleted one of two tabs that shared a root. It goes back to its
+        // saved place, whatever order the payloads arrive in (#271).
+        const st = p.restore
+          ? addRestoredTab(s.tabs, p, nextTabId(), (tabId) => restoreOrders.current.get(tabId))
+          : receiveFile(s.tabs, p, nextTabId())
+        // For a restore the tab in question is the one just added; for an
         // arrival it is whichever tab the payload landed in (now active).
-        const target = p.restore
-          ? st.tabs[st.tabs.length - 1]
-          : st.tabs.find((t) => t.id === st.activeId)
+        const target = st.tabs.find((t) => t.id === st.activeId)
+        if (p.restore && target && p.restoreOrder !== undefined)
+          restoreOrders.current.set(target.id, p.restoreOrder)
         let tabs = st.tabs
         // A restored tab that was showing its terminal comes back AS a terminal:
         // a fresh shell where the old one stood (sessions die with the app),
@@ -1569,6 +1579,7 @@ export default function App(): JSX.Element {
         (await window.prism.browseDirectory(id, path)) ??
         (home ? await window.prism.browseDirectory(id, home) : null)
       if (!directory) return
+      visitedDirectories.remember(directory)
       const p: OpenPayload = { root: directory.path, files: directory.listing.files, index: -1 }
       setTabState((s) => addExplorerTab(s.tabs, p, id))
       setHasNavigated(false)
@@ -1764,6 +1775,7 @@ export default function App(): JSX.Element {
         setAsk({ kind: 'failed', message: 'That folder is not there any more.' })
         return
       }
+      visitedDirectories.remember(directory)
       setTabState((s) =>
         addExplorerTab(
           s.tabs,
@@ -2097,7 +2109,7 @@ export default function App(): JSX.Element {
         }
         // A shell report changes only its own cwd. Register desktop access,
         // but never move the browser cursor, project identity or phone share.
-        void window.prism.browseDirectory(tab.id, path)
+        void window.prism.browseDirectory(tab.id, path, { details: false })
       }),
     [setTree, tabs]
   )
@@ -2384,6 +2396,7 @@ export default function App(): JSX.Element {
       const id = nextTabId()
       const directory = await window.prism.browseDirectory(id, root)
       if (!directory) return
+      visitedDirectories.remember(directory)
       const payload = isFolder
         ? { root, files: directory.listing.files, index: -1 }
         : await window.prism.openWithin(root, path)
@@ -2578,7 +2591,7 @@ export default function App(): JSX.Element {
       const pins = await Promise.all(
         paths.map(async (path) => {
           const parent = browseParent(path) ?? path
-          await window.prism.browseDirectory(active.id, parent).catch(() => null)
+          await window.prism.browseDirectory(active.id, parent, { details: false }).catch(() => null)
           const stat = await window.prism.statFile(path).catch(() => null)
           return stat
             ? {
@@ -3255,7 +3268,9 @@ export default function App(): JSX.Element {
           ? payload.paths.map((path) => browseParent(path)).filter((path): path is string => !!path)
           : [])
       ])
-      void Promise.all([...directories].map((path) => window.prism.browseDirectory(tabId, path)))
+      void Promise.all(
+        [...directories].map((path) => window.prism.browseDirectory(tabId, path, { details: false }))
+      )
         .then((results) => {
           if (results.some((result) => !result || result.listing.unreadable)) {
             setAsk({ kind: 'failed', message: 'The source or destination folder could not be opened.' })
@@ -3592,7 +3607,8 @@ export default function App(): JSX.Element {
     const start = (): void => {
       for (const d of [-1, 1]) {
         const n = view.files[view.index + d]
-        if (n && n.kind === 'image' && n.size <= PRELOAD_MAX_BYTES) {
+        // An unknown size (#271) is warmed, as 0 (could not stat) always was.
+        if (n && n.kind === 'image' && (n.size ?? 0) <= PRELOAD_MAX_BYTES) {
           preloadImage(window.prism.mediaUrl(n.path))
         }
       }
@@ -3932,7 +3948,8 @@ export default function App(): JSX.Element {
                 directory={active.browse.path}
                 onDropInto={onBrowseDropInto}
                 listing={browsing.listing}
-                loading={browsing.loading}
+                pending={browsing.pending}
+                pendingPath={browsing.pendingPath}
                 error={browsing.error}
                 places={browsePlaces}
                 quickAccess={quickAccess}
@@ -4209,12 +4226,11 @@ export default function App(): JSX.Element {
                 null : active ? (
                   <NoFileState />
                 ) : restoring ? (
-                  <div
-                    data-testid="window-restoring"
-                    className="flex h-full items-center justify-center text-[var(--p-dim)]"
-                  >
-                    <p role="status">Opening Prism…</p>
-                  </div>
+                  // NOTHING TO READ WHILE THE TABS ARRIVE (#271; owner,
+                  // 2026-10-04: "I don't ever want to see that"). The Explorer
+                  // tab is sent first, from the cache or a names-only read, so
+                  // this is a frame or two of plain ground, never a message.
+                  <div aria-hidden="true" className="h-full" />
                 ) : (
                   <EmptyState onNewTab={newTab} onOpenFolder={rerootHere} />
                 )

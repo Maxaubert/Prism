@@ -22,14 +22,12 @@ import {
   type TabState
 } from './tabs'
 import { fileKind } from '@shared/fileKind'
+import { applyDetails } from './listingMerge'
 import { browseLocation, browseParent } from './browse'
 import { intendToPlay } from './playState'
 import { useBrowseSearch } from './useBrowseSearch'
-import {
-  createDirectoryRequests,
-  createVisitedDirectories,
-  directoryKey
-} from './visitedDirectories'
+import { createDirectoryRequests, directoryKey, visitedDirectories } from './visitedDirectories'
+import { usePendingHint, type ListPending } from './usePendingHint'
 
 const extOf = (name: string): string => /\.[^.]*$/.exec(name.toLowerCase())?.[0] ?? ''
 
@@ -55,6 +53,15 @@ export function arrivalSelection(
   return markedSince ? [...tabs] : setBrowseLocation(tabs, tabId, { selected: filePath })
 }
 
+/** The listing cache on disk, kept in the shared snapshots when it has the
+ *  folder (#271). Synchronous: it paints in the same frame. */
+function rememberCached(path: string): BrowseDirectory | null {
+  // No bridge (a test rendering the hook on its own): nothing on disk to ask.
+  if (typeof window === 'undefined' || !window.prism?.browseCached) return null
+  const hit = window.prism.browseCached(path)
+  return hit && !hit.listing.unreadable ? visitedDirectories.remember(hit) : null
+}
+
 /** Folder navigation owns only the browse cursor. It never reroots a session or writes to a shell. */
 export function useFolderBrowsing(
   active: Tab | null,
@@ -62,7 +69,9 @@ export function useFolderBrowsing(
   refreshKey: number
 ) {
   const [result, setResult] = useState<(BrowseDirectory & { tabId: string }) | null>(null)
-  const [loading, setLoading] = useState(false)
+  /** A navigation whose folder has not answered yet (#271). The list keeps
+   *  the folder it shows meanwhile: it never blanks for a read. */
+  const [waitingFor, setWaitingFor] = useState<{ tabId: string; path: string } | null>(null)
   const [errorState, setError] = useState<{ tabId: string; message: string }>()
   const [locations, setLocations] = useState<BrowseShortcut[]>([])
   const [revision, setRevision] = useState(0)
@@ -70,7 +79,6 @@ export function useFolderBrowsing(
   // Quiet selects per tab (#263): an open that lands after one must not take
   // the selected path back, or the marks just made read as stale and go.
   const marked = useRef(new Map<string, number>())
-  const visited = useRef(createVisitedDirectories())
   const readDirectory = useRef(
     createDirectoryRequests((tabId, target) => window.prism.browseDirectory(tabId, target))
   )
@@ -88,7 +96,6 @@ export function useFolderBrowsing(
   const latestRefresh = useRef({ refreshKey, revision })
   useLayoutEffect(() => {
     visibleId.current = id
-    visited.current.use(id)
     latestRefresh.current = { refreshKey, revision }
   }, [id, refreshKey, revision])
   const error = errorState && errorState.tabId === id ? errorState.message : undefined
@@ -110,6 +117,23 @@ export function useFolderBrowsing(
   useEffect(() => {
     void window.prism.browseLocations().then(setLocations)
   }, [])
+  // Sizes and dates of a names-first answer (#271), laid over the rows in
+  // place: the shared snapshot and the list on screen alike.
+  useEffect(
+    () =>
+      window.prism.onBrowseDetails((details) => {
+        visitedDirectories.patch(details)
+        setResult((r) =>
+          r && directoryKey(r.path) === directoryKey(details.path)
+            ? (() => {
+                const listing = applyDetails(r.listing, details)
+                return listing === r.listing ? r : { ...r, listing }
+              })()
+            : r
+        )
+      }),
+    []
+  )
   useEffect(() => {
     if (!folder || !id || !path) return
     const refresh = (): void => setRevision((value) => value + 1)
@@ -143,14 +167,13 @@ export function useFolderBrowsing(
       .current(id, path, `${refreshKey}:${revision}`)
       .then((next) => {
         if (cancelled) return
-        if (serial.current.get(id) === request) setLoading(false)
+        if (serial.current.get(id) === request) setWaitingFor(null)
         if (next && !next.listing.unreadable) {
-          visited.current.remember(id, next)
-          setResult({ ...next, tabId: id })
+          setResult({ ...visitedDirectories.remember(next), tabId: id })
           setError(undefined)
           void window.prism.browseWatch(id, path)
         } else {
-          visited.current.forget(id, path)
+          visitedDirectories.forget(path)
           setResult(null)
           setError({
             tabId: id,
@@ -160,9 +183,9 @@ export function useFolderBrowsing(
       })
       .catch(() => {
         if (!cancelled) {
-          visited.current.forget(id, path)
+          visitedDirectories.forget(path)
           setResult(null)
-          if (serial.current.get(id) === request) setLoading(false)
+          if (serial.current.get(id) === request) setWaitingFor(null)
           setError({ tabId: id, message: 'This folder cannot be read. Try another location.' })
         }
       })
@@ -177,14 +200,18 @@ export function useFolderBrowsing(
       pauseTab(tabId)
       const request = (serial.current.get(tabId) ?? 0) + 1
       serial.current.set(tabId, request)
-      const cached = visited.current.get(tabId, target)
+      // A HIT PAINTS NOW, BEFORE THE READ (#271): this session's snapshot,
+      // else the listing cache on disk (a synchronous look, tens of KB).
+      const cached = visitedDirectories.get(target) ?? rememberCached(target)
       // Start the real read before committing a cached cursor. Its location
       // effect joins this same promise instead of scanning the folder twice.
       const reading = readDirectory
         .current(tabId, target, `${refreshKey}:${revision}`)
         .catch(() => null)
       if (visibleId.current === tabId) {
-        setLoading(!cached)
+        // A miss keeps the folder on screen (dimmed after a moment, a hint
+        // after 300 ms); it never empties the list for the read.
+        setWaitingFor(cached ? null : { tabId, path: target })
         setError(undefined)
         if (cached) setResult({ ...cached, tabId })
       }
@@ -199,9 +226,9 @@ export function useFolderBrowsing(
           latestRefresh.current.revision !== revision)
       )
         return
-      if (visibleId.current === tabId) setLoading(false)
+      if (visibleId.current === tabId) setWaitingFor(null)
       if (!next || next.listing.unreadable) {
-        visited.current.forget(tabId, target)
+        visitedDirectories.forget(target)
         if (visibleId.current === tabId) {
           if (cached) setResult(null)
           setError({
@@ -212,8 +239,7 @@ export function useFolderBrowsing(
         return
       }
       if (visibleId.current === tabId) {
-        visited.current.remember(tabId, next)
-        setResult({ ...next, tabId })
+        setResult({ ...visitedDirectories.remember(next), tabId })
         setError(undefined)
         if (!folder || !path || directoryKey(path) !== directoryKey(next.path))
           delivered.current = { tabId, path: next.path, refreshKey, revision, request }
@@ -224,7 +250,7 @@ export function useFolderBrowsing(
   )
   const travel = useCallback(
     (delta: number) => {
-      setLoading(false)
+      setWaitingFor(null)
       setError(undefined)
       if (id) {
         serial.current.set(id, (serial.current.get(id) ?? 0) + 1)
@@ -232,7 +258,8 @@ export function useFolderBrowsing(
         if (active) {
           const { history, cursor } = active.browse
           const next = Math.max(0, Math.min(history.length - 1, cursor + Math.trunc(delta)))
-          const cached = visited.current.get(id, history[next]?.path)
+          const target = history[next]?.path
+          const cached = visitedDirectories.get(target) ?? (target ? rememberCached(target) : null)
           if (cached) setResult({ ...cached, tabId: id })
         }
         setState((s) => ({ ...s, tabs: travelBrowse(s.tabs, id, delta) }))
@@ -247,12 +274,12 @@ export function useFolderBrowsing(
     [id, setState]
   )
   const showFolder = useCallback(() => {
-    setLoading(false)
+    setWaitingFor(null)
     setError(undefined)
     if (id) {
       serial.current.set(id, (serial.current.get(id) ?? 0) + 1)
       pauseTab(id)
-      const cached = visited.current.get(id, path)
+      const cached = visitedDirectories.get(path)
       if (cached) setResult({ ...cached, tabId: id })
       setState((s) => ({ ...s, tabs: setBrowseSurface(s.tabs, id, 'folder') }))
     }
@@ -285,8 +312,9 @@ export function useFolderBrowsing(
       // A saved file pin may be outside every visited folder after restart.
       // Grant its parent only on activation, inside the same navigation sequence.
       const parent = fromTree ? (browseParent(filePath) ?? root) : null
+      // For its grant only: no details run to take the disk from the list.
       const granted = parent
-        ? await window.prism.browseDirectory(id, parent).catch(() => null)
+        ? await window.prism.browseDirectory(id, parent, { details: false }).catch(() => null)
         : true
       if (serial.current.get(id) !== request) return
       const payload = granted
@@ -327,8 +355,26 @@ export function useFolderBrowsing(
     },
     [active, id, path, setState]
   )
-  const directoryListing =
-    result && result.tabId === id && result.path === path ? result.listing : null
+  // The tab's own answer, else the shared snapshot of the same folder: a tab
+  // switch, or a restored tab's first frame, draws rows before any read.
+  // Nothing in memory for the folder on screen: the cache on disk, looked at
+  // while rendering (a synchronous read of one small file, once per folder),
+  // so the first frame has rows. What it finds goes into the snapshots.
+  const ownAnswer = !!result && result.tabId === id && result.path === path
+  const diskListing = useMemo(
+    () =>
+      folder && path && !ownAnswer && !visitedDirectories.get(path)
+        ? (rememberCached(path)?.listing ?? null)
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per folder, not per answer
+    [folder, path]
+  )
+  const directoryListing = ownAnswer
+    ? result!.listing
+    : (visitedDirectories.get(path)?.listing ?? diskListing)
+  const waitingPath = waitingFor && waitingFor.tabId === id ? waitingFor.path : null
+  const waiting = !!waitingPath || (folder && !directoryListing && !error)
+  const pending: ListPending = usePendingHint(waiting ? `${id}\0${waitingPath ?? path}` : null)
   const listing = search.result?.listing ?? directoryListing
   const select = useCallback(
     (selected: string | null, quiet = false) => {
@@ -380,7 +426,10 @@ export function useFolderBrowsing(
     location,
     listing,
     locations,
-    loading: loading || (folder && !directoryListing && !error),
+    pending,
+    /** Where a navigation is going while its folder has not answered: the
+     *  address bar says so at once. */
+    pendingPath: waitingPath,
     error: error ?? search.error,
     searchState: search.state,
     cancelSearch: search.cancel,

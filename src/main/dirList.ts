@@ -272,3 +272,116 @@ export async function listDir(dir: string, allFiles = false): Promise<DirListing
   // not start reporting "0 files Prism can't open".
   return { folders: folders.sort(byName), files: files.sort(byName), ...(hidden ? { hidden } : {}) }
 }
+
+/**
+ * NAMES FIRST, DETAILS AFTER (#271; owner, 2026-10-04: "I don't ever want to
+ * see that", of the Explorer's loading screen). `listDir` stats every file
+ * before a single row is sent, and that is most of what a new folder costs.
+ * MEASURED on this machine: 2000 files 17 ms, System32 41 ms, a 3000-entry
+ * folder touched for the first time 94 ms; the names alone took 0.6, 2.0 and
+ * 1.6 ms. So the Explorer is answered with the names (a folder knows what is a
+ * folder from the directory read itself, the kind is a lookup on the
+ * extension) and the size and date follow as patches (`statDetails`).
+ *
+ * Same entries as `listDir(dir, true)`: every file, dotfiles and Windows
+ * clutter included, because the Explorer is a file manager, not a viewer.
+ * A symlink says nothing about itself, so it alone is asked.
+ */
+export async function listNames(dir: string): Promise<DirListing> {
+  let entries: Dirent[]
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return { folders: [], files: [], unreadable: true }
+  }
+  const links = entries.filter((e) => e.isSymbolicLink())
+  const linkDirs = new Set<string>()
+  await mapLimit(links, STAT_LIMIT, async (e) => {
+    try {
+      if ((await stat(join(dir, e.name))).isDirectory()) linkDirs.add(e.name)
+    } catch {
+      /* a dangling link lists as a file, as Windows Explorer shows it */
+    }
+  })
+  const folders: DirListing['folders'] = []
+  const files: ViewerFile[] = []
+  for (const e of entries) {
+    const p = join(dir, e.name)
+    if (e.isSymbolicLink() ? linkDirs.has(e.name) : e.isDirectory())
+      folders.push({ path: p, name: e.name })
+    else {
+      const ext = extname(e.name).toLowerCase()
+      files.push({ path: p, name: e.name, ext, kind: fileKind(ext, e.name) })
+    }
+  }
+  return {
+    folders: folders.sort(byName),
+    files: files.sort(byName),
+    ...(files.length ? { complete: false } : {})
+  }
+}
+
+/** One file's size and date, as a details patch carries them. 0 and 0 when it
+ *  could not be stat'ed: the old contract of `toViewerFile`, "unknown". */
+export interface FileDetail {
+  path: string
+  size: number
+  mtimeMs: number
+}
+
+/**
+ * Stat `paths` in order and hand the answers over in batches (#271): the first
+ * screen (`first`, about 60 rows, 2.6 ms on System32) as soon as it is known,
+ * then every `batch` answers or every `interval` ms, whichever comes first, and
+ * a last call with `done`. At most `limit` stats at once (8, under listDir's
+ * 16: this runs while sizes and thumbnails want the same libuv pool). `live`
+ * is asked before every stat; a run nobody is waiting for stops there and
+ * answers false.
+ */
+export async function statDetails(
+  paths: readonly string[],
+  emit: (files: FileDetail[], done: boolean) => void,
+  {
+    first = 60,
+    batch = 500,
+    interval = 50,
+    limit = 8,
+    live = () => true,
+    statFile = (p: string) => stat(p)
+  }: {
+    first?: number
+    batch?: number
+    interval?: number
+    limit?: number
+    live?: () => boolean
+    statFile?: (p: string) => Promise<{ size: number; mtimeMs: number }>
+  } = {}
+): Promise<boolean> {
+  let pending: FileDetail[] = []
+  let last = Date.now()
+  const flush = (done: boolean): void => {
+    if (!pending.length && !done) return
+    emit(pending, done)
+    pending = []
+    last = Date.now()
+  }
+  const one = async (p: string): Promise<void> => {
+    if (!live()) return
+    let detail: FileDetail
+    try {
+      const st = await statFile(p)
+      detail = { path: p, size: st.size, mtimeMs: st.mtimeMs }
+    } catch {
+      detail = { path: p, size: 0, mtimeMs: 0 }
+    }
+    pending.push(detail)
+    if (pending.length >= batch || Date.now() - last >= interval) flush(false)
+  }
+  await mapLimit(paths.slice(0, first), limit, one)
+  if (!live()) return false
+  flush(false)
+  await mapLimit(paths.slice(first), limit, one)
+  if (!live()) return false
+  flush(true)
+  return true
+}

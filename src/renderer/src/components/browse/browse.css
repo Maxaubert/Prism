@@ -803,3 +803,56 @@ body[data-internal-file-drag] .browse-path:focus-within {
 .browse-list-area[data-row-size='large'][data-searching] :is(.browse-columns, .browse-row) {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 90px;
 }
+/* NO LOADING SCREEN (#271). A folder that has not answered keeps the rows it
+   had; past 120 ms they dim, so a slow read does not look like the old
+   folder. Most folders answer in a few ms, which is under the delay, so
+   nothing is ever seen to dim. */
+.browse-list-area[data-pending] .browse-row-space {
+  opacity: 0.6;
+  transition: opacity 120ms ease-out 120ms;
+}
+/* Past 300 ms: a thin bar running under the header. Always in the layout,
+   on top of the header's bottom rule, so nothing moves when it shows. */
+.browse-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--browse-row-h, 26px) + 6px - 1px);
+  height: 2px;
+  z-index: 2;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+.browse-progress[data-on] {
+  opacity: 1;
+}
+.browse-progress::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  left: -30%;
+  background: var(--p-accent);
+}
+.browse-progress[data-on]::after {
+  animation: browse-progress-run 1.1s ease-in-out infinite;
+}
+@keyframes browse-progress-run {
+  to {
+    left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .browse-list-area[data-pending] .browse-row-space {
+    transition: none;
+  }
+  .browse-progress[data-on]::after {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+  }
+}

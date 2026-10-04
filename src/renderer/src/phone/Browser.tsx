@@ -519,7 +519,7 @@ export function Browser({
                         than as "0 B": it is also what a file that could not be
                         stat'ed carries, and a number nobody measured is worse
                         than no number. */}
-                    {f.size > 0 && (
+                    {!!f.size && f.size > 0 && (
                       <span
                         className="shrink-0 text-[13px] tabular-nums opacity-60"
                         data-phone-size
