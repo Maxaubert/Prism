@@ -22,6 +22,7 @@ import { useSweep } from '../../hooks/useSweep'
 import { BrowseIcon } from './BrowseIcon'
 import { useFolderDrop } from './useFolderDrop'
 import type { BrowseEntry, BrowseSort, FolderBrowserProps } from './types'
+import type { ListPending } from '../../lib/usePendingHint'
 
 const OVERSCAN = 12
 const columns: Array<{ key: BrowseSort['key']; label: string }> = [
@@ -61,6 +62,11 @@ type Props = Pick<
   onActivate: (entry: BrowseEntry) => void
   message: string | null
   loading: boolean
+  /** A folder that has not answered (#271): 'quiet' dims the rows it keeps,
+   *  'slow' runs the thin bar under the header. Never a loading message. */
+  pending?: ListPending
+  /** The pointer rests on a folder row (null: it left): read it ahead. */
+  onFolderHover?: (path: string | null) => void
   onVisibleFolders?: (paths: string[]) => void
   /** Every marked row (the selection plus a sweep's or a Ctrl click's), or
    *  null when the one `selectedPath` is the whole selection. */
@@ -383,6 +389,7 @@ export function BrowseList(props: Props): JSX.Element {
       className="browse-list-area"
       data-searching={searching || undefined}
       data-row-size={sizeId}
+      data-pending={props.pending && props.pending !== 'none' ? props.pending : undefined}
       style={
         {
           '--browse-row-h': `${look.height}px`,
@@ -435,6 +442,10 @@ export function BrowseList(props: Props): JSX.Element {
           ))}
         </div>
       </div>
+      {/* A folder slower than 300 ms (#271): a thin bar under the header,
+          never text over the list. Always in the layout, faded in, so the
+          rows never move for it. */}
+      <div className="browse-progress" aria-hidden="true" data-on={props.pending === 'slow' || undefined} />
       <div
         ref={scroller}
         className="browse-list"
@@ -491,7 +502,9 @@ export function BrowseList(props: Props): JSX.Element {
                       aria-hidden="true"
                     >
                       <span className="browse-column-name browse-name">
-                        {entry === null ? 'Item unavailable' : 'Loading\u2026'}
+                        {/* A search row still on its way is a blank row (#271):
+                            no loading text anywhere in the list. */}
+                        {entry === null ? 'Item unavailable' : ''}
                       </span>
                     </div>
                   )
@@ -545,6 +558,16 @@ export function BrowseList(props: Props): JSX.Element {
                       else props.onSelect(entry.path)
                     }}
                     onDoubleClick={() => props.onActivate(entry)}
+                    onPointerEnter={
+                      entry.isFolder && props.onFolderHover
+                        ? () => props.onFolderHover?.(entry.path)
+                        : undefined
+                    }
+                    onPointerLeave={
+                      entry.isFolder && props.onFolderHover
+                        ? () => props.onFolderHover?.(null)
+                        : undefined
+                    }
                     onContextMenu={(e) => {
                       if (props.onContextMenu) {
                         e.preventDefault()
@@ -593,8 +616,11 @@ export function BrowseList(props: Props): JSX.Element {
                       className="browse-column-size"
                       title={entry.folderSize ? folderSizeCoverage(entry.folderSize) : undefined}
                     >
+                      {/* No size yet is a blank cell, never "0 B" (#271). */}
                       {entry.file
-                        ? formatBytes(entry.file.size)
+                        ? entry.file.size === undefined
+                          ? ''
+                          : formatBytes(entry.file.size)
                         : folderSizeLabel(entry.folderSize)}
                     </span>
                     {!searching && (

@@ -57,6 +57,10 @@ import {
   validDesktopRoot
 } from './desktopAccess'
 import { browseDirectory, browseLocations, browseWatch } from './browse'
+import { createListingCache } from './listingCache'
+import { createExplorerListings } from './explorerListing'
+import { isLocalFixed, learnDriveKinds } from './driveKinds'
+import { REMEMBER_FOLDERS_KEY } from '@shared/listingPrefs'
 import {
   browseSearch,
   browseSuggest,
@@ -144,6 +148,7 @@ import { appendCrashLog, crashLine } from './crashLog'
 import { guardWindow, pageGone } from './windowGuard'
 import pkg from '../../package.json'
 import { fileKind } from '@shared/fileKind'
+import type { BrowseDirectory } from '@shared/browse'
 import type {
   ArchiveListing,
   DirListing,
@@ -687,6 +692,31 @@ const folderSizes = new FolderSizeCache({
   directory: sizeCacheDirectory,
   indexedSizes: getIndexedFolderSizes
 })
+/**
+ * The Explorer's listings (#271): names first, details streamed, a cache on
+ * disk for the first frame after a launch or a reboot, and a read ahead. The
+ * index is read here, synchronously and before any window, because the
+ * restore answers from it. A second Explorer window reads it and never writes.
+ */
+const listingCache = createListingCache({
+  directory: join(preferencesOwner, 'listing-cache'),
+  allowed: isLocalFixed,
+  readOnly: !!extraWindowOwner
+})
+listingCache.load()
+const explorerListings = createExplorerListings({
+  cache: listingCache,
+  send: (channel, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+  },
+  localFixed: isLocalFixed,
+  // E2E only: the slow-folder hint is proved by holding every names read, and
+  // a details patch that lands after a select and a scroll by holding those.
+  delayMs: process.argv.includes('--e2e') ? Number(process.env.PRISM_E2E_LIST_DELAY) || 0 : 0,
+  detailsDelayMs: process.argv.includes('--e2e') ? Number(process.env.PRISM_E2E_DETAILS_DELAY) || 0 : 0
+})
+// E2E only: a first run's home folder is a fixture, never the machine's own.
+if (process.argv.includes('--e2e') && process.env.PRISM_E2E_HOME) app.setPath('home', process.env.PRISM_E2E_HOME)
 let preferencesLoaded!: () => void
 const preferencesReady = new Promise<void>((resolve) => {
   preferencesLoaded = resolve
@@ -732,23 +762,70 @@ const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
 /** The phone switch, its port and the paired phones (#104). */
 const PHONE_STATE = (): string => join(app.getPath('userData'), 'phone.json')
 
-/** Restore last session's strip: register each surviving root so the wall
- *  accepts it, then hand the renderer the payloads to rebuild the tabs from. */
-async function restoreTabs(): Promise<OpenPayload[]> {
+/**
+ * An Explorer tab's payload, from the listing cache when it has the folder
+ * and from a names-only read (1 to 3 ms) when it does not (#271). The folder
+ * is the one the tab was SHOWING (`browse.path`), not its root: the root's
+ * listing was read here before and thrown away, and the page then read the
+ * folder it actually shows a second time.
+ */
+async function explorerRestoreListing(
+  tabId: string,
+  t: { root: string; browse?: { path: string } }
+): Promise<BrowseDirectory | null> {
+  const shown = t.browse?.path && t.browse.path !== t.root ? t.browse.path : null
+  for (const path of shown ? [shown, t.root] : [t.root]) {
+    const cached = explorerListings.cached(path)
+    if (cached) return cached
+    // THE SHOWN FOLDER GETS A TIME LIMIT, THE ROOT DOES NOT (review of #271).
+    // Reading `browse.path` is new: the old restore read only the root. A
+    // share that has gone offline answers a stat only at the SMB timeout,
+    // tens of seconds, and the cache never holds a network folder, so that
+    // read is live. Past the limit the root stands in, as it did before, and
+    // the page reads the shown folder itself. The root keeps its old,
+    // unlimited read: a tab whose root cannot be read is not restored.
+    const reading = browseDirectory(tabId, path, 'names')
+    const read =
+      path === shown
+        ? await Promise.race([reading, new Promise<null>((done) => setTimeout(() => done(null), SHOWN_FOLDER_LIMIT_MS))])
+        : await reading
+    if (read && !read.listing.unreadable) return { path: read.path, listing: read.listing }
+  }
+  return null
+}
+
+/** How long the restore waits for the folder an Explorer tab was showing
+ *  before it falls back to the root. A names read is 1 to 3 ms warm; a cold
+ *  local disk after a reboot is tens of ms. */
+const SHOWN_FOLDER_LIMIT_MS = 750
+/** How long the other tabs wait for the Explorer tabs before they go too. The
+ *  Explorer goes first so it has the disk to itself, but a tab that is slow
+ *  (an offline root, a Claude transcript lookup) must hold only itself. */
+const EXPLORER_WAVE_LIMIT_MS = 500
+
+/**
+ * Restore last session's strip: register each surviving root so the wall
+ * accepts it, then hand the renderer the payloads to rebuild the tabs from.
+ *
+ * EXPLORER TABS FIRST, EVERYTHING ELSE AS IT IS READY (#271). The first
+ * Explorer rows used to wait on every saved tab in turn: each project's
+ * folder read and each Claude transcript lookup. Now the Explorer payloads
+ * go first, each carrying its cached or names-only listing, and the project
+ * tabs follow in parallel, each sent when it is ready. `restoreOrder` is the
+ * saved position, and the page puts each tab there, so the strip comes back
+ * in SAVED order however the payloads arrive. Returns whether a pinned
+ * Explorer tab was sent.
+ */
+async function restoreTabs(send: (payload: OpenPayload) => void): Promise<boolean> {
   const saved = readTabs(TABS_STATE())
-  const out: OpenPayload[] = []
-  // Two tabs on the SAME root can each hold their own claude conversation;
-  // they take the folder's sessions newest-first, one each, never the same
-  // one twice. (Which conversation belonged to which tab is unknowable after
-  // the fact - newest-first in strip order is the honest guess.)
-  const taken = new Map<string, number>()
+  const ids = saved.tabs.map((t, i) => t.id ?? `restored-${i}-${Date.now()}`)
   for (const [i, t] of saved.tabs.entries()) {
     // The SAVED root, not the file's folder: navigating into a subfolder and
     // reopening there used to leave the tab rooted at the subfolder, because
     // the payload was rebuilt from the file alone and root followed it. The
     // wall has to be registered here, since buildPayload only does that when
     // it is inventing the root itself.
-    const restoreTabId = t.id ?? `restored-${i}-${Date.now()}`
+    const restoreTabId = ids[i]
     if (t.role !== 'explorer') addRoot(t.root)
     else grantDesktopDirectory(restoreTabId, t.root)
     for (const pane of t.panes ?? [])
@@ -759,62 +836,121 @@ async function restoreTabs(): Promise<OpenPayload[]> {
     for (const location of t.browse?.history ?? [])
       grantDesktopDirectory(restoreTabId, location.path)
     if (t.browse) grantDesktopDirectory(restoreTabId, t.browse.path)
-    const directory = t.role === 'explorer' ? await browseDirectory(restoreTabId, t.root) : null
-    const payload = t.file
-      ? await buildPayload(t.file, t.root)
-      : t.role === 'explorer'
-        ? directory && { root: directory.path, files: directory.listing.files, index: -1 }
-        : await folderPayload(t.root)
-    if (payload) {
-      // A claude session resumes by ID - a session claude itself recorded for
-      // this folder. No session on disk means no resume at all: never a bare
-      // `--continue` guessing at a conversation.
-      // Codex needs no lookup at all: `codex resume --last` continues the
-      // most recent session FOR THIS FOLDER (its picker filters by cwd), so
-      // the marker is enough and the shell starts in the tab's root anyway.
-      //
-      // THE FOLDER THE SHELL WAS IN, not the tab's root (2026-09-09): "Open
-      // terminal here" and a cd inside the root both move the shell without
-      // moving the tab, and claude records its conversation under the cwd it
-      // was launched in. Looking the resume up by root therefore handed a
-      // subfolder's tab the ROOT's newest conversation - a resume of the
-      // wrong session, which is worse than none - and the shell came back in
-      // the wrong folder to boot. `cwd` is already checked to be the root or
-      // inside it, so this narrows the lookup and never widens it.
-      const termCwd = t.term ? (t.cwd ?? t.root) : t.root
-      let resume: string | null = null
-      if (t.agent === 'codex' && t.term) resume = CODEX_RESUME
-      else if (t.agent && t.term) {
-        const key = termCwd.toLowerCase()
-        const n = taken.get(key) ?? 0
-        // OFF MAIN'S THREAD (2026-09-22, the "soft lock on first launch"): a
-        // folder claude has worked in holds thousands of transcripts, and the
-        // synchronous walk stat'ed every one while the window stood still.
-        resume = (await claudeSessionsAsync(termCwd))[n] ?? null
-        if (resume) taken.set(key, n + 1)
-      }
-      // SAVED order, exactly: the old active-goes-last splice scrambled the
-      // strip. The active one carries a flag instead and the renderer brings
-      // it to the front without moving it.
-      out.push({
-        ...payload,
-        index: restoredFileIndex(t, payload.index),
-        restore: true,
-        restoreTabId,
-        role: t.role,
-        pinned: t.pinned,
-        ...(t.browse ? { browse: t.browse } : {}),
-        ...(t.panes ? { panes: t.panes } : {}),
-        ...(i === saved.active ? { restoreActive: true } : {}),
-        ...(t.term ? { term: t.term } : {}),
-        ...(t.term && t.cwd ? { termCwd: t.cwd } : {}),
-        ...(t.terms && t.terms > 1 ? { terms: t.terms } : {}),
-        ...(t.open?.length ? { open: t.open } : {}),
-        ...(resume ? { agentResume: resume } : {})
-      })
+  }
+  // Two tabs on the SAME root can each hold their own claude conversation;
+  // they take the folder's sessions newest-first, one each, never the same
+  // one twice. (Which conversation belonged to which tab is unknowable after
+  // the fact - newest-first in strip order is the honest guess.) Decided
+  // here, in strip order, so the lookups can then run in parallel. One lookup
+  // per folder, shared by its tabs.
+  const slot = new Map<number, { cwd: string; n: number }>()
+  const perCwd = new Map<string, number>()
+  for (const [i, t] of saved.tabs.entries()) {
+    if (!t.agent || !t.term || t.agent === 'codex') continue
+    // THE FOLDER THE SHELL WAS IN, not the tab's root (2026-09-09): "Open
+    // terminal here" and a cd inside the root both move the shell without
+    // moving the tab, and claude records its conversation under the cwd it
+    // was launched in. Looking the resume up by root therefore handed a
+    // subfolder's tab the ROOT's newest conversation - a resume of the
+    // wrong session, which is worse than none - and the shell came back in
+    // the wrong folder to boot. `cwd` is already checked to be the root or
+    // inside it, so this narrows the lookup and never widens it.
+    const cwd = t.cwd ?? t.root
+    const key = cwd.toLowerCase()
+    const n = perCwd.get(key) ?? 0
+    perCwd.set(key, n + 1)
+    slot.set(i, { cwd, n })
+  }
+  const sessions = new Map<string, Promise<string[]>>()
+  // OFF MAIN'S THREAD (2026-09-22, the "soft lock on first launch"): a folder
+  // claude has worked in holds thousands of transcripts, and the synchronous
+  // walk stat'ed every one while the window stood still.
+  const sessionsOf = (cwd: string): Promise<string[]> => {
+    const key = cwd.toLowerCase()
+    let found = sessions.get(key)
+    if (!found) sessions.set(key, (found = claudeSessionsAsync(cwd).catch(() => [])))
+    return found
+  }
+  // Every lookup starts NOW (review of #271), so an Explorer tab that hosted
+  // claude overlaps its transcript scan with its listing read.
+  for (const s of slot.values()) void sessionsOf(s.cwd)
+  const finish = async (i: number, payload: OpenPayload, listing?: BrowseDirectory): Promise<OpenPayload> => {
+    const t = saved.tabs[i]
+    // A claude session resumes by ID - a session claude itself recorded for
+    // this folder. No session on disk means no resume at all: never a bare
+    // `--continue` guessing at a conversation. Codex needs no lookup at all:
+    // `codex resume --last` continues the most recent session FOR THIS
+    // FOLDER (its picker filters by cwd), so the marker is enough and the
+    // shell starts in the tab's root anyway.
+    let resume: string | null = null
+    if (t.agent === 'codex' && t.term) resume = CODEX_RESUME
+    else {
+      const s = slot.get(i)
+      if (s) resume = (await sessionsOf(s.cwd))[s.n] ?? null
+    }
+    // SAVED order, exactly: the old active-goes-last splice scrambled the
+    // strip. The active one carries a flag instead and the renderer brings
+    // it to the front without moving it.
+    return {
+      ...payload,
+      index: restoredFileIndex(t, payload.index),
+      restore: true,
+      restoreTabId: ids[i],
+      restoreOrder: i,
+      role: t.role,
+      pinned: t.pinned,
+      ...(t.browse ? { browse: t.browse } : {}),
+      ...(t.panes ? { panes: t.panes } : {}),
+      ...(i === saved.active ? { restoreActive: true } : {}),
+      ...(t.term ? { term: t.term } : {}),
+      ...(t.term && t.cwd ? { termCwd: t.cwd } : {}),
+      ...(t.terms && t.terms > 1 ? { terms: t.terms } : {}),
+      ...(t.open?.length ? { open: t.open } : {}),
+      ...(resume ? { agentResume: resume } : {}),
+      ...(listing ? { listing } : {})
     }
   }
-  return out
+  let pinnedSent = false
+  // Wave one: the Explorer tabs, from the cache or a names-only read.
+  const explorers = saved.tabs.flatMap((t, i) => (t.role === 'explorer' && !t.file ? [i] : []))
+  const waveOne = Promise.allSettled(
+    explorers.map(async (i) => {
+      const t = saved.tabs[i]
+      const listing = await explorerRestoreListing(ids[i], t)
+      if (!listing) return
+      const files = listing.path.toLowerCase() === resolve(t.root).toLowerCase() ? listing.listing.files : []
+      const payload = await finish(i, { root: t.root, files, index: -1 }, listing)
+      if (payload.pinned) pinnedSent = true
+      send(payload)
+    })
+  )
+  // Wave two: everything else, each sent when it is ready, once the Explorer
+  // tabs have gone or EXPLORER_WAVE_LIMIT_MS has passed, whichever is first.
+  let limit: NodeJS.Timeout | undefined
+  await Promise.race([
+    waveOne,
+    new Promise<void>((done) => {
+      limit = setTimeout(done, EXPLORER_WAVE_LIMIT_MS)
+    })
+  ])
+  clearTimeout(limit)
+  const rest = saved.tabs.flatMap((_t, i) => (explorers.includes(i) ? [] : [i]))
+  const waveTwo = Promise.allSettled(
+    rest.map(async (i) => {
+      const t = saved.tabs[i]
+      const payload = t.file
+        ? await buildPayload(t.file, t.root)
+        : t.role === 'explorer'
+          ? null
+          : await folderPayload(t.root)
+      if (!payload) return
+      const done = await finish(i, payload)
+      if (done.role === 'explorer' && done.pinned) pinnedSent = true
+      send(done)
+    })
+  )
+  await Promise.all([waveOne, waveTwo])
+  return pinnedSent
 }
 
 /** Save on a delay, as the window state does: switching tabs with the arrow
@@ -1532,24 +1668,39 @@ function createWindow(): void {
       // over still arrive; the log says the tabs were left out.
       const strained = windowBudget.strained(Date.now())
       if (strained && !skip && !extraWindowOwner) logWindow('restore', { tabs: 'skipped', reason: 'repeated-deaths' })
-      const restored = extraWindowOwner || skip || strained ? [] : await restoreTabs()
-      if (stale()) return
-      if (!restored.some((payload) => payload.role === 'explorer' && payload.pinned)) {
+      const send = (payload: OpenPayload): void => {
+        if (!stale()) mainWindow?.webContents.send('open:file', payload)
+      }
+      // The home Explorer first when no pinned one was saved (#271): it is
+      // the tab the window opens on, and a names-only read is 1 to 3 ms.
+      const saved = extraWindowOwner || skip || strained ? null : readTabs(TABS_STATE())
+      const sendHome = async (): Promise<void> => {
         const id = `explorer-home-${Date.now()}`
-        const home = await browseDirectory(id, app.getPath('home'))
+        const homePath = app.getPath('home')
+        const home = explorerListings.cached(homePath) ?? (await browseDirectory(id, homePath, 'names'))
         if (stale()) return
-        if (home)
-          mainWindow?.webContents.send('open:file', {
+        if (home) {
+          grantDesktopDirectory(id, home.path)
+          send({
             root: home.path,
             files: home.listing.files,
             index: -1,
             role: 'explorer',
             pinned: true,
             restore: true,
-            restoreTabId: id
+            restoreTabId: id,
+            listing: { path: home.path, listing: home.listing }
           } satisfies OpenPayload)
+        }
       }
-      for (const payload of restored) mainWindow?.webContents.send('open:file', payload)
+      const pinnedSaved = !!saved?.tabs.some((t) => t.role === 'explorer' && t.pinned)
+      if (!pinnedSaved) await sendHome()
+      if (stale()) return
+      const pinnedSent = saved ? await restoreTabs(send) : false
+      if (stale()) return
+      // A saved pinned Explorer whose folder has gone: the home one stands in.
+      if (pinnedSaved && !pinnedSent) await sendHome()
+      if (stale()) return
       // In argv order, each through the ordinary arriving-file route, so
       // several files from one folder still fold into ONE tab and the last
       // named ends up in front - the one a "prism a.jpg b.jpg" reader means.
@@ -1678,14 +1829,45 @@ if (!app.requestSingleInstanceLock()) {
   )
 
   app.whenReady().then(() => {
+    // E2E only (review of #271): the never-loading probe runs as a frame
+    // preload, so it sees the page from before its first script. The harness
+    // attaches only once the window exists, too late for that.
+    if (E2E && process.env.PRISM_E2E_EARLY_PROBE)
+      session.defaultSession.registerPreloadScript({
+        type: 'frame',
+        id: 'e2e-early-probe',
+        filePath: process.env.PRISM_E2E_EARLY_PROBE
+      })
     void cleanExplorerWindows(preferencesOwner)
-    // Reuse a ready index before starting private background indexing.
-    void warmIndexer()
+    // Reuse a ready index before starting private background indexing. NOT
+    // before the Explorer's first answer (#271): the indexer, the drive-kind
+    // probe and folder sizes all want libuv's four threads, and they must not
+    // queue in front of the listing the first frame is waiting for. The first
+    // answer, or 1.5 s, whichever comes first.
+    void explorerListings.settled.then(() => {
+      void warmIndexer()
+      void learnDriveKinds()
+    })
+    // Remember folders (#271): off deletes what was kept, at once.
+    const rememberFolders = (values: Record<string, string>): void =>
+      listingCache.setEnabled(values[REMEMBER_FOLDERS_KEY] !== 'off')
+    rememberFolders(windowPreferences.load().values)
+    // The common places are the last to be evicted (#271), with Quick access
+    // (pinned as the page reads them ahead).
+    for (const key of ['home', 'desktop', 'documents', 'downloads', 'pictures', 'music', 'videos'] as const) {
+      try {
+        listingCache.pin([app.getPath(key)])
+      } catch {
+        /* a profile without that folder */
+      }
+    }
     const stopPreferencesWatch = windowPreferences.watch((snapshot) => {
+      rememberFolders(snapshot.values)
       if (mainWindow && !mainWindow.isDestroyed())
         mainWindow.webContents.send('window-preferences:changed', snapshot)
     })
     app.once('will-quit', stopPreferencesWatch)
+    app.once('will-quit', () => listingCache.flush())
     ipcMain.on('window-preferences:load', (event) => {
       event.returnValue = event.sender === mainWindow?.webContents ? windowPreferences.load() : null
       if (event.sender === mainWindow?.webContents && extraWindowOwner) preferencesLoaded()
@@ -1703,6 +1885,10 @@ if (!app.requestSingleInstanceLock()) {
     })
     ipcMain.on('window-preferences:set', (event, change: unknown) => {
       event.returnValue = event.sender === mainWindow?.webContents && windowPreferences.set(change)
+      // The switch takes effect now, not when the folder watch gets round to it.
+      const c = change as { key?: unknown; value?: unknown } | null
+      if (event.returnValue && c?.key === REMEMBER_FOLDERS_KEY)
+        listingCache.setEnabled(c.value !== 'off')
     })
     const winE = createWinEShortcut({
       helper: join(process.resourcesPath, 'win-e', 'PrismShortcut.exe'),
@@ -2260,14 +2446,38 @@ if (!app.requestSingleInstanceLock()) {
     const warmFolderSizes = (paths: string[]): void => {
       void folderSizes.prefetchIndexed(paths.filter(insideDesktop)).catch(() => {})
     }
-    ipcMain.handle('browse:directory', async (_e, tabId: string, path: string) => {
-      const directory = await browseDirectory(tabId, path)
-      if (directory && !directory.listing.unreadable) {
-        void warmIndexer(directory.path)
-        warmFolderSizes(directory.listing.folders.map((folder) => folder.path))
+    // NAMES FIRST (#271): the reply is the folder's names, and the sizes and
+    // dates follow as `browse:details`. The indexer warm-up and the folder
+    // sizes go AFTER the reply leaves (setImmediate): the size warm-up's
+    // realpath checks, two per subfolder, used to run before it.
+    ipcMain.handle(
+      'browse:directory',
+      async (_e, tabId: string, path: string, options?: { details?: boolean }) => {
+        const directory = await explorerListings.browse(tabId, path, options?.details !== false)
+        if (directory && !directory.listing.unreadable) {
+          const folders = directory.listing.folders.map((folder) => folder.path)
+          setImmediate(() => {
+            void warmIndexer(directory.path)
+            warmFolderSizes(folders)
+          })
+        }
+        return directory
       }
-      return directory
+    )
+    // The page's synchronous look at the cache (#271): a folder it has never
+    // seen this session paints from disk in the same frame as the click.
+    ipcMain.on('browse:cached', (event, path: unknown) => {
+      event.returnValue =
+        event.sender === mainWindow?.webContents && typeof path === 'string'
+          ? explorerListings.cached(path)
+          : null
     })
+    ipcMain.handle('browse:prefetch', (_e, path: unknown, pin?: unknown) => {
+      if (typeof path !== 'string') return null
+      if (pin === true) listingCache.pin([path])
+      return explorerListings.prefetch(path)
+    })
+    ipcMain.handle('listing-cache:clear', () => listingCache.clear())
     ipcMain.handle(
       'browse:search',
       async (event, tabId: string, path: string, query: string, requestId: string, window?: unknown) => {

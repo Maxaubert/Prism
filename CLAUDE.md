@@ -1459,6 +1459,24 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   `pendingOpen` and `startupRestored`; a crash ends a pending hang timer; a launch during a quit
   or an install makes no window (a quit relaunches with the handed files, never under `--e2e`);
   `crashReporter` starts only once the single-instance lock is won.
+- **THE EXPLORER NEVER SHOWS A LOADING SCREEN** (2026-10-04, #271; owner: "I don't ever want to
+  see that ... not even if you launch it from a restart of the PC, or it's your first time after
+  installing the program"). Design, the owner's six decisions and what was measured:
+  `docs/superpowers/specs/2026-10-04-explorer-never-loading-design.md`. The rules: a folder is
+  answered with its NAMES (`listNames`) and sizes and dates follow as `browse:details` patches
+  (`ViewerFile.size`/`mtimeMs` absent means unknown, never 0); the restore sends Explorer tabs
+  FIRST with their cached or names-only listing and the rest in parallel, back in saved order
+  (`restoreOrder`); the listing cache on disk (`listingCache.ts`, local fixed drives only,
+  Settings > General > Remember folders, on by default, Clear) is what the first frame after a
+  reboot paints; the renderer's snapshots are app-wide, so a tab switch is a hit; a navigation
+  keeps the old rows and shows only a 2 px bar past 300 ms (`usePendingHint`); no "Loading"
+  text anywhere in the Explorer and none in the boot shell, which is a silent outline. Read
+  ahead: hover, selection, parent, small folders' children, Quick access, two at a time, into the
+  page's memory ONLY (the disk cache is the folders the user opened, as the README promises). A
+  restore read of a tab's shown folder has 750 ms and the other tabs wait for the Explorer at
+  most 500 ms: nothing slow (an offline share, a transcript scan) holds more than its own tab. The
+  `noLoadingEver`, `coldLaunchCached`, `coldLaunchNoCache`, `newFolder2000`, `slowFolderHint`,
+  `tabSwitchInstant` and `rememberFolders` e2e hold it; cold disk after a reboot is hands-on.
 - **NOTHING ON THE STARTUP PATH HOLDS A STDIN PIPE** (2026-09-22, #189; owner: "it currently
   takes about 2 seconds to load. what could be done to make it about instant"). MEASURED: 1,188 ms
   from process start to a visible window, 369 ms after this fix (usable 1,303 -> 477 ms); an empty

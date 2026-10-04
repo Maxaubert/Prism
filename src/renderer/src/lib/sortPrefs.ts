@@ -17,16 +17,32 @@ export const SORT_FIELDS: Array<{ id: SortField; name: string }> = [
 
 export const DEFAULT_SORT = { field: 'name' as SortField, dir: 'asc' as SortDir }
 
-const byName = (a: ViewerFile, b: ViewerFile): number =>
-  a.name.localeCompare(b.name, undefined, { numeric: true })
+// One collator, hoisted (#271): `localeCompare` with options builds a fresh
+// one on EVERY comparison, the 2026-08-31 trap main's listDir already fixed.
+// MEASURED on a new folder of 2000 files (the newFolder2000 e2e): 42 to 58 ms
+// from the double-click to the first row before, 25 ms after.
+const names = new Intl.Collator(undefined, { numeric: true })
+const byName = (a: ViewerFile, b: ViewerFile): number => names.compare(a.name, b.name)
 
 /** A new array of the same file objects, ordered by field + direction. Ties
- *  (and the tie inside every non-name field) fall back to natural name order. */
+ *  (and the tie inside every non-name field) fall back to natural name order.
+ *
+ *  SIZE AND DATE WAIT FOR THEIR DETAILS (#271): while any file of a
+ *  names-first listing has no size (or date) yet, that sort is the NAME
+ *  order, and it re-sorts once when the last patch lands. Sorting half the
+ *  rows by a number and half by nothing would shuffle the list on every patch. */
 export function sortFiles(files: ViewerFile[], field: SortField, dir: SortDir): ViewerFile[] {
+  if (
+    (field === 'size' && files.some((f) => f.size === undefined)) ||
+    (field === 'modified' && files.some((f) => f.mtimeMs === undefined))
+  ) {
+    field = 'name'
+    dir = 'asc'
+  }
   const primary = (a: ViewerFile, b: ViewerFile): number => {
     switch (field) {
-      case 'modified': return a.mtimeMs - b.mtimeMs
-      case 'size': return a.size - b.size
+      case 'modified': return (a.mtimeMs ?? 0) - (b.mtimeMs ?? 0)
+      case 'size': return (a.size ?? 0) - (b.size ?? 0)
       case 'type': return a.kind.localeCompare(b.kind)
       default: return byName(a, b)
     }
