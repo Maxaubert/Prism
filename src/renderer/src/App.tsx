@@ -376,25 +376,13 @@ function TitleButtons({
           as one tool, and the menu is a drawer for several. It TOGGLES ("it
           should open then close open close"): the menu ignores a press on
           the button that owns it, so the button's own click is what shuts it. */}
-      {!setup && (
-        <button
-          className="no-drag grid h-7 w-8 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-          // detail 0 is Enter or Space: the menu then takes the focus.
-          onClick={(e) => onMore(e.currentTarget, e.detail === 0)}
-          title="More"
-          aria-label="More"
-          aria-haspopup="menu"
-          aria-expanded={moreOpen}
-          data-more-button
-        >
-          <svg viewBox="0 0 24 24" width={15} height={15} fill="currentColor" aria-hidden data-more-glyph>
-            <circle cx="12" cy="5.5" r="1.7" />
-            <circle cx="12" cy="12" r="1.7" />
-            <circle cx="12" cy="18.5" r="1.7" />
-          </svg>
-        </button>
-      )}
-      <div className="no-drag flex items-center gap-1">
+      {/* TWO GROUPS (owner, 2026-10-04, of More, the cog and the window
+          buttons: "the icons here seem too far apart, or maybe it should be
+          the 3 vertical dots on the inside"): the app's own buttons sit close
+          together with More on the INSIDE, next to the window buttons, where
+          Chrome and VS Code keep it; a wider step then parts them from
+          minimize, maximize and close. */}
+      <div className="no-drag flex items-center gap-0.5">
         {!setup && editable && (
           <button
             className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
@@ -448,6 +436,26 @@ function TitleButtons({
             </svg>
           </button>
         )}
+        {!setup && (
+          <button
+            className="no-drag grid h-7 w-8 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
+            // detail 0 is Enter or Space: the menu then takes the focus.
+            onClick={(e) => onMore(e.currentTarget, e.detail === 0)}
+            title="More"
+            aria-label="More"
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            data-more-button
+          >
+            <svg viewBox="0 0 24 24" width={15} height={15} fill="currentColor" aria-hidden data-more-glyph>
+              <circle cx="12" cy="5.5" r="1.7" />
+              <circle cx="12" cy="12" r="1.7" />
+              <circle cx="12" cy="18.5" r="1.7" />
+            </svg>
+          </button>
+        )}
+      </div>
+      <div className="no-drag ml-2 flex items-center gap-1">
         <button
           className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
           onClick={() => w.minimize()}

@@ -5266,13 +5266,17 @@ async function moreMenuScenario(fixtures) {
       const dots = [...(b?.querySelectorAll('[data-more-glyph] circle') ?? [])].map((c) => c.getBoundingClientRect())
       const r = b?.getBoundingClientRect()
       const cog = document.querySelector('[data-title-bar] [aria-label="Settings"]')?.getBoundingClientRect()
+      const min = document.querySelector('[data-title-bar] [aria-label="Minimize"]')?.getBoundingClientRect()
       return {
         label: b?.getAttribute('aria-label'),
         title: b?.getAttribute('title'),
         dots: dots.map((d) => ({ x: Math.round(d.x + d.width / 2), y: Math.round(d.y + d.height / 2) })),
         size: r ? [Math.round(r.width), Math.round(r.height)] : null,
         cog: cog ? [Math.round(cog.width), Math.round(cog.height)] : null,
-        beforeCog: !!r && !!cog && r.right <= cog.left
+        // More sits INSIDE, between the cog and the window buttons (owner,
+        // 2026-10-04), close to the cog and a wider step from minimize.
+        afterCog: !!r && !!cog && r.left >= cog.right && r.left - cog.right <= 4,
+        beforeMin: !!r && !!min && min.left - r.right >= 8
       }
     }, button)
     const d = glyph.dots
@@ -5282,8 +5286,8 @@ async function moreMenuScenario(fixtures) {
     )
     ok(glyph.label === 'More' && glyph.title === 'More', `and is called More (${glyph.label}, ${glyph.title})`)
     ok(
-      JSON.stringify(glyph.size) === JSON.stringify(glyph.cog) && glyph.beforeCog,
-      `the size of its neighbours, left of the cog (${JSON.stringify(glyph)})`
+      JSON.stringify(glyph.size) === JSON.stringify(glyph.cog) && glyph.afterCog && glyph.beforeMin,
+      `the size of its neighbours, right beside the cog and apart from the window buttons (${JSON.stringify(glyph)})`
     )
     ok((await win.locator('[aria-label="Tools"]').count()) === 0, 'and there is no Tools button any more')
 
