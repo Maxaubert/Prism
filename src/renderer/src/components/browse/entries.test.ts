@@ -127,5 +127,38 @@ describe('folder browser entries', () => {
       expect(browseEntries(pending, '', { key: 'modified', direction: 'desc' }, {}, true)[1].name).toBe('Old folder')
       expect(datesKnown(dated)).toBe(true)
     })
+    it('orders folders by their dates too outside Downloads, still first', () => {
+      const byDate = (direction: 'asc' | 'desc') =>
+        browseEntries(
+          {
+            ...dated,
+            folders: [
+              { path: 'C:\\Dl\\A old', name: 'A old', mtimeMs: 100 },
+              { path: 'C:\\Dl\\B new', name: 'B new', mtimeMs: 400 }
+            ]
+          },
+          '',
+          { key: 'modified', direction },
+          {},
+          false
+        ).map((e) => e.name)
+      expect(byDate('desc').slice(0, 2)).toEqual(['B new', 'A old'])
+      expect(byDate('asc').slice(0, 2)).toEqual(['A old', 'B new'])
+      // A folder still undated keeps the name order, so the rows move once.
+      const undated = browseEntries(
+        {
+          ...dated,
+          folders: [
+            { path: 'C:\\Dl\\A old', name: 'A old', mtimeMs: 100 },
+            { path: 'C:\\Dl\\B new', name: 'B new' }
+          ]
+        },
+        '',
+        { key: 'modified', direction: 'desc' },
+        {},
+        false
+      ).map((e) => e.name)
+      expect(undated.slice(0, 2)).toEqual(['A old', 'B new'])
+    })
   })
 })

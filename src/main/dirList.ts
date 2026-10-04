@@ -246,13 +246,25 @@ export async function listDir(dir: string, allFiles = false): Promise<DirListing
     const p = join(dir, e.name)
     try {
       // A symlink says nothing about itself, so it - and only it - is asked.
-      const isDir = e.isSymbolicLink() ? (await stat(p)).isDirectory() : e.isDirectory()
+      const linked = e.isSymbolicLink() ? await stat(p) : null
+      const isDir = linked ? linked.isDirectory() : e.isDirectory()
       // The Explorer's folders carry their date (#285: Downloads orders
-      // folders and files together by it); the tree never asks for one.
+      // folders and files together by it); the tree never asks for one. A
+      // date that cannot be read is 0, as a file's is (toViewerFile): the
+      // folder itself is still listed, as it was before it had a date.
       if (isDir)
         return {
           folder: allFiles
-            ? { path: p, name: e.name, mtimeMs: (await stat(p)).mtimeMs }
+            ? {
+                path: p,
+                name: e.name,
+                mtimeMs: linked
+                  ? linked.mtimeMs
+                  : await stat(p).then(
+                      (s) => s.mtimeMs,
+                      () => 0
+                    )
+              }
             : { path: p, name: e.name }
         }
       if (!allFiles && !isViewable(extname(p), e.name)) return { hidden: true }

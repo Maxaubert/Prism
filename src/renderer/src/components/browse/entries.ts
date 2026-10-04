@@ -49,7 +49,18 @@ export function browseEntries(
     )
   }
   const direction = sort.key === 'name' && sort.direction === 'desc' ? -1 : 1
+  // Folders show their dates now (#285), so by Date modified they are ordered
+  // by them too, inside the folders-first block, once every folder's date is
+  // in (as `sortFiles` waits for the files'): a column that says one order
+  // while the rows keep another reads as broken.
+  const foldersByDate =
+    sort.key === 'modified' && listing.folders.every((f) => f.mtimeMs !== undefined)
   const folders = listing.folders.filter(matches).sort((a, b) => {
+    if (foldersByDate) {
+      const by = (a.mtimeMs ?? 0) - (b.mtimeMs ?? 0)
+      if (by) return (sort.direction === 'desc' ? -1 : 1) * by
+      return names.compare(a.name, b.name)
+    }
     if (sort.key === 'path')
       return (
         (sort.direction === 'asc' ? 1 : -1) *
