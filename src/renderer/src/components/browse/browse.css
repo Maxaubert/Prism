@@ -300,6 +300,9 @@
   height: var(--browse-head-h, 32px);
   margin-top: 0;
   margin-bottom: 2px;
+  /* Onto the header label's BASELINE, not just its band (explorerHeadVars). */
+  position: relative;
+  top: var(--browse-heading-dy, 0px);
 }
 /* Quick access follows the Explorer size too (owner, 2026-10-03: "those icons
    too should be size adjustable, same as the main files. they follow one

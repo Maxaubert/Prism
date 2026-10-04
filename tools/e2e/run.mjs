@@ -8410,8 +8410,19 @@ async function panelsAlignScenario(fixtures) {
           const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0)
           if (!rects.length) continue
           const r = rects[0]
+          // The BASELINE, which is what the eye lines up (owner, 2026-10-04,
+          // measuring two screenshots: centres matched, baselines did not). A
+          // text rect is the font's content area, so the baseline is its
+          // bottom less the font's own descent, measured on a canvas in the
+          // computed font. (A zero-height inline-block on the baseline read
+          // wrong inside CodeMirror: 4.5px off what the pixels show.)
+          const cs = getComputedStyle(n.parentElement)
+          const ctx = (window.__baseCtx ??= document.createElement('canvas').getContext('2d'))
+          ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+          const base = r.bottom - ctx.measureText('Hg').fontBoundingBoxDescent
           return {
             top: r.top,
+            base,
             mid: (r.top + r.bottom) / 2,
             rects: rects.map((q) => ({ l: q.left, r: q.right, t: q.top, b: q.bottom }))
           }
@@ -8454,10 +8465,10 @@ async function panelsAlignScenario(fixtures) {
   const say = (m) =>
     JSON.stringify({
       head: [r1(m.headTop), r1(m.headBottom)],
-      name: r1(m.name?.mid),
-      heading: r1(m.heading?.mid),
-      line: r1(m.line?.mid),
-      number: r1(m.number?.mid),
+      name: r1(m.name?.base),
+      heading: r1(m.heading?.base),
+      line: r1(m.line?.base),
+      number: r1(m.number?.base),
       paneTop: r1(m.paneTop),
       button: m.button && [r1(m.button.l), r1(m.button.t), r1(m.button.r), r1(m.button.b)]
     })
@@ -8473,10 +8484,10 @@ async function panelsAlignScenario(fixtures) {
     await sleep(400)
     const m = await measure()
     console.log(`  ${label}: ${say(m)}`)
-    const ref = m.name?.mid ?? NaN
-    ok(Math.abs((m.heading?.mid ?? -99) - ref) <= 2, `${label}: the sidebar's first heading is on the header's line (${say(m)})`)
-    ok(Math.abs((m.line?.mid ?? -99) - ref) <= 2, `${label}: the preview's first line of text is on the header's line`)
-    if (numbered) ok(Math.abs((m.number?.mid ?? -99) - ref) <= 2, `${label}: and so is its line number`)
+    const ref = m.name?.base ?? NaN
+    ok(Math.abs((m.heading?.base ?? -99) - ref) <= 0.5, `${label}: the sidebar's first heading is on the header's line (${say(m)})`)
+    ok(Math.abs((m.line?.base ?? -99) - ref) <= 0.5, `${label}: the preview's first line of text is on the header's line`)
+    if (numbered) ok(Math.abs((m.number?.base ?? -99) - ref) <= 0.5, `${label}: and so is its line number`)
     ok(!!m.button && m.clickable, `${label}: the full view button is there and takes a click`)
     ok(
       !!m.button && m.lineRects.length > 0 && !m.lineRects.some((q) => overlaps(q, m.button)),

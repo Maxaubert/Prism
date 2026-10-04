@@ -10,7 +10,7 @@ import { browseEntries } from './entries'
 import { useFolderSizes } from '../../hooks/useFolderSizes'
 import { clickSelect } from '../../lib/selection'
 import { sweepSelect } from '../../lib/marquee'
-import { explorerHeadHeight, explorerRow, useExplorerSize } from '../../lib/explorerSize'
+import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import { useListingPrefetch } from '../../lib/useListingPrefetch'
 import './browse.css'
@@ -233,7 +233,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           '--browse-row-gap': `${rowLook.gap}px`,
           '--browse-row-pad': `${rowLook.padX}px`,
           // The header's band, which Quick access's heading is centred in (#283).
-          '--browse-head-h': `${explorerHeadHeight(sizeId)}px`
+          ...explorerHeadVars(sizeId)
         } as CSSProperties
       }
       data-preview={props.previewVisible || undefined}

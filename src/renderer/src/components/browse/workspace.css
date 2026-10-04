@@ -135,8 +135,17 @@
   top: 48px;
 }
 .browse-workspace [data-browse-preview][data-preview-flush] .cm-content {
-  padding-top: calc((var(--browse-head-h, 32px) - 1.55em) / 2);
+  /* Centred in the band, then onto the header label's baseline
+     (explorerHeadVars). */
+  padding-top: calc((var(--browse-head-h, 32px) - 1.55em) / 2 + var(--browse-text-dy, 0px));
   padding-right: 32px;
+}
+/* Line numbers onto their lines' baseline: MEASURED, the gutter's numbers
+   sat about 1px high and move with the text's nudge, so 0.2px more lands
+   them on it. */
+.browse-workspace [data-browse-preview][data-preview-flush] .cm-lineNumbers .cm-gutterElement {
+  position: relative;
+  top: var(--browse-number-dy, 0.2px);
 }
 .browse-preview-actions[data-flush] {
   width: auto;

@@ -16,7 +16,7 @@ import { useFileCut } from '../../lib/fileClipboard'
 import { DRAG_MIME, setDrag } from '../../lib/dragDrop'
 import { FolderIcon, KindIcon, SweepBand, iconColour } from '../TreeRows'
 import { OverlayScrollbar } from './OverlayScrollbar'
-import { explorerHeadHeight, explorerRow, useExplorerSize } from '../../lib/explorerSize'
+import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import { bandBox, nearestRow, onRowOwnPart, rowsInBand } from '../../lib/marquee'
 import { useSweep } from '../../hooks/useSweep'
 import { BrowseIcon } from './BrowseIcon'
@@ -397,7 +397,7 @@ export function BrowseList(props: Props): JSX.Element {
           '--browse-row-icon': `${look.icon}px`,
           '--browse-row-gap': `${look.gap}px`,
           '--browse-row-pad': `${look.padX}px`,
-          '--browse-head-h': `${explorerHeadHeight(sizeId)}px`
+          ...explorerHeadVars(sizeId)
         } as CSSProperties
       }
     >

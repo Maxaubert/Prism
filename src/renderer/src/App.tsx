@@ -166,7 +166,7 @@ import {
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import { useInternalFileDrag } from './lib/internalFileDrag'
-import { explorerHeadHeight, useExplorerSize } from './lib/explorerSize'
+import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
 import { JobChip } from './components/JobChip'
 import {
   describe as describeUndo,
@@ -2615,7 +2615,7 @@ export default function App(): JSX.Element {
   // floats in that band at the right. Text read as source only; a Markdown
   // page, a picture or a film keeps the button's own strip above it.
   const previewFlush = !!file && file.kind === 'text' && !isMarkdown(file.name) && !editMode
-  const headHeight = explorerHeadHeight(useExplorerSize())
+  const headVars = explorerHeadVars(useExplorerSize())
   const explorerWidths = useExplorerWidths(
     placesVisible,
     previewSlide.widthShown
@@ -3919,7 +3919,7 @@ export default function App(): JSX.Element {
         ref={explorerWidths.workspace}
         style={
           active && isExplorerTab(active)
-            ? ({ ...explorerWidths.style, '--browse-head-h': `${headHeight}px` } as CSSProperties)
+            ? ({ ...explorerWidths.style, ...headVars } as CSSProperties)
             : undefined
         }
         data-preview-sliding={previewSlide.sliding || undefined}
