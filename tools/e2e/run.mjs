@@ -7837,6 +7837,61 @@ async function markTintScenario(fixtures) {
  * a user picks, measured off the rows, and remembered across a restart. The
  * tree keeps its own size.
  */
+/**
+ * THE FILE LIST'S SCROLLBAR (#267; owner, 2026-10-04: "its visibility is
+ * buggy ... it disappears too abruptly, it should fade quickly but not
+ * instantly"). Prism draws its own over the list: hidden at rest, shown while
+ * the list scrolls, gone again once it has been still a moment, and it FADES
+ * (an opacity transition), where the native one was simply cut.
+ */
+async function listScrollbarScenario(fixtures) {
+  console.log('the file list scrollbar')
+  const dir = join(fixtures, 'scrollbar')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (let i = 0; i < 80; i++) writeFileSync(join(dir, `s${String(i).padStart(2, '0')}.txt`), 'x\n')
+  const { app, win } = await launch(join(dir, 's00.txt'))
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator('[data-testid="browse-list"] [data-browse-path$="s00.txt"]').count()) === 0)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="scrollbar"]').dblclick()
+    ok(await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$="s00.txt"]').count()) === 1, 10000), 'the Explorer shows the folder of 80')
+    const bar = '.folder-browser .browse-overlay-scroll'
+    const look = () =>
+      win.evaluate((s) => {
+        const el = document.querySelector(s)
+        const list = document.querySelector('[data-testid="browse-list"]')
+        if (!el || !list) return null
+        const cs = getComputedStyle(el)
+        return { shown: el.hasAttribute('data-shown'), opacity: Number(cs.opacity), fade: cs.transitionDuration, native: getComputedStyle(list).scrollbarWidth }
+      }, bar)
+    await win.mouse.move(5, 5)
+    await sleep(1500)
+    let l = await look()
+    ok(!!l && !l.shown && l.opacity === 0, `at rest the scrollbar is hidden (${JSON.stringify(l)})`)
+    ok(l?.native === 'none', `and the native one is never drawn (${l?.native})`)
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 400 })
+    ok(await until(async () => (await look())?.shown === true, 2000, 25), 'scrolling shows it')
+    l = await look()
+    ok(/ms|s/.test(l.fade) && l.fade !== '0s', `and it fades in rather than popping (${l.fade})`)
+    ok(await until(async () => (await look())?.shown === false, 3000, 50), 'still a moment, it hides again')
+    l = await look()
+    ok(l.fade !== '0s', `and fades out rather than being cut (${l.fade})`)
+    // The pointer over the list keeps it up; leaving lets it go.
+    const box = await win.locator('[data-testid="browse-list"]').boundingBox()
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    ok(await until(async () => (await look())?.shown === true, 2000, 25), 'the pointer over the list shows it')
+    await sleep(1500)
+    ok((await look())?.shown === true, 'and keeps it while the pointer stays')
+    await win.mouse.move(5, 5)
+    ok(await until(async () => (await look())?.shown === false, 3000, 50), 'leaving the list lets it go')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -11188,6 +11243,7 @@ await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
+await run(listScrollbarScenario)
 await run(addressFieldScenario)
 await run(explorerVerbsScenario)
 await run(searchPopupScenario)

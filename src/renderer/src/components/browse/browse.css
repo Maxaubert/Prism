@@ -447,36 +447,60 @@ body[data-internal-file-drag] .browse-path:focus-within {
   min-height: 0;
   overflow: auto;
   flex: 1;
-  scrollbar-gutter: stable;
   outline: none;
 }
 .browse-list[data-sweeping] {
   user-select: none;
 }
-/* THE LIST'S SCROLLBAR SHOWS ONLY WHILE IT IS USED (owner, 2026-10-04: "the
-   scrollbar is too distracting, make it smaller or remove it"). Hidden at
-   rest; it appears while the list scrolls (`data-scrolling`, set for a moment
-   by every scroll) or while the pointer is over the list, as a 4px dim line
-   that widens to 6px under the pointer. Kept rather than removed: it is still
-   where you are in a long folder, and it can still be dragged. */
+/* THE LIST'S SCROLLBAR IS PRISM'S OWN (#267, OverlayScrollbar.tsx): the
+   native one is hidden, since Chromium shows and hides it at random and never
+   fades it. The drawn one sits over the list's right edge: 4px and dim, 6px
+   under the pointer, in quickly and out softly. */
+.browse-list {
+  scrollbar-width: none;
+}
 .browse-list::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  display: none;
+  width: 0;
+  height: 0;
 }
-.browse-list::-webkit-scrollbar-thumb {
-  background: transparent;
-  border: 2px solid transparent;
-  border-radius: 4px;
-  background-clip: padding-box;
+.browse-list-area {
+  position: relative;
 }
-.browse-list:hover::-webkit-scrollbar-thumb,
-.browse-list[data-scrolling]::-webkit-scrollbar-thumb {
-  background-color: color-mix(in srgb, var(--p-text) 22%, transparent);
+.browse-overlay-scroll {
+  position: absolute;
+  right: 0;
+  z-index: 3;
+  width: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 400ms ease-out;
 }
-.browse-list::-webkit-scrollbar-thumb:hover,
-.browse-list::-webkit-scrollbar-thumb:active {
-  border-width: 1px;
-  background-color: color-mix(in srgb, var(--p-text) 40%, transparent);
+.browse-overlay-scroll[data-shown] {
+  opacity: 1;
+  pointer-events: auto;
+  transition-duration: 150ms;
+}
+.browse-overlay-thumb {
+  position: absolute;
+  right: 2px;
+  width: 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--p-text) 24%, transparent);
+  transition:
+    width 120ms ease-out,
+    background-color 120ms ease-out;
+}
+.browse-overlay-scroll:hover .browse-overlay-thumb,
+.browse-overlay-thumb:active {
+  width: 6px;
+  background: color-mix(in srgb, var(--p-text) 42%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .browse-overlay-scroll,
+  .browse-overlay-thumb {
+    transition: none;
+  }
 }
 .browse-row-space {
   min-height: 100%;
