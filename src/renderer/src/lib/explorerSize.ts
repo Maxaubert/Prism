@@ -72,6 +72,45 @@ export function explorerRow(id: ExplorerSize): ExplorerRow {
   return (EXPLORER_SIZES.find((s) => s.id === id) ?? EXPLORER_SIZES[1]).row
 }
 
+/** The column header's height for a size: a few pixels taller than a row,
+ *  and Large's own 36px (the header before #257). It is also the band the
+ *  sidebar's first heading and a text preview's first line are centred in
+ *  (#283; owner, 2026-10-04: "the position of the sorting bar ... that's the
+ *  height I want the txt files to start at and the sidebar to start at"), so
+ *  the three panels' first lines are one line across the window. */
+export function explorerHeadHeight(id: ExplorerSize): number {
+  return id === 'large' ? 36 : explorerRow(id).height + 6
+}
+
+/**
+ * How far the sidebar's first heading and a text preview's first line move
+ * so their BASELINES meet the header label's (owner, 2026-10-04, two
+ * screenshots: "are they actually aligned, can you measure it, it looks like
+ * the Name text sits a couple px higher", and of the preview, "here the right
+ * panel is higher"). Centring each in the band matched the boxes, not the
+ * baselines: the header's font follows the size (11.5, 12.5, 13px) while the
+ * heading and the code stay at 13px in other faces. MEASURED in CSS px, by
+ * the text rect less the font's own descent and checked against the pixels
+ * of the screenshots (`panelsAlign`), then moved by the difference. Positive
+ * is down. (The sidebar's ROWS need none: once they start where the list's
+ * do, their words share its baseline, MEASURED in the pixels.)
+ */
+const BASELINE_NUDGE: Record<ExplorerSize, { heading: number; text: number }> = {
+  small: { heading: -1.6, text: -0.4 },
+  medium: { heading: -1, text: 0.2 },
+  large: { heading: -0.5, text: 0.7 }
+}
+
+/** The band's CSS variables: its height and the two baseline nudges. */
+export function explorerHeadVars(id: ExplorerSize): Record<string, string> {
+  const nudge = BASELINE_NUDGE[id] ?? BASELINE_NUDGE.medium
+  return {
+    '--browse-head-h': `${explorerHeadHeight(id)}px`,
+    '--browse-heading-dy': `${nudge.heading}px`,
+    '--browse-text-dy': `${nudge.text}px`
+  }
+}
+
 export function useExplorerSize(): ExplorerSize {
   return useSyncExternalStore(
     (l) => {
