@@ -8388,12 +8388,11 @@ async function panelsAlignScenario(fixtures) {
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
   const long =
-    'The first line of these notes runs long on purpose, so that it reaches the right edge of the preview pane where the full view button sits and has to wrap before it rather than go under it. '.repeat(2)
+    'The first line of these notes runs long on purpose, so that it wraps in the preview pane and the alignment is measured on its first visual line. '.repeat(2)
   writeFileSync(join(dir, 'notes.txt'), [long, ...Array.from({ length: 60 }, (_, i) => `line ${i + 2} of the notes`)].join('\n'))
   writeFileSync(join(dir, 'main.ts'), ['export const first = 1', ...Array.from({ length: 30 }, (_, i) => `export const v${i} = ${i}`)].join('\n'))
   writeFileSync(join(dir, 'other.txt'), 'other\n')
-  // A picture and a film keep the button's own strip above them (#283 floats
-  // it over text only); they are here to prove that did not move.
+  // A picture and a film, to show they start at the list's top too.
   copyFileSync(join(fixtures, 'one.png'), join(dir, 'one.png'))
   copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'ep1.mp4'))
   const { app, win } = await launch(join(dir, 'other.txt'))
@@ -8434,18 +8433,7 @@ async function panelsAlignScenario(fixtures) {
       const numEl = [...(pane?.querySelectorAll('.cm-lineNumbers .cm-gutterElement') ?? [])].find(
         (g) => g.textContent.trim() === '1'
       )
-      const button = document.querySelector('[data-open-full]')
-      const b = button?.getBoundingClientRect()
-      // Every text rect of the first line, not only its first node's: a
-      // highlighted line is several nodes.
-      const lineRects = []
       const lineEl = pane?.querySelector('.cm-line')
-      if (lineEl) {
-        const range = document.createRange()
-        range.selectNodeContents(lineEl)
-        for (const q of range.getClientRects())
-          if (q.width > 0 && q.height > 0) lineRects.push({ l: q.left, r: q.right, t: q.top, b: q.bottom })
-      }
       return {
         headTop: head?.getBoundingClientRect().top,
         headBottom: head?.getBoundingClientRect().bottom,
@@ -8463,13 +8451,9 @@ async function panelsAlignScenario(fixtures) {
           base: textBox(el.querySelector('.browse-name') ?? el)?.base
         })),
         line: textBox(lineEl),
-        lineRects,
         number: textBox(numEl),
         paneTop: pane?.getBoundingClientRect().top,
-        button: b ? { l: b.left, r: b.right, t: b.top, b: b.bottom } : null,
-        clickable: b
-          ? document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)?.closest('[data-open-full]') === button
-          : false
+        button: !!document.querySelector('[data-open-full]')
       }
     })
   /** The baseline of an element's words AS DRAWN, in device pixels from
@@ -8523,9 +8507,8 @@ async function panelsAlignScenario(fixtures) {
       line: r1(m.line?.base),
       number: r1(m.number?.base),
       paneTop: r1(m.paneTop),
-      button: m.button && [r1(m.button.l), r1(m.button.t), r1(m.button.r), r1(m.button.b)]
+      button: m.button
     })
-  const overlaps = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b
   const selected = () =>
     win.evaluate(() => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')
   const shown = (name) =>
@@ -8555,11 +8538,11 @@ async function panelsAlignScenario(fixtures) {
       home !== null && file !== null && Math.abs(home - file) <= 1,
       `${label}: Home's words sit on the first file's baseline in the pixels (device rows ${home}, ${file})`
     )
-    ok(!!m.button && m.clickable, `${label}: the full view button is there and takes a click`)
-    ok(
-      !!m.button && m.lineRects.length > 0 && !m.lineRects.some((q) => overlaps(q, m.button)),
-      `${label}: and lies over no text of the first line (${JSON.stringify(m.lineRects.slice(0, 4).map((q) => [r1(q.l), r1(q.r), r1(q.t)]))})`
-    )
+    // NO FULL VIEW BUTTON over the preview (owner, 2026-10-04: "remove the
+    // fullscreen icon in preview ... it gets confusing"): a double click on
+    // the item opens it, and the pane starts at the list's own top.
+    ok(!m.button, `${label}: there is no full view button over the preview`)
+    ok(Math.abs((m.paneTop ?? -99) - (m.headTop ?? 99)) < 1, `${label}: and the pane starts at the list's top (${r1(m.paneTop)}, ${r1(m.headTop)})`)
     await win.screenshot({ path: join(SHOTS, `panels-align-${shot}.png`) })
     return m
   }
@@ -8607,7 +8590,8 @@ async function panelsAlignScenario(fixtures) {
     await check('Paper, notes.txt', 'paper-txt')
     await switchStyle(win, styleBefore[0], styleBefore[1])
 
-    // A PICTURE AND A FILM keep the strip: the button over it, the pane under it.
+    // A PICTURE AND A FILM: no button and no strip either; the pane starts at
+    // the list's top like the text's.
     for (const name of ['one.png', 'ep1.mp4']) {
       await win.locator(`[data-testid="browse-list"] [data-browse-path$="${name}"]`).click()
       ok(
@@ -8617,26 +8601,23 @@ async function panelsAlignScenario(fixtures) {
       await sleep(400)
       const m = await win.evaluate(() => {
         const pane = document.querySelector('[data-browse-preview]')
-        const bar = document.querySelector('.browse-preview-actions')
-        const b = document.querySelector('[data-open-full]')?.getBoundingClientRect()
         return {
-          flush: pane?.hasAttribute('data-preview-flush'),
+          button: !!document.querySelector('[data-open-full]'),
           paneTop: pane?.getBoundingClientRect().top,
-          bar: bar ? [bar.getBoundingClientRect().top, bar.getBoundingClientRect().bottom, bar.hasAttribute('data-flush')] : null,
-          clickable: b ? !!document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)?.closest('[data-open-full]') : false
+          headTop: document.querySelector('.browse-list-area .browse-columns')?.getBoundingClientRect().top
         }
       })
       ok(
-        !m.flush && !!m.bar && !m.bar[2] && Math.abs(m.bar[1] - m.bar[0] - 40) < 1 && Math.abs(m.paneTop - m.bar[1]) < 1 && m.clickable,
-        `${name}: the pane sits under the 40px strip and the button takes a click (${JSON.stringify(m)})`
+        !m.button && Math.abs(m.paneTop - m.headTop) < 1,
+        `${name}: no full view button, and the pane starts at the list's top (${JSON.stringify(m)})`
       )
       await win.screenshot({ path: join(SHOTS, `panels-align-${name.replace('.', '-')}.png`) })
     }
 
-    // The full view button still does its job from where it sits now.
+    // Full view is a double click on the item, the way the owner opens it.
     await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"]').click()
     ok(await shown('notes.txt'), 'notes.txt back in the preview pane')
-    await win.locator('[data-open-full]').click()
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"]').dblclick()
     ok(
       await until(
         () =>
@@ -8647,7 +8628,7 @@ async function panelsAlignScenario(fixtures) {
           ),
         8000
       ),
-      'the full view button opens the file in full view'
+      'a double click on the item opens it in full view'
     )
   } finally {
     await app.close()
