@@ -412,7 +412,9 @@ body[data-internal-file-drag] .browse-path:focus-within {
   display: grid;
   grid-template-columns: minmax(160px, 1fr) 128px 76px 136px;
   align-items: center;
-  column-gap: 12px;
+  /* A variable, so the header's cells can reach half of it each way. */
+  --browse-col-gap: 12px;
+  column-gap: var(--browse-col-gap);
   padding: 0 var(--browse-row-pad, 8px);
 }
 .browse-columns {
@@ -426,27 +428,72 @@ body[data-internal-file-drag] .browse-path:focus-within {
   overflow: hidden;
   flex-shrink: 0;
 }
+/* A HEADER CELL IS ITS WHOLE BOX, AS IN FILE EXPLORER (owner, 2026-10-04:
+   "if I highlight over name, it doesn't reach all the way out to the edges
+   ... that highlight effect should be inside the whole box", and of Date
+   modified, "on the right side, there's a gap where there's no highlight
+   effect"). The header keeps the rows' grid, so every label stays over its
+   column; each cell then reaches out by half the gap on both sides, and the
+   first and last by the side padding, so the cells tile the header from edge
+   to edge and the fill covers all of a cell. The last cell is set again
+   below wherever a narrow layout hides a column. */
 .browse-columns button {
+  --browse-col-edge-l: calc(var(--browse-col-gap) / 2);
+  --browse-col-edge-r: calc(var(--browse-col-gap) / 2);
   display: flex;
   align-items: center;
   gap: 6px;
   height: 100%;
+  min-width: 0;
+  margin: 0 calc(-1 * var(--browse-col-edge-r)) 0 calc(-1 * var(--browse-col-edge-l));
+  padding: 0 var(--browse-col-edge-r) 0 var(--browse-col-edge-l);
   text-align: left;
   white-space: nowrap;
 }
-.browse-column-size {
+.browse-columns button:first-child {
+  --browse-col-edge-l: var(--browse-row-pad, 8px);
+}
+.browse-columns button:last-child {
+  --browse-col-edge-r: var(--browse-row-pad, 8px);
+}
+.folder-browser .browse-columns button:active {
+  background: color-mix(in srgb, var(--p-text) 10%, transparent);
+}
+/* No focus BOX here either (the toolbar's rule, owner 2026-10-04: "remove
+   focus boxes around these"): focus is shown as the hover's fill. */
+.folder-browser .browse-columns button:focus-visible {
+  outline: none;
+  background: var(--p-hover);
+}
+/* The Size values stay right-aligned so their digits line up, as Explorer's
+   do; the Size HEADER reads from the left like every other (owner,
+   2026-10-04: "the size column should also have its name aligned to the
+   left"). */
+.browse-row .browse-column-size {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.browse-columns .browse-column-size {
-  justify-content: flex-end;
+.browse-sort-arrow {
+  display: flex;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
 }
 .browse-sort-arrow svg {
   width: 12px;
   height: 12px;
 }
+.browse-columns button:hover .browse-sort-arrow,
+.browse-columns button:focus-visible .browse-sort-arrow,
+.browse-sort-arrow[data-sorted] {
+  opacity: 1;
+}
 .browse-sort-arrow[data-descending='true'] {
   transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .browse-sort-arrow {
+    transition: none;
+  }
 }
 .browse-list {
   /* The sweep rectangle is drawn inside it, in its scroll coordinates. */
@@ -644,6 +691,10 @@ body[data-internal-file-drag] .browse-path:focus-within {
   .browse-row {
     grid-template-columns: minmax(120px, 1fr) 116px 72px;
   }
+  /* Date modified is gone, so Size is the last cell and reaches the edge. */
+  .browse-columns .browse-column-size {
+    --browse-col-edge-r: var(--browse-row-pad, 8px);
+  }
 }
 @container (max-width: 510px) {
   .browse-column-type {
@@ -652,7 +703,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
   .browse-columns,
   .browse-row {
     grid-template-columns: minmax(110px, 1fr) 72px;
-    column-gap: 10px;
+    --browse-col-gap: 10px;
   }
 }
 @container (max-width: 300px) {
@@ -662,6 +713,9 @@ body[data-internal-file-drag] .browse-path:focus-within {
   .browse-columns,
   .browse-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .browse-columns .browse-column-name {
+    --browse-col-edge-r: var(--browse-row-pad, 8px);
   }
 }
 @container (max-width: 690px) {
@@ -705,6 +759,10 @@ body[data-internal-file-drag] .browse-path:focus-within {
 .browse-list-area[data-searching] .browse-columns .browse-column-size {
   display: flex !important;
 }
+/* Search always shows Size, so Name never ends the header there. */
+.browse-list-area[data-searching] .browse-columns .browse-column-name {
+  --browse-col-edge-r: calc(var(--browse-col-gap) / 2);
+}
 
 /* Explorer size Large is the Explorer as it was before #257 (main, 2026-10-02):
    wider columns and gaps, a 36px header, and the quiet columns at 13px under
@@ -712,7 +770,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
    these are the parts a variable does not reach. */
 .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
   grid-template-columns: minmax(160px, 1fr) 150px 90px 160px;
-  column-gap: 16px;
+  --browse-col-gap: 16px;
 }
 .browse-list-area[data-row-size='large'] .browse-columns {
   height: 36px;
@@ -734,7 +792,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
 @container (max-width: 510px) {
   .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
     grid-template-columns: minmax(110px, 1fr) 80px;
-    column-gap: 10px;
+    --browse-col-gap: 10px;
   }
 }
 @container (max-width: 300px) {
