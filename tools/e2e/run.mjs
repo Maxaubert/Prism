@@ -6213,7 +6213,10 @@ async function terminalScenario(fixtures) {
     const cols = Number(
       /COLS=(\d+)/.exec((await win.locator('.xterm').textContent()) ?? '')?.[1] ?? 0
     )
-    ok(cols > 90, `the shell was born at the window's size, not 80x24 (cols=${cols})`)
+    // Not 80, the size a shell is born at when the first resize is dropped. A
+    // number, not a floor: the first window is 1164px since #269, 84 columns
+    // here, where the old floor of 90 assumed the wider window it replaced.
+    ok(cols > 0 && cols !== 80, `the shell was born at the window's size, not 80x24 (cols=${cols})`)
 
     // The dots are AGENT-scoped now: a plain terminal never shows one, no
     // matter how hard it streams.
