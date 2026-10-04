@@ -403,6 +403,32 @@ export function addTab(tabs: readonly Tab[], p: OpenPayload, id: string): TabSta
 }
 
 /**
+ * A RESTORED tab goes back to its SAVED place (#271). Main sends the Explorer
+ * tabs first and every other tab as soon as it is ready, so payloads arrive
+ * out of order; each carries `restoreOrder`, and it is put before the first
+ * tab already restored with a later one. A tab with no order (a file handed
+ * over at launch, a tab made meanwhile) is never moved past.
+ */
+export function addRestoredTab(
+  tabs: readonly Tab[],
+  p: OpenPayload,
+  id: string,
+  orderOf: (tabId: string) => number | undefined
+): TabState {
+  const spawned = newTab(p, id)
+  const order = p.restoreOrder
+  if (order === undefined) return { tabs: [...tabs, spawned], activeId: spawned.id }
+  const at = tabs.findIndex((t) => {
+    const o = orderOf(t.id)
+    return o !== undefined && o > order
+  })
+  const next = tabs.slice()
+  if (at < 0) next.push(spawned)
+  else next.splice(at, 0, spawned)
+  return { tabs: next, activeId: spawned.id }
+}
+
+/**
  * Where a file arriving from outside lands. One rule, three outcomes:
  *
  *   1. A tab whose root already holds it: switch to that tab and point it at

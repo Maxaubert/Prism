@@ -33,6 +33,8 @@ import {
 } from '../lib/newTabPrefs'
 import { setOpenMode, useOpenMode, type OpenMode } from '../lib/openPrefs'
 import { setRememberTabs, useRememberTabs } from '../lib/tabRestorePrefs'
+import { setRememberFolders, useRememberFolders } from '../lib/listingCachePrefs'
+import { visitedDirectories } from '../lib/visitedDirectories'
 import { setTabWidth, useTabWidth } from '../lib/tabWidthPrefs'
 import { EXPLORER_SIZES, setExplorerSize, useExplorerSize } from '../lib/explorerSize'
 import { setTitleBarMode, useTitleBarMode } from '../lib/titleBarPrefs'
@@ -309,6 +311,46 @@ function RememberTabsSetting(): JSX.Element {
   return (
     <Pref id="remember-tabs" label="Remember tabs" hint="Reopens the tabs from last time when Prism starts.">
       <Switch on={on} onChange={setRememberTabs} label="Remember tabs" />
+    </Pref>
+  )
+}
+
+/**
+ * Whether the Explorer keeps a list of what is in the folders it opens, so
+ * they show at once, even after a restart (#271; owner-approved, 2026-10-04:
+ * on by default, a switch and a Clear button). Off deletes the list at once.
+ * Clear deletes it and keeps the switch as it is.
+ */
+function RememberFoldersSetting(): JSX.Element {
+  const on = useRememberFolders()
+  const [cleared, setCleared] = useState(false)
+  return (
+    <Pref
+      id="remember-folders"
+      label="Remember folders"
+      hint="Shows the folders you open at once, from a list kept only on this PC."
+    >
+      <div className="flex items-center gap-3">
+        <button
+          id="remember-folders-clear"
+          className={ROW_BUTTON}
+          disabled={cleared}
+          onClick={() => {
+            visitedDirectories.clear()
+            void window.prism.clearListingCache().then(() => setCleared(true))
+          }}
+        >
+          {cleared ? 'Cleared' : 'Clear'}
+        </button>
+        <Switch
+          on={on}
+          onChange={(next) => {
+            setCleared(false)
+            setRememberFolders(next)
+          }}
+          label="Remember folders"
+        />
+      </div>
     </Pref>
   )
 }
@@ -1242,6 +1284,7 @@ function GeneralTab(): JSX.Element {
         />
       </Pref>
       <RememberTabsSetting />
+      <RememberFoldersSetting />
       <Pref id="tree-side" label="Sidebar side" hint="The side of the window the file tree sits on.">
         <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
       </Pref>

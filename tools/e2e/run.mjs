@@ -33,7 +33,11 @@ import { BIG, buildBigFixtures, buildFixtures, OTHER_ROOT } from './fixtures.mjs
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
 const MAIN = process.env.PRISM_E2E_MAIN ?? join(ROOT, 'out', 'main', 'index.js')
-const PROFILE_NAME = 'prism-e2e-profile'
+// Two worktrees can run the suite at once (2026-10-04, #271: a run in one
+// reaped the other's app, since both matched the same profile name). A run
+// may name its own profile; it must not CONTAIN the default name, or the
+// default run's reaper still matches it.
+const PROFILE_NAME = process.env.PRISM_E2E_PROFILE_NAME || 'prism-e2e-profile'
 const PROFILE = join(tmpdir(), PROFILE_NAME)
 const SHOTS = join(ROOT, '.e2e', 'shots')
 
@@ -1384,9 +1388,11 @@ async function dictationPageScenario(fixtures) {
     const shown = (await win.evaluate(() => [...document.querySelectorAll('[data-dictation-settings] [data-pref], [data-dictation-settings][data-pref]')].map((e) => e.getAttribute('data-pref')))).sort()
     ok(wanted.length >= 9 && JSON.stringify(shown) === JSON.stringify(wanted), `the Dictation page shows exactly the core's option list (${JSON.stringify(shown)})`)
     const names = await win.evaluate(() => [...document.querySelectorAll('[data-dictation-item] [data-item-name]')].map((e) => e.textContent.trim()))
-    ok(names.slice(0, 4).every((n) => n.startsWith('Whisper ')), `models carry their full names (${JSON.stringify(names)})`)
+    // The core may list models of more than one family (PrismTerminal #121 adds Parakeet v3
+    // between them), so the four Whisper models are counted wherever they sit.
+    ok(names.filter((n) => n.startsWith('Whisper ')).length === 4 && names.every((n) => /^\S+ \S/.test(n)), `models carry their full names (${JSON.stringify(names)})`)
     const marks = await win.evaluate(() => [...document.querySelectorAll('[data-dictation-item] [data-vendor]')].map((e) => e.getAttribute('data-vendor')))
-    ok(marks.filter((m) => m === 'openai').length === 4 && marks.filter((m) => m === 'nvidia').length === 1, 'every row leads with its vendor\'s mark')
+    ok(marks.filter((m) => m === 'openai').length === 4 && marks.filter((m) => m === 'nvidia').length >= 1, 'every row leads with its vendor\'s mark')
     const row = await win.evaluate(() => {
       const r = document.querySelector('[data-dictation-item="base"]')
       return { pad: parseFloat(getComputedStyle(r).paddingTop), w: Math.round(r.getBoundingClientRect().width) }
@@ -8367,6 +8373,230 @@ async function explorerSizeScenario(fixtures) {
   }
 }
 /**
+ * THE COLUMN HEADER IS FILE EXPLORER'S (#274; owner, 2026-10-04, of the
+ * Explorer list's header: "if I highlight over name, it doesn't reach all the
+ * way out to the edges ... that highlight effect should be inside the whole
+ * box", "the size column should also have its name aligned to the left", and
+ * of the arrows, "that arrow shows only when you hover over them while the
+ * currently sorted item has an arrow at all times"). MEASURED: the visible
+ * cells tile the header from its left edge to its right with no gap, each as
+ * tall as the header; the hover fill is the cell's own box; Size's label
+ * starts where the other labels do; an unsorted column's arrow shows only
+ * while hovered and the sorted one's always; a hover never moves a label;
+ * focus is the fill and no box. Held at Medium, Small and Large, in the
+ * search results' columns and at a narrow window. A screenshot of the header
+ * with Type hovered goes to .e2e/shots/column-header-hover.png.
+ */
+async function columnHeadersScenario(fixtures) {
+  console.log('column headers')
+  const dir = join(fixtures, 'colhead')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'b-small.txt'), 'x\n')
+  writeFileSync(join(dir, 'a-big.txt'), 'y'.repeat(4000))
+  writeFileSync(join(dir, 'c-mid.txt'), 'z'.repeat(400))
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'b-small.txt'))
+  EXTRA_ENV = {}
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) !== 3)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="colhead"]').dblclick()
+    return until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 3, 10000)
+  }
+  const head = '.browse-list-area .browse-columns'
+  const cell = (key) => win.locator(`${head} .browse-column-${key}`)
+  // The visible cells, left to right, against the header's own box (inside
+  // its bottom rule, which the cells sit on).
+  const geometry = () =>
+    win.evaluate((sel) => {
+      const h = document.querySelector(sel)
+      if (!h) return null
+      const hr = h.getBoundingClientRect()
+      const cs = getComputedStyle(h)
+      const inner = hr.height - parseFloat(cs.borderBottomWidth)
+      const cells = [...h.querySelectorAll('button')]
+        .filter((b) => getComputedStyle(b).display !== 'none')
+        .map((b) => {
+          const r = b.getBoundingClientRect()
+          const text = [...b.childNodes].find((n) => n.nodeType === 3)
+          const range = document.createRange()
+          if (text) range.selectNodeContents(text)
+          const t = text ? range.getBoundingClientRect() : null
+          return {
+            key: b.className.replace('browse-column-', ''),
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            h: r.height,
+            label: t ? t.left - r.left : null,
+            labelX: t ? t.left : null
+          }
+        })
+      return { left: hr.left, right: hr.right, top: hr.top, inner, cells }
+    }, head)
+  const tiles = (g) => {
+    if (!g || !g.cells.length) return false
+    const near = (a, b) => Math.abs(a - b) <= 0.6
+    return (
+      near(g.cells[0].left, g.left) &&
+      near(g.cells[g.cells.length - 1].right, g.right) &&
+      g.cells.every((c, i) => i === 0 || near(c.left, g.cells[i - 1].right)) &&
+      g.cells.every((c) => near(c.h, g.inner) && near(c.top, g.top))
+    )
+  }
+  const say = (g) => JSON.stringify(g?.cells.map((c) => [c.key, Math.round(c.left), Math.round(c.right), c.h]))
+  const arrow = (key) =>
+    win.evaluate(
+      ([sel, k]) => {
+        const a = document.querySelector(`${sel} .browse-column-${k} .browse-sort-arrow`)
+        return a ? Number(getComputedStyle(a).opacity) : -1
+      },
+      [head, key]
+    )
+  const away = async () => {
+    const list = await win.locator('[data-testid="browse-list"]').boundingBox()
+    await win.mouse.move(list.x + list.width / 2, list.y + list.height - 4)
+    await sleep(250)
+  }
+  const names = () =>
+    win.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path$=".txt"]')].map((r) =>
+        r.getAttribute('data-browse-path').split(/[\\/]/).pop()
+      )
+    )
+  try {
+    ok(await intoFolder(), 'the Explorer shows the folder of three')
+    await away()
+    const g = await geometry()
+    ok(tiles(g), `the cells tile the header edge to edge, each its full height (${say(g)}; header ${g?.left}-${g?.right}, ${g?.inner}px)`)
+    const labels = Object.fromEntries(g.cells.map((c) => [c.key, c.label]))
+    ok(
+      labels.size !== null && Math.abs(labels.size - labels.type) <= 0.6 && Math.abs(labels.size - labels.modified) <= 0.6,
+      `Size's label starts where Type's and Date modified's do (${JSON.stringify(labels)})`
+    )
+    const sizeHead = await cell('size').evaluate((b) => getComputedStyle(b).justifyContent)
+    ok(sizeHead !== 'flex-end', `and the Size header is not pushed right (${sizeHead})`)
+    const sizeValue = await win
+      .locator('[data-testid="browse-list"] .browse-row .browse-column-size')
+      .first()
+      .evaluate((s) => getComputedStyle(s).textAlign)
+    ok(sizeValue === 'right', `the size VALUES stay right-aligned so digits line up (${sizeValue})`)
+
+    // THE ARROWS: Name is sorted, so its arrow shows; Type's only while hovered.
+    ok((await arrow('name')) === 1, 'the sorted column shows its arrow without a hover')
+    ok((await arrow('type')) === 0 && (await arrow('size')) === 0, 'an unsorted column shows none')
+    const before = await geometry()
+    await cell('type').hover()
+    await sleep(250)
+    ok((await arrow('type')) === 1, 'hovering Type shows its arrow')
+    const hovered = await geometry()
+    ok(
+      hovered.cells.every((c, i) => Math.abs(c.labelX - before.cells[i].labelX) <= 0.1),
+      'and no label moves for it'
+    )
+    // The fill is the cell's own box: the button paints it, and the button is
+    // the whole cell, so every corner of the cell is the hovered button.
+    const fill = await win.evaluate((sel) => {
+      const b = document.querySelector(`${sel} .browse-column-type`)
+      const r = b.getBoundingClientRect()
+      const at = (x, y) => document.elementFromPoint(x, y)?.closest('button') === b
+      return {
+        bg: getComputedStyle(b).backgroundColor,
+        corners: [at(r.left + 0.5, r.top + 0.5), at(r.right - 0.5, r.top + 0.5), at(r.left + 0.5, r.bottom - 0.5), at(r.right - 0.5, r.bottom - 0.5)]
+      }
+    }, head)
+    ok(
+      !/rgba\(0, 0, 0, 0\)|transparent/.test(fill.bg) && fill.corners.every(Boolean),
+      `the hover fill covers the whole cell, corner to corner (${JSON.stringify(fill)})`
+    )
+    const box = await win.locator(head).boundingBox()
+    await win.screenshot({
+      path: join(SHOTS, 'column-header-hover.png'),
+      clip: { x: Math.max(0, box.x - 8), y: Math.max(0, box.y - 8), width: box.width + 16, height: box.height + 60 }
+    })
+    // The right-most cell reaches the list's own right edge: no strip of
+    // header past Date modified that a hover cannot fill.
+    await cell('modified').hover()
+    await sleep(250)
+    const right = await win.evaluate((sel) => {
+      const h = document.querySelector(sel).getBoundingClientRect()
+      const hit = document.elementFromPoint(h.right - 1, h.top + h.height / 2)?.closest('button')
+      return hit?.className ?? null
+    }, head)
+    ok(right === 'browse-column-modified', `the header's last pixel on the right is Date modified's (${right})`)
+
+    // CLICKS STILL SORT: Size ascending, then descending, then back to Name.
+    await cell('size').click()
+    ok(await until(async () => (await names()).join() === 'b-small.txt,c-mid.txt,a-big.txt', 5000), `a click on Size sorts smallest first (${await names()})`)
+    await away()
+    ok((await arrow('size')) === 1 && (await arrow('name')) === 0, 'and the arrow moves to Size, held without a hover')
+    await cell('size').click()
+    ok(await until(async () => (await names()).join() === 'a-big.txt,c-mid.txt,b-small.txt', 5000), `a second click flips it (${await names()})`)
+    ok(
+      (await cell('size').locator('.browse-sort-arrow').getAttribute('data-descending')) === 'true',
+      'and the arrow turns for descending'
+    )
+    await cell('name').click()
+    ok(await until(async () => (await names()).join() === 'a-big.txt,b-small.txt,c-mid.txt', 5000), 'Name puts the order back')
+
+    // NO FOCUS BOX: a key-driven focus wears the fill, and no outline.
+    await win.keyboard.press('Shift')
+    await cell('type').focus()
+    await away()
+    const focus = await cell('type').evaluate((b) => ({
+      outline: getComputedStyle(b).outlineStyle,
+      bg: getComputedStyle(b).backgroundColor,
+      visible: b.matches(':focus-visible')
+    }))
+    ok(
+      focus.visible && focus.outline === 'none' && !/rgba\(0, 0, 0, 0\)/.test(focus.bg),
+      `a focused header cell shows the fill and no box (${JSON.stringify(focus)})`
+    )
+    await win.locator('[data-testid="browse-list"]').focus()
+
+    // EVERY EXPLORER SIZE tiles the same way.
+    for (const size of ['Small', 'Large', 'Medium']) {
+      await pickStyleSegment(win, 'explorer-size', size)
+      ok(await intoFolder(), `${size}: back in the Explorer`)
+      await away()
+      const gs = await geometry()
+      ok(tiles(gs), `${size}: the cells tile the header (${say(gs)}, ${gs?.inner}px tall)`)
+    }
+
+    // A NARROW WINDOW hides columns; whatever is last still reaches the edge.
+    const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 560))
+    await until(() => win.evaluate(() => window.innerWidth <= 800), 4000, 50)
+    await sleep(300)
+    const gn = await geometry()
+    ok(gn.cells.length < 4 && tiles(gn), `at a narrow window the fewer cells still tile (${say(gn)})`)
+    await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setSize(w, h), sizeBefore)
+    await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
+    await sleep(300)
+
+    // THE SEARCH RESULTS' columns (Name, Path, Size) tile too, Size last.
+    await win.locator('[data-testid="browse-search-button"]').click()
+    const popup = win.locator('[data-testid="browse-search-popup"]')
+    await popup.locator('input[role="combobox"]').fill('txt')
+    await until(async () => (await popup.locator('[data-show-more]').count()) === 1, 15000)
+    await popup.locator('[data-show-more]').click()
+    ok(await until(async () => (await win.locator('.browse-list-area[data-searching]').count()) === 1, 15000), 'the full search shows its own columns')
+    await away()
+    const gq = await geometry()
+    ok(
+      gq.cells.map((c) => c.key).join() === 'name,path,size' && tiles(gq),
+      `and they tile the header, Size reaching the edge (${say(gq)})`
+    )
+    await win.locator('[data-testid="browse-search-clear"]').click()
+  } finally {
+    await win.evaluate(() => localStorage.removeItem('prism.explorer.size')).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+/**
  * THE ADDRESS IS A DOLPHIN FIELD, AND A FIELD ON BLACK IS A DARK GREY (#267;
  * owner, 2026-10-04, of the Explorer toolbar on Void: "make the url box more
  * visible and for the black theme make the grey colours used in search and in
@@ -8433,9 +8663,13 @@ async function addressFieldScenario(fixtures) {
   const intoFolder = async () => {
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
-    if ((await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) !== 2)
-      await win.locator('[data-testid="browse-list"] [data-browse-path$="addrfield"]').dblclick()
-    return until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 2, 10000)
+    // By NAME, not by counting two .txt rows: the reload scenario leaves
+    // reload.txt beside notes.txt, so the fixtures folder has two as well and
+    // the old test stayed there (seen in a full gate run, review of #271).
+    const inside = async () =>
+      (await win.locator('[data-testid="browse-list"] [data-browse-path$="addrfield\\\\a1.txt"]').count()) === 1
+    if (!(await inside())) await win.locator('[data-testid="browse-list"] [data-browse-path$="addrfield"]').dblclick()
+    return until(inside, 10000)
   }
   const shoot = (name) =>
     win.locator('.folder-browser [data-testid="browse-toolbar"]').first().screenshot({ path: join(SHOTS, `address-field-${name}.png`) })
@@ -11570,6 +11804,596 @@ const chosen = (name) =>
   )
 const results = []
 
+/* ----- never a loading screen (#271) ----- */
+
+/**
+ * NEVER A LOADING SCREEN (#271; owner, 2026-10-04: "whenever the app loads, it
+ * has to load the files in the file explorer. Like there's a loading screen
+ * ... I don't ever want to see that ... not even if you launch it from a
+ * restart of the PC, or it's your first time after installing the program").
+ * Design: docs/superpowers/specs/2026-10-04-explorer-never-loading-design.md.
+ *
+ * Every launch here installs TWO probes. `earlyProbe.js` is a frame preload
+ * (main registers it under `PRISM_E2E_EARLY_PROBE`), so it watches from before
+ * the page's first script and records any loading text ("Loading folder",
+ * "Loading…", "Opening Prism") or a word in the boot shell's status line
+ * (review of #271: the page probe alone went in after `domcontentloaded`, and
+ * missed whatever came and went before). The page probe, put in by the
+ * harness, records the same texts from then on and the moment the first
+ * Explorer row appears. Timings are
+ * taken in the page (performance.now), never from the harness's own clock.
+ * Cold-disk timing after a real reboot cannot be done here; it is on the
+ * hands-on list.
+ */
+const NL = join(ROOT, '.e2e', 'never-loading')
+
+function buildNeverLoading() {
+  rmSync(NL, { recursive: true, force: true })
+  const mk = (rel, files = 0, prefix = 'f') => {
+    const dir = join(NL, rel)
+    mkdirSync(dir, { recursive: true })
+    for (let i = 0; i < files; i++)
+      writeFileSync(join(dir, `${prefix}${String(i).padStart(5, '0')}.txt`), 'x'.repeat((i % 97) + 1))
+    return dir
+  }
+  const dirs = {
+    empty: mk('empty'),
+    one: mk('one', 1),
+    deep: mk(join('deep', 'a', 'b', 'c', 'd', 'e', 'f', 'g'), 3),
+    unicode: mk('ünïcødé 日本語 ✓', 4),
+    cached: mk('cached', 40),
+    home: mk('home', 30),
+    // More than 30 entries, so nothing here is read ahead at idle: the folders
+    // under it are COLD until they are opened.
+    cold: mk('cold', 31, 'pad')
+  }
+  mkdirSync(join(dirs.home, 'Documents'), { recursive: true })
+  return {
+    ...dirs,
+    root: NL,
+    big2000: mk(join('cold', 'two-thousand'), 2000),
+    big2000b: mk(join('cold', 'two-thousand-b'), 2000),
+    big2000c: mk(join('cold', 'two-thousand-c'), 2000),
+    big5000: mk(join('cold', 'five-thousand'), 5000),
+    slow: mk(join('cold', 'slow-target'), 5)
+  }
+}
+
+/** Runs in the page, as early as there is one. */
+function installLoadingProbe() {
+  if (window.__nl) return
+  const bad = /Loading folder|Loading…|Opening Prism/
+  const nl = { seen: [], firstRowAt: 0, firstRows: [], emptied: false, marks: [], rowAt: {} }
+  window.__nl = nl
+  const rows = () => [...document.querySelectorAll('[data-testid="browse-list"] .browse-row[data-browse-path]')]
+  const look = (node) => {
+    const el = node.nodeType === 1 ? node : node.parentElement
+    if (!el || el.closest('style,script,head')) return
+    const text = node.nodeType === 3 ? node.data : el.innerText ?? el.textContent
+    if (text && bad.test(text)) nl.seen.push(text.trim().slice(0, 80))
+  }
+  look(document.body)
+  new MutationObserver((records) => {
+    for (const r of records) {
+      if (r.type === 'characterData') look(r.target)
+      for (const n of r.addedNodes) look(n)
+    }
+    const now = rows()
+    const t = performance.now()
+    for (const row of now) {
+      const key = row.dataset.browsePath.toLowerCase()
+      if (!(key in nl.rowAt)) nl.rowAt[key] = t
+    }
+    if (now.length && !nl.firstRowAt) {
+      nl.firstRowAt = performance.now()
+      nl.firstRows = now.map((row) => row.dataset.browsePath)
+    } else if (nl.firstRowAt && !now.length && !nl.paused) nl.emptied = true
+    for (const m of nl.marks) if (!m.at && m.test(now)) m.at = performance.now()
+  }).observe(document.documentElement, { subtree: true, childList: true, characterData: true })
+}
+
+/** What the probes saw, with the first paint of the boot shell for reference. */
+const probeOf = (win) =>
+  win.evaluate(() => ({
+    seen: (() => {
+      let early
+      try {
+        early = JSON.parse(document.documentElement.getAttribute('data-nl-early') ?? 'null')
+      } catch {
+        early = null
+      }
+      return [...(early?.installed ? early.seen : ['no early probe']), ...(window.__nl?.seen ?? ['no probe'])]
+    })(),
+    firstRowAt: window.__nl?.firstRowAt ?? 0,
+    firstRows: window.__nl?.firstRows ?? [],
+    emptied: !!window.__nl?.emptied,
+    fcp: performance.getEntriesByType('paint').find((e) => e.name === 'first-contentful-paint')?.startTime ?? -1
+  }))
+
+/** One launch on `profile` with the probe in, tabs seeded when given. */
+async function launchProbed({ tabs, env = {}, profile = PROFILE } = {}) {
+  if (tabs) {
+    mkdirSync(profile, { recursive: true })
+    writeFileSync(join(profile, 'tabs.json'), JSON.stringify(tabs))
+  }
+  let last
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      const app = await launchTestApp({
+        args: [MAIN, `--user-data-dir=${profile}`, '--e2e'],
+        env: { ...process.env, PRISM_E2E_EARLY_PROBE: join(ROOT, 'tools', 'e2e', 'earlyProbe.js'), ...env }
+      })
+      const win = await app.firstWindow()
+      await win.waitForLoadState('domcontentloaded')
+      await win.evaluate(installLoadingProbe)
+      await offscreen(app)
+      return { app, win }
+    } catch (err) {
+      last = err
+      reapStrays()
+      await sleep(2000 + attempt * 1000)
+    }
+  }
+  throw last
+}
+
+const explorerTab = (id, root, path = root, pinned = true) => ({
+  id,
+  role: 'explorer',
+  ...(pinned ? { pinned: true } : {}),
+  root,
+  browse: {
+    path,
+    history: [{ path, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } }],
+    cursor: 0,
+    surface: 'folder',
+    preview: false
+  },
+  panes: [],
+  open: []
+})
+
+/** The folder the Explorer list is showing, by its accessible name. */
+const shownDir = (win) =>
+  win.evaluate(() =>
+    (document.querySelector('[data-testid="browse-list"]')?.getAttribute('aria-label') ?? '').replace(/^Files in /, '')
+  )
+
+/** Go to a folder by typing it in the address field, as a user would. */
+async function typePath(win, path) {
+  await win.locator('[data-testid="browse-list"]').focus()
+  await win.keyboard.press('Control+l')
+  const field = win.locator('.folder-browser input[aria-label="Folder path"]')
+  await field.waitFor({ timeout: 5000 })
+  await field.fill(path)
+  await field.press('Enter')
+}
+
+const sameDir = (a, b) => a.toLowerCase().replace(/[\\/]+$/, '') === b.toLowerCase().replace(/[\\/]+$/, '')
+async function landed(win, path, timeout = 8000) {
+  return until(async () => sameDir(await shownDir(win), path), timeout, 50)
+}
+
+/** 1. No loading element, ever, at launch or across twenty moves. */
+async function noLoadingEverScenario() {
+  console.log('never a loading screen: twenty moves and a relaunch')
+  const f = buildNeverLoading()
+  const tabs = {
+    active: 0,
+    tabs: [explorerTab('nl-pinned', f.root), explorerTab('nl-second', f.one, f.one, false)]
+  }
+  let { app, win } = await launchProbed({ tabs })
+  try {
+    ok(await landed(win, f.root, 15000), 'the Explorer opens on the fixture folder')
+    const moves = [f.empty, f.one, f.big2000, f.big5000, f.deep, f.unicode, f.cold, f.root, f.cached, f.slow]
+    let landedAll = 0
+    for (const path of moves) {
+      await typePath(win, path)
+      if (await landed(win, path)) landedAll += 1
+    }
+    ok(landedAll === moves.length, `ten folders typed in and shown (${landedAll}/${moves.length}: empty, 1, 2000 and 5000 files, a deep path, Unicode names)`)
+    const back = async (keys, n) => {
+      for (let i = 0; i < n; i++) {
+        await win.locator('[data-testid="browse-list"]').focus()
+        await win.keyboard.press(keys)
+        await sleep(120)
+      }
+    }
+    await back('Alt+ArrowLeft', 4)
+    ok(await landed(win, f.unicode), 'four steps back')
+    await back('Alt+ArrowRight', 2)
+    ok(await landed(win, f.root), 'two forward')
+    await back('Alt+ArrowUp', 1)
+    ok(await landed(win, join(ROOT, '.e2e')), 'one up')
+    await back('Backspace', 1)
+    ok(await landed(win, f.root), 'and Backspace goes back')
+    // Tabs: the second Explorer tab and back, twice.
+    for (let i = 0; i < 2; i++) {
+      await win.locator('[role="tablist"] [role="tab"]').nth(1).click()
+      ok(await landed(win, f.one), `switch ${i + 1} to the second Explorer tab shows its folder`)
+      await win.locator('[role="tablist"] [role="tab"]').nth(0).click()
+      ok(await landed(win, f.root), `and back to the first`)
+    }
+    let probe = await probeOf(win)
+    ok(probe.seen.length === 0, `no loading text and no restoring screen in twenty moves (${JSON.stringify(probe.seen.slice(0, 3))})`)
+    await win.screenshot({ path: join(SHOTS, 'never-loading-moves.png') })
+    await sleep(800)
+    await app.close()
+    await sleep(900)
+    ;({ app, win } = await launchProbed())
+    ok(await until(async () => (await win.locator('[data-testid="browse-list"] .browse-row').count()) > 0, 15000, 50), 'a relaunch shows rows')
+    probe = await probeOf(win)
+    ok(probe.seen.length === 0, `and nothing that reads as loading on the way (${JSON.stringify(probe.seen.slice(0, 3))})`)
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
+/** 2. A launch with the folder in the listing cache paints the cached rows,
+ *  then corrects them in place. */
+async function coldLaunchCachedScenario() {
+  console.log('never a loading screen: launch from the listing cache')
+  const f = buildNeverLoading()
+  const tabs = { active: 0, tabs: [explorerTab('nl-pinned', f.root, f.cached)] }
+  rmSync(join(PROFILE, 'listing-cache'), { recursive: true, force: true })
+  let { app, win } = await launchProbed({ tabs })
+  try {
+    ok(await landed(win, f.cached, 15000), 'the first launch shows the saved folder (not the root)')
+    // The details finish and the cache is written (its index on a 500 ms delay).
+    await sleep(1500)
+    await app.close()
+    await sleep(900)
+    const index = (() => {
+      try {
+        return JSON.parse(readFileSync(join(PROFILE, 'listing-cache', 'index.json'), 'utf8'))
+      } catch {
+        return null
+      }
+    })()
+    ok(!!index?.entries?.some((e) => sameDir(e.path, f.cached)), 'the folder went into the listing cache')
+    writeFileSync(join(f.cached, 'aaa-new.txt'), 'new')
+    const times = []
+    for (let i = 0; i < 3; i++) {
+      ;({ app, win } = await launchProbed({ tabs }))
+      const newKey = join(f.cached, 'aaa-new.txt').toLowerCase()
+      const seenNew = () => win.evaluate((key) => window.__nl.rowAt[key] ?? 0, newKey)
+      ok(await until(seenNew, 5000, 50), `launch ${i + 1}: the file added since appears`)
+      const p = await probeOf(win)
+      const fresh = await seenNew()
+      times.push({ first: Math.round(p.firstRowAt - p.fcp), fixed: Math.round(fresh - p.firstRowAt) })
+      if (i === 0) {
+        ok(p.firstRows.length > 0 && p.firstRows.every((r) => r.toLowerCase().startsWith(f.cached.toLowerCase())), 'the first rows painted are the saved folder')
+        ok(!p.firstRows.some((r) => r.endsWith('aaa-new.txt')), 'and they are the CACHED rows (the new file is not among them yet)')
+        ok(!p.emptied, 'the list never emptied between the cached rows and the fresh ones')
+        ok(p.seen.length === 0, `no loading text (${JSON.stringify(p.seen.slice(0, 3))})`)
+      }
+      await app.close()
+      await sleep(900)
+    }
+    // Launch 1 is the one with a change on disk the cache has not seen; by
+    // launch 2 the cache holds it, so only the first-row times are compared.
+    const median = times.map((t) => t.first).sort((a, b) => a - b)[1]
+    console.log(`  (cached launch, ms after the first paint: first rows ${times.map((t) => t.first).join(', ')}; the new file ${times[0].fixed} ms after them on launch 1)`)
+    ok(median < 400, `rows within 400 ms of the window's first paint (median ${median} ms)`)
+    ok(times[0].fixed >= 0 && times[0].fixed < 500, `the change on disk is shown within 500 ms of them (${times[0].fixed} ms)`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(join(f.cached, 'aaa-new.txt'), { force: true })
+  }
+}
+
+/** 3. The first run after an install: no cache, no saved tabs. */
+async function coldLaunchNoCacheScenario() {
+  console.log('never a loading screen: first run, no cache')
+  const f = buildNeverLoading()
+  const fresh = `${PROFILE}-firstrun`
+  const times = []
+  try {
+    for (let i = 0; i < 3; i++) {
+      rmSync(fresh, { recursive: true, force: true })
+      const { app, win } = await launchProbed({ profile: fresh, env: { PRISM_E2E_HOME: f.home } })
+      try {
+        ok(await until(async () => (await probeOf(win)).firstRowAt > 0, 15000, 50), `first run ${i + 1}: rows appear`)
+        const p = await probeOf(win)
+        ok(sameDir(await shownDir(win), f.home), `in the home folder (${await shownDir(win)})`)
+        ok(p.seen.length === 0, `with nothing that reads as loading (${JSON.stringify(p.seen.slice(0, 3))})`)
+        times.push(Math.round(p.firstRowAt - p.fcp))
+        if (i === 0) await win.screenshot({ path: join(SHOTS, 'never-loading-first-run.png') })
+      } finally {
+        await app.close()
+        await sleep(900)
+      }
+    }
+    const median = [...times].sort((a, b) => a - b)[1]
+    ok(median < 600, `rows within 600 ms of the window's first paint on a first run (${times.join(', ')} ms)`)
+  } finally {
+    rmSync(fresh, { recursive: true, force: true })
+  }
+}
+
+/** Time from a double-click on a folder row to its first row in the DOM. */
+async function openFolderTimed(win, parent, target) {
+  await win.evaluate((dir) => {
+    const nl = window.__nl
+    nl.click = 0
+    nl.marks.length = 0
+    nl.marks.push({ test: (rows) => rows.some((r) => r.dataset.browsePath.toLowerCase().startsWith(`${dir}\\`.toLowerCase())), at: 0 })
+    nl.marks.push({
+      test: (rows) => {
+        const mine = rows.filter((r) => r.dataset.browsePath.toLowerCase().startsWith(`${dir}\\`.toLowerCase()))
+        const cells = mine.map((r) => r.querySelector('.browse-column-size'))
+        return cells.length > 0 && cells.every((c) => c && c.textContent.trim() !== '')
+      },
+      at: 0
+    })
+    if (!nl.clickHooked) {
+      nl.clickHooked = true
+      document.addEventListener('dblclick', () => (window.__nl.click = performance.now()), true)
+    }
+  }, target)
+  await win.locator(`[data-testid="browse-list"] [data-browse-path="${target.replace(/\\/g, '\\\\')}"]`).dblclick()
+  await until(() => win.evaluate(() => window.__nl.marks.every((m) => m.at)), 8000, 30)
+  return win.evaluate(() => ({
+    row: window.__nl.marks[0].at ? Math.round(window.__nl.marks[0].at - window.__nl.click) : -1,
+    sizes: window.__nl.marks[1].at ? Math.round(window.__nl.marks[1].at - window.__nl.click) : -1
+  }))
+}
+
+/** 4. A folder of 2000 files never opened before: rows at once, sizes after. */
+async function newFolder2000Scenario() {
+  console.log('never a loading screen: a new folder of 2000 files')
+  const f = buildNeverLoading()
+  const tabs = { active: 0, tabs: [explorerTab('nl-pinned', f.cold)] }
+  let { app, win } = await launchProbed({ tabs })
+  try {
+    ok(await landed(win, f.cold, 15000), 'the Explorer opens on a folder of 31 files and its subfolders')
+    await sleep(600)
+    const t = await openFolderTimed(win, f.cold, f.big2000)
+    console.log(`  (2000 files: first row ${t.row} ms after the double-click, every visible size ${t.sizes} ms)`)
+    ok(t.row >= 0 && t.row < 50, `the first row is in the DOM within 50 ms of the double-click (${t.row} ms)`)
+    ok(t.sizes >= 0 && t.sizes < 500, `the size cells fill within 500 ms (${t.sizes} ms)`)
+    const p = await probeOf(win)
+    ok(p.seen.length === 0, `no loading text (${JSON.stringify(p.seen.slice(0, 3))})`)
+    await app.close()
+    await sleep(900)
+    // The details held back 600 ms, so a select and a scroll land BEFORE them:
+    // the patch must keep both.
+    ;({ app, win } = await launchProbed({ tabs, env: { PRISM_E2E_DETAILS_DELAY: '600' } }))
+    ok(await landed(win, f.cold, 15000), 'again, with the details held back')
+    await sleep(600)
+    await win.locator(`[data-testid="browse-list"] [data-browse-path="${f.big2000b.replace(/\\/g, '\\\\')}"]`).dblclick()
+    ok(await landed(win, f.big2000b), 'into the second folder of 2000')
+    const blank = await win.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"] .browse-column-size')].every((c) => c.textContent.trim() === '')
+    )
+    ok(blank, 'its size cells are blank, not "0 B", until the details arrive')
+    const pickName = join(f.big2000b, 'f00012.txt')
+    await win.locator(`[data-testid="browse-list"] [data-browse-path="${pickName.replace(/\\/g, '\\\\')}"]`).click()
+    await win.evaluate(() => {
+      const list = document.querySelector('[data-testid="browse-list"]')
+      list.scrollTop = 130
+      list.dispatchEvent(new Event('scroll'))
+    })
+    const filled = await until(
+      () =>
+        win.evaluate(() => {
+          const cells = [...document.querySelectorAll('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"] .browse-column-size')]
+          return cells.length > 0 && cells.every((c) => c.textContent.trim() !== '')
+        }),
+      5000,
+      50
+    )
+    ok(filled, 'the sizes arrive')
+    const after = await win.evaluate((name) => ({
+      selected: document.querySelector(`[data-browse-path="${CSS.escape(name)}"]`)?.getAttribute('aria-selected'),
+      scrollTop: document.querySelector('[data-testid="browse-list"]').scrollTop
+    }), pickName)
+    ok(after.selected === 'true', 'the selection made before them is kept')
+    ok(Math.abs(after.scrollTop - 130) <= 1, `and so is the scroll (${after.scrollTop})`)
+    await app.close()
+    await sleep(900)
+    // SORTED BY SIZE (review of #271): a new folder draws in name order until
+    // the last size is known, then re-sorts ONCE, and the selection and the
+    // scroll made before that survive it.
+    const bySize = {
+      active: 0,
+      tabs: [
+        (() => {
+          const t = explorerTab('nl-pinned', f.cold)
+          t.browse.history[0].sort = { key: 'size', direction: 'desc' }
+          return t
+        })()
+      ]
+    }
+    ;({ app, win } = await launchProbed({ tabs: bySize, env: { PRISM_E2E_DETAILS_DELAY: '600' } }))
+    ok(await landed(win, f.cold, 15000), 'sorted by size, with the details held back')
+    await sleep(600)
+    await win.evaluate(() => {
+      // The first file row, sampled every frame: how many times the order moved.
+      const nl = window.__nl
+      nl.orders = []
+      const tick = () => {
+        const first = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]')?.dataset.browsePath ?? ''
+        if (first && nl.orders[nl.orders.length - 1] !== first) nl.orders.push(first)
+        nl.sampling = requestAnimationFrame(tick)
+      }
+      tick()
+    })
+    await win.locator(`[data-testid="browse-list"] [data-browse-path="${f.big2000c.replace(/\\/g, '\\\\')}"]`).dblclick()
+    ok(await landed(win, f.big2000c), 'into a third new folder of 2000')
+    const firstNow = await win.evaluate(() => document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]')?.dataset.browsePath ?? '')
+    ok(/f00000\.txt$/.test(firstNow), `before the sizes it is in name order (${firstNow.split('\\').pop()})`)
+    const pickSized = join(f.big2000c, 'f00003.txt')
+    await win.locator(`[data-testid="browse-list"] [data-browse-path="${pickSized.replace(/\\/g, '\\\\')}"]`).click()
+    await win.evaluate(() => {
+      const list = document.querySelector('[data-testid="browse-list"]')
+      list.scrollTop = 130
+      list.dispatchEvent(new Event('scroll'))
+    })
+    const resorted = await until(
+      () =>
+        win.evaluate(() => {
+          const first = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]')
+          return !!first && first.querySelector('.browse-column-size')?.textContent.trim() !== '' && !/f00000\.txt$/.test(first.dataset.browsePath)
+        }),
+      5000,
+      50
+    )
+    await sleep(300)
+    const sized = await win.evaluate((name) => {
+      cancelAnimationFrame(window.__nl.sampling)
+      const orders = window.__nl.orders
+      const at = orders.findIndex((p) => /two-thousand-c/i.test(p))
+      return {
+        first: document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]')?.dataset.browsePath ?? '',
+        moves: at < 0 ? -1 : orders.length - at - 1,
+        selected: document.querySelector(`[data-browse-path="${CSS.escape(name)}"]`)?.getAttribute('aria-selected') ?? null,
+        scrollTop: document.querySelector('[data-testid="browse-list"]').scrollTop
+      }
+    }, pickSized)
+    // Sizes run 1 to 97 bytes by i % 97, so the biggest files are f00096 and
+    // every 97th after it.
+    const firstIndex = Number(/f(\d+)\.txt$/.exec(sized.first)?.[1] ?? -1)
+    ok(resorted && firstIndex % 97 === 96, `once the sizes are in it is sorted by size, biggest first (${sized.first.split('\\').pop()})`)
+    ok(sized.moves === 1, `the order moved exactly once, not with every patch (${sized.moves})`)
+    ok(Math.abs(sized.scrollTop - 130) <= 1, `the scroll made before it is kept (${sized.scrollTop})`)
+    // The selected row may have scrolled out of the drawn window with its
+    // file, so the selection is read where the app keeps it: the tab's saved
+    // place (written 400 ms after a change).
+    const stillSelected = await until(() => {
+      try {
+        const saved = JSON.parse(readFileSync(join(PROFILE, 'tabs.json'), 'utf8'))
+        const tab = saved.tabs.find((t) => t.role === 'explorer' && t.browse && sameDir(t.browse.path, f.big2000c))
+        const at = tab?.browse.history[tab.browse.cursor]
+        return !!at && sameDir(at.selected ?? '', pickSized)
+      } catch {
+        return false
+      }
+    }, 3000, 100)
+    ok(stillSelected, 'and so is the selection, which moved with its file')
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
+/** 5. A folder slower than 300 ms: old rows first, then the header and a bar. */
+async function slowFolderHintScenario() {
+  console.log('never a loading screen: a slow folder')
+  const f = buildNeverLoading()
+  const tabs = { active: 0, tabs: [explorerTab('nl-pinned', f.root)] }
+  const { app, win } = await launchProbed({ tabs, env: { PRISM_E2E_LIST_DELAY: '800' } })
+  try {
+    ok(await landed(win, f.root, 15000), 'the Explorer shows the fixture folder')
+    await until(async () => (await win.locator('[data-testid="browse-list"] .browse-row').count()) > 0, 5000, 50)
+    await sleep(1200)
+    await typePath(win, f.slow)
+    const sample = () =>
+      win.evaluate((root) => {
+        const rows = [...document.querySelectorAll('[data-testid="browse-list"] .browse-row[data-browse-path]')]
+        return {
+          old: rows.filter((r) => r.dataset.browsePath.toLowerCase().startsWith(root.toLowerCase() + '\\') && !r.dataset.browsePath.toLowerCase().includes('slow-target')).length,
+          rows: rows.length,
+          bar: !!document.querySelector('.browse-progress[data-on]'),
+          header: !!document.querySelector('.folder-browser .browse-columns'),
+          status: document.querySelector('.browse-status')?.textContent ?? '',
+          address: document.querySelector('.folder-browser nav.browse-path')?.textContent ?? ''
+        }
+      }, f.root)
+    await sleep(150)
+    const early = await sample()
+    ok(early.old > 0 && !early.bar, `under 300 ms the old rows stay and there is no bar (${early.old} rows)`)
+    ok(early.address.includes('slow-target'), 'the address already says where it is going')
+    await sleep(300)
+    const late = await sample()
+    ok(late.rows === 0 && late.header && late.bar, 'past 300 ms: the header, no rows, and the thin bar under it')
+    ok(/Reading folder/.test(late.status), `the status line says what is happening ("${late.status}")`)
+    await win.screenshot({ path: join(SHOTS, 'never-loading-slow.png') })
+    ok(await until(async () => (await sample()).rows > 0, 5000, 50), 'then the folder arrives')
+    ok(!(await sample()).bar, 'and the bar goes')
+    const p = await probeOf(win)
+    ok(p.seen.length === 0, `no loading text at any point (${JSON.stringify(p.seen.slice(0, 3))})`)
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
+/** 6. A tab switch draws rows at once, with every read held back 800 ms. */
+async function tabSwitchInstantScenario() {
+  console.log('never a loading screen: a tab switch')
+  const f = buildNeverLoading()
+  const tabs = {
+    active: 0,
+    tabs: [explorerTab('nl-pinned', f.root), explorerTab('nl-second', f.cold, f.cold, false)]
+  }
+  const { app, win } = await launchProbed({ tabs, env: { PRISM_E2E_LIST_DELAY: '800' } })
+  try {
+    ok(await landed(win, f.root, 15000), 'the first Explorer tab shows its folder')
+    await sleep(1200)
+    const times = []
+    for (const [index, dir] of [[1, f.cold], [0, f.root], [1, f.cold]]) {
+      await win.evaluate((target) => {
+        const nl = window.__nl
+        nl.marks.length = 0
+        // A row DIRECTLY in the target: `cold` is inside `root`, so a prefix
+        // match on root was already true on cold's rows and the mark fired
+        // before the click (a negative time, seen in a rerun).
+        const base = `${target}\\`.toLowerCase()
+        nl.marks.push({
+          test: (rows) => rows.some((r) => {
+            const p = r.dataset.browsePath.toLowerCase()
+            return p.startsWith(base) && !p.slice(base.length).includes('\\')
+          }),
+          at: 0
+        })
+        nl.down = 0
+        if (!nl.downHooked) {
+          nl.downHooked = true
+          document.addEventListener('pointerdown', () => (window.__nl.down = performance.now()), true)
+        }
+      }, dir)
+      await win.locator('[role="tablist"] [role="tab"]').nth(index).click()
+      await until(() => win.evaluate(() => !!window.__nl.marks[0].at), 3000, 20)
+      times.push(await win.evaluate(() => Math.round(window.__nl.marks[0].at - window.__nl.down)))
+    }
+    console.log(`  (tab switch to rows: ${times.join(', ')} ms, every folder read held 800 ms)`)
+    ok(times.every((t) => t >= 0 && t < 100), `each switch draws its rows without waiting on a read (${times.join(', ')} ms, a read would take over 800)`)
+    const p = await probeOf(win)
+    ok(p.seen.length === 0, `no loading text (${JSON.stringify(p.seen.slice(0, 3))})`)
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
+/** Settings > General > Remember folders: off deletes the cache, Clear too. */
+async function rememberFoldersScenario() {
+  console.log('never a loading screen: the Remember folders setting')
+  const f = buildNeverLoading()
+  const tabs = { active: 0, tabs: [explorerTab('nl-pinned', f.root, f.cached)] }
+  rmSync(join(PROFILE, 'listing-cache'), { recursive: true, force: true })
+  const { app, win } = await launchProbed({ tabs })
+  const cacheDir = join(PROFILE, 'listing-cache')
+  const files = () => (existsSync(cacheDir) ? readdirSync(cacheDir).filter((n) => n.endsWith('.json') && n !== 'index.json').length : 0)
+  try {
+    ok(await landed(win, f.cached, 15000), 'the Explorer shows a folder')
+    ok(await until(() => files() > 0, 5000), `and it is kept on disk (${files()} file(s))`)
+    await win.click('[aria-label="Settings"]')
+    await win.click('button:has-text("General")')
+    const row = win.locator('#remember-folders-clear')
+    ok(await until(async () => (await row.count()) === 1, 5000), 'Settings > General has Remember folders')
+    await row.click()
+    ok(await until(() => files() === 0, 5000), 'Clear deletes what was kept')
+    const sw = win.locator('button[role="switch"][aria-label="Remember folders"]')
+    ok((await sw.getAttribute('aria-checked')) === 'true', 'the switch is on by default')
+    await sw.click()
+    ok(await until(() => !existsSync(cacheDir), 5000), 'off deletes the folder')
+    await sw.click()
+    ok((await sw.getAttribute('aria-checked')) === 'true', 'and it can be switched back on')
+  } finally {
+    await win.evaluate(() => localStorage.removeItem('prism.explorer.rememberFolders')).catch(() => {})
+    await app.close().catch(() => {})
+  }
+}
+
 async function run(fn, gap = 900) {
   const name = fn.name.replace(/Scenario$/, '')
   if (!chosen(name)) return
@@ -11653,6 +12477,14 @@ await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
+await run(columnHeadersScenario)
+await run(noLoadingEverScenario)
+await run(coldLaunchCachedScenario)
+await run(coldLaunchNoCacheScenario)
+await run(newFolder2000Scenario)
+await run(slowFolderHintScenario)
+await run(tabSwitchInstantScenario)
+await run(rememberFoldersScenario)
 await run(listScrollbarScenario)
 await run(addressFieldScenario)
 await run(explorerVerbsScenario)

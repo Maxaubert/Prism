@@ -92,6 +92,12 @@ never shipped: one small app that opens everything and looks good doing it.
   Crash reports stay on your PC (in Prism's own folder under `%APPDATA%`) and are never
   uploaded anywhere.
 
+- **Opens instantly, every time**: the Explorer shows the folder you left, even right after a
+  restart, because it keeps a small list of what is in the folders you open (file names, sizes
+  and dates). That list stays on your PC, under Prism's own folder in `%APPDATA%`, is never
+  sent anywhere, and is never kept for network or removable drives. Turn it off or clear it in
+  Settings → General → Remember folders.
+
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
 
 ## Shared engine

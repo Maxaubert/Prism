@@ -23,7 +23,7 @@ const HexView = lazy(() => import('./HexView').then((m) => ({ default: m.HexView
  * whole question: what is this actually, and did it download completely.
  */
 export function UnsupportedView({ file }: { file: ViewerFile }): JSX.Element {
-  const size = formatBytes(file.size)
+  const size = file.size === undefined ? '' : formatBytes(file.size)
   const [hex, setHex] = useState(false)
 
   if (hex) {
@@ -33,7 +33,7 @@ export function UnsupportedView({ file }: { file: ViewerFile }): JSX.Element {
           <div className="grid h-full place-items-center text-sm text-[var(--p-dim)]">Reading…</div>
         }
       >
-        <HexView path={file.path} size={file.size} onClose={() => setHex(false)} />
+        <HexView path={file.path} size={file.size ?? 0} onClose={() => setHex(false)} />
       </Suspense>
     )
   }

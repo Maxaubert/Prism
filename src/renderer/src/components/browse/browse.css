@@ -418,7 +418,9 @@ body[data-internal-file-drag] .browse-path:focus-within {
   display: grid;
   grid-template-columns: minmax(160px, 1fr) 128px 76px 136px;
   align-items: center;
-  column-gap: 12px;
+  /* A variable, so the header's cells can reach half of it each way. */
+  --browse-col-gap: 12px;
+  column-gap: var(--browse-col-gap);
   padding: 0 var(--browse-row-pad, 8px);
 }
 .browse-columns {
@@ -432,33 +434,84 @@ body[data-internal-file-drag] .browse-path:focus-within {
   overflow: hidden;
   flex-shrink: 0;
 }
+/* A HEADER CELL IS ITS WHOLE BOX, AS IN FILE EXPLORER (owner, 2026-10-04:
+   "if I highlight over name, it doesn't reach all the way out to the edges
+   ... that highlight effect should be inside the whole box", and of Date
+   modified, "on the right side, there's a gap where there's no highlight
+   effect"). The header keeps the rows' grid, so every label stays over its
+   column; each cell then reaches out by half the gap on both sides, and the
+   first and last by the side padding, so the cells tile the header from edge
+   to edge and the fill covers all of a cell. The last cell is set again
+   below wherever a narrow layout hides a column. */
 .browse-columns button {
+  --browse-col-edge-l: calc(var(--browse-col-gap) / 2);
+  --browse-col-edge-r: calc(var(--browse-col-gap) / 2);
   display: flex;
   align-items: center;
   gap: 6px;
   height: 100%;
+  min-width: 0;
+  margin: 0 calc(-1 * var(--browse-col-edge-r)) 0 calc(-1 * var(--browse-col-edge-l));
+  padding: 0 var(--browse-col-edge-r) 0 var(--browse-col-edge-l);
   text-align: left;
   white-space: nowrap;
 }
-.browse-column-size {
+.browse-columns button:first-child {
+  --browse-col-edge-l: var(--browse-row-pad, 8px);
+}
+.browse-columns button:last-child {
+  --browse-col-edge-r: var(--browse-row-pad, 8px);
+}
+.folder-browser .browse-columns button:active {
+  background: color-mix(in srgb, var(--p-text) 10%, transparent);
+}
+/* No focus BOX here either (the toolbar's rule, owner 2026-10-04: "remove
+   focus boxes around these"): focus is shown as the hover's fill. */
+.folder-browser .browse-columns button:focus-visible {
+  outline: none;
+  background: var(--p-hover);
+}
+/* The Size values stay right-aligned so their digits line up, as Explorer's
+   do; the Size HEADER reads from the left like every other (owner,
+   2026-10-04: "the size column should also have its name aligned to the
+   left"). */
+.browse-row .browse-column-size {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.browse-columns .browse-column-size {
-  justify-content: flex-end;
+.browse-sort-arrow {
+  display: flex;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
 }
 .browse-sort-arrow svg {
   width: 12px;
   height: 12px;
 }
+.browse-columns button:hover .browse-sort-arrow,
+.browse-columns button:focus-visible .browse-sort-arrow,
+.browse-sort-arrow[data-sorted] {
+  opacity: 1;
+}
 .browse-sort-arrow[data-descending='true'] {
   transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .browse-sort-arrow {
+    transition: none;
+  }
 }
 .browse-list {
   /* The sweep rectangle is drawn inside it, in its scroll coordinates. */
   position: relative;
   min-height: 0;
   overflow: auto;
+  /* No scroll anchoring (review of #271): the rows are placed by index, so
+     when a size sort lands after a names-first read and the row Chromium
+     chose as its anchor moves, it "kept the anchor in view" by moving the
+     scroll. MEASURED in newFolder2000: 130 px became 52. The list owns its
+     scroll position; a re-sort must not move it. */
+  overflow-anchor: none;
   flex: 1;
   outline: none;
 }
@@ -650,6 +703,10 @@ body[data-internal-file-drag] .browse-path:focus-within {
   .browse-row {
     grid-template-columns: minmax(120px, 1fr) 116px 72px;
   }
+  /* Date modified is gone, so Size is the last cell and reaches the edge. */
+  .browse-columns .browse-column-size {
+    --browse-col-edge-r: var(--browse-row-pad, 8px);
+  }
 }
 @container (max-width: 510px) {
   .browse-column-type {
@@ -658,7 +715,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
   .browse-columns,
   .browse-row {
     grid-template-columns: minmax(110px, 1fr) 72px;
-    column-gap: 10px;
+    --browse-col-gap: 10px;
   }
 }
 @container (max-width: 300px) {
@@ -668,6 +725,9 @@ body[data-internal-file-drag] .browse-path:focus-within {
   .browse-columns,
   .browse-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .browse-columns .browse-column-name {
+    --browse-col-edge-r: var(--browse-row-pad, 8px);
   }
 }
 @container (max-width: 690px) {
@@ -711,6 +771,10 @@ body[data-internal-file-drag] .browse-path:focus-within {
 .browse-list-area[data-searching] .browse-columns .browse-column-size {
   display: flex !important;
 }
+/* Search always shows Size, so Name never ends the header there. */
+.browse-list-area[data-searching] .browse-columns .browse-column-name {
+  --browse-col-edge-r: calc(var(--browse-col-gap) / 2);
+}
 
 /* Explorer size Large is the Explorer as it was before #257 (main, 2026-10-02):
    wider columns and gaps, a 36px header, and the quiet columns at 13px under
@@ -718,7 +782,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
    these are the parts a variable does not reach. */
 .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
   grid-template-columns: minmax(160px, 1fr) 150px 90px 160px;
-  column-gap: 16px;
+  --browse-col-gap: 16px;
 }
 .browse-list-area[data-row-size='large'] .browse-columns {
   height: 36px;
@@ -740,7 +804,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
 @container (max-width: 510px) {
   .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
     grid-template-columns: minmax(110px, 1fr) 80px;
-    column-gap: 10px;
+    --browse-col-gap: 10px;
   }
 }
 @container (max-width: 300px) {
@@ -750,4 +814,57 @@ body[data-internal-file-drag] .browse-path:focus-within {
 }
 .browse-list-area[data-row-size='large'][data-searching] :is(.browse-columns, .browse-row) {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 90px;
+}
+/* NO LOADING SCREEN (#271). A folder that has not answered keeps the rows it
+   had; past 120 ms they dim, so a slow read does not look like the old
+   folder. Most folders answer in a few ms, which is under the delay, so
+   nothing is ever seen to dim. */
+.browse-list-area[data-pending] .browse-row-space {
+  opacity: 0.6;
+  transition: opacity 120ms ease-out 120ms;
+}
+/* Past 300 ms: a thin bar running under the header. Always in the layout,
+   on top of the header's bottom rule, so nothing moves when it shows. */
+.browse-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--browse-row-h, 26px) + 6px - 1px);
+  height: 2px;
+  z-index: 2;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+.browse-progress[data-on] {
+  opacity: 1;
+}
+.browse-progress::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  left: -30%;
+  background: var(--p-accent);
+}
+.browse-progress[data-on]::after {
+  animation: browse-progress-run 1.1s ease-in-out infinite;
+}
+@keyframes browse-progress-run {
+  to {
+    left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .browse-list-area[data-pending] .browse-row-space {
+    transition: none;
+  }
+  .browse-progress[data-on]::after {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+  }
 }
