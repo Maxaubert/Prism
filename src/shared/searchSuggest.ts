@@ -20,8 +20,9 @@ export interface SuggestHit {
 }
 
 /** How many the popup holds before "Show more" (owner, 2026-10-04: "can hold
- *  a bit more items, so you can scroll, say maybe 50"). It was 8. */
-export const SUGGEST_COUNT = 50
+ *  a bit more items, so you can scroll", 50, then "maybe 25 items instead of
+ *  50"). It was 8. */
+export const SUGGEST_COUNT = 25
 
 const stem = (name: string): string => name.replace(/\.[^.]+$/, '')
 

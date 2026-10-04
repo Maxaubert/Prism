@@ -74,8 +74,9 @@
     animation-duration: 2s;
   }
 }
-/* Up to 50 likely matches (owner, same day: "can hold a bit more items, so
-   you can scroll, say maybe 50"), scrolling inside the panel with a thin bar;
+/* Up to 25 likely matches (owner, same day: "can hold a bit more items, so
+   you can scroll", first 50, then "maybe 25 items instead of 50"), scrolling
+   inside the panel on Prism's own slim bar (Windows' thin one drew its arrow);
    about ten rows show before it scrolls. */
 .browse-search-popup-list {
   min-height: 0;
@@ -84,8 +85,6 @@
   margin: 0;
   padding: 2px 8px 8px;
   list-style: none;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--p-text) 22%, transparent) transparent;
 }
 .browse-search-popup-empty {
   margin: 0;
@@ -128,18 +127,12 @@
   color: var(--p-dim);
   font-size: 12px;
 }
-/* Show more stays in reach at the foot of a long list: it sticks to the
-   bottom of the scroll, on the panel's own ground, with no rule above it. */
+/* Show more is the list's LAST ITEM, scrolled to like any other (owner,
+   2026-10-04: "the show more in search should just be an item at the bottom of
+   the list"); pinned to the foot it covered the row above it. */
 .browse-search-popup-more {
-  position: sticky;
-  bottom: -8px;
   justify-content: space-between;
-  margin-top: 4px;
   color: var(--p-text-soft);
-  background: var(--p-side-flat);
-}
-.browse-search-popup-more[data-active] {
-  background: color-mix(in srgb, var(--p-text) 9%, var(--p-side-flat));
 }
 .browse-search-popup-key {
   color: var(--p-dim);

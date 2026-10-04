@@ -154,6 +154,14 @@
   white-space: nowrap;
   color: var(--p-text);
 }
+/* The full-view button is an icon now: a square hit box round it. */
+.browse-preview-actions button[data-open-full] {
+  width: 32px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--p-text-soft);
+}
 .browse-return-row button:hover,
 .browse-preview-actions button:hover,
 .browse-terminal-actions button:hover {

@@ -4006,8 +4006,29 @@ export default function App(): JSX.Element {
               />
               {previewSlide.out && browsing.previewFile && (
                 <div className="browse-preview-actions">
-                  <button onClick={() => void browsing.openFile(browsing.previewFile!, true, false)}>
-                    Open full view
+                  {/* An icon, two arrows out to the corners (owner, 2026-10-04:
+                      "make this a fullscreen icon, the one with the two
+                      diagonal arrows, not the frame icon"); the words stay as
+                      its tooltip and its name for a screen reader. */}
+                  <button
+                    data-open-full
+                    aria-label="Open full view"
+                    title="Open full view"
+                    onClick={() => void browsing.openFile(browsing.previewFile!, true, false)}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width={16}
+                      height={16}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.8}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7" />
+                    </svg>
                   </button>
                 </div>
               )}
