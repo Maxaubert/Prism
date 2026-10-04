@@ -139,7 +139,7 @@ const api = {
   memoryGet: (path: string): Promise<FileMemory | null> => ipcRenderer.invoke('pos:get', path),
   memorySet: (path: string, patch: FileMemoryPatch): void =>
     ipcRenderer.send('pos:set', path, patch),
-  // Prism on your phone (#104): the Tools > Phone dialog's state and verbs.
+  // Prism on your phone (#104): the More > Phone dialog's state and verbs.
   // Every verb answers with the whole state for `root` (the current tab), so
   // the dialog never has to guess what a click did.
   /** The dialog's state: switch, port, addresses, phones, and a code for `root`. */

@@ -28,8 +28,15 @@ describe('no focus rings', () => {
   })
 
   it('no class draws a ring or an outline on focus', () => {
+    // A ring's COLOUR may change on focus where the element already wears a
+    // hairline ring as its edge (a swatch: its hover look); a ring's WIDTH
+    // (ring, ring-2, ring-offset) may not, that is the box.
     const hits = all.flatMap((f) =>
-      [...f.src.matchAll(/\b(?:group-|peer-)?focus(?:-visible|-within)?:(?:ring|outline)(?!-none)[^\s'"`]*/g)].map(
+      [
+        ...f.src.matchAll(
+          /\b(?:group-|peer-)?focus(?:-visible|-within)?:(?:ring(?:-\d+|-inset|-offset[^\s'"`]*)?(?=[\s'"`]|$)|outline(?!-none)[^\s'"`]*)/g
+        )
+      ].map(
         (m) => `${f.path}: ${m[0]}`
       )
     )
@@ -55,5 +62,40 @@ describe('no focus rings', () => {
     const css = all.find((f) => f.path === 'index.css')!.src
     expect(css).toMatch(/:focus-visible:where\([^)]*\)[^{]*\{\s*outline: none;/)
     expect(css).toMatch(/background-image: linear-gradient\(var\(--p-hover\), var\(--p-hover\)\)/)
+  })
+})
+
+// Each of these showed NO focus at all in the review of #272 (measured:
+// focused and unfocused computed styles identical).
+describe('focus still shows where the ring went', () => {
+  const src = (path: string): string => all.find((f) => f.path === path)!.src
+
+  it('a slider gets the stronger fill, its box is a thin track', () => {
+    expect(src('index.css')).toMatch(
+      /:where\(input\[type='range'\]\):focus-visible \{\s*background-image: linear-gradient\(var\(--p-hover-hi\)/
+    )
+  })
+
+  it("a field's focus edge is in the utilities layer, so a border class cannot hide it", () => {
+    const css = src('index.css')
+    const layer = css.slice(css.indexOf('@layer utilities'))
+    expect(layer).toMatch(/textarea:focus-visible/)
+    expect(layer).toMatch(/border-color: color-mix\(in srgb, var\(--p-text\) 28%, transparent\)/)
+  })
+
+  it('no Explorer mark sets the background shorthand, which wipes the focus fill', () => {
+    const hits = [...src('components/browse/browse.css').matchAll(/([^{}]*\[(?:aria-current|data-selected|data-menu|aria-pressed)[^{}]*)\{([^}]*)\}/g)]
+      .filter((m) => /(?:^|[;\s])background\s*:/.test(m[2]))
+      .map((m) => m[1].trim())
+    expect(hits).toEqual([])
+  })
+
+  it('a card or swatch painted inline still shows focus', () => {
+    // The appearance cards: the other inline backgrounds there are previews
+    // drawn inside a card, not focusable.
+    expect(src('components/Onboarding.tsx')).toMatch(
+      /aria-pressed=\{mode === m\}[\s\S]{0,900}style=\{\{ backgroundColor: 'var\(--p-hover\)' \}\}/
+    )
+    expect(src('components/Settings.tsx')).toMatch(/hover:ring-white\/30 focus-visible:ring-white\/30/)
   })
 })

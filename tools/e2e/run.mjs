@@ -5214,27 +5214,49 @@ async function moreMenuScenario(fixtures) {
   const menus = () => win.locator('[role="menu"]').count()
   const expanded = () => win.locator(button).getAttribute('aria-expanded')
   /** Keyboard focus on an element, as Chromium decides it: a key first, so
-   *  the focus that follows is :focus-visible, which is where a ring was. */
-  const keyFocus = async (sel) => {
-    await win.keyboard.press('Shift')
-    return win.evaluate((s) => {
-      const el = typeof s === 'string' ? document.querySelector(s) : null
+   *  the focus that follows is :focus-visible, which is where a ring was.
+   *  Measured AGAINST the same element unfocused: "it has a fill" proved
+   *  nothing on a control that is always filled (#272 review), so what is
+   *  reported is which of its paints CHANGED with the focus. */
+  const look = (s) =>
+    win.evaluate((sel) => {
+      const el = document.querySelector(sel)
       if (!el) return null
-      el.focus()
       const cs = getComputedStyle(el)
-      const filled =
-        cs.backgroundImage.includes('gradient') ||
-        (cs.backgroundColor !== 'transparent' && !/rgba\(0, 0, 0, 0\)/.test(cs.backgroundColor))
       return {
         focused: document.activeElement === el,
         visible: el.matches(':focus-visible'),
         outline: cs.outlineStyle === 'none' || parseFloat(cs.outlineWidth) === 0 ? 'none' : `${cs.outlineStyle} ${cs.outlineWidth}`,
-        shadow: cs.boxShadow,
-        filled,
-        bg: cs.backgroundImage !== 'none' ? cs.backgroundImage : cs.backgroundColor
+        paint: {
+          backgroundImage: cs.backgroundImage,
+          backgroundColor: cs.backgroundColor,
+          borderColor: cs.borderTopColor,
+          boxShadow: cs.boxShadow
+        }
       }
-    }, sel)
+    }, s)
+  const keyFocus = async (sel) => {
+    await win.mouse.move(2, 400)
+    await win.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur())
+    await sleep(300)
+    const before = await look(sel)
+    await win.keyboard.press('Shift')
+    await win.evaluate((s) => document.querySelector(s)?.focus(), sel)
+    await sleep(300)
+    const after = await look(sel)
+    if (!before || !after) return null
+    const changed = Object.keys(after.paint).filter((k) => after.paint[k] !== before.paint[k])
+    return { focused: after.focused, visible: after.visible, outline: after.outline, changed, before: before.paint, after: after.paint }
   }
+  /** No box, and SOMETHING other than a ring shows the focus. `shadowOk` is
+   *  for a swatch, whose edge IS a hairline ring that brightens as on hover. */
+  const noBoxButShown = (f, shadowOk = false) =>
+    !!f &&
+    f.focused &&
+    f.visible &&
+    f.outline === 'none' &&
+    f.changed.length > 0 &&
+    (shadowOk || !f.changed.includes('boxShadow'))
   try {
     await win.waitForSelector(button, { timeout: 10000 })
 
@@ -5292,15 +5314,37 @@ async function moreMenuScenario(fixtures) {
     await keyFocus(button)
     await win.keyboard.press('Enter')
     ok(await until(async () => (await menus()) === 1, 3000, 50), 'Enter on the focused button opens it')
+    // AND THE ROWS ARE REACHABLE (#272 review: the focus stayed on the
+    // button, and the menu, drawn at the end of the page, was a window of
+    // Tabs away): a keyboard open puts the focus on the first row, Down and
+    // Up walk the rows, Escape gives the focus back to the button.
+    const active = () =>
+      win.evaluate(() => ({
+        role: document.activeElement?.getAttribute('role') ?? null,
+        text: document.activeElement?.textContent?.trim() ?? '',
+        more: document.activeElement?.hasAttribute('data-more-button') ?? false
+      }))
+    const first = await active()
+    ok(first.role === 'menuitem' && first.text === 'Phone', `the focus is on the first row, Phone (${JSON.stringify(first)})`)
+    await win.keyboard.press('ArrowDown')
+    const walked = await active()
+    ok(walked.role === 'menuitem', `Down keeps the focus on a row (${JSON.stringify(walked)})`)
     await win.keyboard.press('Escape')
     ok(await until(async () => (await menus()) === 0, 3000, 50), 'Escape closes it')
+    ok(await until(async () => (await active()).more, 2000, 50), `and hands the focus back to the button (${JSON.stringify(await active())})`)
+    // A click open does not take the focus off the button.
+    await win.click(button)
+    await until(async () => (await menus()) === 1, 3000, 50)
+    ok((await active()).role !== 'menuitem', 'a click open leaves the focus where it was')
+    await win.click(button)
+    await until(async () => (await menus()) === 0, 3000, 50)
 
     // NO FOCUS BOX on the title bar's buttons: the focus is a fill.
     for (const sel of [button, '[data-title-bar] [aria-label="Settings"]', '[data-title-bar] [aria-label="Minimize"]']) {
       const f = await keyFocus(sel)
       ok(
-        !!f && f.focused && f.visible && f.outline === 'none' && f.shadow === 'none' && f.filled,
-        `a keyboard-focused ${sel.replace('[data-title-bar] ', '')} has no outline and a fill (${JSON.stringify(f)})`
+        noBoxButShown(f) && f.changed.includes('backgroundImage'),
+        `a keyboard-focused ${sel.replace('[data-title-bar] ', '')} has no outline and gains the fill (${JSON.stringify(f)})`
       )
     }
     await keyFocus(button)
@@ -5321,15 +5365,65 @@ async function moreMenuScenario(fixtures) {
     })
     for (const [name, sel] of [['segment', '[data-e2e-seg]'], ['dropdown', '[data-e2e-select]']]) {
       const f = await keyFocus(sel)
-      ok(
-        !!f && f.focused && f.visible && f.outline === 'none' && f.shadow === 'none' && f.filled,
-        `a keyboard-focused settings ${name} has no outline and a fill (${JSON.stringify(f)})`
-      )
+      ok(noBoxButShown(f), `a keyboard-focused settings ${name} has no outline and its focus shows (${JSON.stringify(f)})`)
     }
     await win.locator('[data-e2e-seg]').scrollIntoViewIfNeeded()
     await keyFocus('[data-e2e-seg]')
     await win.screenshot({ path: join(SHOTS, 'more-settings-focus.png') })
+
+    // WHAT SHOWED NO FOCUS AT ALL in the review of #272, each measured
+    // focused against unfocused.
+    // A TEXT FIELD whose edge colour is a class, as Explorer's rename field
+    // is: the field's focus edge must beat the class (it lost to it from the
+    // base layer). The rename field's own classes, on a probe field.
+    await win.evaluate(() => {
+      const f = document.createElement('input')
+      f.className = 'mt-2 block w-full rounded border border-[var(--p-divider)] bg-[var(--p-bg)] p-2 text-[var(--p-text)]'
+      f.setAttribute('data-e2e-field', '')
+      document.querySelector('[data-settings-page]')?.prepend(f)
+    })
+    const field = await keyFocus('[data-e2e-field]')
+    ok(
+      noBoxButShown(field) && field.changed.includes('borderColor'),
+      `a focused text field with a border class shows it on its edge, no ring (${JSON.stringify(field)})`
+    )
+    await win.evaluate(() => document.querySelector('[data-e2e-field]')?.remove())
+    // A SLIDER (Progress bar > Behind the controls): its track takes the fill.
+    await win.click('button:has-text("Progress bar")')
+    await win.locator('input#transport-bg').waitFor({ timeout: 8000 })
+    // A colour swatch (Progress bar > Colour), painted by an inline background: its hairline edge
+    // brightens, as on hover.
+    const marked = await win.evaluate(() => {
+      const sw = [...document.querySelectorAll('[data-settings-page] button[aria-pressed="false"]')].find(
+        (b) => b instanceof HTMLElement && b.style.background && b.className.includes('ring-1')
+      )
+      sw?.setAttribute('data-e2e-swatch', '')
+      return !!sw
+    })
+    ok(marked, 'found an unpicked colour swatch')
+    await win.locator('[data-e2e-swatch]').scrollIntoViewIfNeeded()
+    const sw = await keyFocus('[data-e2e-swatch]')
+    ok(noBoxButShown(sw, true), `a keyboard-focused swatch has no outline and its edge shows the focus (${JSON.stringify(sw)})`)
+    await win.locator('input#transport-bg').scrollIntoViewIfNeeded()
+    const slider = await keyFocus('input#transport-bg')
+    ok(
+      noBoxButShown(slider) && slider.changed.includes('backgroundImage'),
+      `a keyboard-focused slider has no outline and gains the fill (${JSON.stringify(slider)})`
+    )
     await win.click('[data-title-bar] [aria-label="Settings"]')
+    await sleep(300)
+
+    // WITH THE TITLE BAR HIDDEN the button lives at the end of the tab row,
+    // and toggles there too.
+    await pickStyleSegment(win, 'title-bar', 'Hidden')
+    const rowButton = '[data-title-bar="tabs"] [data-more-button]'
+    ok(await until(async () => (await win.locator(rowButton).count()) === 1, 5000), 'Hidden: More is in the tab row')
+    await win.click(rowButton)
+    ok(await until(async () => (await menus()) === 1, 3000, 50), 'a click there opens the menu')
+    await win.click(rowButton)
+    await sleep(400)
+    ok((await menus()) === 0, 'and a second click there closes it')
+    await pickStyleSegment(win, 'title-bar', 'Shown')
   } finally {
     await app.close()
   }

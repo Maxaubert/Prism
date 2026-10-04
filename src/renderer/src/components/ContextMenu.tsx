@@ -103,6 +103,7 @@ export function ContextMenu({
   y,
   items,
   anchor,
+  keyboard,
   onClose
 }: {
   x: number
@@ -114,6 +115,11 @@ export function ContextMenu({
    *  (owner, 2026-10-04: "clicking this button opens the menu each time, it
    *  should open then close open close"). */
   anchor?: HTMLElement | null
+  /** Opened from the keyboard: the first row takes the focus, Up and Down
+   *  walk the rows, and Escape hands the focus back to `anchor` (#272
+   *  review: Enter opened More but the focus stayed on the button, and the
+   *  menu, drawn at the end of the page, was a whole window of Tabs away). */
+  keyboard?: boolean
   onClose: () => void
 }): JSX.Element {
   const box = useRef<HTMLDivElement>(null)
@@ -191,11 +197,36 @@ export function ContextMenu({
     if (Math.abs(fx - sub.x) > 0.01 || Math.abs(fy - sub.y) > 0.01) setSub({ ...sub, x: fx, y: fy })
   }, [sub, subItems, subIndex, pos.x, pos.y])
 
+  const rows = (): HTMLElement[] =>
+    [...(box.current?.querySelectorAll<HTMLButtonElement>(':scope > [role="menuitem"]') ?? [])].filter(
+      (r) => !r.disabled
+    )
+  const focusFirst = useRef(keyboard)
+  useEffect(() => {
+    // Once, on the open: a keyboard open puts the focus on the first row.
+    if (focusFirst.current) rows()[0]?.focus()
+    focusFirst.current = false
+  })
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         e.stopPropagation()
+        const inside = !!box.current?.contains(document.activeElement)
         onClose()
+        // After the close has rendered: the row going away takes the focus
+        // with it, and a focus moved in the same breath was lost (measured).
+        if (inside && anchor) window.setTimeout(() => anchor.focus(), 0)
+        return
+      }
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && box.current?.contains(document.activeElement)) {
+        const list = rows()
+        if (list.length === 0) return
+        e.preventDefault()
+        e.stopPropagation()
+        const at = list.indexOf(document.activeElement as HTMLElement)
+        const step = e.key === 'ArrowDown' ? 1 : -1
+        list[(at + step + list.length) % list.length].focus()
       }
     }
     // Dismiss on any press outside the menu, but let that press through to

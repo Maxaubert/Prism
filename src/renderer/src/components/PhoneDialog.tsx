@@ -3,7 +3,7 @@ import type { PhoneState } from '@shared/types'
 import { Dialog } from './Dialog'
 
 /**
- * Tools > Phone (2026-09-06, #104): the one home of "Prism on your phone".
+ * More > Phone (2026-09-06, #104, Tools > Phone until #272): the one home of "Prism on your phone".
  * The switch, the QR and address for the CURRENT tab, the paired phones,
  * and who is watching. Everything it shows is main's answer to `phoneGet`,
  * re-read on every `phone:changed`, so the switch reflects what the server

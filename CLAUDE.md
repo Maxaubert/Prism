@@ -633,7 +633,12 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   element but a text field, and lays the `--p-hover` fill over a focused control (button, tab,
   menu row, option, switch, link) as a background IMAGE, so a filled button keeps its colour under
   it. A text field shows focus as its edge going a step lighter (or its own accent edge), never a
-  ring. No `focus:ring` / `focus-visible:outline-*` class, no `:focus` outline in a stylesheet:
+  ring; that rule is in the UTILITIES layer, since a `border-[...]` class beat it from base. A
+  state that paints a control (an Explorer mark, an inline style) sets `background-color`, never
+  the `background` shorthand, which wipes the fill; a slider takes `--p-hover-hi`. The `moreMenu`
+  e2e compares each probe FOCUSED AGAINST UNFOCUSED (a field, a slider, a swatch, a segment): a
+  check that it merely "has a fill" passed with no focus showing.
+  No `focus:ring` / `focus-visible:outline-*` class, no `:focus` outline in a stylesheet:
   `noFocusRings.test.ts` reads the renderer for both. Drop targets and selection marks (a
   swatch's ring) are not focus and keep theirs. prism-term-core's own rings (UpdateChip,
   UpdateDialog, HelpPanel, ThemeSwitchAsk, ColourPicker, fields) are the core's to change.
@@ -642,7 +647,9 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   a 3 vertical dot menu where will have multiple things, remote just being one of them"). More
   (`data-more-button`, where Tools was), Phone its first row. `ContextMenu` takes the `anchor`
   that opened it and does not count a press on it as outside: dismissing on that press made the
-  click reopen it. The `moreMenu` e2e clicks it four times and measures focus with no outline.
+  click reopen it. Opened by Enter or Space (`detail === 0`) the first row takes the focus, Up and
+  Down walk the rows, Escape gives the focus back; App's key handler yields plain keys to a focused
+  menu row. The `moreMenu` e2e clicks it four times, in both title-bar layouts, and walks it by key.
 - **TAB WIDTH IS A SETTING** (#216; owner, 2026-09-23, asked in Prism Terminal (#56 there) and
   agreed for Prism: "a setting for tab width, where the user can pick fixed size or dynamic").
   Then: "put the option closer to the top of appearance, and call it dynamic ... have dynamic be

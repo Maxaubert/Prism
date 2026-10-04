@@ -298,7 +298,7 @@ export interface PhoneTab {
   current: boolean
 }
 
-/** What the Tools > Phone dialog shows: main's answer to `phone:get`. */
+/** What the More > Phone dialog shows: main's answer to `phone:get`. */
 export interface PhoneState {
   on: boolean
   port: number | null

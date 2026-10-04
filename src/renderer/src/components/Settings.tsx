@@ -1378,8 +1378,12 @@ function Swatches({
             className={`h-6 rounded-md transition ${
               on
                 ? 'ring-2 ring-[var(--p-accent-hi)] ring-offset-1 ring-offset-[#0d0f14]'
-                : 'ring-1 ring-white/10 hover:ring-white/30'
+                : 'ring-1 ring-white/10 hover:ring-white/30 focus-visible:ring-white/30'
             }`}
+            // A swatch IS its fill (a colour or a gradient), so the inline
+            // background beats the base focus fill: a focused swatch shows
+            // focus as its hover does, the faint edge a step lighter (#272
+            // review: an unselected swatch reached by Tab looked unfocused).
             style={{ background: it.fill }}
           />
         )

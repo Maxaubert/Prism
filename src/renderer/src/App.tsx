@@ -280,7 +280,7 @@ function TopBar({
    *  its place. */
   chip?: ReactNode
   /** The More menu: opened under the button, shut by a second press on it. */
-  onMore: (button: HTMLElement) => void
+  onMore: (button: HTMLElement, keyboard?: boolean) => void
   moreOpen: boolean
 }): JSX.Element {
   return (
@@ -343,7 +343,7 @@ function TitleButtons({
 }: {
   setup: boolean
   chip?: ReactNode
-  onMore: (button: HTMLElement) => void
+  onMore: (button: HTMLElement, keyboard?: boolean) => void
   moreOpen: boolean
   editable: boolean
   editing: boolean
@@ -379,7 +379,8 @@ function TitleButtons({
       {!setup && (
         <button
           className="no-drag grid h-7 w-8 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-          onClick={(e) => onMore(e.currentTarget)}
+          // detail 0 is Enter or Space: the menu then takes the focus.
+          onClick={(e) => onMore(e.currentTarget, e.detail === 0)}
           title="More"
           aria-label="More"
           aria-haspopup="menu"
@@ -1456,12 +1457,17 @@ export default function App(): JSX.Element {
   // folder you are looking at. The button TOGGLES the menu (#272): the menu
   // is told which button owns it, so the press on that button does not shut
   // it only for the click to open it again.
-  const [moreMenu, setMoreMenu] = useState<{ x: number; y: number; anchor: HTMLElement } | null>(null)
-  const toggleMore = useCallback((button: HTMLElement): void => {
+  const [moreMenu, setMoreMenu] = useState<{
+    x: number
+    y: number
+    anchor: HTMLElement
+    keyboard: boolean
+  } | null>(null)
+  const toggleMore = useCallback((button: HTMLElement, keyboard = false): void => {
     setMoreMenu((open) => {
       if (open) return null
       const r = button.getBoundingClientRect()
-      return { x: r.left, y: r.bottom + 2, anchor: button }
+      return { x: r.left, y: r.bottom + 2, anchor: button, keyboard }
     })
   }, [])
   const [phoneOpen, setPhoneOpen] = useState(false)
@@ -3319,6 +3325,11 @@ export default function App(): JSX.Element {
       // is drawn outside the Explorer (over the whole window), and a chord
       // that reached the app behind it would change what is under it.
       if (el?.closest('[data-search-popup]')) return
+      // A MENU ROW WITH THE FOCUS owns the plain keys (#272): More opened from
+      // the keyboard puts the focus on its first row, and Down there walked
+      // the sidebar's tree too, whose row then took the focus out of the
+      // menu (measured in the moreMenu e2e). The chords stay the app's.
+      if (el?.closest('[role="menu"]') && !e.ctrlKey && !e.altKey && !e.metaKey) return
       const inBrowser = !!el?.closest('.folder-browser')
       if (inBrowser && e.altKey) return
       if (inBrowser && !e.ctrlKey && !e.altKey && e.key !== 'F11') return
@@ -4966,6 +4977,7 @@ export default function App(): JSX.Element {
           x={moreMenu.x}
           y={moreMenu.y}
           anchor={moreMenu.anchor}
+          keyboard={moreMenu.keyboard}
           onClose={() => setMoreMenu(null)}
           // One row per thing that is not about the open file (#272: "multiple
           // things, remote just being one of them"). Phone stays first; a new
