@@ -1384,9 +1384,11 @@ async function dictationPageScenario(fixtures) {
     const shown = (await win.evaluate(() => [...document.querySelectorAll('[data-dictation-settings] [data-pref], [data-dictation-settings][data-pref]')].map((e) => e.getAttribute('data-pref')))).sort()
     ok(wanted.length >= 9 && JSON.stringify(shown) === JSON.stringify(wanted), `the Dictation page shows exactly the core's option list (${JSON.stringify(shown)})`)
     const names = await win.evaluate(() => [...document.querySelectorAll('[data-dictation-item] [data-item-name]')].map((e) => e.textContent.trim()))
-    ok(names.slice(0, 4).every((n) => n.startsWith('Whisper ')), `models carry their full names (${JSON.stringify(names)})`)
+    // The core may list models of more than one family (PrismTerminal #121 adds Parakeet v3
+    // between them), so the four Whisper models are counted wherever they sit.
+    ok(names.filter((n) => n.startsWith('Whisper ')).length === 4 && names.every((n) => /^\S+ \S/.test(n)), `models carry their full names (${JSON.stringify(names)})`)
     const marks = await win.evaluate(() => [...document.querySelectorAll('[data-dictation-item] [data-vendor]')].map((e) => e.getAttribute('data-vendor')))
-    ok(marks.filter((m) => m === 'openai').length === 4 && marks.filter((m) => m === 'nvidia').length === 1, 'every row leads with its vendor\'s mark')
+    ok(marks.filter((m) => m === 'openai').length === 4 && marks.filter((m) => m === 'nvidia').length >= 1, 'every row leads with its vendor\'s mark')
     const row = await win.evaluate(() => {
       const r = document.querySelector('[data-dictation-item="base"]')
       return { pad: parseFloat(getComputedStyle(r).paddingTop), w: Math.round(r.getBoundingClientRect().width) }
