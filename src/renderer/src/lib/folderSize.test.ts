@@ -14,9 +14,9 @@ const complete: FolderSizeResult = {
 describe('folder size coverage', () => {
   it('distinguishes current filesystem, saved and indexed totals', () => {
     expect(folderSizeLabel(complete)).toBe('42 B')
-    expect(folderSizeLabel({ ...complete, stale: true })).toBe('≈ 42 B')
+    expect(folderSizeLabel({ ...complete, stale: true })).toBe('42 B')
     expect(folderSizeCoverage({ ...complete, stale: true })).toContain('Saved size; refreshing')
-    expect(folderSizeLabel({ ...complete, source: 'index' })).toBe('≈ 42 B')
+    expect(folderSizeLabel({ ...complete, source: 'index' })).toBe('42 B')
     expect(folderSizeCoverage({ ...complete, source: 'index' })).toContain(
       'unindexed files are not counted'
     )
