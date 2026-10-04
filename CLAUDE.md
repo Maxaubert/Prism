@@ -1423,6 +1423,35 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   such field), so their rows keep the folder they are in as their second line. The e2e matches
   a row's size against the desktop formatter's own shape, so a second formatter rounding
   differently would show up there.
+- **A WINDOWLESS PRISM IS NOT A STATE PRISM CAN STAY IN** (2026-10-03, #265; owner: "prism
+  suddenly stopped opening, not sure why, but that should never happen"). FOUND: a Prism
+  launched from Explorer with an .mp4 was alive and idle 45 minutes later with NO renderer and NO
+  window; it held the single-instance lock, so every later launch handed its file over and
+  exited. No dump, nothing in the event log, not reproduced (5 launches of the same file got a
+  window). The window is shown only once its page is up, nothing listened for the page dying,
+  and the handoff only raised a window. So, for the class (`windowGuard.ts`, `crashBudget.ts`,
+  wired in `createWindow` and `second-instance`): `render-process-gone` logs a line and RELOADS;
+  the third death in 2 minutes REBUILDS the window (new one first, or the last window closing
+  quits); the same run on the rebuilt window QUITS (a dialog, never under `--e2e`), which frees
+  the lock. A page unresponsive for 45 s is restarted the same way; a shorter hang is only
+  logged. A WATCHDOG shows any window not shown within 8 s and reloads a dead page. A SECOND
+  LAUNCH makes a window if there is none and reloads a dead page before it raises, the files
+  waiting in `pendingOpen` for the page to listen. The log is `window-crashes.log` in userData
+  (64 KB, then `.old`). `crashReporter` runs with `uploadToServer: false`: dumps stay in
+  userData's Crashpad folder, never uploaded. Only the window's own close clears `mainWindow`,
+  and per-process IPC listeners are registered once, outside `createWindow`, since it can run
+  twice now. The `neverWindowless` e2e kills the page (`forcefullyCrashRenderer`) through every
+  path; `PRISM_E2E_CRASH_AT_START` and `PRISM_E2E_HOLD_RECOVERY` (E2E only) recreate the
+  2026-10-03 shape and hold the reload so the watchdog and the handoff are proved alone.
+  From the review: a death kills the page's shells and warm spares (`killAll`), since the
+  reloaded page resumes its agents and an old pty would be a second, unseen Claude; from the
+  SECOND death in a run (or after a rebuild) the page comes back WITHOUT its saved tabs
+  (`crashBudget.strained`, logged `restore tabs=skipped`), or a tab that kills the page would
+  kill it at every recovery and every later launch; a startup restore belongs to one page
+  (`pageGen`, bumped per main-frame navigation and window) and an older run stops touching
+  `pendingOpen` and `startupRestored`; a crash ends a pending hang timer; a launch during a quit
+  or an install makes no window (a quit relaunches with the handed files, never under `--e2e`);
+  `crashReporter` starts only once the single-instance lock is won.
 - **NOTHING ON THE STARTUP PATH HOLDS A STDIN PIPE** (2026-09-22, #189; owner: "it currently
   takes about 2 seconds to load. what could be done to make it about instant"). MEASURED: 1,188 ms
   from process start to a visible window, 369 ms after this fix (usable 1,303 -> 477 ms); an empty

@@ -4367,6 +4367,179 @@ async function handoff(file) {
 }
 
 /**
+ * A WINDOWLESS PRISM IS NOT A STATE PRISM CAN STAY IN (#265; owner,
+ * 2026-10-03: "prism suddenly stopped opening, not sure why, but that should
+ * never happen"). Found: a Prism alive 45 minutes after launch with no
+ * renderer and no window, holding the single-instance lock, so every later
+ * double-click handed over to it and vanished. Each net is driven on its own:
+ * a page that dies is reloaded, one that keeps dying gets a new window and
+ * then a quit (the lock freed), a page that dies BEFORE the window was shown
+ * comes back, the watchdog shows and reloads a page left dead, and a second
+ * launch into a dead page brings back a working window with the file in it.
+ *
+ * The page is read from MAIN (`executeJavaScript`), never through
+ * Playwright's page object, which is the thing a crash takes away.
+ */
+async function neverWindowlessScenario(fixtures) {
+  console.log('never windowless')
+  const readme = join(fixtures, 'README.md')
+  const logFile = join(PROFILE, 'window-crashes.log')
+  const readLog = () => {
+    try {
+      return readFileSync(logFile, 'utf8')
+    } catch {
+      return ''
+    }
+  }
+  const clearLog = () => rmSync(logFile, { force: true })
+  /** The one window, its page, and whether `sel` is in it. */
+  const state = (app, sel) =>
+    app
+      .evaluate(async ({ BrowserWindow }, sel) => {
+        const all = BrowserWindow.getAllWindows()
+        if (all.length !== 1) return { n: all.length }
+        const w = all[0]
+        const wc = w.webContents
+        const base = { n: 1, id: w.id, visible: w.isVisible(), crashed: wc.isCrashed() }
+        if (base.crashed || wc.isLoading()) return base
+        const found = await Promise.race([
+          wc.executeJavaScript(`!!document.querySelector(${JSON.stringify(sel)})`).catch(() => null),
+          new Promise((r) => setTimeout(() => r(null), 1500))
+        ])
+        return { ...base, found }
+      }, sel)
+      .catch(() => ({ n: -1 }))
+  const live = async (app, sel = '.p-md h1', ms = 20000) =>
+    until(async () => {
+      const s = await state(app, sel)
+      return s.n === 1 && s.visible && !s.crashed && s.found === true ? s : null
+    }, ms, 200)
+  const deaths = () => (readLog().match(/ gone /g) ?? []).length
+  /** Kill the page, and wait until main has HEARD it died (its log line), so
+   *  the next look cannot be at the page from before. */
+  const crash = async (app) => {
+    const before = deaths()
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.forcefullyCrashRenderer())
+    return until(() => deaths() > before, 8000, 50)
+  }
+  // A page killed WHILE Playwright is still attaching to it makes Playwright
+  // throw "Target crashed" from inside its own session handler, out of reach
+  // of any await (MEASURED: it took the whole suite down). Only that, and only
+  // while a scenario here kills pages at launch, is swallowed; the checks
+  // below read the page from main, which needs no Playwright page at all.
+  const swallowAttachCrash = (e) => {
+    if (!/Target crashed/.test(String(e?.message ?? e))) throw e
+  }
+  const start = async (env = {}) => {
+    seedExplorerTab(readme)
+    const app = await launchTestApp({
+      args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'],
+      env: { ...process.env, ...env }
+    })
+    return app
+  }
+
+  // 1-3: a page that dies is reloaded; the third death in two minutes gets a
+  // new window; the same run on the new window ends the process.
+  clearLog()
+  let app = await start()
+  try {
+    const first = await live(app)
+    ok(!!first, 'the window comes up with its page')
+    await offscreen(app)
+    await crash(app)
+    const back = await live(app)
+    ok(!!back, 'a page that dies is reloaded, and its tab is back')
+    ok(back?.id === first?.id, 'in the same window')
+    ok(/ gone reason=\S+ .*action=reload/.test(readLog()), 'the death is logged with its reason and the reload')
+    ok(!/ restore tabs=skipped/.test(readLog()), 'one death keeps the saved tabs')
+
+    // From the second death in a run the page comes back WITHOUT its saved
+    // tabs (one of them may be what kills it): the Explorer, not the README.
+    const EXPLORER = '[data-testid="browse-list"]'
+    await crash(app)
+    const strained = await live(app, EXPLORER)
+    ok(!!strained, 'a second death brings the page back too')
+    ok(/ restore tabs=skipped reason=repeated-deaths/.test(readLog()), 'without its saved tabs, and the log says so')
+    ok((await state(app, '.p-md h1')).found === false, 'the restored README tab is left out')
+    await crash(app)
+    const rebuilt = await until(async () => {
+      const s = await live(app, EXPLORER, 2000)
+      return s && s.id !== first?.id ? s : null
+    }, 20000, 200)
+    ok(!!rebuilt, 'the third death in two minutes gets a NEW window, working, and only one')
+    ok(/action=recreate/.test(readLog()), 'the rebuild is logged')
+
+    const child = app.process()
+    const exited = new Promise((done) => child.once('exit', () => done(true)))
+    await crash(app)
+    await live(app, EXPLORER)
+    await crash(app)
+    await live(app, EXPLORER)
+    await crash(app)
+    ok(await Promise.race([exited, sleep(15000).then(() => false)]), 'when the new window dies as fast, Prism quits rather than sit windowless')
+    ok(/action=give-up/.test(readLog()), 'the give-up is logged')
+  } finally {
+    await app.close().catch(() => {})
+  }
+  reapStrays()
+  await sleep(900)
+
+  process.on('uncaughtException', swallowAttachCrash)
+  try {
+    // 4: the page dies as it commits, before the window was ever shown: the
+    // shape of the 2026-10-03 failure. The reload shows it.
+    clearLog()
+    app = await start({ PRISM_E2E_CRASH_AT_START: '1' })
+    try {
+      ok(!!(await live(app)), 'a page that dies before the window is shown comes back, and the window shows')
+      ok(/ gone .*shown=false .*action=reload/.test(readLog()), 'logged as a death before the window was shown')
+    } finally {
+      await app.close().catch(() => {})
+    }
+    reapStrays()
+    await sleep(900)
+
+    // 5: the same death with recovery HELD, as the bug left it: the watchdog
+    // alone must show the window and reload the page.
+    clearLog()
+    app = await start({ PRISM_E2E_CRASH_AT_START: '1', PRISM_E2E_HOLD_RECOVERY: '1' })
+    try {
+      ok(!!(await live(app, '.p-md h1', 25000)), 'with nothing else acting, the watchdog shows the window and brings its page back')
+      ok(/ watchdog .*gone=true/.test(readLog()), 'the watchdog logs what it found')
+    } finally {
+      await app.close().catch(() => {})
+    }
+    reapStrays()
+    await sleep(900)
+  } finally {
+    process.off('uncaughtException', swallowAttachCrash)
+  }
+
+  // 6: a page left dead (recovery held, the watchdog long past), then a
+  // second launch with a file: the handoff brings the page back and opens it.
+  clearLog()
+  app = await start({ PRISM_E2E_HOLD_RECOVERY: '1' })
+  const launched = Date.now()
+  try {
+    ok(!!(await live(app)), 'the window comes up')
+    await offscreen(app)
+    await sleep(Math.max(0, 9000 - (Date.now() - launched))) // past the watchdog
+    ok(await crash(app), 'the page dies')
+    await sleep(1000)
+    ok((await state(app, 'body')).crashed === true, 'and stays dead, recovery held')
+    await handoff(join(OTHER_ROOT, 'bad.json'))
+    ok(/ handoff window=dead action=reload/.test(readLog()), 'the second launch found the dead page and reloaded it')
+    ok(
+      !!(await live(app, '[data-testid="browse-list"] [aria-selected="true"][data-browse-path$="bad.json" i]', 25000)),
+      'and the handed file is open, selected in the Explorer'
+    )
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
+/**
  * A FILE FROM OUTSIDE OPENS IN THE EXPLORER TAB (owner, 2026-09-22: "that file
  * opened in prism's explorer rather than as a project ... a setting to choose
  * whether to open files maximized or as previews ... default should be
@@ -11219,6 +11392,7 @@ await run(termCwdScenario)
 await run(agentTitleScenario)
 await run(handoffOverTermScenario)
 await run(openInExplorerScenario)
+await run(neverWindowlessScenario)
 await run(promptLayoutScenario)
 await run(termMenuCopyScenario)
 await run(archiveScenario)
