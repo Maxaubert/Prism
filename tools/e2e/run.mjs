@@ -8135,6 +8135,230 @@ async function explorerSizeScenario(fixtures) {
   }
 }
 /**
+ * THE COLUMN HEADER IS FILE EXPLORER'S (#274; owner, 2026-10-04, of the
+ * Explorer list's header: "if I highlight over name, it doesn't reach all the
+ * way out to the edges ... that highlight effect should be inside the whole
+ * box", "the size column should also have its name aligned to the left", and
+ * of the arrows, "that arrow shows only when you hover over them while the
+ * currently sorted item has an arrow at all times"). MEASURED: the visible
+ * cells tile the header from its left edge to its right with no gap, each as
+ * tall as the header; the hover fill is the cell's own box; Size's label
+ * starts where the other labels do; an unsorted column's arrow shows only
+ * while hovered and the sorted one's always; a hover never moves a label;
+ * focus is the fill and no box. Held at Medium, Small and Large, in the
+ * search results' columns and at a narrow window. A screenshot of the header
+ * with Type hovered goes to .e2e/shots/column-header-hover.png.
+ */
+async function columnHeadersScenario(fixtures) {
+  console.log('column headers')
+  const dir = join(fixtures, 'colhead')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'b-small.txt'), 'x\n')
+  writeFileSync(join(dir, 'a-big.txt'), 'y'.repeat(4000))
+  writeFileSync(join(dir, 'c-mid.txt'), 'z'.repeat(400))
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'b-small.txt'))
+  EXTRA_ENV = {}
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) !== 3)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="colhead"]').dblclick()
+    return until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 3, 10000)
+  }
+  const head = '.browse-list-area .browse-columns'
+  const cell = (key) => win.locator(`${head} .browse-column-${key}`)
+  // The visible cells, left to right, against the header's own box (inside
+  // its bottom rule, which the cells sit on).
+  const geometry = () =>
+    win.evaluate((sel) => {
+      const h = document.querySelector(sel)
+      if (!h) return null
+      const hr = h.getBoundingClientRect()
+      const cs = getComputedStyle(h)
+      const inner = hr.height - parseFloat(cs.borderBottomWidth)
+      const cells = [...h.querySelectorAll('button')]
+        .filter((b) => getComputedStyle(b).display !== 'none')
+        .map((b) => {
+          const r = b.getBoundingClientRect()
+          const text = [...b.childNodes].find((n) => n.nodeType === 3)
+          const range = document.createRange()
+          if (text) range.selectNodeContents(text)
+          const t = text ? range.getBoundingClientRect() : null
+          return {
+            key: b.className.replace('browse-column-', ''),
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            h: r.height,
+            label: t ? t.left - r.left : null,
+            labelX: t ? t.left : null
+          }
+        })
+      return { left: hr.left, right: hr.right, top: hr.top, inner, cells }
+    }, head)
+  const tiles = (g) => {
+    if (!g || !g.cells.length) return false
+    const near = (a, b) => Math.abs(a - b) <= 0.6
+    return (
+      near(g.cells[0].left, g.left) &&
+      near(g.cells[g.cells.length - 1].right, g.right) &&
+      g.cells.every((c, i) => i === 0 || near(c.left, g.cells[i - 1].right)) &&
+      g.cells.every((c) => near(c.h, g.inner) && near(c.top, g.top))
+    )
+  }
+  const say = (g) => JSON.stringify(g?.cells.map((c) => [c.key, Math.round(c.left), Math.round(c.right), c.h]))
+  const arrow = (key) =>
+    win.evaluate(
+      ([sel, k]) => {
+        const a = document.querySelector(`${sel} .browse-column-${k} .browse-sort-arrow`)
+        return a ? Number(getComputedStyle(a).opacity) : -1
+      },
+      [head, key]
+    )
+  const away = async () => {
+    const list = await win.locator('[data-testid="browse-list"]').boundingBox()
+    await win.mouse.move(list.x + list.width / 2, list.y + list.height - 4)
+    await sleep(250)
+  }
+  const names = () =>
+    win.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path$=".txt"]')].map((r) =>
+        r.getAttribute('data-browse-path').split(/[\\/]/).pop()
+      )
+    )
+  try {
+    ok(await intoFolder(), 'the Explorer shows the folder of three')
+    await away()
+    const g = await geometry()
+    ok(tiles(g), `the cells tile the header edge to edge, each its full height (${say(g)}; header ${g?.left}-${g?.right}, ${g?.inner}px)`)
+    const labels = Object.fromEntries(g.cells.map((c) => [c.key, c.label]))
+    ok(
+      labels.size !== null && Math.abs(labels.size - labels.type) <= 0.6 && Math.abs(labels.size - labels.modified) <= 0.6,
+      `Size's label starts where Type's and Date modified's do (${JSON.stringify(labels)})`
+    )
+    const sizeHead = await cell('size').evaluate((b) => getComputedStyle(b).justifyContent)
+    ok(sizeHead !== 'flex-end', `and the Size header is not pushed right (${sizeHead})`)
+    const sizeValue = await win
+      .locator('[data-testid="browse-list"] .browse-row .browse-column-size')
+      .first()
+      .evaluate((s) => getComputedStyle(s).textAlign)
+    ok(sizeValue === 'right', `the size VALUES stay right-aligned so digits line up (${sizeValue})`)
+
+    // THE ARROWS: Name is sorted, so its arrow shows; Type's only while hovered.
+    ok((await arrow('name')) === 1, 'the sorted column shows its arrow without a hover')
+    ok((await arrow('type')) === 0 && (await arrow('size')) === 0, 'an unsorted column shows none')
+    const before = await geometry()
+    await cell('type').hover()
+    await sleep(250)
+    ok((await arrow('type')) === 1, 'hovering Type shows its arrow')
+    const hovered = await geometry()
+    ok(
+      hovered.cells.every((c, i) => Math.abs(c.labelX - before.cells[i].labelX) <= 0.1),
+      'and no label moves for it'
+    )
+    // The fill is the cell's own box: the button paints it, and the button is
+    // the whole cell, so every corner of the cell is the hovered button.
+    const fill = await win.evaluate((sel) => {
+      const b = document.querySelector(`${sel} .browse-column-type`)
+      const r = b.getBoundingClientRect()
+      const at = (x, y) => document.elementFromPoint(x, y)?.closest('button') === b
+      return {
+        bg: getComputedStyle(b).backgroundColor,
+        corners: [at(r.left + 0.5, r.top + 0.5), at(r.right - 0.5, r.top + 0.5), at(r.left + 0.5, r.bottom - 0.5), at(r.right - 0.5, r.bottom - 0.5)]
+      }
+    }, head)
+    ok(
+      !/rgba\(0, 0, 0, 0\)|transparent/.test(fill.bg) && fill.corners.every(Boolean),
+      `the hover fill covers the whole cell, corner to corner (${JSON.stringify(fill)})`
+    )
+    const box = await win.locator(head).boundingBox()
+    await win.screenshot({
+      path: join(SHOTS, 'column-header-hover.png'),
+      clip: { x: Math.max(0, box.x - 8), y: Math.max(0, box.y - 8), width: box.width + 16, height: box.height + 60 }
+    })
+    // The right-most cell reaches the list's own right edge: no strip of
+    // header past Date modified that a hover cannot fill.
+    await cell('modified').hover()
+    await sleep(250)
+    const right = await win.evaluate((sel) => {
+      const h = document.querySelector(sel).getBoundingClientRect()
+      const hit = document.elementFromPoint(h.right - 1, h.top + h.height / 2)?.closest('button')
+      return hit?.className ?? null
+    }, head)
+    ok(right === 'browse-column-modified', `the header's last pixel on the right is Date modified's (${right})`)
+
+    // CLICKS STILL SORT: Size ascending, then descending, then back to Name.
+    await cell('size').click()
+    ok(await until(async () => (await names()).join() === 'b-small.txt,c-mid.txt,a-big.txt', 5000), `a click on Size sorts smallest first (${await names()})`)
+    await away()
+    ok((await arrow('size')) === 1 && (await arrow('name')) === 0, 'and the arrow moves to Size, held without a hover')
+    await cell('size').click()
+    ok(await until(async () => (await names()).join() === 'a-big.txt,c-mid.txt,b-small.txt', 5000), `a second click flips it (${await names()})`)
+    ok(
+      (await cell('size').locator('.browse-sort-arrow').getAttribute('data-descending')) === 'true',
+      'and the arrow turns for descending'
+    )
+    await cell('name').click()
+    ok(await until(async () => (await names()).join() === 'a-big.txt,b-small.txt,c-mid.txt', 5000), 'Name puts the order back')
+
+    // NO FOCUS BOX: a key-driven focus wears the fill, and no outline.
+    await win.keyboard.press('Shift')
+    await cell('type').focus()
+    await away()
+    const focus = await cell('type').evaluate((b) => ({
+      outline: getComputedStyle(b).outlineStyle,
+      bg: getComputedStyle(b).backgroundColor,
+      visible: b.matches(':focus-visible')
+    }))
+    ok(
+      focus.visible && focus.outline === 'none' && !/rgba\(0, 0, 0, 0\)/.test(focus.bg),
+      `a focused header cell shows the fill and no box (${JSON.stringify(focus)})`
+    )
+    await win.locator('[data-testid="browse-list"]').focus()
+
+    // EVERY EXPLORER SIZE tiles the same way.
+    for (const size of ['Small', 'Large', 'Medium']) {
+      await pickStyleSegment(win, 'explorer-size', size)
+      ok(await intoFolder(), `${size}: back in the Explorer`)
+      await away()
+      const gs = await geometry()
+      ok(tiles(gs), `${size}: the cells tile the header (${say(gs)}, ${gs?.inner}px tall)`)
+    }
+
+    // A NARROW WINDOW hides columns; whatever is last still reaches the edge.
+    const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 560))
+    await until(() => win.evaluate(() => window.innerWidth <= 800), 4000, 50)
+    await sleep(300)
+    const gn = await geometry()
+    ok(gn.cells.length < 4 && tiles(gn), `at a narrow window the fewer cells still tile (${say(gn)})`)
+    await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setSize(w, h), sizeBefore)
+    await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
+    await sleep(300)
+
+    // THE SEARCH RESULTS' columns (Name, Path, Size) tile too, Size last.
+    await win.locator('[data-testid="browse-search-button"]').click()
+    const popup = win.locator('[data-testid="browse-search-popup"]')
+    await popup.locator('input[role="combobox"]').fill('txt')
+    await until(async () => (await popup.locator('[data-show-more]').count()) === 1, 15000)
+    await popup.locator('[data-show-more]').click()
+    ok(await until(async () => (await win.locator('.browse-list-area[data-searching]').count()) === 1, 15000), 'the full search shows its own columns')
+    await away()
+    const gq = await geometry()
+    ok(
+      gq.cells.map((c) => c.key).join() === 'name,path,size' && tiles(gq),
+      `and they tile the header, Size reaching the edge (${say(gq)})`
+    )
+    await win.locator('[data-testid="browse-search-clear"]').click()
+  } finally {
+    await win.evaluate(() => localStorage.removeItem('prism.explorer.size')).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+/**
  * THE ADDRESS IS A DOLPHIN FIELD, AND A FIELD ON BLACK IS A DARK GREY (#267;
  * owner, 2026-10-04, of the Explorer toolbar on Void: "make the url box more
  * visible and for the black theme make the grey colours used in search and in
@@ -11420,6 +11644,7 @@ await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
+await run(columnHeadersScenario)
 await run(listScrollbarScenario)
 await run(addressFieldScenario)
 await run(explorerVerbsScenario)
