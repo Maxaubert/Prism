@@ -19,7 +19,7 @@ export function Pairing({
     >
       <h1 className="text-2xl font-semibold">Prism</h1>
       <p className="opacity-70">
-        Open Tools &gt; Phone on the PC and scan the code, or type it here.
+        Open More &gt; Phone on the PC and scan the code, or type it here.
       </p>
       <input
         className="w-48 rounded border border-[color:var(--p-line)] bg-transparent px-3 py-2 text-center text-xl uppercase tracking-[0.3em]"

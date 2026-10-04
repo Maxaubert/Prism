@@ -81,10 +81,17 @@
 .folder-browser button:disabled {
   opacity: 0.4;
 }
+/* No focus ring anywhere in the Explorer (#272; owner, 2026-10-04: "go
+   through the ui and remove focus effects like this"). A focused button gets
+   the grey fill the app's base rule lays over it (index.css), which leaves a
+   marked row's own tint underneath; a field shows focus on its edge. So a
+   MARKED state below sets background-color, never the background shorthand:
+   the shorthand resets background-image, and this sheet (unlayered) beats
+   the base layer, so a focused current place or selected row showed nothing
+   (#272 review, measured). */
 .folder-browser button:focus-visible,
 .folder-browser input:focus-visible {
-  outline: 2px solid var(--p-accent-hi);
-  outline-offset: -2px;
+  outline: none;
 }
 .folder-browser button:not(:disabled):hover {
   background: var(--p-hover);
@@ -122,8 +129,7 @@
   background: var(--p-hover);
 }
 .browse-toolbar input:focus-visible {
-  outline: 2px solid var(--p-accent-hi);
-  outline-offset: -2px;
+  outline: none;
 }
 /* The toolbar's buttons wear no focus BOX (owner, 2026-10-04, of the search
    and preview icons after the popup handed the focus back: "remove focus
@@ -162,9 +168,9 @@
 .browse-field:hover {
   border-color: var(--p-field-edge-hover);
 }
+/* Focus is the edge going a step lighter, not an accent ring (#272). */
 .browse-field:focus-within {
-  outline: 2px solid var(--p-accent-hi);
-  outline-offset: -2px;
+  border-color: color-mix(in srgb, var(--p-text) 28%, transparent);
 }
 .browse-path,
 .browse-path-form {
@@ -257,7 +263,7 @@
 }
 .browse-toolbar > .browse-icon-button[aria-pressed='true'] {
   color: var(--p-accent-hi);
-  background: var(--p-hover);
+  background-color: var(--p-hover);
 }
 .browse-places {
   grid-column: 1;
@@ -318,7 +324,7 @@
    selected file"). */
 .folder-browser .browse-place[aria-current],
 .folder-browser .browse-place[aria-current]:hover {
-  background: var(--p-sel-tint);
+  background-color: var(--p-sel-tint);
   box-shadow: inset 0 0 0 1px var(--p-sel-line);
   color: var(--p-text);
 }
@@ -633,7 +639,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
 .folder-browser .browse-row[data-selected]:hover {
   --sel-top: inset 0 1px 0 var(--p-sel-line);
   --sel-bottom: inset 0 -1px 0 var(--p-sel-line);
-  background: var(--p-sel-tint);
+  background-color: var(--p-sel-tint);
   box-shadow:
     inset 1px 0 0 var(--p-sel-line),
     inset -1px 0 0 var(--p-sel-line),
@@ -648,7 +654,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
 }
 .folder-browser .browse-row[data-menu],
 .folder-browser .browse-row[data-menu]:hover {
-  background: color-mix(in srgb, var(--p-text) 14%, var(--p-bg));
+  background-color: color-mix(in srgb, var(--p-text) 14%, var(--p-bg));
   color: var(--p-text);
   /* The grey fill IS the mark (owner, 2026-09-23: "it has this white outline
      which i dont like, i only want the grey bg highlighting"). No ring, and

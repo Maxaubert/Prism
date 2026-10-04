@@ -64,7 +64,7 @@ never shipped: one small app that opens everything and looks good doing it.
   **Open as project** on a folder, or on the empty space inside one, which roots a tab there.
   On by default, switched in Settings → General; on Windows 11 the entries sit under "Show
   more options" (`Shift+F10`).
-- **On your phone**: Tools > Phone serves the folder you have open to phones on your own
+- **On your phone**: More (the three dots) > Phone serves the folder you have open to phones on your own
   Wi-Fi. Scan the QR code once, then browse the folder on the phone and play video, audio
   and pictures straight from the PC. The code decides only where you start: the phone lists
   every folder Prism has open and switches between them without another scan, and a reload

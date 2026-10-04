@@ -13,12 +13,14 @@ export const DIALOG_BOX =
   'w-full max-w-[420px] rounded-[var(--p-radius)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] p-5 shadow-[0_24px_70px_rgba(0,0,0,.6)]'
 export const DIALOG_TITLE = 'text-[14.5px] font-semibold text-[var(--p-text)]'
 export const DIALOG_BODY = 'mt-1.5 text-[12.5px] leading-relaxed text-[var(--p-dim)]'
+// No focus ring (#272; owner, 2026-10-04: "go through the ui and remove focus
+// effects like this"): a focused button looks as it does under the pointer.
 export function dialogButton(c: { primary?: boolean; danger?: boolean }): string {
-  return `rounded-lg px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)] ${
+  return `rounded-lg px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none ${
     c.danger
-      ? 'bg-[#b4353f] text-[var(--p-on-accent)] hover:brightness-110'
+      ? 'bg-[#b4353f] text-[var(--p-on-accent)] hover:brightness-110 focus-visible:brightness-110'
       : c.primary
-        ? 'bg-[var(--p-accent)] text-[var(--p-on-accent)] hover:brightness-110'
-        : 'border border-[color:var(--p-divider)] bg-[var(--p-hover)] text-[var(--p-text-soft)] hover:text-[var(--p-text)]'
+        ? 'bg-[var(--p-accent)] text-[var(--p-on-accent)] hover:brightness-110 focus-visible:brightness-110'
+        : 'border border-[color:var(--p-divider)] bg-[var(--p-hover)] text-[var(--p-text-soft)] hover:text-[var(--p-text)] focus-visible:text-[var(--p-text)]'
   }`
 }

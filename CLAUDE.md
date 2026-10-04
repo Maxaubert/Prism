@@ -634,6 +634,29 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   classes as the terminal core's `fields.tsx` (PrismTerminal #42), so the terminal half of the page
   matches after the core bump. Selection marks (style cards, swatches, the rail) and Reset links
   are not buttons and keep the accent. `settingsControls.test.ts` holds it.
+- **NOTHING WEARS A FOCUS BOX; FOCUS IS THE HOVER'S FILL** (#272; owner, 2026-10-04, of a white box
+  round the title bar's menu button: "remove the focus effect. go through the ui and remove focus
+  effects like this"). `index.css`'s base-layer rule takes Chromium's ring off every focused
+  element but a text field, and lays the `--p-hover` fill over a focused control (button, tab,
+  menu row, option, switch, link) as a background IMAGE, so a filled button keeps its colour under
+  it. A text field shows focus as its edge going a step lighter (or its own accent edge), never a
+  ring; that rule is in the UTILITIES layer, since a `border-[...]` class beat it from base. A
+  state that paints a control (an Explorer mark, an inline style) sets `background-color`, never
+  the `background` shorthand, which wipes the fill; a slider takes `--p-hover-hi`. The `moreMenu`
+  e2e compares each probe FOCUSED AGAINST UNFOCUSED (a field, a slider, a swatch, a segment): a
+  check that it merely "has a fill" passed with no focus showing.
+  No `focus:ring` / `focus-visible:outline-*` class, no `:focus` outline in a stylesheet:
+  `noFocusRings.test.ts` reads the renderer for both. Drop targets and selection marks (a
+  swatch's ring) are not focus and keep theirs. prism-term-core's own rings (UpdateChip,
+  UpdateDialog, HelpPanel, ThemeSwitchAsk, ColourPicker, fields) are the core's to change.
+- **THE TITLE BAR'S MENU IS THREE DOTS, AND IT TOGGLES** (#272; owner, same message: "clicking this
+  button opens the menu each time, it should open then close open close", and "the icon should be
+  a 3 vertical dot menu where will have multiple things, remote just being one of them"). More
+  (`data-more-button`, where Tools was), Phone its first row. `ContextMenu` takes the `anchor`
+  that opened it and does not count a press on it as outside: dismissing on that press made the
+  click reopen it. Opened by Enter or Space (`detail === 0`) the first row takes the focus, Up and
+  Down walk the rows, Escape gives the focus back; App's key handler yields plain keys to a focused
+  menu row. The `moreMenu` e2e clicks it four times, in both title-bar layouts, and walks it by key.
 - **TAB WIDTH IS A SETTING** (#216; owner, 2026-09-23, asked in Prism Terminal (#56 there) and
   agreed for Prism: "a setting for tab width, where the user can pick fixed size or dynamic").
   Then: "put the option closer to the top of appearance, and call it dynamic ... have dynamic be
@@ -999,7 +1022,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   `VideoView` and `AudioView` behind `prismShim.ts`, a Proxy standing in for `window.prism`:
   the handful of calls the viewers make are answered over the wire, and anything else WARNS
   rather than throws, because a viewer's optional call (position memory, settings) must
-  not take the picture down with it. The Tools button in the TITLE BAR is the home of the
+  not take the picture down with it. The More button (three dots, Tools until #272) in the TITLE BAR is the home of the
   dialog (switch, QR, address, paired phones, who is watching now), and it is in the title
   bar because the sidebar can be hidden. The dialog shows what the server IS, re-read on
   every `phone:changed`, never what was clicked. Documents (#106) followed as their own
@@ -1878,10 +1901,10 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   list sits on the dialog's own ground with no box. It only moves and trims strings; the
   plain-text rule below is untouched.
   IT LEADS THE BAR'S RIGHT-HAND GROUP (2026-09-20, #179; owner: "update button in prism should
-  be the left most button, right now it has the remote button to its left"): chip, then Tools,
-  then the pencil and the cog. Tools was built to its LEFT (#104) and that is superseded. The
-  chip is the one control there that comes and goes, and between two that stay its arrival
-  moved Tools sideways; at the head it takes room only from the file's name, which truncates.
+  be the left most button, right now it has the remote button to its left"): chip, then More
+  (Tools until #272), then the pencil and the cog. Tools was built to its LEFT (#104) and that is
+  superseded. The chip is the one control there that comes and goes, and between two that stay
+  its arrival moved More sideways; at the head it takes room only from the file's name, which truncates.
   `updateWindow` measures the order off the boxes.
   **A CLICK OPENS THE UPDATE WINDOW, IT NO LONGER INSTALLS** (2026-09-19, #168; owner: "when
   you click the Update badge, it opens like a pop window, which shows the change log or like
