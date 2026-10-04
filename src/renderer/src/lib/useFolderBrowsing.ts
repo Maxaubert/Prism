@@ -12,6 +12,7 @@ import type { BrowseDirectory, BrowseLocation, BrowseShortcut } from '@shared/br
 import type { ViewerFile } from '@shared/types'
 import {
   navigateBrowse,
+  searchBrowse,
   travelBrowse,
   setBrowseLocation,
   setBrowseSurface,
@@ -276,6 +277,13 @@ export function useFolderBrowsing(
     },
     [id, setState]
   )
+  /** Start, refine or clear the search: a place in the history (#281). */
+  const searchFor = useCallback(
+    (query: string) => {
+      if (id) setState((s) => ({ ...s, tabs: searchBrowse(s.tabs, id, query) }))
+    },
+    [id, setState]
+  )
   const showFolder = useCallback(() => {
     setWaitingFor(null)
     setError(undefined)
@@ -448,6 +456,7 @@ export function useFolderBrowsing(
     navigate,
     travel,
     patch,
+    searchFor,
     showFolder,
     openFile,
     openSplit,

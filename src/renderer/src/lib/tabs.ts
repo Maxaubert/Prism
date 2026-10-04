@@ -1,7 +1,13 @@
 import type { DirListing, OpenPayload, ViewerFile } from '@shared/types'
 import type { BrowseLocation, SavedBrowse } from '@shared/browse'
 import type { PinnedPane } from './panes'
-import { navigateBrowseState, newBrowse, travelBrowseState, updateBrowseLocation } from './browse'
+import {
+  navigateBrowseState,
+  newBrowse,
+  searchBrowseState,
+  travelBrowseState,
+  updateBrowseLocation
+} from './browse'
 
 export type TermView = 'hidden' | 'full' | 'split'
 
@@ -221,6 +227,16 @@ export function travelBrowse(tabs: readonly Tab[], tabId: string, delta: number)
     if (tab.id !== tabId || tab.kind === 'settings') return tab
     const browse = travelBrowseState(tab.browse, delta, shownFile(tab))
     return browse === tab.browse ? tab : { ...tab, browse, term: hideTerm(tab.term) }
+  })
+}
+
+/** Start, refine or clear a tab's Explorer search: a search is a place in
+ *  the history (#281, `searchBrowseState`). */
+export function searchBrowse(tabs: readonly Tab[], tabId: string, query: string): Tab[] {
+  return tabs.map((tab) => {
+    if (tab.id !== tabId || tab.kind === 'settings') return tab
+    const browse = searchBrowseState(tab.browse, query, shownFile(tab))
+    return browse === tab.browse ? tab : { ...tab, browse }
   })
 }
 
