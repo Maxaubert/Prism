@@ -8003,10 +8003,11 @@ async function addressFieldScenario(fixtures) {
       ok(cr >= 4.5, `${name}: a name reads on the field (${cr.toFixed(2)}:1)`)
     }
     // On Void the fill is DARKER than the old control step (rgb 8,8,8), still
-    // a step off the black, and the edge carries the box at 3:1.
+    // a step off the black, and a quiet edge carries the box (owner,
+    // 2026-10-04: "the white border stands out too much on the black theme").
     ok(lum(rgb(v.path.fill)) < lum([8, 8, 8]) && lum(rgb(v.path.fill)) > 0, `Void: the field is a darker grey than before (${v.path.fill})`)
     const edge = contrast(rgb(v.path.edge), rgb(v.ground))
-    ok(edge >= 3, `Void: the field's edge shows against the ground (${edge.toFixed(2)}:1)`)
+    ok(edge >= 1.5 && edge < 1.9, `Void: the field's edge is a quiet line, not a white frame (${edge.toFixed(2)}:1)`)
     ok(p.path.fill === 'rgb(231, 231, 232)', `Paper: the field wears the control fill (${p.path.fill})`)
     ok(v.path.fill !== p.path.fill, 'Void and Paper fill the field differently')
     // A hover strengthens the edge and leaves the fill alone.

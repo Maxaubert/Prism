@@ -5,9 +5,12 @@
  * darker grey").
  *
  * On a near-black ground a field is told apart by its EDGE, not by a lighter
- * slab: the fill steps only a shade off the ground, and the edge carries the
- * shape at the 3:1 a control's boundary needs. Anywhere else the fields keep
- * the fill and edge the search always had, so no other style changes.
+ * slab: the fill steps only a shade off the ground, and a QUIET edge carries
+ * the shape. It was drawn at the 3:1 a control's boundary is held to, and on
+ * true black that read as a white frame (owner, 2026-10-04: "the white border
+ * stands out too much on the black theme"), so it is a dim grey, Dolphin's
+ * kind of line, and the owner's word is the measure here. Anywhere else the
+ * fields keep the fill and edge the search always had.
  *
  * Near-black is MEASURED from the ground's luminance, never read off a style's
  * name: a custom black style gets it too, and Void with a tinted material
@@ -49,6 +52,11 @@ export function contrastOf(a: string, b: string): number {
 
 export const isNearBlack = (ground: string): boolean => luminance(ground) < NEAR_BLACK
 
+/** The edge's contrast on black, and the hovered edge's: a hint of a line,
+ *  and a step stronger under the pointer. */
+const EDGE = 1.6
+const EDGE_HOVER = 2.2
+
 /** The first step from `ground` towards `text` that reaches `floor`, in 1%
  *  steps: the quietest line that still meets it, never brighter than needed. */
 function lineAt(ground: string, text: string, floor: number): string {
@@ -75,8 +83,8 @@ export function nearBlackField(ground: string, text: string): FieldColours | nul
   if (!isNearBlack(ground)) return null
   return {
     fill: mixHex(ground, text, FILL_STEP),
-    edge: lineAt(ground, text, 3),
-    edgeHover: lineAt(ground, text, 4)
+    edge: lineAt(ground, text, EDGE),
+    edgeHover: lineAt(ground, text, EDGE_HOVER)
   }
 }
 

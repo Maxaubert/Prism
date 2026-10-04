@@ -20,9 +20,9 @@ describe('the toolbar fields (#267)', () => {
     // The old control fill on Void was #080808.
     expect(contrastOf(f.fill, '#000000')).toBeLessThan(contrastOf('#080808', '#000000'))
     expect(contrastOf(f.fill, '#000000')).toBeGreaterThan(1)
-    expect(contrastOf(f.edge, '#000000')).toBeGreaterThanOrEqual(3)
-    // The quietest edge that does it, not a white outline.
-    expect(contrastOf(f.edge, '#000000')).toBeLessThan(3.3)
+    // A quiet line, not a white frame (owner, 2026-10-04).
+    expect(contrastOf(f.edge, '#000000')).toBeGreaterThanOrEqual(1.6)
+    expect(contrastOf(f.edge, '#000000')).toBeLessThan(1.8)
     expect(contrastOf(f.edgeHover, '#000000')).toBeGreaterThan(contrastOf(f.edge, '#000000'))
   })
 
@@ -41,7 +41,8 @@ describe('the toolbar fields (#267)', () => {
   it('Void wears the dark field; Paper keeps the fill it had', () => {
     const v = variablesFor(byId('new-void'))
     expect(v['--p-field']).toBe('#060606')
-    expect(contrastOf(v['--p-field-edge'], '#000000')).toBeGreaterThanOrEqual(3)
+    expect(contrastOf(v['--p-field-edge'], '#000000')).toBeGreaterThanOrEqual(1.6)
+    expect(contrastOf(v['--p-field-edge'], '#000000')).toBeLessThan(1.8)
     const p = variablesFor(byId('paper'))
     expect(p['--p-field']).toBe(p['--p-control'])
     expect(p['--p-field']).toBe('#e7e7e8')
