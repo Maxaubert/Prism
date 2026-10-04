@@ -72,6 +72,16 @@ export function explorerRow(id: ExplorerSize): ExplorerRow {
   return (EXPLORER_SIZES.find((s) => s.id === id) ?? EXPLORER_SIZES[1]).row
 }
 
+/** The column header's height for a size: a few pixels taller than a row,
+ *  and Large's own 36px (the header before #257). It is also the band the
+ *  sidebar's first heading and a text preview's first line are centred in
+ *  (#283; owner, 2026-10-04: "the position of the sorting bar ... that's the
+ *  height I want the txt files to start at and the sidebar to start at"), so
+ *  the three panels' first lines are one line across the window. */
+export function explorerHeadHeight(id: ExplorerSize): number {
+  return id === 'large' ? 36 : explorerRow(id).height + 6
+}
+
 export function useExplorerSize(): ExplorerSize {
   return useSyncExternalStore(
     (l) => {

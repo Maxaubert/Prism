@@ -277,7 +277,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 6px 8px 18px;
+  padding: 0 8px 18px;
 }
 .browse-places section + section {
   margin-top: 20px;
@@ -287,6 +287,19 @@
   color: var(--p-dim);
   font-size: 13px;
   font-weight: 400;
+}
+/* THE FIRST HEADING SITS IN THE COLUMN HEADER'S BAND (#283; owner,
+   2026-10-04: "the position of the sorting bar with name, type, size etc.
+   that's the height I want ... the sidebar to start at"). The band is the
+   header's own height (--browse-head-h) from the same top, and the words are
+   centred in it as the header's labels are, so "Quick access" and "Name" are
+   one line across the window at every Explorer size. */
+.browse-places nav > section:first-child > h2 {
+  display: flex;
+  align-items: center;
+  height: var(--browse-head-h, 32px);
+  margin-top: 0;
+  margin-bottom: 2px;
 }
 /* Quick access follows the Explorer size too (owner, 2026-10-03: "those icons
    too should be size adjustable, same as the main files. they follow one
@@ -425,7 +438,8 @@ body[data-internal-file-drag] .browse-path:focus-within {
 }
 .browse-columns {
   flex-shrink: 0;
-  height: calc(var(--browse-row-h, 26px) + 6px);
+  /* `explorerHeadHeight`: a row plus 6px, Large's 36px. */
+  height: var(--browse-head-h, calc(var(--browse-row-h, 26px) + 6px));
   border-bottom: 1px solid var(--p-divider);
   color: var(--p-dim);
   font-size: var(--browse-row-font, 12.5px);
@@ -785,7 +799,6 @@ body[data-internal-file-drag] .browse-path:focus-within {
   --browse-col-gap: 16px;
 }
 .browse-list-area[data-row-size='large'] .browse-columns {
-  height: 36px;
   font-size: 13px;
 }
 .browse-list-area[data-row-size='large'] .browse-row :is(

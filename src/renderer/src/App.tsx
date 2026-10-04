@@ -1,7 +1,7 @@
 import { useWinEOpen } from './lib/useWinEOpen'
 import { useExplorerArrival } from './lib/useExplorerArrival'
 import { visitedDirectories } from './lib/visitedDirectories'
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type ReactNode } from 'react'
 import type { OnClash, OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { captureMoveViews, movedPath, releaseMoveViews, restoreMoveViews, type FileMove } from './lib/moveViews'
@@ -166,6 +166,7 @@ import {
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import { useInternalFileDrag } from './lib/internalFileDrag'
+import { explorerHeadHeight, useExplorerSize } from './lib/explorerSize'
 import { JobChip } from './components/JobChip'
 import {
   describe as describeUndo,
@@ -2607,6 +2608,14 @@ export default function App(): JSX.Element {
   // The pane slides open and shut on its toggle (#207): `out` keeps it laid
   // out while it closes, `widthShown` holds it at 0px for an opening's first frame.
   const previewSlide = usePreviewSlide(showBrowsePreview, viewerBox)
+  // A file's own text in the preview starts on the column header's line (#283;
+  // owner, 2026-10-04: "the position of the sorting bar ... that's the height
+  // I want the txt files to start at"): the pane takes the header's top, the
+  // first line is centred in the header's band and the full view button
+  // floats in that band at the right. Text read as source only; a Markdown
+  // page, a picture or a film keeps the button's own strip above it.
+  const previewFlush = !!file && file.kind === 'text' && !isMarkdown(file.name) && !editMode
+  const headHeight = explorerHeadHeight(useExplorerSize())
   const explorerWidths = useExplorerWidths(
     placesVisible,
     previewSlide.widthShown
@@ -3908,7 +3917,11 @@ export default function App(): JSX.Element {
       <div
         inert={settingsOpen || setup}
         ref={explorerWidths.workspace}
-        style={active && isExplorerTab(active) ? explorerWidths.style : undefined}
+        style={
+          active && isExplorerTab(active)
+            ? ({ ...explorerWidths.style, '--browse-head-h': `${headHeight}px` } as CSSProperties)
+            : undefined
+        }
         data-preview-sliding={previewSlide.sliding || undefined}
         className={`browse-workspace relative flex min-h-0 flex-1 ${browsing.folder ? 'is-browsing' : ''} ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${
           settingsOpen || setup ? 'invisible' : ''
@@ -4073,34 +4086,6 @@ export default function App(): JSX.Element {
                 terminalControls={terminalBrowseControls}
                 covered={!!ask || update.state.open || settingsOpen || !!setup}
               />
-              {previewSlide.out && browsing.previewFile && (
-                <div className="browse-preview-actions">
-                  {/* An icon, two arrows out to the corners (owner, 2026-10-04:
-                      "make this a fullscreen icon, the one with the two
-                      diagonal arrows, not the frame icon"); the words stay as
-                      its tooltip and its name for a screen reader. */}
-                  <button
-                    data-open-full
-                    aria-label="Open full view"
-                    title="Open full view"
-                    onClick={() => void browsing.openFile(browsing.previewFile!, true, false)}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      width={16}
-                      height={16}
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={1.8}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                    >
-                      <path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7" />
-                    </svg>
-                  </button>
-                </div>
-              )}
             </div>
           )}
           {showBrowsePreview && !previewSlide.sliding && !fullscreen && (
@@ -4109,6 +4094,36 @@ export default function App(): JSX.Element {
               bounds={explorerWidths.bounds.preview}
               onResize={(width) => explorerWidths.resize('preview', width)}
             />
+          )}
+          {/* Beside the viewer, not inside the list's host: a text preview's button
+              floats OVER the pane (#283), so it must stack above the viewer. */}
+          {browsing.folder && active && browsing.location && !fullscreen && previewSlide.out && browsing.previewFile && (
+            <div className="browse-preview-actions" data-flush={previewFlush || undefined}>
+              {/* An icon, two arrows out to the corners (owner, 2026-10-04:
+                  "make this a fullscreen icon, the one with the two
+                  diagonal arrows, not the frame icon"); the words stay as
+                  its tooltip and its name for a screen reader. */}
+              <button
+                data-open-full
+                aria-label="Open full view"
+                title="Open full view"
+                onClick={() => void browsing.openFile(browsing.previewFile!, true, false)}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width={16}
+                  height={16}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.8}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7" />
+                </svg>
+              </button>
+            </div>
           )}
           {!browsing.folder &&
             active &&
@@ -4146,6 +4161,7 @@ export default function App(): JSX.Element {
             }`}
             ref={viewerBox}
             data-browse-preview={(previewSlide.out && !fullscreen) || undefined}
+            data-preview-flush={(previewSlide.out && !fullscreen && previewFlush) || undefined}
             data-workspace-viewer
           >
             {/* the fullscreen fade-to-black, inside the fullscreen element */}

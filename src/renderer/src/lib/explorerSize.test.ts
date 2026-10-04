@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   EXPLORER_SIZES,
+  explorerHeadHeight,
   explorerRow,
   explorerSize,
   explorerSizeOf,
@@ -60,6 +61,14 @@ describe('explorer size', () => {
     expect(explorerSize()).toBe('medium')
     setExplorerSize('tiny' as never)
     expect(localStorage.getItem('prism.explorer.size')).toBe('medium')
+  })
+
+  // The header's band, which the sidebar's first heading and a text
+  // preview's first line are centred in (#283).
+  it('the column header is 6px over a row, and Large keeps its old 36px', () => {
+    expect(explorerHeadHeight('small')).toBe(28)
+    expect(explorerHeadHeight('medium')).toBe(explorerRow('medium').height + 6)
+    expect(explorerHeadHeight('large')).toBe(36)
   })
 
   it('an unknown id still draws a row', () => {

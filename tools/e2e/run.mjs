@@ -8387,6 +8387,150 @@ async function explorerSizeScenario(fixtures) {
  * search results' columns and at a narrow window. A screenshot of the header
  * with Type hovered goes to .e2e/shots/column-header-hover.png.
  */
+/**
+ * THE THREE PANELS START AT ONE HEIGHT (#283; owner, 2026-10-04: "the position
+ * of the sorting bar with name, type, size etc. that's the height I want the
+ * txt files to start at and the sidebar to start at, that way all three
+ * panels contents align at the same height"). Measured on the TEXT, not the
+ * boxes: the middle of the column header's "Name", of the sidebar's first
+ * heading and of the preview's first line (its number and its words) are one
+ * line across the window, at every Explorer size. The full view button sits
+ * in that band at the pane's right and never lies over a word of text.
+ */
+async function panelsAlignScenario(fixtures) {
+  console.log('panels align')
+  const dir = join(fixtures, 'panelsalign')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const long =
+    'The first line of these notes runs long on purpose, so that it reaches the right edge of the preview pane where the full view button sits and has to wrap before it rather than go under it. '.repeat(2)
+  writeFileSync(join(dir, 'notes.txt'), [long, ...Array.from({ length: 60 }, (_, i) => `line ${i + 2} of the notes`)].join('\n'))
+  writeFileSync(join(dir, 'main.ts'), ['export const first = 1', ...Array.from({ length: 30 }, (_, i) => `export const v${i} = ${i}`)].join('\n'))
+  writeFileSync(join(dir, 'other.txt'), 'other\n')
+  const { app, win } = await launch(join(dir, 'other.txt'))
+  // The middle of the first text node's glyph box, and its rects, by a Range.
+  const measure = () =>
+    win.evaluate(() => {
+      const textBox = (el) => {
+        if (!el) return null
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          if (!n.textContent.trim()) continue
+          const range = document.createRange()
+          range.selectNodeContents(n)
+          const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0)
+          if (!rects.length) continue
+          const r = rects[0]
+          return {
+            top: r.top,
+            mid: (r.top + r.bottom) / 2,
+            rects: rects.map((q) => ({ l: q.left, r: q.right, t: q.top, b: q.bottom }))
+          }
+        }
+        return null
+      }
+      const head = document.querySelector('.browse-list-area .browse-columns')
+      const pane = document.querySelector('[data-browse-preview]')
+      const numEl = [...(pane?.querySelectorAll('.cm-lineNumbers .cm-gutterElement') ?? [])].find(
+        (g) => g.textContent.trim() === '1'
+      )
+      const button = document.querySelector('[data-open-full]')
+      const b = button?.getBoundingClientRect()
+      // Every text rect of the first line, not only its first node's: a
+      // highlighted line is several nodes.
+      const lineRects = []
+      const lineEl = pane?.querySelector('.cm-line')
+      if (lineEl) {
+        const range = document.createRange()
+        range.selectNodeContents(lineEl)
+        for (const q of range.getClientRects())
+          if (q.width > 0 && q.height > 0) lineRects.push({ l: q.left, r: q.right, t: q.top, b: q.bottom })
+      }
+      return {
+        headTop: head?.getBoundingClientRect().top,
+        headBottom: head?.getBoundingClientRect().bottom,
+        name: textBox(head?.querySelector('.browse-column-name')),
+        heading: textBox(document.querySelector('.folder-browser .browse-places h2')),
+        line: textBox(lineEl),
+        lineRects,
+        number: textBox(numEl),
+        paneTop: pane?.getBoundingClientRect().top,
+        button: b ? { l: b.left, r: b.right, t: b.top, b: b.bottom } : null,
+        clickable: b
+          ? document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)?.closest('[data-open-full]') === button
+          : false
+      }
+    })
+  const r1 = (n) => (typeof n === 'number' ? Math.round(n * 10) / 10 : n)
+  const say = (m) =>
+    JSON.stringify({
+      head: [r1(m.headTop), r1(m.headBottom)],
+      name: r1(m.name?.mid),
+      heading: r1(m.heading?.mid),
+      line: r1(m.line?.mid),
+      number: r1(m.number?.mid),
+      paneTop: r1(m.paneTop),
+      button: m.button && [r1(m.button.l), r1(m.button.t), r1(m.button.r), r1(m.button.b)]
+    })
+  const overlaps = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b
+  const selected = () =>
+    win.evaluate(() => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')
+  const shown = (name) =>
+    until(async () => {
+      const m = await measure()
+      return !!m.line && !!m.name && !!m.heading && (await selected()).endsWith(name)
+    }, 12000)
+  const check = async (label, shot, numbered = false) => {
+    await sleep(400)
+    const m = await measure()
+    console.log(`  ${label}: ${say(m)}`)
+    const ref = m.name?.mid ?? NaN
+    ok(Math.abs((m.heading?.mid ?? -99) - ref) <= 2, `${label}: the sidebar's first heading is on the header's line (${say(m)})`)
+    ok(Math.abs((m.line?.mid ?? -99) - ref) <= 2, `${label}: the preview's first line of text is on the header's line`)
+    if (numbered) ok(Math.abs((m.number?.mid ?? -99) - ref) <= 2, `${label}: and so is its line number`)
+    ok(!!m.button && m.clickable, `${label}: the full view button is there and takes a click`)
+    ok(
+      !!m.button && m.lineRects.length > 0 && !m.lineRects.some((q) => overlaps(q, m.button)),
+      `${label}: and lies over no text of the first line (${JSON.stringify(m.lineRects.slice(0, 4).map((q) => [r1(q.l), r1(q.r), r1(q.t)]))})`
+    )
+    await win.screenshot({ path: join(SHOTS, `panels-align-${shot}.png`) })
+    return m
+  }
+  try {
+    await handoff(join(dir, 'notes.txt'))
+    ok(await shown('notes.txt'), 'the Explorer shows notes.txt in the preview pane')
+    await check('Medium, notes.txt', 'medium-txt')
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="main.ts"]').click()
+    ok(await shown('main.ts'), 'main.ts in the preview pane')
+    await check('Medium, main.ts', 'medium-ts', true)
+    for (const size of ['Small', 'Large']) {
+      await pickStyleSegment(win, 'explorer-size', size)
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"]').click()
+      ok(await shown('notes.txt'), `${size}: notes.txt in the preview pane`)
+      await check(`${size}, notes.txt`, `${size.toLowerCase()}-txt`)
+    }
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    // The full view button still does its job from where it sits now.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.locator('[data-open-full]').click()
+    ok(
+      await until(
+        () =>
+          win.evaluate(
+            () =>
+              !!document.querySelector('.cm-editor')?.getClientRects().length &&
+              !document.querySelector('[data-testid="folder-browser"]')?.getClientRects().length
+          ),
+        8000
+      ),
+      'the full view button opens the file in full view'
+    )
+  } finally {
+    await app.close()
+  }
+}
+
 async function columnHeadersScenario(fixtures) {
   console.log('column headers')
   const dir = join(fixtures, 'colhead')
@@ -12480,6 +12624,7 @@ await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(columnHeadersScenario)
+await run(panelsAlignScenario)
 await run(noLoadingEverScenario)
 await run(coldLaunchCachedScenario)
 await run(coldLaunchNoCacheScenario)

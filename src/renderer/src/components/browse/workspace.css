@@ -121,6 +121,35 @@
   background: var(--p-bg);
   border-left: 1px solid var(--p-divider);
 }
+/* A TEXT PREVIEW STARTS ON THE COLUMN HEADER'S LINE (#283; owner, 2026-10-04:
+   "the position of the sorting bar with name, type, size etc. that's the
+   height I want the txt files to start at ... this might cause some conflict
+   with the fullscreen icon, we'll see how it looks"). The pane takes the
+   list's top instead of sitting under the button's 40px strip, and the first
+   line is centred in the header's band (--browse-head-h, the 13px font at
+   line-height 1.55), the line numbers with it. The button loses its strip and
+   floats in that band at the pane's right; the text keeps 32px clear on its
+   right (on top of the line's own 18px), so a line wraps before it reaches
+   the button rather than running under it. */
+.browse-workspace [data-browse-preview][data-preview-flush] {
+  top: 48px;
+}
+.browse-workspace [data-browse-preview][data-preview-flush] .cm-content {
+  padding-top: calc((var(--browse-head-h, 32px) - 1.55em) / 2);
+  padding-right: 32px;
+}
+.browse-preview-actions[data-flush] {
+  width: auto;
+  height: var(--browse-head-h, 32px);
+  padding: 0 14px 0 0;
+  background: transparent;
+  border-left: 0;
+}
+.browse-preview-actions[data-flush] button[data-open-full] {
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+}
 .browse-return-row {
   position: absolute;
   z-index: 5;
