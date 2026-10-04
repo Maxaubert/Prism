@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import { FolderIcon, KindIcon, iconColour } from '../TreeRows'
-import { hitFolder, stepActive } from '../../lib/searchSuggest'
+import { hitFolder, stepActive } from '@shared/searchSuggest'
 import { useSearchSuggestions, type Suggestion } from '../../lib/useSearchSuggestions'
 import { BrowseIcon } from './BrowseIcon'
 import './search-popup.css'
@@ -35,8 +35,11 @@ export function BrowseSearchPopup(props: {
   const id = useId()
   const answer = useSearchSuggestions(props.tabId, props.directory, query)
   const hits = answer.hits
-  // The marked row belongs to the list it was marked in: a new answer is a
-  // new list, and whatever was marked is gone with it.
+  // The marked row belongs to the list it was marked in, and to the words:
+  // a new answer is a new list, and a letter typed is a new question even
+  // while the old rows stay on screen waiting for its answer, so Enter then
+  // runs the search rather than opening a row picked for the text before
+  // (review of #268). So every edit of the field takes the mark away.
   const [mark, setMark] = useState<{ list: unknown; at: number }>({ list: null, at: -1 })
   const active = mark.list === hits ? mark.at : -1
   const setActive = (at: number | ((previous: number) => number)): void =>
@@ -80,7 +83,15 @@ export function BrowseSearchPopup(props: {
         aria-label="Search this folder and subfolders"
         className="browse-search-popup"
         data-testid="browse-search-popup"
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => {
+          e.stopPropagation()
+          // The field keeps the focus wherever the popup is pressed: a press
+          // on its magnifier, its padding or the empty line used to blur it to
+          // the page, where no key of the popup's was heard any more and
+          // Ctrl+T or Ctrl+W reached the tabs underneath (review of #268,
+          // measured). The rows already do this; the field itself may take it.
+          if (e.target !== field.current) e.preventDefault()
+        }}
       >
         <div className="browse-search-popup-field">
           <BrowseIcon name="search" />
@@ -99,7 +110,10 @@ export function BrowseSearchPopup(props: {
             spellCheck={false}
             autoComplete="off"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setMark({ list: null, at: -1 })
+            }}
             onKeyDown={(e) => {
               // Every key in here is the popup's: the Explorer and the app
               // must not walk rows or close tabs underneath it.

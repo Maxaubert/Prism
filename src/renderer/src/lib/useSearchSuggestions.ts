@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ViewerFile } from '@shared/types'
-import { rankSuggestions } from './searchSuggest'
+import { rankSuggestions } from '@shared/searchSuggest'
 
 export interface Suggestion {
   path: string

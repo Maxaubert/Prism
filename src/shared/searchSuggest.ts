@@ -2,8 +2,9 @@
  * THE SEARCH POPUP'S SHORT LIST (#267; owner, 2026-10-04, showing PowerToys
  * Run: "in the search pop up you'll see the relevant recommendations, the most
  * likely ones, and at the bottom there's a show more which essentially does a
- * normal search like before"). Pure: main's search (the same index and walk as
- * the list's) hands back up to 200 hits, and this picks the few most likely.
+ * normal search like before"). Pure, and shared: main keeps the best 200 of
+ * what its search found by `nameRank` (browseSuggest), and the popup picks the
+ * few most likely of those with `rankSuggestions`.
  *
  * Most likely means the NAME answers the query: the whole name, then its
  * start, then the start of a word in it, then anywhere in it. Hits that only

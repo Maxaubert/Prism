@@ -552,10 +552,14 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   field: a chevron LEADS every name, the current folder bold, a long path keeps its end and
   fades its start. Search: the button or Ctrl+F in the Explorer (an editor's or a shell's
   Ctrl+F is theirs) opens `BrowseSearchPopup`, portalled, centred, the help popup's blur and
-  no shadow. Main's SAME search in its own slot (`browse:suggest`, `suggestSlot`, 200 hits, 3 s)
-  so it never stops the list's; `lib/searchSuggest.ts` ranks the likely 8 (whole name, start,
-  a word's start, inside; then nearer, folder, shorter). Focus stays in the combobox; nothing
-  is marked until the arrows; Enter on a marked row opens it (a folder is gone into), Enter on
+  no shadow. Main's SAME search in its own slot (`browseSuggest`, `suggestSlot`, 3 s) so it
+  never stops the list's, keeping the BEST 200 by `nameRank`, not the first 200 (review of
+  #268: the walk now spends its whole budget, and the index is asked for 5000 by name and
+  ranked in main, so `test.ts` is not lost behind 200 `*.test.ts`); `shared/searchSuggest.ts`
+  ranks the likely 8 (whole name, start, a word's start, inside; then nearer, folder, shorter).
+  Focus stays in the combobox, and a press anywhere in the popup keeps it there (a press on the
+  magnifier once sent it to the page, where Ctrl+T opened a tab underneath); nothing is marked
+  until the arrows, and every edit of the field takes the mark away; Enter on a marked row opens it (a folder is gone into), Enter on
   nothing or Show more or Ctrl+Enter runs the list's full search, "Clear search" in the status
   line ends it. ONE LAYER: it does not open over a modal and leaves (for good) on a question,
   the update window, Settings, another tab or folder; App ignores keys from inside it

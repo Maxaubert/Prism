@@ -57,9 +57,8 @@ import {
 } from './desktopAccess'
 import { browseDirectory, browseLocations, browseWatch } from './browse'
 import {
-  SUGGEST_LIMITS,
-  SUGGEST_WINDOW,
   browseSearch,
+  browseSuggest,
   cancelBrowseSearch,
   normalizeSearchWindow,
   suggestSlot
@@ -2123,16 +2122,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'browse:suggest',
       (_e, tabId: string, path: string, query: string, requestId: string) =>
-        browseSearch(
-          tabId,
-          path,
-          query,
-          requestId,
-          () => {},
-          SUGGEST_LIMITS,
-          SUGGEST_WINDOW,
-          typeof tabId === 'string' ? suggestSlot(tabId) : tabId
-        )
+        browseSuggest(tabId, path, query, requestId)
     )
     ipcMain.on('browse:suggest-cancel', (_e, tabId: string, requestId: string) => {
       if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId), requestId)

@@ -84,6 +84,7 @@ import { browseParent } from './lib/browse'
 import { terminalRestoreOrder } from './lib/terminalRestore'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
+import { BrowseIcon } from './components/browse/BrowseIcon'
 import { ExplorerResize } from './components/browse/ExplorerResize'
 import { useExplorerWidths } from './lib/useExplorerWidths'
 import { usePreviewSlide } from './lib/usePreviewSlide'
@@ -2625,22 +2626,33 @@ export default function App(): JSX.Element {
     termCwd.current.has(active.term.id)
   const terminalBrowseControls = active?.term ? (
     <div className="browse-terminal-actions">
+      {/* Each carries an icon and its words: the words go when the Explorer
+          is narrow, so the address field keeps the room (review of #268). */}
       {termView !== 'full' && (
-        <button onClick={openTermFull} title={termFolder(active.term.id)}>
-          Return to terminal
+        <button
+          onClick={openTermFull}
+          aria-label="Return to terminal"
+          title={termFolder(active.term.id)}
+        >
+          <BrowseIcon name="terminal" />
+          <span>Return to terminal</span>
         </button>
       )}
       <button
+        aria-label="Terminal folder"
+        title="Terminal folder"
         onClick={() => {
           const path = termFolder(active.term!.id)
           if (path) void browsing.navigate(path)
         }}
       >
-        Terminal folder
+        <BrowseIcon name="folder" />
+        <span>Terminal folder</span>
       </button>
       {termView !== 'full' && (
         <button
           className="browse-cd"
+          aria-label="Use folder in terminal"
           disabled={!canChangeTerminalFolder}
           title={
             canChangeTerminalFolder
@@ -2659,7 +2671,8 @@ export default function App(): JSX.Element {
             window.prism.termCd(term.id, active.browse.path)
           }}
         >
-          Use folder in terminal
+          <BrowseIcon name="cdHere" />
+          <span>Use folder in terminal</span>
         </button>
       )}
     </div>

@@ -325,11 +325,36 @@
   min-width: 0;
 }
 .browse-terminal-controls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 36px;
   padding: 0 8px;
   color: var(--p-text-soft);
   border-radius: 3px;
   font-size: 13px;
+}
+.browse-terminal-controls button > svg {
+  flex: none;
+}
+/* Words with room, icons without (review of #268, measured: the three words
+   took 369px, and below about 1100px of Explorer the address field, whose job
+   is the folder's name, was what got cut). The container is the Explorer, not
+   the window, so a docked terminal or the sidebar counts. */
+@container (max-width: 1100px) {
+  .browse-terminal-controls button {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .browse-terminal-controls button > span {
+    display: none;
+  }
+}
+@container (max-width: 560px) {
+  .browse-terminal-controls .browse-cd {
+    display: none;
+  }
 }
 .browse-list-area {
   grid-column: 2;

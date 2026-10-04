@@ -8223,6 +8223,24 @@ async function searchPopupScenario(fixtures) {
     ok(/match/.test(announced ?? ''), `the count is announced (${announced})`)
     await win.screenshot({ path: join(SHOTS, 'search-popup.png') })
 
+    // A PRESS ANYWHERE IN IT keeps the field's focus (review of #268,
+    // measured: a press on the magnifier sent the focus to the page, where
+    // Escape did nothing and Ctrl+T opened a tab under the popup).
+    await popup.locator('.browse-search-popup-field > svg').click()
+    await popup.click({ position: { x: 4, y: 4 } })
+    ok(await win.evaluate(() => document.activeElement?.getAttribute('role') === 'combobox'), 'a press on the magnifier or the edge keeps the field focused')
+
+    // A MARK BELONGS TO THE WORDS it was made under: one more letter and the
+    // old rows, still on screen until the new answer, are marked no more, so
+    // Enter cannot open a row picked for the text before.
+    await field.press('ArrowDown')
+    ok((await popup.locator('[aria-selected="true"]').count()) === 1, 'Down marks a row')
+    await field.press('s')
+    ok((await popup.locator('[aria-selected="true"]').count()) === 0 && (await field.getAttribute('aria-activedescendant')) === null, 'a letter typed takes the mark away at once')
+    await field.press('Backspace')
+    ok((await popup.locator('[aria-selected="true"]').count()) === 0, 'and taking the letter back does not bring the old mark back')
+    ok(await until(async () => (await popup.locator('.browse-search-popup-spin').count()) === 0 && (await names())[0] === 'report.txt', 15000), 'and the list comes back for the old words')
+
     // THE ARROWS AND ENTER open the marked file, as a plain open does.
     ok((await popup.locator('[aria-selected="true"]').count()) === 0, 'nothing is marked before the arrows')
     await field.press('ArrowDown')
@@ -8241,7 +8259,13 @@ async function searchPopupScenario(fixtures) {
     await win.locator('[data-testid="browse-list"]').focus()
     await win.keyboard.press('Control+f')
     ok(await until(async () => (await popup.count()) === 1, 5000), 'Ctrl+F in the Explorer opens it')
-    await field.press('Escape')
+    // Pressed on its own magnifier first: the keys are still the popup's.
+    const tabsBefore = await win.locator('[role="tablist"] [role="tab"]').count()
+    await popup.locator('.browse-search-popup-field > svg').click()
+    await win.keyboard.press('Control+t')
+    await sleep(300)
+    ok((await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBefore && (await popup.count()) === 1, 'Ctrl+T over it opens no tab underneath')
+    await win.keyboard.press('Escape')
     ok(await until(async () => (await popup.count()) === 0, 5000), 'Escape closes it')
     ok(await win.evaluate(() => !!document.activeElement?.closest('[data-testid="browse-list"]')), 'and the focus is back in the list')
     // A click outside closes it too.
@@ -8296,6 +8320,43 @@ async function searchPopupScenario(fixtures) {
     await sleep(400)
     ok((await popup.count()) === 0, 'and it does not come back with the tab')
 
+    // A TERMINAL'S BUTTONS give the address field the room (review of #268,
+    // measured 266px of field at a 913px window with their words). Since #148
+    // no way in the app puts a shell on an Explorer tab, so App's own markup
+    // for them (an icon and its words per button) is put in the toolbar here
+    // and measured with the real CSS at a wide and a narrow Explorer: words
+    // where it is wide, icons where it is not.
+    const fits = await win.evaluate(async () => {
+      const fb = document.querySelector('.folder-browser')
+      const tb = fb.querySelector('[data-testid="browse-toolbar"]')
+      const icon = tb.querySelector('[data-testid="browse-search-button"] svg').outerHTML
+      const box = document.createElement('div')
+      box.className = 'browse-terminal-controls'
+      box.innerHTML =
+        '<div class="browse-terminal-actions">' +
+        ['Return to terminal', 'Terminal folder', 'Use folder in terminal']
+          .map((label, i) => `<button aria-label="${label}"${i === 2 ? ' class="browse-cd"' : ''}>${icon}<span>${label}</span></button>`)
+          .join('') +
+        '</div>'
+      tb.insertBefore(box, tb.querySelector('button[aria-label="Preview pane"]'))
+      const at = async (width) => {
+        fb.style.width = `${width}px`
+        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
+        const field = tb.querySelector('nav.browse-path').getBoundingClientRect().width
+        const words = [...box.querySelectorAll('span')].some((s) => s.getClientRects().length)
+        return { width, field: Math.round(field), words, controls: Math.round(box.getBoundingClientRect().width), overflow: tb.scrollWidth > tb.clientWidth + 1 }
+      }
+      const out = [await at(1400), await at(1000), await at(760)]
+      box.remove()
+      fb.style.width = ''
+      return out
+    })
+    console.log('  terminal controls', JSON.stringify(fits))
+    const [wide, mid, narrow] = fits
+    ok(wide.words && !wide.overflow && wide.field >= 300, `a wide Explorer shows the words and keeps the field (${JSON.stringify(wide)})`)
+    ok(!mid.words && !mid.overflow && mid.field >= 300, `a narrower one shows icons and the field keeps its room (${JSON.stringify(mid)})`)
+    ok(!narrow.words && !narrow.overflow && narrow.field >= 250, `and so does a narrow one (${JSON.stringify(narrow)})`)
+
     // CTRL+F IN AN EDITOR IS THE EDITOR'S.
     await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"]').dblclick()
     await win.waitForSelector('.cm-content', { timeout: 10000 })
@@ -8314,6 +8375,7 @@ async function searchPopupScenario(fixtures) {
       ok((await popup.count()) === 0, 'Ctrl+F in a terminal does not open the popup')
       await win.keyboard.press('Control+`')
     } else ok(false, 'a terminal opened for the Ctrl+F check')
+
   } finally {
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })

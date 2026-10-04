@@ -185,9 +185,6 @@
   .browse-workspace {
     --browse-preview-width: 44%;
   }
-  .browse-terminal-actions .browse-cd {
-    display: none;
-  }
   .browse-return-row {
     flex-wrap: wrap;
     height: auto;
