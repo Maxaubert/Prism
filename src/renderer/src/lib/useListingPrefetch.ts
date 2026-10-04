@@ -10,14 +10,16 @@ import { directoryKey, visitedDirectories } from './visitedDirectories'
  * which folders are likely next; main decides whether they may be read (local
  * fixed drives, 5000 entries at most) and reads at most two at a time. What
  * comes back sits in the shared snapshots, so the click paints from memory.
+ * It is never written to the cache on disk (review of #271): that keeps only
+ * the folders the user opened.
  *
  * What is likely next, and when:
  *   - a folder row the pointer rests on for 150 ms, or a folder selected with
  *     the keyboard;
  *   - the parent of the folder on screen, so Up is instant;
  *   - the first 12 subfolders of a folder of 30 entries or fewer, at idle;
- *   - the first 8 Quick access places, once, at idle after launch (pinned in
- *     the cache, so they are the last to be evicted).
+ *   - the first 8 Quick access places, once, at idle after launch (marked
+ *     pinned, so once opened they are the last to be evicted).
  */
 
 export const HOVER_MS = 150

@@ -8429,9 +8429,13 @@ async function addressFieldScenario(fixtures) {
   const intoFolder = async () => {
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
-    if ((await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) !== 2)
-      await win.locator('[data-testid="browse-list"] [data-browse-path$="addrfield"]').dblclick()
-    return until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 2, 10000)
+    // By NAME, not by counting two .txt rows: the reload scenario leaves
+    // reload.txt beside notes.txt, so the fixtures folder has two as well and
+    // the old test stayed there (seen in a full gate run, review of #271).
+    const inside = async () =>
+      (await win.locator('[data-testid="browse-list"] [data-browse-path$="addrfield\\\\a1.txt"]').count()) === 1
+    if (!(await inside())) await win.locator('[data-testid="browse-list"] [data-browse-path$="addrfield"]').dblclick()
+    return until(inside, 10000)
   }
   const shoot = (name) =>
     win.locator('.folder-browser [data-testid="browse-toolbar"]').first().screenshot({ path: join(SHOTS, `address-field-${name}.png`) })
@@ -11575,10 +11579,14 @@ const results = []
  * restart of the PC, or it's your first time after installing the program").
  * Design: docs/superpowers/specs/2026-10-04-explorer-never-loading-design.md.
  *
- * Every launch here installs a PROBE as soon as the page has a document: a
- * MutationObserver that records any loading text ("Loading folder", "Loading…",
- * "Opening Prism") and any `[data-testid=window-restoring]`, from the boot
- * shell onwards, and the moment the first Explorer row appears. Timings are
+ * Every launch here installs TWO probes. `earlyProbe.js` is a frame preload
+ * (main registers it under `PRISM_E2E_EARLY_PROBE`), so it watches from before
+ * the page's first script and records any loading text ("Loading folder",
+ * "Loading…", "Opening Prism") or a word in the boot shell's status line
+ * (review of #271: the page probe alone went in after `domcontentloaded`, and
+ * missed whatever came and went before). The page probe, put in by the
+ * harness, records the same texts from then on and the moment the first
+ * Explorer row appears. Timings are
  * taken in the page (performance.now), never from the harness's own clock.
  * Cold-disk timing after a real reboot cannot be done here; it is on the
  * hands-on list.
@@ -11611,6 +11619,7 @@ function buildNeverLoading() {
     root: NL,
     big2000: mk(join('cold', 'two-thousand'), 2000),
     big2000b: mk(join('cold', 'two-thousand-b'), 2000),
+    big2000c: mk(join('cold', 'two-thousand-c'), 2000),
     big5000: mk(join('cold', 'five-thousand'), 5000),
     slow: mk(join('cold', 'slow-target'), 5)
   }
@@ -11626,8 +11635,6 @@ function installLoadingProbe() {
   const look = (node) => {
     const el = node.nodeType === 1 ? node : node.parentElement
     if (!el || el.closest('style,script,head')) return
-    if (el.matches?.('[data-testid="window-restoring"]') || el.querySelector?.('[data-testid="window-restoring"]'))
-      nl.seen.push('window-restoring')
     const text = node.nodeType === 3 ? node.data : el.innerText ?? el.textContent
     if (text && bad.test(text)) nl.seen.push(text.trim().slice(0, 80))
   }
@@ -11651,10 +11658,18 @@ function installLoadingProbe() {
   }).observe(document.documentElement, { subtree: true, childList: true, characterData: true })
 }
 
-/** What the probe saw, with the first paint of the boot shell for reference. */
+/** What the probes saw, with the first paint of the boot shell for reference. */
 const probeOf = (win) =>
   win.evaluate(() => ({
-    seen: window.__nl?.seen ?? ['no probe'],
+    seen: (() => {
+      let early
+      try {
+        early = JSON.parse(document.documentElement.getAttribute('data-nl-early') ?? 'null')
+      } catch {
+        early = null
+      }
+      return [...(early?.installed ? early.seen : ['no early probe']), ...(window.__nl?.seen ?? ['no probe'])]
+    })(),
     firstRowAt: window.__nl?.firstRowAt ?? 0,
     firstRows: window.__nl?.firstRows ?? [],
     emptied: !!window.__nl?.emptied,
@@ -11672,7 +11687,7 @@ async function launchProbed({ tabs, env = {}, profile = PROFILE } = {}) {
     try {
       const app = await launchTestApp({
         args: [MAIN, `--user-data-dir=${profile}`, '--e2e'],
-        env: { ...process.env, ...env }
+        env: { ...process.env, PRISM_E2E_EARLY_PROBE: join(ROOT, 'tools', 'e2e', 'earlyProbe.js'), ...env }
       })
       const win = await app.firstWindow()
       await win.waitForLoadState('domcontentloaded')
@@ -11941,6 +11956,87 @@ async function newFolder2000Scenario() {
     }), pickName)
     ok(after.selected === 'true', 'the selection made before them is kept')
     ok(Math.abs(after.scrollTop - 130) <= 1, `and so is the scroll (${after.scrollTop})`)
+    await app.close()
+    await sleep(900)
+    // SORTED BY SIZE (review of #271): a new folder draws in name order until
+    // the last size is known, then re-sorts ONCE, and the selection and the
+    // scroll made before that survive it.
+    const bySize = {
+      active: 0,
+      tabs: [
+        (() => {
+          const t = explorerTab('nl-pinned', f.cold)
+          t.browse.history[0].sort = { key: 'size', direction: 'desc' }
+          return t
+        })()
+      ]
+    }
+    ;({ app, win } = await launchProbed({ tabs: bySize, env: { PRISM_E2E_DETAILS_DELAY: '600' } }))
+    ok(await landed(win, f.cold, 15000), 'sorted by size, with the details held back')
+    await sleep(600)
+    await win.evaluate(() => {
+      // The first file row, sampled every frame: how many times the order moved.
+      const nl = window.__nl
+      nl.orders = []
+      const tick = () => {
+        const first = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]')?.dataset.browsePath ?? ''
+        if (first && nl.orders[nl.orders.length - 1] !== first) nl.orders.push(first)
+        nl.sampling = requestAnimationFrame(tick)
+      }
+      tick()
+    })
+    await win.locator(`[data-testid="browse-list"] [data-browse-path="${f.big2000c.replace(/\\/g, '\\\\')}"]`).dblclick()
+    ok(await landed(win, f.big2000c), 'into a third new folder of 2000')
+    const firstNow = await win.evaluate(() => document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]')?.dataset.browsePath ?? '')
+    ok(/f00000\.txt$/.test(firstNow), `before the sizes it is in name order (${firstNow.split('\\').pop()})`)
+    const pickSized = join(f.big2000c, 'f00003.txt')
+    await win.locator(`[data-testid="browse-list"] [data-browse-path="${pickSized.replace(/\\/g, '\\\\')}"]`).click()
+    await win.evaluate(() => {
+      const list = document.querySelector('[data-testid="browse-list"]')
+      list.scrollTop = 130
+      list.dispatchEvent(new Event('scroll'))
+    })
+    const resorted = await until(
+      () =>
+        win.evaluate(() => {
+          const first = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]')
+          return !!first && first.querySelector('.browse-column-size')?.textContent.trim() !== '' && !/f00000\.txt$/.test(first.dataset.browsePath)
+        }),
+      5000,
+      50
+    )
+    await sleep(300)
+    const sized = await win.evaluate((name) => {
+      cancelAnimationFrame(window.__nl.sampling)
+      const orders = window.__nl.orders
+      const at = orders.findIndex((p) => /two-thousand-c/i.test(p))
+      return {
+        first: document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]')?.dataset.browsePath ?? '',
+        moves: at < 0 ? -1 : orders.length - at - 1,
+        selected: document.querySelector(`[data-browse-path="${CSS.escape(name)}"]`)?.getAttribute('aria-selected') ?? null,
+        scrollTop: document.querySelector('[data-testid="browse-list"]').scrollTop
+      }
+    }, pickSized)
+    // Sizes run 1 to 97 bytes by i % 97, so the biggest files are f00096 and
+    // every 97th after it.
+    const firstIndex = Number(/f(\d+)\.txt$/.exec(sized.first)?.[1] ?? -1)
+    ok(resorted && firstIndex % 97 === 96, `once the sizes are in it is sorted by size, biggest first (${sized.first.split('\\').pop()})`)
+    ok(sized.moves === 1, `the order moved exactly once, not with every patch (${sized.moves})`)
+    ok(Math.abs(sized.scrollTop - 130) <= 1, `the scroll made before it is kept (${sized.scrollTop})`)
+    // The selected row may have scrolled out of the drawn window with its
+    // file, so the selection is read where the app keeps it: the tab's saved
+    // place (written 400 ms after a change).
+    const stillSelected = await until(() => {
+      try {
+        const saved = JSON.parse(readFileSync(join(PROFILE, 'tabs.json'), 'utf8'))
+        const tab = saved.tabs.find((t) => t.role === 'explorer' && t.browse && sameDir(t.browse.path, f.big2000c))
+        const at = tab?.browse.history[tab.browse.cursor]
+        return !!at && sameDir(at.selected ?? '', pickSized)
+      } catch {
+        return false
+      }
+    }, 3000, 100)
+    ok(stillSelected, 'and so is the selection, which moved with its file')
   } finally {
     await app.close().catch(() => {})
   }
@@ -12004,7 +12100,17 @@ async function tabSwitchInstantScenario() {
       await win.evaluate((target) => {
         const nl = window.__nl
         nl.marks.length = 0
-        nl.marks.push({ test: (rows) => rows.some((r) => r.dataset.browsePath.toLowerCase().startsWith(`${target}\\`.toLowerCase())), at: 0 })
+        // A row DIRECTLY in the target: `cold` is inside `root`, so a prefix
+        // match on root was already true on cold's rows and the mark fired
+        // before the click (a negative time, seen in a rerun).
+        const base = `${target}\\`.toLowerCase()
+        nl.marks.push({
+          test: (rows) => rows.some((r) => {
+            const p = r.dataset.browsePath.toLowerCase()
+            return p.startsWith(base) && !p.slice(base.length).includes('\\')
+          }),
+          at: 0
+        })
         nl.down = 0
         if (!nl.downHooked) {
           nl.downHooked = true

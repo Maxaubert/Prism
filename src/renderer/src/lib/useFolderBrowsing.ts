@@ -261,6 +261,9 @@ export function useFolderBrowsing(
           const target = history[next]?.path
           const cached = visitedDirectories.get(target) ?? (target ? rememberCached(target) : null)
           if (cached) setResult({ ...cached, tabId: id })
+          // Not held anywhere: the folder on screen stays, as a navigation's
+          // does (review of #271), until the read answers or 300 ms pass.
+          else if (target && next !== cursor) setWaitingFor({ tabId: id, path: target })
         }
         setState((s) => ({ ...s, tabs: travelBrowse(s.tabs, id, delta) }))
       }
@@ -355,11 +358,11 @@ export function useFolderBrowsing(
     },
     [active, id, path, setState]
   )
-  // The tab's own answer, else the shared snapshot of the same folder: a tab
-  // switch, or a restored tab's first frame, draws rows before any read.
-  // Nothing in memory for the folder on screen: the cache on disk, looked at
-  // while rendering (a synchronous read of one small file, once per folder),
-  // so the first frame has rows. What it finds goes into the snapshots.
+  // The tab's own answer, else the shared snapshot of the same folder (#271):
+  // a tab switch, or a restored tab's first frame, draws rows before any
+  // read. With nothing in memory either, the cache on disk, looked at while
+  // rendering (a synchronous read of one small file, once per folder; under
+  // 1 ms MEASURED for a miss), and what it finds goes into the snapshots.
   const ownAnswer = !!result && result.tabId === id && result.path === path
   const diskListing = useMemo(
     () =>
@@ -369,10 +372,18 @@ export function useFolderBrowsing(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per folder, not per answer
     [folder, path]
   )
+  const waitingPath = waitingFor && waitingFor.tabId === id ? waitingFor.path : null
+  // A failed read drops what the disk had for the folder (review of #271): the
+  // memo would otherwise keep its rows, and the status bar its count, under
+  // the error. Back or Forward to a folder not held anywhere keeps the rows
+  // of the folder it left while its read is out (`held`), as a navigation does.
+  const held =
+    result && waitingPath && result.tabId === id && directoryKey(waitingPath) === directoryKey(path ?? '')
+      ? result.listing
+      : null
   const directoryListing = ownAnswer
     ? result!.listing
-    : (visitedDirectories.get(path)?.listing ?? diskListing)
-  const waitingPath = waitingFor && waitingFor.tabId === id ? waitingFor.path : null
+    : (visitedDirectories.get(path)?.listing ?? (error ? null : diskListing) ?? held)
   const waiting = !!waitingPath || (folder && !directoryListing && !error)
   const pending: ListPending = usePendingHint(waiting ? `${id}\0${waitingPath ?? path}` : null)
   const listing = search.result?.listing ?? directoryListing

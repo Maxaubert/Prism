@@ -773,14 +773,35 @@ async function explorerRestoreListing(
   tabId: string,
   t: { root: string; browse?: { path: string } }
 ): Promise<BrowseDirectory | null> {
-  for (const path of t.browse?.path && t.browse.path !== t.root ? [t.browse.path, t.root] : [t.root]) {
+  const shown = t.browse?.path && t.browse.path !== t.root ? t.browse.path : null
+  for (const path of shown ? [shown, t.root] : [t.root]) {
     const cached = explorerListings.cached(path)
     if (cached) return cached
-    const read = await browseDirectory(tabId, path, 'names')
+    // THE SHOWN FOLDER GETS A TIME LIMIT, THE ROOT DOES NOT (review of #271).
+    // Reading `browse.path` is new: the old restore read only the root. A
+    // share that has gone offline answers a stat only at the SMB timeout,
+    // tens of seconds, and the cache never holds a network folder, so that
+    // read is live. Past the limit the root stands in, as it did before, and
+    // the page reads the shown folder itself. The root keeps its old,
+    // unlimited read: a tab whose root cannot be read is not restored.
+    const reading = browseDirectory(tabId, path, 'names')
+    const read =
+      path === shown
+        ? await Promise.race([reading, new Promise<null>((done) => setTimeout(() => done(null), SHOWN_FOLDER_LIMIT_MS))])
+        : await reading
     if (read && !read.listing.unreadable) return { path: read.path, listing: read.listing }
   }
   return null
 }
+
+/** How long the restore waits for the folder an Explorer tab was showing
+ *  before it falls back to the root. A names read is 1 to 3 ms warm; a cold
+ *  local disk after a reboot is tens of ms. */
+const SHOWN_FOLDER_LIMIT_MS = 750
+/** How long the other tabs wait for the Explorer tabs before they go too. The
+ *  Explorer goes first so it has the disk to itself, but a tab that is slow
+ *  (an offline root, a Claude transcript lookup) must hold only itself. */
+const EXPLORER_WAVE_LIMIT_MS = 500
 
 /**
  * Restore last session's strip: register each surviving root so the wall
@@ -850,6 +871,9 @@ async function restoreTabs(send: (payload: OpenPayload) => void): Promise<boolea
     if (!found) sessions.set(key, (found = claudeSessionsAsync(cwd).catch(() => [])))
     return found
   }
+  // Every lookup starts NOW (review of #271), so an Explorer tab that hosted
+  // claude overlaps its transcript scan with its listing read.
+  for (const s of slot.values()) void sessionsOf(s.cwd)
   const finish = async (i: number, payload: OpenPayload, listing?: BrowseDirectory): Promise<OpenPayload> => {
     const t = saved.tabs[i]
     // A claude session resumes by ID - a session claude itself recorded for
@@ -889,7 +913,7 @@ async function restoreTabs(send: (payload: OpenPayload) => void): Promise<boolea
   let pinnedSent = false
   // Wave one: the Explorer tabs, from the cache or a names-only read.
   const explorers = saved.tabs.flatMap((t, i) => (t.role === 'explorer' && !t.file ? [i] : []))
-  await Promise.allSettled(
+  const waveOne = Promise.allSettled(
     explorers.map(async (i) => {
       const t = saved.tabs[i]
       const listing = await explorerRestoreListing(ids[i], t)
@@ -900,9 +924,18 @@ async function restoreTabs(send: (payload: OpenPayload) => void): Promise<boolea
       send(payload)
     })
   )
-  // Wave two: everything else, each sent when it is ready.
+  // Wave two: everything else, each sent when it is ready, once the Explorer
+  // tabs have gone or EXPLORER_WAVE_LIMIT_MS has passed, whichever is first.
+  let limit: NodeJS.Timeout | undefined
+  await Promise.race([
+    waveOne,
+    new Promise<void>((done) => {
+      limit = setTimeout(done, EXPLORER_WAVE_LIMIT_MS)
+    })
+  ])
+  clearTimeout(limit)
   const rest = saved.tabs.flatMap((_t, i) => (explorers.includes(i) ? [] : [i]))
-  await Promise.allSettled(
+  const waveTwo = Promise.allSettled(
     rest.map(async (i) => {
       const t = saved.tabs[i]
       const payload = t.file
@@ -916,6 +949,7 @@ async function restoreTabs(send: (payload: OpenPayload) => void): Promise<boolea
       send(done)
     })
   )
+  await Promise.all([waveOne, waveTwo])
   return pinnedSent
 }
 
@@ -1795,6 +1829,15 @@ if (!app.requestSingleInstanceLock()) {
   )
 
   app.whenReady().then(() => {
+    // E2E only (review of #271): the never-loading probe runs as a frame
+    // preload, so it sees the page from before its first script. The harness
+    // attaches only once the window exists, too late for that.
+    if (E2E && process.env.PRISM_E2E_EARLY_PROBE)
+      session.defaultSession.registerPreloadScript({
+        type: 'frame',
+        id: 'e2e-early-probe',
+        filePath: process.env.PRISM_E2E_EARLY_PROBE
+      })
     void cleanExplorerWindows(preferencesOwner)
     // Reuse a ready index before starting private background indexing. NOT
     // before the Explorer's first answer (#271): the indexer, the drive-kind
@@ -2434,10 +2477,7 @@ if (!app.requestSingleInstanceLock()) {
       if (pin === true) listingCache.pin([path])
       return explorerListings.prefetch(path)
     })
-    ipcMain.handle('listing-cache:clear', () => {
-      listingCache.clear()
-      return true
-    })
+    ipcMain.handle('listing-cache:clear', () => listingCache.clear())
     ipcMain.handle(
       'browse:search',
       async (event, tabId: string, path: string, query: string, requestId: string, window?: unknown) => {

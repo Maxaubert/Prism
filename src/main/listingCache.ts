@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto'
-import { mkdirSync, readFileSync, rmSync, writeFileSync, renameSync } from 'fs'
-import { mkdir, rename, rm, writeFile } from 'fs/promises'
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, renameSync } from 'fs'
+import { mkdir, readdir, rename, rm, writeFile } from 'fs/promises'
 import { extname, join } from 'path'
 import { fileKind } from '@shared/fileKind'
 import type { DirListing, ViewerFile } from '@shared/types'
@@ -20,8 +20,11 @@ import type { DirListing, ViewerFile } from '@shared/types'
  * for a moment (recommendation 3): every paint from it is followed by a real
  * read, which corrects it in place.
  *
- * WHAT IS STORED is names, sizes and dates of the folders the user opened, so
- * it is local only (recommendation 1): under the per-user profile, never
+ * WHAT IS STORED is names, sizes and dates of the folders the user OPENED,
+ * never a folder only read ahead (those stay in the page's memory; review of
+ * #271: a day of hovering would otherwise push out the folders a cold launch
+ * needs, and put names in %APPDATA% the user never looked at), so it is
+ * local only (recommendation 1): under the per-user profile, never
  * synced or sent, never for a network or removable drive (the caller's
  * `allowed`), behind Settings > General > Remember folders (on by default,
  * off deletes the folder) and a Clear button. The README says so, where
@@ -222,6 +225,9 @@ export function createListingCache(options: ListingCacheOptions) {
   let indexTimer: NodeJS.Timeout | null = null
   /** Bumped by clear(): a write that started before it must not resurrect. */
   let epoch = 0
+  /** Listing writes in flight, which the start-up sweep leaves alone. */
+  let pendingWrites = 0
+  const writing = new Set<string>()
 
   const fileOf = (key: string): string => join(directory, `${key}.json`)
 
@@ -262,6 +268,39 @@ export function createListingCache(options: ListingCacheOptions) {
       } catch {
         /* first run, or a damaged file: start empty */
       }
+      // Files the index does not name (review of #271): a kill inside the
+      // index's 500 ms delay leaves a listing written and never indexed, and
+      // a crash mid-write a `.tmp`. Neither would ever be read or evicted, so
+      // they would sit outside the 20 MB budget with their file names until a
+      // Clear. Swept off the start-up path, after the index is in memory.
+      if (!readOnly) void this.sweep()
+    },
+    /** Delete every file in the folder that the index does not name. */
+    async sweep(): Promise<number> {
+      let names: string[]
+      try {
+        names = await readdir(directory)
+      } catch {
+        return 0
+      }
+      const mine = epoch
+      let removed = 0
+      for (const name of names) {
+        if (name === 'index.json') continue
+        const m = /^([0-9a-f]{40})\.json$/.exec(name)
+        if (m && index.has(m[1])) continue
+        // A Clear or a put meanwhile owns the folder now.
+        if (mine !== epoch) break
+        // A put's own temporary is renamed into place by that put.
+        if (name.endsWith('.tmp') && pendingWrites > 0) continue
+        if (m && writing.has(m[1])) continue
+        await rm(join(directory, name), { force: true })
+          .then(() => {
+            removed += 1
+          })
+          .catch(() => {})
+      }
+      return removed
     },
     setEnabled(on: boolean): void {
       if (enabled === on) return
@@ -273,6 +312,18 @@ export function createListingCache(options: ListingCacheOptions) {
     },
     has(path: string): boolean {
       return enabled && index.has(cacheKey(path))
+    },
+    /** The folder is gone or cannot be read: what was kept of it goes too
+     *  (review of #271), so its names do not wait for eviction. */
+    drop(path: string): void {
+      const key = cacheKey(path)
+      if (!index.has(key)) return
+      forget(key)
+      scheduleIndex()
+    },
+    /** Bumped by every clear: a write that began before one must not land. */
+    get generation(): number {
+      return epoch
     },
     /** One folder's stored listing, synchronously (a file of tens of KB). */
     read(path: string): CachedListing | null {
@@ -302,8 +353,11 @@ export function createListingCache(options: ListingCacheOptions) {
     /** Keep a COMPLETE listing (sizes and dates known). Written atomically, a
      *  temporary file renamed over the old one, so a crash mid-write leaves
      *  the previous copy or none, never half of one. */
-    put(path: string, listing: DirListing, folderMtimeMs: number): void {
+    put(path: string, listing: DirListing, folderMtimeMs: number, since?: number): void {
       if (readOnly || !enabled || listing.unreadable || listing.complete === false) return
+      // A details run that started before a Clear must not write the folder
+      // back a moment after the button says "Cleared" (review of #271).
+      if (since !== undefined && since !== epoch) return
       if (!allowed(path)) return
       const key = cacheKey(path)
       const savedAt = now()
@@ -324,6 +378,8 @@ export function createListingCache(options: ListingCacheOptions) {
         const mine = epoch
         const target = fileOf(key)
         const tmp = `${target}.${randomUUID()}.tmp`
+        pendingWrites += 1
+        writing.add(key)
         void (async () => {
           try {
             await mkdir(directory, { recursive: true })
@@ -335,6 +391,8 @@ export function createListingCache(options: ListingCacheOptions) {
             index.delete(key)
           } finally {
             await rm(tmp, { force: true }).catch(() => {})
+            pendingWrites -= 1
+            writing.delete(key)
           }
         })()
       }
@@ -350,17 +408,32 @@ export function createListingCache(options: ListingCacheOptions) {
       }
       scheduleIndex()
     },
-    /** Delete every stored listing. Safe at any time. */
-    clear(): void {
+    /** Delete every stored listing. Safe at any time. True when nothing is
+     *  left on disk; a file Windows holds open (a virus scan, a backup) stays
+     *  and goes in the next start's sweep, since no index names it any more. */
+    clear(): boolean {
       epoch += 1
       index.clear()
       if (indexTimer) clearTimeout(indexTimer)
       indexTimer = null
-      if (readOnly) return
+      if (readOnly) return true
       try {
-        rmSync(directory, { recursive: true, force: true })
+        rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 50 })
+        return true
       } catch {
-        /* a locked file goes at the next clear */
+        // One locked file fails the whole folder: delete the rest one by one.
+        let left = 0
+        try {
+          for (const name of readdirSync(directory))
+            try {
+              rmSync(join(directory, name), { force: true })
+            } catch {
+              left += 1
+            }
+        } catch {
+          return false
+        }
+        return left === 0
       }
     },
     /** Write the index now (quit). */

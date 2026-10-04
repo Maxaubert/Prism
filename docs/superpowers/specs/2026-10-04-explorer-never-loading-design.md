@@ -267,8 +267,8 @@ Where the build differs from the text above, or fills in what it left open:
   Explorer window (Win+E) reads it and never writes. Drive kinds come from WMI
   (`src/main/driveKinds.ts`), asked once after the first listing; until then only the system
   drive counts as local fixed, which covers home on a first run. Home, Desktop, Documents,
-  Downloads, Pictures, Music and Videos are pinned, and so is every Quick access folder read
-  ahead at launch.
+  Downloads, Pictures, Music and Videos are pinned, and so is every Quick access folder once it
+  is opened. It holds the folders the user OPENED and nothing read ahead (see the review below).
 - **Startup**: the restore sends the Explorer tabs first, each with its cached listing or a
   names-only read of the folder it SHOWS (`browse.path`, the root only as a fallback), and the
   project tabs after, in parallel, each as it is ready. Claude session slots are decided in strip
@@ -298,6 +298,40 @@ Where the build differs from the text above, or fills in what it left open:
   fresh collator per comparison. MEASURED in `newFolder2000`: 42 to 58 ms from the
   double-click to the first row of a new 2000-file folder before the hoisted collator, 25 ms
   after.
+
+## Review, and what changed (2026-10-04)
+
+A review of the first build found eight things. Each was checked against the code; seven were
+fixed and one in part.
+
+1. **An offline share could hold the whole restore.** The restore read the folder an Explorer tab
+   SHOWED, which the old one never did, and a share that has gone answers only at the SMB
+   timeout. Fixed: that read has 750 ms, then the root stands in (as before) and the page reads
+   the folder itself. The root keeps its old unlimited read.
+2. **An Explorer tab that hosted Claude waited on the transcript scan, and so did every tab
+   after it.** In part: the other tabs now wait for the Explorer tabs at most 500 ms, and every
+   transcript lookup starts at the top, overlapping the listing reads. That tab's own payload
+   still waits for its lookup, because its shell starts with the session id and a resume of the
+   wrong session, or none, is worse than a late tab.
+3. **The saved active tab could take the front after the window was in use.** Fixed: it takes
+   the front only while nobody has clicked or typed in the page.
+4. **Read ahead wrote to the cache on disk**, which the README says holds the folders you open,
+   and each read ahead counted as a hit, pushing out the folders a cold launch needs. Fixed: read
+   ahead lives in the page's memory only.
+5. **A folder that had gone stayed in the cache, and its rows under the error.** Fixed: a failed
+   read drops the folder from the cache (only when the folder itself is gone, not for a closed
+   tab), and the page stops showing the disk's rows once the read has failed.
+6. **Back or Forward to a folder held nowhere blanked the list at once.** Fixed: the rows of the
+   folder it left stay until the read answers, the same rule as a navigation.
+7. **Files the index did not name were never removed** (a kill inside the index's 500 ms delay,
+   a write cut short), a details run in flight could write a folder back just after Clear, and a
+   locked file failed Clear without a word. Fixed: the start sweeps every file the index does not
+   name, a write that began before a Clear is dropped, and Clear deletes what it can file by file.
+8. **The tests could miss things.** Fixed: a second probe runs as a frame preload under the e2e
+   (`tools/e2e/earlyProbe.js`, `PRISM_E2E_EARLY_PROBE`), so it watches from before the page's
+   first script; the check for a testid that no longer exists is gone; `newFolder2000` now also
+   opens a new folder sorted by size and asserts the order moves exactly once and the scroll and
+   the selection survive it.
 
 ## Measured (e2e, this machine, warm disk, 2026-10-04)
 

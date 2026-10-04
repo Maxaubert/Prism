@@ -500,6 +500,12 @@ body[data-internal-file-drag] .browse-path:focus-within {
   position: relative;
   min-height: 0;
   overflow: auto;
+  /* No scroll anchoring (review of #271): the rows are placed by index, so
+     when a size sort lands after a names-first read and the row Chromium
+     chose as its anchor moves, it "kept the anchor in view" by moving the
+     scroll. MEASURED in newFolder2000: 130 px became 52. The list owns its
+     scroll position; a re-sort must not move it. */
+  overflow-anchor: none;
   flex: 1;
   outline: none;
 }

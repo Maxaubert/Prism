@@ -171,6 +171,46 @@ describe('the cache on disk', () => {
     expect(cache.read('C:\\B')).not.toBeNull()
   })
 
+  it('sweeps, at the next start, files the index does not name (a kill before the index write)', async () => {
+    const dir = join(box, 'cache')
+    const one = createListingCache({ directory: dir, indexDelayMs: 1 })
+    one.put('C:\\A', listing('C:\\A', 1, 0), 1)
+    await settle()
+    one.flush()
+    // Written but never indexed, and a temporary from a write cut short.
+    writeFileSync(join(dir, `${cacheKey('C:\\Lost')}.json`), '{}')
+    writeFileSync(join(dir, `${cacheKey('C:\\A')}.json.1234.tmp`), '{}')
+    const two = createListingCache({ directory: dir })
+    two.load()
+    await two.sweep() // load starts one; this waits for the folder to be swept
+    expect(readdirSync(dir).sort()).toEqual([`${cacheKey('C:\\A')}.json`, 'index.json'].sort())
+    expect(two.read('C:\\A')).not.toBeNull()
+  })
+
+  it('a write that began before a Clear does not land after it', async () => {
+    const dir = join(box, 'cache')
+    const cache = createListingCache({ directory: dir })
+    const before = cache.generation
+    expect(cache.clear()).toBe(true)
+    cache.put('C:\\A', listing('C:\\A', 1, 0), 1, before)
+    await settle()
+    expect(cache.entries()).toEqual([])
+    expect(existsSync(dir)).toBe(false)
+    cache.put('C:\\A', listing('C:\\A', 1, 0), 1, cache.generation)
+    expect(cache.has('C:\\A')).toBe(true)
+  })
+
+  it('drops a folder that has gone, file and all', async () => {
+    const dir = join(box, 'cache')
+    const cache = createListingCache({ directory: dir })
+    cache.put('C:\\A', listing('C:\\A', 1, 0), 1)
+    await settle()
+    cache.drop('c:/a')
+    await settle()
+    expect(cache.has('C:\\A')).toBe(false)
+    expect(existsSync(join(dir, `${cacheKey('C:\\A')}.json`))).toBe(false)
+  })
+
   it('a second window reads and never writes', async () => {
     const dir = join(box, 'cache')
     const writer = createListingCache({ directory: dir })

@@ -1471,7 +1471,10 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   reboot paints; the renderer's snapshots are app-wide, so a tab switch is a hit; a navigation
   keeps the old rows and shows only a 2 px bar past 300 ms (`usePendingHint`); no "Loading"
   text anywhere in the Explorer and none in the boot shell, which is a silent outline. Read
-  ahead: hover, selection, parent, small folders' children, Quick access, two at a time. The
+  ahead: hover, selection, parent, small folders' children, Quick access, two at a time, into the
+  page's memory ONLY (the disk cache is the folders the user opened, as the README promises). A
+  restore read of a tab's shown folder has 750 ms and the other tabs wait for the Explorer at
+  most 500 ms: nothing slow (an offline share, a transcript scan) holds more than its own tab. The
   `noLoadingEver`, `coldLaunchCached`, `coldLaunchNoCache`, `newFolder2000`, `slowFolderHint`,
   `tabSwitchInstant` and `rememberFolders` e2e hold it; cold disk after a reboot is hands-on.
 - **NOTHING ON THE STARTUP PATH HOLDS A STDIN PIPE** (2026-09-22, #189; owner: "it currently

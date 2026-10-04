@@ -1178,6 +1178,25 @@ export default function App(): JSX.Element {
 
   /** Each restored tab's saved place (#271), for the ones still arriving. */
   const restoreOrders = useRef(new Map<string, number>())
+  /**
+   * The user has clicked or typed in this page (review of #271). The restore
+   * now sends the Explorer first and a project tab when it is ready, which can
+   * be a transcript lookup later, so the saved active tab may land while the
+   * window is already in use. It takes the front only if nobody has: a jump
+   * after a click would take the click's target, and the keys after it, away.
+   */
+  const userActed = useRef(false)
+  useEffect(() => {
+    const acted = (e: Event): void => {
+      if (e.isTrusted) userActed.current = true
+    }
+    window.addEventListener('pointerdown', acted, true)
+    window.addEventListener('keydown', acted, true)
+    return () => {
+      window.removeEventListener('pointerdown', acted, true)
+      window.removeEventListener('keydown', acted, true)
+    }
+  }, [])
   const open = useCallback(
     (p: OpenPayload | null) => {
       if (!p) return
@@ -1265,8 +1284,10 @@ export default function App(): JSX.Element {
           tabs = setTabTerm(tabs, target.id, { ...target.term, view: 'hidden' })
         // Background restores keep the focus where it is: restore arrives in
         // SAVED ORDER now (no more active-goes-last splice, which scrambled the
-        // strip), and only the saved active tab takes the front.
-        const activeId = p.restore && !p.restoreActive && s.activeId ? s.activeId : st.activeId
+        // strip), and only the saved active tab takes the front, and only
+        // while the user has not started using the window.
+        const activeId =
+          p.restore && (!p.restoreActive || userActed.current) && s.activeId ? s.activeId : st.activeId
         return {
           tabs:
             p.pinned && p.role === 'explorer'

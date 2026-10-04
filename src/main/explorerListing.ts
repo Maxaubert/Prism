@@ -20,7 +20,7 @@ import { createPrefetchQueue } from './listingPrefetch'
  * and dates follow as `browse:details` patches, a finished listing is written
  * to the on-disk cache, the cache answers the start-up restore and the page's
  * synchronous `browse:cached`, and folders the user is about to open are read
- * ahead. Everything that competes for the disk at launch (the search index,
+ * ahead (into the page's memory only, never the cache on disk). Everything that competes for the disk at launch (the search index,
  * folder sizes, the drive-kind probe) waits for the first answer (`settled`).
  */
 
@@ -78,6 +78,7 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
    *  answers to the page; the finished listing goes to the cache. */
   const details = (tabId: string, read: BrowseRead): void => {
     const run = ++runSerial
+    const generation = cache.generation
     runs.set(tabId, run)
     const live = (): boolean => runs.get(tabId) === run && !desktopClosed(tabId)
     const known = new Map<string, FileDetail>()
@@ -95,7 +96,7 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
         { live }
       ).then((finished) => {
         if (runs.get(tabId) === run) runs.delete(tabId)
-        if (finished) cache.put(read.path, withDetails(read.listing, known), read.folderMtimeMs)
+        if (finished) cache.put(read.path, withDetails(read.listing, known), read.folderMtimeMs, generation)
       })
     })
   }
@@ -118,9 +119,10 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
         },
         { limit: 4 }
       )
-      const full = withDetails(listing, known)
-      cache.put(dir, full, info.mtimeMs)
-      return { path: dir, listing: full }
+      // NOT written to the cache on disk (review of #271): that holds the
+      // folders the user OPENED, as the README says. A read ahead lives in
+      // the page's snapshots, and goes to disk only if the folder is opened.
+      return { path: dir, listing: withDetails(listing, known) }
     }
   })
 
@@ -137,6 +139,20 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
       if (delayMs > 0) await sleep(delayMs)
       const read = await browseDirectory(tabId, path, 'names')
       settle()
+      // A folder that has gone or turned unreadable takes its kept names with
+      // it (review of #271): a restore or a click would otherwise paint them
+      // until eviction. A null is also a closed tab or a revoked grant, so it
+      // drops only when the folder itself is no longer there.
+      if (read?.listing.unreadable) cache.drop(read.path)
+      else if (!read && typeof path === 'string' && isAbsolute(path)) {
+        const dir = resolve(path)
+        void stat(dir)
+          .then((info) => !info.isDirectory())
+          .catch(() => true)
+          .then((gone) => {
+            if (gone) cache.drop(dir)
+          })
+      }
       if (!read || read.listing.unreadable) return read && { path: read.path, listing: read.listing }
       if (read.listing.complete === false) {
         if (withStream) details(tabId, read)
