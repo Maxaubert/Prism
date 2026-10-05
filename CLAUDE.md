@@ -529,11 +529,11 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   and a shut pane stays shut. A plain click and the arrows preview and play as before. The
   `marqueeQuiet` e2e holds it with four films.
   **EXPLORER SIZE IS A SETTING** (owner, 2026-10-03: "let the current be medium the old be
-  big, and make a slightly smaller version too"). Settings > Style > Explorer size
+  big, and make a slightly smaller version too"). Settings > Explorer > Explorer row size
   (`lib/explorerSize.ts`, `prism.explorer.size`, unknown reads Medium): Small 22px / 11.5px /
   12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
   its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
-  ALONE: the tree keeps General's Font size. `explorerSize` e2e.
+  ALONE: the tree keeps Interface text size. `explorerSize` e2e.
   **THE COLUMN HEADER IS FILE EXPLORER'S** (#274; owner, 2026-10-04: the hover "should be inside
   the whole box"; Size's name "aligned to the left"; the arrow "shows only when you hover over
   them while the currently sorted item has an arrow at all times"). The header keeps the rows'
@@ -601,8 +601,8 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   where a name would fall under 4.5:1 or a quiet column under 3.2:1) with a faint
   `--p-sel-line` edge round the BLOCK (`lib/markedLook.ts`, `data-join-up/down`), and keep
   their own text and icon colours (no on-accent ink, no monochrome icon fallback). The
-  Settings rail and the chosen card use `--p-sel-solid` / `--p-accent-solid`. Neither moves
-  with the accent's alpha. Quick access's current place wears the tint too. `theme.selection.test.ts`,
+  chosen card uses `--p-accent-solid`, which does not move with the accent's alpha; the
+  Settings rail's chosen page is a GREY fill since #292 (`--p-sel-solid` went with it). Quick access's current place wears the tint too. `theme.selection.test.ts`,
   `markTint` e2e. The menu's grey
   row is unchanged (its icon's knockouts are its own grey). THE TINT IS NOT FLATTENED UNDER
   GLASS, on purpose: it carries no label of its own, only the row's ordinary text, which sits
@@ -615,7 +615,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   six or eight hex, `cleanColour` on load, kept by a saved style). UNSET is `hi` at 22% byte
   for byte and the picker shows that; nothing is stored until a pick, and picking the shown
   value back is no edit. A pick past the floors (names 4.5:1, quiet columns 3.2:1) keeps its
-  hue and loses strength (`selectionTintAlpha`'s `start`). The Accent keeps the rail, buttons,
+  hue and loses strength (`selectionTintAlpha`'s `start`). The Accent keeps the buttons and
   progress. The edge is SOFTER: `TINT_LINE` 0.28 (was 0.5; "the border contrast is slightly
   too much"), scaled with a picked strength up to 0.5 (`tintLineAlpha`). The SWEEP BAND (the
   Explorer's and the archive's drag box) wears it too, as Windows' does: `--p-sel-hue` /
@@ -653,10 +653,10 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   want settings buttons to be affected by the accent colour... grey based on the bg colour ... same
   colours as the drop down menus"; "the only ones to keep accented are the save buttons"). The
   Switch (on: `--p-text-soft` track, `--p-bg` knob), the pressed Segmented option and the row
-  buttons (Default apps) use `ROW_BUTTON` / `SEGMENT_ON` / `SWITCH_ON` in `Settings.tsx`, the same
-  classes as the terminal core's `fields.tsx` (PrismTerminal #42), so the terminal half of the page
-  matches after the core bump. Selection marks (style cards, swatches, the rail) and Reset links
-  are not buttons and keep the accent. `settingsControls.test.ts` holds it.
+  buttons (Default apps, Clear) are the terminal core's own `fields.tsx` since #292 (PrismTerminal
+  #42 holds them there), and no page keeps a copy. Selection marks (style cards, swatches) and
+  Reset links are not buttons and keep the accent, as does the Win+E switch; the chosen rail page
+  is grey since #292. `settings/settingsControls.test.ts` holds it.
 - **NOTHING WEARS A FOCUS BOX; FOCUS IS THE HOVER'S FILL** (#272; owner, 2026-10-04, of a white box
   round the title bar's menu button: "remove the focus effect. go through the ui and remove focus
   effects like this"). `index.css`'s base-layer rule takes Chromium's ring off every focused
@@ -683,7 +683,8 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
 - **TAB WIDTH IS A SETTING** (#216; owner, 2026-09-23, asked in Prism Terminal (#56 there) and
   agreed for Prism: "a setting for tab width, where the user can pick fixed size or dynamic").
   Then: "put the option closer to the top of appearance, and call it dynamic ... have dynamic be
-  the default". So it is the FIRST row of Settings > Style (Prism's appearance page), above Mode
+  the default". It was the FIRST row of Settings > Style; since the grouped cards (#292, the
+  owner's approved v1) it is in Appearance > Window, after Show title bar
   (`lib/tabWidthPrefs.ts`, `prism.window.tabWidth`, the same key and words as Prism Terminal's):
   **Dynamic** (the DEFAULT, by the owner's word, so the strip fixed since 2026-09-21 goes back to
   dynamic with this update: each tab as wide as its name, capped at 14rem) or **Fixed** (every tab
@@ -1513,7 +1514,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   (`ViewerFile.size`/`mtimeMs` absent means unknown, never 0); the restore sends Explorer tabs
   FIRST with their cached or names-only listing and the rest in parallel, back in saved order
   (`restoreOrder`); the listing cache on disk (`listingCache.ts`, local fixed drives only,
-  Settings > General > Remember folders, on by default, Clear) is what the first frame after a
+  Settings > Explorer > Remember recent folders, on by default, Clear) is what the first frame after a
   reboot paints; the renderer's snapshots are app-wide, so a tab switch is a hit; a navigation
   keeps the old rows and shows only a 2 px bar past 300 ms (`usePendingHint`); no "Loading"
   text anywhere in the Explorer and none in the boot shell, which is a silent outline. Read
@@ -1591,7 +1592,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   when nothing is playing; the visualizer's frame loop stops once a paused
   picture has settled; and a cross-volume move copies with `fs/promises`
   rather than `cpSync`, which blocked every window for as long as it took.
-- **The band behind the transport** is a slider (2026-08-25, Settings > Player):
+- **The band behind the transport** is a slider (2026-08-25, Settings > Media > Progress bar, Control band opacity):
   0-100%, opaque by default, which is the bar exactly as it always looked. Below
   55% the controls carry their own drop shadow, because at that point they are
   sitting on the film rather than on a band. The edge, outline and island styles
@@ -1756,7 +1757,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Explorer forward, then opens the file with the Explorer's own `openFile` - the call a
   Quick access pin makes, which grants the folder to the tab and walks there, so Back
   returns to where the Explorer was. Two steps because `openFile` acts on the tab in
-  FRONT. Settings > General > "Files from Windows open in" (`prism.open.external`):
+  FRONT. Settings > Explorer > "View for files from Windows" (`prism.open.external`):
   PREVIEW (default) is the list with the preview pane FORCED ON showing the file; FULL
   VIEW is the file filling the Explorer. A project tab already open on that folder is NOT
   used (one rule), the pinned Explorer moves rather than a tab per file, and several files
@@ -1869,7 +1870,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   the setting's one queue so an explicit off cannot race it. It compares against the CURRENT
   label rather than a list of old ones, so the next rewording needs nothing new.)
   ON by default since
-  2026-08-31 (owner decision), switched in Settings > General. THE ONE FACT STORED IS THE NO
+  2026-08-31 (owner decision), switched in Settings > Explorer > Add to the Explorer menu. THE ONE FACT STORED IS THE NO
   (`shell-verb-off` in userData, since 2026-09-03, #93; corrected here 2026-09-20, this
   passage still described the first design): a default that reapplied itself over a NO
   would be a setting that lies - turn the verb off and it would be back tomorrow. The
@@ -2408,11 +2409,12 @@ Filesmith's conventions.
   preload, `registerTermIpc` in main, which takes Prism's WALL as three small answers), the
   indicator's rules (`useAgentIndicator`, which was lifted out of this App), its colours
   (`useAgentColors`), the close rule (`agentClose`) and **the terminal's SETTINGS** all come from
-  the core. Settings > Terminal is the core's `ShellSetting`, `AgentIndicatorSetting` and
-  `TerminalAppearanceSettings` and nothing else: "the setting names, types, how they function"
+  the core. Settings > Terminal and Settings > Agents are the core's sections (`ShellSection`,
+  `TerminalTextSection`, `TerminalThemeSection`; `AgentMarksSection`, `ClaudeCodeSection`,
+  `MarkColoursSection`) and nothing else (#292): "the setting names, types, how they function"
   are shared, the VALUES are this app's own. A terminal row written here instead of there is a
-  fork, and the e2e `termOptions` goes red on it (it compares the page with the core's
-  `settings/options.ts`, as Prism Terminal's `options` does).
+  fork, and the e2e `termOptions` goes red on it (it compares the two pages with the core's
+  `settings/options.ts`, order checked per section, as Prism Terminal's `options` does).
   **BUMPING THE PIN HAS ITS OWN GATE: `npm run e2e:terminal`** (owner, 2026-09-19: "we need to
   run some automated tests that confirm that the terminal in Prism still works, since it has more
   failure points due to its larger footprint"). It builds and runs every scenario the terminal
@@ -2451,7 +2453,7 @@ Filesmith's conventions.
   - **A media viewer first.** App arms the core with the shell that is SHOWING, or with null, so
     Right Alt over a film, a PDF or the tree does nothing (`useDictationArm` in App.tsx; the e2e
     holds the key with no terminal up and asserts no pill and no process).
-  - **Settings > Dictation**, its own page under Behaviour, is the core's `DictationSettings` whole.
+  - **Settings > Dictation**, its own page, is the core's `DictationPage` whole.
     Values are this app's; the model files are shared with Prism Terminal in
     `%LOCALAPPDATA%\PrismDictation`, so a model downloaded there is installed here.
   - **The engine ships in the installer**: `npm run fetch:whisper` runs the CORE's script
@@ -2470,7 +2472,7 @@ Filesmith's conventions.
   Prism mounts no `HelpPanel`, its terminal menu has no row, Settings has no switch, and F1 is the
   shell's (termHost's `ownsKey` no longer claims it). `noCommandHelp` in the e2e proves all three.
 - **REMEMBER TABS IS A SETTING** (2026-09-22, owner: "Prism should also have the option to not
-  remember tabs"). Settings > General, on by default (how Prism always started), key
+  remember tabs"). Settings > Explorer > Reopen tabs at start, on by default (how Prism always started), key
   `prism.tabs.remember` (`lib/tabRestorePrefs.ts`). Off, a COLD start opens only the Explorer tab
   and whatever Prism was opened with: main reads the key from the window preferences store in
   `restoreWhenListening`, once per process (`coldRestoreDone`), so a reload of the window keeps its
@@ -2490,14 +2492,39 @@ Filesmith's conventions.
   helper and the app ship together; an old helper would read "started" as a wrong answer, which is
   why they must. `npm run test:win-e` holds the helper's three new cases.
 - **THE TERMINAL ROWS COME IN ONE ORDER, THE CORE'S** (2026-09-22, owner: the two apps' terminal
-  settings "the same in terms of order"). Prism no longer places the Agent indicator itself; the
-  core's appearance list draws it above its two colours when the host asks (`withIndicator`), which
-  is opt-in so a host that still places it never shows it twice. `termOptions` reads the page top to
-  bottom against `TERMINAL_OPTIONS`, as Prism Terminal's `options` does. The restore's claude lookup
+  settings "the same in terms of order"). The core's sections draw them; `termOptions` reads each
+  core section (`[data-settings-section]`) top to bottom against `TERMINAL_OPTIONS`, as Prism
+  Terminal's `options` does. The restore's claude lookup
   is the core's async one now (`claudeSessionsAsync`), which is Prism's half of the launch freeze.
 - **SETTINGS DESCRIPTIONS ARE PLAIN WORDS** (2026-09-22, owner: "no symbols other than comma and
   dot, no mentioning of specific keys or tips, just a simple text description of what it does").
   Every hint on Prism's own pages was rewritten to that rule, the core's rows likewise in the core.
+  Since #292 a subtext is also at most EIGHT words (`subTooLong`), and labels pass `labelProblem`:
+  `settings/settingsCopy.test.ts` reads every file of `components/settings/`.
+- **THE SETTINGS PAGE IS GROUPED CARDS, ON THE CORE'S FRAME** (#292; owner, 2026-10-05, approved
+  v1 "Grouped cards" with no accent bar on the chosen rail item; spec and plan: PrismTerminal
+  `docs/superpowers/specs/2026-10-05-settings-redesign-design.md`, PT side PrismTerminal#135).
+  Rail: Find a setting, Appearance, Explorer, Terminal, Agents, Dictation, Media, (spacer) About;
+  Media's Visualizer | Progress bar switch is in its header. The frame, sections, rows, controls,
+  search and flash are prism-term-core's (`renderer/settings/layout`, `sections`, `fields`); Prism's
+  part is `components/settings/`: the pages, `appOptions.ts` (a CLOSED list of Prism's own rows,
+  their subtexts and storage keys, the keys a snapshot in `appOptions.test.ts`: none changed),
+  `settingsIndex.ts` (page order and what Find a setting indexes: the core's rows drawn here, no
+  command help, the GPU row only with an NVIDIA card) and `icons.ts` (Prism's own row icons beside
+  the core's). Every row carries `data-pref`; live state (Win+E's status, the Explorer menu
+  check, the band opacity, a chosen folder) is the row's SUBTEXT. The chosen rail page is a GREY
+  fill (`--p-hover-hi`), never the accent. Settings' Escape yields while Find a setting holds text
+  (`[data-settings-find][data-owns-escape]`), and App gives Settings its plain keys (Up and Down
+  walk the rail, not the folder behind). `colorScheme` on the overlay follows the style's mode,
+  since `:root` says dark and the core's warning ink is `light-dark()`. Two STOPGAPS for the
+  core, each to go when the core fixes it: the core's `exports` reach no plain `.ts` settings
+  module, so `coreIndex`, `sectionIds` and `layout/icons` are resolved by exact specifier in
+  `electron.vite.config.ts` (`CORE_TS`), `vitest.config.ts` and `tsconfig.web.json`; and the
+  frame's `compact` classes lose in the cascade to its base ones, so `index.css` gives
+  `[data-settings-compact]` the rail width. `settingsLook` (in `e2e:terminal`, runner-safe:
+  contrast, grey rail, Save the only accent button, row and tile size, panel corners from the
+  style's roundness, Large text, narrow and compact rail, screenshots of every page in both
+  schemes) and `settingsSearch` (every indexed row found by its label and opened) hold it.
 
 
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which

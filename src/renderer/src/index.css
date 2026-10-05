@@ -166,8 +166,6 @@ video::cue {
   --p-sel-tint-side: #272e35;
   --p-sel-hue: #3f5570;
   --p-sel-hue-hi: #6a7f99;
-  --p-sel-solid: #3f5570;
-  --p-on-sel-solid: #ffffff;
   --p-icon: #868d96;
   --p-hover: rgba(255, 255, 255, 0.06);
   --p-hover-hi: rgba(255, 255, 255, 0.11);
@@ -337,6 +335,34 @@ body {
 .p-wash {
   background-image: var(--p-wash);
   background-attachment: fixed;
+}
+/* Settings' frame is prism-term-core's since #292 and knows no wash, so the
+   rail and the pane are given the style's light here, as their own `p-wash`
+   class gave it before. */
+[data-settings-page],
+[data-settings-page] > nav {
+  background-image: var(--p-wash);
+  background-attachment: fixed;
+}
+/* THE COMPACT RAIL (the title bar's toggle over Settings) is the core frame's
+   `compact`, the same icons the frame shows under 760px. Its compact classes
+   lose to the frame's own base classes in the cascade (`w-14` comes before
+   `w-[244px]` in the sheet, MEASURED: the rail stayed 244px), while the narrow
+   ones win because they are variants. Until the core gives `compact` the
+   variant's weight, the three that lose are asked for here; everything else
+   of `compact` (the hidden names, the magnifier) already applies. */
+[data-settings-compact] [data-settings-page] > nav {
+  width: 56px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+[data-settings-compact] [data-settings-tab] {
+  padding-left: 0;
+  padding-right: 0;
+}
+[data-settings-compact] [data-settings-find]:not(:focus):placeholder-shown {
+  padding-right: 0;
+  color: transparent;
 }
 
 /* ---- first-run setup ---- */

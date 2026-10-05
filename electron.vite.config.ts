@@ -5,6 +5,16 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import type { Plugin } from 'vite'
 
+/**
+ * THE CORE'S PLAIN .ts SETTINGS MODULES THE PACKAGE DOES NOT EXPORT (#292).
+ * prism-term-core's `exports` maps `./renderer/settings/*` to `.tsx` only, so
+ * `coreIndex`, `sectionIds` and `layout/icons` (Find a setting's index, the
+ * section ids, the icon names) cannot be imported by package path. Each is
+ * resolved to its file here, by its exact specifier, until the core exports
+ * them; the same list is in `vitest.config.ts` and `tsconfig.web.json`.
+ */
+const CORE_TS = ['renderer/settings/coreIndex', 'renderer/settings/sectionIds', 'renderer/settings/layout/icons']
+
 // pdf.js side data (character maps, the fourteen standard fonts, wasm image
 // decoders, ICC profiles), served next to the bundle as /pdf/<dir>/<file>.
 // Hand-rolled: vite-plugin-static-copy rebases files from outside the Vite
@@ -66,10 +76,11 @@ export default defineConfig({
   renderer: {
     root: 'src/renderer',
     resolve: {
-      alias: {
-        '@renderer': resolve('src/renderer/src'),
-        '@shared': resolve('src/shared')
-      },
+      alias: [
+        { find: '@renderer', replacement: resolve('src/renderer/src') },
+        { find: '@shared', replacement: resolve('src/shared') },
+        ...CORE_TS.map((m) => ({ find: new RegExp(`^prism-term-core/${m}$`), replacement: resolve(`node_modules/prism-term-core/${m}.ts`) }))
+      ],
       // THE TERMINAL COMES FROM prism-term-core (the `core/` of PrismTerminal, #154).
       // It ships TypeScript SOURCE and is a DEV dependency on purpose, so
       // electron-vite compiles it in and nothing extra is packaged. A linked

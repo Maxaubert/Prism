@@ -8,10 +8,16 @@ const root = fileURLToPath(new URL('.', import.meta.url))
 // electron.vite.config.ts so test imports match app imports.
 export default defineConfig({
   resolve: {
-    alias: {
-      '@shared': resolve(root, 'src/shared'),
-      '@renderer': resolve(root, 'src/renderer/src')
-    }
+    alias: [
+      { find: '@shared', replacement: resolve(root, 'src/shared') },
+      { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
+      // The core's plain .ts settings modules its package does not export
+      // (#292): see CORE_TS in electron.vite.config.ts.
+      ...['renderer/settings/coreIndex', 'renderer/settings/sectionIds', 'renderer/settings/layout/icons'].map((m) => ({
+        find: new RegExp(`^prism-term-core/${m}$`),
+        replacement: resolve(root, `node_modules/prism-term-core/${m}.ts`)
+      }))
+    ]
   },
   test: {
     include: ['src/**/*.test.ts'],

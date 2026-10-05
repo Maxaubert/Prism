@@ -1,8 +1,20 @@
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { SettingRow } from 'prism-term-core/renderer/settings/layout/SettingRow'
+import { appOpt } from './appOptions'
+import { iconPath } from './icons'
 
-/** Windows owns this preference; never show an optimistic or locally cached value. */
-export function WinEShortcutSetting(): JSX.Element {
+/**
+ * OPEN IN PLACE OF FILE EXPLORER (Win+E), as a row. Windows owns this
+ * preference; never show an optimistic or locally cached value. What Windows
+ * says about it is the row's SUBTEXT (2026-10-05, the grouped cards redesign:
+ * live state lives in the subtext, so a sighted user and a screen reader get
+ * the same words), and a live region carries it only while there is one.
+ *
+ * The switch keeps the ACCENT when on, the one switch in Settings that does
+ * (#202's existing exception): it hands a Windows shortcut to Prism.
+ */
+export function WinEShortcutRow(): JSX.Element {
   const [status, setStatus] = useState<WinEShortcutStatus>({
     enabled: false,
     running: false,
@@ -52,35 +64,33 @@ export function WinEShortcutSetting(): JSX.Element {
       })
   }
 
+  const said = busy
+    ? 'Checking with Windows.'
+    : status.error ||
+      (status.conflict
+        ? 'Another Prism installation or profile controls this shortcut.'
+        : status.enabled && !status.running
+          ? 'The shortcut helper is not running.'
+          : '')
+  const o = appOpt('win-e-shortcut')
   return (
-    <div className="flex items-center justify-between gap-8 border-b border-[color:var(--p-line)] py-2.5">
-      <div className="min-w-0">
-        <label
-          htmlFor="win-e-shortcut"
-          className="block text-[12.5px] font-semibold text-[var(--p-text)]"
-        >
-          Open Prism with Win+E
-        </label>
-        <p id="win-e-shortcut-hint" className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">
-          Opens Prism in place of File Explorer from the Windows shortcut. A small helper
-          starts with Windows to do this.
-        </p>
-        <p role="status" className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">
-          {busy
-            ? 'Checking with Windows.'
-            : status.error ||
-              (status.conflict
-                ? 'Another Prism installation or profile controls this shortcut.'
-                : status.enabled && !status.running
-                  ? 'The shortcut helper is not running.'
-                  : '')}
-        </p>
-      </div>
+    <SettingRow
+      id="win-e-shortcut"
+      icon={iconPath(o.icon)}
+      label={o.label}
+      sub={said || o.sub}
+      warn={!busy && !!said}
+      tap
+    >
+      {said && (
+        <span role="status" className="sr-only">
+          {said}
+        </span>
+      )}
       <button
         id="win-e-shortcut"
         role="switch"
-        aria-label="Open Prism with Win+E"
-        aria-describedby="win-e-shortcut-hint"
+        aria-label={o.label}
         aria-checked={status.enabled}
         disabled={busy || !status.available || (status.conflict && !status.enabled)}
         onClick={toggle}
@@ -91,6 +101,6 @@ export function WinEShortcutSetting(): JSX.Element {
           style={{ transform: status.enabled ? 'translateX(16px)' : 'none' }}
         />
       </button>
-    </div>
+    </SettingRow>
   )
 }
