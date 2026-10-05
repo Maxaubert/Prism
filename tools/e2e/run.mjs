@@ -13144,7 +13144,7 @@ const settingsLookOf = (win) =>
  * and never the accent, Save changes the only accent-filled buttons, rows at
  * least 58px with a 32px tile, the panel's corner the style's roundness plus
  * 3px (Onyx 2px gives 5px, Ruby 14px gives 17px), nothing sideways at 1600
- * and 900px or with Interface text size Large, the icon rail under 760px and
+ * and 900px or with Font size Large, the icon rail under 760px and
  * from the title bar's toggle. A screenshot of every page in both schemes,
  * LOOKED AT before a change is called done (#20 in Prism Terminal).
  *
@@ -13232,11 +13232,11 @@ async function settingsLookScenario(fixtures) {
       await win.screenshot({ path: join(SHOTS, `settings-appearance-${style}.png`) })
     }
     await switchStyle(win, 'aurora', 'dark')
-    // Interface text size Large zooms the page by 1.12: nothing overflows.
+    // Font size Large zooms the page by 1.12: nothing overflows.
     const size = await gotoPref(win, 'tree-size')
     await size.locator('#tree-size').click()
     await win.locator('[data-pref="tree-size"] [role="option"]:has-text("Large")').click()
-    ok(await until(() => win.evaluate(() => localStorage.getItem('prism.tree.size') === 'large'), 3000, 50), 'Interface text size is Large')
+    ok(await until(() => win.evaluate(() => localStorage.getItem('prism.tree.size') === 'large'), 3000, 50), 'Font size is Large')
     for (const [page, view] of pages) {
       await settingsPage(win, page)
       if (view) await win.locator(`[data-seg="${view}"]`).click()

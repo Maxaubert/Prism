@@ -533,7 +533,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   (`lib/explorerSize.ts`, `prism.explorer.size`, unknown reads Medium): Small 22px / 11.5px /
   12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
   its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
-  ALONE: the tree keeps Interface text size. `explorerSize` e2e.
+  ALONE: the tree keeps Font size. `explorerSize` e2e.
   **THE COLUMN HEADER IS FILE EXPLORER'S** (#274; owner, 2026-10-04: the hover "should be inside
   the whole box"; Size's name "aligned to the left"; the arrow "shows only when you hover over
   them while the currently sorted item has an arrow at all times"). The header keeps the rows'

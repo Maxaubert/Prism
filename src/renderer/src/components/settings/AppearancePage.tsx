@@ -14,7 +14,7 @@ import { StyleWall } from './StyleWall'
 
 // APPEARANCE (2026-10-05, the grouped cards redesign; it was Style): the
 // style and its wall, the style's colours, the text, and the window. Rows
-// marked as the style's (colours, App font, Panel edges, Corner roundness)
+// marked as the style's (colours, Font, Panel edges, Corner roundness)
 // are edits of the chosen style and light Save changes; the rest are this
 // app's own and a style switch leaves them alone.
 //

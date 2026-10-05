@@ -34,7 +34,7 @@ function LayoutSection(): JSX.Element {
         <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
       </SettingRow>
       {/* The Explorer's rows alone (owner, 2026-10-03): the tree and the rest
-          of the app keep Interface text size. */}
+          of the app keep Font size. */}
       <SettingRow id="explorer-size" {...row('explorer-size')}>
         <Segmented value={size} onChange={setExplorerSize} options={EXPLORER_SIZES.map(({ id, name }) => ({ id, name }))} />
       </SettingRow>
