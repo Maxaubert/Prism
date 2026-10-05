@@ -97,7 +97,19 @@ export function Settings({
         // FIND A SETTING HOLDING TEXT owns Escape (spec 1.3): it clears the
         // field, and only an empty field lets Escape close Settings. The core
         // marks the field `data-owns-escape` only while it holds text.
-        if (document.querySelector('[data-settings-find][data-owns-escape]')) return
+        // Typed text with the keyboard ELSEWHERE (a press on the empty pane, a
+        // Tab to the rail) made Escape do nothing at all: this yielded, and
+        // the field, which clears, never heard it. So the keyboard goes back
+        // to the field, and the next Escape clears it there.
+        const find = document.querySelector<HTMLInputElement>('[data-settings-find][data-owns-escape]')
+        if (find) {
+          const t = e.target as Element | null
+          if (!t?.closest?.('[data-settings-find], [data-settings-page] [role="listbox"]')) {
+            e.stopPropagation()
+            find.focus()
+          }
+          return
+        }
         e.stopPropagation()
         onClose()
       }

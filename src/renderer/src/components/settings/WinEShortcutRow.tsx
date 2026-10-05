@@ -45,7 +45,13 @@ export function WinEShortcutRow(): JSX.Element {
     }
   }, [])
 
+  // ONE PRESS, ONE CHANGE: the row flips its switch on a press anywhere, and
+  // its label also names this switch by id, so one press on the label can
+  // reach it twice before a render disables it. A ref, read at once.
+  const pending = useRef(false)
   const toggle = (): void => {
+    if (pending.current) return
+    pending.current = true
     setBusy(true)
     void window.prism
       .setWinEShortcut(!status.enabled)
@@ -60,6 +66,7 @@ export function WinEShortcutRow(): JSX.Element {
           }))
       })
       .finally(() => {
+        pending.current = false
         if (mounted.current) setBusy(false)
       })
   }

@@ -7283,6 +7283,12 @@ async function fullscreenBlackScenario(fixtures) {
       'and comes back maximized, not restored'
     )
   } finally {
+    // THE WINDOW'S STATE IS SAVED IN THE SHARED PROFILE: left maximized, every
+    // later launch came up maximized, where `setSize` is ignored, and the
+    // narrow-window checks of `columnHeaders` and `panelsAlign` measured a full
+    // screen (MEASURED in the #292 review: those two fail after this one alone).
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].unmaximize()).catch(() => {})
+    await sleep(300)
     await app.close()
   }
 }
@@ -13262,6 +13268,10 @@ async function settingsLookScenario(fixtures) {
     // Prism's own compact rail, from the title bar's toggle, is the same icons.
     await win.locator('[data-title-bar] [data-panel-toggle]').click()
     ok(await until(async () => (await settingsLookOf(win)).rail <= 60, 3000, 50), `the title bar's toggle collapses the rail to icons (${(await settingsLookOf(win)).rail}px)`)
+    // Each page is a 40px tile there, as in the narrow layout: the chosen
+    // fill was an 18px sliver round the icon before (review of #292).
+    const tileW = await win.evaluate(() => Math.round(document.querySelector('[data-settings-tab][aria-current="page"]').getBoundingClientRect().width))
+    ok(tileW >= 38 && tileW <= 42, `and each page is a 40px tile there (${tileW}px)`)
     await win.screenshot({ path: join(SHOTS, 'settings-compact.png') })
     await win.locator('[data-title-bar] [data-panel-toggle]').click()
     ok(await until(async () => (await settingsLookOf(win)).rail >= 200, 3000, 50), 'and back')
@@ -13383,6 +13393,18 @@ async function settingsSearchScenario(fixtures) {
     await win.keyboard.press('Escape')
     ok((await find.inputValue()) === '' && (await status.count()) === 0, 'Escape clears the field and the status line goes')
     ok((await win.locator('[data-settings-page]').count()) === 1, 'and Settings stays open')
+    // TEXT TYPED, THE KEYBOARD ELSEWHERE (review of #292): Escape did nothing
+    // at all. It now takes the keyboard back to the field, and the next one
+    // clears it there; Settings stays open throughout.
+    await find.fill('font')
+    await win.locator('[data-settings-tab="explorer"]').focus()
+    await win.keyboard.press('Escape')
+    ok(
+      (await win.locator('[data-settings-page]').count()) === 1 && (await win.evaluate(() => document.activeElement?.hasAttribute('data-settings-find'))),
+      'Escape with text and the focus on the rail takes the keyboard to the field'
+    )
+    await win.keyboard.press('Escape')
+    ok((await find.inputValue()) === '' && (await win.locator('[data-settings-page]').count()) === 1, 'and the next Escape clears it, Settings still open')
     // Nothing found.
     await find.fill('zebra')
     ok(await until(async () => ((await status.textContent().catch(() => '')) ?? '') === 'No results', 3000, 50), 'a word that matches nothing says No results')

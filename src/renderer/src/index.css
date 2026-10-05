@@ -357,6 +357,10 @@ body {
   padding-right: 8px;
 }
 [data-settings-compact] [data-settings-tab] {
+  /* 40px, the narrow layout's tile: the rail's item column is centred, so
+     its full width was the icon's own and the chosen fill an 18px sliver
+     (MEASURED in settings-compact.png). */
+  width: 40px;
   padding-left: 0;
   padding-right: 0;
 }
