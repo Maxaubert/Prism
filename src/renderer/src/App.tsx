@@ -123,7 +123,7 @@ const DocView = lazy(() => import('./components/DocView').then((m) => ({ default
 const ComicView = lazy(() =>
   import('./components/ComicView').then((m) => ({ default: m.ComicView }))
 )
-import { Settings } from './components/Settings'
+import { Settings } from './components/settings/Settings'
 import { Sidebar } from './components/Sidebar'
 import { TabStrip } from './components/TabStrip'
 import { PanelToggle } from './components/PanelToggle'
@@ -3383,6 +3383,10 @@ export default function App(): JSX.Element {
       // the sidebar's tree too, whose row then took the focus out of the
       // menu (measured in the moreMenu e2e). The chords stay the app's.
       if (el?.closest('[role="menu"]') && !e.ctrlKey && !e.altKey && !e.metaKey) return
+      // SETTINGS OWNS ITS PLAIN KEYS (#292): Up and Down walk its rail and
+      // Find a setting's results, and the same press used to page the folder
+      // behind it too. The chords and the function keys stay the app's.
+      if (el?.closest('[data-settings-page]') && !e.ctrlKey && !e.altKey && !e.metaKey && !/^F\d+$/.test(e.key) && e.key !== 'Escape') return
       const inBrowser = !!el?.closest('.folder-browser')
       if (inBrowser && e.altKey) return
       if (inBrowser && !e.ctrlKey && !e.altKey && e.key !== 'F11') return

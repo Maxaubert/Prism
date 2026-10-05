@@ -134,10 +134,10 @@ describe('a picked Selection is the tint', () => {
     }
   })
 
-  it('does not move the accent, the rail or the selection fill', () => {
+  it('does not move the accent or the selection fill', () => {
     const plain = derive(dark)
     const picked = derive({ ...dark, selection: '#2ecc7180' })
-    for (const k of ['--p-accent', '--p-accent-hi', '--p-sel-bg', '--p-sel-solid', '--p-on-sel-solid'])
+    for (const k of ['--p-accent', '--p-accent-hi', '--p-sel-bg'])
       expect(picked[k], k).toBe(plain[k])
   })
 

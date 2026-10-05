@@ -667,12 +667,6 @@ export function derive(input: Style): Record<string, string> {
     // The sweep band: its fill's colour and its edge's (see `bandHi`).
     '--p-sel-hue': picked ? tintHue : accentFill,
     '--p-sel-hue-hi': picked ? bandHi : hi,
-    // A chosen PAGE (the settings rail, a chosen card): the accent solid and
-    // whole whatever its alpha (owner, 2026-10-03: "the selected tab which i
-    // want more saturated"), nudged only as far as its label needs for 4.5:1.
-    // At 100% it is exactly the --p-sel-bg the rail always wore.
-    '--p-sel-solid': selectionBg(accent),
-    '--p-on-sel-solid': readableOn(selectionBg(accent)),
     // A FILL: carries the opacity (#249), and is the plain hex at 100%.
     // Below 100% it is the SELECTION's fill, not the raw accent: buttons and
     // chips print --p-on-accent on it, and that ink was chosen so the

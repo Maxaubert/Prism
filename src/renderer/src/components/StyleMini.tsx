@@ -1,77 +1,139 @@
-import type { JSX } from 'react'
+import { useMemo, type JSX } from 'react'
 import { FrostBackdrop } from './FrostBackdrop'
-import { mix, paintedAlpha, paletteOf, rgba, type Style } from '../lib/theme'
+import { derive, folderIconOf, paintedAlpha, paletteOf, rgba, type Style } from '../lib/theme'
 
-/** A miniature of the main window in a given style: the card IS the preview. */
+/**
+ * A style's card preview: a small Explorer, the list most of the time is
+ * spent in (owner, 2026-10-06, of five mockups: "E. Explorer this is the
+ * style to go with"; research/prism/2026-10-05-settings-no-subtext/
+ * style-cards). A breadcrumb, folders in the style's folder colour, files in
+ * their kind tints, one row marked in the style's own selection tint, and a
+ * progress line in the accent, all on the style's ground. It replaced a
+ * window outline round the same red-to-blue square on every card, where only
+ * the accent bars changed and Aurora, Void and Onyx read alike.
+ *
+ * Every colour is the one the window itself paints (`derive`, `folderIconOf`),
+ * so an edited style's live card follows the edit. Sizes are whole pixels and
+ * the strokes 2px: finer detail turned to texture at this size, at 100% and
+ * at 225% alike.
+ */
+
+// The rows: kind, name length, size column (none on a folder). The second
+// row is the marked one.
+const ROWS: Array<[string, string, string]> = [
+  ['folder', '58%', ''],
+  ['folder', '70%', ''],
+  ['folder', '46%', ''],
+  ['image', '64%', '22%'],
+  ['video', '52%', '28%'],
+  ['audio', '60%', '18%']
+]
+const MARKED = 1
+
+/** Corners follow the style, scaled to the card: square Void, round Ruby. */
+const ROW_RADIUS: Record<Style['corners'], number> = { '2': 1, '8': 3, '14': 5 }
+
+const FolderIcon = ({ c, w }: { c: string; w: number }): JSX.Element => (
+  <svg width={w} height={Math.round(w * 0.78)} viewBox="0 0 10 7.8" preserveAspectRatio="none" aria-hidden>
+    <path
+      fill={c}
+      d="M0 1.4A1.4 1.4 0 0 1 1.4 0h2.4l1.2 1.2h3.6A1.4 1.4 0 0 1 10 2.6v3.8a1.4 1.4 0 0 1-1.4 1.4H1.4A1.4 1.4 0 0 1 0 6.4z"
+    />
+  </svg>
+)
+
+const FileIcon = ({ c }: { c: string }): JSX.Element => (
+  <svg width={6} height={8} viewBox="0 0 8 10" preserveAspectRatio="none" aria-hidden>
+    <path fill={c} d="M1.2 0h3.6L8 3.2v5.6A1.2 1.2 0 0 1 6.8 10H1.2A1.2 1.2 0 0 1 0 8.8V1.2A1.2 1.2 0 0 1 1.2 0z" />
+  </svg>
+)
+
+const Bar = ({ w, c }: { w: string; c: string }): JSX.Element => (
+  <span className="block h-[2px] min-w-0 rounded-[1px]" style={{ width: w, background: c }} />
+)
+
 export function StyleMini({ st }: { st: Style }): JSX.Element {
-  const palette = paletteOf(st.accent)
-  const accent = palette[0]
-  const paint = palette.length > 1 ? `linear-gradient(90deg, ${palette.join(', ')})` : accent
-  const tint = st.material === 'tinted'
-  const grad = st.material === 'gradient'
-  // Frost, for real: the window paints translucent surfaces over the desktop,
-  // so the card does the same - a wallpaper-ish backdrop behind surfaces at the
-  // exact alpha the window uses - rather than pretending the style is solid.
-  const glassA = paintedAlpha(st)
-  const frosted = glassA < 1
-  // The same numbers variablesFor uses, so the card's glow matches the window's.
-  const washA = st.mode === 'light' ? 0.28 : 0.22
-  // ONE surface, like the real window: variablesFor derives panel and title
-  // from `bg` (the Style's side/title fields are legacy), so the card must
-  // too - drawing them from the old fields left the mini's panel stale when
-  // the Background was edited, while the actual window followed.
-  const gradBg = `linear-gradient(180deg, ${mix(st.bg, '#ffffff', 0.06)}, ${st.bg})`
-  const bg = tint ? mix(st.bg, accent, 0.07) : frosted ? rgba(st.bg, glassA) : st.bg
-  const side = grad ? gradBg : bg
-  const title = side
-  const dim = mix(st.text, st.bg, 0.5)
-  const line = (w: string, c: string): JSX.Element => (
-    <span className="block h-[3px] rounded-[2px]" style={{ width: w, background: c }} />
-  )
+  const look = useMemo(() => {
+    const v = derive(st)
+    const palette = paletteOf(st.accent)
+    const light = st.mode === 'light'
+    // Frost, for real: a see-through style paints its ground over the
+    // desktop, so the card does too, at the alpha the window uses.
+    const glassA = paintedAlpha(st)
+    return {
+      palette,
+      light,
+      frosted: glassA < 1,
+      ground: glassA < 1 ? rgba(v['--p-bg'], glassA) : v['--p-bg'],
+      text: v['--p-text'],
+      dim: v['--p-dim'],
+      dim2: v['--p-dim2'],
+      tint: v['--p-sel-tint'],
+      tintLine: v['--p-sel-line'],
+      track: v['--p-track'],
+      folder: folderIconOf(st),
+      kind: (k: string): string => v['--p-kind-' + k],
+      edge: rgba(st.text, light ? 0.1 : 0.075),
+      paint: palette.length > 1 ? `linear-gradient(90deg, ${palette.join(', ')})` : palette[0],
+      radius: ROW_RADIUS[st.corners] ?? 3
+    }
+  }, [st])
+  const washA = look.light ? 0.28 : 0.22
   return (
     <div
-      className="relative flex h-[104px] flex-col overflow-hidden rounded-md"
-      style={{ border: '1px solid var(--p-divider)' }}
+      className="relative h-[104px] overflow-hidden rounded-md"
+      style={{ border: '1px solid var(--p-divider)', isolation: 'isolate' }}
     >
-      {frosted && <FrostBackdrop />}
+      {look.frosted && <FrostBackdrop />}
+      <div className="absolute inset-0" style={{ background: look.ground }} />
       {st.wash && (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 z-10"
+          className="pointer-events-none absolute inset-0"
           style={{
             backgroundImage:
-              `radial-gradient(58% 56% at 20% 22%, ${rgba(palette[0], washA)}, transparent 72%),` +
-              ` radial-gradient(54% 52% at 80% 78%, ${rgba(palette[1] ?? palette[0], washA * 0.9)}, transparent 72%)`
+              `radial-gradient(58% 56% at 20% 22%, ${rgba(look.palette[0], washA)}, transparent 72%),` +
+              ` radial-gradient(54% 52% at 80% 78%, ${rgba(look.palette[1] ?? look.palette[0], washA * 0.9)}, transparent 72%)`
           }}
         />
       )}
+      {/* The breadcrumb: the folder, a step back, the one you are in. */}
       <div
-        className="relative flex h-[9px] shrink-0 items-center gap-[3px] px-1.5"
-        style={{ background: title }}
+        className="relative flex h-[14px] items-center gap-1 px-[7px]"
+        style={{ borderBottom: `1px solid ${look.edge}` }}
       >
-        <span className="h-[2.5px] w-[2.5px] rounded-[1px]" style={{ background: accent }} />
-        {line('30%', rgba(st.text, 0.5))}
+        <FolderIcon c={look.folder} w={7} />
+        <Bar w="22%" c={rgba(look.text, 0.6)} />
+        <svg width={4} height={6} viewBox="0 0 4 6" className="shrink-0" aria-hidden>
+          <path d="M1 1l2 2-2 2" stroke={look.dim2} fill="none" strokeWidth={1} strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <Bar w="18%" c={look.text} />
       </div>
-      <div className="relative flex min-h-0 flex-1">
-        <div className="flex w-[36%] flex-col gap-[3px] p-1.5" style={{ background: side }}>
-          {line('62%', rgba(dim, 0.6))}
-          {line('80%', rgba(st.text, 0.5))}
-          <span
-            className="block h-[3px] rounded-[2px]"
-            style={{ width: '72%', background: paint }}
-          />
-          {line('86%', rgba(st.text, 0.3))}
-          {line('68%', rgba(st.text, 0.3))}
-        </div>
-        <div className="relative flex-1" style={{ background: bg }}>
-          <div className="absolute left-1/2 top-1/2 h-[46%] w-[62%] -translate-x-1/2 -translate-y-1/2 rounded-[3px] bg-[linear-gradient(140deg,#7d1f2a,#b03a2e_45%,#2c3e63)]" />
-          <div
-            className="absolute inset-x-2 bottom-1.5 h-[2.5px] rounded-[2px]"
-            style={{ background: rgba(st.text, 0.18) }}
-          >
-            <span className="block h-full w-[44%] rounded-[2px]" style={{ background: paint }} />
-          </div>
-        </div>
+      <div className="relative flex flex-col px-[3px] pt-[5px]">
+        {ROWS.map(([k, w, size], i) => {
+          const marked = i === MARKED
+          return (
+            <div
+              key={i}
+              className="flex h-[12px] items-center gap-1 px-1"
+              style={{
+                borderRadius: look.radius,
+                ...(marked ? { background: look.tint, boxShadow: `inset 0 0 0 1px ${look.tintLine}` } : {})
+              }}
+            >
+              <span className="grid w-2 shrink-0 place-items-center">
+                {k === 'folder' ? <FolderIcon c={look.folder} w={8} /> : <FileIcon c={look.kind(k)} />}
+              </span>
+              <Bar w={w} c={marked ? look.text : rgba(look.text, 0.55)} />
+              <span className="flex-1" />
+              {size && <Bar w={size} c={rgba(look.dim, 0.7)} />}
+            </div>
+          )
+        })}
+      </div>
+      {/* A thin progress line in the accent, on the style's own track. */}
+      <div className="absolute inset-x-[7px] bottom-[6px] h-[2px] rounded-[1px]" style={{ background: look.track }}>
+        <span className="block h-full w-[30%] rounded-[1px]" style={{ background: look.paint }} />
       </div>
     </div>
   )

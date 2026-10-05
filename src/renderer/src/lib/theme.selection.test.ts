@@ -6,8 +6,9 @@ import { derive, sideGround, STYLES, TINT_ALPHA, TINT_MIN, selectionTintAlpha, t
 // look good both in the settings highlighting for the selected tab which i want
 // more saturated and the explorer which i want to be more transparent like
 // selecting files in file explorer"). A marked FILE is a tint the row's own
-// text still reads on; a chosen PAGE is the accent solid. Neither moves with
-// the accent's alpha, which stays a choice about fills.
+// text still reads on. The chosen settings PAGE was the accent solid until the
+// grouped cards redesign (#292; owner, 2026-10-05: no accent on the chosen
+// rail item), which made it a grey fill, so `--p-sel-solid` went with it.
 
 const lum = (hex: string): number => {
   const n = parseInt(hex.slice(1, 7), 16)
@@ -85,19 +86,3 @@ describe('the tint gives way, never the ink', () => {
   })
 })
 
-describe('a chosen page is the accent, solid', () => {
-  for (const s of STYLES) {
-    it(`${s.id}: the rail's fill is opaque at every accent alpha, and its label reads`, () => {
-      const solid = at(s, 1)
-      // At 100% it is exactly what the rail has always worn.
-      expect(solid['--p-sel-solid']).toBe(solid['--p-sel-bg'])
-      expect(solid['--p-on-sel-solid']).toBe(solid['--p-on-accent'])
-      for (const a of ALPHAS) {
-        const t = at(s, a)
-        expect(t['--p-sel-solid'], `${s.id} at ${a}`).toMatch(/^#[0-9a-f]{6}$/)
-        expect(t['--p-sel-solid']).toBe(solid['--p-sel-solid'])
-        expect(contrast(t['--p-on-sel-solid'], t['--p-sel-solid'])).toBeGreaterThanOrEqual(4.5)
-      }
-    })
-  }
-})
