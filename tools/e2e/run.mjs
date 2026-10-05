@@ -13155,8 +13155,12 @@ async function settingsLookScenario(fixtures) {
   let app
   let win
   let styleBefore = null
+  // The window's size is SAVED in the shared profile: the scenarios after
+  // this one must start at the size they always did.
+  let sizeBefore = null
   try {
     ;({ app, win } = await launch(join(fixtures, 'README.md')))
+    sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
     const setSize = (w, h) => app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), [w, h])
     await setSize(1600, 1000)
     await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
@@ -13265,6 +13269,7 @@ async function settingsLookScenario(fixtures) {
     EXTRA_ENV = {}
     if (styleBefore && win) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
     await win?.evaluate(() => localStorage.removeItem('prism.tree.size')).catch(() => {})
+    if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
     await app?.close().catch(() => {})
   }
 }
@@ -13282,10 +13287,12 @@ async function settingsSearchScenario(fixtures) {
   console.log('settings search')
   EXTRA_ENV = { PRISM_E2E_NVIDIA: '0' }
   let app
+  let sizeBefore = null
   try {
     const started = await launch(join(fixtures, 'README.md'))
     app = started.app
     const win = started.win
+    sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 1000))
     const labelOf = {}
     for (const file of [
@@ -13401,6 +13408,7 @@ async function settingsSearchScenario(fixtures) {
     ok((await win.locator('[data-settings-tab="terminal"]').getAttribute('aria-current')) === 'page', 'Enter opens it, and the rail says it is the page')
   } finally {
     EXTRA_ENV = {}
+    if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
     await app?.close().catch(() => {})
   }
 }
