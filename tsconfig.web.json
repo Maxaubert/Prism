@@ -15,7 +15,10 @@
     "baseUrl": ".",
     "paths": {
       "@renderer/*": ["src/renderer/src/*"],
-      "@shared/*": ["src/shared/*"]
+      "@shared/*": ["src/shared/*"],
+      "prism-term-core/renderer/settings/coreIndex": ["node_modules/prism-term-core/renderer/settings/coreIndex.ts"],
+      "prism-term-core/renderer/settings/sectionIds": ["node_modules/prism-term-core/renderer/settings/sectionIds.ts"],
+      "prism-term-core/renderer/settings/layout/icons": ["node_modules/prism-term-core/renderer/settings/layout/icons.ts"]
     }
   },
   "include": [

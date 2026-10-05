@@ -96,6 +96,6 @@ describe('focus still shows where the ring went', () => {
     expect(src('components/Onboarding.tsx')).toMatch(
       /aria-pressed=\{mode === m\}[\s\S]{0,900}style=\{\{ backgroundColor: 'var\(--p-hover\)' \}\}/
     )
-    expect(src('components/Settings.tsx')).toMatch(/hover:ring-white\/30 focus-visible:ring-white\/30/)
+    expect(src('components/settings/ColourSchemes.tsx')).toMatch(/hover:ring-white\/30 focus-visible:ring-white\/30/)
   })
 })

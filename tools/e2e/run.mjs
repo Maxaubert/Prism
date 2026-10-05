@@ -810,7 +810,7 @@ async function sortScenario(fixtures) {
       await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:has-text("Settings")').isVisible().catch(() => false),
       'the cog opens Settings as a tab on the strip'
     )
-    await win.click('button:has-text("Terminal")')
+    await settingsPage(win, 'terminal')
     await sleep(300)
     ok(
       (await win.locator('[data-term-card]').count()) >= 30 && (await win.locator('#term-font').count()) === 1,
@@ -907,38 +907,64 @@ async function termOptionsScenario(fixtures) {
     const wanted = rows.filter((m) => !m[0].includes('onlyWhere')).map((m) => m[1]).sort()
     const windowOnly = rows.filter((m) => m[0].includes('onlyWhere')).map((m) => m[1])
     ok(wanted.length >= 8, `the core lists the terminal options (${wanted.length} of ${rows.length} apply here)`)
-    await win.click('[aria-label="Settings"]')
-    await sleep(400)
-    await win.click('button:has-text("Terminal")')
+    // Since the grouped cards (#292) the core's rows sit on TWO pages here:
+    // Terminal (shell, text, theme) and Agents (marks, Claude Code, colours).
+    // Which page holds a section is the host's; the rows and their order
+    // inside each section are the core's.
+    await settingsPage(win, 'terminal')
     await win.waitForSelector('[data-terminal-settings]', { timeout: 5000 })
     // The shell row appears once main has answered with the shells it found.
     await win.waitForSelector('[data-pref="term-shell"]', { timeout: 8000 }).catch(() => {})
-    // No command help in Prism (2026-09-22): the page is the terminal list and
-    // nothing else, the help row included.
-    const onPage = (await win.evaluate(() =>
-      [...document.querySelectorAll('[data-terminal-settings] [data-pref]')].map((e) => e.getAttribute('data-pref'))
-    )).sort()
-    ok(JSON.stringify(onPage) === JSON.stringify(wanted), `the Terminal page shows exactly that list (shown: ${JSON.stringify(onPage)})`)
+    const readPage = () =>
+      win.evaluate(() => {
+        const root = document.querySelector('[data-terminal-settings], [data-agent-settings]')
+        return {
+          prefs: [...(root?.querySelectorAll('[data-pref]') ?? [])].map((e) => e.getAttribute('data-pref')),
+          sections: [...(root?.querySelectorAll('[data-settings-section]') ?? [])].map((sec) => ({
+            id: sec.getAttribute('data-settings-section'),
+            panels: sec.querySelectorAll(':scope > [data-settings-panel]').length,
+            prefs: [...sec.querySelectorAll('[data-pref]')].map((e) => e.getAttribute('data-pref'))
+          }))
+        }
+      })
+    const terminalPage = await readPage()
+    await win.screenshot({ path: join(SHOTS, 'terminal-settings.png') })
+    await settingsPage(win, 'agents')
+    await win.waitForSelector('[data-agent-settings]', { timeout: 5000 })
+    const agentsPage = await readPage()
+    await win.screenshot({ path: join(SHOTS, 'agent-settings.png') })
+    // No command help in Prism (2026-09-22): the two pages are the terminal
+    // list and nothing else, the help row included.
+    const onPage = [...terminalPage.prefs, ...agentsPage.prefs].sort()
+    ok(JSON.stringify(onPage) === JSON.stringify(wanted), `the Terminal and Agents pages show exactly that list (shown: ${JSON.stringify(onPage)})`)
     ok(!onPage.includes('help-enabled'), 'with no command help row, which is Prism Terminal only')
-    // ONE ORDER IN BOTH APPS (owner, 2026-09-22): read top to bottom, the
-    // core's terminal rows come in the list's own order. Prism Terminal's own
+    ok(
+      terminalPage.prefs.every((id) => ['term-shell', 'term-font-family', 'term-font', 'term-theme', 'term-acrylic'].includes(id)) &&
+        agentsPage.prefs.every((id) => id.startsWith('agent-')),
+      `the terminal's rows on Terminal, the agents' on Agents (${terminalPage.prefs.join(', ')} | ${agentsPage.prefs.join(', ')})`
+    )
+    // ONE ORDER IN BOTH APPS (owner, 2026-09-22), read PER SECTION since the
+    // grouped cards: inside each of the core's sections the rows come in the
+    // list's own order, and each section is ONE panel. Prism Terminal's own
     // `options` scenario asserts the same against the same file.
     const inOrder = rows.filter((m) => !m[0].includes('onlyWhere')).map((m) => m[1])
-    const pageOrder = await win.evaluate(() =>
-      [...document.querySelectorAll('[data-terminal-settings] [data-pref]')].map((e) => e.getAttribute('data-pref'))
-    )
-    ok(
-      JSON.stringify(pageOrder.filter((id) => inOrder.includes(id))) === JSON.stringify(inOrder.filter((id) => pageOrder.includes(id))),
-      `and in the shared order (${pageOrder.join(' > ')})`
-    )
+    const sections = [...terminalPage.sections, ...agentsPage.sections]
+    ok(sections.length >= 6, `the core's sections are drawn (${sections.map((x) => x.id).join(', ')})`)
+    for (const sec of sections) {
+      const listed = sec.prefs.filter((id) => inOrder.includes(id))
+      ok(
+        JSON.stringify(listed) === JSON.stringify(inOrder.filter((id) => listed.includes(id))),
+        `${sec.id}: in the shared order (${listed.join(' > ')})`
+      )
+      ok(sec.panels === 1, `${sec.id}: one panel`)
+    }
     ok((await win.locator('[data-pref="term-opacity"]').count()) === 0, 'with no opacity slider: the style owns the glass')
     const shownWindowOnly = []
-    for (const id of windowOnly) if ((await win.locator(`[data-pref="${id}"]`).count()) > 0) shownWindowOnly.push(id)
+    for (const id of windowOnly) if (onPage.includes(id)) shownWindowOnly.push(id)
     ok(
       shownWindowOnly.length === 0,
       `and no row the core keeps for a window-acrylic host (${windowOnly.length ? windowOnly.join(', ') : 'none listed'}; shown: ${JSON.stringify(shownWindowOnly)})`
     )
-    await win.screenshot({ path: join(SHOTS, 'terminal-settings.png') })
     // Untouched, the indicator is MINIMAL and its colours follow the accent.
     ok(
       (await win.evaluate(() => localStorage.getItem('prism.term.agentIndicator'))) === null &&
@@ -947,8 +973,8 @@ async function termOptionsScenario(fixtures) {
     )
     // The close question is one rule and no setting, on every page.
     let closeRows = 0
-    for (const name of ['General', 'Terminal']) {
-      await win.click(`button:has-text("${name}")`)
+    for (const name of ['explorer', 'terminal', 'agents']) {
+      await settingsPage(win, name)
       await sleep(250)
       closeRows += await win.locator('text=/Ask before closing/i').count()
     }
@@ -981,10 +1007,15 @@ async function noCommandHelpScenario(fixtures) {
       "the terminal's menu offers no command help"
     )
     await win.keyboard.press('Escape')
-    await win.click('[aria-label="Settings"]')
-    await win.click('button:has-text("Terminal")')
+    await settingsPage(win, 'terminal')
     await win.waitForSelector('[data-terminal-settings]', { timeout: 8000 })
     ok((await win.locator('[data-pref="help-enabled"]').count()) === 0, 'and Settings has no command help switch')
+    await win.locator('[data-settings-find]').fill('command help')
+    ok(
+      await until(async () => ((await win.locator('[data-settings-page] [role="status"]').textContent().catch(() => '')) ?? '') === 'No results', 3000, 50),
+      'nor does Find a setting know of one'
+    )
+    await win.locator('[data-settings-find]').fill('')
   } finally {
     await app.close()
   }
@@ -1064,11 +1095,12 @@ async function termColourPickerScenario(fixtures) {
     await say('25D0', 'Claude Code') // ◐, mid-answer
     ok(await until(async () => (await workingTab.count()) === 1, 8000, 50), 'a working stand-in agent is on the strip')
 
-    await win.click('[aria-label="Settings"]')
-    await sleep(400)
-    await win.click('button:has-text("Terminal")')
+    await settingsPage(win, 'terminal')
     await win.waitForSelector('[data-terminal-settings]', { timeout: 8000 })
     const themeBefore = await win.locator('[data-term-card][aria-pressed="true"]').first().getAttribute('data-term-card')
+    // The agent rows are the Agents page's since the grouped cards (#292).
+    await settingsPage(win, 'agents')
+    await win.waitForSelector('[data-agent-settings]', { timeout: 8000 })
     await win.locator('[data-pref="agent-indicator"] button:has-text("Full")').click()
     ok(await until(async () => (await workingTab.getAttribute('data-agent')) === 'full', 4000, 50), 'the indicator is Full, the tab filled')
 
@@ -1084,10 +1116,10 @@ async function termColourPickerScenario(fixtures) {
       await popover.locator('[role="slider"]').first().focus()
       await win.keyboard.press('Escape')
     }
-    ok((await swatch.getAttribute('aria-label')) === 'Pick Working colour', 'the row has a swatch named for it')
+    ok((await swatch.getAttribute('aria-label')) === 'Pick Agent working colour', 'the row has a swatch named for it')
     await swatch.click()
     ok(await until(async () => (await popover.count()) === 1, 4000, 50), 'the swatch opens the picker')
-    ok((await popover.getAttribute('aria-label')) === 'Working colour', "the picker is named for the row's colour")
+    ok((await popover.getAttribute('aria-label')) === 'Agent working colour', "the picker is named for the row's colour")
     // The spec does not say the focus moves into the popover as it opens, and
     // an Escape left on the swatch is not the popover's: focus inside first.
     await escapeFromPicker()
@@ -1145,7 +1177,10 @@ async function termColourPickerScenario(fixtures) {
 
     // 8-10. The theme editor: no alpha on the Background in Prism (the style
     // owns see-through), alpha on a palette colour, and no accent on a control.
-    const showAll = win.locator('button[aria-expanded="false"][aria-label^="Show all"]')
+    // The theme is the Terminal page's (#292).
+    await settingsPage(win, 'terminal')
+    await win.waitForSelector('[data-terminal-settings]', { timeout: 8000 })
+    const showAll =win.locator('button[aria-expanded="false"][aria-label^="Show all"]')
     if ((await showAll.count()) === 1) await showAll.click()
     await win.locator('[data-term-card="pitch"]').click()
     await win.locator('[data-edit-theme="pitch"]').click()
@@ -1280,9 +1315,7 @@ async function dictationScenario(fixtures) {
       localStorage.setItem('prism.dictation.sounds', '0')
     })
     // The page's own switch arms it (a bare localStorage write notifies nobody).
-    await win.click('[aria-label="Settings"]')
-    await sleep(400)
-    await win.click('button:has-text("Dictation")')
+    await settingsPage(win, 'dictation')
     await win.waitForSelector('[data-dictation-settings]', { timeout: 8000 })
     ok((await win.locator('[data-pref="dictation-enabled"] [role="switch"]').getAttribute('aria-checked')) === 'true', 'Settings has a Dictation page of its own, and it reads the setting')
     await win.locator('[data-pref="dictation-enabled"] [role="switch"]').click()
@@ -1380,9 +1413,7 @@ async function dictationPageScenario(fixtures) {
     app = started.app
     const win = started.win
     await win.evaluate(() => localStorage.setItem('prism.dictation.model', 'base'))
-    await win.click('[aria-label="Settings"]')
-    await sleep(400)
-    await win.click('button:has-text("Dictation")')
+    await settingsPage(win, 'dictation')
     await win.waitForSelector('[data-dictation-item="gpu-pack"][data-state="installed"]', { timeout: 8000 })
     const src = readFileSync(join(ROOT, 'node_modules/prism-term-core/renderer/settings/dictationOptions.ts'), 'utf8')
     const wanted = [...src.matchAll(/\{\s*id: '([a-z-]+)'/g)].map((m) => m[1]).sort()
@@ -2046,15 +2077,15 @@ async function iconSchemeScenario(fixtures) {
     // THE SETTINGS SWITCH IS GONE.
     await win.click('[aria-label="Settings"]')
     await win.waitForSelector('[data-tab-role]:not([data-pinned]) [role="tab"]:has-text("Settings")', { timeout: 10000 })
-    await win.locator('button:has-text("Style")').first().click()
+    await settingsPage(win, 'appearance')
     await sleep(400)
     ok(
       (await win.locator('label:text-is("File icons")').count()) === 0,
       'the File icons switch is hidden'
     )
     ok(
-      (await win.locator('label:text-is("Folder icons")').count()) === 1,
-      'while the Folder icons picker is untouched beside it'
+      (await win.locator('label:text-is("Folder icon colour")').count()) === 1,
+      'while the Folder icon colour picker is untouched beside it'
     )
   } finally {
     await app.close()
@@ -4737,10 +4768,7 @@ async function tabsScenario(fixtures) {
     // here, so Ctrl+W puts it away again. Prism's rows are marked by their
     // label (`for="tab-width"`), and the two segment names are unique there.
     const pickTabWidth = async (name) => {
-      await win.click('[aria-label="Settings"]')
-      await win.click('button:has-text("Style")')
-      await win.locator('label[for="tab-width"]').waitFor({ timeout: 8000 })
-      const seg = win.getByRole('button', { name, exact: true })
+      const seg = (await gotoPref(win, 'tab-width')).getByRole('button', { name, exact: true })
       await seg.scrollIntoViewIfNeeded()
       await seg.click()
       await win.keyboard.press('Control+w')
@@ -4931,17 +4959,16 @@ async function tabsScenario(fixtures) {
     ok((await win.locator(`${strip} [data-pinned] [role="tab"]`).count()) === 1, 'beside the Explorer tab')
     const saved = JSON.parse(readFileSync(join(PROFILE, 'tabs.json'), 'utf8'))
     ok(saved.tabs.length >= 2, `and last time's tabs are still saved (${saved.tabs.length})`)
-    await win.click('[aria-label="Settings"]')
-    await win.click('button:has-text("General")')
-    await win.waitForSelector('[role="switch"][aria-label="Remember tabs"]', { timeout: 8000 })
+    await settingsPage(win, 'explorer')
+    await win.waitForSelector('[role="switch"][aria-label="Reopen tabs at start"]', { timeout: 8000 })
     ok(
-      (await win.locator('[role="switch"][aria-label="Remember tabs"]').getAttribute('aria-checked')) === 'false',
-      'Settings > General shows Remember tabs switched off'
+      (await win.locator('[role="switch"][aria-label="Reopen tabs at start"]').getAttribute('aria-checked')) === 'false',
+      'Settings > Explorer shows Reopen tabs at start switched off'
     )
     // Back on, the way a user would, so the scenarios after this one restore
     // as they always did: the window's own store mirrors every prism.* key back
     // into main's at the next launch, so deleting the file alone undoes nothing.
-    await win.locator('[role="switch"][aria-label="Remember tabs"]').click()
+    await win.locator('[role="switch"][aria-label="Reopen tabs at start"]').click()
     ok(
       await until(async () => {
         try {
@@ -5046,16 +5073,58 @@ async function tabsScenario(fixtures) {
  * The pin on the + menu (#99): a pinned folder climbs above the recents, the
  * pin fills, the menu stays up while you do it, and the pin outlives history.
  */
-/** Pick a Style-page segment the way a user would: the cog, Style, the row
- *  named by its label's `for`, the segment by name; then the cog again puts
- *  Settings away (clicking it while Settings is in front closes the tab). */
+/**
+ * SETTINGS SINCE THE GROUPED CARDS (#292): pages by `data-settings-tab`, rows by
+ * `data-pref`. Which page holds a row is Prism's (`settings/appOptions.ts` and
+ * the core's lists); these are the rows the scenarios reach.
+ */
+const SETTINGS_PAGE_OF = {
+  mode: 'appearance', 'style-theme': 'appearance', 'c-bg': 'appearance', 'c-accent': 'appearance', 'c-font': 'appearance',
+  'tree-size': 'appearance', 'title-bar': 'appearance', 'tab-width': 'appearance', 'c-edges': 'appearance', 'c-corners': 'appearance',
+  'tree-side': 'explorer', 'explorer-size': 'explorer', 'auto-scroll': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'explorer',
+  'open-external': 'explorer', 'remember-tabs': 'explorer', 'remember-folders': 'explorer', 'explorer-verb': 'explorer', 'default-apps': 'explorer',
+  'term-shell': 'terminal', 'term-theme': 'terminal', 'agent-indicator': 'agents', 'agent-color': 'agents',
+  'dictation-enabled': 'dictation', 'transport-bg': 'media', 'app-version': 'about'
+}
+
+/** Open Settings if it is not up, and go to one of its pages. */
+async function settingsPage(win, page) {
+  if ((await win.locator('[data-settings-page]').count()) === 0) await win.click('[aria-label="Settings"]')
+  const tab = win.locator(`[data-settings-tab="${page}"]`)
+  await tab.waitFor({ timeout: 10000 })
+  await tab.click()
+}
+
+/** Open Settings at the page that holds a row, and wait for the row (Media's
+ *  rows on its Progress bar half are switched to). Returns its locator. */
+async function gotoPref(win, id) {
+  const page = SETTINGS_PAGE_OF[id]
+  if (!page) throw new Error(`gotoPref: no page known for ${id}`)
+  await settingsPage(win, page)
+  if (id === 'transport-bg') await win.locator('[data-seg="progress"]').click()
+  const row = win.locator(`[data-pref="${id}"]`).first()
+  await row.waitFor({ timeout: 10000 })
+  return row
+}
+
+/** Pick a segment of a settings row the way a user would: the cog, the row's
+ *  page, the segment by name; then the cog again puts Settings away (clicking
+ *  it while Settings is in front closes the tab). */
 async function pickStyleSegment(win, rowId, name) {
-  await win.click('[aria-label="Settings"]')
-  await win.click('button:has-text("Style")')
-  await win.locator(`label[for="${rowId}"]`).waitFor({ timeout: 8000 })
-  const seg = win.getByRole('button', { name, exact: true })
+  const row = await gotoPref(win, rowId)
+  const seg = row.getByRole('button', { name, exact: true })
   await seg.scrollIntoViewIfNeeded()
   await seg.click()
+  await win.click('[aria-label="Settings"]')
+  await sleep(400)
+}
+
+/** Show title bar, a switch since #292 over the same store (`shown` / `hidden`). */
+async function setTitleBar(win, mode) {
+  const row = await gotoPref(win, 'title-bar')
+  const sw = row.locator('[role="switch"]')
+  await sw.scrollIntoViewIfNeeded()
+  if ((await sw.getAttribute('aria-checked')) !== String(mode === 'shown')) await sw.click()
   await win.click('[aria-label="Settings"]')
   await sleep(400)
 }
@@ -5102,7 +5171,7 @@ async function titleBarScenario(fixtures) {
       'the panel toggle is in the bar'
     )
 
-    await pickStyleSegment(win, 'title-bar', 'Hidden')
+    await setTitleBar(win, 'hidden')
     ok(
       (await win.evaluate(() => localStorage.getItem('prism.window.titleBar'))) === 'hidden',
       'Hidden is remembered under prism.window.titleBar'
@@ -5196,7 +5265,7 @@ async function titleBarScenario(fixtures) {
     }
 
     // SHOWN again is the window exactly as before.
-    await pickStyleSegment(win, 'title-bar', 'Shown')
+    await setTitleBar(win, 'shown')
     ok(await until(async () => (await win.locator(row).count()) === 0, 5000), 'Shown takes the one row away')
     ok((await win.locator('[data-title-bar] [data-wordmark]').count()) === 1, 'and the bar and its wordmark come back')
     const backWork = await box('.browse-workspace')
@@ -5367,10 +5436,10 @@ async function moreMenuScenario(fixtures) {
 
     // A SETTINGS CONTROL too: a segment and a dropdown.
     await win.click('[data-title-bar] [aria-label="Settings"]')
-    await win.click('button:has-text("Style")')
-    await win.locator('label[for="title-bar"]').waitFor({ timeout: 8000 })
+    await settingsPage(win, 'appearance')
+    await win.locator('label[for="tab-width"]').waitFor({ timeout: 8000 })
     await win.evaluate(() => {
-      const seg = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Hidden')
+      const seg = document.querySelector('[data-pref="tab-width"] [data-seg="fixed"]')
       seg?.setAttribute('data-e2e-seg', '')
       document.querySelector('[data-settings-page] [aria-haspopup="listbox"]')?.setAttribute('data-e2e-select', '')
     })
@@ -5400,7 +5469,7 @@ async function moreMenuScenario(fixtures) {
     )
     await win.evaluate(() => document.querySelector('[data-e2e-field]')?.remove())
     // A SLIDER (Progress bar > Behind the controls): its track takes the fill.
-    await win.click('button:has-text("Progress bar")')
+    await gotoPref(win, 'transport-bg')
     await win.locator('input#transport-bg').waitFor({ timeout: 8000 })
     // A colour swatch (Progress bar > Colour), painted by an inline background: its hairline edge
     // brightens, as on hover.
@@ -5426,7 +5495,7 @@ async function moreMenuScenario(fixtures) {
 
     // WITH THE TITLE BAR HIDDEN the button lives at the end of the tab row,
     // and toggles there too.
-    await pickStyleSegment(win, 'title-bar', 'Hidden')
+    await setTitleBar(win, 'hidden')
     const rowButton = '[data-title-bar="tabs"] [data-more-button]'
     ok(await until(async () => (await win.locator(rowButton).count()) === 1, 5000), 'Hidden: More is in the tab row')
     await win.click(rowButton)
@@ -5434,7 +5503,7 @@ async function moreMenuScenario(fixtures) {
     await win.click(rowButton)
     await sleep(400)
     ok((await menus()) === 0, 'and a second click there closes it')
-    await pickStyleSegment(win, 'title-bar', 'Shown')
+    await setTitleBar(win, 'shown')
   } finally {
     await app.close()
   }
@@ -7214,6 +7283,12 @@ async function fullscreenBlackScenario(fixtures) {
       'and comes back maximized, not restored'
     )
   } finally {
+    // THE WINDOW'S STATE IS SAVED IN THE SHARED PROFILE: left maximized, every
+    // later launch came up maximized, where `setSize` is ignored, and the
+    // narrow-window checks of `columnHeaders` and `panelsAlign` measured a full
+    // screen (MEASURED in the #292 review: those two fail after this one alone).
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].unmaximize()).catch(() => {})
+    await sleep(300)
     await app.close()
   }
 }
@@ -7371,19 +7446,17 @@ async function folderArgScenario(fixtures) {
     // answered, so this WAITS for the settled text rather than reading once.
     // Nothing here writes the registry: under --e2e the setting is not
     // `automatic`, so it only ever reports what Windows says.
-    await win.click('[aria-label="Settings"]')
-    // Settings opens on Style; the Explorer menu row lives on General.
-    await win.click('button:has-text("General")')
+    // The Explorer menu row lives on Explorer, under Windows (#292), and its
+    // SUBTEXT says what it does, or what Windows is being asked.
+    await gotoPref(win, 'explorer-verb')
     const verbRow = win.locator('label[for="explorer-verb"]')
     await verbRow.waitFor({ timeout: 10000 })
     await verbRow.scrollIntoViewIfNeeded()
     const hint = await win
       .waitForFunction(
         () => {
-          const text =
-            document.querySelector('label[for="explorer-verb"]')?.parentElement?.querySelector('p')
-              ?.textContent ?? ''
-          return /Explorer menu/.test(text) ? text : false
+          const text = document.querySelector('label[for="explorer-verb"]')?.nextElementSibling?.textContent ?? ''
+          return text && text !== 'Checking with Windows.' ? text : false
         },
         null,
         { timeout: 10000 }
@@ -7391,33 +7464,24 @@ async function folderArgScenario(fixtures) {
       .then((h) => h.jsonValue())
       .catch(() => '')
     // Plain words since 2026-09-22 (owner: descriptions say what a setting
-    // does, with no symbols but commas and full stops, no keys, no tips), so
-    // the entries are described rather than quoted.
-    ok(
-      hint === 'Adds entries to the Explorer menu for opening files and folders in Prism.',
-      `Settings says what the Explorer menu row does, in plain words (${hint})`
-    )
-    // A Pref's hint is ONE line and TRUNCATES (`truncate`), and the new words
-    // made this one a sixth longer, with the part a Windows 11 user needs most,
-    // "(Shift+F10)", at the very end where an ellipsis eats first. MEASURED
-    // rather than eyeballed: at the fresh profile's default window the text
-    // must fit its box. The hint is settled by now, so this reads once.
+    // does, with no symbols but commas and full stops, no keys, no tips), and
+    // eight words at most since the grouped cards.
+    ok(hint === 'Open files and folders in Prism.', `Settings says what the Explorer menu row does, in plain words (${hint})`)
+    // A subtext is ONE line and TRUNCATES. MEASURED rather than eyeballed: at
+    // the fresh profile's default window the text must fit its box.
     const clipped = await win.evaluate(() => {
-      const p = document.querySelector('label[for="explorer-verb"]')?.parentElement?.querySelector('p')
+      const p = document.querySelector('label[for="explorer-verb"]')?.nextElementSibling
       return p ? { text: p.scrollWidth, box: p.clientWidth } : null
     })
-    ok(
-      !!clipped && clipped.text <= clipped.box,
-      `and the whole hint fits on its line (${clipped?.text}px in ${clipped?.box}px)`
-    )
-    // The switch settles in the same render as the hint and then ANIMATES
+    ok(!!clipped && clipped.text <= clipped.box, `and the whole subtext fits on its line (${clipped?.text}px in ${clipped?.box}px)`)
+    // The switch settles in the same render as the subtext and then ANIMATES
     // there; a screenshot taken on the first frame showed a switch that read
     // as off on a machine where the verb is on. Wait for its transitions to
     // end. Which way it points is this machine's registry and is not asserted.
     await win
       .waitForFunction(
         () => {
-          const sw = document.querySelector('[role="switch"][aria-label="Prism in the Explorer menu"]')
+          const sw = document.querySelector('[role="switch"][aria-label="Add to the Explorer menu"]')
           return !!sw && sw.getAnimations({ subtree: true }).length === 0
         },
         null,
@@ -8143,16 +8207,19 @@ async function markTintScenario(fixtures) {
     }, draftBefore)
     await sleep(300)
     ok(alphaOf(await token('--p-sel-bg')) < 1, `the accent's alpha is down: its fills are see-through (${await token('--p-sel-bg')})`)
-    await win.click('[aria-label="Settings"]')
-    const rail = win.locator('aside button[aria-label="Style"]')
-    await rail.waitFor({ timeout: 8000 })
-    await rail.click()
+    // THE CHOSEN SETTINGS PAGE IS A GREY FILL (#292; owner, 2026-10-05: no
+    // accent bar on the chosen rail item): `--p-hover-hi`, whatever the
+    // accent or its alpha, never the accent.
+    const rail = win.locator('[data-settings-tab="appearance"]')
+    await settingsPage(win, 'appearance')
     await win.mouse.move(5, 5)
     await sleep(300)
     const railBg = await rail.evaluate((el) => getComputedStyle(el).backgroundColor)
-    const solid = await token('--p-sel-solid')
-    ok(alphaOf(railBg) === 1, `the chosen Settings page is solid all the same (${railBg})`)
-    ok(railBg === solid, `in the accent, whole (${railBg} and ${solid})`)
+    const grey = await token('--p-hover-hi')
+    const solid = await token('--p-accent-solid')
+    ok((await rail.getAttribute('aria-current')) === 'page', 'the chosen Settings page says so')
+    ok(railBg === grey, `and wears the grey fill (${railBg} and ${grey})`)
+    ok(railBg !== solid && railBg !== (await token('--p-accent')), `not the accent (${railBg}, accent ${solid})`)
     await win.screenshot({ path: join(SHOTS, 'marktint-settings-rail.png') })
     // Explorer marks still a tint at this alpha, the same one.
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
@@ -8170,7 +8237,7 @@ async function markTintScenario(fixtures) {
     const green = await explorerLook()
     ok(green !== null && /^rgba\(46, 204, 113, 0\.2\d*\)$/.test(green.bg), `a picked Selection is the marked row's tint (${green?.bg})`)
     ok(green !== null && green.name[0] === green.name[1], 'and the row keeps its own text colour')
-    ok((await token('--p-sel-solid')) === solid, `the accent's solid fill is untouched (${await token('--p-sel-solid')})`)
+    ok((await token('--p-accent-solid')) === solid, `the accent is untouched (${await token('--p-accent-solid')})`)
     await win.screenshot({ path: join(SHOTS, 'marktint-selection-picked.png') })
     // Quick access's "you are here" wears the selection's tint (owner,
     // 2026-10-03: "i want that colour for the sidebar on the explorer page too").
@@ -8190,14 +8257,12 @@ async function markTintScenario(fixtures) {
       ok(/^rgba\(46, 204, 113,/.test(place.bg), `in the picked Selection colour (${place.bg})`)
       ok(place.ink !== place.plain || place.ink.length > 0, `and its text keeps a text colour (${place.ink})`)
     }
-    // The Settings rail still wears the accent, solid, as before the pick.
-    await win.click('[aria-label="Settings"]')
-    await rail.waitFor({ timeout: 8000 })
-    await rail.click()
+    // The Settings rail keeps its grey, as before the pick.
+    await settingsPage(win, 'appearance')
     await win.mouse.move(5, 5)
     await sleep(300)
     const railAfter = await rail.evaluate((el) => getComputedStyle(el).backgroundColor)
-    ok(railAfter === railBg, `the Settings rail keeps the accent (${railAfter}, was ${railBg})`)
+    ok(railAfter === railBg, `the Settings rail keeps its grey (${railAfter}, was ${railBg})`)
   } finally {
     await win
       .evaluate((d) => {
@@ -9775,8 +9840,7 @@ async function accentOpacityScenario(fixtures) {
   try {
     await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
     draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
-    await win.click('[aria-label="Settings"]')
-    await win.locator('button:has-text("Style")').first().click()
+    await settingsPage(win, 'appearance')
     const row = win.locator('[data-colour-row="c-accent"]')
     const field = row.locator('input:not([type])')
     await field.waitFor({ timeout: 8000 })
@@ -9789,7 +9853,7 @@ async function accentOpacityScenario(fixtures) {
     await row.locator('[data-colour-swatch]').click()
     const pop = win.locator('[data-colour-popover][role="dialog"]')
     await pop.waitFor({ timeout: 5000 })
-    ok((await pop.getAttribute('aria-label')) === 'Accent', 'the popover is named by its row')
+    ok((await pop.getAttribute('aria-label')) === 'Accent colour', 'the popover is named by its row')
     const alpha = pop.locator('[role="slider"][aria-label="Alpha"]')
     ok((await alpha.getAttribute('aria-valuemin')) === '10', 'its Alpha runs down to 10%')
     await alpha.focus()
@@ -9910,8 +9974,7 @@ async function accentOpacityScenario(fixtures) {
     await win.screenshot({ path: join(SHOTS, 'accent-opacity-row.png') })
 
     // Reset gives back the colour AND the alpha.
-    await win.click('[aria-label="Settings"]')
-    await win.locator('button:has-text("Style")').first().click()
+    await settingsPage(win, 'appearance')
     await reset.waitFor({ timeout: 8000 })
     await reset.click()
     await sleep(250)
@@ -9976,8 +10039,7 @@ async function styleColoursScenario(fixtures) {
     await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
     before = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
     await setDraft(null)
-    await win.click('[aria-label="Settings"]')
-    await win.locator('button:has-text("Style")').first().click()
+    await settingsPage(win, 'appearance')
     const rowOf = (id) => win.locator(`[data-colour-row="${id}"]`)
     const fieldOf = (id) => rowOf(id).locator('input:not([type])')
     const pop = win.locator('[data-colour-popover][role="dialog"]')
@@ -10020,7 +10082,7 @@ async function styleColoursScenario(fixtures) {
     await slider('Hue').press('Escape')
     await sleep(200)
     ok((await pop.count()) === 0 && (await draft()).selection === undefined, 'Escape puts the unset Selection back')
-    const accentBefore = await token('--p-sel-solid')
+    const accentBefore = await token('--p-accent-solid')
     await rowOf('c-selection').locator('[data-colour-swatch]').click()
     await pop.waitFor({ timeout: 5000 })
     await slider('Hue').focus()
@@ -10043,7 +10105,7 @@ async function styleColoursScenario(fixtures) {
     // selection colour), so a box dragged over green marks is not blue.
     const hue = await token('--p-sel-hue')
     ok(near(hue.slice(0, 3), rgbOf(kept)), `the sweep band's hue is the pick (${hue.join(',')} for ${kept})`)
-    ok(JSON.stringify(await token('--p-sel-solid')) === JSON.stringify(accentBefore), 'the accent fill does not move')
+    ok(JSON.stringify(await token('--p-accent-solid')) === JSON.stringify(accentBefore), 'the accent does not move')
     await rowOf('c-selection').scrollIntoViewIfNeeded()
     await win.screenshot({ path: join(SHOTS, 'style-colours-selection.png') })
     const reset = rowOf('c-selection').locator('button', { hasText: 'Reset' })
@@ -12985,13 +13047,12 @@ async function rememberFoldersScenario() {
   try {
     ok(await landed(win, f.cached, 15000), 'the Explorer shows a folder')
     ok(await until(() => files() > 0, 5000), `and it is kept on disk (${files()} file(s))`)
-    await win.click('[aria-label="Settings"]')
-    await win.click('button:has-text("General")')
+    await settingsPage(win, 'explorer')
     const row = win.locator('#remember-folders-clear')
-    ok(await until(async () => (await row.count()) === 1, 5000), 'Settings > General has Remember folders')
+    ok(await until(async () => (await row.count()) === 1, 5000), 'Settings > Explorer has Remember recent folders')
     await row.click()
     ok(await until(() => files() === 0, 5000), 'Clear deletes what was kept')
-    const sw = win.locator('button[role="switch"][aria-label="Remember folders"]')
+    const sw = win.locator('button[role="switch"][aria-label="Remember recent folders"]')
     ok((await sw.getAttribute('aria-checked')) === 'true', 'the switch is on by default')
     await sw.click()
     ok(await until(() => !existsSync(cacheDir), 5000), 'off deletes the folder')
@@ -13000,6 +13061,377 @@ async function rememberFoldersScenario() {
   } finally {
     await win.evaluate(() => localStorage.removeItem('prism.explorer.rememberFolders')).catch(() => {})
     await app.close().catch(() => {})
+  }
+}
+
+/** What a settings page looks like, measured in the page (#292). Every colour
+ *  is read through a probe, since `color-mix()` computes to `color(srgb ...)`
+ *  in 0..1; a see-through fill is laid over what is under it before a ratio. */
+const settingsLookOf = (win) =>
+  win.evaluate(() => {
+    const parse = (c) => {
+      const span = document.createElement('span')
+      span.style.color = c
+      document.body.appendChild(span)
+      const v = getComputedStyle(span).color
+      span.remove()
+      const n = (v.replace(/^color\(srgb/, '').match(/[\d.]+/g) ?? []).map(Number)
+      const unit = v.startsWith('color(') ? 255 : 1
+      return { rgb: n.slice(0, 3).map((x) => x * unit), a: n.length > 3 ? n[3] : 1 }
+    }
+    const over = (top, under) => top.rgb.map((v, i) => under[i] + (v - under[i]) * top.a)
+    const lin = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+    const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    const ratio = (x, y) => {
+      const [a, b] = [lum(x), lum(y)]
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+    }
+    const root = getComputedStyle(document.documentElement)
+    const frame = document.querySelector('[data-settings-page]')
+    // The frame paints the style's ground; under glass it is composited over
+    // the flat sidebar colour, the nearest thing to what is behind it.
+    const flat = parse(root.getPropertyValue('--p-side-flat').trim()).rgb
+    const ground = over(parse(getComputedStyle(frame).backgroundColor), flat)
+    const panelEl = document.querySelector('[data-settings-panel]')
+    const panelGround = panelEl ? over(parse(getComputedStyle(panelEl).backgroundColor), ground) : ground
+    const row = document.querySelector('[data-setting-row]')
+    const label = row?.querySelector('label')
+    const sub = row?.querySelector('label + [title]')
+    const tile = row?.firstElementChild?.firstElementChild
+    const warnEl = document.querySelector('[data-setting-row] [title] svg')?.closest('[title]')
+    const ink = (el) => over(parse(getComputedStyle(el).color), panelGround)
+    const chosen = document.querySelector('[data-settings-tab][aria-current="page"]')
+    const accent = parse(root.getPropertyValue('--p-accent').trim())
+    // A swatch IS its colour (its fill is inline), and the accent-following
+    // scheme's swatch is the accent: a mark, not a button that wears it.
+    const accentButtons = [...frame.querySelectorAll('button')].filter((b) => {
+      if (b.style.background) return false
+      const mine = parse(getComputedStyle(b).backgroundColor)
+      return mine.a > 0.3 && mine.rgb.map(Math.round).join() === accent.rgb.map(Math.round).join()
+    })
+    const rows = [...frame.querySelectorAll('[data-setting-row]')]
+    const radius = parseFloat(root.getPropertyValue('--p-radius')) || 0
+    const r = (n) => Math.round(n * 10) / 10
+    // Two controls of one row overlapping is a layout fault the eye can miss.
+    const overlap = rows.some((rw) => {
+      const boxes = [...rw.querySelectorAll('[data-row-control] > *')].map((c) => c.getBoundingClientRect()).filter((b) => b.width > 0)
+      return boxes.some((a, i) => boxes.some((b, j) => j > i && a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1))
+    })
+    return {
+      label: label ? ratio(ink(label), panelGround) : 0,
+      sub: sub ? ratio(ink(sub), panelGround) : 0,
+      icon: tile ? ratio(ink(tile), over(parse(getComputedStyle(tile).backgroundColor), panelGround)) : 0,
+      warn: warnEl ? ratio(ink(warnEl), panelGround) : null,
+      chosen: chosen ? parse(getComputedStyle(chosen).backgroundColor) : null,
+      hoverHi: parse(root.getPropertyValue('--p-hover-hi').trim()),
+      accent,
+      accentButtons: accentButtons.map((b) => b.textContent.trim()),
+      sideways: frame.scrollWidth > frame.clientWidth + 1 || document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      rowMin: rows.length ? Math.min(...rows.map((x) => x.getBoundingClientRect().height)) : 0,
+      tile: tile ? r(tile.getBoundingClientRect().width) : 0,
+      panelRadius: panelEl ? parseFloat(getComputedStyle(panelEl).borderTopLeftRadius) : 0,
+      wantRadius: Math.max(4, radius + 3),
+      overlap,
+      rail: Math.round(frame.querySelector('nav[aria-label="Settings pages"]').getBoundingClientRect().width)
+    }
+  })
+
+/**
+ * THE SETTINGS LOOK (#292; owner, 2026-10-05: the approved v1 "Grouped cards",
+ * with no accent bar on the chosen rail item). Every page in a dark and a
+ * light style: label and subtext 4.5:1 on the panel as composited, the icon
+ * 3:1 on its tile, a warning subtext 4.5:1, the chosen rail page the GREY fill
+ * and never the accent, Save changes the only accent-filled buttons, rows at
+ * least 58px with a 32px tile, the panel's corner the style's roundness plus
+ * 3px (Onyx 2px gives 5px, Ruby 14px gives 17px), nothing sideways at 1600
+ * and 900px or with Font size Large, the icon rail under 760px and
+ * from the title bar's toggle. A screenshot of every page in both schemes,
+ * LOOKED AT before a change is called done (#20 in Prism Terminal).
+ *
+ * In `e2e:terminal`, RUNNER-SAFE: the frame, sections and rows are the core's,
+ * so a core bump that breaks Prism's settings layout is held here. Nothing
+ * reads a window material or assumes this machine.
+ */
+async function settingsLookScenario(fixtures) {
+  console.log('settings look')
+  const root = join(tmpdir(), `${PROFILE_NAME}-settings-look`)
+  rmSync(root, { recursive: true, force: true })
+  mkdirSync(root, { recursive: true })
+  EXTRA_ENV = { PRISM_DICTATION_ROOT: root, PRISM_E2E_NVIDIA: '0' }
+  let app
+  let win
+  let styleBefore = null
+  // The window's size is SAVED in the shared profile: the scenarios after
+  // this one must start at the size they always did.
+  let sizeBefore = null
+  try {
+    ;({ app, win } = await launch(join(fixtures, 'README.md')))
+    sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
+    const setSize = (w, h) => app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), [w, h])
+    await setSize(1600, 1000)
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    styleBefore = await switchStyle(win, 'aurora', 'dark')
+    await settingsPage(win, 'appearance')
+    ok((await win.locator('[data-settings-tab="appearance"]').getAttribute('aria-current')) === 'page', 'Settings opens on Appearance')
+    const rail = await win.evaluate(() => [...document.querySelectorAll('[data-settings-tab]')].map((b) => b.getAttribute('data-settings-tab')))
+    ok(
+      JSON.stringify(rail) === JSON.stringify(['appearance', 'explorer', 'terminal', 'agents', 'dictation', 'media', 'about']),
+      `the rail runs Appearance, Explorer, Terminal, Agents, Dictation, Media, About (${rail.join(', ')})`
+    )
+    const pages = [
+      ['appearance'],
+      ['explorer'],
+      ['terminal'],
+      ['agents'],
+      ['dictation'],
+      ['media', 'visualizer'],
+      ['media', 'progress'],
+      ['about']
+    ]
+    for (const [scheme, style] of [['dark', 'aurora'], ['light', 'paper']]) {
+      await switchStyle(win, style, scheme)
+      ok(await until(() => win.evaluate((m) => document.documentElement.dataset.mode === m, scheme), 6000, 50), `in a ${scheme} style (${style})`)
+      for (const [page, view] of pages) {
+        await settingsPage(win, page)
+        if (view) await win.locator(`[data-seg="${view}"]`).click()
+        // The dictation page's switch, on with no model, is the one live
+        // warning a fresh profile can show: measure it while it is up.
+        if (page === 'dictation') {
+          const sw = win.locator('[data-pref="dictation-enabled"] [role="switch"]')
+          if ((await sw.getAttribute('aria-checked')) !== 'true') await sw.click()
+        }
+        await win.mouse.move(5, 5)
+        await sleep(450)
+        const name = view ? `${page}-${view}` : page
+        const m = await settingsLookOf(win)
+        ok(m.label >= 4.5 && m.sub >= 4.5, `${scheme} ${name}: label and subtext read on the panel (${m.label.toFixed(1)}:1, ${m.sub.toFixed(1)}:1)`)
+        ok(m.icon >= 3, `${scheme} ${name}: the icon reads 3:1 on its tile (${m.icon.toFixed(1)}:1)`)
+        if (page === 'dictation') ok(m.warn !== null && m.warn >= 4.5, `${scheme} dictation: a warning subtext reads 4.5:1 (${m.warn?.toFixed(1)}:1)`)
+        ok(
+          !!m.chosen && m.chosen.rgb.map(Math.round).join() === m.hoverHi.rgb.map(Math.round).join() && Math.abs(m.chosen.a - m.hoverHi.a) < 0.02,
+          `${scheme} ${name}: the chosen rail page is the grey fill (${JSON.stringify(m.chosen)})`
+        )
+        ok(!!m.chosen && m.chosen.rgb.map(Math.round).join() !== m.accent.rgb.map(Math.round).join(), `${scheme} ${name}: and not the accent`)
+        ok(m.accentButtons.every((b) => b === 'Save changes'), `${scheme} ${name}: the only accent-filled buttons are Save changes (${JSON.stringify(m.accentButtons)})`)
+        ok(!m.sideways, `${scheme} ${name}: nothing scrolls sideways at 1600px`)
+        ok(m.rowMin >= 57.5 && m.tile === 32, `${scheme} ${name}: rows at least 58px, a 32px icon tile (${m.rowMin}, ${m.tile})`)
+        ok(m.panelRadius === m.wantRadius, `${scheme} ${name}: the panel's corner is the style's plus 3px (${m.panelRadius} of ${m.wantRadius})`)
+        ok(!m.overlap, `${scheme} ${name}: no two controls of a row overlap`)
+        await win.screenshot({ path: join(SHOTS, `settings-${name}-${scheme}.png`) })
+        if (page === 'dictation') await win.locator('[data-pref="dictation-enabled"] [role="switch"]').click()
+      }
+    }
+    // The style's ROUNDNESS rounds the panels: Onyx (2px) and Ruby (14px).
+    for (const [style, want] of [['default', 5], ['acrylic-red', 17]]) {
+      await switchStyle(win, style, 'dark')
+      await settingsPage(win, 'appearance')
+      ok(
+        await until(async () => (await settingsLookOf(win)).panelRadius === want, 3000, 50),
+        `${style}: the panels' corners are ${want}px (${(await settingsLookOf(win)).panelRadius})`
+      )
+      await win.screenshot({ path: join(SHOTS, `settings-appearance-${style}.png`) })
+    }
+    await switchStyle(win, 'aurora', 'dark')
+    // Font size Large zooms the page by 1.12: nothing overflows.
+    const size = await gotoPref(win, 'tree-size')
+    await size.locator('#tree-size').click()
+    await win.locator('[data-pref="tree-size"] [role="option"]:has-text("Large")').click()
+    ok(await until(() => win.evaluate(() => localStorage.getItem('prism.tree.size') === 'large'), 3000, 50), 'Font size is Large')
+    for (const [page, view] of pages) {
+      await settingsPage(win, page)
+      if (view) await win.locator(`[data-seg="${view}"]`).click()
+      await sleep(250)
+      ok(!(await settingsLookOf(win)).sideways, `Large: ${view ?? page} scrolls nothing sideways`)
+    }
+    await win.screenshot({ path: join(SHOTS, 'settings-large.png') })
+    await (await gotoPref(win, 'tree-size')).locator('#tree-size').click()
+    await win.locator('[data-pref="tree-size"] [role="option"]:has-text("Default")').click()
+    // 900px: the full rail, nothing sideways. Under 760px of the FRAME the rail
+    // is icons and Find a setting a magnifier.
+    await settingsPage(win, 'appearance')
+    await setSize(900, 800)
+    await sleep(500)
+    ok(!(await settingsLookOf(win)).sideways, 'nothing scrolls sideways at 900px')
+    ok((await settingsLookOf(win)).rail >= 200, `at 900px the rail has its names (${(await settingsLookOf(win)).rail}px)`)
+    await setSize(700, 700)
+    ok(await until(async () => (await settingsLookOf(win)).rail <= 60, 3000, 50), `under 760px the rail is icons (${(await settingsLookOf(win)).rail}px)`)
+    ok(!(await win.locator('[data-settings-tab="appearance"] span').last().isVisible()), 'with the page names hidden')
+    ok(!(await settingsLookOf(win)).sideways, 'and nothing scrolls sideways')
+    const find = win.locator('[data-settings-find]')
+    await find.click()
+    await win.keyboard.type('font')
+    ok(await until(async () => (await find.evaluate((el) => el.getBoundingClientRect().width)) > 200, 3000, 50), 'the magnifier opens the field over the pane')
+    await win.screenshot({ path: join(SHOTS, 'settings-narrow-search.png') })
+    await win.keyboard.press('Escape')
+    await setSize(1600, 1000)
+    await sleep(300)
+    // Prism's own compact rail, from the title bar's toggle, is the same icons.
+    await win.locator('[data-title-bar] [data-panel-toggle]').click()
+    ok(await until(async () => (await settingsLookOf(win)).rail <= 60, 3000, 50), `the title bar's toggle collapses the rail to icons (${(await settingsLookOf(win)).rail}px)`)
+    // Each page is a 40px tile there, as in the narrow layout: the chosen
+    // fill was an 18px sliver round the icon before (review of #292).
+    const tileW = await win.evaluate(() => Math.round(document.querySelector('[data-settings-tab][aria-current="page"]').getBoundingClientRect().width))
+    ok(tileW >= 38 && tileW <= 42, `and each page is a 40px tile there (${tileW}px)`)
+    await win.screenshot({ path: join(SHOTS, 'settings-compact.png') })
+    await win.locator('[data-title-bar] [data-panel-toggle]').click()
+    ok(await until(async () => (await settingsLookOf(win)).rail >= 200, 3000, 50), 'and back')
+  } finally {
+    EXTRA_ENV = {}
+    if (styleBefore && win) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    await win?.evaluate(() => localStorage.removeItem('prism.tree.size')).catch(() => {})
+    if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
+    await app?.close().catch(() => {})
+  }
+}
+
+/**
+ * FIND A SETTING (#292; spec 1.2, 1.3, 1.6): every row in Prism's index is
+ * found by its own label and opened, landing on screen, flashed and holding
+ * the keyboard (the Media half that holds it switched to); by keyboard alone
+ * from the field to a control; Escape clears the field and only an EMPTY field
+ * lets Escape close Settings; no status line without a query; a word that
+ * matches nothing says so. The index is read as text from the app's own
+ * `settingsIndex.ts` and the lists, as the gate reads `options.ts`.
+ */
+async function settingsSearchScenario(fixtures) {
+  console.log('settings search')
+  EXTRA_ENV = { PRISM_E2E_NVIDIA: '0' }
+  let app
+  let sizeBefore = null
+  try {
+    const started = await launch(join(fixtures, 'README.md'))
+    app = started.app
+    const win = started.win
+    sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 1000))
+    const labelOf = {}
+    for (const file of [
+      'node_modules/prism-term-core/renderer/settings/options.ts',
+      'node_modules/prism-term-core/renderer/settings/dictationOptions.ts',
+      'src/renderer/src/components/settings/appOptions.ts'
+    ])
+      for (const m of readFileSync(join(ROOT, file), 'utf8').matchAll(/\{\s*id: '([a-z-]+)'[^}]*\}/g))
+        if (!m[0].includes('onlyWhere')) labelOf[m[1]] = (m[0].match(/label: '([^']+)'/) ?? [])[1]
+    const order = readFileSync(join(ROOT, 'src/renderer/src/components/settings/settingsIndex.ts'), 'utf8')
+    const rowOrder = order.slice(order.indexOf('ROW_ORDER'), order.indexOf('] as const'))
+    const ids = [...rowOrder.matchAll(/'([a-z-]+)'/g)].map((m) => m[1]).filter((id) => labelOf[id] && id !== 'dictation-gpu')
+    ok(ids.length >= 50, `the index covers every row drawn on this PC (${ids.length})`)
+    const find = win.locator('[data-settings-find]')
+    const status = win.locator('[data-settings-page] [role="status"]')
+    await win.click('[aria-label="Settings"]')
+    await find.waitFor({ timeout: 8000 })
+    ok((await status.count()) === 0, 'with nothing typed there is no status line')
+    ok((await find.getAttribute('data-owns-escape')) === null, 'an empty field does not claim Escape')
+    await find.fill('font')
+    ok((await find.getAttribute('data-owns-escape')) !== null, 'a field holding text does')
+    // ESCAPE: the field's first, then Settings'. Prism's own capture-phase
+    // Escape closes Settings, and must stand down while the field holds text.
+    await find.press('Escape')
+    ok((await find.inputValue()) === '' && (await win.locator('[data-settings-page]').count()) === 1, 'Escape with text clears the field and leaves Settings open')
+    await find.press('Escape')
+    ok(await until(async () => (await win.locator('[data-settings-page]').count()) === 0, 3000, 50), 'Escape on an empty field closes Settings')
+    await win.click('[aria-label="Settings"]')
+    await find.waitFor({ timeout: 8000 })
+    // Every row's controls are a group named by the row's label.
+    await gotoPref(win, 'tab-width')
+    ok((await win.locator('[data-pref="tab-width"] [role="group"]').getAttribute('aria-label')) === labelOf['tab-width'], 'a row names its controls by its label')
+    // EVERY ROW, BY ITS OWN LABEL (spec 1.6). Some labels are shared (the
+    // Glow, Cycle and Move of each Media half), so the row is looked for
+    // among the results rather than as the first.
+    const misses = []
+    for (const id of ids) {
+      await find.fill(labelOf[id])
+      const hit = win.locator(`[data-settings-page] [role="option"][data-hit="${id}"]`)
+      if (!(await until(async () => (await hit.count()) === 1, 3000, 30))) {
+        misses.push(`${id}: not found`)
+        continue
+      }
+      const first = await win.locator('[data-settings-page] [role="option"]').first().getAttribute('data-hit')
+      if (labelOf[first] !== labelOf[id]) misses.push(`${id}: first result is ${first}`)
+      await hit.click()
+      const landed = await until(
+        () =>
+          win.evaluate((pref) => {
+            const row = document.querySelector(`[data-pref="${pref}"]`)
+            if (!row) return null
+            const r = row.getBoundingClientRect()
+            const onScreen = r.bottom > 0 && r.top < innerHeight
+            return onScreen && row.hasAttribute('data-flash') && row.contains(document.activeElement) ? true : null
+          }, id),
+        4000,
+        30
+      )
+      if (!landed) misses.push(`${id}: not on screen, flashed and focused`)
+      if ((await find.inputValue()) !== '') misses.push(`${id}: the field kept its text`)
+    }
+    ok(misses.length === 0, `every row is found by its label and opened (${JSON.stringify(misses)})`)
+    // KEYBOARD ONLY: the field, Down, Enter, and the control has the focus.
+    await find.focus()
+    await win.keyboard.type('explorer menu')
+    ok(await until(async () => ((await status.textContent().catch(() => '')) ?? '').includes('result'), 3000, 50), `a status line says how many (${await status.textContent().catch(() => '')})`)
+    await win.keyboard.press('ArrowDown')
+    ok(await win.evaluate(() => document.activeElement?.getAttribute('role') === 'option'), 'Down moves to the first result')
+    await win.screenshot({ path: join(SHOTS, 'settings-search.png') })
+    await win.keyboard.press('Enter')
+    ok(
+      await until(() => win.evaluate(() => !!document.activeElement?.closest('[data-pref="explorer-verb"]')), 4000, 30),
+      "Enter opens it with the keyboard on the row's control"
+    )
+    ok((await win.locator('[data-settings-tab="explorer"]').getAttribute('aria-current')) === 'page', 'on the page that holds it')
+    // A Media row opens its own half of the page.
+    await find.fill('control band')
+    await win.locator('[data-settings-page] [role="option"]').first().click()
+    ok(
+      await until(async () => (await win.locator('[data-seg="progress"][aria-pressed="true"]').count()) === 1 && (await win.locator('[data-pref="transport-bg"]').count()) === 1, 3000, 50),
+      'a Progress bar row opens Media on its Progress bar half'
+    )
+    // While results are up the rail chooses nothing; Escape clears.
+    await find.focus()
+    await win.keyboard.type('colour')
+    await until(async () => (await status.count()) === 1, 3000, 50)
+    ok((await win.locator('[data-settings-tab][aria-current="page"]').count()) === 0, 'while results are up no page is chosen in the rail')
+    await win.keyboard.press('Escape')
+    ok((await find.inputValue()) === '' && (await status.count()) === 0, 'Escape clears the field and the status line goes')
+    ok((await win.locator('[data-settings-page]').count()) === 1, 'and Settings stays open')
+    // TEXT TYPED, THE KEYBOARD ELSEWHERE (review of #292): Escape did nothing
+    // at all. It now takes the keyboard back to the field, and the next one
+    // clears it there; Settings stays open throughout.
+    await find.fill('font')
+    await win.locator('[data-settings-tab="explorer"]').focus()
+    await win.keyboard.press('Escape')
+    ok(
+      (await win.locator('[data-settings-page]').count()) === 1 && (await win.evaluate(() => document.activeElement?.hasAttribute('data-settings-find'))),
+      'Escape with text and the focus on the rail takes the keyboard to the field'
+    )
+    await win.keyboard.press('Escape')
+    ok((await find.inputValue()) === '' && (await win.locator('[data-settings-page]').count()) === 1, 'and the next Escape clears it, Settings still open')
+    // Nothing found.
+    await find.fill('zebra')
+    ok(await until(async () => ((await status.textContent().catch(() => '')) ?? '') === 'No results', 3000, 50), 'a word that matches nothing says No results')
+    ok(((await win.locator('[data-settings-nothing]').textContent()) ?? '').includes('Nothing matches zebra'), 'and the pane says what was not found')
+    await win.screenshot({ path: join(SHOTS, 'settings-search-empty.png') })
+    await find.fill('')
+    // THE RAIL BY KEYBOARD (spec 1.3): Tab from the field lands on the rail,
+    // Up and Down walk it and Home and End jump, and Settings keeps them: the
+    // folder behind does not page.
+    await find.focus()
+    await win.keyboard.press('Tab')
+    const at = () => win.evaluate(() => document.activeElement?.getAttribute('data-settings-tab') ?? document.activeElement?.tagName ?? null)
+    ok((await at()) === 'appearance', `Tab from the field lands on the rail's first page (${await at()})`)
+    await win.keyboard.press('ArrowDown')
+    ok((await at()) === 'explorer', `Down walks the rail (${await at()})`)
+    await win.keyboard.press('End')
+    ok((await at()) === 'about', `End jumps to the last (${await at()})`)
+    await win.keyboard.press('Home')
+    ok((await at()) === 'appearance', `Home to the first (${await at()})`)
+    await win.keyboard.press('ArrowDown')
+    await win.keyboard.press('ArrowDown')
+    await win.keyboard.press('Enter')
+    ok((await win.locator('[data-settings-tab="terminal"]').getAttribute('aria-current')) === 'page', 'Enter opens it, and the rail says it is the page')
+  } finally {
+    EXTRA_ENV = {}
+    if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
+    await app?.close().catch(() => {})
   }
 }
 
@@ -13054,6 +13486,8 @@ await run(terminalScenario)
 await run(termOptionsScenario)
 await run(noCommandHelpScenario)
 await run(termColourPickerScenario)
+await run(settingsLookScenario)
+await run(settingsSearchScenario)
 await run(dictationScenario)
 await run(dictationPageScenario)
 await run(pinRecentScenario)
