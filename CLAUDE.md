@@ -72,7 +72,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   sitting on a box that already paints `--p-bg` / `--p-side` / `--p-tabs` paints NOTHING: two
   see-through coats of Onyx (0.80 each) are 0.96, an opaque slab. Fixed: the active tab, the strip
   inside the one-row bar, the Explorer's address bar row, the preview pane over the folder
-  browser, and the core Settings frame (index.css: the frame clear, the rail and pane one coat
+  browser, a document's canvas (`.p-doc`), and the core Settings frame (index.css: the frame clear, the rail and pane one coat
   each). The `seeThrough` e2e composites every box under sampled points of each surface.
 
 ## Scope

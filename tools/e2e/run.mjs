@@ -13459,6 +13459,29 @@ async function seeThroughScenario(fixtures) {
   copyFileSync(join(fixtures, 'one.png'), join(dir, 'one.png'))
   copyFileSync(join(fixtures, 'sample.pdf'), join(dir, 'sample.pdf'))
   copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'ep1.mp4'))
+  // A document (DocView's canvas), an archive, a sound and a kind Prism does
+  // not read: every viewer the preview can hold.
+  writeFileSync(join(dir, 'letter.rtf'), '{\\rtf1\\ansi Dear reader,\\par a short letter.}')
+  copyFileSync(join(fixtures, 'zips', 'bundle.zip'), join(dir, 'bundle.zip'))
+  writeFileSync(join(dir, 'mystery.qqq'), Buffer.from([0, 1, 2, 3, 250, 251, 252, 253]))
+  {
+    // One second of silence, 8 kHz mono 16-bit.
+    const n = 8000 * 2
+    const wav = Buffer.alloc(44 + n)
+    wav.write('RIFF', 0)
+    wav.writeUInt32LE(36 + n, 4)
+    wav.write('WAVEfmt ', 8)
+    wav.writeUInt32LE(16, 16)
+    wav.writeUInt16LE(1, 20)
+    wav.writeUInt16LE(1, 22)
+    wav.writeUInt32LE(8000, 24)
+    wav.writeUInt32LE(16000, 28)
+    wav.writeUInt16LE(2, 32)
+    wav.writeUInt16LE(16, 34)
+    wav.write('data', 36)
+    wav.writeUInt32LE(n, 40)
+    writeFileSync(join(dir, 'tone.wav'), wav)
+  }
   const { app, win } = await launch(join(dir, 'notes.md'))
   let styleBefore = null
   /** The coats under a box: at points along its middle row (and one lower
@@ -13485,8 +13508,9 @@ async function seeThroughScenario(fixtures) {
           if (top !== el && [...top.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue
           // The file itself (a picture, a PDF page, a line of code) and a
           // control (the address field, the transport) are not grounds. A
-          // film's box is measured: its letterbox is the pane's ground.
-          if (top.closest('img, canvas, svg, button, input, .browse-field, [data-page], [data-scrub], [data-transport-row], .p-sheet, .cm-line, .cm-gutterElement')) continue
+          // film's box is measured: its letterbox is the pane's ground. A
+          // CARD (the archive's member list) is a flat panel, like a menu.
+          if (top.closest('img, canvas, svg, button, input, .browse-field, [data-page], [data-scrub], [data-transport-row], .p-sheet, .cm-line, .cm-gutterElement, [class~="bg-[var(--p-side-flat)]"]')) continue
           let clear = 1
           const coats = []
           for (const b of stack) {
@@ -13553,7 +13577,7 @@ async function seeThroughScenario(fixtures) {
     await oneCoat('the Explorer address bar', '.folder-browser > .browse-toolbar', want)
     await oneCoat('the Explorer places', '.folder-browser .browse-places', want)
     await oneCoat('the Explorer status line', '.folder-browser .browse-status', want)
-    for (const name of ['notes.txt', 'main.ts', 'notes.md', 'one.png', 'sample.pdf', 'ep1.mp4']) {
+    for (const name of ['notes.txt', 'main.ts', 'notes.md', 'one.png', 'sample.pdf', 'ep1.mp4', 'letter.rtf', 'bundle.zip', 'tone.wav', 'mystery.qqq']) {
       await win.locator(`[data-testid="browse-list"] [data-browse-path$="${name}"]`).click()
       await until(
         () => win.evaluate((n) => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path')?.endsWith(n) ?? false, name),

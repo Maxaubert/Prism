@@ -506,7 +506,10 @@ input[type='color']::-webkit-color-swatch {
  */
 .p-doc {
   padding: clamp(0.75rem, 3vw, 2.25rem) clamp(0.5rem, 3vw, 2rem);
-  background: var(--p-bg);
+  /* No ground of its own (#294): every box that holds it (the viewer, the
+     folder browser under the preview, a pinned pane, the phone's page)
+     already paints --p-bg, and a second see-through coat is an opaque
+     slab on glass. */
 }
 .p-sheet {
   --p-text: #1f2126;
