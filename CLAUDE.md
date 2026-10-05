@@ -67,6 +67,13 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   ground) so their label keeps 4.5:1. Not the marked-file tint (`--p-sel-tint`, #257): see there. Text and Folder icons with an alpha are drawn as the core's
   `legibleOn` composite. Tokens are hex or hex8, never `rgba()` for an accent fill.
 - Settings' Escape yields to an open `[data-colour-popover]` (it undoes the picker's writes).
+- **ONE COAT OF GROUND PER PIXEL** (#294; owner, 2026-10-06: "the top bar and settings sidebar
+  don't follow the acrylic ... it should be everywhere", "the preview also isn't acrylic"). A box
+  sitting on a box that already paints `--p-bg` / `--p-side` / `--p-tabs` paints NOTHING: two
+  see-through coats of Onyx (0.80 each) are 0.96, an opaque slab. Fixed: the active tab, the strip
+  inside the one-row bar, the Explorer's address bar row, the preview pane over the folder
+  browser, and the core Settings frame (index.css: the frame clear, the rail and pane one coat
+  each). The `seeThrough` e2e composites every box under sampled points of each surface.
 
 ## Scope
 

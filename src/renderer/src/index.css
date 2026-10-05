@@ -338,9 +338,22 @@ body {
 }
 /* Settings' frame is prism-term-core's since #292 and knows no wash, so the
    rail and the pane are given the style's light here, as their own `p-wash`
-   class gave it before. */
-[data-settings-page],
-[data-settings-page] > nav {
+   class gave it before.
+   ONE COAT PER PIXEL (#294; owner, 2026-10-06: "the top bar and settings
+   sidebar don't follow the acrylic of acrylic themes"): the core's frame
+   paints --p-bg across the whole page and its rail paints --p-side on top, so
+   on a glass style the rail was two see-through coats, an opaque slab (0.80
+   twice is 0.96, MEASURED on Onyx). Here the frame paints nothing and each of
+   its two halves paints its own ground once: the rail its --p-side, the pane
+   --p-bg. On a solid style that is the same pixels as before. */
+[data-settings-page] {
+  background-color: transparent;
+}
+[data-settings-page] > .p-scroll {
+  background-color: var(--p-bg);
+}
+[data-settings-page] > nav,
+[data-settings-page] > .p-scroll {
   background-image: var(--p-wash);
   background-attachment: fixed;
 }

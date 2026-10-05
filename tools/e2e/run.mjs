@@ -13435,6 +13435,178 @@ async function settingsSearchScenario(fixtures) {
   }
 }
 
+/**
+ * A SEE-THROUGH STYLE IS SEE-THROUGH EVERYWHERE (#294; owner, 2026-10-06, of
+ * Prism on a glass style: "the top bar and settings sidebar don't follow the
+ * acrylic of acrylic themes, they should, it should be everywhere", and of the
+ * Explorer: "the preview also isn't acrylic"). Every surface that IS the
+ * window's ground wears the style's see-through ground ONCE: the coats of
+ * every box under a point, composited, come to the ground's own alpha. Two
+ * translucent coats of Onyx's black read as an opaque slab (0.9 twice is
+ * 0.99), which is what the owner saw. Measured on the title bar, the tab
+ * strip, the one-row bar of a hidden title bar, the Settings rail and page,
+ * and the Explorer's list and preview pane with text, code, markdown, a
+ * picture, a PDF and a film in it, and a file opened under the address bar. Menus, dialogs and pills are flat on purpose: not grounds.
+ */
+async function seeThroughScenario(fixtures) {
+  console.log('see-through')
+  const dir = join(fixtures, 'seethrough')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join('\n'))
+  writeFileSync(join(dir, 'main.ts'), Array.from({ length: 12 }, (_, i) => `export const v${i} = ${i}`).join('\n'))
+  writeFileSync(join(dir, 'notes.md'), '# Notes\n\nA short page.\n')
+  copyFileSync(join(fixtures, 'one.png'), join(dir, 'one.png'))
+  copyFileSync(join(fixtures, 'sample.pdf'), join(dir, 'sample.pdf'))
+  copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'ep1.mp4'))
+  const { app, win } = await launch(join(dir, 'notes.md'))
+  let styleBefore = null
+  /** The coats under a box: at points along its middle row (and one lower
+   *  down for a tall box) where nothing carrying text is on top, every box
+   *  from the top of the stack to the root, background alphas composited.
+   *  The worst point is returned, with the coats that made it. */
+  const coatsOf = (sel, at) =>
+    win.evaluate(([q, y0]) => {
+      const el = document.querySelector(q)
+      if (!el) return null
+      const alphaOf = (c) => {
+        if (!c || c === 'transparent') return 0
+        const v = (c.match(/[\d.]+/g) ?? []).map(Number)
+        return v.length > 3 ? v[3] : 1
+      }
+      const r = el.getBoundingClientRect()
+      const rows = y0 !== null ? [r.top + y0] : r.height > 120 ? [r.top + 16, r.top + r.height * 0.5, r.bottom - 24] : [r.top + r.height / 2]
+      let worst = null
+      for (const y of rows)
+        for (let x = r.left + 6; x < r.right - 6; x += 9) {
+          const stack = document.elementsFromPoint(x, y)
+          if (!stack.length || !(stack[0] === el || el.contains(stack[0]))) continue
+          const top = stack[0]
+          if (top !== el && [...top.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue
+          // The file itself (a picture, a PDF page, a line of code) and a
+          // control (the address field, the transport) are not grounds. A
+          // film's box is measured: its letterbox is the pane's ground.
+          if (top.closest('img, canvas, svg, button, input, .browse-field, [data-page], [data-scrub], [data-transport-row], .p-sheet, .cm-line, .cm-gutterElement')) continue
+          let clear = 1
+          const coats = []
+          for (const b of stack) {
+            const a = alphaOf(getComputedStyle(b).backgroundColor)
+            if (a > 0.01) {
+              clear *= 1 - a
+              const cls = typeof b.className === 'string' ? b.className.trim().split(/\s+/).filter((c) => !c.includes('[')).slice(0, 3).join('.') : ''
+              coats.push(`${b.tagName.toLowerCase()}${cls ? '.' + cls : ''}@${a.toFixed(2)}`)
+            }
+          }
+          const total = 1 - clear
+          if (!worst || total > worst.total) worst = { total, x: Math.round(x), y: Math.round(y), coats }
+        }
+      return worst
+    }, [sel, at ?? null])
+  const groundAlpha = () =>
+    win.evaluate(() => {
+      const probe = document.createElement('span')
+      probe.style.backgroundColor = 'var(--p-bg)'
+      document.body.appendChild(probe)
+      const c = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      const v = (c.match(/[\d.]+/g) ?? []).map(Number)
+      return v.length > 3 ? v[3] : 1
+    })
+  const oneCoat = async (label, sel, want, at) => {
+    let m = null
+    await until(async () => {
+      m = await coatsOf(sel, at)
+      return !!m && Math.abs(m.total - want) <= 0.02
+    }, 3000, 100)
+    ok(
+      !!m && Math.abs(m.total - want) <= 0.02,
+      `${label}: one coat of the see-through ground (${m ? `${m.total.toFixed(3)} of ${want.toFixed(3)} at ${m.x},${m.y}: ${m.coats.join(' + ')}` : 'not found'})`
+    )
+  }
+  try {
+    await win.waitForSelector('[data-testid="browse-list"], [role="treeitem"]', { timeout: 15000 })
+    styleBefore = await switchStyle(win, 'default', 'dark')
+    ok(await until(async () => (await groundAlpha()) < 1, 6000, 50), 'Onyx is a see-through style')
+    const want = await groundAlpha()
+    await win.mouse.move(2, 400)
+    await sleep(700)
+
+    // The chrome, the title bar shown.
+    await oneCoat('the title bar', '[data-title-bar]', want)
+    await oneCoat('the tab strip', '[role="tablist"]', want)
+
+    // A file of its own (a project tab): its viewer and what is round it.
+    for (const [label, sel] of [
+      ['the viewer', '[data-workspace-viewer]'],
+      ['the viewer\x27s address bar', '.browse-viewer-toolbar'],
+      ['the viewer\x27s places', '.browse-viewer-places'],
+      ['the project sidebar', '[data-project-sidebar]']
+    ])
+      if (await win.locator(sel).count()) await oneCoat(label, sel, want)
+      else console.log(`  (no ${label} on this tab)`)
+
+    // The Explorer, and its preview for each kind of file: a file handed
+    // over opens there.
+    await handoff(join(dir, 'notes.txt'))
+    ok(await until(() => win.evaluate(() => !!document.querySelector('[data-browse-preview]')?.getClientRects().length), 10000), 'the Explorer shows a preview pane')
+    await oneCoat('the Explorer list', '[data-testid="browse-list"]', want)
+    await oneCoat('the Explorer address bar', '.folder-browser > .browse-toolbar', want)
+    await oneCoat('the Explorer places', '.folder-browser .browse-places', want)
+    await oneCoat('the Explorer status line', '.folder-browser .browse-status', want)
+    for (const name of ['notes.txt', 'main.ts', 'notes.md', 'one.png', 'sample.pdf', 'ep1.mp4']) {
+      await win.locator(`[data-testid="browse-list"] [data-browse-path$="${name}"]`).click()
+      await until(
+        () => win.evaluate((n) => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path')?.endsWith(n) ?? false, name),
+        8000
+      )
+      await win.mouse.move(2, 400)
+      await sleep(900)
+      await oneCoat(`the preview pane with ${name}`, '[data-browse-preview]', want)
+      await win.screenshot({ path: join(SHOTS, `see-through-preview-${name.replace('.', '-')}.png`) })
+    }
+
+    // Opened: a double click shows the file in the Explorer's own view.
+    await win.locator(`[data-testid="browse-list"] [data-browse-path$="main.ts"]`).dblclick()
+    ok(await until(() => win.locator('.browse-viewer-toolbar').count().then((n) => n > 0), 8000), 'a double click opens the file under the address bar')
+    await win.mouse.move(2, 400)
+    await sleep(900)
+    await oneCoat('the opened file', '[data-workspace-viewer]', want)
+    await oneCoat('its address bar', '.browse-viewer-toolbar', want)
+    if (await win.locator('.browse-viewer-places').count()) await oneCoat('its places', '.browse-viewer-places', want)
+    await win.screenshot({ path: join(SHOTS, 'see-through-opened.png') })
+
+    // Settings: the rail and the page.
+    await settingsPage(win, 'appearance')
+    await win.mouse.move(2, 400)
+    await sleep(600)
+    await oneCoat('the Settings rail', '[data-settings-page] > nav', want)
+    // Along its top margin, over the page's own ground: what the cards
+    // below hold is content.
+    await oneCoat('the Settings page', '[data-settings-page] > .p-scroll', want, 10)
+    await win.screenshot({ path: join(SHOTS, 'see-through-settings.png') })
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+
+    // One row: the title bar hidden.
+    await setTitleBar(win, 'hidden')
+    await win.mouse.move(2, 400)
+    await sleep(700)
+    await oneCoat('the one-row bar of a hidden title bar', '[data-title-bar="tabs"]', want)
+    await win.screenshot({ path: join(SHOTS, 'see-through-one-row.png') })
+    await setTitleBar(win, 'shown')
+  } finally {
+    if (styleBefore)
+      await win
+        .evaluate((b) => {
+          const put = (k, v) => (v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v))
+          put('prism.style', b[0])
+          put('prism.mode', b[1])
+        }, styleBefore)
+        .catch(() => {})
+    await app.close().catch(() => {})
+  }
+}
+
 async function run(fn, gap = 900) {
   const name = fn.name.replace(/Scenario$/, '')
   if (!chosen(name)) return
@@ -13515,6 +13687,7 @@ await run(videoMenuScenario)
 await run(selectionScenario)
 await run(accentOpacityScenario)
 await run(styleColoursScenario)
+await run(seeThroughScenario)
 await run(dragScenario)
 await run(marqueeScenario)
 await run(marqueeQuietScenario)
