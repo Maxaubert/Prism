@@ -34,6 +34,10 @@ export interface SavedBrowse {
   cursor: number
   surface: 'folder' | 'viewer'
   preview: boolean
+  /** The preview pane stays open with nothing in it (#300 review; owner,
+   *  2026-10-06): a navigation took away the file it showed. Renderer only;
+   *  main does not save it, so a restart shuts an empty pane. */
+  previewHeld?: true
 }
 
 export interface BrowseDirectory {

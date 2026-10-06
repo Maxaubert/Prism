@@ -13517,6 +13517,103 @@ async function zipFolderScenario(fixtures) {
   }
 }
 
+/**
+ * GOING INTO A FOLDER CLEARS THE PREVIEW (#300 review; owner, 2026-10-06, of a
+ * zip opened from Downloads whose card stayed in the pane beside its contents:
+ * "what should we do about the double view"). From a SELECTED item, so the
+ * pane is open: into the zip (double-click) and into a plain folder (Enter),
+ * the pane stays at its width and says "Select a file to preview"; a file
+ * picked there previews as before; Back keeps it empty. Nothing is previewed
+ * on its own.
+ */
+async function previewClearsScenario(fixtures) {
+  console.log('going into a folder clears the preview (#300 review)')
+  const { dir } = await zipWorld(fixtures, 'previewclears')
+  mkdirSync(join(dir, 'sub'), { recursive: true })
+  writeFileSync(join(dir, 'sub', 'a.txt'), 'inside the sub folder\n')
+  writeFileSync(join(dir, 'sub', 'b.txt'), 'the second file\n')
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  EXTRA_ENV = {}
+  const pane = () =>
+    win.evaluate(() => {
+      const box = document.querySelector('[data-browse-preview]')
+      const rect = box?.getClientRects().length ? box.getBoundingClientRect() : null
+      return {
+        shown: !!rect,
+        width: rect ? Math.round(rect.width) : 0,
+        empty: !!box?.querySelector('[data-preview-empty]'),
+        card: !!box?.querySelector('[data-archive-card]'),
+        // What is ON SCREEN: other tabs keep their viewers mounted in the
+        // same box, hidden (aria-hidden), and their text is not the pane's.
+        text: (() => {
+          if (!box) return ''
+          const copy = box.cloneNode(true)
+          copy.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove())
+          return copy.textContent ?? ''
+        })()
+      }
+    })
+  const where = async () => (await win.locator('.browse-path').getAttribute('title')) ?? ''
+  try {
+    await explorerAt(win, dir)
+    // The zip selected: its card in the pane.
+    await zipRow(win, 'Wind-0.2.2.zip').click()
+    ok(await until(async () => (await pane()).card, 10000), 'the selected zip previews as its card')
+    await sleep(400)
+    const open = await pane()
+    // Into it: the card goes, the pane stays, at its width.
+    await zipRow(win, 'Wind-0.2.2.zip').dblclick()
+    ok(await until(async () => (await win.locator('[data-archive-strip]').count()) === 1, 10000), 'double-click goes into the zip')
+    ok(await until(async () => (await pane()).empty, 5000), `the pane clears to its empty state (${JSON.stringify(await pane())})`)
+    let now = await pane()
+    ok(!now.card, 'the zip card is not shown beside its own contents')
+    ok(now.shown && Math.abs(now.width - open.width) <= 1, `the pane stays open at its width (${open.width} -> ${now.width})`)
+    ok(/Select a file to preview/.test(now.text), `and says what to do (${now.text})`)
+    ok(
+      (await win.locator('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]').count()) === 0,
+      'nothing inside is picked for you'
+    )
+    await win.screenshot({ path: join(SHOTS, 'preview-empty-zip.png') })
+    // Deeper, still empty; then a file there previews.
+    await zipRow(win, 'Wind-0.2.2.zip\\Wind').dblclick()
+    await until(async () => (await zipRows(win)).some((p) => p.endsWith('package.json')), 10000)
+    await sleep(300)
+    ok((await pane()).empty, 'one folder further in, still empty')
+    await zipRow(win, 'package.json').click()
+    ok(await until(async () => /"wind"/.test((await pane()).text), 15000), 'a file picked inside previews as before')
+    ok(!(await pane()).empty, 'and the empty state is gone')
+    // Back: the place before, the pane empty again.
+    await win.locator('[data-testid="browse-list"]').focus()
+    await win.keyboard.press('Alt+ArrowLeft')
+    ok(await until(async () => (await where()).endsWith('Wind-0.2.2.zip')), 'Back walks out a folder')
+    ok(await until(async () => (await pane()).empty, 5000), 'and Back clears the preview too')
+    // A plain folder the same way: a file selected, then Enter on the folder.
+    await win.keyboard.press('Alt+ArrowLeft')
+    ok(await until(async () => (await where()) === dir), 'Back out of the zip')
+    await zipRow(win, 'notes.txt').click()
+    ok(await until(async () => /beside the zip/.test((await pane()).text), 10000), 'a file beside it previews')
+    const before = await pane()
+    await zipRow(win, '\\sub').click()
+    await sleep(300)
+    ok(/beside the zip/.test((await pane()).text), 'selecting the folder keeps the file in the pane')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await where()).endsWith('\\sub')), 'Enter goes into the folder')
+    ok(await until(async () => (await pane()).empty, 5000), 'and the pane clears to its empty state')
+    now = await pane()
+    ok(now.shown && Math.abs(now.width - before.width) <= 1, `at the same width (${before.width} -> ${now.width})`)
+    ok(!/beside the zip/.test(now.text), 'the file from the folder before is gone')
+    await win.screenshot({ path: join(SHOTS, 'preview-empty-folder.png') })
+    await zipRow(win, 'a.txt').click()
+    ok(await until(async () => /inside the sub folder/.test((await pane()).text), 10000), 'a file picked there previews')
+    // Back out of the folder: the pane is empty again.
+    await win.keyboard.press('Alt+ArrowLeft')
+    ok(await until(async () => (await pane()).empty, 5000), 'Back out of it, empty once more')
+  } finally {
+    await app.close()
+  }
+}
+
 /** The labels of the open context menu, top to bottom. */
 const menuLabels = (win) =>
   win.evaluate(() =>
@@ -13886,6 +13983,7 @@ await run(zipProjectScenario)
 await run(zipRestoreScenario)
 await run(zipLockedScenario)
 await run(zipFolderScenario)
+await run(previewClearsScenario)
 await run(comicScenario)
 await run(folderArgScenario)
 await run(gearScenario)

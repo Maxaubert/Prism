@@ -237,6 +237,12 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   The old panel (`ArchiveView`) is the PHONE's alone now; the desktop shows `ArchiveCard` for an
   archive's own row. E2E: `zipFolder`, `zipMenus`, `zipWrites`, `zipProject`, `zipRestore`,
   `zipLocked`; the old archive scenarios drive the Explorer through `inZip`.
+  GOING INTO A FOLDER CLEARS THE PREVIEW (review of #300; owner, 2026-10-06, of a zip whose card
+  stayed in the pane beside its own contents: "the double view"). An Explorer that moves to
+  another folder or into a zip (double-click, Enter, crumbs, Back/Forward/Up, places, address)
+  drops the file on display (`tabs.ts` `leaveShown`); a pane that was open stays open at its width
+  as `PreviewEmpty` ("Select a file to preview", `browse.previewHeld`, renderer only), a shut one
+  stays shut, nothing is previewed on its own, and a project keeps its open file. `previewClears` e2e.
 - **Archive viewer** (2026-08-22, #68; since #300 the PHONE's only, the desktop's is above): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),

@@ -110,6 +110,7 @@ import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
 import { UnsupportedView } from './components/UnsupportedView'
 import { ArchiveCard } from './components/browse/ArchiveCard'
+import { PreviewEmpty } from './components/browse/PreviewEmpty'
 import { MemberGate } from './components/MemberGate'
 import { MemberNote } from './components/MemberNote'
 import { PasswordDialog } from './components/PasswordDialog'
@@ -2675,11 +2676,15 @@ export default function App(): JSX.Element {
     []
   )
   const pasteFiles = useFilePaste(refreshFiles, reportPasteError)
+  // The pane shows the file on display, or nothing at all when a navigation
+  // took that file away while the pane was open (`previewHeld`, #300 review):
+  // it stays at its width with "Select a file to preview".
   const showBrowsePreview =
     browsing.folder &&
     !!active?.browse.preview &&
-    !!browsing.previewFile &&
-    file?.path === browsing.previewFile.path
+    (browsing.previewFile
+      ? file?.path === browsing.previewFile.path
+      : !file && !!active.browse.previewHeld)
   // The pane slides open and shut on its toggle (#207): `out` keeps it laid
   // out while it closes, `widthShown` holds it at 0px for an opening's first frame.
   const previewSlide = usePreviewSlide(showBrowsePreview, viewerBox)
@@ -4401,12 +4406,12 @@ export default function App(): JSX.Element {
                         />
                       </div>
                     ))}
-                    {!file && active && <NoFileState />}
+                    {!file && active && (browsing.folder ? <PreviewEmpty /> : <NoFileState />)}
                   </>
                 ) : file ? // a transparent ring, which is where it showed through. // why it went unseen for months, and the audio visualizer is // player either way: a film's picture covers it, which is // with the nothing-open notice. It was drawn under the // BY DESIGN, and this branch used to answer that emptiness // Media lives in the PLAYER deck, so `warm` is empty for it // FLAC opened with "No file selected" written across it). // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
                 // There IS a file here; the player above is drawing it.
                 null : active ? (
-                  <NoFileState />
+                  browsing.folder ? <PreviewEmpty /> : <NoFileState />
                 ) : restoring ? (
                   // NOTHING TO READ WHILE THE TABS ARRIVE (#271; owner,
                   // 2026-10-04: "I don't ever want to see that"). The Explorer
