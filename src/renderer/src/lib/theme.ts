@@ -15,6 +15,9 @@ import {
 } from 'prism-term-core/renderer/lib/colour'
 import { accentAlphaOf, fillOf } from './accentAlpha'
 import { hintOn, nearBlackField } from './fieldColours'
+import { THEME_STYLES } from './themes/catalogue'
+import { migrateThemeStorage, RETIRED_KEY } from './themes/migrate'
+import { RETIRED_MAP } from './themes/retired'
 
 // The app's look, as one named style. A style owns the material, the six colour
 // roles, the font and the shape of the frame - and nothing else: hover, the
@@ -94,7 +97,52 @@ export interface Style {
   custom?: boolean
   /** For a saved preset, the shipped style it grew out of. */
   base?: string
+  /** A HIGH CONTRAST theme (#298): monochrome marks, every edge its line,
+   *  and no see-through row (contrast is measured on a solid ground). */
+  hc?: boolean
+  /** The values a shipped theme was DESIGNED with that Prism would otherwise
+   *  derive (#298). Absent on every style saved before it, which derive as
+   *  they always did, byte for byte. Pruned by `edited()` as its inputs move. */
+  table?: ThemeTable
 }
+
+/**
+ * A shipped theme's designed values (#298, spec 1.1). Each holds only while
+ * the inputs it was designed against do: `pruneTable` drops what an edit
+ * makes stale, and Prism derives that part again.
+ */
+export interface ThemeTable {
+  /** Menus and popovers (`--p-raised`). */
+  raised?: string
+  /** The always-on list hairline (`--p-line`). */
+  line?: string
+  /** High contrast only: every edge in `line` (`--p-divider`, `--p-edge`). */
+  edge?: string
+  /** The quiet inks (`--p-dim`, `--p-dim2`). */
+  dim?: string
+  faint?: string
+  /** The text-bearing accent fill at alpha 1 (`--p-accent`, `--p-sel-bg`). */
+  accentFill?: string
+  /** Its ink (`--p-on-accent`). */
+  onAccent?: string
+  /** The file kinds of the card preview (`--p-kind-*`). */
+  kinds?: Record<'image' | 'video' | 'audio' | 'pdf' | 'text', string>
+  /** The ten code roles and the active line (`--p-code-*`). */
+  code?: Record<CodeRole, string>
+}
+
+export type CodeRole =
+  | 'keyword'
+  | 'string'
+  | 'number'
+  | 'function'
+  | 'type'
+  | 'tag'
+  | 'attribute'
+  | 'constant'
+  | 'comment'
+  | 'punctuation'
+  | 'activeLine'
 
 /**
  * EVERY SHIPPED STYLE SETS IN THE SYSTEM FACE (owner, 2026-09-20: "update all
@@ -147,232 +195,14 @@ export const FONTS: Record<FontId, { name: string; stack: string }> = {
   sitka: { name: 'Sitka Text', stack: '"Sitka Text", Constantia, Georgia, serif' }
 }
 
-export const STYLES: Style[] = [
-  {
-    id: 'aurora',
-    name: 'Aurora',
-    blurb: "Deep space. Prism's default.",
-    mode: 'dark',
-    // SOLID since 2026-09-20 (owner: "update this theme to be non acrylic by
-    // default"). It shipped as acrylic at 35 on the slider, so Prism's own
-    // default style let the desktop through the window it was showing a film
-    // in. The Acrylic control is untouched and starts at 0 here: glass is a
-    // thing to turn on, not a thing to turn off. `glass` is dropped with the
-    // material, since it means nothing on a solid style.
-    material: 'solid',
-    bg: '#0b0d12',
-    // One surface for the whole window. Turning the glass off shouldn't hand
-    // the panel a tone of its own - separation here is the material, or the
-    // Edges control, never a step in shade.
-    side: '#0b0d12',
-    title: '#0b0d12',
-    text: '#f2f4f8',
-    folderIcon: '#99bbff', // owner pick, 2026-08-22
-    iconMode: 'kind',
-    icon: '#8a8e99',
-    // A brighter blue than the family indigo (owner pick, 2026-08-21); the
-    // folder icons follow it, as they do every accent.
-    accent: '#4682fb',
-    font: 'system',
-    size: '12.5',
-    corners: '8',
-    // Faint edges everywhere by default: the chrome traces itself even before
-    // the material separates it. The accent glow the style launched with was
-    // removed 2026-08-21: the glass alone is the look.
-    borders: 'faint'
-  },
-  {
-    id: 'default',
-    name: 'Onyx',
-    blurb: 'Glass over true black.',
-    mode: 'dark',
-    material: 'acrylic',
-    bg: '#000000',
-    side: '#141414',
-    title: '#141414',
-    text: '#eef0f4',
-    folderIcon: '#8bb1fd', // owner pick, 2026-08-22
-    iconMode: 'kind',
-    icon: '#8a8e99',
-    accent: 'prism',
-    font: 'system',
-    size: '12.5',
-    corners: '2',
-    borders: 'faint'
-  },
-  {
-    id: 'new-void',
-    name: 'Void',
-    blurb: 'True black, faintly edged.',
-    mode: 'dark',
-    material: 'oled',
-    bg: '#000000',
-    side: '#000000',
-    title: '#000000',
-    text: '#e8eaf0',
-    folderIcon: '#8688fd', // owner pick, 2026-08-22
-    iconMode: 'dim',
-    icon: '#8a8e99',
-    accent: 's-indigo',
-    font: 'system',
-    size: '12.5',
-    corners: '2',
-    // On true black the edge lines are all the separation there is.
-    borders: 'faint'
-  },
-  {
-    id: 'terminal',
-    name: 'Terminal',
-    blurb: 'Green, square.',
-    mode: 'dark',
-    material: 'solid',
-    bg: '#0b0f14',
-    side: '#0d1117',
-    title: '#11161d',
-    text: '#d7e0d9',
-    iconMode: 'custom',
-    icon: '#3f9d54',
-    accent: 's-green',
-    font: 'system',
-    size: '12.5',
-    corners: '2',
-    borders: 'faint'
-  },
-  {
-    id: 'driftwood',
-    name: 'Driftwood',
-    blurb: 'Warm, tinted, roomy.',
-    mode: 'dark',
-    material: 'tinted',
-    bg: '#16130f',
-    side: '#1a1713',
-    title: '#221d17',
-    text: '#ece2d2',
-    iconMode: 'custom',
-    icon: '#a1885f',
-    accent: 'copper',
-    font: 'system',
-    size: '12.5',
-    corners: '8',
-    borders: 'faint'
-  },
-
-  {
-    id: 'acrylic-red',
-    name: 'Ruby',
-    blurb: 'Near-black, round corners, red.',
-    mode: 'dark',
-    // Solid since 2026-08-21 (the id predates the change and stays: it is a
-    // saved-settings key, not a description).
-    material: 'solid',
-    // REPAINTED 2026-09-20, the owner's own picks off the Style page: it was a
-    // night blue (#101420) with a crimson accent, and the blue was doing the
-    // work a red style should do itself. Near-black lets the red be the only
-    // colour in the window. bg, side and title are one value because the
-    // material is solid and the one-surface rule derives the panel and the bar
-    // from bg anyway (no sideOwn, no titleOwn): the two below are what the
-    // schematic cards draw.
-    bg: '#0d0d0d',
-    side: '#0d0d0d',
-    title: '#0d0d0d',
-    text: '#eceef5',
-    // A hex rather than a scheme id: s-crimson is #e01e4a, which is pink
-    // beside this red. Both are the owner's picks.
-    folderIcon: '#dc5656',
-    iconMode: 'kind',
-    icon: '#8a8e99',
-    accent: '#e01f1f',
-    font: 'system',
-    size: '12.5',
-    corners: '14',
-    borders: 'faint'
-  }
-]
-
-const LIGHT: Style[] = [
-  // Paper leads: setMode picks the first style of a mode. Daybreak (Aurora's
-  // daylight twin) was deleted 2026-08-21 with the accent glow it existed
-  // for - glowless it was a flat-white copy of Paper.
-  {
-    id: 'paper',
-    name: 'Paper',
-    blurb: 'Solid white, Prism blue.',
-    mode: 'light',
-    // No acrylic on light styles by default (owner decision, 2026-08-21):
-    // glass over a light desktop pulls the window grey. Frost is a slider away.
-    material: 'solid',
-    bg: '#fbfbfc',
-    side: '#eceef1',
-    title: '#e1e3e8',
-    text: '#1b1d21',
-    folderIcon: '#6296fe', // owner pick, 2026-08-22
-    iconMode: 'kind',
-    icon: '#6b7280',
-    accent: 'prism',
-    font: 'system',
-    size: '12.5',
-    corners: '8',
-    borders: 'faint'
-  },
-  {
-    id: 'frost',
-    name: 'Frost',
-    blurb: 'Cool white, deep teal.',
-    mode: 'light',
-    material: 'solid',
-    bg: '#f4f8fb',
-    side: '#e9f0f6',
-    title: '#e9f0f6',
-    text: '#152029',
-    folderIcon: '#4d8f89', // owner pick, 2026-08-22
-    iconMode: 'custom',
-    icon: '#4a7d92',
-    accent: 'd-teal',
-    font: 'system',
-    size: '12.5',
-    corners: '14',
-    borders: 'faint'
-  },
-  {
-    id: 'linen',
-    name: 'Linen',
-    blurb: 'Warm paper, bronze.',
-    mode: 'light',
-    material: 'solid',
-    bg: '#f8f4ed',
-    side: '#f1ebe1',
-    title: '#e9e2d5',
-    text: '#241f18',
-    iconMode: 'custom',
-    icon: '#8a6d45',
-    accent: 'd-bronze',
-    font: 'system',
-    size: '12.5',
-    corners: '8',
-    borders: 'faint'
-  },
-  {
-    id: 'orchid',
-    name: 'Orchid',
-    blurb: 'Lilac, tinted by its own accent.',
-    mode: 'light',
-    material: 'tinted',
-    bg: '#f7f1fb',
-    side: '#efe4f7',
-    title: '#e6d7f2',
-    text: '#251a30',
-    folderIcon: '#956eb4', // owner pick, 2026-08-22
-    iconMode: 'custom',
-    icon: '#6b21a8',
-    accent: 'd-plum',
-    font: 'system',
-    size: '12.5',
-    corners: '14',
-    borders: 'faint'
-  }
-]
-
-STYLES.push(...LIGHT)
+/**
+ * THE SHIPPED THEMES (#298; owner, 2026-10-06): the 18 of `themes/catalogue.json`,
+ * in wall order. They replaced the ten styles Prism shipped before (Aurora,
+ * Void and Frost kept their names, refined); those live on in
+ * `themes/retired.ts` for the migration and the tests, and are never offered.
+ * There is ONE wall and no Colour mode: each theme is dark or light by itself.
+ */
+export const STYLES: Style[] = THEME_STYLES
 
 export const DEFAULT_STYLE = 'aurora'
 
@@ -582,6 +412,10 @@ export function derive(input: Style): Record<string, string> {
     // The tints were picked for a dark panel; on paper they need taking down.
     kinds['--p-kind-' + k] = light ? mix(v, '#000000', 0.42) : v
   }
+  // A shipped theme's designed values (#298): each as long as its inputs
+  // hold (`pruneTable`); whatever is missing is derived as it always was.
+  const table = style.table ?? {}
+  if (table.kinds) for (const [k, v] of Object.entries(table.kinds)) kinds['--p-kind-' + k] = v
   // The accent, taken far enough from the surface to be seen on it. A deep
   // copper or navy is invisible against its own panel otherwise, which is what
   // made the schematics vanish.
@@ -601,7 +435,16 @@ export function derive(input: Style): Record<string, string> {
   }
 
   const grounds = [...new Set([bg, sideGround(style), titleOf(style)].map((c) => c.toLowerCase()))]
-  const selection = selectionFor(accent, alpha, grounds)
+  // THE DESIGNED FILL (#298): at alpha 1 a theme's accent fill and its ink
+  // are the ones it was drawn with (Void's indigo is a step deeper as a fill
+  // than as a line, so white reads on it). An edit of the accent or its alpha
+  // prunes both, and the derivation below takes over again.
+  const designed =
+    alpha >= 1 && table.accentFill
+      ? { fill: table.accentFill, ink: table.onAccent ?? readableOn(table.accentFill) }
+      : null
+  const selection = designed ?? selectionFor(accent, alpha, grounds)
+  const solidFill = designed?.fill ?? accent
   // FILLS UNDER GLASS ARE FLATTENED (decision 5, owner 2026-10-03). On a
   // translucent style the ground behind a see-through fill is the desktop,
   // which nobody can measure, so a label on it cannot be held to 4.5:1. The
@@ -613,8 +456,8 @@ export function derive(input: Style): Record<string, string> {
   // File names sit just off the text colour; labels a step back; hints
   // quieter still, and none of them below their floor.
   const textSoft = dimmed(style.text, side, 0.14, 7)
-  const dim = dimmed(style.text, side, 0.38, 4.5)
-  const dim2 = dimmed(style.text, side, 0.55, 3.2)
+  const dim = table.dim ?? dimmed(style.text, side, 0.38, 4.5)
+  const dim2 = table.faint ?? dimmed(style.text, side, 0.55, 3.2)
   // The marked-file tint (see TINT_ALPHA): from `hi`, the accent already
   // moved far enough off the ground to be seen, so a deep accent on a dark
   // style still tints. Names hold 4.5:1 on it; the quiet columns beside them
@@ -627,14 +470,26 @@ export function derive(input: Style): Record<string, string> {
   const sideG = sideGround(style)
   const picked = style.selection ? parseColour(style.selection) : null
   const tintHue = picked ? toStored({ ...picked, a: 1 }) : hi
+  // A shipped theme's selection was designed against its OWN floors, the
+  // text at 4.5:1 and the dim ink at 3.2:1 (#298), so its tint is painted
+  // exactly as designed (Chalk's stepped down otherwise).
+  const tintInks: Array<[string, number]> = style.table?.dim
+    ? [
+        [style.text, 4.5],
+        [dim, 3.2]
+      ]
+    : [
+        [style.text, 4.5],
+        [textSoft, 4.5],
+        [dim, 3.2]
+      ]
+  // ...and on the ground it was designed on (`selectionSeen`): the quiet
+  // columns live in the Explorer's list, on the ground; the panel's rows are
+  // names, which read at 11:1 and up on every theme's tint there.
   const tintA = selectionTintAlpha(
     tintHue,
-    [
-      [style.text, 4.5],
-      [textSoft, 4.5],
-      [dim, 3.2]
-    ],
-    [bg, sideG],
+    tintInks,
+    style.table?.dim ? [bg] : [bg, sideG],
     picked ? picked.a : TINT_ALPHA
   )
   const tint = withAlpha(tintHue, tintA)
@@ -642,7 +497,7 @@ export function derive(input: Style): Record<string, string> {
   // colour): unset, the accent fill and `hi` it has always been drawn from, so
   // nobody's band changes; picked, the pick, lifted off the stage for its edge
   // the way `hi` is lifted from the accent.
-  const accentFill = alpha >= 1 ? accent : (flat ?? fillOf(selection.fill, alpha))
+  const accentFill = alpha >= 1 ? solidFill : (flat ?? fillOf(selection.fill, alpha))
   let bandHi = tintHue
   if (picked) {
     for (let i = 0; i < 14 && contrast(bandHi, stage) < 3; i += 1) {
@@ -681,12 +536,12 @@ export function derive(input: Style): Record<string, string> {
     // fill as the eye gets it, opaque, since a see-through knockout would let
     // the icon's own ink show through it. At 100% it is the accent, as the
     // rows have always passed.
-    '--p-sel-knockout': alpha >= 1 ? accent : composite(withAlpha(selection.fill, alpha), bg),
+    '--p-sel-knockout': alpha >= 1 ? solidFill : composite(withAlpha(selection.fill, alpha), bg),
     // The same for a row on the SIDEBAR (the tree, search results), which a
     // style may colour apart from the viewer: a knockout mixed over the
     // viewer's ground would show there as a patch inside the icon.
     '--p-sel-knockout-side':
-      alpha >= 1 ? accent : (flat ?? composite(withAlpha(selection.fill, alpha), sideGround(style))),
+      alpha >= 1 ? solidFill : (flat ?? composite(withAlpha(selection.fill, alpha), sideGround(style))),
     // The selection as the eye gets it, opaque, on the viewer's ground: for
     // a knockout that has always painted --p-sel-bg (the browse list), so it
     // looks as it did at 100% and is not see-through below it.
@@ -846,7 +701,11 @@ export function variablesFor(input: Style, opaque = false): Record<string, strin
           : style.mode === 'light' ? 0.1 : 0.07
   // As SEEN: a see-through panel over a solid window is the blend of the two.
   const flatSide = sideGround(style)
-  const edge = style.borders === 'none' ? 'transparent' : mix(flatSide, ink, dividerAlpha)
+  const edgeLine = style.borders === 'none' ? 'transparent' : mix(flatSide, ink, dividerAlpha)
+  // HIGH CONTRAST DRAWS EVERY EDGE IN ITS LINE (#298: `#999999` on Midnight,
+  // `#666666` on Daylight), until the Edges control is moved.
+  const designedEdge = style.table?.edge
+  const edge = designedEdge ?? edgeLine
   // The tab strip's flat colour (#253): what a see-through agent tint is laid
   // on before its ink is chosen. --p-tabs carries the material's alpha (or is
   // a gradient), and contrast needs one opaque colour.
@@ -854,7 +713,7 @@ export function variablesFor(input: Style, opaque = false): Record<string, strin
 
   // A hairline that exists whatever the style says about edges. Settings lists
   // need their rows separated even in a style that draws no chrome lines.
-  const listLine = rgba(ink, style.mode === 'light' ? 0.12 : 0.09)
+  const listLine = style.table?.line ?? rgba(ink, style.mode === 'light' ? 0.12 : 0.09)
 
   // CHROME icons (buttons: sort, terminal, close) are SHARED, not styled: one
   // dim derivation from the style's own ink, every style. iconMode used to
@@ -921,9 +780,13 @@ export function variablesFor(input: Style, opaque = false): Record<string, strin
     // The held highlight (a row whose context menu is open): the hover look,
     // five points stronger, so it reads as "this one" rather than "passing by".
     '--p-hover-hi': rgba(ink, style.mode === 'light' ? 0.12 : 0.11),
-    '--p-divider': divider,
+    '--p-divider': designedEdge ?? divider,
     '--p-edge': edge,
     '--p-line': listLine,
+    // MENUS SIT ON A RAISED STEP (#298): the theme's own, else the panel's
+    // flat colour they always painted. Opaque on purpose, like every menu.
+    '--p-raised': style.table?.raised ?? flatSide,
+    ...codeTokens(style, flat['--p-text-soft'], flat['--p-bg'], flatSide),
     // `none` is a valid background-image, so a style without a wash draws none.
     '--p-wash': style.wash
       ? `radial-gradient(58% 56% at 20% 22%, ${rgba(washA, washAlpha)}, transparent 72%),` +
@@ -1064,6 +927,121 @@ export const archiveIconOf = (s: Style): string => {
     c = s.mode === 'light' ? mix(c, '#000000', 0.1) : mix(c, '#ffffff', 0.1)
   }
   return c
+}
+
+/* ---------- the code viewer's colours ---------- */
+
+/**
+ * The code colours an own copy saved before #298 keeps: the fixed sets that
+ * lived in `index.css` until the themes carried their own, per mode. Every
+ * value clears 4.5:1 on the grounds of its mode they were picked for.
+ */
+export const LEGACY_CODE: Record<Mode, Record<string, string>> = {
+  dark: {
+    keyword: '#a78bfa',
+    string: '#9ec97f',
+    number: '#d9a05b',
+    comment: '#78818f',
+    fn: '#7fb3e8',
+    type: '#6fd0c4',
+    const: '#e2a3c7',
+    op: '#93a0b0',
+    meta: '#8b93a1',
+    invalid: '#e06c75',
+    'active-line': 'rgba(255, 255, 255, 0.035)',
+    sel: 'rgba(255, 255, 255, 0.11)',
+    match: 'rgba(255, 255, 255, 0.12)'
+  },
+  light: {
+    keyword: '#6f42c1',
+    string: '#1f6640',
+    number: '#7f4800',
+    comment: '#5b636e',
+    fn: '#1a63b8',
+    type: '#0f6f68',
+    const: '#a5325f',
+    op: '#54606e',
+    meta: '#5c5f8a',
+    invalid: '#c02626',
+    'active-line': 'rgba(0, 0, 0, 0.04)',
+    sel: 'rgba(0, 0, 0, 0.1)',
+    match: 'rgba(0, 0, 0, 0.12)'
+  }
+}
+
+/** A colour stepped away from its grounds until it reads `floor` on all. */
+function floored(c: string, grounds: string[], floor: number, light: boolean): string {
+  let out = c
+  for (let i = 0; i < 20 && grounds.some((g) => contrast(out, g) < floor); i += 1) {
+    out = mix(out, light ? '#000000' : '#ffffff', 0.08)
+  }
+  return out
+}
+
+/**
+ * THE CODE COLOURS ARE THE THEME'S (#298): each of the 18 was designed with
+ * its own ten roles and active line, published here as `--p-code-*` (they
+ * left `index.css`). A style without them (an own copy saved before, or one
+ * whose ground or text was edited) takes its mode's legacy set, byte for
+ * byte, with tags drawn as keywords and attribute names in the soft text as
+ * before. The invalid red is a STATE, not decoration, so it stays red on the
+ * high contrast themes, floored to 4.5:1 on the theme's ground and panel.
+ */
+function codeTokens(style: Style, textSoft: string, ground: string, panel: string): Record<string, string> {
+  const legacy = LEGACY_CODE[style.mode]
+  const code = style.table?.code
+  if (!code) {
+    return {
+      '--p-code-keyword': legacy.keyword,
+      '--p-code-string': legacy.string,
+      '--p-code-number': legacy.number,
+      '--p-code-comment': legacy.comment,
+      '--p-code-fn': legacy.fn,
+      '--p-code-type': legacy.type,
+      '--p-code-const': legacy.const,
+      '--p-code-op': legacy.op,
+      '--p-code-meta': legacy.meta,
+      '--p-code-tag': legacy.keyword,
+      '--p-code-attr': textSoft,
+      '--p-code-invalid': legacy.invalid,
+      '--p-code-active-line': legacy['active-line'],
+      '--p-code-sel': legacy.sel,
+      '--p-code-match': legacy.match
+    }
+  }
+  return {
+    '--p-code-keyword': code.keyword,
+    '--p-code-string': code.string,
+    '--p-code-number': code.number,
+    '--p-code-comment': code.comment,
+    '--p-code-fn': code.function,
+    '--p-code-type': code.type,
+    '--p-code-const': code.constant,
+    '--p-code-op': code.punctuation,
+    '--p-code-meta': code.attribute,
+    '--p-code-tag': code.tag,
+    '--p-code-attr': code.attribute,
+    '--p-code-invalid': floored(legacy.invalid, [ground, panel], 4.5, style.mode === 'light'),
+    '--p-code-active-line': code.activeLine,
+    '--p-code-sel': legacy.sel,
+    '--p-code-match': legacy.match
+  }
+}
+
+/**
+ * `prism.mode` IS A MIRROR NOW (#298): Colour mode is gone, and each theme is
+ * dark or light by itself. The boot screen (`main.tsx`) still reads the key
+ * to paint its first frame in the right mode before the app loads, so the
+ * painted theme's mode is written there, by this alone, and only when it
+ * changes. A preview never writes it: a closed window never stores one.
+ */
+const MODE_MIRROR = 'prism.mode'
+function mirrorMode(mode: Mode): void {
+  try {
+    if (localStorage.getItem(MODE_MIRROR) !== mode) localStorage.setItem(MODE_MIRROR, mode)
+  } catch {
+    /* no storage: the boot screen starts dark */
+  }
 }
 
 function paint(style: Style): void {
@@ -1296,6 +1274,13 @@ function saveJson(key: string, value: unknown): void {
   }
 }
 
+// SAVED THEMES MOVE ONCE (#298, spec 4), before anything below reads them.
+try {
+  migrateThemeStorage(localStorage)
+} catch {
+  /* no storage: nothing was saved to move */
+}
+
 let presets: Style[] = cleanPresets(loadJson<unknown>(PRESETS_KEY, []))
 let draft: Overrides = cleanDraft(loadJson<Overrides>(DRAFT_KEY, {}))
 
@@ -1321,6 +1306,32 @@ export const isEdited = (): boolean =>
     draft.acrylic !== undefined
   )
 
+/**
+ * THE TABLE HOLDS ONLY WHILE ITS INPUTS DO (#298, spec 1.1). A designed value
+ * was drawn for the colours it sits among; once the draft moves one of them,
+ * the values drawn for it go and Prism derives them again, so an edit never
+ * paints a dim, a menu or a code colour meant for a ground that is no longer
+ * on screen. Pure, so it is testable; `undefined` when nothing is left.
+ */
+export function pruneTable(table: ThemeTable | undefined, o: Overrides): ThemeTable | undefined {
+  if (!table) return undefined
+  const next: ThemeTable = { ...table }
+  if (o.bg || o.text) {
+    delete next.raised
+    delete next.line
+    delete next.dim
+    delete next.faint
+    delete next.kinds
+    delete next.code
+  }
+  if (o.accent || o.accentAlpha !== undefined) {
+    delete next.accentFill
+    delete next.onAccent
+  }
+  if (o.borders) delete next.edge
+  return Object.keys(next).length ? next : undefined
+}
+
 function edited(s: Style): Style {
   if (!isEdited()) return s
   const out: Style = {
@@ -1344,6 +1355,9 @@ function edited(s: Style): Style {
   }
   if (out.accentAlpha === undefined) delete out.accentAlpha
   if (out.selection === undefined) delete out.selection
+  const table = pruneTable(s.table, draft)
+  if (table) out.table = table
+  else delete out.table
   if (draft.acrylic !== undefined) {
     // Zero frost is just a solid window; anything above it is acrylic at the
     // alpha the slider asks for.
@@ -1357,7 +1371,6 @@ function edited(s: Style): Style {
 /* ---------- the store ---------- */
 
 const KEY = 'prism.style'
-const MODE_KEY = 'prism.mode'
 
 const byId = (id: string): Style => allStyles().find((s) => s.id === id) ?? STYLES[0]
 
@@ -1369,18 +1382,21 @@ function load(): string {
     return DEFAULT_STYLE
   }
 }
-function loadMode(): Mode {
+/** A theme the migration retired, by its old name, until the next pick. */
+function loadRetired(): string | null {
   try {
-    return localStorage.getItem(MODE_KEY) === 'light' ? 'light' : 'dark'
+    return localStorage.getItem(RETIRED_KEY)
   } catch {
-    return 'dark'
+    return null
   }
 }
 
 let current = load()
 // A preset that has since been deleted leaves a dangling id; normalise it.
 current = allStyles().some((s) => s.id === current) ? current : DEFAULT_STYLE
-let mode: Mode = loadMode()
+let retired: string | null = loadRetired()
+/** The theme the window is PREVIEWING (the wall's arrows), or null. */
+let previewing: string | null = null
 const listeners = new Set<() => void>()
 const emit = (): void => listeners.forEach((l) => l())
 const subscribe = (l: () => void): (() => void) => {
@@ -1394,7 +1410,9 @@ let version = 0
 /** Repaint from whatever is current, and keep the bar and visualizer in step. */
 function apply(syncAccent = true): void {
   const style = edited(byId(current))
+  previewing = null
   paint(style)
+  mirrorMode(style.mode)
   // A scheme that already follows the accent must not be replaced by the
   // accent's own named scheme: it is following on purpose. The visualizer and
   // the progress bar are answered separately, since either can be set to a
@@ -1413,6 +1431,15 @@ export function setStyle(id: string): void {
   draft = {}
   saveJson(DRAFT_KEY, draft)
   localStorage.setItem(KEY, current)
+  // The one quiet line about a retired theme lasts until the first pick.
+  if (retired !== null) {
+    retired = null
+    try {
+      localStorage.removeItem(RETIRED_KEY)
+    } catch {
+      /* no storage */
+    }
+  }
   // A new style brings its own terminal: the terminal theme returns to
   // follow-style with stock settings. A saved Custom setup stays saved and
   // reselectable.
@@ -1668,7 +1695,12 @@ export function restoreOverrides(snapshot: Overrides, keys: Array<keyof Override
 export const overridesNow = (): Overrides => draft
 
 /** What is on screen, outside React. */
-export const currentStyle = (): Style => edited(byId(current))
+/** What is painted: a theme being previewed, else the stored one with its
+ *  edits. Pages that describe the window (Colours of, the colour scheme)
+ *  read this, so they follow an arrow along the wall. */
+const shownStyle = (): Style => (previewing !== null ? byId(previewing) : edited(byId(current)))
+
+export const currentStyle = (): Style => shownStyle()
 
 /** Keep the current edit as a preset of its own, and select it. */
 export function savePreset(): void {
@@ -1700,9 +1732,10 @@ export function deletePreset(id: string): void {
   saveJson(PRESETS_KEY, presets)
   version += 1
   if (current === id) {
-    // Land somewhere real: the style it grew out of, else the first in this mode.
-    const home = gone.base && byId(gone.base).id === gone.base ? gone.base : stylesFor(mode)[0]?.id
-    setStyle(home ?? DEFAULT_STYLE)
+    // Land somewhere real: the theme it grew out of (mapped by the migration
+    // when it was retired), else Aurora.
+    const base = gone.base ? (RETIRED_MAP[gone.base] ?? gone.base) : null
+    setStyle(base && byId(base).id === base ? base : DEFAULT_STYLE)
   } else emit()
 }
 
@@ -1737,17 +1770,52 @@ export function useOverrides(): Overrides {
   return useSyncExternalStore(subscribe, () => draft)
 }
 
-/** Dark or light. Each mode has its own styles, so switching picks the first. */
-export function setMode(m: Mode): void {
-  mode = m
-  localStorage.setItem(MODE_KEY, m)
-  const first = allStyles().find((s) => s.mode === m)
-  if (first) setStyle(first.id)
-  else emit()
+/**
+ * LIVE IS A PREVIEW UNTIL KEPT (#298, spec 3.1). The wall's arrows repaint the
+ * whole window in a theme and write NOTHING: the stored id, the draft and the
+ * terminal's theme stay as they are, and the draft is hidden rather than
+ * dropped. `null` repaints what is stored, draft and all, which is the
+ * wall's Escape. A terminal that follows the style follows the preview, since
+ * it watches `:root`. Committing is `setStyle`.
+ */
+export function previewStyle(id: string | null): void {
+  if (id === null || byId(id).id === current) {
+    if (previewing === null) return
+    previewing = null
+    paint(edited(byId(current)))
+  } else {
+    previewing = byId(id).id
+    paint(byId(previewing))
+  }
+  emit()
+}
+
+/** The theme being previewed, or null. */
+export function usePreviewId(): string | null {
+  return useSyncExternalStore(subscribe, () => previewing)
+}
+
+/** The retired theme's old name, until the next theme pick. */
+export function useRetired(): string | null {
+  return useSyncExternalStore(subscribe, () => retired)
 }
 
 /** What is on screen: the selected style with any unsaved edits applied. */
 export function useStyle(): Style {
+  useSyncExternalStore(subscribe, () => current)
+  useSyncExternalStore(subscribe, () => draft)
+  useSyncExternalStore(subscribe, () => previewing)
+  return shownStyle()
+}
+
+/** The id of the theme in use (stored), whatever is previewed or edited. */
+export function useCurrentId(): string {
+  return useSyncExternalStore(subscribe, () => current)
+}
+
+/** The stored theme with its edits, never a preview: what the current card
+ *  draws while the arrows walk the others. */
+export function useStoredStyle(): Style {
   useSyncExternalStore(subscribe, () => current)
   useSyncExternalStore(subscribe, () => draft)
   return edited(byId(current))
@@ -1760,20 +1828,16 @@ export function useSelectedId(): string | null {
   return isEdited() ? null : id
 }
 
-export function useMode(): Mode {
-  return useSyncExternalStore(subscribe, () => mode)
-}
-
-/** The styles for a mode, shipped then saved. Re-reads when presets change. */
-export function useStyles(m: Mode): Style[] {
+/** Every theme, the 18 then the own copies in saved order, whatever their
+ *  mode. Re-reads when presets change. */
+export function useThemes(): Style[] {
   useSyncExternalStore(subscribe, () => version)
-  return stylesFor(m)
+  return allStyles()
 }
-
-export const stylesFor = (m: Mode): Style[] => allStyles().filter((s) => s.mode === m)
 
 // Paint before first render so nothing flashes the wrong colour.
 paint(edited(byId(current)))
+mirrorMode(edited(byId(current)).mode)
 
 // On a fresh install the visualizer and the progress bar have no colour of their
 // own yet, so they take the style's accent. Once you've picked one, it stands.
@@ -1789,11 +1853,11 @@ try {
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.storageArea !== localStorage) return
-    if (event.key !== null && ![KEY, MODE_KEY, PRESETS_KEY, DRAFT_KEY].includes(event.key)) return
+    if (event.key !== null && ![KEY, PRESETS_KEY, DRAFT_KEY, RETIRED_KEY].includes(event.key)) return
     presets = cleanPresets(loadJson<unknown>(PRESETS_KEY, []))
     draft = cleanDraft(loadJson<Overrides>(DRAFT_KEY, {}))
     current = load()
-    mode = loadMode()
+    retired = loadRetired()
     version += 1
     // The originating window already saved related accent preferences. Receiving
     // its changes must not write them back or reset this window's terminal style.

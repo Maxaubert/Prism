@@ -243,7 +243,7 @@ export function PlayerMenu({
           data-player-menu
           // max-h + scroll: short windows would otherwise clip the menu against
           // the viewer pane's overflow-hidden with no way to reach the bottom.
-          className="absolute bottom-9 right-0 z-30 max-h-[min(60vh,420px)] w-[230px] overflow-y-auto rounded-[6px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-1 font-normal shadow-[0_10px_28px_rgba(0,0,0,.5)] [scrollbar-width:thin]"
+          className="absolute bottom-9 right-0 z-30 max-h-[min(60vh,420px)] w-[230px] overflow-y-auto rounded-[6px] border border-[color:var(--p-divider)] bg-[var(--p-raised)] py-1 font-normal shadow-[0_10px_28px_rgba(0,0,0,.5)] [scrollbar-width:thin]"
         >
           {level === 'top' && (
             <>

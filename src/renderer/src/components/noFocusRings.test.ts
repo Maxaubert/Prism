@@ -91,11 +91,13 @@ describe('focus still shows where the ring went', () => {
   })
 
   it('a card or swatch painted inline still shows focus', () => {
-    // The appearance cards: the other inline backgrounds there are previews
-    // drawn inside a card, not focusable.
-    expect(src('components/Onboarding.tsx')).toMatch(
-      /aria-pressed=\{mode === m\}[\s\S]{0,900}style=\{\{ backgroundColor: 'var\(--p-hover\)' \}\}/
-    )
+    // The theme cards (#298): the card itself paints nothing inline, only
+    // its edge variables, so the base layer's focus fill shows round the
+    // preview; the inline backgrounds are the preview's, drawn inside it.
+    const card = src('components/ThemeCard.tsx')
+    const button = card.slice(card.indexOf('role="radio"'), card.indexOf('<span', card.indexOf('role="radio"')))
+    expect(button).toMatch(/'--mini-edge'/)
+    expect(button).not.toMatch(/\bbackground(?:Color)?:/)
     expect(src('components/settings/ColourSchemes.tsx')).toMatch(/hover:ring-white\/30 focus-visible:ring-white\/30/)
   })
 })

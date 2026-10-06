@@ -31,6 +31,9 @@ describe("Prism's settings", () => {
     expect(labels.length).toBeGreaterThan(30)
     expect(subs.filter(subTooLong)).toEqual([])
     expect(subs.filter((t) => copyProblem(t))).toEqual([])
-    expect(labels.filter((t) => labelProblem(t))).toEqual([])
+    // A hyphen INSIDE a compound word is a spelling, not a symbol: the
+    // owner approved "See-through window" with the themes (#298). Subtexts
+    // keep the plain rule.
+    expect(labels.filter((t) => labelProblem(t.replace(/(\w)-(\w)/g, '$1 $2')))).toEqual([])
   })
 })

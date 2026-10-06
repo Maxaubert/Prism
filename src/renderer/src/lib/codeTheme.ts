@@ -211,11 +211,15 @@ const tokens = HighlightStyle.define([
   { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName], color: 'var(--p-code-fn)' },
   { tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName)], color: 'var(--p-code-type)' },
   { tag: [t.constant(t.variableName), t.standard(t.variableName), t.labelName], color: 'var(--p-code-const)' },
-  { tag: [t.propertyName, t.attributeName], color: 'var(--p-text-soft)' },
+  { tag: t.propertyName, color: 'var(--p-text-soft)' },
+  // Markup's own roles (#298): each theme was designed with a tag and an
+  // attribute colour; a style without them draws tags as keywords and
+  // attribute names in the soft text, as before (`codeTokens` in theme.ts).
+  { tag: t.attributeName, color: 'var(--p-code-attr)' },
   { tag: [t.variableName, t.definition(t.variableName)], color: 'var(--p-text)' },
   { tag: [t.operator, t.punctuation, t.bracket, t.separator, t.derefOperator], color: 'var(--p-code-op)' },
   { tag: [t.meta, t.processingInstruction, t.annotation, t.documentMeta], color: 'var(--p-code-meta)' },
-  { tag: [t.tagName, t.angleBracket], color: 'var(--p-code-keyword)' },
+  { tag: [t.tagName, t.angleBracket], color: 'var(--p-code-tag)' },
   { tag: [t.attributeValue], color: 'var(--p-code-string)' },
   { tag: t.link, color: 'var(--p-code-fn)', textDecoration: 'underline' },
   { tag: t.heading, color: 'var(--p-text)', fontWeight: '600' },

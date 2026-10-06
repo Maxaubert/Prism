@@ -10,10 +10,13 @@
  * page's half that holds it, and `store` where the value lives: the
  * localStorage keys, `windows` (Windows keeps it: the Explorer menu, the Win+E
  * helper, the default apps), or null for a row that stores nothing. The keys
- * are a SNAPSHOT in `appOptions.test.ts`: a key is a saved setting, and this
- * redesign changes none. One line per entry, as in the core's lists; a block
+ * are a SNAPSHOT in `appOptions.test.ts`: a key is a saved setting. #298
+ * retired one as a setting, `prism.mode` (Colour mode is gone; the key is the
+ * boot screen's mirror of the painted theme's mode now). One line per entry, as in the core's lists; a block
  * (a wall of cards, a grid of swatches) has no subtext of its own.
  */
+import { THEME_STYLES } from '../../lib/themes/catalogue'
+
 export type AppPageId = 'appearance' | 'explorer' | 'terminal' | 'agents' | 'dictation' | 'media' | 'about'
 export type MediaView = 'visualizer' | 'progress'
 
@@ -30,9 +33,11 @@ export interface AppOption {
 }
 
 /** This app's own section headings, by `data-settings-section`. The style's
- *  colours are headed by the style's name on the page ("Colours of Aurora"). */
+ *  colours are headed by the style's name on the page ("Colours of Aurora").
+ *  The Themes card has no heading: its first row is its header (#298). */
 export const APP_SECTIONS = {
-  'style-theme': 'Theme',
+  'style-theme': '',
+  'this-theme': 'This theme',
   'style-colours': 'Colours',
   'app-text': 'Text',
   window: 'Window',
@@ -50,10 +55,14 @@ export const APP_SECTIONS = {
 
 const DRAFT = ['prism.style.draft'] as const
 
+/** The 18 themes' names, lower case, for Find a setting. */
+const THEME_NAMES = THEME_STYLES.map((s) => s.name.toLowerCase()).join(' ')
+
 export const APP_OPTIONS: readonly AppOption[] = [
-  { id: 'mode', label: 'Colour mode', sub: 'Dark and light each keep their own style.', section: 'style-theme', page: 'appearance', icon: 'mode', keywords: 'dark light night day scheme', store: ['prism.mode'] },
-  { id: 'style-theme', label: 'App theme', sub: 'Edits below change the chosen style.', section: 'style-theme', page: 'appearance', icon: 'brush', keywords: 'style preset look aurora onyx void ruby save', store: ['prism.style', 'prism.style.presets'] },
-  { id: 'c-bg', label: 'Viewer background', sub: 'Behind the file you are viewing.', section: 'style-colours', page: 'appearance', icon: 'viewer', keywords: 'primary ground glass acrylic transparent alpha color', store: DRAFT },
+  { id: 'style-theme', label: 'Themes', sub: 'Choose your look.', section: 'style-theme', page: 'appearance', icon: 'appearance', keywords: `${THEME_NAMES} dark light mode style look`, store: ['prism.style', 'prism.style.presets'] },
+  { id: 'see-through', label: 'See-through window', sub: 'The desktop shows behind every surface.', section: 'this-theme', page: 'appearance', icon: 'glass', keywords: 'acrylic glass transparent translucent desktop', store: DRAFT },
+  { id: 'theme-edits', label: 'Edits to this theme', sub: 'Saved as your own copy.', section: 'this-theme', page: 'appearance', icon: 'pen', keywords: 'save custom copy preset changes', store: ['prism.style.draft', 'prism.style.presets'] },
+  { id: 'c-bg', label: 'Background', sub: 'Behind lists, files and settings.', section: 'style-colours', page: 'appearance', icon: 'viewer', keywords: 'primary ground glass acrylic transparent alpha color', store: DRAFT },
   { id: 'c-chrome', label: 'Sidebar and tab bar colour', sub: 'Also used for the title bar.', section: 'style-colours', page: 'appearance', icon: 'sidebar', keywords: 'secondary panel chrome color', store: DRAFT },
   { id: 'c-accent', label: 'Accent colour', sub: 'Buttons, progress, visualizer and chosen cards.', section: 'style-colours', page: 'appearance', icon: 'accent', keywords: 'highlight color alpha', store: DRAFT },
   { id: 'c-selection', label: 'Selection colour', sub: 'Tint of selected files and places.', section: 'style-colours', page: 'appearance', icon: 'select', keywords: 'marked highlight tint color', store: DRAFT },

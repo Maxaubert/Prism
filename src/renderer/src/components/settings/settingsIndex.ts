@@ -39,7 +39,7 @@ const PAGE_OF: Record<SettingsSectionId, AppPageId> = {
 /** Every row in the order the pages draw them, which is the order Find a
  *  setting lists matches in. A test holds this to the lists. */
 export const ROW_ORDER = [
-  'mode', 'style-theme', 'c-bg', 'c-chrome', 'c-accent', 'c-selection', 'c-text', 'c-folder-icon',
+  'style-theme', 'see-through', 'theme-edits', 'c-bg', 'c-chrome', 'c-accent', 'c-selection', 'c-text', 'c-folder-icon',
   'c-font', 'tree-size', 'title-bar', 'tab-width', 'c-edges', 'c-corners',
   'tree-side', 'explorer-size', 'auto-scroll', 'newtab-mode', 'newtab-show', 'open-external',
   'remember-tabs', 'remember-folders', 'win-e-shortcut', 'explorer-verb', 'default-apps',
