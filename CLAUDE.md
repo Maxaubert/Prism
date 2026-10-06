@@ -675,7 +675,16 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Now `lib/placeMark.ts`: the place CLICKED (FolderBrowser's `chosenPlace`, also Open from its menu)
   stays marked while the folder is it or beneath it, and is forgotten once the folder leaves it;
   otherwise the first place whose path IS the folder; else none. `aria-current` is on that row
-  alone. While a menu is open on ANOTHER place the mark is hidden (`data-mark-hidden`). Two
+  alone. While a menu is open on ANOTHER place the mark is DIMMED, not hidden (`data-mark-dim`;
+  owner, 2026-10-06: "think it would look better if the selected folder is dimmed rather than not
+  highlighted when you right click a different folder"), drives' tiles included, and only the
+  right-clicked row is full. NO FLASH BETWEEN RIGHT-CLICKS (same message: "when you right click
+  multiple times the highlight goes from the one you right clicked -> the actually selected folder
+  -> the new one you right clicked"): `ContextMenu` closed on the right PRESS outside it, and
+  Windows sends `contextmenu` on the RELEASE, so every frame of the held button had no menu. A
+  right press outside now closes the menu in the capture phase of the `contextmenu` that opens the
+  next one (or 400 ms after the release if none comes), for every ContextMenu, the project tree's
+  too. `rightClickSelect` records every animation frame across a second right-click. Two
   strengths (`useActiveArea`, `data-active-area` on `.folder-browser`; a press or focus, menus
   excluded): full `--p-sel-tint` while the sidebar is where the user acts, `--p-sel-tint-dim`
   (the tint drained toward its own grey at `SEL_DIM` of its strength, held in

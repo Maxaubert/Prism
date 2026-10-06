@@ -8435,6 +8435,62 @@ const cssColour = (win, value) =>
     return c
   }, value)
 
+/**
+ * A FRAME RECORDER for a look that must never flash (#296; owner, 2026-10-06:
+ * "when you right click multiple times the highlight goes from the one you
+ * right clicked -> the actually selected folder -> the new one you right
+ * clicked"). Each element is tagged by name, and every animation frame until
+ * `stopFrames` the page writes down what each one paints. A frame is what the
+ * eye can see, so a state that lasts no frame is no flash.
+ */
+const watchAs = (loc, name) => loc.evaluate((e, n) => e.setAttribute('data-e2e-watch', n), name)
+const startFrames = (win) =>
+  win.evaluate(() => {
+    const w = window
+    w.__frames = []
+    w.__framesOn = true
+    const tick = () => {
+      if (!w.__framesOn) return
+      const f = {}
+      for (const e of document.querySelectorAll('[data-e2e-watch]'))
+        f[e.getAttribute('data-e2e-watch')] = getComputedStyle(e).backgroundColor
+      w.__frames.push(f)
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+const stopFrames = (win) =>
+  win.evaluate(() => {
+    window.__framesOn = false
+    for (const e of document.querySelectorAll('[data-e2e-watch]')) e.removeAttribute('data-e2e-watch')
+    return window.__frames
+  })
+/** A right-click as a hand makes one: the button held a moment, so the
+ *  frames between the press and the release (where Windows sends the
+ *  contextmenu) are there to be seen. It lands near the row's left end: the
+ *  open menu starts where the last right-click was, mid-row, and may cover
+ *  the middle of the rows below. */
+const slowRightClick = async (win, loc) => {
+  const b = await loc.boundingBox()
+  await win.mouse.move(b.x + Math.min(24, b.width / 4), b.y + b.height / 2)
+  await win.mouse.down({ button: 'right' })
+  await sleep(150)
+  await win.mouse.up({ button: 'right' })
+}
+/** Frames where A and B are not exactly one lit (in `tint`), or A is lit
+ *  again after B was: the highlight must go straight from A to B. */
+const flashFrames = (frames, tint) => {
+  let seenB = false
+  const bad = []
+  frames.forEach((f, i) => {
+    const a = f.a === tint
+    const b = f.b === tint
+    if (a === b || (seenB && a)) bad.push(i)
+    if (b) seenB = true
+  })
+  return { bad, seenB }
+}
+
 /** How full a drive really is, by Node's own statfs; null when it will not say. */
 function usedShare(root) {
   try {
@@ -8510,6 +8566,18 @@ async function rightClickSelectScenario(fixtures) {
       const during = await bg(treeRow)
       ok(during === tint, `the right-clicked tree row wears the selection tint (${during}, tint ${tint})`)
       await win.screenshot({ path: join(SHOTS, 'rightclick-tree.png') })
+      // A second right-click, on c.txt while b.txt's menu is open: the tint
+      // goes straight from one to the other, no frame with neither lit.
+      const treeC = win.locator('[data-row$="\\\\c.txt" i]').first()
+      await watchAs(treeRow, 'a')
+      await watchAs(treeC, 'b')
+      await startFrames(win)
+      await slowRightClick(win, treeC)
+      ok(await until(menuOpen, 3000), 'c.txt answers the second right-click with its menu')
+      await sleep(200)
+      const treeFrames = await stopFrames(win)
+      const treeFlash = flashFrames(treeFrames, tint)
+      ok(treeFrames.length >= 5 && treeFlash.seenB && treeFlash.bad.length === 0, `the tree's tint goes straight from b.txt to c.txt (${treeFrames.length} frames, bad ${JSON.stringify(treeFlash.bad.slice(0, 5).map((i) => treeFrames[i]))})`)
       await shut()
       ok((await bg(treeRow)) === before, `and loses it when the menu shuts (${await bg(treeRow)}, was ${before})`)
     } else ok(false, 'the project tree lists b.txt')
@@ -8636,6 +8704,16 @@ async function rightClickSelectScenario(fixtures) {
       ok(await until(async () => (await cTile.getAttribute('aria-current')) === 'location', 8000), `${style}: a click on C: opens it`)
       await away()
       ok((await bg(cTile)) === tint, `${style}: the clicked drive tile is full (${await bg(cTile)}, tint ${tint})`)
+      // Under another place's menu the tile is dimmed, not its plain fill.
+      const firstPin = places.locator('section[aria-label="Quick access"] .quick-access-pin').first()
+      await firstPin.click({ button: 'right' })
+      ok(await until(menuOpen, 3000), `${style}: a pin's menu opens over a marked drive`)
+      await sleep(250)
+      ok((await bg(cTile)) === tintDim && (await bg(firstPin)) === tint, `${style}: the marked tile is dimmed under it (${await bg(cTile)}, dim ${tintDim}), the pin full`)
+      const tbox = await places.boundingBox()
+      await win.screenshot({ path: join(SHOTS, `place-mark-tile-menu-${style}.png`), clip: { x: tbox.x, y: tbox.y, width: tbox.width, height: Math.min(tbox.height, 640) } })
+      await shut()
+      ok((await bg(cTile)) === tint, `${style}: and full again when it shuts (${await bg(cTile)})`)
       await list.locator('.browse-row').first().click()
       await away()
       const tileDim = await bg(cTile)
@@ -8667,18 +8745,44 @@ async function rightClickSelectScenario(fixtures) {
       await away()
       ok((await bg(row('deeper'))) === tint && (await bg(subPin)) === tintDim, `${style}: a click in the list swaps them back`)
 
-      // (a) A right-click on another place: only it is lit while its menu is
-      // open; the pin's mark comes back when the menu shuts.
+      // (a) A right-click on another place: it wears the full tint, and the
+      // marked place stays marked, DIMMED, while the menu is open (owner,
+      // 2026-10-06: "think it would look better if the selected folder is
+      // dimmed rather than not highlighted when you right click a different
+      // folder"); its full mark is back when the menu shuts.
       const home = places.locator('section[aria-label="Quick access"] .quick-access-pin[data-known="home"]')
+      const homePath = await home.getAttribute('data-quick-access-path')
       await home.click({ button: 'right' })
       ok(await until(menuOpen, 3000), `${style}: Home's menu opens`)
       await sleep(300)
-      const during = await lit()
-      ok(JSON.stringify(during) === JSON.stringify([await home.getAttribute('data-quick-access-path')]), `${style}: only the right-clicked place is lit (${JSON.stringify(during)})`)
+      ok((await bg(home)) === tint, `${style}: the right-clicked place wears the full tint (${await bg(home)}, tint ${tint})`)
+      ok((await bg(subPin)) === tintDim, `${style}: the marked place is dimmed under another place's menu (${await bg(subPin)}, dim ${tintDim})`)
+      ok(JSON.stringify((await lit()).sort()) === JSON.stringify([subPinPath, homePath].sort()), `${style}: those two and no other are lit (${JSON.stringify(await lit())})`)
       ok(JSON.stringify(await currentRows()) === JSON.stringify([subPinPath]), `${style}: the pin is still the current place for a screen reader`)
       await win.screenshot({ path: join(SHOTS, `place-mark-menu-${style}.png`) })
+      // (a2) Right-click a second place while Home's menu is open: the tint
+      // goes straight from Home to it, and the marked place never returns to
+      // full in between (owner, same message: "when you right click multiple
+      // times the highlight goes from the one you right clicked -> the
+      // actually selected folder -> the new one you right clicked").
+      const other = places.locator('section[aria-label="Quick access"] .quick-access-pin:not([data-known="home"])').first()
+      await watchAs(home, 'a')
+      await watchAs(other, 'b')
+      await watchAs(subPin, 'mark')
+      await startFrames(win)
+      await slowRightClick(win, other)
+      ok(await until(menuOpen, 3000), `${style}: the second place's menu opens`)
+      await sleep(200)
+      const frames = await stopFrames(win)
+      const flash = flashFrames(frames, tint)
+      ok(frames.length >= 5 && flash.seenB && flash.bad.length === 0, `${style}: the tint goes straight from Home to the next place (${frames.length} frames, bad ${JSON.stringify(flash.bad.slice(0, 5).map((i) => frames[i]))})`)
+      const markOff = frames.filter((f) => f.mark !== tintDim)
+      ok(markOff.length === 0, `${style}: the marked place stays dimmed in every frame (${markOff.length} frames otherwise, ${JSON.stringify(markOff.slice(0, 3))})`)
+      ok((await bg(other)) === tint && (await bg(home)) !== tint && (await bg(subPin)) === tintDim, `${style}: after it, only the second place is full and the mark dimmed`)
+      await win.screenshot({ path: join(SHOTS, `place-mark-menu-switch-${style}.png`) })
       await shut()
       ok(JSON.stringify(await lit()) === JSON.stringify([subPinPath]), `${style}: the pin's mark is back when the menu shuts (${JSON.stringify(await lit())})`)
+      ok((await bg(subPin)) === tint, `${style}: full, the sidebar being where the user acted (${await bg(subPin)})`)
 
       // (b) Into a subfolder keeps the clicked place; the address field to
       // somewhere else lets it go; to the place itself marks it again.

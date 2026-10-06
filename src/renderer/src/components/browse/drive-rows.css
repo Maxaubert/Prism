@@ -21,7 +21,7 @@
 .folder-browser .browse-place.browse-drive[data-warn] {
   --drive-fill: var(--p-warn);
 }
-.folder-browser .browse-place.browse-drive:is(:not([aria-current]), [data-mark-hidden]):hover {
+.folder-browser .browse-place.browse-drive:not([aria-current]):hover {
   color: var(--p-text);
 }
 
@@ -104,12 +104,10 @@
 section[data-drive-style='tiles'] > h2 + .browse-drive-tiles {
   margin-top: 2px;
 }
-/* A tile whose mark is hidden for another place's menu (#296) is a plain
-   tile again. */
-.folder-browser .browse-place.browse-drive-tiles:is(:not([aria-current]), [data-mark-hidden]):not([data-menu]) {
+.folder-browser .browse-place.browse-drive-tiles:not([aria-current]):not([data-menu]) {
   background-color: var(--drive-tile);
 }
-.folder-browser .browse-place.browse-drive-tiles:is(:not([aria-current]), [data-mark-hidden]):not([data-menu]):hover {
+.folder-browser .browse-place.browse-drive-tiles:not([aria-current]):not([data-menu]):hover {
   background-color: color-mix(in srgb, var(--p-text) 7.5%, transparent);
 }
 .folder-browser .browse-place.browse-drive-tiles[aria-current] {
@@ -122,7 +120,7 @@ section[data-drive-style='tiles'] > h2 + .browse-drive-tiles {
   border-radius: 5px;
   background-color: var(--drive-chip);
 }
-.browse-drive-tiles[aria-current]:not([data-mark-hidden]) .browse-drive-chip {
+.browse-drive-tiles[aria-current] .browse-drive-chip {
   background-color: var(--drive-chip-current);
 }
 .browse-place.browse-drive-tiles .browse-drive-l1 {
@@ -262,7 +260,7 @@ section[data-drive-style='tiles'] > h2 + .browse-drive-tiles {
   width: 1.12em;
   height: 1.12em;
 }
-.browse-drive-gauge[aria-current]:not([data-mark-hidden]) .browse-drive-chip {
+.browse-drive-gauge[aria-current] .browse-drive-chip {
   background-color: color-mix(in srgb, var(--p-accent-solid) 24%, transparent);
 }
 .browse-place.browse-drive-gauge .browse-drive-seg {

@@ -351,8 +351,8 @@
    and the text in its own colour (owner, 2026-10-03, of the solid block: "i
    want that colour for the sidebar on the explorer page too, not just the
    selected file"). */
-.folder-browser .browse-place[aria-current]:not([data-mark-hidden]),
-.folder-browser .browse-place[aria-current]:not([data-mark-hidden]):hover {
+.folder-browser .browse-place[aria-current],
+.folder-browser .browse-place[aria-current]:hover {
   background-color: var(--p-sel-tint);
   box-shadow: inset 0 0 0 1px var(--p-sel-line);
   color: var(--p-text);
@@ -363,10 +363,15 @@
    inactive selection (owner, 2026-10-06: "as soon as you click something in
    the main view after that it gets dimmed, still highlighted but dimmed").
    --p-sel-tint-dim is the tint drained toward grey, at three quarters of its
-   strength (theme.ts). A menu open on another place hides the mark meanwhile
-   (`data-mark-hidden`), so only the right-clicked row is lit. */
-.folder-browser[data-active-area='main'] .browse-place[aria-current]:not([data-mark-hidden]):not([data-menu]),
-.folder-browser[data-active-area='main'] .browse-place[aria-current]:not([data-mark-hidden]):not([data-menu]):hover {
+   strength (theme.ts). A menu open on ANOTHER place dims it too, wherever
+   the user acts (`data-mark-dim`; owner, same day: "think it would look
+   better if the selected folder is dimmed rather than not highlighted when
+   you right click a different folder"), so only the right-clicked row is
+   full. */
+.folder-browser[data-active-area='main'] .browse-place[aria-current]:not([data-menu]),
+.folder-browser[data-active-area='main'] .browse-place[aria-current]:not([data-menu]):hover,
+.folder-browser .browse-place[aria-current][data-mark-dim],
+.folder-browser .browse-place[aria-current][data-mark-dim]:hover {
   background-color: var(--p-sel-tint-dim);
   box-shadow: inset 0 0 0 1px var(--p-sel-line-dim);
 }

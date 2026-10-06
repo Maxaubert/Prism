@@ -167,14 +167,17 @@ export function BrowsePlaces({
     ...[...projects, ...drives].map((place) => ({ row: `place:${place.path}`, path: place.path }))
   ]
   const marked = markedPlace(placeRows, directory, chosenPlace)
-  // While a menu is open on ANOTHER row, the mark is not drawn (owner, same
+  // While a menu is open on ANOTHER row, the mark is DIMMED (owner, same
   // day: "both are equally highlighted which makes it seem like the right
-  // click action is targeting both"); it comes back when the menu shuts.
+  // click action is targeting both", then "think it would look better if the
+  // selected folder is dimmed rather than not highlighted when you right
+  // click a different folder"): only the right-clicked row is full, and the
+  // mark is still seen. When the menu shuts the active area decides again.
   const markOf = (row: string): Record<string, string | undefined> =>
     row === marked
       ? {
           'aria-current': 'location',
-          'data-mark-hidden': menu && menu.row !== row ? '' : undefined
+          'data-mark-dim': menu && menu.row !== row ? '' : undefined
         }
       : {}
   const choose = (row: string, path: string): void => onChoosePlace?.({ row, path })
