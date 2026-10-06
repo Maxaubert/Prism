@@ -10,7 +10,9 @@ import {
   sameQuickAccessPath,
   type QuickAccessPin
 } from '../../lib/quickAccess'
-import { BrowseIcon } from './BrowseIcon'
+import { driveName, freeLine, usedWidth } from '../../lib/driveUsage'
+import { useDriveUsage } from '../../lib/useDriveUsage'
+import { PlaceIcon } from './PlaceIcon'
 import { PeekPinButton } from '../PanelToggle'
 import type { BrowsePlace, FolderBrowserProps } from './types'
 import './quick-access.css'
@@ -30,6 +32,7 @@ type Props = Pick<
   | 'onDropInto'
   | 'onOpenProject'
   | 'onOpenNewTab'
+  | 'readDrives'
 >
 
 type PlacesProps = Props & {
@@ -37,10 +40,27 @@ type PlacesProps = Props & {
   onPin?: () => void
 }
 
+/** The two halves of the one pin list (#296): Windows' own folders, then
+ *  what the user pinned. One store, one order; each half is shown apart. */
+type PinSection = 'Quick access' | 'Pinned'
+
 function isPinDrag(event: DragEvent): boolean {
   return event.dataTransfer.types.includes(QUICK_ACCESS_PIN_MIME)
 }
 
+const lastName = (path: string): string =>
+  /[^\\/]*$/.exec(path.replace(/[\\/]+$/, ''))?.[0] || path
+
+/**
+ * THE PLACES PANEL (#296; owner, 2026-10-06, of the themes mockup: "i really
+ * like the sidebar from here, so use that, with the icons and the disks with a
+ * bar showing how much is in use"). Quick access is the pins that ARE a
+ * Windows Known Folder, each with its own glyph; Pinned is every other pin;
+ * then Projects; then This PC, each drive with its usage bar and free line.
+ * The pin list is still ONE store in one order (`quickAccess.ts`): an unpinned
+ * Desktop stays gone, a re-pinned one comes back under Quick access, and a pin
+ * moves only among its own section's rows.
+ */
 export function BrowsePlaces({
   places,
   directory,
@@ -54,6 +74,7 @@ export function BrowsePlaces({
   onMoveQuickAccess,
   onPinQuickAccessPaths,
   onDropInto,
+  readDrives,
   onPin
 }: PlacesProps): JSX.Element {
   const folderDrop = useFolderDrop(onDropInto)
@@ -62,47 +83,220 @@ export function BrowsePlaces({
     places
       .filter((place) => place.group === 'Quick access')
       .map((place) => ({ path: place.path, label: place.label, isFolder: true }))
+  const knownOf = (pin: QuickAccessPin): BrowsePlace['known'] =>
+    pin.isFolder
+      ? places.find(
+          (place) =>
+            place.group === 'Quick access' && place.known && sameQuickAccessPath(place.path, pin.path)
+        )?.known
+      : undefined
+  const sections: Record<PinSection, QuickAccessPin[]> = {
+    'Quick access': pins.filter((pin) => knownOf(pin)),
+    Pinned: pins.filter((pin) => !knownOf(pin))
+  }
+  const sectionOf = (path: string): PinSection =>
+    sections['Quick access'].some((pin) => sameQuickAccessPath(pin.path, path))
+      ? 'Quick access'
+      : 'Pinned'
+  const drives = places.filter((place) => place.group === 'This PC')
+  const usage = useDriveUsage(
+    drives.map((drive) => drive.path),
+    readDrives
+  )
   const [menu, setMenu] = useState<{
     pin: QuickAccessPin
     x: number
     y: number
     pinned: boolean
   } | null>(null)
-  const [drop, setDrop] = useState<{ before?: string } | null>(null)
+  const [drop, setDrop] = useState<{ section: PinSection; before?: string } | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
-  const groups: BrowsePlace['group'][] = ['Projects', 'This PC']
-  const over = (event: DragEvent, before?: string): void => {
+  const over = (event: DragEvent, section: PinSection, before?: string): void => {
     event.preventDefault()
     event.stopPropagation()
-    if (!isPinDrag(event)) {
+    // A pin moves among its own section's rows: a Pinned folder dropped in
+    // Quick access would land back under Pinned anyway.
+    if (!isPinDrag(event) || !dragging || sectionOf(dragging) !== section) {
       event.dataTransfer.dropEffect = 'none'
       setDrop(null)
       return
     }
     event.dataTransfer.dropEffect = 'move'
-    setDrop({ before })
+    setDrop({ section, before })
   }
-  const land = (event: DragEvent): void => {
+  const land = (event: DragEvent, section: PinSection): void => {
     event.preventDefault()
     event.stopPropagation()
     setDrop(null)
     setDragging(null)
     if (!isPinDrag(event)) return
+    const list = sections[section]
     // The release can arrive before React paints the final hover update.
     // Choose the insertion point from the actual drop position, not that state.
     const row = (event.target as Element).closest<HTMLElement>('[data-quick-access-path]')
-    const at = row ? pins.findIndex((pin) => pin.path === row.dataset.quickAccessPath) : -1
+    const at = row ? list.findIndex((pin) => pin.path === row.dataset.quickAccessPath) : -1
     const box = row?.getBoundingClientRect()
     const before = box && at >= 0
-      ? event.clientY < box.top + box.height / 2 ? pins[at].path : pins[at + 1]?.path
+      ? event.clientY < box.top + box.height / 2 ? list[at].path : list[at + 1]?.path
       : undefined
     const moving = event.dataTransfer.getData(QUICK_ACCESS_PIN_MIME)
-    if (moving && pins.some((pin) => sameQuickAccessPath(pin.path, moving)))
+    if (moving && list.some((pin) => sameQuickAccessPath(pin.path, moving)))
       onMoveQuickAccess?.(moving, before)
   }
+  const menuList = menu ? sections[sectionOf(menu.pin.path)] : []
   const menuIndex = menu
-    ? pins.findIndex((pin) => sameQuickAccessPath(pin.path, menu.pin.path))
+    ? menuList.findIndex((pin) => sameQuickAccessPath(pin.path, menu.pin.path))
     : -1
+  const pinSection = (section: PinSection): JSX.Element | null => {
+    const list = sections[section]
+    // Quick access with nothing in it says nothing; an empty Pinned says how
+    // to fill it, as the whole list's hint did before it was split.
+    if (!list.length && section === 'Quick access') return null
+    return (
+      <section
+        aria-label={section}
+        className="quick-access"
+        data-pin-section={section}
+        data-drop-end={drop?.section === section && !drop.before ? '' : undefined}
+        onDragOver={(event) => over(event, section)}
+        onDrop={(event) => land(event, section)}
+        onDragLeave={(event) => {
+          if (
+            !(event.relatedTarget instanceof Node) ||
+            !event.currentTarget.contains(event.relatedTarget)
+          )
+            setDrop(null)
+        }}
+      >
+        <h2>{section}</h2>
+        {!list.length && (
+          <p className="quick-access-empty">Right-click a file or folder to pin it here.</p>
+        )}
+        {list.map((pin, index) => {
+          const current = pin.isFolder && sameQuickAccessPath(pin.path, directory)
+          const ext = /\.[^.\\/]+$/.exec(pin.path)?.[0].toLowerCase() ?? ''
+          const destination = pin.isFolder ? folderDrop(pin.path) : undefined
+          const known = knownOf(pin)
+          // Home reads as the user's own folder, as the mockup has it.
+          const label = known === 'home' ? lastName(pin.path) : pin.label
+          return (
+            <button
+              key={pin.path}
+              className="browse-place quick-access-pin"
+              {...destination}
+              data-quick-access-path={pin.path}
+              data-known={known}
+              data-drop-before={
+                drop?.section === section && drop.before === pin.path ? '' : undefined
+              }
+              data-dragging={dragging === pin.path ? '' : undefined}
+              draggable={!!onMoveQuickAccess}
+              aria-current={current ? 'location' : undefined}
+              onClick={() =>
+                pin.isFolder ? onNavigate(pin.path) : onQuickAccessFile?.(pin.path)
+              }
+              onDoubleClick={() => {
+                if (!pin.isFolder) onQuickAccessFile?.(pin.path, true)
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                setMenu({ pin, x: event.clientX, y: event.clientY, pinned: true })
+              }}
+              onKeyDown={(event) => {
+                if (!pin.isFolder && event.key === 'Enter') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onQuickAccessFile?.(pin.path, true)
+                  return
+                }
+                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                  return
+                event.preventDefault()
+                const box = event.currentTarget.getBoundingClientRect()
+                setMenu({ pin, x: box.left + 20, y: box.bottom, pinned: true })
+              }}
+              onDragStart={(event) => {
+                setDrag(null)
+                event.dataTransfer.setData(QUICK_ACCESS_PIN_MIME, pin.path)
+                event.dataTransfer.effectAllowed = 'move'
+                setDragging(pin.path)
+              }}
+              onDragEnd={() => {
+                setDrag(null)
+                setDrop(null)
+                setDragging(null)
+              }}
+              onDragOver={(event) => {
+                if (!isPinDrag(event)) {
+                  if (destination) destination.onDragOver(event)
+                  else over(event, section)
+                  return
+                }
+                const box = event.currentTarget.getBoundingClientRect()
+                over(
+                  event,
+                  section,
+                  event.clientY < box.top + box.height / 2 ? pin.path : list[index + 1]?.path
+                )
+              }}
+              onDrop={(event) => {
+                if (!isPinDrag(event) && destination) destination.onDrop(event)
+                else land(event, section)
+              }}
+              title={pin.path}
+            >
+              {known ? (
+                <PlaceIcon name={known} />
+              ) : pin.isFolder ? (
+                <FolderIcon color="var(--p-tree-folder)" />
+              ) : (
+                <KindIcon
+                  kind={fileKind(ext, pin.label)}
+                  ext={ext}
+                  name={pin.label}
+                  size={18}
+                  color="var(--p-text-soft)"
+                />
+              )}
+              <span>{label}</span>
+            </button>
+          )
+        })}
+      </section>
+    )
+  }
+  const placeMenu = (place: BrowsePlace, x: number, y: number): void =>
+    setMenu({
+      pin: { path: place.path, label: place.label, isFolder: true },
+      x,
+      y,
+      pinned: pins.some((pin) => sameQuickAccessPath(pin.path, place.path))
+    })
+  const placeButton = (place: BrowsePlace, body: JSX.Element, className = ''): JSX.Element => (
+    <button
+      key={place.path}
+      className={`browse-place${className}`}
+      {...folderDrop(place.path)}
+      aria-current={sameQuickAccessPath(place.path, directory) ? 'location' : undefined}
+      onClick={() => onNavigate(place.path)}
+      title={place.path}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        placeMenu(place, event.clientX, event.clientY)
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+        event.preventDefault()
+        const box = event.currentTarget.getBoundingClientRect()
+        placeMenu(place, box.left + 20, box.bottom)
+      }}
+    >
+      {body}
+    </button>
+  )
+  const projects = places.filter((place) => place.group === 'Projects')
   return (
     <aside className="browse-places" aria-label="Locations">
       {onPin && (
@@ -111,158 +305,49 @@ export function BrowsePlaces({
         </div>
       )}
       <nav>
-        <section
-          aria-label="Quick access"
-          className="quick-access"
-          data-drop-end={drop && !drop.before ? '' : undefined}
-          onDragOver={(event) => over(event)}
-          onDrop={land}
-          onDragLeave={(event) => {
-            if (
-              !(event.relatedTarget instanceof Node) ||
-              !event.currentTarget.contains(event.relatedTarget)
-            )
-              setDrop(null)
-          }}
-        >
-          <h2>Quick access</h2>
-          {!pins.length && (
-            <p className="quick-access-empty">Right-click a file or folder to pin it here.</p>
-          )}
-          {pins.map((pin, index) => {
-            const current = pin.isFolder && sameQuickAccessPath(pin.path, directory)
-            const ext = /\.[^.\\/]+$/.exec(pin.path)?.[0].toLowerCase() ?? ''
-            const destination = pin.isFolder ? folderDrop(pin.path) : undefined
-            return (
-              <button
-                key={pin.path}
-                className="browse-place quick-access-pin"
-                {...destination}
-                data-quick-access-path={pin.path}
-                data-drop-before={drop?.before === pin.path ? '' : undefined}
-                data-dragging={dragging === pin.path ? '' : undefined}
-                draggable={!!onMoveQuickAccess}
-                aria-current={current ? 'location' : undefined}
-                onClick={() =>
-                  pin.isFolder ? onNavigate(pin.path) : onQuickAccessFile?.(pin.path)
-                }
-                onDoubleClick={() => {
-                  if (!pin.isFolder) onQuickAccessFile?.(pin.path, true)
-                }}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  setMenu({ pin, x: event.clientX, y: event.clientY, pinned: true })
-                }}
-                onKeyDown={(event) => {
-                  if (!pin.isFolder && event.key === 'Enter') {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    onQuickAccessFile?.(pin.path, true)
-                    return
-                  }
-                  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
-                    return
-                  event.preventDefault()
-                  const box = event.currentTarget.getBoundingClientRect()
-                  setMenu({ pin, x: box.left + 20, y: box.bottom, pinned: true })
-                }}
-                onDragStart={(event) => {
-                  setDrag(null)
-                  event.dataTransfer.setData(QUICK_ACCESS_PIN_MIME, pin.path)
-                  event.dataTransfer.effectAllowed = 'move'
-                  setDragging(pin.path)
-                }}
-                onDragEnd={() => {
-                  setDrag(null)
-                  setDrop(null)
-                  setDragging(null)
-                }}
-                onDragOver={(event) => {
-                  if (!isPinDrag(event)) {
-                    if (destination) destination.onDragOver(event)
-                    else over(event)
-                    return
-                  }
-                  const box = event.currentTarget.getBoundingClientRect()
-                  over(
-                    event,
-                    event.clientY < box.top + box.height / 2 ? pin.path : pins[index + 1]?.path
-                  )
-                }}
-                onDrop={(event) => {
-                  if (!isPinDrag(event) && destination) destination.onDrop(event)
-                  else land(event)
-                }}
-                title={pin.path}
-              >
-                {pin.isFolder ? (
-                  pin.label === 'Home' ? (
-                    <BrowseIcon name="home" />
-                  ) : (
-                    <FolderIcon color={current ? 'currentColor' : 'var(--p-tree-folder)'} />
-                  )
-                ) : (
-                  <KindIcon
-                    kind={fileKind(ext, pin.label)}
-                    ext={ext}
-                    name={pin.label}
-                    size={18}
-                    color="var(--p-text-soft)"
-                  />
-                )}
-                <span>{pin.label}</span>
-              </button>
-            )
-          })}
-        </section>
-        {groups.map((group) => {
-          const entries = places.filter((place) => place.group === group)
-          return entries.length ? (
-            <section key={group} aria-label={group}>
-              <h2>{group}</h2>
-              {entries.map((place) => {
-                const current = sameQuickAccessPath(place.path, directory)
-                const showMenu = (x: number, y: number): void =>
-                  setMenu({
-                    pin: { path: place.path, label: place.label, isFolder: true },
-                    x,
-                    y,
-                    pinned: pins.some((pin) => sameQuickAccessPath(pin.path, place.path))
-                  })
-                return (
-                  <button
-                    key={place.path}
-                    className="browse-place"
-                    {...folderDrop(place.path)}
-                    aria-current={current ? 'location' : undefined}
-                    onClick={() => onNavigate(place.path)}
-                    title={place.path}
-                    onContextMenu={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      showMenu(event.clientX, event.clientY)
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
-                        return
-                      event.preventDefault()
-                      const box = event.currentTarget.getBoundingClientRect()
-                      showMenu(box.left + 20, box.bottom)
-                    }}
-                  >
-                    {group === 'This PC' ? (
-                      <BrowseIcon name="drive" />
-                    ) : (
-                      <FolderIcon color={current ? 'currentColor' : 'var(--p-tree-folder)'} />
-                    )}
-                    <span>{place.label}</span>
-                  </button>
-                )
-              })}
-            </section>
-          ) : null
-        })}
+        {pinSection('Quick access')}
+        {pinSection('Pinned')}
+        {projects.length > 0 && (
+          <section aria-label="Projects">
+            <h2>Projects</h2>
+            {projects.map((place) =>
+              placeButton(
+                place,
+                <>
+                  <FolderIcon color="var(--p-tree-folder)" />
+                  <span>{place.label}</span>
+                </>
+              )
+            )}
+          </section>
+        )}
+        {drives.length > 0 && (
+          <section aria-label="This PC">
+            <h2>This PC</h2>
+            {drives.map((place) => {
+              const info = usage.get(place.path.toUpperCase())
+              const width = usedWidth(info?.total, info?.free)
+              return placeButton(
+                place,
+                <>
+                  <span className="browse-drive-top">
+                    <PlaceIcon name="drive" />
+                    <span className="browse-drive-name">{driveName(place.path, info)}</span>
+                  </span>
+                  {width !== null && (
+                    <>
+                      <span className="browse-drive-bar" aria-hidden="true">
+                        <i style={{ width }} />
+                      </span>
+                      <span className="browse-drive-free">{freeLine(info?.total, info?.free)}</span>
+                    </>
+                  )}
+                </>,
+                ' browse-drive'
+              )
+            })}
+          </section>
+        )}
       </nav>
       {menu && (
         <ContextMenu
@@ -312,13 +397,18 @@ export function BrowsePlaces({
                     label: 'Move up',
                     icon: <FileMenuIcon name="up" />,
                     disabled: !onMoveQuickAccess || menuIndex <= 0,
-                    onPick: () => onMoveQuickAccess?.(menu.pin.path, pins[menuIndex - 1]?.path)
+                    onPick: () =>
+                      onMoveQuickAccess?.(menu.pin.path, menuList[menuIndex - 1]?.path)
                   },
                   {
                     label: 'Move down',
                     icon: <FileMenuIcon name="down" />,
-                    disabled: !onMoveQuickAccess || menuIndex < 0 || menuIndex >= pins.length - 1,
-                    onPick: () => onMoveQuickAccess?.(menu.pin.path, pins[menuIndex + 2]?.path)
+                    disabled:
+                      !onMoveQuickAccess || menuIndex < 0 || menuIndex >= menuList.length - 1,
+                    // Before the row after next; the last row moves to the
+                    // end, which is the end of its section too.
+                    onPick: () =>
+                      onMoveQuickAccess?.(menu.pin.path, menuList[menuIndex + 2]?.path)
                   }
                 ]
               : [

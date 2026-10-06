@@ -534,6 +534,18 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
   its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
   ALONE: the tree keeps Font size. `explorerSize` e2e.
+  **THE PLACES PANEL IS THE THEMES MOCKUP'S** (#296; owner, 2026-10-06: "i really like the
+  sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
+  use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its
+  line glyph (`PlaceIcon`), Home by the user's folder name; Pinned is every other pin (hint when
+  empty); then Projects; then This PC: name as File Explorer writes it ("Local Disk (C:)"), a 4px
+  bar of used / total in `--p-accent-solid` on a faint track, "N free of M" in `formatBytes`. Still
+  ONE pin store and order: a pin moves (menu or drag) only within its own section. Sizes come
+  from main (`driveUsage.ts`, `browse:drives`): `statfs` per drive, 1.5 s cap, a drive whose call
+  is still out is not asked again; labels from ONE PowerShell CIM query, only when the drive set
+  changes or after 10 minutes. The page asks when the panel mounts, on focus (30 s apart) and
+  every 3 minutes (`useDriveUsage`). Headings are semibold, a step under the rows' text, so the
+  heading baseline nudges were measured again. `sidebarPlaces` e2e.
   **THE COLUMN HEADER IS FILE EXPLORER'S** (#274; owner, 2026-10-04: the hover "should be inside
   the whole box"; Size's name "aligned to the left"; the arrow "shows only when you hover over
   them while the currently sorted item has an arrow at all times"). The header keeps the rows'

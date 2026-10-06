@@ -21,6 +21,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statfsSync,
   statSync,
   truncateSync,
   utimesSync,
@@ -28,7 +29,7 @@ import {
 } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { BIG, buildBigFixtures, buildFixtures, OTHER_ROOT } from './fixtures.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -8372,6 +8373,203 @@ async function listScrollbarScenario(fixtures) {
   }
 }
 
+/**
+ * THE PLACES PANEL IS THE MOCKUP'S (#296; owner, 2026-10-06, of the themes
+ * mockup: "i really like the sidebar from here, so use that, with the icons
+ * and the disks with a bar showing how much is in use"). Quick access is the
+ * Known Folders, each with its own glyph; Pinned is what the user pinned;
+ * This PC is each drive with a bar whose used part is used / total (checked
+ * against Node's own statfs of C:) and a free line. What the rows did before
+ * still works: a click goes there, the menu pins, unpins and moves within a
+ * section, Shift+F10 opens it, a drag reorders a section and cannot cross into
+ * the other. Screenshots of the panel at Small, Medium and Large on a dark, a
+ * light and a see-through style, for the side by side with the mockup.
+ */
+async function sidebarPlacesScenario(fixtures) {
+  console.log('sidebar places')
+  const dir = join(fixtures, 'sideplaces')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'pinme'), { recursive: true })
+  mkdirSync(join(dir, 'pintoo'), { recursive: true })
+  writeFileSync(join(dir, 'one.txt'), 'one\n')
+  const { app, win } = await launch(join(dir, 'one.txt'))
+  const places = win.locator('.folder-browser .browse-places')
+  const list = win.locator('[data-testid="browse-list"]')
+  const row = (name) => list.locator(`[data-browse-path$="\\\\${name}" i]`).first()
+  const sections = () =>
+    win.evaluate(() =>
+      [...document.querySelectorAll('.folder-browser .browse-places nav > section')].map((s) => ({
+        label: s.getAttribute('aria-label'),
+        heading: s.querySelector('h2')?.textContent ?? '',
+        rows: [...s.querySelectorAll('.browse-place')].map((b) => ({
+          path: b.getAttribute('data-quick-access-path') ?? b.getAttribute('title'),
+          known: b.getAttribute('data-known'),
+          icon: b.querySelector('svg[data-place-icon]')?.getAttribute('data-place-icon') ?? null,
+          text: b.textContent
+        }))
+      }))
+    )
+  const section = async (label) => (await sections()).find((s) => s.label === label)
+  const pinRow = (section, name) =>
+    places.locator(`section[aria-label="${section}"] .quick-access-pin[data-quick-access-path$="\\\\${name}" i]`)
+  let styleBefore = null
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await row('pinme').count()) === 0) await row('sideplaces').dblclick()
+    ok(await until(async () => (await row('pinme').count()) === 1, 10000), 'the Explorer shows the fixture folder')
+
+    // 1. THE SECTIONS, in the mockup's order.
+    ok(await until(async () => (await sections()).some((s) => s.label === 'This PC'), 10000), 'the places panel lists This PC')
+    const order = (await sections()).map((s) => s.label)
+    ok(JSON.stringify(order) === JSON.stringify(['Quick access', 'Pinned', 'This PC']), `the sections are Quick access, Pinned, This PC (${order})`)
+
+    // 2. QUICK ACCESS: the Known Folders, each with its own glyph, Home by
+    // the user's own folder name.
+    const quick = await section('Quick access')
+    const known = ['home', 'desktop', 'downloads', 'documents', 'pictures', 'music', 'videos']
+    ok(
+      quick.rows.length >= 5 && quick.rows.every((r) => known.includes(r.known) && r.icon === r.known),
+      `every Quick access row is a Known Folder wearing its own icon (${JSON.stringify(quick.rows.map((r) => [r.known, r.icon]))})`
+    )
+    ok(new Set(quick.rows.map((r) => r.icon)).size === quick.rows.length, 'and no two share an icon')
+    const home = quick.rows.find((r) => r.known === 'home')
+    const homeName = homedir().split(/[\\/]/).pop()
+    ok(home?.text === homeName, `Home reads as the user's folder, "${homeName}" (${home?.text})`)
+    const pinned0 = await section('Pinned')
+    ok(pinned0.rows.length === 0 && /Right-click a file or folder/.test(await places.locator('section[aria-label="Pinned"]').textContent()), 'Pinned starts empty, with its hint')
+
+    // 3. PIN two folders: they land under Pinned with the folder icon, never
+    // under Quick access.
+    for (const name of ['pinme', 'pintoo']) {
+      await row(name).click({ button: 'right' })
+      await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+      ok(await until(async () => (await pinRow('Pinned', name).count()) === 1, 5000), `${name} is pinned under Pinned`)
+    }
+    ok((await places.locator('section[aria-label="Quick access"] .quick-access-pin[data-quick-access-path$="\\\\pinme" i]').count()) === 0, 'and not under Quick access')
+    ok((await pinRow('Pinned', 'pinme').locator('svg[data-place-icon]').count()) === 0 && (await pinRow('Pinned', 'pinme').locator('svg').count()) === 1, 'a pinned folder wears the folder icon')
+    ok((await places.locator('section[aria-label="Pinned"] p.quick-access-empty').count()) === 0, 'the hint has gone')
+
+    // 4. THIS PC: name, bar, free line, and the bar's width is used / total.
+    const c = places.locator('section[aria-label="This PC"] .browse-drive[title="C:\\\\"]')
+    ok(await until(async () => (await c.locator('.browse-drive-bar > i').count()) === 1, 15000), 'C: has its usage bar')
+    const drive = await c.evaluate((el) => {
+      const bar = el.querySelector('.browse-drive-bar').getBoundingClientRect()
+      const used = el.querySelector('.browse-drive-bar > i').getBoundingClientRect()
+      const name = el.querySelector('.browse-drive-name').getBoundingClientRect()
+      return {
+        name: el.querySelector('.browse-drive-name').textContent,
+        free: el.querySelector('.browse-drive-free').textContent,
+        fraction: used.width / bar.width,
+        barLeft: bar.left,
+        nameLeft: name.left,
+        barH: bar.height,
+        fill: getComputedStyle(el.querySelector('.browse-drive-bar > i')).backgroundColor
+      }
+    })
+    const fs = statfsSync('C:\\')
+    const want = (fs.blocks - fs.bavail) / fs.blocks
+    ok(/\(C:\)$/.test(drive.name), `the drive is named as File Explorer names it (${drive.name})`)
+    ok(/^[\d.]+ [KMGT]?B free of [\d.]+ [KMGT]?B$/.test(drive.free), `and says what is free of what (${drive.free})`)
+    ok(Math.abs(drive.fraction - want) < 0.01, `the bar's used part is used / total (${drive.fraction.toFixed(4)} against statfs ${want.toFixed(4)})`)
+    ok(Math.abs(drive.barLeft - drive.nameLeft) <= 1 && drive.barH === 4, `the bar starts under the name and is 4px tall (${JSON.stringify(drive)})`)
+    const accent = await win.evaluate(() => {
+      const probe = document.createElement('i')
+      probe.style.color = 'var(--p-accent-solid)'
+      document.body.append(probe)
+      const v = getComputedStyle(probe).color
+      probe.remove()
+      return v
+    })
+    ok(drive.fill === accent, `the used part is the accent as picked (${drive.fill}, ${accent})`)
+
+    // 5. WHAT THE ROWS DID BEFORE. A click goes there.
+    await pinRow('Pinned', 'pinme').click()
+    ok(await until(async () => (await pinRow('Pinned', 'pinme').getAttribute('aria-current')) === 'location', 8000), 'a click on a pin opens that folder and marks it current')
+    ok(await until(async () => (await list.locator('[data-browse-path]').count()) === 0, 8000), 'the list is the empty folder')
+    await c.click()
+    ok(await until(async () => (await c.getAttribute('aria-current')) === 'location', 8000), 'a click on a drive opens it')
+    // The menu moves a pin within ITS section: pintoo up past pinme.
+    await pinRow('Pinned', 'pintoo').click({ button: 'right' })
+    ok((await win.getByRole('menuitem', { name: 'Move down', exact: true }).isDisabled()), 'the last Pinned row cannot move down')
+    await win.getByRole('menuitem', { name: 'Move up', exact: true }).click()
+    const pinnedOrder = async () => (await section('Pinned')).rows.map((r) => r.path.split('\\').pop())
+    ok(await until(async () => JSON.stringify(await pinnedOrder()) === '["pintoo","pinme"]', 5000), `Move up reorders Pinned (${await pinnedOrder()})`)
+    const quickOrder = async () => (await section('Quick access')).rows.map((r) => r.known)
+    ok(JSON.stringify(await quickOrder()) === JSON.stringify(quick.rows.map((r) => r.known)), 'and leaves Quick access as it was')
+    // Move down on Quick access's first row moves it within Quick access.
+    const firstKnown = quick.rows[0].known
+    await places.locator('section[aria-label="Quick access"] .quick-access-pin').first().click({ button: 'right' })
+    ok(await win.getByRole('menuitem', { name: 'Move up', exact: true }).isDisabled(), 'the first Quick access row cannot move up')
+    await win.getByRole('menuitem', { name: 'Move down', exact: true }).click()
+    ok(await until(async () => (await quickOrder())[1] === firstKnown, 5000), `Move down moves it within Quick access (${await quickOrder()})`)
+    ok(JSON.stringify(await pinnedOrder()) === '["pintoo","pinme"]', 'Pinned is untouched by it')
+    // The keyboard: Shift+F10 on a focused place opens its menu.
+    await places.locator('section[aria-label="Quick access"] .quick-access-pin').first().focus()
+    await win.keyboard.press('Shift+F10')
+    ok(await until(async () => (await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).count()) === 1, 3000), 'Shift+F10 opens a place menu')
+    await win.keyboard.press('Escape')
+    // A drag reorders Pinned and cannot carry a pin into Quick access.
+    await pinRow('Pinned', 'pinme').dragTo(pinRow('Pinned', 'pintoo'), { targetPosition: { x: 20, y: 3 } })
+    ok(await until(async () => JSON.stringify(await pinnedOrder()) === '["pinme","pintoo"]', 5000), `a drag reorders Pinned (${await pinnedOrder()})`)
+    const quickNow = await quickOrder()
+    await pinRow('Pinned', 'pintoo').dragTo(places.locator('section[aria-label="Quick access"] .quick-access-pin').first(), { targetPosition: { x: 20, y: 3 } })
+    await sleep(400)
+    ok(JSON.stringify(await quickOrder()) === JSON.stringify(quickNow) && JSON.stringify(await pinnedOrder()) === '["pinme","pintoo"]', 'a pin dragged onto Quick access stays where it was')
+    // A drive's menu offers to pin it; pinned, it is a Pinned row.
+    await c.click({ button: 'right' })
+    ok((await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).count()) === 1, 'a drive offers Pin to Quick access')
+    await win.keyboard.press('Escape')
+
+    // 6. THE LOOK, at each size on a dark, a light and a see-through style.
+    await pinRow('Pinned', 'pinme').click()
+    for (const [style, mode] of [['aurora', 'dark'], ['paper', 'light'], ['default', 'dark']]) {
+      const was = await switchStyle(win, style, mode)
+      styleBefore ??= was
+      await sleep(500)
+      for (const size of ['Small', 'Medium', 'Large']) {
+        await pickStyleSegment(win, 'explorer-size', size)
+        await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+        await places.waitFor({ timeout: 10000 })
+        await sleep(400)
+        const look = await win.evaluate(() => {
+          const q = document.querySelector('.folder-browser .browse-places section[aria-label="Quick access"] .browse-place')
+          const d = document.querySelector('.folder-browser .browse-drive')
+          return {
+            row: q?.getBoundingClientRect().height,
+            icon: q?.querySelector('svg')?.getBoundingClientRect().height,
+            driveIcon: d?.querySelector('.browse-drive-top > svg')?.getBoundingClientRect().height,
+            bar: d?.querySelector('.browse-drive-bar')?.getBoundingClientRect().height
+          }
+        })
+        const want = { Small: [22, 12], Medium: [26, 14], Large: [40, 18] }[size]
+        ok(look.row === want[0] && look.icon === want[1] && look.driveIcon === want[1] && look.bar === 4, `${style} ${size}: rows ${want[0]}px with ${want[1]}px icons, drive icon too, a 4px bar (${JSON.stringify(look)})`)
+        const box = await places.boundingBox()
+        await win.screenshot({ path: join(SHOTS, `sidebar-${style}-${size.toLowerCase()}.png`), clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 560) } })
+        if (size === 'Medium') await win.screenshot({ path: join(SHOTS, `sidebar-${style}-window.png`) })
+      }
+    }
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+
+    // 7. Unpin puts the hint back.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    for (const name of ['pinme', 'pintoo']) {
+      await pinRow('Pinned', name).click({ button: 'right' })
+      await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+      ok(await until(async () => (await pinRow('Pinned', name).count()) === 0, 5000), `${name} is unpinned`)
+    }
+    ok(await until(async () => (await places.locator('section[aria-label="Pinned"] p.quick-access-empty').count()) === 1, 3000), 'and Pinned shows its hint again')
+  } finally {
+    // The shared profile: Quick access back in its own order, the style back.
+    await win
+      .evaluate(() => localStorage.removeItem('prism.quickAccess'))
+      .catch(() => {})
+    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    await win.evaluate(() => localStorage.removeItem('prism.explorer.size')).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -13520,6 +13718,7 @@ await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
+await run(sidebarPlacesScenario)
 await run(columnHeadersScenario)
 await run(panelsAlignScenario)
 await run(downloadsDateScenario)

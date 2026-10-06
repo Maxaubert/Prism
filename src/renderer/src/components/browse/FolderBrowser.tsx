@@ -396,6 +396,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           places={props.places}
           onDropInto={props.onDropInto}
           quickAccess={props.quickAccess}
+          readDrives={props.readDrives}
           onQuickAccessFile={
             props.placesPeek && props.onQuickAccessFile
               ? (path, full) => {

@@ -280,13 +280,17 @@
   padding: 0 8px 18px;
 }
 .browse-places section + section {
-  margin-top: 20px;
+  margin-top: 0;
 }
+/* THE MOCKUP'S HEADINGS (#296; owner, 2026-10-06: "i really like the sidebar
+   from here"): a step under the rows' text, semibold, the dim ink, with the
+   room above a section that the mockup gives it. They follow the Explorer
+   size with the rows. */
 .browse-places h2 {
-  margin: 10px 10px 6px;
+  margin: 12px 8px 4px;
   color: var(--p-dim);
-  font-size: 13px;
-  font-weight: 400;
+  font-size: calc(var(--browse-row-font, 12.5px) - 1px);
+  font-weight: 600;
 }
 /* THE FIRST HEADING SITS IN THE COLUMN HEADER'S BAND (#283; owner,
    2026-10-04: "the position of the sorting bar with name, type, size etc.
@@ -332,10 +336,54 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.browse-place > svg {
+.browse-place > svg,
+.browse-drive-top > svg {
   width: var(--browse-row-icon, 14px);
   height: var(--browse-row-icon, 14px);
   flex: none;
+}
+/* A place's line glyph (#296) is the dim ink, as the mockup draws it; folder
+   and file icons keep their own colours. */
+.browse-place .browse-place-icon {
+  color: var(--p-dim);
+}
+/* THIS PC: the drive's name, a thin bar of what is used and a dim line of
+   what is free (#296; owner: "the disks with a bar showing off how much is in
+   use"). The name line is a row of the Explorer size; the bar and the line
+   under it start under the name, past the icon and its gap. The used part is
+   the accent as picked (--p-accent-solid, the progress bar's own rule), the
+   track a faint step of the text over whatever ground is behind. */
+.folder-browser .browse-place.browse-drive {
+  height: auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding-block: 4px 7px;
+}
+.browse-drive-top {
+  display: flex;
+  align-items: center;
+  gap: var(--browse-row-gap, 6px);
+  min-height: calc(var(--browse-row-h, 26px) - 8px);
+}
+.browse-place .browse-drive-bar {
+  display: block;
+  height: 4px;
+  margin: 5px 0 4px calc(var(--browse-row-icon, 14px) + var(--browse-row-gap, 6px));
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--p-text) 16%, transparent);
+}
+.browse-drive-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--p-accent-solid);
+}
+.browse-place .browse-drive-free {
+  display: block;
+  margin-left: calc(var(--browse-row-icon, 14px) + var(--browse-row-gap, 6px));
+  color: var(--p-dim);
+  font-size: calc(var(--browse-row-font, 12.5px) - 1.5px);
 }
 /* The current place wears the SELECTION's look, the tint with its faint edge
    and the text in its own colour (owner, 2026-10-03, of the solid block: "i
@@ -346,6 +394,7 @@
   background-color: var(--p-sel-tint);
   box-shadow: inset 0 0 0 1px var(--p-sel-line);
   color: var(--p-text);
+  font-weight: 600;
 }
 /* A terminal's own buttons (Return to terminal, Terminal folder, cd here)
    sit in the toolbar since the action row went (#267). */
