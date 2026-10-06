@@ -9002,6 +9002,80 @@ async function sidebarPlacesScenario(fixtures) {
     rmSync(dir, { recursive: true, force: true })
   }
 }
+/**
+ * THE EXPLORER'S SIDEBAR WEARS THE SIDEBAR COLOUR, AND THE COLOURS ARE HEADED
+ * "COLOURS" (#302; owner, 2026-10-06: "from your mockups i think the sidebar
+ * in explorer was supposed to be distinctly colored from the main bg right ...
+ * i see that in settings the sidebar is distinctly colored correctly", and of
+ * "Colours of Volt": "dont have this show the theme name, just call that
+ * section colours"). On a dark, a light and a see-through theme the places
+ * panel's ground is not the list's and IS the Settings rail's: both are
+ * --p-side, the "Sidebar and tab bar colour". Before, the places panel was
+ * the folder browser's --p-bg. The see-through count of coats is seeThrough's.
+ */
+async function sidebarGroundScenario(fixtures) {
+  console.log('sidebar ground')
+  const dir = join(fixtures, 'sideground')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'inner'), { recursive: true })
+  writeFileSync(join(dir, 'one.txt'), 'one\n')
+  const { app, win } = await launch(join(dir, 'one.txt'))
+  let styleBefore
+  const explorer = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('.folder-browser .browse-places', { timeout: 10000 })
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+  }
+  const groundOf = (sel) => win.evaluate((q) => {
+    const el = document.querySelector(q)
+    return el ? getComputedStyle(el).backgroundColor : null
+  }, sel)
+  try {
+    await explorer()
+    // 1. THE HEADING: "Colours", whatever the theme.
+    for (const style of ['new-void', 'paper']) {
+      const was = await switchStyle(win, style)
+      if (styleBefore === undefined) styleBefore = was
+      await settingsPage(win, 'appearance')
+      const heading = win.locator('[data-settings-section="style-colours"] h3')
+      await heading.waitFor({ timeout: 10000 })
+      const text = (await heading.textContent())?.trim()
+      ok(text === 'Colours', `${style}: the Appearance colours section is headed "Colours" (${text})`)
+      await win.click('[aria-label="Settings"]')
+      await sleep(300)
+    }
+
+    // 2. THE GROUNDS: places against the list, the Settings rail and --p-side.
+    for (const style of ['new-void', 'paper', 'aurora', 'glacier']) {
+      await switchStyle(win, style)
+      await sleep(400)
+      await explorer()
+      const side = await cssColour(win, 'var(--p-side)')
+      let places = null
+      let list = null
+      await until(async () => {
+        places = await groundOf('.folder-browser > .browse-places')
+        list = await groundOf('.folder-browser > .browse-list-area')
+        return places === side
+      }, 4000, 100)
+      ok(places !== null && places !== list, `${style}: the places panel's ground is not the list's (${places} vs ${list})`)
+      ok(places === side, `${style}: the places panel wears the sidebar colour (${places}, --p-side ${side})`)
+      await win.mouse.move(2, 400)
+      await sleep(300)
+      await win.screenshot({ path: join(SHOTS, `sidebar-ground-${style}.png`) })
+      await settingsPage(win, 'appearance')
+      await win.waitForSelector('[data-settings-page] > nav', { timeout: 10000 })
+      const rail = await groundOf('[data-settings-page] > nav')
+      ok(rail === places, `${style}: and that is the Settings rail's ground (${rail})`)
+      await win.click('[aria-label="Settings"]')
+      await sleep(300)
+    }
+  } finally {
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -15374,6 +15448,7 @@ await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(sidebarPlacesScenario)
+await run(sidebarGroundScenario)
 await run(rightClickSelectScenario)
 await run(columnHeadersScenario)
 await run(panelsAlignScenario)

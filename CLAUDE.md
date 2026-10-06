@@ -92,6 +92,13 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   inside the one-row bar, the Explorer's address bar row, the preview pane over the folder
   browser, a document's canvas (`.p-doc`), and the core Settings frame (index.css: the frame clear, the rail and pane one coat
   each). The `seeThrough` e2e composites every box under sampled points of each surface.
+- **THE EXPLORER'S PLACES PANEL WEARS THE SIDEBAR COLOUR; THE COLOURS ARE HEADED "Colours"** (#302;
+  owner, 2026-10-06: "from your mockups i think the sidebar in explorer was supposed to be distinctly
+  colored from the main bg right ... in settings the sidebar is distinctly colored correctly", and of
+  "Colours of Volt": "dont have this show the theme name, just call that section colours"). The folder
+  browser paints no ground; its address row, list, preview slot and status paint `--p-bg`, the places
+  panel (and `.browse-viewer-places`) `--p-side`, the Settings rail's and project tree's colour, one
+  coat each. Every catalogue theme's panel differs from its ground. The `sidebarGround` e2e holds both.
 
 ## Scope
 

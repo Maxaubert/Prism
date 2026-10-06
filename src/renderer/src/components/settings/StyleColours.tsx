@@ -25,9 +25,8 @@ import {
   useOverrides,
   useStyle
 } from '../../lib/theme'
-import { appOpt } from './appOptions'
+import { APP_SECTIONS, appOpt } from './appOptions'
 import { iconPath } from './icons'
-import { coloursTitle } from './settingsIndex'
 
 /**
  * One colour of the style, as a row: the core's picker (ONE COLOUR PICKER,
@@ -84,9 +83,9 @@ function StyleColour({
  * THE STYLE'S COLOURS, BY IMPORTANCE (owner, 2026-10-03: "make the most
  * important colours appear first ... primary and secondary first then
  * accent"): the viewer's ground, the panels round it, the accent, the
- * selection that came out of it, the text, the folder icons. Headed by the
- * style they edit ("Colours of Aurora"), since every edit here is an edit of
- * that style until it is saved as a preset.
+ * selection that came out of it, the text, the folder icons. Headed a plain
+ * "Colours" (owner, 2026-10-06: "dont have this show the theme name, just
+ * call that section colours", #302); it was "Colours of Aurora".
  */
 export function StyleColoursSection(): JSX.Element {
   const style = useStyle()
@@ -96,7 +95,7 @@ export function StyleColoursSection(): JSX.Element {
   // is the one a popover opening now captures.
   const putBack = (keys: Array<keyof typeof edits>) => () => restoreOverrides(edits, keys)
   return (
-    <SettingsSection id="style-colours" title={coloursTitle(style.name)}>
+    <SettingsSection id="style-colours" title={APP_SECTIONS['style-colours']}>
       {/* PRIMARY'S ALPHA IS THE OLD ACRYLIC SLIDER (owner, 2026-10-03,
           decision 1): below 100 the window is glass at the level that alpha
           paints (a mica style stays mica), at 100 it is solid. A hue edit

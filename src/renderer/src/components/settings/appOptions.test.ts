@@ -104,14 +104,14 @@ describe('Find a setting', () => {
   })
 
   it('indexes what is drawn on this PC: the GPU row only with an NVIDIA card, never command help', () => {
-    expect(settingsIndex(true, 'Aurora').map((e) => e.id)).toEqual([...ROW_ORDER])
-    expect(settingsIndex(false, 'Aurora').map((e) => e.id)).toEqual(ROW_ORDER.filter((id) => id !== 'dictation-gpu'))
-    expect(settingsIndex(true, 'Aurora').some((e) => e.id === 'help-enabled')).toBe(false)
+    expect(settingsIndex(true).map((e) => e.id)).toEqual([...ROW_ORDER])
+    expect(settingsIndex(false).map((e) => e.id)).toEqual(ROW_ORDER.filter((id) => id !== 'dictation-gpu'))
+    expect(settingsIndex(true).some((e) => e.id === 'help-enabled')).toBe(false)
   })
 
-  it('says where each row lives, the style colours by the style', () => {
-    const at = Object.fromEntries(settingsIndex(true, 'Ruby').map((e) => [e.id, `${e.page}/${e.section}${e.view ? `/${e.view}` : ''}`]))
-    expect(at['c-accent']).toBe('appearance/Colours of Ruby')
+  it('says where each row lives, the style colours under a plain Colours (#302)', () => {
+    const at = Object.fromEntries(settingsIndex(true).map((e) => [e.id, `${e.page}/${e.section}${e.view ? `/${e.view}` : ''}`]))
+    expect(at['c-accent']).toBe('appearance/Colours')
     expect(at['term-theme']).toBe('terminal/Theme')
     expect(at['term-shell']).toBe('terminal/Shell')
     expect(at['agent-hooks']).toBe('agents/Claude Code')
