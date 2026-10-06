@@ -89,7 +89,11 @@ export function DriveBody({
                 strokeDasharray={ringDash(used, RING_R)}
               />
             </svg>
-            <b className="browse-drive-pct">{pct}</b>
+            <b className="browse-drive-pct" aria-hidden="true">
+              {pct}
+            </b>
+            {/* The donut's bare number means nothing read aloud. */}
+            <span className="sr-only">{pct}% used</span>
           </span>
         )}
       </>
@@ -107,6 +111,8 @@ export function DriveBody({
         </span>
         {sizes && (
           <>
+            {/* The meter is drawn only, so its share is said in words. */}
+            <span className="sr-only">{pct}% used</span>
             <span className="browse-drive-seg" data-lit={lit} aria-hidden="true">
               {Array.from({ length: GAUGE_STEPS }, (_, i) => (
                 <i key={i} data-on={i < lit ? '' : undefined} />
@@ -116,6 +122,7 @@ export function DriveBody({
               <span className="browse-drive-free">
                 <em>{sizes.free}</em> free
               </span>
+              <span className="sr-only">of</span>
               <span className="browse-drive-total">{sizes.total}</span>
             </span>
           </>
@@ -132,6 +139,7 @@ export function DriveBody({
       <span className="browse-drive-l1">
         {nameEl}
         {pct !== null && <span className="browse-drive-pct">{pct}%</span>}
+        {pct !== null && <span className="sr-only">used</span>}
       </span>
       {width !== null && (
         <>

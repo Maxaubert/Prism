@@ -8582,6 +8582,10 @@ async function sidebarPlacesScenario(fixtures) {
       ok(drive.style === id && drawsShare(drive, want), `${id}: C: draws its used share (${drive.fraction?.toFixed(4)}${drive.lit !== undefined ? `, ${drive.lit} of 20 lit` : ''}, statfs ${want.toFixed(4)})`)
       ok(drive.badge === (system === 'C:\\') && drive.glyph === 'drive', `${id}: the glyph and the Windows badge stay`)
       ok(drive.fill === (drive.warn ? warnFill : accent), `${id}: in the accent (${drive.fill})`)
+      // A screen reader hears the share in words in every style: the donut's
+      // bare number and the meter's steps are drawings, not text.
+      const said = await c.ariaSnapshot()
+      ok(said.includes(`${Math.round(want * 100)}% used`) && /free/.test(said), `${id}: the row's name says the share used (${said.trim()})`)
       if (id === 'ring') {
         ok(drive.ring && !drive.bar && !drive.chip && drive.seg === 0, `ring: a donut, no bar and no chip (${JSON.stringify(drive)})`)
         ok(drive.pct === String(Math.round(want * 100)), `ring: the percent inside it (${drive.pct})`)
