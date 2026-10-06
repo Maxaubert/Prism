@@ -5101,7 +5101,7 @@ async function tabsScenario(fixtures) {
 const SETTINGS_PAGE_OF = {
   'style-theme': 'appearance', 'see-through': 'appearance', 'theme-edits': 'appearance', 'c-bg': 'appearance', 'c-accent': 'appearance', 'c-font': 'appearance',
   'tree-size': 'appearance', 'title-bar': 'appearance', 'tab-width': 'appearance', 'c-edges': 'appearance', 'c-corners': 'appearance',
-  'tree-side': 'project', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'project',
+  'tree-side': 'explorer', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'project',
   'open-external': 'explorer', 'remember-tabs': 'explorer', 'remember-folders': 'explorer', 'explorer-verb': 'explorer', 'default-apps': 'explorer',
   'term-shell': 'terminal', 'term-theme': 'terminal', 'agent-indicator': 'agents', 'agent-color': 'agents',
   'dictation-enabled': 'dictation', 'transport-bg': 'media', 'app-version': 'about'
@@ -14593,6 +14593,62 @@ async function settingsSearchScenario(fixtures) {
   }
 }
 
+/** The coats under a box (#294): at points along its middle row (and one
+ *  lower down for a tall box) where nothing carrying text is on top, every box
+ *  from the top of the stack to the root, background alphas composited. The
+ *  worst point is returned, with the coats that made it. Shared by
+ *  `seeThrough` and `explorerSide` (#304). */
+const coatsUnder = (win, sel, at) =>
+  win.evaluate(([q, y0]) => {
+    const el = document.querySelector(q)
+    if (!el) return null
+    const alphaOf = (c) => {
+      if (!c || c === 'transparent') return 0
+      const v = (c.match(/[\d.]+/g) ?? []).map(Number)
+      return v.length > 3 ? v[3] : 1
+    }
+    const r = el.getBoundingClientRect()
+    const rows = y0 !== null ? [r.top + y0] : r.height > 120 ? [r.top + 16, r.top + r.height * 0.5, r.bottom - 24] : [r.top + r.height / 2]
+    let worst = null
+    for (const y of rows)
+      for (let x = r.left + 6; x < r.right - 6; x += 9) {
+        const stack = document.elementsFromPoint(x, y)
+        if (!stack.length || !(stack[0] === el || el.contains(stack[0]))) continue
+        const top = stack[0]
+        if (top !== el && [...top.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue
+        // The file itself (a picture, a PDF page, a line of code) and a
+        // control (the address field, the transport) are not grounds. A
+        // film's box is measured: its letterbox is the pane's ground. A
+        // CARD (the archive's member list) is a flat panel, like a menu.
+        if (top.closest('img, canvas, svg, button, input, .browse-field, [data-page], [data-scrub], [data-transport-row], .p-sheet, .cm-line, .cm-gutterElement, [class~="bg-[var(--p-side-flat)]"]')) continue
+        let clear = 1
+        const coats = []
+        for (const b of stack) {
+          const a = alphaOf(getComputedStyle(b).backgroundColor)
+          if (a > 0.01) {
+            clear *= 1 - a
+            const cls = typeof b.className === 'string' ? b.className.trim().split(/\s+/).filter((c) => !c.includes('[')).slice(0, 3).join('.') : ''
+            coats.push(`${b.tagName.toLowerCase()}${cls ? '.' + cls : ''}@${a.toFixed(2)}`)
+          }
+        }
+        const total = 1 - clear
+        if (!worst || total > worst.total) worst = { total, x: Math.round(x), y: Math.round(y), coats }
+      }
+    return worst
+  }, [sel, at ?? null])
+
+/** The alpha of the window's see-through ground, --p-bg. */
+const groundAlphaOf = (win) =>
+  win.evaluate(() => {
+    const probe = document.createElement('span')
+    probe.style.backgroundColor = 'var(--p-bg)'
+    document.body.appendChild(probe)
+    const c = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    const v = (c.match(/[\d.]+/g) ?? []).map(Number)
+    return v.length > 3 ? v[3] : 1
+  })
+
 /**
  * A SEE-THROUGH STYLE IS SEE-THROUGH EVERYWHERE (#294; owner, 2026-10-06, of
  * Prism on a glass style: "the top bar and settings sidebar don't follow the
@@ -14642,58 +14698,9 @@ async function seeThroughScenario(fixtures) {
   }
   const { app, win } = await launch(join(dir, 'notes.md'))
   let styleBefore = null
-  /** The coats under a box: at points along its middle row (and one lower
-   *  down for a tall box) where nothing carrying text is on top, every box
-   *  from the top of the stack to the root, background alphas composited.
-   *  The worst point is returned, with the coats that made it. */
-  const coatsOf = (sel, at) =>
-    win.evaluate(([q, y0]) => {
-      const el = document.querySelector(q)
-      if (!el) return null
-      const alphaOf = (c) => {
-        if (!c || c === 'transparent') return 0
-        const v = (c.match(/[\d.]+/g) ?? []).map(Number)
-        return v.length > 3 ? v[3] : 1
-      }
-      const r = el.getBoundingClientRect()
-      const rows = y0 !== null ? [r.top + y0] : r.height > 120 ? [r.top + 16, r.top + r.height * 0.5, r.bottom - 24] : [r.top + r.height / 2]
-      let worst = null
-      for (const y of rows)
-        for (let x = r.left + 6; x < r.right - 6; x += 9) {
-          const stack = document.elementsFromPoint(x, y)
-          if (!stack.length || !(stack[0] === el || el.contains(stack[0]))) continue
-          const top = stack[0]
-          if (top !== el && [...top.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue
-          // The file itself (a picture, a PDF page, a line of code) and a
-          // control (the address field, the transport) are not grounds. A
-          // film's box is measured: its letterbox is the pane's ground. A
-          // CARD (the archive's member list) is a flat panel, like a menu.
-          if (top.closest('img, canvas, svg, button, input, .browse-field, [data-page], [data-scrub], [data-transport-row], .p-sheet, .cm-line, .cm-gutterElement, [class~="bg-[var(--p-side-flat)]"]')) continue
-          let clear = 1
-          const coats = []
-          for (const b of stack) {
-            const a = alphaOf(getComputedStyle(b).backgroundColor)
-            if (a > 0.01) {
-              clear *= 1 - a
-              const cls = typeof b.className === 'string' ? b.className.trim().split(/\s+/).filter((c) => !c.includes('[')).slice(0, 3).join('.') : ''
-              coats.push(`${b.tagName.toLowerCase()}${cls ? '.' + cls : ''}@${a.toFixed(2)}`)
-            }
-          }
-          const total = 1 - clear
-          if (!worst || total > worst.total) worst = { total, x: Math.round(x), y: Math.round(y), coats }
-        }
-      return worst
-    }, [sel, at ?? null])
-  const groundAlpha = () =>
-    win.evaluate(() => {
-      const probe = document.createElement('span')
-      probe.style.backgroundColor = 'var(--p-bg)'
-      document.body.appendChild(probe)
-      const c = getComputedStyle(probe).backgroundColor
-      probe.remove()
-      const v = (c.match(/[\d.]+/g) ?? []).map(Number)
-      return v.length > 3 ? v[3] : 1
-    })
+  /** The coats under a box (`coatsUnder`, above). */
+  const coatsOf = (sel, at) => coatsUnder(win, sel, at)
+  const groundAlpha = () => groundAlphaOf(win)
   const oneCoat = async (label, sel, want, at) => {
     let m = null
     await until(async () => {
@@ -15052,6 +15059,293 @@ async function previewClearsScenario(fixtures) {
     ok(await until(async () => (await pane()).empty, 5000), 'Back out of it, empty once more')
   } finally {
     await app.close()
+  }
+}
+
+/**
+ * SIDEBAR POSITION MOVES THE EXPLORER'S SIDEBAR (#304; owner, 2026-10-07: "fix
+ * the setting in Explorer for the sidebar where you can put it on the right
+ * side or the left side? I think that's just an empty setting for now ... when
+ * the sidebar goes on the right, the preview menu and button to open it would
+ * have to go on the left"). One row, on Explorer's Layout, for the places AND
+ * the project tree. On the right: the places against the window's right edge,
+ * the preview pane against its left, the preview toggle before the history
+ * buttons; the toggle, both grips, the hide, the peek and the pin all work
+ * turned round, one coat of a see-through ground everywhere, and Left again
+ * gives back every box exactly. The choice outlives a restart.
+ */
+async function explorerSideScenario(fixtures) {
+  console.log('explorer sidebar side (#304)')
+  const dir = join(fixtures, 'explorerside')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'sub'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), Array.from({ length: 30 }, (_, i) => `line ${i + 1} of the notes`).join('\n'))
+  writeFileSync(join(dir, 'other.txt'), 'other\n')
+  let { app, win } = await launch(join(dir, 'notes.txt'))
+  let widthsBefore = null
+  let styleBefore
+  const browser = '[data-testid="folder-browser"]'
+  const boxes = () =>
+    win.evaluate((b) => {
+      const at = (q) => {
+        const el = document.querySelector(q)
+        if (!el || !el.getClientRects().length) return null
+        const r = el.getBoundingClientRect()
+        return { x: Math.round(r.left), r: Math.round(r.right), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }
+      }
+      return {
+        side: document.querySelector(b)?.getAttribute('data-side') ?? 'left',
+        work: at('.browse-workspace'),
+        places: at(`${b} .browse-places`),
+        list: at(`${b} .browse-list-area`),
+        pane: at('[data-browse-preview]'),
+        toggle: at(`${b} [aria-label="Preview pane"]`),
+        back: at(`${b} [aria-label="Back"]`),
+        field: at(`${b} .browse-path`),
+        search: at('[data-testid="browse-search-button"]'),
+        status: at(`${b} .browse-status`),
+        placesGrip: at('.explorer-resize-places'),
+        previewGrip: at('.explorer-resize-preview')
+      }
+    }, browser)
+  const say = (m) => JSON.stringify(m)
+  const settle = () => sleep(500)
+  const toExplorer = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${browser} .browse-row`, { timeout: 10000 })
+  }
+  const pick = async (name) => {
+    await zipRow(win, name).click()
+    ok(
+      await until(() => win.evaluate(() => !!document.querySelector('[data-browse-preview]')?.textContent?.includes('line 1 of the notes')), 10000),
+      `${name} previews`
+    )
+    await win.mouse.move(400, 300)
+    await settle()
+  }
+  const toggle = () => win.locator(`${browser} [aria-label="Preview pane"]`)
+  const placesShown = async () => (await win.locator(`${browser} .browse-places`).count()) === 1
+  const drag = async (sel, dx) => {
+    const g = await win.locator(sel).boundingBox()
+    const x = g.x + g.width / 2
+    const y = g.y + g.height / 2
+    await win.mouse.move(x, y)
+    await win.mouse.down()
+    await win.mouse.move(x + dx / 2, y, { steps: 3 })
+    await win.mouse.move(x + dx, y, { steps: 3 })
+    await win.mouse.up()
+    await settle()
+  }
+  const project = () =>
+    win.evaluate(() => {
+      const at = (el) => {
+        if (!el || !el.getClientRects().length) return null
+        const r = el.getBoundingClientRect()
+        return { x: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }
+      }
+      return {
+        work: at(document.querySelector('.browse-workspace')),
+        tree: at(document.querySelector('[data-project-sidebar]')),
+        viewer: at(document.querySelector('[data-workspace-viewer]'))
+      }
+    })
+  try {
+    widthsBefore = await win.evaluate(() => localStorage.getItem('prism.explorer.widths'))
+    // 0. THE ROW IS EXPLORER'S, first in Layout, and Project settings has none.
+    await gotoPref(win, 'tree-side')
+    const firstInLayout = await win.evaluate(() => document.querySelector('[data-settings-section="layout"] [data-pref]')?.getAttribute('data-pref'))
+    ok(firstInLayout === 'tree-side', `Sidebar position is the first row of Explorer's Layout (${firstInLayout})`)
+    await settingsPage(win, 'project')
+    await sleep(300)
+    ok((await win.locator('[data-pref="tree-side"]').count()) === 0, 'and Project settings no longer carries it')
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+    await pickStyleSegment(win, 'tree-side', 'Left')
+
+    // 1. LEFT, as it always was: the project tab and the Explorer.
+    await win.locator('[role="tablist"] [role="tab"]').last().click()
+    await win.waitForSelector('[data-project-sidebar]', { timeout: 10000 })
+    await settle()
+    const projLeft = await project()
+    ok(!!projLeft.tree && projLeft.tree.x === projLeft.work.x, `Left: the project tree is at the left edge (${say(projLeft)})`)
+    await explorerAt(win, dir)
+    if (!(await placesShown())) await win.click('[data-panel-toggle]')
+    ok(await until(placesShown, 4000), 'the places are shown')
+    if ((await toggle().getAttribute('aria-pressed')) !== 'true') await toggle().click()
+    await pick('notes.txt')
+    // The panels at their own widths, so a later scenario starts where it did.
+    await win.locator('.explorer-resize-places').dblclick()
+    await win.locator('.explorer-resize-preview').dblclick()
+    await win.mouse.move(400, 300)
+    await settle()
+    const left = await boxes()
+    console.log(`  left: ${say(left)}`)
+    ok(left.side === 'left' && left.places?.x === left.work.x, 'Left: the places are at the left edge')
+    ok(left.pane?.r === left.work.r && left.pane.x >= left.list.r - 1, 'Left: the preview is at the right edge, right of the list')
+    ok(left.toggle.x >= left.field.r && left.toggle.r <= left.search.x, 'Left: the preview toggle is after the address, before search')
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-left.png') })
+
+    // 2. RIGHT.
+    await pickStyleSegment(win, 'tree-side', 'Right')
+    await toExplorer()
+    await pick('notes.txt')
+    const right = await boxes()
+    console.log(`  right: ${say(right)}`)
+    ok(right.side === 'right', 'Right: the browser says so')
+    ok(right.places?.r === right.work.r, `Right: the places are at the window's right edge (${say(right.places)} in ${say(right.work)})`)
+    ok(right.pane?.x === right.work.x && right.pane.r <= right.list.x + 1, `Right: the preview is at the left edge, left of the list (${say(right.pane)}, list ${say(right.list)})`)
+    ok(right.list.r <= right.places.x + 1, 'Right: the list sits between them')
+    ok(right.toggle.r <= right.back.x && right.toggle.r <= right.field.x, `Right: the preview toggle leads the address row, before Back (${say(right.toggle)} back ${say(right.back)})`)
+    ok(right.search.x >= right.field.r, 'Right: search stays at the far end')
+    ok(right.places.w === left.places.w && right.pane.w === left.pane.w && right.list.w === left.list.w, `Right: every panel keeps its width (${left.places.w}/${left.list.w}/${left.pane.w} -> ${right.places.w}/${right.list.w}/${right.pane.w})`)
+    ok(right.placesGrip?.r === right.places.x && left.placesGrip?.x === left.places.r, `the places grip is its left twin turned round (${say(left.placesGrip)} / ${say(right.placesGrip)})`)
+    ok(right.previewGrip?.r === right.pane.r && left.previewGrip?.x === left.pane.x, `the preview grip too (${say(left.previewGrip)} / ${say(right.previewGrip)})`)
+    ok(right.status.x === right.work.x && right.status.r === right.places.x, `the status line runs under the preview and the list (${say(right.status)})`)
+    for (const [scheme, style] of [['dark', 'new-void'], ['light', 'paper']]) {
+      const was = await switchStyle(win, style)
+      if (styleBefore === undefined) styleBefore = was
+      await win.mouse.move(400, 300)
+      await sleep(700)
+      await win.screenshot({ path: join(SHOTS, `explorer-side-right-${scheme}.png`) })
+    }
+
+    // 3. One coat of a see-through ground on every panel, turned round too.
+    await switchStyle(win, 'glacier')
+    await win.mouse.move(400, 300)
+    await sleep(800)
+    const want = await groundAlphaOf(win)
+    ok(want < 1, 'Glacier is a see-through style')
+    for (const [label, sel] of [
+      ['the list', '[data-testid="browse-list"]'],
+      ['the places', `${browser} .browse-places`],
+      ['the preview pane', '[data-browse-preview]'],
+      ['the status line', `${browser} .browse-status`],
+      ['the address bar', `${browser} > .browse-toolbar`]
+    ]) {
+      let m = null
+      await until(async () => {
+        m = await coatsUnder(win, sel)
+        return !!m && Math.abs(m.total - want) <= 0.02
+      }, 3000, 100)
+      ok(!!m && Math.abs(m.total - want) <= 0.02, `Right, ${label}: one coat of the see-through ground (${m ? `${m.total.toFixed(3)} of ${want.toFixed(3)}: ${m.coats.join(' + ')}` : 'not found'})`)
+    }
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-right-glass.png') })
+    await switchStyle(win, 'new-void')
+    await sleep(400)
+
+    // 4. THE TOGGLE: shut, the list reaches the left edge; open, the pane is back.
+    await toggle().click()
+    ok(await until(async () => !(await boxes()).pane, 3000, 50), 'Right: the toggle shuts the preview')
+    await settle()
+    let now = await boxes()
+    ok(now.list.x === now.work.x && now.places.r === now.work.r, `and the list reaches the left edge (${say(now.list)})`)
+    await toggle().click()
+    ok(await until(async () => !!(await boxes()).pane, 3000, 50), 'the toggle opens it again')
+    await sleep(700)
+    now = await boxes()
+    ok(now.pane.x === now.work.x && now.pane.w === right.pane.w && now.list.x === right.list.x, `at the left edge, at its width (${say(now.pane)})`)
+
+    // 5. THE GRIPS: toward the middle widens, the far side stays put.
+    await drag('.explorer-resize-places', -40)
+    now = await boxes()
+    ok(now.places.w === right.places.w + 40 && now.places.r === now.work.r, `dragging the places' grip left widens them, against the right edge (${right.places.w} -> ${now.places.w})`)
+    await win.locator('.explorer-resize-places').focus()
+    await win.keyboard.press('ArrowLeft')
+    await settle()
+    const keyed = await boxes()
+    ok(keyed.places.w === now.places.w + 16, `ArrowLeft on it widens them too (${now.places.w} -> ${keyed.places.w})`)
+    await drag('.explorer-resize-preview', 40)
+    now = await boxes()
+    ok(now.pane.w === right.pane.w + 40 && now.pane.x === now.work.x, `dragging the preview's grip right widens it, against the left edge (${right.pane.w} -> ${now.pane.w})`)
+    const saved = JSON.parse(await win.evaluate(() => localStorage.getItem('prism.explorer.widths') ?? '{}'))
+    ok(saved.places === keyed.places.w && saved.preview === now.pane.w, `and both widths are remembered (${JSON.stringify(saved)})`)
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-right-resized.png') })
+    await win.locator('.explorer-resize-places').dblclick()
+    await win.locator('.explorer-resize-preview').dblclick()
+    await win.mouse.move(400, 300)
+    await settle()
+    now = await boxes()
+    ok(now.places.w === right.places.w && now.pane.w === right.pane.w, 'a double-click gives each its own width back')
+
+    // 6. HIDDEN, the list takes the right edge; the edge peeks them over it.
+    await win.click('[data-panel-toggle]')
+    ok(await until(async () => !(await placesShown()), 3000), 'the toggle hides the places')
+    await settle()
+    const hiddenBoxes = await boxes()
+    ok(hiddenBoxes.list.r === hiddenBoxes.work.r, `and the list reaches the right edge (${say(hiddenBoxes.list)})`)
+    const edgeY = Math.round(hiddenBoxes.work.y + hiddenBoxes.work.h / 2)
+    const away = { x: Math.round(hiddenBoxes.work.x + hiddenBoxes.work.w * 0.4), y: edgeY }
+    await win.mouse.move(away.x, away.y)
+    await sleep(50)
+    await win.mouse.move(hiddenBoxes.work.r - 2, edgeY)
+    ok(
+      await until(async () => (await win.locator(`${browser}[data-places-peek="in"] .browse-places`).count()) === 1, 2000, 25),
+      'resting on the RIGHT edge brings the places out'
+    )
+    await sleep(300)
+    const peek = await boxes()
+    ok(peek.places.r === peek.work.r && Math.abs(peek.places.w - right.places.w) <= 1, `over the list at the right edge, at their own width (${say(peek.places)})`)
+    ok(JSON.stringify(peek.list) === JSON.stringify(hiddenBoxes.list), 'and the list did not move')
+    const shadow = await win.evaluate((b) => getComputedStyle(document.querySelector(`${b} .browse-places`)).boxShadow, browser)
+    ok(/-10px/.test(shadow), `the shadow falls on the list's side (${shadow})`)
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-right-peek.png') })
+    await win.mouse.move(away.x, away.y, { steps: 4 })
+    ok(await until(async () => !(await placesShown()), 2000, 25), 'they go when the pointer leaves')
+    await win.mouse.move(hiddenBoxes.work.r - 2, edgeY)
+    ok(await until(async () => (await win.locator(`${browser}[data-places-peek="in"]`).count()) === 1, 2000, 25), 'out again')
+    await sleep(300)
+    await win.locator(`${browser} [data-peek-pin]`).click()
+    ok(
+      await until(async () => (await win.locator(`${browser}[data-places-peek]`).count()) === 0 && (await placesShown()), 3000),
+      'and their pin keeps them'
+    )
+    await win.mouse.move(400, 300)
+    await settle()
+    now = await boxes()
+    ok(now.places.r === now.work.r && now.places.w === right.places.w, `pinned at the right edge (${say(now.places)})`)
+
+    // 7. THE PROJECT TAB: the tree on the right, the file left of it.
+    await win.locator('[role="tablist"] [role="tab"]').last().click()
+    await win.waitForSelector('[data-project-sidebar]', { timeout: 10000 })
+    await settle()
+    const projRight = await project()
+    ok(projRight.tree?.r === projRight.work.r && projRight.viewer?.r <= projRight.tree.x + 1, `Right: the project tree is at the right edge, the file left of it (${say(projRight)})`)
+    ok(projRight.tree.w === projLeft.tree.w, 'at the width it had')
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-right-project.png') })
+
+    // 8. LEFT AGAIN, in the same window: every box exactly as it was.
+    await pickStyleSegment(win, 'tree-side', 'Left')
+    await toExplorer()
+    await pick('notes.txt')
+    const back = await boxes()
+    ok(JSON.stringify(back) === JSON.stringify(left), `Left gives back every box exactly (${say(back)} vs ${say(left)})`)
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-left-again.png') })
+
+    // 9. A RESTART keeps Right. (Measured against the window it opens at:
+    // a restart restores the window's size, not to the pixel.)
+    await pickStyleSegment(win, 'tree-side', 'Right')
+    await app.close()
+    await sleep(900)
+    ;({ app, win } = await launch(join(dir, 'notes.txt')))
+    ok((await win.evaluate(() => localStorage.getItem('prism.tree.side'))) === 'right', 'the choice is stored')
+    await explorerAt(win, dir)
+    await pick('notes.txt')
+    const again = await boxes()
+    ok(again.side === 'right' && again.places?.r === again.work.r && again.pane?.x === again.work.x, `after a restart the places are on the right and the preview on the left (${say(again)})`)
+    ok(again.toggle.r <= again.back.x, 'and the preview toggle still leads the address row')
+    await pickStyleSegment(win, 'tree-side', 'Left')
+  } finally {
+    await win
+      .evaluate((w) => {
+        localStorage.setItem('prism.tree.side', 'left')
+        localStorage.setItem('prism.explorer.places', '1')
+        if (w === null) localStorage.removeItem('prism.explorer.widths')
+        else localStorage.setItem('prism.explorer.widths', w)
+      }, widthsBefore)
+      .catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -15452,6 +15746,7 @@ await run(sidebarGroundScenario)
 await run(rightClickSelectScenario)
 await run(columnHeadersScenario)
 await run(panelsAlignScenario)
+await run(explorerSideScenario)
 await run(downloadsDateScenario)
 await run(noLoadingEverScenario)
 await run(coldLaunchCachedScenario)

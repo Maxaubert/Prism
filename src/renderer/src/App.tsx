@@ -2608,7 +2608,8 @@ export default function App(): JSX.Element {
   const peekPlaces = !!peekTarget?.startsWith('places:')
   const { phase: peekPhase, end: endPeek } = useSidebarPeek({
     target: peekTarget,
-    side: peekPlaces ? 'left' : treeSide,
+    // One Sidebar position for both panels (#304): the places peek from it too.
+    side: treeSide,
     zone: () => document.querySelector<HTMLElement>('.browse-workspace'),
     panel: () =>
       document.querySelector<HTMLElement>(
@@ -4034,6 +4035,7 @@ export default function App(): JSX.Element {
             : undefined
         }
         data-preview-sliding={previewSlide.sliding || undefined}
+        data-sidebar-side={treeSide === 'right' ? 'right' : undefined}
         className={`browse-workspace relative flex min-h-0 flex-1 ${browsing.folder ? 'is-browsing' : ''} ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${
           settingsOpen || setup ? 'invisible' : ''
         }`}
@@ -4046,7 +4048,7 @@ export default function App(): JSX.Element {
             section="places"
             bounds={explorerWidths.bounds.places}
             onResize={(width) => explorerWidths.resize('places', width)}
-            right={!browsing.folder && treeSide === 'right'}
+            edge={treeSide}
           />
         )}
         {active && active.kind !== 'settings' && !fullscreen && (
@@ -4140,6 +4142,7 @@ export default function App(): JSX.Element {
                 placesVisible={isExplorerTab(active) ? placesVisible : false}
                 placesSliding={isExplorerTab(active) && panelSliding}
                 placesPeek={peekPlaces ? peekPhase : null}
+                side={treeSide}
                 onPinPlaces={pinFromPeek}
                 onPlacePicked={endPeek}
                 onOpenProject={isExplorerTab(active) ? openAsProject : undefined}
@@ -4239,6 +4242,7 @@ export default function App(): JSX.Element {
               section="preview"
               bounds={explorerWidths.bounds.preview}
               onResize={(width) => explorerWidths.resize('preview', width)}
+              edge={treeSide === 'right' ? 'left' : 'right'}
             />
           )}
           {!browsing.folder &&

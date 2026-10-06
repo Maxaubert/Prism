@@ -8,6 +8,7 @@ import { setRememberFolders, useRememberFolders } from '../../lib/listingCachePr
 import { setNewTabMode, useNewTabFolder, useNewTabMode } from '../../lib/newTabPrefs'
 import { setOpenMode, useOpenMode, type OpenMode } from '../../lib/openPrefs'
 import { setRememberTabs, useRememberTabs } from '../../lib/tabRestorePrefs'
+import { setTreeSide, TREE_SIDES, useTreeSide, type TreeSide } from '../../lib/treePrefs'
 import { visitedDirectories } from '../../lib/visitedDirectories'
 import { APP_SECTIONS, appOpt } from './appOptions'
 import { iconPath } from './icons'
@@ -28,8 +29,16 @@ const row = (id: string): { icon: string; label: string; sub: string } => {
 function LayoutSection(): JSX.Element {
   const size = useExplorerSize()
   const drives = useDriveStyle()
+  const side = useTreeSide()
   return (
     <SettingsSection id="layout" title={APP_SECTIONS.layout}>
+      {/* ONE SIDEBAR, ONE ROW (#304; owner, 2026-10-07: "fix the setting in
+          Explorer for the sidebar where you can put it on the right side or
+          the left side"). The Explorer's places and the project tree move
+          together; on the right the preview pane takes the left. */}
+      <SettingRow id="tree-side" {...row('tree-side')}>
+        <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
+      </SettingRow>
       {/* The Explorer's rows alone (owner, 2026-10-03): the tree and the rest
           of the app keep Font size. */}
       <SettingRow id="explorer-size" {...row('explorer-size')}>
