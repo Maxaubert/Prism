@@ -8939,7 +8939,7 @@ async function sidebarPlacesScenario(fixtures) {
       ok(said.includes(`${Math.round(want * 100)}% used`) && /free/.test(said), `${id}: the row's name says the share used (${said.trim()})`)
       if (id === 'ring') {
         ok(drive.ring && !drive.bar && !drive.chip && drive.seg === 0, `ring: a donut, no bar and no chip (${JSON.stringify(drive)})`)
-        ok(drive.pct === String(Math.round(want * 100)), `ring: the percent inside it (${drive.pct})`)
+        ok(drive.pct === `${Math.round(want * 100)}%`, `ring: the percent inside it, with its sign (${drive.pct})`)
         ok(/^[\d.]+ [KMGT]?B free of [\d.]+ [KMGT]?B$/.test(drive.free), `ring: the free line under the name (${drive.free})`)
       } else if (id === 'gauge') {
         ok(drive.seg === 20 && drive.chip && !drive.bar && !drive.ring, `gauge: twenty steps and the glyph in a chip (${JSON.stringify(drive)})`)

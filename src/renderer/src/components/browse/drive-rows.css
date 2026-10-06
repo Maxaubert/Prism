@@ -170,11 +170,12 @@ section[data-drive-style='tiles'] > h2 + .browse-drive-tiles {
 .folder-browser .browse-place.browse-drive-ring {
   display: flex;
   align-items: center;
-  /* Roomier than the first build (owner, 2026-10-06: "too compact and the
-     text seemed too big compared to the ring size"): more air round each
-     drive and a donut that holds its own beside two lines of text. */
-  gap: 0.72em;
-  padding: 0.44em var(--browse-row-pad, 8px);
+  /* R6 of the ring mockups (owner, 2026-10-06, research/prism/
+     2026-10-06-drive-rows/ring-variants.html, "R6"): the donut as tall as
+     the two lines beside it, a thinner stroke and a smaller "49%" inside,
+     the percent sign included ("the ring style should also have a % sign"). */
+  gap: 0.8em;
+  padding: 0.4em var(--browse-row-pad, 8px);
 }
 .browse-drive-ring + .browse-drive-ring {
   margin-top: 2px;
@@ -201,8 +202,8 @@ section[data-drive-style='tiles'] > h2 + .browse-drive-tiles {
 .browse-place.browse-drive-ring .browse-drive-donut {
   position: relative;
   flex: none;
-  width: 2.56em;
-  height: 2.56em;
+  width: 2.32em;
+  height: 2.32em;
   overflow: visible;
 }
 .browse-drive-donut svg {
@@ -220,12 +221,13 @@ section[data-drive-style='tiles'] > h2 + .browse-drive-tiles {
 .browse-place.browse-drive-ring .browse-drive-pct {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--p-text-soft);
-  font-size: 0.72em;
+  font-size: 0.68em;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
 }
 .browse-place.browse-drive-ring[data-warn] .browse-drive-pct {
@@ -294,5 +296,10 @@ section[data-drive-style='tiles'] > h2 + .browse-drive-tiles {
 }
 .browse-drive-gauge[data-warn] .browse-drive-nums em {
   color: var(--p-warn-ink);
+  font-weight: 600;
+}
+
+.browse-place.browse-drive-ring .browse-drive-pct > small {
+  font-size: 0.8em;
   font-weight: 600;
 }
