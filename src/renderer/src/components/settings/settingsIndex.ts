@@ -57,19 +57,15 @@ export const ROW_ORDER = [
   'app-version', 'show-setup'
 ] as const
 
-/** The heading of the style's colours, as the page draws it. */
-export const coloursTitle = (styleName: string): string => `Colours of ${styleName}`
-
 /** The index Find a setting reads: the core's rows drawn here (no command
- *  help), and this app's own, in page order. `styleName` words the colours'
- *  section as the page heads it. */
-export function settingsIndex(nvidia: boolean, styleName: string): SettingsIndexEntry[] {
+ *  help), and this app's own, in page order. */
+export function settingsIndex(nvidia: boolean): SettingsIndexEntry[] {
   const core = coreSettingsIndex({ pageOf: (s) => PAGE_OF[s], nvidia, help: false })
   const own: SettingsIndexEntry[] = APP_OPTIONS.map((o) => ({
     id: o.id,
     page: o.page,
     view: o.view,
-    section: o.section === 'style-colours' ? coloursTitle(styleName) : APP_SECTIONS[o.section],
+    section: APP_SECTIONS[o.section],
     sectionId: o.section,
     label: o.label,
     sub: o.sub,

@@ -33,8 +33,9 @@ export interface AppOption {
 }
 
 /** This app's own section headings, by `data-settings-section`. The style's
- *  colours are headed by the style's name on the page ("Colours of Aurora").
- *  The Themes card has no heading: its first row is its header (#298). */
+ *  colours are headed "Colours", never the theme's name (owner, 2026-10-06:
+ *  "dont have this show the theme name, just call that section colours",
+ *  #302). The Themes card has no heading: its first row is its header (#298). */
 export const APP_SECTIONS = {
   'style-theme': '',
   'this-theme': 'This theme',

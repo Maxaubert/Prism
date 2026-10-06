@@ -73,7 +73,7 @@ export function Settings({
       live = false
     }
   }, [open])
-  const index = useMemo(() => settingsIndex(nvidia, style.name), [nvidia, style.name])
+  const index = useMemo(() => settingsIndex(nvidia), [nvidia])
 
   useEffect(() => {
     if (!open) return
