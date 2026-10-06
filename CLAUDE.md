@@ -656,15 +656,22 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   highlighted, when you go to admin, documents should be highlighted"): arriving at the DIRECT
   PARENT of the folder you were in (Back or Up) marks that folder, and the arrows carry on from
   it. Going in, Forward, and a jump anywhere else still mark nothing; the file on display wins.
-  A RIGHT-CLICK'S MARK IS THE GREY FILL ALONE (#204, owner, 2026-09-23: "it has this white outline
-  which i dont like, i only want the grey bg highlighting"): no ring, not even the focus ring.
+  A RIGHT-CLICK SELECTS, AS FILE EXPLORER DOES (#296, owner, 2026-10-06: "sidebar items should
+  also get highlighted also the discs. but currently its highlighted grey on the main view, not
+  the accent/highlight color ... i see file explorer uses the same highlight if you select a file
+  with left or rightclick. we should probably do the same"). SUPERSEDES the grey menu mark below
+  (2026-08-31, #204) in the Explorer list: a right-click on an unmarked row makes it THE selection
+  (quiet, #263: no preview, no play), in the one selected look (`--p-sel-tint`); inside several
+  marked rows all stay. A place (pin, project, drive in Tiles/Ring/Gauge; `data-menu`) and a
+  project tree row (`onMenuHl`) wear the same tint while their menu is open, without becoming
+  current or selected. Still no ring. `rightClickSelect` e2e measures it on a dark and a light style.
   THE PLACES PANEL SLIDES ONLY WHEN IT IS TOGGLED, AND A TAB SWITCH SLIDES NOTHING (#204, owner,
   2026-09-23). Both panels animate their width (180ms) only while App's `panelSliding` is true,
   for one slide after a toggle (`slidePanel`); the places column keeps its contents at their open
   width while it slides. The project `Sidebar` sits behind every tab and is shut on an Explorer
   tab, and one FolderBrowser serves every tab, so any other width change (a tab switch, a drag,
   a window resize) lands at once.
-  A RIGHT-CLICK NEVER SELECTS (2026-08-31): the row it was opened over is the
+  (SUPERSEDED 2026-10-06, #296, above; kept for the history.) A RIGHT-CLICK NEVER SELECTS (2026-08-31): the row it was opened over is the
   menu's target and is marked in GREY (`menuPath`), not in the accent - the accent means
   "these are what I am about to act on", and the menu already acts on the row you opened it
   over. Marks elsewhere are dropped for the same reason: right-clicking row A while B and C

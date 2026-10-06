@@ -579,11 +579,10 @@ export function Sidebar({
     ) => {
       e.preventDefault()
       // Right-clicking INSIDE a multi-selection acts on all of it. OUTSIDE it,
-      // the row is only the menu's TARGET and is marked in grey by `menuPath`
-      // (TreeRows' `onMenuHl`) - it does not become the accent selection.
-      // The accent means "these are what I am about to act on", and the menu
-      // already acts on the row it was opened over, so selecting it as well
-      // says the same thing twice in the louder of the two ways.
+      // the row is the menu's TARGET, `menuPath`, and wears the selection's
+      // tint while the menu is up (TreeRows' `onMenuHl`; #296, owner,
+      // 2026-10-06: the File Explorer look, no grey), without becoming the
+      // tree's selection, which drives the keyboard and the viewer.
       //
       // Existing marks are DROPPED for that same reason: right-clicking row A
       // while B and C are marked leaves the verb going to A, and marks that

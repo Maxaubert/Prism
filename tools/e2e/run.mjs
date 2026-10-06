@@ -8456,6 +8456,146 @@ function drawsShare(look, want) {
 const DRIVE_STYLE_NAMES = { tiles: 'Tiles', ring: 'Ring', gauge: 'Gauge' }
 
 /**
+ * A RIGHT-CLICK SELECTS, AS FILE EXPLORER DOES (#296; owner, 2026-10-06: "when
+ * you right click something in the main view it gets highlighted, but not in
+ * the sidebar ... and it gets highlighted grey ... i see file explorer uses the
+ * same highlight if you select a file with left or rightclick. we should
+ * probably do the same"). Measured off computed backgrounds: a right-click on
+ * an unmarked file makes it THE selection, in exactly a left click's tint, and
+ * the old selection goes; one inside a multi-selection keeps all of it. A
+ * place (a pin, a drive in each of its three styles) and a project tree row
+ * wear the same tint while their menu is open and lose it when it shuts.
+ * Screenshots of each on a dark and a light style.
+ */
+async function rightClickSelectScenario(fixtures) {
+  console.log('right-click selects')
+  const dir = join(fixtures, 'rclick')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'sub'), { recursive: true })
+  for (const name of ['a.txt', 'b.txt', 'c.txt', 'd.txt']) writeFileSync(join(dir, name), `${name}\n`)
+  const { app, win } = await launch(join(dir, 'a.txt'))
+  const list = win.locator('[data-testid="browse-list"]')
+  const row = (name) => list.locator(`[data-browse-path$="\\\\${name}" i]`).first()
+  const places = win.locator('.folder-browser .browse-places')
+  const bg = (loc) => loc.evaluate((el) => getComputedStyle(el).backgroundColor)
+  const marked = () =>
+    list.locator('.browse-row[data-selected]').evaluateAll((els) =>
+      els.map((e) => e.getAttribute('data-browse-path').split('\\').pop()).sort()
+    )
+  const menuOpen = async () => (await win.locator('[role="menu"]').count()) > 0
+  // The pointer off every row, so a hover's fill is never read as a mark.
+  const away = async () => {
+    const size = await win.evaluate(() => [innerWidth, innerHeight])
+    await win.mouse.move(size[0] / 2, size[1] - 2)
+    await sleep(250)
+  }
+  const shut = async () => {
+    await win.keyboard.press('Escape')
+    await until(async () => !(await menuOpen()), 3000)
+    await away()
+  }
+  let styleBefore = null
+  try {
+    // 0. THE PROJECT TREE: a right-clicked row wears the selection tint while
+    // its menu is open, not the grey.
+    const treeRow = win.locator('[data-row$="\\\\b.txt" i]').first()
+    if (await until(async () => (await treeRow.count()) === 1, 8000)) {
+      const tint = await cssColour(win, 'var(--p-sel-tint)')
+      await away()
+      const before = await bg(treeRow)
+      await treeRow.click({ button: 'right' })
+      ok(await until(menuOpen, 3000), 'a tree row answers a right-click with its menu')
+      await sleep(250)
+      const during = await bg(treeRow)
+      ok(during === tint, `the right-clicked tree row wears the selection tint (${during}, tint ${tint})`)
+      await win.screenshot({ path: join(SHOTS, 'rightclick-tree.png') })
+      await shut()
+      ok((await bg(treeRow)) === before, `and loses it when the menu shuts (${await bg(treeRow)}, was ${before})`)
+    } else ok(false, 'the project tree lists b.txt')
+
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await row('b.txt').count()) === 0) await row('rclick').dblclick()
+    ok(await until(async () => (await row('b.txt').count()) === 1, 10000), 'the Explorer shows the fixture folder')
+
+    for (const [style, mode] of [['aurora', 'dark'], ['paper', 'light']]) {
+      const was = await switchStyle(win, style, mode)
+      styleBefore ??= was
+      await sleep(500)
+      const tint = await cssColour(win, 'var(--p-sel-tint)')
+
+      // 1. THE LIST. A left click's look, measured on a.txt.
+      await row('a.txt').click()
+      ok(await until(async () => JSON.stringify(await marked()) === '["a.txt"]', 3000), `${style}: a click selects a.txt`)
+      await sleep(300)
+      const leftLook = await bg(row('a.txt'))
+      const plain = await bg(row('c.txt'))
+      ok(leftLook !== plain, `${style}: a selected row is not a plain one (${leftLook}, ${plain})`)
+      // A right-click on unmarked b.txt: b.txt IS the selection now, a.txt not.
+      await row('b.txt').click({ button: 'right' })
+      ok(await until(menuOpen, 3000), `${style}: b.txt's menu opens`)
+      await sleep(300)
+      ok(JSON.stringify(await marked()) === '["b.txt"]', `${style}: the right-click made b.txt the selection (${await marked()})`)
+      const rightLook = await bg(row('b.txt'))
+      ok(rightLook === leftLook, `${style}: in a left click's look, not grey (${rightLook}, left ${leftLook})`)
+      ok((await bg(row('a.txt'))) === plain, `${style}: and a.txt went back to plain`)
+      ok((await row('b.txt').getAttribute('data-menu')) === null, `${style}: there is no second, grey mark`)
+      await win.screenshot({ path: join(SHOTS, `rightclick-list-${style}.png`) })
+      await shut()
+      ok(JSON.stringify(await marked()) === '["b.txt"]', `${style}: it stays selected after the menu shuts`)
+      // Inside a multi-selection: all of it stays.
+      await row('d.txt').click({ modifiers: ['Control'] })
+      ok(await until(async () => JSON.stringify(await marked()) === '["b.txt","d.txt"]', 3000), `${style}: Ctrl adds d.txt`)
+      await row('d.txt').click({ button: 'right' })
+      const multi = await win.locator('[role="menu"]').last().textContent({ timeout: 3000 }).catch(() => '')
+      ok(/2 items/.test(multi), `${style}: a right-click inside the two acts on both (${multi})`)
+      ok(JSON.stringify(await marked()) === '["b.txt","d.txt"]', `${style}: and keeps both marked (${await marked()})`)
+      await shut()
+
+      // 2. THE PLACES. A Quick access pin.
+      const pin = places.locator('section[aria-label="Quick access"] .quick-access-pin').first()
+      await away()
+      const pinBefore = await bg(pin)
+      await pin.click({ button: 'right' })
+      ok(await until(menuOpen, 3000), `${style}: a pin's menu opens`)
+      await sleep(300)
+      ok((await bg(pin)) === tint, `${style}: the right-clicked pin wears the selection tint (${await bg(pin)}, tint ${tint})`)
+      await win.screenshot({ path: join(SHOTS, `rightclick-place-${style}.png`) })
+      await shut()
+      ok((await bg(pin)) === pinBefore, `${style}: and loses it when the menu shuts (${await bg(pin)}, was ${pinBefore})`)
+
+      // A drive, in each of its three styles.
+      const c = places.locator('section[aria-label="This PC"] .browse-drive').first()
+      for (const id of ['tiles', 'ring', 'gauge']) {
+        await pickStyleSegment(win, 'drive-style', DRIVE_STYLE_NAMES[id])
+        await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+        await places.waitFor({ timeout: 10000 })
+        await until(async () => (await places.locator('section[aria-label="This PC"]').getAttribute('data-drive-style')) === id, 5000)
+        await sleep(350)
+        await away()
+        const driveBefore = await bg(c)
+        await c.click({ button: 'right' })
+        ok(await until(menuOpen, 3000), `${style} ${id}: a drive's menu opens`)
+        await sleep(300)
+        const on = await bg(c)
+        ok(on === tint, `${style} ${id}: the right-clicked drive wears the selection tint (${on}, tint ${tint}, was ${driveBefore})`)
+        const box = await places.boundingBox()
+        await win.screenshot({ path: join(SHOTS, `rightclick-drive-${id}-${style}.png`), clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 640) } })
+        await shut()
+        ok((await bg(c)) === driveBefore, `${style} ${id}: and loses it when the menu shuts (${await bg(c)}, was ${driveBefore})`)
+      }
+      await pickStyleSegment(win, 'drive-style', 'Tiles')
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await places.waitFor({ timeout: 10000 })
+    }
+  } finally {
+    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    await win.evaluate(() => localStorage.removeItem('prism.sidebar.driveStyle')).catch(() => {})
+    await app.close().catch(() => {})
+  }
+}
+
+/**
  * THE PLACES PANEL IS THE MOCKUP'S (#296; owner, 2026-10-06, of the themes
  * mockup: "i really like the sidebar from here, so use that, with the icons
  * and the disks with a bar showing how much is in use"). Quick access is the
@@ -13894,6 +14034,7 @@ await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(sidebarPlacesScenario)
+await run(rightClickSelectScenario)
 await run(columnHeadersScenario)
 await run(panelsAlignScenario)
 await run(downloadsDateScenario)

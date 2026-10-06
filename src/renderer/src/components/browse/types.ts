@@ -74,7 +74,6 @@ export interface FolderBrowserProps {
    *  list's own, and one component serves every Explorer tab. */
   owner?: string
   selectedPath: string | null
-  menuPath?: string
   scrollTop: number
   query: string
   searchState?: BrowseSearchState

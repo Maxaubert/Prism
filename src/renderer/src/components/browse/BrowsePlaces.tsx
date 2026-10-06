@@ -112,6 +112,9 @@ export function BrowsePlaces({
     x: number
     y: number
     pinned: boolean
+    /** Which row opened it, so that row alone wears the menu's tint: a
+     *  pinned project is a pin AND a Projects row, one path in two places. */
+    row: string
   } | null>(null)
   const [drop, setDrop] = useState<{ section: PinSection; before?: string } | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
@@ -192,6 +195,9 @@ export function BrowsePlaces({
                 drop?.section === section && drop.before === pin.path ? '' : undefined
               }
               data-dragging={dragging === pin.path ? '' : undefined}
+              // The right-clicked place wears the selection tint while its
+              // menu is open (#296; owner, 2026-10-06), File Explorer's look.
+              data-menu={menu?.row === `pin:${pin.path}` ? '' : undefined}
               draggable={!!onMoveQuickAccess}
               aria-current={current ? 'location' : undefined}
               onClick={() =>
@@ -203,7 +209,7 @@ export function BrowsePlaces({
               onContextMenu={(event) => {
                 event.preventDefault()
                 event.stopPropagation()
-                setMenu({ pin, x: event.clientX, y: event.clientY, pinned: true })
+                setMenu({ pin, x: event.clientX, y: event.clientY, pinned: true, row: `pin:${pin.path}` })
               }}
               onKeyDown={(event) => {
                 if (!pin.isFolder && event.key === 'Enter') {
@@ -216,7 +222,7 @@ export function BrowsePlaces({
                   return
                 event.preventDefault()
                 const box = event.currentTarget.getBoundingClientRect()
-                setMenu({ pin, x: box.left + 20, y: box.bottom, pinned: true })
+                setMenu({ pin, x: box.left + 20, y: box.bottom, pinned: true, row: `pin:${pin.path}` })
               }}
               onDragStart={(event) => {
                 setDrag(null)
@@ -273,7 +279,8 @@ export function BrowsePlaces({
       pin: { path: place.path, label: place.label, isFolder: true },
       x,
       y,
-      pinned: pins.some((pin) => sameQuickAccessPath(pin.path, place.path))
+      pinned: pins.some((pin) => sameQuickAccessPath(pin.path, place.path)),
+      row: `place:${place.path}`
     })
   const placeButton = (
     place: BrowsePlace,
@@ -286,6 +293,7 @@ export function BrowsePlaces({
       {...attrs}
       {...folderDrop(place.path)}
       aria-current={sameQuickAccessPath(place.path, directory) ? 'location' : undefined}
+      data-menu={menu?.row === `place:${place.path}` ? '' : undefined}
       onClick={() => onNavigate(place.path)}
       title={place.path}
       onContextMenu={(event) => {

@@ -104,10 +104,10 @@
 section[data-drive-style='tiles'] > h2 + .browse-drive-tiles {
   margin-top: 2px;
 }
-.folder-browser .browse-place.browse-drive-tiles:not([aria-current]) {
+.folder-browser .browse-place.browse-drive-tiles:not([aria-current]):not([data-menu]) {
   background-color: var(--drive-tile);
 }
-.folder-browser .browse-place.browse-drive-tiles:not([aria-current]):hover {
+.folder-browser .browse-place.browse-drive-tiles:not([aria-current]):not([data-menu]):hover {
   background-color: color-mix(in srgb, var(--p-text) 7.5%, transparent);
 }
 .folder-browser .browse-place.browse-drive-tiles[aria-current] {

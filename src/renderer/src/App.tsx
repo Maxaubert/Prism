@@ -4058,7 +4058,6 @@ export default function App(): JSX.Element {
                 }}
                 onSelect={browsing.select}
                 onOpen={(file) => void browsing.openFile(file)}
-                menuPath={browseMenu?.entry.path}
                 onScroll={(scrollTop) => browsing.patch({ scrollTop })}
                 onQueryChange={browsing.searchFor}
                 // A header click is a pick made here (#285): Downloads keeps it.
