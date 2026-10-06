@@ -1748,6 +1748,11 @@ export function deletePreset(id: string): void {
     // when it was retired), else Aurora.
     const base = gone.base ? (RETIRED_MAP[gone.base] ?? gone.base) : null
     setStyle(base && byId(base).id === base ? base : DEFAULT_STYLE)
+  } else if (previewing === id) {
+    // The wall's Delete lands on the card it is PREVIEWING: the preview goes
+    // with it, back to the kept theme. Left standing it named a theme that no
+    // longer exists, and keeping it (the focus leaving) stored Aurora.
+    previewStyle(null)
   } else emit()
 }
 

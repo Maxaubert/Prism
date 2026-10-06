@@ -4,8 +4,8 @@ import { tags as t } from '@lezer/highlight'
 
 // Prism's own CodeMirror skin. Every colour comes from a CSS variable so the
 // editor sits inside the window's material instead of on top of it: no panel,
-// no border, no second background. The token colours are fixed (index.css says
-// why); everything structural follows the active style.
+// no border, no second background. The token colours are the theme's since
+// #298 (`codeTokens` in theme.ts); everything structural follows it too.
 
 const chrome = EditorView.theme(
   {

@@ -44,8 +44,17 @@ export function useWallMotion(
     state.current.done?.()
   }
 
-  // A wall taken away mid-way leaves nothing running.
-  useEffect(() => () => settle(), [])
+  // A wall taken away mid-way leaves nothing running, and lays nothing out:
+  // a flushSync from an unmount is a render inside React's own commit.
+  const gone = useRef(false)
+  useEffect(() => {
+    // Set again on mount: StrictMode mounts, unmounts and mounts once more.
+    gone.current = false
+    return () => {
+      gone.current = true
+      settle()
+    }
+  }, [])
 
   const run = useCallback(
     (open: boolean, keptRow: number, cols: number) => {
@@ -78,7 +87,7 @@ export function useWallMotion(
         for (const a of anims) a.cancel()
         w.removeAttribute('data-moving')
         for (const c of tiles) c.removeAttribute('data-keep')
-        layout(state.current.target)
+        if (!gone.current) layout(state.current.target)
       }
       state.current.done = finish
       if (open) {
