@@ -541,6 +541,27 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
   its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
   ALONE: the tree keeps Font size. `explorerSize` e2e.
+  **THE PLACES PANEL IS THE THEMES MOCKUP'S** (#296; owner, 2026-10-06: "i really like the
+  sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
+  use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its
+  line glyph (`PlaceIcon`), Home by the user's folder name; Pinned is every other pin (hint when
+  empty); then Projects; then This PC: name as File Explorer writes it ("Local Disk (C:)"), used /
+  total in `--p-accent-solid` on a faint track, "N free of M" in `formatBytes`. **THREE DRIVE
+  STYLES** (owner, 2026-10-06, of the mockups in `research/prism/2026-10-06-drive-rows`: "option A,
+  D and E as options in settings, with A being default"): Settings > Explorer > Layout > Drive
+  style (`drive-style`, `prism.sidebar.driveStyle`, `lib/driveStylePrefs.ts`), Tiles (A, DEFAULT:
+  a tile, glyph in a chip, % on the name line, a pill bar), Ring (D: two lines, a donut with the %)
+  and Gauge (E: 20 steps, free left, total right). `DriveRow.tsx` + `drive-rows.css`, measures in
+  em of the row text so they follow Explorer row size. From 90% used (`nearlyFull`) the mark is
+  `--p-warn` and its number `--p-warn-ink` (theme.ts, floored 3:1 and 4.5:1 on the panel); the
+  system drive (main's `system`) wears the Windows badge, a removable one the USB glyph. Under
+  `--e2e`, `PRISM_E2E_DRIVE_USED` puts the system drive at that share used. Still
+  ONE pin store and order: a pin moves (menu or drag) only within its own section. Sizes come
+  from main (`driveUsage.ts`, `browse:drives`): `statfs` per drive, 1.5 s cap, a drive whose call
+  is still out is not asked again; labels from ONE PowerShell CIM query, only when the drive set
+  changes or after 10 minutes. The page asks when the panel mounts, on focus (30 s apart) and
+  every 3 minutes (`useDriveUsage`). Headings are semibold, a step under the rows' text, so the
+  heading baseline nudges were measured again. `sidebarPlaces` e2e.
   **THE COLUMN HEADER IS FILE EXPLORER'S** (#274; owner, 2026-10-04: the hover "should be inside
   the whole box"; Size's name "aligned to the left"; the arrow "shows only when you hover over
   them while the currently sorted item has an arrow at all times"). The header keeps the rows'
@@ -642,15 +663,47 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   highlighted, when you go to admin, documents should be highlighted"): arriving at the DIRECT
   PARENT of the folder you were in (Back or Up) marks that folder, and the arrows carry on from
   it. Going in, Forward, and a jump anywhere else still mark nothing; the file on display wins.
-  A RIGHT-CLICK'S MARK IS THE GREY FILL ALONE (#204, owner, 2026-09-23: "it has this white outline
-  which i dont like, i only want the grey bg highlighting"): no ring, not even the focus ring.
+  A RIGHT-CLICK SELECTS, AS FILE EXPLORER DOES (#296, owner, 2026-10-06: "sidebar items should
+  also get highlighted also the discs. but currently its highlighted grey on the main view, not
+  the accent/highlight color ... i see file explorer uses the same highlight if you select a file
+  with left or rightclick. we should probably do the same"). SUPERSEDES the grey menu mark below
+  (2026-08-31, #204) in the Explorer list: a right-click on an unmarked row makes it THE selection
+  (quiet, #263: no preview, no play), in the one selected look (`--p-sel-tint`); inside several
+  marked rows all stay. A place (pin, project, drive in Tiles/Ring/Gauge; `data-menu`) and a
+  project tree row (`onMenuHl`) wear the same tint while their menu is open, without becoming
+  current or selected. Still no ring. `rightClickSelect` e2e measures it on a dark and a light style.
+  THE SIDEBAR MARKS ONE PLACE, AS FILE EXPLORER DOES (#296, owner, 2026-10-06: "when you right click
+  a sidebar item different from the currently selected one there should only be highlighting on the
+  right clicked item ... in file explorer it works like this when you're in a subfolder from the
+  sidebar, i think its based on whether you clicked the pin first then went from there ... the
+  sidebar item gets fully highlighted when you click it but as soon as you click something in the
+  main view after that it gets dimmed, still highlighted but dimmed"). Before, every place whose
+  path equalled the folder wore `aria-current` (a pinned project lit two rows, a subfolder none).
+  Now `lib/placeMark.ts`: the place CLICKED (FolderBrowser's `chosenPlace`, also Open from its menu)
+  stays marked while the folder is it or beneath it, and is forgotten once the folder leaves it;
+  otherwise the first place whose path IS the folder; else none. `aria-current` is on that row
+  alone. While a menu is open on ANOTHER place the mark is DIMMED, not hidden (`data-mark-dim`;
+  owner, 2026-10-06: "think it would look better if the selected folder is dimmed rather than not
+  highlighted when you right click a different folder"), drives' tiles included, and only the
+  right-clicked row is full. NO FLASH BETWEEN RIGHT-CLICKS (same message: "when you right click
+  multiple times the highlight goes from the one you right clicked -> the actually selected folder
+  -> the new one you right clicked"): `ContextMenu` closed on the right PRESS outside it, and
+  Windows sends `contextmenu` on the RELEASE, so every frame of the held button had no menu. A
+  right press outside now closes the menu in the capture phase of the `contextmenu` that opens the
+  next one (or 400 ms after the release if none comes), for every ContextMenu, the project tree's
+  too. `rightClickSelect` records every animation frame across a second right-click. Two
+  strengths (`useActiveArea`, `data-active-area` on `.folder-browser`; a press or focus, menus
+  excluded): full `--p-sel-tint` while the sidebar is where the user acts, `--p-sel-tint-dim`
+  (the tint drained toward its own grey at `SEL_DIM` of its strength, held in
+  `theme.selection.test.ts`) once they act elsewhere. The list's selection dims the same way while
+  the sidebar is active, File Explorer's inactive selection. `rightClickSelect` measures all of it.
   THE PLACES PANEL SLIDES ONLY WHEN IT IS TOGGLED, AND A TAB SWITCH SLIDES NOTHING (#204, owner,
   2026-09-23). Both panels animate their width (180ms) only while App's `panelSliding` is true,
   for one slide after a toggle (`slidePanel`); the places column keeps its contents at their open
   width while it slides. The project `Sidebar` sits behind every tab and is shut on an Explorer
   tab, and one FolderBrowser serves every tab, so any other width change (a tab switch, a drag,
   a window resize) lands at once.
-  A RIGHT-CLICK NEVER SELECTS (2026-08-31): the row it was opened over is the
+  (SUPERSEDED 2026-10-06, #296, above; kept for the history.) A RIGHT-CLICK NEVER SELECTS (2026-08-31): the row it was opened over is the
   menu's target and is marked in GREY (`menuPath`), not in the accent - the accent means
   "these are what I am about to act on", and the menu already acts on the row you opened it
   over. Marks elsewhere are dropped for the same reason: right-clicking row A while B and C
@@ -2511,7 +2564,8 @@ Filesmith's conventions.
 - **THE SETTINGS PAGE IS GROUPED CARDS, ON THE CORE'S FRAME** (#292; owner, 2026-10-05, approved
   v1 "Grouped cards" with no accent bar on the chosen rail item; spec and plan: PrismTerminal
   `docs/superpowers/specs/2026-10-05-settings-redesign-design.md`, PT side PrismTerminal#135).
-  Rail: Find a setting, Appearance, Explorer, Terminal, Agents, Dictation, Media, (spacer) About;
+  Rail: Find a setting, Appearance, Explorer, Project settings, Terminal, Agents, Dictation, Media,
+  (spacer) About;
   Media's Visualizer | Progress bar switch is in its header. The frame, sections, rows, controls,
   search and flash are prism-term-core's (`renderer/settings/layout`, `sections`, `fields`); Prism's
   part is `components/settings/`: the pages, `appOptions.ts` (a CLOSED list of Prism's own rows,
@@ -2532,6 +2586,12 @@ Filesmith's conventions.
   contrast, grey rail, Save the only accent button, row and tile size, panel corners from the
   style's roundness, Large text, narrow and compact rail, screenshots of every page in both
   schemes) and `settingsSearch` (every indexed row found by its label and opened) hold it.
+  **PROJECT SETTINGS IS ITS OWN PAGE, AND THE TREE ALWAYS FOLLOWS THE OPEN FILE** (#296; owner,
+  2026-10-06: "project specific settings should be in a tab called project settings not in
+  explorer. and remove the setting for scroll to open file, it should just be on by default, no
+  setting"). `ProjectPage.tsx` holds Sidebar position and First view of a new project; Folder for
+  new tabs stays on Explorer, since the + and Ctrl+T open an Explorer tab. Scroll to the open file
+  is gone and a stored `prism.tree.autoscroll` is ignored.
 
 
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which

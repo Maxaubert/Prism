@@ -92,13 +92,15 @@ export function explorerHeadHeight(id: ExplorerSize): number {
  * heading and the code stay at 13px in other faces. MEASURED in CSS px, by
  * the text rect less the font's own descent and checked against the pixels
  * of the screenshots (`panelsAlign`), then moved by the difference. Positive
- * is down. (The sidebar's ROWS need none: once they start where the list's
+ * is down. The heading's own were measured again when it took the mockup's
+ * size (#296: a step under the rows' text) and are a tenth of a pixel now.
+ * (The sidebar's ROWS need none: once they start where the list's
  * do, their words share its baseline, MEASURED in the pixels.)
  */
 const BASELINE_NUDGE: Record<ExplorerSize, { heading: number; text: number }> = {
-  small: { heading: -1.6, text: -0.4 },
-  medium: { heading: -1, text: 0.2 },
-  large: { heading: -0.5, text: 0.7 }
+  small: { heading: 0.1, text: -0.4 },
+  medium: { heading: 0.1, text: 0.2 },
+  large: { heading: -0.1, text: 0.7 }
 }
 
 /** The band's CSS variables: its height and the two baseline nudges. */

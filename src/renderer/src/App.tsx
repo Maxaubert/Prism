@@ -2674,7 +2674,8 @@ export default function App(): JSX.Element {
       ...browsing.locations.map((location) => ({
         path: location.path,
         label: location.name,
-        group: location.group === 'drive' ? ('This PC' as const) : ('Quick access' as const)
+        group: location.group === 'drive' ? ('This PC' as const) : ('Quick access' as const),
+        known: location.known
       })),
       ...tabs
         .filter((tab) => tab.kind !== 'settings' && tab.terms.length > 0)
@@ -4022,6 +4023,7 @@ export default function App(): JSX.Element {
                 error={browsing.error}
                 places={browsePlaces}
                 quickAccess={quickAccess}
+                readDrives={window.prism.browseDrives}
                 onQuickAccessFile={(path, full) => void openBrowseFile(path, full ?? !active.browse.preview)}
                 onUnpinQuickAccess={unpinQuickAccess}
                 onMoveQuickAccess={moveQuickAccess}
@@ -4056,7 +4058,6 @@ export default function App(): JSX.Element {
                 }}
                 onSelect={browsing.select}
                 onOpen={(file) => void browsing.openFile(file)}
-                menuPath={browseMenu?.entry.path}
                 onScroll={(scrollTop) => browsing.patch({ scrollTop })}
                 onQueryChange={browsing.searchFor}
                 // A header click is a pick made here (#285): Downloads keeps it.

@@ -76,6 +76,12 @@ describe.each(STYLES.map((s) => [s.name, s] as const))('%s', (_name, style) => {
     expect(order[2]).toBeGreaterThanOrEqual(order[3])
   })
 
+  // A drive past 90% used (#296): the warning mark and its number stay seen.
+  it('keeps the drive warning seen on the panel', () => {
+    expect(contrast(t['--p-warn'], t['--p-side-flat'])).toBeGreaterThanOrEqual(3)
+    expect(contrast(t['--p-warn-ink'], t['--p-side-flat'])).toBeGreaterThanOrEqual(4.5)
+  })
+
   it('labels the selected row against the accent', () => {
     expect(contrast(t['--p-on-accent'], t['--p-sel-bg'])).toBeGreaterThanOrEqual(4.5)
   })

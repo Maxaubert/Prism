@@ -1,6 +1,7 @@
 import type { WindowPreferenceChange, WindowPreferencesSnapshot } from '@shared/windowPreferences'
 import type {
   BrowseDirectory,
+  BrowseDriveUsage,
   BrowseSearchProgress,
   BrowseSearchResult,
   BrowseSearchWindowRequest,
@@ -96,6 +97,8 @@ const api = {
   browseWatch: (tabId: string, path: string | null): Promise<boolean> =>
     ipcRenderer.invoke('browse:watch', tabId, path),
   browseLocations: (): Promise<BrowseShortcut[]> => ipcRenderer.invoke('browse:locations'),
+  browseDrives: (paths: string[]): Promise<BrowseDriveUsage[]> =>
+    ipcRenderer.invoke('browse:drives', paths),
   browseRelease: (tabId: string): void => ipcRenderer.send('browse:release', tabId),
   /**
    * What this host can do (#106). The viewers serve two hosts, the desktop
