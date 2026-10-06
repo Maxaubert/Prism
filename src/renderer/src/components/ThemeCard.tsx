@@ -1,22 +1,25 @@
 import { forwardRef, useMemo, type CSSProperties, type JSX, type KeyboardEvent, type MouseEvent } from 'react'
 import { Glyph } from 'prism-term-core/renderer/settings/layout/Glyph'
-import { rgba, type Style } from '../lib/theme'
+import { type Style } from '../lib/theme'
 import { FrostBackdrop } from './FrostBackdrop'
 import { miniLook } from '../lib/themes/miniLook'
 import { StyleMini } from './StyleMini'
+import { CARD_BOX, CARD_BOX_HI, CARD_TEXT, cardCheck } from '../lib/themes/cardBox'
 
 /**
  * ONE THEME ON THE WALL, CARD STYLE B (owner, 2026-10-06, of three in the
  * approved mockup): the mini Explorer with the name on a 28px band at its
- * foot, in the theme's own panel colour and text. The chosen card wears a
- * 2px ring in the window's accent line, 2px outside the preview, and a check
- * in the band in the theme's own accent: a selection MARK, so it keeps the
- * accent (#202). The theme's description is the tooltip; nothing says
+ * foot. The band and a 2px frame round the preview are the CARD, one dark
+ * grey for every theme (`lib/themes/cardBox.ts`; owner, the same day: "give
+ * all the same coloured box for the card"); only the preview wears the
+ * theme. The chosen card wears a 2px ring in the window's accent line, 2px
+ * outside the box, and a check in the band in the theme's own accent where
+ * that reads on the grey: a selection MARK, so it keeps the accent (#202). The theme's description is the tooltip; nothing says
  * "Suggested" in the app, all 18 are simply themes.
  *
  * Focus is #272's: no ring and no outline. The base layer lays the hover
  * fill on a focused `[role='radio']`, which shows in the card's 4px margin
- * round the preview, and the preview's own edge goes to its hover strength.
+ * round the preview, and the grey frame goes a step lighter.
  */
 
 const CHECK = 'M5 13l4 4L19 7'
@@ -39,12 +42,6 @@ export const ThemeCard = forwardRef<HTMLButtonElement, ThemeCardProps>(function 
   ref
 ): JSX.Element {
   const look = useMemo(() => miniLook(st), [st])
-  const light = st.mode === 'light'
-  // The preview's own edge sits ON TOP of it, so a light card on a light
-  // page still has one; stronger on hover and on focus. High contrast's is
-  // stronger still.
-  const edge = st.hc ? 0.55 : light ? 0.13 : 0.11
-  const edgeHi = st.hc ? 0.8 : light ? 0.26 : 0.24
   return (
     <button
       ref={ref}
@@ -61,8 +58,8 @@ export const ThemeCard = forwardRef<HTMLButtonElement, ThemeCardProps>(function 
       className="theme-card group relative -m-1 flex min-w-0 flex-col rounded-[calc(var(--p-radius)+4px)] p-1 text-left"
       style={
         {
-          '--mini-edge': rgba(st.text, edge),
-          '--mini-edge-hi': rgba(st.text, edgeHi)
+          '--mini-edge': CARD_BOX,
+          '--mini-edge-hi': CARD_BOX_HI
         } as CSSProperties
       }
     >
@@ -82,7 +79,7 @@ export const ThemeCard = forwardRef<HTMLButtonElement, ThemeCardProps>(function 
         <StyleMini st={st} height={height} />
         <span
           className="relative z-[1] flex h-[28px] items-center gap-1.5 px-2.5 text-[11.5px] font-semibold"
-          style={{ background: look.panel, color: look.text, boxShadow: `inset 0 1px 0 ${look.edge}` }}
+          style={{ background: CARD_BOX, color: CARD_TEXT }}
         >
           <span className="min-w-0 flex-1 truncate">{st.name}</span>
           {chosen && (
@@ -92,7 +89,7 @@ export const ThemeCard = forwardRef<HTMLButtonElement, ThemeCardProps>(function 
               width={13}
               height={13}
               fill="none"
-              stroke={look.accent}
+              stroke={cardCheck(look.accent)}
               strokeWidth={2.4}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -102,9 +99,9 @@ export const ThemeCard = forwardRef<HTMLButtonElement, ThemeCardProps>(function 
             </svg>
           )}
         </span>
-        {/* The edge, over everything; gone on the chosen card, whose ring
-            is the edge. */}
-        {!chosen && <span className="theme-card-edge pointer-events-none absolute inset-0 z-[3] rounded-[inherit]" />}
+        {/* The grey frame, over everything, the chosen card's too: the box
+            is the card, and the ring sits outside it. */}
+        <span className="theme-card-edge pointer-events-none absolute inset-0 z-[3] rounded-[inherit]" />
       </span>
       {onDelete && (
         <span

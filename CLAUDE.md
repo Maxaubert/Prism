@@ -48,7 +48,8 @@ are gone (Aurora, Void and Frost kept, refined). The rules (`lib/theme.ts`, `lib
 - **Code colours are theme tokens** (`--p-code-*`, `codeTokens`), with `--p-code-tag` and
   `--p-code-attr`; an own copy keeps the legacy per-mode set. Menus paint `--p-raised`.
 - **The wall** (`settings/ThemeWall.tsx`, `ThemeCard.tsx`, `hooks/useWallMotion.ts`,
-  `lib/themes/wall.ts`): card style B (name on a band, chosen = accent ring and a check, blurb as
+  `lib/themes/wall.ts`): card style B (name on a band; the band and frame one dark grey for every
+  theme, `themes/cardBox.ts`, owner: "give all the same coloured box"; chosen = accent ring and a check, blurb as
   tooltip, no "Suggested"), collapsed to the current theme's row with an animated Show all / Show
   fewer (270ms open, 220ms close, reduced motion instant, nothing left inline at rest). ONE tab
   stop; arrows PREVIEW (`previewStyle`: paint only, nothing stored, the draft hidden and kept, the
