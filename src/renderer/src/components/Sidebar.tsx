@@ -15,7 +15,7 @@ import { fileKind } from '@shared/fileKind'
 import { lastSplitDir, type SplitDir } from '../lib/panes'
 import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
 import { sortFiles, useSort } from '../lib/sortPrefs'
-import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
+import { useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
 import { FileMenuIcon } from './FileMenuIcon'
 import { fileAppMenu } from '../lib/fileAppMenu'
@@ -295,7 +295,6 @@ export function Sidebar({
   const placed = useRef<string | null>(null)
   const size = useTreeSize()
   const sort = useSort()
-  const autoScroll = useAutoScroll()
   // On the right, everything that faces the media flips: the edge it draws, the
   // handle you grab, and which way dragging makes it wider.
   const side = useTreeSide()
@@ -787,11 +786,14 @@ export function Sidebar({
     sweep.begin(e, row)
   }
 
-  // Follow the open file. While the panel is shut nothing moves, so the scroll
-  // it wakes up with is the one it went to sleep with; the reveal then happens
-  // on the way open, for a file it hasn't been positioned for yet.
+  // Follow the open file, always: no setting (owner, 2026-10-06: "remove the
+  // setting for scroll to open file, it should just be on by default"; a
+  // stored prism.tree.autoscroll is ignored). While the panel is shut nothing
+  // moves, so the scroll it wakes up with is the one it went to sleep with;
+  // the reveal then happens on the way open, for a file it hasn't been
+  // positioned for yet.
   useEffect(() => {
-    if (!autoScroll || !(open || peek === 'in') || !currentPath) return
+    if (!(open || peek === 'in') || !currentPath) return
     if (placed.current === currentPath) return
     const box = scroller.current
     if (!box) return
@@ -808,7 +810,7 @@ export function Sidebar({
     }
     attempt()
     return () => cancelAnimationFrame(frame)
-  }, [autoScroll, open, peek, currentPath, state.children, showRow])
+  }, [open, peek, currentPath, state.children, showRow])
 
   /**
    * Ctrl+A marks every row the tree is SHOWING - what is expanded, folders

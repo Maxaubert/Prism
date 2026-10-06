@@ -5082,7 +5082,7 @@ async function tabsScenario(fixtures) {
 const SETTINGS_PAGE_OF = {
   mode: 'appearance', 'style-theme': 'appearance', 'c-bg': 'appearance', 'c-accent': 'appearance', 'c-font': 'appearance',
   'tree-size': 'appearance', 'title-bar': 'appearance', 'tab-width': 'appearance', 'c-edges': 'appearance', 'c-corners': 'appearance',
-  'tree-side': 'explorer', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'auto-scroll': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'explorer',
+  'tree-side': 'project', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'project',
   'open-external': 'explorer', 'remember-tabs': 'explorer', 'remember-folders': 'explorer', 'explorer-verb': 'explorer', 'default-apps': 'explorer',
   'term-shell': 'terminal', 'term-theme': 'terminal', 'agent-indicator': 'agents', 'agent-color': 'agents',
   'dictation-enabled': 'dictation', 'transport-bg': 'media', 'app-version': 'about'
@@ -13546,12 +13546,13 @@ async function settingsLookScenario(fixtures) {
     ok((await win.locator('[data-settings-tab="appearance"]').getAttribute('aria-current')) === 'page', 'Settings opens on Appearance')
     const rail = await win.evaluate(() => [...document.querySelectorAll('[data-settings-tab]')].map((b) => b.getAttribute('data-settings-tab')))
     ok(
-      JSON.stringify(rail) === JSON.stringify(['appearance', 'explorer', 'terminal', 'agents', 'dictation', 'media', 'about']),
-      `the rail runs Appearance, Explorer, Terminal, Agents, Dictation, Media, About (${rail.join(', ')})`
+      JSON.stringify(rail) === JSON.stringify(['appearance', 'explorer', 'project', 'terminal', 'agents', 'dictation', 'media', 'about']),
+      `the rail runs Appearance, Explorer, Project settings, Terminal, Agents, Dictation, Media, About (${rail.join(', ')})`
     )
     const pages = [
       ['appearance'],
       ['explorer'],
+      ['project'],
       ['terminal'],
       ['agents'],
       ['dictation'],
@@ -13795,6 +13796,7 @@ async function settingsSearchScenario(fixtures) {
     ok((await at()) === 'about', `End jumps to the last (${await at()})`)
     await win.keyboard.press('Home')
     ok((await at()) === 'appearance', `Home to the first (${await at()})`)
+    await win.keyboard.press('ArrowDown')
     await win.keyboard.press('ArrowDown')
     await win.keyboard.press('ArrowDown')
     await win.keyboard.press('Enter')

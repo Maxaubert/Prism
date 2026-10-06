@@ -2525,7 +2525,8 @@ Filesmith's conventions.
 - **THE SETTINGS PAGE IS GROUPED CARDS, ON THE CORE'S FRAME** (#292; owner, 2026-10-05, approved
   v1 "Grouped cards" with no accent bar on the chosen rail item; spec and plan: PrismTerminal
   `docs/superpowers/specs/2026-10-05-settings-redesign-design.md`, PT side PrismTerminal#135).
-  Rail: Find a setting, Appearance, Explorer, Terminal, Agents, Dictation, Media, (spacer) About;
+  Rail: Find a setting, Appearance, Explorer, Project settings, Terminal, Agents, Dictation, Media,
+  (spacer) About;
   Media's Visualizer | Progress bar switch is in its header. The frame, sections, rows, controls,
   search and flash are prism-term-core's (`renderer/settings/layout`, `sections`, `fields`); Prism's
   part is `components/settings/`: the pages, `appOptions.ts` (a CLOSED list of Prism's own rows,
@@ -2546,6 +2547,12 @@ Filesmith's conventions.
   contrast, grey rail, Save the only accent button, row and tile size, panel corners from the
   style's roundness, Large text, narrow and compact rail, screenshots of every page in both
   schemes) and `settingsSearch` (every indexed row found by its label and opened) hold it.
+  **PROJECT SETTINGS IS ITS OWN PAGE, AND THE TREE ALWAYS FOLLOWS THE OPEN FILE** (#296; owner,
+  2026-10-06: "project specific settings should be in a tab called project settings not in
+  explorer. and remove the setting for scroll to open file, it should just be on by default, no
+  setting"). `ProjectPage.tsx` holds Sidebar position and First view of a new project; Folder for
+  new tabs stays on Explorer, since the + and Ctrl+T open an Explorer tab. Scroll to the open file
+  is gone and a stored `prism.tree.autoscroll` is ignored.
 
 
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which
