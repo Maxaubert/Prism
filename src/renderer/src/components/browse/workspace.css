@@ -16,12 +16,14 @@
   color: var(--p-text);
   font-size: 15px;
 }
+/* The places beside an opened file are the same panel, so the same sidebar
+   colour (#302), one coat: the .browse-places inside paints nothing here. */
 .browse-viewer-places {
   display: flex;
   flex: 0 0 var(--explorer-places-width, 210px);
   min-height: 0;
   color: var(--p-text);
-  background: var(--p-bg);
+  background: var(--p-side);
   font-size: 15px;
 }
 .explorer-resize {

@@ -11,10 +11,29 @@
   width: 100%;
   height: 100%;
   color: var(--p-text);
-  background: var(--p-bg);
   font-family: 'Segoe UI', sans-serif;
   font-size: 15px;
   container-type: inline-size;
+}
+/* THE PLACES PANEL WEARS THE SIDEBAR COLOUR (#302; owner, 2026-10-06: "from
+   your mockups i think the sidebar in explorer was supposed to be distinctly
+   colored from the main bg right ... i see that in settings the sidebar is
+   distinctly colored correctly"). The browser used to paint --p-bg across its
+   whole grid, places included, so the panel was the list's colour while the
+   Settings rail, the title bar, the tabs and the project tree wore --p-side.
+   It paints nothing now, and each area paints its own ground ONCE (#294: two
+   see-through coats are an opaque slab on glass): the address row, the list,
+   the preview slot and the status line --p-bg, the places panel --p-side.
+   The four cover the grid between them, with no gap. A peeking panel keeps
+   its flat --p-side-flat (below), being laid over the list. */
+.folder-browser > .browse-toolbar,
+.folder-browser > .browse-list-area,
+.folder-browser > .browse-preview-slot,
+.folder-browser > .browse-status {
+  background-color: var(--p-bg);
+}
+.folder-browser > .browse-places {
+  background-color: var(--p-side);
 }
 .folder-browser[data-preview] {
   grid-template-columns: var(--browse-places-width) minmax(0, 1fr) var(
