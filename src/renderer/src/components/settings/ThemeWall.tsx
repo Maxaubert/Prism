@@ -92,6 +92,13 @@ export function ThemeWall({
     []
   )
 
+  // What it said leaves the page once heard.
+  useEffect(() => {
+    if (!say) return
+    const t = setTimeout(() => setSay(''), 2500)
+    return () => clearTimeout(t)
+  }, [say])
+
   const toggle = (next: boolean): void => {
     setOpen(next)
     motion.run(next, rowOf(chosen, cols), cols)
@@ -207,9 +214,13 @@ export function ThemeWall({
           </span>
         </button>
       </div>
-      <span role="status" aria-live="polite" className="sr-only" data-wall-say="">
-        {say}
-      </span>
+      {/* In the page only while it has something to say: an idle live region
+          is one more status line for Settings' own to be confused with. */}
+      {say && (
+        <span role="status" aria-live="polite" className="sr-only" data-wall-say="">
+          {say}
+        </span>
+      )}
     </div>
   )
 }

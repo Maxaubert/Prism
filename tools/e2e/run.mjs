@@ -13707,6 +13707,7 @@ async function onboardingThemeScenario(fixtures) {
     ok((await win.locator('[data-onboarding-wall] [data-theme-wall]').count()) === 1, 'with the theme wall on it')
     const w = await wallState(win)
     ok(w.shown.length === 6 && w.checked[0] === 'aurora', `collapsed to Aurora's row (${w.shown.join(', ')})`)
+    await sleep(900) // the step deals in
     await win.screenshot({ path: join(SHOTS, 'onboarding-theme.png') })
     await win.locator('[data-wall-more]').click()
     await sleep(400)
@@ -13714,6 +13715,7 @@ async function onboardingThemeScenario(fixtures) {
     ok(await until(async () => (await win.locator('.ob-sweep').count()) === 1, 1000, 20), 'picking Paper from Aurora plays the sweep')
     ok(await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light'), 3000, 50), 'and lands light')
     ok(await until(async () => (await win.locator('.ob-sweep').count()) === 0, 3000, 50), 'the sweep ends')
+    await sleep(600)
     await win.screenshot({ path: join(SHOTS, 'onboarding-theme-paper.png') })
     await win.locator('button:has-text("Next")').click()
     await win.locator('button:has-text("Next")').click()
