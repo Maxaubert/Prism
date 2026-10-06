@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
 import {
   addTab,
+  navigateBrowse,
+  replaceBrowsePath,
   addExplorerTab,
   addProjectTab,
   ensurePinnedExplorer,
@@ -662,5 +664,16 @@ describe('a tab holds several terminals (2026-09-03)', () => {
     panes = pinTermPane(panes, 'p2', 'a', 'bottom')
     expect(panes).toHaveLength(1)
     expect(panes[0].dir).toBe('bottom')
+  })
+})
+
+describe('replaceBrowsePath (review of #300)', () => {
+  it('rewrites the current history entry instead of pushing one, so Back gets past a gone folder', () => {
+    const tab: Tab = { ...tabOf('C:\\a', []), id: 't1', browse: newBrowse('C:\\a') }
+    const went = navigateBrowse([tab], 't1', 'C:\\a\\x.zip\\gone')
+    const fixed = replaceBrowsePath(went, 't1', 'C:\\a\\x.zip')
+    expect(fixed[0].browse.history.map((h) => h.path)).toEqual(['C:\\a', 'C:\\a\\x.zip'])
+    expect(fixed[0].browse.cursor).toBe(1)
+    expect(fixed[0].browse.path).toBe('C:\\a\\x.zip')
   })
 })

@@ -50,11 +50,52 @@ import { AUTO_PREVIEW_BYTES, type MemberTemp } from './memberTemp'
  *  nothing, so past 64 MB it is the cheaper of the two. */
 export const SEVEN_LIST_BYTES = 64 * 1024 * 1024
 
+/** Unpacks running at once. Each in-app one reads the WHOLE container (up to
+ *  `SEVEN_LIST_BYTES`) and each 7-Zip one is a process, so arrowing through a
+ *  zip with the preview open fired one per row, all at once (review of #300:
+ *  thirty rows of a 60 MB zip held about 1.8 GB). */
+const UNPACK_SLOTS = 2
+
+/**
+ * A slot for one unpack, NEWEST FIRST: the row the user arrived at last is the
+ * one on screen, so it goes ahead of the ones they arrowed past, which still
+ * run (their answer is cached for a step back) but no longer in front of it.
+ */
+export function createNewestFirst(slots: number) {
+  let running = 0
+  const waiting: Array<() => void> = []
+  const next = (): void => {
+    if (running >= slots) return
+    const go = waiting.pop()
+    if (!go) return
+    running += 1
+    go()
+  }
+  return async function run<T>(job: () => Promise<T>): Promise<T> {
+    await new Promise<void>((go) => {
+      waiting.push(go)
+      next()
+    })
+    try {
+      return await job()
+    } finally {
+      running -= 1
+      next()
+    }
+  }
+}
+
 /** The parse cache's bounds: containers, and entries across all of them. */
 const KEEP_CONTAINERS = 8
 const KEEP_ENTRIES = 200_000
 
-export type PlaceFail = MemberFail | 'missing' | 'deep'
+export type PlaceFail = MemberFail | 'missing' | 'deep' | 'nest-big'
+
+/** A nested archive is unpacked WHOLE to be walked into, on the way to the
+ *  listing, with no bar and no Cancel (review of #300: a 10 GB `.tar` inside a
+ *  `.tar.gz` filled the temp drive before the folder could answer). Past this
+ *  the place refuses and says to extract it first. */
+export const NEST_UNPACK_BYTES = 1024 * 1024 * 1024
 
 export interface ArchiveBrowseDeps {
   /** The bundled 7-Zip, or null when there is none. */
@@ -121,6 +162,7 @@ export function containerSync(path: string): string | null {
 
 export function createArchiveBrowse(deps: ArchiveBrowseDeps) {
   const parsed = new Map<string, Parsed>()
+  const slot = createNewestFirst(UNPACK_SLOTS)
 
   const seven = (real: string, size: number): boolean =>
     extname(real).toLowerCase() !== '.zip' || size > SEVEN_LIST_BYTES
@@ -187,14 +229,16 @@ export function createArchiveBrowse(deps: ArchiveBrowseDeps) {
     password?: string
   ): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
     const pw = password ?? deps.password(real)
-    const out = await deps.temp.ensure(real, member, async (dir) => {
-      if (p.viaSeven) {
-        const exe = deps.sevenExe()
-        if (!exe) return { ok: false, reason: 'failed' as const }
-        return extractSeven(exe, real, member, pw, dir)
-      }
-      return unpackMember(real, member, dir, pw || undefined)
-    })
+    const out = await deps.temp.ensure(real, member, (dir) =>
+      slot(async () => {
+        if (p.viaSeven) {
+          const exe = deps.sevenExe()
+          if (!exe) return { ok: false, reason: 'failed' as const }
+          return extractSeven(exe, real, member, pw, dir)
+        }
+        return unpackMember(real, member, dir, pw || undefined)
+      })
+    )
     if (out.ok && pw) deps.remember(real, pw)
     return out
   }
@@ -271,6 +315,8 @@ export function createArchiveBrowse(deps: ArchiveBrowseDeps) {
         return { ok: true, place }
       }
       if (chain.length >= MAX_NEST) return { ok: false, reason: 'deep', container: real, base, inner: acc }
+      if (enter.size > NEST_UNPACK_BYTES || !(await deps.temp.room(enter.size)))
+        return { ok: false, reason: 'nest-big', container: real, base, inner: acc }
       const inner = await unpack(real, r.parsed, enter.path)
       if (!inner.ok) return { ok: false, reason: inner.reason, container: real, base, inner: acc }
       base = placeOf(base, enter.path)
@@ -350,6 +396,7 @@ export function createArchiveBrowse(deps: ArchiveBrowseDeps) {
   /** The words a refusal is shown with, in the Explorer's own error line. */
   function failText(reason: PlaceFail): string {
     if (reason === 'deep') return 'Archives nested this deep are not opened.'
+    if (reason === 'nest-big') return 'This archive inside an archive is too large to open in place. Extract it first.'
     if (reason === 'missing') return 'That folder is no longer in the archive.'
     if (reason === 'password' || reason === 'aes') return 'This archive needs its password.'
     return "This archive can't be read. It may be damaged or incomplete."

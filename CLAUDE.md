@@ -224,7 +224,11 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   a listing, against holding the whole file). A MEMBER opened or previewed goes through
   `MemberGate`: `archive:member` unpacks just it under `%TEMP%\prism-members\<pid>-<launch>`,
   granted to READS as a directory, never to a write; removed at process exit, dead runs at
-  the next start, 2 GB cap while running; 256 MB auto-preview limit. Members are READ-ONLY
+  the next start, 2 GB cap while running; 256 MB auto-preview limit. Review of #300: unpacks
+  run two at a time, NEWEST first (arrowing fired one whole-container read per row); a nested
+  archive over 1 GB or past the temp drive's room refuses (`nest-big`); a locked archive's
+  names never go to the listing cache on disk; a folder gone from a zip REPLACES the history
+  entry (a push made Back bounce forever); drops from Windows carry `external` everywhere. Members are READ-ONLY
   (CodeView `readOnly`, no pencil, the note bar with Extract here in full view and projects).
   Menus are `lib/archiveMenus.ts` (pure, tested, the `zipMenus` e2e compares): left out ON
   PURPOSE are Rename on a folder inside (file-only `renameMember`), Open with on a member (an

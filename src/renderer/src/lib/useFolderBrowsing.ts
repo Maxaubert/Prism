@@ -12,6 +12,7 @@ import type { BrowseDirectory, BrowseLocation, BrowseShortcut } from '@shared/br
 import type { ViewerFile } from '@shared/types'
 import {
   navigateBrowse,
+  replaceBrowsePath,
   searchBrowse,
   travelBrowse,
   setBrowseLocation,
@@ -201,9 +202,13 @@ export function useFolderBrowsing(
           setResult({ ...visitedDirectories.remember(next), tabId: id })
           setError(undefined)
           // A folder gone from inside a zip answered the nearest one still
-          // there (#300): the tab goes there.
-          if (directoryKey(next.path) !== directoryKey(path))
-            setState((s) => ({ ...s, tabs: navigateBrowse(s.tabs, id, next.path) }))
+          // there (#300): the tab's CURRENT entry becomes that place (a push
+          // made Back bounce off the gone folder forever).
+          if (
+            next.listing.archiveError?.reason === 'missing' &&
+            directoryKey(next.path) !== directoryKey(path)
+          )
+            setState((s) => ({ ...s, tabs: replaceBrowsePath(s.tabs, id, next.path) }))
           void window.prism.browseWatch(id, next.path)
         } else {
           visitedDirectories.forget(path)

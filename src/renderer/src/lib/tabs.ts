@@ -262,6 +262,23 @@ export function setBrowseLocation(
   )
 }
 
+/**
+ * The place on screen turned out to be another (#300: a folder gone from
+ * inside a zip answers the nearest one still there). The CURRENT history
+ * entry is rewritten, never a new one pushed: pushing made Back land on the
+ * gone folder again, which redirected forward again, so Back never got past it.
+ */
+export function replaceBrowsePath(tabs: readonly Tab[], tabId: string, path: string): Tab[] {
+  return tabs.map((tab) => {
+    if (tab.id !== tabId || tab.kind === 'settings') return tab
+    const history = tab.browse.history.slice()
+    const here = history[tab.browse.cursor]
+    if (!here) return tab
+    history[tab.browse.cursor] = { ...here, path, selected: null, scrollTop: 0 }
+    return { ...tab, browse: { ...tab.browse, history, path } }
+  })
+}
+
 export function setBrowseSurface(
   tabs: readonly Tab[],
   tabId: string,

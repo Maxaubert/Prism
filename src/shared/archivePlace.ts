@@ -153,7 +153,7 @@ export type MemberAnswer =
   | { ok: true; path: string; kind: FileKind }
   | {
       ok: false
-      reason: 'password' | 'aes' | 'failed' | 'missing' | 'deep' | 'too-big' | 'space'
+      reason: 'password' | 'aes' | 'failed' | 'missing' | 'deep' | 'nest-big' | 'too-big' | 'space'
       size?: number
       container?: string
     }
@@ -167,4 +167,4 @@ export type ArchiveSummary =
       top: string | null
       rows: Array<{ name: string; dir: boolean; size: number }>
     }
-  | { ok: false; reason: 'password' | 'aes' | 'failed' | 'missing' | 'deep' }
+  | { ok: false; reason: 'password' | 'aes' | 'failed' | 'missing' | 'deep' | 'nest-big' }

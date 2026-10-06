@@ -32,6 +32,10 @@ const ICONS: Record<ArchiveRowId, FileMenuIconName> = {
   properties: 'properties'
 }
 
+/** adm-zip's write cap (`MAX_ARCHIVE_BYTES` in main's archive.ts): past it
+ *  main refuses every write to a zip. */
+const ZIP_WRITE_MAX = 600 * 1024 * 1024
+
 const dirOf = (p: string): string => p.replace(/[\\/][^\\/]*$/, '')
 const nameOf = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
 
@@ -64,7 +68,7 @@ export interface ArchiveActionDeps {
  */
 export function useArchiveActions(deps: ArchiveActionDeps): {
   menu: (
-    target: { entry: BrowseEntry | null; paths?: string[] },
+    target: { entry: BrowseEntry | null; paths?: string[]; folders?: ReadonlySet<string> },
     meta: ArchiveMeta | null,
     directory: string,
     /** What Open does where the menu is: the project tree expands a folder
@@ -298,7 +302,7 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
 
   const menu = useCallback(
     (
-      target: { entry: BrowseEntry | null; paths?: string[] },
+      target: { entry: BrowseEntry | null; paths?: string[]; folders?: ReadonlySet<string> },
       meta: ArchiveMeta | null,
       directory: string,
       open?: (entry: BrowseEntry) => void
@@ -315,7 +319,10 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
       if (!meta) {
         if (!entry?.file || entry.file.kind !== 'archive' || entry.file.member) return null
         const path = entry.path
-        return archiveMenuRows({ kind: 'outside', writable: true }).map((row) =>
+        // Only a zip under adm-zip's write cap takes Add files (review of
+        // #300): a 7z or rar row offered it and every pick failed.
+        const writable = entry.file.ext === '.zip' && (entry.file.size ?? 0) <= ZIP_WRITE_MAX
+        return archiveMenuRows({ kind: 'outside', writable }).map((row) =>
           item(row, () => {
             switch (row.id) {
               case 'open':
@@ -373,7 +380,11 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
         )
       }
       const paths = target.paths && target.paths.length > 1 ? target.paths : null
+      // Which marked rows are FOLDERS (review of #300): only the clicked row
+      // was known, so a second marked folder was copied as a file, which
+      // unpacked nothing and said nothing.
       const folders = new Set(entry.isFolder ? [entry.path] : [])
+      for (const f of target.folders ?? []) folders.add(f)
       if (paths) {
         return archiveMenuRows({ kind: 'many', writable, count: paths.length, zip }).map((row) =>
           item(row, () => {

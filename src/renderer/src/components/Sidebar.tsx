@@ -16,6 +16,7 @@ import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
 import { lastSplitDir, type SplitDir } from '../lib/panes'
 import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
+import { memberOf } from '@shared/archivePlace'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
@@ -204,7 +205,7 @@ export function Sidebar({
    *  the Explorer's own three contexts. */
   archive?: {
     menu: (
-      target: { entry: BrowseEntry | null; paths?: string[] },
+      target: { entry: BrowseEntry | null; paths?: string[]; folders?: ReadonlySet<string> },
       meta: ArchiveMeta,
       directory: string,
       open?: (entry: BrowseEntry) => void
@@ -942,13 +943,30 @@ export function Sidebar({
     setDropTarget(dir)
     setDropRow(dir === null ? null : row)
   }, [])
-  const onRowDragStart = useCallback((e: DragEvent, path: string): void => {
-    // Dragging a row that is part of a multi-selection takes all of it.
-    const items = selRef.current.items
-    setDrag({ kind: 'files', paths: items.has(path) && items.size > 1 ? [...items] : [path] })
-    e.dataTransfer.setData(DRAG_MIME, 'files')
-    e.dataTransfer.effectAllowed = 'move'
-  }, [])
+  const treeChildren = state.children
+  const onRowDragStart = useCallback(
+    (e: DragEvent, path: string): void => {
+      // Dragging a row that is part of a multi-selection takes all of it.
+      const items = selRef.current.items
+      const paths = items.has(path) && items.size > 1 ? [...items] : [path]
+      // Rows INSIDE an archive are its members (review of #300): carried as
+      // files they reached file:move as paths that are not on disk, and every
+      // drop failed. As members, a real folder extracts them and the same zip
+      // moves them, the Explorer's own drag.
+      const meta = treeChildren[parentDir(path)]?.archive
+      const entries = meta ? paths.map((p) => memberOf(meta, p)).filter((p): p is string => !!p) : []
+      if (meta && entries.length) {
+        setDrag({ kind: 'members', archive: meta.container, entries })
+        e.dataTransfer.setData(DRAG_MIME, 'members')
+        e.dataTransfer.effectAllowed = 'copyMove'
+        return
+      }
+      setDrag({ kind: 'files', paths })
+      e.dataTransfer.setData(DRAG_MIME, 'files')
+      e.dataTransfer.effectAllowed = 'move'
+    },
+    [treeChildren]
+  )
   /** CUT is a mark, not a different clipboard (2026-09-03): the paths go on
    *  the clipboard exactly as Copy puts them, and the mark makes the NEXT
    *  paste a move - checked in main against what the clipboard then holds, so
@@ -1151,7 +1169,10 @@ export function Sidebar({
         const outside = droppedPaths(e.dataTransfer)
         if (outside.length) {
           mark(outside)
-          onDropInto(folderPath, { kind: 'files', paths: outside })
+          // `external`: dropped on a zip node these are ADDED and left where
+          // they are (review of #300); without it the archive drop took them
+          // for Prism's own rows and sent the originals to the Recycle Bin.
+          onDropInto(folderPath, { kind: 'files', paths: outside, external: true })
         }
       }
     },
@@ -1748,7 +1769,11 @@ export function Sidebar({
           onClose={() => setMenu(null)}
           items={
             archive.menu(
-              { entry: memberEntry(menu.path), paths: menu.multi },
+              {
+                entry: memberEntry(menu.path),
+                paths: menu.multi,
+                folders: new Set((menu.multi ?? []).filter((p) => memberEntry(p).isFolder))
+              },
               memberMeta(menu.path)!,
               parentDir(menu.path),
               // Open on a folder opens its node (the gap filler loads it).

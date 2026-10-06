@@ -151,7 +151,15 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
         settle()
         // Complete at once: the container's own listing carries sizes, packed
         // sizes and dates, so there is no details run (#300).
-        if (inside && !inside.listing.unreadable && !inside.listing.archiveError)
+        // Never a LOCKED archive's names (review of #300): a 7z or rar whose
+        // names needed the password would otherwise sit in plain text in the
+        // cache on disk, readable without it.
+        if (
+          inside &&
+          !inside.listing.unreadable &&
+          !inside.listing.archiveError &&
+          inside.listing.archive?.encryption === 'none'
+        )
           cache.put(inside.path, inside.listing, inside.folderMtimeMs)
         return inside && { path: inside.path, listing: inside.listing }
       }

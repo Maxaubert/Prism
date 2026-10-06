@@ -4854,7 +4854,11 @@ export default function App(): JSX.Element {
           y={browseMenu.y}
           onClose={() => setBrowseMenu(null)}
           items={archiveActions.menu(
-            { entry: browseMenu.entry, paths: browseMenu.paths },
+            {
+              entry: browseMenu.entry,
+              paths: browseMenu.paths,
+              folders: new Set(browsing.listing?.folders.map((f) => f.path) ?? [])
+            },
             browseArchive,
             active?.browse.path ?? ''
           ) ?? (browseMenu.paths && browseMenu.paths.length > 1 ? (() => {

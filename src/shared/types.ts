@@ -119,7 +119,7 @@ export interface DirListing {
    *  there, and this says what was missing). `container` names the archive
    *  a password is for. */
   archiveError?: {
-    reason: 'password' | 'aes' | 'failed' | 'missing' | 'deep'
+    reason: 'password' | 'aes' | 'failed' | 'missing' | 'deep' | 'nest-big'
     container: string
     message: string
   }

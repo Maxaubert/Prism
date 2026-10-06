@@ -113,6 +113,8 @@ export function MemberGate({
         ? 'Not enough space to unpack this file.'
         : got.reason === 'deep'
           ? 'Archives nested this deep are not opened.'
+          : got.reason === 'nest-big'
+            ? 'This archive inside an archive is too large to open in place. Extract it first.'
           : `Couldn't unpack ${file.name}. The archive may be damaged.`}
     </div>
   )

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { containerSync, createArchiveBrowse } from './archiveBrowse'
+import { containerSync, createArchiveBrowse, createNewestFirst } from './archiveBrowse'
 import { MemberTemp } from './memberTemp'
 
 let box: string
@@ -156,5 +156,36 @@ describe('places inside archives, main (#300)', () => {
     const r = await browse().resolve(join(path, 'n.zip', 'n.zip', 'n.zip', 'n.zip'))
     expect(r?.ok).toBe(false)
     if (r && !r.ok) expect(r.reason).toBe('deep')
+  })
+
+  it('refuses to unpack a nested archive the temp drive has no room for', async () => {
+    const zip = world()
+    // Review of #300: a nested archive is unpacked whole on the way to its
+    // listing, so a huge one must refuse rather than fill the drive.
+    temp.room = async () => false
+    const r = await browse().resolve(join(zip, 'Wind', 'nested.zip', 'docs'))
+    expect(r?.ok).toBe(false)
+    if (r && !r.ok) expect(r.reason).toBe('nest-big')
+  })
+})
+
+describe('unpack slots (review of #300)', () => {
+  it('runs at most N at once and the newest waiting one first', async () => {
+    const run = createNewestFirst(1)
+    const order: number[] = []
+    let release!: () => void
+    const first = run(
+      () =>
+        new Promise<void>((done) => {
+          order.push(0)
+          release = done
+        })
+    )
+    const later = [1, 2, 3].map((n) => run(async () => void order.push(n)))
+    await Promise.resolve()
+    expect(order).toEqual([0])
+    release()
+    await Promise.all([first, ...later])
+    expect(order).toEqual([0, 3, 2, 1])
   })
 })
