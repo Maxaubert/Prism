@@ -14,7 +14,7 @@
  * redesign changes none. One line per entry, as in the core's lists; a block
  * (a wall of cards, a grid of swatches) has no subtext of its own.
  */
-export type AppPageId = 'appearance' | 'explorer' | 'terminal' | 'agents' | 'dictation' | 'media' | 'about'
+export type AppPageId = 'appearance' | 'explorer' | 'project' | 'terminal' | 'agents' | 'dictation' | 'media' | 'about'
 export type MediaView = 'visualizer' | 'progress'
 
 export interface AppOption {
@@ -39,6 +39,7 @@ export const APP_SECTIONS = {
   layout: 'Layout',
   opening: 'Opening things',
   starts: 'When Prism starts',
+  project: 'Project tabs',
   windows: 'Windows',
   'viz-style': 'Visualizer style',
   'viz-colour': 'Visualizer colour',
@@ -65,17 +66,17 @@ export const APP_OPTIONS: readonly AppOption[] = [
   { id: 'tab-width', label: 'Tab width', sub: 'Sized to the name, or all equal.', section: 'window', page: 'appearance', icon: 'tabs', keywords: 'size wide narrow equal fixed dynamic', store: ['prism.window.tabWidth'] },
   { id: 'c-edges', label: 'Panel edges', sub: 'Lines between panels and around the window.', section: 'window', page: 'appearance', icon: 'edges', keywords: 'border lines hairline outline faint strong', store: DRAFT },
   { id: 'c-corners', label: 'Corner roundness', sub: 'How round the larger surfaces are.', section: 'window', page: 'appearance', icon: 'corners', keywords: 'radius square soft round', store: DRAFT },
-  { id: 'tree-side', label: 'Sidebar position', sub: 'The side the file tree sits on.', section: 'layout', page: 'explorer', icon: 'sidebar', keywords: 'left right tree panel', store: ['prism.tree.side'] },
   { id: 'explorer-size', label: 'Explorer row size', sub: 'Row height, with text and icons.', section: 'layout', page: 'explorer', icon: 'rows', keywords: 'small medium large density compact', store: ['prism.explorer.size'] },
-  { id: 'auto-scroll', label: 'Scroll to the open file', sub: 'The tree follows the file you view.', section: 'layout', page: 'explorer', icon: 'follow', keywords: 'auto scroll follow reveal', store: ['prism.tree.autoscroll'] },
+  { id: 'drive-style', label: 'Drive style', sub: 'How drives show in the sidebar.', section: 'layout', page: 'explorer', icon: 'drive', keywords: 'disk this pc space usage free full tiles ring gauge meter bar', store: ['prism.sidebar.driveStyle'] },
   { id: 'newtab-mode', label: 'Folder for new tabs', sub: 'Where a new tab starts.', section: 'opening', page: 'explorer', icon: 'newtab', keywords: 'home directory start ask chosen', store: ['prism.newtab.mode', 'prism.newtab.folder'] },
-  { id: 'newtab-show', label: 'First view of a new project', sub: 'What a folder opened as a project shows.', section: 'opening', page: 'explorer', icon: 'project', keywords: 'project terminal browser first file', store: ['prism.newtab.show'] },
   { id: 'open-external', label: 'View for files from Windows', sub: 'How files opened from Windows appear.', section: 'opening', page: 'explorer', icon: 'file', keywords: 'preview full view double click open with', store: ['prism.open.external'] },
   { id: 'remember-tabs', label: 'Reopen tabs at start', sub: 'Brings back the tabs from last time.', section: 'starts', page: 'explorer', icon: 'history', keywords: 'restore remember session startup', store: ['prism.tabs.remember'] },
   { id: 'remember-folders', label: 'Remember recent folders', sub: 'Kept only on this PC.', section: 'starts', page: 'explorer', icon: 'clock', keywords: 'cache listing clear history', store: ['prism.explorer.rememberFolders'] },
   { id: 'win-e-shortcut', label: 'Open in place of File Explorer', sub: 'A small helper starts with Windows.', section: 'windows', page: 'explorer', icon: 'win', keywords: 'shortcut replace file explorer hotkey', store: 'windows' },
   { id: 'explorer-verb', label: 'Add to the Explorer menu', sub: 'Open files and folders in Prism.', section: 'windows', page: 'explorer', icon: 'menu', keywords: 'context menu right click open with', store: 'windows' },
   { id: 'default-apps', label: 'Default app for file types', sub: 'Windows keeps this choice.', section: 'windows', page: 'explorer', icon: 'filecheck', keywords: 'associations default viewer open with', store: 'windows' },
+  { id: 'tree-side', label: 'Sidebar position', sub: 'The side the file tree sits on.', section: 'project', page: 'project', icon: 'sidebar', keywords: 'left right tree panel', store: ['prism.tree.side'] },
+  { id: 'newtab-show', label: 'First view of a new project', sub: 'What a folder opened as a project shows.', section: 'project', page: 'project', icon: 'project', keywords: 'project terminal browser first file', store: ['prism.newtab.show'] },
   { id: 'viz-style', label: 'Visualizer style', sub: '', section: 'viz-style', page: 'media', view: 'visualizer', icon: 'media', keywords: 'music audio shape bars halo preset', store: ['prism.viz.style', 'prism.viz.presets'] },
   { id: 'viz-colour', label: 'Visualizer colour', sub: '', section: 'viz-colour', page: 'media', view: 'visualizer', icon: 'droplet', keywords: 'color solid gradient palette', store: ['prism.viz.theme'] },
   { id: 'viz-glow', label: 'Glow', sub: 'A soft glow around the shapes.', section: 'viz-colour', page: 'media', view: 'visualizer', icon: 'glow', keywords: 'visualizer effect shine', store: ['prism.viz.glow'] },

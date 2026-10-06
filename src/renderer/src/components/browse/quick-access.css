@@ -25,9 +25,3 @@
 .quick-access[data-drop-end]::after {
   bottom: 0;
 }
-.quick-access-empty {
-  margin: 8px 10px 12px;
-  color: var(--p-text-soft);
-  font-size: 13px;
-  line-height: 1.5;
-}

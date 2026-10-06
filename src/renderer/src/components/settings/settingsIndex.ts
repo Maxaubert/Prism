@@ -11,6 +11,9 @@ import { iconPath } from './icons'
 export const SETTINGS_PAGES: Array<SettingsPageDef & { id: AppPageId }> = [
   { id: 'appearance', label: 'Appearance', icon: 'appearance' },
   { id: 'explorer', label: 'Explorer', icon: iconPath('explorer') },
+  // Owner, 2026-10-06: "project specific settings should be in a tab called
+  // project settings not in explorer".
+  { id: 'project', label: 'Project settings', icon: iconPath('project') },
   { id: 'terminal', label: 'Terminal', icon: 'terminal' },
   { id: 'agents', label: 'Agents', icon: 'agents' },
   { id: 'dictation', label: 'Dictation', icon: 'dictation' },
@@ -41,8 +44,9 @@ const PAGE_OF: Record<SettingsSectionId, AppPageId> = {
 export const ROW_ORDER = [
   'mode', 'style-theme', 'c-bg', 'c-chrome', 'c-accent', 'c-selection', 'c-text', 'c-folder-icon',
   'c-font', 'tree-size', 'title-bar', 'tab-width', 'c-edges', 'c-corners',
-  'tree-side', 'explorer-size', 'auto-scroll', 'newtab-mode', 'newtab-show', 'open-external',
+  'explorer-size', 'drive-style', 'newtab-mode', 'open-external',
   'remember-tabs', 'remember-folders', 'win-e-shortcut', 'explorer-verb', 'default-apps',
+  'tree-side', 'newtab-show',
   'term-shell', 'term-font-family', 'term-font', 'term-theme', 'term-acrylic',
   'agent-indicator', 'agent-done-on', 'agent-question-on', 'agent-failed-on', 'agent-hooks',
   'agent-color', 'agent-done-color', 'agent-question-color',

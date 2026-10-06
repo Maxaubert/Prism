@@ -393,6 +393,12 @@ export const mix = (a: string, b: string, t: number): string => {
   return rgb2hex(A.map((v, i) => v + (B[i] - v) * t))
 }
 const lighten = (c: string, t: number): string => mix(c, '#ffffff', t)
+/** `c` moved `t` of the way to the grey of its own lightness. */
+const greyer = (c: string, t: number): string => {
+  const [r, g, b] = hex2rgb(c)
+  const y = Math.round(0.299 * r + 0.587 * g + 0.114 * b)
+  return mix(c, rgb2hex([y, y, y]), t)
+}
 export const rgba = (c: string, a: number): string => {
   const [r, g, b] = hex2rgb(c)
   return `rgba(${r},${g},${b},${a})`
@@ -522,6 +528,8 @@ export const TINT_MIN = 0.1
  * void. A stronger or fainter picked tint scales it with itself, up to LINE_MAX.
  */
 export const TINT_LINE = 0.28
+/** The inactive mark's strength, as a share of the tint's (`--p-sel-tint-dim`). */
+export const SEL_DIM = 0.75
 const LINE_MAX = 0.5
 
 /**
@@ -638,6 +646,25 @@ export function derive(input: Style): Record<string, string> {
     picked ? picked.a : TINT_ALPHA
   )
   const tint = withAlpha(tintHue, tintA)
+  // THE MARK WHERE THE USER IS NOT (#296; owner, 2026-10-06, of File
+  // Explorer's sidebar: "as soon as you click something in the main view
+  // after that it gets dimmed, still highlighted but dimmed"). Windows'
+  // inactive selection: the tint's hue mostly drained to a grey of its own
+  // lightness, at SEL_DIM of its strength, so it reads as the same mark, quieter and
+  // neutral. Held to the same ink floors as the tint (selectionTintAlpha), and
+  // in theme.selection.test.ts to a visible step off the panel and off the
+  // full tint, on every style.
+  const dimHue = greyer(tintHue, 0.65)
+  const dimA = selectionTintAlpha(
+    dimHue,
+    [
+      [style.text, 4.5],
+      [textSoft, 4.5],
+      [dim, 3.2]
+    ],
+    [bg, sideG],
+    Math.max(TINT_MIN, Math.round(tintA * SEL_DIM * 100) / 100)
+  )
   // The sweep band's colour (Windows draws its drag box in the selection
   // colour): unset, the accent fill and `hi` it has always been drawn from, so
   // nobody's band changes; picked, the pick, lifted off the stage for its edge
@@ -650,9 +677,24 @@ export function derive(input: Style): Record<string, string> {
     }
   }
 
+  // A DRIVE PAST 90% USED (#296; the drive row mockups, 2026-10-06): a warm
+  // orange for its bar, ring or gauge, and a deeper or lighter one for its
+  // number. The mockup's colours, each moved off the panel until it holds its
+  // floor there (a mark 3:1, words 4.5:1), so a custom ground keeps them seen.
+  let warn = light ? '#d05a1c' : '#f0894a'
+  let warnInk = light ? '#b44d15' : '#f4a171'
+  for (let i = 0; i < 14 && contrast(warn, side) < 3; i += 1) {
+    warn = light ? mix(warn, '#000000', 0.1) : mix(warn, '#ffffff', 0.1)
+  }
+  for (let i = 0; i < 14 && contrast(warnInk, side) < 4.5; i += 1) {
+    warnInk = light ? mix(warnInk, '#000000', 0.1) : mix(warnInk, '#ffffff', 0.1)
+  }
+
   return {
     '--p-bg': bg,
     '--p-side-flat': side,
+    '--p-warn': warn,
+    '--p-warn-ink': warnInk,
     '--p-text': style.text,
     '--p-text-soft': textSoft,
     '--p-dim': dim,
@@ -664,6 +706,12 @@ export function derive(input: Style): Record<string, string> {
     '--p-sel-line': withAlpha(tintHue, tintLineAlpha(tintA)),
     '--p-sel-tint-seen': composite(tint, bg),
     '--p-sel-tint-side': composite(tint, sideG),
+    // The same mark while the user acts elsewhere (see `dimHue`): a place in
+    // the sidebar after a click in the list, a list row after one in the
+    // sidebar.
+    '--p-sel-tint-dim': withAlpha(dimHue, dimA),
+    '--p-sel-line-dim': withAlpha(dimHue, tintLineAlpha(dimA)),
+    '--p-sel-tint-dim-seen': composite(withAlpha(dimHue, dimA), bg),
     // The sweep band: its fill's colour and its edge's (see `bandHi`).
     '--p-sel-hue': picked ? tintHue : accentFill,
     '--p-sel-hue-hi': picked ? bandHi : hi,

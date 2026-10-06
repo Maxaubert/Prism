@@ -282,13 +282,17 @@
   padding: 0 8px 18px;
 }
 .browse-places section + section {
-  margin-top: 20px;
+  margin-top: 0;
 }
+/* THE MOCKUP'S HEADINGS (#296; owner, 2026-10-06: "i really like the sidebar
+   from here"): a step under the rows' text, semibold, the dim ink, with the
+   room above a section that the mockup gives it. They follow the Explorer
+   size with the rows. */
 .browse-places h2 {
-  margin: 10px 10px 6px;
+  margin: 12px 8px 4px;
   color: var(--p-dim);
-  font-size: 13px;
-  font-weight: 400;
+  font-size: calc(var(--browse-row-font, 12.5px) - 1px);
+  font-weight: 600;
 }
 /* THE FIRST HEADING SITS IN THE COLUMN HEADER'S BAND (#283; owner,
    2026-10-04: "the position of the sorting bar with name, type, size etc.
@@ -339,6 +343,12 @@
   height: var(--browse-row-icon, 14px);
   flex: none;
 }
+/* A place's line glyph (#296) is the dim ink, as the mockup draws it; folder
+   and file icons keep their own colours. */
+.browse-place .browse-place-icon {
+  color: var(--p-dim);
+}
+/* THIS PC's rows are drive-rows.css, one look per Drive style (#296). */
 /* The current place wears the SELECTION's look, the tint with its faint edge
    and the text in its own colour (owner, 2026-10-03, of the solid block: "i
    want that colour for the sidebar on the explorer page too, not just the
@@ -348,6 +358,36 @@
   background-color: var(--p-sel-tint);
   box-shadow: inset 0 0 0 1px var(--p-sel-line);
   color: var(--p-text);
+  font-weight: 600;
+}
+/* ONE place is marked (#296, lib/placeMark.ts), full while the sidebar is
+   where the user acts and DIMMED once they act in the list, File Explorer's
+   inactive selection (owner, 2026-10-06: "as soon as you click something in
+   the main view after that it gets dimmed, still highlighted but dimmed").
+   --p-sel-tint-dim is the tint drained toward grey, at three quarters of its
+   strength (theme.ts). A menu open on ANOTHER place dims it too, wherever
+   the user acts (`data-mark-dim`; owner, same day: "think it would look
+   better if the selected folder is dimmed rather than not highlighted when
+   you right click a different folder"), so only the right-clicked row is
+   full. */
+.folder-browser[data-active-area='main'] .browse-place[aria-current]:not([data-menu]),
+.folder-browser[data-active-area='main'] .browse-place[aria-current]:not([data-menu]):hover,
+.folder-browser .browse-place[aria-current][data-mark-dim],
+.folder-browser .browse-place[aria-current][data-mark-dim]:hover {
+  background-color: var(--p-sel-tint-dim);
+  box-shadow: inset 0 0 0 1px var(--p-sel-line-dim);
+}
+/* A place whose menu is open wears the same tint, File Explorer's look for a
+   right-clicked item (#296; owner, 2026-10-06: "sidebar items should also get
+   highlighted also the discs"), and lets it go when the menu shuts. It never
+   becomes the current place. No ring, the list's 2026-09-23 rule. The drive
+   tiles keep their own fill otherwise (drive-rows.css steps aside for it). */
+.folder-browser .browse-place[data-menu],
+.folder-browser .browse-place[data-menu]:hover {
+  background-color: var(--p-sel-tint);
+  box-shadow: inset 0 0 0 1px var(--p-sel-line);
+  color: var(--p-text);
+  outline: none;
 }
 /* A terminal's own buttons (Return to terminal, Terminal folder, cd here)
    sit in the toolbar since the action row went (#267). */
@@ -666,9 +706,6 @@ body[data-internal-file-drag] .browse-path:focus-within {
 .browse-result-location {
   color: var(--p-dim);
 }
-.browse-row[data-menu] .browse-result-location {
-  color: inherit;
-}
 .browse-name > svg {
   width: var(--browse-row-icon, 14px);
   height: var(--browse-row-icon, 14px);
@@ -698,28 +735,30 @@ body[data-internal-file-drag] .browse-path:focus-within {
     var(--sel-top),
     var(--sel-bottom);
 }
+/* The list's marks dim the same way while the user acts in the sidebar
+   (#296), File Explorer's inactive selection: same edge round the block, the
+   dimmed tint and its edge. */
+.folder-browser[data-active-area='places'] .browse-row[data-selected],
+.folder-browser[data-active-area='places'] .browse-row[data-selected]:hover {
+  --sel-seen: var(--p-sel-tint-dim-seen);
+  --sel-top: inset 0 1px 0 var(--p-sel-line-dim);
+  --sel-bottom: inset 0 -1px 0 var(--p-sel-line-dim);
+  background-color: var(--p-sel-tint-dim);
+  box-shadow:
+    inset 1px 0 0 var(--p-sel-line-dim),
+    inset -1px 0 0 var(--p-sel-line-dim),
+    var(--sel-top),
+    var(--sel-bottom);
+}
 .folder-browser .browse-row[data-selected][data-join-up] {
   --sel-top: 0 0 0 transparent;
 }
 .folder-browser .browse-row[data-selected][data-join-down] {
   --sel-bottom: 0 0 0 transparent;
 }
-.folder-browser .browse-row[data-menu],
-.folder-browser .browse-row[data-menu]:hover {
-  background-color: color-mix(in srgb, var(--p-text) 14%, var(--p-bg));
-  color: var(--p-text);
-  /* The grey fill IS the mark (owner, 2026-09-23: "it has this white outline
-     which i dont like, i only want the grey bg highlighting"). No ring, and
-     not the focus ring either while the menu is open over it. */
-  outline: none;
-}
-.browse-row[data-menu] .browse-name,
-.browse-row[data-menu] .browse-column-type,
-.browse-row[data-menu] .browse-column-path,
-.browse-row[data-menu] .browse-column-size,
-.browse-row[data-menu] .browse-column-modified {
-  color: inherit;
-}
+/* A right-clicked row has no look of its own any more: the click selects it,
+   File Explorer's rule (#296; owner, 2026-10-06), so it wears the tint above.
+   The grey menu mark it wore since 2026-08-31 is gone. */
 .browse-message {
   padding: 28px 24px;
   color: var(--p-dim);

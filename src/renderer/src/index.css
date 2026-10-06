@@ -164,6 +164,9 @@ video::cue {
   --p-sel-line: #6a7f9947;
   --p-sel-tint-seen: #242a32;
   --p-sel-tint-side: #272e35;
+  --p-sel-tint-dim: #767d862b;
+  --p-sel-line-dim: #767d8637;
+  --p-sel-tint-dim-seen: #212328;
   --p-sel-hue: #3f5570;
   --p-sel-hue-hi: #6a7f99;
   --p-icon: #868d96;

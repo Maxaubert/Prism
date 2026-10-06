@@ -44,7 +44,6 @@ type Props = Pick<
   FolderBrowserProps,
   | 'directory'
   | 'selectedPath'
-  | 'menuPath'
   | 'scrollTop'
   | 'sort'
   | 'onSelect'
@@ -573,7 +572,6 @@ export function BrowseList(props: Props): JSX.Element {
                   )
                 const primary = entry.path === props.selectedPath
                 const selected = isMarked(entry.path)
-                const onMenu = entry.path === props.menuPath
                 // A marked run is one block: its edge is drawn round the
                 // run, never between two marked neighbours (browse.css).
                 const above = rendered[offset - 1]
@@ -605,7 +603,6 @@ export function BrowseList(props: Props): JSX.Element {
                     data-selected={selected || undefined}
                     data-join-up={joinUp || undefined}
                     data-join-down={joinDown || undefined}
-                    data-menu={onMenu || undefined}
                     draggable
                     {...folderDrop(
                       entry.isFolder ? entry.path : (browseParent(entry.path) ?? props.directory),
@@ -643,29 +640,35 @@ export function BrowseList(props: Props): JSX.Element {
                     onContextMenu={(e) => {
                       if (props.onContextMenu) {
                         e.preventDefault()
-                        if (!selected) props.onSelect(null, true)
+                        // A RIGHT-CLICK SELECTS, as File Explorer's does
+                        // (#296; owner, 2026-10-06: "i see file explorer
+                        // uses the same highlight if you select a file with
+                        // left or rightclick. we should probably do the
+                        // same"). An unmarked row becomes THE selection, in
+                        // the one look a selection has; inside several marked
+                        // rows the marks stay and the menu acts on them all.
+                        // Quiet, as a Ctrl click is (#263): it marks, it does
+                        // not preview, play or open anything.
+                        if (!selected) props.onSelect(entry.path, true)
                         props.onContextMenu(e, entry)
                       }
                     }}
                   >
                     <span className="browse-column-name browse-name">
                       {entry.isFolder ? (
-                        <FolderIcon color={onMenu ? 'currentColor' : 'var(--p-tree-folder)'} />
+                        <FolderIcon color="var(--p-tree-folder)" />
                       ) : (
                         entry.file && (
                           // A marked row is a tint, so its icon keeps its own
-                          // colours; only the menu's grey row still draws it
-                          // in the row's ink, as it always has. Its knockouts
-                          // are that grey (browse.css [data-menu]), not the
-                          // accent, or they show as accent spots on it.
+                          // colours; its knockouts are the tint as seen
+                          // (dimmed or not: browse.css sets --sel-seen).
                           <KindIcon
                             kind={entry.file.kind}
                             ext={entry.file.ext}
                             name={entry.name}
-                            color={onMenu ? 'currentColor' : iconColour(entry.file.kind)}
-                            selected={onMenu}
+                            color={iconColour(entry.file.kind)}
                             size={look.icon}
-                            bg={onMenu ? 'color-mix(in srgb, var(--p-text) 14%, var(--p-bg))' : selected ? 'var(--p-sel-tint-seen)' : 'var(--p-bg)'}
+                            bg={selected ? 'var(--sel-seen, var(--p-sel-tint-seen))' : 'var(--p-bg)'}
                           />
                         )
                       )}
