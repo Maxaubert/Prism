@@ -3181,6 +3181,9 @@ async function extractCancelScenario() {
     await answerFolderDialog(app, join(box, 'picked'))
     const tabs = () => win.locator('[role="tablist"] [role="tab"]').count()
     const tabsBefore = await tabs()
+    // The Explorer's places panel, which Ctrl+B toggles there (#300: the archive is
+    // walked in the Explorer now, where the project's aside is not drawn).
+    const panelsBefore = await win.locator('aside, .browse-places').count()
 
     // ---- it cannot be dismissed: real keys, a real mouse ------------------
     await win.click('[data-archive-strip] [data-archive-verb="extract-here"]')
@@ -3222,7 +3225,7 @@ async function extractCancelScenario() {
       'Escape, clicks outside and the app shortcuts leave it up and running'
     )
     ok((await tabs()) === tabsBefore, 'Ctrl+W and Ctrl+T did not reach the tabs behind it')
-    ok((await win.locator('aside').count()) === 1, 'and Ctrl+B did not hide the sidebar')
+    ok((await win.locator('aside, .browse-places').count()) === panelsBefore, 'and Ctrl+B did not hide the sidebar')
     ok((await win.locator('[role="dialog"]').count()) === 1, 'Delete raised no question behind it')
     ok(
       await win.evaluate(() => document.getElementById('root').hasAttribute('inert')),
