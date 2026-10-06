@@ -75,6 +75,27 @@ describe('a marked file is a tint the row still reads on', () => {
   })
 })
 
+// THE INACTIVE MARK (#296; owner, 2026-10-06: "still highlighted but dimmed").
+describe('the dimmed mark is quieter than the tint and still a mark', () => {
+  for (const s of DERIVED_STYLES) {
+    it(`${s.id}: inks read on it, a step off the panel, a step under the tint`, () => {
+      const t = at(s, 1)
+      expect(t['--p-sel-tint-dim']).toMatch(/^#[0-9a-f]{8}$/)
+      expect(t['--p-sel-line-dim']).toMatch(/^#[0-9a-f]{8}$/)
+      for (const ground of [t['--p-bg'], sideGround(s)]) {
+        const full = composite(t['--p-sel-tint'], ground)
+        const dim = composite(t['--p-sel-tint-dim'], ground)
+        expect(contrast(t['--p-text'], dim), `${s.id} text`).toBeGreaterThanOrEqual(4.5)
+        expect(contrast(t['--p-dim'], dim), `${s.id} dim ink`).toBeGreaterThanOrEqual(3.2)
+        // MEASURED over every style: 1.12 to 1.30 off the panel, where the
+        // tint is 1.19 to 1.46, so it is seen, and always weaker than the tint.
+        expect(contrast(dim, ground), `${s.id} off the ground`).toBeGreaterThanOrEqual(1.1)
+        expect(contrast(full, ground) - contrast(dim, ground), `${s.id} under the tint`).toBeGreaterThanOrEqual(0.05)
+      }
+    })
+  }
+})
+
 describe('the tint gives way, never the ink', () => {
   it('is TINT_ALPHA where the ink reads on it', () => {
     expect(selectionTintAlpha('#3b82f6', [['#ffffff', 4.5]], ['#101215'])).toBe(TINT_ALPHA)

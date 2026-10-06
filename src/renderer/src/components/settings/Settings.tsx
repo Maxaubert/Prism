@@ -13,6 +13,7 @@ import { AppearancePage } from './AppearancePage'
 import type { AppPageId, MediaView } from './appOptions'
 import { ExplorerPage } from './ExplorerPage'
 import { MediaPage } from './MediaPage'
+import { ProjectPage } from './ProjectPage'
 import { SETTINGS_PAGES, settingsIndex } from './settingsIndex'
 import { TerminalPage } from './TerminalPage'
 
@@ -157,6 +158,8 @@ export function Settings({
             <AppearancePage />
           ) : page === 'explorer' ? (
             <ExplorerPage />
+          ) : page === 'project' ? (
+            <ProjectPage />
           ) : page === 'terminal' ? (
             <TerminalPage />
           ) : page === 'agents' ? (

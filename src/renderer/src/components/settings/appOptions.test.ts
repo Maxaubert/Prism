@@ -56,17 +56,17 @@ describe("Prism's own settings rows", () => {
         "tab-width=prism.window.tabWidth",
         "c-edges=prism.style.draft",
         "c-corners=prism.style.draft",
-        "tree-side=prism.tree.side",
         "explorer-size=prism.explorer.size",
-        "auto-scroll=prism.tree.autoscroll",
+        "drive-style=prism.sidebar.driveStyle",
         "newtab-mode=prism.newtab.mode+prism.newtab.folder",
-        "newtab-show=prism.newtab.show",
         "open-external=prism.open.external",
         "remember-tabs=prism.tabs.remember",
         "remember-folders=prism.explorer.rememberFolders",
         "win-e-shortcut=windows",
         "explorer-verb=windows",
         "default-apps=windows",
+        "tree-side=prism.tree.side",
+        "newtab-show=prism.newtab.show",
         "viz-style=prism.viz.style+prism.viz.presets",
         "viz-colour=prism.viz.theme",
         "viz-glow=prism.viz.glow",
@@ -117,6 +117,9 @@ describe('Find a setting', () => {
     expect(at['agent-hooks']).toBe('agents/Claude Code')
     expect(at['agent-color']).toBe('agents/Mark colours')
     expect(at['win-e-shortcut']).toBe('explorer/Windows')
+    expect(at['tree-side']).toBe('project/Project tabs')
+    expect(at['newtab-show']).toBe('project/Project tabs')
+    expect(at['newtab-mode']).toBe('explorer/Opening things')
     expect(at['transport-bg']).toBe('media/Behind the controls/progress')
     expect(at['viz-glow']).toBe('media/Visualizer colour/visualizer')
     expect(at['dictation-enabled']).toBe('dictation/')

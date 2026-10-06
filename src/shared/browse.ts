@@ -72,6 +72,22 @@ export interface BrowseShortcut {
   known?: 'home' | 'desktop' | 'downloads' | 'documents' | 'pictures' | 'music' | 'videos'
 }
 
+/** How full a drive is, for the Explorer's This PC rows (#296). Sizes are
+ *  absent when the drive did not answer in time (a sleeping network share, a
+ *  card just pulled): the row then shows its name alone. */
+export interface BrowseDriveUsage {
+  /** The drive root as `browseLocations` gives it, `C:\`. */
+  path: string
+  /** The volume's own label, '' when it has none. */
+  label?: string
+  /** What Windows calls the drive when it has no label. */
+  kind?: 'local' | 'removable' | 'network' | 'optical'
+  /** The drive Windows runs from, which wears the Windows badge. */
+  system?: boolean
+  total?: number
+  free?: number
+}
+
 export type BrowseState = SavedBrowse
 
 /** A file pinned beside the live viewer, retained across restart. */

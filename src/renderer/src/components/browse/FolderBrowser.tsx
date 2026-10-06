@@ -15,6 +15,8 @@ import { sweepSelect } from '../../lib/marquee'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import { useListingPrefetch } from '../../lib/useListingPrefetch'
+import { withinFolder, type PlaceRow } from '../../lib/placeMark'
+import { useActiveArea } from './useActiveArea'
 import './browse.css'
 
 export type {
@@ -41,6 +43,19 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         : paths
     )
   }, [])
+  // The sidebar marks ONE place (#296, lib/placeMark.ts): the one last
+  // clicked while the folder stays inside it. Held here, not in the panel,
+  // which unmounts while hidden. Once the folder leaves it, it is forgotten,
+  // so a Back into it later marks by the exact path, as File Explorer does.
+  // Adjusted while rendering when the folder changes (React's pattern for
+  // state that follows a prop), not in an effect.
+  const [chosenPlace, setChosenPlace] = useState<PlaceRow | null>(null)
+  const [placeFolder, setPlaceFolder] = useState(props.directory)
+  if (placeFolder !== props.directory) {
+    setPlaceFolder(props.directory)
+    if (chosenPlace && !withinFolder(props.directory, chosenPlace.path)) setChosenPlace(null)
+  }
+  const area = useActiveArea(shell)
   const focusList = (): void => {
     shell.current?.querySelector<HTMLElement>('.browse-list')?.focus({ preventScroll: true })
   }
@@ -260,6 +275,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       data-places-sliding={sliding || undefined}
       data-places-peek={props.placesPeek || undefined}
       data-testid="folder-browser"
+      // Where the user last acted (useActiveArea): the side not acted in
+      // draws its mark dimmed, File Explorer's inactive selection.
+      data-active-area={area}
       onKeyDown={(e) => {
         const target = e.target as HTMLElement
         const typing = target.closest(
@@ -396,6 +414,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           places={props.places}
           onDropInto={props.onDropInto}
           quickAccess={props.quickAccess}
+          readDrives={props.readDrives}
           onQuickAccessFile={
             props.placesPeek && props.onQuickAccessFile
               ? (path, full) => {
@@ -409,6 +428,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           onMoveQuickAccess={props.onMoveQuickAccess}
           onPinQuickAccessPaths={props.onPinQuickAccessPaths}
           directory={props.directory}
+          chosenPlace={chosenPlace}
+          onChoosePlace={setChosenPlace}
           onNavigate={
             props.placesPeek
               ? (path) => {
