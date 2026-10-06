@@ -13,6 +13,7 @@ import { createTermApi } from 'prism-term-core/preload/api'
 import { createDictationApi } from 'prism-term-core/preload/dictationApi'
 import type { UpdateInfo } from 'prism-term-core/shared/updateTypes'
 import type { ExtractEvent } from '@shared/extraction'
+import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import type {
@@ -526,6 +527,20 @@ const api = {
     password?: string
   ): Promise<'ok' | 'password' | 'aes' | 'failed'> =>
     ipcRenderer.invoke('archive:rename', path, entry, name, password),
+  /** A member of a place inside an archive, unpacked for a viewer (#300).
+   *  `force` is an explicit Open, past the automatic-preview limit. */
+  archiveMember: (path: string, password?: string, force?: boolean): Promise<MemberAnswer> =>
+    ipcRenderer.invoke('archive:member', path, password, force),
+  /** The archive card: totals and the top of the tree (#300). */
+  archiveSummary: (path: string): Promise<ArchiveSummary> =>
+    ipcRenderer.invoke('archive:summary', path),
+  /** A member out beside its archive, the read-only note's Extract here
+   *  (#300): the extracted copy's path, to open where editing can start. */
+  archiveMemberOut: (path: string): Promise<{ ok: boolean; path?: string | null }> =>
+    ipcRenderer.invoke('archive:member-out', path),
+  /** A password typed for a container a listing asked about (#300). */
+  archiveRememberPassword: (container: string, password: string): Promise<boolean> =>
+    ipcRenderer.invoke('archive:remember-password', container, password),
   /** Remove one member. Permanent - no recycle bin inside a zip. */
   archiveDelete: (path: string, entry: string): Promise<boolean> =>
     ipcRenderer.invoke('archive:delete', path, entry),

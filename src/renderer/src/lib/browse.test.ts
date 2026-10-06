@@ -318,3 +318,25 @@ describe('a search is a place in the history (#281)', () => {
     ])
   })
 })
+
+describe('places inside an archive (#300)', () => {
+  const zip = 'C:\\Downloads\\w.zip'
+  it('one history walks in and out, and Up from the zip root marks the zip', () => {
+    let b = newBrowse('C:\\Downloads')
+    b = navigateBrowseState(b, zip)
+    b = navigateBrowseState(b, `${zip}\\Wind`)
+    expect(browseParent(`${zip}\\Wind`)).toBe(zip)
+    expect(browseParent(zip)).toBe('C:\\Downloads')
+    b = navigateBrowseState(b, zip)
+    b = navigateBrowseState(b, 'C:\\Downloads')
+    expect(browseLocation(b).selected).toBe(zip)
+    expect(browseCrumbs(`${zip}\\Wind`).map((c) => c.name)).toEqual(['C:\\', 'Downloads', 'w.zip', 'Wind'])
+  })
+  it('a search inside a zip is a place in the history', () => {
+    let b = navigateBrowseState(newBrowse('C:\\Downloads'), zip)
+    b = searchBrowseState(b, 'needle')
+    expect(browseLocation(b)).toMatchObject({ path: zip, query: 'needle' })
+    b = travelBrowseState(b, -1)
+    expect(browseLocation(b)).toMatchObject({ path: zip, query: '' })
+  })
+})

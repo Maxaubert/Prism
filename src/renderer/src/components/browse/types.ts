@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react'
-import type { DirListing, ViewerFile } from '@shared/types'
+import type { ArchiveMeta, DirListing, ViewerFile } from '@shared/types'
 import type { QuickAccessPin } from '../../lib/quickAccess'
 import type { DragPayload } from '../../lib/dragDrop'
 import type { FolderSizeResult } from '@shared/folderSize'
@@ -23,7 +23,7 @@ export interface BrowseEntry {
 }
 
 export interface BrowseSort {
-  key: 'name' | 'path' | 'type' | 'size' | 'modified'
+  key: 'name' | 'path' | 'type' | 'size' | 'modified' | 'packed'
   direction: 'asc' | 'desc'
 }
 
@@ -125,4 +125,11 @@ export interface FolderBrowserProps {
   onDeleteMany?: (paths: string[]) => void
   onRefresh?: () => void
   onDropInto?: (directory: string, payload: DragPayload) => void
+  /** The strip's Extract here (`here`) and Extract to... inside an archive
+   *  (#300). Without it there is no strip. */
+  onArchiveExtract?: (archive: ArchiveMeta, here: boolean) => void
+  /** Extract here just worked: the strip says "Extracted" for a moment. */
+  archiveDone?: boolean
+  /** A right press on the list's empty space inside an archive. */
+  onEmptyContextMenu?: (event: MouseEvent<HTMLElement>) => void
 }

@@ -10,7 +10,9 @@ export interface BrowseSearchWindowRequest {
 }
 
 export interface BrowseSort {
-  key: 'name' | 'path' | 'type' | 'size' | 'modified'
+  /** `packed` exists only inside an archive (#300); anywhere else it reads as
+   *  `size` (`viewSort`), so a sort never leaks out of a zip. */
+  key: 'name' | 'path' | 'type' | 'size' | 'modified' | 'packed'
   direction: 'asc' | 'desc'
 }
 

@@ -25,7 +25,11 @@ const paths = {
   up: 'm6 10 6-6 6 6M12 4v16',
   down: 'm6 14 6 6 6-6M12 20V4',
   'open-with': 'M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6',
-  'default-app': 'M12 3l8 5-8 5-8-5 8-5zM4 13l8 5 8-5'
+  'default-app': 'M12 3l8 5-8 5-8-5 8-5zM4 13l8 5 8-5',
+  // The archive rows (#300): a tray with an arrow down into it, the
+  // mockup's own glyph, and a tray with a plus for adding.
+  extract: 'M12 4v10M8 10l4 4 4-4M4 15v4h16v-4',
+  'add-files': 'M12 5v9M7.5 9.5H16.5M4 15v4h16v-4'
 }
 
 export type FileMenuIconName = keyof typeof paths

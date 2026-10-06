@@ -71,7 +71,7 @@ export function useFolderDrop(onDropInto?: (directory: string, payload: DragPayl
         setHovered(null)
         event.currentTarget.closest<HTMLElement>('.browse-list')?.focus({ preventScroll: true })
         if (payload && !self && !insideSource(directory, payload)) onDropInto?.(directory, payload)
-        else if (paths.length) onDropInto?.(directory, { kind: 'files', paths })
+        else if (paths.length) onDropInto?.(directory, { kind: 'files', paths, external: true })
       }
     }
   }

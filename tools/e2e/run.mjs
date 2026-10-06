@@ -1984,7 +1984,9 @@ async function iconSchemeScenario(fixtures) {
       const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
         (e.getAttribute('data-row') ?? '').toLowerCase().endsWith(want)
       )
-      const svg = row?.querySelector('svg[viewBox="0 0 24 24"]')
+      // An archive is a folder node now (#300): its chevron comes first, so
+      // the icon is the LAST such svg in the row.
+      const svg = [...(row?.querySelectorAll('svg[viewBox="0 0 24 24"]') ?? [])].pop()
       if (!svg) return null
       const g = svg.querySelector('g[mask]')
       const t = svg.querySelector('text')
@@ -2051,7 +2053,7 @@ async function iconSchemeScenario(fixtures) {
       const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
         (e.getAttribute('data-row') ?? '').toLowerCase().endsWith('disc.iso')
       )
-      const d = row?.querySelector('svg[viewBox="0 0 24 24"] path')?.getAttribute('d') ?? ''
+      const d = [...(row?.querySelectorAll('svg[viewBox="0 0 24 24"]') ?? [])].pop()?.querySelector('path')?.getAttribute('d') ?? ''
       return /A[\d. ]+/.test(d)
     })
     ok(round, 'and its silhouette is a circle, not a page or a container')
@@ -2063,7 +2065,7 @@ async function iconSchemeScenario(fixtures) {
       const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
         (e.getAttribute('data-row') ?? '').toLowerCase().endsWith('disc.iso')
       )
-      const svg = row?.querySelector('svg[viewBox="0 0 24 24"]')
+      const svg = [...(row?.querySelectorAll('svg[viewBox="0 0 24 24"]') ?? [])].pop()
       const body = svg?.querySelector('mask path')?.getAttribute('d') ?? ''
       const g = svg?.querySelector('g[mask]')
       const last = g ? [...g.querySelectorAll('path')].pop() : null
@@ -2103,7 +2105,7 @@ async function comicIconScenario(fixtures) {
       const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
         (e.getAttribute('data-row') ?? '').toLowerCase().endsWith('sequel.cbz')
       )
-      const svg = row?.querySelector('svg[viewBox="0 0 24 24"]')
+      const svg = [...(row?.querySelectorAll('svg[viewBox="0 0 24 24"]') ?? [])].pop()
       if (!svg) return null
       const g = svg.querySelector('g[mask]')
       return {
@@ -2858,9 +2860,28 @@ async function answerFolderDialog(app, dir) {
   }, dir)
 }
 
+/**
+ * INTO AN ARCHIVE THE WAY A PERSON GOES NOW (#300): the pinned Explorer,
+ * the address, and the strip naming it once its listing is in. The old
+ * panel (ArchiveView) is the phone's alone.
+ */
+async function inZip(win, zipPath) {
+  await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+  await win.waitForSelector('[data-testid="browse-list"]', { timeout: 10000 })
+  await win.locator('[data-testid="browse-edit-path"]').click()
+  await win.locator('.browse-path-form input').fill(zipPath)
+  await win.keyboard.press('Enter')
+  const name = zipPath.split(/[\\/]/).pop()
+  await until(
+    async () => ((await win.locator('[data-archive-strip]').textContent().catch(() => '')) ?? '').includes(name),
+    15000
+  )
+  await sleep(200)
+}
+
 /** The row menu of one archive member, opened. */
 async function openMemberMenu(win, name) {
-  await win.locator('[data-arc-row]', { hasText: name }).first().click({ button: 'right' })
+  await win.locator('[data-testid="browse-list"] .browse-row', { hasText: name }).first().click({ button: 'right' })
   await win.waitForSelector('[role="menu"]', { timeout: 5000 })
 }
 
@@ -2894,11 +2915,11 @@ async function extractWindowScenario(fixtures) {
   {
     const { app, win } = await launch(join(zips, 'wrapped.zip'))
     try {
-      await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+      await inZip(win, join(zips, 'wrapped.zip'))
       await answerFolderDialog(app, picked)
 
       await throughTheWindow(win, 'zip, Extract to… on the verb row', 'wrapped.zip', () =>
-        win.click('button:has-text("Extract to")')
+        win.click('[data-archive-strip] [data-archive-verb="extract-to"]')
       )
       ok(
         existsSync(join(picked, 'Collection', 'sub', 'two.txt')),
@@ -2906,7 +2927,7 @@ async function extractWindowScenario(fixtures) {
       )
 
       // The panel's own menu, on its dead space.
-      const list = await win.locator('[data-arc-list]').boundingBox()
+      const list = await win.locator('[data-testid="browse-list"]').boundingBox()
       await throughTheWindow(win, "zip, Extract here on the panel's menu", 'wrapped.zip', async () => {
         await win.mouse.click(list.x + list.width / 2, list.y + list.height - 12, { button: 'right' })
         await win.waitForSelector('[role="menu"]', { timeout: 5000 })
@@ -2918,7 +2939,7 @@ async function extractWindowScenario(fixtures) {
       // renames across, which is a different route from the members' one.
       await throughTheWindow(win, 'zip, Extract folder here', 'wrapped.zip', async () => {
         await openMemberMenu(win, 'Collection')
-        await win.locator('[role="menu"] >> text="Extract folder here"').click()
+        await win.locator('[role="menu"] >> text="Extract this folder"').click()
       })
       ok(
         existsSync(join(zips, 'Collection (2)', 'sub', 'two.txt')),
@@ -2930,7 +2951,7 @@ async function extractWindowScenario(fixtures) {
       rmSync(join(picked, 'Collection'), { recursive: true, force: true })
       await throughTheWindow(win, 'zip, Extract folder to…', 'wrapped.zip', async () => {
         await openMemberMenu(win, 'Collection')
-        await win.locator('[role="menu"] >> text="Extract folder to…"').click()
+        await win.locator('[role="menu"] >> text="Extract this folder to..."').click()
       })
       ok(
         existsSync(join(picked, 'Collection', 'sub', 'two.txt')),
@@ -2938,11 +2959,11 @@ async function extractWindowScenario(fixtures) {
       )
 
       // A FILE row, both verbs. Walk into the folder first.
-      await win.locator('[data-arc-row]', { hasText: 'Collection' }).first().dblclick()
-      await win.waitForSelector('[data-arc-row]:has-text("one.txt")', { timeout: 5000 })
+      await win.locator('[data-testid="browse-list"] .browse-row', { hasText: 'Collection' }).first().dblclick()
+      await win.waitForSelector('[data-testid="browse-list"] .browse-row:has-text("one.txt")', { timeout: 5000 })
       await throughTheWindow(win, 'zip, Extract here on a member', 'wrapped.zip', async () => {
         await openMemberMenu(win, 'one.txt')
-        await win.locator('[role="menu"] >> text="Extract here"').click()
+        await win.locator('[role="menu"] >> text="Extract this file"').click()
       })
       ok(
         readFileSync(join(zips, 'one.txt'), 'utf8') === 'first',
@@ -2950,7 +2971,7 @@ async function extractWindowScenario(fixtures) {
       )
       await throughTheWindow(win, 'zip, Extract to… on a member', 'wrapped.zip', async () => {
         await openMemberMenu(win, 'one.txt')
-        await win.locator('[role="menu"] >> text="Extract to…"').click()
+        await win.locator('[role="menu"] >> text="Extract this file to..."').click()
       })
       ok(existsSync(join(picked, 'one.txt')), 'and in the picked folder')
       ok(leftovers().length === 0, `no staging folder is left behind (${leftovers().join(', ')})`)
@@ -2970,11 +2991,11 @@ async function extractWindowScenario(fixtures) {
   {
     const { app, win } = await launch(join(zips, 'read-only.7z'))
     try {
-      await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+      await inZip(win, join(zips, 'read-only.7z'))
       await answerFolderDialog(app, picked)
 
       await throughTheWindow(win, '7z, Extract here on the verb row', 'read-only.7z', () =>
-        win.click('button:has-text("Extract here")')
+        win.click('[data-archive-strip] [data-archive-verb="extract-here"]')
       )
       ok(
         existsSync(join(zips, 'read-only', 'note.txt')) &&
@@ -2983,13 +3004,13 @@ async function extractWindowScenario(fixtures) {
       )
 
       await throughTheWindow(win, '7z, Extract to… on the verb row', 'read-only.7z', () =>
-        win.click('button:has-text("Extract to")')
+        win.click('[data-archive-strip] [data-archive-verb="extract-to"]')
       )
       ok(existsSync(join(picked, 'read-only', 'sub', 'deep.txt')), 'and in the picked folder')
 
       await throughTheWindow(win, '7z, Extract folder here', 'read-only.7z', async () => {
         await openMemberMenu(win, 'sub')
-        await win.locator('[role="menu"] >> text="Extract folder here"').click()
+        await win.locator('[role="menu"] >> text="Extract this folder"').click()
       })
       ok(existsSync(join(zips, 'sub', 'deep.txt')), 'the folder landed beside the archive')
 
@@ -2997,7 +3018,7 @@ async function extractWindowScenario(fixtures) {
       // rename, so what is checked is the file AND that the staging has gone.
       await throughTheWindow(win, '7z, Extract here on a member', 'read-only.7z', async () => {
         await openMemberMenu(win, 'note.txt')
-        await win.locator('[role="menu"] >> text="Extract here"').click()
+        await win.locator('[role="menu"] >> text="Extract this file"').click()
       })
       ok(
         /hello from inside a 7z/.test(readFileSync(join(zips, 'note.txt'), 'utf8')),
@@ -3005,7 +3026,7 @@ async function extractWindowScenario(fixtures) {
       )
       await throughTheWindow(win, '7z, Extract folder to…', 'read-only.7z', async () => {
         await openMemberMenu(win, 'sub')
-        await win.locator('[role="menu"] >> text="Extract folder to…"').click()
+        await win.locator('[role="menu"] >> text="Extract this folder to..."').click()
       })
       ok(existsSync(join(picked, 'sub', 'deep.txt')), 'and a folder in the picked one')
       ok(leftovers().length === 0, `no staging folder is left behind (${leftovers().join(', ')})`)
@@ -3016,7 +3037,7 @@ async function extractWindowScenario(fixtures) {
 
       // The temp extraction that VIEWS a member stays silent: no window.
       await armExtractProbe(win)
-      await win.locator('[data-arc-row]', { hasText: 'note.txt' }).first().dblclick()
+      await win.locator('[data-testid="browse-list"] .browse-row', { hasText: 'note.txt' }).first().dblclick()
       await win.waitForFunction(() => /hello from inside a 7z/.test(document.body.innerText), null, {
         timeout: 15000
       })
@@ -3156,13 +3177,13 @@ async function extractCancelScenario() {
 
   const { app, win } = await launch(join(box, 'big.7z'))
   try {
-    await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+    await inZip(win, join(box, 'big.7z'))
     await answerFolderDialog(app, join(box, 'picked'))
     const tabs = () => win.locator('[role="tablist"] [role="tab"]').count()
     const tabsBefore = await tabs()
 
     // ---- it cannot be dismissed: real keys, a real mouse ------------------
-    await win.click('button:has-text("Extract here")')
+    await win.click('[data-archive-strip] [data-archive-verb="extract-here"]')
     await win.waitForSelector(`${XWIN}[data-phase="running"]`, { timeout: 20000 })
     // Progress is REAL: a number, that grows, and the member being written.
     await win.waitForFunction(
@@ -3227,7 +3248,7 @@ async function extractCancelScenario() {
 
     // ---- Cancel: staging beside the archive (Extract folder here) ---------
     await openMemberMenu(win, 'Big')
-    await win.locator('[role="menu"] >> text="Extract folder here"').click()
+    await win.locator('[role="menu"] >> text="Extract this folder"').click()
     await win.waitForSelector(`${XWIN}[data-phase="running"]`, { timeout: 20000 })
     ok(
       (await until(() => readdirSync(box).some((n) => n.startsWith('.prism-extract-')), 8000)) === true,
@@ -3237,7 +3258,7 @@ async function extractCancelScenario() {
 
     // ---- Cancel: staging inside the picked folder (Extract folder to…) ----
     await openMemberMenu(win, 'Big')
-    await win.locator('[role="menu"] >> text="Extract folder to…"').click()
+    await win.locator('[role="menu"] >> text="Extract this folder to..."').click()
     await win.waitForSelector(`${XWIN}[data-phase="running"]`, { timeout: 20000 })
     ok(
       (await until(
@@ -3249,15 +3270,15 @@ async function extractCancelScenario() {
     await cancelMidFlight(win, 'Extract folder to…', { seven: true })
 
     // ---- Cancel: the in-process engine, slow by count ---------------------
-    await win.locator('aside [role="treeitem"]', { hasText: 'many.zip' }).first().click()
-    await win.waitForSelector('[data-arc-row]:has-text("Many")', { timeout: 15000 })
-    await win.click('button:has-text("Extract here")')
+    await inZip(win, join(box, 'many.zip'))
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row:has-text("Many")', { timeout: 15000 })
+    await win.click('[data-archive-strip] [data-archive-verb="extract-here"]')
     await cancelMidFlight(win, 'a zip, Extract here', { seven: false })
 
     // ---- a FAILURE turns the same window into the error -------------------
-    await win.locator('aside [role="treeitem"]', { hasText: 'corrupt.7z' }).first().click()
-    await win.waitForSelector('[data-arc-row]:has-text("b-bad.txt")', { timeout: 15000 })
-    await win.click('button:has-text("Extract here")')
+    await inZip(win, join(box, 'corrupt.7z'))
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row:has-text("b-bad.txt")', { timeout: 15000 })
+    await win.click('[data-archive-strip] [data-archive-verb="extract-here"]')
     await win.waitForSelector(`${XWIN}[data-phase="failed"]`, { timeout: 30000 })
     const title = (await win.locator(`${XWIN} h2`).textContent()) ?? ''
     const said = (await win.locator('[data-extract-error]').textContent()) ?? ''
@@ -3322,7 +3343,7 @@ async function extractCancelScenario() {
       })
       obs.observe(document.body, { childList: true, subtree: true, attributes: true })
     })
-    await win.click('button:has-text("Extract here")')
+    await win.click('[data-archive-strip] [data-archive-verb="extract-here"]')
     await win.waitForSelector(`${XWIN}[data-phase="failed"]`, { timeout: 30000 })
     ok(
       (await win.evaluate(() => window.__cancelHadFocus)) === true,
@@ -3357,10 +3378,10 @@ async function extractCancelScenario() {
     const PASS = 'input[aria-label="Archive password"]'
     for (const name of ['locked.7z', 'locked.zip']) {
       const mark = treeOf(box)
-      await win.locator('aside [role="treeitem"]', { hasText: name }).first().click()
-      await win.waitForSelector('[data-arc-row]:has-text("vault")', { timeout: 15000 })
+      await inZip(win, join(box, name))
+      await win.waitForSelector('[data-testid="browse-list"] .browse-row:has-text("vault")', { timeout: 15000 })
 
-      await win.click('button:has-text("Extract here")')
+      await win.click('[data-archive-strip] [data-archive-verb="extract-here"]')
       await win.waitForSelector(`${XWIN}[data-phase="failed"]`, { timeout: 30000 })
       const why = (await win.locator('[data-extract-error]').textContent()) ?? ''
       ok(
@@ -3375,11 +3396,11 @@ async function extractCancelScenario() {
         `${name}: and the refused extraction left nothing behind (${strays.join(', ')})`
       )
 
-      await win.locator('[data-arc-row]', { hasText: 'vault' }).first().dblclick()
-      await win.waitForSelector('[data-arc-row]:has-text("secret.txt")', { timeout: 5000 })
+      await win.locator('[data-testid="browse-list"] .browse-row', { hasText: 'vault' }).first().dblclick()
+      await win.waitForSelector('[data-testid="browse-list"] .browse-row:has-text("secret.txt")', { timeout: 5000 })
       await armExtractProbe(win)
       await openMemberMenu(win, 'secret.txt')
-      await win.locator('[role="menu"] >> text="Extract here"').click()
+      await win.locator('[role="menu"] >> text="Extract this file"').click()
       await win.waitForSelector(PASS, { timeout: 30000 })
       const seen = await win.evaluate(() => window.__xw.phases)
       ok(
@@ -3429,13 +3450,13 @@ async function extractScenario(fixtures) {
   rmSync(landed, { recursive: true, force: true })
   const { app, win } = await launch(zip)
   try {
-    await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+    await inZip(win, zip)
     ok(
-      (await win.locator('button:has-text("Extract here")').count()) === 1,
+      (await win.locator('[data-archive-strip] [data-archive-verb="extract-here"]').count()) === 1,
       'the verb row offers a one-click Extract here'
     )
     ok(
-      (await win.locator('button:has-text("Extract to")').count()) === 1,
+      (await win.locator('[data-archive-strip] [data-archive-verb="extract-to"]').count()) === 1,
       'and Extract to... beside it'
     )
     // The inline track is GONE (2026-09-03, owner), and since 2026-09-19
@@ -3443,21 +3464,14 @@ async function extractScenario(fixtures) {
     // started it, so the layout has nothing to move. Still measured, because
     // "it looks fine" is exactly how the jump got shipped the first time.
     const listTop = async () =>
-      win.evaluate(() => document.querySelector('[data-arc-row]').getBoundingClientRect().top)
+      win.evaluate(() => document.querySelector('[data-testid="browse-list"] .browse-row').getBoundingClientRect().top)
     const beforeTop = await listTop()
     ok(
       (await win.locator('[role="progressbar"]').count()) === 0,
       'no inline progress track: the extraction window is the one look'
     )
-    // The first row starts ON the header's hairline: no gutter above it.
-    const gap = await win.evaluate(() => {
-      const list = document.querySelector('[data-arc-list]')
-      const row = document.querySelector('[data-arc-row]')
-      return row.getBoundingClientRect().top - list.getBoundingClientRect().top
-    })
-    ok(Math.abs(gap) < 0.6, `the first row sits on the header hairline (${gap.toFixed(2)}px)`)
     await throughTheWindow(win, 'zip, Extract here on the verb row', 'wrapped.zip', () =>
-      win.click('button:has-text("Extract here")')
+      win.click('[data-archive-strip] [data-archive-verb="extract-here"]')
     )
     ok(
       (await win.locator('button:has-text("Extracting")').count()) === 0,
@@ -3560,12 +3574,12 @@ async function flatZipScenario(fixtures) {
   console.log('a zip that records no folders')
   const { app, win } = await launch(join(fixtures, 'zips', 'nodirs.zip'))
   try {
-    await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+    await inZip(win, join(fixtures, 'zips', 'nodirs.zip'))
     const names = async () =>
-      (await win.locator('[data-arc-row]').allTextContents()).join(' | ')
-    ok((await win.locator('[data-arc-row]').count()) > 0, 'the archive does not read as empty')
+      (await win.locator('[data-testid="browse-list"] .browse-row').allTextContents()).join(' | ')
+    ok((await win.locator('[data-testid="browse-list"] .browse-row').count()) > 0, 'the archive does not read as empty')
     ok((await names()).includes('Deep'), 'the folder its member names imply is listed')
-    await win.locator('[data-arc-row]:has-text("Deep")').first().dblclick()
+    await win.locator('[data-testid="browse-list"] .browse-row:has-text("Deep")').first().dblclick()
     await sleep(500)
     ok((await names()).includes('Inner'), 'and so is the one below that')
     ok((await names()).includes('other.txt'), 'beside the real member at that level')
@@ -4172,6 +4186,8 @@ async function sevenZipScenario(fixtures) {
   console.log('archives beyond zip')
   const { app, win } = await launch(join(fixtures, 'zips', 'read-only.7z'))
   try {
+    // A 7z is a read-only FOLDER in the Explorer now (#300).
+    await inZip(win, join(fixtures, 'zips', 'read-only.7z'))
     const row = (name) => win.locator('[role="listbox"] [role="option"]', { hasText: name })
     await win.waitForSelector('[role="listbox"] [role="option"]', { timeout: 15000 })
     const names = await win.locator('[role="listbox"] [role="option"]').allTextContents()
@@ -4185,7 +4201,7 @@ async function sevenZipScenario(fixtures) {
     await row('note.txt').first().click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     const items = (await win.locator('[role="menu"] [role="menuitem"]').allTextContents()).join(' ')
-    ok(/View/.test(items) && /Copy file/.test(items), 'view and copy are offered')
+    ok(/Open/.test(items) && /Copy file/.test(items), 'open and copy are offered')
     ok(!/Rename|Delete/.test(items), 'rename and delete are not, since 7z is never rewritten')
     await win.keyboard.press('Escape')
 
@@ -7498,119 +7514,6 @@ async function folderArgScenario(fixtures) {
   }
 }
 
-async function archiveScenario(fixtures) {
-  console.log('archive viewer')
-  // #68: a real zip opens as a tree of members with view/rename/delete verbs.
-  const zipPath = join(fixtures, 'zips', 'bundle.zip')
-  const { app, win } = await launch(zipPath)
-  try {
-    await win.waitForSelector('[role="listbox"][aria-label*="bundle.zip"]', { timeout: 10000 })
-    const row = (name) => win.locator(`[role="listbox"] [role="option"]`, { hasText: name })
-    ok((await row('readme.txt').count()) === 1, 'a top-level member is listed')
-    ok((await row('notes').count()) >= 1, 'so is the folder')
-    const body = (await win.textContent('body')) ?? ''
-    ok(/25 B/.test(body), 'sizes ride along')
-    ok(!/todo\.md/.test(body), 'the root listing shows only its own level')
-
-    // The columns (2026-08-25): what the container knows about each member.
-    // The header is UPPERCASED by CSS, so the DOM still says "Type".
-    ok(/Type/.test(body) && /Packed/.test(body) && /Modified/.test(body), 'the panel has a column header')
-    ok(/Markdown document|TXT text/.test(body), 'and each row says what it is')
-
-    // Drag-select, the archive's alone: it starts on DEAD SPACE, so a row
-    // drag (which moves members) can never leave a phantom band behind.
-    const list = await win.locator('[role="listbox"]').boundingBox()
-    const firstRow = await win.locator('[data-arc-row]').first().boundingBox()
-    await win.mouse.move(firstRow.x + 40, list.y + list.height + 50)
-    await win.mouse.down()
-    await win.mouse.move(firstRow.x + 220, firstRow.y + 8, { steps: 10 })
-    ok((await win.locator('[data-arc-band]').count()) === 1, 'a band is drawn while sweeping')
-    await win.mouse.up()
-    ok(
-      (await win.locator('[data-arc-row][data-selected]').count()) > 1,
-      'the sweep marked the rows it crossed'
-    )
-    // And a press on dead space puts the marks away again: what stays marked
-    // is the archive itself, over in the tree.
-    await win.mouse.click(firstRow.x + 40, list.y + list.height + 50)
-    ok(
-      (await win.locator('[data-arc-row][data-selected]').count()) === 0,
-      'dead space clears the selection'
-    )
-    // Ctrl+A takes the folder you are looking at, from dead space or a row.
-    const memberCount = await win.locator('[data-arc-row]').count()
-    await win.keyboard.press('Control+a')
-    ok(
-      (await win.locator('[data-arc-row][data-selected]').count()) === memberCount,
-      'Ctrl+A marks every member of this folder'
-    )
-    await win.mouse.click(firstRow.x + 40, list.y + list.height + 50)
-
-    // Explorer-shaped: clicking a folder walks INTO it; the breadcrumb (and
-    // Backspace) climbs back out.
-    await row('notes').first().dblclick()
-    await win.waitForSelector('text=todo.md', { timeout: 5000 })
-    ok((await row('readme.txt').count()) === 0, 'entering a folder leaves the parent behind')
-    await win.keyboard.press('Backspace')
-    await win.waitForSelector('text=readme.txt', { timeout: 5000 })
-    ok(true, 'Backspace climbs back to the root')
-
-    // View a member; Escape backs out of the preview.
-    await row('readme.txt').first().dblclick()
-    await win.waitForFunction(
-      () => /hello from inside the zip/.test(document.body.textContent ?? ''),
-      null,
-      { timeout: 15000 }
-    )
-    ok(true, 'viewing a member shows its content')
-    await win.screenshot({ path: join(SHOTS, 'archive-member.png') })
-    await win.keyboard.press('Escape')
-    await win.waitForFunction(
-      () => !/hello from inside the zip/.test(document.body.textContent ?? ''),
-      null,
-      { timeout: 5000 }
-    )
-    ok(true, 'Escape returns to the archive')
-
-    // Rename in place: F2 on the focused row, Explorer-style selection means
-    // typing replaces the stem and keeps the extension.
-    await row('notes').first().dblclick()
-    await win.waitForSelector('text=todo.md', { timeout: 5000 })
-    await row('todo.md').first().focus()
-    await win.keyboard.press('F2')
-    await win.keyboard.type('done')
-    await win.keyboard.press('Enter')
-    await win.waitForSelector('text=done.md', { timeout: 5000 })
-    const AdmZip = (await import('adm-zip')).default
-    ok(
-      new AdmZip(zipPath).getEntries().some((e) => e.entryName === 'notes/done.md'),
-      'the rename landed inside the zip itself'
-    )
-
-    // Delete: confirms first (permanent - a zip has no recycle bin), then the
-    // member is gone from the listing AND the container. The breadcrumb's
-    // root crumb goes back up first.
-    await win.locator('[data-archive-crumbs] button:has-text("bundle.zip")').click()
-    await win.waitForSelector('text=readme.txt', { timeout: 5000 })
-    await row('readme.txt').first().focus()
-    await win.keyboard.press('Delete')
-    await win.waitForSelector('text=no Recycle Bin', { timeout: 5000 })
-    await win.locator('button', { hasText: 'Delete' }).last().click()
-    await win.waitForFunction(
-      () => !/readme\.txt/.test(document.body.textContent ?? ''),
-      null,
-      { timeout: 5000 }
-    )
-    ok(
-      !new AdmZip(zipPath).getEntries().some((e) => e.entryName === 'readme.txt'),
-      'the delete landed inside the zip itself'
-    )
-    await win.screenshot({ path: join(SHOTS, 'archive.png') })
-  } finally {
-    await app.close()
-  }
-}
-
 /**
  * THE SWEEP RECTANGLE AND ONE ROW SIZE (#257; owner, 2026-10-03: "let me
  * highlight files by holding down left click ... that transparent quadrant",
@@ -8283,14 +8186,16 @@ async function markTintScenario(fixtures) {
   const z = await launch(join(dir, 'tint.zip'))
   try {
     await switchStyle(z.win, 'aurora', 'dark')
-    await z.win.waitForSelector('[data-arc-row]', { timeout: 15000 })
-    await z.win.locator('[data-arc-row="z1.txt"]').click()
-    await z.win.locator('[data-arc-row="z2.txt"]').click({ modifiers: ['Control'] })
+    // Inside a zip the rows are the Explorer's own (#300).
+    await inZip(z.win, join(dir, 'tint.zip'))
+    const zr = (n) => z.win.locator(`[data-testid="browse-list"] [data-browse-path$="${n}"]`)
+    await zr('z1.txt').click()
+    await zr('z2.txt').click({ modifiers: ['Control'] })
     await z.win.mouse.move(5, 5)
     await sleep(300)
     const arc = await z.win.evaluate(() => {
-      const r = (n) => document.querySelector(`[data-arc-row="${n}"]`)
-      const name = (el) => getComputedStyle(el.querySelector('span.truncate')).color
+      const r = (n) => document.querySelector(`[data-testid="browse-list"] [data-browse-path$="${n}"]`)
+      const name = (el) => getComputedStyle(el.querySelector('.browse-name-text')).color
       return {
         bg: getComputedStyle(r('z1.txt')).backgroundColor,
         names: [name(r('z1.txt')), name(r('z3.txt'))],
@@ -10501,17 +10406,22 @@ async function dragScenario(fixtures) {
   {
     const { app, win } = await launch(join(fixtures, 'zips', 'dragzip.zip'))
     try {
-      await win.waitForSelector('[role="listbox"] [role="option"]', { timeout: 10000 })
-      await sleep(600)
-      // The drag used to show NOTHING while it extracted (#166): it is the
-      // same window now as every other way of extracting.
-      await throughTheWindow(win, 'a member dragged onto a sidebar folder', 'dragzip.zip', () =>
+      // Inside the zip in the Explorer (#300), a member row dragged onto a
+      // folder's crumb outside the zip extracts there. The drag used to show
+      // NOTHING while it extracted (#166): it is the same window now as every
+      // other way of extracting.
+      await inZip(win, join(fixtures, 'zips', 'dragzip.zip'))
+      await throughTheWindow(win, 'a member dragged out onto a folder', 'dragzip.zip', () =>
         win
-          .locator('[role="listbox"] [role="option"]', { hasText: 'carry.txt' })
+          .locator('[data-testid="browse-list"] .browse-row', { hasText: 'carry.txt' })
           .first()
-          .dragTo(win.locator('aside [role="treeitem"]:has-text("out")').first())
+          .locator('.browse-name-text')
+          .dragTo(win.locator(`.browse-crumb button[data-crumb-path="${join(fixtures, 'zips').replace(/\\/g, '\\\\')}"]`))
       )
-      ok(existsSync(join(out, 'carry.txt')), 'a member dragged out of the zip landed in the folder')
+      ok(existsSync(join(fixtures, 'zips', 'carry.txt')), 'a member dragged out of the zip landed in the folder')
+      rmSync(join(fixtures, 'zips', 'carry.txt'), { force: true })
+      await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').first().click()
+      await win.waitForSelector('aside [role="treeitem"]:has-text("out")', { timeout: 10000 })
       // A FOLDER dragged onto the tab strip opens as a tab of its own.
       const tabsBefore = await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()
       // Aimed at the EMPTY space after the +, which is where a drop is
@@ -10544,8 +10454,8 @@ async function dragScenario(fixtures) {
         })
       await sleep(1200)
       ok(
-        (await win.locator('[role="listbox"][aria-label*="dragzip.zip"]').count()) === 1,
-        'a row dropped on the viewer opens it there'
+        (await win.locator('[data-archive-card]').count()) === 1,
+        'a row dropped on the viewer opens it there (a zip shows its card, #300)'
       )
     } finally {
       await app.close()
@@ -13435,6 +13345,471 @@ async function settingsSearchScenario(fixtures) {
   }
 }
 
+/* ---------- ZIPS ARE FOLDERS (#300) ---------- */
+
+/** A tiny real PNG, for a member that is a picture. */
+const ZIP_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+M9QDwADgQF/e5IkGQAAAABJRU5ErkJggg==',
+  'base64'
+)
+
+/**
+ * The zip the #300 scenarios walk: a "download as zip" (one top folder), a
+ * folder three deep with a needle in it, a picture, text, a markdown file and
+ * a zip inside the zip. Built fresh per scenario, under its own folder.
+ */
+async function zipWorld(fixtures, name) {
+  const AdmZip = (await import('adm-zip')).default
+  const dir = join(fixtures, name)
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const inner = new AdmZip()
+  inner.addFile('docs/inside-inner.txt', Buffer.from('from the inner zip\n'))
+  const zip = new AdmZip()
+  zip.addFile('Wind/README.md', Buffer.from('# Wind\n\nThe readme inside the zip.\n'))
+  zip.addFile('Wind/package.json', Buffer.from('{ "name": "wind" }\n'))
+  zip.addFile('Wind/src/main/caret.ts', Buffer.from('// The caret follows typing\nexport const SETTLE_MS = 150\n'))
+  zip.addFile('Wind/src/main/index.ts', Buffer.from('export {}\n' + 'x'.repeat(3000)))
+  zip.addFile('Wind/assets/pic.png', ZIP_PNG)
+  zip.addFile('Wind/docs/deep/deeper/needle-in-zip.txt', Buffer.from('found me\n'))
+  zip.addFile('Wind/nested.zip', inner.toBuffer())
+  const zipPath = join(dir, 'Wind-0.2.2.zip')
+  zip.writeZip(zipPath)
+  writeFileSync(join(dir, 'notes.txt'), 'beside the zip\n')
+  return { dir, zipPath }
+}
+
+/** The pinned Explorer, walked to `dir`. */
+async function explorerAt(win, dir) {
+  await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+  await win.waitForSelector('[data-testid="browse-list"]', { timeout: 10000 })
+  await win.locator('[data-testid="browse-edit-path"]').click()
+  await win.locator('.browse-path-form input').fill(dir)
+  await win.keyboard.press('Enter')
+  await until(async () => (await win.locator(`[data-testid="browse-list"] [data-browse-path$="notes.txt"]`).count()) === 1, 10000)
+}
+
+/** A row by the end of its path. A backslash in a CSS string is an escape,
+ *  so it is doubled. */
+const zipRow = (win, suffix) =>
+  win.locator(`[data-testid="browse-list"] [data-browse-path$="${suffix.replace(/\\/g, '\\\\')}"]`)
+const zipRows = (win) =>
+  win.evaluate(() => [...document.querySelectorAll('[data-testid="browse-list"] .browse-row[data-browse-path]')].map((r) => r.getAttribute('data-browse-path')))
+
+async function zipFolderScenario(fixtures) {
+  console.log('zips are folders (#300)')
+  const { dir, zipPath } = await zipWorld(fixtures, 'zipfolder')
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  EXTRA_ENV = {}
+  const consoleErrors = []
+  win.on('console', (m) => {
+    if (m.type() === 'error') consoleErrors.push(m.text())
+  })
+  try {
+    await explorerAt(win, dir)
+    ok((await win.locator('.browse-list-area[data-in-archive]').count()) === 0, 'outside a zip there is no Packed column')
+    // Double-click goes in, like a folder.
+    await zipRow(win, 'Wind-0.2.2.zip').dblclick()
+    ok(await until(async () => (await win.locator('[data-archive-strip]').count()) === 1, 10000), 'double-click goes in and the strip shows')
+    const strip = (await win.locator('[data-archive-strip]').textContent()) ?? ''
+    ok(/Wind-0\.2\.2\.zip/.test(strip) && /\d+ files/.test(strip) && /compressed/.test(strip), `the strip names the zip, its files and size (${strip})`)
+    ok((await win.locator('.browse-crumb button[data-crumb-archive]').count()) === 1, 'the zip crumb wears the archive icon')
+    ok((await win.locator('.browse-crumb button[data-crumb-archive] svg').count()) === 1, 'and draws it')
+    ok((await win.locator('.browse-list-area[data-in-archive] .browse-columns .browse-column-packed').count()) === 1, 'inside, a Packed column')
+    ok((await zipRows(win)).some((p) => /Wind-0\.2\.2\.zip\\Wind$/.test(p)), 'the top folder is a row')
+    ok(/In Wind-0\.2\.2\.zip/.test((await win.locator('.browse-status').textContent()) ?? ''), 'the status bar says where you are')
+    await win.screenshot({ path: join(SHOTS, 'zip-root.png') })
+    // Into the folder: every row the plain ground (no stripes).
+    await zipRow(win, 'Wind-0.2.2.zip\\Wind').dblclick()
+    await until(async () => (await zipRows(win)).some((p) => p.endsWith('package.json')), 10000)
+    // Away from every row, so no hover fill is measured as a stripe.
+    await win.mouse.move(5, 5)
+    await sleep(250)
+    const grounds = await win.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="browse-list"] .browse-row[data-browse-path]')].map((r) => getComputedStyle(r).backgroundColor)
+    )
+    ok(grounds.length >= 5 && new Set(grounds).size === 1, `every row is the same ground, no zebra (${[...new Set(grounds)]})`)
+    // Folders show their totals; files their packed size.
+    const sizeOf = async (suffix, col) => ((await zipRow(win, suffix).locator(`.browse-column-${col}`).textContent()) ?? '').trim()
+    ok(/B|KB/.test(await sizeOf('\\src', 'size')), `a folder says how much is in it (${await sizeOf('\\src', 'size')})`)
+    ok(/B/.test(await sizeOf('package.json', 'packed')), `a file has a packed size (${await sizeOf('package.json', 'packed')})`)
+    // Sort by Packed, both ways.
+    await win.locator('.browse-columns .browse-column-packed').click()
+    const asc = (await zipRows(win)).filter((p) => !/\\(src|assets|docs)$/.test(p))
+    await win.locator('.browse-columns .browse-column-packed').click()
+    const desc = (await zipRows(win)).filter((p) => !/\\(src|assets|docs)$/.test(p))
+    ok(asc.length > 1 && asc.join() === [...desc].reverse().join(), 'sorting by Packed turns round on a second click')
+    await win.locator('.browse-columns .browse-column-name').click()
+    // Two folders down, Back, Forward, Alt+Up.
+    await zipRow(win, 'Wind\\src').dblclick()
+    await until(async () => (await zipRows(win)).some((p) => p.endsWith('\\main')), 10000)
+    await zipRow(win, 'src\\main').dblclick()
+    await until(async () => (await zipRows(win)).some((p) => p.endsWith('caret.ts')), 10000)
+    const where = async () => (await win.locator('.browse-path').getAttribute('title')) ?? ''
+    ok((await where()).endsWith('Wind-0.2.2.zip\\Wind\\src\\main'), `one path through the zip (${await where()})`)
+    await win.locator('[data-testid="browse-list"]').focus()
+    await win.keyboard.press('Alt+ArrowLeft')
+    ok(await until(async () => (await where()).endsWith('Wind\\src')), 'Back walks the one history')
+    await win.keyboard.press('Alt+ArrowRight')
+    ok(await until(async () => (await where()).endsWith('src\\main')), 'Forward too')
+    // A text member previews after the unpack, read-only, with its text.
+    await zipRow(win, 'caret.ts').click()
+    ok(await until(async () => /caret follows typing/.test((await win.textContent('body')) ?? ''), 15000), 'a text member previews with its text')
+    await win.screenshot({ path: join(SHOTS, 'zip-member-preview.png') })
+    // Up to the zip root, then out: the zip is marked.
+    await win.keyboard.press('Alt+ArrowUp')
+    await win.keyboard.press('Alt+ArrowUp')
+    await win.keyboard.press('Alt+ArrowUp')
+    ok(await until(async () => (await where()) === zipPath), `Alt+Up climbs to the zip root (${await where()})`)
+    await win.keyboard.press('Alt+ArrowUp')
+    ok(await until(async () => (await where()) === dir), 'and once more out of it')
+    ok(await until(async () => (await zipRow(win, 'Wind-0.2.2.zip').getAttribute('data-selected')) === 'true'), 'with the zip marked')
+    // The zip row outside previews as the archive card.
+    await zipRow(win, 'Wind-0.2.2.zip').click()
+    ok(await until(async () => (await win.locator('[data-archive-card]').count()) === 1, 10000), 'the zip row previews as the archive card')
+    ok(await until(async () => /Inside, in Wind/.test((await win.locator('[data-archive-card]').textContent()) ?? '')), 'which shows the one top folder')
+    await win.screenshot({ path: join(SHOTS, 'zip-card.png') })
+    // An image member draws.
+    await zipRow(win, 'Wind-0.2.2.zip').dblclick()
+    await until(async () => (await win.locator('[data-archive-strip]').count()) === 1, 10000)
+    await zipRow(win, 'Wind-0.2.2.zip\\Wind').dblclick()
+    await until(async () => (await zipRows(win)).some((p) => p.endsWith('\\assets')), 10000)
+    await zipRow(win, 'Wind\\assets').dblclick()
+    await until(async () => (await zipRows(win)).some((p) => p.endsWith('pic.png')), 10000)
+    await zipRow(win, 'pic.png').click()
+    const drawn = await until(async () =>
+      win.evaluate(() => !document.querySelector('[data-member-gate]') && [...document.querySelectorAll('img')].some((i) => i.complete && i.naturalWidth > 0))
+    , 15000)
+    const membersRoot = join(tmpdir(), 'prism-members')
+    const unpacked = existsSync(membersRoot) && readdirSync(membersRoot, { recursive: true }).some((f) => String(f).endsWith('pic.png'))
+    ok(unpacked, 'the picture was unpacked into the run\'s member folder')
+    ok(
+      drawn,
+      `an image member draws, from the run's member folder (${drawn ? '' : await win.evaluate(() => [...document.querySelectorAll('img')].map((i) => `${decodeURIComponent(i.src).slice(-80)} ${i.naturalWidth}`).join(' | ') + ' gate=' + (document.querySelector('[data-member-gate]')?.getAttribute('data-member-gate') ?? 'none'))})`
+    )
+    await win.screenshot({ path: join(SHOTS, 'zip-image.png') })
+    // Search finds a member three folders down; Enter opens it.
+    await win.locator('[data-testid="browse-list"]').focus()
+    await win.keyboard.press('Backspace')
+    await until(async () => (await where()).endsWith('\\Wind'))
+    await win.keyboard.press('Control+f')
+    await win.waitForSelector('[data-search-popup] input', { timeout: 5000 })
+    await win.keyboard.type('needle')
+    ok(await until(async () => /needle-in-zip\.txt/.test((await win.locator('[data-search-popup]').textContent()) ?? ''), 10000), 'the search finds a member three folders down')
+    await win.keyboard.press('ArrowDown')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => /found me/.test((await win.textContent('body')) ?? ''), 15000), 'and Enter opens it')
+    // A zip inside the zip is a folder too.
+    await win.keyboard.press('Escape')
+    await win.locator('[data-testid="browse-edit-path"]').click().catch(() => {})
+    await win.locator('.browse-path-form input').fill(`${zipPath}\\Wind\\nested.zip\\docs`)
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('inside-inner.txt')), 10000), 'a zip inside a zip opens as a folder, typed into the address')
+    ok((await win.locator('.browse-crumb button[data-crumb-archive]').count()) === 2, 'both archives in the path wear the icon')
+    await win.screenshot({ path: join(SHOTS, 'zip-nested.png') })
+    ok(!consoleErrors.some((e) => !/Autofill|DevTools/.test(e)), `nothing in the console (${consoleErrors.slice(0, 3)})`)
+  } finally {
+    await app.close()
+  }
+}
+
+/** The labels of the open context menu, top to bottom. */
+const menuLabels = (win) =>
+  win.evaluate(() =>
+    [...document.querySelectorAll('[role="menu"] > [role="menuitem"]')].map((b) => b.querySelector('.truncate')?.textContent ?? '')
+  )
+/** Open a row's menu and read it; Escape puts it away. */
+async function rowMenu(win, suffix) {
+  await zipRow(win, suffix).click({ button: 'right' })
+  await win.waitForSelector('[role="menu"] [role="menuitem"]', { timeout: 5000 })
+  const labels = await menuLabels(win)
+  await win.keyboard.press('Escape')
+  await sleep(150)
+  return labels
+}
+/** The address the Explorer shows. */
+const zipWhere = async (win) => (await win.locator('.browse-path').getAttribute('title')) ?? ''
+async function zipGo(win, path, until_) {
+  await win.locator('[data-testid="browse-edit-path"]').click()
+  await win.locator('.browse-path-form input').fill(path)
+  await win.keyboard.press('Enter')
+  return until(until_ ?? (async () => (await zipWhere(win)).toLowerCase() === path.toLowerCase()), 10000)
+}
+
+/**
+ * THE MENUS (#300, mockups 02, 07, 08): a zip outside, a folder inside, a
+ * file inside, and a read-only 7z inside, each exactly the rows the spec
+ * lists (`lib/archiveMenus.ts`), with the left-out ones absent.
+ */
+async function zipMenusScenario(fixtures) {
+  console.log('zip menus (#300)')
+  const { dir, zipPath } = await zipWorld(fixtures, 'zipmenus')
+  const seven = join(ROOT, 'vendor', '7zip', '7z.exe')
+  const src = join(dir, 'src7')
+  mkdirSync(join(src, 'inside'), { recursive: true })
+  writeFileSync(join(src, 'inside', 'note.txt'), 'in a 7z\n')
+  execFileSync(seven, ['a', '-t7z', join(dir, 'locked.7z'), join(src, '*')], { windowsHide: true, stdio: 'ignore' })
+  rmSync(src, { recursive: true, force: true })
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  EXTRA_ENV = {}
+  try {
+    await explorerAt(win, dir)
+    const outside = await rowMenu(win, 'Wind-0.2.2.zip')
+    const wantOutside = ['Open', 'Open in new tab', 'Extract here', 'Extract to...', 'Add files...', 'Copy', 'Copy path', 'Rename', 'Delete', 'Show in File Explorer', 'Properties']
+    ok(outside.join('|') === wantOutside.join('|'), `a zip outside has the archive's rows (${outside.join(', ')})`)
+    await zipGo(win, `${zipPath}\\Wind`, async () => (await zipRows(win)).some((p) => p.endsWith('package.json')))
+    const folder = await rowMenu(win, 'Wind\\src')
+    const wantFolder = ['Open', 'Open in new tab', 'Extract this folder', 'Extract this folder to...', 'Add files here...', 'Copy folder', 'Delete from zip', 'Show Wind-0.2.2.zip in File Explorer', 'Properties']
+    ok(folder.join('|') === wantFolder.join('|'), `a folder inside has its rows (${folder.join(', ')})`)
+    ok(!folder.includes('Rename'), 'and no Rename: a folder inside a zip is not renamed')
+    const file = await rowMenu(win, 'package.json')
+    const wantFile = ['Open', 'Extract this file', 'Extract this file to...', 'Copy file', 'Rename', 'Delete from zip', 'Show Wind-0.2.2.zip in File Explorer', 'Properties']
+    ok(file.join('|') === wantFile.join('|'), `a file inside has its rows (${file.join(', ')})`)
+    ok(!file.some((l) => /^Open (with|in)/.test(l)), 'and no Open with: a temp copy would lose its saves')
+    // The empty space's own menu.
+    const box = await win.locator('[data-testid="browse-list"]').boundingBox()
+    await win.mouse.click(box.x + box.width / 2, box.y + box.height - 20, { button: 'right' })
+    await win.waitForSelector('[role="menu"] [role="menuitem"]', { timeout: 5000 })
+    const empty = await menuLabels(win)
+    await win.keyboard.press('Escape')
+    ok(empty.join('|') === ['Extract here', 'Extract to...', 'Add files here...', 'Show Wind-0.2.2.zip in File Explorer', 'Copy address'].join('|'), `the empty space inside has its rows (${empty.join(', ')})`)
+    await win.screenshot({ path: join(SHOTS, 'zip-menu.png') })
+    // A 7z is read-only: no Add, Rename or Delete anywhere.
+    await zipGo(win, join(dir, 'locked.7z'), async () => /locked\.7z/.test((await win.locator('[data-archive-strip]').textContent().catch(() => '')) ?? ''))
+    ok(/read-only/.test((await win.locator('[data-archive-strip]').textContent()) ?? ''), 'a 7z says it is read-only')
+    await zipGo(win, join(dir, 'locked.7z', 'inside'), async () => (await zipRows(win)).some((p) => p.endsWith('note.txt')))
+    const sevenFile = await rowMenu(win, 'note.txt')
+    ok(!sevenFile.some((l) => /Rename|Delete|Add/.test(l)), `a 7z member has no write rows (${sevenFile.join(', ')})`)
+    // F2 and Delete do nothing there.
+    await zipRow(win, 'note.txt').click()
+    await win.keyboard.press('F2')
+    await win.keyboard.press('Delete')
+    await sleep(300)
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'F2 and Delete are inert in a read-only archive')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * WRITES INSIDE A ZIP (#300): rename a file member, delete one, delete a
+ * folder with its subtree, add files here, and a Prism row dragged in (its
+ * original binned, Ctrl+Z takes both halves back). Each is read back with
+ * adm-zip, from the container itself.
+ */
+async function zipWritesScenario(fixtures) {
+  console.log('writes inside a zip (#300)')
+  const { dir, zipPath } = await zipWorld(fixtures, 'zipwrites')
+  const AdmZip = (await import('adm-zip')).default
+  const names = () => new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+  const addMe = join(dir, 'add-me.txt')
+  writeFileSync(addMe, 'added from outside\n')
+  writeFileSync(join(dir, 'carry-me.txt'), 'dragged in\n')
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index'), PRISM_E2E_PICK_FILES: addMe }
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  EXTRA_ENV = {}
+  try {
+    await explorerAt(win, dir)
+    await zipGo(win, `${zipPath}\\Wind`, async () => (await zipRows(win)).some((p) => p.endsWith('package.json')))
+    // F2 renames a file member.
+    await zipRow(win, 'package.json').click()
+    await win.keyboard.press('F2')
+    await win.waitForSelector('input[aria-label="New name"]', { timeout: 5000 })
+    await win.locator('input[aria-label="New name"]').fill('pkg.json')
+    await win.keyboard.press('Enter')
+    ok(await until(() => names().includes('Wind/pkg.json')), 'F2 renamed the member inside the zip')
+    ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('pkg.json'))), 'and the list shows it')
+    // Delete asks the no-Recycle-Bin question, then the entry is gone.
+    await zipRow(win, 'pkg.json').click()
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('text=no Recycle Bin', { timeout: 5000 })
+    await win.locator('[role="dialog"] button', { hasText: 'Delete' }).click()
+    ok(await until(() => !names().includes('Wind/pkg.json')), 'Delete took it out of the zip')
+    // A folder takes its subtree.
+    await zipRow(win, 'Wind\\docs').click()
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('text=no Recycle Bin', { timeout: 5000 })
+    await win.locator('[role="dialog"] button', { hasText: 'Delete' }).click()
+    ok(await until(() => !names().some((n) => n.startsWith('Wind/docs/'))), 'deleting a folder takes its subtree')
+    // Add files here lands in that folder.
+    await zipRow(win, 'Wind\\src').click({ button: 'right' })
+    await win.locator('[role="menuitem"]', { hasText: 'Add files here...' }).click()
+    ok(await until(() => names().includes('Wind/src/add-me.txt')), 'Add files here put the file in that folder')
+    ok(existsSync(addMe), 'and left the original where it was')
+    // A Prism row dragged into the zip: added, its original binned, undoable.
+    await win.screenshot({ path: join(SHOTS, 'zip-writes.png') })
+    // In the project's tree, the zip is a folder node, and a Prism row
+    // dropped on it goes in (taken by its NAME, the sweep's rule).
+    await win.locator('[role="tablist"] [role="tab"]', { hasText: 'zipwrites' }).click()
+    await win.waitForSelector('aside [role="treeitem"]:has-text("carry-me.txt")', { timeout: 10000 })
+    await win
+      .locator('aside [role="treeitem"]:has-text("carry-me.txt")')
+      .locator('span.truncate')
+      .dragTo(win.locator(`aside [data-row="${zipPath.replace(/\\/g, '\\\\')}"]`))
+    ok(await until(() => names().includes('carry-me.txt'), 10000), 'a Prism row dropped on the zip went in')
+    ok(await until(() => !existsSync(join(dir, 'carry-me.txt'))), 'and its original went to the bin')
+    await win.locator('body').press('Control+z')
+    ok(await until(() => existsSync(join(dir, 'carry-me.txt')), 10000), 'Ctrl+Z puts the original back')
+    ok(await until(() => !names().includes('carry-me.txt')), 'and takes the member out of the zip')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * PROJECT MODE (#300, mockups 09 and 10): a zip in a project's tree is a node
+ * with a chevron; a member opens read-only with the note; typing changes
+ * nothing; Extract here puts the file beside the zip and opens that copy.
+ */
+async function zipProjectScenario(fixtures) {
+  console.log('zips in project mode (#300)')
+  const { dir, zipPath } = await zipWorld(fixtures, 'zipproject')
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  try {
+    await win.waitForSelector('aside [data-row]', { timeout: 10000 })
+    const node = win.locator(`aside [data-row="${zipPath.replace(/\\/g, '\\\\')}"]`)
+    ok((await node.getAttribute('data-zip-node')) === 'true', 'the zip is a node in the tree')
+    ok((await node.getAttribute('aria-expanded')) === 'false', 'with a chevron, shut')
+    await node.locator('span').first().click()
+    ok(await until(async () => (await win.locator('aside [data-row$="\\\\Wind"]').count()) === 1, 10000), 'the chevron opens it')
+    await win.locator('aside [data-row$="\\\\Wind"] span').first().click()
+    await until(async () => (await win.locator('aside [data-row$="\\\\README.md"]').count()) === 1, 10000)
+    await win.locator('aside [data-row$="\\\\Wind\\\\src"] span').first().click()
+    await until(async () => (await win.locator('aside [data-row$="\\\\main"]').count()) === 1, 10000)
+    await win.locator('aside [data-row$="\\\\src\\\\main"] span').first().click()
+    await until(async () => (await win.locator('aside [data-row$="caret.ts"]').count()) === 1, 10000)
+    await win.locator('aside [data-row$="caret.ts"]').click()
+    ok(await until(async () => (await win.locator('[data-member-note]').count()) === 1, 15000), 'a member opens with the read-only note')
+    ok(/In Wind-0\.2\.2\.zip, read-only/.test((await win.locator('[data-member-note]').textContent()) ?? ''), 'which says where it is and that it is read-only')
+    ok(await until(async () => /caret follows typing/.test((await win.locator('.cm-content').textContent().catch(() => '')) ?? ''), 15000), 'its text is shown')
+    await win.locator('.cm-content').click()
+    await win.keyboard.type('typed')
+    await sleep(300)
+    ok(!/typed/.test((await win.locator('.cm-content').textContent()) ?? ''), 'typing changes nothing')
+    ok(!(await win.locator('aside [data-row$="caret.ts"]').textContent())?.includes('*'), 'and no unsaved star appears')
+    await win.screenshot({ path: join(SHOTS, 'zip-project.png') })
+    // The zip node's own menu is the archive's.
+    await node.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"] [role="menuitem"]', { timeout: 5000 })
+    const labels = await menuLabels(win)
+    await win.screenshot({ path: join(SHOTS, 'zip-project-menu.png') })
+    await win.keyboard.press('Escape')
+    ok(labels.includes('Extract here') && labels.some((l) => /^Extract to/.test(l)), `the zip node's menu has the archive's verbs (${labels.join(', ')})`)
+    // Extract here: the file lands beside the zip and opens editable.
+    await win.locator('[data-member-extract]').click()
+    ok(await until(() => existsSync(join(dir, 'caret.ts')), 15000), 'Extract here put the file beside the zip')
+    ok(await until(async () => (await win.locator('[data-member-note]').count()) === 0, 10000), 'and the copy opened, without the note')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * A TAB INSIDE A ZIP COMES BACK THERE (#300): relaunch, and it is two folders
+ * in, painted in the first frame from the listing cache, Back still working;
+ * with the zip gone, it falls back to its folder.
+ */
+async function zipRestoreScenario(fixtures) {
+  console.log('a tab inside a zip comes back (#300)')
+  const { dir, zipPath } = await zipWorld(fixtures, 'ziprestore')
+  const inside = `${zipPath}\\Wind\\src`
+  const seed = (path, history) => {
+    const explorer = {
+      id: 'fixture-explorer', role: 'explorer', pinned: true, root: dir,
+      browse: { path, history: history.map((p) => ({ path: p, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } })), cursor: history.length - 1, surface: 'folder', preview: true },
+      panes: [], open: [dir]
+    }
+    writeFileSync(join(PROFILE, 'tabs.json'), JSON.stringify({ active: 0, tabs: [explorer] }))
+  }
+  let app
+  try {
+    seed(inside, [dir, zipPath, inside])
+    ;({ app } = await (async () => {
+      const a = await launchTestApp({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'], env: { ...process.env, PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') } })
+      return { app: a }
+    })())
+    let win = await app.firstWindow()
+    await offscreen(app)
+    ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('\\main')), 15000), 'the tab came back inside the zip')
+    ok((await zipWhere(win)) === inside, 'two folders in')
+    await win.locator('[data-testid="browse-list"]').focus()
+    await win.keyboard.press('Alt+ArrowLeft')
+    ok(await until(async () => (await zipWhere(win)) === zipPath), 'Back still works')
+    await win.keyboard.press('Alt+ArrowRight')
+    await until(async () => (await zipWhere(win)) === inside)
+    await app.close()
+    await sleep(900)
+    // Second launch: the first frame paints from the cache.
+    app = await launchTestApp({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'], env: { ...process.env, PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') } })
+    win = await app.firstWindow()
+    await offscreen(app)
+    ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('\\main')), 15000), 'and again on the next launch')
+    await app.close()
+    await sleep(900)
+    // The zip deleted: the tab falls back to its folder.
+    rmSync(zipPath, { force: true })
+    app = await launchTestApp({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'], env: { ...process.env, PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') } })
+    win = await app.firstWindow()
+    await offscreen(app)
+    ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('notes.txt')), 15000), `with the zip gone, the tab falls back to its folder (${await zipWhere(win)})`)
+  } finally {
+    await app?.close().catch(() => {})
+  }
+}
+
+/**
+ * LOCKED, DAMAGED AND TEMP (#300): a ZipCrypto member asks once and again on a
+ * wrong password; a damaged zip says so and keeps the list where it was;
+ * every member opened lands under the run's `prism-members` folder, nothing in
+ * `%TEMP%\prism-zip-*`, and the run's folder is gone after quit.
+ */
+async function zipLockedScenario(fixtures) {
+  console.log('locked, damaged and temp (#300)')
+  const dir = join(fixtures, 'ziplocked')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  copyFileSync(join(ROOT, 'src', 'main', 'fixtures', 'crypto.zip'), join(dir, 'crypto.zip'))
+  writeFileSync(join(dir, 'broken.zip'), Buffer.concat([Buffer.from('PK\u0003\u0004'), Buffer.alloc(64, 7)]))
+  writeFileSync(join(dir, 'notes.txt'), 'beside\n')
+  const before = new Set(readdirSync(tmpdir()).filter((n) => n.startsWith('prism-zip-')))
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  EXTRA_ENV = {}
+  let runDir
+  try {
+    await explorerAt(win, dir)
+    // Damaged: the error line, and the list stays where it was.
+    await zipRow(win, 'broken.zip').dblclick()
+    ok(await until(async () => /can't be read/i.test((await win.locator('.browse-list-area').textContent()) ?? ''), 10000), 'a damaged zip says it cannot be read')
+    await win.locator('[data-testid="browse-list"]').focus()
+    // Locked: entering lists; opening a member asks.
+    await zipGo(win, join(dir, 'crypto.zip'), async () => (await win.locator('[data-archive-strip]').count()) === 1)
+    const first = (await zipRows(win)).find((p) => /\.\w+$/.test(p))
+    ok(!!first, `the locked zip lists its members (${first})`)
+    await zipRow(win, first.replace(/^.*\\/, '')).click()
+    ok(await until(async () => (await win.locator('input[aria-label="Archive password"]').count()) === 1, 10000), 'a locked member asks for the password')
+    await win.locator('input[aria-label="Archive password"]').fill('wrong-one')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => /didn't open/.test((await win.textContent('body')) ?? ''), 10000), 'a wrong one asks again, saying so')
+    await win.locator('input[aria-label="Archive password"]').fill('letmein')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await win.locator('input[aria-label="Archive password"]').count()) === 0 && (await win.locator('[data-member-gate]').count()) === 0, 10000), 'the right one opens it')
+    const members = join(tmpdir(), 'prism-members')
+    const runs = existsSync(members) ? readdirSync(members) : []
+    ok(runs.length >= 1, `members land under the run's prism-members folder (${runs.join(', ')})`)
+    const after = readdirSync(tmpdir()).filter((n) => n.startsWith('prism-zip-') && !before.has(n))
+    ok(after.length === 0, `nothing new in %TEMP%\\prism-zip-* (${after.join(', ')})`)
+    runDir = runs.map((r) => join(members, r))
+  } finally {
+    await app.close()
+  }
+  await sleep(1500)
+  const left = (runDir ?? []).filter((d) => existsSync(d))
+  ok(left.length === 0, `the run's member folder is gone after quit (${left.join(', ')})`)
+}
+
 async function run(fn, gap = 900) {
   const name = fn.name.replace(/Scenario$/, '')
   if (!chosen(name)) return
@@ -13498,11 +13873,16 @@ await run(openInExplorerScenario)
 await run(neverWindowlessScenario)
 await run(promptLayoutScenario)
 await run(termMenuCopyScenario)
-await run(archiveScenario)
 await run(extractScenario)
 await run(extractWindowScenario)
 await run(extractCancelScenario)
 await run(flatZipScenario)
+await run(zipMenusScenario)
+await run(zipWritesScenario)
+await run(zipProjectScenario)
+await run(zipRestoreScenario)
+await run(zipLockedScenario)
+await run(zipFolderScenario)
 await run(comicScenario)
 await run(folderArgScenario)
 await run(gearScenario)

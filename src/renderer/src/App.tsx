@@ -109,7 +109,13 @@ import { VideoView } from './components/VideoView'
 import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
 import { UnsupportedView } from './components/UnsupportedView'
-import { ArchiveView } from './components/ArchiveView'
+import { ArchiveCard } from './components/browse/ArchiveCard'
+import { MemberGate } from './components/MemberGate'
+import { MemberNote } from './components/MemberNote'
+import { PasswordDialog } from './components/PasswordDialog'
+import { browsableArchive } from '@shared/archivePlace'
+import { useArchiveActions } from './components/browse/useArchiveActions'
+import { clipboardText } from './lib/clipboardText'
 // Split out, all four, for the same reason: none of them is on the path of
 // opening a photo, and the resident single-instance model exists so the window
 // is there the instant you ask. CodeMirror is ~770KB, pdf.js about a megabyte,
@@ -526,9 +532,20 @@ function Viewer({
   onExternalChange,
   reloadAnswer,
   background = false,
-  volumeKey = ''
+  volumeKey = '',
+  onOpenArchive,
+  note = false,
+  readOnly = false
 }: {
   file: ViewerFile
+  /** An archive's card asks to go in (#300): the Explorer walks into it, a
+   *  project's tree opens its node. */
+  onOpenArchive?: (path: string) => void
+  /** Full view or a project: a member wears its read-only note (#300). The
+   *  preview pane carries none (mockup 04). */
+  note?: boolean
+  /** A member of an archive, shown from its temp copy: nothing edits it. */
+  readOnly?: boolean
   /** An archive reports its own undoable writes up to App's stack. */
   onUndoable: (entry: UndoEntry) => void
   /** An archive's own "Rename" verb: App owns renaming, so it does it. */
@@ -560,6 +577,25 @@ function Viewer({
   /** Whose volume this player uses - the tab's, for the session. */
   volumeKey?: string
 }): JSX.Element {
+  // A MEMBER of an archive (#300): main unpacks it to the run's temp folder
+  // first, and the same viewer is drawn on the copy, read-only.
+  if (file.member) {
+    const props = {
+      onUndoable, refreshKey, onToggleFullscreen, fullscreen, transportStyle, transportBg,
+      onOpenLocal, onAutoAdvance, onStep, canStep, onBuffer, onRenameSelf, getPending,
+      onExternalChange, reloadAnswer, background, volumeKey, onOpenArchive
+    }
+    const gate = (
+      <MemberGate file={file} render={(real) => <Viewer {...props} file={real} readOnly />} />
+    )
+    if (!note) return gate
+    return (
+      <div className="flex h-full w-full min-h-0 flex-col">
+        <MemberNote path={file.path} onExtracted={onOpenLocal} />
+        <div className="relative flex min-h-0 flex-1 items-center justify-center">{gate}</div>
+      </div>
+    )
+  }
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
     case 'video':
@@ -630,13 +666,16 @@ function Viewer({
         </Suspense>
       )
     case 'archive':
+      // ZIPS ARE FOLDERS (#300): an archive is gone INTO, like a folder, and
+      // its row previews as this card. The old panel lives on for the phone.
       return (
-        <ArchiveView
-          file={file}
-          fullscreen={fullscreen}
-          onUndoable={onUndoable}
-          onRenameSelf={onRenameSelf}
-          refreshKey={refreshKey}
+        <ArchiveCard
+          path={file.path}
+          name={file.name}
+          mtimeMs={file.mtimeMs}
+          onOpen={() => onOpenArchive?.(file.path)}
+          onExtractHere={() => void window.prism.archiveExtractAll(file.path, true)}
+          onExtractTo={() => void window.prism.archiveExtractAll(file.path, false)}
         />
       )
     case 'text':
@@ -652,6 +691,7 @@ function Viewer({
           <CodeView
             path={file.path}
             name={file.name}
+            readOnly={readOnly}
             onSaved={() => {}}
             onBuffer={onBuffer}
             getPending={getPending}
@@ -1101,7 +1141,19 @@ export default function App(): JSX.Element {
   const browsing = useFolderBrowsing(active, setTabState, refreshKey)
   // A file from outside goes to the Explorer tab (2026-09-22). The fullscreen
   // exit is called when a file arrives, long after setFs exists.
-  const arriveInExplorer = useExplorerArrival(tabState, setTabState, browsing.openFile, nextTabId, () => {
+  // A ZIP FROM WINDOWS WALKS THE EXPLORER INTO IT (#300): it is a folder now,
+  // and "Files from Windows open in" is about files. Back returns to where the
+  // Explorer was.
+  const browsingNavigate = browsing.navigate
+  const browsingOpenFile = browsing.openFile
+  const arriveFromWindows = useCallback(
+    (path: string, full: boolean): Promise<boolean | undefined> =>
+      browsableArchive(path.replace(/^.*[\\/]/, ''))
+        ? browsingNavigate(path).then(() => true)
+        : browsingOpenFile(path, full),
+    [browsingNavigate, browsingOpenFile]
+  )
+  const arriveInExplorer = useExplorerArrival(tabState, setTabState, arriveFromWindows, nextTabId, () => {
     if (fullscreen) setFs(false)
   })
   const [ask, setAsk] = useState<Ask | null>(null)
@@ -2172,6 +2224,29 @@ export default function App(): JSX.Element {
     },
     [active, openBrowseFile]
   )
+  /**
+   * GO INTO AN ARCHIVE (#300): its card's Open. The Explorer walks into it
+   * like a folder; a project's tree opens its node and shows it.
+   */
+  const openArchive = useCallback(
+    (path: string) => {
+      if (!active) return
+      if (isExplorerTab(active)) {
+        void browsing.navigate(path)
+        return
+      }
+      const chain = [...ancestorChain(active.root, path), path]
+      setTree(active.id, (t) => {
+        if (chain.every((c) => t.expanded.has(c))) return t
+        const expanded = new Set(t.expanded)
+        chain.forEach((c) => expanded.add(c))
+        return { ...t, expanded }
+      })
+      revealSeq.current += 1
+      setRevealReq({ tabId: active.id, path, seq: revealSeq.current })
+    },
+    [active, browsing, setTree]
+  )
 
   /** The terminal button's own context menu. */
   const openTermSplit = useCallback(
@@ -2899,6 +2974,26 @@ export default function App(): JSX.Element {
     noteTimer.current = window.setTimeout(() => setUndoNote(null), 2600)
   }, [])
   const noteUndo = useCallback((entry: UndoEntry) => setUndoState((u) => remember(u, entry)), [])
+  /** What a place inside an archive does (#300): its menus, keys and drops. */
+  const archiveActions = useArchiveActions({
+    navigate: (path) => void browsing.navigate(path),
+    openNewTab: (path, isFolder) => openInNewTab(path, isFolder),
+    openMember: (file) => void browsing.openFile(file),
+    refresh: () => setRefreshKey((key) => key + 1),
+    noteUndo,
+    outside: {
+      copy: (entry) => void copyFilePaths([entry.path]),
+      rename: (entry) => setBrowseRename(entry),
+      remove: (entry) =>
+        setAsk({ kind: 'delete', path: entry.path, name: entry.name, isFolder: entry.isFolder }),
+      properties: (entry) => setBrowseProps(entry),
+      show: (path) => window.prism.showInExplorer(path),
+      copyPath: (path) => void clipboardText(path)
+    }
+  })
+  /** The list's empty space inside an archive was right-clicked (#300). */
+  const [emptyMenu, setEmptyMenu] = useState<{ x: number; y: number } | null>(null)
+  const browseArchive = browsing.listing?.archive ?? null
 
   const runRename = useCallback(
     async (path: string, name: string, onClash: OnClash, track = true): Promise<string | null> => {
@@ -3330,11 +3425,15 @@ export default function App(): JSX.Element {
             setAsk({ kind: 'failed', message: 'The source or destination folder could not be opened.' })
             return
           }
-          onDropInto(dest, payload)
+          // INTO A ZIP (#300): the destination's own answer says it is a
+          // place inside an archive, and the archive verbs take it.
+          const inside = results[0]?.listing.archive
+          if (inside) archiveActions.drop(dest, payload, inside)
+          else onDropInto(dest, payload)
         })
         .catch(() => setAsk({ kind: 'failed', message: 'The source or destination folder could not be opened.' }))
     },
-    [active, onDropInto]
+    [active, onDropInto, archiveActions]
   )
   const onDropIntoTab = useCallback(
     (tabId: string, payload: DragPayload): void => {
@@ -3769,7 +3868,9 @@ export default function App(): JSX.Element {
   // to leave, so they are simply editable where they sit. A FULL terminal
   // hides it: the document is not on screen to edit, the same reason the bar
   // drops the file's name there.
-  const editable = termView !== 'full' && file?.kind === 'text' && isMarkdown(file.name)
+  // A member of an archive is read-only (#300): no pencil.
+  const editable =
+    termView !== 'full' && file?.kind === 'text' && isMarkdown(file.name) && !file.member
   const chip = (
     <UpdateChip
       info={update.state.info}
@@ -4003,6 +4104,7 @@ export default function App(): JSX.Element {
             onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
             onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
             onDropInto={onBrowseDropInto}
+            archive={archiveActions}
             onDuplicated={(source, copy) => noteUndo({ kind: 'duplicate', source, path: copy })}
             wash={washed}
           />
@@ -4062,20 +4164,51 @@ export default function App(): JSX.Element {
                 // A header click is a pick made here (#285): Downloads keeps it.
                 onSortChange={(sort) => browsing.patch({ sort, sortChosen: true, scrollTop: 0 })}
                 onNewTerminal={termTabAt}
-                onCopy={(entry) => void copyFilePaths([entry.path])}
-                onCut={(entry) => void copyFilePaths([entry.path], true)}
-                onCopyPaths={(paths, cut) => void copyFilePaths(paths, cut)}
-                onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
-                onPaste={(directory) => void pasteFiles(directory)}
-                onRename={(entry) => setBrowseRename(entry)}
-                onDelete={(entry) =>
-                  setAsk({
-                    kind: 'delete',
-                    path: entry.path,
-                    name: entry.name,
-                    isFolder: entry.isFolder
-                  })
+                onCopy={(entry) =>
+                  browseArchive
+                    ? archiveActions.copy([entry.path], browseArchive, new Set(entry.isFolder ? [entry.path] : []))
+                    : void copyFilePaths([entry.path])
                 }
+                onCut={(entry) => void copyFilePaths([entry.path], true)}
+                onCopyPaths={(paths, cut) =>
+                  browseArchive
+                    ? archiveActions.copy(
+                        paths,
+                        browseArchive,
+                        new Set(browsing.listing?.folders.map((f) => f.path) ?? [])
+                      )
+                    : void copyFilePaths(paths, cut)
+                }
+                onDeleteMany={(paths) =>
+                  browseArchive
+                    ? archiveActions.remove(paths, browseArchive)
+                    : setAsk({ kind: 'delete-many', paths })
+                }
+                onPaste={(directory) => void pasteFiles(directory)}
+                // Inside an archive F2 renames a FILE of a writable zip and
+                // Delete is the permanent question; both are inert elsewhere
+                // there (#300).
+                onRename={(entry) =>
+                  browseArchive ? archiveActions.rename(entry, browseArchive) : setBrowseRename(entry)
+                }
+                onDelete={(entry) =>
+                  browseArchive
+                    ? archiveActions.remove([entry.path], browseArchive)
+                    : setAsk({
+                        kind: 'delete',
+                        path: entry.path,
+                        name: entry.name,
+                        isFolder: entry.isFolder
+                      })
+                }
+                onArchiveExtract={(meta, here) =>
+                  archiveActions.extractWhole(meta, here, [
+                    ...(browsing.listing?.folders.map((f) => f.path) ?? []),
+                    ...(browsing.listing?.files.map((f) => f.path) ?? [])
+                  ])
+                }
+                archiveDone={archiveActions.done}
+                onEmptyContextMenu={(event) => setEmptyMenu({ x: event.clientX, y: event.clientY })}
                 onRefresh={() => {
                   void window.prism
                     .refreshFolderSizes(active.browse.path)
@@ -4195,6 +4328,8 @@ export default function App(): JSX.Element {
                     getPending={getPending}
                     onExternalChange={onExternalChange}
                     reloadAnswer={reloadAnswer}
+                    onOpenArchive={openArchive}
+                    note={!browsing.folder}
                   />
                 </div>
               ))
@@ -4261,6 +4396,8 @@ export default function App(): JSX.Element {
                           getPending={getPending}
                           onExternalChange={onExternalChange}
                           reloadAnswer={reloadAnswer}
+                          onOpenArchive={openArchive}
+                          note={!browsing.folder}
                         />
                       </div>
                     ))}
@@ -4716,7 +4853,11 @@ export default function App(): JSX.Element {
           x={browseMenu.x}
           y={browseMenu.y}
           onClose={() => setBrowseMenu(null)}
-          items={browseMenu.paths && browseMenu.paths.length > 1 ? (() => {
+          items={archiveActions.menu(
+            { entry: browseMenu.entry, paths: browseMenu.paths },
+            browseArchive,
+            active?.browse.path ?? ''
+          ) ?? (browseMenu.paths && browseMenu.paths.length > 1 ? (() => {
             // Several rows marked: only what acts on all of them, and each
             // says how many, so the menu and the marks agree (review of #257).
             // Open, Rename, Duplicate and Properties are one row's, and F2
@@ -4843,7 +4984,24 @@ export default function App(): JSX.Element {
             (item) =>
               browseMenu.source !== 'more' ||
               !['Open', 'Copy', 'Rename', 'Delete'].includes(item.label ?? '')
-          )}
+          ))}
+        />
+      )}
+      {emptyMenu && browseArchive && active && (
+        <ContextMenu
+          x={emptyMenu.x}
+          y={emptyMenu.y}
+          onClose={() => setEmptyMenu(null)}
+          items={archiveActions.menu({ entry: null }, browseArchive, active.browse.path) ?? []}
+        />
+      )}
+      {archiveActions.dialogs}
+      {browsing.archiveAsk && (
+        <PasswordDialog
+          name={browsing.archiveAsk.name}
+          wrong={browsing.archiveAsk.wrong}
+          onSubmit={(pw) => browsing.answerArchive(pw)}
+          onCancel={() => browsing.answerArchive(null)}
         />
       )}
       {browseProps && active && (

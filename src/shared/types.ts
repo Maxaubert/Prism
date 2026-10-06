@@ -17,6 +17,15 @@ export interface ViewerFile {
   /** Modified time (ms since epoch); 0 if it couldn't be stat'ed. Sorting.
    *  Absent, like `size`, until the details arrive. */
   mtimeMs?: number
+  /** A MEMBER of an archive (#300): `path` is its place inside the zip as the
+   *  address bar spells it (`C:\x.zip\docs\a.md`), not a file on disk. Every
+   *  viewer is reached through the member gate, which unpacks it to the run's
+   *  temp folder first, and nothing writes to it. */
+  member?: true
+  /** What it occupies inside its container (#300, the Packed column). */
+  packed?: number
+  /** Password protected inside its container. */
+  encrypted?: true
 }
 
 /** A subfolder, as the sidebar tree sees it. */
@@ -27,6 +36,11 @@ export interface DirEntry {
    *  folders and files by date). Absent until the details arrive (#271), and
    *  in the tree, which never asks. */
   mtimeMs?: number
+  /** A folder INSIDE an archive (#300): the bytes of every member beneath it
+   *  and how many entries that is. The container's own listing knows both, so
+   *  the Size column never asks `folder:size` about a path not on disk. */
+  size?: number
+  items?: number
 }
 
 /** A sidebar search hit: enough to draw the row and open the file. */
@@ -96,6 +110,58 @@ export interface DirListing {
    *  the Explorer is answered with names first and `browse:details` patches
    *  follow. Absent means complete. */
   complete?: boolean
+  /** This listing is a place INSIDE an archive (#300): what the strip, the
+   *  Packed column, the crumbs' zip icon and the menus need to know. */
+  archive?: ArchiveMeta
+  /** Why a place inside an archive could not be shown as asked (#300): it
+   *  wants its password, it is damaged, nested too deep, or the folder has
+   *  gone from it (then the listing is the nearest folder that is still
+   *  there, and this says what was missing). `container` names the archive
+   *  a password is for. */
+  archiveError?: {
+    reason: 'password' | 'aes' | 'failed' | 'missing' | 'deep'
+    container: string
+    message: string
+  }
+}
+
+/**
+ * A place inside an archive, as main found it (#300; owner, 2026-10-06: "make
+ * zips seem like ordinary folders, they keep the icon but you open them like
+ * any other folder but you get the zip relevant right click menu options").
+ * Main decides which segment of a path is the container, by a stat, never the
+ * renderer by an extension.
+ */
+export interface ArchiveMeta {
+  /** The innermost container's REAL file (a temp copy when nested): what the
+   *  archive verbs are handed. */
+  container: string
+  /** The innermost container's root as the address bar spells it. A member's
+   *  name inside the container is its path below this. */
+  base: string
+  /** Every container's root along the path, outermost first: the crumbs that
+   *  wear the archive icon. */
+  chain: string[]
+  /** The outermost container on disk: what "Show in File Explorer" names. */
+  outer: string
+  /** Where the listing is inside the innermost container, '' at its root. */
+  inner: string
+  /** The innermost container's name ("Wind-0.2.2.zip"). */
+  display: string
+  files: number
+  folders: number
+  /** Bytes of the container file itself. */
+  packed: number
+  /** Bytes of every member unpacked. */
+  unpacked: number
+  /** No Add, Rename or Delete: a 7-Zip format, a zip over adm-zip's cap, or
+   *  a nested container (a temp copy, whose writes would be lost). A zip with
+   *  password-protected members keeps Rename and Delete, as it always has;
+   *  Add and moves inside refuse in main. */
+  readOnly: boolean
+  /** Inside another archive. */
+  nested: boolean
+  encryption: 'none' | 'zipcrypto' | 'aes'
 }
 
 /** Sizes and dates for files of a names-first listing (#271). `done` is the

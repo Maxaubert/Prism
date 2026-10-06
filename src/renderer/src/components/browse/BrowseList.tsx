@@ -7,8 +7,11 @@ import {
   type JSX,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode
 } from 'react'
+import type { ArchiveMeta } from '@shared/types'
+import { memberOf } from '@shared/archivePlace'
 import { formatBytes, formatWhen } from '../../lib/format'
 import { folderSizeCoverage, folderSizeLabel } from '../../lib/folderSize'
 import { typeLabel } from '../../lib/typeLabel'
@@ -32,6 +35,15 @@ const columns: Array<{ key: BrowseSort['key']; label: string }> = [
   { key: 'name', label: 'Name' },
   { key: 'type', label: 'Type' },
   { key: 'size', label: 'Size' },
+  { key: 'modified', label: 'Date modified' }
+]
+// Inside an archive (#300): Packed, right after Size, the container's own
+// number for what each member occupies.
+const archiveColumns: typeof columns = [
+  { key: 'name', label: 'Name' },
+  { key: 'type', label: 'Type' },
+  { key: 'size', label: 'Size' },
+  { key: 'packed', label: 'Packed' },
   { key: 'modified', label: 'Date modified' }
 ]
 const searchColumns: typeof columns = [
@@ -84,6 +96,13 @@ type Props = Pick<
   dividers?: readonly DateDivider[]
   /** This is Downloads: Date modified's first click sorts newest first. */
   downloads?: boolean
+  /** The place on screen is inside an archive (#300): the Packed column, and
+   *  a row dragged out carries archive members, not files on disk. */
+  archive?: ArchiveMeta | null
+  /** Drawn above the column header: the archive's strip. */
+  strip?: ReactNode
+  /** A right press on the list's empty space (inside an archive, #300). */
+  onEmptyContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void
 }
 
 export function BrowseList(props: Props): JSX.Element {
@@ -437,6 +456,7 @@ export function BrowseList(props: Props): JSX.Element {
     <div
       className="browse-list-area"
       data-searching={searching || undefined}
+      data-in-archive={(!!props.archive && !searching) || undefined}
       data-row-size={sizeId}
       data-pending={props.pending && props.pending !== 'none' ? props.pending : undefined}
       style={
@@ -450,6 +470,11 @@ export function BrowseList(props: Props): JSX.Element {
         } as CSSProperties
       }
     >
+      {props.strip && (
+        <div className="browse-archive-strip-drop" {...folderDrop(props.directory, `strip`)}>
+          {props.strip}
+        </div>
+      )}
       <div
         className="browse-column-viewport"
         ref={columnScroller}
@@ -459,7 +484,7 @@ export function BrowseList(props: Props): JSX.Element {
         }}
       >
         <div className="browse-columns">
-          {(searching ? searchColumns : columns).map(({ key, label }) => (
+          {(searching ? searchColumns : props.archive ? archiveColumns : columns).map(({ key, label }) => (
             <button
               key={key}
               className={`browse-column-${key}`}
@@ -523,6 +548,14 @@ export function BrowseList(props: Props): JSX.Element {
         // video or the pause icon"). A right press on an unmarked row too.
         onClick={(e) => {
           if (e.target === e.currentTarget) props.onSelect(null, true)
+        }}
+        onContextMenu={(e) => {
+          // The empty space's own menu, inside an archive (#300). A row's
+          // menu stops here first.
+          if (!props.onEmptyContextMenu || (e.target as HTMLElement).closest('.browse-row')) return
+          e.preventDefault()
+          props.onSelect(null, true)
+          props.onEmptyContextMenu(e)
         }}
       >
         {props.message ? (
@@ -615,10 +648,21 @@ export function BrowseList(props: Props): JSX.Element {
                       // A row inside a multi-selection carries all of it,
                       // the tree's rule.
                       const all = props.marked
-                      setDrag({
-                        kind: 'files',
-                        paths: all && all.size > 1 && all.has(entry.path) ? [...all] : [entry.path]
-                      })
+                      const paths = all && all.size > 1 && all.has(entry.path) ? [...all] : [entry.path]
+                      // Rows inside an archive are its MEMBERS (#300): dropped on
+                      // a real folder they extract there, the archive view's own
+                      // drag; dropped inside the same zip they move.
+                      const archive = props.archive
+                      const entries = archive
+                        ? paths.map((p) => memberOf(archive, p)).filter((p): p is string => !!p)
+                        : []
+                      if (archive && entries.length) {
+                        setDrag({ kind: 'members', archive: archive.container, entries })
+                        event.dataTransfer.effectAllowed = 'copyMove'
+                        event.dataTransfer.setData(DRAG_MIME, 'members')
+                        return
+                      }
+                      setDrag({ kind: 'files', paths })
                       event.dataTransfer.effectAllowed = 'copyMove'
                       event.dataTransfer.setData(DRAG_MIME, 'files')
                     }}
@@ -695,6 +739,11 @@ export function BrowseList(props: Props): JSX.Element {
                           : formatBytes(entry.file.size)
                         : folderSizeLabel(entry.folderSize)}
                     </span>
+                    {!!props.archive && !searching && (
+                      <span className="browse-column-packed">
+                        {entry.file?.packed !== undefined ? formatBytes(entry.file.packed) : ''}
+                      </span>
+                    )}
                     {!searching && (
                       <span className="browse-column-modified">
                         {/* A folder's date too, now it has one (#285). */}

@@ -1,5 +1,6 @@
 import { stat } from 'fs/promises'
-import { isAbsolute, resolve } from 'path'
+import { basename, dirname, isAbsolute, resolve } from 'path'
+import { containerSync } from './archiveBrowse'
 import type { BrowseDirectory, BrowseShortcut } from '@shared/browse'
 import { listDir, listNames } from './dirList'
 import {
@@ -21,8 +22,15 @@ export function browseWatch(
     closeBrowseWatch(tabId)
     return true
   }
-  if (typeof path !== 'string' || !isAbsolute(path) || !ownsDesktopDirectory(tabId, path))
-    return false
+  if (typeof path !== 'string' || !isAbsolute(path)) return false
+  // Inside an archive (#300): the folder holding the zip is watched, and only
+  // a change to the zip itself reports the place on screen.
+  const outer = containerSync(path)
+  if (outer) {
+    if (!ownsDesktopDirectory(tabId, dirname(outer))) return false
+    return setBrowseWatch(tabId, dirname(outer), emit, { only: basename(outer), report: path })
+  }
+  if (!ownsDesktopDirectory(tabId, path)) return false
   return setBrowseWatch(tabId, path, emit)
 }
 

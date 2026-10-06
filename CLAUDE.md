@@ -208,7 +208,32 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   MSI with `msiexec /a`, 7z.exe + 7z.dll because rar lives in the DLL). The panel offers view
   and copy and nothing else on those; zip keeps every verb. A member name is validated BEFORE
   extraction, never after: checking afterwards only says where a file was SUPPOSED to land.
-- **Archive viewer** (2026-08-22, #68): open a `.zip` onto its manifest - the archive's own
+- **ZIPS ARE FOLDERS** (#300; owner, 2026-10-06: "make zips seem like ordinary folders, they keep
+  the icon but you open them like any other folder but you get the zip relevant right click menu
+  options. this would work the same in project mode", then of the mockup: "I like the look for
+  zip files, use that"). Spec, plan and decisions: `docs/superpowers/specs/2026-10-06-zip-as-folder-design.md`;
+  mockup `research/prism/2026-10-06-zip-as-folder`. A place inside an archive is ONE Windows path
+  (`C:\x.zip\Wind\src`): a history entry, a tab's path, a crumb, a row, like any folder.
+  MAIN decides which segment is the container, by a stat of the candidates named like an
+  archive (`shared/archivePlace.ts`, `main/archiveBrowse.ts`): a FOLDER named `x.zip` stays a
+  folder, and a path with no such segment costs no stat. Every archive kind browses this way;
+  7-Zip formats, a zip over adm-zip's cap and a NESTED archive (unpacked to temp, max 4 deep)
+  are read-only. The listing carries `ArchiveMeta` (strip, Packed column, crumb icons, menus)
+  and every folder's total (no `folder:size` on a virtual path). A container is parsed once and
+  kept (path + size + mtime); a zip over 64 MB lists and unpacks through 7-Zip (MEASURED: ~25 ms
+  a listing, against holding the whole file). A MEMBER opened or previewed goes through
+  `MemberGate`: `archive:member` unpacks just it under `%TEMP%\prism-members\<pid>-<launch>`,
+  granted to READS as a directory, never to a write; removed at process exit, dead runs at
+  the next start, 2 GB cap while running; 256 MB auto-preview limit. Members are READ-ONLY
+  (CodeView `readOnly`, no pencil, the note bar with Extract here in full view and projects).
+  Menus are `lib/archiveMenus.ts` (pure, tested, the `zipMenus` e2e compares): left out ON
+  PURPOSE are Rename on a folder inside (file-only `renameMember`), Open with on a member (an
+  app would save into a temp copy), and Paste into a zip. Cut/Paste are inert inside. The tree
+  draws an archive as a folder node (`treePaint` `zip`), its members with the archive's menus.
+  The old panel (`ArchiveView`) is the PHONE's alone now; the desktop shows `ArchiveCard` for an
+  archive's own row. E2E: `zipFolder`, `zipMenus`, `zipWrites`, `zipProject`, `zipRestore`,
+  `zipLocked`; the old archive scenarios drive the Explorer through `inZip`.
+- **Archive viewer** (2026-08-22, #68; since #300 the PHONE's only, the desktop's is above): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),
   name and totals, with the members in a panel that FILLS the window (2026-08-25: it

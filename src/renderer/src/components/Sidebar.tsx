@@ -9,7 +9,9 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent
 } from 'react'
-import type { OpenWithApp, ViewerFile } from '@shared/types'
+import type { ArchiveMeta, OpenWithApp, ViewerFile } from '@shared/types'
+import type { MenuItem } from './ContextMenu'
+import type { BrowseEntry } from './browse/types'
 import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
 import { lastSplitDir, type SplitDir } from '../lib/panes'
@@ -148,6 +150,7 @@ export function Sidebar({
   onDelete,
   onDeleteMany,
   onDropInto,
+  archive,
   onDuplicated,
   onNav,
   wash,
@@ -197,6 +200,18 @@ export function Sidebar({
   /** Something was dropped on a folder row: files to move in, or archive
    *  members to extract there. App owns the questions either can raise. */
   onDropInto: (destDir: string, payload: DragPayload) => void
+  /** Rows INSIDE an archive (#300): their menus and keys are the archive's,
+   *  the Explorer's own three contexts. */
+  archive?: {
+    menu: (
+      target: { entry: BrowseEntry | null; paths?: string[] },
+      meta: ArchiveMeta,
+      directory: string,
+      open?: (entry: BrowseEntry) => void
+    ) => MenuItem[] | null
+    rename: (entry: BrowseEntry, meta: ArchiveMeta) => void
+    remove: (paths: string[], meta: ArchiveMeta) => void
+  }
   /** A copy was just made: App remembers the source AND the copy, so Ctrl+Z
    *  can take it away and Ctrl+Y can ask for another one. */
   onDuplicated: (source: string, copyPath: string) => void
@@ -424,6 +439,33 @@ export function Sidebar({
     },
     [root, setState]
   )
+
+  /** The archive a row is INSIDE (#300), from its folder's own listing:
+   *  null for every row on disk. */
+  const memberMeta = (path: string): ArchiveMeta | null =>
+    state.children[parentDir(path)]?.archive ?? null
+  /** A tree row as the Explorer's menus see it. */
+  const memberEntry = (path: string): BrowseEntry => {
+    const listing = state.children[parentDir(path)]
+    const key = path.toLowerCase()
+    const folder = listing?.folders.find((f) => f.path.toLowerCase() === key)
+    const file = listing?.files.find((f) => f.path.toLowerCase() === key)
+    return folder
+      ? {
+          path,
+          name: folder.name,
+          isFolder: true,
+          folderSize: {
+            bytes: folder.size ?? 0,
+            files: folder.items ?? 0,
+            folders: 0,
+            unreadable: 0,
+            skippedLinks: 0,
+            truncated: false
+          }
+        }
+      : { path, name: file?.name ?? path.split(/[\\/]/).pop() ?? path, isFolder: false, file }
+  }
 
   const toggle = useCallback(
     (p: string) => {
@@ -1471,15 +1513,23 @@ export function Sidebar({
                 onRowClick,
                 onToggle: toggle,
                 onOpenFile,
-                onStartRename: setEditing,
+                // A member of an archive renames through the archive (#300).
+                onStartRename: (path: string) => {
+                  const meta = memberMeta(path)
+                  if (meta && archive) archive.rename(memberEntry(path), meta)
+                  else setEditing(path)
+                },
                 onSubmitRename: submitRename,
                 onCancelRename: () => setEditing(null),
                 // Del on a row inside a multi-selection takes the whole
                 // selection; anywhere else it stays the single-row question.
-                onDelete: (path, name, isFolder) =>
-                  sel.items.size > 1 && sel.items.has(path)
-                    ? onDeleteMany([...sel.items])
-                    : onDelete(path, name, isFolder),
+                onDelete: (path, name, isFolder) => {
+                  const meta = memberMeta(path)
+                  const many = sel.items.size > 1 && sel.items.has(path)
+                  if (meta && archive) archive.remove(many ? [...sel.items] : [path], meta)
+                  else if (many) onDeleteMany([...sel.items])
+                  else onDelete(path, name, isFolder)
+                },
                 onMenu
               }}
             >
@@ -1691,7 +1741,26 @@ export function Sidebar({
 
 
 
-      {menu && menu.multi && (
+      {menu && archive && memberMeta(menu.path) && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={
+            archive.menu(
+              { entry: memberEntry(menu.path), paths: menu.multi },
+              memberMeta(menu.path)!,
+              parentDir(menu.path),
+              // Open on a folder opens its node (the gap filler loads it).
+              (entry) =>
+                entry.isFolder || entry.file?.kind === 'archive'
+                  ? setState((s) => ({ ...s, expanded: new Set([...s.expanded, entry.path]) }))
+                  : onOpenFile(entry.path)
+            ) ?? []
+          }
+        />
+      )}
+      {menu && menu.multi && !(archive && memberMeta(menu.path)) && (
         // A multi-selection's menu: the verbs that make sense N at a time.
         <ContextMenu
           x={menu.x}
@@ -1729,7 +1798,7 @@ export function Sidebar({
           ]}
         />
       )}
-      {menu && !menu.multi && (
+      {menu && !menu.multi && !(archive && memberMeta(menu.path)) && (
         <ContextMenu
           x={menu.x}
           y={menu.y}

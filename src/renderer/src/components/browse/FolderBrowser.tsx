@@ -15,7 +15,11 @@ import { sweepSelect } from '../../lib/marquee'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import { useListingPrefetch } from '../../lib/useListingPrefetch'
+import { browsableArchive } from '@shared/archivePlace'
+import type { FolderSizes } from '../../lib/folderSize'
+import { ArchiveStrip } from './ArchiveStrip'
 import './browse.css'
+import './archive.css'
 
 export type {
   BrowseEntry,
@@ -61,15 +65,34 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     const width = shell.current?.querySelector<HTMLElement>('.browse-places')?.offsetWidth
     if (width) shell.current?.style.setProperty('--browse-places-frozen', `${width}px`)
   })
+  // INSIDE AN ARCHIVE (#300) the container's own listing carries every
+  // folder's total, so nothing asks `folder:size` about a path not on disk,
+  // and nothing reads ahead into a container.
+  const archive = props.listing?.archive ?? null
   const folderPaths = useMemo(
-    () => props.listing?.folders.map((folder) => folder.path) ?? [],
-    [props.listing]
+    () => (archive ? [] : (props.listing?.folders.map((folder) => folder.path) ?? [])),
+    [props.listing, archive]
   )
-  const folderSizes = useFolderSizes(
+  const measured = useFolderSizes(
     folderPaths,
-    props.pending === 'none' && !props.searchState?.running && !props.searchState?.window,
-    visibleFolders
+    !archive && props.pending === 'none' && !props.searchState?.running && !props.searchState?.window,
+    archive ? [] : visibleFolders
   )
+  const folderSizes = useMemo((): FolderSizes => {
+    if (!archive || !props.listing) return measured
+    const sizes: FolderSizes = {}
+    for (const f of props.listing.folders)
+      sizes[f.path] = {
+        bytes: f.size ?? 0,
+        files: f.items ?? 0,
+        folders: 0,
+        unreadable: 0,
+        skippedLinks: 0,
+        truncated: false,
+        countsKnown: true
+      }
+    return sizes
+  }, [archive, props.listing, measured])
   // DOWNLOADS BY DATE (#285, lib/downloadsView.ts): files and folders mixed,
   // newest first, under File Explorer's date groups. Never a search.
   const dated = dateView(!!props.downloads, props.sort, !!props.query.trim() || !!props.searchState)
@@ -100,7 +123,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     listing: props.listing,
     selectedFolder: selected?.isFolder ? selected.path : null,
     quickAccess: props.quickAccess,
-    ready: props.pending === 'none' && !props.searchState
+    ready: props.pending === 'none' && !props.searchState && !archive
   })
   const searchWindow = props.searchState?.window
   const searchWindows = props.searchState?.windows
@@ -214,7 +237,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   // React's own pattern for state that follows props.
   if (searching && !searchOpen) setSearching(null)
   const activate = (entry: BrowseEntry): void => {
-    if (entry.isFolder) {
+    // AN ARCHIVE OPENS LIKE A FOLDER (#300; owner, 2026-10-06: "they keep the
+    // icon but you open them like any other folder").
+    if (entry.isFolder || (entry.file?.kind === 'archive' && browsableArchive(entry.name))) {
       retainListFocus()
       props.onNavigate(entry.path)
     } else if (entry.file) props.onOpen(entry.file)
@@ -331,6 +356,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           e.preventDefault()
           e.stopPropagation()
           const key = e.key.toLowerCase()
+          // Inside a zip, Cut and Paste are inert (#300): nothing leaves a
+          // container by a cut, and a paste into one is not a route yet.
+          if (archive && key !== 'c') return
           if (key === 'v') props.onPaste?.(props.directory)
           else if (many && props.onCopyPaths) props.onCopyPaths(markedPaths(), key === 'x')
           else if (selected && key === 'x') props.onCut?.(selected)
@@ -342,6 +370,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         {...props}
         // The address commits at once; the rows follow when they answer.
         directory={props.pendingPath ?? props.directory}
+        archiveChain={props.pendingPath ? undefined : props.listing ? (props.listing.archive?.chain ?? []) : undefined}
         trailing={
           <>
             {props.terminalControls && (
@@ -426,7 +455,19 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         {...props}
         loading={props.pending !== 'none'}
         entries={props.pending === 'slow' ? [] : entries}
-        onFolderHover={hoverFolder}
+        onFolderHover={archive ? undefined : hoverFolder}
+        archive={archive}
+        onEmptyContextMenu={archive ? props.onEmptyContextMenu : undefined}
+        strip={
+          archive && props.onArchiveExtract ? (
+            <ArchiveStrip
+              meta={archive}
+              done={!!props.archiveDone}
+              onExtractHere={() => props.onArchiveExtract?.(archive, true)}
+              onExtractTo={() => props.onArchiveExtract?.(archive, false)}
+            />
+          ) : undefined
+        }
         indexedRows={indexedRows}
         dividers={props.pending === 'slow' ? undefined : dividers}
         total={total}
@@ -481,6 +522,10 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
               {selected.file?.size !== undefined ? ` · ${formatBytes(selected.file.size)}` : ''}
             </span>
           )
+        )}
+        {archive && <span data-archive-status>In {archive.display}</span>}
+        {props.listing?.archiveError && !props.listing.unreadable && (
+          <span role="status">{props.listing.archiveError.message}</span>
         )}
         {!!props.query.trim() && (
           <BrowseSearchStatus

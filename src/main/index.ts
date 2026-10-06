@@ -56,7 +56,10 @@ import {
   releaseDesktop,
   validDesktopRoot
 } from './desktopAccess'
-import { browseDirectory, browseLocations, browseWatch } from './browse'
+import { browseDirectory, browseLocations, browseWatch, type BrowseRead } from './browse'
+import { MemberTemp, cleanDeadRuns, pidAlive } from './memberTemp'
+import { containerSync, createArchiveBrowse } from './archiveBrowse'
+import { placeOf } from '@shared/archivePlace'
 import { weekStart } from './weekStart'
 import { createListingCache } from './listingCache'
 import { createExplorerListings } from './explorerListing'
@@ -226,6 +229,17 @@ if (process.argv.includes('--e2e') && process.env.PRISM_E2E_DOWNLOADS)
 const extractedPaths = new Set<string>()
 
 /**
+ * THE MEMBER TEMP FOLDER (#300, memberTemp.ts): a member opened or previewed
+ * from a place inside a zip is unpacked under one folder per run, granted to
+ * the reads as a DIRECTORY, never to a write.
+ */
+const memberTemp = new MemberTemp(join(tmpdir(), 'prism-members'))
+/** A path main unpacked itself for viewing: an `extractedPaths` grant or a
+ *  file under this run's member folder. Reads only. */
+const extracted = (p: unknown): boolean =>
+  typeof p === 'string' && (extractedPaths.has(p) || memberTemp.owns(p))
+
+/**
  * The encoding and line endings each text file arrived with.
  *
  * Held here rather than threaded through the renderer because there are two
@@ -240,6 +254,16 @@ const textShape = new Map<string, TextShape>()
 // encrypted rar or 7z, not just to extract, so a password the user typed once
 // has to be remembered here as well as in the renderer.
 const archivePasswords = new Map<string, string>()
+
+/** Places inside archives (#300, archiveBrowse.ts). */
+const archives = createArchiveBrowse({
+  sevenExe: () => bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()),
+  password: (container) => archivePasswords.get(container) ?? '',
+  remember: (container, password) => {
+    archivePasswords.set(container, password)
+  },
+  temp: memberTemp
+})
 
 const MEDIA_SCHEME = 'fsmedia'
 /** file:text's contract is a text file, not a log nobody can read: 64MB
@@ -466,7 +490,7 @@ function underDir(dir: string, p: string): boolean {
 function mediaAllowed(p: string): boolean {
   return (
     insideDesktop(p) ||
-    extractedPaths.has(p) ||
+    extracted(p) ||
     servable.has(p) ||
     underDir(RENDERER_DIR, p) ||
     (!!comicsDir && underDir(comicsDir, p))
@@ -711,12 +735,57 @@ const listingCache = createListingCache({
   readOnly: !!extraWindowOwner
 })
 listingCache.load()
+/**
+ * The Explorer's read of a place INSIDE an archive (#300): undefined when the
+ * path is not inside one, so the ordinary folder read goes ahead. A folder that
+ * has gone from the zip answers the nearest one still there, saying what was
+ * missing; a damaged, locked or too-deep archive answers its reason.
+ */
+async function archiveRead(tabId: string, path: string, hops = 0): Promise<BrowseRead | null | undefined> {
+  const r = await archives.resolve(path)
+  if (!r) return undefined
+  if (!r.ok) {
+    if (r.reason === 'missing' && hops < 2) {
+      const back = await archiveRead(tabId, placeOf(r.base, r.inner), hops + 1)
+      if (back && !back.listing.unreadable)
+        return {
+          ...back,
+          listing: {
+            ...back.listing,
+            archiveError: { reason: 'missing', container: r.container, message: archives.failText('missing') }
+          }
+        }
+      return back
+    }
+    return {
+      path: resolve(path),
+      folderMtimeMs: 0,
+      listing: {
+        folders: [],
+        files: [],
+        unreadable: true,
+        archiveError: { reason: r.reason, container: r.container, message: archives.failText(r.reason) }
+      }
+    }
+  }
+  // A path that ends on a FILE inside the zip is not a place to list.
+  if (r.place.entry && !r.place.entry.dir) return null
+  // As a folder read grants that folder: the archive verbs (`archiveOk`) ask
+  // `insideDesktop` of the container, which its own folder's grant answers.
+  grantDesktopDirectory(tabId, dirname(r.place.outer))
+  return {
+    path: placeOf(r.place.base, r.place.inner),
+    listing: archives.listing(r.place, 'explorer'),
+    folderMtimeMs: r.place.parsed.mtimeMs
+  }
+}
 const explorerListings = createExplorerListings({
   cache: listingCache,
   send: (channel, payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
   },
   localFixed: isLocalFixed,
+  archive: archiveRead,
   // E2E only: the slow-folder hint is proved by holding every names read, and
   // a details patch that lands after a select and a scroll by holding those.
   delayMs: process.argv.includes('--e2e') ? Number(process.env.PRISM_E2E_LIST_DELAY) || 0 : 0,
@@ -791,7 +860,10 @@ async function explorerRestoreListing(
     // read is live. Past the limit the root stands in, as it did before, and
     // the page reads the shown folder itself. The root keeps its old,
     // unlimited read: a tab whose root cannot be read is not restored.
-    const reading = browseDirectory(tabId, path, 'names')
+    // A tab left inside a zip comes back there (#300).
+    const reading = archiveRead(tabId, path).then((inside) =>
+      inside !== undefined ? inside : browseDirectory(tabId, path, 'names')
+    )
     const read =
       path === shown
         ? await Promise.race([reading, new Promise<null>((done) => setTimeout(() => done(null), SHOWN_FOLDER_LIMIT_MS))])
@@ -1875,6 +1947,13 @@ if (!app.requestSingleInstanceLock()) {
     })
     app.once('will-quit', stopPreferencesWatch)
     app.once('will-quit', () => listingCache.flush())
+    // The member temp folder (#300): this run's at quit, every dead run's once
+    // the first answer is in (never on the startup path, #189).
+    // On the process's own exit, which `app.exit` reaches and will-quit does not.
+    process.once('exit', () => memberTemp.removeRun())
+    void explorerListings.settled.then(() =>
+      setTimeout(() => void cleanDeadRuns(memberTemp.root, pidAlive, memberTemp.dir), 5000)
+    )
     ipcMain.on('window-preferences:load', (event) => {
       event.returnValue = event.sender === mainWindow?.webContents ? windowPreferences.load() : null
       if (event.sender === mainWindow?.webContents && extraWindowOwner) preferencesLoaded()
@@ -1922,7 +2001,7 @@ if (!app.requestSingleInstanceLock()) {
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
     protocol.handle(AUDIO_SCHEME, (request) =>
       serveSidecarAudio(request, {
-        allowed: (p) => insideDesktop(p) || extractedPaths.has(p),
+        allowed: (p) => insideDesktop(p) || extracted(p),
         packaged: app.isPackaged,
         resourcesPath: process.resourcesPath,
         appPath: app.getAppPath()
@@ -2343,6 +2422,9 @@ if (!app.requestSingleInstanceLock()) {
     })
     /** Several real files at once: the archive panel's "Add files" verb. */
     ipcMain.handle('dialog:pick-files', async (): Promise<string[]> => {
+      // E2E only (#300): Add files here is driven without a native dialog.
+      if (E2E && process.env.PRISM_E2E_PICK_FILES)
+        return process.env.PRISM_E2E_PICK_FILES.split('|').filter(Boolean)
       const r = await openDialog({ properties: ['openFile', 'multiSelections'] })
       return r.canceled ? [] : r.filePaths
     })
@@ -2488,6 +2570,12 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'browse:search',
       async (event, tabId: string, path: string, query: string, requestId: string, window?: unknown) => {
+        // Inside an archive (#300): the whole archive below the folder, from
+        // memory, one answer.
+        if (typeof path === 'string' && typeof query === 'string' && containerSync(path)) {
+          const inside = await archives.search(path, query)
+          if (inside) return inside
+        }
         const result = await browseSearch(tabId, path, query, requestId, (progress) => {
           if (!event.sender.isDestroyed()) event.sender.send('browse:search-progress', progress)
         }, {}, normalizeSearchWindow(window))
@@ -2501,8 +2589,13 @@ if (!app.requestSingleInstanceLock()) {
     // list's, in a slot of their own, with no progress (one answer each).
     ipcMain.handle(
       'browse:suggest',
-      (_e, tabId: string, path: string, query: string, requestId: string) =>
-        browseSuggest(tabId, path, query, requestId)
+      async (_e, tabId: string, path: string, query: string, requestId: string) => {
+        if (typeof path === 'string' && typeof query === 'string' && containerSync(path)) {
+          const inside = await archives.search(path, query, 200)
+          if (inside) return inside
+        }
+        return browseSuggest(tabId, path, query, requestId)
+      }
     )
     ipcMain.on('browse:suggest-cancel', (_e, tabId: string, requestId: string) => {
       if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId), requestId)
@@ -2589,10 +2682,37 @@ if (!app.requestSingleInstanceLock()) {
     // clicked from stays the tree you're in.
     ipcMain.handle(
       'open:within',
-      async (_e, root: string, p: string): Promise<OpenPayload | null> =>
-        validDesktopRoot(root, p) ? await buildPayload(p, root) : null
+      async (_e, root: string, p: string): Promise<OpenPayload | null> => {
+        // A MEMBER of an archive (#300): the members beside it are the arrows'
+        // list, read from the container's listing. The container must be one
+        // this tab may read, as a file there would be.
+        const outer = typeof p === 'string' ? containerSync(p) : null
+        if (outer && outer !== resolve(p)) {
+          if (!validDesktopRoot(root, outer) && !insideDesktop(outer)) return null
+          const near = await archives.siblings(p)
+          return near ? { files: near.files, index: near.index, root } : null
+        }
+        return validDesktopRoot(root, p) ? await buildPayload(p, root) : null
+      }
     )
     ipcMain.handle('dir:list', async (_e, root: string, p: string): Promise<DirListing | null> => {
+      // The project tree inside an archive (#300): a zip node expands like a
+      // folder, and its folders do, from the container's own listing.
+      const outer = typeof p === 'string' ? containerSync(p) : null
+      if (outer) {
+        if (!validDesktopRoot(root, outer)) return null
+        const r = await archives.resolve(p)
+        if (!r) return null
+        if (!r.ok)
+          return {
+            folders: [],
+            files: [],
+            unreadable: true,
+            archiveError: { reason: r.reason, container: r.container, message: archives.failText(r.reason) }
+          }
+        if (r.place.entry && !r.place.entry.dir) return null
+        return archives.listing(r.place, 'tree')
+      }
       if (!validDesktopRoot(root, p)) return null
       const listing = await listDir(p)
       if (!listing.unreadable) extendDesktopDirectories(root, [p])
@@ -2653,7 +2773,7 @@ if (!app.requestSingleInstanceLock()) {
      * pretends to be the file, so nothing can save it back.
      */
     ipcMain.handle('file:tailBytes', async (_e, p: string, max: number) => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return null
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
       const want = Math.min(Math.max(64 * 1024, Number(max) || 0), TEXT_MAX_BYTES)
       return readTail(p, want)
     })
@@ -2661,7 +2781,7 @@ if (!app.requestSingleInstanceLock()) {
     /** Follow a file that is still being written: new bytes arrive on
      *  `file:appended` until `tail:stop`. One watch per path. */
     ipcMain.handle('tail:start', async (_e, p: string, from: number) => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return false
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return false
       return startTail(p, Number(from) || 0, (e) =>
         mainWindow?.webContents.send('file:appended', e)
       )
@@ -2673,7 +2793,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('file:text', async (_e, p: string): Promise<TextRead> => {
       // Extracted archive members live in temp, outside every root; each one
       // was granted individually when archive:extract wrote it.
-      if (!insideDesktop(p) && !extractedPaths.has(p)) return { error: 'unreadable' }
+      if (!insideDesktop(p) && !extracted(p)) return { error: 'unreadable' }
       const r = await readTextWalled(p)
       // A markdown document may point at pictures OUTSIDE the folder Prism
       // opened in ("../assets/logo.png" from a doc in docs/), which the
@@ -2736,7 +2856,7 @@ if (!app.requestSingleInstanceLock()) {
      * error.
      */
     ipcMain.handle('image:photo-info', async (_e, p: string): Promise<PhotoInfo> => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return {}
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return {}
       return photoInfo(p)
     })
 
@@ -2811,7 +2931,7 @@ if (!app.requestSingleInstanceLock()) {
      * - took 7.4GB on a 2GB film and threw at the end of it.
      */
     ipcMain.handle('media:peaks', async (_e, p: string): Promise<number[] | null> => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return null
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
       // Known already: no ffprobe, no ffmpeg, no wait.
       const known = cachedPeaks(p)
       if (known) return known
@@ -2824,7 +2944,7 @@ if (!app.requestSingleInstanceLock()) {
     })
     ipcMain.handle('media:probe', async (_e, p: string): Promise<MediaProbe> => {
       const none: MediaProbe = { ffmpeg: false, needed: false }
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return none
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return none
       // A MIDI file is a score, not a recording: it has to be synthesised
       // before there is anything to play. The answer comes back at once so the
       // player can say so, and the rendering is asked for separately - loading
@@ -2877,7 +2997,7 @@ if (!app.requestSingleInstanceLock()) {
     // Render a score. Separate from the probe because it can take seconds:
     // the player shows that it is working rather than an error.
     ipcMain.handle('audio:synth', async (_e, p: string): Promise<string | null> => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return null
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
       const fluid = findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!fluid || !isMidi(p)) return null
       try {
@@ -2894,7 +3014,7 @@ if (!app.requestSingleInstanceLock()) {
     // and knows the duration the element reported, so it can ask for the first
     // audio track without anything having probed the file.
     ipcMain.handle('audio:blind', (_e, p: string, duration: number): string | null => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return null
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
       if (!Number.isFinite(duration) || duration <= 0) return null
       if (!findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())) return null
       return sidecarUrl(p, FIRST_AUDIO, duration)
@@ -2912,7 +3032,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'video:convert',
       async (e, p: string): Promise<{ url?: string; error?: string }> => {
-        if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p)))
+        if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p)))
           return { error: 'outside the folder' }
         const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
         if (!tools?.ffprobe) return { error: 'no decoder available' }
@@ -2957,7 +3077,7 @@ if (!app.requestSingleInstanceLock()) {
     // Office and ebook documents: converted to HTML in main, sanitised there
     // too, so nobody else's markup reaches a renderer that can see window.prism.
     ipcMain.handle('doc:html', async (_e, p: string): Promise<string | null> => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return null
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
       return docHtmlOf(p)
     })
 
@@ -3038,7 +3158,7 @@ if (!app.requestSingleInstanceLock()) {
       const list = Array.isArray(p) ? p : [p]
       if (
         !list.length ||
-        list.some((x) => typeof x !== 'string' || (!insideDesktop(x) && !extractedPaths.has(x)))
+        list.some((x) => typeof x !== 'string' || (!insideDesktop(x) && !extracted(x)))
       )
         return Promise.resolve(false)
       return copyWindowsFiles(list, cut === true)
@@ -3261,7 +3381,7 @@ if (!app.requestSingleInstanceLock()) {
     // the wall would be left pointing at nothing and that tab dies. Renaming
     // and binning a root are already refused; this is the same rule.
     const movable = (p: unknown): p is string =>
-      typeof p === 'string' && !isAnyRoot(p) && (insideDesktop(p) || extractedPaths.has(p))
+      typeof p === 'string' && !isAnyRoot(p) && (insideDesktop(p) || extracted(p))
     ipcMain.handle(
       'file:move',
       async (_e, paths: string[], destDir: string, onClash: 'ask' | 'keep-both' | 'replace') => {
@@ -3431,7 +3551,10 @@ if (!app.requestSingleInstanceLock()) {
         password?: string,
         asksPassword?: boolean
       ) => {
-        if (!archiveOk(zip) || !Array.isArray(entries) || !insideDesktop(destDir))
+        // The READ gate for the source (#300): a nested archive is a temp copy
+        // main made, and extracting out of it reads it; the destination is
+        // still a folder the tab may write to.
+        if (!archiveReadOk(zip) || !Array.isArray(entries) || !insideDesktop(destDir))
           return refused(zip, destDir)
         const pw = typeof password === 'string' ? password : ''
         return membersOut(zip, entries, destDir, pw, !!asksPassword)
@@ -3449,7 +3572,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'archive:extract-members-picked',
       async (_e, zip: string, entries: string[], password?: string) => {
-        if (!archiveOk(zip) || !Array.isArray(entries)) return refused(zip, '')
+        if (!archiveReadOk(zip) || !Array.isArray(entries)) return refused(zip, '')
         const r = await openDialog({ properties: ['openDirectory', 'createDirectory'] })
         if (r.canceled || !r.filePaths.length) return { ok: false, reason: 'cancelled' }
         const destDir = r.filePaths[0]
@@ -3460,6 +3583,29 @@ if (!app.requestSingleInstanceLock()) {
         return out.ok ? { ok: true, dest: destDir, written: out.written } : out
       }
     )
+
+    /**
+     * A MEMBER out beside the outermost archive, as a job with the window
+     * (#300): the read-only note's Extract here. Answers the extracted copy,
+     * so it can be opened where editing can start.
+     */
+    ipcMain.handle('archive:member-out', async (_e, path: string) => {
+      const outer = typeof path === 'string' ? containerSync(path) : null
+      if (!outer || !insideDesktop(outer)) return { ok: false }
+      const r = await archives.resolve(path, { enterLast: false })
+      if (!r?.ok || !r.place.entry || r.place.entry.dir) return { ok: false }
+      const dest = dirname(r.place.outer)
+      const name = r.place.entry.name || basename(r.place.entry.path)
+      const landing = join(dest, existsSync(join(dest, name)) ? uniqueName(dest, name) : name)
+      const out = await membersOut(
+        r.place.real,
+        [r.place.entry.path],
+        dest,
+        archivePasswords.get(r.place.real) ?? '',
+        false
+      )
+      return out.ok ? { ok: true, path: existsSync(landing) ? landing : null } : { ok: false }
+    })
 
     /* ----- the archive verbs (#68): zip only, through src/main/archive.ts ----- */
 
@@ -3487,7 +3633,7 @@ if (!app.requestSingleInstanceLock()) {
      */
     const archiveReadOk = (p: unknown): p is string =>
       typeof p === 'string' &&
-      (insideDesktop(p) || extractedPaths.has(p)) &&
+      (insideDesktop(p) || extracted(p)) &&
       fileKind(extname(p)) === 'archive'
     /**
      * A comic book has its OWN guard, not `archiveOk` widened (2026-08-31).
@@ -3669,6 +3815,46 @@ if (!app.requestSingleInstanceLock()) {
         return { ok: false, reason: 'failed' }
       }
     }
+    /**
+     * A MEMBER of a place inside an archive, unpacked for a viewer (#300): the
+     * run's member folder, one member, reused while the container is
+     * unchanged. `force` is an explicit Open, past the automatic-preview limit.
+     * The container must be one the Explorer or a project may read.
+     */
+    ipcMain.handle(
+      'archive:member',
+      async (_e, path: string, password?: string, force?: boolean) => {
+        const outer = typeof path === 'string' ? containerSync(path) : null
+        if (!outer || !insideDesktop(outer)) return { ok: false, reason: 'failed' }
+        const out = await archives.member(
+          path,
+          typeof password === 'string' && password ? password : undefined,
+          force === true
+        )
+        if (out.ok) {
+          memberTemp.touch(out.path)
+          // Over the run's cap, the least recently viewed go: never the one
+          // just asked for, nor one a player or a converter holds.
+          void memberTemp.evict((f) => f === out.path || holders.count([f]) > 0)
+        }
+        return out
+      }
+    )
+    /** What the archive card shows (#300): totals and the top of the tree. */
+    ipcMain.handle('archive:summary', async (_e, path: string) => {
+      const outer = typeof path === 'string' ? containerSync(path) : null
+      if (!outer || !insideDesktop(outer)) return { ok: false, reason: 'failed' }
+      return archives.summary(path)
+    })
+    /** A password the user typed for a container a listing asked about
+     *  (#300): remembered for the session, as every archive password is. */
+    ipcMain.handle('archive:remember-password', (_e, container: string, password: string) => {
+      if (typeof container !== 'string' || typeof password !== 'string' || !password) return false
+      if (!insideDesktop(container) && !memberTemp.owns(container)) return false
+      archivePasswords.set(container, password)
+      archives.forget(container)
+      return true
+    })
     ipcMain.handle(
       'archive:list',
       async (_e, p: string, password?: string): Promise<ArchiveListing> => {
@@ -3816,7 +4002,8 @@ if (!app.requestSingleInstanceLock()) {
             message?: string
           }
       > => {
-        if (!archiveOk(p) || typeof entry !== 'string' || !entry) {
+        // A copy out of a nested archive reads a temp copy main made (#300).
+        if (!(here ? archiveOk(p) : archiveReadOk(p)) || typeof entry !== 'string' || !entry) {
           return here ? refused(p, '') : { ok: false, reason: 'failed' }
         }
         // `here` writes beside the archive, where the user can see it, so it
