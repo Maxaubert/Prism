@@ -227,3 +227,44 @@ describe('parseTabs', () => {
     expect(parseTabs(JSON.stringify({ tabs: [{ root: a }], active: -3 })).active).toBe(0)
   })
 })
+
+describe('places inside an archive (#300)', () => {
+  it('keeps history entries and open tree folders inside a zip that is still there', () => {
+    const root = folder('downloads')
+    const zip = join(root, 'w.zip')
+    writeFileSync(zip, 'zip bytes')
+    const inside = join(zip, 'Wind', 'src')
+    const sort = { key: 'packed', direction: 'desc' }
+    const browse = {
+      path: inside,
+      history: [
+        { path: root, selected: null, scrollTop: 0, query: '', sort },
+        { path: inside, selected: null, scrollTop: 0, query: '', sort }
+      ],
+      cursor: 1,
+      surface: 'folder',
+      preview: true
+    }
+    const parsed = parseTabs(
+      JSON.stringify({ tabs: [{ root, role: 'explorer', browse, open: [zip, join(zip, 'Wind')] }], active: 0 })
+    )
+    expect(parsed.tabs[0].browse?.path).toBe(inside)
+    expect(parsed.tabs[0].browse?.history.map((h) => h.path)).toEqual([root, inside])
+    expect(parsed.tabs[0].browse?.history[1].sort.key).toBe('packed')
+    expect(parsed.tabs[0].open).toEqual([zip, join(zip, 'Wind')])
+  })
+
+  it('drops them when the zip has gone', () => {
+    const root = folder('downloads2')
+    const inside = join(root, 'gone.zip', 'Wind')
+    const browse = {
+      path: inside,
+      history: [{ path: inside, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } }],
+      cursor: 0,
+      surface: 'folder',
+      preview: true
+    }
+    const parsed = parseTabs(JSON.stringify({ tabs: [{ root, role: 'explorer', browse }], active: 0 }))
+    expect(parsed.tabs[0].browse).toBeUndefined()
+  })
+})

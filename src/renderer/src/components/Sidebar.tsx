@@ -9,11 +9,14 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent
 } from 'react'
-import type { OpenWithApp, ViewerFile } from '@shared/types'
+import type { ArchiveMeta, OpenWithApp, ViewerFile } from '@shared/types'
+import type { MenuItem } from './ContextMenu'
+import type { BrowseEntry } from './browse/types'
 import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
 import { lastSplitDir, type SplitDir } from '../lib/panes'
 import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
+import { memberOf } from '@shared/archivePlace'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
@@ -148,6 +151,7 @@ export function Sidebar({
   onDelete,
   onDeleteMany,
   onDropInto,
+  archive,
   onDuplicated,
   onNav,
   wash,
@@ -197,6 +201,18 @@ export function Sidebar({
   /** Something was dropped on a folder row: files to move in, or archive
    *  members to extract there. App owns the questions either can raise. */
   onDropInto: (destDir: string, payload: DragPayload) => void
+  /** Rows INSIDE an archive (#300): their menus and keys are the archive's,
+   *  the Explorer's own three contexts. */
+  archive?: {
+    menu: (
+      target: { entry: BrowseEntry | null; paths?: string[]; folders?: ReadonlySet<string> },
+      meta: ArchiveMeta,
+      directory: string,
+      open?: (entry: BrowseEntry) => void
+    ) => MenuItem[] | null
+    rename: (entry: BrowseEntry, meta: ArchiveMeta) => void
+    remove: (paths: string[], meta: ArchiveMeta) => void
+  }
   /** A copy was just made: App remembers the source AND the copy, so Ctrl+Z
    *  can take it away and Ctrl+Y can ask for another one. */
   onDuplicated: (source: string, copyPath: string) => void
@@ -423,6 +439,33 @@ export function Sidebar({
     },
     [root, setState]
   )
+
+  /** The archive a row is INSIDE (#300), from its folder's own listing:
+   *  null for every row on disk. */
+  const memberMeta = (path: string): ArchiveMeta | null =>
+    state.children[parentDir(path)]?.archive ?? null
+  /** A tree row as the Explorer's menus see it. */
+  const memberEntry = (path: string): BrowseEntry => {
+    const listing = state.children[parentDir(path)]
+    const key = path.toLowerCase()
+    const folder = listing?.folders.find((f) => f.path.toLowerCase() === key)
+    const file = listing?.files.find((f) => f.path.toLowerCase() === key)
+    return folder
+      ? {
+          path,
+          name: folder.name,
+          isFolder: true,
+          folderSize: {
+            bytes: folder.size ?? 0,
+            files: folder.items ?? 0,
+            folders: 0,
+            unreadable: 0,
+            skippedLinks: 0,
+            truncated: false
+          }
+        }
+      : { path, name: file?.name ?? path.split(/[\\/]/).pop() ?? path, isFolder: false, file }
+  }
 
   const toggle = useCallback(
     (p: string) => {
@@ -901,13 +944,30 @@ export function Sidebar({
     setDropTarget(dir)
     setDropRow(dir === null ? null : row)
   }, [])
-  const onRowDragStart = useCallback((e: DragEvent, path: string): void => {
-    // Dragging a row that is part of a multi-selection takes all of it.
-    const items = selRef.current.items
-    setDrag({ kind: 'files', paths: items.has(path) && items.size > 1 ? [...items] : [path] })
-    e.dataTransfer.setData(DRAG_MIME, 'files')
-    e.dataTransfer.effectAllowed = 'move'
-  }, [])
+  const treeChildren = state.children
+  const onRowDragStart = useCallback(
+    (e: DragEvent, path: string): void => {
+      // Dragging a row that is part of a multi-selection takes all of it.
+      const items = selRef.current.items
+      const paths = items.has(path) && items.size > 1 ? [...items] : [path]
+      // Rows INSIDE an archive are its members (review of #300): carried as
+      // files they reached file:move as paths that are not on disk, and every
+      // drop failed. As members, a real folder extracts them and the same zip
+      // moves them, the Explorer's own drag.
+      const meta = treeChildren[parentDir(path)]?.archive
+      const entries = meta ? paths.map((p) => memberOf(meta, p)).filter((p): p is string => !!p) : []
+      if (meta && entries.length) {
+        setDrag({ kind: 'members', archive: meta.container, entries })
+        e.dataTransfer.setData(DRAG_MIME, 'members')
+        e.dataTransfer.effectAllowed = 'copyMove'
+        return
+      }
+      setDrag({ kind: 'files', paths })
+      e.dataTransfer.setData(DRAG_MIME, 'files')
+      e.dataTransfer.effectAllowed = 'move'
+    },
+    [treeChildren]
+  )
   /** CUT is a mark, not a different clipboard (2026-09-03): the paths go on
    *  the clipboard exactly as Copy puts them, and the mark makes the NEXT
    *  paste a move - checked in main against what the clipboard then holds, so
@@ -1110,7 +1170,10 @@ export function Sidebar({
         const outside = droppedPaths(e.dataTransfer)
         if (outside.length) {
           mark(outside)
-          onDropInto(folderPath, { kind: 'files', paths: outside })
+          // `external`: dropped on a zip node these are ADDED and left where
+          // they are (review of #300); without it the archive drop took them
+          // for Prism's own rows and sent the originals to the Recycle Bin.
+          onDropInto(folderPath, { kind: 'files', paths: outside, external: true })
         }
       }
     },
@@ -1472,15 +1535,23 @@ export function Sidebar({
                 onRowClick,
                 onToggle: toggle,
                 onOpenFile,
-                onStartRename: setEditing,
+                // A member of an archive renames through the archive (#300).
+                onStartRename: (path: string) => {
+                  const meta = memberMeta(path)
+                  if (meta && archive) archive.rename(memberEntry(path), meta)
+                  else setEditing(path)
+                },
                 onSubmitRename: submitRename,
                 onCancelRename: () => setEditing(null),
                 // Del on a row inside a multi-selection takes the whole
                 // selection; anywhere else it stays the single-row question.
-                onDelete: (path, name, isFolder) =>
-                  sel.items.size > 1 && sel.items.has(path)
-                    ? onDeleteMany([...sel.items])
-                    : onDelete(path, name, isFolder),
+                onDelete: (path, name, isFolder) => {
+                  const meta = memberMeta(path)
+                  const many = sel.items.size > 1 && sel.items.has(path)
+                  if (meta && archive) archive.remove(many ? [...sel.items] : [path], meta)
+                  else if (many) onDeleteMany([...sel.items])
+                  else onDelete(path, name, isFolder)
+                },
                 onMenu
               }}
             >
@@ -1692,7 +1763,30 @@ export function Sidebar({
 
 
 
-      {menu && menu.multi && (
+      {menu && archive && memberMeta(menu.path) && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={
+            archive.menu(
+              {
+                entry: memberEntry(menu.path),
+                paths: menu.multi,
+                folders: new Set((menu.multi ?? []).filter((p) => memberEntry(p).isFolder))
+              },
+              memberMeta(menu.path)!,
+              parentDir(menu.path),
+              // Open on a folder opens its node (the gap filler loads it).
+              (entry) =>
+                entry.isFolder || entry.file?.kind === 'archive'
+                  ? setState((s) => ({ ...s, expanded: new Set([...s.expanded, entry.path]) }))
+                  : onOpenFile(entry.path)
+            ) ?? []
+          }
+        />
+      )}
+      {menu && menu.multi && !(archive && memberMeta(menu.path)) && (
         // A multi-selection's menu: the verbs that make sense N at a time.
         <ContextMenu
           x={menu.x}
@@ -1730,7 +1824,7 @@ export function Sidebar({
           ]}
         />
       )}
-      {menu && !menu.multi && (
+      {menu && !menu.multi && !(archive && memberMeta(menu.path)) && (
         <ContextMenu
           x={menu.x}
           y={menu.y}

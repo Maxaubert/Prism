@@ -88,3 +88,22 @@ describe('scrollForRow', () => {
     expect(scrollForRow(18, 26, 0, 0, 520, 100000)).toBe(18 * 26 + 26 - 520 + 78)
   })
 })
+
+describe('an archive in the tree (#300)', () => {
+  const zipFile: ViewerFile = { path: 'C:\\p\\w.zip', name: 'w.zip', ext: '.zip', kind: 'archive', size: 1, mtimeMs: 0 }
+  const kids: Record<string, DirListing> = {
+    'C:\\p': { folders: [], files: [zipFile, file('C:\\p', 'a.png')] },
+    'C:\\p\\w.zip': { folders: [folder('C:\\p\\w.zip', 'Wind')], files: [] }
+  }
+  it('is a folder row with the archive on it, and walks in when open', () => {
+    const shut = paintRows('C:\\p', new Set(), kids, opts)
+    expect(shut[0]).toMatchObject({ kind: 'folder', name: 'w.zip', zip: zipFile })
+    const open = paintRows('C:\\p', new Set(['C:\\p\\w.zip']), kids, opts)
+    expect(open.map((r) => (r.kind === 'note' ? r.text : r.name))).toEqual(['w.zip', 'Wind', 'a.png'])
+    expect(visibleRows('C:\\p', new Set(['C:\\p\\w.zip']), kids, opts).map((r) => [r.name, r.isFolder])).toEqual([
+      ['w.zip', true],
+      ['Wind', true],
+      ['a.png', false]
+    ])
+  })
+})

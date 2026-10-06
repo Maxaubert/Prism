@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
 import {
   addTab,
+  navigateBrowse,
+  travelBrowse,
+  setBrowsePreview,
+  replaceBrowsePath,
   addExplorerTab,
   addProjectTab,
   ensurePinnedExplorer,
@@ -662,5 +666,64 @@ describe('a tab holds several terminals (2026-09-03)', () => {
     panes = pinTermPane(panes, 'p2', 'a', 'bottom')
     expect(panes).toHaveLength(1)
     expect(panes[0].dir).toBe('bottom')
+  })
+})
+
+describe('replaceBrowsePath (review of #300)', () => {
+  it('rewrites the current history entry instead of pushing one, so Back gets past a gone folder', () => {
+    const tab: Tab = { ...tabOf('C:\\a', []), id: 't1', browse: newBrowse('C:\\a') }
+    const went = navigateBrowse([tab], 't1', 'C:\\a\\x.zip\\gone')
+    const fixed = replaceBrowsePath(went, 't1', 'C:\\a\\x.zip')
+    expect(fixed[0].browse.history.map((h) => h.path)).toEqual(['C:\\a', 'C:\\a\\x.zip'])
+    expect(fixed[0].browse.cursor).toBe(1)
+    expect(fixed[0].browse.path).toBe('C:\\a\\x.zip')
+  })
+})
+
+describe('going into a folder clears the preview (#300 review)', () => {
+  const explorer = (preview: boolean, index: number): Tab => ({
+    ...tabOf('C:\\a', ['C:\\a\\x.zip', 'C:\\a\\b.jpg'], index),
+    id: 't1',
+    index,
+    role: 'explorer',
+    browse: { ...newBrowse('C:\\a'), preview }
+  })
+
+  it('drops the file on display and keeps an open pane open, empty', () => {
+    const went = navigateBrowse([explorer(true, 0)], 't1', 'C:\\a\\x.zip')[0]
+    expect(went.index).toBe(-1)
+    expect(went.browse.previewHeld).toBe(true)
+    // Further in, and Back out again: still open, still empty.
+    const deeper = navigateBrowse([went], 't1', 'C:\\a\\x.zip\\src')[0]
+    expect(deeper.browse.previewHeld).toBe(true)
+    const back = travelBrowse([deeper], 't1', -2)[0]
+    expect(back.browse.path).toBe('C:\\a')
+    expect(back.index).toBe(-1)
+    expect(back.browse.previewHeld).toBe(true)
+  })
+
+  it('leaves a shut pane shut and a same-folder navigation alone', () => {
+    const shut = navigateBrowse([explorer(true, -1)], 't1', 'C:\\a\\x.zip')[0]
+    expect(shut.browse.previewHeld).toBeUndefined()
+    const off = navigateBrowse([explorer(false, 0)], 't1', 'C:\\a\\x.zip')[0]
+    expect(off.index).toBe(-1)
+    expect(off.browse.previewHeld).toBeUndefined()
+    const same = navigateBrowse([explorer(true, 1)], 't1', 'C:\\a')[0]
+    expect(same.index).toBe(1)
+    expect(same.browse.previewHeld).toBeUndefined()
+  })
+
+  it('a pane put away forgets it was held', () => {
+    const went = navigateBrowse([explorer(true, 0)], 't1', 'C:\\a\\x.zip')
+    const off = setBrowsePreview(went, 't1', false)[0]
+    expect(off.browse.previewHeld).toBeUndefined()
+    expect(setBrowsePreview([off], 't1', true)[0].browse.previewHeld).toBeUndefined()
+  })
+
+  it('a project keeps its open file', () => {
+    const project = { ...explorer(true, 0), role: 'project' as const }
+    const went = navigateBrowse([project], 't1', 'C:\\a\\x.zip')[0]
+    expect(went.index).toBe(0)
+    expect(went.browse.previewHeld).toBeUndefined()
   })
 })

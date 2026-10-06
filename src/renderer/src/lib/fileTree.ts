@@ -1,3 +1,4 @@
+import { browsableArchive } from '@shared/archivePlace'
 // Pure path and expansion helpers for the sidebar tree. The renderer has no
 // `path` module, so this does the small amount of splitting it needs, tolerating
 // either separator. Everything here is a plain function: no React, no IPC.
@@ -86,7 +87,12 @@ export function visibleRows<F extends FileEntry>(
       if (expanded.has(f.path)) walk(f.path)
     }
     for (const f of opts.orderFiles([...listing.files])) {
-      out.push({ path: f.path, name: f.name, isFolder: false })
+      // An archive is a folder in the tree (#300): the arrows walk into it
+      // when it is open.
+      if (browsableArchive(f.name)) {
+        out.push({ path: f.path, name: f.name, isFolder: true })
+        if (expanded.has(f.path)) walk(f.path)
+      } else out.push({ path: f.path, name: f.name, isFolder: false })
     }
   }
   walk(root)

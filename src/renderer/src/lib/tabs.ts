@@ -217,7 +217,11 @@ export function setTabPanes(tabs: readonly Tab[], tabId: string, panes: PinnedPa
 export function navigateBrowse(tabs: readonly Tab[], tabId: string, path: string): Tab[] {
   return tabs.map((tab) =>
     tab.id === tabId && tab.kind !== 'settings'
-      ? { ...tab, browse: navigateBrowseState(tab.browse, path, shownFile(tab)), term: hideTerm(tab.term) }
+      ? leaveShown(tab, {
+          ...tab,
+          browse: navigateBrowseState(tab.browse, path, shownFile(tab)),
+          term: hideTerm(tab.term)
+        })
       : tab
   )
 }
@@ -226,8 +230,30 @@ export function travelBrowse(tabs: readonly Tab[], tabId: string, delta: number)
   return tabs.map((tab) => {
     if (tab.id !== tabId || tab.kind === 'settings') return tab
     const browse = travelBrowseState(tab.browse, delta, shownFile(tab))
-    return browse === tab.browse ? tab : { ...tab, browse, term: hideTerm(tab.term) }
+    return browse === tab.browse ? tab : leaveShown(tab, { ...tab, browse, term: hideTerm(tab.term) })
   })
+}
+
+/**
+ * GOING INTO A FOLDER CLEARS THE PREVIEW (#300 review; owner, 2026-10-06, of a
+ * zip opened from Downloads: the list showed its contents while the pane still
+ * showed the zip's own card, "the double view"). An Explorer that moves to
+ * another folder, the inside of a zip included, drops the file on display. A
+ * pane that was open stays open and empty (`previewHeld`), so nothing jumps; a
+ * shut one stays shut. A project keeps its open file: browsing never replaces it.
+ */
+function leaveShown(was: Tab, tab: Tab): Tab {
+  if (!isExplorerTab(was) || sameRoot(was.browse.path, tab.browse.path)) return tab
+  const held = was.browse.preview && (was.index >= 0 || was.browse.previewHeld === true)
+  return { ...tab, index: -1, browse: withHeld(tab.browse, held) }
+}
+
+function withHeld(browse: SavedBrowse, held: boolean): SavedBrowse {
+  if (held) return { ...browse, previewHeld: true }
+  if (!browse.previewHeld) return browse
+  const rest = { ...browse }
+  delete rest.previewHeld
+  return rest
 }
 
 /** Start, refine or clear a tab's Explorer search: a search is a place in
@@ -262,6 +288,23 @@ export function setBrowseLocation(
   )
 }
 
+/**
+ * The place on screen turned out to be another (#300: a folder gone from
+ * inside a zip answers the nearest one still there). The CURRENT history
+ * entry is rewritten, never a new one pushed: pushing made Back land on the
+ * gone folder again, which redirected forward again, so Back never got past it.
+ */
+export function replaceBrowsePath(tabs: readonly Tab[], tabId: string, path: string): Tab[] {
+  return tabs.map((tab) => {
+    if (tab.id !== tabId || tab.kind === 'settings') return tab
+    const history = tab.browse.history.slice()
+    const here = history[tab.browse.cursor]
+    if (!here) return tab
+    history[tab.browse.cursor] = { ...here, path, selected: null, scrollTop: 0 }
+    return { ...tab, browse: { ...tab.browse, history, path } }
+  })
+}
+
 export function setBrowseSurface(
   tabs: readonly Tab[],
   tabId: string,
@@ -276,7 +319,10 @@ export function setBrowseSurface(
 
 export function setBrowsePreview(tabs: readonly Tab[], tabId: string, preview: boolean): Tab[] {
   return tabs.map((tab) =>
-    tab.id === tabId ? { ...tab, browse: { ...tab.browse, preview } } : tab
+    // A pane put away forgets that it was held open empty.
+    tab.id === tabId
+      ? { ...tab, browse: withHeld({ ...tab.browse, preview }, preview && !!tab.browse.previewHeld) }
+      : tab
   )
 }
 

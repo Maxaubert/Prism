@@ -478,7 +478,19 @@ function Guides({ depth, indent }: { depth: number; indent: number }): JSX.Eleme
 }
 
 
-function FolderRow({ path, name, depth }: { path: string; name: string; depth: number }): JSX.Element {
+function FolderRow({
+  path,
+  name,
+  depth,
+  zip
+}: {
+  path: string
+  name: string
+  depth: number
+  /** An archive drawn as a folder (#300): its icon, and the FILE's menu and
+   *  keys (the archive's verbs), while it expands like a folder. */
+  zip?: ViewerFile
+}): JSX.Element {
   const t = useTree()
   const open = t.expanded.has(path)
   const pad = 4 + depth * t.size.indent
@@ -541,7 +553,8 @@ function FolderRow({ path, name, depth }: { path: string; name: string; depth: n
       // way. The chevron itself still expands on the first click, since
       // that is the one control whose whole job is the folder's state.
       onClick={(e) => t.onRowClick(e, path, true)}
-      onContextMenu={(e) => t.onMenu(e, path, name, true)}
+      onContextMenu={(e) => t.onMenu(e, path, name, !zip)}
+      data-zip-node={zip ? true : undefined}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault()
@@ -551,7 +564,7 @@ function FolderRow({ path, name, depth }: { path: string; name: string; depth: n
           t.onStartRename(path)
         } else if (e.key === 'Delete') {
           e.preventDefault()
-          t.onDelete(path, name, true)
+          t.onDelete(path, name, !zip)
         }
       }}
       className={`relative flex w-full items-center rounded-[var(--p-radius-sm)] text-left outline-none focus-visible:outline-none ${
@@ -596,7 +609,17 @@ function FolderRow({ path, name, depth }: { path: string; name: string; depth: n
       >
         <Chevron open={open} />
       </span>
-      <FolderIcon color="var(--p-tree-folder)" />
+      {zip ? (
+        <KindIcon
+          kind="archive"
+          ext={zip.ext}
+          name={zip.name}
+          color={iconColour('archive')}
+          bg={t.selected.has(path) || onCursor ? 'var(--p-sel-tint-side)' : undefined}
+        />
+      ) : (
+        <FolderIcon color="var(--p-tree-folder)" />
+      )}
       <Label name={name} />
     </button>
   )
@@ -873,7 +896,7 @@ export function TreeWindow({
           >
             <Guides depth={r.depth} indent={t.size.indent} />
             {r.kind === 'folder' ? (
-              <FolderRow path={r.path} name={r.name} depth={r.depth} />
+              <FolderRow path={r.path} name={r.name} depth={r.depth} zip={r.zip} />
             ) : r.kind === 'file' ? (
               <FileRow f={r.file} depth={r.depth} />
             ) : (

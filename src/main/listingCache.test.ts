@@ -242,3 +242,35 @@ describe('the cache on disk', () => {
     expect(readFileSync(join(dir, 'index.json'), 'utf8')).toBe(before)
   })
 })
+
+describe('a place inside an archive (#300)', () => {
+  it('round-trips, members, packed sizes, folder totals and the archive meta included', () => {
+    const base = 'C:\\d\\w.zip\\Wind'
+    const archive = {
+      container: 'C:\\d\\w.zip',
+      base: 'C:\\d\\w.zip',
+      chain: ['C:\\d\\w.zip'],
+      outer: 'C:\\d\\w.zip',
+      inner: 'Wind',
+      display: 'w.zip',
+      files: 2,
+      folders: 1,
+      packed: 100,
+      unpacked: 300,
+      readOnly: false,
+      nested: false,
+      encryption: 'none' as const
+    }
+    const l: DirListing = {
+      folders: [{ path: `${base}\\src`, name: 'src', mtimeMs: 5, size: 200, items: 3 }],
+      files: [
+        { path: `${base}\\a.ts`, name: 'a.ts', ext: '.ts', kind: 'text', size: 100, mtimeMs: 7, member: true, packed: 40 }
+      ],
+      archive
+    }
+    const back = decodeListing(JSON.stringify(encodeListing(base, l, 9, 1)))
+    expect(back?.listing.archive).toEqual(archive)
+    expect(back?.listing.files[0]).toMatchObject({ path: `${base}\\a.ts`, member: true, packed: 40 })
+    expect(back?.listing.folders[0]).toMatchObject({ path: `${base}\\src`, size: 200, items: 3 })
+  })
+})

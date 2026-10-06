@@ -59,6 +59,12 @@ never shipped: one small app that opens everything and looks good doing it.
   keeps a pencil in the top bar, to swap its rendered page for its raw source. Wander off to
   another file and your edits wait for you: unsaved files are starred in the tree, and nothing
   closes Prism out from under them.
+- **Zips are folders**: a zip (and a 7z, rar, tar, iso and the rest) keeps its icon but opens
+  like any other folder, in the Explorer and in a project's tree. One address runs through it,
+  Back and Forward walk in and out, and sorting, search and the preview pane work inside it.
+  A strip names the archive with Extract here and Extract to...; the right-click menus are the
+  archive's (extract, add files, rename and delete inside a zip). A file inside opens
+  read-only, unpacked to a temporary folder that is cleared when Prism closes.
 - **Opens from Explorer**: opt in to make Prism the default viewer for the file types you choose.
 - **In Explorer's right-click menu**: beside the Prism icon, **Open file** on any file and
   **Open as project** on a folder, or on the empty space inside one, which roots a tab there.

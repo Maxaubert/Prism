@@ -12,6 +12,7 @@ import type { BrowseDirectory, BrowseLocation, BrowseShortcut } from '@shared/br
 import type { ViewerFile } from '@shared/types'
 import {
   navigateBrowse,
+  replaceBrowsePath,
   searchBrowse,
   travelBrowse,
   setBrowseLocation,
@@ -75,6 +76,24 @@ export function useFolderBrowsing(
    *  the folder it shows meanwhile: it never blanks for a read. */
   const [waitingFor, setWaitingFor] = useState<{ tabId: string; path: string } | null>(null)
   const [errorState, setError] = useState<{ tabId: string; message: string }>()
+  /** A place inside an archive that wants its password (#300): the question,
+   *  and what to do once it is answered. */
+  const [archiveAsk, setArchiveAsk] = useState<{
+    tabId: string
+    container: string
+    name: string
+    wrong: boolean
+    retry: () => void
+  } | null>(null)
+  const tried = useRef(new Set<string>())
+  /** The latest `navigate`, for a password's retry. */
+  const navigateRef = useRef<(target: string, tabId?: string) => Promise<void>>(async () => {})
+  const askArchive = useCallback((tabId: string, container: string, retry: () => void) => {
+    const key = container.toLowerCase()
+    const wrong = tried.current.has(key)
+    tried.current.add(key)
+    setArchiveAsk({ tabId, container, name: container.split(/[\\/]/).pop() ?? container, wrong, retry })
+  }, [])
   const [locations, setLocations] = useState<BrowseShortcut[]>([])
   const [revision, setRevision] = useState(0)
   const serial = useRef(new Map<string, number>())
@@ -182,13 +201,26 @@ export function useFolderBrowsing(
         if (next && !next.listing.unreadable) {
           setResult({ ...visitedDirectories.remember(next), tabId: id })
           setError(undefined)
-          void window.prism.browseWatch(id, path)
+          // A folder gone from inside a zip answered the nearest one still
+          // there (#300): the tab's CURRENT entry becomes that place (a push
+          // made Back bounce off the gone folder forever).
+          if (
+            next.listing.archiveError?.reason === 'missing' &&
+            directoryKey(next.path) !== directoryKey(path)
+          )
+            setState((s) => ({ ...s, tabs: replaceBrowsePath(s.tabs, id, next.path) }))
+          void window.prism.browseWatch(id, next.path)
         } else {
           visitedDirectories.forget(path)
           setResult(null)
+          const refused = next?.listing.archiveError
+          if (refused && (refused.reason === 'password' || refused.reason === 'aes'))
+            askArchive(id, refused.container, () => setRevision((v) => v + 1))
           setError({
             tabId: id,
-            message: 'This folder cannot be opened. Check the path or choose another location.'
+            message:
+              refused?.message ??
+              'This folder cannot be opened. Check the path or choose another location.'
           })
         }
       })
@@ -203,7 +235,7 @@ export function useFolderBrowsing(
     return () => {
       cancelled = true
     }
-  }, [folder, id, path, refreshKey, revision])
+  }, [folder, id, path, refreshKey, revision, askArchive, setState])
 
   const navigate = useCallback(
     async (target: string, tabId = id) => {
@@ -240,13 +272,20 @@ export function useFolderBrowsing(
       if (visibleId.current === tabId) setWaitingFor(null)
       if (!next || next.listing.unreadable) {
         visitedDirectories.forget(target)
+        const refused = next?.listing.archiveError
         if (visibleId.current === tabId) {
           if (cached) setResult(null)
           setError({
             tabId,
-            message: 'This folder cannot be opened. Check the path or choose another location.'
+            message:
+              refused?.message ??
+              'This folder cannot be opened. Check the path or choose another location.'
           })
         }
+        // A zip whose NAMES are locked asks before it can be entered (#300);
+        // Cancel stays where you were.
+        if (refused && (refused.reason === 'password' || refused.reason === 'aes'))
+          askArchive(tabId, refused.container, () => void navigateRef.current(target, tabId))
         return
       }
       if (visibleId.current === tabId) {
@@ -257,8 +296,11 @@ export function useFolderBrowsing(
       }
       if (!cached) setState((s) => ({ ...s, tabs: navigateBrowse(s.tabs, tabId, next.path) }))
     },
-    [id, path, folder, refreshKey, revision, setState]
+    [id, path, folder, refreshKey, revision, setState, askArchive]
   )
+  useLayoutEffect(() => {
+    navigateRef.current = navigate
+  }, [navigate])
   const travel = useCallback(
     (delta: number) => {
       setWaitingFor(null)
@@ -450,9 +492,23 @@ export function useFolderBrowsing(
     [active, id, setState, openFile]
   )
   const previewFile = useMemo(() => active?.files[active.index], [active?.files, active?.index])
+  /** The password question's answer (#300): main remembers it for the
+   *  session and the place is asked for again; a wrong one asks again. */
+  const answerArchive = useCallback(
+    (password: string | null) => {
+      const ask = archiveAsk
+      setArchiveAsk(null)
+      if (!ask || password === null) return
+      void window.prism.archiveRememberPassword(ask.container, password).then(() => ask.retry())
+    },
+    [archiveAsk]
+  )
   return {
     folder,
     location,
+    /** A place inside an archive asks for its password (#300). */
+    archiveAsk: archiveAsk && archiveAsk.tabId === id ? archiveAsk : null,
+    answerArchive,
     /** The sort the folder is shown in (Downloads' own until picked, #285). */
     sort,
     downloads,
