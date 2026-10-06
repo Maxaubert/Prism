@@ -538,8 +538,17 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
   use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its
   line glyph (`PlaceIcon`), Home by the user's folder name; Pinned is every other pin (hint when
-  empty); then Projects; then This PC: name as File Explorer writes it ("Local Disk (C:)"), a 4px
-  bar of used / total in `--p-accent-solid` on a faint track, "N free of M" in `formatBytes`. Still
+  empty); then Projects; then This PC: name as File Explorer writes it ("Local Disk (C:)"), used /
+  total in `--p-accent-solid` on a faint track, "N free of M" in `formatBytes`. **THREE DRIVE
+  STYLES** (owner, 2026-10-06, of the mockups in `research/prism/2026-10-06-drive-rows`: "option A,
+  D and E as options in settings, with A being default"): Settings > Explorer > Layout > Drive
+  style (`drive-style`, `prism.sidebar.driveStyle`, `lib/driveStylePrefs.ts`), Tiles (A, DEFAULT:
+  a tile, glyph in a chip, % on the name line, a pill bar), Ring (D: two lines, a donut with the %)
+  and Gauge (E: 20 steps, free left, total right). `DriveRow.tsx` + `drive-rows.css`, measures in
+  em of the row text so they follow Explorer row size. From 90% used (`nearlyFull`) the mark is
+  `--p-warn` and its number `--p-warn-ink` (theme.ts, floored 3:1 and 4.5:1 on the panel); the
+  system drive (main's `system`) wears the Windows badge, a removable one the USB glyph. Under
+  `--e2e`, `PRISM_E2E_DRIVE_USED` puts the system drive at that share used. Still
   ONE pin store and order: a pin moves (menu or drag) only within its own section. Sizes come
   from main (`driveUsage.ts`, `browse:drives`): `statfs` per drive, 1.5 s cap, a drive whose call
   is still out is not asked again; labels from ONE PowerShell CIM query, only when the drive set

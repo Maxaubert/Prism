@@ -55,6 +55,7 @@ describe("Prism's own settings rows", () => {
         "c-corners=prism.style.draft",
         "tree-side=prism.tree.side",
         "explorer-size=prism.explorer.size",
+        "drive-style=prism.sidebar.driveStyle",
         "auto-scroll=prism.tree.autoscroll",
         "newtab-mode=prism.newtab.mode+prism.newtab.folder",
         "newtab-show=prism.newtab.show",

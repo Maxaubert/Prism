@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react'
 import { ROW_BUTTON, Segmented, Select, Switch } from 'prism-term-core/renderer/settings/fields'
 import { SettingRow } from 'prism-term-core/renderer/settings/layout/SettingRow'
 import { SettingsSection } from 'prism-term-core/renderer/settings/layout/SettingsSection'
+import { DRIVE_STYLES, setDriveStyle, useDriveStyle } from '../../lib/driveStylePrefs'
 import { EXPLORER_SIZES, setExplorerSize, useExplorerSize } from '../../lib/explorerSize'
 import { setRememberFolders, useRememberFolders } from '../../lib/listingCachePrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../../lib/newTabPrefs'
@@ -27,6 +28,7 @@ const row = (id: string): { icon: string; label: string; sub: string } => {
 function LayoutSection(): JSX.Element {
   const side = useTreeSide()
   const size = useExplorerSize()
+  const drives = useDriveStyle()
   const follow = useAutoScroll()
   return (
     <SettingsSection id="layout" title={APP_SECTIONS.layout}>
@@ -37,6 +39,11 @@ function LayoutSection(): JSX.Element {
           of the app keep Font size. */}
       <SettingRow id="explorer-size" {...row('explorer-size')}>
         <Segmented value={size} onChange={setExplorerSize} options={EXPLORER_SIZES.map(({ id, name }) => ({ id, name }))} />
+      </SettingRow>
+      {/* This PC's rows in the sidebar (#296; owner, 2026-10-06: "option A,
+          D and E as options in settings, with A being default"). */}
+      <SettingRow id="drive-style" {...row('drive-style')}>
+        <Segmented value={drives} onChange={setDriveStyle} options={DRIVE_STYLES} />
       </SettingRow>
       <SettingRow id="auto-scroll" {...row('auto-scroll')} tap>
         <Switch on={follow} onChange={setAutoScroll} label={appOpt('auto-scroll').label} />

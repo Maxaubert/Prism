@@ -10,12 +10,15 @@ import {
   sameQuickAccessPath,
   type QuickAccessPin
 } from '../../lib/quickAccess'
-import { driveName, freeLine, usedWidth } from '../../lib/driveUsage'
+import { useDriveStyle } from '../../lib/driveStylePrefs'
 import { useDriveUsage } from '../../lib/useDriveUsage'
+import { nearlyFull } from '../../lib/driveUsage'
+import { DriveBody } from './DriveRow'
 import { PlaceIcon } from './PlaceIcon'
 import { PeekPinButton } from '../PanelToggle'
 import type { BrowsePlace, FolderBrowserProps } from './types'
 import './quick-access.css'
+import './drive-rows.css'
 import { useFolderDrop } from './useFolderDrop'
 
 type Props = Pick<
@@ -103,6 +106,7 @@ export function BrowsePlaces({
     drives.map((drive) => drive.path),
     readDrives
   )
+  const driveLook = useDriveStyle()
   const [menu, setMenu] = useState<{
     pin: QuickAccessPin
     x: number
@@ -271,10 +275,15 @@ export function BrowsePlaces({
       y,
       pinned: pins.some((pin) => sameQuickAccessPath(pin.path, place.path))
     })
-  const placeButton = (place: BrowsePlace, body: JSX.Element, className = ''): JSX.Element => (
+  const placeButton = (
+    place: BrowsePlace,
+    body: JSX.Element,
+    { className = '', ...attrs }: { className?: string; 'data-warn'?: string } = {}
+  ): JSX.Element => (
     <button
       key={place.path}
       className={`browse-place${className}`}
+      {...attrs}
       {...folderDrop(place.path)}
       aria-current={sameQuickAccessPath(place.path, directory) ? 'location' : undefined}
       onClick={() => onNavigate(place.path)}
@@ -320,28 +329,18 @@ export function BrowsePlaces({
           </section>
         )}
         {drives.length > 0 && (
-          <section aria-label="This PC">
+          <section aria-label="This PC" data-drive-style={driveLook}>
             <h2>This PC</h2>
             {drives.map((place) => {
               const info = usage.get(place.path.toUpperCase())
-              const width = usedWidth(info?.total, info?.free)
               return placeButton(
                 place,
-                <>
-                  <span className="browse-drive-top">
-                    <PlaceIcon name="drive" />
-                    <span className="browse-drive-name">{driveName(place.path, info)}</span>
-                  </span>
-                  {width !== null && (
-                    <>
-                      <span className="browse-drive-bar" aria-hidden="true">
-                        <i style={{ width }} />
-                      </span>
-                      <span className="browse-drive-free">{freeLine(info?.total, info?.free)}</span>
-                    </>
-                  )}
-                </>,
-                ' browse-drive'
+                <DriveBody path={place.path} info={info} look={driveLook} />,
+                {
+                  className: ` browse-drive browse-drive-${driveLook}`,
+                  // From 90% used the drive wears the warning colour.
+                  ...(nearlyFull(info?.total, info?.free) ? { 'data-warn': '' } : {})
+                }
               )
             })}
           </section>

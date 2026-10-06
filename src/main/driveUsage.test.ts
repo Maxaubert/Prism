@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createDriveUsage, driveKind, LABEL_COMMAND, parseLabels, STATFS_WAIT } from './driveUsage'
+import { createDriveUsage, driveKind, LABEL_COMMAND, parseLabels, STATFS_WAIT, withUsedShare } from './driveUsage'
 
 const TB = 1024 ** 4
 
@@ -102,5 +102,32 @@ describe('driveUsage', () => {
   it('free is clamped to the total', async () => {
     const usage = createDriveUsage(deps({ space: async () => ({ total: 100, free: 400 }) }))
     expect((await usage(['C:\\']))[0]).toMatchObject({ total: 100, free: 100 })
+  })
+
+  it('marks the drive Windows runs from, and only that one', async () => {
+    for (const sys of ['C:', 'c:', 'C:\\']) {
+      const got = await createDriveUsage(deps({ systemDrive: () => sys }))(['C:\\', 'D:\\'])
+      expect(got.map((d) => !!d.system)).toEqual([true, false])
+    }
+    const none = await createDriveUsage(deps({ systemDrive: () => undefined }))(['C:\\'])
+    expect(none[0]).not.toHaveProperty('system')
+  })
+})
+
+describe('withUsedShare', () => {
+  const drives = [
+    { path: 'C:\\', system: true, total: 1000, free: 600 },
+    { path: 'D:\\', total: 1000, free: 600 },
+    { path: 'Z:\\', system: true }
+  ]
+  it('puts the system drive at that share used, its total untouched', () => {
+    const got = withUsedShare(drives, '0.95')
+    expect(got[0]).toMatchObject({ path: 'C:\\', system: true, total: 1000 })
+    expect(got[0].free).toBeCloseTo(50)
+    expect(got[1]).toBe(drives[1])
+    expect(got[2]).toBe(drives[2])
+  })
+  it('does nothing without a share that means anything', () => {
+    for (const s of [undefined, '', 'x', '-1', '2']) expect(withUsedShare(drives, s)).toBe(drives)
   })
 })

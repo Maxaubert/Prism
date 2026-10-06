@@ -30,6 +30,8 @@ export interface DriveUsageDeps {
   space: (root: string) => Promise<Space>
   labels: () => Promise<Map<string, Label>>
   now: () => number
+  /** The drive Windows runs from, `C:`, for the Windows badge on its row. */
+  systemDrive?: () => string | undefined
 }
 
 const ROOT = /^[A-Z]:\\$/i
@@ -77,7 +79,12 @@ async function readSpace(root: string): Promise<Space> {
   return { total: s.blocks * s.bsize, free: s.bavail * s.bsize }
 }
 
-const defaults: DriveUsageDeps = { space: readSpace, labels: readLabels, now: Date.now }
+const defaults: DriveUsageDeps = {
+  space: readSpace,
+  labels: readLabels,
+  now: Date.now,
+  systemDrive: () => process.env.SystemDrive
+}
 
 const within = <T>(work: Promise<T>, ms: number): Promise<T | undefined> =>
   new Promise((resolve) => {
@@ -128,6 +135,7 @@ export function createDriveUsage(deps: DriveUsageDeps = defaults) {
           .map((p) => p.toUpperCase())
       )
     ].slice(0, 26)
+    const system = /^([A-Z]):\\?$/i.exec(deps.systemDrive?.() ?? '')?.[1]?.toUpperCase()
     const [names, spaces] = await Promise.all([
       within(labelsFor(roots), LABEL_WAIT),
       Promise.all(roots.map(spaceOf))
@@ -139,6 +147,7 @@ export function createDriveUsage(deps: DriveUsageDeps = defaults) {
       return {
         path,
         ...(name ? { label: name.label, kind: name.kind } : {}),
+        ...(system && path === `${system}:\\` ? { system: true } : {}),
         ...(ok ? { total: space.total, free: Math.min(Math.max(space.free, 0), space.total) } : {})
       }
     })
@@ -146,3 +155,14 @@ export function createDriveUsage(deps: DriveUsageDeps = defaults) {
 }
 
 export const driveUsage = createDriveUsage()
+
+/**
+ * Under `--e2e` only: `PRISM_E2E_DRIVE_USED` (a share, 0 to 1) puts the
+ * system drive at that much used, so the sidebar's warning from 90% can be
+ * seen on a machine whose drives are not that full. The total stays real.
+ */
+export function withUsedShare(drives: BrowseDriveUsage[], share: string | undefined): BrowseDriveUsage[] {
+  const used = Number(share)
+  if (!share || !Number.isFinite(used) || used < 0 || used > 1) return drives
+  return drives.map((d) => (d.system && d.total !== undefined ? { ...d, free: d.total * (1 - used) } : d))
+}

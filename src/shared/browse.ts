@@ -82,6 +82,8 @@ export interface BrowseDriveUsage {
   label?: string
   /** What Windows calls the drive when it has no label. */
   kind?: 'local' | 'removable' | 'network' | 'optical'
+  /** The drive Windows runs from, which wears the Windows badge. */
+  system?: boolean
   total?: number
   free?: number
 }

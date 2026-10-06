@@ -336,8 +336,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.browse-place > svg,
-.browse-drive-top > svg {
+.browse-place > svg {
   width: var(--browse-row-icon, 14px);
   height: var(--browse-row-icon, 14px);
   flex: none;
@@ -347,44 +346,7 @@
 .browse-place .browse-place-icon {
   color: var(--p-dim);
 }
-/* THIS PC: the drive's name, a thin bar of what is used and a dim line of
-   what is free (#296; owner: "the disks with a bar showing off how much is in
-   use"). The name line is a row of the Explorer size; the bar and the line
-   under it start under the name, past the icon and its gap. The used part is
-   the accent as picked (--p-accent-solid, the progress bar's own rule), the
-   track a faint step of the text over whatever ground is behind. */
-.folder-browser .browse-place.browse-drive {
-  height: auto;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-  padding-block: 4px 7px;
-}
-.browse-drive-top {
-  display: flex;
-  align-items: center;
-  gap: var(--browse-row-gap, 6px);
-  min-height: calc(var(--browse-row-h, 26px) - 8px);
-}
-.browse-place .browse-drive-bar {
-  display: block;
-  height: 4px;
-  margin: 5px 0 4px calc(var(--browse-row-icon, 14px) + var(--browse-row-gap, 6px));
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--p-text) 16%, transparent);
-}
-.browse-drive-bar > i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--p-accent-solid);
-}
-.browse-place .browse-drive-free {
-  display: block;
-  margin-left: calc(var(--browse-row-icon, 14px) + var(--browse-row-gap, 6px));
-  color: var(--p-dim);
-  font-size: calc(var(--browse-row-font, 12.5px) - 1.5px);
-}
+/* THIS PC's rows are drive-rows.css, one look per Drive style (#296). */
 /* The current place wears the SELECTION's look, the tint with its faint edge
    and the text in its own colour (owner, 2026-10-03, of the solid block: "i
    want that colour for the sidebar on the explorer page too, not just the

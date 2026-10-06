@@ -5082,7 +5082,7 @@ async function tabsScenario(fixtures) {
 const SETTINGS_PAGE_OF = {
   mode: 'appearance', 'style-theme': 'appearance', 'c-bg': 'appearance', 'c-accent': 'appearance', 'c-font': 'appearance',
   'tree-size': 'appearance', 'title-bar': 'appearance', 'tab-width': 'appearance', 'c-edges': 'appearance', 'c-corners': 'appearance',
-  'tree-side': 'explorer', 'explorer-size': 'explorer', 'auto-scroll': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'explorer',
+  'tree-side': 'explorer', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'auto-scroll': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'explorer',
   'open-external': 'explorer', 'remember-tabs': 'explorer', 'remember-folders': 'explorer', 'explorer-verb': 'explorer', 'default-apps': 'explorer',
   'term-shell': 'terminal', 'term-theme': 'terminal', 'agent-indicator': 'agents', 'agent-color': 'agents',
   'dictation-enabled': 'dictation', 'transport-bg': 'media', 'app-version': 'about'
@@ -8373,6 +8373,88 @@ async function listScrollbarScenario(fixtures) {
   }
 }
 
+/** What a This PC row shows (#296), whatever its Drive style: its style, its
+ *  warning, the glyph and badge, the name, the free words, and the used share
+ *  as each style draws it (the bar's width, the ring's arc, the lit steps). */
+const driveLookAt = (win, path) =>
+  win.evaluate((p) => {
+    const el = [...document.querySelectorAll('.folder-browser .browse-places .browse-drive')].find((b) => b.getAttribute('title') === p)
+    if (!el) return null
+    const q = (s) => el.querySelector(s)
+    const box = (s) => q(s)?.getBoundingClientRect()
+    const style = ['tiles', 'ring', 'gauge'].find((s) => el.classList.contains(`browse-drive-${s}`)) ?? null
+    const out = {
+      style,
+      warn: el.hasAttribute('data-warn'),
+      glyph: q('[data-drive-glyph]')?.getAttribute('data-drive-glyph') ?? null,
+      icon: q('[data-place-icon]')?.getAttribute('data-place-icon') ?? null,
+      badge: !!q('[data-windows-badge]'),
+      chip: !!q('.browse-drive-chip'),
+      name: q('.browse-drive-name')?.textContent ?? '',
+      free: q('.browse-drive-free')?.textContent ?? '',
+      pct: q('.browse-drive-pct')?.textContent ?? null,
+      height: el.getBoundingClientRect().height,
+      font: parseFloat(getComputedStyle(el).fontSize),
+      chipW: box('.browse-drive-chip')?.width ?? null,
+      bar: !!q('.browse-drive-bar'),
+      ring: !!q('.browse-drive-donut'),
+      seg: q('.browse-drive-seg') ? q('.browse-drive-seg').children.length : 0,
+      fraction: null,
+      fill: null,
+      ink: null
+    }
+    if (style === 'tiles' && q('.browse-drive-bar > i')) {
+      out.fraction = box('.browse-drive-bar > i').width / box('.browse-drive-bar').width
+      out.barH = box('.browse-drive-bar').height
+      out.fill = getComputedStyle(q('.browse-drive-bar > i')).backgroundColor
+      out.ink = getComputedStyle(q('.browse-drive-pct')).color
+    } else if (style === 'ring' && q('.browse-drive-ring-used')) {
+      const dash = parseFloat(q('.browse-drive-ring-used').getAttribute('stroke-dasharray'))
+      out.fraction = dash / (2 * Math.PI * 10)
+      out.fill = getComputedStyle(q('.browse-drive-ring-used')).stroke
+      out.ink = getComputedStyle(q('.browse-drive-pct')).color
+    } else if (style === 'gauge' && q('.browse-drive-seg')) {
+      out.lit = el.querySelectorAll('.browse-drive-seg > i[data-on]').length
+      out.fraction = out.lit / 20
+      out.nums = [q('.browse-drive-nums > :first-child')?.textContent, q('.browse-drive-total')?.textContent]
+      const on = q('.browse-drive-seg > i[data-on]')
+      out.fill = on ? getComputedStyle(on).backgroundColor : null
+      out.ink = getComputedStyle(q('.browse-drive-nums em')).color
+    }
+    return out
+  }, path)
+
+/** A CSS colour as the page resolves it, for comparing with a computed one. */
+const cssColour = (win, value) =>
+  win.evaluate((v) => {
+    const probe = document.createElement('i')
+    probe.style.color = v
+    document.body.append(probe)
+    const c = getComputedStyle(probe).color
+    probe.remove()
+    return c
+  }, value)
+
+/** How full a drive really is, by Node's own statfs; null when it will not say. */
+function usedShare(root) {
+  try {
+    const fs = statfsSync(root)
+    return fs.blocks > 0 ? (fs.blocks - fs.bavail) / fs.blocks : null
+  } catch {
+    return null
+  }
+}
+
+/** Whether a drive style's drawing of a share matches the real one. The
+ *  Gauge lights whole twentieths, at least one for anything in use. */
+function drawsShare(look, want) {
+  if (look?.fraction == null || want == null) return false
+  if (look.style === 'gauge') return look.lit === (want > 0 ? Math.max(1, Math.round(want * 20)) : 0) || Math.abs(look.lit - want * 20) <= 0.51
+  return Math.abs(look.fraction - want) < 0.01
+}
+
+const DRIVE_STYLE_NAMES = { tiles: 'Tiles', ring: 'Ring', gauge: 'Gauge' }
+
 /**
  * THE PLACES PANEL IS THE MOCKUP'S (#296; owner, 2026-10-06, of the themes
  * mockup: "i really like the sidebar from here, so use that, with the icons
@@ -8384,6 +8466,14 @@ async function listScrollbarScenario(fixtures) {
  * section, Shift+F10 opens it, a drag reorders a section and cannot cross into
  * the other. Screenshots of the panel at Small, Medium and Large on a dark, a
  * light and a see-through style, for the side by side with the mockup.
+ *
+ * THIS PC IN THREE LOOKS (owner, 2026-10-06, of the drive row mockups: "I want
+ * option A, D and E as options in settings, with A being default"). Tiles is
+ * the default; Settings > Explorer > Drive style switches to Ring and Gauge
+ * live, and each draws the real used share its own way (bar, arc, lit steps).
+ * The system drive wears the Windows badge, and a drive from 90% used wears
+ * the warning colour: a second launch puts C: at 95% (`PRISM_E2E_DRIVE_USED`)
+ * and checks all three. Screenshots of each style on a dark and a light style.
  */
 async function sidebarPlacesScenario(fixtures) {
   console.log('sidebar places')
@@ -8451,38 +8541,63 @@ async function sidebarPlacesScenario(fixtures) {
     const order2 = (await sections()).map((s) => s.label)
     ok(JSON.stringify(order2) === JSON.stringify(['Quick access', 'Pinned', 'This PC']), `with pins the sections are Quick access, Pinned, This PC (${order2})`)
 
-    // 4. THIS PC: name, bar, free line, and the bar's width is used / total.
+    // 4. THIS PC, as Tiles until somebody chooses: name, percent, pill bar,
+    // free line, and the bar's width is used / total.
+    const thisPc = places.locator('section[aria-label="This PC"]')
     const c = places.locator('section[aria-label="This PC"] .browse-drive[title="C:\\\\"]')
     ok(await until(async () => (await c.locator('.browse-drive-bar > i').count()) === 1, 15000), 'C: has its usage bar')
-    const drive = await c.evaluate((el) => {
-      const bar = el.querySelector('.browse-drive-bar').getBoundingClientRect()
-      const used = el.querySelector('.browse-drive-bar > i').getBoundingClientRect()
-      const name = el.querySelector('.browse-drive-name').getBoundingClientRect()
-      return {
-        name: el.querySelector('.browse-drive-name').textContent,
-        free: el.querySelector('.browse-drive-free').textContent,
-        fraction: used.width / bar.width,
-        barLeft: bar.left,
-        nameLeft: name.left,
-        barH: bar.height,
-        fill: getComputedStyle(el.querySelector('.browse-drive-bar > i')).backgroundColor
-      }
-    })
-    const fs = statfsSync('C:\\')
-    const want = (fs.blocks - fs.bavail) / fs.blocks
+    ok((await thisPc.getAttribute('data-drive-style')) === 'tiles' && (await win.evaluate(() => localStorage.getItem('prism.sidebar.driveStyle'))) === null, 'with nothing chosen the drives are Tiles')
+    const want = usedShare('C:\\')
+    const system = `${(process.env.SystemDrive || 'C:').toUpperCase()}\\`
+    let drive = await driveLookAt(win, 'C:\\')
     ok(/\(C:\)$/.test(drive.name), `the drive is named as File Explorer names it (${drive.name})`)
     ok(/^[\d.]+ [KMGT]?B free of [\d.]+ [KMGT]?B$/.test(drive.free), `and says what is free of what (${drive.free})`)
-    ok(Math.abs(drive.fraction - want) < 0.01, `the bar's used part is used / total (${drive.fraction.toFixed(4)} against statfs ${want.toFixed(4)})`)
-    ok(Math.abs(drive.barLeft - drive.nameLeft) <= 1 && drive.barH === 4, `the bar starts under the name and is 4px tall (${JSON.stringify(drive)})`)
-    const accent = await win.evaluate(() => {
-      const probe = document.createElement('i')
-      probe.style.color = 'var(--p-accent-solid)'
-      document.body.append(probe)
-      const v = getComputedStyle(probe).color
-      probe.remove()
-      return v
-    })
-    ok(drive.fill === accent, `the used part is the accent as picked (${drive.fill}, ${accent})`)
+    ok(drive.pct === `${Math.round(want * 100)}%`, `the name line ends in the percent used (${drive.pct}, statfs ${(want * 100).toFixed(1)})`)
+    ok(drawsShare(drive, want), `the bar's used part is used / total (${drive.fraction?.toFixed(4)} against statfs ${want.toFixed(4)})`)
+    ok(drive.chip && drive.glyph === 'drive' && drive.icon === 'drive', `the glyph sits in its chip (${JSON.stringify([drive.chip, drive.glyph])})`)
+    ok(drive.badge === (system === 'C:\\'), `the system drive wears the Windows badge (${drive.badge}, system ${system})`)
+    ok(Math.abs(drive.barH - 6) < 0.6, `the pill is 6px at Medium (${drive.barH})`)
+    const accent = await cssColour(win, 'var(--p-accent-solid)')
+    const warnFill = await cssColour(win, 'var(--p-warn)')
+    ok(drive.fill === (drive.warn ? warnFill : accent), `the used part is the accent as picked, or the warning past 90% (${drive.fill}, ${accent})`)
+    // Every drive with sizes: warned exactly when it is 90% used or more.
+    const drivePaths = await thisPc.locator('.browse-drive').evaluateAll((els) => els.map((e) => e.getAttribute('title')))
+    for (const path of drivePaths) {
+      const share = usedShare(path)
+      if (share === null) continue
+      const look = await driveLookAt(win, path)
+      if (look.fraction === null) continue
+      ok(look.warn === share >= 0.9, `${path} warns only from 90% used (${look.warn}, ${(share * 100).toFixed(1)}%)`)
+      ok(look.badge === (path.toUpperCase() === system), `${path} wears the Windows badge only as the system drive (${look.badge})`)
+    }
+
+    // 4b. THE SETTING: Ring and Gauge, live, each drawing the same share.
+    for (const id of ['ring', 'gauge', 'tiles']) {
+      await pickStyleSegment(win, 'drive-style', DRIVE_STYLE_NAMES[id])
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await places.waitFor({ timeout: 10000 })
+      ok(await until(async () => (await thisPc.getAttribute('data-drive-style')) === id, 5000), `Drive style ${DRIVE_STYLE_NAMES[id]} applies at once`)
+      ok((await win.evaluate(() => localStorage.getItem('prism.sidebar.driveStyle'))) === id, `and is stored (${id})`)
+      drive = await driveLookAt(win, 'C:\\')
+      ok(drive.style === id && drawsShare(drive, want), `${id}: C: draws its used share (${drive.fraction?.toFixed(4)}${drive.lit !== undefined ? `, ${drive.lit} of 20 lit` : ''}, statfs ${want.toFixed(4)})`)
+      ok(drive.badge === (system === 'C:\\') && drive.glyph === 'drive', `${id}: the glyph and the Windows badge stay`)
+      ok(drive.fill === (drive.warn ? warnFill : accent), `${id}: in the accent (${drive.fill})`)
+      if (id === 'ring') {
+        ok(drive.ring && !drive.bar && !drive.chip && drive.seg === 0, `ring: a donut, no bar and no chip (${JSON.stringify(drive)})`)
+        ok(drive.pct === String(Math.round(want * 100)), `ring: the percent inside it (${drive.pct})`)
+        ok(/^[\d.]+ [KMGT]?B free of [\d.]+ [KMGT]?B$/.test(drive.free), `ring: the free line under the name (${drive.free})`)
+      } else if (id === 'gauge') {
+        ok(drive.seg === 20 && drive.chip && !drive.bar && !drive.ring, `gauge: twenty steps and the glyph in a chip (${JSON.stringify(drive)})`)
+        ok(/^[\d.]+ [KMGT]?B free$/.test(drive.nums?.[0] ?? '') && /^[\d.]+ [KMGT]?B$/.test(drive.nums?.[1] ?? ''), `gauge: free at the left end, the total at the right (${drive.nums})`)
+      } else {
+        ok(drive.bar && drive.chip && !drive.ring && drive.seg === 0, 'tiles again: the pill and the chip')
+      }
+      // The row still behaves: a click opens the drive.
+      await c.click()
+      ok(await until(async () => (await c.getAttribute('aria-current')) === 'location', 8000), `${id}: a click on a drive opens it`)
+      await pinRow('Pinned', 'pinme').click()
+      ok(await until(async () => (await c.getAttribute('aria-current')) === null, 8000), `${id}: and leaving it lets it go`)
+    }
 
     // 5. WHAT THE ROWS DID BEFORE. A click goes there.
     await pinRow('Pinned', 'pinme').click()
@@ -8523,6 +8638,8 @@ async function sidebarPlacesScenario(fixtures) {
     await win.keyboard.press('Escape')
 
     // 6. THE LOOK, at each size on a dark, a light and a see-through style.
+    // A drive follows the Explorer size: its text is the rows' text and the
+    // Tiles chip is the mockup's 2.4 times it.
     await pinRow('Pinned', 'pinme').click()
     for (const [style, mode] of [['aurora', 'dark'], ['paper', 'light'], ['default', 'dark']]) {
       const was = await switchStyle(win, style, mode)
@@ -8535,22 +8652,38 @@ async function sidebarPlacesScenario(fixtures) {
         await sleep(400)
         const look = await win.evaluate(() => {
           const q = document.querySelector('.folder-browser .browse-places section[aria-label="Quick access"] .browse-place')
-          const d = document.querySelector('.folder-browser .browse-drive')
           return {
             row: q?.getBoundingClientRect().height,
-            icon: q?.querySelector('svg')?.getBoundingClientRect().height,
-            driveIcon: d?.querySelector('.browse-drive-top > svg')?.getBoundingClientRect().height,
-            bar: d?.querySelector('.browse-drive-bar')?.getBoundingClientRect().height
+            icon: q?.querySelector('svg')?.getBoundingClientRect().height
           }
         })
-        const want = { Small: [22, 12], Medium: [26, 14], Large: [40, 18] }[size]
-        ok(look.row === want[0] && look.icon === want[1] && look.driveIcon === want[1] && look.bar === 4, `${style} ${size}: rows ${want[0]}px with ${want[1]}px icons, drive icon too, a 4px bar (${JSON.stringify(look)})`)
+        const tile = await driveLookAt(win, 'C:\\')
+        const want = { Small: [22, 12, 11.5], Medium: [26, 14, 12.5], Large: [40, 18, 15] }[size]
+        ok(look.row === want[0] && look.icon === want[1], `${style} ${size}: rows ${want[0]}px with ${want[1]}px icons (${JSON.stringify(look)})`)
+        ok(tile.font === want[2] && Math.abs(tile.chipW - 2.4 * want[2]) < 0.6, `${style} ${size}: a drive's text is ${want[2]}px and its chip grows with it (${tile.font}, ${tile.chipW})`)
         const box = await places.boundingBox()
         await win.screenshot({ path: join(SHOTS, `sidebar-${style}-${size.toLowerCase()}.png`), clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 560) } })
         if (size === 'Medium') await win.screenshot({ path: join(SHOTS, `sidebar-${style}-window.png`) })
       }
     }
     await pickStyleSegment(win, 'explorer-size', 'Medium')
+    // Each drive style on a dark and a light style, at Medium, for the side by
+    // side with the mockup's A, D and E. The drive rows only: the panel's
+    // This PC section, clipped.
+    for (const [style, mode] of [['aurora', 'dark'], ['paper', 'light']]) {
+      await switchStyle(win, style, mode)
+      await sleep(400)
+      for (const id of ['tiles', 'ring', 'gauge']) {
+        await pickStyleSegment(win, 'drive-style', DRIVE_STYLE_NAMES[id])
+        await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+        await places.waitFor({ timeout: 10000 })
+        await until(async () => (await thisPc.getAttribute('data-drive-style')) === id, 5000)
+        await sleep(300)
+        const box = await places.boundingBox()
+        await win.screenshot({ path: join(SHOTS, `sidebar-drives-${id}-${style}.png`), clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 640) } })
+      }
+    }
+    await pickStyleSegment(win, 'drive-style', 'Tiles')
 
     // 7. Unpin puts the hint back.
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
@@ -8567,7 +8700,42 @@ async function sidebarPlacesScenario(fixtures) {
       .catch(() => {})
     if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
     await win.evaluate(() => localStorage.removeItem('prism.explorer.size')).catch(() => {})
+    await win.evaluate(() => localStorage.removeItem('prism.sidebar.driveStyle')).catch(() => {})
     await app.close().catch(() => {})
+  }
+
+  // 8. FROM 90% USED, THE WARNING. C: at 95% used (the e2e-only override in
+  // main), each style: the warned row, its fill in --p-warn and its number in
+  // --p-warn-ink, the Gauge at 19 of 20.
+  EXTRA_ENV = { PRISM_E2E_DRIVE_USED: '0.95' }
+  const second = await launch(join(dir, 'one.txt'))
+  EXTRA_ENV = {}
+  const w2 = second.win
+  let style2 = null
+  try {
+    style2 = await switchStyle(w2, 'aurora', 'dark')
+    await w2.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await w2.waitForSelector('.folder-browser .browse-places section[aria-label="This PC"]', { timeout: 15000 })
+    const sysRoot = `${(process.env.SystemDrive || 'C:').toUpperCase()}\\`
+    const fill = await cssColour(w2, 'var(--p-warn)')
+    const ink = await cssColour(w2, 'var(--p-warn-ink)')
+    const accent = await cssColour(w2, 'var(--p-accent-solid)')
+    ok(fill !== accent && ink !== accent, `the warning is not the accent (${fill}, ${ink}, ${accent})`)
+    for (const id of ['tiles', 'ring', 'gauge']) {
+      await pickStyleSegment(w2, 'drive-style', DRIVE_STYLE_NAMES[id])
+      await w2.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      ok(await until(async () => (await driveLookAt(w2, sysRoot))?.style === id && (await driveLookAt(w2, sysRoot))?.fraction !== null, 15000), `${id}: the system drive is drawn`)
+      const look = await driveLookAt(w2, sysRoot)
+      ok(look.warn && drawsShare(look, 0.95), `${id}: at 95% used it warns and draws 95% (${look.warn}, ${look.fraction?.toFixed(3)}${look.lit !== undefined ? `, ${look.lit} lit` : ''})`)
+      ok(look.fill === fill && look.ink === ink, `${id}: the mark in --p-warn, the number in --p-warn-ink (${look.fill}, ${look.ink})`)
+      if (id === 'gauge') ok(look.lit === 19, `gauge: 19 of 20 steps lit (${look.lit})`)
+      const box = await w2.locator('.folder-browser .browse-places').boundingBox()
+      await w2.screenshot({ path: join(SHOTS, `sidebar-drives-${id}-warn.png`), clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 640) } })
+    }
+  } finally {
+    if (style2) await switchStyle(w2, style2[0], style2[1]).catch(() => {})
+    await w2.evaluate(() => localStorage.removeItem('prism.sidebar.driveStyle')).catch(() => {})
+    await second.app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
 }

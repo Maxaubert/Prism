@@ -1,0 +1,287 @@
+/* THIS PC, IN THREE LOOKS (#296; owner, 2026-10-06, of the drive row mockups,
+   research/prism/2026-10-06-drive-rows: "I want option A, D and E as options
+   in settings, with A being default"). Settings > Explorer > Drive style
+   picks one; the section says which (`data-drive-style`) and each row wears
+   `browse-drive-<style>`. Every measure is the mockup's at its 12.5px text,
+   written in em of the row's text, so a drive grows and shrinks with the
+   Explorer row size like every other place. The used part is the accent as
+   picked (--p-accent-solid, the progress bar's own rule) on a faint track;
+   from 90% used it is the warning orange (`data-warn`, --p-warn, its words
+   --p-warn-ink, both held to their floors on the panel in theme.ts). */
+
+.folder-browser .browse-place.browse-drive {
+  --drive-track: color-mix(in srgb, var(--p-text) 14%, transparent);
+  --drive-fill: var(--p-accent-solid);
+  --drive-chip: color-mix(in srgb, var(--p-text) 6%, transparent);
+  --drive-chip-current: color-mix(in srgb, var(--p-accent-solid) 22%, transparent);
+  height: auto;
+  border-radius: 5px;
+  color: var(--p-text-soft);
+}
+.folder-browser .browse-place.browse-drive[data-warn] {
+  --drive-fill: var(--p-warn);
+}
+.folder-browser .browse-place.browse-drive:not([aria-current]):hover {
+  color: var(--p-text);
+}
+
+/* The glyph, and on the drive Windows runs from, the Windows badge at its
+   corner. The box lets the badge out past its edge. */
+.browse-place.browse-drive .browse-drive-ic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  overflow: visible;
+  color: var(--p-dim);
+}
+.browse-place.browse-drive .browse-drive-ic > svg {
+  width: 1.28em;
+  height: 1.28em;
+}
+/* Tiles' and Gauge's chip, the glyph's box centred in it. */
+.browse-place.browse-drive .browse-drive-chip {
+  display: grid;
+  place-items: center;
+  flex: none;
+  overflow: visible;
+}
+.browse-place.browse-drive .browse-drive-win {
+  position: absolute;
+  right: -0.24em;
+  top: -0.24em;
+  width: 0.64em;
+  height: 0.64em;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  padding: 1px;
+  border-radius: 2px;
+  overflow: visible;
+}
+/* The mockup gives the badge a pad of the ground behind it, so it never
+   touches the glyph. A pad cannot match every ground (a hover, a tile, a
+   chip, glass), so the glyph is cut instead: the corner under the badge and
+   a pixel round it are masked out of the drawing. */
+.browse-drive-ic[data-system] > svg {
+  -webkit-mask-image: conic-gradient(at calc(100% - 0.4em - 1px) calc(0.4em + 1px), transparent 0 90deg, #000 0);
+  mask-image: conic-gradient(at calc(100% - 0.4em - 1px) calc(0.4em + 1px), transparent 0 90deg, #000 0);
+}
+.browse-drive-win > i {
+  border-radius: 0.5px;
+  background: var(--p-text-soft);
+}
+/* The numbers under a name are never bold, a current place's included. */
+.browse-place.browse-drive :is(.browse-drive-free, .browse-drive-pct, .browse-drive-nums) {
+  font-weight: 400;
+}
+.browse-place.browse-drive .browse-drive-name {
+  min-width: 0;
+}
+
+/* ---------- Tiles (A): each drive its own soft tile ---------- */
+.folder-browser .browse-place.browse-drive-tiles {
+  --drive-tile: color-mix(in srgb, var(--p-text) 3.5%, transparent);
+  display: grid;
+  grid-template-columns: 2.4em minmax(0, 1fr);
+  align-items: start;
+  column-gap: 0.8em;
+  row-gap: 0;
+  padding: 0.72em 0.8em 0.8em;
+  margin-bottom: 0.48em;
+  border: 1px solid color-mix(in srgb, var(--p-text) 8%, transparent);
+  border-radius: 7px;
+}
+:root[data-mode='light'] .folder-browser .browse-place.browse-drive-tiles {
+  /* Raised, as the mockup's paper tile: a lighter step than the panel. */
+  --drive-tile: color-mix(in srgb, #ffffff 72%, transparent);
+}
+section[data-drive-style='tiles'] > h2 + .browse-drive-tiles {
+  margin-top: 2px;
+}
+.folder-browser .browse-place.browse-drive-tiles:not([aria-current]) {
+  background-color: var(--drive-tile);
+}
+.folder-browser .browse-place.browse-drive-tiles:not([aria-current]):hover {
+  background-color: color-mix(in srgb, var(--p-text) 6.5%, transparent);
+}
+.folder-browser .browse-place.browse-drive-tiles[aria-current] {
+  border-color: transparent;
+}
+.browse-drive-tiles .browse-drive-chip {
+  grid-row: 1 / 4;
+  width: 2.4em;
+  height: 2.4em;
+  border-radius: 6px;
+  background-color: var(--drive-chip);
+}
+.browse-drive-tiles[aria-current] .browse-drive-chip {
+  background-color: var(--drive-chip-current);
+}
+.browse-place.browse-drive-tiles .browse-drive-l1 {
+  display: flex;
+  align-items: baseline;
+  gap: 0.64em;
+  min-width: 0;
+  line-height: 1.36em;
+}
+.browse-drive-tiles .browse-drive-l1 > .browse-drive-name {
+  flex: 1;
+}
+.browse-place.browse-drive-tiles .browse-drive-pct {
+  flex: none;
+  color: var(--p-dim);
+  font-size: 0.92em;
+  font-variant-numeric: tabular-nums;
+}
+.browse-place.browse-drive-tiles[data-warn] .browse-drive-pct {
+  color: var(--p-warn-ink);
+  font-weight: 600;
+}
+.browse-place.browse-drive-tiles .browse-drive-bar {
+  display: block;
+  grid-column: 2;
+  height: 0.48em;
+  margin: 0.4em 0;
+  border-radius: 0.24em;
+  background: var(--drive-track);
+}
+.browse-drive-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--drive-fill);
+}
+.browse-place.browse-drive-tiles .browse-drive-free {
+  display: block;
+  grid-column: 2;
+  color: var(--p-dim);
+  font-size: 0.88em;
+  line-height: 1.27;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Ring (D): two plain lines and a small donut ---------- */
+.folder-browser .browse-place.browse-drive-ring {
+  display: flex;
+  align-items: center;
+  gap: var(--browse-row-gap, 6px);
+  padding: 0.24em var(--browse-row-pad, 8px);
+}
+.browse-place.browse-drive-ring .browse-drive-ic > svg {
+  width: var(--browse-row-icon, 14px);
+  height: var(--browse-row-icon, 14px);
+}
+.browse-place.browse-drive-ring .browse-drive-txt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.browse-place.browse-drive-ring .browse-drive-free {
+  color: var(--p-dim);
+  font-size: 0.88em;
+  font-variant-numeric: tabular-nums;
+}
+.browse-place.browse-drive-ring[data-warn] .browse-drive-free {
+  color: var(--p-warn-ink);
+}
+.browse-place.browse-drive-ring .browse-drive-donut {
+  position: relative;
+  flex: none;
+  width: 1.92em;
+  height: 1.92em;
+  overflow: visible;
+}
+.browse-drive-donut svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.browse-drive-donut .browse-drive-ring-track {
+  stroke: var(--drive-track);
+}
+.browse-drive-donut .browse-drive-ring-used {
+  stroke: var(--drive-fill);
+}
+.browse-place.browse-drive-ring .browse-drive-pct {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--p-text-soft);
+  font-size: 0.68em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.browse-place.browse-drive-ring[data-warn] .browse-drive-pct {
+  color: var(--p-warn-ink);
+}
+
+/* ---------- Gauge (E): a 20 step meter ---------- */
+.folder-browser .browse-place.browse-drive-gauge {
+  display: block;
+  padding: 0.4em var(--browse-row-pad, 8px) 0.48em;
+}
+.browse-drive-gauge + .browse-drive-gauge {
+  margin-top: 2px;
+}
+.browse-place.browse-drive-gauge .browse-drive-head {
+  display: flex;
+  align-items: center;
+  gap: 0.72em;
+  min-width: 0;
+  overflow: visible;
+}
+.browse-drive-gauge .browse-drive-head > .browse-drive-name {
+  flex: 1;
+}
+.browse-drive-gauge .browse-drive-chip {
+  width: 1.76em;
+  height: 1.76em;
+  border-radius: 5px;
+  background-color: var(--drive-chip);
+}
+.browse-place.browse-drive-gauge .browse-drive-ic > svg {
+  width: 1.12em;
+  height: 1.12em;
+}
+.browse-drive-gauge[aria-current] .browse-drive-chip {
+  background-color: color-mix(in srgb, var(--p-accent-solid) 24%, transparent);
+}
+.browse-place.browse-drive-gauge .browse-drive-seg {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: 2px;
+  height: 0.4em;
+  margin: 0.32em 0 0.24em 2.48em;
+}
+.browse-drive-seg > i {
+  border-radius: 1.5px;
+  background: var(--drive-track);
+}
+.browse-drive-seg > i[data-on] {
+  background: var(--drive-fill);
+}
+.browse-place.browse-drive-gauge .browse-drive-nums {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.64em;
+  /* The meter's 2.48em, in this line's smaller text. */
+  margin-left: calc(2.48em / 0.88);
+  color: var(--p-dim);
+  font-size: 0.88em;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+.browse-drive-nums em {
+  font-style: normal;
+  color: var(--p-text-soft);
+}
+.browse-drive-gauge[data-warn] .browse-drive-nums em {
+  color: var(--p-warn-ink);
+  font-weight: 600;
+}

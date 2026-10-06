@@ -650,9 +650,24 @@ export function derive(input: Style): Record<string, string> {
     }
   }
 
+  // A DRIVE PAST 90% USED (#296; the drive row mockups, 2026-10-06): a warm
+  // orange for its bar, ring or gauge, and a deeper or lighter one for its
+  // number. The mockup's colours, each moved off the panel until it holds its
+  // floor there (a mark 3:1, words 4.5:1), so a custom ground keeps them seen.
+  let warn = light ? '#d05a1c' : '#f0894a'
+  let warnInk = light ? '#b44d15' : '#f4a171'
+  for (let i = 0; i < 14 && contrast(warn, side) < 3; i += 1) {
+    warn = light ? mix(warn, '#000000', 0.1) : mix(warn, '#ffffff', 0.1)
+  }
+  for (let i = 0; i < 14 && contrast(warnInk, side) < 4.5; i += 1) {
+    warnInk = light ? mix(warnInk, '#000000', 0.1) : mix(warnInk, '#ffffff', 0.1)
+  }
+
   return {
     '--p-bg': bg,
     '--p-side-flat': side,
+    '--p-warn': warn,
+    '--p-warn-ink': warnInk,
     '--p-text': style.text,
     '--p-text-soft': textSoft,
     '--p-dim': dim,
