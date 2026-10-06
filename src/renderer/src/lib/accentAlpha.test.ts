@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { alphaHex, composite, parseColour, selectionFor, withAlpha } from 'prism-term-core/renderer/lib/colour'
 import { accentAlphaOf, fillOf } from './accentAlpha'
+import { RETIRED_STYLES } from './themes/retired'
 import { cleanDraft, derive, selectionBg, STYLES, variablesFor, type Style } from './theme'
 
 // THE ACCENT CAN BE SEE-THROUGH (#249). The alpha reaches the fills; every
@@ -29,7 +30,7 @@ const HEX8 = /^#[0-9a-f]{8}$/
 const paletteHex = (s: Style): string => derive(s)['--p-accent']
 const aurora = STYLES.find((s) => s.id === 'aurora')!
 const paper = STYLES.find((s) => s.id === 'paper')!
-const ruby = STYLES.find((s) => s.id === 'acrylic-red')!
+const ruby = RETIRED_STYLES.find((s) => s.id === 'acrylic-red')!
 const frost = STYLES.find((s) => s.id === 'frost')!
 
 // The hex field itself is the core's ColourField now (its parsing is tested

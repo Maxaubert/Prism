@@ -32,7 +32,7 @@ export interface MenuItem {
 const PANEL =
   // Flat surface colour: --p-title is translucent on glass styles, and a menu
   // you can read the file names through is noise, not material.
-  'max-h-[calc(100dvh-16px)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] shadow-[0_10px_28px_rgba(0,0,0,.5)]'
+  'max-h-[calc(100dvh-16px)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-raised)] shadow-[0_10px_28px_rgba(0,0,0,.5)]'
 
 function Row({
   it,

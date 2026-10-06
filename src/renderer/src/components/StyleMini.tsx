@@ -1,21 +1,22 @@
 import { useMemo, type JSX } from 'react'
-import { FrostBackdrop } from './FrostBackdrop'
-import { derive, folderIconOf, paintedAlpha, paletteOf, rgba, type Style } from '../lib/theme'
+import { paletteOf, rgba, type Style } from '../lib/theme'
+import { miniLook } from '../lib/themes/miniLook'
 
 /**
- * A style's card preview: a small Explorer, the list most of the time is
+ * A theme's card preview: a small Explorer, the list most of the time is
  * spent in (owner, 2026-10-06, of five mockups: "E. Explorer this is the
  * style to go with"; research/prism/2026-10-05-settings-no-subtext/
- * style-cards). A breadcrumb, folders in the style's folder colour, files in
- * their kind tints, one row marked in the style's own selection tint, and a
- * progress line in the accent, all on the style's ground. It replaced a
- * window outline round the same red-to-blue square on every card, where only
- * the accent bars changed and Aurora, Void and Onyx read alike.
+ * style-cards). A breadcrumb on the theme's panel, folders in its folder
+ * colour, files in their kind tints, one row marked in its own selection
+ * tint, and a progress line in the accent, all on its ground.
  *
- * Every colour is the one the window itself paints (`derive`, `folderIconOf`),
- * so an edited style's live card follows the edit. Sizes are whole pixels and
- * the strokes 2px: finer detail turned to texture at this size, at 100% and
- * at 225% alike.
+ * Every colour is the one the window itself paints (`derive`, `folderIconOf`,
+ * `sideGround`), so an edited theme's live card follows the edit. It draws
+ * no frame and no desktop of its own: the card round it (`ThemeCard`) owns
+ * the edge, the corners, the name band and, for a see-through theme, the
+ * frost both the preview and the band are painted over. Sizes are whole
+ * pixels and the strokes 2px: finer detail turned to texture at this size,
+ * at 100% and at 225% alike.
  */
 
 // The rows: kind, name length, size column (none on a folder). The second
@@ -30,7 +31,7 @@ const ROWS: Array<[string, string, string]> = [
 ]
 const MARKED = 1
 
-/** Corners follow the style, scaled to the card: square Void, round Ruby. */
+/** Corners follow the theme, scaled to the card: square Void, round Glacier. */
 const ROW_RADIUS: Record<Style['corners'], number> = { '2': 1, '8': 3, '14': 5 }
 
 const FolderIcon = ({ c, w }: { c: string; w: number }): JSX.Element => (
@@ -52,55 +53,20 @@ const Bar = ({ w, c }: { w: string; c: string }): JSX.Element => (
   <span className="block h-[2px] min-w-0 rounded-[1px]" style={{ width: w, background: c }} />
 )
 
-export function StyleMini({ st }: { st: Style }): JSX.Element {
-  const look = useMemo(() => {
-    const v = derive(st)
-    const palette = paletteOf(st.accent)
-    const light = st.mode === 'light'
-    // Frost, for real: a see-through style paints its ground over the
-    // desktop, so the card does too, at the alpha the window uses.
-    const glassA = paintedAlpha(st)
-    return {
-      palette,
-      light,
-      frosted: glassA < 1,
-      ground: glassA < 1 ? rgba(v['--p-bg'], glassA) : v['--p-bg'],
-      text: v['--p-text'],
-      dim: v['--p-dim'],
-      dim2: v['--p-dim2'],
-      tint: v['--p-sel-tint'],
-      tintLine: v['--p-sel-line'],
-      track: v['--p-track'],
-      folder: folderIconOf(st),
-      kind: (k: string): string => v['--p-kind-' + k],
-      edge: rgba(st.text, light ? 0.1 : 0.075),
-      paint: palette.length > 1 ? `linear-gradient(90deg, ${palette.join(', ')})` : palette[0],
-      radius: ROW_RADIUS[st.corners] ?? 3
-    }
-  }, [st])
-  const washA = look.light ? 0.28 : 0.22
+export function StyleMini({ st, height = 104 }: { st: Style; height?: number }): JSX.Element {
+  const look = useMemo(() => miniLook(st), [st])
+  const palette = paletteOf(st.accent)
+  const radius = ROW_RADIUS[st.corners] ?? 3
+  // A shorter preview (onboarding's, 72px) drops the rows that no longer fit
+  // rather than squashing them.
+  const rows = height >= 100 ? ROWS : ROWS.slice(0, 3)
   return (
-    <div
-      className="relative h-[104px] overflow-hidden rounded-md"
-      style={{ border: '1px solid var(--p-divider)', isolation: 'isolate' }}
-    >
-      {look.frosted && <FrostBackdrop />}
-      <div className="absolute inset-0" style={{ background: look.ground }} />
-      {st.wash && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0"
-          style={{
-            backgroundImage:
-              `radial-gradient(58% 56% at 20% 22%, ${rgba(look.palette[0], washA)}, transparent 72%),` +
-              ` radial-gradient(54% 52% at 80% 78%, ${rgba(look.palette[1] ?? look.palette[0], washA * 0.9)}, transparent 72%)`
-          }}
-        />
-      )}
-      {/* The breadcrumb: the folder, a step back, the one you are in. */}
+    <div className="relative overflow-hidden" style={{ height, background: look.ground }}>
+      {/* The breadcrumb, on the theme's panel: the folder, a step back, the
+          one you are in. */}
       <div
-        className="relative flex h-[14px] items-center gap-1 px-[7px]"
-        style={{ borderBottom: `1px solid ${look.edge}` }}
+        className="relative flex h-[15px] items-center gap-1 px-[7px]"
+        style={{ background: look.panel, borderBottom: `1px solid ${look.edge}` }}
       >
         <FolderIcon c={look.folder} w={7} />
         <Bar w="22%" c={rgba(look.text, 0.6)} />
@@ -109,15 +75,15 @@ export function StyleMini({ st }: { st: Style }): JSX.Element {
         </svg>
         <Bar w="18%" c={look.text} />
       </div>
-      <div className="relative flex flex-col px-[3px] pt-[5px]">
-        {ROWS.map(([k, w, size], i) => {
+      <div className="relative flex flex-col gap-px px-[3px] pt-[5px]">
+        {rows.map(([k, w, size], i) => {
           const marked = i === MARKED
           return (
             <div
               key={i}
-              className="flex h-[12px] items-center gap-1 px-1"
+              className="flex h-[11px] items-center gap-1 px-1"
               style={{
-                borderRadius: look.radius,
+                borderRadius: radius,
                 ...(marked ? { background: look.tint, boxShadow: `inset 0 0 0 1px ${look.tintLine}` } : {})
               }}
             >
@@ -131,9 +97,12 @@ export function StyleMini({ st }: { st: Style }): JSX.Element {
           )
         })}
       </div>
-      {/* A thin progress line in the accent, on the style's own track. */}
+      {/* A thin progress line in the accent, on the theme's own track. */}
       <div className="absolute inset-x-[7px] bottom-[6px] h-[2px] rounded-[1px]" style={{ background: look.track }}>
-        <span className="block h-full w-[30%] rounded-[1px]" style={{ background: look.paint }} />
+        <span
+          className="block h-full w-[30%] rounded-[1px]"
+          style={{ background: palette.length > 1 ? `linear-gradient(90deg, ${palette.join(', ')})` : look.accent }}
+        />
       </div>
     </div>
   )
