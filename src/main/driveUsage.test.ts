@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createDriveUsage, driveKind, parseLabels, STATFS_WAIT } from './driveUsage'
+import { createDriveUsage, driveKind, LABEL_COMMAND, parseLabels, STATFS_WAIT } from './driveUsage'
 
 const TB = 1024 ** 4
 
@@ -14,6 +14,14 @@ describe('parseLabels', () => {
   })
   it('keeps a label with a bar in it whole', () => {
     expect(parseLabels('F:|3|a|b').get('F:\\')?.label).toBe('a|b')
+  })
+  it('asks PowerShell for UTF-8 before it prints a label', () => {
+    // Piped, it writes in the OEM code page and "Søren" arrives broken.
+    expect(LABEL_COMMAND.startsWith('[Console]::OutputEncoding')).toBe(true)
+    expect(LABEL_COMMAND.indexOf('UTF8')).toBeLessThan(LABEL_COMMAND.indexOf('Get-CimInstance'))
+  })
+  it('reads a label that is not ASCII', () => {
+    expect(parseLabels('D:|3|Søren').get('D:\\')?.label).toBe('Søren')
   })
   it('names the drive types', () => {
     expect([2, 3, 4, 5, 0].map(driveKind)).toEqual(['removable', 'local', 'network', 'optical', 'local'])

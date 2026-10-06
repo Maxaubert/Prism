@@ -53,17 +53,19 @@ export function parseLabels(output: string): Map<string, Label> {
 const powershell = (): string =>
   join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
 
+/** UTF-8 first: piped, Windows PowerShell writes in the console's OEM code
+ *  page, so a label like "Søren" reached the page as "S?ren" (MEASURED,
+ *  "Dataøæ" came back as two replacement characters). */
+export const LABEL_COMMAND =
+  '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); ' +
+  'Get-CimInstance Win32_LogicalDisk | ForEach-Object { $_.DeviceID + "|" + $_.DriveType + "|" + $_.VolumeName }'
+
 function readLabels(): Promise<Map<string, Label>> {
   if (process.platform !== 'win32') return Promise.resolve(new Map())
   return new Promise((resolve) => {
     execFile(
       powershell(),
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        'Get-CimInstance Win32_LogicalDisk | ForEach-Object { $_.DeviceID + "|" + $_.DriveType + "|" + $_.VolumeName }'
-      ],
+      ['-NoProfile', '-NonInteractive', '-Command', LABEL_COMMAND],
       { windowsHide: true, timeout: 10_000 },
       (error, stdout) => resolve(error ? new Map() : parseLabels(String(stdout)))
     )
