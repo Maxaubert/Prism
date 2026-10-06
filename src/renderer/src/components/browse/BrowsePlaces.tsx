@@ -149,9 +149,10 @@ export function BrowsePlaces({
     : -1
   const pinSection = (section: PinSection): JSX.Element | null => {
     const list = sections[section]
-    // Quick access with nothing in it says nothing; an empty Pinned says how
-    // to fill it, as the whole list's hint did before it was split.
-    if (!list.length && section === 'Quick access') return null
+    // An empty section is not drawn at all (owner, 2026-10-06, of the empty
+    // Pinned and its "Right-click a file or folder to pin it here." hint:
+    // "hide this section when nothing's pinned"). Pinning is on the menus.
+    if (!list.length) return null
     return (
       <section
         aria-label={section}
@@ -169,9 +170,6 @@ export function BrowsePlaces({
         }}
       >
         <h2>{section}</h2>
-        {!list.length && (
-          <p className="quick-access-empty">Right-click a file or folder to pin it here.</p>
-        )}
         {list.map((pin, index) => {
           const current = pin.isFolder && sameQuickAccessPath(pin.path, directory)
           const ext = /\.[^.\\/]+$/.exec(pin.path)?.[0].toLowerCase() ?? ''

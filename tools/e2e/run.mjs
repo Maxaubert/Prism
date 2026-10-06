@@ -8422,7 +8422,8 @@ async function sidebarPlacesScenario(fixtures) {
     // 1. THE SECTIONS, in the mockup's order.
     ok(await until(async () => (await sections()).some((s) => s.label === 'This PC'), 10000), 'the places panel lists This PC')
     const order = (await sections()).map((s) => s.label)
-    ok(JSON.stringify(order) === JSON.stringify(['Quick access', 'Pinned', 'This PC']), `the sections are Quick access, Pinned, This PC (${order})`)
+    // Nothing pinned yet, so no Pinned section at all (owner, 2026-10-06).
+    ok(JSON.stringify(order) === JSON.stringify(['Quick access', 'This PC']), `with nothing pinned the sections are Quick access, This PC (${order})`)
 
     // 2. QUICK ACCESS: the Known Folders, each with its own glyph, Home by
     // the user's own folder name.
@@ -8436,8 +8437,7 @@ async function sidebarPlacesScenario(fixtures) {
     const home = quick.rows.find((r) => r.known === 'home')
     const homeName = homedir().split(/[\\/]/).pop()
     ok(home?.text === homeName, `Home reads as the user's folder, "${homeName}" (${home?.text})`)
-    const pinned0 = await section('Pinned')
-    ok(pinned0.rows.length === 0 && /Right-click a file or folder/.test(await places.locator('section[aria-label="Pinned"]').textContent()), 'Pinned starts empty, with its hint')
+    ok((await places.locator('section[aria-label="Pinned"]').count()) === 0, 'an empty Pinned is not shown')
 
     // 3. PIN two folders: they land under Pinned with the folder icon, never
     // under Quick access.
@@ -8448,7 +8448,8 @@ async function sidebarPlacesScenario(fixtures) {
     }
     ok((await places.locator('section[aria-label="Quick access"] .quick-access-pin[data-quick-access-path$="\\\\pinme" i]').count()) === 0, 'and not under Quick access')
     ok((await pinRow('Pinned', 'pinme').locator('svg[data-place-icon]').count()) === 0 && (await pinRow('Pinned', 'pinme').locator('svg').count()) === 1, 'a pinned folder wears the folder icon')
-    ok((await places.locator('section[aria-label="Pinned"] p.quick-access-empty').count()) === 0, 'the hint has gone')
+    const order2 = (await sections()).map((s) => s.label)
+    ok(JSON.stringify(order2) === JSON.stringify(['Quick access', 'Pinned', 'This PC']), `with pins the sections are Quick access, Pinned, This PC (${order2})`)
 
     // 4. THIS PC: name, bar, free line, and the bar's width is used / total.
     const c = places.locator('section[aria-label="This PC"] .browse-drive[title="C:\\\\"]')
@@ -8558,7 +8559,7 @@ async function sidebarPlacesScenario(fixtures) {
       await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
       ok(await until(async () => (await pinRow('Pinned', name).count()) === 0, 5000), `${name} is unpinned`)
     }
-    ok(await until(async () => (await places.locator('section[aria-label="Pinned"] p.quick-access-empty').count()) === 1, 3000), 'and Pinned shows its hint again')
+    ok(await until(async () => (await places.locator('section[aria-label="Pinned"]').count()) === 0, 3000), 'and the empty Pinned section is gone again')
   } finally {
     // The shared profile: Quick access back in its own order, the style back.
     await win
