@@ -111,7 +111,9 @@
   min-height: 48px;
   flex-shrink: 0;
   color: var(--p-text);
-  background: var(--p-bg);
+  /* No ground of its own (#294): it sits on the folder browser's ground, or
+     on .browse-viewer-toolbar's over a file, and a second see-through coat
+     of --p-bg made the address bar an opaque band on a glass style. */
   font-family: 'Segoe UI', sans-serif;
   font-size: 15px;
 }
