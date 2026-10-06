@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, renameSync
 import { mkdir, readdir, rename, rm, writeFile } from 'fs/promises'
 import { extname, join } from 'path'
 import { fileKind } from '@shared/fileKind'
-import type { DirListing, ViewerFile } from '@shared/types'
+import type { ArchiveMeta, DirListing, ViewerFile } from '@shared/types'
 
 /**
  * THE LISTING CACHE ON DISK (#271; owner, 2026-10-04: no loading screen "not
@@ -69,6 +69,13 @@ interface Stored {
   folderTimes?: number[]
   /** [name, size, mtimeMs] */
   files: Array<[string, number, number]>
+  /** A place INSIDE an archive (#300): what the strip and the menus need,
+   *  each file's packed size (in `files`' order) and each folder's totals
+   *  ([bytes, items], in `folders`' order). Paths are rebuilt by joining
+   *  names, which works for these places unchanged. */
+  archive?: ArchiveMeta
+  packed?: number[]
+  folderSizes?: Array<[number, number]>
 }
 
 /** The cache's name for a folder: Windows paths compare without case. */
@@ -105,7 +112,14 @@ export function encodeListing(
     ...(listing.hidden ? { hidden: listing.hidden } : {}),
     folders,
     ...(folderTimes && folderTimes.length ? { folderTimes } : {}),
-    files
+    files,
+    ...(listing.archive
+      ? {
+          archive: listing.archive,
+          packed: listing.files.slice(0, room).map((f) => f.packed ?? -1),
+          folderSizes: kept.map((f): [number, number] => [f.size ?? 0, f.items ?? 0])
+        }
+      : {})
   }
 }
 
@@ -150,9 +164,25 @@ export function decodeListing(text: string, expectPath?: string): CachedListing 
     s.folderTimes.every((t) => typeof t === 'number' && Number.isFinite(t))
       ? s.folderTimes
       : null
-  const files: ViewerFile[] = s.files.map(([name, size, mtimeMs]) => {
+  const archive =
+    s.archive && typeof s.archive === 'object' && typeof s.archive.container === 'string'
+      ? s.archive
+      : null
+  const packed =
+    archive && Array.isArray(s.packed) && s.packed.length === s.files.length ? s.packed : null
+  const sizes =
+    archive && Array.isArray(s.folderSizes) && s.folderSizes.length === s.folders.length
+      ? s.folderSizes
+      : null
+  const files: ViewerFile[] = s.files.map(([name, size, mtimeMs], i) => {
     const ext = extname(name).toLowerCase()
-    return { path: base + name, name, ext, kind: fileKind(ext, name), size, mtimeMs }
+    const file: ViewerFile = { path: base + name, name, ext, kind: fileKind(ext, name), size, mtimeMs }
+    if (archive) {
+      file.member = true
+      const p = packed?.[i]
+      if (typeof p === 'number' && p >= 0) file.packed = p
+    }
+    return file
   })
   return {
     path: s.path,
@@ -162,10 +192,15 @@ export function decodeListing(text: string, expectPath?: string): CachedListing 
     listing: {
       folders: s.folders.map((name, i) => {
         const t = times?.[i]
-        return t === undefined ? { path: base + name, name } : { path: base + name, name, mtimeMs: t }
+        const folder = t === undefined ? { path: base + name, name } : { path: base + name, name, mtimeMs: t }
+        const z = sizes?.[i]
+        return Array.isArray(z) && typeof z[0] === 'number' && typeof z[1] === 'number'
+          ? { ...folder, size: z[0], items: z[1] }
+          : folder
       }),
       files,
-      ...(typeof s.hidden === 'number' && s.hidden > 0 ? { hidden: s.hidden } : {})
+      ...(typeof s.hidden === 'number' && s.hidden > 0 ? { hidden: s.hidden } : {}),
+      ...(archive ? { archive } : {})
     }
   }
 }

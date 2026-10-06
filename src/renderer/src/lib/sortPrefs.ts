@@ -31,7 +31,11 @@ const byName = (a: ViewerFile, b: ViewerFile): number => names.compare(a.name, b
  *  names-first listing has no size (or date) yet, that sort is the NAME
  *  order, and it re-sorts once when the last patch lands. Sorting half the
  *  rows by a number and half by nothing would shuffle the list on every patch. */
-export function sortFiles(files: ViewerFile[], field: SortField, dir: SortDir): ViewerFile[] {
+export function sortFiles(
+  files: ViewerFile[],
+  field: SortField | 'packed',
+  dir: SortDir
+): ViewerFile[] {
   if (
     (field === 'size' && files.some((f) => f.size === undefined)) ||
     (field === 'modified' && files.some((f) => f.mtimeMs === undefined))
@@ -43,6 +47,8 @@ export function sortFiles(files: ViewerFile[], field: SortField, dir: SortDir): 
     switch (field) {
       case 'modified': return (a.mtimeMs ?? 0) - (b.mtimeMs ?? 0)
       case 'size': return (a.size ?? 0) - (b.size ?? 0)
+      // Inside an archive (#300): what each member occupies in the container.
+      case 'packed': return (a.packed ?? 0) - (b.packed ?? 0)
       case 'type': return a.kind.localeCompare(b.kind)
       default: return byName(a, b)
     }

@@ -31,6 +31,9 @@ export function browseEntries(
   mixed = false
 ): BrowseEntry[] {
   if (!listing) return []
+  // Packed exists only inside an archive (#300): anywhere else it is Size,
+  // so a sort carried out of a zip still means something.
+  if (sort.key === 'packed' && !listing.archive) sort = { ...sort, key: 'size' }
   const terms = parseQuery(query)
   const matches = (entry: { name: string }): boolean =>
     !query.trim() || matchesQuery(entry.name, terms)

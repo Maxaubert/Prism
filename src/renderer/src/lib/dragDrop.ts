@@ -9,7 +9,7 @@ export const DRAG_MIME = 'application/prism-drag'
 
 export type DragPayload =
   /** Real files and folders on disk, dragged out of the sidebar. */
-  | { kind: 'files'; paths: string[] }
+  | { kind: 'files'; paths: string[]; /** Dropped from Windows, not dragged out of Prism: never moved, only copied in. */ external?: true }
   /** Members of one archive, dragged out of the archive view. */
   | { kind: 'members'; archive: string; entries: string[] }
 

@@ -5,6 +5,11 @@ import { ContextMenu } from '../ContextMenu'
 import { BrowseIcon } from './BrowseIcon'
 import type { FolderBrowserProps } from './types'
 import { useFolderDrop } from './useFolderDrop'
+import { KindIcon } from '../TreeRows'
+import { browsableArchive } from '@shared/archivePlace'
+import './archive.css'
+
+const crumbKey = (p: string): string => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
 
 type Props = Pick<
   FolderBrowserProps,
@@ -25,6 +30,10 @@ type Props = Pick<
   /** What sits after the address field: the Explorer's preview toggle and
    *  search button (#267). The file viewer's toolbar has none. */
   trailing?: ReactNode
+  /** The archives along the path (#300, `ArchiveMeta.chain`): those crumbs
+   *  wear the archive icon. Before main has answered, a crumb named like an
+   *  archive with more path after it is taken to be one. */
+  archiveChain?: string[]
 }
 
 export function BrowseToolbar(props: Props): JSX.Element {
@@ -51,7 +60,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
     const observer = new ResizeObserver(reveal)
     observer.observe(row)
     return () => observer.disconnect()
-  }, [props.directory, props.fileName, editing])
+  }, [props.directory, props.fileName, editing, props.archiveChain?.length])
   const focusPath = useCallback((el: HTMLInputElement | null): void => {
     el?.focus()
     el?.select()
@@ -169,7 +178,25 @@ export function BrowseToolbar(props: Props): JSX.Element {
                   aria-current={
                     !props.fileName && index === all.length - 1 ? 'location' : undefined
                   }
+                  data-crumb-archive={
+                    (props.archiveChain
+                      ? props.archiveChain.some((c) => crumbKey(c) === crumbKey(crumb.path))
+                      : browsableArchive(crumb.name) && (index < all.length - 1 || !!props.fileName)) ||
+                    undefined
+                  }
                 >
+                  {(props.archiveChain
+                    ? props.archiveChain.some((c) => crumbKey(c) === crumbKey(crumb.path))
+                    : browsableArchive(crumb.name) && (index < all.length - 1 || !!props.fileName)) && (
+                    <KindIcon
+                      kind="archive"
+                      ext={/\.[^.]*$/.exec(crumb.name)?.[0]}
+                      name={crumb.name}
+                      color="var(--p-tree-zip)"
+                      size={14}
+                      bg="var(--p-control)"
+                    />
+                  )}
                   {crumb.name}
                 </button>
               </span>

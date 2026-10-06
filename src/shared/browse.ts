@@ -10,7 +10,9 @@ export interface BrowseSearchWindowRequest {
 }
 
 export interface BrowseSort {
-  key: 'name' | 'path' | 'type' | 'size' | 'modified'
+  /** `packed` exists only inside an archive (#300); anywhere else it reads as
+   *  `size` (`viewSort`), so a sort never leaks out of a zip. */
+  key: 'name' | 'path' | 'type' | 'size' | 'modified' | 'packed'
   direction: 'asc' | 'desc'
 }
 
@@ -32,6 +34,10 @@ export interface SavedBrowse {
   cursor: number
   surface: 'folder' | 'viewer'
   preview: boolean
+  /** The preview pane stays open with nothing in it (#300 review; owner,
+   *  2026-10-06): a navigation took away the file it showed. Renderer only;
+   *  main does not save it, so a restart shuts an empty pane. */
+  previewHeld?: true
 }
 
 export interface BrowseDirectory {

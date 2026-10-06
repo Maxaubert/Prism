@@ -162,3 +162,35 @@ describe('folder browser entries', () => {
     })
   })
 })
+
+describe('the Packed column (#300)', () => {
+  const zipped = (name: string, size: number, packed: number): ViewerFile => ({
+    ...file(name, 'text', size),
+    member: true,
+    packed
+  })
+  const inZip: DirListing = {
+    folders: [
+      { path: 'C:\\z.zip\\big', name: 'big', size: 900, items: 2 },
+      { path: 'C:\\z.zip\\small', name: 'small', size: 10, items: 1 }
+    ],
+    files: [zipped('a.txt', 100, 90), zipped('b.txt', 500, 10), zipped('c.txt', 50, 40)],
+    archive: {
+      container: 'C:\\z.zip', base: 'C:\\z.zip', chain: ['C:\\z.zip'], outer: 'C:\\z.zip', inner: '',
+      display: 'z.zip', files: 3, folders: 2, packed: 1, unpacked: 1, readOnly: false, nested: false, encryption: 'none'
+    }
+  }
+  it('sorts members by what they occupy in the container', () => {
+    const rows = browseEntries(inZip, '', { key: 'packed', direction: 'asc' })
+    expect(rows.filter((r) => !r.isFolder).map((r) => r.name)).toEqual(['b.txt', 'c.txt', 'a.txt'])
+  })
+  it('folders sort by their summed size', () => {
+    const sizes = { 'C:\\z.zip\\big': { bytes: 900, files: 2, folders: 0, unreadable: 0, skippedLinks: 0, truncated: false }, 'C:\\z.zip\\small': { bytes: 10, files: 1, folders: 0, unreadable: 0, skippedLinks: 0, truncated: false } }
+    const rows = browseEntries(inZip, '', { key: 'size', direction: 'asc' }, sizes)
+    expect(rows.filter((r) => r.isFolder).map((r) => r.name)).toEqual(['small', 'big'])
+  })
+  it('outside an archive Packed reads as Size', () => {
+    const rows = browseEntries({ ...inZip, archive: undefined }, '', { key: 'packed', direction: 'asc' })
+    expect(rows.filter((r) => !r.isFolder).map((r) => r.name)).toEqual(['c.txt', 'a.txt', 'b.txt'])
+  })
+})

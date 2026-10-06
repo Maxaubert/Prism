@@ -177,7 +177,7 @@ export async function searchEverythingBrowseWindow(
             '-viewport-count',
             String(window.limit),
             '-sort',
-            `${properties[window.sort.key]}-${window.sort.direction === 'desc' ? 'descending' : 'ascending'}`,
+            `${properties[window.sort.key === 'packed' ? 'size' : window.sort.key]}-${window.sort.direction === 'desc' ? 'descending' : 'ascending'}`,
             ...scope
           ],
           signal

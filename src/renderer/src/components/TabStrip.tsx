@@ -419,7 +419,9 @@ export function TabStrip({
               setFileDropTab(null)
               if (t.kind === 'settings') return
               if (payload) onDropIntoTab(t.id, payload)
-              else if (paths.length) onDropIntoTab(t.id, { kind: 'files', paths })
+              // From Windows: never moved, only copied in (a tab inside a zip
+              // would otherwise bin the originals, review of #300).
+              else if (paths.length) onDropIntoTab(t.id, { kind: 'files', paths, external: true })
             }}
             onPointerDown={(e) => onTabPointerDown(e, t.id, i)}
             onPointerMove={onTabPointerMove}

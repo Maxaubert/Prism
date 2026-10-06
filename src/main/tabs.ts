@@ -1,3 +1,4 @@
+import { containerSync } from './archiveBrowse'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { isAbsolute, relative, resolve } from 'path'
 import type { BrowseLocation, SavedBrowse, SavedPane } from '@shared/browse'
@@ -87,11 +88,19 @@ const isFolder = (p: string): boolean => {
   }
 }
 
+/**
+ * A place a tab may come back to: a folder, or a place INSIDE an archive
+ * (#300) whose container is still a file there. Only the container is
+ * stat'ed, never read: the restore stays fast (#271), and a folder that has
+ * gone from inside the zip is found when it is listed, which falls back.
+ */
+const isPlace = (p: string): boolean => isFolder(p) || containerSync(p) !== null
+
 /** History is a bounded suggestion. Each surviving location keeps its own view. */
 export function parseBrowse(raw: unknown): SavedBrowse | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const value = raw as Partial<SavedBrowse>
-  if (typeof value.path !== 'string' || !isAbsolute(value.path) || !isFolder(value.path))
+  if (typeof value.path !== 'string' || !isAbsolute(value.path) || !isPlace(value.path))
     return undefined
   const history: BrowseLocation[] = []
   let cursor = 0
@@ -102,7 +111,7 @@ export function parseBrowse(raw: unknown): SavedBrowse | undefined {
       typeof location !== 'object' ||
       typeof location.path !== 'string' ||
       !isAbsolute(location.path) ||
-      !isFolder(location.path)
+      !isPlace(location.path)
     )
       return
     if (index === value.cursor) cursor = history.length
@@ -115,7 +124,7 @@ export function parseBrowse(raw: unknown): SavedBrowse | undefined {
           : 0,
       query: typeof location.query === 'string' ? location.query.slice(0, 1000) : '',
       sort: {
-        key: ['name', 'path', 'type', 'size', 'modified'].includes(location.sort?.key)
+        key: ['name', 'path', 'type', 'size', 'modified', 'packed'].includes(location.sort?.key)
           ? location.sort.key
           : 'name',
         direction: location.sort?.direction === 'desc' ? 'desc' : 'asc'
@@ -259,7 +268,7 @@ export function parseTabs(raw: string): SavedTabs {
             typeof p === 'string' &&
             isAbsolute(p) &&
             (inside(root, p) || !!keptBrowse?.history.some((entry) => inside(entry.path, p))) &&
-            isFolder(p)
+            isPlace(p)
         )
       if (folders.length) tab.open = folders
     }

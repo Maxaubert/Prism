@@ -416,9 +416,11 @@ export async function extractSeven(
   exe: string,
   file: string,
   entryPath: string,
-  password = ''
+  password = '',
+  /** The run's member folder (#300), instead of a fresh temp dir. */
+  into?: string
 ): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
-  const dir = mkdtempSync(join(tmpdir(), 'prism-arc-'))
+  const dir = into ?? mkdtempSync(join(tmpdir(), 'prism-arc-'))
   const safe = safeMemberPath(entryPath, dir)
   if (!safe) return { ok: false, reason: 'failed' }
   const r = await run(exe, extractArgs(file, safe, dir, password), 120000)

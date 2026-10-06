@@ -1,4 +1,5 @@
 import type { DirListing, ViewerFile } from '@shared/types'
+import { browsableArchive } from '@shared/archivePlace'
 
 /**
  * THE TREE, AS THE ROWS IT PAINTS (2026-09-28; owner: "prism is super slow i
@@ -16,7 +17,17 @@ import type { DirListing, ViewerFile } from '@shared/types'
  * keyboard. Pure.
  */
 export type PaintRow =
-  | { kind: 'folder'; key: string; path: string; name: string; depth: number }
+  | {
+      kind: 'folder'
+      key: string
+      path: string
+      name: string
+      depth: number
+      /** An ARCHIVE drawn as a folder (#300; owner: "this would work the same
+       *  in project mode"): it expands like one, keeps its icon, and its menu
+       *  is the archive's. */
+      zip?: ViewerFile
+    }
   | { kind: 'file'; key: string; path: string; name: string; depth: number; file: ViewerFile }
   | { kind: 'note'; key: string; text: string; depth: number }
 
@@ -61,11 +72,20 @@ export function paintRows(
       out.push({ kind: 'folder', key: f.path, path: f.path, name: f.name, depth })
       if (expanded.has(f.path)) walk(f.path, depth + 1)
     }
-    for (const f of opts.orderFiles([...listing.files]))
-      out.push({ kind: 'file', key: f.path, path: f.path, name: f.name, depth, file: f })
+    for (const f of opts.orderFiles([...listing.files])) {
+      if (isZipNode(f)) {
+        out.push({ kind: 'folder', key: f.path, path: f.path, name: f.name, depth, zip: f })
+        if (expanded.has(f.path)) walk(f.path, depth + 1)
+      } else out.push({ kind: 'file', key: f.path, path: f.path, name: f.name, depth, file: f })
+    }
   }
   walk(root, 0)
   return out
+}
+
+/** A file the tree draws as a folder: an archive (#300). */
+export function isZipNode(f: { name: string; kind?: string }): boolean {
+  return (f.kind === undefined || f.kind === 'archive') && browsableArchive(f.name)
 }
 
 /** Rows drawn beyond each edge of the view, so a scroll never shows a gap. */

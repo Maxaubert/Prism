@@ -23,16 +23,21 @@ export function closeBrowseWatch(tabId: string): void {
 export function setBrowseWatch(
   tabId: string,
   path: string,
-  emit: (change: DirChange) => void
+  emit: (change: DirChange) => void,
+  /** A place inside an archive (#300): watch the container's folder, hear
+   *  only the container file (`only`, its name), and report the place. */
+  inside?: { only: string; report: string }
 ): boolean {
-  if (watches.get(tabId)?.path === path) return true
+  const key = inside ? `${path}\0${inside.report}` : path
+  if (watches.get(tabId)?.path === key) return true
   closeBrowseWatch(tabId)
   try {
     // libuv's Windows watcher compares native long paths internally; passing
     // an 8.3 alias can trip its directory-prefix assertion on a file event.
     // Keep the requested path for ownership and renderer events only.
     const nativePath = realpathSync.native(path)
-    const watcher = watch(nativePath, { recursive: false, persistent: false }, () => {
+    const watcher = watch(nativePath, { recursive: false, persistent: false }, (_event, name) => {
+      if (inside && (!name || String(name).toLowerCase() !== inside.only.toLowerCase())) return
       const current = watches.get(tabId)
       if (!current || current.watcher !== watcher) return
       const now = Date.now()
@@ -44,15 +49,17 @@ export function setBrowseWatch(
       current.timer = setTimeout(() => {
         current.timer = null
         current.firstChange = 0
-        if (watches.get(tabId) === current) emit({ root: path, dirs: [path] })
+        const at = inside ? inside.report : path
+        if (watches.get(tabId) === current) emit({ root: at, dirs: [at] })
       }, delay)
     })
-    const current: BrowseWatch = { path, watcher, timer: null, firstChange: 0 }
+    const current: BrowseWatch = { path: key, watcher, timer: null, firstChange: 0 }
     watches.set(tabId, current)
     watcher.on('error', () => {
       if (watches.get(tabId) !== current) return
       closeBrowseWatch(tabId)
-      emit({ root: path, dirs: [path] })
+      const at = inside ? inside.report : path
+      emit({ root: at, dirs: [at] })
     })
     return true
   } catch {

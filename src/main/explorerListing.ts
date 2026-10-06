@@ -54,6 +54,9 @@ export interface ExplorerListingDeps {
   settleMs?: number
   /** Folders over this many entries are not read ahead. */
   prefetchMaxEntries?: number
+  /** A place INSIDE an archive (#300): its listing, or undefined when the
+   *  path is not inside one (an ordinary folder, read as always). */
+  archive?: (tabId: string, path: string) => Promise<BrowseRead | null | undefined>
 }
 
 export function createExplorerListings(deps: ExplorerListingDeps) {
@@ -143,6 +146,23 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
     async browse(tabId: string, path: string, withStream = true): Promise<BrowseDirectory | null> {
       prefetchQueue.cancel()
       if (delayMs > 0) await sleep(delayMs)
+      const inside = await deps.archive?.(tabId, path)
+      if (inside !== undefined) {
+        settle()
+        // Complete at once: the container's own listing carries sizes, packed
+        // sizes and dates, so there is no details run (#300).
+        // Never a LOCKED archive's names (review of #300): a 7z or rar whose
+        // names needed the password would otherwise sit in plain text in the
+        // cache on disk, readable without it.
+        if (
+          inside &&
+          !inside.listing.unreadable &&
+          !inside.listing.archiveError &&
+          inside.listing.archive?.encryption === 'none'
+        )
+          cache.put(inside.path, inside.listing, inside.folderMtimeMs)
+        return inside && { path: inside.path, listing: inside.listing }
+      }
       const read = await browseDirectory(tabId, path, 'names')
       settle()
       // A folder that has gone or turned unreadable takes its kept names with

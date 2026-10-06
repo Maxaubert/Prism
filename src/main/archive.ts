@@ -75,15 +75,17 @@ export function sevenZipExe(): string | null {
   return sevenCache
 }
 
-/** Extract one member with 7z into a fresh temp dir. */
+/** Extract one member with 7z into a fresh temp dir, or into `into` (the run's
+ *  member folder, #300) when given. */
 async function sevenExtract(
   zipPath: string,
   entryPath: string,
-  password: string
+  password: string,
+  into?: string
 ): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
   const exe = sevenZipExe()
   if (!exe) return { ok: false, reason: 'aes' }
-  const dir = mkdtempSync(join(tmpdir(), 'prism-zip-'))
+  const dir = into ?? mkdtempSync(join(tmpdir(), 'prism-zip-'))
   // Switches first, then `--` so a member named "-something" inside a hostile
   // zip can never be read as a 7z switch. Async, because execFileSync stopped
   // the whole main process while 7-Zip worked (2026-08-26).
@@ -126,7 +128,69 @@ const norm = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '')
  *  are also derived from member paths). Sorted folders-first per level by the
  *  renderer; this just reports. */
 export function listArchive(zipPath: string): ArchiveEntry[] {
-  const zip = new AdmZip(zipPath)
+  return listZip(new AdmZip(zipPath))
+}
+
+/**
+ * A zip's entries and how it is locked, from bytes already read (#300). The
+ * Explorer lists a zip from a Buffer read with `fs/promises`, the shape
+ * `extractTo` uses: `new AdmZip(path)` is a readFileSync of the whole
+ * container on main's one thread.
+ */
+export function listZipData(data: Buffer): {
+  entries: ArchiveEntry[]
+  encryption: 'none' | 'zipcrypto' | 'aes'
+} {
+  const zip = new AdmZip(data)
+  let encryption: 'none' | 'zipcrypto' | 'aes' = 'none'
+  for (const e of zip.getEntries()) {
+    if (e.isDirectory) continue
+    if (e.header.method === AES_METHOD) encryption = 'aes'
+    else if ((e.header.flags & 1) === 1 && encryption === 'none') encryption = 'zipcrypto'
+  }
+  return { entries: listZip(zip), encryption }
+}
+
+/**
+ * One member out to `destDir` for VIEWING it (#300, the member temp folder).
+ * Asynchronous all the way: the container is read with `fs/promises` and a
+ * deflated member is inflated on the libuv pool (`memberData`), so arrowing
+ * through a zip never stops main. The member's own basename, so the viewer's
+ * kind detection reads it. AES goes through 7-Zip, as everywhere else.
+ */
+export async function unpackMember(
+  zipPath: string,
+  entryPath: string,
+  destDir: string,
+  password?: string
+): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
+  try {
+    const zip = new AdmZip(await readFile(zipPath))
+    const entry = zip.getEntry(norm(entryPath))
+    if (!entry || entry.isDirectory) return { ok: false, reason: 'failed' }
+    const like = entry as unknown as ZipEntryLike
+    if (like.header.method === AES_METHOD) {
+      if (!password) return { ok: false, reason: 'password' }
+      return sevenExtract(zipPath, entryPath, password, destDir)
+    }
+    let data: Buffer
+    try {
+      data = await memberData(like, password)
+      if (!data?.length && entry.header.size > 0) throw new Error('no data')
+    } catch {
+      return { ok: false, reason: failOf(like, !!password) }
+    }
+    const name = basename(norm(entryPath))
+    if (!validMemberName(name)) return { ok: false, reason: 'failed' }
+    const out = join(destDir, name)
+    await writeFile(out, data)
+    return { ok: true, path: out }
+  } catch {
+    return { ok: false, reason: 'failed' }
+  }
+}
+
+function listZip(zip: AdmZip): ArchiveEntry[] {
   const seen = new Map<string, ArchiveEntry>()
   for (const e of zip.getEntries()) {
     const p = norm(e.entryName)
