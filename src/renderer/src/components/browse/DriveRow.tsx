@@ -77,14 +77,14 @@ export function DriveBody({
         {used !== null && (
           <span className="browse-drive-donut" data-used={used.toFixed(4)}>
             <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-              <circle className="browse-drive-ring-track" cx="12" cy="12" r={RING_R} fill="none" strokeWidth="2.2" />
+              <circle className="browse-drive-ring-track" cx="12" cy="12" r={RING_R} fill="none" strokeWidth="2" />
               <circle
                 className="browse-drive-ring-used"
                 cx="12"
                 cy="12"
                 r={RING_R}
                 fill="none"
-                strokeWidth="2.2"
+                strokeWidth="2"
                 strokeLinecap="round"
                 strokeDasharray={ringDash(used, RING_R)}
               />

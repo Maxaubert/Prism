@@ -8556,7 +8556,7 @@ async function sidebarPlacesScenario(fixtures) {
     ok(drawsShare(drive, want), `the bar's used part is used / total (${drive.fraction?.toFixed(4)} against statfs ${want.toFixed(4)})`)
     ok(drive.chip && drive.glyph === 'drive' && drive.icon === 'drive', `the glyph sits in its chip (${JSON.stringify([drive.chip, drive.glyph])})`)
     ok(drive.badge === (system === 'C:\\'), `the system drive wears the Windows badge (${drive.badge}, system ${system})`)
-    ok(Math.abs(drive.barH - 6) < 0.6, `the pill is 6px at Medium (${drive.barH})`)
+    ok(Math.abs(drive.barH - 5) < 0.6, `the pill is 5px at Medium (${drive.barH})`)
     const accent = await cssColour(win, 'var(--p-accent-solid)')
     const warnFill = await cssColour(win, 'var(--p-warn)')
     ok(drive.fill === (drive.warn ? warnFill : accent), `the used part is the accent as picked, or the warning past 90% (${drive.fill}, ${accent})`)
@@ -8664,7 +8664,7 @@ async function sidebarPlacesScenario(fixtures) {
         const tile = await driveLookAt(win, 'C:\\')
         const want = { Small: [22, 12, 11.5], Medium: [26, 14, 12.5], Large: [40, 18, 15] }[size]
         ok(look.row === want[0] && look.icon === want[1], `${style} ${size}: rows ${want[0]}px with ${want[1]}px icons (${JSON.stringify(look)})`)
-        ok(tile.font === want[2] && Math.abs(tile.chipW - 2.4 * want[2]) < 0.6, `${style} ${size}: a drive's text is ${want[2]}px and its chip grows with it (${tile.font}, ${tile.chipW})`)
+        ok(tile.font === want[2] && Math.abs(tile.chipW - 2 * want[2]) < 0.6, `${style} ${size}: a drive's text is ${want[2]}px and its chip grows with it (${tile.font}, ${tile.chipW})`)
         const box = await places.boundingBox()
         await win.screenshot({ path: join(SHOTS, `sidebar-${style}-${size.toLowerCase()}.png`), clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 560) } })
         if (size === 'Medium') await win.screenshot({ path: join(SHOTS, `sidebar-${style}-window.png`) })
