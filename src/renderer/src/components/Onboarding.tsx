@@ -119,7 +119,7 @@ function Footer({
   const dead = !onNext
   return (
     <div className="mt-auto flex items-center gap-3">
-      <div className="mr-1 flex gap-[7px]">
+      <div data-ob-dots="" className="mr-1 flex gap-[7px]">
         {[0, 1, 2].map((n) => (
           <span
             key={n}

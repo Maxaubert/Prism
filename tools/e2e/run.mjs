@@ -5079,7 +5079,7 @@ async function tabsScenario(fixtures) {
  * the core's lists); these are the rows the scenarios reach.
  */
 const SETTINGS_PAGE_OF = {
-  mode: 'appearance', 'style-theme': 'appearance', 'c-bg': 'appearance', 'c-accent': 'appearance', 'c-font': 'appearance',
+  'style-theme': 'appearance', 'see-through': 'appearance', 'theme-edits': 'appearance', 'c-bg': 'appearance', 'c-accent': 'appearance', 'c-font': 'appearance',
   'tree-size': 'appearance', 'title-bar': 'appearance', 'tab-width': 'appearance', 'c-edges': 'appearance', 'c-corners': 'appearance',
   'tree-side': 'explorer', 'explorer-size': 'explorer', 'auto-scroll': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'explorer',
   'open-external': 'explorer', 'remember-tabs': 'explorer', 'remember-folders': 'explorer', 'explorer-verb': 'explorer', 'default-apps': 'explorer',
@@ -8081,7 +8081,7 @@ async function markTintScenario(fixtures) {
   mkdirSync(dir, { recursive: true })
   for (const n of ['m1.txt', 'm2.txt', 'm3.txt', 'm4.txt', 'm5.txt', 'm6.txt']) writeFileSync(join(dir, n), `tint ${n}\n`)
   const { app, win } = await launch(join(dir, 'm1.txt'))
-  let styleBefore = null
+  let styleBefore
   let draftBefore = null
   const alphaOf = (c) => {
     const n = (c.match(/[\d.]+/g) ?? []).map(Number)
@@ -8124,7 +8124,7 @@ async function markTintScenario(fixtures) {
   }
   try {
     draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
-    styleBefore = await switchStyle(win, 'aurora', 'dark')
+    styleBefore = await switchStyle(win, 'aurora')
     await sleep(400)
 
     /* ---------- the tree ---------- */
@@ -8191,12 +8191,12 @@ async function markTintScenario(fixtures) {
     await win.screenshot({ path: join(SHOTS, 'marktint-explorer-dark.png') })
 
     /* ---------- the Explorer, light ---------- */
-    await switchStyle(win, 'paper', 'light')
+    await switchStyle(win, 'paper')
     ok(await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light')), 'in a light style (Paper)')
     await sleep(400)
     await checkExplorer('light')
     await win.screenshot({ path: join(SHOTS, 'marktint-explorer-light.png') })
-    await switchStyle(win, 'aurora', 'dark')
+    await switchStyle(win, 'aurora')
     await sleep(400)
 
     /* ---------- the Settings rail, accent alpha below 1 ---------- */
@@ -8271,7 +8271,7 @@ async function markTintScenario(fixtures) {
         window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
       }, draftBefore)
       .catch(() => {})
-    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
     await app.close().catch(() => {})
   }
 
@@ -8282,7 +8282,7 @@ async function markTintScenario(fixtures) {
   zip.writeZip(join(dir, 'tint.zip'))
   const z = await launch(join(dir, 'tint.zip'))
   try {
-    await switchStyle(z.win, 'aurora', 'dark')
+    await switchStyle(z.win, 'aurora')
     await z.win.waitForSelector('[data-arc-row]', { timeout: 15000 })
     await z.win.locator('[data-arc-row="z1.txt"]').click()
     await z.win.locator('[data-arc-row="z2.txt"]').click({ modifiers: ['Control'] })
@@ -8303,7 +8303,7 @@ async function markTintScenario(fixtures) {
     ok((arc.joined.match(/inset/g) ?? []).length === 3, `two marked neighbours in a zip are one block (${arc.joined})`)
     await z.win.screenshot({ path: join(SHOTS, 'marktint-archive-dark.png') })
   } finally {
-    if (styleBefore) await switchStyle(z.win, styleBefore[0], styleBefore[1]).catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(z.win, styleBefore).catch(() => {})
     await z.app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
@@ -8652,9 +8652,9 @@ async function panelsAlignScenario(fixtures) {
     await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
 
     // A LIGHT THEME draws the same line.
-    const styleBefore = await switchStyle(win, 'paper', 'light')
+    const styleBefore = await switchStyle(win, 'paper')
     await check('Paper, notes.txt', 'paper-txt')
-    await switchStyle(win, styleBefore[0], styleBefore[1])
+    await switchStyle(win, styleBefore)
 
     // A PICTURE AND A FILM: no button and no strip either; the pane starts at
     // the list's top like the text's.
@@ -9172,7 +9172,7 @@ async function addressFieldScenario(fixtures) {
   mkdirSync(deep, { recursive: true })
   writeFileSync(join(deep, 'end.txt'), 'deep\n')
   const { app, win } = await launch(join(dir, 'a1.txt'))
-  let before = null
+  let before
   const rgb = (c) => (c.match(/[\d.]+/g) ?? []).map(Number)
   const lum = ([r, g, b]) => {
     const lin = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)
@@ -9226,12 +9226,12 @@ async function addressFieldScenario(fixtures) {
     win.locator('.folder-browser [data-testid="browse-toolbar"]').first().screenshot({ path: join(SHOTS, `address-field-${name}.png`) })
   try {
     ok(await intoFolder(), 'the Explorer shows the folder')
-    before = await switchStyle(win, 'new-void', 'dark')
+    before = await switchStyle(win, 'new-void')
     await sleep(500)
     const v = await look()
     console.log('  void', JSON.stringify(v))
     await shoot('void')
-    await switchStyle(win, 'paper', 'light')
+    await switchStyle(win, 'paper')
     await sleep(500)
     const p = await look()
     console.log('  paper', JSON.stringify(p))
@@ -9284,7 +9284,7 @@ async function addressFieldScenario(fixtures) {
     ok(clip.over && clip.clipped && clip.inside, `a long path keeps its end in view and fades its start (${JSON.stringify(clip)})`)
     await shoot('long-path')
   } finally {
-    if (before) await switchStyle(win, before[0], before[1]).catch(() => {})
+    if (before !== undefined) await switchStyle(win, before).catch(() => {})
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
@@ -11768,17 +11768,18 @@ const updateCalls = (app) => app.evaluate(() => globalThis.__prismUpdateCalls())
  *  leaves the terminal theme and the accent schemes alone (`apply(false)`),
  *  which a click on a Settings card does not, and the profile is shared with
  *  every scenario after this one. Returns what to hand back to restore. */
-async function switchStyle(win, style, mode) {
+async function switchStyle(win, style) {
+  // ONE THEME, NO MODE (#298): each theme is dark or light by itself, and
+  // `prism.mode` is only the boot screen's mirror of what is painted.
   return win.evaluate(
-    ([s, m]) => {
-      const before = [localStorage.getItem('prism.style'), localStorage.getItem('prism.mode')]
-      const put = (k, v) => (v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v))
-      put('prism.style', s)
-      put('prism.mode', m)
+    (s) => {
+      const before = localStorage.getItem('prism.style')
+      if (s === null) localStorage.removeItem('prism.style')
+      else localStorage.setItem('prism.style', s)
       window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style', storageArea: localStorage }))
       return before
     },
-    [style, mode]
+    style
   )
 }
 
@@ -11813,7 +11814,7 @@ async function updateWindowScenario(fixtures) {
     EXTRA_ARGS = []
   }
   const { app, win } = launched
-  let styleBefore = null
+  let styleBefore
   try {
     await win.waitForSelector('.p-md h1', { timeout: 15000 })
     const current = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
@@ -12143,7 +12144,7 @@ async function updateWindowScenario(fixtures) {
     ok(installers() === installersBefore, `no installer process was spawned (${installersBefore} before, ${installers()} after)`)
 
     // The same, in a light style.
-    styleBefore = await switchStyle(win, 'paper', 'light')
+    styleBefore = await switchStyle(win, 'paper')
     ok(await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light')), 'in a light style (Paper)')
     const widthLight = await chip.evaluate((el) => el.getBoundingClientRect().width)
     ok(Math.abs(widthLight - width0) < 0.01, `the chip is the same width (${widthLight.toFixed(3)}px)`)
@@ -12205,7 +12206,7 @@ async function updateWindowScenario(fixtures) {
     ok(after.checks === 0 && after.installs === 0, `still nothing asked of the network or the installer (${after.checks} checks, ${after.installs} installs)`)
   } finally {
     // The profile is shared: the next scenario must get the style it expects.
-    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
     await app.close().catch(() => {})
   }
 }
@@ -13143,7 +13144,7 @@ const settingsLookOf = (win) =>
  * 3:1 on its tile, a warning subtext 4.5:1, the chosen rail page the GREY fill
  * and never the accent, Save changes the only accent-filled buttons, rows at
  * least 58px with a 32px tile, the panel's corner the style's roundness plus
- * 3px (Onyx 2px gives 5px, Ruby 14px gives 17px), nothing sideways at 1600
+ * 3px (Void 2px gives 5px, Glacier 14px gives 17px), nothing sideways at 1600
  * and 900px or with Font size Large, the icon rail under 760px and
  * from the title bar's toggle. A screenshot of every page in both schemes,
  * LOOKED AT before a change is called done (#20 in Prism Terminal).
@@ -13160,7 +13161,7 @@ async function settingsLookScenario(fixtures) {
   EXTRA_ENV = { PRISM_DICTATION_ROOT: root, PRISM_E2E_NVIDIA: '0' }
   let app
   let win
-  let styleBefore = null
+  let styleBefore
   // The window's size is SAVED in the shared profile: the scenarios after
   // this one must start at the size they always did.
   let sizeBefore = null
@@ -13170,7 +13171,7 @@ async function settingsLookScenario(fixtures) {
     const setSize = (w, h) => app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), [w, h])
     await setSize(1600, 1000)
     await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
-    styleBefore = await switchStyle(win, 'aurora', 'dark')
+    styleBefore = await switchStyle(win, 'aurora')
     await settingsPage(win, 'appearance')
     ok((await win.locator('[data-settings-tab="appearance"]').getAttribute('aria-current')) === 'page', 'Settings opens on Appearance')
     const rail = await win.evaluate(() => [...document.querySelectorAll('[data-settings-tab]')].map((b) => b.getAttribute('data-settings-tab')))
@@ -13189,7 +13190,7 @@ async function settingsLookScenario(fixtures) {
       ['about']
     ]
     for (const [scheme, style] of [['dark', 'aurora'], ['light', 'paper']]) {
-      await switchStyle(win, style, scheme)
+      await switchStyle(win, style)
       ok(await until(() => win.evaluate((m) => document.documentElement.dataset.mode === m, scheme), 6000, 50), `in a ${scheme} style (${style})`)
       for (const [page, view] of pages) {
         await settingsPage(win, page)
@@ -13221,9 +13222,9 @@ async function settingsLookScenario(fixtures) {
         if (page === 'dictation') await win.locator('[data-pref="dictation-enabled"] [role="switch"]').click()
       }
     }
-    // The style's ROUNDNESS rounds the panels: Onyx (2px) and Ruby (14px).
-    for (const [style, want] of [['default', 5], ['acrylic-red', 17]]) {
-      await switchStyle(win, style, 'dark')
+    // The theme's ROUNDNESS rounds the panels: Void (2px) and Glacier (14px).
+    for (const [style, want] of [['new-void', 5], ['glacier', 17]]) {
+      await switchStyle(win, style)
       await settingsPage(win, 'appearance')
       ok(
         await until(async () => (await settingsLookOf(win)).panelRadius === want, 3000, 50),
@@ -13231,7 +13232,7 @@ async function settingsLookScenario(fixtures) {
       )
       await win.screenshot({ path: join(SHOTS, `settings-appearance-${style}.png`) })
     }
-    await switchStyle(win, 'aurora', 'dark')
+    await switchStyle(win, 'aurora')
     // Font size Large zooms the page by 1.12: nothing overflows.
     const size = await gotoPref(win, 'tree-size')
     await size.locator('#tree-size').click()
@@ -13277,10 +13278,454 @@ async function settingsLookScenario(fixtures) {
     ok(await until(async () => (await settingsLookOf(win)).rail >= 200, 3000, 50), 'and back')
   } finally {
     EXTRA_ENV = {}
-    if (styleBefore && win) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    if (styleBefore !== undefined && win) await switchStyle(win, styleBefore).catch(() => {})
     await win?.evaluate(() => localStorage.removeItem('prism.tree.size')).catch(() => {})
     if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
     await app?.close().catch(() => {})
+  }
+}
+
+/**
+ * THE THEME WALL (#298; owner, 2026-10-06, the approved mockup: "perfect, go
+ * ahead and build"). Settings > Appearance opens on the Themes card: its
+ * header row ("Themes", "Choose your look."), then the wall collapsed to the
+ * row of the current theme, card style B (the chosen card's ring in the
+ * accent line and a check in its band, the blurb as tooltip, no
+ * "Suggested"). Show all opens with the height only growing, every card in
+ * the approved order, the chevron turned, and nothing left running or inline
+ * when it ends; Show fewer shuts the same way; a second press mid-way
+ * reverses from where the wall IS; reduced motion is the end state at once.
+ * The keys: one tab stop; an arrow previews (paints, stores nothing); Enter
+ * keeps; past the row opens the wall; Home, End; Escape goes back with the
+ * draft intact; focus is the fill, never a ring (#272).
+ */
+const THEME_ORDER = ['aurora', 'new-void', 'carbon', 'obsidian', 'ember', 'volt', 'midnight-hc', 'glacier', 'lagoon', 'frost', 'paper', 'sand', 'sage', 'blush', 'chalk', 'daylight-hc', 'orchid', 'pearl']
+
+/** The wall as the page has it. */
+const wallState = (win) =>
+  win.evaluate(() => {
+    const wall = document.querySelector('[data-theme-wall]')
+    const cards = [...document.querySelectorAll('[data-theme-card]')]
+    const more = document.querySelector('[data-wall-more]')
+    const chev = document.querySelector('[data-wall-chevron]')
+    const inline = [wall, ...cards].filter((el) => el.style.height || el.style.transform || el.style.opacity).length
+    return {
+      ids: cards.map((c) => c.getAttribute('data-theme-card')),
+      shown: cards.filter((c) => !c.hasAttribute('data-hid')).map((c) => c.getAttribute('data-theme-card')),
+      checked: cards.filter((c) => c.getAttribute('aria-checked') === 'true').map((c) => c.getAttribute('data-theme-card')),
+      more: more?.textContent?.trim() ?? '',
+      expanded: more?.getAttribute('aria-expanded'),
+      chevron: chev ? getComputedStyle(chev).transform : '',
+      anims: wall ? wall.getAnimations({ subtree: true }).length : -1,
+      inline,
+      moving: wall?.hasAttribute('data-moving'),
+      height: wall ? wall.getBoundingClientRect().height : 0
+    }
+  })
+
+/** Press Show all / Show fewer and sample the wall's height every 25ms until
+ *  it settles (or `ms`). */
+const pressAndSample = (win, ms = 600) =>
+  win.evaluate(
+    (ms) =>
+      new Promise((done) => {
+        const wall = document.querySelector('[data-theme-wall]')
+        const heights = [wall.getBoundingClientRect().height]
+        document.querySelector('[data-wall-more]').click()
+        const t0 = performance.now()
+        const iv = setInterval(() => {
+          heights.push(wall.getBoundingClientRect().height)
+          if (performance.now() - t0 > ms) {
+            clearInterval(iv)
+            done(heights)
+          }
+        }, 25)
+      }),
+    ms
+  )
+
+const monotonic = (hs, dir) => hs.every((h, i) => i === 0 || (dir > 0 ? h >= hs[i - 1] - 0.5 : h <= hs[i - 1] + 0.5))
+
+async function themeWallScenario(fixtures) {
+  console.log('theme wall')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  let styleBefore
+  let draftBefore
+  const blurbs = Object.fromEntries(
+    JSON.parse(readFileSync(join(ROOT, 'src', 'renderer', 'src', 'lib', 'themes', 'catalogue.json'), 'utf8')).map((t) => [
+      t.id,
+      t.blurb.replace(/\s*Kept from the current set\.\s*$/, '')
+    ])
+  )
+  const setDraft = (d) =>
+    win.evaluate((v) => {
+      if (v === null) localStorage.removeItem('prism.style.draft')
+      else localStorage.setItem('prism.style.draft', v)
+      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+    }, d)
+  const bg = () => win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg'))
+  const stored = () => win.evaluate(() => localStorage.getItem('prism.style'))
+  const focused = () => win.evaluate(() => document.activeElement?.getAttribute('data-theme-card') ?? null)
+  const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
+  try {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 1000))
+    draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
+    await setDraft(null)
+    styleBefore = await switchStyle(win, 'aurora')
+    const row = await gotoPref(win, 'style-theme')
+    const head = (await row.textContent()) ?? ''
+    ok(head.includes('Themes') && head.includes('Choose your look.'), `the Themes card opens on its header row (${head.trim()})`)
+    ok((await win.locator('[data-settings-section="style-theme"] h3').count()) === 0, 'and has no section heading above it')
+    ok((await win.locator('[data-pref="mode"]').count()) === 0, 'there is no Colour mode row')
+    let w = await wallState(win)
+    const own = w.ids.filter((id) => !THEME_ORDER.includes(id))
+    ok(JSON.stringify(w.ids.slice(0, 18)) === JSON.stringify(THEME_ORDER), `the wall lists the 18 in the approved order, then own copies (${w.ids.join(', ')})`)
+    ok(JSON.stringify(w.shown) === JSON.stringify(THEME_ORDER.slice(0, 6)), `collapsed, it shows exactly the current row (${w.shown.join(', ')})`)
+    ok(w.more === `Show all ${w.ids.length} themes` && w.expanded === 'false', `under it: "${w.more}", not expanded`)
+    ok(JSON.stringify(w.checked) === '["aurora"]', `Aurora is the chosen card (${w.checked})`)
+    const ring = await win.evaluate(() => {
+      const pv = document.querySelector('[data-theme-card="aurora"] .theme-card-pv')
+      const probe = document.createElement('i')
+      probe.style.color = 'var(--p-accent-solid)'
+      document.body.appendChild(probe)
+      const accent = getComputedStyle(probe).color
+      probe.remove()
+      const cs = getComputedStyle(pv)
+      // The page's zoom: a 100px box inside it as the window lays it out.
+      const ruler = document.createElement('div')
+      ruler.style.width = '100px'
+      pv.parentElement.appendChild(ruler)
+      const zoom = ruler.getBoundingClientRect().width / 100
+      ruler.remove()
+      return { outline: cs.outlineColor, width: cs.outlineWidth, offset: cs.outlineOffset, zoom, accent, check: !!pv.querySelector('[data-theme-check]'), checks: document.querySelectorAll('[data-theme-check]').length }
+    })
+    // 2px, snapped to whole device pixels (1.78px at 225%).
+    const px = (v) => Math.abs(parseFloat(v) - 2) < 0.5
+    ok(
+      ring.outline === ring.accent && px(ring.width) && px(ring.offset),
+      `the chosen ring is 2px of --p-accent-solid, 2px out (${JSON.stringify(ring)})`
+    )
+    ok(ring.check && ring.checks === 1, 'and its band carries the one check')
+    const titles = await win.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-theme-card]')].map((c) => [c.getAttribute('data-theme-card'), c.getAttribute('title')])))
+    ok(THEME_ORDER.every((id) => titles[id] === blurbs[id]), 'every card\'s tooltip is its theme\'s description')
+    ok(!((await win.locator('[data-style-wall]').textContent()) ?? '').includes('Suggested'), 'nothing says "Suggested"')
+    await win.mouse.move(5, 5)
+    await win.screenshot({ path: join(SHOTS, 'theme-wall-dark-collapsed.png') })
+
+    // Show all: the height only grows, then every card, "Show fewer", the
+    // chevron turned, nothing left running or inline.
+    let hs = await pressAndSample(win)
+    w = await wallState(win)
+    ok(hs.length > 8 && monotonic(hs, 1) && hs[hs.length - 1] > hs[0] + 100, `Show all: the height only grows (${hs.map(Math.round).join(' ')})`)
+    ok(hs.slice(1, 6).some((h) => h > hs[0] + 1 && h < hs[hs.length - 1] - 1), 'and it moves there, not in one jump')
+    ok(w.shown.length === w.ids.length && JSON.stringify(w.shown.slice(0, 18)) === JSON.stringify(THEME_ORDER), `then all ${w.ids.length} are shown, in order`)
+    ok(w.more === 'Show fewer' && w.expanded === 'true', `the control says "${w.more}", expanded`)
+    ok(/^matrix\(-1, ?0(\.0+)?, ?-?0(\.0+)?, ?-1/.test(w.chevron), `the chevron is turned 180 degrees (${w.chevron})`)
+    ok(w.anims === 0 && w.inline === 0 && !w.moving, `nothing left running, inline or clipped (${w.anims} animations, ${w.inline} inline)`)
+    await win.screenshot({ path: join(SHOTS, 'theme-wall-dark-expanded.png') })
+    hs = await pressAndSample(win)
+    w = await wallState(win)
+    ok(monotonic(hs, -1) && hs[hs.length - 1] < hs[0] - 100, `Show fewer: the height only shrinks (${hs.map(Math.round).join(' ')})`)
+    ok(JSON.stringify(w.shown) === JSON.stringify(THEME_ORDER.slice(0, 6)) && w.anims === 0 && w.inline === 0, 'and ends on the current row, settled')
+
+    // A second press 100ms in reverses from where the wall is.
+    const rev = await win.evaluate(
+      () =>
+        new Promise((done) => {
+          const wall = document.querySelector('[data-theme-wall]')
+          const more = document.querySelector('[data-wall-more]')
+          const hs = []
+          more.click()
+          setTimeout(() => {
+            const at = wall.getBoundingClientRect().height
+            more.click()
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                hs.push(wall.getBoundingClientRect().height)
+                setTimeout(() => done({ at, next: hs[0], end: wall.getBoundingClientRect().height }), 450)
+              })
+            )
+          }, 100)
+        })
+    )
+    w = await wallState(win)
+    ok(Math.abs(rev.next - rev.at) < 40 && rev.next <= rev.at + 1, `a second press 100ms in reverses from the measured height (${Math.round(rev.at)} then ${Math.round(rev.next)})`)
+    ok(w.shown.length === 6 && w.anims === 0 && w.inline === 0, `and ends collapsed, settled (${Math.round(rev.end)}px)`)
+
+    // Reduced motion: the end state in the same frame, no animation.
+    await win.emulateMedia({ reducedMotion: 'reduce' })
+    const instant = await win.evaluate(() => {
+      const wall = document.querySelector('[data-theme-wall]')
+      document.querySelector('[data-wall-more]').click()
+      return {
+        shown: [...document.querySelectorAll('[data-theme-card]')].filter((c) => !c.hasAttribute('data-hid')).length,
+        anims: wall.getAnimations({ subtree: true }).length
+      }
+    })
+    ok(instant.anims === 0 && instant.shown === w.ids.length, `reduced motion: every card at once, no animation (${JSON.stringify(instant)})`)
+    await win.locator('[data-wall-more]').click()
+    await win.emulateMedia({ reducedMotion: 'no-preference' })
+
+    // THE KEYS. Tab lands on the chosen card; the next Tab leaves the wall.
+    await win.evaluate(() => {
+      const r = document.querySelector('[data-pref="style-theme"]')
+      r.tabIndex = -1
+      r.focus()
+    })
+    await win.keyboard.press('Tab')
+    ok((await focused()) === 'aurora', `Tab lands on the chosen card (${await focused()})`)
+    // Focus is the hover's fill, never a ring (#272), focused against unfocused.
+    const look = await win.evaluate(() => {
+      const a = document.querySelector('[data-theme-card="aurora"]')
+      const b = document.querySelector('[data-theme-card="new-void"]')
+      const cs = (el) => {
+        const s = getComputedStyle(el)
+        return { image: s.backgroundImage, outline: s.outlineStyle, ring: s.boxShadow, edge: getComputedStyle(el.querySelector('.theme-card-pv')).outlineStyle }
+      }
+      return { on: cs(a), off: cs(b) }
+    })
+    ok(look.on.image !== 'none' && look.off.image === 'none', `a focused card wears the hover fill (${look.on.image.slice(0, 40)})`)
+    ok(look.on.outline === 'none' && look.on.ring === 'none', 'and no outline or ring of focus')
+    await win.screenshot({ path: join(SHOTS, 'theme-wall-focused.png') })
+    await win.keyboard.press('Tab')
+    ok(await win.evaluate(() => !document.activeElement?.closest('[data-theme-wall]')), 'the next Tab leaves the wall (one stop)')
+    await win.locator('[data-theme-card="aurora"]').focus()
+
+    // Right PREVIEWS: the window repaints, nothing is stored.
+    const auroraBg = await bg()
+    await win.keyboard.press('ArrowRight')
+    ok(await until(async () => (await bg()) !== auroraBg, 2000, 25), `Right repaints the window (--p-bg ${auroraBg} to ${await bg()})`)
+    ok((await stored()) === 'aurora', 'and stores nothing (prism.style is still aurora)')
+    ok(await until(async () => (await focused()) === 'new-void', 2000, 25), 'the focus moves to Void')
+    ok(JSON.stringify((await wallState(win)).checked) === '["new-void"]', 'and Void is the chosen card')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await stored()) === 'new-void', 2000, 25), 'Enter keeps it (prism.style is new-void)')
+    ok(((await win.locator('[data-wall-say]').textContent()) ?? '') === 'Void kept', 'and says so')
+
+    // A draft on Void, then Down past the row: the wall opens, Glacier is
+    // previewed, the draft hidden; Escape gives Void and its draft back.
+    await setDraft(JSON.stringify({ font: 'mono' }))
+    const voidBg = await bg()
+    const monoFont = await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-font'))
+    await win.locator('[data-theme-card="new-void"]').focus()
+    await win.keyboard.press('ArrowDown')
+    ok(await until(async () => (await wallState(win)).expanded === 'true', 2000, 25), 'Down past the row opens the wall')
+    ok(await until(async () => (await focused()) === 'glacier', 2000, 25), `and lands on Glacier (${await focused()})`)
+    ok((await bg()).startsWith('rgba('), `previewing see-through Glacier (${await bg()})`)
+    await sleep(400)
+    await win.screenshot({ path: join(SHOTS, 'theme-wall-preview-glacier.png') })
+    await win.keyboard.press('Home')
+    ok(await until(async () => (await focused()) === 'aurora', 2000, 25), 'Home goes to the first')
+    await win.keyboard.press('End')
+    const last = (await wallState(win)).ids.at(-1)
+    ok(await until(async () => (await focused()) === last, 2000, 25), `End to the last (${last})`)
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await bg()) === voidBg, 2000, 25), 'Escape goes back to Void')
+    ok((await win.locator('[data-settings-page]').count()) === 1, 'and leaves Settings open')
+    ok((await focused()) === 'new-void', 'with the focus on its card')
+    ok((await stored()) === 'new-void', 'nothing was stored on the way')
+    ok(
+      (await win.evaluate(() => localStorage.getItem('prism.style.draft'))) === JSON.stringify({ font: 'mono' }) &&
+        (await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-font'))) === monoFont,
+      'and the draft is intact, painted again'
+    )
+    await setDraft(null)
+
+    // Holding Right across all 18 repaints at key-repeat speed: no frame
+    // over 50ms (spec 10).
+    await win.locator('[data-theme-card="new-void"]').focus()
+    await win.keyboard.press('Home')
+    await win.evaluate(() => {
+      window.__frames = []
+      window.__presses = []
+      let last = performance.now()
+      const tick = (t) => {
+        window.__frames.push([t, t - last])
+        last = t
+        if (window.__frames.length < 400) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    await sleep(100)
+    for (let i = 0; i < 17; i++) {
+      await win.evaluate(() => window.__presses.push([performance.now(), document.activeElement?.getAttribute('data-theme-card')]))
+      await win.keyboard.press('ArrowRight')
+      await sleep(33)
+    }
+    await sleep(200)
+    const { frames, presses } = await win.evaluate(() => ({ frames: window.__frames.slice(2), presses: window.__presses }))
+    const worst = Math.max(...frames.map((f) => f[1]))
+    const slow = frames
+      .filter((f) => f[1] >= 34)
+      .map(([t, d]) => `${Math.round(d)}ms after ${[...presses].reverse().find((p) => p[0] <= t)?.[1] ?? 'start'}`)
+    ok(worst < 50, `holding Right across all 18: the longest frame is ${Math.round(worst)}ms (${slow.join(', ') || 'none over 34ms'})`)
+    ok((await focused()) === 'pearl', `and ends on Pearl (${await focused()})`)
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await bg()) === voidBg, 2000, 25), 'Escape goes back from there too')
+
+    // Screenshots of the page in each kind of theme, for the eye.
+    await win.mouse.move(5, 5)
+    for (const id of ['paper', 'glacier', 'orchid', 'midnight-hc', 'daylight-hc']) {
+      await switchStyle(win, id)
+      await sleep(350)
+      await win.screenshot({ path: join(SHOTS, `theme-wall-${id}.png`) })
+    }
+    await switchStyle(win, 'paper')
+    await sleep(350)
+    if ((await win.locator('[data-wall-more]').getAttribute('aria-expanded')) !== 'true') await win.locator('[data-wall-more]').click()
+    await sleep(450)
+    await win.screenshot({ path: join(SHOTS, 'theme-wall-light-expanded.png') })
+    ok(own.length >= 0, `own copies after the 18: ${own.length}`)
+  } finally {
+    await win.emulateMedia({ reducedMotion: 'no-preference' }).catch(() => {})
+    await setDraft(draftBefore ?? null).catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
+    await app.close().catch(() => {})
+  }
+}
+
+/**
+ * THE THEMES WHERE THEY ARE WORN (#298): a code file and the Explorer in a
+ * dark, a warm, a monochrome light, both high contrast and a see-through
+ * theme. The code colours are the theme's own tokens (they left index.css),
+ * and the screenshots are for the eye, against the mockup's.
+ */
+async function themeLooksScenario(fixtures) {
+  console.log('theme looks')
+  const { app, win } = await launch(join(fixtures, 'code', 'main.py'))
+  let styleBefore
+  const catalogue = JSON.parse(readFileSync(join(ROOT, 'src', 'renderer', 'src', 'lib', 'themes', 'catalogue.json'), 'utf8'))
+  try {
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    for (const id of ['aurora', 'ember', 'chalk', 'midnight-hc', 'daylight-hc', 'orchid']) {
+      const r = await switchStyle(win, id)
+      if (styleBefore === undefined) styleBefore = r
+      await sleep(350)
+      const t = catalogue.find((x) => x.id === id)
+      const code = await win.evaluate(() => {
+        const cs = getComputedStyle(document.documentElement)
+        return { keyword: cs.getPropertyValue('--p-code-keyword').trim(), string: cs.getPropertyValue('--p-code-string').trim(), tag: cs.getPropertyValue('--p-code-tag').trim() }
+      })
+      ok(code.keyword === t.code.keyword && code.string === t.code.string && code.tag === t.code.tag, `${id}: the code colours are the theme's (${JSON.stringify(code)})`)
+      await win.mouse.move(5, 5)
+      await win.screenshot({ path: join(SHOTS, `theme-code-${id}.png`) })
+    }
+    await win.locator('[role="tab"]:has-text("Explorer")').first().click()
+    for (const id of ['aurora', 'carbon', 'paper', 'midnight-hc', 'glacier', 'pearl']) {
+      await switchStyle(win, id)
+      await sleep(350)
+      await win.screenshot({ path: join(SHOTS, `theme-explorer-${id}.png`) })
+    }
+  } finally {
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await app.close().catch(() => {})
+  }
+}
+
+/** Write window preferences into a profile before its first launch. */
+function seedPreferences(profile, kv) {
+  const preferences = join(profile, 'window-preferences')
+  mkdirSync(preferences, { recursive: true })
+  for (const [key, value] of Object.entries(kv))
+    writeFileSync(join(preferences, createHash('sha256').update(key).digest('hex') + '.json'), JSON.stringify({ key, value }))
+}
+
+/**
+ * SAVED THEMES MOVE ONCE (#298, spec 4), in two real profiles: one on Onyx
+ * with an unsaved edit and two own copies (one dark, one light, both grown
+ * out of Onyx), one on Driftwood with Colour mode left on light. After the
+ * launch: Onyx is Void WITH ITS GLASS as an unsaved edit, Driftwood is Carbon
+ * (the old mode is not read), the own copies are the last cards and
+ * unchanged but for their base, the one quiet line names the old theme,
+ * nothing reset to Aurora, the marker is set; a theme pick takes the line away.
+ */
+async function themeMigrationScenario(fixtures) {
+  console.log('theme migration')
+  const dark = { id: 'custom-0-1-Customtheme1', name: 'Custom theme 1', blurb: 'Glass over true black.', mode: 'dark', material: 'acrylic', bg: '#000000', side: '#141414', title: '#141414', text: '#eef0f4', folderIcon: '#8bb1fd', iconMode: 'kind', icon: '#8a8e99', accent: '#ff5500', font: 'system', size: '12.5', corners: '2', borders: 'faint', custom: true, base: 'default' }
+  const light = { ...dark, id: 'custom-0-2-Customtheme2', name: 'Custom theme 2', mode: 'light', material: 'solid', bg: '#f8f4ed', side: '#f1ebe1', title: '#e9e2d5', text: '#241f18', accent: '#92400e' }
+  const cases = [
+    { name: 'onyx', seed: { 'prism.style': 'default', 'prism.style.draft': JSON.stringify({ accent: '#22aa66' }), 'prism.style.presets': JSON.stringify([dark, light]), 'prism.mode': 'dark' }, want: 'new-void', retired: 'Onyx', mapped: 'Void' },
+    { name: 'driftwood', seed: { 'prism.style': 'driftwood', 'prism.mode': 'light' }, want: 'carbon', retired: 'Driftwood', mapped: 'Carbon' }
+  ]
+  for (const c of cases) {
+    const profile = `${PROFILE}-migrate-${c.name}`
+    rmSync(profile, { recursive: true, force: true })
+    seedPreferences(profile, { 'prism.onboarded': '1', 'prism.sidebar': '1', 'prism.newtab.mode': 'folder', 'prism.newtab.folder': fixtures, ...c.seed })
+    const { app, win } = await launchProbed({ profile, tabs: { active: 0, tabs: [explorerTab('fixture-explorer', fixtures)] } })
+    try {
+      const keys = await win.evaluate(() =>
+        Object.fromEntries(['prism.style', 'prism.style.draft', 'prism.style.presets', 'prism.style.v', 'prism.style.retired', 'prism.mode'].map((k) => [k, localStorage.getItem(k)]))
+      )
+      ok(keys['prism.style'] === c.want, `${c.name}: the saved theme is now ${c.want} (${keys['prism.style']})`)
+      ok(keys['prism.style.v'] === '2', `${c.name}: the marker is set`)
+      ok(keys['prism.style.retired'] === c.retired, `${c.name}: the old name is kept for the one line (${keys['prism.style.retired']})`)
+      if (c.name === 'onyx') {
+        const draft = JSON.parse(keys['prism.style.draft'] ?? '{}')
+        ok(draft.acrylic === 55 && draft.accent === '#22aa66', `onyx: its glass is an unsaved edit of Void, level 55, the edit kept (${keys['prism.style.draft']})`)
+        ok(await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg').startsWith('rgba(')), 'onyx: the window is see-through')
+        const presets = JSON.parse(keys['prism.style.presets'] ?? '[]')
+        ok(JSON.stringify(presets) === JSON.stringify([{ ...dark, base: 'new-void' }, { ...light, base: 'new-void' }]), 'onyx: both own copies are kept field for field, their base mapped')
+      } else {
+        ok(keys['prism.mode'] === 'dark', `driftwood: the old light mode was not read; the boot mirror says dark (${keys['prism.mode']})`)
+      }
+      await settingsPage(win, 'appearance')
+      const line = win.locator('[data-theme-retired]')
+      ok(((await line.textContent()) ?? '').trim() === `Your theme ${c.retired} was retired, ${c.mapped} is the closest.`, `${c.name}: the one quiet line (${(await line.textContent())?.trim()})`)
+      const w = await wallState(win)
+      if (c.name === 'onyx') ok(JSON.stringify(w.ids.slice(-2)) === JSON.stringify([dark.id, light.id]), `onyx: the own copies are the last cards (${w.ids.slice(-2)})`)
+      ok(JSON.stringify(w.checked) === JSON.stringify([c.want]), `${c.name}: the chosen card is ${c.want}, nothing reset to Aurora (${w.checked})`)
+      await win.screenshot({ path: join(SHOTS, `theme-migration-${c.name}.png`) })
+      await win.locator('[data-theme-card="aurora"]').click()
+      ok(await until(async () => (await line.count()) === 0, 3000, 50), `${c.name}: a theme pick takes the line away`)
+      ok((await win.evaluate(() => localStorage.getItem('prism.style.retired'))) === null, `${c.name}: and its key`)
+    } finally {
+      await app.close().catch(() => {})
+      await sleep(900)
+      rmSync(profile, { recursive: true, force: true })
+    }
+  }
+}
+
+/**
+ * ONBOARDING IS THREE STEPS, THE FIRST THE THEME WALL (#298, spec 5): a
+ * profile that has not been through setup gets three dots and the same wall
+ * on step one; picking Paper from Aurora plays the sweep and lands light;
+ * Start stores the theme.
+ */
+async function onboardingThemeScenario(fixtures) {
+  console.log('onboarding theme')
+  const profile = `${PROFILE}-onboarding`
+  rmSync(profile, { recursive: true, force: true })
+  seedPreferences(profile, { 'prism.newtab.mode': 'folder', 'prism.newtab.folder': fixtures })
+  const { app, win } = await launchProbed({ profile, tabs: { active: 0, tabs: [explorerTab('fixture-explorer', fixtures)] } })
+  try {
+    await win.locator('button:has-text("Get started")').click({ timeout: 15000 })
+    ok((await win.locator('[data-ob-dots] > span').count()) === 3, `three steps (${await win.locator('[data-ob-dots] > span').count()} dots)`)
+    const step = (await win.locator('.ob-deal h1').first().textContent()) ?? ''
+    ok(step.includes('Choose your look.'), `step one is the theme step (${step})`)
+    ok((await win.locator('[data-onboarding-wall] [data-theme-wall]').count()) === 1, 'with the theme wall on it')
+    const w = await wallState(win)
+    ok(w.shown.length === 6 && w.checked[0] === 'aurora', `collapsed to Aurora's row (${w.shown.join(', ')})`)
+    await win.screenshot({ path: join(SHOTS, 'onboarding-theme.png') })
+    await win.locator('[data-wall-more]').click()
+    await sleep(400)
+    await win.locator('[data-theme-card="paper"]').click()
+    ok(await until(async () => (await win.locator('.ob-sweep').count()) === 1, 1000, 20), 'picking Paper from Aurora plays the sweep')
+    ok(await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light'), 3000, 50), 'and lands light')
+    ok(await until(async () => (await win.locator('.ob-sweep').count()) === 0, 3000, 50), 'the sweep ends')
+    await win.screenshot({ path: join(SHOTS, 'onboarding-theme-paper.png') })
+    await win.locator('button:has-text("Next")').click()
+    await win.locator('button:has-text("Next")').click()
+    await win.locator('button:has-text("Start using Prism")').click()
+    ok(
+      await until(() => win.evaluate(() => localStorage.getItem('prism.onboarded') === '1' && localStorage.getItem('prism.style') === 'paper'), 3000, 50),
+      'Start stores the theme (paper) and the setup as done'
+    )
+  } finally {
+    await app.close().catch(() => {})
+    await sleep(900)
+    rmSync(profile, { recursive: true, force: true })
   }
 }
 
@@ -13487,6 +13932,10 @@ await run(termOptionsScenario)
 await run(noCommandHelpScenario)
 await run(termColourPickerScenario)
 await run(settingsLookScenario)
+await run(themeWallScenario)
+await run(themeMigrationScenario)
+await run(onboardingThemeScenario)
+await run(themeLooksScenario)
 await run(settingsSearchScenario)
 await run(dictationScenario)
 await run(dictationPageScenario)

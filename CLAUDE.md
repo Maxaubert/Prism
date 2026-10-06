@@ -27,26 +27,43 @@ indigo tie it to the Filesmith family without copying its light utility look. Do
 light theme or editing tools without an explicit decision. The file-tree sidebar (2026-07-31)
 was such a decision: a navigation panel bounded by the folder Prism opened in, not a library.
 
-**THE SHIPPED STYLES, AND FOUR PICKS OF 2026-09-20** (`src/renderer/src/lib/theme.ts`, pinned by
-`theme.test.ts` so none of them can be undone by accident):
-- **Every style sets in the SYSTEM face.** Owner: "update all themes to use the system font by
-  default". Void was Segoe, Terminal was Cascadia Mono, Driftwood and Sandstone were Calibri,
-  Lilac was Trebuchet, so picking a style silently changed the face the whole app set in - a
-  second decision hidden inside the first. The picker is untouched; a new preset ships
-  `font: 'system'` unless there is a reason written beside it.
-- **Aurora is SOLID.** Owner: "update this theme to be non acrylic by default". Prism's own
-  default style shipped at 35 on the Acrylic slider, so the desktop showed through the window a
-  film was playing in. Glass is a thing to turn on.
-- **Ruby is near-black and red** (`#0d0d0d`, folders `#dc5656`, accent `#e01f1f`, round corners),
-  the owner's own values read off the Style page. It was a night blue with a crimson accent, and
-  the blue was doing the work the red should do.
-- **A ZIP FOLLOWS THE FOLDER COLOUR**, not a hardcoded indigo. Owner: "the zip file icon should
-  have dynamically adjusting colours based on the accent, just like folders, they should follow
-  the same setting". `--p-tree-zip` IS `--p-tree-folder` (so the Folder icons picker moves both)
-  and `--p-tree-zip-ink` is the white-or-near-black that measures better ON it - the better of
-  the two, not `readableOn`'s text rule, which leans to white and picked 3.8:1 on Ruby's own red
-  where near-black reads at 5.0:1. In the app only, and in the MONOCHROME scheme only: the
-  COLOURED set is the picks the .ico files carry, and Explorer has no accent to follow.
+**18 THEMES ON ONE WALL, NO COLOUR MODE** (#298; owner, 2026-10-06, of 42 mocked: "perfect, go
+ahead and build"; spec `docs/superpowers/specs/2026-10-06-new-themes-design.md`, research and the
+approved mockup in `Documents/Claude/research/prism/2026-10-06-new-themes/`). The ten old styles
+are gone (Aurora, Void and Frost kept, refined). The rules (`lib/theme.ts`, `lib/themes/`):
+- **The 18, in wall order**: dark Aurora, Void (`new-void`), Carbon, Obsidian, Ember, Volt,
+  Midnight HC, Glacier, Lagoon; light Frost, Paper, Sand, Sage, Blush, Chalk, Daylight HC, Orchid,
+  Pearl. High contrast before see-through in each half. Colours exactly as `themes/catalogue.json`
+  (`catalogue.test.ts`); HC themes are MONOCHROME. Every theme sets in the SYSTEM face at 12.5px
+  (owner, 2026-09-20: "update all themes to use the system font by default"). Aurora is solid.
+- **ONE picker, no light/dark switch**: each theme is dark or light by itself. `prism.mode` is no
+  setting now; `paint` writes it as the boot screen's mirror and nothing else reads it.
+- **A theme carries a TABLE of its designed values** (raised, line, dim, faint, accent fill and
+  ink, kinds, code colours, HC's edge) and its panel as its own colour (`sideOwn`). `pruneTable`
+  drops what an edit makes stale (ground or text: the inks, kinds and code; accent: the fill and
+  ink; Edges: HC's edge). A style WITHOUT a table (every own copy saved before) derives byte for
+  byte as before: `themes/legacy.snapshot.json`, taken on main, held by `table.test.ts`.
+  `contrast.test.ts` holds every floor on what is PAINTED. A designed selection is measured on the
+  ground only (Chalk's dim reads 3.08:1 on its tint over the panel, where only names sit).
+- **Code colours are theme tokens** (`--p-code-*`, `codeTokens`), with `--p-code-tag` and
+  `--p-code-attr`; an own copy keeps the legacy per-mode set. Menus paint `--p-raised`.
+- **The wall** (`settings/ThemeWall.tsx`, `ThemeCard.tsx`, `hooks/useWallMotion.ts`,
+  `lib/themes/wall.ts`): card style B (name on a band, chosen = accent ring and a check, blurb as
+  tooltip, no "Suggested"), collapsed to the current theme's row with an animated Show all / Show
+  fewer (270ms open, 220ms close, reduced motion instant, nothing left inline at rest). ONE tab
+  stop; arrows PREVIEW (`previewStyle`: paint only, nothing stored, the draft hidden and kept, the
+  window material sent once the arrows rest); Enter, Space, a click or the focus leaving KEEP;
+  Escape goes back. `useStyle` is the KEPT theme: re-rendering its readers on every arrow put a
+  held Right over 50ms (MEASURED). This theme: See-through window (not on HC) and Save changes.
+- **Retired ids migrate once** (`themes/migrate.ts`, marker `prism.style.v`): Onyx to Void WITH
+  its glass as an unsaved edit (level 55), Terminal to Obsidian, Driftwood to Carbon, Ruby to
+  Ember, Linen to Sand; own copies kept, their `base` mapped; one quiet line names the retired
+  theme until the next pick. Onboarding is three steps, the first the same wall.
+- Not adopted from the mockup, by recorded rules: the active tab stays told by its ink, not a
+  ground fill; the Accent subtext stays (the chosen rail page is grey since #292).
+- **A ZIP FOLLOWS THE FOLDER COLOUR**, not a hardcoded indigo (owner, 2026-09-20). `--p-tree-zip`
+  IS `--p-tree-folder` and `--p-tree-zip-ink` is the better of white or near-black on it. In the
+  app only, and in the MONOCHROME scheme only.
 
 **ONE COLOUR PICKER, ALPHA ON EVERY COLOUR** (#249 rework, owner 2026-10-03: "the colour pickers
 should be the same for both apps, i need an input field for a color code and an alpha per colour
@@ -166,7 +183,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   adds ~100 stream lexers for highlighting only, so those languages never claim an error.
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
-  gets no gutter and no language. Token colours are fixed in `index.css`, NOT part of a style.
+  gets no gutter and no language. Token colours are the THEME's since #298 (`--p-code-*`).
   **A FILE THAT GROWS** (2026-08-31): "Follow the file" appends new bytes as they are
   written - a build log, an agent's transcript - and a file PAST THE 64MB CEILING now shows
   its TAIL (2MB) instead of an apology. Both are READ-ONLY, and structurally so: a followed

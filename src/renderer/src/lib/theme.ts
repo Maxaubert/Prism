@@ -1044,7 +1044,7 @@ function mirrorMode(mode: Mode): void {
   }
 }
 
-function paint(style: Style): void {
+function paint(style: Style, preview = false): void {
   const r = document.documentElement.style
   for (const [k, v] of Object.entries(variablesFor(style))) r.setProperty(k, v)
 
@@ -1052,10 +1052,27 @@ function paint(style: Style): void {
   // A translucent style needs the window itself to be transparent, which only
   // the main process can arrange.
   const translucent = style.material === 'acrylic' || style.material === 'mica'
-  if (typeof window !== 'undefined') {
+  // Only when it changes: main re-applies the backdrop and the window's theme
+  // on every message. And a PREVIEW waits for the arrows to rest (#298): a
+  // change of backdrop or of the window's light or dark re-styles everything
+  // once more, MEASURED as the one frame over 50ms while Right was held
+  // across the wall; held, the colours move at once and the glass follows.
+  const material = `${translucent ? style.material : 'none'} ${style.mode}`
+  if (typeof window === 'undefined') return
+  if (materialTimer) clearTimeout(materialTimer)
+  materialTimer = null
+  const send = (): void => {
+    materialTimer = null
+    if (material === sentMaterial) return
+    sentMaterial = material
     window.prism?.setWindowMaterial(translucent ? style.material : 'none', style.mode)
   }
+  if (preview && material !== sentMaterial) materialTimer = setTimeout(send, MATERIAL_SETTLE_MS)
+  else send()
 }
+let sentMaterial = ''
+let materialTimer: ReturnType<typeof setTimeout> | null = null
+const MATERIAL_SETTLE_MS = 160
 
 /* ---------- edits, and saving them ---------- */
 
@@ -1695,12 +1712,7 @@ export function restoreOverrides(snapshot: Overrides, keys: Array<keyof Override
 export const overridesNow = (): Overrides => draft
 
 /** What is on screen, outside React. */
-/** What is painted: a theme being previewed, else the stored one with its
- *  edits. Pages that describe the window (Colours of, the colour scheme)
- *  read this, so they follow an arrow along the wall. */
-const shownStyle = (): Style => (previewing !== null ? byId(previewing) : edited(byId(current)))
-
-export const currentStyle = (): Style => shownStyle()
+export const currentStyle = (): Style => edited(byId(current))
 
 /** Keep the current edit as a preset of its own, and select it. */
 export function savePreset(): void {
@@ -1785,7 +1797,7 @@ export function previewStyle(id: string | null): void {
     paint(edited(byId(current)))
   } else {
     previewing = byId(id).id
-    paint(byId(previewing))
+    paint(byId(previewing), true)
   }
   emit()
 }
@@ -1800,12 +1812,14 @@ export function useRetired(): string | null {
   return useSyncExternalStore(subscribe, () => retired)
 }
 
-/** What is on screen: the selected style with any unsaved edits applied. */
+/** The selected style with any unsaved edits applied. NOT a preview: the
+ *  wall's arrows repaint the window and re-render only the wall (#298,
+ *  MEASURED: re-rendering every reader of this on each arrow put the frames
+ *  of a held Right over 50ms). The pages read the theme that is kept. */
 export function useStyle(): Style {
   useSyncExternalStore(subscribe, () => current)
   useSyncExternalStore(subscribe, () => draft)
-  useSyncExternalStore(subscribe, () => previewing)
-  return shownStyle()
+  return edited(byId(current))
 }
 
 /** The id of the theme in use (stored), whatever is previewed or edited. */
