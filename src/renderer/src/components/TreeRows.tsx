@@ -496,7 +496,8 @@ function FolderRow({
   const pad = 4 + depth * t.size.indent
   // The cursor carries the accent wherever it goes, folders included.
   const onCursor = !!t.cursor && t.cursor.toLowerCase() === path.toLowerCase()
-  // The right-clicked row keeps its hover look while its menu is up.
+  // The right-clicked row wears the selection's tint while its menu is up
+  // (#296; owner, 2026-10-06), File Explorer's look; it is not selected.
   const onMenuHl = !!t.menuPath && t.menuPath.toLowerCase() === path.toLowerCase()
   if (t.editing === path)
     return (
@@ -567,8 +568,8 @@ function FolderRow({
         }
       }}
       className={`relative flex w-full items-center rounded-[var(--p-radius-sm)] text-left outline-none focus-visible:outline-none ${
-        // The folder a drag hovers is MARKED, in the grey the menu's
-        // target wears, not ringed in the accent (2026-09-14, #140):
+        // The folder a drag hovers is MARKED in grey, not ringed in the
+        // accent (2026-09-14, #140):
         // the accent means selected, and a drop destination is not.
         t.dropTarget === path
           ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
@@ -576,7 +577,7 @@ function FolderRow({
             ? // The tint is in `style` (markedLook); the text keeps its colour.
               'text-[var(--p-text-soft)]'
             : onMenuHl
-              ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
+              ? 'text-[var(--p-text)]'
               : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
       }`}
       style={{
@@ -591,7 +592,9 @@ function FolderRow({
         // A drop target's grey wins over the tint, as its class does.
         ...(t.dropTarget !== path && (onCursor || t.selected.has(path))
           ? markedLook(t.selected.has(path) ? t.selJoin(path) : ALONE)
-          : {})
+          : t.dropTarget !== path && onMenuHl
+            ? markedLook(ALONE)
+            : {})
       }}
     >
       {/* The chevron keeps its single-click expand; it opts out of the
@@ -647,7 +650,8 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
   // `aria-selected` still says so for anything reading the tree.
   const onCursor = !!t.cursor && f.path.toLowerCase() === t.cursor.toLowerCase()
   const onSel = onCursor || t.selected.has(f.path)
-  // The right-clicked row keeps its hover look while its menu is up.
+  // The right-clicked row wears the selection's tint while its menu is up
+  // (#296; owner, 2026-10-06), File Explorer's look; it is not selected.
   const onMenuHl = !!t.menuPath && f.path.toLowerCase() === t.menuPath.toLowerCase()
   // The drop line (#126): a drag over this row lands in its folder, and
   // when that folder is the root there is no row to light, so the line
@@ -722,7 +726,7 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
             ? // The tint is in `style` (markedLook); the text keeps its colour.
               `text-[var(--p-text-soft)] ${unsaved ? 'font-bold text-[var(--p-text)]' : ''}`
             : onMenuHl
-              ? `bg-[var(--p-hover-hi)] text-[var(--p-text)] ${unsaved ? 'font-bold' : ''}`
+              ? `text-[var(--p-text)] ${unsaved ? 'font-bold' : ''}`
               : `text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] ${
                   unsaved ? 'font-bold text-[var(--p-text)]' : ''
                 }`
@@ -736,7 +740,11 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
           // A cut row is half gone already, and looks it (Explorer's cue).
           opacity: t.cut.has(f.path.toLowerCase()) ? 0.45 : undefined,
           // Contiguous selected rows fuse: shared edges drop rounding.
-          ...(onSel ? markedLook(t.selected.has(f.path) ? t.selJoin(f.path) : ALONE) : {})
+          ...(onSel
+            ? markedLook(t.selected.has(f.path) ? t.selJoin(f.path) : ALONE)
+            : onMenuHl
+              ? markedLook(ALONE)
+              : {})
         }}
       >
         <KindIcon
@@ -746,7 +754,7 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
           // could vanish into, and a fifth of the accent is not one.
           color={iconColour(f.kind)}
           // The knockouts take what is BEHIND the row: the tint as seen.
-          bg={onSel ? 'var(--p-sel-tint-side)' : undefined}
+          bg={onSel || onMenuHl ? 'var(--p-sel-tint-side)' : undefined}
           ext={f.ext}
           name={f.name}
         />

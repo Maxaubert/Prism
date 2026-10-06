@@ -27,26 +27,44 @@ indigo tie it to the Filesmith family without copying its light utility look. Do
 light theme or editing tools without an explicit decision. The file-tree sidebar (2026-07-31)
 was such a decision: a navigation panel bounded by the folder Prism opened in, not a library.
 
-**THE SHIPPED STYLES, AND FOUR PICKS OF 2026-09-20** (`src/renderer/src/lib/theme.ts`, pinned by
-`theme.test.ts` so none of them can be undone by accident):
-- **Every style sets in the SYSTEM face.** Owner: "update all themes to use the system font by
-  default". Void was Segoe, Terminal was Cascadia Mono, Driftwood and Sandstone were Calibri,
-  Lilac was Trebuchet, so picking a style silently changed the face the whole app set in - a
-  second decision hidden inside the first. The picker is untouched; a new preset ships
-  `font: 'system'` unless there is a reason written beside it.
-- **Aurora is SOLID.** Owner: "update this theme to be non acrylic by default". Prism's own
-  default style shipped at 35 on the Acrylic slider, so the desktop showed through the window a
-  film was playing in. Glass is a thing to turn on.
-- **Ruby is near-black and red** (`#0d0d0d`, folders `#dc5656`, accent `#e01f1f`, round corners),
-  the owner's own values read off the Style page. It was a night blue with a crimson accent, and
-  the blue was doing the work the red should do.
-- **A ZIP FOLLOWS THE FOLDER COLOUR**, not a hardcoded indigo. Owner: "the zip file icon should
-  have dynamically adjusting colours based on the accent, just like folders, they should follow
-  the same setting". `--p-tree-zip` IS `--p-tree-folder` (so the Folder icons picker moves both)
-  and `--p-tree-zip-ink` is the white-or-near-black that measures better ON it - the better of
-  the two, not `readableOn`'s text rule, which leans to white and picked 3.8:1 on Ruby's own red
-  where near-black reads at 5.0:1. In the app only, and in the MONOCHROME scheme only: the
-  COLOURED set is the picks the .ico files carry, and Explorer has no accent to follow.
+**18 THEMES ON ONE WALL, NO COLOUR MODE** (#298; owner, 2026-10-06, of 42 mocked: "perfect, go
+ahead and build"; spec `docs/superpowers/specs/2026-10-06-new-themes-design.md`, research and the
+approved mockup in `Documents/Claude/research/prism/2026-10-06-new-themes/`). The ten old styles
+are gone (Aurora, Void and Frost kept, refined). The rules (`lib/theme.ts`, `lib/themes/`):
+- **The 18, in wall order**: dark Aurora, Void (`new-void`), Carbon, Obsidian, Ember, Volt,
+  Midnight HC, Glacier, Lagoon; light Frost, Paper, Sand, Sage, Blush, Chalk, Daylight HC, Orchid,
+  Pearl. High contrast before see-through in each half. Colours exactly as `themes/catalogue.json`
+  (`catalogue.test.ts`); HC themes are MONOCHROME. Every theme sets in the SYSTEM face at 12.5px
+  (owner, 2026-09-20: "update all themes to use the system font by default"). Aurora is solid.
+- **ONE picker, no light/dark switch**: each theme is dark or light by itself. `prism.mode` is no
+  setting now; `paint` writes it as the boot screen's mirror and nothing else reads it.
+- **A theme carries a TABLE of its designed values** (raised, line, dim, faint, accent fill and
+  ink, kinds, code colours, HC's edge) and its panel as its own colour (`sideOwn`). `pruneTable`
+  drops what an edit makes stale (ground or text: the inks, kinds and code; accent: the fill and
+  ink; Edges: HC's edge). A style WITHOUT a table (every own copy saved before) derives byte for
+  byte as before: `themes/legacy.snapshot.json`, taken on main, held by `table.test.ts`.
+  `contrast.test.ts` holds every floor on what is PAINTED. A designed selection is measured on the
+  ground only (Chalk's dim reads 3.08:1 on its tint over the panel, where only names sit).
+- **Code colours are theme tokens** (`--p-code-*`, `codeTokens`), with `--p-code-tag` and
+  `--p-code-attr`; an own copy keeps the legacy per-mode set. Menus paint `--p-raised`.
+- **The wall** (`settings/ThemeWall.tsx`, `ThemeCard.tsx`, `hooks/useWallMotion.ts`,
+  `lib/themes/wall.ts`): card style B (name on a band; the band and frame one dark grey for every
+  theme, `themes/cardBox.ts`, owner: "give all the same coloured box"; chosen = accent ring and a check, blurb as
+  tooltip, no "Suggested"), collapsed to the current theme's row with an animated Show all / Show
+  fewer (270ms open, 220ms close, reduced motion instant, nothing left inline at rest). ONE tab
+  stop; arrows PREVIEW (`previewStyle`: paint only, nothing stored, the draft hidden and kept, the
+  window material sent once the arrows rest); Enter, Space, a click or the focus leaving KEEP;
+  Escape goes back. `useStyle` is the KEPT theme: re-rendering its readers on every arrow put a
+  held Right over 50ms (MEASURED). This theme: See-through window (not on HC) and Save changes.
+- **Retired ids migrate once** (`themes/migrate.ts`, marker `prism.style.v`): Onyx to Void WITH
+  its glass as an unsaved edit (level 55), Terminal to Obsidian, Driftwood to Carbon, Ruby to
+  Ember, Linen to Sand; own copies kept, their `base` mapped; one quiet line names the retired
+  theme until the next pick. Onboarding is three steps, the first the same wall.
+- Not adopted from the mockup, by recorded rules: the active tab stays told by its ink, not a
+  ground fill; the Accent subtext stays (the chosen rail page is grey since #292).
+- **A ZIP FOLLOWS THE FOLDER COLOUR**, not a hardcoded indigo (owner, 2026-09-20). `--p-tree-zip`
+  IS `--p-tree-folder` and `--p-tree-zip-ink` is the better of white or near-black on it. In the
+  app only, and in the MONOCHROME scheme only.
 
 **ONE COLOUR PICKER, ALPHA ON EVERY COLOUR** (#249 rework, owner 2026-10-03: "the colour pickers
 should be the same for both apps, i need an input field for a color code and an alpha per colour
@@ -67,6 +85,13 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   ground) so their label keeps 4.5:1. Not the marked-file tint (`--p-sel-tint`, #257): see there. Text and Folder icons with an alpha are drawn as the core's
   `legibleOn` composite. Tokens are hex or hex8, never `rgba()` for an accent fill.
 - Settings' Escape yields to an open `[data-colour-popover]` (it undoes the picker's writes).
+- **ONE COAT OF GROUND PER PIXEL** (#294; owner, 2026-10-06: "the top bar and settings sidebar
+  don't follow the acrylic ... it should be everywhere", "the preview also isn't acrylic"). A box
+  sitting on a box that already paints `--p-bg` / `--p-side` / `--p-tabs` paints NOTHING: two
+  see-through coats of Onyx (0.80 each) are 0.96, an opaque slab. Fixed: the active tab, the strip
+  inside the one-row bar, the Explorer's address bar row, the preview pane over the folder
+  browser, a document's canvas (`.p-doc`), and the core Settings frame (index.css: the frame clear, the rail and pane one coat
+  each). The `seeThrough` e2e composites every box under sampled points of each surface.
 
 ## Scope
 
@@ -166,7 +191,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   adds ~100 stream lexers for highlighting only, so those languages never claim an error.
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
-  gets no gutter and no language. Token colours are fixed in `index.css`, NOT part of a style.
+  gets no gutter and no language. Token colours are the THEME's since #298 (`--p-code-*`).
   **A FILE THAT GROWS** (2026-08-31): "Follow the file" appends new bytes as they are
   written - a build log, an agent's transcript - and a file PAST THE 64MB CEILING now shows
   its TAIL (2MB) instead of an apology. Both are READ-ONLY, and structurally so: a followed
@@ -569,6 +594,27 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
   its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
   ALONE: the tree keeps Font size. `explorerSize` e2e.
+  **THE PLACES PANEL IS THE THEMES MOCKUP'S** (#296; owner, 2026-10-06: "i really like the
+  sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
+  use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its
+  line glyph (`PlaceIcon`), Home by the user's folder name; Pinned is every other pin (hint when
+  empty); then Projects; then This PC: name as File Explorer writes it ("Local Disk (C:)"), used /
+  total in `--p-accent-solid` on a faint track, "N free of M" in `formatBytes`. **THREE DRIVE
+  STYLES** (owner, 2026-10-06, of the mockups in `research/prism/2026-10-06-drive-rows`: "option A,
+  D and E as options in settings, with A being default"): Settings > Explorer > Layout > Drive
+  style (`drive-style`, `prism.sidebar.driveStyle`, `lib/driveStylePrefs.ts`), Tiles (A, DEFAULT:
+  a tile, glyph in a chip, % on the name line, a pill bar), Ring (D: two lines, a donut with the %)
+  and Gauge (E: 20 steps, free left, total right). `DriveRow.tsx` + `drive-rows.css`, measures in
+  em of the row text so they follow Explorer row size. From 90% used (`nearlyFull`) the mark is
+  `--p-warn` and its number `--p-warn-ink` (theme.ts, floored 3:1 and 4.5:1 on the panel); the
+  system drive (main's `system`) wears the Windows badge, a removable one the USB glyph. Under
+  `--e2e`, `PRISM_E2E_DRIVE_USED` puts the system drive at that share used. Still
+  ONE pin store and order: a pin moves (menu or drag) only within its own section. Sizes come
+  from main (`driveUsage.ts`, `browse:drives`): `statfs` per drive, 1.5 s cap, a drive whose call
+  is still out is not asked again; labels from ONE PowerShell CIM query, only when the drive set
+  changes or after 10 minutes. The page asks when the panel mounts, on focus (30 s apart) and
+  every 3 minutes (`useDriveUsage`). Headings are semibold, a step under the rows' text, so the
+  heading baseline nudges were measured again. `sidebarPlaces` e2e.
   **THE COLUMN HEADER IS FILE EXPLORER'S** (#274; owner, 2026-10-04: the hover "should be inside
   the whole box"; Size's name "aligned to the left"; the arrow "shows only when you hover over
   them while the currently sorted item has an arrow at all times"). The header keeps the rows'
@@ -670,15 +716,47 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   highlighted, when you go to admin, documents should be highlighted"): arriving at the DIRECT
   PARENT of the folder you were in (Back or Up) marks that folder, and the arrows carry on from
   it. Going in, Forward, and a jump anywhere else still mark nothing; the file on display wins.
-  A RIGHT-CLICK'S MARK IS THE GREY FILL ALONE (#204, owner, 2026-09-23: "it has this white outline
-  which i dont like, i only want the grey bg highlighting"): no ring, not even the focus ring.
+  A RIGHT-CLICK SELECTS, AS FILE EXPLORER DOES (#296, owner, 2026-10-06: "sidebar items should
+  also get highlighted also the discs. but currently its highlighted grey on the main view, not
+  the accent/highlight color ... i see file explorer uses the same highlight if you select a file
+  with left or rightclick. we should probably do the same"). SUPERSEDES the grey menu mark below
+  (2026-08-31, #204) in the Explorer list: a right-click on an unmarked row makes it THE selection
+  (quiet, #263: no preview, no play), in the one selected look (`--p-sel-tint`); inside several
+  marked rows all stay. A place (pin, project, drive in Tiles/Ring/Gauge; `data-menu`) and a
+  project tree row (`onMenuHl`) wear the same tint while their menu is open, without becoming
+  current or selected. Still no ring. `rightClickSelect` e2e measures it on a dark and a light style.
+  THE SIDEBAR MARKS ONE PLACE, AS FILE EXPLORER DOES (#296, owner, 2026-10-06: "when you right click
+  a sidebar item different from the currently selected one there should only be highlighting on the
+  right clicked item ... in file explorer it works like this when you're in a subfolder from the
+  sidebar, i think its based on whether you clicked the pin first then went from there ... the
+  sidebar item gets fully highlighted when you click it but as soon as you click something in the
+  main view after that it gets dimmed, still highlighted but dimmed"). Before, every place whose
+  path equalled the folder wore `aria-current` (a pinned project lit two rows, a subfolder none).
+  Now `lib/placeMark.ts`: the place CLICKED (FolderBrowser's `chosenPlace`, also Open from its menu)
+  stays marked while the folder is it or beneath it, and is forgotten once the folder leaves it;
+  otherwise the first place whose path IS the folder; else none. `aria-current` is on that row
+  alone. While a menu is open on ANOTHER place the mark is DIMMED, not hidden (`data-mark-dim`;
+  owner, 2026-10-06: "think it would look better if the selected folder is dimmed rather than not
+  highlighted when you right click a different folder"), drives' tiles included, and only the
+  right-clicked row is full. NO FLASH BETWEEN RIGHT-CLICKS (same message: "when you right click
+  multiple times the highlight goes from the one you right clicked -> the actually selected folder
+  -> the new one you right clicked"): `ContextMenu` closed on the right PRESS outside it, and
+  Windows sends `contextmenu` on the RELEASE, so every frame of the held button had no menu. A
+  right press outside now closes the menu in the capture phase of the `contextmenu` that opens the
+  next one (or 400 ms after the release if none comes), for every ContextMenu, the project tree's
+  too. `rightClickSelect` records every animation frame across a second right-click. Two
+  strengths (`useActiveArea`, `data-active-area` on `.folder-browser`; a press or focus, menus
+  excluded): full `--p-sel-tint` while the sidebar is where the user acts, `--p-sel-tint-dim`
+  (the tint drained toward its own grey at `SEL_DIM` of its strength, held in
+  `theme.selection.test.ts`) once they act elsewhere. The list's selection dims the same way while
+  the sidebar is active, File Explorer's inactive selection. `rightClickSelect` measures all of it.
   THE PLACES PANEL SLIDES ONLY WHEN IT IS TOGGLED, AND A TAB SWITCH SLIDES NOTHING (#204, owner,
   2026-09-23). Both panels animate their width (180ms) only while App's `panelSliding` is true,
   for one slide after a toggle (`slidePanel`); the places column keeps its contents at their open
   width while it slides. The project `Sidebar` sits behind every tab and is shut on an Explorer
   tab, and one FolderBrowser serves every tab, so any other width change (a tab switch, a drag,
   a window resize) lands at once.
-  A RIGHT-CLICK NEVER SELECTS (2026-08-31): the row it was opened over is the
+  (SUPERSEDED 2026-10-06, #296, above; kept for the history.) A RIGHT-CLICK NEVER SELECTS (2026-08-31): the row it was opened over is the
   menu's target and is marked in GREY (`menuPath`), not in the accent - the accent means
   "these are what I am about to act on", and the menu already acts on the row you opened it
   over. Marks elsewhere are dropped for the same reason: right-clicking row A while B and C
@@ -2539,7 +2617,8 @@ Filesmith's conventions.
 - **THE SETTINGS PAGE IS GROUPED CARDS, ON THE CORE'S FRAME** (#292; owner, 2026-10-05, approved
   v1 "Grouped cards" with no accent bar on the chosen rail item; spec and plan: PrismTerminal
   `docs/superpowers/specs/2026-10-05-settings-redesign-design.md`, PT side PrismTerminal#135).
-  Rail: Find a setting, Appearance, Explorer, Terminal, Agents, Dictation, Media, (spacer) About;
+  Rail: Find a setting, Appearance, Explorer, Project settings, Terminal, Agents, Dictation, Media,
+  (spacer) About;
   Media's Visualizer | Progress bar switch is in its header. The frame, sections, rows, controls,
   search and flash are prism-term-core's (`renderer/settings/layout`, `sections`, `fields`); Prism's
   part is `components/settings/`: the pages, `appOptions.ts` (a CLOSED list of Prism's own rows,
@@ -2560,6 +2639,12 @@ Filesmith's conventions.
   contrast, grey rail, Save the only accent button, row and tile size, panel corners from the
   style's roundness, Large text, narrow and compact rail, screenshots of every page in both
   schemes) and `settingsSearch` (every indexed row found by its label and opened) hold it.
+  **PROJECT SETTINGS IS ITS OWN PAGE, AND THE TREE ALWAYS FOLLOWS THE OPEN FILE** (#296; owner,
+  2026-10-06: "project specific settings should be in a tab called project settings not in
+  explorer. and remove the setting for scroll to open file, it should just be on by default, no
+  setting"). `ProjectPage.tsx` holds Sidebar position and First view of a new project; Folder for
+  new tabs stays on Explorer, since the + and Ctrl+T open an Explorer tab. Scroll to the open file
+  is gone and a stored `prism.tree.autoscroll` is ignored.
 
 
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which

@@ -17,7 +17,6 @@ if (window.prism.demo) {
   void Promise.all([import('./lib/theme'), import('./lib/vizStore')]).then(([theme, viz]) => {
     ;(window as unknown as { prismDemo: unknown }).prismDemo = {
       setStyle: theme.setStyle,
-      setMode: theme.setMode,
       // A visualizer is a PRESET, not a shape: each one carries its own height,
       // position, width and palette, and the grounded ones sit low on purpose.
       // Setting the shape alone leaves the previous geometry behind, which makes

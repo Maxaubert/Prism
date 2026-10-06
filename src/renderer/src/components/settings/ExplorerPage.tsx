@@ -2,12 +2,12 @@ import { useEffect, useState, type JSX } from 'react'
 import { ROW_BUTTON, Segmented, Select, Switch } from 'prism-term-core/renderer/settings/fields'
 import { SettingRow } from 'prism-term-core/renderer/settings/layout/SettingRow'
 import { SettingsSection } from 'prism-term-core/renderer/settings/layout/SettingsSection'
+import { DRIVE_STYLES, setDriveStyle, useDriveStyle } from '../../lib/driveStylePrefs'
 import { EXPLORER_SIZES, setExplorerSize, useExplorerSize } from '../../lib/explorerSize'
 import { setRememberFolders, useRememberFolders } from '../../lib/listingCachePrefs'
-import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../../lib/newTabPrefs'
+import { setNewTabMode, useNewTabFolder, useNewTabMode } from '../../lib/newTabPrefs'
 import { setOpenMode, useOpenMode, type OpenMode } from '../../lib/openPrefs'
 import { setRememberTabs, useRememberTabs } from '../../lib/tabRestorePrefs'
-import { setAutoScroll, setTreeSide, TREE_SIDES, useAutoScroll, useTreeSide, type TreeSide } from '../../lib/treePrefs'
 import { visitedDirectories } from '../../lib/visitedDirectories'
 import { APP_SECTIONS, appOpt } from './appOptions'
 import { iconPath } from './icons'
@@ -16,6 +16,7 @@ import { WinEShortcutRow } from './WinEShortcutRow'
 // EXPLORER (2026-10-05, the grouped cards redesign): what was General, the
 // tree and the Explorer's rows, sorted by what they set up: the layout, how
 // things open, what comes back at a start, and how Prism sits in Windows.
+// What only a PROJECT tab uses is on Project settings (owner, 2026-10-06).
 
 /** One of this page's rows, its icon, label and resting subtext read from
  *  `appOptions.ts` so the page and Find a setting say the same words. */
@@ -25,21 +26,19 @@ const row = (id: string): { icon: string; label: string; sub: string } => {
 }
 
 function LayoutSection(): JSX.Element {
-  const side = useTreeSide()
   const size = useExplorerSize()
-  const follow = useAutoScroll()
+  const drives = useDriveStyle()
   return (
     <SettingsSection id="layout" title={APP_SECTIONS.layout}>
-      <SettingRow id="tree-side" {...row('tree-side')}>
-        <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
-      </SettingRow>
       {/* The Explorer's rows alone (owner, 2026-10-03): the tree and the rest
           of the app keep Font size. */}
       <SettingRow id="explorer-size" {...row('explorer-size')}>
         <Segmented value={size} onChange={setExplorerSize} options={EXPLORER_SIZES.map(({ id, name }) => ({ id, name }))} />
       </SettingRow>
-      <SettingRow id="auto-scroll" {...row('auto-scroll')} tap>
-        <Switch on={follow} onChange={setAutoScroll} label={appOpt('auto-scroll').label} />
+      {/* This PC's rows in the sidebar (#296; owner, 2026-10-06: "option A,
+          D and E as options in settings, with A being default"). */}
+      <SettingRow id="drive-style" {...row('drive-style')}>
+        <Segmented value={drives} onChange={setDriveStyle} options={DRIVE_STYLES} />
       </SettingRow>
     </SettingsSection>
   )
@@ -48,7 +47,6 @@ function LayoutSection(): JSX.Element {
 function OpeningSection(): JSX.Element {
   const tabMode = useNewTabMode()
   const tabFolder = useNewTabFolder()
-  const tabShow = useNewTabShow()
   const openAs = useOpenMode()
   // Picking "A chosen folder" opens the chooser right away; cancelling keeps
   // whatever was set before rather than leaving a mode with no folder.
@@ -77,18 +75,6 @@ function OpeningSection(): JSX.Element {
             ]}
           />
         </div>
-      </SettingRow>
-      <SettingRow id="newtab-show" {...row('newtab-show')}>
-        <Select
-          id="newtab-show"
-          value={tabShow}
-          onChange={(v) => setNewTabShow(v as NewTabShow)}
-          options={[
-            { id: 'file', name: 'First file in the folder' },
-            { id: 'terminal', name: 'A terminal' },
-            { id: 'none', name: 'Folder browser' }
-          ]}
-        />
       </SettingRow>
       {/* Owner, 2026-09-22: a file from outside opens in the Explorer tab,
           "maximized or as previews ... default should be preview". */}

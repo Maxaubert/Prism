@@ -13,6 +13,7 @@ import { AppearancePage } from './AppearancePage'
 import type { AppPageId, MediaView } from './appOptions'
 import { ExplorerPage } from './ExplorerPage'
 import { MediaPage } from './MediaPage'
+import { ProjectPage } from './ProjectPage'
 import { SETTINGS_PAGES, settingsIndex } from './settingsIndex'
 import { TerminalPage } from './TerminalPage'
 
@@ -94,6 +95,10 @@ export function Settings({
         // runs first, and stopping the event here would close the whole page
         // and never let the picker hear it.
         if ((e.target as Element | null)?.closest?.('[data-colour-popover]')) return
+        // THE THEME WALL WHILE IT PREVIEWS owns Escape (#298): it goes back to
+        // the theme it had. With nothing previewed it does not, and Escape
+        // closes the page as it always did.
+        if ((e.target as Element | null)?.closest?.('[data-theme-wall][data-owns-escape]')) return
         // FIND A SETTING HOLDING TEXT owns Escape (spec 1.3): it clears the
         // field, and only an empty field lets Escape close Settings. The core
         // marks the field `data-owns-escape` only while it holds text.
@@ -153,6 +158,8 @@ export function Settings({
             <AppearancePage />
           ) : page === 'explorer' ? (
             <ExplorerPage />
+          ) : page === 'project' ? (
+            <ProjectPage />
           ) : page === 'terminal' ? (
             <TerminalPage />
           ) : page === 'agents' ? (

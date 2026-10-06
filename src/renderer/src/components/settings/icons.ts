@@ -19,6 +19,7 @@ export const PRISM_ICONS = {
   folder: 'M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z',
   corners: 'M4 20V11a7 7 0 0 1 7-7h9',
   rows: 'M4 6h16M4 12h16M4 18h16',
+  drive: 'M3 14h18v5H3zM5 14l2-8h10l2 8M17 16.5h.01',
   follow: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
   project: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
   file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
@@ -31,7 +32,8 @@ export const PRISM_ICONS = {
   cycle: 'M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4',
   move: 'M4 12h16M16 8l4 4-4 4',
   setup: 'M4 12a8 8 0 1 1 2.3 5.7M4 18v-4h4',
-  progress: 'M4 12h16M8 12a2 2 0 1 0 4 0 2 2 0 1 0-4 0'
+  progress: 'M4 12h16M8 12a2 2 0 1 0 4 0 2 2 0 1 0-4 0',
+  pen: 'M15 5l4 4L8 20H4v-4z'
 } as const
 
 export type PrismIconName = keyof typeof PRISM_ICONS

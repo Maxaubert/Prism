@@ -57,6 +57,7 @@ import {
   validDesktopRoot
 } from './desktopAccess'
 import { browseDirectory, browseLocations, browseWatch, type BrowseRead } from './browse'
+import { driveUsage, withUsedShare } from './driveUsage'
 import { MemberTemp, cleanDeadRuns, pidAlive } from './memberTemp'
 import { containerSync, createArchiveBrowse } from './archiveBrowse'
 import { placeOf } from '@shared/archivePlace'
@@ -2604,6 +2605,9 @@ if (!app.requestSingleInstanceLock()) {
       browseWatch(tabId, path, folderChanged)
     )
     ipcMain.handle('browse:locations', () => browseLocations((key) => app.getPath(key)))
+    ipcMain.handle('browse:drives', async (_e, paths: unknown) =>
+      E2E ? withUsedShare(await driveUsage(paths), process.env.PRISM_E2E_DRIVE_USED) : driveUsage(paths)
+    )
     // Downloads' date groups count weeks from the user's first day (#285).
     ipcMain.handle('system:week-start', () => weekStart())
     ipcMain.handle('folder:sizes-cached', async (_event, paths: unknown) => {

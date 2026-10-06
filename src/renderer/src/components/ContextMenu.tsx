@@ -32,7 +32,7 @@ export interface MenuItem {
 const PANEL =
   // Flat surface colour: --p-title is translucent on glass styles, and a menu
   // you can read the file names through is noise, not material.
-  'max-h-[calc(100dvh-16px)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] shadow-[0_10px_28px_rgba(0,0,0,.5)]'
+  'max-h-[calc(100dvh-16px)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-raised)] shadow-[0_10px_28px_rgba(0,0,0,.5)]'
 
 function Row({
   it,
@@ -138,6 +138,16 @@ export function ContextMenu({
     }
   }, [])
   useEffect(() => cancelClose, [cancelClose])
+  // A right press outside, waiting for its `contextmenu` (see the dismiss
+  // effect below), and the fallback close if that never comes.
+  const rightPress = useRef(false)
+  const lateClose = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (lateClose.current !== null) window.clearTimeout(lateClose.current)
+    },
+    []
+  )
 
   useLayoutEffect(() => {
     // Async rows (such as Paste) and zoom changes can change the menu's size.
@@ -232,17 +242,60 @@ export function ContextMenu({
     // Dismiss on any press outside the menu, but let that press through to
     // whatever it landed on: clicking a file while the menu is open should open
     // that file, not cost you a second click.
+    //
+    // A RIGHT press outside is the start of the NEXT menu, so it closes this
+    // one only when that menu is asked for (#296; owner, 2026-10-06: "when you
+    // right click multiple times the highlight goes from the one you right
+    // clicked -> the actually selected folder -> the new one you right
+    // clicked"). Windows sends `contextmenu` on the RELEASE: closing at the
+    // press left every frame of the held button with no menu, so the row it
+    // had lit went dark and the marks underneath came back, until the
+    // release lit the new row. Closed in the capture phase of that same
+    // `contextmenu`, before the row's own handler opens its menu, so no frame
+    // ever paints between the two. A press whose `contextmenu` never comes
+    // (taken by something else, or the pointer left the window) still
+    // closes, shortly after its release.
+    //
+    // Refs, not locals: an owner's inline onClose re-runs this effect on
+    // every render, and a render while the button is held must not forget it.
+    const settle = (): void => {
+      if (lateClose.current !== null) window.clearTimeout(lateClose.current)
+      lateClose.current = null
+      rightPress.current = false
+    }
+    const outside = (t: Node): boolean =>
+      !anchor?.contains(t) && !box.current?.contains(t) && !fly.current?.contains(t)
     const onDown = (e: PointerEvent): void => {
-      const t = e.target as Node
-      if (anchor?.contains(t)) return
-      if (!box.current?.contains(t) && !fly.current?.contains(t)) onClose()
+      if (!outside(e.target as Node)) return
+      if (e.button === 2) {
+        rightPress.current = true
+        return
+      }
+      onClose()
+    }
+    const onUp = (e: PointerEvent): void => {
+      if (!rightPress.current || e.button !== 2) return
+      if (lateClose.current !== null) window.clearTimeout(lateClose.current)
+      lateClose.current = window.setTimeout(() => {
+        settle()
+        onClose()
+      }, 400)
+    }
+    const onContext = (e: MouseEvent): void => {
+      if (!outside(e.target as Node)) return
+      settle()
+      onClose()
     }
     window.addEventListener('keydown', onKey, true)
     window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('contextmenu', onContext, true)
     window.addEventListener('blur', onClose)
     return () => {
       window.removeEventListener('keydown', onKey, true)
       window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('contextmenu', onContext, true)
       window.removeEventListener('blur', onClose)
     }
   }, [onClose, anchor])

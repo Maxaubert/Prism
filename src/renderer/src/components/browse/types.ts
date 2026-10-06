@@ -3,13 +3,15 @@ import type { ArchiveMeta, DirListing, ViewerFile } from '@shared/types'
 import type { QuickAccessPin } from '../../lib/quickAccess'
 import type { DragPayload } from '../../lib/dragDrop'
 import type { FolderSizeResult } from '@shared/folderSize'
-import type { BrowseSearchResult } from '@shared/browse'
+import type { BrowseDriveUsage, BrowseSearchResult, BrowseShortcut } from '@shared/browse'
 import type { ListPending } from '../../lib/usePendingHint'
 
 export interface BrowsePlace {
   path: string
   label: string
   group: 'Quick access' | 'Projects' | 'This PC'
+  /** The Windows Known Folder a Quick access place is (#296): its glyph. */
+  known?: BrowseShortcut['known']
 }
 
 export interface BrowseEntry {
@@ -62,6 +64,8 @@ export interface FolderBrowserProps {
   /** A place or a pin was picked from the peeking panel: the peek is over. */
   onPlacePicked?: () => void
   quickAccess?: QuickAccessPin[]
+  /** How full each drive is, asked of main (#296). */
+  readDrives?: (paths: string[]) => Promise<BrowseDriveUsage[]>
   onQuickAccessFile?: (path: string, full?: boolean) => void
   onUnpinQuickAccess?: (path: string) => void
   onMoveQuickAccess?: (path: string, beforePath?: string) => void
@@ -70,7 +74,6 @@ export interface FolderBrowserProps {
    *  list's own, and one component serves every Explorer tab. */
   owner?: string
   selectedPath: string | null
-  menuPath?: string
   scrollTop: number
   query: string
   searchState?: BrowseSearchState

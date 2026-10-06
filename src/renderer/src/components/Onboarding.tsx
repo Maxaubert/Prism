@@ -1,24 +1,13 @@
 import { useState, type JSX, type ReactNode } from 'react'
-import {
-  isEdited,
-  paintedAlpha,
-  rgba,
-  savePreset,
-  setMode,
-  setStyle,
-  stylesFor,
-  useMode,
-  useStyle,
-  variablesFor,
-  type Mode,
-  type Style
-} from '../lib/theme'
-import { FrostBackdrop } from './FrostBackdrop'
-import { StyleMini } from './StyleMini'
+import { isEdited, savePreset, useStyle, useThemes, variablesFor, type Style } from '../lib/theme'
+import { visibleIndices } from '../lib/themes/wall'
+import { ThemeCard } from './ThemeCard'
+import { ThemeWall } from './settings/ThemeWall'
 import appIcon from '../assets/icon.png'
 
-// The first-run setup: a full-window page, not a dialog. Four steps and a
-// welcome, each one animating in on the click that brought you to it - nothing
+// The first-run setup: a full-window page, not a dialog. Three steps and a
+// welcome (#298: the Dark / Light step and the Style step became ONE theme
+// step, on the same wall Settings has, since there is no Colour mode), each one animating in on the click that brought you to it - nothing
 // here plays by itself, and nothing changes until you pick it.
 //
 // It sits under the title bar so the window can still be moved, minimised and
@@ -32,89 +21,19 @@ const CHECK = (
 
 /* ---------- the art, drawn from the theme's own tokens ---------- */
 
-/** The two appearance cards. Shown live, and again inside the sweep, so they
- *  don't blink out while the window is changing under them. */
-function ModeCards({ mode, onPick }: { mode: Mode; onPick?: (m: Mode) => void }): JSX.Element {
+/** The cards of the wall's row in view, still, for the sweep: the copy has to
+ *  carry the page, or the wall blinks out while the window changes. */
+function StillRow({ chosen }: { chosen: Style }): JSX.Element {
+  const themes = useThemes()
+  const at = Math.max(
+    0,
+    themes.findIndex((t) => t.id === chosen.id)
+  )
   return (
-    <div className="mt-6 flex gap-3.5">
-      {(['dark', 'light'] as Mode[]).map((m) => (
-        <button
-          key={m}
-          onClick={onPick ? () => onPick(m) : undefined}
-          aria-pressed={mode === m}
-          tabIndex={onPick ? 0 : -1}
-          className={`w-[166px] rounded-[14px] border p-2.5 text-left transition ${
-            mode === m
-              ? 'border-[var(--p-accent-solid)] shadow-[0_0_0_2px_var(--p-accent-solid)]'
-              : 'border-[color:var(--p-line)] hover:-translate-y-0.5'
-          }`}
-          // backgroundColor, not the background shorthand: the inline
-          // shorthand reset the base rule's focus fill (#272 review), so a
-          // card reached by Tab looked exactly like one that was not.
-          style={{ backgroundColor: 'var(--p-hover)' }}
-        >
-          <ModePreview mode={m} />
-          <span className="mt-2.5 block text-[13.5px] font-bold capitalize text-[var(--p-text)]">{m}</span>
-          <span className="block text-[11.5px] text-[var(--p-dim2)]">
-            {m === 'dark' ? 'Quiet chrome, media leads' : 'Paper white, ink black'}
-          </span>
-        </button>
+    <div className="mt-6 grid grid-cols-6 gap-x-2 gap-y-3 p-1.5">
+      {visibleIndices(themes.length, 6, at, false).map((i) => (
+        <ThemeCard key={themes[i].id} st={themes[i].id === chosen.id ? chosen : themes[i]} chosen={i === at} tabbable={false} height={72} onPick={() => {}} />
       ))}
-    </div>
-  )
-}
-
-/** A miniature of the window in a mode, for the two appearance cards. Both
- *  defaults are acrylic, so it frosts exactly as the style cards do. */
-function ModePreview({ mode }: { mode: Mode }): JSX.Element {
-  const st = stylesFor(mode)[0]
-  const glassA = st ? paintedAlpha(st) : 1
-  const frosted = glassA < 1
-  const bg = st ? (frosted ? rgba(st.bg, glassA) : st.bg) : '#0b0d12'
-  const side = st ? (frosted ? rgba(st.side, glassA) : st.side) : '#12151b'
-  return (
-    <div className="relative flex h-[72px] overflow-hidden rounded-[9px]">
-      {frosted && <FrostBackdrop />}
-      <div className="relative" style={{ width: '32%', background: side }} />
-      <div className="relative flex-1" style={{ background: bg }}>
-        <div className="absolute left-[14%] right-[14%] top-[30%] h-[34%] rounded bg-[linear-gradient(140deg,#7d1f2a,#b03a2e_45%,#2c3e63)]" />
-      </div>
-    </div>
-  )
-}
-
-/** A miniature of the app in the current style: the accent picker needs
- *  something big to change, or picking one looks like it did nothing. */
-function StyleArt(): JSX.Element {
-  return (
-    <div aria-hidden className="ob-tile absolute right-[86px] top-1/2 w-[400px] -translate-y-1/2" style={{ animationDelay: '.14s' }}>
-      <div className="overflow-hidden rounded-[14px] border border-[var(--p-line)] shadow-[0_40px_70px_-40px_rgba(0,0,0,.85)]">
-        <div className="flex h-[26px] items-center gap-1.5 px-3" style={{ background: 'var(--p-title)' }}>
-          <span className="h-[7px] w-[7px] rounded-[2px]" style={{ background: 'var(--p-accent)' }} />
-          <span className="h-[3px] w-[30%] rounded-full bg-[var(--p-dim2)] opacity-50" />
-        </div>
-        <div className="flex h-[210px]">
-          <div className="flex w-[36%] flex-col gap-2.5 py-4" style={{ background: 'var(--p-side)' }}>
-            {[62, 78, 54, 70, 46].map((w, i) => (
-              <span
-                key={i}
-                className="ml-4 h-[6px] rounded-full"
-                style={{
-                  width: w,
-                  background: i === 2 ? 'var(--p-accent)' : 'var(--p-dim2)',
-                  opacity: i === 2 ? 1 : 0.45
-                }}
-              />
-            ))}
-          </div>
-          <div className="relative flex-1" style={{ background: 'var(--p-bg)' }}>
-            <div className="absolute left-[12%] right-[12%] top-[24%] h-[44%] rounded-md bg-[linear-gradient(140deg,#7d1f2a,#b03a2e_45%,#2c3e63)]" />
-            <div className="absolute inset-x-5 bottom-5 h-[5px] overflow-hidden rounded-full" style={{ background: 'var(--p-track)' }}>
-              <span className="block h-full w-[44%] rounded-full" style={{ background: 'var(--p-accent)' }} />
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
@@ -200,8 +119,8 @@ function Footer({
   const dead = !onNext
   return (
     <div className="mt-auto flex items-center gap-3">
-      <div className="mr-1 flex gap-[7px]">
-        {[0, 1, 2, 3].map((n) => (
+      <div data-ob-dots="" className="mr-1 flex gap-[7px]">
+        {[0, 1, 2].map((n) => (
           <span
             key={n}
             className={`block h-[7px] rounded-full transition-all duration-300 ${
@@ -255,9 +174,8 @@ function Body({ text }: { text: string }): JSX.Element {
 /* ---------- the page ---------- */
 
 const COPY = [
-  { kicker: 'Appearance', head: ['Dark, or ', 'light', '.'], body: 'Both ship with their own styles. Change it whenever you like.' },
+  { kicker: 'Appearance', head: ['Choose your look.'], body: 'Every theme is dark or light by itself. Settings has the rest.' },
   { kicker: 'The sidebar', head: ['Your folder, one key away.'], body: '[Ctrl] + [B] opens the folder you came from. Click to view, arrow to move on.' },
-  { kicker: 'Style', head: ['Make it yours.'], body: 'Pick a look. Every one of these ships with your mode, and Settings has the rest.' },
   { kicker: 'One last thing', head: ['Open ', 'everything', ' with Prism.'], body: 'Images, video, audio, documents. Windows asks first, nothing changes behind your back.' }
 ]
 
@@ -266,20 +184,22 @@ export function Onboarding({ onDone }: { onDone: () => void }): JSX.Element {
   // A still of the window as it is now, held over the top while the real one
   // changes underneath and then wiped away.
   const [leaving, setLeaving] = useState<{ style: Style; step: number } | null>(null)
-  const mode = useMode()
-  const style = useStyle()
+  useStyle() // repaint the page's own tokens with the theme
 
-  // Changing the mode restyles the whole app, so it gets a transition of its own:
-  // a copy of this page in the incoming style crosses the window, and the style
-  // underneath only changes once it has finished. Doing it halfway through was
-  // what made the title bar jump a beat after the rest.
-  const pickMode = (m: Mode): void => {
-    if (m === mode || leaving) return
-    setLeaving({ style, step })
-    // Not the next frame: the still fades in over the window it is a picture of,
-    // and only once it is opaque does the style change behind it. Switching
-    // sooner is what put a small jump right before the wipe set off.
-    window.setTimeout(() => setMode(m), 170)
+  // A pick that changes dark to light (or back) restyles the whole app, so it
+  // gets a transition of its own: a copy of this page in the theme on screen
+  // crosses the window, and the theme underneath only changes once it is
+  // opaque. Doing it halfway through was what made the title bar jump a beat
+  // after the rest. A pick within a mode, and an arrow's preview, just paint.
+  const commitWith = (from: Style, to: Style, commit: () => void): void => {
+    if (from.mode === to.mode || leaving) {
+      if (!leaving) commit()
+      return
+    }
+    setLeaving({ style: from, step })
+    // Not the next frame: the still fades in over the window it is a picture
+    // of, and only once it is opaque does the theme change behind it.
+    window.setTimeout(commit, 170)
     window.setTimeout(() => setLeaving(null), 1380)
   }
 
@@ -288,7 +208,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): JSX.Element {
     setStep(n)
   }
 
-  // An accent picked here is an edit to a shipped style, and edits are lost the
+  // An edit made here is an edit to a shipped theme, and edits are lost the
   // moment a style card is clicked in Settings. Keeping it as a preset of its
   // own means the choice survives - and the style it came from is still there,
   // unchanged, to go back to.
@@ -324,13 +244,12 @@ export function Onboarding({ onDone }: { onDone: () => void }): JSX.Element {
   }
 
   const c = COPY[step]
-  const last = step === 3
+  const last = step === 2
 
   return (
     <Shell>
       {step === 1 && <TreeArt />}
-      {step === 2 && <StyleArt />}
-      {step === 3 && <FilesArt />}
+      {step === 2 && <FilesArt />}
 
       <div className={`ob-deal absolute inset-0 z-20 flex flex-col px-[62px] py-[52px] ${step === 1 ? 'pl-[372px]' : ''}`}>
         <div className="text-[11px] font-extrabold uppercase tracking-[.22em] text-[var(--p-accent-hi)]">{c.kicker}</div>
@@ -345,47 +264,11 @@ export function Onboarding({ onDone }: { onDone: () => void }): JSX.Element {
           <Body text={c.body} />
         </p>
 
-        {step === 0 && <ModeCards mode={mode} onPick={pickMode} />}
-
-        {step === 2 && (
-          // The styles that ship with the mode chosen a step ago. A card is the
-          // window it makes, so the choice is shown rather than described, and
-          // the mock on the right repaints as you go.
-          <div className="mt-6 grid max-w-[430px] grid-cols-3 gap-2.5">
-            {stylesFor(mode).map((st) => {
-              const on = st.id === style.id
-              const light = mode === 'light'
-              return (
-                <button
-                  key={st.id}
-                  onClick={() => setStyle(st.id)}
-                  aria-pressed={on}
-                  className="rounded-[12px] px-1.5 pb-1 pt-1.5 text-left transition hover:-translate-y-[2px]"
-                  style={{
-                    // A glass tile in the app's own material: a translucent
-                    // sheet with a lit top edge, tinting to the accent when it
-                    // is the chosen one. Deliberately no backdrop-filter: in a
-                    // translucent Electron window it renders opaque, which is
-                    // the opposite of the point.
-                    background: on
-                      ? 'color-mix(in srgb, var(--p-accent) 16%, transparent)'
-                      : light
-                        ? 'rgba(255,255,255,.55)'
-                        : 'rgba(255,255,255,.07)',
-                    boxShadow: on
-                      ? 'inset 0 0 0 1.5px color-mix(in srgb, var(--p-accent-solid) 55%, transparent)'
-                      : light
-                        ? 'inset 0 1px 0 rgba(255,255,255,.9), 0 6px 18px -12px rgba(0,0,0,.5)'
-                        : 'inset 0 1px 0 rgba(255,255,255,.14), 0 8px 20px -14px rgba(0,0,0,.9)'
-                  }}
-                >
-                  <StyleMini st={st} />
-                  <span className="mt-1.5 block px-0.5 text-[11.5px] font-semibold text-[var(--p-text-soft)]">
-                    {st.name}
-                  </span>
-                </button>
-              )
-            })}
+        {step === 0 && (
+          // THE SAME WALL AS SETTINGS, the whole page wide: the window itself
+          // is the preview, so there is no picture of one beside it.
+          <div className="mt-6" data-onboarding-wall="">
+            <ThemeWall height={72} commitWith={commitWith} />
           </div>
         )}
 
@@ -405,7 +288,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): JSX.Element {
           last={last}
           onBack={() => go(step - 1)}
           onNext={() => (last ? finish() : go(step + 1))}
-          onSkip={() => go(3)}
+          onSkip={() => go(2)}
         />
       </div>
 
@@ -453,7 +336,7 @@ function Sweep({ style, step }: { style: Style; step: number }): JSX.Element {
         <p className="mt-4 max-w-[40ch] text-[15.5px] leading-relaxed text-[var(--p-dim)]">
           <Body text={c.body} />
         </p>
-        {step === 0 && <ModeCards mode={style.mode} />}
+        {step === 0 && <StillRow chosen={style} />}
         <Footer step={step} />
       </div>
     </div>

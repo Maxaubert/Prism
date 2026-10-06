@@ -21,6 +21,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statfsSync,
   statSync,
   truncateSync,
   utimesSync,
@@ -28,7 +29,7 @@ import {
 } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { BIG, buildBigFixtures, buildFixtures, OTHER_ROOT } from './fixtures.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -5098,9 +5099,9 @@ async function tabsScenario(fixtures) {
  * the core's lists); these are the rows the scenarios reach.
  */
 const SETTINGS_PAGE_OF = {
-  mode: 'appearance', 'style-theme': 'appearance', 'c-bg': 'appearance', 'c-accent': 'appearance', 'c-font': 'appearance',
+  'style-theme': 'appearance', 'see-through': 'appearance', 'theme-edits': 'appearance', 'c-bg': 'appearance', 'c-accent': 'appearance', 'c-font': 'appearance',
   'tree-size': 'appearance', 'title-bar': 'appearance', 'tab-width': 'appearance', 'c-edges': 'appearance', 'c-corners': 'appearance',
-  'tree-side': 'explorer', 'explorer-size': 'explorer', 'auto-scroll': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'explorer',
+  'tree-side': 'project', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'project',
   'open-external': 'explorer', 'remember-tabs': 'explorer', 'remember-folders': 'explorer', 'explorer-verb': 'explorer', 'default-apps': 'explorer',
   'term-shell': 'terminal', 'term-theme': 'terminal', 'agent-indicator': 'agents', 'agent-color': 'agents',
   'dictation-enabled': 'dictation', 'transport-bg': 'media', 'app-version': 'about'
@@ -7987,7 +7988,7 @@ async function markTintScenario(fixtures) {
   mkdirSync(dir, { recursive: true })
   for (const n of ['m1.txt', 'm2.txt', 'm3.txt', 'm4.txt', 'm5.txt', 'm6.txt']) writeFileSync(join(dir, n), `tint ${n}\n`)
   const { app, win } = await launch(join(dir, 'm1.txt'))
-  let styleBefore = null
+  let styleBefore
   let draftBefore = null
   const alphaOf = (c) => {
     const n = (c.match(/[\d.]+/g) ?? []).map(Number)
@@ -8030,7 +8031,7 @@ async function markTintScenario(fixtures) {
   }
   try {
     draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
-    styleBefore = await switchStyle(win, 'aurora', 'dark')
+    styleBefore = await switchStyle(win, 'aurora')
     await sleep(400)
 
     /* ---------- the tree ---------- */
@@ -8097,12 +8098,12 @@ async function markTintScenario(fixtures) {
     await win.screenshot({ path: join(SHOTS, 'marktint-explorer-dark.png') })
 
     /* ---------- the Explorer, light ---------- */
-    await switchStyle(win, 'paper', 'light')
+    await switchStyle(win, 'paper')
     ok(await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light')), 'in a light style (Paper)')
     await sleep(400)
     await checkExplorer('light')
     await win.screenshot({ path: join(SHOTS, 'marktint-explorer-light.png') })
-    await switchStyle(win, 'aurora', 'dark')
+    await switchStyle(win, 'aurora')
     await sleep(400)
 
     /* ---------- the Settings rail, accent alpha below 1 ---------- */
@@ -8177,7 +8178,7 @@ async function markTintScenario(fixtures) {
         window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
       }, draftBefore)
       .catch(() => {})
-    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
     await app.close().catch(() => {})
   }
 
@@ -8188,7 +8189,7 @@ async function markTintScenario(fixtures) {
   zip.writeZip(join(dir, 'tint.zip'))
   const z = await launch(join(dir, 'tint.zip'))
   try {
-    await switchStyle(z.win, 'aurora', 'dark')
+    await switchStyle(z.win, 'aurora')
     // Inside a zip the rows are the Explorer's own (#300).
     await inZip(z.win, join(dir, 'tint.zip'))
     const zr = (n) => z.win.locator(`[data-testid="browse-list"] [data-browse-path$="${n}"]`)
@@ -8211,7 +8212,7 @@ async function markTintScenario(fixtures) {
     ok((arc.joined.match(/inset/g) ?? []).length === 3, `two marked neighbours in a zip are one block (${arc.joined})`)
     await z.win.screenshot({ path: join(SHOTS, 'marktint-archive-dark.png') })
   } finally {
-    if (styleBefore) await switchStyle(z.win, styleBefore[0], styleBefore[1]).catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(z.win, styleBefore).catch(() => {})
     await z.app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
@@ -8280,6 +8281,727 @@ async function listScrollbarScenario(fixtures) {
   }
 }
 
+/** What a This PC row shows (#296), whatever its Drive style: its style, its
+ *  warning, the glyph and badge, the name, the free words, and the used share
+ *  as each style draws it (the bar's width, the ring's arc, the lit steps). */
+const driveLookAt = (win, path) =>
+  win.evaluate((p) => {
+    const el = [...document.querySelectorAll('.folder-browser .browse-places .browse-drive')].find((b) => b.getAttribute('title') === p)
+    if (!el) return null
+    const q = (s) => el.querySelector(s)
+    const box = (s) => q(s)?.getBoundingClientRect()
+    const style = ['tiles', 'ring', 'gauge'].find((s) => el.classList.contains(`browse-drive-${s}`)) ?? null
+    const out = {
+      style,
+      warn: el.hasAttribute('data-warn'),
+      glyph: q('[data-drive-glyph]')?.getAttribute('data-drive-glyph') ?? null,
+      icon: q('[data-place-icon]')?.getAttribute('data-place-icon') ?? null,
+      badge: !!q('[data-windows-badge]'),
+      chip: !!q('.browse-drive-chip'),
+      name: q('.browse-drive-name')?.textContent ?? '',
+      free: q('.browse-drive-free')?.textContent ?? '',
+      pct: q('.browse-drive-pct')?.textContent ?? null,
+      height: el.getBoundingClientRect().height,
+      font: parseFloat(getComputedStyle(el).fontSize),
+      chipW: box('.browse-drive-chip')?.width ?? null,
+      bar: !!q('.browse-drive-bar'),
+      ring: !!q('.browse-drive-donut'),
+      seg: q('.browse-drive-seg') ? q('.browse-drive-seg').children.length : 0,
+      fraction: null,
+      fill: null,
+      ink: null
+    }
+    if (style === 'tiles' && q('.browse-drive-bar > i')) {
+      out.fraction = box('.browse-drive-bar > i').width / box('.browse-drive-bar').width
+      out.barH = box('.browse-drive-bar').height
+      out.fill = getComputedStyle(q('.browse-drive-bar > i')).backgroundColor
+      out.ink = getComputedStyle(q('.browse-drive-pct')).color
+    } else if (style === 'ring' && q('.browse-drive-ring-used')) {
+      const dash = parseFloat(q('.browse-drive-ring-used').getAttribute('stroke-dasharray'))
+      out.fraction = dash / (2 * Math.PI * 10)
+      out.fill = getComputedStyle(q('.browse-drive-ring-used')).stroke
+      out.ink = getComputedStyle(q('.browse-drive-pct')).color
+    } else if (style === 'gauge' && q('.browse-drive-seg')) {
+      out.lit = el.querySelectorAll('.browse-drive-seg > i[data-on]').length
+      out.fraction = out.lit / 20
+      out.nums = [q('.browse-drive-nums > :first-child')?.textContent, q('.browse-drive-total')?.textContent]
+      const on = q('.browse-drive-seg > i[data-on]')
+      out.fill = on ? getComputedStyle(on).backgroundColor : null
+      out.ink = getComputedStyle(q('.browse-drive-nums em')).color
+    }
+    return out
+  }, path)
+
+/** A CSS colour as the page resolves it, for comparing with a computed one. */
+const cssColour = (win, value) =>
+  win.evaluate((v) => {
+    const probe = document.createElement('i')
+    probe.style.color = v
+    document.body.append(probe)
+    const c = getComputedStyle(probe).color
+    probe.remove()
+    return c
+  }, value)
+
+/**
+ * A FRAME RECORDER for a look that must never flash (#296; owner, 2026-10-06:
+ * "when you right click multiple times the highlight goes from the one you
+ * right clicked -> the actually selected folder -> the new one you right
+ * clicked"). Each element is tagged by name, and every animation frame until
+ * `stopFrames` the page writes down what each one paints. A frame is what the
+ * eye can see, so a state that lasts no frame is no flash.
+ */
+const watchAs = (loc, name) => loc.evaluate((e, n) => e.setAttribute('data-e2e-watch', n), name)
+const startFrames = (win) =>
+  win.evaluate(() => {
+    const w = window
+    w.__frames = []
+    w.__framesOn = true
+    const tick = () => {
+      if (!w.__framesOn) return
+      const f = {}
+      for (const e of document.querySelectorAll('[data-e2e-watch]'))
+        f[e.getAttribute('data-e2e-watch')] = getComputedStyle(e).backgroundColor
+      w.__frames.push(f)
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+const stopFrames = (win) =>
+  win.evaluate(() => {
+    window.__framesOn = false
+    for (const e of document.querySelectorAll('[data-e2e-watch]')) e.removeAttribute('data-e2e-watch')
+    return window.__frames
+  })
+/** A right-click as a hand makes one: the button held a moment, so the
+ *  frames between the press and the release (where Windows sends the
+ *  contextmenu) are there to be seen. It lands near the row's left end: the
+ *  open menu starts where the last right-click was, mid-row, and may cover
+ *  the middle of the rows below. */
+const slowRightClick = async (win, loc) => {
+  const b = await loc.boundingBox()
+  await win.mouse.move(b.x + Math.min(24, b.width / 4), b.y + b.height / 2)
+  await win.mouse.down({ button: 'right' })
+  await sleep(150)
+  await win.mouse.up({ button: 'right' })
+}
+/** Frames where A and B are not exactly one lit (in `tint`), or A is lit
+ *  again after B was: the highlight must go straight from A to B. */
+const flashFrames = (frames, tint) => {
+  let seenB = false
+  const bad = []
+  frames.forEach((f, i) => {
+    const a = f.a === tint
+    const b = f.b === tint
+    if (a === b || (seenB && a)) bad.push(i)
+    if (b) seenB = true
+  })
+  return { bad, seenB }
+}
+
+/** How full a drive really is, by Node's own statfs; null when it will not say. */
+function usedShare(root) {
+  try {
+    const fs = statfsSync(root)
+    return fs.blocks > 0 ? (fs.blocks - fs.bavail) / fs.blocks : null
+  } catch {
+    return null
+  }
+}
+
+/** Whether a drive style's drawing of a share matches the real one. The
+ *  Gauge lights whole twentieths, at least one for anything in use. */
+function drawsShare(look, want) {
+  if (look?.fraction == null || want == null) return false
+  if (look.style === 'gauge') return look.lit === (want > 0 ? Math.max(1, Math.round(want * 20)) : 0) || Math.abs(look.lit - want * 20) <= 0.51
+  return Math.abs(look.fraction - want) < 0.01
+}
+
+const DRIVE_STYLE_NAMES = { tiles: 'Tiles', ring: 'Ring', gauge: 'Gauge' }
+
+/**
+ * A RIGHT-CLICK SELECTS, AS FILE EXPLORER DOES (#296; owner, 2026-10-06: "when
+ * you right click something in the main view it gets highlighted, but not in
+ * the sidebar ... and it gets highlighted grey ... i see file explorer uses the
+ * same highlight if you select a file with left or rightclick. we should
+ * probably do the same"). Measured off computed backgrounds: a right-click on
+ * an unmarked file makes it THE selection, in exactly a left click's tint, and
+ * the old selection goes; one inside a multi-selection keeps all of it. A
+ * place (a pin, a drive in each of its three styles) and a project tree row
+ * wear the same tint while their menu is open and lose it when it shuts.
+ * Screenshots of each on a dark and a light style.
+ */
+async function rightClickSelectScenario(fixtures) {
+  console.log('right-click selects')
+  const dir = join(fixtures, 'rclick')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'sub', 'deeper'), { recursive: true })
+  writeFileSync(join(dir, 'sub', 'deeper', 'x.txt'), 'x\n')
+  for (const name of ['a.txt', 'b.txt', 'c.txt', 'd.txt']) writeFileSync(join(dir, name), `${name}\n`)
+  const { app, win } = await launch(join(dir, 'a.txt'))
+  const list = win.locator('[data-testid="browse-list"]')
+  const row = (name) => list.locator(`[data-browse-path$="\\\\${name}" i]`).first()
+  const places = win.locator('.folder-browser .browse-places')
+  const bg = (loc) => loc.evaluate((el) => getComputedStyle(el).backgroundColor)
+  const marked = () =>
+    list.locator('.browse-row[data-selected]').evaluateAll((els) =>
+      els.map((e) => e.getAttribute('data-browse-path').split('\\').pop()).sort()
+    )
+  const menuOpen = async () => (await win.locator('[role="menu"]').count()) > 0
+  // The pointer off every row, so a hover's fill is never read as a mark.
+  const away = async () => {
+    const size = await win.evaluate(() => [innerWidth, innerHeight])
+    await win.mouse.move(size[0] / 2, size[1] - 2)
+    await sleep(250)
+  }
+  const shut = async () => {
+    await win.keyboard.press('Escape')
+    await until(async () => !(await menuOpen()), 3000)
+    await away()
+  }
+  let styleBefore = null
+  try {
+    // 0. THE PROJECT TREE: a right-clicked row wears the selection tint while
+    // its menu is open, not the grey.
+    const treeRow = win.locator('[data-row$="\\\\b.txt" i]').first()
+    if (await until(async () => (await treeRow.count()) === 1, 8000)) {
+      const tint = await cssColour(win, 'var(--p-sel-tint)')
+      await away()
+      const before = await bg(treeRow)
+      await treeRow.click({ button: 'right' })
+      ok(await until(menuOpen, 3000), 'a tree row answers a right-click with its menu')
+      await sleep(250)
+      const during = await bg(treeRow)
+      ok(during === tint, `the right-clicked tree row wears the selection tint (${during}, tint ${tint})`)
+      await win.screenshot({ path: join(SHOTS, 'rightclick-tree.png') })
+      // A second right-click, on c.txt while b.txt's menu is open: the tint
+      // goes straight from one to the other, no frame with neither lit.
+      const treeC = win.locator('[data-row$="\\\\c.txt" i]').first()
+      await watchAs(treeRow, 'a')
+      await watchAs(treeC, 'b')
+      await startFrames(win)
+      await slowRightClick(win, treeC)
+      ok(await until(menuOpen, 3000), 'c.txt answers the second right-click with its menu')
+      await sleep(200)
+      const treeFrames = await stopFrames(win)
+      const treeFlash = flashFrames(treeFrames, tint)
+      ok(treeFrames.length >= 5 && treeFlash.seenB && treeFlash.bad.length === 0, `the tree's tint goes straight from b.txt to c.txt (${treeFrames.length} frames, bad ${JSON.stringify(treeFlash.bad.slice(0, 5).map((i) => treeFrames[i]))})`)
+      await shut()
+      ok((await bg(treeRow)) === before, `and loses it when the menu shuts (${await bg(treeRow)}, was ${before})`)
+    } else ok(false, 'the project tree lists b.txt')
+
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await row('b.txt').count()) === 0) await row('rclick').dblclick()
+    ok(await until(async () => (await row('b.txt').count()) === 1, 10000), 'the Explorer shows the fixture folder')
+    // A pinned folder with a folder in it, for the one-mark checks (3).
+    await row('sub').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const subPin = places.locator('section[aria-label="Pinned"] .quick-access-pin[data-quick-access-path$="\\\\sub" i]')
+    ok(await until(async () => (await subPin.count()) === 1, 5000), 'sub is pinned')
+    await shut().catch(() => {})
+    const goByAddress = async (path, landed) => {
+      const pathBox = win.locator('.folder-browser [data-testid="browse-toolbar"] nav.browse-path')
+      const box = await pathBox.boundingBox()
+      await pathBox.click({ position: { x: Math.round(box.width) - 12, y: Math.round(box.height / 2) } })
+      const editing = win.locator('.folder-browser input[aria-label="Folder path"]')
+      await until(async () => (await editing.count()) === 1, 5000)
+      await editing.fill(path)
+      await editing.press('Enter')
+      ok(await until(async () => (await row(landed).count()) === 1, 10000), `the address field goes to ${path}`)
+      await away()
+    }
+    const currentRows = () =>
+      places.locator('.browse-place[aria-current]').evaluateAll((els) =>
+        els.map((e) => e.getAttribute('data-quick-access-path') ?? e.getAttribute('title'))
+      )
+    const subPath = join(dir, 'sub')
+
+    for (const [style, mode] of [['aurora', 'dark'], ['paper', 'light']]) {
+      const was = await switchStyle(win, style, mode)
+      styleBefore ??= was
+      await sleep(500)
+      const tint = await cssColour(win, 'var(--p-sel-tint)')
+
+      // 1. THE LIST. A left click's look, measured on a.txt.
+      await row('a.txt').click()
+      ok(await until(async () => JSON.stringify(await marked()) === '["a.txt"]', 3000), `${style}: a click selects a.txt`)
+      await sleep(300)
+      const leftLook = await bg(row('a.txt'))
+      const plain = await bg(row('c.txt'))
+      ok(leftLook !== plain, `${style}: a selected row is not a plain one (${leftLook}, ${plain})`)
+      // A right-click on unmarked b.txt: b.txt IS the selection now, a.txt not.
+      await row('b.txt').click({ button: 'right' })
+      ok(await until(menuOpen, 3000), `${style}: b.txt's menu opens`)
+      await sleep(300)
+      ok(JSON.stringify(await marked()) === '["b.txt"]', `${style}: the right-click made b.txt the selection (${await marked()})`)
+      const rightLook = await bg(row('b.txt'))
+      ok(rightLook === leftLook, `${style}: in a left click's look, not grey (${rightLook}, left ${leftLook})`)
+      ok((await bg(row('a.txt'))) === plain, `${style}: and a.txt went back to plain`)
+      ok((await row('b.txt').getAttribute('data-menu')) === null, `${style}: there is no second, grey mark`)
+      await win.screenshot({ path: join(SHOTS, `rightclick-list-${style}.png`) })
+      await shut()
+      ok(JSON.stringify(await marked()) === '["b.txt"]', `${style}: it stays selected after the menu shuts`)
+      // Inside a multi-selection: all of it stays.
+      await row('d.txt').click({ modifiers: ['Control'] })
+      ok(await until(async () => JSON.stringify(await marked()) === '["b.txt","d.txt"]', 3000), `${style}: Ctrl adds d.txt`)
+      await row('d.txt').click({ button: 'right' })
+      const multi = await win.locator('[role="menu"]').last().textContent({ timeout: 3000 }).catch(() => '')
+      ok(/2 items/.test(multi), `${style}: a right-click inside the two acts on both (${multi})`)
+      ok(JSON.stringify(await marked()) === '["b.txt","d.txt"]', `${style}: and keeps both marked (${await marked()})`)
+      await shut()
+
+      // 2. THE PLACES. A Quick access pin.
+      const pin = places.locator('section[aria-label="Quick access"] .quick-access-pin').first()
+      await away()
+      const pinBefore = await bg(pin)
+      await pin.click({ button: 'right' })
+      ok(await until(menuOpen, 3000), `${style}: a pin's menu opens`)
+      await sleep(300)
+      ok((await bg(pin)) === tint, `${style}: the right-clicked pin wears the selection tint (${await bg(pin)}, tint ${tint})`)
+      await win.screenshot({ path: join(SHOTS, `rightclick-place-${style}.png`) })
+      await shut()
+      ok((await bg(pin)) === pinBefore, `${style}: and loses it when the menu shuts (${await bg(pin)}, was ${pinBefore})`)
+
+      // A drive, in each of its three styles.
+      const c = places.locator('section[aria-label="This PC"] .browse-drive').first()
+      for (const id of ['tiles', 'ring', 'gauge']) {
+        await pickStyleSegment(win, 'drive-style', DRIVE_STYLE_NAMES[id])
+        await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+        await places.waitFor({ timeout: 10000 })
+        await until(async () => (await places.locator('section[aria-label="This PC"]').getAttribute('data-drive-style')) === id, 5000)
+        await sleep(350)
+        await away()
+        const driveBefore = await bg(c)
+        await c.click({ button: 'right' })
+        ok(await until(menuOpen, 3000), `${style} ${id}: a drive's menu opens`)
+        await sleep(300)
+        const on = await bg(c)
+        ok(on === tint, `${style} ${id}: the right-clicked drive wears the selection tint (${on}, tint ${tint}, was ${driveBefore})`)
+        const box = await places.boundingBox()
+        await win.screenshot({ path: join(SHOTS, `rightclick-drive-${id}-${style}.png`), clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 640) } })
+        await shut()
+        ok((await bg(c)) === driveBefore, `${style} ${id}: and loses it when the menu shuts (${await bg(c)}, was ${driveBefore})`)
+      }
+      await pickStyleSegment(win, 'drive-style', 'Tiles')
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await places.waitFor({ timeout: 10000 })
+
+      // 3. ONE MARK, AND IT DIMS WHERE THE USER IS NOT (#296; owner,
+      // 2026-10-06: "right now both are equally highlighted which makes it
+      // seem like the right click action is targeting both", and of File
+      // Explorer: "the sidebar item gets fully highlighted when you click it
+      // but as soon as you click something in the main view after that it
+      // gets dimmed, still highlighted but dimmed").
+      const tintDim = await cssColour(win, 'var(--p-sel-tint-dim)')
+      ok(tintDim !== tint && !/rgba\(0, 0, 0, 0\)/.test(tintDim), `${style}: there is a dimmed mark apart from the tint (${tintDim}, ${tint})`)
+      const lit = () =>
+        places.locator('.browse-place').evaluateAll(
+          (els, marks) =>
+            els
+              .filter((e) => marks.includes(getComputedStyle(e).backgroundColor))
+              .map((e) => e.getAttribute('data-quick-access-path') ?? e.getAttribute('title')),
+          [tint, tintDim]
+        )
+      // A Tiles drive: full when clicked, dimmed after a click in the list,
+      // and the dimmed mark is not the tile's own fill.
+      const cTile = places.locator('section[aria-label="This PC"] .browse-drive[title="C:\\\\"]')
+      await away()
+      const tilePlain = await bg(cTile)
+      await cTile.click()
+      ok(await until(async () => (await cTile.getAttribute('aria-current')) === 'location', 8000), `${style}: a click on C: opens it`)
+      await away()
+      ok((await bg(cTile)) === tint, `${style}: the clicked drive tile is full (${await bg(cTile)}, tint ${tint})`)
+      // Under another place's menu the tile is dimmed, not its plain fill.
+      const firstPin = places.locator('section[aria-label="Quick access"] .quick-access-pin').first()
+      await firstPin.click({ button: 'right' })
+      ok(await until(menuOpen, 3000), `${style}: a pin's menu opens over a marked drive`)
+      await sleep(250)
+      ok((await bg(cTile)) === tintDim && (await bg(firstPin)) === tint, `${style}: the marked tile is dimmed under it (${await bg(cTile)}, dim ${tintDim}), the pin full`)
+      const tbox = await places.boundingBox()
+      await win.screenshot({ path: join(SHOTS, `place-mark-tile-menu-${style}.png`), clip: { x: tbox.x, y: tbox.y, width: tbox.width, height: Math.min(tbox.height, 640) } })
+      await shut()
+      ok((await bg(cTile)) === tint, `${style}: and full again when it shuts (${await bg(cTile)})`)
+      await list.locator('.browse-row').first().click()
+      await away()
+      const tileDim = await bg(cTile)
+      ok(tileDim === tintDim && tileDim !== tilePlain, `${style}: after a click in the list the tile is dimmed, not plain (${tileDim}, dim ${tintDim}, plain ${tilePlain})`)
+      const pbox = await places.boundingBox()
+      await win.screenshot({ path: join(SHOTS, `place-mark-tile-dim-${style}.png`), clip: { x: pbox.x, y: pbox.y, width: pbox.width, height: Math.min(pbox.height, 640) } })
+
+      // A pinned folder: full on the click, dimmed after one in the list.
+      await subPin.click()
+      ok(await until(async () => (await row('deeper').count()) === 1, 8000), `${style}: a click on the pinned sub opens it`)
+      await away()
+      const subPinPath = await subPin.getAttribute('data-quick-access-path')
+      ok(JSON.stringify(await currentRows()) === JSON.stringify([subPinPath]), `${style}: one place is current, the pin (${await currentRows()})`)
+      ok((await bg(subPin)) === tint, `${style}: the clicked pin is full (${await bg(subPin)})`)
+      ok((await bg(cTile)) === tilePlain, `${style}: and C: is a plain tile again (${await bg(cTile)}, ${tilePlain})`)
+      await row('deeper').click()
+      await away()
+      const dimLook = await bg(subPin)
+      ok(dimLook === tintDim, `${style}: a click in the list dims the pin (${dimLook}, dim ${tintDim}, full ${tint})`)
+      await win.screenshot({ path: join(SHOTS, `place-mark-dim-${style}.png`) })
+      // The list's own mark dims while the sidebar is where the user acts.
+      ok((await bg(row('deeper'))) === tint, `${style}: the list's selection is full while the list is active`)
+      await places.locator('section[aria-label="Pinned"] h2').click()
+      await away()
+      ok((await bg(subPin)) === tint, `${style}: a press in the sidebar makes the pin full again (${await bg(subPin)})`)
+      ok((await bg(row('deeper'))) === tintDim, `${style}: and the list's selection dimmed (${await bg(row('deeper'))})`)
+      await win.screenshot({ path: join(SHOTS, `place-mark-list-dim-${style}.png`) })
+      await row('deeper').click()
+      await away()
+      ok((await bg(row('deeper'))) === tint && (await bg(subPin)) === tintDim, `${style}: a click in the list swaps them back`)
+
+      // (a) A right-click on another place: it wears the full tint, and the
+      // marked place stays marked, DIMMED, while the menu is open (owner,
+      // 2026-10-06: "think it would look better if the selected folder is
+      // dimmed rather than not highlighted when you right click a different
+      // folder"); its full mark is back when the menu shuts.
+      const home = places.locator('section[aria-label="Quick access"] .quick-access-pin[data-known="home"]')
+      const homePath = await home.getAttribute('data-quick-access-path')
+      await home.click({ button: 'right' })
+      ok(await until(menuOpen, 3000), `${style}: Home's menu opens`)
+      await sleep(300)
+      ok((await bg(home)) === tint, `${style}: the right-clicked place wears the full tint (${await bg(home)}, tint ${tint})`)
+      ok((await bg(subPin)) === tintDim, `${style}: the marked place is dimmed under another place's menu (${await bg(subPin)}, dim ${tintDim})`)
+      ok(JSON.stringify((await lit()).sort()) === JSON.stringify([subPinPath, homePath].sort()), `${style}: those two and no other are lit (${JSON.stringify(await lit())})`)
+      ok(JSON.stringify(await currentRows()) === JSON.stringify([subPinPath]), `${style}: the pin is still the current place for a screen reader`)
+      await win.screenshot({ path: join(SHOTS, `place-mark-menu-${style}.png`) })
+      // (a2) Right-click a second place while Home's menu is open: the tint
+      // goes straight from Home to it, and the marked place never returns to
+      // full in between (owner, same message: "when you right click multiple
+      // times the highlight goes from the one you right clicked -> the
+      // actually selected folder -> the new one you right clicked").
+      const other = places.locator('section[aria-label="Quick access"] .quick-access-pin:not([data-known="home"])').first()
+      await watchAs(home, 'a')
+      await watchAs(other, 'b')
+      await watchAs(subPin, 'mark')
+      await startFrames(win)
+      await slowRightClick(win, other)
+      ok(await until(menuOpen, 3000), `${style}: the second place's menu opens`)
+      await sleep(200)
+      const frames = await stopFrames(win)
+      const flash = flashFrames(frames, tint)
+      ok(frames.length >= 5 && flash.seenB && flash.bad.length === 0, `${style}: the tint goes straight from Home to the next place (${frames.length} frames, bad ${JSON.stringify(flash.bad.slice(0, 5).map((i) => frames[i]))})`)
+      const markOff = frames.filter((f) => f.mark !== tintDim)
+      ok(markOff.length === 0, `${style}: the marked place stays dimmed in every frame (${markOff.length} frames otherwise, ${JSON.stringify(markOff.slice(0, 3))})`)
+      ok((await bg(other)) === tint && (await bg(home)) !== tint && (await bg(subPin)) === tintDim, `${style}: after it, only the second place is full and the mark dimmed`)
+      await win.screenshot({ path: join(SHOTS, `place-mark-menu-switch-${style}.png`) })
+      await shut()
+      ok(JSON.stringify(await lit()) === JSON.stringify([subPinPath]), `${style}: the pin's mark is back when the menu shuts (${JSON.stringify(await lit())})`)
+      ok((await bg(subPin)) === tint, `${style}: full, the sidebar being where the user acted (${await bg(subPin)})`)
+
+      // (b) Into a subfolder keeps the clicked place; the address field to
+      // somewhere else lets it go; to the place itself marks it again.
+      await subPin.click()
+      ok(await until(async () => (await row('deeper').count()) === 1, 8000), `${style}: back in sub`)
+      await row('deeper').dblclick()
+      ok(await until(async () => (await row('x.txt').count()) === 1, 8000), `${style}: into sub\\deeper`)
+      ok(JSON.stringify(await currentRows()) === JSON.stringify([subPinPath]), `${style}: in a subfolder the pin stays marked (${await currentRows()})`)
+      await goByAddress(dir, 'a.txt')
+      ok((await currentRows()).length === 0, `${style}: the address field outside it clears the mark (${await currentRows()})`)
+      await goByAddress(join(subPath, 'deeper'), 'x.txt')
+      ok((await currentRows()).length === 0, `${style}: and coming back without a click marks nothing (${await currentRows()})`)
+      await goByAddress(subPath, 'deeper')
+      ok(JSON.stringify(await currentRows()) === JSON.stringify([subPinPath]), `${style}: a place's own path marks it (${await currentRows()})`)
+      await goByAddress(dir, 'a.txt')
+    }
+  } finally {
+    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    await win.evaluate(() => localStorage.removeItem('prism.sidebar.driveStyle')).catch(() => {})
+    await app.close().catch(() => {})
+  }
+}
+
+/**
+ * THE PLACES PANEL IS THE MOCKUP'S (#296; owner, 2026-10-06, of the themes
+ * mockup: "i really like the sidebar from here, so use that, with the icons
+ * and the disks with a bar showing how much is in use"). Quick access is the
+ * Known Folders, each with its own glyph; Pinned is what the user pinned;
+ * This PC is each drive with a bar whose used part is used / total (checked
+ * against Node's own statfs of C:) and a free line. What the rows did before
+ * still works: a click goes there, the menu pins, unpins and moves within a
+ * section, Shift+F10 opens it, a drag reorders a section and cannot cross into
+ * the other. Screenshots of the panel at Small, Medium and Large on a dark, a
+ * light and a see-through style, for the side by side with the mockup.
+ *
+ * THIS PC IN THREE LOOKS (owner, 2026-10-06, of the drive row mockups: "I want
+ * option A, D and E as options in settings, with A being default"). Tiles is
+ * the default; Settings > Explorer > Drive style switches to Ring and Gauge
+ * live, and each draws the real used share its own way (bar, arc, lit steps).
+ * The system drive wears the Windows badge, and a drive from 90% used wears
+ * the warning colour: a second launch puts C: at 95% (`PRISM_E2E_DRIVE_USED`)
+ * and checks all three. Screenshots of each style on a dark and a light style.
+ */
+async function sidebarPlacesScenario(fixtures) {
+  console.log('sidebar places')
+  const dir = join(fixtures, 'sideplaces')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'pinme'), { recursive: true })
+  mkdirSync(join(dir, 'pintoo'), { recursive: true })
+  writeFileSync(join(dir, 'one.txt'), 'one\n')
+  const { app, win } = await launch(join(dir, 'one.txt'))
+  const places = win.locator('.folder-browser .browse-places')
+  const list = win.locator('[data-testid="browse-list"]')
+  const row = (name) => list.locator(`[data-browse-path$="\\\\${name}" i]`).first()
+  const sections = () =>
+    win.evaluate(() =>
+      [...document.querySelectorAll('.folder-browser .browse-places nav > section')].map((s) => ({
+        label: s.getAttribute('aria-label'),
+        heading: s.querySelector('h2')?.textContent ?? '',
+        rows: [...s.querySelectorAll('.browse-place')].map((b) => ({
+          path: b.getAttribute('data-quick-access-path') ?? b.getAttribute('title'),
+          known: b.getAttribute('data-known'),
+          icon: b.querySelector('svg[data-place-icon]')?.getAttribute('data-place-icon') ?? null,
+          text: b.textContent
+        }))
+      }))
+    )
+  const section = async (label) => (await sections()).find((s) => s.label === label)
+  const pinRow = (section, name) =>
+    places.locator(`section[aria-label="${section}"] .quick-access-pin[data-quick-access-path$="\\\\${name}" i]`)
+  let styleBefore = null
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await row('pinme').count()) === 0) await row('sideplaces').dblclick()
+    ok(await until(async () => (await row('pinme').count()) === 1, 10000), 'the Explorer shows the fixture folder')
+
+    // 1. THE SECTIONS, in the mockup's order.
+    ok(await until(async () => (await sections()).some((s) => s.label === 'This PC'), 10000), 'the places panel lists This PC')
+    const order = (await sections()).map((s) => s.label)
+    // Nothing pinned yet, so no Pinned section at all (owner, 2026-10-06).
+    ok(JSON.stringify(order) === JSON.stringify(['Quick access', 'This PC']), `with nothing pinned the sections are Quick access, This PC (${order})`)
+
+    // 2. QUICK ACCESS: the Known Folders, each with its own glyph, Home by
+    // the user's own folder name.
+    const quick = await section('Quick access')
+    const known = ['home', 'desktop', 'downloads', 'documents', 'pictures', 'music', 'videos']
+    ok(
+      quick.rows.length >= 5 && quick.rows.every((r) => known.includes(r.known) && r.icon === r.known),
+      `every Quick access row is a Known Folder wearing its own icon (${JSON.stringify(quick.rows.map((r) => [r.known, r.icon]))})`
+    )
+    ok(new Set(quick.rows.map((r) => r.icon)).size === quick.rows.length, 'and no two share an icon')
+    const home = quick.rows.find((r) => r.known === 'home')
+    const homeName = homedir().split(/[\\/]/).pop()
+    ok(home?.text === homeName, `Home reads as the user's folder, "${homeName}" (${home?.text})`)
+    ok((await places.locator('section[aria-label="Pinned"]').count()) === 0, 'an empty Pinned is not shown')
+
+    // 3. PIN two folders: they land under Pinned with the folder icon, never
+    // under Quick access.
+    for (const name of ['pinme', 'pintoo']) {
+      await row(name).click({ button: 'right' })
+      await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+      ok(await until(async () => (await pinRow('Pinned', name).count()) === 1, 5000), `${name} is pinned under Pinned`)
+    }
+    ok((await places.locator('section[aria-label="Quick access"] .quick-access-pin[data-quick-access-path$="\\\\pinme" i]').count()) === 0, 'and not under Quick access')
+    ok((await pinRow('Pinned', 'pinme').locator('svg[data-place-icon]').count()) === 0 && (await pinRow('Pinned', 'pinme').locator('svg').count()) === 1, 'a pinned folder wears the folder icon')
+    const order2 = (await sections()).map((s) => s.label)
+    ok(JSON.stringify(order2) === JSON.stringify(['Quick access', 'Pinned', 'This PC']), `with pins the sections are Quick access, Pinned, This PC (${order2})`)
+
+    // 4. THIS PC, as Tiles until somebody chooses: name, percent, pill bar,
+    // free line, and the bar's width is used / total.
+    const thisPc = places.locator('section[aria-label="This PC"]')
+    const c = places.locator('section[aria-label="This PC"] .browse-drive[title="C:\\\\"]')
+    ok(await until(async () => (await c.locator('.browse-drive-bar > i').count()) === 1, 15000), 'C: has its usage bar')
+    ok((await thisPc.getAttribute('data-drive-style')) === 'tiles' && (await win.evaluate(() => localStorage.getItem('prism.sidebar.driveStyle'))) === null, 'with nothing chosen the drives are Tiles')
+    const want = usedShare('C:\\')
+    const system = `${(process.env.SystemDrive || 'C:').toUpperCase()}\\`
+    let drive = await driveLookAt(win, 'C:\\')
+    ok(/\(C:\)$/.test(drive.name), `the drive is named as File Explorer names it (${drive.name})`)
+    ok(/^[\d.]+ [KMGT]?B free of [\d.]+ [KMGT]?B$/.test(drive.free), `and says what is free of what (${drive.free})`)
+    ok(drive.pct === `${Math.round(want * 100)}%`, `the name line ends in the percent used (${drive.pct}, statfs ${(want * 100).toFixed(1)})`)
+    ok(drawsShare(drive, want), `the bar's used part is used / total (${drive.fraction?.toFixed(4)} against statfs ${want.toFixed(4)})`)
+    ok(drive.chip && drive.glyph === 'drive' && drive.icon === 'drive', `the glyph sits in its chip (${JSON.stringify([drive.chip, drive.glyph])})`)
+    ok(drive.badge === (system === 'C:\\'), `the system drive wears the Windows badge (${drive.badge}, system ${system})`)
+    ok(Math.abs(drive.barH - 5) < 0.6, `the pill is 5px at Medium (${drive.barH})`)
+    const accent = await cssColour(win, 'var(--p-accent-solid)')
+    const warnFill = await cssColour(win, 'var(--p-warn)')
+    ok(drive.fill === (drive.warn ? warnFill : accent), `the used part is the accent as picked, or the warning past 90% (${drive.fill}, ${accent})`)
+    // Every drive with sizes: warned exactly when it is 90% used or more.
+    const drivePaths = await thisPc.locator('.browse-drive').evaluateAll((els) => els.map((e) => e.getAttribute('title')))
+    for (const path of drivePaths) {
+      const share = usedShare(path)
+      if (share === null) continue
+      const look = await driveLookAt(win, path)
+      if (look.fraction === null) continue
+      ok(look.warn === share >= 0.9, `${path} warns only from 90% used (${look.warn}, ${(share * 100).toFixed(1)}%)`)
+      ok(look.badge === (path.toUpperCase() === system), `${path} wears the Windows badge only as the system drive (${look.badge})`)
+    }
+
+    // 4b. THE SETTING: Ring and Gauge, live, each drawing the same share.
+    for (const id of ['ring', 'gauge', 'tiles']) {
+      await pickStyleSegment(win, 'drive-style', DRIVE_STYLE_NAMES[id])
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await places.waitFor({ timeout: 10000 })
+      ok(await until(async () => (await thisPc.getAttribute('data-drive-style')) === id, 5000), `Drive style ${DRIVE_STYLE_NAMES[id]} applies at once`)
+      ok((await win.evaluate(() => localStorage.getItem('prism.sidebar.driveStyle'))) === id, `and is stored (${id})`)
+      drive = await driveLookAt(win, 'C:\\')
+      ok(drive.style === id && drawsShare(drive, want), `${id}: C: draws its used share (${drive.fraction?.toFixed(4)}${drive.lit !== undefined ? `, ${drive.lit} of 20 lit` : ''}, statfs ${want.toFixed(4)})`)
+      ok(drive.badge === (system === 'C:\\') && drive.glyph === 'drive', `${id}: the glyph and the Windows badge stay`)
+      ok(drive.fill === (drive.warn ? warnFill : accent), `${id}: in the accent (${drive.fill})`)
+      // A screen reader hears the share in words in every style: the donut's
+      // bare number and the meter's steps are drawings, not text.
+      const said = await c.ariaSnapshot()
+      ok(said.includes(`${Math.round(want * 100)}% used`) && /free/.test(said), `${id}: the row's name says the share used (${said.trim()})`)
+      if (id === 'ring') {
+        ok(drive.ring && !drive.bar && !drive.chip && drive.seg === 0, `ring: a donut, no bar and no chip (${JSON.stringify(drive)})`)
+        ok(drive.pct === `${Math.round(want * 100)}%`, `ring: the percent inside it, with its sign (${drive.pct})`)
+        ok(/^[\d.]+ [KMGT]?B free of [\d.]+ [KMGT]?B$/.test(drive.free), `ring: the free line under the name (${drive.free})`)
+      } else if (id === 'gauge') {
+        ok(drive.seg === 20 && drive.chip && !drive.bar && !drive.ring, `gauge: twenty steps and the glyph in a chip (${JSON.stringify(drive)})`)
+        ok(/^[\d.]+ [KMGT]?B free$/.test(drive.nums?.[0] ?? '') && /^[\d.]+ [KMGT]?B$/.test(drive.nums?.[1] ?? ''), `gauge: free at the left end, the total at the right (${drive.nums})`)
+      } else {
+        ok(drive.bar && drive.chip && !drive.ring && drive.seg === 0, 'tiles again: the pill and the chip')
+      }
+      // The row still behaves: a click opens the drive.
+      await c.click()
+      ok(await until(async () => (await c.getAttribute('aria-current')) === 'location', 8000), `${id}: a click on a drive opens it`)
+      await pinRow('Pinned', 'pinme').click()
+      ok(await until(async () => (await c.getAttribute('aria-current')) === null, 8000), `${id}: and leaving it lets it go`)
+    }
+
+    // 5. WHAT THE ROWS DID BEFORE. A click goes there.
+    await pinRow('Pinned', 'pinme').click()
+    ok(await until(async () => (await pinRow('Pinned', 'pinme').getAttribute('aria-current')) === 'location', 8000), 'a click on a pin opens that folder and marks it current')
+    ok(await until(async () => (await list.locator('[data-browse-path]').count()) === 0, 8000), 'the list is the empty folder')
+    await c.click()
+    ok(await until(async () => (await c.getAttribute('aria-current')) === 'location', 8000), 'a click on a drive opens it')
+    // The menu moves a pin within ITS section: pintoo up past pinme.
+    await pinRow('Pinned', 'pintoo').click({ button: 'right' })
+    ok((await win.getByRole('menuitem', { name: 'Move down', exact: true }).isDisabled()), 'the last Pinned row cannot move down')
+    await win.getByRole('menuitem', { name: 'Move up', exact: true }).click()
+    const pinnedOrder = async () => (await section('Pinned')).rows.map((r) => r.path.split('\\').pop())
+    ok(await until(async () => JSON.stringify(await pinnedOrder()) === '["pintoo","pinme"]', 5000), `Move up reorders Pinned (${await pinnedOrder()})`)
+    const quickOrder = async () => (await section('Quick access')).rows.map((r) => r.known)
+    ok(JSON.stringify(await quickOrder()) === JSON.stringify(quick.rows.map((r) => r.known)), 'and leaves Quick access as it was')
+    // Move down on Quick access's first row moves it within Quick access.
+    const firstKnown = quick.rows[0].known
+    await places.locator('section[aria-label="Quick access"] .quick-access-pin').first().click({ button: 'right' })
+    ok(await win.getByRole('menuitem', { name: 'Move up', exact: true }).isDisabled(), 'the first Quick access row cannot move up')
+    await win.getByRole('menuitem', { name: 'Move down', exact: true }).click()
+    ok(await until(async () => (await quickOrder())[1] === firstKnown, 5000), `Move down moves it within Quick access (${await quickOrder()})`)
+    ok(JSON.stringify(await pinnedOrder()) === '["pintoo","pinme"]', 'Pinned is untouched by it')
+    // The keyboard: Shift+F10 on a focused place opens its menu.
+    await places.locator('section[aria-label="Quick access"] .quick-access-pin').first().focus()
+    await win.keyboard.press('Shift+F10')
+    ok(await until(async () => (await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).count()) === 1, 3000), 'Shift+F10 opens a place menu')
+    await win.keyboard.press('Escape')
+    // A drag reorders Pinned and cannot carry a pin into Quick access.
+    await pinRow('Pinned', 'pinme').dragTo(pinRow('Pinned', 'pintoo'), { targetPosition: { x: 20, y: 3 } })
+    ok(await until(async () => JSON.stringify(await pinnedOrder()) === '["pinme","pintoo"]', 5000), `a drag reorders Pinned (${await pinnedOrder()})`)
+    const quickNow = await quickOrder()
+    await pinRow('Pinned', 'pintoo').dragTo(places.locator('section[aria-label="Quick access"] .quick-access-pin').first(), { targetPosition: { x: 20, y: 3 } })
+    await sleep(400)
+    ok(JSON.stringify(await quickOrder()) === JSON.stringify(quickNow) && JSON.stringify(await pinnedOrder()) === '["pinme","pintoo"]', 'a pin dragged onto Quick access stays where it was')
+    // A drive's menu offers to pin it; pinned, it is a Pinned row.
+    await c.click({ button: 'right' })
+    ok((await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).count()) === 1, 'a drive offers Pin to Quick access')
+    await win.keyboard.press('Escape')
+
+    // 6. THE LOOK, at each size on a dark, a light and a see-through style.
+    // A drive follows the Explorer size: its text is the rows' text and the
+    // Tiles chip is the mockup's 2.4 times it.
+    await pinRow('Pinned', 'pinme').click()
+    for (const [style, mode] of [['aurora', 'dark'], ['paper', 'light'], ['default', 'dark']]) {
+      const was = await switchStyle(win, style, mode)
+      styleBefore ??= was
+      await sleep(500)
+      for (const size of ['Small', 'Medium', 'Large']) {
+        await pickStyleSegment(win, 'explorer-size', size)
+        await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+        await places.waitFor({ timeout: 10000 })
+        await sleep(400)
+        const look = await win.evaluate(() => {
+          const q = document.querySelector('.folder-browser .browse-places section[aria-label="Quick access"] .browse-place')
+          return {
+            row: q?.getBoundingClientRect().height,
+            icon: q?.querySelector('svg')?.getBoundingClientRect().height
+          }
+        })
+        const tile = await driveLookAt(win, 'C:\\')
+        const want = { Small: [22, 12, 11.5], Medium: [26, 14, 12.5], Large: [40, 18, 15] }[size]
+        ok(look.row === want[0] && look.icon === want[1], `${style} ${size}: rows ${want[0]}px with ${want[1]}px icons (${JSON.stringify(look)})`)
+        ok(tile.font === want[2] && Math.abs(tile.chipW - 2 * want[2]) < 0.6, `${style} ${size}: a drive's text is ${want[2]}px and its chip grows with it (${tile.font}, ${tile.chipW})`)
+        const box = await places.boundingBox()
+        await win.screenshot({ path: join(SHOTS, `sidebar-${style}-${size.toLowerCase()}.png`), clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 560) } })
+        if (size === 'Medium') await win.screenshot({ path: join(SHOTS, `sidebar-${style}-window.png`) })
+      }
+    }
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    // Each drive style on a dark and a light style, at Medium, for the side by
+    // side with the mockup's A, D and E. The drive rows only: the panel's
+    // This PC section, clipped.
+    for (const [style, mode] of [['aurora', 'dark'], ['paper', 'light']]) {
+      await switchStyle(win, style, mode)
+      await sleep(400)
+      for (const id of ['tiles', 'ring', 'gauge']) {
+        await pickStyleSegment(win, 'drive-style', DRIVE_STYLE_NAMES[id])
+        await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+        await places.waitFor({ timeout: 10000 })
+        await until(async () => (await thisPc.getAttribute('data-drive-style')) === id, 5000)
+        await sleep(300)
+        const box = await places.boundingBox()
+        await win.screenshot({ path: join(SHOTS, `sidebar-drives-${id}-${style}.png`), clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 640) } })
+      }
+    }
+    await pickStyleSegment(win, 'drive-style', 'Tiles')
+
+    // 7. Unpin puts the hint back.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    for (const name of ['pinme', 'pintoo']) {
+      await pinRow('Pinned', name).click({ button: 'right' })
+      await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+      ok(await until(async () => (await pinRow('Pinned', name).count()) === 0, 5000), `${name} is unpinned`)
+    }
+    ok(await until(async () => (await places.locator('section[aria-label="Pinned"]').count()) === 0, 3000), 'and the empty Pinned section is gone again')
+  } finally {
+    // The shared profile: Quick access back in its own order, the style back.
+    await win
+      .evaluate(() => localStorage.removeItem('prism.quickAccess'))
+      .catch(() => {})
+    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    await win.evaluate(() => localStorage.removeItem('prism.explorer.size')).catch(() => {})
+    await win.evaluate(() => localStorage.removeItem('prism.sidebar.driveStyle')).catch(() => {})
+    await app.close().catch(() => {})
+  }
+
+  // 8. FROM 90% USED, THE WARNING. C: at 95% used (the e2e-only override in
+  // main), each style: the warned row, its fill in --p-warn and its number in
+  // --p-warn-ink, the Gauge at 19 of 20.
+  EXTRA_ENV = { PRISM_E2E_DRIVE_USED: '0.95' }
+  const second = await launch(join(dir, 'one.txt'))
+  EXTRA_ENV = {}
+  const w2 = second.win
+  let style2 = null
+  try {
+    style2 = await switchStyle(w2, 'aurora', 'dark')
+    await w2.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await w2.waitForSelector('.folder-browser .browse-places section[aria-label="This PC"]', { timeout: 15000 })
+    const sysRoot = `${(process.env.SystemDrive || 'C:').toUpperCase()}\\`
+    const fill = await cssColour(w2, 'var(--p-warn)')
+    const ink = await cssColour(w2, 'var(--p-warn-ink)')
+    const accent = await cssColour(w2, 'var(--p-accent-solid)')
+    ok(fill !== accent && ink !== accent, `the warning is not the accent (${fill}, ${ink}, ${accent})`)
+    for (const id of ['tiles', 'ring', 'gauge']) {
+      await pickStyleSegment(w2, 'drive-style', DRIVE_STYLE_NAMES[id])
+      await w2.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      ok(await until(async () => (await driveLookAt(w2, sysRoot))?.style === id && (await driveLookAt(w2, sysRoot))?.fraction !== null, 15000), `${id}: the system drive is drawn`)
+      const look = await driveLookAt(w2, sysRoot)
+      ok(look.warn && drawsShare(look, 0.95), `${id}: at 95% used it warns and draws 95% (${look.warn}, ${look.fraction?.toFixed(3)}${look.lit !== undefined ? `, ${look.lit} lit` : ''})`)
+      ok(look.fill === fill && look.ink === ink, `${id}: the mark in --p-warn, the number in --p-warn-ink (${look.fill}, ${look.ink})`)
+      if (id === 'gauge') ok(look.lit === 19, `gauge: 19 of 20 steps lit (${look.lit})`)
+      const box = await w2.locator('.folder-browser .browse-places').boundingBox()
+      await w2.screenshot({ path: join(SHOTS, `sidebar-drives-${id}-warn.png`), clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 640) } })
+    }
+  } finally {
+    if (style2) await switchStyle(w2, style2[0], style2[1]).catch(() => {})
+    await w2.evaluate(() => localStorage.removeItem('prism.sidebar.driveStyle')).catch(() => {})
+    await second.app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -8560,9 +9282,9 @@ async function panelsAlignScenario(fixtures) {
     await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
 
     // A LIGHT THEME draws the same line.
-    const styleBefore = await switchStyle(win, 'paper', 'light')
+    const styleBefore = await switchStyle(win, 'paper')
     await check('Paper, notes.txt', 'paper-txt')
-    await switchStyle(win, styleBefore[0], styleBefore[1])
+    await switchStyle(win, styleBefore)
 
     // A PICTURE AND A FILM: no button and no strip either; the pane starts at
     // the list's top like the text's.
@@ -9080,7 +9802,7 @@ async function addressFieldScenario(fixtures) {
   mkdirSync(deep, { recursive: true })
   writeFileSync(join(deep, 'end.txt'), 'deep\n')
   const { app, win } = await launch(join(dir, 'a1.txt'))
-  let before = null
+  let before
   const rgb = (c) => (c.match(/[\d.]+/g) ?? []).map(Number)
   const lum = ([r, g, b]) => {
     const lin = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)
@@ -9134,12 +9856,12 @@ async function addressFieldScenario(fixtures) {
     win.locator('.folder-browser [data-testid="browse-toolbar"]').first().screenshot({ path: join(SHOTS, `address-field-${name}.png`) })
   try {
     ok(await intoFolder(), 'the Explorer shows the folder')
-    before = await switchStyle(win, 'new-void', 'dark')
+    before = await switchStyle(win, 'new-void')
     await sleep(500)
     const v = await look()
     console.log('  void', JSON.stringify(v))
     await shoot('void')
-    await switchStyle(win, 'paper', 'light')
+    await switchStyle(win, 'paper')
     await sleep(500)
     const p = await look()
     console.log('  paper', JSON.stringify(p))
@@ -9192,7 +9914,7 @@ async function addressFieldScenario(fixtures) {
     ok(clip.over && clip.clipped && clip.inside, `a long path keeps its end in view and fades its start (${JSON.stringify(clip)})`)
     await shoot('long-path')
   } finally {
-    if (before) await switchStyle(win, before[0], before[1]).catch(() => {})
+    if (before !== undefined) await switchStyle(win, before).catch(() => {})
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
@@ -11681,17 +12403,18 @@ const updateCalls = (app) => app.evaluate(() => globalThis.__prismUpdateCalls())
  *  leaves the terminal theme and the accent schemes alone (`apply(false)`),
  *  which a click on a Settings card does not, and the profile is shared with
  *  every scenario after this one. Returns what to hand back to restore. */
-async function switchStyle(win, style, mode) {
+async function switchStyle(win, style) {
+  // ONE THEME, NO MODE (#298): each theme is dark or light by itself, and
+  // `prism.mode` is only the boot screen's mirror of what is painted.
   return win.evaluate(
-    ([s, m]) => {
-      const before = [localStorage.getItem('prism.style'), localStorage.getItem('prism.mode')]
-      const put = (k, v) => (v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v))
-      put('prism.style', s)
-      put('prism.mode', m)
+    (s) => {
+      const before = localStorage.getItem('prism.style')
+      if (s === null) localStorage.removeItem('prism.style')
+      else localStorage.setItem('prism.style', s)
       window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style', storageArea: localStorage }))
       return before
     },
-    [style, mode]
+    style
   )
 }
 
@@ -11726,7 +12449,7 @@ async function updateWindowScenario(fixtures) {
     EXTRA_ARGS = []
   }
   const { app, win } = launched
-  let styleBefore = null
+  let styleBefore
   try {
     await win.waitForSelector('.p-md h1', { timeout: 15000 })
     const current = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
@@ -12056,7 +12779,7 @@ async function updateWindowScenario(fixtures) {
     ok(installers() === installersBefore, `no installer process was spawned (${installersBefore} before, ${installers()} after)`)
 
     // The same, in a light style.
-    styleBefore = await switchStyle(win, 'paper', 'light')
+    styleBefore = await switchStyle(win, 'paper')
     ok(await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light')), 'in a light style (Paper)')
     const widthLight = await chip.evaluate((el) => el.getBoundingClientRect().width)
     ok(Math.abs(widthLight - width0) < 0.01, `the chip is the same width (${widthLight.toFixed(3)}px)`)
@@ -12118,7 +12841,7 @@ async function updateWindowScenario(fixtures) {
     ok(after.checks === 0 && after.installs === 0, `still nothing asked of the network or the installer (${after.checks} checks, ${after.installs} installs)`)
   } finally {
     // The profile is shared: the next scenario must get the style it expects.
-    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
     await app.close().catch(() => {})
   }
 }
@@ -13056,7 +13779,7 @@ const settingsLookOf = (win) =>
  * 3:1 on its tile, a warning subtext 4.5:1, the chosen rail page the GREY fill
  * and never the accent, Save changes the only accent-filled buttons, rows at
  * least 58px with a 32px tile, the panel's corner the style's roundness plus
- * 3px (Onyx 2px gives 5px, Ruby 14px gives 17px), nothing sideways at 1600
+ * 3px (Void 2px gives 5px, Glacier 14px gives 17px), nothing sideways at 1600
  * and 900px or with Font size Large, the icon rail under 760px and
  * from the title bar's toggle. A screenshot of every page in both schemes,
  * LOOKED AT before a change is called done (#20 in Prism Terminal).
@@ -13073,7 +13796,7 @@ async function settingsLookScenario(fixtures) {
   EXTRA_ENV = { PRISM_DICTATION_ROOT: root, PRISM_E2E_NVIDIA: '0' }
   let app
   let win
-  let styleBefore = null
+  let styleBefore
   // The window's size is SAVED in the shared profile: the scenarios after
   // this one must start at the size they always did.
   let sizeBefore = null
@@ -13083,17 +13806,18 @@ async function settingsLookScenario(fixtures) {
     const setSize = (w, h) => app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), [w, h])
     await setSize(1600, 1000)
     await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
-    styleBefore = await switchStyle(win, 'aurora', 'dark')
+    styleBefore = await switchStyle(win, 'aurora')
     await settingsPage(win, 'appearance')
     ok((await win.locator('[data-settings-tab="appearance"]').getAttribute('aria-current')) === 'page', 'Settings opens on Appearance')
     const rail = await win.evaluate(() => [...document.querySelectorAll('[data-settings-tab]')].map((b) => b.getAttribute('data-settings-tab')))
     ok(
-      JSON.stringify(rail) === JSON.stringify(['appearance', 'explorer', 'terminal', 'agents', 'dictation', 'media', 'about']),
-      `the rail runs Appearance, Explorer, Terminal, Agents, Dictation, Media, About (${rail.join(', ')})`
+      JSON.stringify(rail) === JSON.stringify(['appearance', 'explorer', 'project', 'terminal', 'agents', 'dictation', 'media', 'about']),
+      `the rail runs Appearance, Explorer, Project settings, Terminal, Agents, Dictation, Media, About (${rail.join(', ')})`
     )
     const pages = [
       ['appearance'],
       ['explorer'],
+      ['project'],
       ['terminal'],
       ['agents'],
       ['dictation'],
@@ -13102,7 +13826,7 @@ async function settingsLookScenario(fixtures) {
       ['about']
     ]
     for (const [scheme, style] of [['dark', 'aurora'], ['light', 'paper']]) {
-      await switchStyle(win, style, scheme)
+      await switchStyle(win, style)
       ok(await until(() => win.evaluate((m) => document.documentElement.dataset.mode === m, scheme), 6000, 50), `in a ${scheme} style (${style})`)
       for (const [page, view] of pages) {
         await settingsPage(win, page)
@@ -13134,9 +13858,9 @@ async function settingsLookScenario(fixtures) {
         if (page === 'dictation') await win.locator('[data-pref="dictation-enabled"] [role="switch"]').click()
       }
     }
-    // The style's ROUNDNESS rounds the panels: Onyx (2px) and Ruby (14px).
-    for (const [style, want] of [['default', 5], ['acrylic-red', 17]]) {
-      await switchStyle(win, style, 'dark')
+    // The theme's ROUNDNESS rounds the panels: Void (2px) and Glacier (14px).
+    for (const [style, want] of [['new-void', 5], ['glacier', 17]]) {
+      await switchStyle(win, style)
       await settingsPage(win, 'appearance')
       ok(
         await until(async () => (await settingsLookOf(win)).panelRadius === want, 3000, 50),
@@ -13144,7 +13868,7 @@ async function settingsLookScenario(fixtures) {
       )
       await win.screenshot({ path: join(SHOTS, `settings-appearance-${style}.png`) })
     }
-    await switchStyle(win, 'aurora', 'dark')
+    await switchStyle(win, 'aurora')
     // Font size Large zooms the page by 1.12: nothing overflows.
     const size = await gotoPref(win, 'tree-size')
     await size.locator('#tree-size').click()
@@ -13190,10 +13914,456 @@ async function settingsLookScenario(fixtures) {
     ok(await until(async () => (await settingsLookOf(win)).rail >= 200, 3000, 50), 'and back')
   } finally {
     EXTRA_ENV = {}
-    if (styleBefore && win) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    if (styleBefore !== undefined && win) await switchStyle(win, styleBefore).catch(() => {})
     await win?.evaluate(() => localStorage.removeItem('prism.tree.size')).catch(() => {})
     if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
     await app?.close().catch(() => {})
+  }
+}
+
+/**
+ * THE THEME WALL (#298; owner, 2026-10-06, the approved mockup: "perfect, go
+ * ahead and build"). Settings > Appearance opens on the Themes card: its
+ * header row ("Themes", "Choose your look."), then the wall collapsed to the
+ * row of the current theme, card style B (the chosen card's ring in the
+ * accent line and a check in its band, the blurb as tooltip, no
+ * "Suggested"). Show all opens with the height only growing, every card in
+ * the approved order, the chevron turned, and nothing left running or inline
+ * when it ends; Show fewer shuts the same way; a second press mid-way
+ * reverses from where the wall IS; reduced motion is the end state at once.
+ * The keys: one tab stop; an arrow previews (paints, stores nothing); Enter
+ * keeps; past the row opens the wall; Home, End; Escape goes back with the
+ * draft intact; focus is the fill, never a ring (#272).
+ */
+const THEME_ORDER = ['aurora', 'new-void', 'carbon', 'obsidian', 'ember', 'volt', 'midnight-hc', 'glacier', 'lagoon', 'frost', 'paper', 'sand', 'sage', 'blush', 'chalk', 'daylight-hc', 'orchid', 'pearl']
+
+/** The wall as the page has it. */
+const wallState = (win) =>
+  win.evaluate(() => {
+    const wall = document.querySelector('[data-theme-wall]')
+    const cards = [...document.querySelectorAll('[data-theme-card]')]
+    const more = document.querySelector('[data-wall-more]')
+    const chev = document.querySelector('[data-wall-chevron]')
+    const inline = [wall, ...cards].filter((el) => el.style.height || el.style.transform || el.style.opacity).length
+    return {
+      ids: cards.map((c) => c.getAttribute('data-theme-card')),
+      shown: cards.filter((c) => !c.hasAttribute('data-hid')).map((c) => c.getAttribute('data-theme-card')),
+      checked: cards.filter((c) => c.getAttribute('aria-checked') === 'true').map((c) => c.getAttribute('data-theme-card')),
+      more: more?.textContent?.trim() ?? '',
+      expanded: more?.getAttribute('aria-expanded'),
+      chevron: chev ? getComputedStyle(chev).transform : '',
+      anims: wall ? wall.getAnimations({ subtree: true }).length : -1,
+      inline,
+      moving: wall?.hasAttribute('data-moving'),
+      height: wall ? wall.getBoundingClientRect().height : 0
+    }
+  })
+
+/** Press Show all / Show fewer and sample the wall's height every 25ms until
+ *  it settles (or `ms`). */
+const pressAndSample = (win, ms = 600) =>
+  win.evaluate(
+    (ms) =>
+      new Promise((done) => {
+        const wall = document.querySelector('[data-theme-wall]')
+        const heights = [wall.getBoundingClientRect().height]
+        document.querySelector('[data-wall-more]').click()
+        const t0 = performance.now()
+        const iv = setInterval(() => {
+          heights.push(wall.getBoundingClientRect().height)
+          if (performance.now() - t0 > ms) {
+            clearInterval(iv)
+            done(heights)
+          }
+        }, 25)
+      }),
+    ms
+  )
+
+const monotonic = (hs, dir) => hs.every((h, i) => i === 0 || (dir > 0 ? h >= hs[i - 1] - 0.5 : h <= hs[i - 1] + 0.5))
+
+async function themeWallScenario(fixtures) {
+  console.log('theme wall')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  let styleBefore
+  let draftBefore
+  const blurbs = Object.fromEntries(
+    JSON.parse(readFileSync(join(ROOT, 'src', 'renderer', 'src', 'lib', 'themes', 'catalogue.json'), 'utf8')).map((t) => [
+      t.id,
+      t.blurb.replace(/\s*Kept from the current set\.\s*$/, '')
+    ])
+  )
+  const setDraft = (d) =>
+    win.evaluate((v) => {
+      if (v === null) localStorage.removeItem('prism.style.draft')
+      else localStorage.setItem('prism.style.draft', v)
+      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+    }, d)
+  const bg = () => win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg'))
+  const stored = () => win.evaluate(() => localStorage.getItem('prism.style'))
+  const focused = () => win.evaluate(() => document.activeElement?.getAttribute('data-theme-card') ?? null)
+  const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
+  try {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 1000))
+    draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
+    await setDraft(null)
+    styleBefore = await switchStyle(win, 'aurora')
+    const row = await gotoPref(win, 'style-theme')
+    const head = (await row.textContent()) ?? ''
+    ok(head.includes('Themes') && head.includes('Choose your look.'), `the Themes card opens on its header row (${head.trim()})`)
+    ok((await win.locator('[data-settings-section="style-theme"] h3').count()) === 0, 'and has no section heading above it')
+    ok((await win.locator('[data-pref="mode"]').count()) === 0, 'there is no Colour mode row')
+    let w = await wallState(win)
+    const own = w.ids.filter((id) => !THEME_ORDER.includes(id))
+    ok(JSON.stringify(w.ids.slice(0, 18)) === JSON.stringify(THEME_ORDER), `the wall lists the 18 in the approved order, then own copies (${w.ids.join(', ')})`)
+    ok(JSON.stringify(w.shown) === JSON.stringify(THEME_ORDER.slice(0, 6)), `collapsed, it shows exactly the current row (${w.shown.join(', ')})`)
+    ok(w.more === `Show all ${w.ids.length} themes` && w.expanded === 'false', `under it: "${w.more}", not expanded`)
+    ok(JSON.stringify(w.checked) === '["aurora"]', `Aurora is the chosen card (${w.checked})`)
+    const ring = await win.evaluate(() => {
+      const pv = document.querySelector('[data-theme-card="aurora"] .theme-card-pv')
+      const probe = document.createElement('i')
+      probe.style.color = 'var(--p-accent-solid)'
+      document.body.appendChild(probe)
+      const accent = getComputedStyle(probe).color
+      probe.remove()
+      const cs = getComputedStyle(pv)
+      // The page's zoom: a 100px box inside it as the window lays it out.
+      const ruler = document.createElement('div')
+      ruler.style.width = '100px'
+      pv.parentElement.appendChild(ruler)
+      const zoom = ruler.getBoundingClientRect().width / 100
+      ruler.remove()
+      return { outline: cs.outlineColor, width: cs.outlineWidth, offset: cs.outlineOffset, zoom, accent, check: !!pv.querySelector('[data-theme-check]'), checks: document.querySelectorAll('[data-theme-check]').length }
+    })
+    // 2px, snapped to whole device pixels (1.78px at 225%).
+    const px = (v) => Math.abs(parseFloat(v) - 2) < 0.5
+    ok(
+      ring.outline === ring.accent && px(ring.width) && px(ring.offset),
+      `the chosen ring is 2px of --p-accent-solid, 2px out (${JSON.stringify(ring)})`
+    )
+    ok(ring.check && ring.checks === 1, 'and its band carries the one check')
+    const titles = await win.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-theme-card]')].map((c) => [c.getAttribute('data-theme-card'), c.getAttribute('title')])))
+    ok(THEME_ORDER.every((id) => titles[id] === blurbs[id]), 'every card\'s tooltip is its theme\'s description')
+    ok(!((await win.locator('[data-style-wall]').textContent()) ?? '').includes('Suggested'), 'nothing says "Suggested"')
+    await win.mouse.move(5, 5)
+    await win.screenshot({ path: join(SHOTS, 'theme-wall-dark-collapsed.png') })
+
+    // Show all: the height only grows, then every card, "Show fewer", the
+    // chevron turned, nothing left running or inline.
+    let hs = await pressAndSample(win)
+    w = await wallState(win)
+    ok(hs.length > 8 && monotonic(hs, 1) && hs[hs.length - 1] > hs[0] + 100, `Show all: the height only grows (${hs.map(Math.round).join(' ')})`)
+    ok(hs.slice(1, 6).some((h) => h > hs[0] + 1 && h < hs[hs.length - 1] - 1), 'and it moves there, not in one jump')
+    ok(w.shown.length === w.ids.length && JSON.stringify(w.shown.slice(0, 18)) === JSON.stringify(THEME_ORDER), `then all ${w.ids.length} are shown, in order`)
+    ok(w.more === 'Show fewer' && w.expanded === 'true', `the control says "${w.more}", expanded`)
+    ok(/^matrix\(-1, ?0(\.0+)?, ?-?0(\.0+)?, ?-1/.test(w.chevron), `the chevron is turned 180 degrees (${w.chevron})`)
+    ok(w.anims === 0 && w.inline === 0 && !w.moving, `nothing left running, inline or clipped (${w.anims} animations, ${w.inline} inline)`)
+    await win.screenshot({ path: join(SHOTS, 'theme-wall-dark-expanded.png') })
+    hs = await pressAndSample(win)
+    w = await wallState(win)
+    ok(monotonic(hs, -1) && hs[hs.length - 1] < hs[0] - 100, `Show fewer: the height only shrinks (${hs.map(Math.round).join(' ')})`)
+    ok(JSON.stringify(w.shown) === JSON.stringify(THEME_ORDER.slice(0, 6)) && w.anims === 0 && w.inline === 0, 'and ends on the current row, settled')
+
+    // A second press 100ms in reverses from where the wall is.
+    const rev = await win.evaluate(
+      () =>
+        new Promise((done) => {
+          const wall = document.querySelector('[data-theme-wall]')
+          const more = document.querySelector('[data-wall-more]')
+          const hs = []
+          more.click()
+          setTimeout(() => {
+            const at = wall.getBoundingClientRect().height
+            more.click()
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                hs.push(wall.getBoundingClientRect().height)
+                setTimeout(() => done({ at, next: hs[0], end: wall.getBoundingClientRect().height }), 450)
+              })
+            )
+          }, 100)
+        })
+    )
+    w = await wallState(win)
+    ok(Math.abs(rev.next - rev.at) < 40 && rev.next <= rev.at + 1, `a second press 100ms in reverses from the measured height (${Math.round(rev.at)} then ${Math.round(rev.next)})`)
+    ok(w.shown.length === 6 && w.anims === 0 && w.inline === 0, `and ends collapsed, settled (${Math.round(rev.end)}px)`)
+
+    // Reduced motion: the end state in the same frame, no animation.
+    await win.emulateMedia({ reducedMotion: 'reduce' })
+    const instant = await win.evaluate(() => {
+      const wall = document.querySelector('[data-theme-wall]')
+      document.querySelector('[data-wall-more]').click()
+      return {
+        shown: [...document.querySelectorAll('[data-theme-card]')].filter((c) => !c.hasAttribute('data-hid')).length,
+        anims: wall.getAnimations({ subtree: true }).length
+      }
+    })
+    ok(instant.anims === 0 && instant.shown === w.ids.length, `reduced motion: every card at once, no animation (${JSON.stringify(instant)})`)
+    await win.locator('[data-wall-more]').click()
+    await win.emulateMedia({ reducedMotion: 'no-preference' })
+
+    // THE KEYS. Tab lands on the chosen card; the next Tab leaves the wall.
+    await win.evaluate(() => {
+      const r = document.querySelector('[data-pref="style-theme"]')
+      r.tabIndex = -1
+      r.focus()
+    })
+    await win.keyboard.press('Tab')
+    ok((await focused()) === 'aurora', `Tab lands on the chosen card (${await focused()})`)
+    // Focus is the hover's fill, never a ring (#272), focused against unfocused.
+    const look = await win.evaluate(() => {
+      const a = document.querySelector('[data-theme-card="aurora"]')
+      const b = document.querySelector('[data-theme-card="new-void"]')
+      const cs = (el) => {
+        const s = getComputedStyle(el)
+        return { image: s.backgroundImage, outline: s.outlineStyle, ring: s.boxShadow, edge: getComputedStyle(el.querySelector('.theme-card-pv')).outlineStyle }
+      }
+      return { on: cs(a), off: cs(b) }
+    })
+    ok(look.on.image !== 'none' && look.off.image === 'none', `a focused card wears the hover fill (${look.on.image.slice(0, 40)})`)
+    ok(look.on.outline === 'none' && look.on.ring === 'none', 'and no outline or ring of focus')
+    await win.screenshot({ path: join(SHOTS, 'theme-wall-focused.png') })
+    await win.keyboard.press('Tab')
+    ok(await win.evaluate(() => !document.activeElement?.closest('[data-theme-wall]')), 'the next Tab leaves the wall (one stop)')
+    await win.locator('[data-theme-card="aurora"]').focus()
+
+    // Right PREVIEWS: the window repaints, nothing is stored.
+    const auroraBg = await bg()
+    await win.keyboard.press('ArrowRight')
+    ok(await until(async () => (await bg()) !== auroraBg, 2000, 25), `Right repaints the window (--p-bg ${auroraBg} to ${await bg()})`)
+    ok((await stored()) === 'aurora', 'and stores nothing (prism.style is still aurora)')
+    ok(await until(async () => (await focused()) === 'new-void', 2000, 25), 'the focus moves to Void')
+    ok(JSON.stringify((await wallState(win)).checked) === '["new-void"]', 'and Void is the chosen card')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await stored()) === 'new-void', 2000, 25), 'Enter keeps it (prism.style is new-void)')
+    ok(((await win.locator('[data-wall-say]').textContent()) ?? '') === 'Void kept', 'and says so')
+
+    // A draft on Void, then Down past the row: the wall opens, Glacier is
+    // previewed, the draft hidden; Escape gives Void and its draft back.
+    await setDraft(JSON.stringify({ font: 'mono' }))
+    const voidBg = await bg()
+    const monoFont = await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-font'))
+    await win.locator('[data-theme-card="new-void"]').focus()
+    await win.keyboard.press('ArrowDown')
+    ok(await until(async () => (await wallState(win)).expanded === 'true', 2000, 25), 'Down past the row opens the wall')
+    ok(await until(async () => (await focused()) === 'glacier', 2000, 25), `and lands on Glacier (${await focused()})`)
+    ok((await bg()).startsWith('rgba('), `previewing see-through Glacier (${await bg()})`)
+    await sleep(400)
+    await win.screenshot({ path: join(SHOTS, 'theme-wall-preview-glacier.png') })
+    await win.keyboard.press('Home')
+    ok(await until(async () => (await focused()) === 'aurora', 2000, 25), 'Home goes to the first')
+    await win.keyboard.press('End')
+    const last = (await wallState(win)).ids.at(-1)
+    ok(await until(async () => (await focused()) === last, 2000, 25), `End to the last (${last})`)
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await bg()) === voidBg, 2000, 25), 'Escape goes back to Void')
+    ok((await win.locator('[data-settings-page]').count()) === 1, 'and leaves Settings open')
+    ok((await focused()) === 'new-void', 'with the focus on its card')
+    ok((await stored()) === 'new-void', 'nothing was stored on the way')
+    ok(
+      (await win.evaluate(() => localStorage.getItem('prism.style.draft'))) === JSON.stringify({ font: 'mono' }) &&
+        (await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-font'))) === monoFont,
+      'and the draft is intact, painted again'
+    )
+    await setDraft(null)
+
+    // Holding Right across all 18 repaints at key-repeat speed: no frame
+    // over 50ms (spec 10).
+    await win.locator('[data-theme-card="new-void"]').focus()
+    await win.keyboard.press('Home')
+    await win.evaluate(() => {
+      window.__frames = []
+      window.__presses = []
+      let last = performance.now()
+      const tick = (t) => {
+        window.__frames.push([t, t - last])
+        last = t
+        if (window.__frames.length < 400) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    await sleep(100)
+    for (let i = 0; i < 17; i++) {
+      await win.evaluate(() => window.__presses.push([performance.now(), document.activeElement?.getAttribute('data-theme-card')]))
+      await win.keyboard.press('ArrowRight')
+      await sleep(33)
+    }
+    await sleep(200)
+    const { frames, presses } = await win.evaluate(() => ({ frames: window.__frames.slice(2), presses: window.__presses }))
+    const worst = Math.max(...frames.map((f) => f[1]))
+    const slow = frames
+      .filter((f) => f[1] >= 34)
+      .map(([t, d]) => `${Math.round(d)}ms after ${[...presses].reverse().find((p) => p[0] <= t)?.[1] ?? 'start'}`)
+    ok(worst < 50, `holding Right across all 18: the longest frame is ${Math.round(worst)}ms (${slow.join(', ') || 'none over 34ms'})`)
+    ok((await focused()) === 'pearl', `and ends on Pearl (${await focused()})`)
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await bg()) === voidBg, 2000, 25), 'Escape goes back from there too')
+
+    // Screenshots of the page in each kind of theme, for the eye.
+    await win.mouse.move(5, 5)
+    for (const id of ['paper', 'glacier', 'orchid', 'midnight-hc', 'daylight-hc']) {
+      await switchStyle(win, id)
+      await sleep(350)
+      await win.screenshot({ path: join(SHOTS, `theme-wall-${id}.png`) })
+    }
+    await switchStyle(win, 'paper')
+    await sleep(350)
+    if ((await win.locator('[data-wall-more]').getAttribute('aria-expanded')) !== 'true') await win.locator('[data-wall-more]').click()
+    await sleep(450)
+    await win.screenshot({ path: join(SHOTS, 'theme-wall-light-expanded.png') })
+    ok(own.length >= 0, `own copies after the 18: ${own.length}`)
+  } finally {
+    await win.emulateMedia({ reducedMotion: 'no-preference' }).catch(() => {})
+    await setDraft(draftBefore ?? null).catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
+    await app.close().catch(() => {})
+  }
+}
+
+/**
+ * THE THEMES WHERE THEY ARE WORN (#298): a code file and the Explorer in a
+ * dark, a warm, a monochrome light, both high contrast and a see-through
+ * theme. The code colours are the theme's own tokens (they left index.css),
+ * and the screenshots are for the eye, against the mockup's.
+ */
+async function themeLooksScenario(fixtures) {
+  console.log('theme looks')
+  const { app, win } = await launch(join(fixtures, 'code', 'main.py'))
+  let styleBefore
+  const catalogue = JSON.parse(readFileSync(join(ROOT, 'src', 'renderer', 'src', 'lib', 'themes', 'catalogue.json'), 'utf8'))
+  try {
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    for (const id of ['aurora', 'ember', 'chalk', 'midnight-hc', 'daylight-hc', 'orchid']) {
+      const r = await switchStyle(win, id)
+      if (styleBefore === undefined) styleBefore = r
+      await sleep(350)
+      const t = catalogue.find((x) => x.id === id)
+      const code = await win.evaluate(() => {
+        const cs = getComputedStyle(document.documentElement)
+        return { keyword: cs.getPropertyValue('--p-code-keyword').trim(), string: cs.getPropertyValue('--p-code-string').trim(), tag: cs.getPropertyValue('--p-code-tag').trim() }
+      })
+      ok(code.keyword === t.code.keyword && code.string === t.code.string && code.tag === t.code.tag, `${id}: the code colours are the theme's (${JSON.stringify(code)})`)
+      await win.mouse.move(5, 5)
+      await win.screenshot({ path: join(SHOTS, `theme-code-${id}.png`) })
+    }
+    await win.locator('[role="tab"]:has-text("Explorer")').first().click()
+    for (const id of ['aurora', 'carbon', 'paper', 'midnight-hc', 'glacier', 'pearl']) {
+      await switchStyle(win, id)
+      await sleep(350)
+      await win.screenshot({ path: join(SHOTS, `theme-explorer-${id}.png`) })
+    }
+  } finally {
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await app.close().catch(() => {})
+  }
+}
+
+/** Write window preferences into a profile before its first launch. */
+function seedPreferences(profile, kv) {
+  const preferences = join(profile, 'window-preferences')
+  mkdirSync(preferences, { recursive: true })
+  for (const [key, value] of Object.entries(kv))
+    writeFileSync(join(preferences, createHash('sha256').update(key).digest('hex') + '.json'), JSON.stringify({ key, value }))
+}
+
+/**
+ * SAVED THEMES MOVE ONCE (#298, spec 4), in two real profiles: one on Onyx
+ * with an unsaved edit and two own copies (one dark, one light, both grown
+ * out of Onyx), one on Driftwood with Colour mode left on light. After the
+ * launch: Onyx is Void WITH ITS GLASS as an unsaved edit, Driftwood is Carbon
+ * (the old mode is not read), the own copies are the last cards and
+ * unchanged but for their base, the one quiet line names the old theme,
+ * nothing reset to Aurora, the marker is set; a theme pick takes the line away.
+ */
+async function themeMigrationScenario(fixtures) {
+  console.log('theme migration')
+  const dark = { id: 'custom-0-1-Customtheme1', name: 'Custom theme 1', blurb: 'Glass over true black.', mode: 'dark', material: 'acrylic', bg: '#000000', side: '#141414', title: '#141414', text: '#eef0f4', folderIcon: '#8bb1fd', iconMode: 'kind', icon: '#8a8e99', accent: '#ff5500', font: 'system', size: '12.5', corners: '2', borders: 'faint', custom: true, base: 'default' }
+  const light = { ...dark, id: 'custom-0-2-Customtheme2', name: 'Custom theme 2', mode: 'light', material: 'solid', bg: '#f8f4ed', side: '#f1ebe1', title: '#e9e2d5', text: '#241f18', accent: '#92400e' }
+  const cases = [
+    { name: 'onyx', seed: { 'prism.style': 'default', 'prism.style.draft': JSON.stringify({ accent: '#22aa66' }), 'prism.style.presets': JSON.stringify([dark, light]), 'prism.mode': 'dark' }, want: 'new-void', retired: 'Onyx', mapped: 'Void' },
+    { name: 'driftwood', seed: { 'prism.style': 'driftwood', 'prism.mode': 'light' }, want: 'carbon', retired: 'Driftwood', mapped: 'Carbon' }
+  ]
+  for (const c of cases) {
+    const profile = `${PROFILE}-migrate-${c.name}`
+    rmSync(profile, { recursive: true, force: true })
+    seedPreferences(profile, { 'prism.onboarded': '1', 'prism.sidebar': '1', 'prism.newtab.mode': 'folder', 'prism.newtab.folder': fixtures, ...c.seed })
+    const { app, win } = await launchProbed({ profile, tabs: { active: 0, tabs: [explorerTab('fixture-explorer', fixtures)] } })
+    try {
+      const keys = await win.evaluate(() =>
+        Object.fromEntries(['prism.style', 'prism.style.draft', 'prism.style.presets', 'prism.style.v', 'prism.style.retired', 'prism.mode'].map((k) => [k, localStorage.getItem(k)]))
+      )
+      ok(keys['prism.style'] === c.want, `${c.name}: the saved theme is now ${c.want} (${keys['prism.style']})`)
+      ok(keys['prism.style.v'] === '2', `${c.name}: the marker is set`)
+      ok(keys['prism.style.retired'] === c.retired, `${c.name}: the old name is kept for the one line (${keys['prism.style.retired']})`)
+      if (c.name === 'onyx') {
+        const draft = JSON.parse(keys['prism.style.draft'] ?? '{}')
+        ok(draft.acrylic === 55 && draft.accent === '#22aa66', `onyx: its glass is an unsaved edit of Void, level 55, the edit kept (${keys['prism.style.draft']})`)
+        ok(await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg').startsWith('rgba(')), 'onyx: the window is see-through')
+        const presets = JSON.parse(keys['prism.style.presets'] ?? '[]')
+        ok(JSON.stringify(presets) === JSON.stringify([{ ...dark, base: 'new-void' }, { ...light, base: 'new-void' }]), 'onyx: both own copies are kept field for field, their base mapped')
+      } else {
+        ok(keys['prism.mode'] === 'dark', `driftwood: the old light mode was not read; the boot mirror says dark (${keys['prism.mode']})`)
+      }
+      await settingsPage(win, 'appearance')
+      const line = win.locator('[data-theme-retired]')
+      ok(((await line.textContent()) ?? '').trim() === `Your theme ${c.retired} was retired, ${c.mapped} is the closest.`, `${c.name}: the one quiet line (${(await line.textContent())?.trim()})`)
+      const w = await wallState(win)
+      if (c.name === 'onyx') ok(JSON.stringify(w.ids.slice(-2)) === JSON.stringify([dark.id, light.id]), `onyx: the own copies are the last cards (${w.ids.slice(-2)})`)
+      ok(JSON.stringify(w.checked) === JSON.stringify([c.want]), `${c.name}: the chosen card is ${c.want}, nothing reset to Aurora (${w.checked})`)
+      await win.screenshot({ path: join(SHOTS, `theme-migration-${c.name}.png`) })
+      await win.locator('[data-theme-card="aurora"]').click()
+      ok(await until(async () => (await line.count()) === 0, 3000, 50), `${c.name}: a theme pick takes the line away`)
+      ok((await win.evaluate(() => localStorage.getItem('prism.style.retired'))) === null, `${c.name}: and its key`)
+    } finally {
+      await app.close().catch(() => {})
+      await sleep(900)
+      rmSync(profile, { recursive: true, force: true })
+    }
+  }
+}
+
+/**
+ * ONBOARDING IS THREE STEPS, THE FIRST THE THEME WALL (#298, spec 5): a
+ * profile that has not been through setup gets three dots and the same wall
+ * on step one; picking Paper from Aurora plays the sweep and lands light;
+ * Start stores the theme.
+ */
+async function onboardingThemeScenario(fixtures) {
+  console.log('onboarding theme')
+  const profile = `${PROFILE}-onboarding`
+  rmSync(profile, { recursive: true, force: true })
+  seedPreferences(profile, { 'prism.newtab.mode': 'folder', 'prism.newtab.folder': fixtures })
+  const { app, win } = await launchProbed({ profile, tabs: { active: 0, tabs: [explorerTab('fixture-explorer', fixtures)] } })
+  try {
+    await win.locator('button:has-text("Get started")').click({ timeout: 15000 })
+    ok((await win.locator('[data-ob-dots] > span').count()) === 3, `three steps (${await win.locator('[data-ob-dots] > span').count()} dots)`)
+    const step = (await win.locator('.ob-deal h1').first().textContent()) ?? ''
+    ok(step.includes('Choose your look.'), `step one is the theme step (${step})`)
+    ok((await win.locator('[data-onboarding-wall] [data-theme-wall]').count()) === 1, 'with the theme wall on it')
+    const w = await wallState(win)
+    ok(w.shown.length === 6 && w.checked[0] === 'aurora', `collapsed to Aurora's row (${w.shown.join(', ')})`)
+    await sleep(900) // the step deals in
+    await win.screenshot({ path: join(SHOTS, 'onboarding-theme.png') })
+    await win.locator('[data-wall-more]').click()
+    await sleep(400)
+    await win.locator('[data-theme-card="paper"]').click()
+    ok(await until(async () => (await win.locator('.ob-sweep').count()) === 1, 1000, 20), 'picking Paper from Aurora plays the sweep')
+    ok(await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light'), 3000, 50), 'and lands light')
+    ok(await until(async () => (await win.locator('.ob-sweep').count()) === 0, 3000, 50), 'the sweep ends')
+    await sleep(600)
+    await win.screenshot({ path: join(SHOTS, 'onboarding-theme-paper.png') })
+    await win.locator('button:has-text("Next")').click()
+    await win.locator('button:has-text("Next")').click()
+    await win.locator('button:has-text("Start using Prism")').click()
+    ok(
+      await until(() => win.evaluate(() => localStorage.getItem('prism.onboarded') === '1' && localStorage.getItem('prism.style') === 'paper'), 3000, 50),
+      'Start stores the theme (paper) and the setup as done'
+    )
+  } finally {
+    await app.close().catch(() => {})
+    await sleep(900)
+    rmSync(profile, { recursive: true, force: true })
   }
 }
 
@@ -13339,12 +14509,209 @@ async function settingsSearchScenario(fixtures) {
     ok((await at()) === 'appearance', `Home to the first (${await at()})`)
     await win.keyboard.press('ArrowDown')
     await win.keyboard.press('ArrowDown')
+    await win.keyboard.press('ArrowDown')
     await win.keyboard.press('Enter')
     ok((await win.locator('[data-settings-tab="terminal"]').getAttribute('aria-current')) === 'page', 'Enter opens it, and the rail says it is the page')
   } finally {
     EXTRA_ENV = {}
     if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
     await app?.close().catch(() => {})
+  }
+}
+
+/**
+ * A SEE-THROUGH STYLE IS SEE-THROUGH EVERYWHERE (#294; owner, 2026-10-06, of
+ * Prism on a glass style: "the top bar and settings sidebar don't follow the
+ * acrylic of acrylic themes, they should, it should be everywhere", and of the
+ * Explorer: "the preview also isn't acrylic"). Every surface that IS the
+ * window's ground wears the style's see-through ground ONCE: the coats of
+ * every box under a point, composited, come to the ground's own alpha. Two
+ * translucent coats of Onyx's black read as an opaque slab (0.9 twice is
+ * 0.99), which is what the owner saw. Measured on the title bar, the tab
+ * strip, the one-row bar of a hidden title bar, the Settings rail and page,
+ * and the Explorer's list and preview pane with text, code, markdown, a
+ * picture, a PDF and a film in it, and a file opened under the address bar. Menus, dialogs and pills are flat on purpose: not grounds.
+ */
+async function seeThroughScenario(fixtures) {
+  console.log('see-through')
+  const dir = join(fixtures, 'seethrough')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join('\n'))
+  writeFileSync(join(dir, 'main.ts'), Array.from({ length: 12 }, (_, i) => `export const v${i} = ${i}`).join('\n'))
+  writeFileSync(join(dir, 'notes.md'), '# Notes\n\nA short page.\n')
+  copyFileSync(join(fixtures, 'one.png'), join(dir, 'one.png'))
+  copyFileSync(join(fixtures, 'sample.pdf'), join(dir, 'sample.pdf'))
+  copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'ep1.mp4'))
+  // A document (DocView's canvas), an archive, a sound and a kind Prism does
+  // not read: every viewer the preview can hold.
+  writeFileSync(join(dir, 'letter.rtf'), '{\\rtf1\\ansi Dear reader,\\par a short letter.}')
+  copyFileSync(join(fixtures, 'zips', 'bundle.zip'), join(dir, 'bundle.zip'))
+  writeFileSync(join(dir, 'mystery.qqq'), Buffer.from([0, 1, 2, 3, 250, 251, 252, 253]))
+  {
+    // One second of silence, 8 kHz mono 16-bit.
+    const n = 8000 * 2
+    const wav = Buffer.alloc(44 + n)
+    wav.write('RIFF', 0)
+    wav.writeUInt32LE(36 + n, 4)
+    wav.write('WAVEfmt ', 8)
+    wav.writeUInt32LE(16, 16)
+    wav.writeUInt16LE(1, 20)
+    wav.writeUInt16LE(1, 22)
+    wav.writeUInt32LE(8000, 24)
+    wav.writeUInt32LE(16000, 28)
+    wav.writeUInt16LE(2, 32)
+    wav.writeUInt16LE(16, 34)
+    wav.write('data', 36)
+    wav.writeUInt32LE(n, 40)
+    writeFileSync(join(dir, 'tone.wav'), wav)
+  }
+  const { app, win } = await launch(join(dir, 'notes.md'))
+  let styleBefore = null
+  /** The coats under a box: at points along its middle row (and one lower
+   *  down for a tall box) where nothing carrying text is on top, every box
+   *  from the top of the stack to the root, background alphas composited.
+   *  The worst point is returned, with the coats that made it. */
+  const coatsOf = (sel, at) =>
+    win.evaluate(([q, y0]) => {
+      const el = document.querySelector(q)
+      if (!el) return null
+      const alphaOf = (c) => {
+        if (!c || c === 'transparent') return 0
+        const v = (c.match(/[\d.]+/g) ?? []).map(Number)
+        return v.length > 3 ? v[3] : 1
+      }
+      const r = el.getBoundingClientRect()
+      const rows = y0 !== null ? [r.top + y0] : r.height > 120 ? [r.top + 16, r.top + r.height * 0.5, r.bottom - 24] : [r.top + r.height / 2]
+      let worst = null
+      for (const y of rows)
+        for (let x = r.left + 6; x < r.right - 6; x += 9) {
+          const stack = document.elementsFromPoint(x, y)
+          if (!stack.length || !(stack[0] === el || el.contains(stack[0]))) continue
+          const top = stack[0]
+          if (top !== el && [...top.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue
+          // The file itself (a picture, a PDF page, a line of code) and a
+          // control (the address field, the transport) are not grounds. A
+          // film's box is measured: its letterbox is the pane's ground. A
+          // CARD (the archive's member list) is a flat panel, like a menu.
+          if (top.closest('img, canvas, svg, button, input, .browse-field, [data-page], [data-scrub], [data-transport-row], .p-sheet, .cm-line, .cm-gutterElement, [class~="bg-[var(--p-side-flat)]"]')) continue
+          let clear = 1
+          const coats = []
+          for (const b of stack) {
+            const a = alphaOf(getComputedStyle(b).backgroundColor)
+            if (a > 0.01) {
+              clear *= 1 - a
+              const cls = typeof b.className === 'string' ? b.className.trim().split(/\s+/).filter((c) => !c.includes('[')).slice(0, 3).join('.') : ''
+              coats.push(`${b.tagName.toLowerCase()}${cls ? '.' + cls : ''}@${a.toFixed(2)}`)
+            }
+          }
+          const total = 1 - clear
+          if (!worst || total > worst.total) worst = { total, x: Math.round(x), y: Math.round(y), coats }
+        }
+      return worst
+    }, [sel, at ?? null])
+  const groundAlpha = () =>
+    win.evaluate(() => {
+      const probe = document.createElement('span')
+      probe.style.backgroundColor = 'var(--p-bg)'
+      document.body.appendChild(probe)
+      const c = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      const v = (c.match(/[\d.]+/g) ?? []).map(Number)
+      return v.length > 3 ? v[3] : 1
+    })
+  const oneCoat = async (label, sel, want, at) => {
+    let m = null
+    await until(async () => {
+      m = await coatsOf(sel, at)
+      return !!m && Math.abs(m.total - want) <= 0.02
+    }, 3000, 100)
+    ok(
+      !!m && Math.abs(m.total - want) <= 0.02,
+      `${label}: one coat of the see-through ground (${m ? `${m.total.toFixed(3)} of ${want.toFixed(3)} at ${m.x},${m.y}: ${m.coats.join(' + ')}` : 'not found'})`
+    )
+  }
+  try {
+    await win.waitForSelector('[data-testid="browse-list"], [role="treeitem"]', { timeout: 15000 })
+    styleBefore = await switchStyle(win, 'glacier')
+    ok(await until(async () => (await groundAlpha()) < 1, 6000, 50), 'Glacier is a see-through style')
+    const want = await groundAlpha()
+    await win.mouse.move(2, 400)
+    await sleep(700)
+
+    // The chrome, the title bar shown.
+    await oneCoat('the title bar', '[data-title-bar]', want)
+    await oneCoat('the tab strip', '[role="tablist"]', want)
+
+    // A file of its own (a project tab): its viewer and what is round it.
+    for (const [label, sel] of [
+      ['the viewer', '[data-workspace-viewer]'],
+      ['the viewer\x27s address bar', '.browse-viewer-toolbar'],
+      ['the viewer\x27s places', '.browse-viewer-places'],
+      ['the project sidebar', '[data-project-sidebar]']
+    ])
+      if (await win.locator(sel).count()) await oneCoat(label, sel, want)
+      else console.log(`  (no ${label} on this tab)`)
+
+    // The Explorer, and its preview for each kind of file: a file handed
+    // over opens there.
+    await handoff(join(dir, 'notes.txt'))
+    ok(await until(() => win.evaluate(() => !!document.querySelector('[data-browse-preview]')?.getClientRects().length), 10000), 'the Explorer shows a preview pane')
+    await oneCoat('the Explorer list', '[data-testid="browse-list"]', want)
+    await oneCoat('the Explorer address bar', '.folder-browser > .browse-toolbar', want)
+    await oneCoat('the Explorer places', '.folder-browser .browse-places', want)
+    await oneCoat('the Explorer status line', '.folder-browser .browse-status', want)
+    for (const name of ['notes.txt', 'main.ts', 'notes.md', 'one.png', 'sample.pdf', 'ep1.mp4', 'letter.rtf', 'bundle.zip', 'tone.wav', 'mystery.qqq']) {
+      await win.locator(`[data-testid="browse-list"] [data-browse-path$="${name}"]`).click()
+      await until(
+        () => win.evaluate((n) => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path')?.endsWith(n) ?? false, name),
+        8000
+      )
+      await win.mouse.move(2, 400)
+      await sleep(900)
+      await oneCoat(`the preview pane with ${name}`, '[data-browse-preview]', want)
+      await win.screenshot({ path: join(SHOTS, `see-through-preview-${name.replace('.', '-')}.png`) })
+    }
+
+    // Opened: a double click shows the file in the Explorer's own view.
+    await win.locator(`[data-testid="browse-list"] [data-browse-path$="main.ts"]`).dblclick()
+    ok(await until(() => win.locator('.browse-viewer-toolbar').count().then((n) => n > 0), 8000), 'a double click opens the file under the address bar')
+    await win.mouse.move(2, 400)
+    await sleep(900)
+    await oneCoat('the opened file', '[data-workspace-viewer]', want)
+    await oneCoat('its address bar', '.browse-viewer-toolbar', want)
+    if (await win.locator('.browse-viewer-places').count()) await oneCoat('its places', '.browse-viewer-places', want)
+    await win.screenshot({ path: join(SHOTS, 'see-through-opened.png') })
+
+    // Settings: the rail and the page.
+    await settingsPage(win, 'appearance')
+    await win.mouse.move(2, 400)
+    await sleep(600)
+    await oneCoat('the Settings rail', '[data-settings-page] > nav', want)
+    // Along its top margin, over the page's own ground: what the cards
+    // below hold is content.
+    await oneCoat('the Settings page', '[data-settings-page] > .p-scroll', want, 10)
+    await win.screenshot({ path: join(SHOTS, 'see-through-settings.png') })
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+
+    // One row: the title bar hidden.
+    await setTitleBar(win, 'hidden')
+    await win.mouse.move(2, 400)
+    await sleep(700)
+    await oneCoat('the one-row bar of a hidden title bar', '[data-title-bar="tabs"]', want)
+    await win.screenshot({ path: join(SHOTS, 'see-through-one-row.png') })
+    await setTitleBar(win, 'shown')
+  } finally {
+    if (styleBefore)
+      await win
+        .evaluate((b) => {
+          const put = (k, v) => (v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v))
+          put('prism.style', b[0])
+          put('prism.mode', b[1])
+        }, styleBefore)
+        .catch(() => {})
+    await app.close().catch(() => {})
   }
 }
 
@@ -13962,6 +15329,10 @@ await run(termOptionsScenario)
 await run(noCommandHelpScenario)
 await run(termColourPickerScenario)
 await run(settingsLookScenario)
+await run(themeWallScenario)
+await run(themeMigrationScenario)
+await run(onboardingThemeScenario)
+await run(themeLooksScenario)
 await run(settingsSearchScenario)
 await run(dictationScenario)
 await run(dictationPageScenario)
@@ -13996,11 +15367,14 @@ await run(videoMenuScenario)
 await run(selectionScenario)
 await run(accentOpacityScenario)
 await run(styleColoursScenario)
+await run(seeThroughScenario)
 await run(dragScenario)
 await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
+await run(sidebarPlacesScenario)
+await run(rightClickSelectScenario)
 await run(columnHeadersScenario)
 await run(panelsAlignScenario)
 await run(downloadsDateScenario)
