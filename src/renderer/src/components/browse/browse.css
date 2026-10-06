@@ -351,12 +351,24 @@
    and the text in its own colour (owner, 2026-10-03, of the solid block: "i
    want that colour for the sidebar on the explorer page too, not just the
    selected file"). */
-.folder-browser .browse-place[aria-current],
-.folder-browser .browse-place[aria-current]:hover {
+.folder-browser .browse-place[aria-current]:not([data-mark-hidden]),
+.folder-browser .browse-place[aria-current]:not([data-mark-hidden]):hover {
   background-color: var(--p-sel-tint);
   box-shadow: inset 0 0 0 1px var(--p-sel-line);
   color: var(--p-text);
   font-weight: 600;
+}
+/* ONE place is marked (#296, lib/placeMark.ts), full while the sidebar is
+   where the user acts and DIMMED once they act in the list, File Explorer's
+   inactive selection (owner, 2026-10-06: "as soon as you click something in
+   the main view after that it gets dimmed, still highlighted but dimmed").
+   --p-sel-tint-dim is the tint drained toward grey, at three quarters of its
+   strength (theme.ts). A menu open on another place hides the mark meanwhile
+   (`data-mark-hidden`), so only the right-clicked row is lit. */
+.folder-browser[data-active-area='main'] .browse-place[aria-current]:not([data-mark-hidden]):not([data-menu]),
+.folder-browser[data-active-area='main'] .browse-place[aria-current]:not([data-mark-hidden]):not([data-menu]):hover {
+  background-color: var(--p-sel-tint-dim);
+  box-shadow: inset 0 0 0 1px var(--p-sel-line-dim);
 }
 /* A place whose menu is open wears the same tint, File Explorer's look for a
    right-clicked item (#296; owner, 2026-10-06: "sidebar items should also get
@@ -713,6 +725,21 @@ body[data-internal-file-drag] .browse-path:focus-within {
   box-shadow:
     inset 1px 0 0 var(--p-sel-line),
     inset -1px 0 0 var(--p-sel-line),
+    var(--sel-top),
+    var(--sel-bottom);
+}
+/* The list's marks dim the same way while the user acts in the sidebar
+   (#296), File Explorer's inactive selection: same edge round the block, the
+   dimmed tint and its edge. */
+.folder-browser[data-active-area='places'] .browse-row[data-selected],
+.folder-browser[data-active-area='places'] .browse-row[data-selected]:hover {
+  --sel-seen: var(--p-sel-tint-dim-seen);
+  --sel-top: inset 0 1px 0 var(--p-sel-line-dim);
+  --sel-bottom: inset 0 -1px 0 var(--p-sel-line-dim);
+  background-color: var(--p-sel-tint-dim);
+  box-shadow:
+    inset 1px 0 0 var(--p-sel-line-dim),
+    inset -1px 0 0 var(--p-sel-line-dim),
     var(--sel-top),
     var(--sel-bottom);
 }

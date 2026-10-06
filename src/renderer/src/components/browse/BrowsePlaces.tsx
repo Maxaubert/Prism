@@ -20,6 +20,7 @@ import type { BrowsePlace, FolderBrowserProps } from './types'
 import './quick-access.css'
 import './drive-rows.css'
 import { useFolderDrop } from './useFolderDrop'
+import { markedPlace, type PlaceRow } from '../../lib/placeMark'
 
 type Props = Pick<
   FolderBrowserProps,
@@ -41,6 +42,9 @@ type Props = Pick<
 type PlacesProps = Props & {
   /** Set only while the panel PEEKS (#250): the header's toggle pins it. */
   onPin?: () => void
+  /** The place last clicked (FolderBrowser holds it, lib/placeMark.ts). */
+  chosenPlace?: PlaceRow | null
+  onChoosePlace?: (place: PlaceRow) => void
 }
 
 /** The two halves of the one pin list (#296): Windows' own folders, then
@@ -78,7 +82,9 @@ export function BrowsePlaces({
   onPinQuickAccessPaths,
   onDropInto,
   readDrives,
-  onPin
+  onPin,
+  chosenPlace = null,
+  onChoosePlace
 }: PlacesProps): JSX.Element {
   const folderDrop = useFolderDrop(onDropInto)
   const pins =
@@ -150,6 +156,28 @@ export function BrowsePlaces({
     if (moving && list.some((pin) => sameQuickAccessPath(pin.path, moving)))
       onMoveQuickAccess?.(moving, before)
   }
+  const projects = places.filter((place) => place.group === 'Projects')
+  // ONE PLACE IS MARKED (#296; owner, 2026-10-06), File Explorer's rule
+  // (lib/placeMark.ts): the one clicked while the folder is inside it, else
+  // the first whose path IS the folder. aria-current is on that row alone.
+  const placeRows: PlaceRow[] = [
+    ...[...sections['Quick access'], ...sections.Pinned]
+      .filter((pin) => pin.isFolder)
+      .map((pin) => ({ row: `pin:${pin.path}`, path: pin.path })),
+    ...[...projects, ...drives].map((place) => ({ row: `place:${place.path}`, path: place.path }))
+  ]
+  const marked = markedPlace(placeRows, directory, chosenPlace)
+  // While a menu is open on ANOTHER row, the mark is not drawn (owner, same
+  // day: "both are equally highlighted which makes it seem like the right
+  // click action is targeting both"); it comes back when the menu shuts.
+  const markOf = (row: string): Record<string, string | undefined> =>
+    row === marked
+      ? {
+          'aria-current': 'location',
+          'data-mark-hidden': menu && menu.row !== row ? '' : undefined
+        }
+      : {}
+  const choose = (row: string, path: string): void => onChoosePlace?.({ row, path })
   const menuList = menu ? sections[sectionOf(menu.pin.path)] : []
   const menuIndex = menu
     ? menuList.findIndex((pin) => sameQuickAccessPath(pin.path, menu.pin.path))
@@ -178,7 +206,6 @@ export function BrowsePlaces({
       >
         <h2>{section}</h2>
         {list.map((pin, index) => {
-          const current = pin.isFolder && sameQuickAccessPath(pin.path, directory)
           const ext = /\.[^.\\/]+$/.exec(pin.path)?.[0].toLowerCase() ?? ''
           const destination = pin.isFolder ? folderDrop(pin.path) : undefined
           const known = knownOf(pin)
@@ -199,10 +226,15 @@ export function BrowsePlaces({
               // menu is open (#296; owner, 2026-10-06), File Explorer's look.
               data-menu={menu?.row === `pin:${pin.path}` ? '' : undefined}
               draggable={!!onMoveQuickAccess}
-              aria-current={current ? 'location' : undefined}
-              onClick={() =>
-                pin.isFolder ? onNavigate(pin.path) : onQuickAccessFile?.(pin.path)
-              }
+              {...markOf(`pin:${pin.path}`)}
+              onClick={() => {
+                if (!pin.isFolder) {
+                  onQuickAccessFile?.(pin.path)
+                  return
+                }
+                choose(`pin:${pin.path}`, pin.path)
+                onNavigate(pin.path)
+              }}
               onDoubleClick={() => {
                 if (!pin.isFolder) onQuickAccessFile?.(pin.path, true)
               }}
@@ -292,9 +324,12 @@ export function BrowsePlaces({
       className={`browse-place${className}`}
       {...attrs}
       {...folderDrop(place.path)}
-      aria-current={sameQuickAccessPath(place.path, directory) ? 'location' : undefined}
+      {...markOf(`place:${place.path}`)}
       data-menu={menu?.row === `place:${place.path}` ? '' : undefined}
-      onClick={() => onNavigate(place.path)}
+      onClick={() => {
+        choose(`place:${place.path}`, place.path)
+        onNavigate(place.path)
+      }}
       title={place.path}
       onContextMenu={(event) => {
         event.preventDefault()
@@ -311,7 +346,6 @@ export function BrowsePlaces({
       {body}
     </button>
   )
-  const projects = places.filter((place) => place.group === 'Projects')
   return (
     <aside className="browse-places" aria-label="Locations">
       {onPin && (
@@ -363,9 +397,15 @@ export function BrowsePlaces({
             {
               label: 'Open',
               icon: <FileMenuIcon name="open" />,
-              onPick: () => menu.pin.isFolder
-                ? onNavigate(menu.pin.path)
-                : onQuickAccessFile?.(menu.pin.path, true)
+              onPick: () => {
+                if (!menu.pin.isFolder) {
+                  onQuickAccessFile?.(menu.pin.path, true)
+                  return
+                }
+                // Open from a place's menu is a pick of that place.
+                choose(menu.row, menu.pin.path)
+                onNavigate(menu.pin.path)
+              }
             },
             {
               label: 'Open in new tab',

@@ -660,14 +660,15 @@ export function BrowseList(props: Props): JSX.Element {
                       ) : (
                         entry.file && (
                           // A marked row is a tint, so its icon keeps its own
-                          // colours; its knockouts are the tint as seen.
+                          // colours; its knockouts are the tint as seen
+                          // (dimmed or not: browse.css sets --sel-seen).
                           <KindIcon
                             kind={entry.file.kind}
                             ext={entry.file.ext}
                             name={entry.name}
                             color={iconColour(entry.file.kind)}
                             size={look.icon}
-                            bg={selected ? 'var(--p-sel-tint-seen)' : 'var(--p-bg)'}
+                            bg={selected ? 'var(--sel-seen, var(--p-sel-tint-seen))' : 'var(--p-bg)'}
                           />
                         )
                       )}

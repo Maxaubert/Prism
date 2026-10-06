@@ -8471,7 +8471,8 @@ async function rightClickSelectScenario(fixtures) {
   console.log('right-click selects')
   const dir = join(fixtures, 'rclick')
   rmSync(dir, { recursive: true, force: true })
-  mkdirSync(join(dir, 'sub'), { recursive: true })
+  mkdirSync(join(dir, 'sub', 'deeper'), { recursive: true })
+  writeFileSync(join(dir, 'sub', 'deeper', 'x.txt'), 'x\n')
   for (const name of ['a.txt', 'b.txt', 'c.txt', 'd.txt']) writeFileSync(join(dir, name), `${name}\n`)
   const { app, win } = await launch(join(dir, 'a.txt'))
   const list = win.locator('[data-testid="browse-list"]')
@@ -8517,6 +8518,28 @@ async function rightClickSelectScenario(fixtures) {
     await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
     if ((await row('b.txt').count()) === 0) await row('rclick').dblclick()
     ok(await until(async () => (await row('b.txt').count()) === 1, 10000), 'the Explorer shows the fixture folder')
+    // A pinned folder with a folder in it, for the one-mark checks (3).
+    await row('sub').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const subPin = places.locator('section[aria-label="Pinned"] .quick-access-pin[data-quick-access-path$="\\\\sub" i]')
+    ok(await until(async () => (await subPin.count()) === 1, 5000), 'sub is pinned')
+    await shut().catch(() => {})
+    const goByAddress = async (path, landed) => {
+      const pathBox = win.locator('.folder-browser [data-testid="browse-toolbar"] nav.browse-path')
+      const box = await pathBox.boundingBox()
+      await pathBox.click({ position: { x: Math.round(box.width) - 12, y: Math.round(box.height / 2) } })
+      const editing = win.locator('.folder-browser input[aria-label="Folder path"]')
+      await until(async () => (await editing.count()) === 1, 5000)
+      await editing.fill(path)
+      await editing.press('Enter')
+      ok(await until(async () => (await row(landed).count()) === 1, 10000), `the address field goes to ${path}`)
+      await away()
+    }
+    const currentRows = () =>
+      places.locator('.browse-place[aria-current]').evaluateAll((els) =>
+        els.map((e) => e.getAttribute('data-quick-access-path') ?? e.getAttribute('title'))
+      )
+    const subPath = join(dir, 'sub')
 
     for (const [style, mode] of [['aurora', 'dark'], ['paper', 'light']]) {
       const was = await switchStyle(win, style, mode)
@@ -8587,6 +8610,90 @@ async function rightClickSelectScenario(fixtures) {
       await pickStyleSegment(win, 'drive-style', 'Tiles')
       await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
       await places.waitFor({ timeout: 10000 })
+
+      // 3. ONE MARK, AND IT DIMS WHERE THE USER IS NOT (#296; owner,
+      // 2026-10-06: "right now both are equally highlighted which makes it
+      // seem like the right click action is targeting both", and of File
+      // Explorer: "the sidebar item gets fully highlighted when you click it
+      // but as soon as you click something in the main view after that it
+      // gets dimmed, still highlighted but dimmed").
+      const tintDim = await cssColour(win, 'var(--p-sel-tint-dim)')
+      ok(tintDim !== tint && !/rgba\(0, 0, 0, 0\)/.test(tintDim), `${style}: there is a dimmed mark apart from the tint (${tintDim}, ${tint})`)
+      const lit = () =>
+        places.locator('.browse-place').evaluateAll(
+          (els, marks) =>
+            els
+              .filter((e) => marks.includes(getComputedStyle(e).backgroundColor))
+              .map((e) => e.getAttribute('data-quick-access-path') ?? e.getAttribute('title')),
+          [tint, tintDim]
+        )
+      // A Tiles drive: full when clicked, dimmed after a click in the list,
+      // and the dimmed mark is not the tile's own fill.
+      const cTile = places.locator('section[aria-label="This PC"] .browse-drive[title="C:\\\\"]')
+      await away()
+      const tilePlain = await bg(cTile)
+      await cTile.click()
+      ok(await until(async () => (await cTile.getAttribute('aria-current')) === 'location', 8000), `${style}: a click on C: opens it`)
+      await away()
+      ok((await bg(cTile)) === tint, `${style}: the clicked drive tile is full (${await bg(cTile)}, tint ${tint})`)
+      await list.locator('.browse-row').first().click()
+      await away()
+      const tileDim = await bg(cTile)
+      ok(tileDim === tintDim && tileDim !== tilePlain, `${style}: after a click in the list the tile is dimmed, not plain (${tileDim}, dim ${tintDim}, plain ${tilePlain})`)
+      const pbox = await places.boundingBox()
+      await win.screenshot({ path: join(SHOTS, `place-mark-tile-dim-${style}.png`), clip: { x: pbox.x, y: pbox.y, width: pbox.width, height: Math.min(pbox.height, 640) } })
+
+      // A pinned folder: full on the click, dimmed after one in the list.
+      await subPin.click()
+      ok(await until(async () => (await row('deeper').count()) === 1, 8000), `${style}: a click on the pinned sub opens it`)
+      await away()
+      const subPinPath = await subPin.getAttribute('data-quick-access-path')
+      ok(JSON.stringify(await currentRows()) === JSON.stringify([subPinPath]), `${style}: one place is current, the pin (${await currentRows()})`)
+      ok((await bg(subPin)) === tint, `${style}: the clicked pin is full (${await bg(subPin)})`)
+      ok((await bg(cTile)) === tilePlain, `${style}: and C: is a plain tile again (${await bg(cTile)}, ${tilePlain})`)
+      await row('deeper').click()
+      await away()
+      const dimLook = await bg(subPin)
+      ok(dimLook === tintDim, `${style}: a click in the list dims the pin (${dimLook}, dim ${tintDim}, full ${tint})`)
+      await win.screenshot({ path: join(SHOTS, `place-mark-dim-${style}.png`) })
+      // The list's own mark dims while the sidebar is where the user acts.
+      ok((await bg(row('deeper'))) === tint, `${style}: the list's selection is full while the list is active`)
+      await places.locator('section[aria-label="Pinned"] h2').click()
+      await away()
+      ok((await bg(subPin)) === tint, `${style}: a press in the sidebar makes the pin full again (${await bg(subPin)})`)
+      ok((await bg(row('deeper'))) === tintDim, `${style}: and the list's selection dimmed (${await bg(row('deeper'))})`)
+      await win.screenshot({ path: join(SHOTS, `place-mark-list-dim-${style}.png`) })
+      await row('deeper').click()
+      await away()
+      ok((await bg(row('deeper'))) === tint && (await bg(subPin)) === tintDim, `${style}: a click in the list swaps them back`)
+
+      // (a) A right-click on another place: only it is lit while its menu is
+      // open; the pin's mark comes back when the menu shuts.
+      const home = places.locator('section[aria-label="Quick access"] .quick-access-pin[data-known="home"]')
+      await home.click({ button: 'right' })
+      ok(await until(menuOpen, 3000), `${style}: Home's menu opens`)
+      await sleep(300)
+      const during = await lit()
+      ok(JSON.stringify(during) === JSON.stringify([await home.getAttribute('data-quick-access-path')]), `${style}: only the right-clicked place is lit (${JSON.stringify(during)})`)
+      ok(JSON.stringify(await currentRows()) === JSON.stringify([subPinPath]), `${style}: the pin is still the current place for a screen reader`)
+      await win.screenshot({ path: join(SHOTS, `place-mark-menu-${style}.png`) })
+      await shut()
+      ok(JSON.stringify(await lit()) === JSON.stringify([subPinPath]), `${style}: the pin's mark is back when the menu shuts (${JSON.stringify(await lit())})`)
+
+      // (b) Into a subfolder keeps the clicked place; the address field to
+      // somewhere else lets it go; to the place itself marks it again.
+      await subPin.click()
+      ok(await until(async () => (await row('deeper').count()) === 1, 8000), `${style}: back in sub`)
+      await row('deeper').dblclick()
+      ok(await until(async () => (await row('x.txt').count()) === 1, 8000), `${style}: into sub\\deeper`)
+      ok(JSON.stringify(await currentRows()) === JSON.stringify([subPinPath]), `${style}: in a subfolder the pin stays marked (${await currentRows()})`)
+      await goByAddress(dir, 'a.txt')
+      ok((await currentRows()).length === 0, `${style}: the address field outside it clears the mark (${await currentRows()})`)
+      await goByAddress(join(subPath, 'deeper'), 'x.txt')
+      ok((await currentRows()).length === 0, `${style}: and coming back without a click marks nothing (${await currentRows()})`)
+      await goByAddress(subPath, 'deeper')
+      ok(JSON.stringify(await currentRows()) === JSON.stringify([subPinPath]), `${style}: a place's own path marks it (${await currentRows()})`)
+      await goByAddress(dir, 'a.txt')
     }
   } finally {
     if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})

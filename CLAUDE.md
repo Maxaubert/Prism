@@ -665,6 +665,22 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   marked rows all stay. A place (pin, project, drive in Tiles/Ring/Gauge; `data-menu`) and a
   project tree row (`onMenuHl`) wear the same tint while their menu is open, without becoming
   current or selected. Still no ring. `rightClickSelect` e2e measures it on a dark and a light style.
+  THE SIDEBAR MARKS ONE PLACE, AS FILE EXPLORER DOES (#296, owner, 2026-10-06: "when you right click
+  a sidebar item different from the currently selected one there should only be highlighting on the
+  right clicked item ... in file explorer it works like this when you're in a subfolder from the
+  sidebar, i think its based on whether you clicked the pin first then went from there ... the
+  sidebar item gets fully highlighted when you click it but as soon as you click something in the
+  main view after that it gets dimmed, still highlighted but dimmed"). Before, every place whose
+  path equalled the folder wore `aria-current` (a pinned project lit two rows, a subfolder none).
+  Now `lib/placeMark.ts`: the place CLICKED (FolderBrowser's `chosenPlace`, also Open from its menu)
+  stays marked while the folder is it or beneath it, and is forgotten once the folder leaves it;
+  otherwise the first place whose path IS the folder; else none. `aria-current` is on that row
+  alone. While a menu is open on ANOTHER place the mark is hidden (`data-mark-hidden`). Two
+  strengths (`useActiveArea`, `data-active-area` on `.folder-browser`; a press or focus, menus
+  excluded): full `--p-sel-tint` while the sidebar is where the user acts, `--p-sel-tint-dim`
+  (the tint drained toward its own grey at `SEL_DIM` of its strength, held in
+  `theme.selection.test.ts`) once they act elsewhere. The list's selection dims the same way while
+  the sidebar is active, File Explorer's inactive selection. `rightClickSelect` measures all of it.
   THE PLACES PANEL SLIDES ONLY WHEN IT IS TOGGLED, AND A TAB SWITCH SLIDES NOTHING (#204, owner,
   2026-09-23). Both panels animate their width (180ms) only while App's `panelSliding` is true,
   for one slide after a toggle (`slidePanel`); the places column keeps its contents at their open
