@@ -4126,8 +4126,14 @@ export default function App(): JSX.Element {
               </div>
             )}
           <div
-            className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
-              washed ? 'p-wash' : ''
+            // As the Explorer's PREVIEW the box sits over the folder
+            // browser, which already paints the window's ground there: it
+            // paints nothing of its own (#294; owner, 2026-10-06: "the
+            // preview also isn't acrylic"), since a second see-through coat
+            // is an opaque pane on glass. A file of its own, or full screen,
+            // has nothing under it and paints the ground itself.
+            className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden ${
+              previewSlide.out && !fullscreen ? '' : `bg-[var(--p-bg)] ${washed ? 'p-wash' : ''}`
             } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent-solid)]' : ''} ${
               // Full view: the terminal takes the whole area, but the viewer
               // stays MOUNTED so scroll, zoom and playback survive the visit -

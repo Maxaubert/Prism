@@ -280,9 +280,12 @@ export function TabStrip({
       // closed hand, children included: a tab is made of a label button, an
       // icon slot and an X, each with a cursor of its own, and letting them
       // answer for themselves made it flicker under the moving pointer.
-      className={`${dragInFlight ? 'no-drag' : 'drag'} p-styled-font flex ${inTitleRow ? 'min-w-0 flex-1' : 'h-8 shrink-0 border-b border-[var(--p-divider)]'} items-stretch gap-0 overflow-x-auto bg-[var(--p-tabs)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
+      // In the title row the ROW paints the ground (and the wash): the strip
+      // painting it again was a second see-through coat, the opaque bar the
+      // owner saw on glass (#294).
+      className={`${dragInFlight ? 'no-drag' : 'drag'} p-styled-font flex ${inTitleRow ? 'min-w-0 flex-1' : 'h-8 shrink-0 border-b border-[var(--p-divider)] bg-[var(--p-tabs)]'} items-stretch gap-0 overflow-x-auto pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
         carry?.live ? 'cursor-grabbing [&_*]:cursor-grabbing' : ''
-      } ${wash ? 'p-wash' : ''}`}
+      } ${wash && !inTitleRow ? 'p-wash' : ''}`}
     >
       {tabs.map((t, i) => {
         const on = t.id === activeId
@@ -335,8 +338,12 @@ export function TabStrip({
                     // tabs at rest and this one are all --p-tabs, one surface
                     // with the sidebar and the title bar. --p-tab-active is
                     // kept as a token (it equals --p-tabs today) and the
-                    // active tab is told by its ink, not a fill.
-                    'bg-[var(--p-tab-active)] text-[var(--p-text)]'
+                    // active tab is told by its ink, not a fill. So it
+                    // PAINTS NOTHING (#294): the strip's ground is already
+                    // under it, and a second coat of a see-through --p-tabs
+                    // turned the tab you are on into an opaque slab on glass
+                    // (0.80 twice is 0.96, MEASURED on Onyx).
+                    'text-[var(--p-text)]'
                   : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
             }`}
             style={{
