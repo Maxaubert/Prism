@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { alphaOf, composite, opaque, withAlpha } from 'prism-term-core/renderer/lib/colour'
 import {
   DEFAULT_STYLE,
-  STYLES,
   TINT_ALPHA,
   TINT_LINE,
   TINT_MIN,
@@ -15,6 +14,7 @@ import {
   tintLineAlpha,
   type Style
 } from './theme'
+import { DERIVED_STYLES } from './themes/testStyles'
 
 // THE SELECTION IS ITS OWN COLOUR (#257; owner, 2026-10-03: "the settings
 // accent colour for the tab should be separated from the explorer accent
@@ -60,7 +60,7 @@ function before(s: Style): { tint: string; line: string } {
 }
 
 describe('an unset Selection is the tint every style already had', () => {
-  for (const s of STYLES) {
+  for (const s of DERIVED_STYLES) {
     it(`${s.id}: byte for byte, and its edge only softer`, () => {
       const t = derive(s)
       const was = before(s)
@@ -73,7 +73,7 @@ describe('an unset Selection is the tint every style already had', () => {
   }
 
   it('the default style shows the accent tint in the picker', () => {
-    const s = STYLES.find((x) => x.id === DEFAULT_STYLE) ?? STYLES[0]
+    const s = DERIVED_STYLES.find((x) => x.id === DEFAULT_STYLE) ?? DERIVED_STYLES[0]
     expect(selectionValue(s)).toBe(derive(s)['--p-sel-tint'])
   })
 })
@@ -85,7 +85,7 @@ describe('the softer edge', () => {
     expect(tintLineAlpha(1)).toBe(0.5)
   })
   it('stays visible: on every style it is a step off the tint', () => {
-    for (const s of STYLES) {
+    for (const s of DERIVED_STYLES) {
       const t = derive(s)
       for (const g of [t['--p-bg'], sideGround(s)]) {
         const fill = composite(t['--p-sel-tint'], g)
@@ -98,8 +98,8 @@ describe('the softer edge', () => {
 })
 
 describe('a picked Selection is the tint', () => {
-  const dark = STYLES.find((s) => s.mode === 'dark') as Style
-  const light = STYLES.find((s) => s.mode === 'light') as Style
+  const dark = DERIVED_STYLES.find((s) => s.mode === 'dark') as Style
+  const light = DERIVED_STYLES.find((s) => s.mode === 'light') as Style
 
   it('its colour and alpha are used as picked when the inks read', () => {
     const t = derive({ ...dark, selection: '#2ecc7138' })
@@ -121,7 +121,7 @@ describe('a picked Selection is the tint', () => {
   })
 
   it('every style holds its floors under a strong pick of either ink', () => {
-    for (const s of STYLES) {
+    for (const s of DERIVED_STYLES) {
       for (const pick of ['#ff00ffcc', '#000000cc', '#ffffffcc']) {
         const t = derive({ ...s, selection: pick })
         for (const g of [t['--p-bg'], sideGround(s)]) {
@@ -165,7 +165,7 @@ describe('it is stored with the style', () => {
     expect('selection' in cleanDraft({ selection: 42 as unknown as string })).toBe(false)
   })
   it('a saved preset keeps its pick, and loses one that is not a colour', () => {
-    const base = { ...STYLES[0], id: 'custom-1', custom: true }
+    const base = { ...DERIVED_STYLES[0], id: 'custom-1', custom: true }
     expect(cleanPresets([{ ...base, selection: '#2ecc7138' }])[0].selection).toBe('#2ecc7138')
     expect(cleanPresets([{ ...base, selection: 'x' }])[0].selection).toBeUndefined()
   })
@@ -175,14 +175,14 @@ describe('the sweep band', () => {
   // Windows draws its drag box in the selection colour, so a box dragged over
   // green marks must not be blue; unset, it is the accent it always was.
   it('unset, is drawn from the accent fill and its lifted hi, on every built-in style', () => {
-    for (const s of STYLES) {
+    for (const s of DERIVED_STYLES) {
       const t = derive(s)
       expect(t['--p-sel-hue'], s.id).toBe(t['--p-accent'])
       expect(t['--p-sel-hue-hi'], s.id).toBe(t['--p-accent-hi'])
     }
   })
   it('picked, is drawn from the pick, with an edge that reads on the stage', () => {
-    for (const s of STYLES) {
+    for (const s of DERIVED_STYLES) {
       const t = derive({ ...s, selection: '#2ecc7138' })
       expect(t['--p-sel-hue'], s.id).toBe('#2ecc71')
       expect(contrast(opaque(t['--p-sel-hue-hi']), t['--p-preview']), s.id).toBeGreaterThanOrEqual(2.9)

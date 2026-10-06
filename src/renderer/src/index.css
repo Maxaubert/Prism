@@ -146,6 +146,7 @@ video::cue {
   --p-bg: #101215;
   --p-side: #141719;
   --p-side-flat: #141719;
+  --p-raised: #141719;
   --p-title: #1a1d21;
   --p-tabs: #1a1d21;
   --p-tab-active: #1a1d21;
@@ -191,50 +192,16 @@ video::cue {
   --color-accent-hi: var(--p-accent-hi);
   --color-panel: var(--p-title);
 
-  /* Code tokens. Deliberately NOT part of a STYLE: the window chrome recolours,
-     a syntax palette shouldn't, or the same function reads as a string after a
-     style switch. They do follow the MODE, because that is legibility rather
-     than decoration - the dark set is invisible on a light background (strings
-     measured 1.7:1 against Orchid). Every value below clears WCAG AA (4.5:1)
-     against every style background of its mode; check with a contrast tool
-     before changing one. Muted on purpose, so a page of code stays quiet, and
-     comment stays the dimmest of them. */
-  --p-code-keyword: #a78bfa;
-  --p-code-string: #9ec97f;
-  --p-code-number: #d9a05b;
-  --p-code-comment: #78818f;
-  --p-code-fn: #7fb3e8;
-  --p-code-type: #6fd0c4;
-  --p-code-const: #e2a3c7;
-  --p-code-op: #93a0b0;
-  --p-code-meta: #8b93a1;
-  --p-code-invalid: #e06c75;
-  --p-code-active-line: rgba(255, 255, 255, 0.035);
-  --p-code-sel: rgba(255, 255, 255, 0.11);
-  --p-code-match: rgba(255, 255, 255, 0.12);
+  /* The code viewer's colours (`--p-code-*`) are the THEME's since #298:
+     `variablesFor` publishes them with every style (lib/theme.ts,
+     `codeTokens`), and `codeContrast.test.ts` holds each theme's to 4.5:1. */
 }
 
-/* The same palette re-cut for the light styles: same hue families, darkened
-   until each clears AA on the palest background Prism ships (Daybreak). Without
-   this the dark set carries over and code is effectively unreadable. */
 :root[data-mode='light'] {
   /* Light mode gets the conventional pale checker: on a paper-white ground
      the dark pair would read as the picture rather than as the ground. */
   --p-checker-a: #ffffff;
   --p-checker-b: #e6e8ee;
-  --p-code-keyword: #6f42c1;
-  --p-code-string: #1f6640;
-  --p-code-number: #7f4800;
-  --p-code-comment: #5b636e;
-  --p-code-fn: #1a63b8;
-  --p-code-type: #0f6f68;
-  --p-code-const: #a5325f;
-  --p-code-op: #54606e;
-  --p-code-meta: #5c5f8a;
-  --p-code-invalid: #c02626;
-  --p-code-active-line: rgba(0, 0, 0, 0.04);
-  --p-code-sel: rgba(0, 0, 0, 0.1);
-  --p-code-match: rgba(0, 0, 0, 0.12);
 }
 
 body {
@@ -725,5 +692,40 @@ input[type='color']::-webkit-color-swatch {
 @media (prefers-reduced-motion: reduce) {
   .tree-row-in {
     animation: none;
+  }
+}
+
+/* THE THEME WALL (#298). A card's frame is 2px of the card's one dark grey
+   (`lib/themes/cardBox.ts`), on top of the preview, a step lighter on hover
+   and on focus; the chosen card's ring sits outside it. A hidden card is out of the layout; while
+   the wall moves it clips (and only then), with the kept row above the rest. */
+.theme-card-edge {
+  box-shadow: inset 0 0 0 2px var(--mini-edge-at, var(--mini-edge));
+  transition: box-shadow 0.15s ease-out;
+}
+/* Hover and keyboard focus take the edge to its hover strength through a
+   variable: focus here is the base layer's FILL plus this edge, never a ring
+   (#272), and no :focus rule draws a shadow of its own. */
+.theme-card:hover,
+.theme-card:focus-visible {
+  --mini-edge-at: var(--mini-edge-hi);
+}
+.theme-card[data-hid] {
+  display: none;
+}
+[data-theme-wall][data-moving] {
+  overflow: hidden;
+}
+[data-theme-wall][data-moving] [data-keep] {
+  z-index: 2;
+}
+.wall-chevron {
+  transition: transform 0.27s cubic-bezier(0.33, 1, 0.68, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wall-chevron,
+  .theme-card-edge,
+  .theme-card-pv {
+    transition: none !important;
   }
 }

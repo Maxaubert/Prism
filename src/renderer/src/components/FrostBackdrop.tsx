@@ -13,9 +13,11 @@ export function FrostBackdrop(): JSX.Element {
       aria-hidden
       className="absolute inset-0"
       style={{
-        background: 'linear-gradient(130deg, #3f7fd9 0%, #7c5cd6 48%, #2ea3a0 100%)',
-        filter: 'blur(6px) saturate(1.15)',
-        transform: 'scale(1.35)'
+        // A dusk wallpaper, the approved theme mockup's (#298): warm at the
+        // foot, where a card's name band sits, so a see-through band shows it.
+        background: 'linear-gradient(170deg, #2b3d86 0%, #6a56b0 34%, #d27c8c 62%, #f3a877 84%, #f8d49a 100%)',
+        filter: 'blur(5px) saturate(1.15)',
+        transform: 'scale(1.3)'
       }}
     />
   )

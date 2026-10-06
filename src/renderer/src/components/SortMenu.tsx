@@ -109,7 +109,7 @@ export function SortMenu(): JSX.Element {
           aria-label="Sort order"
           data-owns-escape
           style={{ left: open.x, top: open.y, width: MENU_W }}
-          className="fixed z-40 overflow-hidden rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-0.5 font-normal normal-case tracking-normal shadow-[0_10px_28px_rgba(0,0,0,.5)]"
+          className="fixed z-40 overflow-hidden rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-raised)] py-0.5 font-normal normal-case tracking-normal shadow-[0_10px_28px_rgba(0,0,0,.5)]"
         >
           <Row label="Ascending" active={sort.dir === 'asc'} onPick={pick(() => setSortDir('asc'))} />
           <Row label="Descending" active={sort.dir === 'desc'} onPick={pick(() => setSortDir('desc'))} />

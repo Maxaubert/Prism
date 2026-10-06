@@ -18,6 +18,7 @@ import {
   titleOf,
   withChrome, isStylesOwn, acrylicLevel } from './theme'
 import { ACCENT_THEME_ID } from './viz/styles'
+import { RETIRED_STYLES } from './themes/retired'
 import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
 
 // Every shipped style has to be readable, in both modes. These are the numbers
@@ -195,7 +196,7 @@ describe('the progress bar follows the accent', () => {
   it('follows a style switch without being told', () => {
     setStyle('aurora')
     const auroraBar = resolveVizTheme(DEFAULT_BAR_THEME).accent
-    setStyle('terminal')
+    setStyle('ember')
     expect(resolveVizTheme(DEFAULT_BAR_THEME).accent).not.toBe(auroraBar)
   })
 })
@@ -261,8 +262,14 @@ describe('the icon scheme', () => {
   })
 })
 
+// THE ONE-SURFACE RULE holds for every style WITHOUT a theme table, which is
+// every own copy saved before #298: the 18 themes carry their panel as their
+// own colour (`sideOwn`), the route this rule always allowed. So these use
+// the old Aurora, kept in `retired.ts` as exactly such a style.
+const legacyAurora = RETIRED_STYLES.find((st) => st.id === 'aurora') as Style
+
 describe('the sidebar can wear its own colour (owner, 2026-09-03)', () => {
-  const base = STYLES.find((st) => st.material === 'solid') ?? STYLES[0]
+  const base = legacyAurora
 
   it('without sideOwn the one-surface rule stands: side follows bg, not the legacy field', () => {
     const vars = variablesFor({ ...base, side: '#123456' })
@@ -295,7 +302,7 @@ describe('the sidebar can wear its own colour (owner, 2026-09-03)', () => {
 })
 
 describe('the title bar and the tab bar are their own (owner, 2026-09-03)', () => {
-  const base = STYLES.find((st) => st.material === 'solid') ?? STYLES[0]
+  const base = legacyAurora
 
   it('the strip and the active tab are both the secondary colour, no step', () => {
     const plain = variablesFor(base)
@@ -383,21 +390,8 @@ describe("the owner's picks of 2026-09-20", () => {
     expect(acrylicLevel(aurora)).toBe(0)
   })
 
-  it('paints Ruby near-black and red, the owner\'s own values off the Style page', () => {
-    const ruby = byId('acrylic-red')
-    expect(ruby.bg).toBe('#0d0d0d')
-    // No sideOwn or titleOwn: the one-surface rule derives both from bg, which
-    // is what the Secondary well reads back.
-    expect(sideOf(ruby)).toBe('#0d0d0d')
-    expect(titleOf(ruby)).toBe('#0d0d0d')
-    expect(ruby.text).toBe('#eceef5')
-    expect(ruby.folderIcon).toBe('#dc5656')
-    expect(ruby.accent).toBe('#e01f1f')
-    expect(ruby.corners).toBe('14')
-    expect(ruby.material).toBe('solid')
-    // The blurb must not still call it night blue.
-    expect(ruby.blurb.toLowerCase()).not.toContain('blue')
-  })
+  // Ruby's pin (near-black and red) retired with Ruby (#298): its
+  // successor in the migration is Ember, held by `themes/catalogue.test.ts`.
 
   it('hands the zip the folder colour, with an ink that reads on it', () => {
     // "the zip file icon should have dynamically adjusting colours based on the

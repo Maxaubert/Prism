@@ -36,11 +36,14 @@ describe("Prism's own settings rows", () => {
   })
 
   // NO STORAGE KEY CHANGES (2026-10-05, spec 1.1): a key is a saved setting.
+  // #298 retired one ON PURPOSE: `prism.mode` is no setting now (Colour mode
+  // is gone; the key mirrors the painted theme's mode for the boot screen).
   it('keep every storage key they have always had', () => {
     expect(APP_OPTIONS.map((o) => `${o.id}=${Array.isArray(o.store) ? o.store.join('+') : String(o.store)}`)).toMatchInlineSnapshot(`
       [
-        "mode=prism.mode",
         "style-theme=prism.style+prism.style.presets",
+        "see-through=prism.style.draft",
+        "theme-edits=prism.style.draft+prism.style.presets",
         "c-bg=prism.style.draft",
         "c-chrome=prism.style.draft",
         "c-accent=prism.style.draft",
