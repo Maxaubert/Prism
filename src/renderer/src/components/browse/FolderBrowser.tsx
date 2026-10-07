@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { formatBytes } from '../../lib/format'
-import { BrowseIcon } from './BrowseIcon'
+import { BrowseIcon, PreviewGlyph } from './BrowseIcon'
 import { BrowseList } from './BrowseList'
 import { BrowseSearchStatus } from './BrowseSearchStatus'
 import { BrowseSearchPopup } from './BrowseSearchPopup'
@@ -278,6 +278,56 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
             : 'This folder is empty.'
           : null)
 
+  // SIDEBAR POSITION (#304; owner, 2026-10-07): on the right the places
+  // panel takes the right edge and the preview the left. The places come
+  // after the list in the DOM then too, so Tab walks the row left to right.
+  const right = props.side === 'right'
+  const previewToggle = (
+    <button
+      className="browse-icon-button"
+      aria-label="Preview pane"
+      title="Preview pane"
+      aria-pressed={props.previewEnabled}
+      onClick={props.onPreviewToggle}
+    >
+      <PreviewGlyph open={props.previewEnabled} />
+    </button>
+  )
+  const places = (props.placesVisible !== false || sliding || !!props.placesPeek) && (
+    <BrowsePlaces
+      places={props.places}
+      onDropInto={props.onDropInto}
+      quickAccess={props.quickAccess}
+      readDrives={props.readDrives}
+      onQuickAccessFile={
+        props.placesPeek && props.onQuickAccessFile
+          ? (path, full) => {
+              props.onPlacePicked?.()
+              props.onQuickAccessFile?.(path, full)
+            }
+          : props.onQuickAccessFile
+      }
+      onPin={props.placesPeek === 'in' ? props.onPinPlaces : undefined}
+      onUnpinQuickAccess={props.onUnpinQuickAccess}
+      onMoveQuickAccess={props.onMoveQuickAccess}
+      onPinQuickAccessPaths={props.onPinQuickAccessPaths}
+      directory={props.directory}
+      chosenPlace={chosenPlace}
+      onChoosePlace={setChosenPlace}
+      onNavigate={
+        props.placesPeek
+          ? (path) => {
+              props.onPlacePicked?.()
+              props.onNavigate(path)
+            }
+          : props.onNavigate
+      }
+      onNewTerminal={props.onNewTerminal}
+      onOpenProject={props.onOpenProject}
+      onOpenNewTab={props.onOpenNewTab}
+    />
+  )
+
   return (
     <div
       ref={shell}
@@ -299,6 +349,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       data-places-hidden={props.placesVisible === false || undefined}
       data-places-sliding={sliding || undefined}
       data-places-peek={props.placesPeek || undefined}
+      data-side={right ? 'right' : undefined}
       data-testid="folder-browser"
       // Where the user last acted (useActiveArea): the side not acted in
       // draws its mark dimmed, File Explorer's inactive selection.
@@ -389,28 +440,27 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         // The address commits at once; the rows follow when they answer.
         directory={props.pendingPath ?? props.directory}
         archiveChain={props.pendingPath ? undefined : props.listing ? (props.listing.archive?.chain ?? []) : undefined}
+        // The preview toggle sits at the end of the row nearest the pane it
+        // opens (#304): after the address with the pane on the right, before
+        // the history buttons with it on the left.
+        leading={right ? previewToggle : undefined}
         trailing={
           <>
             {props.terminalControls && (
               <div className="browse-terminal-controls">{props.terminalControls}</div>
             )}
-            <button
-              className="browse-icon-button"
-              aria-label="Preview pane"
-              title="Preview pane"
-              aria-pressed={props.previewEnabled}
-              onClick={props.onPreviewToggle}
-            >
-              <BrowseIcon name="preview" />
-            </button>
+            {!right && previewToggle}
             <button
               className="browse-icon-button browse-search-button"
               aria-label="Search this folder and subfolders"
               aria-haspopup="dialog"
               title="Search (Ctrl+F)"
               data-testid="browse-search-button"
-              // Lit while the list shows a search, so the way back to it and
-              // to the query is where the search began.
+              // Marks that the list shows a search. A mark for tests and
+              // nothing else: the button wears no accent in any state (#308;
+              // owner, 2026-10-06: "search is more minor and i dont think it
+              // needs to be colored since you just see a search box when its
+              // clicked").
               data-active={!!props.query.trim() || undefined}
               onClick={openSearch}
             >
@@ -438,40 +488,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           }}
         />
       )}
-      {(props.placesVisible !== false || sliding || !!props.placesPeek) && (
-        <BrowsePlaces
-          places={props.places}
-          onDropInto={props.onDropInto}
-          quickAccess={props.quickAccess}
-          readDrives={props.readDrives}
-          onQuickAccessFile={
-            props.placesPeek && props.onQuickAccessFile
-              ? (path, full) => {
-                  props.onPlacePicked?.()
-                  props.onQuickAccessFile?.(path, full)
-                }
-              : props.onQuickAccessFile
-          }
-          onPin={props.placesPeek === 'in' ? props.onPinPlaces : undefined}
-          onUnpinQuickAccess={props.onUnpinQuickAccess}
-          onMoveQuickAccess={props.onMoveQuickAccess}
-          onPinQuickAccessPaths={props.onPinQuickAccessPaths}
-          directory={props.directory}
-          chosenPlace={chosenPlace}
-          onChoosePlace={setChosenPlace}
-          onNavigate={
-            props.placesPeek
-              ? (path) => {
-                  props.onPlacePicked?.()
-                  props.onNavigate(path)
-                }
-              : props.onNavigate
-          }
-          onNewTerminal={props.onNewTerminal}
-          onOpenProject={props.onOpenProject}
-          onOpenNewTab={props.onOpenNewTab}
-        />
-      )}
+      {!right && places}
       <BrowseList
         {...props}
         loading={props.pending !== 'none'}
@@ -513,6 +530,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         message={message}
         onVisibleFolders={onVisibleFolders}
       />
+      {right && places}
       {props.previewVisible && (
         <aside className="browse-preview-slot" aria-label="File preview">
           {props.preview}

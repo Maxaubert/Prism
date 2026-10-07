@@ -1,4 +1,4 @@
-import { RETIRED_MAP, retiredById } from './retired'
+import { PLACED_MOVES, RETIRED_MAP, retiredById, retiredName } from './retired'
 
 /**
  * SAVED THEMES MOVE ONCE (#298, spec 4). The ten styles Prism shipped were
@@ -24,7 +24,15 @@ export const PRESETS_KEY = 'prism.style.presets'
 export const VERSION_KEY = 'prism.style.v'
 /** The retired theme's NAME, for the one quiet line on the Themes card. */
 export const RETIRED_KEY = 'prism.style.retired'
-export const THEME_VERSION = '2'
+/**
+ * '2' was the move off the ten old styles (#298); '3' was Ember to Jade and
+ * '4' is Obsidian to Jade and Ruby to Crimson (#316; '3' never left its pull
+ * request). A window on an older marker runs the map again: every id an
+ * earlier pass could write is a current theme or retired since and in the
+ * map, so only Ember and Obsidian (and own copies based on them) move, plus a
+ * Ruby profile an earlier pass placed and nobody repicked (`PLACED_MOVES`).
+ */
+export const THEME_VERSION = '4'
 
 /**
  * Onyx's place on the old Acrylic slider: its glass was the acrylic dark
@@ -61,8 +69,8 @@ export function migrateThemes(snap: StorageSnapshot): Migration {
   const mapped = typeof saved === 'string' ? RETIRED_MAP[saved] : undefined
   if (saved && mapped) {
     out.set[STYLE_KEY] = mapped
-    const was = retiredById(saved)
-    if (was) out.set[RETIRED_KEY] = was.name
+    const was = retiredName(saved)
+    if (was) out.set[RETIRED_KEY] = was
     if (saved === 'default') {
       // Onyx was glass: Void carries it as an unsaved edit, unless the draft
       // already says how much glass (or none) the user wanted.
@@ -73,6 +81,15 @@ export function migrateThemes(snap: StorageSnapshot): Migration {
         out.set[DRAFT_KEY] = JSON.stringify(draft)
       }
     }
+  }
+
+  // A theme an earlier pass put the user on, still unpicked (its quiet line
+  // still names the retired theme), follows that theme's better successor.
+  const placedName = snap[RETIRED_KEY]
+  const placed = typeof placedName === 'string' ? PLACED_MOVES[placedName] : undefined
+  if (placed && typeof placedName === 'string' && typeof saved === 'string' && placed.from.includes(saved)) {
+    out.set[STYLE_KEY] = placed.to
+    out.set[RETIRED_KEY] = placedName
   }
 
   // Own copies: every field kept, their `base` mapped.
@@ -94,7 +111,7 @@ export function migrateThemes(snap: StorageSnapshot): Migration {
 /** The store's half: read the keys, write what the migration says. */
 export function migrateThemeStorage(storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>): Migration {
   const snap: StorageSnapshot = {}
-  for (const k of [STYLE_KEY, DRAFT_KEY, PRESETS_KEY, VERSION_KEY]) snap[k] = storage.getItem(k)
+  for (const k of [STYLE_KEY, DRAFT_KEY, PRESETS_KEY, VERSION_KEY, RETIRED_KEY]) snap[k] = storage.getItem(k)
   const m = migrateThemes(snap)
   // The marker last, so a write that throws half way is tried again.
   for (const [k, v] of Object.entries(m.set)) if (k !== VERSION_KEY) storage.setItem(k, v)

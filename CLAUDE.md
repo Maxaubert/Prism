@@ -31,7 +31,7 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 ahead and build"; spec `docs/superpowers/specs/2026-10-06-new-themes-design.md`, research and the
 approved mockup in `Documents/Claude/research/prism/2026-10-06-new-themes/`). The ten old styles
 are gone (Aurora, Void and Frost kept, refined). The rules (`lib/theme.ts`, `lib/themes/`):
-- **The 18, in wall order**: dark Aurora, Void (`new-void`), Carbon, Obsidian, Ember, Volt,
+- **The 18, in wall order**: dark Aurora, Void (`new-void`), Carbon, Crimson, Jade, Volt,
   Midnight HC, Glacier, Lagoon; light Frost, Paper, Sand, Sage, Blush, Chalk, Daylight HC, Orchid,
   Pearl. High contrast before see-through in each half. Colours exactly as `themes/catalogue.json`
   (`catalogue.test.ts`); HC themes are MONOCHROME. Every theme sets in the SYSTEM face at 12.5px
@@ -57,9 +57,20 @@ are gone (Aurora, Void and Frost kept, refined). The rules (`lib/theme.ts`, `lib
   Escape goes back. `useStyle` is the KEPT theme: re-rendering its readers on every arrow put a
   held Right over 50ms (MEASURED). This theme: See-through window (not on HC) and Save changes.
 - **Retired ids migrate once** (`themes/migrate.ts`, marker `prism.style.v`): Onyx to Void WITH
-  its glass as an unsaved edit (level 55), Terminal to Obsidian, Driftwood to Carbon, Ruby to
-  Ember, Linen to Sand; own copies kept, their `base` mapped; one quiet line names the retired
-  theme until the next pick. Onboarding is three steps, the first the same wall.
+  its glass as an unsaved edit (level 55), Terminal to Jade (Obsidian until #316), Driftwood to
+  Carbon, Ruby to Crimson (Ember until #316), Linen to Sand; own copies kept, their `base` mapped;
+  one quiet line names the retired theme until the next pick. Every map target is a current theme
+  (`migrate.test.ts`), so a later pass never chains.
+- **JADE AND CRIMSON TOOK EMBER'S AND OBSIDIAN'S PLACES** (#316; owner, 2026-10-07, with Volt's
+  Colours edited to teal: "this theme should replace Ember. its Volt but with this teal instead of
+  the yellow"; then, with them edited to red `#ff2647`: "have this replace obsidian"). Each is Volt
+  with one colour for every yellow-green value (accent, selection at Volt's alpha `38`, folder,
+  archive, the accent-mixed keyword), built by the research `build-themes.mjs`: Jade `#26ffb2`,
+  Crimson `#ff2647` (near-black ink, 5.26:1; its warn orange and error reds held apart in
+  `contrast.test.ts`). Marker `4`: `ember` and `obsidian` map to `jade` (`RETIRED_NAMES` names
+  them on the quiet line), so a window on `2` moves too; a profile the first pass PLACED on Ember
+  for Ruby and that never picked since (its line still says Ruby: `PLACED_MOVES`) goes on to
+  Crimson. Onboarding is three steps, the first the same wall.
 - Not adopted from the mockup, by recorded rules: the active tab stays told by its ink, not a
   ground fill; the Accent subtext stays (the chosen rail page is grey since #292).
 - **A ZIP FOLLOWS THE FOLDER COLOUR**, not a hardcoded indigo (owner, 2026-09-20). `--p-tree-zip`
@@ -98,7 +109,28 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   "Colours of Volt": "dont have this show the theme name, just call that section colours"). The folder
   browser paints no ground; its address row, list, preview slot and status paint `--p-bg`, the places
   panel (and `.browse-viewer-places`) `--p-side`, the Settings rail's and project tree's colour, one
-  coat each. Every catalogue theme's panel differs from its ground. The `sidebarGround` e2e holds both.
+  coat each. Every catalogue theme's panel differs from its ground EXCEPT VOID, which is all black
+  (#313; owner, 2026-10-07, of Background #000000 and Sidebar and tab bar colour #070707: "make void
+  fully black for both of these"): its panel is #000000, its panels told apart by its faint edges. A
+  saved draft colour the theme has since caught up with is dropped at load (`withoutOwn`), so a
+  hand-set black on Void shows no Reset and no lit Save changes. The `sidebarGround` e2e holds both.
+  **THE ADDRESS ROW WEARS IT TOO** (#306; owner, 2026-10-07, of a mockup with the row in the panel
+  colour: "yes make this the same color as the sidebar"): back/forward/up/refresh, the address field,
+  preview and search, across the window (`.folder-browser > .browse-toolbar`, and
+  `.browse-viewer-toolbar` over an opened file), `--p-side`, its hairline kept, so only the list,
+  preview slot and status are `--p-bg`. The address field's fill and edge step off the ROW
+  (`--p-side-flat`), not the page: off the page they sat at 1.01:1 on the row on every dark style
+  (MEASURED). Near-black is still judged by the page (`nearBlackField(bg, text, row)`).
+- **THE TOOLBAR'S BUTTONS ARE NEVER COLOURED; EVERY TAB WEARS AN ICON BY WHAT IT HOLDS** (#308;
+  owner, 2026-10-06: "i dont like the look of the buttons being colored ... search is more minor ...
+  the preview panel is almost always opened ... an icon that changes based on whether the panel is
+  opened or hidden ... default icons per type of page explorer, project and settings"; 2026-10-07, of
+  `research/prism/2026-10-06-new-themes/toolbar-options.html`: "A3 and C2"). The preview toggle
+  (`PreviewGlyph`) and the search button wear Back's grey and no fill in every state; the preview's
+  right column is SOLID while open, empty while hidden; `data-active` on search is a mark, not a
+  look. Every tab carries `TabKindIcon` (Explorer a folder, project code brackets, Settings a gear)
+  in the tab's own ink, SOLID on the tab you are on and lines on the rest; it replaced the
+  folder-coloured glyph only Explorer tabs had. The `toolbarIcons` e2e holds both.
 
 ## Scope
 
@@ -199,6 +231,14 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
   gets no gutter and no language. Token colours are the THEME's since #298 (`--p-code-*`).
+  **JSONC COMMENTS ARE COMMENTS** (#312; owner, 2026-10-07: "comments in jsonc arent read as
+  comments in prism"): the strict JSON grammar made every // line plain text under a squiggle.
+  `.jsonc`, `tsconfig(.*).json`, `jsconfig(.*).json`, `.eslintrc(.json)`, `.babelrc(.json)`,
+  `(.)devcontainer.json`, `wrangler/turbo/biome/deno.json` and every `.json` in a `.vscode`
+  folder go to `lib/jsoncMode.ts` (a tokenizer with the JSON grammar's own tags, comment tags,
+  brace folding) and `codeLint.jsoncErrors` (comments and trailing commas blanked to spaces,
+  offsets kept, then `JSON.parse`), so a missing comma is still underlined. `.json5` colours the
+  same with no linter (bare keys and single quotes). Plain `.json` stays strict. `jsonc` e2e.
   **A FILE THAT GROWS** (2026-08-31): "Follow the file" appends new bytes as they are
   written - a build log, an agent's transcript - and a file PAST THE 64MB CEILING now shows
   its TAIL (2MB) instead of an apology. Both are READ-ONLY, and structurally so: a followed
@@ -588,6 +628,22 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Explorer's MEDIUM row is the tree's default row (`rowLook()` in `treePrefs`). The `marquee`
   e2e measures both; a drag in a test is taken by the row's NAME, since a locator's centre is
   blank space.
+  **IN THE EXPLORER THE WHOLE ROW DRAGS, THE ARROW STAYS, AND THE BOX STARTS ONLY OFF THE ROWS**
+  (#320; owner, 2026-10-07: "when you left click drag an item dont switch the cursor to the hand,
+  keep it the normal cursor ... the whole row should let me left click drag ... that drag should
+  only be from empty spaces either under or beside the file row"). This narrows #257 for the
+  Explorer's list (the tree keeps its rule): a press ANYWHERE on a file row (any cell, any gap)
+  is its click and drag, never a sweep; the sweep starts under the last row or BESIDE the rows.
+  For "beside" a row is as wide as its columns (`width: fit-content`), Name grows only to
+  `--browse-name-max` (440px, Large 520px; search's Path to `--browse-path-max`) instead of the
+  rest of the width, and a `--browse-gutter` (32px) on the right is always blank, so even a
+  narrow list has a place to start one; the header keeps the same grid and gutter, so its labels
+  stay over the row's cells, and its LAST cell's box still runs on to the header's right edge
+  (`--browse-col-edge-end`; the 2026-10-04 "no strip a hover cannot fill" rule).
+  A click beside the rows clears the marks like the space under them. During an internal drag
+  every element's cursor is pinned to `default` (`internalFileDrag.ts`; it was `grabbing`).
+  The `marquee` e2e measures the gutter and the header, sweeps from beside, drags from the Size
+  and Date cells (label up, no rectangle, `default` cursor under the pointer, on html and body).
   **MARKING IS NOT PICKING** (#263; owner, 2026-10-03: "when you multiselect like this it picks
   a file so here this drag starts one of the videos ... same is the case if i ctrl select it
   shouldnt start or preview anything"). In the Explorer a sweep and a Ctrl or Shift click call
@@ -769,14 +825,31 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   over. Marks elsewhere are dropped for the same reason: right-clicking row A while B and C
   are marked leaves the verb going to A, and marks claiming otherwise are lying. Right-
   clicking INSIDE a multi-selection still acts on all of it.
+- **THE DRAG LABEL HANGS OFF THE POINTER'S BOTTOM RIGHT, ATTACHED** (#310; owner, 2026-10-07: "when
+  you pick up an item with left click drag the label is to its bottom left but also not attached to
+  the cursor ... it should be attached and it should be from the bottom right"). The label is an
+  IN-PAGE element (`lib/internalFileDrag.ts`, which cancels the native drag so Ctrl+Tab still works),
+  not a drag image, so it is placed in CSS px from the pointer and the display scale never enters.
+  It sat its whole width LEFT of the pointer and 12 px below. `lib/dragBadgePlace.ts` puts its
+  top-left corner 8 px right of and below the tip (File Explorer's way: the pointer never covers the
+  name), flipping to the other side only where the window edge leaves no room. One rule for every
+  drag the hook carries: tree, Explorer list, several items, places. The `dragLabel` e2e measures it
+  mid-drag at 100%, 150% and 225% (`--force-device-scale-factor`).
 - **SETTINGS CONTROLS ARE NEUTRAL; ONLY SAVE WEARS THE ACCENT** (#202; owner, 2026-09-23: "i dont
   want settings buttons to be affected by the accent colour... grey based on the bg colour ... same
   colours as the drop down menus"; "the only ones to keep accented are the save buttons"). The
   Switch (on: `--p-text-soft` track, `--p-bg` knob), the pressed Segmented option and the row
   buttons (Default apps, Clear) are the terminal core's own `fields.tsx` since #292 (PrismTerminal
   #42 holds them there), and no page keeps a copy. Selection marks (style cards, swatches) and
-  Reset links are not buttons and keep the accent, as does the Win+E switch; the chosen rail page
-  is grey since #292. `settings/settingsControls.test.ts` holds it.
+  Reset links are not buttons and keep the accent; the chosen rail page is grey since #292.
+  `settings/settingsControls.test.ts` holds it. **EVERY SWITCH IS THE CORE'S** (#318; owner,
+  2026-10-07: "toggles differ in look i like the teal with black not the green and white", then
+  "it should depend on the theme so only teal on the teal theme"): the Win+E row (once its own
+  accent-and-white exception), the phone server switch and the player menu's toggles use the
+  core's `Switch` or its `SWITCH_ON` / `SWITCH_KNOB_ON`, and no file outside the core draws a
+  `role="switch"`. The LOOK is the core's call: from core 0.26.0 (PrismTerminal #139) an on switch
+  is `--p-sel-bg` with an `--p-on-accent` knob. The `settingsLook` e2e holds every switch on the
+  Explorer page to one track and one knob colour when on.
 - **NOTHING WEARS A FOCUS BOX; FOCUS IS THE HOVER'S FILL** (#272; owner, 2026-10-04, of a white box
   round the title bar's menu button: "remove the focus effect. go through the ui and remove focus
   effects like this"). `index.css`'s base-layer rule takes Chromium's ring off every focused
@@ -2649,9 +2722,28 @@ Filesmith's conventions.
   **PROJECT SETTINGS IS ITS OWN PAGE, AND THE TREE ALWAYS FOLLOWS THE OPEN FILE** (#296; owner,
   2026-10-06: "project specific settings should be in a tab called project settings not in
   explorer. and remove the setting for scroll to open file, it should just be on by default, no
-  setting"). `ProjectPage.tsx` holds Sidebar position and First view of a new project; Folder for
+  setting"). `ProjectPage.tsx` holds Sidebar position (the tree's) and First view of a new project; Folder for
   new tabs stays on Explorer, since the + and Ctrl+T open an Explorer tab. Scroll to the open file
   is gone and a stored `prism.tree.autoscroll` is ignored.
+- **SIDEBAR POSITION IS TWO SETTINGS: THE EXPLORER'S PLACES AND THE PROJECT TREE, AND THE PREVIEW
+  TAKES THE OTHER SIDE** (#304; owner, 2026-10-07: "fix the setting in Explorer for the sidebar where
+  you can put it on the right side or the left side? I think that's just an empty setting for now,
+  but actually implement it. And remember that when the sidebar goes on the right, the preview menu
+  and button to open it would have to go on the left"; then, the same day, after testing one shared
+  row: "No, it should be two settings, one on the project tab and one on the explorer tab").
+  Explorer > Layout opens with `explorer-side` (key `prism.explorer.side`, `lib/explorerSidePrefs.ts`,
+  default Left): the Explorer tab's places panel, and nothing else. Project settings keeps
+  `tree-side` (key `prism.tree.side`, unchanged): the project tree, and nothing else. Neither moves
+  the other; App reads the Explorer's for an Explorer tab and the tree's for a project tab
+  (`workspaceSide`), and each panel peeks from its own. On the Explorer's Right:
+  `.folder-browser[data-side='right']` is a three-column grid (preview, list, places;
+  the preview column 0px while shut, so its slide still tweens one column), the places come after
+  the list in the DOM (Tab walks left to right), the preview toggle LEADS the address row (before
+  Back, the end nearest the pane), the viewer laid over the slot sits at `left: 0`
+  (`.browse-workspace[data-sidebar-side='right']`), each grip is its left twin turned round
+  (`ExplorerResize`'s `edge`: a drag toward the middle widens), and the places peek from the right
+  edge. Left is the window as it was, box for box. The `explorerSide` e2e holds it (it fails on
+  main), one coat of a see-through ground included, and that each row moves only its own panel.
 
 
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which

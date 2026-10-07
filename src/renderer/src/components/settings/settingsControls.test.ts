@@ -25,13 +25,25 @@ describe('settings controls', () => {
   })
 
   // Still accented, since they are not buttons: the chosen card's ring, the
-  // chosen swatch's ring, the band slider's thumb, the progress bars drawn
-  // inside a style's preview card, and the Win+E switch (its existing
-  // exception: it hands a Windows shortcut to Prism).
+  // chosen swatch's ring, the band slider's thumb and the progress bars drawn
+  // inside a style's preview card. The Win+E switch was an exception until
+  // #318; it is the core's switch now, like every other.
   it('the accent is only on marks, never on a button', () => {
-    const allowed = ['cards.tsx', 'ColourSchemes.tsx', 'MediaPage.tsx', 'TransportMini.tsx', 'WinEShortcutRow.tsx']
+    const allowed = ['cards.tsx', 'ColourSchemes.tsx', 'MediaPage.tsx', 'TransportMini.tsx']
     const worn = files.filter(({ src }) => ACCENT.test(src)).map(({ f }) => f)
     expect(worn.filter((f) => !allowed.includes(f))).toEqual([])
+  })
+
+  // EVERY SWITCH IS THE CORE'S (#318; owner, 2026-10-07: "toggles differ in
+  // look"). The Win+E row and the phone server each drew their own, the accent
+  // with a white knob, beside the core's. No file in the renderer may draw a
+  // switch of its own: one look, and the core decides it.
+  it("every switch in the app is the core's", () => {
+    const root = join(__dirname, '..', '..')
+    const own = (readdirSync(root, { recursive: true }) as string[])
+      .filter((f) => /\.tsx$/.test(f) && !/\.test\.tsx$/.test(f))
+      .filter((f) => /role="switch"/.test(readFileSync(join(root, f), 'utf8')))
+    expect(own).toEqual([])
   })
 
   it('Default apps and Clear are row buttons', () => {
