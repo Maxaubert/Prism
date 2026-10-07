@@ -109,7 +109,28 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   "Colours of Volt": "dont have this show the theme name, just call that section colours"). The folder
   browser paints no ground; its address row, list, preview slot and status paint `--p-bg`, the places
   panel (and `.browse-viewer-places`) `--p-side`, the Settings rail's and project tree's colour, one
-  coat each. Every catalogue theme's panel differs from its ground. The `sidebarGround` e2e holds both.
+  coat each. Every catalogue theme's panel differs from its ground EXCEPT VOID, which is all black
+  (#313; owner, 2026-10-07, of Background #000000 and Sidebar and tab bar colour #070707: "make void
+  fully black for both of these"): its panel is #000000, its panels told apart by its faint edges. A
+  saved draft colour the theme has since caught up with is dropped at load (`withoutOwn`), so a
+  hand-set black on Void shows no Reset and no lit Save changes. The `sidebarGround` e2e holds both.
+  **THE ADDRESS ROW WEARS IT TOO** (#306; owner, 2026-10-07, of a mockup with the row in the panel
+  colour: "yes make this the same color as the sidebar"): back/forward/up/refresh, the address field,
+  preview and search, across the window (`.folder-browser > .browse-toolbar`, and
+  `.browse-viewer-toolbar` over an opened file), `--p-side`, its hairline kept, so only the list,
+  preview slot and status are `--p-bg`. The address field's fill and edge step off the ROW
+  (`--p-side-flat`), not the page: off the page they sat at 1.01:1 on the row on every dark style
+  (MEASURED). Near-black is still judged by the page (`nearBlackField(bg, text, row)`).
+- **THE TOOLBAR'S BUTTONS ARE NEVER COLOURED; EVERY TAB WEARS AN ICON BY WHAT IT HOLDS** (#308;
+  owner, 2026-10-06: "i dont like the look of the buttons being colored ... search is more minor ...
+  the preview panel is almost always opened ... an icon that changes based on whether the panel is
+  opened or hidden ... default icons per type of page explorer, project and settings"; 2026-10-07, of
+  `research/prism/2026-10-06-new-themes/toolbar-options.html`: "A3 and C2"). The preview toggle
+  (`PreviewGlyph`) and the search button wear Back's grey and no fill in every state; the preview's
+  right column is SOLID while open, empty while hidden; `data-active` on search is a mark, not a
+  look. Every tab carries `TabKindIcon` (Explorer a folder, project code brackets, Settings a gear)
+  in the tab's own ink, SOLID on the tab you are on and lines on the rest; it replaced the
+  folder-coloured glyph only Explorer tabs had. The `toolbarIcons` e2e holds both.
 
 ## Scope
 
@@ -210,6 +231,14 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
   gets no gutter and no language. Token colours are the THEME's since #298 (`--p-code-*`).
+  **JSONC COMMENTS ARE COMMENTS** (#312; owner, 2026-10-07: "comments in jsonc arent read as
+  comments in prism"): the strict JSON grammar made every // line plain text under a squiggle.
+  `.jsonc`, `tsconfig(.*).json`, `jsconfig(.*).json`, `.eslintrc(.json)`, `.babelrc(.json)`,
+  `(.)devcontainer.json`, `wrangler/turbo/biome/deno.json` and every `.json` in a `.vscode`
+  folder go to `lib/jsoncMode.ts` (a tokenizer with the JSON grammar's own tags, comment tags,
+  brace folding) and `codeLint.jsoncErrors` (comments and trailing commas blanked to spaces,
+  offsets kept, then `JSON.parse`), so a missing comma is still underlined. `.json5` colours the
+  same with no linter (bare keys and single quotes). Plain `.json` stays strict. `jsonc` e2e.
   **A FILE THAT GROWS** (2026-08-31): "Follow the file" appends new bytes as they are
   written - a build log, an agent's transcript - and a file PAST THE 64MB CEILING now shows
   its TAIL (2MB) instead of an apology. Both are READ-ONLY, and structurally so: a followed
@@ -780,6 +809,16 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   over. Marks elsewhere are dropped for the same reason: right-clicking row A while B and C
   are marked leaves the verb going to A, and marks claiming otherwise are lying. Right-
   clicking INSIDE a multi-selection still acts on all of it.
+- **THE DRAG LABEL HANGS OFF THE POINTER'S BOTTOM RIGHT, ATTACHED** (#310; owner, 2026-10-07: "when
+  you pick up an item with left click drag the label is to its bottom left but also not attached to
+  the cursor ... it should be attached and it should be from the bottom right"). The label is an
+  IN-PAGE element (`lib/internalFileDrag.ts`, which cancels the native drag so Ctrl+Tab still works),
+  not a drag image, so it is placed in CSS px from the pointer and the display scale never enters.
+  It sat its whole width LEFT of the pointer and 12 px below. `lib/dragBadgePlace.ts` puts its
+  top-left corner 8 px right of and below the tip (File Explorer's way: the pointer never covers the
+  name), flipping to the other side only where the window edge leaves no room. One rule for every
+  drag the hook carries: tree, Explorer list, several items, places. The `dragLabel` e2e measures it
+  mid-drag at 100%, 150% and 225% (`--force-device-scale-factor`).
 - **SETTINGS CONTROLS ARE NEUTRAL; ONLY SAVE WEARS THE ACCENT** (#202; owner, 2026-09-23: "i dont
   want settings buttons to be affected by the accent colour... grey based on the bg colour ... same
   colours as the drop down menus"; "the only ones to keep accented are the save buttons"). The
@@ -2660,9 +2699,28 @@ Filesmith's conventions.
   **PROJECT SETTINGS IS ITS OWN PAGE, AND THE TREE ALWAYS FOLLOWS THE OPEN FILE** (#296; owner,
   2026-10-06: "project specific settings should be in a tab called project settings not in
   explorer. and remove the setting for scroll to open file, it should just be on by default, no
-  setting"). `ProjectPage.tsx` holds Sidebar position and First view of a new project; Folder for
+  setting"). `ProjectPage.tsx` holds Sidebar position (the tree's) and First view of a new project; Folder for
   new tabs stays on Explorer, since the + and Ctrl+T open an Explorer tab. Scroll to the open file
   is gone and a stored `prism.tree.autoscroll` is ignored.
+- **SIDEBAR POSITION IS TWO SETTINGS: THE EXPLORER'S PLACES AND THE PROJECT TREE, AND THE PREVIEW
+  TAKES THE OTHER SIDE** (#304; owner, 2026-10-07: "fix the setting in Explorer for the sidebar where
+  you can put it on the right side or the left side? I think that's just an empty setting for now,
+  but actually implement it. And remember that when the sidebar goes on the right, the preview menu
+  and button to open it would have to go on the left"; then, the same day, after testing one shared
+  row: "No, it should be two settings, one on the project tab and one on the explorer tab").
+  Explorer > Layout opens with `explorer-side` (key `prism.explorer.side`, `lib/explorerSidePrefs.ts`,
+  default Left): the Explorer tab's places panel, and nothing else. Project settings keeps
+  `tree-side` (key `prism.tree.side`, unchanged): the project tree, and nothing else. Neither moves
+  the other; App reads the Explorer's for an Explorer tab and the tree's for a project tab
+  (`workspaceSide`), and each panel peeks from its own. On the Explorer's Right:
+  `.folder-browser[data-side='right']` is a three-column grid (preview, list, places;
+  the preview column 0px while shut, so its slide still tweens one column), the places come after
+  the list in the DOM (Tab walks left to right), the preview toggle LEADS the address row (before
+  Back, the end nearest the pane), the viewer laid over the slot sits at `left: 0`
+  (`.browse-workspace[data-sidebar-side='right']`), each grip is its left twin turned round
+  (`ExplorerResize`'s `edge`: a drag toward the middle widens), and the places peek from the right
+  edge. Left is the window as it was, box for box. The `explorerSide` e2e holds it (it fails on
+  main), one coat of a see-through ground included, and that each row moves only its own panel.
 
 
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which
