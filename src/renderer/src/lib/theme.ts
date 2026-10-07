@@ -14,7 +14,7 @@ import {
   withAlpha
 } from 'prism-term-core/renderer/lib/colour'
 import { accentAlphaOf, fillOf } from './accentAlpha'
-import { hintOn, isNearBlack, nearBlackField } from './fieldColours'
+import { controlFieldOn, hintOn, isNearBlack, nearBlackField } from './fieldColours'
 import { THEME_STYLES } from './themes/catalogue'
 import { migrateThemeStorage, RETIRED_KEY } from './themes/migrate'
 import { RETIRED_MAP } from './themes/retired'
@@ -781,9 +781,12 @@ export function variablesFor(input: Style, opaque = false): Record<string, strin
   // THE TOOLBAR'S FIELDS, the address and the search (#267): one fill, one
   // edge. On a near-black ground (measured) a darker fill and an edge that
   // carries the shape; elsewhere the search's own control fill and divider.
+  // Both step off the ADDRESS ROW's ground, the sidebar colour since #306: a
+  // fill stepped off the page sat at 1.01:1 on the row on every dark style
+  // (MEASURED), a field with no shape but its edge.
   const flat = derive(style)
-  const field = nearBlackField(flat['--p-bg'], style.text)
-  const fieldFill = field?.fill ?? flat['--p-control']
+  const field = nearBlackField(flat['--p-bg'], style.text, flatSide)
+  const fieldFill = field?.fill ?? controlFieldOn(flatSide, style.text, style.mode === 'light')
 
   return {
     ...flat,
