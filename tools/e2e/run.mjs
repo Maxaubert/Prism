@@ -14335,8 +14335,12 @@ const settingsLookOf = (win) =>
     const accent = parse(root.getPropertyValue('--p-accent').trim())
     // A swatch IS its colour (its fill is inline), and the accent-following
     // scheme's swatch is the accent: a mark, not a button that wears it.
+    // A switch that is on wears the theme's selection colour since core 0.26.0
+    // (owner, 2026-10-07: "it should depend on the theme so only teal on the
+    // teal theme"): a state, not a button that wears the accent.
     const accentButtons = [...frame.querySelectorAll('button')].filter((b) => {
       if (b.style.background) return false
+      if (b.getAttribute('role') === 'switch') return false
       const mine = parse(getComputedStyle(b).backgroundColor)
       return mine.a > 0.3 && mine.rgb.map(Math.round).join() === accent.rgb.map(Math.round).join()
     })
@@ -14383,7 +14387,7 @@ const switchLooksOf = (win) =>
         look: JSON.stringify([sw.className, knob?.className ?? '', bg(sw), knob ? bg(knob) : '']),
         // The markup with the state's own colour classes taken out: the same
         // for every switch drawn by the one component, on or off.
-        shape: JSON.stringify([sw.className, knob?.className ?? ''].map((c) => c.split(/\s+/).filter((t) => !/^(enabled:hover:|disabled:opacity-)?(bg|brightness|opacity)-/.test(t)).join(' ')))
+        shape: JSON.stringify([sw.className, knob?.className ?? ''].map((c) => c.split(/\s+/).filter((t) => !/^(enabled:hover:|disabled:)?(bg|brightness|opacity)-/.test(t)).join(' ')))
       }
     })
   })
