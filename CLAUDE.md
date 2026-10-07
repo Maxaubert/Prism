@@ -628,6 +628,22 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Explorer's MEDIUM row is the tree's default row (`rowLook()` in `treePrefs`). The `marquee`
   e2e measures both; a drag in a test is taken by the row's NAME, since a locator's centre is
   blank space.
+  **IN THE EXPLORER THE WHOLE ROW DRAGS, THE ARROW STAYS, AND THE BOX STARTS ONLY OFF THE ROWS**
+  (#320; owner, 2026-10-07: "when you left click drag an item dont switch the cursor to the hand,
+  keep it the normal cursor ... the whole row should let me left click drag ... that drag should
+  only be from empty spaces either under or beside the file row"). This narrows #257 for the
+  Explorer's list (the tree keeps its rule): a press ANYWHERE on a file row (any cell, any gap)
+  is its click and drag, never a sweep; the sweep starts under the last row or BESIDE the rows.
+  For "beside" a row is as wide as its columns (`width: fit-content`), Name grows only to
+  `--browse-name-max` (440px, Large 520px; search's Path to `--browse-path-max`) instead of the
+  rest of the width, and a `--browse-gutter` (32px) on the right is always blank, so even a
+  narrow list has a place to start one; the header keeps the same grid and gutter, so its labels
+  stay over the row's cells, and its LAST cell's box still runs on to the header's right edge
+  (`--browse-col-edge-end`; the 2026-10-04 "no strip a hover cannot fill" rule).
+  A click beside the rows clears the marks like the space under them. During an internal drag
+  every element's cursor is pinned to `default` (`internalFileDrag.ts`; it was `grabbing`).
+  The `marquee` e2e measures the gutter and the header, sweeps from beside, drags from the Size
+  and Date cells (label up, no rectangle, `default` cursor under the pointer, on html and body).
   **MARKING IS NOT PICKING** (#263; owner, 2026-10-03: "when you multiselect like this it picks
   a file so here this drag starts one of the videos ... same is the case if i ctrl select it
   shouldnt start or preview anything"). In the Explorer a sweep and a Ctrl or Shift click call

@@ -7819,13 +7819,83 @@ async function marqueeScenario(fixtures) {
       !(await win.evaluate(() => !!document.querySelector('[data-browse-preview]')?.getClientRects().length)),
       'and opened no preview pane (#263)'
     )
+    // THE ROWS END WHERE THE COLUMNS DO (#320): blank space beside them, a
+    // gutter at the least, and the header's cells still over the row's.
+    const geo = await win.evaluate(() => {
+      const list = document.querySelector('[data-testid="browse-list"]')?.getBoundingClientRect()
+      const row = document.querySelector('[data-testid="browse-list"] [data-browse-index="0"]')
+      const r = row?.getBoundingClientRect()
+      const cell = row?.querySelector('.browse-column-modified')?.getBoundingClientRect()
+      const head = document.querySelector('.browse-columns .browse-column-modified')?.getBoundingClientRect()
+      const name = row?.querySelector('.browse-column-name')?.getBoundingClientRect()
+      const headName = document.querySelector('.browse-columns .browse-column-name')?.getBoundingClientRect()
+      return list && r && cell && head && name && headName
+        ? { listRight: list.right, rowRight: r.right, cellL: cell.left, headL: head.left, nameL: name.left, headNameL: headName.left }
+        : null
+    })
+    ok(!!geo && geo.listRight - geo.rowRight >= 30, `a row stops short of the list's edge, leaving blank space beside it (${geo && Math.round(geo.listRight - geo.rowRight)}px)`)
+    // A header cell reaches out by half the gap (its whole box is the cell), so
+    // its LABEL starts where the row's cell does: the label's left, by padding.
+    const headLabel = await win.evaluate(() => {
+      const b = document.querySelector('.browse-columns .browse-column-modified')
+      const pad = b ? parseFloat(getComputedStyle(b).paddingLeft) : 0
+      return b ? b.getBoundingClientRect().left + pad : null
+    })
+    ok(!!geo && Math.abs(headLabel - geo.cellL) <= 1, `the Date modified header still sits over its column (${headLabel} and ${geo?.cellL})`)
+    // From the blank space BESIDE the rows: a sweep, which marks what it covers.
+    {
+      const g1 = await rowAt(1).boundingBox()
+      const g3 = await rowAt(3).boundingBox()
+      const beside = g1.x + g1.width + 14
+      const mid = await sweep({ x: beside, y: g1.y + g1.height / 2 }, { x: beside - 60, y: g3.y + g3.height / 2 }, {
+        mid: async () => {
+          await win.screenshot({ path: join(SHOTS, 'marquee-beside.png') })
+          return { band: await band('[data-testid="browse-list"]') }
+        }
+      })
+      ok(mid.band === 1, `a press beside the rows draws the rectangle (${mid.band})`)
+      ex = await exMarked()
+      ok(ex.sort().join() === 'a2.txt,a3.txt,a4.txt', `and marks the rows it covered (${ex})`)
+    }
+    // THE WHOLE ROW DRAGS (#320): a press on the Size or the Date cell picks
+    // the file up, the label follows, no rectangle, and the arrow stays.
+    for (const cellName of ['size', 'modified']) {
+      const cell = await rowAt(5).locator(`.browse-column-${cellName}`).boundingBox()
+      const at = { x: cell.x + cell.width / 2, y: cell.y + cell.height / 2 }
+      await win.mouse.move(at.x, at.y)
+      await win.mouse.down()
+      await win.mouse.move(at.x - 30, at.y + 70, { steps: 10 })
+      await sleep(200)
+      const mid = await win.evaluate(
+        ({ x, y }) => ({
+          badge: document.querySelector('[data-file-drag-badge]')?.textContent ?? null,
+          under: getComputedStyle(document.elementFromPoint(x, y) ?? document.body).cursor,
+          html: getComputedStyle(document.documentElement).cursor,
+          body: getComputedStyle(document.body).cursor
+        }),
+        { x: at.x - 30, y: at.y + 70 }
+      )
+      const midBand = await band('[data-testid="browse-list"]')
+      if (cellName === 'size') await win.screenshot({ path: join(SHOTS, 'row-drag-size.png') })
+      await win.keyboard.press('Escape')
+      await win.mouse.up()
+      await sleep(300)
+      ok(midBand === 0, `a press on a row's ${cellName} cell never draws the rectangle`)
+      ok(/a6\.txt/.test(mid.badge ?? ''), `it picks the file up, its label following (${mid.badge})`)
+      ok(
+        mid.under === 'default' && mid.html === 'default' && mid.body === 'default',
+        `and the cursor stays the arrow (${mid.under}, ${mid.html}, ${mid.body})`
+      )
+    }
+    ok(!(await win.evaluate(() => document.querySelector('[data-file-drag-badge]'))), 'Escape put the file down')
     let f0 = await rowAt(0).boundingBox()
-    let exBlank = f0.x + f0.width - 30
-    // A plain click on a row's blank space, without moving, is still a click.
-    await win.mouse.click(exBlank, f0.y + f0.height / 2)
+    let exBlank = f0.x + f0.width + 14
+    // A plain click on a row's Date cell, without moving, is still a click.
+    const dateCell = await rowAt(0).locator('.browse-column-modified').boundingBox()
+    await win.mouse.click(dateCell.x + dateCell.width / 2, dateCell.y + dateCell.height / 2)
     await sleep(250)
     ex = await exMarked()
-    ok(ex.join() === 'a1.txt', `a plain click on a row's blank space selects that row alone (${ex})`)
+    ok(ex.join() === 'a1.txt', `a plain click on a row's Date cell selects that row alone (${ex})`)
     // That click previewed the file, and the pane beside the list made it
     // narrower: every point after this is measured again.
     await sleep(400)
@@ -7834,8 +7904,8 @@ async function marqueeScenario(fixtures) {
     const f3 = await rowAt(3).boundingBox()
     const f4 = await rowAt(4).boundingBox()
     const f7 = await rowAt(7).boundingBox()
-    exBlank = f0.x + f0.width - 30
-    // Ctrl adds: a4..a5 swept from a row's blank space.
+    exBlank = f0.x + f0.width + 14
+    // Ctrl adds: a4..a5 swept from the space beside the rows.
     await sweep({ x: exBlank, y: f3.y + f3.height / 2 }, { x: exBlank - 10, y: f4.y + f4.height / 2 }, { ctrl: true })
     ex = await exMarked()
     ok(ex.sort().join() === 'a1.txt,a4.txt,a5.txt', `Ctrl+sweep adds to what was marked (${ex})`)
@@ -7975,7 +8045,7 @@ async function marqueeQuietScenario(fixtures) {
     let box = await list.boundingBox()
     let r0 = await rowAt(0).boundingBox()
     let r3 = await rowAt(3).boundingBox()
-    let blank = r0.x + r0.width - 30
+    let blank = r0.x + r0.width + 14
     await sweep({ x: box.x + box.width * 0.6, y: r3.y + r3.height + 40 }, { x: blank, y: r0.y + r0.height / 2 + 4 })
     let ex = await exMarked()
     ok(ex.sort().join() === 'v1.mp4,v2.mp4,v3.mp4,v4.mp4', `a sweep marks the four films (${ex})`)
@@ -8016,7 +8086,7 @@ async function marqueeQuietScenario(fixtures) {
     box = await list.boundingBox()
     r0 = await rowAt(0).boundingBox()
     r3 = await rowAt(3).boundingBox()
-    blank = r0.x + r0.width - 30
+    blank = r0.x + r0.width + 14
     await sweep({ x: box.x + box.width * 0.6, y: r3.y + r3.height + 40 }, { x: blank, y: (await rowAt(1).boundingBox()).y + 4 })
     await sleep(600)
     let f = await films()
@@ -9696,7 +9766,8 @@ async function downloadsDateScenario(fixtures) {
     // THE SWEEP across a divider marks rows only.
     const rowsTop = await win.locator(`${list} [data-browse-path$="${order[0]}"]`).boundingBox()
     const rowsBottom = await win.locator(`${list} [data-browse-path$="${order[3]}"]`).boundingBox()
-    const x = rowsTop.x + rowsTop.width - 30
+    // From the blank space beside the rows: a row's own cells drag it (#320).
+    const x = rowsTop.x + rowsTop.width + 12
     await win.mouse.move(x, rowsTop.y + rowsTop.height / 2)
     await win.mouse.down()
     await win.mouse.move(x - 10, rowsTop.y + 20, { steps: 3 })
@@ -9814,14 +9885,17 @@ async function columnHeadersScenario(fixtures) {
             labelX: t ? t.left : null
           }
         })
-      return { left: hr.left, right: hr.right, top: hr.top, inner, cells }
+      // The rows end where the columns do (#320), but the last cell's box runs
+      // on to the header's edge and past it (clipped), so a hover fills it all.
+      const row = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path]')
+      return { left: hr.left, right: hr.right, rowRight: row?.getBoundingClientRect().right ?? null, top: hr.top, inner, cells }
     }, head)
   const tiles = (g) => {
     if (!g || !g.cells.length) return false
     const near = (a, b) => Math.abs(a - b) <= 0.6
     return (
       near(g.cells[0].left, g.left) &&
-      near(g.cells[g.cells.length - 1].right, g.right) &&
+      g.cells[g.cells.length - 1].right >= g.right - 0.6 &&
       g.cells.every((c, i) => i === 0 || near(c.left, g.cells[i - 1].right)) &&
       g.cells.every((c) => near(c.h, g.inner) && near(c.top, g.top))
     )
@@ -9850,6 +9924,7 @@ async function columnHeadersScenario(fixtures) {
     ok(await intoFolder(), 'the Explorer shows the folder of three')
     await away()
     const g = await geometry()
+    ok(!!g && g.rowRight !== null && g.right - g.rowRight >= 30, `the rows end short of the header's edge (#320; ${g && Math.round(g.right - g.rowRight)}px)`)
     ok(tiles(g), `the cells tile the header edge to edge, each its full height (${say(g)}; header ${g?.left}-${g?.right}, ${g?.inner}px)`)
     const labels = Object.fromEntries(g.cells.map((c) => [c.key, c.label]))
     ok(
