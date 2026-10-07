@@ -9053,20 +9053,43 @@ async function sidebarGroundScenario(fixtures) {
       const side = await cssColour(win, 'var(--p-side)')
       let places = null
       let list = null
+      let row = null
       await until(async () => {
         places = await groundOf('.folder-browser > .browse-places')
         list = await groundOf('.folder-browser > .browse-list-area')
-        return places === side
+        row = await groundOf('.folder-browser > .browse-toolbar')
+        return places === side && row === side
       }, 4000, 100)
       ok(places !== null && places !== list, `${style}: the places panel's ground is not the list's (${places} vs ${list})`)
       ok(places === side, `${style}: the places panel wears the sidebar colour (${places}, --p-side ${side})`)
+      // 3. THE ADDRESS ROW (#306; owner, 2026-10-07: "yes make this the same
+      // color as the sidebar"): the places panel's ground, not the list's,
+      // its hairline kept, and its field still a box on it.
+      ok(row === places, `${style}: the address row wears the places panel's ground (${row} vs ${places})`)
+      ok(row !== list, `${style}: and not the list's (${row} vs ${list})`)
+      const rowLook = await win.evaluate(() => {
+        const tb = document.querySelector('.folder-browser > .browse-toolbar')
+        const field = tb?.querySelector('nav.browse-path')
+        const s = tb ? getComputedStyle(tb) : null
+        return {
+          line: s ? { w: parseFloat(s.borderBottomWidth), c: s.borderBottomColor } : null,
+          field: field ? getComputedStyle(field).backgroundColor : null,
+          wide: tb ? Math.abs(tb.getBoundingClientRect().width - document.querySelector('.folder-browser').getBoundingClientRect().width) < 1 : false
+        }
+      })
+      ok(rowLook.wide, `${style}: the row runs across the whole browser`)
+      ok(rowLook.line && rowLook.line.w > 0 && rowLook.line.c !== row, `${style}: the row keeps its bottom hairline (${JSON.stringify(rowLook.line)})`)
+      ok(rowLook.field && rowLook.field !== row, `${style}: the address field is not the row's colour (${rowLook.field} on ${row})`)
       await win.mouse.move(2, 400)
       await sleep(300)
       await win.screenshot({ path: join(SHOTS, `sidebar-ground-${style}.png`) })
+      const vw = await win.evaluate(() => window.innerWidth)
+      await win.screenshot({ path: join(SHOTS, `address-row-${style}.png`), clip: { x: 0, y: 0, width: vw, height: 220 } })
       await settingsPage(win, 'appearance')
       await win.waitForSelector('[data-settings-page] > nav', { timeout: 10000 })
       const rail = await groundOf('[data-settings-page] > nav')
       ok(rail === places, `${style}: and that is the Settings rail's ground (${rail})`)
+      ok(rail === row, `${style}: and the address row's (${row})`)
       await win.click('[aria-label="Settings"]')
       await sleep(300)
     }
@@ -9954,13 +9977,17 @@ async function addressFieldScenario(fixtures) {
       const cr = contrast(rgb(l.crumb), rgb(l.path.fill))
       ok(cr >= 4.5, `${name}: a name reads on the field (${cr.toFixed(2)}:1)`)
     }
-    // On Void the fill is DARKER than the old control step (rgb 8,8,8), still
-    // a step off the black, and a quiet edge carries the box (owner,
-    // 2026-10-04: "the white border stands out too much on the black theme").
-    ok(lum(rgb(v.path.fill)) < lum([8, 8, 8]) && lum(rgb(v.path.fill)) > 0, `Void: the field is a darker grey than before (${v.path.fill})`)
+    // On Void the fill is only a shade off the row it sits on, and a quiet
+    // edge carries the box (owner, 2026-10-04: "the white border stands out
+    // too much on the black theme"). Since #306 the row is the sidebar
+    // colour, and both step off THAT: a fill stepped off the page sat at
+    // 1.01:1 on the row (MEASURED), a field with no shape but its edge.
+    const vFill = contrast(rgb(v.path.fill), rgb(v.ground))
+    ok(vFill > 1.02 && vFill < 1.1, `Void: the field is a shade off the row, not a slab (${v.path.fill} on ${v.ground}, ${vFill.toFixed(3)}:1)`)
     const edge = contrast(rgb(v.path.edge), rgb(v.ground))
     ok(edge >= 1.5 && edge < 1.9, `Void: the field's edge is a quiet line, not a white frame (${edge.toFixed(2)}:1)`)
-    ok(p.path.fill === 'rgb(231, 231, 232)', `Paper: the field wears the control fill (${p.path.fill})`)
+    const pFill = contrast(rgb(p.path.fill), rgb(p.ground))
+    ok(pFill > 1.1 && lum(rgb(p.path.fill)) < lum(rgb(p.ground)), `Paper: the field wears the control step off the row (${p.path.fill} on ${p.ground}, ${pFill.toFixed(3)}:1)`)
     ok(v.path.fill !== p.path.fill, 'Void and Paper fill the field differently')
     // A hover strengthens the edge and leaves the fill alone.
     const pathBox = win.locator('.folder-browser [data-testid="browse-toolbar"] nav.browse-path')

@@ -99,6 +99,13 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   browser paints no ground; its address row, list, preview slot and status paint `--p-bg`, the places
   panel (and `.browse-viewer-places`) `--p-side`, the Settings rail's and project tree's colour, one
   coat each. Every catalogue theme's panel differs from its ground. The `sidebarGround` e2e holds both.
+  **THE ADDRESS ROW WEARS IT TOO** (#306; owner, 2026-10-07, of a mockup with the row in the panel
+  colour: "yes make this the same color as the sidebar"): back/forward/up/refresh, the address field,
+  preview and search, across the window (`.folder-browser > .browse-toolbar`, and
+  `.browse-viewer-toolbar` over an opened file), `--p-side`, its hairline kept, so only the list,
+  preview slot and status are `--p-bg`. The address field's fill and edge step off the ROW
+  (`--p-side-flat`), not the page: off the page they sat at 1.01:1 on the row on every dark style
+  (MEASURED). Near-black is still judged by the page (`nearBlackField(bg, text, row)`).
 
 ## Scope
 

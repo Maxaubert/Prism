@@ -194,7 +194,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
                       name={crumb.name}
                       color="var(--p-tree-zip)"
                       size={14}
-                      bg="var(--p-control)"
+                      bg="var(--p-field)"
                     />
                   )}
                   {crumb.name}

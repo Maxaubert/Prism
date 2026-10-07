@@ -25,15 +25,21 @@
    see-through coats are an opaque slab on glass): the address row, the list,
    the preview slot and the status line --p-bg, the places panel --p-side.
    The four cover the grid between them, with no gap. A peeking panel keeps
-   its flat --p-side-flat (below), being laid over the list. */
+   its flat --p-side-flat (below), being laid over the list.
+   THE ADDRESS ROW WEARS IT TOO (#306; owner, 2026-10-07, of a mockup with
+   the row in the panel colour: "yes make this the same color as the
+   sidebar"): back, forward, up, refresh, the address field, the preview
+   toggle and search, across the whole window, so the sidebar colour runs
+   along the top and down the left and the list is the one --p-bg area.
+   Its hairline stays. Still one coat: the row is its own grid cell. */
 .folder-browser > .browse-toolbar,
+.folder-browser > .browse-places {
+  background-color: var(--p-side);
+}
 .folder-browser > .browse-list-area,
 .folder-browser > .browse-preview-slot,
 .folder-browser > .browse-status {
   background-color: var(--p-bg);
-}
-.folder-browser > .browse-places {
-  background-color: var(--p-side);
 }
 .folder-browser[data-preview] {
   grid-template-columns: var(--browse-places-width) minmax(0, 1fr) var(
@@ -130,9 +136,9 @@
   min-height: 48px;
   flex-shrink: 0;
   color: var(--p-text);
-  /* No ground of its own (#294): it sits on the folder browser's ground, or
-     on .browse-viewer-toolbar's over a file, and a second see-through coat
-     of --p-bg made the address bar an opaque band on a glass style. */
+  /* No ground in this rule (#294): the folder browser paints its cell above
+     (#306: --p-side), .browse-viewer-toolbar paints it over a file, and a
+     second see-through coat made the address bar an opaque band on glass. */
   font-family: 'Segoe UI', sans-serif;
   font-size: 15px;
 }
@@ -179,7 +185,8 @@
    "make the url box more visible"). The breadcrumb sat on the toolbar with no
    box, so only the search looked like somewhere to type. Both wear this: one
    height, radius, fill and edge, from the --p-field tokens (lib/fieldColours:
-   on a near-black ground a darker fill and an edge that carries the shape). */
+   on a near-black ground a darker fill and an edge that carries the shape).
+   Both are stepped off the ROW's ground, the sidebar colour (#306). */
 .browse-field {
   height: 36px;
   border: 1px solid var(--p-field-edge);
