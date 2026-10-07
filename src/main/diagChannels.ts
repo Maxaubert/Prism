@@ -1,3 +1,5 @@
+import { DCH } from 'prism-term-core/shared/channels'
+
 /**
  * PRISM'S CALLS THAT ARE SUPPOSED TO TAKE LONG (#322), for the diagnostics
  * log's IPC timing (`longWaitChannels`, added to the core's own `LONG_WAIT`).
@@ -14,17 +16,23 @@
  * expected to take (`archive:delete`, `archive:add`, `archive:move-members`
  * and `archive:rename` rewrite a zip in process, `doc:html` converts in
  * process): there a slow answer IS the stall. `folder:sizes-cached` stays
- * timed too: its path guard is suspect 1 of the design.
+ * timed too: its path guard is suspect 1 of the design. So do the archive
+ * reads that take either road (`archive:list`, `archive:extract`,
+ * `archive:member`): a .zip under adm-zip's cap is read INTO main's thread,
+ * and a member viewed automatically is capped at the preview size, so a slow
+ * answer there is a stall worth reading (review of #322).
  *
  * Phone: none. The phone's long polls are HTTP requests to the phone server
  * in main, not IPC, so the timing never sees them.
  *
- * A unit test holds every name to a registration in `index.ts`, so a renamed
- * channel cannot leave a stale entry behind.
+ * A unit test holds every name to a registration in `index.ts` (or to the
+ * core's dictation table), so a renamed channel cannot leave a stale entry
+ * behind.
  */
 export const LONG_WAIT_CHANNELS: readonly string[] = [
   // Waits on the user: each opens a system dialog and answers when it closes.
   'dialog:pick-folder',
+  'open:folder',
   'dialog:pick-files',
   'open:dialog',
   'subs:pick',
@@ -47,6 +55,8 @@ export const LONG_WAIT_CHANNELS: readonly string[] = [
   'archive:extract-all',
   'archive:extract-dir',
   'archive:member-out',
+  // 7-Zip (only ever 7-Zip) unpacking every page of a comic.
+  'comic:open',
   // ffmpeg converting a whole video, with its own progress.
   'video:convert',
   // The update's download (and, for a preview, its three seconds of fake
@@ -56,8 +66,18 @@ export const LONG_WAIT_CHANNELS: readonly string[] = [
   // copy, last as long as the bytes do.
   'file:paste-into',
   'file:move',
+  // A duplicate is an async copy of a file that may be gigabytes.
+  'file:duplicate',
+  // Undoing a delete: a PowerShell child walks the Recycle Bin (20 s cap).
+  'file:restore',
   // ffmpeg or FluidSynth decoding a whole track in a child process: as long as
   // the file is.
   'media:peaks',
-  'audio:synth'
+  'audio:synth',
+  // Dictation's passes run in whisper-server or parakeet-cli: Parakeet is one
+  // process per pass, MEASURED 0.72-0.86 s on CPU, so every pass would cross
+  // the 500 ms line, and a cold GPU's first pass took 31.8 s. The core's own
+  // `LONG_WAIT` holds only the download. (The warm-up is a send, not a call:
+  // nothing waits on it.)
+  DCH.transcribe
 ]

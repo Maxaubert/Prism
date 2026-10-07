@@ -46,11 +46,25 @@ describe('tabCrumbs (#322)', () => {
   })
 
   it('says a video or a sound reached the player, once', () => {
-    const t = tab('a', 'explorer', 'C:\\films', [text, video], 0)
+    const shown = tab('a', 'explorer', 'C:\\films', [text, video], 0)
+    const t = { ...shown, browse: { ...shown.browse, preview: false } }
     const playingVideo = { ...t, index: 1 }
     expect(tabCrumbs(state([t], 'a'), state([playingVideo], 'a'))).toEqual([
       { a: 'player-open', fields: { id: 'a', path: video.path, kind: 'video' } }
     ])
     expect(tabCrumbs(state([playingVideo], 'a'), state([{ ...playingVideo }], 'a'))).toEqual([])
+  })
+
+  it('keeps a file the preview pane shows beside the list for Detailed logging', () => {
+    const t = tab('a', 'explorer', 'C:\\films', [text, video], 0)
+    const previewing = { ...t, browse: { ...t.browse, preview: true } }
+    expect(tabCrumbs(state([previewing], 'a'), state([{ ...previewing, index: 1 }], 'a'))).toEqual([
+      { a: 'player-open', fields: { id: 'a', path: video.path, kind: 'video' }, often: true }
+    ])
+    // Opened full (the viewer surface): said at the quiet level, preview or not.
+    const full = { ...previewing, browse: { ...previewing.browse, surface: 'viewer' as const } }
+    expect(tabCrumbs(state([full], 'a'), state([{ ...full, index: 1 }], 'a'))).toEqual([
+      { a: 'player-open', fields: { id: 'a', path: video.path, kind: 'video' } }
+    ])
   })
 })

@@ -36,21 +36,46 @@ export function sortTrigger(prev: SortInputs | null, next: SortInputs): string {
   return 'other'
 }
 
+export const SORT_SLOW_MS = 50
+/** At most one `sort-slow` line per trigger in this long (review of #322). */
+export const SORT_SLOW_EVERY_MS = 5000
+
 /**
  * A pass that remembers the inputs of the last, for `trigger`. Made once per
  * list (held in state, not a ref: the pass runs while rendering, inside the
  * list's memo).
+ *
+ * RATE-GATED (review of #322): the folder sizes publish every 16 ms while a
+ * scan runs, so in a folder whose pass takes 50 ms every tick was a line, 10
+ * to 20 a second for the whole sweep, enough to roll the log. A trigger's
+ * first slow pass is written; the slow passes after it, for
+ * `SORT_SLOW_EVERY_MS`, are counted, and the next line written for that
+ * trigger carries them as `held` with the slowest as `heldMaxMs`.
  */
-export function createSortPass(): (inputs: SortInputs) => BrowseEntry[] {
+export function createSortPass(clock: () => number = () => performance.now()): (inputs: SortInputs) => BrowseEntry[] {
   let last: SortInputs | null = null
+  const gates = new Map<string, { sentAt: number; held: number; heldMaxMs: number }>()
   return (inputs) => {
     const trigger = sortTrigger(last, inputs)
     last = inputs
     const rows = inputs.listing ? inputs.listing.folders.length + inputs.listing.files.length : 0
-    return time(
-      'sort-slow',
-      () => browseEntries(inputs.listing, inputs.query, inputs.sort, inputs.sizes, inputs.dated),
-      { entries: rows, trigger }
-    )
+    const t0 = clock()
+    const out = browseEntries(inputs.listing, inputs.query, inputs.sort, inputs.sizes, inputs.dated)
+    const t1 = clock()
+    const ms = t1 - t0
+    if (ms < SORT_SLOW_MS) return out
+    const gate = gates.get(trigger)
+    if (gate && t1 - gate.sentAt < SORT_SLOW_EVERY_MS) {
+      gate.held += 1
+      gate.heldMaxMs = Math.max(gate.heldMaxMs, Math.round(ms))
+      return out
+    }
+    const held = gate?.held ? { held: gate.held, heldMaxMs: gate.heldMaxMs } : {}
+    gates.set(trigger, { sentAt: t1, held: 0, heldMaxMs: 0 })
+    // The pass already ran: `time` is handed its measured span as its clock,
+    // so the line is the core's own `sort-slow` shape.
+    const span = [t0, t1]
+    time('sort-slow', () => undefined, { entries: rows, trigger, ...held }, SORT_SLOW_MS, () => span.shift() ?? t1)
+    return out
   }
 }

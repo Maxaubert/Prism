@@ -10,11 +10,15 @@ import type { TabState } from './tabs'
  * - `tab-open` / `tab-close`, with the tab's kind and root.
  * - `tab-switch`: another tab in front.
  * - `project-open`: a project tab opened, or a project tab's root changed.
- * - `player-open`: a tab's current file became a video or a sound.
+ * - `player-open`: a tab's current file became a video or a sound. Detailed
+ *   logging's only (`often`) while the Explorer shows it in the preview pane
+ *   beside the list: there every row the selection lands on opens, so holding
+ *   Down through a music folder was a line per row (review of #322).
  */
 export interface TabCrumb {
   a: string
   fields: Record<string, unknown>
+  often?: boolean
 }
 
 const kindOf = (t: TabState['tabs'][number]): string => t.kind ?? t.role ?? 'project'
@@ -40,7 +44,12 @@ export function tabCrumbs(prev: TabState, next: TabState): TabCrumb[] {
     }
     const now = playing(t)
     const then = was ? playing(was) : null
-    if (now && now.path !== then?.path) out.push({ a: 'player-open', fields: { id: t.id, ...now } })
+    if (now && now.path !== then?.path)
+      out.push({
+        a: 'player-open',
+        fields: { id: t.id, ...now },
+        ...(t.browse.surface !== 'viewer' && t.browse.preview ? { often: true } : {})
+      })
   }
   for (const t of prev.tabs)
     if (!after.has(t.id)) out.push({ a: 'tab-close', fields: { id: t.id, kind: kindOf(t) } })

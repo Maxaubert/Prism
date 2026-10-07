@@ -99,8 +99,9 @@ import { detectShells } from 'prism-term-core/main/shells'
 import { killAll, killWarm } from 'prism-term-core/main/terminal'
 import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnostics'
 import { withStackPolicy } from 'prism-term-core/main/diagIpc'
-import { diagMain } from 'prism-term-core/main/diagLog'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
+import { browseWatcherOf } from './browseWatch'
+import { diagWindowEvent } from './diagWindow'
 import { mainCrumb } from './diagCrumb'
 import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
@@ -1493,11 +1494,12 @@ function logWindow(
   fields: Record<string, string | number | boolean | undefined>
 ): void {
   appendCrashLog(crashLogFile(), crashLine(new Date(), event, fields))
-  // AND IN THE DIAGNOSTICS LOG (#322): a crash, a hang or the watchdog belongs
-  // on the same timeline as the stalls and crumbs before it, where `npm run
-  // diag` reads it. window-crashes.log stays: the error box and the
+  // AND IN THE DIAGNOSTICS LOG (#322): a hang or the watchdog belongs on the
+  // same timeline as the stalls and crumbs before it, where `npm run diag`
+  // reads it; what the core already writes is not written twice
+  // (`diagWindow.ts`). window-crashes.log stays: the error box and the
   // `neverWindowless` e2e name that file.
-  diagMain().write('main', 'window', { event, ...fields })
+  diagWindowEvent(event, fields)
 }
 let appQuitting = false
 app.on('before-quit', () => (appQuitting = true))
@@ -1875,6 +1877,10 @@ if (!app.requestSingleInstanceLock()) {
     longWaitChannels: [...LONG_WAIT_CHANNELS],
     powerMonitor: () => powerMonitor
   })
+  // E2E only (review of #322): the harness ends a scenario with `app.exit`,
+  // which skips will-quit, so it writes main's queue first and the run's
+  // Stalls table sees a scenario's last moments.
+  if (E2E) Object.assign(globalThis, { __e2eDiagFlush: () => diag?.log.flushSync() })
   markExplorerWindow(app.getPath('userData'), false)
   app.on('second-instance', (_e, argv) => {
     const shortcutRequest = winERequest(argv)
@@ -1951,14 +1957,16 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
     markExplorerWindow(app.getPath('userData'), true)
-    // The quit is going ahead: the log's queue is written synchronously, so
-    // its last lines land.
-    diag?.stop()
-    diag = null
     stopDictation()
     killAll()
     killSidecars()
     cancelAllConversions()
+    // The quit is going ahead: the log's queue is written synchronously, so
+    // its last lines land. LAST (review of #322): the shell, sidecar and
+    // conversion teardown above is where a quit goes wrong (PT #127), and a
+    // stopped log would hear nothing of it.
+    diag?.stop()
+    diag = null
   })
 
   // Warm the terminal's fixed costs shortly after launch: the native module
@@ -1977,10 +1985,12 @@ if (!app.requestSingleInstanceLock()) {
     // Document-Policy. MEASURED in Prism Terminal on Electron 43: without the
     // header the answer is "Website owner has not opted in"; with it the stack
     // of a 3 s busy loop came back in about 1 ms, file:// and dev server alike.
-    // The window's own document only (never a preview's frame); every other
-    // response passes untouched. Before the window exists, so its first load
-    // carries it.
-    session.defaultSession.webRequest.onHeadersReceived((d, callback) => {
+    // The window's own document only (never a preview's frame). The filter
+    // keeps every other response off main's thread entirely (review of #322):
+    // a folder of thumbnails or a seeking video must not queue behind the
+    // thread whose lag the log measures. Before the window exists, so its
+    // first load carries it.
+    session.defaultSession.webRequest.onHeadersReceived({ urls: ['<all_urls>'], types: ['mainFrame'] }, (d, callback) => {
       if (d.resourceType !== 'mainFrame') return callback({})
       callback({ responseHeaders: withStackPolicy(d.responseHeaders) })
     })
@@ -2681,11 +2691,15 @@ if (!app.requestSingleInstanceLock()) {
     })
     ipcMain.handle('browse:watch', (_e, tabId: string, path: string | null) => {
       // The watcher's set-up is timed (#322): it runs in main's thread, and a
-      // network folder can make it slow. One per folder shown and per
-      // refresh, so a quick one is Detailed logging's only.
+      // network folder can make it slow. One per folder shown, so a quick one
+      // is Detailed logging's only. The time includes the ownership guard,
+      // which times itself (`guard-slow`); a call that found the watch
+      // already on that folder set nothing up and writes nothing.
+      const before = typeof tabId === 'string' ? browseWatcherOf(tabId) : undefined
       const t0 = performance.now()
       const ok = browseWatch(tabId, path, folderChanged)
-      if (path !== null) {
+      const setUp = typeof tabId === 'string' && browseWatcherOf(tabId) !== before
+      if (path !== null && (setUp || !ok)) {
         const ms = Math.round(performance.now() - t0)
         mainCrumb('watch', { path, ms, ok }, { often: ms < SLOW_SETUP_MS })
       }

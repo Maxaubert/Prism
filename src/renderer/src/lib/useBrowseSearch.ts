@@ -3,6 +3,9 @@ import type { BrowseSearchResult, BrowseSort } from '@shared/browse'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import { mergeSearchWindows, searchWindowOffset } from './searchWindows'
 
+/** A search this slow or slower ends on the quiet log (#322). */
+export const SEARCH_SLOW_MS = 500
+
 const emptyResult = (path: string): BrowseSearchResult => ({
   path,
   listing: { folders: [], files: [] },
@@ -66,7 +69,10 @@ export function useBrowseSearch(
     // THE SEARCH ON THE TIMELINE (#322): its start, its end with the time and
     // the hits, or its cancel. Only the search itself: a page of rows asked
     // for while scrolling (offset) and Everything's settling re-asks are the
-    // same search, and are not said again.
+    // same search, and are not said again. A search starts per keystroke and
+    // per refresh while one is shown (review of #322), so its start is
+    // Detailed logging's, and its end reaches the quiet log only when it was
+    // slow: a quick one says nothing a stall's own crumbs do not.
     const said = offset === 0
     let t0 = 0
     let ended = false
@@ -108,7 +114,7 @@ export function useBrowseSearch(
     const run = () => {
       if (said && !started) {
         t0 = performance.now()
-        crumb('search-start', { path, query })
+        crumb('search-start', { path, query }, { often: true })
       }
       started = true
       setAnswer((previous) =>
@@ -126,14 +132,20 @@ export function useBrowseSearch(
           if (disposed || stopped) return
           if (said && !ended) {
             ended = true
-            crumb('search-end', {
-              path,
-              ms: Math.round(performance.now() - t0),
-              hits: result.window?.total ?? result.listing.folders.length + result.listing.files.length,
-              ...(result.truncated ? { truncated: true } : {}),
-              ...(result.cancelled ? { cancelled: true } : {}),
-              ...(result.source ? { source: result.source } : {})
-            })
+            const ms = Math.round(performance.now() - t0)
+            crumb(
+              'search-end',
+              {
+                path,
+                query,
+                ms,
+                hits: result.window?.total ?? result.listing.folders.length + result.listing.files.length,
+                ...(result.truncated ? { truncated: true } : {}),
+                ...(result.cancelled ? { cancelled: true } : {}),
+                ...(result.source ? { source: result.source } : {})
+              },
+              { often: ms < SEARCH_SLOW_MS }
+            )
           }
           if (offset > 0 && !result.window && pages.size) {
             setAnswer((previous) =>
@@ -165,7 +177,7 @@ export function useBrowseSearch(
         .catch(() => {
           if (said && !ended && !disposed && !stopped) {
             ended = true
-            crumb('search-end', { path, ms: Math.round(performance.now() - t0), failed: true })
+            crumb('search-end', { path, query, ms: Math.round(performance.now() - t0), failed: true })
           }
           if (!disposed && !stopped)
             setAnswer((previous) => ({

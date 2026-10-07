@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { browseLocation, newBrowse } from './browse'
 import { newTab, type Tab } from './tabs'
-import { arrivalSelection, useFolderBrowsing } from './useFolderBrowsing'
+import { arrivalSelection, BACKGROUND_READ_SLOW_MS, openFolderCrumb, useFolderBrowsing } from './useFolderBrowsing'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 
 // The diagnostics log's crumbs (#322), caught rather than sent.
@@ -164,7 +164,11 @@ describe('the open-folder crumb (#322)', () => {
     doc.querySelectorAll ??= () => []
     await result.navigate('C:\\data')
     expect(vi.mocked(crumb).mock.calls).toEqual([
-      ['open-folder', { path: 'C:\\data', reason: 'navigate', ms: expect.any(Number), entries: 3, cached: false }]
+      [
+        'open-folder',
+        { path: 'C:\\data', reason: 'navigate', ms: expect.any(Number), entries: 3, cached: false },
+        { often: false }
+      ]
     ])
   })
 
@@ -181,5 +185,20 @@ describe('the open-folder crumb (#322)', () => {
     doc.querySelectorAll ??= () => []
     await result.navigate('C:\\gone')
     expect(vi.mocked(crumb).mock.calls[0][1]).toMatchObject({ path: 'C:\\gone', entries: null, unreadable: true })
+  })
+
+  it('keeps a quick background re-read for Detailed logging, and says a slow one quietly', () => {
+    const listing = { folders: [], files: [] }
+    const now = performance.now()
+    openFolderCrumb('C:\\dl', 'dir-changed', now, listing, true)
+    openFolderCrumb('C:\\dl', 'focus', now, listing, true)
+    openFolderCrumb('C:\\dl', 'dir-changed', now - BACKGROUND_READ_SLOW_MS - 50, listing, true)
+    openFolderCrumb('C:\\dl', 'refresh', now, listing, true)
+    expect(vi.mocked(crumb).mock.calls.map((c) => [c[1]?.reason, c[2]])).toEqual([
+      ['dir-changed', { often: true }],
+      ['focus', { often: true }],
+      ['dir-changed', { often: false }],
+      ['refresh', { often: false }]
+    ])
   })
 })

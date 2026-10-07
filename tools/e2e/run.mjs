@@ -78,6 +78,9 @@ async function launchTestApp(options) {
   // connection. Kill fallback is restricted to this test process tree.
   app.close = async () => {
     const child = app.process()
+    // `app.exit` skips will-quit, where the diagnostics log writes its queue
+    // (#322): main's last batch is written here, for the Stalls table.
+    await app.evaluate(() => globalThis.__e2eDiagFlush?.()).catch(() => {})
     await app.evaluate(async () => { await globalThis.__prismIndexer?.dispose() }).catch(() => {})
     await app.evaluate(({ app }) => app.exit(0)).catch(() => {})
     if (child.exitCode === null) {
@@ -16446,10 +16449,12 @@ async function explorerDiagScenario(fixtures) {
   rmSync(DIAG_DIR, { recursive: true, force: true })
   EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
   let app
+  let win
+  let verboseOn = false
   try {
     const started = await launch(join(fixtures, 'README.md'))
     app = started.app
-    const win = started.win
+    win = started.win
     EXTRA_ENV = {}
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
@@ -16466,12 +16471,35 @@ async function explorerDiagScenario(fixtures) {
     ok(!!open && typeof open.ms === 'number' && open.ms >= 0, `with how long the read took (${open?.ms} ms)`)
     ok(!!open && open.entries === 7, `and how many rows it has (${open?.entries}, 6 files and a folder)`)
     ok(!!open && typeof open.cached === 'boolean' && !open.unreadable, `and whether a cache painted first (${open?.cached})`)
+    // ONE READ, ONE CRUMB (review of #322): the location effect joins the
+    // navigation's read and must not say it again. Given time to.
+    const key = String(target).toLowerCase()
+    const opens = () => readDiag().filter((l) => l.k === 'crumb' && l.a === 'open-folder' && String(l.path ?? '').toLowerCase() === key)
+    await sleep(800)
+    ok(opens().length === 1, `the navigation is one open-folder crumb, not two (${opens().map((l) => l.reason).join(', ')})`)
+    // Detailed logging, so a quick background read is written as well. By
+    // the switch: the page keeps its own copy of the setting.
+    await (await gotoPref(win, 'diag-verbose')).locator('[role="switch"]').click()
+    verboseOn = true
+    ok(!!(await diagHas((l) => l.k === 'verbose' && l.on === true)), 'Detailed logging is on')
+    await win.click('[aria-label="Settings"]')
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.locator('.folder-browser nav.browse-path .browse-crumb button[aria-current="location"]').waitFor({ timeout: 10000 })
+    // The folder already shown, asked for again: no location moves, and the
+    // navigation's marker must not swallow the next read's crumb.
+    await win.locator('.folder-browser nav.browse-path .browse-crumb button[aria-current="location"]').click()
+    ok(!!(await until(() => opens().filter((l) => l.reason === 'navigate').length === 2, 10000, 100)), 'asking for the folder on screen again is a navigate crumb')
+    await win.evaluate(() => window.dispatchEvent(new Event('focus')))
+    const focus = await until(() => opens().find((l) => l.reason === 'focus'), 10000, 100)
+    ok(!!focus, `the window's focus re-read after it is said, reason focus (${opens().map((l) => l.reason).join(', ')})`)
     const sortedBefore = readDiag().filter((l) => l.k === 'crumb' && l.a === 'sort').length
     await win.locator('.browse-list-area .browse-columns .browse-column-name').click()
     const sort = await diagHas((l, i, all) => l.k === 'crumb' && l.a === 'sort' && all.slice(0, i + 1).filter((x) => x.k === 'crumb' && x.a === 'sort').length > sortedBefore)
     ok(!!sort && sort.key === 'name' && (sort.direction === 'asc' || sort.direction === 'desc'), `pressing the Name header is a sort crumb (${JSON.stringify(sort && { key: sort.key, direction: sort.direction })})`)
   } finally {
     EXTRA_ENV = {}
+    // The profile is shared and Detailed logging outlives a relaunch.
+    if (verboseOn) await win?.evaluate(() => window.prism.diagSetVerbose(false)).catch(() => {})
     await app?.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }

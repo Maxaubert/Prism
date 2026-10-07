@@ -1701,20 +1701,12 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   `crashReporter` starts only once the single-instance lock is won.
 - **A STALL IS READ FROM THE DIAGNOSTICS LOG, NOT GUESSED** (#322; owner, 2026-10-07: "implement
   some robust logging and debugging into the program especially to catch stalls for example in
-  explorer or in general"). The core's log (prism-term-core `main/diagnostics.ts`), local only, in
-  `%APPDATA%\Prism\logs\diag.jsonl` (2 MB, four rotations): page stalls with the scripts that ran,
-  main lag with the IPC in flight, slow IPC, errors, crashes, and crumbs. Schema and how to read it:
-  Prism Terminal's `docs/diagnostics.md`; from a Prism Terminal checkout, `npm run diag -- --app prism
-  --since 10m` prints the newest problems with the crumbs before each. When the owner says "it
-  stalled", read that first. Wiring: `startDiagnostics` before every IPC registration (it wraps
-  ipcMain), `logWindow` writes there too (window-crashes.log stays), Settings > Diagnostics (Detailed
-  logging, Log files, Mark a problem). `src/main/diagChannels.ts` lists the channels that are long BY
-  DESIGN (dialogs, searches, size scans, extraction jobs, convert, download, copies, decoders): never
-  `ipc-slow`; work in main's own thread stays timed. The Explorer's probes: `open-folder`
-  (`useFolderBrowsing`), `sort-slow` (`browse/sortTiming.ts`), `guard-slow` (`desktopAccess`, a list
-  filtered as one call with `insideDesktopAll`), `search-*`, `folder-size`, `watch`, `archive-job`;
-  tab, project and player crumbs come off the tab state (`lib/tabCrumbs.ts`). A crumb that can fire
-  many times a second is `often` (Detailed only). An extra Explorer window logs in its own profile.
+  explorer or in general"). When the owner says "it stalled", run `npm run diag -- --app prism
+  --since 10m` from a Prism Terminal checkout FIRST (schema: PT's `docs/diagnostics.md`). The log is
+  `%APPDATA%\Prism\logs\diag.jsonl`, local only. `startDiagnostics` runs before every IPC
+  registration (it wraps ipcMain) and stops LAST on the quit. A channel long BY DESIGN goes in
+  `src/main/diagChannels.ts` under the rule written there; a crumb that can fire many times a second
+  is `often` (Detailed only).
 - **THE EXPLORER NEVER SHOWS A LOADING SCREEN** (2026-10-04, #271; owner: "I don't ever want to
   see that ... not even if you launch it from a restart of the PC, or it's your first time after
   installing the program"). Design, the owner's six decisions and what was measured:

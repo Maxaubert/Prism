@@ -67,23 +67,37 @@ export function arrivalSelection(
  */
 export type OpenReason = 'navigate' | 'back' | 'forward' | 'refresh' | 'focus' | 'dir-changed' | 'retry' | 'arrival'
 
+/** A background re-read (the watcher, the window's focus) this slow or slower
+ *  reaches the quiet log; a quicker one is Detailed logging's (review of
+ *  #322): a folder written to without a break (Downloads during a download)
+ *  re-reads about once a second for as long as it lasts. */
+export const BACKGROUND_READ_SLOW_MS = 200
+
 /** One folder read, on the timeline: where, why, how long, how many rows,
  *  and whether rows were already on screen from a cache while it read. */
-function openFolderCrumb(
+export function openFolderCrumb(
   path: string,
   reason: OpenReason,
   t0: number,
   listing: DirListing | null | undefined,
-  cached: boolean
+  cached: boolean,
+  extra: Record<string, unknown> = {}
 ): void {
-  crumb('open-folder', {
-    path,
-    reason,
-    ms: Math.round(performance.now() - t0),
-    entries: listing && !listing.unreadable ? listing.folders.length + listing.files.length : null,
-    cached,
-    ...(listing?.unreadable || !listing ? { unreadable: true } : {})
-  })
+  const ms = Math.round(performance.now() - t0)
+  const background = reason === 'dir-changed' || reason === 'focus'
+  crumb(
+    'open-folder',
+    {
+      path,
+      reason,
+      ms,
+      entries: listing && !listing.unreadable ? listing.folders.length + listing.files.length : null,
+      cached,
+      ...(listing?.unreadable || !listing ? { unreadable: true } : {}),
+      ...extra
+    },
+    { often: background && ms < BACKGROUND_READ_SLOW_MS }
+  )
 }
 
 /** The listing cache on disk, kept in the shared snapshots when it has the
@@ -130,9 +144,12 @@ export function useFolderBrowsing(
   const readReason = useRef<OpenReason | null>(null)
   /** The refresh key the last effect read saw, so a new one says `refresh`. */
   const readRefreshKey = useRef(refreshKey)
-  /** The folder `navigate` is reading: the location effect joins that same
-   *  read, and `navigate` says its crumb, so the effect does not say it twice. */
-  const navigated = useRef<string | null>(null)
+  /** The folder `navigate` is reading, and for which tab: the location effect
+   *  joins that same read, and `navigate` says its crumb, so the effect does
+   *  not say it twice. `navigate` takes its own marker back once its read has
+   *  answered: a navigation to the folder already shown moves no location, so
+   *  no effect would, and the next real read of it went unsaid. */
+  const navigated = useRef<{ tabId: string; key: string } | null>(null)
   const serial = useRef(new Map<string, number>())
   // Quiet selects per tab (#263): an open that lands after one must not take
   // the selected path back, or the marks just made read as stale and go.
@@ -221,6 +238,12 @@ export function useFolderBrowsing(
   useEffect(() => {
     const fresh = delivered.current
     delivered.current = null
+    // Taken before any early return (review of #322): App bumps the refresh
+    // key after every file operation, from a viewer or project tab too, where
+    // this effect reads nothing, and the next Explorer read then said
+    // `refresh` for an arrival or a navigation's follow-up.
+    const refreshed = readRefreshKey.current !== refreshKey
+    readRefreshKey.current = refreshKey
     if (!folder || !id || !path) return
     if (
       fresh?.tabId === id &&
@@ -230,24 +253,27 @@ export function useFolderBrowsing(
       fresh.request === serial.current.get(id)
     ) {
       navigated.current = null
+      readReason.current = null
       void window.prism.browseWatch(id, path)
       return
     }
     let cancelled = false
     const request = serial.current.get(id)
-    const reason: OpenReason =
-      readRefreshKey.current !== refreshKey ? 'refresh' : (readReason.current ?? 'arrival')
-    readRefreshKey.current = refreshKey
+    const reason: OpenReason = refreshed ? 'refresh' : (readReason.current ?? 'arrival')
     readReason.current = null
-    const joined = navigated.current === directoryKey(path)
+    const joined = navigated.current?.tabId === id && navigated.current.key === directoryKey(path)
     navigated.current = null
     const t0 = performance.now()
     const shown = !!visitedDirectories.get(path)
     void readDirectory
       .current(id, path, `${refreshKey}:${revision}`)
       .then((next) => {
+        // Said even when the effect has moved on (review of #322): a slow
+        // read the user gave up on (a hung network folder) is exactly what
+        // the log is for, as `navigate` says its own overtaken reads.
+        if (!joined)
+          openFolderCrumb(next?.path ?? path, reason, t0, next?.listing, shown, cancelled ? { abandoned: true } : {})
         if (cancelled) return
-        if (!joined) openFolderCrumb(next?.path ?? path, reason, t0, next?.listing, shown)
         if (serial.current.get(id) === request) setWaitingFor(null)
         if (next && !next.listing.unreadable) {
           setResult({ ...visitedDirectories.remember(next), tabId: id })
@@ -301,7 +327,8 @@ export function useFolderBrowsing(
       // else the listing cache on disk (a synchronous look, tens of KB).
       const cached = visitedDirectories.get(target) ?? rememberCached(target)
       const t0 = performance.now()
-      navigated.current = directoryKey(target)
+      const marker = { tabId, key: directoryKey(target) }
+      navigated.current = marker
       // Start the real read before committing a cached cursor. Its location
       // effect joins this same promise instead of scanning the folder twice.
       const reading = readDirectory
@@ -316,6 +343,10 @@ export function useFolderBrowsing(
       }
       if (cached) setState((s) => ({ ...s, tabs: navigateBrowse(s.tabs, tabId, cached.path) }))
       const next = await reading
+      // Its read has answered: a location effect that joins it has run by
+      // now, and one that never will (the folder already shown) must not
+      // leave the marker to swallow the next read's crumb.
+      if (navigated.current === marker) navigated.current = null
       // Said even when a later navigation overtook it: the read still ran,
       // and a slow one is what the log is for.
       openFolderCrumb(next?.path ?? target, 'navigate', t0, next?.listing, !!cached)
@@ -393,8 +424,8 @@ export function useFolderBrowsing(
   const searchFor = useCallback(
     (query: string) => {
       // The filter on the timeline (#322): once per keystroke, so Detailed
-      // logging's only; the search it starts says `search-start` at the
-      // quiet level.
+      // logging's only, as is the `search-start` of the search it starts; a
+      // slow search's `search-end` (with the query) is the quiet line.
       crumb('filter', { query }, { often: true })
       if (id) setState((s) => ({ ...s, tabs: searchBrowse(s.tabs, id, query) }))
     },

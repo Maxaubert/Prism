@@ -923,7 +923,7 @@ export default function App(): JSX.Element {
   // (lib/tabCrumbs), since a tab changes from a dozen places.
   const crumbedTabs = useRef<TabState>({ tabs: [], activeId: null })
   useEffect(() => {
-    for (const c of tabCrumbs(crumbedTabs.current, tabState)) crumb(c.a, c.fields)
+    for (const c of tabCrumbs(crumbedTabs.current, tabState)) crumb(c.a, c.fields, { often: c.often })
     crumbedTabs.current = tabState
   }, [tabState])
   /**

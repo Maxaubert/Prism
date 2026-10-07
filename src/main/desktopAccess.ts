@@ -31,8 +31,13 @@ export function releaseDesktop(tabId: string): void {
   revisions.set(tabId, desktopRevision(tabId) + 1)
 }
 
+/** Timed like the other guards (review of #322): a search grants every hit's
+ *  folder, so after a big one each listing and each `browse:watch` resolves
+ *  thousands of grants here. */
 export function ownsDesktopDirectory(tabId: string, path: string): boolean {
-  return [...(directories.get(tabId) ?? [])].some((dir) => isRoot(dir, path))
+  return timed('ownsDesktopDirectory', 1, () =>
+    [...(directories.get(tabId) ?? [])].some((dir) => isRoot(dir, path))
+  )
 }
 
 /**
