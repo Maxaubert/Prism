@@ -11388,19 +11388,75 @@ async function dragLabelScenario(fixtures) {
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(join(dir, 'folder'), { recursive: true })
   for (const n of ['alpha.txt', 'beta.txt']) writeFileSync(join(dir, n), `drag label ${n}\n`)
+  // THE ROW IS PICKED UP (#327; owner, 2026-10-07: "when i pick up an item i
+  // wanna pick up the row, essentially not just a label, so i want the icon
+  // and so on"). Each read also takes the carried row apart: its icon, name,
+  // count, height and look, against the row it came from.
   const badge = (win) =>
     win.evaluate(() => {
       const el = document.querySelector('[data-file-drag-badge]')
       const r = el?.getBoundingClientRect()
-      return r ? { left: r.left, top: r.top, width: r.width, text: el.textContent ?? '', dpr: devicePixelRatio } : null
+      if (!r) return null
+      const row = el.querySelector('[data-drag-row]')
+      const icon = row?.querySelector('[data-drag-icon]')
+      const sig = (n) =>
+        !n ? null : n.tagName.toLowerCase() === 'img' ? `img:${n.getAttribute('src')}` : [...n.querySelectorAll('path')].map((p) => p.getAttribute('d')).join('|')
+      const seen = getComputedStyle(row ?? el)
+      const probe = (css) => {
+        const p = document.createElement('div')
+        p.style.color = css
+        document.body.append(p)
+        const v = getComputedStyle(p).color
+        p.remove()
+        return v
+      }
+      return {
+        left: r.left,
+        top: r.top,
+        width: r.width,
+        text: el.textContent ?? '',
+        dpr: devicePixelRatio,
+        rowText: row?.textContent ?? '',
+        name: row?.querySelector('[data-drag-name]')?.textContent ?? null,
+        count: row?.querySelector('[data-drag-count]')?.textContent ?? null,
+        icon: sig(icon),
+        iconSize: icon ? icon.getBoundingClientRect().width : 0,
+        rowH: row?.getBoundingClientRect().height ?? 0,
+        rowLeft: row?.getBoundingClientRect().left ?? -1,
+        rowTop: row?.getBoundingClientRect().top ?? -1,
+        font: seen.fontSize,
+        bg: seen.backgroundColor,
+        shadow: seen.boxShadow,
+        wantBg: probe('var(--p-sel-tint-seen)'),
+        wantLine: probe('var(--p-sel-line)')
+      }
+    })
+  /** What the source row draws: each icon's signature, its height and font, its other cells. */
+  const sourceOf = (el) =>
+    el.evaluate((n) => {
+      const row = n.closest('[draggable="true"]') ?? n
+      const sig = (s) =>
+        s.tagName.toLowerCase() === 'img' ? `img:${s.getAttribute('src')}` : [...s.querySelectorAll('path')].map((p) => p.getAttribute('d')).join('|')
+      const nameIcon = [...row.querySelectorAll('svg, img')].find((s) => (s.nextElementSibling?.textContent ?? '').trim())
+      return {
+        icons: [...row.querySelectorAll('svg, img')].map(sig),
+        nameIcon: nameIcon ? sig(nameIcon) : null,
+        iconSize: nameIcon ? nameIcon.getBoundingClientRect().width : 0,
+        h: row.getBoundingClientRect().height,
+        font: getComputedStyle(row).fontSize,
+        cells: [...row.querySelectorAll('.browse-column-type, .browse-column-size, .browse-column-modified')]
+          .map((c) => (c.textContent ?? '').trim())
+          .filter(Boolean)
+      }
     })
   /** Press on `el`, travel to two places, read the label at each, let go with Escape. */
-  const carry = async (win, el, what, shot) => {
+  const carry = async (win, el, what, shot, opts = {}) => {
     const box = await el.boundingBox()
     if (!box) {
       ok(false, `${what}: the row is on screen`)
       return null
     }
+    const src = await sourceOf(el)
     const from = { x: Math.round(box.x + Math.min(24, box.width / 2)), y: Math.round(box.y + box.height / 2) }
     await win.mouse.move(from.x, from.y)
     await win.mouse.down()
@@ -11412,13 +11468,33 @@ async function dragLabelScenario(fixtures) {
       const b = await badge(win)
       seen.push(b && { ...b, x: at.x, y: at.y, offX: b.left - at.x, offY: b.top - at.y })
     }
-    if (shot) await win.screenshot({ path: join(SHOTS, shot) })
+    if (shot) {
+      const last = seen[seen.length - 1]
+      // Close up, so the carried row can be LOOKED at, not just found.
+      if (opts.zoom && last)
+        await win.screenshot({
+          path: join(SHOTS, shot),
+          clip: { x: Math.max(0, last.x - 160), y: Math.max(0, last.y - 110), width: 520, height: 230 }
+        })
+      else await win.screenshot({ path: join(SHOTS, shot) })
+    }
     await win.keyboard.press('Escape')
     await win.mouse.up()
     await sleep(200)
     const [a, b] = seen
     ok(!!a && !!b, `${what}: a label is carried (${a?.text ?? 'none'})`)
     if (!a || !b) return null
+    /* ---------- the row, not a label (#327) ---------- */
+    ok(!!a.icon && src.icons.includes(a.icon), `${what}: it carries the row's own icon (${a.icon ? 'found' : 'none'})`)
+    ok(!src.nameIcon || a.icon === src.nameIcon, `${what}: the icon beside the name, never a chevron`)
+    ok(Math.abs(a.iconSize - src.iconSize) <= 0.5, `${what}: at the row's icon size (${a.iconSize} and ${src.iconSize})`)
+    ok(Math.abs(a.rowH - src.h) <= 1, `${what}: the row's height (${a.rowH} and ${src.h})`)
+    ok(a.font === src.font, `${what}: the row's font size (${a.font} and ${src.font})`)
+    ok(a.bg === a.wantBg && a.shadow.includes(a.wantLine), `${what}: in the selected look (${a.bg}, ${a.shadow})`)
+    ok(src.cells.every((c) => !a.rowText.includes(c)), `${what}: no type, size or date (${src.cells.join(' / ')} not in "${a.rowText}")`)
+    ok(a.rowLeft === a.left && a.rowTop === a.top, `${what}: the row is the corner that hangs off the pointer`)
+    if (opts.name) ok(a.name === opts.name, `${what}: it names the row pressed on (${a.name})`)
+    ok(a.count === (opts.count ? String(opts.count) : null), `${what}: a count of ${opts.count ?? 'none'} (${a.count})`)
     const near = (o) => o >= 4 && o <= 8
     ok(
       near(a.offX) && near(a.offY),
@@ -11453,20 +11529,45 @@ async function dragLabelScenario(fixtures) {
       )
       await sleep(400)
       const row = (n) => win.locator(`[data-testid="browse-list"] [data-browse-path$="${n}"] .browse-name`).first()
-      await carry(win, row('alpha.txt'), 'a file from the Explorer list', 'drag-label-list.png')
-      await carry(win, row('folder'), 'a folder from the Explorer list')
-      await row('alpha.txt').click()
-      await win.keyboard.down('Control')
-      await row('beta.txt').click()
-      await win.keyboard.up('Control')
-      await sleep(200)
-      const many = await carry(win, row('beta.txt'), 'two marked items from the Explorer list', 'drag-label-many.png')
-      ok(!!many && /2 items/.test(many.text), `and the label counts them (${many?.text})`)
+      await carry(win, row('alpha.txt'), 'a file from the Explorer list', 'drag-label-list.png', { name: 'alpha.txt' })
+      await carry(win, row('folder'), 'a folder from the Explorer list', null, { name: 'folder' })
 
       /* ---------- the places panel ---------- */
       const pin = win.locator('.quick-access-pin').first()
       if (await pin.count()) await carry(win, pin, 'a place from the places panel')
       else ok(false, 'the places panel shows a place to drag')
+
+      /* ---------- one row and several, in a dark and a light style ---------- */
+      const before = await win.evaluate(() => localStorage.getItem('prism.style'))
+      try {
+        // Aurora is the default and dark; Paper is light.
+        for (const [look, style] of [['dark', 'aurora'], ['light', 'paper']]) {
+          await switchStyle(win, style)
+          await sleep(500)
+          await row('alpha.txt').click()
+          await sleep(200)
+          await carry(win, row('alpha.txt'), `${look} style (${style}), one row`, `drag-row-${look}-one.png`, {
+            name: 'alpha.txt',
+            zoom: true
+          })
+          await row('alpha.txt').click()
+          await win.keyboard.down('Control')
+          await row('beta.txt').click()
+          await row('folder').click()
+          await win.keyboard.up('Control')
+          await sleep(200)
+          const marked = await win.locator('[data-testid="browse-list"] .browse-row[data-selected]').count()
+          ok(marked === 3, `${look}: three rows are marked (${marked})`)
+          const many = await carry(win, row('beta.txt'), `${look}: three marked items, picked up by beta.txt`, `drag-row-${look}-many.png`, {
+            name: 'beta.txt',
+            count: marked,
+            zoom: true
+          })
+          ok(!!many && !/items/.test(many.text), `${look}: one row and a count, not "3 items" (${many?.text})`)
+        }
+      } finally {
+        await switchStyle(win, before)
+      }
     } finally {
       await app.close()
       EXTRA_ARGS = []
