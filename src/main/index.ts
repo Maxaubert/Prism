@@ -2459,6 +2459,9 @@ if (!app.requestSingleInstanceLock()) {
     // the old mock chip read "Update 43.2.0" in the e2e's own screenshots), so
     // the update window would say "You have 43.2.0".
     ipcMain.handle('app:version', () => pkg.version)
+    // E2E only (#322): a call main answers after 600 ms, so the diagLog
+    // scenario can find the ipc-slow line a real slow channel would write.
+    if (E2E) ipcMain.handle('e2e:slow-ipc', () => new Promise((r) => setTimeout(() => r(true), 600)))
 
     ipcMain.handle('open:dialog', async (): Promise<OpenPayload | null> => {
       const r = await openDialog({ properties: ['openFile'] })

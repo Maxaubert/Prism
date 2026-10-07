@@ -676,6 +676,9 @@ const api = {
   /** The running app's version (package.json's), for the update window's
    *  "You have" line. */
   appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  /** E2E only (#322): main registers the channel under --e2e alone, so
+   *  anywhere else this rejects. */
+  e2eSlowIpc: (): Promise<boolean> => ipcRenderer.invoke('e2e:slow-ipc'),
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
   openDefaultApps: (): void => ipcRenderer.send('app:default-apps'),
   windowPreferencesLoad: (): WindowPreferencesSnapshot | null => {

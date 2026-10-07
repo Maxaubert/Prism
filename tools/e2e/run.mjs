@@ -5104,7 +5104,8 @@ const SETTINGS_PAGE_OF = {
   'explorer-side': 'explorer', 'tree-side': 'project', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'project',
   'open-external': 'explorer', 'remember-tabs': 'explorer', 'remember-folders': 'explorer', 'explorer-verb': 'explorer', 'default-apps': 'explorer',
   'term-shell': 'terminal', 'term-theme': 'terminal', 'agent-indicator': 'agents', 'agent-color': 'agents',
-  'dictation-enabled': 'dictation', 'transport-bg': 'media', 'app-version': 'about'
+  'dictation-enabled': 'dictation', 'transport-bg': 'media', 'app-version': 'about',
+  'diag-verbose': 'diagnostics', 'diag-folder': 'diagnostics', 'diag-mark': 'diagnostics'
 }
 
 /** Open Settings if it is not up, and go to one of its pages. */
@@ -14466,6 +14467,7 @@ async function settingsSearchScenario(fixtures) {
     for (const file of [
       'node_modules/prism-term-core/renderer/settings/options.ts',
       'node_modules/prism-term-core/renderer/settings/dictationOptions.ts',
+      'node_modules/prism-term-core/renderer/settings/diagnosticsOptions.ts',
       'src/renderer/src/components/settings/appOptions.ts'
     ])
       for (const m of readFileSync(join(ROOT, file), 'utf8').matchAll(/\{\s*id: '([a-z-]+)'[^}]*\}/g))
@@ -15690,11 +15692,283 @@ async function zipLockedScenario(fixtures) {
   ok(left.length === 0, `the run's member folder is gone after quit (${left.join(', ')})`)
 }
 
+/* ----- the diagnostics log (#322) ----- */
+
+/** The diagnostics log of the shared profile, one object per line (a line
+ *  that is not JSON comes back as `{ bad }`, so a scenario can say so). */
+const DIAG_DIR = join(PROFILE, 'logs')
+function readDiag() {
+  try {
+    return readFileSync(join(DIAG_DIR, 'diag.jsonl'), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => {
+        try {
+          return JSON.parse(l)
+        } catch {
+          return { bad: l }
+        }
+      })
+  } catch {
+    return []
+  }
+}
+/** Lines land in batches (the page's every 250 ms, the writer's every 250
+ *  ms), so every look waits for its line. */
+const diagHas = (fn, ms = 10000) => until(() => readDiag().find(fn) ?? false, ms, 100)
+
+/**
+ * A REAL QUIT, for the log's last line: the harness's `app.close()` is
+ * `app.exit(0)`, which skips will-quit, where the log writes its queue and
+ * its `quit` line. Falls back to the harness's close after 15 s.
+ */
+async function quitForLog(app) {
+  const child = app.process()
+  await app.evaluate(({ app }) => app.quit()).catch(() => {})
+  if (child.exitCode === null)
+    await Promise.race([new Promise((done) => child.once('exit', done)), sleep(15000)])
+  await app.close().catch(() => {})
+}
+
+/**
+ * THE DIAGNOSTICS LOG (#322; owner, 2026-10-07: "implement some robust logging
+ * and debugging into the program especially to catch stalls for example in
+ * explorer or in general"). Each problem is made on purpose and then found in
+ * <profile>\logs\diag.jsonl, the file the owner's "it stalled just now" is read
+ * from: a 2.5 s busy loop in the page (a page-stall naming the script, the
+ * crumbs before it, and the stack main took while it spun), a call main
+ * answers after 600 ms (`e2e:slow-ipc`, --e2e only), a thrown error and a
+ * rejected promise. Then Settings > Diagnostics: Open folder (recorded, never
+ * opened, under --e2e), Mark, and Detailed logging kept across a relaunch.
+ * The core's own scenario in Prism Terminal, on Prism's wiring.
+ *
+ * In `e2e:terminal`, RUNNER-SAFE: the page, the log and the bridge are the
+ * core's, so a core bump that breaks Prism's log is held here. The profile is
+ * shared, so the log folder is emptied first and Detailed logging is taken
+ * back off after (it lives in <profile>\diag.json, which every later
+ * scenario would otherwise start verbose from).
+ */
+async function diagLogScenario(fixtures) {
+  console.log('diagnostics log')
+  rmSync(DIAG_DIR, { recursive: true, force: true })
+  rmSync(join(PROFILE, 'diag.json'), { force: true })
+  let app
+  let win
+  try {
+    ;({ app, win } = await launch(join(fixtures, 'README.md')))
+    const session = await diagHas((l) => l.k === 'session')
+    ok(
+      !!session && session.src === 'main' && session.e2e === true && session.verbose === false && typeof session.version === 'string' && session.pid > 0,
+      `a session line opens the log (${JSON.stringify(session && { version: session.version, electron: session.electron, verbose: session.verbose })})`
+    )
+    // The Explorer tab in front: a tab-switch, from the page.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    ok(!!(await diagHas((l) => l.k === 'crumb' && l.a === 'tab-switch' && l.src === 'page')), 'putting the Explorer tab in front is a tab-switch crumb, from the page')
+
+    // A STALL: 2.5 s of the page's thread, started by a named timer.
+    await win.evaluate(() => {
+      setTimeout(function diagE2eBusy() {
+        const end = performance.now() + 2500
+        while (performance.now() < end) {
+          /* spin */
+        }
+      }, 0)
+    })
+    const stall = await diagHas((l) => l.k === 'page-stall' && l.ms >= 2000)
+    ok(!!stall && stall.src === 'page', `the busy loop is a page-stall (${stall?.ms} ms)`)
+    const scripts = Array.isArray(stall?.scripts) ? stall.scripts : []
+    ok(
+      scripts.some((x) => x && (x.fn === 'diagE2eBusy' || /setTimeout/i.test(x.invoker ?? ''))),
+      `with the script that ran named (${JSON.stringify(scripts)})`
+    )
+    const crumbs = Array.isArray(stall?.crumbs) ? stall.crumbs : []
+    ok(crumbs.some((c) => c && c.a === 'tab-switch'), `and the crumbs said before it (${JSON.stringify(crumbs)})`)
+    // The stack main took while the page spun, written because a page-stall
+    // overlapping it arrived. It needs the Document-Policy header main adds.
+    const stack = await diagHas((l) => l.k === 'page-stack', 6000)
+    ok(
+      !!stack && /diagE2eBusy/.test(stack.stack ?? '') && stack.ms >= 2000,
+      `main took the spinning page's stack (${stack ? `${stack.ms} ms, ${String(stack.stack).split('\n')[1]?.trim()}` : 'none'})`
+    )
+
+    // A SLOW CALL: main answers after 600 ms.
+    ok((await win.evaluate(() => window.prism.e2eSlowIpc())) === true, 'the slow call answers')
+    const slow = await diagHas((l) => l.k === 'ipc-slow' && l.ch === 'e2e:slow-ipc')
+    ok(!!slow && slow.ms >= 500 && slow.ok === true, `and is an ipc-slow line naming its channel (${slow?.ms} ms)`)
+
+    // ERRORS: thrown in a timer, so it reaches the page's own handler (one
+    // thrown inside evaluate is Playwright's), and a rejection nobody holds.
+    await win.evaluate(() => {
+      setTimeout(() => {
+        throw new Error('diag-e2e-thrown')
+      }, 0)
+      void Promise.reject(new Error('diag-e2e-rejected'))
+    })
+    const thrown = await diagHas((l) => l.k === 'page-error' && /diag-e2e-thrown/.test(l.msg ?? ''))
+    ok(!!thrown && /diag-e2e-thrown/.test(thrown.stack ?? ''), 'a thrown error is a page-error, with its stack')
+    ok(!!(await diagHas((l) => l.k === 'page-rejection' && /diag-e2e-rejected/.test(l.msg ?? ''))), 'a rejected promise is a page-rejection')
+
+    // THE PAGE: the folder, Mark, Detailed logging.
+    const folderRow = await gotoPref(win, 'diag-folder')
+    ok(!!(await diagHas((l) => l.k === 'crumb' && l.a === 'settings-page' && l.page === 'diagnostics')), 'opening the page is a crumb')
+    const shownDir = await until(async () => ((await folderRow.textContent()) ?? '').includes(DIAG_DIR), 5000, 100)
+    ok(!!shownDir, `Log files shows the folder the log is in (${await folderRow.textContent()})`)
+    await folderRow.locator('button').click()
+    const opened = await until(
+      () => app.evaluate(() => globalThis.__e2eOpenedPaths ?? []).then((x) => x.some((p) => String(p).toLowerCase() === DIAG_DIR.toLowerCase()) || false),
+      4000,
+      100
+    )
+    ok(!!opened, 'Open folder opens that folder (recorded under --e2e)')
+    const markAt = Date.now()
+    await win.locator('[data-diag-mark]').click()
+    ok(!!(await until(async () => await win.locator('[data-diag-mark] span').last().isVisible(), 2000, 50)), 'Mark says Marked')
+    const mark = await diagHas((l) => l.k === 'mark')
+    ok(!!mark && mark.src === 'page' && Math.abs(Date.parse(mark.t) - markAt) < 3000, `and stamps the moment in the log (${mark?.t})`)
+    const sw = win.locator('[data-pref="diag-verbose"] [role="switch"]')
+    ok((await sw.getAttribute('aria-checked')) === 'false', 'Detailed logging is off by default')
+    await sw.click()
+    ok(!!(await diagHas((l) => l.k === 'verbose' && l.on === true)), 'switching it on is a line')
+    // The log's own diag: channels are never timed, so an app call.
+    await win.evaluate(() => window.prism.appVersion())
+    ok(!!(await diagHas((l) => l.k === 'ipc' && l.ch && !l.ch.startsWith('diag:'))), 'and every call is logged from then on')
+    await quitForLog(app)
+    app = null
+    ok(readDiag().at(-1)?.k === 'quit', `a quit is the session's last line (${readDiag().at(-1)?.k})`)
+    await sleep(900) // let the single-instance lock go
+
+    // KEPT ACROSS A RELAUNCH: main reads it from <userData>\diag.json.
+    ;({ app, win } = await launch(join(fixtures, 'README.md')))
+    const second = await diagHas((l, i, all) => l.k === 'session' && all.slice(0, i).some((x) => x.k === 'session'))
+    ok(!!second && second.verbose === true, `the next session starts detailed (${second?.verbose})`)
+    await gotoPref(win, 'diag-verbose')
+    ok(
+      !!(await until(async () => (await win.locator('[data-pref="diag-verbose"] [role="switch"]').getAttribute('aria-checked')) === 'true', 5000, 100)),
+      'and the switch says so'
+    )
+    // Off again through the switch, the way the owner would.
+    await win.locator('[data-pref="diag-verbose"] [role="switch"]').click()
+    ok(!!(await diagHas((l) => l.k === 'verbose' && l.on === false)), 'and switching it off is a line too')
+    ok(readDiag().every((l) => !l.bad), 'every line in the file is one JSON object')
+  } finally {
+    await app?.close().catch(() => {})
+    await sleep(600)
+    // Whatever happened above, the scenarios after this one start quiet.
+    rmSync(join(PROFILE, 'diag.json'), { force: true })
+  }
+}
+
+/**
+ * THE EXPLORER ON THE TIMELINE (#322): a folder opened by a double click is an
+ * `open-folder` crumb saying where, why (`navigate`), how long and how many
+ * rows; a column header pressed is a `sort` crumb naming the column and the
+ * direction. These two are what a stall in the Explorer is read against.
+ */
+async function explorerDiagScenario(fixtures) {
+  console.log('explorer diagnostics')
+  const dir = join(fixtures, 'diag-folder')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'inner'), { recursive: true })
+  for (let i = 0; i < 6; i++) writeFileSync(join(dir, `file-${i}.txt`), 'x'.repeat(i + 1))
+  rmSync(DIAG_DIR, { recursive: true, force: true })
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  let app
+  try {
+    const started = await launch(join(fixtures, 'README.md'))
+    app = started.app
+    const win = started.win
+    EXTRA_ENV = {}
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    const row = win.locator('[data-testid="browse-list"] [data-browse-path$="diag-folder"]')
+    await row.waitFor({ timeout: 10000 })
+    const target = await row.getAttribute('data-browse-path')
+    await row.dblclick()
+    ok(
+      await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 6, 10000),
+      'the folder opens'
+    )
+    const open = await diagHas((l) => l.k === 'crumb' && l.a === 'open-folder' && String(l.path ?? '').toLowerCase() === String(target).toLowerCase() && l.reason === 'navigate')
+    ok(!!open, `opening it is an open-folder crumb, reason navigate (${JSON.stringify(open)})`)
+    ok(!!open && typeof open.ms === 'number' && open.ms >= 0, `with how long the read took (${open?.ms} ms)`)
+    ok(!!open && open.entries === 7, `and how many rows it has (${open?.entries}, 6 files and a folder)`)
+    ok(!!open && typeof open.cached === 'boolean' && !open.unreadable, `and whether a cache painted first (${open?.cached})`)
+    const sortedBefore = readDiag().filter((l) => l.k === 'crumb' && l.a === 'sort').length
+    await win.locator('.browse-list-area .browse-columns .browse-column-name').click()
+    const sort = await diagHas((l, i, all) => l.k === 'crumb' && l.a === 'sort' && all.slice(0, i + 1).filter((x) => x.k === 'crumb' && x.a === 'sort').length > sortedBefore)
+    ok(!!sort && sort.key === 'name' && (sort.direction === 'asc' || sort.direction === 'desc'), `pressing the Name header is a sort crumb (${JSON.stringify(sort && { key: sort.key, direction: sort.direction })})`)
+  } finally {
+    EXTRA_ENV = {}
+    await app?.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/* ----- the Stalls table (#322) ----- */
+
+/**
+ * EVERY RUN SAYS WHAT STALLED (#322; spec, "the e2e as a stall detector"):
+ * each scenario starts on an empty log folder and its diagnostics log is read
+ * after it, and every line of 1 s or more and every error is listed in a table
+ * at the end. A REPORT, NOT A GATE: the exit code is the checks' alone, since
+ * a slow line on a busy machine is a lead, not a failure. diagLog's own lines
+ * are made on purpose and say so. Only the shared profile is read; a scenario
+ * on a profile of its own (launchProbed's, Win+E windows) is not in it.
+ */
+const stalls = []
+const DIAG_ERROR_KINDS = new Set(['page-error', 'page-rejection', 'main-error', 'main-rejection', 'ipc-error', 'gone', 'logger-error'])
+function stallDetail(l) {
+  const cut = (v) => String(v ?? '').replace(/\s+/g, ' ').slice(0, 70)
+  if (l.k === 'page-stall') {
+    const top = Array.isArray(l.scripts) ? l.scripts[0] : null
+    return cut(top ? [top.fn, top.src, top.invoker].filter(Boolean).join(' ') : `blocking ${l.blocking ?? '?'}`)
+  }
+  if (l.k === 'page-stack') return cut(String(l.stack ?? '').split('\n').find((x) => /^\s*at /.test(x))?.trim())
+  if (l.k === 'main-lag') return cut((Array.isArray(l.inflight) ? l.inflight : []).map((c) => `${c.ch} ${c.ms}${c.done ? ' done' : ''}`).join(', ') || 'nothing in flight')
+  if (l.k === 'ipc-slow' || l.k === 'ipc-error') return cut(`${l.ch}${l.err ? ` ${l.err}` : ''}`)
+  if (l.k === 'gone') return cut(`${l.type} ${l.reason} ${l.exitCode}`)
+  if (l.k === 'crumb') return cut(`${l.a} ${l.path ?? l.reason ?? ''}`)
+  if (l.k === 'sort-slow') return cut(`${l.entries} rows, ${l.trigger}`)
+  if (l.k === 'guard-slow') return cut(`${l.fn} ${l.paths} paths`)
+  return cut(l.msg ?? l.err ?? l.path ?? '')
+}
+function collectStalls(scenario) {
+  let files
+  try {
+    files = readdirSync(DIAG_DIR).filter((f) => f.startsWith('diag.jsonl'))
+  } catch {
+    return
+  }
+  for (const f of files) {
+    let text
+    try {
+      text = readFileSync(join(DIAG_DIR, f), 'utf8')
+    } catch {
+      continue
+    }
+    for (const raw of text.split('\n')) {
+      if (!raw) continue
+      let l
+      try {
+        l = JSON.parse(raw)
+      } catch {
+        continue
+      }
+      const err = DIAG_ERROR_KINDS.has(l.k)
+      if (!err && !(typeof l.ms === 'number' && l.ms >= 1000)) continue
+      const made = scenario === 'diagLog' && (['page-stall', 'page-stack', 'page-error', 'page-rejection'].includes(l.k) || l.ch === 'e2e:slow-ipc')
+      stalls.push({ scenario, kind: l.k === 'crumb' ? `crumb ${l.a}` : l.k, ms: typeof l.ms === 'number' ? l.ms : null, detail: stallDetail(l), expected: made })
+    }
+  }
+}
+
 async function run(fn, gap = 900) {
   const name = fn.name.replace(/Scenario$/, '')
   if (!chosen(name)) return
   const before = failures
   const started = Date.now()
+  // Each scenario's log is its own (#322): read after it, for the Stalls table.
+  rmSync(DIAG_DIR, { recursive: true, force: true })
   try {
     await fn(fixtures)
   } catch (e) {
@@ -15703,6 +15977,7 @@ async function run(fn, gap = 900) {
   }
   const left = reapStrays()
   if (left) console.log(`  (reaped ${left} stray process(es) from ${name})`)
+  collectStalls(name)
   results.push({ name, failed: failures > before, ms: Date.now() - started })
   await sleep(gap) // let the single-instance lock go
 }
@@ -15747,6 +16022,7 @@ await run(themeMigrationScenario)
 await run(onboardingThemeScenario)
 await run(themeLooksScenario)
 await run(settingsSearchScenario)
+await run(diagLogScenario)
 await run(dictationScenario)
 await run(dictationPageScenario)
 await run(pinRecentScenario)
@@ -15790,6 +16066,7 @@ await run(sidebarPlacesScenario)
 await run(sidebarGroundScenario)
 await run(rightClickSelectScenario)
 await run(columnHeadersScenario)
+await run(explorerDiagScenario)
 await run(panelsAlignScenario)
 await run(explorerSideScenario)
 await run(downloadsDateScenario)
@@ -15830,6 +16107,16 @@ if (only.length && !results.length) {
 const width = Math.max(...results.map((r) => r.name.length), 8)
 for (const r of results)
   console.log(`  ${r.failed ? 'FAIL' : 'ok  '}  ${r.name.padEnd(width)}  ${(r.ms / 1000).toFixed(1)}s`)
+
+console.log("\nStalls (lines of 1 s or more and errors, from each scenario's diagnostics log; a report, not a gate)")
+if (!stalls.length) console.log('  none')
+else {
+  const sw = Math.max(...stalls.map((r) => r.scenario.length), 8) + 2
+  const kw = Math.max(...stalls.map((r) => r.kind.length), 4) + 2
+  console.log(`  ${'scenario'.padEnd(sw)}${'kind'.padEnd(kw)}${'ms'.padStart(7)}  detail`)
+  for (const r of stalls)
+    console.log(`  ${r.scenario.padEnd(sw)}${r.kind.padEnd(kw)}${(r.ms === null ? '-' : String(r.ms)).padStart(7)}  ${r.expected ? '(expected) ' : ''}${r.detail}`)
+}
 
 console.log(failures ? `\n${failures} failure(s)` : '\nall e2e checks passed')
 process.exit(failures ? 1 : 0)
