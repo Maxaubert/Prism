@@ -8,6 +8,7 @@ import { tabsOf, useStyle } from '../lib/theme'
 import { pinnedRoots, plusMenuList, recentLabels, recentRoots, togglePin } from 'prism-term-core/renderer/lib/recentRoots'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 import { ContextMenu } from './ContextMenu'
+import { TabKindIcon } from './TabKindIcon'
 import { useTabWidth } from '../lib/tabWidthPrefs'
 
 /**
@@ -454,7 +455,17 @@ export function TabStrip({
                 either, which is why the slot itself goes with the icon; the
                 widths only settle differently, and only when the setting is
                 deliberately changed. */}
-            {isExplorerTab(t) ? <FolderGlyph /> : indicator === 'full' && (
+            {/* EVERY TAB SAYS WHAT IT HOLDS (#308; owner, 2026-10-06: "we
+                should have some default icons per type of page explorer,
+                project and settings"; 2026-10-07, of the mockup: "A3 and C2").
+                A folder, code brackets or a gear in the tab's own ink, solid
+                on the tab you are on and lines on the rest. It replaced the
+                small folder in the folder colour that only Explorer tabs had. */}
+            <TabKindIcon
+              kind={t.kind === 'settings' ? 'settings' : isExplorerTab(t) ? 'explorer' : 'project'}
+              solid={on}
+            />
+            {!isExplorerTab(t) && t.kind !== 'settings' && indicator === 'full' && (
             <span className="grid h-[13px] w-[13px] shrink-0 place-items-center" aria-hidden={!tint}>
               {tint && (
                 <svg
