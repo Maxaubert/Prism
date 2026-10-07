@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { contrastOf, hintOn, isNearBlack, nearBlackField } from './fieldColours'
+import { contrastOf, controlFieldOn, hintOn, isNearBlack, nearBlackField } from './fieldColours'
 import { STYLES, variablesFor } from './theme'
 
 const byId = (id: string) => STYLES.find((s) => s.id === id)!
@@ -38,15 +38,34 @@ describe('the toolbar fields (#267)', () => {
     expect(contrastOf('#707174', '#e7e7e8')).toBeLessThan(4.5)
   })
 
-  it('Void wears the dark field; Paper keeps the fill it had', () => {
+  it('Void wears the dark field; Paper the control step; both off the row (#306)', () => {
     const v = variablesFor(byId('new-void'))
-    expect(v['--p-field']).toBe('#060606')
-    expect(contrastOf(v['--p-field-edge'], '#000000')).toBeGreaterThanOrEqual(1.6)
-    expect(contrastOf(v['--p-field-edge'], '#000000')).toBeLessThan(1.8)
+    const vRow = v['--p-side-flat']
+    expect(vRow).toBe('#000000')
+    expect(v['--p-field']).toBe(nearBlackField('#000000', '#e8eaf0', vRow)!.fill)
+    expect(contrastOf(v['--p-field-edge'], vRow)).toBeGreaterThanOrEqual(1.6)
+    expect(contrastOf(v['--p-field-edge'], vRow)).toBeLessThan(1.8)
     const p = variablesFor(byId('paper'))
-    expect(p['--p-field']).toBe(p['--p-control'])
-    expect(p['--p-field']).toBe('#e7e7e8')
+    expect(p['--p-field']).toBe(controlFieldOn(p['--p-side-flat'], '#1b1d21', true))
     expect(p['--p-field-edge']).toBe(p['--p-divider'])
+  })
+
+  it('a near-black style is judged by its page, its field coloured off the row', () => {
+    // Aurora's page is near-black, its sidebar (#121419) is not: it keeps
+    // the quiet field, stepped off the sidebar.
+    const f = nearBlackField('#0b0d12', '#e8eaf0', '#121419')!
+    expect(f).not.toBeNull()
+    expect(contrastOf(f.fill, '#121419')).toBeGreaterThan(1.02)
+    expect(contrastOf(f.edge, '#121419')).toBeGreaterThanOrEqual(1.6)
+  })
+
+  it('every shipped style: the address field stands off the row it sits on (#306)', () => {
+    // MEASURED before: 1.01:1 on every dark style, the fill a step off the
+    // page and the row a step off it the other way.
+    for (const s of STYLES) {
+      const v = variablesFor(s, true)
+      expect(contrastOf(v['--p-field'], v['--p-side-flat']), s.id).toBeGreaterThan(1.03)
+    }
   })
 
   it('every shipped style: the field text and hint read on the field', () => {
