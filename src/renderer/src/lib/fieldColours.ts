@@ -78,14 +78,27 @@ export interface FieldColours {
 /**
  * The field's colours on a near-black `ground` (both flat hex), or null where
  * the style's own control fill and edge stay in force.
+ *
+ * `row` is the ground the field actually SITS on, when that is not the page's
+ * (#306: the address row wears the sidebar colour, a step off the page). The
+ * style is judged near-black by its page, so a black style whose sidebar is
+ * lifted keeps its quiet field; the colours step off the row, or a fill one
+ * shade off the page vanished into a sidebar one shade off it the other way
+ * (MEASURED: 1.01:1 on Void and Aurora).
  */
-export function nearBlackField(ground: string, text: string): FieldColours | null {
+export function nearBlackField(ground: string, text: string, row: string = ground): FieldColours | null {
   if (!isNearBlack(ground)) return null
   return {
-    fill: mixHex(ground, text, FILL_STEP),
-    edge: lineAt(ground, text, EDGE),
-    edgeHover: lineAt(ground, text, EDGE_HOVER)
+    fill: mixHex(row, text, FILL_STEP),
+    edge: lineAt(row, text, EDGE),
+    edgeHover: lineAt(row, text, EDGE_HOVER)
   }
+}
+
+/** The field's fill anywhere else: the control step (3.5% towards the text on
+ *  dark, 9% on light), taken from the ground the field sits on. */
+export function controlFieldOn(row: string, text: string, light: boolean): string {
+  return mixHex(row, text, light ? 0.09 : 0.035)
 }
 
 /** A hint (the search's placeholder) held to 4.5:1 on the field it sits in:
