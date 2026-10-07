@@ -54,6 +54,7 @@ import {
   extendDesktopDirectories,
   grantDesktopDirectory,
   insideDesktop,
+  insideDesktopAll,
   releaseDesktop,
   validDesktopRoot
 } from './desktopAccess'
@@ -100,6 +101,7 @@ import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnos
 import { withStackPolicy } from 'prism-term-core/main/diagIpc'
 import { diagMain } from 'prism-term-core/main/diagLog'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
+import { mainCrumb } from './diagCrumb'
 import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, ffmpegDirs, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
@@ -1481,6 +1483,10 @@ const windowBudget = crashBudget()
  *  schema in Prism Terminal's docs/diagnostics.md). Started once the
  *  single-instance lock is won; null in a launch that only hands its file over. */
 let diag: Diagnostics | null = null
+/** A watcher set-up this slow is said at the quiet level (#322). */
+const SLOW_SETUP_MS = 50
+/** A folder size scan this long is said at the quiet level (#322). */
+const SLOW_SCAN_MS = 500
 const crashLogFile = (): string => join(app.getPath('userData'), 'window-crashes.log')
 function logWindow(
   event: string,
@@ -2603,7 +2609,7 @@ if (!app.requestSingleInstanceLock()) {
     // removals arrive explicitly below, and a snapshot cannot remove what it
     // never knew about.
     const warmFolderSizes = (paths: string[]): void => {
-      void folderSizes.prefetchIndexed(paths.filter(insideDesktop)).catch(() => {})
+      void folderSizes.prefetchIndexed(insideDesktopAll(paths)).catch(() => {})
     }
     // NAMES FIRST (#271): the reply is the folder's names, and the sizes and
     // dates follow as `browse:details`. The indexer warm-up and the folder
@@ -2670,9 +2676,18 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on('browse:suggest-cancel', (_e, tabId: string, requestId: string) => {
       if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId), requestId)
     })
-    ipcMain.handle('browse:watch', (_e, tabId: string, path: string | null) =>
-      browseWatch(tabId, path, folderChanged)
-    )
+    ipcMain.handle('browse:watch', (_e, tabId: string, path: string | null) => {
+      // The watcher's set-up is timed (#322): it runs in main's thread, and a
+      // network folder can make it slow. One per folder shown and per
+      // refresh, so a quick one is Detailed logging's only.
+      const t0 = performance.now()
+      const ok = browseWatch(tabId, path, folderChanged)
+      if (path !== null) {
+        const ms = Math.round(performance.now() - t0)
+        mainCrumb('watch', { path, ms, ok }, { often: ms < SLOW_SETUP_MS })
+      }
+      return ok
+    })
     ipcMain.handle('browse:locations', () => browseLocations((key) => app.getPath(key)))
     ipcMain.handle('browse:drives', async (_e, paths: unknown) =>
       E2E ? withUsedShare(await driveUsage(paths), process.env.PRISM_E2E_DRIVE_USED) : driveUsage(paths)
@@ -2681,11 +2696,11 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('system:week-start', () => weekStart())
     ipcMain.handle('folder:sizes-cached', async (_event, paths: unknown) => {
       if (!Array.isArray(paths) || paths.length > 10000) return {}
-      const authorized = paths.filter(
-        (path): path is string => typeof path === 'string' && insideDesktop(path)
-      )
+      // One timed guard call per list (#322): this is where suspect 1 runs.
+      const authorized = insideDesktopAll(paths)
       const cached = await folderSizes.readCached(authorized)
-      return Object.fromEntries(Object.entries(cached).filter(([path]) => insideDesktop(path)))
+      const still = new Set(insideDesktopAll(Object.keys(cached)))
+      return Object.fromEntries(Object.entries(cached).filter(([path]) => still.has(path)))
     })
     ipcMain.handle('folder:sizes-refresh', async (_event, path: unknown) => {
       if (typeof path !== 'string' || !insideDesktop(path)) return
@@ -2717,6 +2732,7 @@ if (!app.requestSingleInstanceLock()) {
       if (!requests.has(requestId) && requests.size >= 64) return null
       const controller = new AbortController()
       requests.set(requestId, controller)
+      const t0 = performance.now()
       try {
         const result = await folderSizes.get(path, controller.signal, (result) => {
           if (!controller.signal.aborted && !event.sender.isDestroyed() && insideDesktop(path))
@@ -2725,6 +2741,15 @@ if (!app.requestSingleInstanceLock()) {
         return insideDesktop(path) && !controller.signal.aborted ? result : null
       } finally {
         if (requests.get(requestId) === controller) requests.delete(requestId)
+        // A size scan finished (#322). Every visible folder row asks, two at a
+        // time, and most answer from the cache at once, so only a real scan
+        // (half a second or more) is said at the quiet level.
+        const ms = Math.round(performance.now() - t0)
+        mainCrumb(
+          'folder-size',
+          { path, ms, ...(controller.signal.aborted ? { cancelled: true } : {}) },
+          { often: ms < SLOW_SCAN_MS }
+        )
       }
     })
     ipcMain.on('folder:size-cancel', (event, requestId: string) => {
@@ -3536,7 +3561,25 @@ if (!app.requestSingleInstanceLock()) {
      * extract to temp so a member can be VIEWED or put on the clipboard open
      * none and stay silent, as they always were.
      */
+    // When each job began, for its end's `ms` in the diagnostics log.
+    const jobStarted = new Map<string, number>()
     const extractJobs = new ExtractJobs((e) => {
+      // THE ARCHIVE JOB ON THE TIMELINE (#322): its start and its end, from
+      // the one channel every extraction talks to the window through.
+      if (e.type === 'start') {
+        jobStarted.set(e.id, performance.now())
+        mainCrumb('archive-job', { phase: 'start', id: e.id, archive: e.archive, dest: e.dest })
+      } else if (e.type === 'end') {
+        const t0 = jobStarted.get(e.id)
+        jobStarted.delete(e.id)
+        mainCrumb('archive-job', {
+          phase: 'end',
+          id: e.id,
+          result: e.result,
+          ...(e.reason ? { reason: e.reason } : {}),
+          ...(t0 !== undefined ? { ms: Math.round(performance.now() - t0) } : {})
+        })
+      }
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('extract:event', e)
     })
     ipcMain.handle('extract:cancel', (_e, id: string) =>

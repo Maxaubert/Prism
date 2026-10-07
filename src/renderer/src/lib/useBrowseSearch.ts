@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { BrowseSearchResult, BrowseSort } from '@shared/browse'
+import { crumb } from 'prism-term-core/renderer/lib/diag'
 import { mergeSearchWindows, searchWindowOffset } from './searchWindows'
 
 const emptyResult = (path: string): BrowseSearchResult => ({
@@ -62,6 +63,13 @@ export function useBrowseSearch(
     let refreshes = 0
     let timer: ReturnType<typeof setTimeout>
     const requestId = crypto.randomUUID()
+    // THE SEARCH ON THE TIMELINE (#322): its start, its end with the time and
+    // the hits, or its cancel. Only the search itself: a page of rows asked
+    // for while scrolling (offset) and Everything's settling re-asks are the
+    // same search, and are not said again.
+    const said = offset === 0
+    let t0 = 0
+    let ended = false
     const deliver = (result: BrowseSearchResult, running: boolean): void => {
       if (result.window) {
         if ([...pages.values()].some((page) => page.window?.total !== result.window?.total))
@@ -98,6 +106,10 @@ export function useBrowseSearch(
         deliver(progress, true)
     })
     const run = () => {
+      if (said && !started) {
+        t0 = performance.now()
+        crumb('search-start', { path, query })
+      }
       started = true
       setAnswer((previous) =>
         previous?.key === key
@@ -112,6 +124,17 @@ export function useBrowseSearch(
         })
         .then((result) => {
           if (disposed || stopped) return
+          if (said && !ended) {
+            ended = true
+            crumb('search-end', {
+              path,
+              ms: Math.round(performance.now() - t0),
+              hits: result.window?.total ?? result.listing.folders.length + result.listing.files.length,
+              ...(result.truncated ? { truncated: true } : {}),
+              ...(result.cancelled ? { cancelled: true } : {}),
+              ...(result.source ? { source: result.source } : {})
+            })
+          }
           if (offset > 0 && !result.window && pages.size) {
             setAnswer((previous) =>
               previous?.key === key
@@ -140,6 +163,10 @@ export function useBrowseSearch(
             timer = setTimeout(run, ++refreshes === 1 ? 500 : 1500)
         })
         .catch(() => {
+          if (said && !ended && !disposed && !stopped) {
+            ended = true
+            crumb('search-end', { path, ms: Math.round(performance.now() - t0), failed: true })
+          }
           if (!disposed && !stopped)
             setAnswer((previous) => ({
               ...(previous?.key === key
@@ -153,7 +180,16 @@ export function useBrowseSearch(
     const cached = pages.get(offset)
     if (cached) deliver(cached, false)
     else timer = setTimeout(run, pages.size ? 16 : 50)
+    /** A search that was running and is not any more, said once. `replaced`
+     *  (a new query or folder took its place) happens per keystroke while
+     *  typing, so it is Detailed logging's only. */
+    const sayCancel = (why: 'user' | 'replaced'): void => {
+      if (!said || !started || ended) return
+      ended = true
+      crumb('search-cancel', { path, ms: Math.round(performance.now() - t0), why }, { often: why === 'replaced' })
+    }
     cancel.current = () => {
+      sayCancel('user')
       stopped = true
       clearTimeout(timer)
       if (started) window.prism.browseSearchCancel(tabId, requestId)
@@ -168,6 +204,7 @@ export function useBrowseSearch(
       }))
     }
     return () => {
+      sayCancel('replaced')
       disposed = true
       clearTimeout(timer)
       unsubscribe()

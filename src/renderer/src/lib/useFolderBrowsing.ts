@@ -31,6 +31,8 @@ import { intendToPlay } from './playState'
 import { useBrowseSearch } from './useBrowseSearch'
 import { createDirectoryRequests, directoryKey, visitedDirectories } from './visitedDirectories'
 import { usePendingHint, type ListPending } from './usePendingHint'
+import { crumb } from 'prism-term-core/renderer/lib/diag'
+import type { DirListing } from '@shared/types'
 
 const extOf = (name: string): string => /\.[^.]*$/.exec(name.toLowerCase())?.[0] ?? ''
 
@@ -54,6 +56,34 @@ export function arrivalSelection(
   markedSince: boolean
 ): Tab[] {
   return markedSince ? [...tabs] : setBrowseLocation(tabs, tabId, { selected: filePath })
+}
+
+/**
+ * WHY A FOLDER WAS READ, for the diagnostics log's `open-folder` crumb (#322).
+ * `navigate` is a folder asked for by name or click; the others come through
+ * the location effect: `back` / `forward` (history), `refresh` (the refresh
+ * key), `focus` (the window came back), `dir-changed` (the watcher), `retry`
+ * (a zip's password answered) and `arrival` (a tab switched to, or restored).
+ */
+export type OpenReason = 'navigate' | 'back' | 'forward' | 'refresh' | 'focus' | 'dir-changed' | 'retry' | 'arrival'
+
+/** One folder read, on the timeline: where, why, how long, how many rows,
+ *  and whether rows were already on screen from a cache while it read. */
+function openFolderCrumb(
+  path: string,
+  reason: OpenReason,
+  t0: number,
+  listing: DirListing | null | undefined,
+  cached: boolean
+): void {
+  crumb('open-folder', {
+    path,
+    reason,
+    ms: Math.round(performance.now() - t0),
+    entries: listing && !listing.unreadable ? listing.folders.length + listing.files.length : null,
+    cached,
+    ...(listing?.unreadable || !listing ? { unreadable: true } : {})
+  })
 }
 
 /** The listing cache on disk, kept in the shared snapshots when it has the
@@ -96,6 +126,13 @@ export function useFolderBrowsing(
   }, [])
   const [locations, setLocations] = useState<BrowseShortcut[]>([])
   const [revision, setRevision] = useState(0)
+  /** Why the location effect's next read happens (#322); taken by that read. */
+  const readReason = useRef<OpenReason | null>(null)
+  /** The refresh key the last effect read saw, so a new one says `refresh`. */
+  const readRefreshKey = useRef(refreshKey)
+  /** The folder `navigate` is reading: the location effect joins that same
+   *  read, and `navigate` says its crumb, so the effect does not say it twice. */
+  const navigated = useRef<string | null>(null)
   const serial = useRef(new Map<string, number>())
   // Quiet selects per tab (#263): an open that lands after one must not take
   // the selected path back, or the marks just made read as stale and go.
@@ -166,14 +203,18 @@ export function useFolderBrowsing(
   )
   useEffect(() => {
     if (!folder || !id || !path) return
-    const refresh = (): void => setRevision((value) => value + 1)
+    const refresh = (why: OpenReason): void => {
+      readReason.current = why
+      setRevision((value) => value + 1)
+    }
     const changed = window.prism.onDirChanged(({ dirs }) => {
-      if (dirs.some((dir) => dir.toLowerCase() === path.toLowerCase())) refresh()
+      if (dirs.some((dir) => dir.toLowerCase() === path.toLowerCase())) refresh('dir-changed')
     })
-    window.addEventListener('focus', refresh)
+    const onFocus = (): void => refresh('focus')
+    window.addEventListener('focus', onFocus)
     return () => {
       changed()
-      window.removeEventListener('focus', refresh)
+      window.removeEventListener('focus', onFocus)
       void window.prism.browseWatch(id, null)
     }
   }, [folder, id, path])
@@ -188,15 +229,25 @@ export function useFolderBrowsing(
       fresh.revision === revision &&
       fresh.request === serial.current.get(id)
     ) {
+      navigated.current = null
       void window.prism.browseWatch(id, path)
       return
     }
     let cancelled = false
     const request = serial.current.get(id)
+    const reason: OpenReason =
+      readRefreshKey.current !== refreshKey ? 'refresh' : (readReason.current ?? 'arrival')
+    readRefreshKey.current = refreshKey
+    readReason.current = null
+    const joined = navigated.current === directoryKey(path)
+    navigated.current = null
+    const t0 = performance.now()
+    const shown = !!visitedDirectories.get(path)
     void readDirectory
       .current(id, path, `${refreshKey}:${revision}`)
       .then((next) => {
         if (cancelled) return
+        if (!joined) openFolderCrumb(next?.path ?? path, reason, t0, next?.listing, shown)
         if (serial.current.get(id) === request) setWaitingFor(null)
         if (next && !next.listing.unreadable) {
           setResult({ ...visitedDirectories.remember(next), tabId: id })
@@ -215,7 +266,10 @@ export function useFolderBrowsing(
           setResult(null)
           const refused = next?.listing.archiveError
           if (refused && (refused.reason === 'password' || refused.reason === 'aes'))
-            askArchive(id, refused.container, () => setRevision((v) => v + 1))
+            askArchive(id, refused.container, () => {
+              readReason.current = 'retry'
+              setRevision((v) => v + 1)
+            })
           setError({
             tabId: id,
             message:
@@ -246,6 +300,8 @@ export function useFolderBrowsing(
       // A HIT PAINTS NOW, BEFORE THE READ (#271): this session's snapshot,
       // else the listing cache on disk (a synchronous look, tens of KB).
       const cached = visitedDirectories.get(target) ?? rememberCached(target)
+      const t0 = performance.now()
+      navigated.current = directoryKey(target)
       // Start the real read before committing a cached cursor. Its location
       // effect joins this same promise instead of scanning the folder twice.
       const reading = readDirectory
@@ -260,6 +316,9 @@ export function useFolderBrowsing(
       }
       if (cached) setState((s) => ({ ...s, tabs: navigateBrowse(s.tabs, tabId, cached.path) }))
       const next = await reading
+      // Said even when a later navigation overtook it: the read still ran,
+      // and a slow one is what the log is for.
+      openFolderCrumb(next?.path ?? target, 'navigate', t0, next?.listing, !!cached)
       if (serial.current.get(tabId) !== request) return
       // The cached cursor is already committed. A later watch/explicit refresh
       // owns its new contents; this earlier scan must not overwrite that result.
@@ -312,6 +371,7 @@ export function useFolderBrowsing(
           const { history, cursor } = active.browse
           const next = Math.max(0, Math.min(history.length - 1, cursor + Math.trunc(delta)))
           const target = history[next]?.path
+          if (next !== cursor) readReason.current = next < cursor ? 'back' : 'forward'
           const cached = visitedDirectories.get(target) ?? (target ? rememberCached(target) : null)
           if (cached) setResult({ ...cached, tabId: id })
           // Not held anywhere: the folder on screen stays, as a navigation's
@@ -332,6 +392,10 @@ export function useFolderBrowsing(
   /** Start, refine or clear the search: a place in the history (#281). */
   const searchFor = useCallback(
     (query: string) => {
+      // The filter on the timeline (#322): once per keystroke, so Detailed
+      // logging's only; the search it starts says `search-start` at the
+      // quiet level.
+      crumb('filter', { query }, { often: true })
       if (id) setState((s) => ({ ...s, tabs: searchBrowse(s.tabs, id, query) }))
     },
     [id, setState]
@@ -477,12 +541,14 @@ export function useFolderBrowsing(
       pauseTab(id)
     }
     setState((s) => ({ ...s, tabs: setBrowsePreview(s.tabs, id, preview) }))
+    crumb('preview', { on: preview })
     const file = listing?.files.find((f) => f.path === location?.selected)
     if (preview && file) void openFile(file, false, false)
   }, [active, id, setState, listing, location?.selected, openFile])
   const openSplit = useCallback(
     (file: ViewerFile | string) => {
       if (!active || !id || !isExplorerTab(active)) return
+      crumb('preview', { on: true, path: typeof file === 'string' ? file : file.path })
       setState((s) => ({
         ...s,
         tabs: setBrowsePreview(setBrowseSurface(s.tabs, id, 'folder'), id, true)
