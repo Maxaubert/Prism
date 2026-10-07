@@ -44,7 +44,7 @@ const PAGE_OF: Record<SettingsSectionId, AppPageId> = {
 export const ROW_ORDER = [
   'style-theme', 'see-through', 'theme-edits', 'c-bg', 'c-chrome', 'c-accent', 'c-selection', 'c-text', 'c-folder-icon',
   'c-font', 'tree-size', 'title-bar', 'tab-width', 'c-edges', 'c-corners',
-  'explorer-size', 'drive-style', 'newtab-mode', 'open-external',
+  'explorer-side', 'explorer-size', 'drive-style', 'newtab-mode', 'open-external',
   'remember-tabs', 'remember-folders', 'win-e-shortcut', 'explorer-verb', 'default-apps',
   'tree-side', 'newtab-show',
   'term-shell', 'term-font-family', 'term-font', 'term-theme', 'term-acrylic',
