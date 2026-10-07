@@ -493,10 +493,31 @@ body[data-internal-file-drag] .browse-path:focus-within {
    and the columns narrowed with its text; the header sits a few pixels taller
    than a row, in the same text size. Large puts back the Explorer as it was
    before #257, columns and all (below). */
+/* THE ROWS END WHERE THE COLUMNS DO (#320; owner, 2026-10-07: the box select
+   "should only be from empty spaces either under or beside the file row").
+   A press anywhere on a row drags it, so the list needs blank space beside
+   the rows for the rectangle, as File Explorer's Details view has: Name
+   grows only to --browse-name-max (no longer the rest of the width), a row
+   is as wide as its columns and no wider, and a gutter on the right is
+   always left blank, so even a narrow list has somewhere to start a sweep.
+   The header keeps the same grid and the same gutter, so every label stays
+   over its column; its LAST cell's box still runs on to the header's right
+   edge (`--browse-col-edge-end`, clipped by the header's viewport), the
+   2026-10-04 rule below: no strip of header a hover cannot fill. */
+.browse-list-area {
+  --browse-name-max: 440px;
+  --browse-path-max: 560px;
+  --browse-gutter: 32px;
+  --browse-col-edge-end: calc(var(--browse-row-pad, 8px) + var(--browse-gutter) + 100vw);
+}
+.browse-list-area[data-row-size='large'] {
+  --browse-name-max: 520px;
+  --browse-path-max: 640px;
+}
 .browse-columns,
 .browse-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 128px 76px 136px;
+  grid-template-columns: minmax(160px, var(--browse-name-max)) 128px 76px 136px;
   align-items: center;
   /* A variable, so the header's cells can reach half of it each way. */
   --browse-col-gap: 12px;
@@ -504,6 +525,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
   padding: 0 var(--browse-row-pad, 8px);
 }
 .browse-columns {
+  padding-right: calc(var(--browse-row-pad, 8px) + var(--browse-gutter));
   flex-shrink: 0;
   /* `explorerHeadHeight`: a row plus 6px, Large's 36px. */
   height: var(--browse-head-h, calc(var(--browse-row-h, 26px) + 6px));
@@ -522,7 +544,8 @@ body[data-internal-file-drag] .browse-path:focus-within {
    effect"). The header keeps the rows' grid, so every label stays over its
    column; each cell then reaches out by half the gap on both sides, and the
    first and last by the side padding, so the cells tile the header from edge
-   to edge and the fill covers all of a cell. The last cell is set again
+   to edge and the fill covers all of a cell. The last one runs on past the
+   end of the rows (#320) to the header's edge. The last cell is set again
    below wherever a narrow layout hides a column. */
 .browse-columns button {
   --browse-col-edge-l: calc(var(--browse-col-gap) / 2);
@@ -541,7 +564,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
   --browse-col-edge-l: var(--browse-row-pad, 8px);
 }
 .browse-columns button:last-child {
-  --browse-col-edge-r: var(--browse-row-pad, 8px);
+  --browse-col-edge-r: var(--browse-col-edge-end);
 }
 .folder-browser .browse-columns button:active {
   background: color-mix(in srgb, var(--p-text) 10%, transparent);
@@ -683,7 +706,9 @@ body[data-internal-file-drag] .browse-path:focus-within {
   background: var(--p-divider);
 }
 .browse-row {
-  width: 100%;
+  /* As wide as its columns, never into the gutter (#320, above). */
+  width: fit-content;
+  max-width: calc(100% - var(--browse-gutter));
   height: var(--browse-row-h, 26px);
   text-align: left;
   color: var(--p-text-soft);
@@ -811,11 +836,11 @@ body[data-internal-file-drag] .browse-path:focus-within {
   }
   .browse-columns,
   .browse-row {
-    grid-template-columns: minmax(120px, 1fr) 116px 72px;
+    grid-template-columns: minmax(120px, var(--browse-name-max)) 116px 72px;
   }
   /* Date modified is gone, so Size is the last cell and reaches the edge. */
   .browse-columns .browse-column-size {
-    --browse-col-edge-r: var(--browse-row-pad, 8px);
+    --browse-col-edge-r: var(--browse-col-edge-end);
   }
 }
 @container (max-width: 510px) {
@@ -824,7 +849,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
   }
   .browse-columns,
   .browse-row {
-    grid-template-columns: minmax(110px, 1fr) 72px;
+    grid-template-columns: minmax(110px, var(--browse-name-max)) 72px;
     --browse-col-gap: 10px;
   }
 }
@@ -834,10 +859,10 @@ body[data-internal-file-drag] .browse-path:focus-within {
   }
   .browse-columns,
   .browse-row {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, var(--browse-name-max));
   }
   .browse-columns .browse-column-name {
-    --browse-col-edge-r: var(--browse-row-pad, 8px);
+    --browse-col-edge-r: var(--browse-col-edge-end);
   }
 }
 @container (max-width: 690px) {
@@ -870,7 +895,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
 
 /* Search keeps the regular row height and dedicates the middle column to location. */
 .browse-list-area[data-searching] :is(.browse-columns, .browse-row) {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px;
+  grid-template-columns: minmax(0, var(--browse-name-max)) minmax(0, var(--browse-path-max)) 76px;
 }
 .browse-list-area[data-searching] :is(.browse-columns, .browse-row-space) {
   min-width: 470px;
@@ -891,7 +916,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
    15px names. The row, text, icon and padding come in through --browse-row-*;
    these are the parts a variable does not reach. */
 .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
-  grid-template-columns: minmax(160px, 1fr) 150px 90px 160px;
+  grid-template-columns: minmax(160px, var(--browse-name-max)) 150px 90px 160px;
   --browse-col-gap: 16px;
 }
 .browse-list-area[data-row-size='large'] .browse-columns {
@@ -907,22 +932,22 @@ body[data-internal-file-drag] .browse-path:focus-within {
 }
 @container (max-width: 720px) {
   .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
-    grid-template-columns: minmax(120px, 1fr) 130px 80px;
+    grid-template-columns: minmax(120px, var(--browse-name-max)) 130px 80px;
   }
 }
 @container (max-width: 510px) {
   .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
-    grid-template-columns: minmax(110px, 1fr) 80px;
+    grid-template-columns: minmax(110px, var(--browse-name-max)) 80px;
     --browse-col-gap: 10px;
   }
 }
 @container (max-width: 300px) {
   .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, var(--browse-name-max));
   }
 }
 .browse-list-area[data-row-size='large'][data-searching] :is(.browse-columns, .browse-row) {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 90px;
+  grid-template-columns: minmax(0, var(--browse-name-max)) minmax(0, var(--browse-path-max)) 90px;
 }
 /* NO LOADING SCREEN (#271). A folder that has not answered keeps the rows it
    had; past 120 ms they dim, so a slow read does not look like the old
