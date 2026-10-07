@@ -99,6 +99,16 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   browser paints no ground; its address row, list, preview slot and status paint `--p-bg`, the places
   panel (and `.browse-viewer-places`) `--p-side`, the Settings rail's and project tree's colour, one
   coat each. Every catalogue theme's panel differs from its ground. The `sidebarGround` e2e holds both.
+- **THE TOOLBAR'S BUTTONS ARE NEVER COLOURED; EVERY TAB WEARS AN ICON BY WHAT IT HOLDS** (#308;
+  owner, 2026-10-06: "i dont like the look of the buttons being colored ... search is more minor ...
+  the preview panel is almost always opened ... an icon that changes based on whether the panel is
+  opened or hidden ... default icons per type of page explorer, project and settings"; 2026-10-07, of
+  `research/prism/2026-10-06-new-themes/toolbar-options.html`: "A3 and C2"). The preview toggle
+  (`PreviewGlyph`) and the search button wear Back's grey and no fill in every state; the preview's
+  right column is SOLID while open, empty while hidden; `data-active` on search is a mark, not a
+  look. Every tab carries `TabKindIcon` (Explorer a folder, project code brackets, Settings a gear)
+  in the tab's own ink, SOLID on the tab you are on and lines on the rest; it replaced the
+  folder-coloured glyph only Explorer tabs had. The `toolbarIcons` e2e holds both.
 
 ## Scope
 

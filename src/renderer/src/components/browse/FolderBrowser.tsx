@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { formatBytes } from '../../lib/format'
-import { BrowseIcon } from './BrowseIcon'
+import { BrowseIcon, PreviewGlyph } from './BrowseIcon'
 import { BrowseList } from './BrowseList'
 import { BrowseSearchStatus } from './BrowseSearchStatus'
 import { BrowseSearchPopup } from './BrowseSearchPopup'
@@ -401,7 +401,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
               aria-pressed={props.previewEnabled}
               onClick={props.onPreviewToggle}
             >
-              <BrowseIcon name="preview" />
+              <PreviewGlyph open={props.previewEnabled} />
             </button>
             <button
               className="browse-icon-button browse-search-button"
@@ -409,8 +409,11 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
               aria-haspopup="dialog"
               title="Search (Ctrl+F)"
               data-testid="browse-search-button"
-              // Lit while the list shows a search, so the way back to it and
-              // to the query is where the search began.
+              // Marks that the list shows a search. A mark for tests and
+              // nothing else: the button wears no accent in any state (#308;
+              // owner, 2026-10-06: "search is more minor and i dont think it
+              // needs to be colored since you just see a search box when its
+              // clicked").
               data-active={!!props.query.trim() || undefined}
               onClick={openSearch}
             >

@@ -278,14 +278,11 @@
   border-radius: 3px;
 }
 /* SEARCH IS A BUTTON (#267): the field became a popup (search-popup.css).
-   Lit in the accent while the list is showing a search's results. */
-.browse-toolbar .browse-search-button[data-active] {
-  color: var(--p-accent-hi);
-}
-.browse-toolbar > .browse-icon-button[aria-pressed='true'] {
-  color: var(--p-accent-hi);
-  background-color: var(--p-hover);
-}
+   NEITHER IT NOR THE PREVIEW BUTTON IS EVER COLOURED (#308; owner,
+   2026-10-06: "i dont like the look of the buttons being colored"): both
+   wear the row's grey and hover and focus like Back, in every state. The
+   preview's state is in its drawing (PreviewGlyph), the search's in the
+   popup and the list. */
 .browse-places {
   grid-column: 1;
   grid-row: 2 / -1;

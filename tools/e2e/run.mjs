@@ -9865,6 +9865,224 @@ async function columnHeadersScenario(fixtures) {
  * preview toggle and the search button, in that order. Screenshots of the
  * toolbar on Void and on Paper go to .e2e/shots.
  */
+/**
+ * A PREVIEW BUTTON THAT SHOWS ITS STATE, A QUIET SEARCH, AN ICON ON EVERY TAB
+ * (#308; owner, 2026-10-07, of the mockup: "A3 and C2"). The preview toggle
+ * and the search button wear Back's grey and no fill in every state, the
+ * preview's drawing carrying its state (a solid right column while open); each
+ * tab shows what it holds (folder, code brackets, gear) in its own ink, solid
+ * on the tab you are on and lines on the rest. Fails on main, where the
+ * pressed preview button and a searching search button were the accent and
+ * only an Explorer tab had an icon, a folder in the folder colour.
+ */
+async function toolbarIconsScenario(fixtures) {
+  console.log('toolbar icons')
+  const dir = join(fixtures, 'tbicons')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['one.txt', 'two.txt', 'three.md']) writeFileSync(join(dir, n), `icons ${n}\n`)
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'one.txt'))
+  EXTRA_ENV = {}
+  let before
+  const current = () => win.evaluate(() => document.querySelector('.folder-browser nav.browse-path button[aria-current]')?.textContent ?? '')
+  const preview = win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Preview pane"]')
+  const search = win.locator('[data-testid="browse-search-button"]')
+  const popup = win.locator('[data-testid="browse-search-popup"]')
+  // Nothing hovered or focused: the pointer to the list's empty foot, the
+  // focus off the toolbar, so what is read is each button at rest.
+  const rest = async () => {
+    await win.mouse.move(5, 300)
+    await win.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
+    await sleep(250)
+  }
+  const buttons = () =>
+    win.evaluate(() => {
+      const tb = document.querySelector('.folder-browser [data-testid="browse-toolbar"]')
+      const read = (b) => {
+        if (!b) return null
+        const s = getComputedStyle(b)
+        const svg = b.querySelector('svg')
+        return { color: s.color, bg: s.backgroundColor, svg: svg ? getComputedStyle(svg).color : null }
+      }
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--p-accent-hi)'
+      document.body.append(probe)
+      const accent = getComputedStyle(probe).color
+      probe.remove()
+      const pv = tb.querySelector('button[aria-label="Preview pane"]')
+      const glyph = pv?.querySelector('[data-preview-glyph]')
+      return {
+        accent,
+        back: read(tb.querySelector('button[aria-label="Back"]')),
+        preview: read(pv),
+        pressed: pv?.getAttribute('aria-pressed') ?? null,
+        glyph: glyph?.getAttribute('data-preview-glyph') ?? null,
+        column: pv?.querySelectorAll('[data-preview-column]').length ?? -1,
+        search: read(tb.querySelector('[data-testid="browse-search-button"]')),
+        searching: tb.querySelector('[data-testid="browse-search-button"]')?.hasAttribute('data-active') ?? false
+      }
+    })
+  const sameAsBack = (l, b, what) => {
+    ok(l[b].color === l.back.color && l[b].bg === l.back.bg, `${what}: it wears Back's grey and ground (${l[b].color} / ${l[b].bg}; Back ${l.back.color} / ${l.back.bg})`)
+    ok(l[b].color !== l.accent && l[b].svg !== l.accent, `${what}: never the accent (${l[b].color}, accent ${l.accent})`)
+  }
+  const tabsLook = () =>
+    win.evaluate(() =>
+      [...document.querySelectorAll('[role="tablist"] [data-tab-role]')].map((el) => {
+        const icon = el.querySelector('[data-tab-icon]')
+        const label = el.querySelector('[role="tab"]')
+        const close = el.querySelector('[data-tab-close]')
+        const box = (n) => (n ? n.getBoundingClientRect() : null)
+        const ib = box(icon)
+        const lb = box(label)
+        const cb = box(close)
+        return {
+          role: el.getAttribute('data-tab-role'),
+          pinned: el.hasAttribute('data-pinned'),
+          active: label?.getAttribute('aria-selected') === 'true',
+          label: label?.textContent ?? '',
+          ink: getComputedStyle(el).color,
+          icons: el.querySelectorAll('[data-tab-icon]').length,
+          kind: icon?.getAttribute('data-tab-icon') ?? null,
+          fill: icon?.getAttribute('data-tab-icon-fill') ?? null,
+          iconInk: icon ? getComputedStyle(icon).color : null,
+          // Any colour drawn into the icon other than its ink (currentColor)
+          // or the mask's black and white is a colour of its own.
+          ownColour: icon
+            ? [...icon.querySelectorAll('path, rect')].some((p) => {
+                if (p.closest('mask')) return false
+                const f = p.getAttribute('fill')
+                const s = p.getAttribute('stroke')
+                return [f, s].some((v) => v && !['none', 'currentColor'].includes(v))
+              })
+            : false,
+          pin: el.querySelectorAll('[data-pin="on"]').length,
+          oldFolder: el.querySelectorAll('svg[fill="var(--p-tree-folder)"]').length,
+          // Laid out left to right without overlap: icon, label, close.
+          order: ib && lb ? ib.right <= lb.left + 0.5 && (!cb || lb.right <= cb.left + 0.5) : false,
+          inside: ib ? ib.left >= el.getBoundingClientRect().left && ib.width > 10 && ib.width <= 16 : false
+        }
+      })
+    )
+  const wantKind = { explorer: 'explorer', project: 'project', settings: 'settings' }
+  const checkTabs = (tabs, where) => {
+    ok(tabs.length >= 3, `${where}: an Explorer, a project and a Settings tab (${tabs.map((t) => t.role).join(', ')})`)
+    for (const t of tabs) {
+      const name = `${where}: ${t.role}${t.pinned ? ' (pinned)' : ''} "${t.label}"`
+      ok(t.icons === 1 && t.kind === wantKind[t.role], `${name} wears one ${wantKind[t.role]} icon (${t.icons}, ${t.kind})`)
+      ok(t.fill === (t.active ? 'solid' : 'outline'), `${name} is ${t.active ? 'solid, the tab you are on' : 'lines, a tab at rest'} (${t.fill})`)
+      ok(t.iconInk === t.ink && !t.ownColour, `${name}: the icon is the tab's own ink (${t.iconInk} on ${t.ink})`)
+      ok(t.oldFolder === 0, `${name}: the folder-coloured glyph is gone`)
+      ok(t.order && t.inside, `${name}: icon, name and close sit in a row without overlap`)
+      if (t.pinned) ok(t.pin === 1, `${name} keeps its pin`)
+    }
+    const active = tabs.filter((t) => t.active)
+    const restTab = tabs.find((t) => !t.active)
+    ok(active.length === 1 && !!restTab && active[0].ink !== restTab.ink, `${where}: the tab you are on is brighter than the rest (${active[0]?.ink} / ${restTab?.ink})`)
+  }
+  const shootTabs = (name) => win.locator('[role="tablist"]').first().screenshot({ path: join(SHOTS, `toolbar-icons-tabs-${name}.png`) })
+  const shootBar = (name) =>
+    win.locator('.folder-browser [data-testid="browse-toolbar"]').first().screenshot({ path: join(SHOTS, `toolbar-icons-${name}.png`) })
+  const pickTabWidth = async (name) => {
+    const seg = (await gotoPref(win, 'tab-width')).getByRole('button', { name, exact: true })
+    await seg.scrollIntoViewIfNeeded()
+    await seg.click()
+    await sleep(300)
+  }
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await current()) !== 'tbicons') await win.locator('[data-testid="browse-list"] [data-browse-path$="\\tbicons" i]').dblclick()
+    ok(await until(async () => (await current()) === 'tbicons', 10000), 'the Explorer shows the folder')
+
+    for (const style of ['new-void', 'paper']) {
+      const was = await switchStyle(win, style)
+      if (before === undefined) before = was
+      await sleep(500)
+      // BOTH STATES of the preview, each at rest.
+      if ((await preview.getAttribute('aria-pressed')) !== 'true') await preview.click()
+      await rest()
+      const open = await buttons()
+      ok(open.pressed === 'true' && open.glyph === 'open' && open.column === 1, `${style}: open, the pane's column is drawn solid (${open.pressed}, ${open.glyph}, ${open.column})`)
+      sameAsBack(open, 'preview', `${style}: the preview button, pane open`)
+      sameAsBack(open, 'search', `${style}: the search button at rest`)
+      await shootBar(`${style}-open`)
+      await preview.click()
+      await rest()
+      const hidden = await buttons()
+      ok(hidden.pressed === 'false' && hidden.glyph === 'hidden' && hidden.column === 0, `${style}: hidden, the column is empty (${hidden.pressed}, ${hidden.glyph}, ${hidden.column})`)
+      sameAsBack(hidden, 'preview', `${style}: the preview button, pane hidden`)
+      await shootBar(`${style}-hidden`)
+      await preview.click()
+      await rest()
+
+      // A hover is the row's grey fill, the same as Back's.
+      await win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Back"]').hover()
+      await sleep(200)
+      const backHover = (await buttons()).back
+      await preview.hover()
+      await sleep(200)
+      const pvHover = (await buttons()).preview
+      ok(pvHover.bg === backHover.bg && pvHover.bg !== open.back.bg, `${style}: a hover fills it as it fills Back (${pvHover.bg} / ${backHover.bg})`)
+
+      // SEARCH: the popup open, then a search shown in the list; never lit.
+      await search.click()
+      await popup.waitFor({ timeout: 5000 })
+      await win.mouse.move(5, 300)
+      await sleep(200)
+      const asking = await buttons()
+      ok(asking.search.color === asking.back.color && asking.search.color !== asking.accent, `${style}: the search button stays grey while its popup is up (${asking.search.color})`)
+      await popup.locator('input[role="combobox"]').fill('one')
+      await popup.locator('input[role="combobox"]').press('Control+Enter')
+      ok(await until(async () => (await popup.count()) === 0 && (await buttons()).searching, 15000), `${style}: a search is shown in the list`)
+      await rest()
+      const searching = await buttons()
+      sameAsBack(searching, 'search', `${style}: the search button while the list shows a search`)
+      await shootBar(`${style}-searching`)
+      await win.locator('[data-testid="browse-search-clear"]').click()
+      await until(async () => !(await buttons()).searching, 8000)
+    }
+
+    // THE TABS, on Void and on Paper, with the Explorer in front and then
+    // with Settings in front, in both widths.
+    await switchStyle(win, 'new-void')
+    await settingsPage(win, 'appearance')
+    await win.waitForSelector('[data-tab-role="settings"]', { timeout: 10000 })
+    for (const width of ['Dynamic', 'Fixed']) {
+      await pickTabWidth(width)
+      for (const style of ['new-void', 'paper']) {
+        await switchStyle(win, style)
+        await sleep(500)
+        await win.locator('[data-tab-role="settings"] [role="tab"]').click()
+        await win.mouse.move(5, 300)
+        await sleep(300)
+        checkTabs(await tabsLook(), `${style}, ${width}, Settings in front`)
+        await shootTabs(`${style}-${width.toLowerCase()}-settings`)
+        await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+        await win.mouse.move(5, 300)
+        await sleep(300)
+        checkTabs(await tabsLook(), `${style}, ${width}, Explorer in front`)
+        await shootTabs(`${style}-${width.toLowerCase()}-explorer`)
+        const project = win.locator('[data-tab-role="project"] [role="tab"]').first()
+        if (await project.count()) {
+          await project.click()
+          await win.mouse.move(5, 300)
+          await sleep(300)
+          checkTabs(await tabsLook(), `${style}, ${width}, a project in front`)
+          await shootTabs(`${style}-${width.toLowerCase()}-project`)
+        }
+      }
+      await switchStyle(win, 'new-void')
+    }
+    await pickTabWidth('Dynamic')
+  } finally {
+    if (before !== undefined) await switchStyle(win, before).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function addressFieldScenario(fixtures) {
   console.log('address field')
   const dir = join(fixtures, 'addrfield')
@@ -10369,7 +10587,7 @@ async function searchPopupScenario(fixtures) {
     ok(await until(async () => (await popup.count()) === 0, 5000), 'Show more closes the popup')
     const searched = () => win.locator('[data-testid="browse-list"] [data-browse-path]').count()
     ok(await until(async () => (await searched()) >= 5 && (await win.locator('[data-testid="browse-search-status"]').count()) === 1, 15000), `and the list shows every match (${await searched()})`)
-    ok((await win.locator('[data-testid="browse-search-button"]').getAttribute('data-active')) !== null, 'the search button is lit while it does')
+    ok((await win.locator('[data-testid="browse-search-button"]').getAttribute('data-active')) !== null, 'the search button is marked while it does (marked, never lit: #308)')
     await win.locator('[data-testid="browse-search-clear"]').click()
     ok(await until(async () => (await win.locator('[data-testid="browse-search-status"]').count()) === 0, 8000), 'Clear search goes back to the folder')
     await open()
@@ -15462,6 +15680,7 @@ await run(tabSwitchInstantScenario)
 await run(rememberFoldersScenario)
 await run(listScrollbarScenario)
 await run(addressFieldScenario)
+await run(toolbarIconsScenario)
 await run(explorerVerbsScenario)
 await run(searchPopupScenario)
 await run(searchNavScenario)
