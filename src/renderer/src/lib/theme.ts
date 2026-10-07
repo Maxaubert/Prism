@@ -14,7 +14,7 @@ import {
   withAlpha
 } from 'prism-term-core/renderer/lib/colour'
 import { accentAlphaOf, fillOf } from './accentAlpha'
-import { hintOn, nearBlackField } from './fieldColours'
+import { hintOn, isNearBlack, nearBlackField } from './fieldColours'
 import { THEME_STYLES } from './themes/catalogue'
 import { migrateThemeStorage, RETIRED_KEY } from './themes/migrate'
 import { RETIRED_MAP } from './themes/retired'
@@ -1094,9 +1094,17 @@ function mirrorMode(mode: Mode): void {
 
 function paint(style: Style, preview = false): void {
   const r = document.documentElement.style
-  for (const [k, v] of Object.entries(variablesFor(style))) r.setProperty(k, v)
+  const vars = variablesFor(style)
+  for (const [k, v] of Object.entries(vars)) r.setProperty(k, v)
 
   document.documentElement.dataset.mode = style.mode
+  // A sidebar that is black or near it (Void since #313) gets quieter raised
+  // surfaces: a step that reads as a soft lift on a grey panel is a glare on
+  // black (owner, 2026-10-07, of the drive tiles on Void: "too much of a
+  // contrast"). The CSS reads this; no colour is chosen here.
+  const side = vars['--p-side-flat']
+  if (side && isNearBlack(side)) document.documentElement.dataset.side = 'black'
+  else delete document.documentElement.dataset.side
   // A translucent style needs the window itself to be transparent, which only
   // the main process can arrange.
   const translucent = style.material === 'acrylic' || style.material === 'mica'
