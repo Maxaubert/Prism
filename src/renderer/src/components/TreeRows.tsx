@@ -496,6 +496,9 @@ function FolderRow({
   const pad = 4 + depth * t.size.indent
   // The cursor carries the accent wherever it goes, folders included.
   const onCursor = !!t.cursor && t.cursor.toLowerCase() === path.toLowerCase()
+  // Lit by the cursor only while the cursor marks (#330): after Ctrl+Up/Down,
+  // Escape or Ctrl+Space the marks alone light it, as on a file row.
+  const lit = (onCursor && t.cursorMarks !== false) || t.selected.has(path)
   // The right-clicked row wears the selection's tint while its menu is up
   // (#296; owner, 2026-10-06), File Explorer's look; it is not selected.
   const onMenuHl = !!t.menuPath && t.menuPath.toLowerCase() === path.toLowerCase()
@@ -576,7 +579,7 @@ function FolderRow({
         // the accent means selected, and a drop destination is not.
         t.dropTarget === path
           ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
-          : onCursor || t.selected.has(path)
+          : lit
             ? // The tint is in `style` (markedLook); the text keeps its colour.
               'text-[var(--p-text-soft)]'
             : onMenuHl
@@ -593,7 +596,7 @@ function FolderRow({
         opacity: t.cut.has(path.toLowerCase()) ? 0.45 : undefined,
         // Contiguous selected rows fuse: shared edges drop their rounding.
         // A drop target's grey wins over the tint, as its class does.
-        ...(t.dropTarget !== path && (onCursor || t.selected.has(path))
+        ...(t.dropTarget !== path && lit
           ? markedLook(t.selected.has(path) ? t.selJoin(path) : ALONE)
           : t.dropTarget !== path && onMenuHl
             ? markedLook(ALONE)
@@ -618,7 +621,7 @@ function FolderRow({
           ext={zip.ext}
           name={zip.name}
           color={iconColour('archive')}
-          bg={t.selected.has(path) || onCursor ? 'var(--p-sel-tint-side)' : undefined}
+          bg={lit ? 'var(--p-sel-tint-side)' : undefined}
         />
       ) : (
         <FolderIcon color="var(--p-tree-folder)" />

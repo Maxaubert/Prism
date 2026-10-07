@@ -39,7 +39,8 @@ import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
 import { clickSelect, emptySelection, rangeSelect, type Selection } from '../lib/selection'
-import { listKey, stepTo, typeJump, typedRun } from '../lib/listKeys'
+import { isJumpKey, listKey, stepTo, typeJump, typedRun } from '../lib/listKeys'
+import { nearerEscape } from '../lib/nearerEscape'
 import { clipboardText } from '../lib/clipboardText'
 import { nearestRow, onRowOwnPart, rowsInBand, sweepSelect } from '../lib/marquee'
 import { useSweep } from '../hooks/useSweep'
@@ -139,6 +140,16 @@ const SEARCH_HELP = [
   '-raw   leave these out'
 ].join('\n')
 
+/** Focus a tree row once it is drawn, for up to 40 frames, and only while
+ *  nothing else holds the keyboard (review of #330, after a rename). */
+function focusRowIn(box: HTMLElement | null, path: string, tries = 40): void {
+  const a = document.activeElement
+  if (a && a !== document.body) return
+  const el = box?.querySelector<HTMLElement>(`[data-row="${CSS.escape(path)}"]`)
+  if (el) el.focus({ preventScroll: true })
+  else if (tries > 0) requestAnimationFrame(() => focusRowIn(box, path, tries - 1))
+}
+
 export function Sidebar({
   open,
   sliding = false,
@@ -198,7 +209,9 @@ export function Sidebar({
   /** Bumped by App after a rename or delete, to re-read the folders on screen. */
   refreshKey: number
   onOpenFile: (path: string) => void
-  onRename: (path: string, name: string) => void
+  /** The new path once it landed (null when it did not), so the cursor and
+   *  the keyboard follow the row to its new name. */
+  onRename: (path: string, name: string) => Promise<string | null> | void
   onDelete: (path: string, name: string, isFolder: boolean) => void
   /** A multi-selection's delete: one question, then every path to the bin. */
   onDeleteMany: (paths: string[]) => void
@@ -685,13 +698,35 @@ export function Sidebar({
     [sel]
   )
 
+  /**
+   * AFTER A RENAME THE KEYBOARD STAYS ON THE ROW (review of #330). The field
+   * unmounts and the focus falls to <body>, and the cursor and the marks held
+   * the old path, which is gone: the next key reached no row. Ctrl+Shift+N
+   * always ends here, so the row it made, under its new name, takes the
+   * cursor and the focus once the tree has drawn it. Escape keeps
+   * the old row and gives it the focus back. Never from a focused field: a
+   * click elsewhere also ends a rename.
+   */
+  const focusRowSoon = useCallback((path: string): void => focusRowIn(panel.current, path), [])
   const submitRename = useCallback(
     (path: string, name: string) => {
       setEditing(null)
-      onRename(path, name)
+      void Promise.resolve(onRename(path, name)).then((to) => {
+        if (!to) return focusRowSoon(path)
+        // The marks are the refresh's to clear (a rename is one); the cursor
+        // lights the row under its new name.
+        const lower = path.toLowerCase()
+        setCursor((c) => (c && c.toLowerCase() === lower ? to : c))
+        focusRowSoon(to)
+      })
     },
-    [onRename]
+    [onRename, focusRowSoon]
   )
+  const cancelRename = useCallback((): void => {
+    const was = editing
+    setEditing(null)
+    if (was) requestAnimationFrame(() => focusRowSoon(was))
+  }, [editing, focusRowSoon])
 
   /* ---------- the keyboard cursor ---------- */
 
@@ -1029,6 +1064,36 @@ export function Sidebar({
     [load, onOpenFile, showRow]
   )
 
+  /**
+   * THE MARKS DECIDE WHAT A DELETE KEY BINS (review of #330), the Explorer
+   * list's rule. A row the cursor sits on but the marks do not light (Ctrl+
+   * Up/Down took the keyboard away from them, or Escape cleared them) is not
+   * what Delete, Ctrl+D or Shift+Delete take: they take the marks, or nothing
+   * when there are none. True when this answered the key. A lit cursor row
+   * keeps the old rule (the row, or the whole selection it is in).
+   */
+  const binMarks = useCallback(
+    (path: string): boolean => {
+    const lower = path.toLowerCase()
+    const items = [...selRef.current.items]
+    const marked = items.some((p) => p.toLowerCase() === lower)
+    const apart = !!apartAt && apartAt.toLowerCase() === lower
+    if (marked || !apart) return false
+    // Inside an archive the members are the archive menu's; nothing here.
+    if (items.some((p) => state.children[parentDir(p)]?.archive)) return true
+    if (items.length > 1) onDeleteMany(items)
+    else if (items.length === 1) {
+      const only = items[0]
+      const isFolder = paintRef.current.some(
+        (r) => r.kind === 'folder' && r.path.toLowerCase() === only.toLowerCase()
+      )
+      onDelete(only, only.split(/[\\/]/).filter(Boolean).pop() ?? only, isFolder)
+    }
+    return true
+    },
+    [apartAt, state.children, onDelete, onDeleteMany]
+  )
+
   /** Ctrl+C / Ctrl+X / Ctrl+V in the tree (2026-09-03, owner). Behind the same
    *  surface guard as Ctrl+A: the last press was in the panel, and nothing
    *  else - search box, rename field, editor, terminal - holds the keyboard,
@@ -1047,14 +1112,16 @@ export function Sidebar({
         a.dataset.row === undefined &&
         (a.matches('input,textarea,select,[contenteditable]:not([contenteditable="false"])') ||
           !!a.closest('.cm-editor,.xterm,[role="dialog"],[role="menu"]'))
-      if (e.key === 'Delete' && !e.ctrlKey && !e.shiftKey) {
+      if (e.key === 'Delete' && !e.ctrlKey) {
         // Delete on the cursor row from anywhere in the panel's reach. The
         // row button handles its own when it is focused; this is for when
-        // the viewer took the focus with it.
+        // the viewer took the focus with it. Shift+Delete is Delete (owner,
+        // #330: never permanent).
         if (!hasFocus.current || typing || a?.dataset.row !== undefined) return
         const cur = at
         if (!cur) return
         e.preventDefault()
+        if (binMarks(cur)) return
         const items = selRef.current.items
         if (items.size > 1 && items.has(cur)) return onDeleteMany([...items])
         const isFolder = paintRef.current.some(
@@ -1087,7 +1154,7 @@ export function Sidebar({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [at, root, copyMark, runPaste, onDelete, onDeleteMany])
+  }, [at, root, copyMark, runPaste, onDelete, onDeleteMany, binMarks])
 
   /**
    * Extract a whole archive from its TREE ROW.
@@ -1320,9 +1387,10 @@ export function Sidebar({
     if (!k) {
       // TYPE TO JUMP (owner: "add it like the Explorer's"): a letter is taken
       // only when it matches a row on screen; otherwise it still reaches the
-      // viewer (a film's k, j, l and m, a picture's f).
+      // viewer (a film's k, j, l and m, a picture's f). Letters only: a digit
+      // is the player's seek and . and , its frame step, and a jump OPENS.
       if (searching || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return false
-      if (e.key.length !== 1 || e.key === ' ') return false
+      if (!isJumpKey(e.key)) return false
       const run = typedRun(typedTree.current, e.key, performance.now())
       typedTree.current = run
       const i = typeJump(
@@ -1345,6 +1413,8 @@ export function Sidebar({
     }
     if (k === 'clear') {
       if (!sel.items.size) return false
+      // A peek, the PDF's find bar, a menu: Escape is theirs to close first.
+      if (e.key === 'Escape' && nearerEscape()) return false
       setSel(emptySelection)
       // Nothing lit, the cursor's row included: it keeps the focus only.
       setApartAt(at)
@@ -1405,6 +1475,7 @@ export function Sidebar({
     if (k === 'bin') {
       // Ctrl+D and Shift+Delete are Delete, to the Recycle Bin (owner: Shift+
       // Delete is not a permanent delete in Prism).
+      if (binMarks(cur.path)) return true
       const items = selRef.current.items
       if (items.size > 1 && items.has(cur.path)) onDeleteMany([...items])
       else onDelete(cur.path, cur.name, cur.isFolder)
@@ -1692,12 +1763,13 @@ export function Sidebar({
                   else setEditing(path)
                 },
                 onSubmitRename: submitRename,
-                onCancelRename: () => setEditing(null),
+                onCancelRename: cancelRename,
                 // Del on a row inside a multi-selection takes the whole
                 // selection; anywhere else it stays the single-row question.
                 onDelete: (path, name, isFolder) => {
                   const meta = memberMeta(path)
                   const many = sel.items.size > 1 && sel.items.has(path)
+                  if (!meta && binMarks(path)) return
                   if (meta && archive) archive.remove(many ? [...sel.items] : [path], meta)
                   else if (many) onDeleteMany([...sel.items])
                   else onDelete(path, name, isFolder)

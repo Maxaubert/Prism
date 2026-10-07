@@ -30,6 +30,7 @@ import type { ListPending } from '../../lib/usePendingHint'
 import { divideRows, type DateDivider } from '../../lib/dateGroups'
 import { nextSort } from '../../lib/downloadsView'
 import { listKey, stepTo, type ListKey } from '../../lib/listKeys'
+import { nearerEscape } from '../../lib/nearerEscape'
 
 const OVERSCAN = 12
 /** The common keys the list answers itself (#330). */
@@ -497,6 +498,9 @@ export function BrowseList(props: Props): JSX.Element {
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     const common = listKey(e)
     if (common) {
+      // Escape is a nearer closer's first (a peek, the PDF's find bar, a
+      // menu): those listen on the window, after this (review of #330).
+      if (common === 'clear' && e.key === 'Escape' && nearerEscape()) return
       if (LIST_OWN.has(common) && listOwnKey(common)) {
         // Claimed: the player's window-wide keys (Ctrl+Space is play, Shift+
         // Home a seek) yield to a key the list took.

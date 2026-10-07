@@ -3576,14 +3576,15 @@ export default function App(): JSX.Element {
           else if (file) void copyFilePaths([file.path], key === 'x')
           return
         }
-        if (explorerFileFocus && file && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+        if (explorerFileFocus && file && !e.ctrlKey && !e.altKey && !e.metaKey) {
           const entry = { path: file.path, name: file.name, isFolder: false, file }
-          if (e.key === 'F2') {
+          if (e.key === 'F2' && !e.shiftKey) {
             e.preventDefault()
             e.stopPropagation()
             setBrowseRename(entry)
             return
           }
+          // Shift+Delete is Delete, to the bin (owner, #330): never permanent.
           if (e.key === 'Delete') {
             e.preventDefault()
             e.stopPropagation()
@@ -3767,7 +3768,9 @@ export default function App(): JSX.Element {
         // from the sidebar behaves the same whatever kind of file it lands on.
         // (`typing` already covered the text editor's caret, above.)
         if (docFocused()) return
-        if (inLists && (e.ctrlKey || e.shiftKey)) return
+        // Alt too: Alt+Up is the tree's parent row, and walking the tree here
+        // first would open or play the row above on the way (review of #330).
+        if (inLists && (e.ctrlKey || e.shiftKey || e.altKey)) return
         // The tree gets first refusal: it walks folders as well as files, and
         // says no when it isn't there to walk.
         const dir = e.key === 'ArrowDown' ? 'down' : 'up'
@@ -4172,7 +4175,7 @@ export default function App(): JSX.Element {
             onOpenFile={openFromPeekableTree}
             // Renaming or binning the edited file (or a folder over it) would
             // silently drop the editor's unsaved text; those ask first too.
-            onRename={(p, name) => void runRename(p, name, 'ask')}
+            onRename={(p, name) => runRename(p, name, 'ask')}
             onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
             onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
             onDropInto={onBrowseDropInto}

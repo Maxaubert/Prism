@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { listKey, stepTo, typeJump, typedRun, type KeyLike } from './listKeys'
+import { isJumpKey, listKey, stepTo, typeJump, typedRun, type KeyLike } from './listKeys'
 import { rangeSelect } from './selection'
 
 const press = (key: string, mods: Partial<KeyLike> = {}): KeyLike => ({
@@ -126,5 +126,26 @@ describe('rangeSelect', () => {
     const sel = { anchor: 'gone', items: new Set<string>() }
     expect(rangeSelect(order, sel, 'c')).toEqual({ anchor: 'c', items: new Set(['c']) })
     expect(rangeSelect(order, { anchor: null, items: new Set() }, 'e').anchor).toBe('e')
+  })
+})
+
+describe('the physical key (review of #330)', () => {
+  it('answers a non-Latin layout by the key it sits on', () => {
+    expect(listKey(press('ф', { ...ctrl, code: 'KeyA' }))).toBe('select-all')
+    expect(listKey(press('в', { ...ctrl, code: 'KeyD' }))).toBe('bin')
+  })
+  it('gives a Latin layout no second binding (AZERTY)', () => {
+    // AZERTY: the key labelled Q sits where QWERTY's A is, and A where Q is.
+    expect(listKey(press('q', { ...ctrl, code: 'KeyA' }))).toBeNull()
+    expect(listKey(press('a', { ...ctrl, code: 'KeyQ' }))).toBe('select-all')
+  })
+})
+
+describe('isJumpKey', () => {
+  it('takes letters only, never the player keys', () => {
+    expect(isJumpKey('e')).toBe(true)
+    expect(isJumpKey('Æ')).toBe(true)
+    expect(isJumpKey('ø')).toBe(true)
+    for (const k of ['1', '0', '.', ',', '<', '>', '+', '-', ' ', 'Enter']) expect(isJumpKey(k)).toBe(false)
   })
 })

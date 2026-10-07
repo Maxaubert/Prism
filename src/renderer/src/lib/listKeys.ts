@@ -55,9 +55,11 @@ export interface KeyLike {
   metaKey: boolean
 }
 
-/** A letter chord by its PHYSICAL key too: a Russian layout's A is 'ф'. */
+/** A letter chord by its PHYSICAL key too, but only when the layout's own
+ *  key is not a Latin letter: a Russian layout's A is 'ф' and still selects
+ *  all, while AZERTY's Ctrl+Q (physical KeyA) stays Ctrl+Q (review of #330). */
 const letter = (e: KeyLike, l: string): boolean =>
-  e.key.toLowerCase() === l || e.code === `Key${l.toUpperCase()}`
+  e.key.toLowerCase() === l || (!/^[a-z]$/i.test(e.key) && e.code === `Key${l.toUpperCase()}`)
 
 const EDGE: Record<string, 'up' | 'down' | 'home' | 'end'> = {
   ArrowUp: 'up',
@@ -134,6 +136,11 @@ export function typeJump(names: readonly string[], from: number, typed: string):
   }
   return -1
 }
+
+/** Whether a plain key may jump the tree: a LETTER (the owner's word), never
+ *  a digit or punctuation, which are the player's seek and frame keys (a
+ *  numbered album would switch tracks on a seek; review of #330). */
+export const isJumpKey = (key: string): boolean => /^\p{L}$/u.test(key)
 
 /** The run a typed letter adds to: within 700 ms it extends, else it starts
  *  again (the Explorer's own window). */
