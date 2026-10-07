@@ -1,5 +1,6 @@
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { Switch } from 'prism-term-core/renderer/settings/fields'
 import { SettingRow } from 'prism-term-core/renderer/settings/layout/SettingRow'
 import { appOpt } from './appOptions'
 import { iconPath } from './icons'
@@ -11,8 +12,12 @@ import { iconPath } from './icons'
  * live state lives in the subtext, so a sighted user and a screen reader get
  * the same words), and a live region carries it only while there is one.
  *
- * The switch keeps the ACCENT when on, the one switch in Settings that does
- * (#202's existing exception): it hands a Windows shortcut to Prism.
+ * The switch is the core's, like every other (#318; owner, 2026-10-07:
+ * "toggles differ in look i like the teal with black not the green and
+ * white", then "it should depend on the theme"). It used to draw its own,
+ * the accent with a white knob (#202's exception), the one switch in
+ * Settings that did; the core's on switch now wears the style's accent with
+ * the ink chosen for it, so there is nothing left to be an exception for.
  */
 export function WinEShortcutRow(): JSX.Element {
   const [status, setStatus] = useState<WinEShortcutStatus>({
@@ -94,20 +99,12 @@ export function WinEShortcutRow(): JSX.Element {
           {said}
         </span>
       )}
-      <button
-        id="win-e-shortcut"
-        role="switch"
-        aria-label={o.label}
-        aria-checked={status.enabled}
+      <Switch
+        on={status.enabled}
+        onChange={() => toggle()}
+        label={o.label}
         disabled={busy || !status.available || (status.conflict && !status.enabled)}
-        onClick={toggle}
-        className={`relative h-[20px] w-[36px] shrink-0 rounded-full transition-colors disabled:opacity-50 ${status.enabled ? 'bg-[var(--p-accent)]' : 'bg-[var(--p-track)]'}`}
-      >
-        <span
-          className="absolute left-[2px] top-[2px] h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 ease-out"
-          style={{ transform: status.enabled ? 'translateX(16px)' : 'none' }}
-        />
-      </button>
+      />
     </SettingRow>
   )
 }

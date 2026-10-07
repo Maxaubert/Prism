@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import type { PhoneState } from '@shared/types'
+import { Switch } from 'prism-term-core/renderer/settings/fields'
 import { Dialog } from './Dialog'
 
 /**
@@ -53,22 +54,9 @@ export function PhoneDialog({
     <div className="flex flex-col gap-3" data-phone-dialog>
       <label className="flex items-center justify-between gap-3 text-[var(--p-text)]">
         <span>Serve this PC&apos;s open folders to phones on this network</span>
-        <button
-          role="switch"
-          aria-checked={state.on}
-          aria-label="Phone server"
-          disabled={busy}
-          onClick={() => void toggle()}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            state.on ? 'bg-[var(--p-accent)]' : 'bg-[var(--p-hover)]'
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 left-0 h-4 w-4 rounded-full bg-white transition-transform ${
-              state.on ? 'translate-x-[18px]' : 'translate-x-0.5'
-            }`}
-          />
-        </button>
+        {/* The core's switch, like every other in the app (#318): one look,
+            the style's accent with the ink chosen for it when on. */}
+        <Switch on={state.on} onChange={() => void toggle()} label="Phone server" disabled={busy} />
       </label>
       {/* Said BEFORE the switch goes on: a per-user installer cannot add the
           firewall rule, and a declined prompt is a phone that cannot connect

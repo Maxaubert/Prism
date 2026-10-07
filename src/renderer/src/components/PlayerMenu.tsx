@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { SWITCH_KNOB_ON, SWITCH_ON } from 'prism-term-core/renderer/settings/fields'
 import type { MediaControls } from '../lib/useMediaControls'
 import { setPlayerPref, usePlayerPrefs } from '../lib/playerPrefs'
 import type { SubTrackInfo } from '../lib/useSubtitles'
@@ -33,8 +34,10 @@ function Toggle({
     >
       {label}
       <span
+        // The core switch's colours at a menu's size (#318): every switch in
+        // the app wears one look, the style's accent with its own ink when on.
         className={`relative h-[14px] w-[26px] rounded-full transition-colors ${
-          on ? 'bg-[var(--p-accent)]' : 'bg-[var(--p-track)]'
+          on ? SWITCH_ON : 'bg-[var(--p-track)]'
         }`}
         aria-hidden
         // Markers for the phone's size pass (phone.css, #145); the sizes
@@ -43,8 +46,8 @@ function Toggle({
         data-on={on || undefined}
       >
         <span
-          className={`absolute top-[2px] h-[10px] w-[10px] rounded-full bg-white transition-[left] ${
-            on ? 'left-[14px]' : 'left-[2px]'
+          className={`absolute top-[2px] h-[10px] w-[10px] rounded-full transition-[left] ${
+            on ? `left-[14px] ${SWITCH_KNOB_ON}` : 'left-[2px] bg-white'
           }`}
           data-menu-knob
         />
