@@ -230,20 +230,21 @@ export function BrowseList(props: Props): JSX.Element {
         y: Math.max(0, Math.min(Math.max(g.count * g.rowHeight, g.height), logicalTopAt(node.scrollTop) + y - r.top))
       }
     },
-    hitsIn: (box, py) => {
-      const g = geometry.current
+    rowAcross: () => {
       // What is drawn as a row across (#326): the list's left to the end of
       // its last column, a gutter short of the edge (#320), measured off any
       // row in view, since every row is the one grid. A row out of view is
       // the same width, so it is still hit by its index.
       const node = scroller.current
       const drawn = node?.querySelector<HTMLElement>('.browse-row-layer > .browse-row')
-      let across = { left: 0, right: node?.scrollWidth ?? 0 }
-      if (node && drawn) {
-        const r = node.getBoundingClientRect()
-        const d = drawn.getBoundingClientRect()
-        across = { left: d.left - r.left + node.scrollLeft, right: d.right - r.left + node.scrollLeft }
-      }
+      if (!node || !drawn) return null
+      const r = node.getBoundingClientRect()
+      const d = drawn.getBoundingClientRect()
+      return { left: d.left - r.left + node.scrollLeft, right: d.right - r.left + node.scrollLeft }
+    },
+    hitsIn: (box, py, drawnAcross) => {
+      const g = geometry.current
+      const across = drawnAcross ?? { left: 0, right: scroller.current?.scrollWidth ?? 0 }
       const span = rowsInBox(box, { ...across, height: g.rowHeight }, g.count)
       if (!span) return { paths: [], near: null }
       const paths: string[] = []

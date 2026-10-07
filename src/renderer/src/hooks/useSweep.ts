@@ -26,6 +26,11 @@ import { SWEEP_THRESHOLD, edgeSpeed, sameHits, type Band, type SweepBox } from '
  *   switched off for the length of the press, or Chromium would start an HTML5
  *   drag four pixels in and the pointer would be the drag's, not ours.
  */
+export interface RowAcross {
+  left: number
+  right: number
+}
+
 export interface SweepOptions {
   /** The scrolling box. Its edges are where auto-scroll starts. */
   scroller: () => HTMLElement | null
@@ -34,7 +39,16 @@ export interface SweepOptions {
   /** The rows the rectangle touches, across AND down (#326: `rowsInBox`), in
    *  list order, plus the one the pointer is nearest (where the keyboard
    *  carries on from). */
-  hitsIn: (box: SweepBox, pointerY: number) => { paths: string[]; near: string | null }
+  hitsIn: (
+    box: SweepBox,
+    pointerY: number,
+    across: RowAcross | null
+  ) => { paths: string[]; near: string | null }
+  /** Where a drawn row runs across, in the list's own x, or null while no row
+   *  is drawn. Measured once per sweep (a row cannot change width under a
+   *  held button), not on every tick, which would force a layout read each
+   *  frame; asked again only while it is still null. */
+  rowAcross: () => RowAcross | null
   /** Scroll the list by this many screen pixels. */
   scrollBy: (dy: number) => void
   /** The sweep's covered rows, live, as it grows and shrinks. */
@@ -71,6 +85,7 @@ export function useSweep(options: SweepOptions): {
     let hits: string[] = []
     let near: string | null = null
     let frame = 0
+    let across: RowAcross | null = null
     const wasDraggable = row?.draggable ?? false
     if (row) row.draggable = false
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -79,6 +94,7 @@ export function useSweep(options: SweepOptions): {
       const o = opts.current
       const at = o.toList(last.x, last.y)
       setBand({ x0: start.x, y0: start.y, x1: at.x, y1: at.y })
+      across ??= o.rowAcross()
       const next = o.hitsIn(
         {
           left: Math.min(start.x, at.x),
@@ -86,7 +102,8 @@ export function useSweep(options: SweepOptions): {
           top: Math.min(start.y, at.y),
           bottom: Math.max(start.y, at.y)
         },
-        at.y
+        at.y,
+        across
       )
       near = next.near
       if (!sameHits(hits, next.paths)) {

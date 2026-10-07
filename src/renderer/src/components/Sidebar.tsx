@@ -780,19 +780,20 @@ export function Sidebar({
         y: Math.min(top + box.scrollHeight, Math.max(top, y - r.top))
       }
     },
-    hitsIn: (box, py) => {
-      const rows = paintRef.current
+    rowAcross: () => {
       // What is drawn as a row across (#326), measured off any row in view:
       // the tree's rows run its whole width, so today every box that starts
       // on the tree reaches them, but the rule is the Explorer's either way.
       const list = treeList()
       const drawn = list?.querySelector<HTMLElement>('[data-row]')
-      let across = { left: 0, right: list?.getBoundingClientRect().width ?? 0 }
-      if (list && drawn) {
-        const r = list.getBoundingClientRect()
-        const d = drawn.getBoundingClientRect()
-        across = { left: d.left - r.left, right: d.right - r.left }
-      }
+      if (!list || !drawn) return null
+      const r = list.getBoundingClientRect()
+      const d = drawn.getBoundingClientRect()
+      return { left: d.left - r.left, right: d.right - r.left }
+    },
+    hitsIn: (box, py, drawnAcross) => {
+      const rows = paintRef.current
+      const across = drawnAcross ?? { left: 0, right: treeList()?.getBoundingClientRect().width ?? 0 }
       const span = rowsInBox(box, { ...across, height: size.row }, rows.length)
       if (!span) return { paths: [], near: null }
       const paths: string[] = []
