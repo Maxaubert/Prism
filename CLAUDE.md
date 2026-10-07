@@ -98,7 +98,11 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   "Colours of Volt": "dont have this show the theme name, just call that section colours"). The folder
   browser paints no ground; its address row, list, preview slot and status paint `--p-bg`, the places
   panel (and `.browse-viewer-places`) `--p-side`, the Settings rail's and project tree's colour, one
-  coat each. Every catalogue theme's panel differs from its ground. The `sidebarGround` e2e holds both.
+  coat each. Every catalogue theme's panel differs from its ground EXCEPT VOID, which is all black
+  (#313; owner, 2026-10-07, of Background #000000 and Sidebar and tab bar colour #070707: "make void
+  fully black for both of these"): its panel is #000000, its panels told apart by its faint edges. A
+  saved draft colour the theme has since caught up with is dropped at load (`withoutOwn`), so a
+  hand-set black on Void shows no Reset and no lit Save changes. The `sidebarGround` e2e holds both.
 
 ## Scope
 

@@ -9012,6 +9012,8 @@ async function sidebarPlacesScenario(fixtures) {
  * panel's ground is not the list's and IS the Settings rail's: both are
  * --p-side, the "Sidebar and tab bar colour". Before, the places panel was
  * the folder browser's --p-bg. The see-through count of coats is seeThrough's.
+ * Void is the exception (#313; owner, 2026-10-07: "make void fully black for
+ * both of these"): its sidebar colour is its ground, so there both are black.
  */
 async function sidebarGroundScenario(fixtures) {
   console.log('sidebar ground')
@@ -9058,7 +9060,11 @@ async function sidebarGroundScenario(fixtures) {
         list = await groundOf('.folder-browser > .browse-list-area')
         return places === side
       }, 4000, 100)
-      ok(places !== null && places !== list, `${style}: the places panel's ground is not the list's (${places} vs ${list})`)
+      if (style === 'new-void')
+        // VOID IS ALL BLACK (#313; owner, 2026-10-07: "make void fully black
+        // for both of these"): its sidebar colour is its ground, #000000.
+        ok(places === 'rgb(0, 0, 0)' && list === 'rgb(0, 0, 0)', `${style}: the places panel and the list are both black (${places} vs ${list})`)
+      else ok(places !== null && places !== list, `${style}: the places panel's ground is not the list's (${places} vs ${list})`)
       ok(places === side, `${style}: the places panel wears the sidebar colour (${places}, --p-side ${side})`)
       await win.mouse.move(2, 400)
       await sleep(300)
@@ -9067,6 +9073,9 @@ async function sidebarGroundScenario(fixtures) {
       await win.waitForSelector('[data-settings-page] > nav', { timeout: 10000 })
       const rail = await groundOf('[data-settings-page] > nav')
       ok(rail === places, `${style}: and that is the Settings rail's ground (${rail})`)
+      await win.mouse.move(2, 400)
+      await sleep(600)
+      await win.screenshot({ path: join(SHOTS, `sidebar-ground-settings-${style}.png`) })
       await win.click('[aria-label="Settings"]')
       await sleep(300)
     }

@@ -1459,6 +1459,7 @@ function loadRetired(): string | null {
 let current = load()
 // A preset that has since been deleted leaves a dangling id; normalise it.
 current = allStyles().some((s) => s.id === current) ? current : DEFAULT_STYLE
+draft = settledDraft(draft)
 let retired: string | null = loadRetired()
 /** The theme the window is PREVIEWING (the wall's arrows), or null. */
 let previewing: string | null = null
@@ -1633,6 +1634,17 @@ function commitDraft(next: Overrides): void {
   apply()
 }
 
+/** Is this panel pick the style's own panels? Eight digits are judged on
+ *  their spelling (see `withColour`), six on the colour. */
+function chromeIsOwn(base: Style, value: string): boolean {
+  if (value.length !== 9) return isStylesOwn(base, 'chrome', value)
+  return [
+    base.sideOwn ? base.side : sideOf(base),
+    base.titleOwn ? base.title : titleOf(base),
+    base.tabsOwn && base.tabs ? base.tabs : tabsOf(base)
+  ].every((c) => c.toLowerCase() === value.toLowerCase())
+}
+
 /** A colour role set on a draft, or cleared when it is the style's own. */
 function withColour(next: Overrides, role: 'bg' | 'chrome' | 'accent', value: string): Overrides {
   // A panel colour with an alpha of its own (eight digits, `ff` included) is
@@ -1640,17 +1652,41 @@ function withColour(next: Overrides, role: 'bg' | 'chrome' | 'accent', value: st
   // drops, so a solid panel on glass in the colour it already had read as the
   // style's own put back and was thrown away (review of #251).
   const base = byId(current)
-  const own =
-    role === 'chrome' && value.length === 9
-      ? [
-          base.sideOwn ? base.side : sideOf(base),
-          base.titleOwn ? base.title : titleOf(base),
-          base.tabsOwn && base.tabs ? base.tabs : tabsOf(base)
-        ].every((c) => c.toLowerCase() === value.toLowerCase())
-      : isStylesOwn(base, role, value)
+  const own = role === 'chrome' ? chromeIsOwn(base, value) : isStylesOwn(base, role, value)
   if (role === 'chrome') return withChrome(next, own ? null : value)
   if (own) delete next[role]
   else next[role] = value
+  return next
+}
+
+/**
+ * A SAVED EDIT THE THEME HAS SINCE CAUGHT UP WITH IS NO EDIT (#313; owner,
+ * 2026-10-07, of Void: "make void fully black for both of these", having set
+ * its sidebar colour to #000000 by hand). A colour put back is judged when it
+ * is written (`withColour`); a theme that moves to a colour already in the
+ * draft is judged here, at load: each colour that now equals the style's own
+ * is dropped, so its Reset link and Save changes go. Pure, so it is testable;
+ * the same object back when nothing moved.
+ */
+export function withoutOwn(base: Style, o: Overrides): Overrides {
+  let next: Overrides | null = null
+  const drop = (keys: Array<keyof Overrides>): void => {
+    next = next ?? { ...o }
+    for (const k of keys) delete (next as Overrides)[k]
+  }
+  for (const role of ['bg', 'accent', 'text', 'folderIcon', 'selection'] as const) {
+    const v = o[role]
+    if (typeof v === 'string' && v && isStylesOwn(base, role, v)) drop([role])
+  }
+  if (o.side && o.side === o.title && o.side === o.tabs && chromeIsOwn(base, o.side)) drop(['side', 'title', 'tabs'])
+  return next ?? o
+}
+
+/** The draft as loaded, settled against the style on screen; written back
+ *  when that dropped something, so storage says what the window shows. */
+function settledDraft(o: Overrides): Overrides {
+  const next = withoutOwn(byId(current), o)
+  if (next !== o) saveJson(DRAFT_KEY, next)
   return next
 }
 
@@ -1924,6 +1960,7 @@ if (typeof window !== 'undefined') {
     presets = cleanPresets(loadJson<unknown>(PRESETS_KEY, []))
     draft = cleanDraft(loadJson<Overrides>(DRAFT_KEY, {}))
     current = load()
+    draft = withoutOwn(byId(current), draft)
     retired = loadRetired()
     version += 1
     // The originating window already saved related accent preferences. Receiving
