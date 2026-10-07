@@ -1,6 +1,7 @@
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import { linter, type Diagnostic } from '@codemirror/lint'
-import type { EditorState } from '@codemirror/state'
+import type { EditorState, Extension } from '@codemirror/state'
+import type { CodeLang } from './codeLang'
 
 // The red underline. Prism does not run a language server, so this is honest
 // about what it knows: where a Lezer grammar failed to parse, and nothing more.
@@ -88,8 +89,93 @@ export function jsonErrors(text: string): Diagnostic[] {
   }
 }
 
+/**
+ * JSONC as plain JSON with the same offsets (#312): every comment and every
+ * trailing comma becomes spaces (line breaks kept), so `JSON.parse` judges
+ * what is left and a position it names is a position in the file. Strings are
+ * copied untouched, so a "//" inside a url stays. Exported for tests.
+ */
+export function blankJsonc(text: string): { json: string; unclosedComment: number | null } {
+  const out = text.split('')
+  const blank = (from: number, to: number): void => {
+    for (let i = from; i < to; i++) if (out[i] !== '\n' && out[i] !== '\r') out[i] = ' '
+  }
+  // The last comma seen, until something other than space shows whether a
+  // closer follows it (comments are already gone by then).
+  let comma = -1
+  let i = 0
+  while (i < text.length) {
+    const c = text[i]
+    if (c === '"') {
+      comma = -1
+      let j = i + 1
+      while (j < text.length && text[j] !== '"' && text[j] !== '\n') j += text[j] === '\\' ? 2 : 1
+      i = j + 1
+      continue
+    }
+    if (c === '/' && text[i + 1] === '/') {
+      let j = i
+      while (j < text.length && text[j] !== '\n') j++
+      blank(i, j)
+      i = j
+      continue
+    }
+    if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2)
+      if (end < 0) {
+        blank(i, text.length)
+        return { json: out.join(''), unclosedComment: i }
+      }
+      blank(i, end + 2)
+      i = end + 2
+      continue
+    }
+    if (c === ',') comma = i
+    else if (c === '}' || c === ']') {
+      if (comma >= 0) out[comma] = ' '
+      comma = -1
+    } else if (!/\s/.test(c)) comma = -1
+    i++
+  }
+  return { json: out.join(''), unclosedComment: null }
+}
+
+/**
+ * JSON's rules less the two JSONC relaxes: comments and trailing commas are
+ * fine, a missing comma or an unclosed brace is still an error, said by
+ * `JSON.parse` at its real place in the file. Exported for tests.
+ */
+export function jsoncErrors(text: string): Diagnostic[] {
+  const { json, unclosedComment } = blankJsonc(text)
+  if (unclosedComment !== null) {
+    return [
+      {
+        from: unclosedComment,
+        to: Math.min(unclosedComment + 2, text.length),
+        severity: 'error' as const,
+        message: 'This comment is never closed'
+      }
+    ]
+  }
+  return jsonErrors(json)
+}
+
+/**
+ * Which squiggles a file gets. A grammar's own error nodes for a parsed
+ * language, plus `JSON.parse` for JSON; JSONC gets its own check and NEVER the
+ * grammar's (it has none that knows comments); a stream lexer gets nothing.
+ */
+export function lintFor(lang: CodeLang | null): Extension {
+  if (lang?.lint === 'jsonc') return jsoncLinter
+  if (lang?.lint === 'json') return [syntaxLinter, jsonLinter]
+  return lang?.parsed ? syntaxLinter : []
+}
+
 /** Squiggles from the grammar. Only worth attaching to a parsed language. */
 export const syntaxLinter = linter((view) => parseErrors(view.state), { delay: 300 })
 
 /** Squiggles from JSON.parse, which explains itself better than the grammar can. */
 export const jsonLinter = linter((view) => jsonErrors(view.state.doc.toString()), { delay: 300 })
+
+/** Squiggles for JSON with comments: JSON's errors, never its comments. */
+export const jsoncLinter = linter((view) => jsoncErrors(view.state.doc.toString()), { delay: 300 })

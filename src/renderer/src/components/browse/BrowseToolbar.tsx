@@ -30,6 +30,10 @@ type Props = Pick<
   /** What sits after the address field: the Explorer's preview toggle and
    *  search button (#267). The file viewer's toolbar has none. */
   trailing?: ReactNode
+  /** What sits BEFORE the history buttons: the preview toggle, when the
+   *  sidebar is on the right and the preview pane on the left (#304), so the
+   *  toggle is at the end nearest the pane it opens. */
+  leading?: ReactNode
   /** The archives along the path (#300, `ArchiveMeta.chain`): those crumbs
    *  wear the archive icon. Before main has answered, a crumb named like an
    *  archive with more path after it is taken to be one. */
@@ -71,6 +75,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
   }
   return (
     <div className="browse-toolbar" data-testid="browse-toolbar">
+      {props.leading}
       <div className="browse-history">
         <button
           className="browse-icon-button"
@@ -194,7 +199,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
                       name={crumb.name}
                       color="var(--p-tree-zip)"
                       size={14}
-                      bg="var(--p-control)"
+                      bg="var(--p-field)"
                     />
                   )}
                   {crumb.name}

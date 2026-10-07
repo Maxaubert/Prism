@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { dragBadgePlace } from './dragBadgePlace'
 import { DRAG_MIME, getDrag, setDrag } from './dragDrop'
 import { QUICK_ACCESS_PIN_MIME } from './quickAccess'
 
@@ -63,9 +64,11 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       const action = effect === 'move' ? 'Move' : effect === 'copy' ? 'Copy' : ''
       carry.badge.textContent = action ? `${action} ${carry.label}` : carry.label
       const { width, height } = carry.badge.getBoundingClientRect()
-      // Hang the label below and left of the hand, keeping its drop target clear.
-      carry.badge.style.left = `${Math.max(4, Math.min(carry.x - width - 4, window.innerWidth - width - 4))}px`
-      carry.badge.style.top = `${Math.max(4, Math.min(carry.y + 12, window.innerHeight - height - 4))}px`
+      // Hang the label off the pointer's bottom right, attached (#310). It
+      // used to sit its whole width LEFT of the pointer and 12 px below it.
+      const place = dragBadgePlace(carry.x, carry.y, width, height, window.innerWidth, window.innerHeight)
+      carry.badge.style.left = `${place.left}px`
+      carry.badge.style.top = `${place.top}px`
     }
     const tick = (): void => {
       if (!carry) return

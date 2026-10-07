@@ -5,17 +5,28 @@ export function ExplorerResize({
   section,
   bounds,
   onResize,
-  right = false
+  edge
 }: {
   section: ExplorerSection
   bounds: ExplorerWidthBounds
   onResize: (value: number | null) => void
-  right?: boolean
+  /** The window edge the panel sits against (#304: Sidebar position moves
+   *  the places to the right and the preview to the left). A drag or an
+   *  arrow toward the middle widens it. */
+  edge: 'left' | 'right'
 }): JSX.Element {
   const drag = useRef<{ x: number; value: number } | null>(null)
   const [dragging, setDragging] = useState(false)
   const [pointerResize, setPointerResize] = useState(false)
-  const direction = section === 'preview' || right ? -1 : 1
+  const direction = edge === 'right' ? -1 : 1
+  // Only a panel off its usual edge says so: the left side's classes are
+  // the ones the window always had.
+  const turned =
+    section === 'places' && edge === 'right'
+      ? ' is-right'
+      : section === 'preview' && edge === 'left'
+        ? ' is-left'
+        : ''
   return (
     <div
       role="separator"
@@ -26,7 +37,7 @@ export function ExplorerResize({
       aria-valuenow={bounds.value}
       tabIndex={0}
       title="Drag to resize. Arrow keys adjust width. Double-click to reset."
-      className={`explorer-resize explorer-resize-${section}${right ? ' is-right' : ''}`}
+      className={`explorer-resize explorer-resize-${section}${turned}`}
       data-dragging={dragging || undefined}
       data-pointer-resize={pointerResize || undefined}
       onPointerDown={(event) => {

@@ -3765,6 +3765,98 @@ async function codeScenario(fixtures) {
   }
 }
 
+/**
+ * JSONC comments are comments (#312; owner, 2026-10-07: "comments in jsonc
+ * arent read as comments in prism", with a wrangler.jsonc whose every // line
+ * was plain text under a red squiggle). Fails on the old build, where .jsonc
+ * went to the strict JSON grammar and JSON.parse.
+ */
+async function jsoncScenario(fixtures) {
+  console.log('JSONC comments read as comments')
+  const dir = join(fixtures, 'jsonc')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    join(dir, 'wrangler.jsonc'),
+    [
+      '/**',
+      ' * For more details on how to configure Wrangler, refer to:',
+      ' * https://developers.cloudflare.com/workers/wrangler/configuration/',
+      ' */',
+      '{',
+      '  "$schema": "node_modules/wrangler/config-schema.json",',
+      '  "name": "my-worker",',
+      '  "main": "src/index.ts",',
+      '  "compatibility_date": "2025-04-01",',
+      '  // "compatibility_flags": ["nodejs_compat"],',
+      '  "observability": {',
+      '    "enabled": true',
+      '  },',
+      '  /**',
+      '   * Smart Placement',
+      '   */',
+      '  // "placement": { "mode": "smart" },',
+      '  "assets": { "directory": "./public/" },',
+      '}',
+      ''
+    ].join('\n')
+  )
+  // A well-known name with no .jsonc on it, and a trailing comma.
+  writeFileSync(
+    join(dir, 'tsconfig.json'),
+    '{\n  // Base options\n  "compilerOptions": {\n    "strict": true, /* always */\n    "target": "ES2022",\n  },\n}\n'
+  )
+  // JSONC is not "anything goes": a missing comma is still an error.
+  writeFileSync(join(dir, 'zbroken.jsonc'), '{\n  // fine\n  "a": 1\n  "b": 2\n}\n')
+
+  const { app, win } = await launch(join(dir, 'wrangler.jsonc'))
+  /** Every rendered span whose text is a comment, with its colour and the theme's. */
+  const comments = () =>
+    win.evaluate(() => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--p-code-comment)'
+      document.querySelector('.cm-content').appendChild(probe)
+      const want = getComputedStyle(probe).color
+      probe.remove()
+      const spans = [...document.querySelectorAll('.cm-line span')]
+        .filter((s) => /^\s*(\/\/|\/\*|\*)/.test(s.textContent))
+        .map((s) => ({ text: s.textContent, color: getComputedStyle(s).color, italic: getComputedStyle(s).fontStyle }))
+      const plain = getComputedStyle(document.querySelector('.cm-line')).color
+      return { want, plain, spans }
+    })
+  try {
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    await win.waitForFunction(() => document.querySelectorAll('.cm-line span').length > 5, undefined, { timeout: 10000 })
+    await sleep(1500) // past the linter's debounce, so absence means absence
+    ok((await win.locator('.cm-lintRange-error').count()) === 0, 'a wrangler.jsonc with comments has no squiggles')
+    const c = await comments()
+    ok(c.spans.length >= 6, `every comment line is its own token (got ${c.spans.length})`)
+    ok(c.want !== c.plain, `the theme's comment colour differs from plain text (${c.want} vs ${c.plain})`)
+    ok(
+      c.spans.every((s) => s.color === c.want),
+      `and every comment wears it (${c.spans.filter((s) => s.color !== c.want).map((s) => s.text).join(' | ') || 'all do'})`
+    )
+    ok(c.spans.every((s) => s.italic === 'italic'), 'in the comment style')
+    await win.screenshot({ path: join(SHOTS, 'jsonc.png') })
+
+    await win.click('[role="treeitem"]:has-text("tsconfig.json")')
+    await win.waitForFunction(() => (document.querySelector('.cm-content')?.textContent ?? '').includes('compilerOptions'), undefined, { timeout: 10000 })
+    await sleep(1500)
+    ok((await win.locator('.cm-lintRange-error').count()) === 0, 'tsconfig.json takes comments and a trailing comma too')
+    const t = await comments()
+    ok(t.spans.length >= 2 && t.spans.every((s) => s.color === t.want), 'and colours them as comments')
+
+    await win.click('[role="treeitem"]:has-text("zbroken.jsonc")')
+    await win.waitForFunction(() => (document.querySelector('.cm-content')?.textContent ?? '').includes('"b": 2'), undefined, { timeout: 10000 })
+    await win.waitForSelector('.cm-lintRange-error', { timeout: 10000 }).catch(() => {})
+    const marked = await win.locator('.cm-lintRange-error').allTextContents()
+    ok(marked.length === 1 && marked[0].startsWith('"'), `a missing comma in JSONC is still underlined, once (${JSON.stringify(marked)})`)
+    await win.screenshot({ path: join(SHOTS, 'jsonc-error.png') })
+  } finally {
+    await app.close()
+  }
+}
+
 async function treeNavScenario(fixtures) {
   console.log('tree navigation')
   // Open inside code/, so the root has folders above and below the cursor.
@@ -5101,7 +5193,7 @@ async function tabsScenario(fixtures) {
 const SETTINGS_PAGE_OF = {
   'style-theme': 'appearance', 'see-through': 'appearance', 'theme-edits': 'appearance', 'c-bg': 'appearance', 'c-accent': 'appearance', 'c-font': 'appearance',
   'tree-size': 'appearance', 'title-bar': 'appearance', 'tab-width': 'appearance', 'c-edges': 'appearance', 'c-corners': 'appearance',
-  'tree-side': 'project', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'project',
+  'explorer-side': 'explorer', 'tree-side': 'project', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'project',
   'open-external': 'explorer', 'remember-tabs': 'explorer', 'remember-folders': 'explorer', 'explorer-verb': 'explorer', 'default-apps': 'explorer',
   'term-shell': 'terminal', 'term-theme': 'terminal', 'agent-indicator': 'agents', 'agent-color': 'agents',
   'dictation-enabled': 'dictation', 'transport-bg': 'media', 'app-version': 'about'
@@ -9012,6 +9104,8 @@ async function sidebarPlacesScenario(fixtures) {
  * panel's ground is not the list's and IS the Settings rail's: both are
  * --p-side, the "Sidebar and tab bar colour". Before, the places panel was
  * the folder browser's --p-bg. The see-through count of coats is seeThrough's.
+ * Void is the exception (#313; owner, 2026-10-07: "make void fully black for
+ * both of these"): its sidebar colour is its ground, so there both are black.
  */
 async function sidebarGroundScenario(fixtures) {
   console.log('sidebar ground')
@@ -9053,20 +9147,51 @@ async function sidebarGroundScenario(fixtures) {
       const side = await cssColour(win, 'var(--p-side)')
       let places = null
       let list = null
+      let row = null
       await until(async () => {
         places = await groundOf('.folder-browser > .browse-places')
         list = await groundOf('.folder-browser > .browse-list-area')
-        return places === side
+        row = await groundOf('.folder-browser > .browse-toolbar')
+        return places === side && row === side
       }, 4000, 100)
-      ok(places !== null && places !== list, `${style}: the places panel's ground is not the list's (${places} vs ${list})`)
+      if (style === 'new-void')
+        // VOID IS ALL BLACK (#313; owner, 2026-10-07: "make void fully black
+        // for both of these"): its sidebar colour is its ground, #000000.
+        ok(places === 'rgb(0, 0, 0)' && list === 'rgb(0, 0, 0)', `${style}: the places panel and the list are both black (${places} vs ${list})`)
+      else ok(places !== null && places !== list, `${style}: the places panel's ground is not the list's (${places} vs ${list})`)
       ok(places === side, `${style}: the places panel wears the sidebar colour (${places}, --p-side ${side})`)
+      // 3. THE ADDRESS ROW (#306; owner, 2026-10-07: "yes make this the same
+      // color as the sidebar"): the places panel's ground, not the list's,
+      // its hairline kept, and its field still a box on it.
+      ok(row === places, `${style}: the address row wears the places panel's ground (${row} vs ${places})`)
+      // Void's list is black like its row (#313), so only the others differ.
+      if (style !== 'new-void') ok(row !== list, `${style}: and not the list's (${row} vs ${list})`)
+      const rowLook = await win.evaluate(() => {
+        const tb = document.querySelector('.folder-browser > .browse-toolbar')
+        const field = tb?.querySelector('nav.browse-path')
+        const s = tb ? getComputedStyle(tb) : null
+        return {
+          line: s ? { w: parseFloat(s.borderBottomWidth), c: s.borderBottomColor } : null,
+          field: field ? getComputedStyle(field).backgroundColor : null,
+          wide: tb ? Math.abs(tb.getBoundingClientRect().width - document.querySelector('.folder-browser').getBoundingClientRect().width) < 1 : false
+        }
+      })
+      ok(rowLook.wide, `${style}: the row runs across the whole browser`)
+      ok(rowLook.line && rowLook.line.w > 0 && rowLook.line.c !== row, `${style}: the row keeps its bottom hairline (${JSON.stringify(rowLook.line)})`)
+      ok(rowLook.field && rowLook.field !== row, `${style}: the address field is not the row's colour (${rowLook.field} on ${row})`)
       await win.mouse.move(2, 400)
       await sleep(300)
       await win.screenshot({ path: join(SHOTS, `sidebar-ground-${style}.png`) })
+      const vw = await win.evaluate(() => window.innerWidth)
+      await win.screenshot({ path: join(SHOTS, `address-row-${style}.png`), clip: { x: 0, y: 0, width: vw, height: 220 } })
       await settingsPage(win, 'appearance')
       await win.waitForSelector('[data-settings-page] > nav', { timeout: 10000 })
       const rail = await groundOf('[data-settings-page] > nav')
       ok(rail === places, `${style}: and that is the Settings rail's ground (${rail})`)
+      ok(rail === row, `${style}: and the address row's (${row})`)
+      await win.mouse.move(2, 400)
+      await sleep(600)
+      await win.screenshot({ path: join(SHOTS, `sidebar-ground-settings-${style}.png`) })
       await win.click('[aria-label="Settings"]')
       await sleep(300)
     }
@@ -9865,6 +9990,224 @@ async function columnHeadersScenario(fixtures) {
  * preview toggle and the search button, in that order. Screenshots of the
  * toolbar on Void and on Paper go to .e2e/shots.
  */
+/**
+ * A PREVIEW BUTTON THAT SHOWS ITS STATE, A QUIET SEARCH, AN ICON ON EVERY TAB
+ * (#308; owner, 2026-10-07, of the mockup: "A3 and C2"). The preview toggle
+ * and the search button wear Back's grey and no fill in every state, the
+ * preview's drawing carrying its state (a solid right column while open); each
+ * tab shows what it holds (folder, code brackets, gear) in its own ink, solid
+ * on the tab you are on and lines on the rest. Fails on main, where the
+ * pressed preview button and a searching search button were the accent and
+ * only an Explorer tab had an icon, a folder in the folder colour.
+ */
+async function toolbarIconsScenario(fixtures) {
+  console.log('toolbar icons')
+  const dir = join(fixtures, 'tbicons')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['one.txt', 'two.txt', 'three.md']) writeFileSync(join(dir, n), `icons ${n}\n`)
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'one.txt'))
+  EXTRA_ENV = {}
+  let before
+  const current = () => win.evaluate(() => document.querySelector('.folder-browser nav.browse-path button[aria-current]')?.textContent ?? '')
+  const preview = win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Preview pane"]')
+  const search = win.locator('[data-testid="browse-search-button"]')
+  const popup = win.locator('[data-testid="browse-search-popup"]')
+  // Nothing hovered or focused: the pointer to the list's empty foot, the
+  // focus off the toolbar, so what is read is each button at rest.
+  const rest = async () => {
+    await win.mouse.move(5, 300)
+    await win.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
+    await sleep(250)
+  }
+  const buttons = () =>
+    win.evaluate(() => {
+      const tb = document.querySelector('.folder-browser [data-testid="browse-toolbar"]')
+      const read = (b) => {
+        if (!b) return null
+        const s = getComputedStyle(b)
+        const svg = b.querySelector('svg')
+        return { color: s.color, bg: s.backgroundColor, svg: svg ? getComputedStyle(svg).color : null }
+      }
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--p-accent-hi)'
+      document.body.append(probe)
+      const accent = getComputedStyle(probe).color
+      probe.remove()
+      const pv = tb.querySelector('button[aria-label="Preview pane"]')
+      const glyph = pv?.querySelector('[data-preview-glyph]')
+      return {
+        accent,
+        back: read(tb.querySelector('button[aria-label="Back"]')),
+        preview: read(pv),
+        pressed: pv?.getAttribute('aria-pressed') ?? null,
+        glyph: glyph?.getAttribute('data-preview-glyph') ?? null,
+        column: pv?.querySelectorAll('[data-preview-column]').length ?? -1,
+        search: read(tb.querySelector('[data-testid="browse-search-button"]')),
+        searching: tb.querySelector('[data-testid="browse-search-button"]')?.hasAttribute('data-active') ?? false
+      }
+    })
+  const sameAsBack = (l, b, what) => {
+    ok(l[b].color === l.back.color && l[b].bg === l.back.bg, `${what}: it wears Back's grey and ground (${l[b].color} / ${l[b].bg}; Back ${l.back.color} / ${l.back.bg})`)
+    ok(l[b].color !== l.accent && l[b].svg !== l.accent, `${what}: never the accent (${l[b].color}, accent ${l.accent})`)
+  }
+  const tabsLook = () =>
+    win.evaluate(() =>
+      [...document.querySelectorAll('[role="tablist"] [data-tab-role]')].map((el) => {
+        const icon = el.querySelector('[data-tab-icon]')
+        const label = el.querySelector('[role="tab"]')
+        const close = el.querySelector('[data-tab-close]')
+        const box = (n) => (n ? n.getBoundingClientRect() : null)
+        const ib = box(icon)
+        const lb = box(label)
+        const cb = box(close)
+        return {
+          role: el.getAttribute('data-tab-role'),
+          pinned: el.hasAttribute('data-pinned'),
+          active: label?.getAttribute('aria-selected') === 'true',
+          label: label?.textContent ?? '',
+          ink: getComputedStyle(el).color,
+          icons: el.querySelectorAll('[data-tab-icon]').length,
+          kind: icon?.getAttribute('data-tab-icon') ?? null,
+          fill: icon?.getAttribute('data-tab-icon-fill') ?? null,
+          iconInk: icon ? getComputedStyle(icon).color : null,
+          // Any colour drawn into the icon other than its ink (currentColor)
+          // or the mask's black and white is a colour of its own.
+          ownColour: icon
+            ? [...icon.querySelectorAll('path, rect')].some((p) => {
+                if (p.closest('mask')) return false
+                const f = p.getAttribute('fill')
+                const s = p.getAttribute('stroke')
+                return [f, s].some((v) => v && !['none', 'currentColor'].includes(v))
+              })
+            : false,
+          pin: el.querySelectorAll('[data-pin="on"]').length,
+          oldFolder: el.querySelectorAll('svg[fill="var(--p-tree-folder)"]').length,
+          // Laid out left to right without overlap: icon, label, close.
+          order: ib && lb ? ib.right <= lb.left + 0.5 && (!cb || lb.right <= cb.left + 0.5) : false,
+          inside: ib ? ib.left >= el.getBoundingClientRect().left && ib.width > 10 && ib.width <= 16 : false
+        }
+      })
+    )
+  const wantKind = { explorer: 'explorer', project: 'project', settings: 'settings' }
+  const checkTabs = (tabs, where) => {
+    ok(tabs.length >= 3, `${where}: an Explorer, a project and a Settings tab (${tabs.map((t) => t.role).join(', ')})`)
+    for (const t of tabs) {
+      const name = `${where}: ${t.role}${t.pinned ? ' (pinned)' : ''} "${t.label}"`
+      ok(t.icons === 1 && t.kind === wantKind[t.role], `${name} wears one ${wantKind[t.role]} icon (${t.icons}, ${t.kind})`)
+      ok(t.fill === (t.active ? 'solid' : 'outline'), `${name} is ${t.active ? 'solid, the tab you are on' : 'lines, a tab at rest'} (${t.fill})`)
+      ok(t.iconInk === t.ink && !t.ownColour, `${name}: the icon is the tab's own ink (${t.iconInk} on ${t.ink})`)
+      ok(t.oldFolder === 0, `${name}: the folder-coloured glyph is gone`)
+      ok(t.order && t.inside, `${name}: icon, name and close sit in a row without overlap`)
+      if (t.pinned) ok(t.pin === 1, `${name} keeps its pin`)
+    }
+    const active = tabs.filter((t) => t.active)
+    const restTab = tabs.find((t) => !t.active)
+    ok(active.length === 1 && !!restTab && active[0].ink !== restTab.ink, `${where}: the tab you are on is brighter than the rest (${active[0]?.ink} / ${restTab?.ink})`)
+  }
+  const shootTabs = (name) => win.locator('[role="tablist"]').first().screenshot({ path: join(SHOTS, `toolbar-icons-tabs-${name}.png`) })
+  const shootBar = (name) =>
+    win.locator('.folder-browser [data-testid="browse-toolbar"]').first().screenshot({ path: join(SHOTS, `toolbar-icons-${name}.png`) })
+  const pickTabWidth = async (name) => {
+    const seg = (await gotoPref(win, 'tab-width')).getByRole('button', { name, exact: true })
+    await seg.scrollIntoViewIfNeeded()
+    await seg.click()
+    await sleep(300)
+  }
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await current()) !== 'tbicons') await win.locator('[data-testid="browse-list"] [data-browse-path$="\\tbicons" i]').dblclick()
+    ok(await until(async () => (await current()) === 'tbicons', 10000), 'the Explorer shows the folder')
+
+    for (const style of ['new-void', 'paper']) {
+      const was = await switchStyle(win, style)
+      if (before === undefined) before = was
+      await sleep(500)
+      // BOTH STATES of the preview, each at rest.
+      if ((await preview.getAttribute('aria-pressed')) !== 'true') await preview.click()
+      await rest()
+      const open = await buttons()
+      ok(open.pressed === 'true' && open.glyph === 'open' && open.column === 1, `${style}: open, the pane's column is drawn solid (${open.pressed}, ${open.glyph}, ${open.column})`)
+      sameAsBack(open, 'preview', `${style}: the preview button, pane open`)
+      sameAsBack(open, 'search', `${style}: the search button at rest`)
+      await shootBar(`${style}-open`)
+      await preview.click()
+      await rest()
+      const hidden = await buttons()
+      ok(hidden.pressed === 'false' && hidden.glyph === 'hidden' && hidden.column === 0, `${style}: hidden, the column is empty (${hidden.pressed}, ${hidden.glyph}, ${hidden.column})`)
+      sameAsBack(hidden, 'preview', `${style}: the preview button, pane hidden`)
+      await shootBar(`${style}-hidden`)
+      await preview.click()
+      await rest()
+
+      // A hover is the row's grey fill, the same as Back's.
+      await win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Back"]').hover()
+      await sleep(200)
+      const backHover = (await buttons()).back
+      await preview.hover()
+      await sleep(200)
+      const pvHover = (await buttons()).preview
+      ok(pvHover.bg === backHover.bg && pvHover.bg !== open.back.bg, `${style}: a hover fills it as it fills Back (${pvHover.bg} / ${backHover.bg})`)
+
+      // SEARCH: the popup open, then a search shown in the list; never lit.
+      await search.click()
+      await popup.waitFor({ timeout: 5000 })
+      await win.mouse.move(5, 300)
+      await sleep(200)
+      const asking = await buttons()
+      ok(asking.search.color === asking.back.color && asking.search.color !== asking.accent, `${style}: the search button stays grey while its popup is up (${asking.search.color})`)
+      await popup.locator('input[role="combobox"]').fill('one')
+      await popup.locator('input[role="combobox"]').press('Control+Enter')
+      ok(await until(async () => (await popup.count()) === 0 && (await buttons()).searching, 15000), `${style}: a search is shown in the list`)
+      await rest()
+      const searching = await buttons()
+      sameAsBack(searching, 'search', `${style}: the search button while the list shows a search`)
+      await shootBar(`${style}-searching`)
+      await win.locator('[data-testid="browse-search-clear"]').click()
+      await until(async () => !(await buttons()).searching, 8000)
+    }
+
+    // THE TABS, on Void and on Paper, with the Explorer in front and then
+    // with Settings in front, in both widths.
+    await switchStyle(win, 'new-void')
+    await settingsPage(win, 'appearance')
+    await win.waitForSelector('[data-tab-role="settings"]', { timeout: 10000 })
+    for (const width of ['Dynamic', 'Fixed']) {
+      await pickTabWidth(width)
+      for (const style of ['new-void', 'paper']) {
+        await switchStyle(win, style)
+        await sleep(500)
+        await win.locator('[data-tab-role="settings"] [role="tab"]').click()
+        await win.mouse.move(5, 300)
+        await sleep(300)
+        checkTabs(await tabsLook(), `${style}, ${width}, Settings in front`)
+        await shootTabs(`${style}-${width.toLowerCase()}-settings`)
+        await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+        await win.mouse.move(5, 300)
+        await sleep(300)
+        checkTabs(await tabsLook(), `${style}, ${width}, Explorer in front`)
+        await shootTabs(`${style}-${width.toLowerCase()}-explorer`)
+        const project = win.locator('[data-tab-role="project"] [role="tab"]').first()
+        if (await project.count()) {
+          await project.click()
+          await win.mouse.move(5, 300)
+          await sleep(300)
+          checkTabs(await tabsLook(), `${style}, ${width}, a project in front`)
+          await shootTabs(`${style}-${width.toLowerCase()}-project`)
+        }
+      }
+      await switchStyle(win, 'new-void')
+    }
+    await pickTabWidth('Dynamic')
+  } finally {
+    if (before !== undefined) await switchStyle(win, before).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function addressFieldScenario(fixtures) {
   console.log('address field')
   const dir = join(fixtures, 'addrfield')
@@ -9954,13 +10297,17 @@ async function addressFieldScenario(fixtures) {
       const cr = contrast(rgb(l.crumb), rgb(l.path.fill))
       ok(cr >= 4.5, `${name}: a name reads on the field (${cr.toFixed(2)}:1)`)
     }
-    // On Void the fill is DARKER than the old control step (rgb 8,8,8), still
-    // a step off the black, and a quiet edge carries the box (owner,
-    // 2026-10-04: "the white border stands out too much on the black theme").
-    ok(lum(rgb(v.path.fill)) < lum([8, 8, 8]) && lum(rgb(v.path.fill)) > 0, `Void: the field is a darker grey than before (${v.path.fill})`)
+    // On Void the fill is only a shade off the row it sits on, and a quiet
+    // edge carries the box (owner, 2026-10-04: "the white border stands out
+    // too much on the black theme"). Since #306 the row is the sidebar
+    // colour, and both step off THAT: a fill stepped off the page sat at
+    // 1.01:1 on the row (MEASURED), a field with no shape but its edge.
+    const vFill = contrast(rgb(v.path.fill), rgb(v.ground))
+    ok(vFill > 1.02 && vFill < 1.1, `Void: the field is a shade off the row, not a slab (${v.path.fill} on ${v.ground}, ${vFill.toFixed(3)}:1)`)
     const edge = contrast(rgb(v.path.edge), rgb(v.ground))
     ok(edge >= 1.5 && edge < 1.9, `Void: the field's edge is a quiet line, not a white frame (${edge.toFixed(2)}:1)`)
-    ok(p.path.fill === 'rgb(231, 231, 232)', `Paper: the field wears the control fill (${p.path.fill})`)
+    const pFill = contrast(rgb(p.path.fill), rgb(p.ground))
+    ok(pFill > 1.1 && lum(rgb(p.path.fill)) < lum(rgb(p.ground)), `Paper: the field wears the control step off the row (${p.path.fill} on ${p.ground}, ${pFill.toFixed(3)}:1)`)
     ok(v.path.fill !== p.path.fill, 'Void and Paper fill the field differently')
     // A hover strengthens the edge and leaves the fill alone.
     const pathBox = win.locator('.folder-browser [data-testid="browse-toolbar"] nav.browse-path')
@@ -10369,7 +10716,7 @@ async function searchPopupScenario(fixtures) {
     ok(await until(async () => (await popup.count()) === 0, 5000), 'Show more closes the popup')
     const searched = () => win.locator('[data-testid="browse-list"] [data-browse-path]').count()
     ok(await until(async () => (await searched()) >= 5 && (await win.locator('[data-testid="browse-search-status"]').count()) === 1, 15000), `and the list shows every match (${await searched()})`)
-    ok((await win.locator('[data-testid="browse-search-button"]').getAttribute('data-active')) !== null, 'the search button is lit while it does')
+    ok((await win.locator('[data-testid="browse-search-button"]').getAttribute('data-active')) !== null, 'the search button is marked while it does (marked, never lit: #308)')
     await win.locator('[data-testid="browse-search-clear"]').click()
     ok(await until(async () => (await win.locator('[data-testid="browse-search-status"]').count()) === 0, 8000), 'Clear search goes back to the folder')
     await open()
@@ -10951,6 +11298,105 @@ async function styleColoursScenario(fixtures) {
       }, before)
       .catch(() => {})
     await app.close()
+  }
+}
+
+async function dragLabelScenario(fixtures) {
+  console.log('the drag label hangs off the cursor')
+  // #310 (owner, 2026-10-07): "when you pick up an item with left click drag
+  // the label is to its bottom left but also not attached to the cursor ...
+  // it should be attached and it should be from the bottom right". The label
+  // is an in-page element (internalFileDrag), so its box is read mid-drag
+  // against the pointer, in CSS pixels, at three display scales. A REAL press
+  // and travel, so the hook's own dragstart takes the drag.
+  const dir = join(fixtures, 'draglabel')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'folder'), { recursive: true })
+  for (const n of ['alpha.txt', 'beta.txt']) writeFileSync(join(dir, n), `drag label ${n}\n`)
+  const badge = (win) =>
+    win.evaluate(() => {
+      const el = document.querySelector('[data-file-drag-badge]')
+      const r = el?.getBoundingClientRect()
+      return r ? { left: r.left, top: r.top, width: r.width, text: el.textContent ?? '', dpr: devicePixelRatio } : null
+    })
+  /** Press on `el`, travel to two places, read the label at each, let go with Escape. */
+  const carry = async (win, el, what, shot) => {
+    const box = await el.boundingBox()
+    if (!box) {
+      ok(false, `${what}: the row is on screen`)
+      return null
+    }
+    const from = { x: Math.round(box.x + Math.min(24, box.width / 2)), y: Math.round(box.y + box.height / 2) }
+    await win.mouse.move(from.x, from.y)
+    await win.mouse.down()
+    const seen = []
+    for (const [dx, dy] of [[70, 50], [140, 90]]) {
+      const at = { x: from.x + dx, y: from.y + dy }
+      await win.mouse.move(at.x, at.y, { steps: 8 })
+      await sleep(120)
+      const b = await badge(win)
+      seen.push(b && { ...b, x: at.x, y: at.y, offX: b.left - at.x, offY: b.top - at.y })
+    }
+    if (shot) await win.screenshot({ path: join(SHOTS, shot) })
+    await win.keyboard.press('Escape')
+    await win.mouse.up()
+    await sleep(200)
+    const [a, b] = seen
+    ok(!!a && !!b, `${what}: a label is carried (${a?.text ?? 'none'})`)
+    if (!a || !b) return null
+    const near = (o) => o >= 4 && o <= 8
+    ok(
+      near(a.offX) && near(a.offY),
+      `${what}: its top-left corner sits 4 to 8 px right of and below the pointer (${a.offX}, ${a.offY} at dpr ${a.dpr})`
+    )
+    ok(Math.abs(a.offX - b.offX) < 0.5 && Math.abs(a.offY - b.offY) < 0.5, `${what}: and stays attached as the pointer travels (${b.offX}, ${b.offY})`)
+    ok(!(await badge(win)), `${what}: and goes when the drag ends`)
+    return a
+  }
+  for (const scale of [1, 1.5, 2.25]) {
+    // Forced at 100% too: this machine runs at 225%, and an unforced window
+    // would measure that twice.
+    EXTRA_ARGS = [`--force-device-scale-factor=${scale}`]
+    const { app, win } = await launch(join(dir, 'alpha.txt'))
+    try {
+      await win.waitForSelector('aside [role="treeitem"]:has-text("beta.txt")', { timeout: 10000 })
+      await sleep(500)
+      const tree = (name) => win.locator(`aside [role="treeitem"]:has-text("${name}")`).first().locator('span.truncate').first()
+      const one = await carry(win, tree('beta.txt'), `${scale * 100}%, a file from the tree`, `drag-label-${scale * 100}.png`)
+      ok(!!one && Math.abs(one.dpr - scale) < 0.01, `the window really is at ${scale * 100}% (${one?.dpr})`)
+      ok(!!one && one.text.includes('beta.txt'), `and the label names the file (${one?.text})`)
+      if (scale !== 1) continue
+      await carry(win, tree('folder'), 'a folder from the tree')
+
+      /* ---------- the Explorer list ---------- */
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="draglabel"]').dblclick()
+      ok(
+        await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 2, 10000),
+        'the Explorer walked into the folder'
+      )
+      await sleep(400)
+      const row = (n) => win.locator(`[data-testid="browse-list"] [data-browse-path$="${n}"] .browse-name`).first()
+      await carry(win, row('alpha.txt'), 'a file from the Explorer list', 'drag-label-list.png')
+      await carry(win, row('folder'), 'a folder from the Explorer list')
+      await row('alpha.txt').click()
+      await win.keyboard.down('Control')
+      await row('beta.txt').click()
+      await win.keyboard.up('Control')
+      await sleep(200)
+      const many = await carry(win, row('beta.txt'), 'two marked items from the Explorer list', 'drag-label-many.png')
+      ok(!!many && /2 items/.test(many.text), `and the label counts them (${many?.text})`)
+
+      /* ---------- the places panel ---------- */
+      const pin = win.locator('.quick-access-pin').first()
+      if (await pin.count()) await carry(win, pin, 'a place from the places panel')
+      else ok(false, 'the places panel shows a place to drag')
+    } finally {
+      await app.close()
+      EXTRA_ARGS = []
+    }
+    await sleep(900)
   }
 }
 
@@ -14047,7 +14493,7 @@ async function settingsLookScenario(fixtures) {
  * keeps; past the row opens the wall; Home, End; Escape goes back with the
  * draft intact; focus is the fill, never a ring (#272).
  */
-const THEME_ORDER = ['aurora', 'new-void', 'carbon', 'obsidian', 'ember', 'volt', 'midnight-hc', 'glacier', 'lagoon', 'frost', 'paper', 'sand', 'sage', 'blush', 'chalk', 'daylight-hc', 'orchid', 'pearl']
+const THEME_ORDER = ['aurora', 'new-void', 'carbon', 'crimson', 'jade', 'volt', 'midnight-hc', 'glacier', 'lagoon', 'frost', 'paper', 'sand', 'sage', 'blush', 'chalk', 'daylight-hc', 'orchid', 'pearl']
 
 /** The wall as the page has it. */
 const wallState = (win) =>
@@ -14346,7 +14792,7 @@ async function themeLooksScenario(fixtures) {
   const catalogue = JSON.parse(readFileSync(join(ROOT, 'src', 'renderer', 'src', 'lib', 'themes', 'catalogue.json'), 'utf8'))
   try {
     await win.waitForSelector('.cm-content', { timeout: 10000 })
-    for (const id of ['aurora', 'ember', 'chalk', 'midnight-hc', 'daylight-hc', 'orchid']) {
+    for (const id of ['aurora', 'jade', 'crimson', 'chalk', 'midnight-hc', 'daylight-hc', 'orchid']) {
       const r = await switchStyle(win, id)
       if (styleBefore === undefined) styleBefore = r
       await sleep(350)
@@ -14360,7 +14806,7 @@ async function themeLooksScenario(fixtures) {
       await win.screenshot({ path: join(SHOTS, `theme-code-${id}.png`) })
     }
     await win.locator('[role="tab"]:has-text("Explorer")').first().click()
-    for (const id of ['aurora', 'carbon', 'paper', 'midnight-hc', 'glacier', 'pearl']) {
+    for (const id of ['aurora', 'carbon', 'jade', 'crimson', 'paper', 'midnight-hc', 'glacier', 'pearl']) {
       await switchStyle(win, id)
       await sleep(350)
       await win.screenshot({ path: join(SHOTS, `theme-explorer-${id}.png`) })
@@ -14394,7 +14840,14 @@ async function themeMigrationScenario(fixtures) {
   const light = { ...dark, id: 'custom-0-2-Customtheme2', name: 'Custom theme 2', mode: 'light', material: 'solid', bg: '#f8f4ed', side: '#f1ebe1', title: '#e9e2d5', text: '#241f18', accent: '#92400e' }
   const cases = [
     { name: 'onyx', seed: { 'prism.style': 'default', 'prism.style.draft': JSON.stringify({ accent: '#22aa66' }), 'prism.style.presets': JSON.stringify([dark, light]), 'prism.mode': 'dark' }, want: 'new-void', retired: 'Onyx', mapped: 'Void' },
-    { name: 'driftwood', seed: { 'prism.style': 'driftwood', 'prism.mode': 'light' }, want: 'carbon', retired: 'Driftwood', mapped: 'Carbon' }
+    { name: 'driftwood', seed: { 'prism.style': 'driftwood', 'prism.mode': 'light' }, want: 'carbon', retired: 'Driftwood', mapped: 'Carbon' },
+    // Ember and Obsidian retired after the first pass (#316): a profile
+    // already on the first marker moves once more, to Jade.
+    { name: 'ember', seed: { 'prism.style': 'ember', 'prism.style.v': '2', 'prism.mode': 'dark' }, want: 'jade', retired: 'Ember', mapped: 'Jade' },
+    { name: 'obsidian', seed: { 'prism.style': 'obsidian', 'prism.style.v': '2', 'prism.mode': 'dark' }, want: 'jade', retired: 'Obsidian', mapped: 'Jade' },
+    // Ruby, placed on Ember by the first pass and never repicked (its line
+    // still says Ruby), follows to Crimson, the red #316 added.
+    { name: 'ruby', seed: { 'prism.style': 'ember', 'prism.style.v': '2', 'prism.style.retired': 'Ruby', 'prism.mode': 'dark' }, want: 'crimson', retired: 'Ruby', mapped: 'Crimson' }
   ]
   for (const c of cases) {
     const profile = `${PROFILE}-migrate-${c.name}`
@@ -14406,7 +14859,7 @@ async function themeMigrationScenario(fixtures) {
         Object.fromEntries(['prism.style', 'prism.style.draft', 'prism.style.presets', 'prism.style.v', 'prism.style.retired', 'prism.mode'].map((k) => [k, localStorage.getItem(k)]))
       )
       ok(keys['prism.style'] === c.want, `${c.name}: the saved theme is now ${c.want} (${keys['prism.style']})`)
-      ok(keys['prism.style.v'] === '2', `${c.name}: the marker is set`)
+      ok(keys['prism.style.v'] === '4', `${c.name}: the marker is set`)
       ok(keys['prism.style.retired'] === c.retired, `${c.name}: the old name is kept for the one line (${keys['prism.style.retired']})`)
       if (c.name === 'onyx') {
         const draft = JSON.parse(keys['prism.style.draft'] ?? '{}')
@@ -14414,7 +14867,7 @@ async function themeMigrationScenario(fixtures) {
         ok(await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg').startsWith('rgba(')), 'onyx: the window is see-through')
         const presets = JSON.parse(keys['prism.style.presets'] ?? '[]')
         ok(JSON.stringify(presets) === JSON.stringify([{ ...dark, base: 'new-void' }, { ...light, base: 'new-void' }]), 'onyx: both own copies are kept field for field, their base mapped')
-      } else {
+      } else if (c.name === 'driftwood') {
         ok(keys['prism.mode'] === 'dark', `driftwood: the old light mode was not read; the boot mirror says dark (${keys['prism.mode']})`)
       }
       await settingsPage(win, 'appearance')
@@ -14424,7 +14877,10 @@ async function themeMigrationScenario(fixtures) {
       if (c.name === 'onyx') ok(JSON.stringify(w.ids.slice(-2)) === JSON.stringify([dark.id, light.id]), `onyx: the own copies are the last cards (${w.ids.slice(-2)})`)
       ok(JSON.stringify(w.checked) === JSON.stringify([c.want]), `${c.name}: the chosen card is ${c.want}, nothing reset to Aurora (${w.checked})`)
       await win.screenshot({ path: join(SHOTS, `theme-migration-${c.name}.png`) })
-      await win.locator('[data-theme-card="aurora"]').click()
+      // A card in the collapsed wall's one row, not the chosen one: the
+      // chosen card's row may not hold Aurora.
+      const other = w.shown.find((id) => id !== c.want)
+      await win.locator(`[data-theme-card="${other}"]`).click()
       ok(await until(async () => (await line.count()) === 0, 3000, 50), `${c.name}: a theme pick takes the line away`)
       ok((await win.evaluate(() => localStorage.getItem('prism.style.retired'))) === null, `${c.name}: and its key`)
     } finally {
@@ -14560,6 +15016,14 @@ async function settingsSearchScenario(fixtures) {
       if ((await find.inputValue()) !== '') misses.push(`${id}: the field kept its text`)
     }
     ok(misses.length === 0, `every row is found by its label and opened (${JSON.stringify(misses)})`)
+    // TWO SIDEBAR POSITIONS (#304; owner, 2026-10-07: "two settings, one on
+    // the project tab and one on the explorer tab"): one search finds both.
+    await find.fill('sidebar position')
+    ok(
+      await until(async () => (await win.locator('[data-settings-page] [role="option"][data-hit="explorer-side"]').count()) === 1 && (await win.locator('[data-settings-page] [role="option"][data-hit="tree-side"]').count()) === 1, 3000, 30),
+      'Sidebar position finds the Explorer row and the project row'
+    )
+    await find.fill('')
     // KEYBOARD ONLY: the field, Down, Enter, and the control has the focus.
     await find.focus()
     await win.keyboard.type('explorer menu')
@@ -14631,6 +15095,62 @@ async function settingsSearchScenario(fixtures) {
   }
 }
 
+/** The coats under a box (#294): at points along its middle row (and one
+ *  lower down for a tall box) where nothing carrying text is on top, every box
+ *  from the top of the stack to the root, background alphas composited. The
+ *  worst point is returned, with the coats that made it. Shared by
+ *  `seeThrough` and `explorerSide` (#304). */
+const coatsUnder = (win, sel, at) =>
+  win.evaluate(([q, y0]) => {
+    const el = document.querySelector(q)
+    if (!el) return null
+    const alphaOf = (c) => {
+      if (!c || c === 'transparent') return 0
+      const v = (c.match(/[\d.]+/g) ?? []).map(Number)
+      return v.length > 3 ? v[3] : 1
+    }
+    const r = el.getBoundingClientRect()
+    const rows = y0 !== null ? [r.top + y0] : r.height > 120 ? [r.top + 16, r.top + r.height * 0.5, r.bottom - 24] : [r.top + r.height / 2]
+    let worst = null
+    for (const y of rows)
+      for (let x = r.left + 6; x < r.right - 6; x += 9) {
+        const stack = document.elementsFromPoint(x, y)
+        if (!stack.length || !(stack[0] === el || el.contains(stack[0]))) continue
+        const top = stack[0]
+        if (top !== el && [...top.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue
+        // The file itself (a picture, a PDF page, a line of code) and a
+        // control (the address field, the transport) are not grounds. A
+        // film's box is measured: its letterbox is the pane's ground. A
+        // CARD (the archive's member list) is a flat panel, like a menu.
+        if (top.closest('img, canvas, svg, button, input, .browse-field, [data-page], [data-scrub], [data-transport-row], .p-sheet, .cm-line, .cm-gutterElement, [class~="bg-[var(--p-side-flat)]"]')) continue
+        let clear = 1
+        const coats = []
+        for (const b of stack) {
+          const a = alphaOf(getComputedStyle(b).backgroundColor)
+          if (a > 0.01) {
+            clear *= 1 - a
+            const cls = typeof b.className === 'string' ? b.className.trim().split(/\s+/).filter((c) => !c.includes('[')).slice(0, 3).join('.') : ''
+            coats.push(`${b.tagName.toLowerCase()}${cls ? '.' + cls : ''}@${a.toFixed(2)}`)
+          }
+        }
+        const total = 1 - clear
+        if (!worst || total > worst.total) worst = { total, x: Math.round(x), y: Math.round(y), coats }
+      }
+    return worst
+  }, [sel, at ?? null])
+
+/** The alpha of the window's see-through ground, --p-bg. */
+const groundAlphaOf = (win) =>
+  win.evaluate(() => {
+    const probe = document.createElement('span')
+    probe.style.backgroundColor = 'var(--p-bg)'
+    document.body.appendChild(probe)
+    const c = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    const v = (c.match(/[\d.]+/g) ?? []).map(Number)
+    return v.length > 3 ? v[3] : 1
+  })
+
 /**
  * A SEE-THROUGH STYLE IS SEE-THROUGH EVERYWHERE (#294; owner, 2026-10-06, of
  * Prism on a glass style: "the top bar and settings sidebar don't follow the
@@ -14680,58 +15200,9 @@ async function seeThroughScenario(fixtures) {
   }
   const { app, win } = await launch(join(dir, 'notes.md'))
   let styleBefore = null
-  /** The coats under a box: at points along its middle row (and one lower
-   *  down for a tall box) where nothing carrying text is on top, every box
-   *  from the top of the stack to the root, background alphas composited.
-   *  The worst point is returned, with the coats that made it. */
-  const coatsOf = (sel, at) =>
-    win.evaluate(([q, y0]) => {
-      const el = document.querySelector(q)
-      if (!el) return null
-      const alphaOf = (c) => {
-        if (!c || c === 'transparent') return 0
-        const v = (c.match(/[\d.]+/g) ?? []).map(Number)
-        return v.length > 3 ? v[3] : 1
-      }
-      const r = el.getBoundingClientRect()
-      const rows = y0 !== null ? [r.top + y0] : r.height > 120 ? [r.top + 16, r.top + r.height * 0.5, r.bottom - 24] : [r.top + r.height / 2]
-      let worst = null
-      for (const y of rows)
-        for (let x = r.left + 6; x < r.right - 6; x += 9) {
-          const stack = document.elementsFromPoint(x, y)
-          if (!stack.length || !(stack[0] === el || el.contains(stack[0]))) continue
-          const top = stack[0]
-          if (top !== el && [...top.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue
-          // The file itself (a picture, a PDF page, a line of code) and a
-          // control (the address field, the transport) are not grounds. A
-          // film's box is measured: its letterbox is the pane's ground. A
-          // CARD (the archive's member list) is a flat panel, like a menu.
-          if (top.closest('img, canvas, svg, button, input, .browse-field, [data-page], [data-scrub], [data-transport-row], .p-sheet, .cm-line, .cm-gutterElement, [class~="bg-[var(--p-side-flat)]"]')) continue
-          let clear = 1
-          const coats = []
-          for (const b of stack) {
-            const a = alphaOf(getComputedStyle(b).backgroundColor)
-            if (a > 0.01) {
-              clear *= 1 - a
-              const cls = typeof b.className === 'string' ? b.className.trim().split(/\s+/).filter((c) => !c.includes('[')).slice(0, 3).join('.') : ''
-              coats.push(`${b.tagName.toLowerCase()}${cls ? '.' + cls : ''}@${a.toFixed(2)}`)
-            }
-          }
-          const total = 1 - clear
-          if (!worst || total > worst.total) worst = { total, x: Math.round(x), y: Math.round(y), coats }
-        }
-      return worst
-    }, [sel, at ?? null])
-  const groundAlpha = () =>
-    win.evaluate(() => {
-      const probe = document.createElement('span')
-      probe.style.backgroundColor = 'var(--p-bg)'
-      document.body.appendChild(probe)
-      const c = getComputedStyle(probe).backgroundColor
-      probe.remove()
-      const v = (c.match(/[\d.]+/g) ?? []).map(Number)
-      return v.length > 3 ? v[3] : 1
-    })
+  /** The coats under a box (`coatsUnder`, above). */
+  const coatsOf = (sel, at) => coatsUnder(win, sel, at)
+  const groundAlpha = () => groundAlphaOf(win)
   const oneCoat = async (label, sel, want, at) => {
     let m = null
     await until(async () => {
@@ -15093,6 +15564,329 @@ async function previewClearsScenario(fixtures) {
   }
 }
 
+/**
+ * SIDEBAR POSITION MOVES THE EXPLORER'S SIDEBAR (#304; owner, 2026-10-07: "fix
+ * the setting in Explorer for the sidebar where you can put it on the right
+ * side or the left side? I think that's just an empty setting for now ... when
+ * the sidebar goes on the right, the preview menu and button to open it would
+ * have to go on the left"), AND IT IS TWO SETTINGS (owner, the same day, after
+ * testing one shared row: "No, it should be two settings, one on the project
+ * tab and one on the explorer tab"). Explorer > Layout's row (`explorer-side`)
+ * moves the places and leaves a project's tree where it is; Project settings'
+ * row (`tree-side`) moves the tree and leaves the Explorer where it is. On the
+ * right: the places against the window's right edge, the preview pane against
+ * its left, the preview toggle before the history buttons; the toggle, both
+ * grips, the hide, the peek and the pin all work turned round, one coat of a
+ * see-through ground everywhere, and Left again gives back every box exactly.
+ * Both choices outlive a restart.
+ */
+async function explorerSideScenario(fixtures) {
+  console.log('explorer sidebar side (#304)')
+  const dir = join(fixtures, 'explorerside')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'sub'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), Array.from({ length: 30 }, (_, i) => `line ${i + 1} of the notes`).join('\n'))
+  writeFileSync(join(dir, 'other.txt'), 'other\n')
+  let { app, win } = await launch(join(dir, 'notes.txt'))
+  let widthsBefore = null
+  let styleBefore
+  const browser = '[data-testid="folder-browser"]'
+  const boxes = () =>
+    win.evaluate((b) => {
+      const at = (q) => {
+        const el = document.querySelector(q)
+        if (!el || !el.getClientRects().length) return null
+        const r = el.getBoundingClientRect()
+        return { x: Math.round(r.left), r: Math.round(r.right), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }
+      }
+      return {
+        side: document.querySelector(b)?.getAttribute('data-side') ?? 'left',
+        work: at('.browse-workspace'),
+        places: at(`${b} .browse-places`),
+        list: at(`${b} .browse-list-area`),
+        pane: at('[data-browse-preview]'),
+        toggle: at(`${b} [aria-label="Preview pane"]`),
+        back: at(`${b} [aria-label="Back"]`),
+        field: at(`${b} .browse-path`),
+        search: at('[data-testid="browse-search-button"]'),
+        status: at(`${b} .browse-status`),
+        placesGrip: at('.explorer-resize-places'),
+        previewGrip: at('.explorer-resize-preview')
+      }
+    }, browser)
+  const say = (m) => JSON.stringify(m)
+  const settle = () => sleep(500)
+  const toExplorer = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${browser} .browse-row`, { timeout: 10000 })
+  }
+  const pick = async (name) => {
+    await zipRow(win, name).click()
+    ok(
+      await until(() => win.evaluate(() => !!document.querySelector('[data-browse-preview]')?.textContent?.includes('line 1 of the notes')), 10000),
+      `${name} previews`
+    )
+    await win.mouse.move(400, 300)
+    await settle()
+  }
+  const toggle = () => win.locator(`${browser} [aria-label="Preview pane"]`)
+  const placesShown = async () => (await win.locator(`${browser} .browse-places`).count()) === 1
+  const drag = async (sel, dx) => {
+    const g = await win.locator(sel).boundingBox()
+    const x = g.x + g.width / 2
+    const y = g.y + g.height / 2
+    await win.mouse.move(x, y)
+    await win.mouse.down()
+    await win.mouse.move(x + dx / 2, y, { steps: 3 })
+    await win.mouse.move(x + dx, y, { steps: 3 })
+    await win.mouse.up()
+    await settle()
+  }
+  const project = () =>
+    win.evaluate(() => {
+      const at = (el) => {
+        if (!el || !el.getClientRects().length) return null
+        const r = el.getBoundingClientRect()
+        return { x: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }
+      }
+      return {
+        work: at(document.querySelector('.browse-workspace')),
+        tree: at(document.querySelector('[data-project-sidebar]')),
+        viewer: at(document.querySelector('[data-workspace-viewer]'))
+      }
+    })
+  try {
+    widthsBefore = await win.evaluate(() => localStorage.getItem('prism.explorer.widths'))
+    // 0. TWO ROWS, one per page: the Explorer's first in its Layout, the
+    // project tree's first in Project settings, each only there.
+    await gotoPref(win, 'explorer-side')
+    const firstInLayout = await win.evaluate(() => document.querySelector('[data-settings-section="layout"] [data-pref]')?.getAttribute('data-pref'))
+    ok(firstInLayout === 'explorer-side', `the Explorer's Sidebar position is the first row of its Layout (${firstInLayout})`)
+    ok((await win.locator('[data-pref="tree-side"]').count()) === 0, 'and the Explorer page has no project tree row')
+    const explorerSub = (await win.locator('[data-pref="explorer-side"]').innerText()).replace(/\s+/g, ' ')
+    ok(/Sidebar position/.test(explorerSub) && /places panel/.test(explorerSub), `it names the places panel (${explorerSub})`)
+    await settingsPage(win, 'project')
+    await win.locator('[data-pref="tree-side"]').waitFor({ timeout: 10000 })
+    const firstInProject = await win.evaluate(() => document.querySelector('[data-settings-section="project"] [data-pref]')?.getAttribute('data-pref'))
+    ok(firstInProject === 'tree-side', `the project tree's Sidebar position is back on Project settings, first (${firstInProject})`)
+    ok((await win.locator('[data-pref="explorer-side"]').count()) === 0, 'and Project settings has no Explorer row')
+    const treeSub = (await win.locator('[data-pref="tree-side"]').innerText()).replace(/\s+/g, ' ')
+    ok(/Sidebar position/.test(treeSub) && /file tree/.test(treeSub), `it names the file tree (${treeSub})`)
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+    await pickStyleSegment(win, 'explorer-side', 'Left')
+    await pickStyleSegment(win, 'tree-side', 'Left')
+
+    // 1. LEFT, as it always was: the project tab and the Explorer.
+    await win.locator('[role="tablist"] [role="tab"]').last().click()
+    await win.waitForSelector('[data-project-sidebar]', { timeout: 10000 })
+    await settle()
+    const projLeft = await project()
+    ok(!!projLeft.tree && projLeft.tree.x === projLeft.work.x, `Left: the project tree is at the left edge (${say(projLeft)})`)
+    await explorerAt(win, dir)
+    if (!(await placesShown())) await win.click('[data-panel-toggle]')
+    ok(await until(placesShown, 4000), 'the places are shown')
+    if ((await toggle().getAttribute('aria-pressed')) !== 'true') await toggle().click()
+    await pick('notes.txt')
+    // The panels at their own widths, so a later scenario starts where it did.
+    await win.locator('.explorer-resize-places').dblclick()
+    await win.locator('.explorer-resize-preview').dblclick()
+    await win.mouse.move(400, 300)
+    await settle()
+    const left = await boxes()
+    console.log(`  left: ${say(left)}`)
+    ok(left.side === 'left' && left.places?.x === left.work.x, 'Left: the places are at the left edge')
+    ok(left.pane?.r === left.work.r && left.pane.x >= left.list.r - 1, 'Left: the preview is at the right edge, right of the list')
+    ok(left.toggle.x >= left.field.r && left.toggle.r <= left.search.x, 'Left: the preview toggle is after the address, before search')
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-left.png') })
+
+    // 2. THE EXPLORER'S RIGHT.
+    await pickStyleSegment(win, 'explorer-side', 'Right')
+    ok((await win.evaluate(() => [localStorage.getItem('prism.explorer.side'), localStorage.getItem('prism.tree.side')])).join('/') === 'right/left', 'the Explorer row stores its own key and leaves the tree\'s')
+    await toExplorer()
+    await pick('notes.txt')
+    const right = await boxes()
+    console.log(`  right: ${say(right)}`)
+    ok(right.side === 'right', 'Right: the browser says so')
+    ok(right.places?.r === right.work.r, `Right: the places are at the window's right edge (${say(right.places)} in ${say(right.work)})`)
+    ok(right.pane?.x === right.work.x && right.pane.r <= right.list.x + 1, `Right: the preview is at the left edge, left of the list (${say(right.pane)}, list ${say(right.list)})`)
+    ok(right.list.r <= right.places.x + 1, 'Right: the list sits between them')
+    ok(right.toggle.r <= right.back.x && right.toggle.r <= right.field.x, `Right: the preview toggle leads the address row, before Back (${say(right.toggle)} back ${say(right.back)})`)
+    ok(right.search.x >= right.field.r, 'Right: search stays at the far end')
+    ok(right.places.w === left.places.w && right.pane.w === left.pane.w && right.list.w === left.list.w, `Right: every panel keeps its width (${left.places.w}/${left.list.w}/${left.pane.w} -> ${right.places.w}/${right.list.w}/${right.pane.w})`)
+    ok(right.placesGrip?.r === right.places.x && left.placesGrip?.x === left.places.r, `the places grip is its left twin turned round (${say(left.placesGrip)} / ${say(right.placesGrip)})`)
+    ok(right.previewGrip?.r === right.pane.r && left.previewGrip?.x === left.pane.x, `the preview grip too (${say(left.previewGrip)} / ${say(right.previewGrip)})`)
+    ok(right.status.x === right.work.x && right.status.r === right.places.x, `the status line runs under the preview and the list (${say(right.status)})`)
+    for (const [scheme, style] of [['dark', 'new-void'], ['light', 'paper']]) {
+      const was = await switchStyle(win, style)
+      if (styleBefore === undefined) styleBefore = was
+      await win.mouse.move(400, 300)
+      await sleep(700)
+      await win.screenshot({ path: join(SHOTS, `explorer-side-right-${scheme}.png`) })
+    }
+
+    // 3. One coat of a see-through ground on every panel, turned round too.
+    await switchStyle(win, 'glacier')
+    await win.mouse.move(400, 300)
+    await sleep(800)
+    const want = await groundAlphaOf(win)
+    ok(want < 1, 'Glacier is a see-through style')
+    for (const [label, sel] of [
+      ['the list', '[data-testid="browse-list"]'],
+      ['the places', `${browser} .browse-places`],
+      ['the preview pane', '[data-browse-preview]'],
+      ['the status line', `${browser} .browse-status`],
+      ['the address bar', `${browser} > .browse-toolbar`]
+    ]) {
+      let m = null
+      await until(async () => {
+        m = await coatsUnder(win, sel)
+        return !!m && Math.abs(m.total - want) <= 0.02
+      }, 3000, 100)
+      ok(!!m && Math.abs(m.total - want) <= 0.02, `Right, ${label}: one coat of the see-through ground (${m ? `${m.total.toFixed(3)} of ${want.toFixed(3)}: ${m.coats.join(' + ')}` : 'not found'})`)
+    }
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-right-glass.png') })
+    await switchStyle(win, 'new-void')
+    await sleep(400)
+
+    // 4. THE TOGGLE: shut, the list reaches the left edge; open, the pane is back.
+    await toggle().click()
+    ok(await until(async () => !(await boxes()).pane, 3000, 50), 'Right: the toggle shuts the preview')
+    await settle()
+    let now = await boxes()
+    ok(now.list.x === now.work.x && now.places.r === now.work.r, `and the list reaches the left edge (${say(now.list)})`)
+    await toggle().click()
+    ok(await until(async () => !!(await boxes()).pane, 3000, 50), 'the toggle opens it again')
+    await sleep(700)
+    now = await boxes()
+    ok(now.pane.x === now.work.x && now.pane.w === right.pane.w && now.list.x === right.list.x, `at the left edge, at its width (${say(now.pane)})`)
+
+    // 5. THE GRIPS: toward the middle widens, the far side stays put.
+    await drag('.explorer-resize-places', -40)
+    now = await boxes()
+    ok(now.places.w === right.places.w + 40 && now.places.r === now.work.r, `dragging the places' grip left widens them, against the right edge (${right.places.w} -> ${now.places.w})`)
+    await win.locator('.explorer-resize-places').focus()
+    await win.keyboard.press('ArrowLeft')
+    await settle()
+    const keyed = await boxes()
+    ok(keyed.places.w === now.places.w + 16, `ArrowLeft on it widens them too (${now.places.w} -> ${keyed.places.w})`)
+    await drag('.explorer-resize-preview', 40)
+    now = await boxes()
+    ok(now.pane.w === right.pane.w + 40 && now.pane.x === now.work.x, `dragging the preview's grip right widens it, against the left edge (${right.pane.w} -> ${now.pane.w})`)
+    const saved = JSON.parse(await win.evaluate(() => localStorage.getItem('prism.explorer.widths') ?? '{}'))
+    ok(saved.places === keyed.places.w && saved.preview === now.pane.w, `and both widths are remembered (${JSON.stringify(saved)})`)
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-right-resized.png') })
+    await win.locator('.explorer-resize-places').dblclick()
+    await win.locator('.explorer-resize-preview').dblclick()
+    await win.mouse.move(400, 300)
+    await settle()
+    now = await boxes()
+    ok(now.places.w === right.places.w && now.pane.w === right.pane.w, 'a double-click gives each its own width back')
+
+    // 6. HIDDEN, the list takes the right edge; the edge peeks them over it.
+    await win.click('[data-panel-toggle]')
+    ok(await until(async () => !(await placesShown()), 3000), 'the toggle hides the places')
+    await settle()
+    const hiddenBoxes = await boxes()
+    ok(hiddenBoxes.list.r === hiddenBoxes.work.r, `and the list reaches the right edge (${say(hiddenBoxes.list)})`)
+    const edgeY = Math.round(hiddenBoxes.work.y + hiddenBoxes.work.h / 2)
+    const away = { x: Math.round(hiddenBoxes.work.x + hiddenBoxes.work.w * 0.4), y: edgeY }
+    await win.mouse.move(away.x, away.y)
+    await sleep(50)
+    await win.mouse.move(hiddenBoxes.work.r - 2, edgeY)
+    ok(
+      await until(async () => (await win.locator(`${browser}[data-places-peek="in"] .browse-places`).count()) === 1, 2000, 25),
+      'resting on the RIGHT edge brings the places out'
+    )
+    await sleep(300)
+    const peek = await boxes()
+    ok(peek.places.r === peek.work.r && Math.abs(peek.places.w - right.places.w) <= 1, `over the list at the right edge, at their own width (${say(peek.places)})`)
+    ok(JSON.stringify(peek.list) === JSON.stringify(hiddenBoxes.list), 'and the list did not move')
+    const shadow = await win.evaluate((b) => getComputedStyle(document.querySelector(`${b} .browse-places`)).boxShadow, browser)
+    ok(/-10px/.test(shadow), `the shadow falls on the list's side (${shadow})`)
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-right-peek.png') })
+    await win.mouse.move(away.x, away.y, { steps: 4 })
+    ok(await until(async () => !(await placesShown()), 2000, 25), 'they go when the pointer leaves')
+    await win.mouse.move(hiddenBoxes.work.r - 2, edgeY)
+    ok(await until(async () => (await win.locator(`${browser}[data-places-peek="in"]`).count()) === 1, 2000, 25), 'out again')
+    await sleep(300)
+    await win.locator(`${browser} [data-peek-pin]`).click()
+    ok(
+      await until(async () => (await win.locator(`${browser}[data-places-peek]`).count()) === 0 && (await placesShown()), 3000),
+      'and their pin keeps them'
+    )
+    await win.mouse.move(400, 300)
+    await settle()
+    now = await boxes()
+    ok(now.places.r === now.work.r && now.places.w === right.places.w, `pinned at the right edge (${say(now.places)})`)
+
+    // 7. THE PROJECT TAB stays put under the Explorer's Right.
+    const toProject = async () => {
+      await win.locator('[role="tablist"] [role="tab"]').last().click()
+      await win.waitForSelector('[data-project-sidebar]', { timeout: 10000 })
+      await settle()
+    }
+    await toProject()
+    const projStill = await project()
+    ok(JSON.stringify(projStill) === JSON.stringify(projLeft), `the Explorer's Right leaves the project tree at the left edge (${say(projStill)} vs ${say(projLeft)})`)
+
+    // 8. THE PROJECT'S RIGHT: the tree on the right, the file left of it.
+    await pickStyleSegment(win, 'tree-side', 'Right')
+    ok((await win.evaluate(() => [localStorage.getItem('prism.explorer.side'), localStorage.getItem('prism.tree.side')])).join('/') === 'right/right', 'the project row stores its own key')
+    await toProject()
+    const projRight = await project()
+    ok(projRight.tree?.r === projRight.work.r && projRight.viewer?.r <= projRight.tree.x + 1, `Right: the project tree is at the right edge, the file left of it (${say(projRight)})`)
+    ok(projRight.tree.w === projLeft.tree.w, 'at the width it had')
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-right-project.png') })
+
+    // 9. THE EXPLORER'S LEFT AGAIN, with the project's Right kept: every
+    // Explorer box exactly as it was, so the project row moved nothing here.
+    await pickStyleSegment(win, 'explorer-side', 'Left')
+    await toExplorer()
+    await pick('notes.txt')
+    const back = await boxes()
+    ok(JSON.stringify(back) === JSON.stringify(left), `the project's Right leaves the Explorer as it was, every box exactly (${say(back)} vs ${say(left)})`)
+    await win.screenshot({ path: join(SHOTS, 'explorer-side-left-again.png') })
+    await toProject()
+    const projKept = await project()
+    ok(projKept.tree?.r === projKept.work.r, `and the project tree is still on the right (${say(projKept)})`)
+
+    // 10. A RESTART keeps both, each its own. (Measured against the window it
+    // opens at: a restart restores the window's size, not to the pixel.)
+    await pickStyleSegment(win, 'explorer-side', 'Right')
+    await app.close()
+    await sleep(900)
+    ;({ app, win } = await launch(join(dir, 'notes.txt')))
+    ok((await win.evaluate(() => [localStorage.getItem('prism.explorer.side'), localStorage.getItem('prism.tree.side')])).join('/') === 'right/right', 'both choices are stored')
+    await explorerAt(win, dir)
+    await pick('notes.txt')
+    const again = await boxes()
+    ok(again.side === 'right' && again.places?.r === again.work.r && again.pane?.x === again.work.x, `after a restart the places are on the right and the preview on the left (${say(again)})`)
+    ok(again.toggle.r <= again.back.x, 'and the preview toggle still leads the address row')
+    await toProject()
+    const projAgain = await project()
+    ok(projAgain.tree?.r === projAgain.work.r, `and the project tree is on the right (${say(projAgain)})`)
+    await pickStyleSegment(win, 'explorer-side', 'Left')
+    await pickStyleSegment(win, 'tree-side', 'Left')
+    await toProject()
+    const projLeftAgain = await project()
+    ok(projLeftAgain.tree?.x === projLeftAgain.work.x, `the project row's Left puts the tree back at the left edge (${say(projLeftAgain)})`)
+  } finally {
+    await win
+      .evaluate((w) => {
+        localStorage.setItem('prism.tree.side', 'left')
+        localStorage.setItem('prism.explorer.side', 'left')
+        localStorage.setItem('prism.explorer.places', '1')
+        if (w === null) localStorage.removeItem('prism.explorer.widths')
+        else localStorage.setItem('prism.explorer.widths', w)
+      }, widthsBefore)
+      .catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 /** The labels of the open context menu, top to bottom. */
 const menuLabels = (win) =>
   win.evaluate(() =>
@@ -15419,6 +16213,7 @@ await run(reloadScenario)
 await run(tailScenario)
 await run(hexScenario)
 await run(codeScenario)
+await run(jsoncScenario)
 await run(treeNavScenario)
 await run(unsavedScenario)
 await run(playerScenario)
@@ -15481,6 +16276,7 @@ await run(accentOpacityScenario)
 await run(styleColoursScenario)
 await run(seeThroughScenario)
 await run(dragScenario)
+await run(dragLabelScenario)
 await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(markTintScenario)
@@ -15490,6 +16286,7 @@ await run(sidebarGroundScenario)
 await run(rightClickSelectScenario)
 await run(columnHeadersScenario)
 await run(panelsAlignScenario)
+await run(explorerSideScenario)
 await run(downloadsDateScenario)
 await run(noLoadingEverScenario)
 await run(coldLaunchCachedScenario)
@@ -15500,6 +16297,7 @@ await run(tabSwitchInstantScenario)
 await run(rememberFoldersScenario)
 await run(listScrollbarScenario)
 await run(addressFieldScenario)
+await run(toolbarIconsScenario)
 await run(explorerVerbsScenario)
 await run(searchPopupScenario)
 await run(searchNavScenario)

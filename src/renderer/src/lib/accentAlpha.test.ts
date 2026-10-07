@@ -159,7 +159,11 @@ describe('an icon knockout matches the row it sits on', () => {
     expect(t['--p-sel-seen']).toMatch(/^#[0-9a-f]{6}$/i)
     for (const s of STYLES) {
       const solid = derive(s)
-      expect(solid['--p-sel-seen']).toBe(selectionBg(paletteHex(s)))
+      // A theme's designed fill when it has one (#298): Crimson's red keeps its
+      // near-black ink at 5.26:1 where the derivation, which leans to white,
+      // would deepen it to #e0213e (#316). Either way it is the selection.
+      expect(solid['--p-sel-seen']).toBe(s.table?.accentFill ?? selectionBg(paletteHex(s)))
+      expect(solid['--p-sel-seen']).toBe(solid['--p-sel-bg'])
       expect(solid['--p-sel-knockout-side']).toBe(solid['--p-accent'])
     }
   })

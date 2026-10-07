@@ -113,3 +113,61 @@ for (const s of STYLES) {
     }
   })
 }
+
+/** CIE76 distance in Lab: about 2 is a just noticeable step. */
+const lab = (hex: string): [number, number, number] => {
+  const n = parseInt(hex.slice(1, 7), 16)
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+    const c = v / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  })
+  const f = (t: number): number => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116)
+  const x = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047)
+  const y = f(0.2126 * r + 0.7152 * g + 0.0722 * b)
+  const z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883)
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)]
+}
+const apart = (a: string, b: string): number => {
+  const [p, q] = [lab(a), lab(b)]
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
+}
+
+// CRIMSON, VOLT IN RED (#316; owner, 2026-10-07: "have this replace
+// obsidian"). The first red accent on the wall, so the reds and oranges that
+// mean something else must still be told from it.
+describe('Crimson, a red accent', () => {
+  const s = STYLES.find((x) => x.id === 'crimson')!
+  const v = variablesFor(s)
+
+  it('is Volt with the red', () => {
+    const volt = variablesFor(STYLES.find((x) => x.id === 'volt')!)
+    for (const k of ['--p-bg', '--p-side-flat', '--p-raised', '--p-line', '--p-text', '--p-dim', '--p-dim2', '--p-code-string', '--p-code-fn'])
+      expect(v[k], k).toBe(volt[k])
+    expect(v['--p-accent']).toBe('#ff2647')
+    expect(v['--p-tree-folder']).toBe('#ff2647')
+    expect(v['--p-sel-tint']).toBe('#ff264738')
+  })
+
+  it('writes near-black on its fill, the ink that reaches 4.5:1 (white does not)', () => {
+    expect(v['--p-on-accent']).toBe('#0b0b0d')
+    expect(contrast('#0b0b0d', v['--p-accent'])).toBeGreaterThanOrEqual(4.5)
+    expect(contrast('#ffffff', v['--p-accent'])).toBeLessThan(4.5)
+  })
+
+  it("keeps a nearly full drive's orange apart from the red bar", () => {
+    // Below 90% a drive's bar is the accent; past it, --p-warn.
+    expect(apart(v['--p-warn'], v['--p-accent-solid'])).toBeGreaterThanOrEqual(40)
+    expect(apart(v['--p-warn-ink'], v['--p-accent-solid'])).toBeGreaterThanOrEqual(40)
+    expect(contrast(v['--p-warn'], v['--p-side-flat'])).toBeGreaterThanOrEqual(3)
+    expect(contrast(v['--p-warn-ink'], v['--p-side-flat'])).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('keeps the error reds apart from the accent', () => {
+    // Code's invalid mark, a danger button's fill, a danger menu row's ink.
+    for (const c of [v['--p-code-invalid'], '#b4353f', '#d97b84']) expect(apart(c, v['--p-accent-solid']), c).toBeGreaterThanOrEqual(30)
+  })
+
+  it('keeps the keyword, mixed from the red, apart from the tag', () => {
+    expect(apart(v['--p-code-keyword'], v['--p-code-tag'])).toBeGreaterThanOrEqual(15)
+  })
+})
