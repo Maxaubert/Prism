@@ -4,9 +4,11 @@
 .browse-surface-host {
   z-index: 1;
 }
+/* Over an opened file the address row is the same row, so the same sidebar
+   colour (#306), one coat: the .browse-toolbar inside paints nothing here. */
 .browse-viewer-toolbar {
   flex-shrink: 0;
-  background: var(--p-bg);
+  background: var(--p-side);
 }
 .browse-viewer-toolbar > .browse-toolbar {
   height: 48px;
