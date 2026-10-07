@@ -769,6 +769,16 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   over. Marks elsewhere are dropped for the same reason: right-clicking row A while B and C
   are marked leaves the verb going to A, and marks claiming otherwise are lying. Right-
   clicking INSIDE a multi-selection still acts on all of it.
+- **THE DRAG LABEL HANGS OFF THE POINTER'S BOTTOM RIGHT, ATTACHED** (#310; owner, 2026-10-07: "when
+  you pick up an item with left click drag the label is to its bottom left but also not attached to
+  the cursor ... it should be attached and it should be from the bottom right"). The label is an
+  IN-PAGE element (`lib/internalFileDrag.ts`, which cancels the native drag so Ctrl+Tab still works),
+  not a drag image, so it is placed in CSS px from the pointer and the display scale never enters.
+  It sat its whole width LEFT of the pointer and 12 px below. `lib/dragBadgePlace.ts` puts its
+  top-left corner 8 px right of and below the tip (File Explorer's way: the pointer never covers the
+  name), flipping to the other side only where the window edge leaves no room. One rule for every
+  drag the hook carries: tree, Explorer list, several items, places. The `dragLabel` e2e measures it
+  mid-drag at 100%, 150% and 225% (`--force-device-scale-factor`).
 - **SETTINGS CONTROLS ARE NEUTRAL; ONLY SAVE WEARS THE ACCENT** (#202; owner, 2026-09-23: "i dont
   want settings buttons to be affected by the accent colour... grey based on the bg colour ... same
   colours as the drop down menus"; "the only ones to keep accented are the save buttons"). The

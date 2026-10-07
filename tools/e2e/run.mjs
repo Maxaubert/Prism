@@ -10954,6 +10954,105 @@ async function styleColoursScenario(fixtures) {
   }
 }
 
+async function dragLabelScenario(fixtures) {
+  console.log('the drag label hangs off the cursor')
+  // #310 (owner, 2026-10-07): "when you pick up an item with left click drag
+  // the label is to its bottom left but also not attached to the cursor ...
+  // it should be attached and it should be from the bottom right". The label
+  // is an in-page element (internalFileDrag), so its box is read mid-drag
+  // against the pointer, in CSS pixels, at three display scales. A REAL press
+  // and travel, so the hook's own dragstart takes the drag.
+  const dir = join(fixtures, 'draglabel')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'folder'), { recursive: true })
+  for (const n of ['alpha.txt', 'beta.txt']) writeFileSync(join(dir, n), `drag label ${n}\n`)
+  const badge = (win) =>
+    win.evaluate(() => {
+      const el = document.querySelector('[data-file-drag-badge]')
+      const r = el?.getBoundingClientRect()
+      return r ? { left: r.left, top: r.top, width: r.width, text: el.textContent ?? '', dpr: devicePixelRatio } : null
+    })
+  /** Press on `el`, travel to two places, read the label at each, let go with Escape. */
+  const carry = async (win, el, what, shot) => {
+    const box = await el.boundingBox()
+    if (!box) {
+      ok(false, `${what}: the row is on screen`)
+      return null
+    }
+    const from = { x: Math.round(box.x + Math.min(24, box.width / 2)), y: Math.round(box.y + box.height / 2) }
+    await win.mouse.move(from.x, from.y)
+    await win.mouse.down()
+    const seen = []
+    for (const [dx, dy] of [[70, 50], [140, 90]]) {
+      const at = { x: from.x + dx, y: from.y + dy }
+      await win.mouse.move(at.x, at.y, { steps: 8 })
+      await sleep(120)
+      const b = await badge(win)
+      seen.push(b && { ...b, x: at.x, y: at.y, offX: b.left - at.x, offY: b.top - at.y })
+    }
+    if (shot) await win.screenshot({ path: join(SHOTS, shot) })
+    await win.keyboard.press('Escape')
+    await win.mouse.up()
+    await sleep(200)
+    const [a, b] = seen
+    ok(!!a && !!b, `${what}: a label is carried (${a?.text ?? 'none'})`)
+    if (!a || !b) return null
+    const near = (o) => o >= 4 && o <= 8
+    ok(
+      near(a.offX) && near(a.offY),
+      `${what}: its top-left corner sits 4 to 8 px right of and below the pointer (${a.offX}, ${a.offY} at dpr ${a.dpr})`
+    )
+    ok(Math.abs(a.offX - b.offX) < 0.5 && Math.abs(a.offY - b.offY) < 0.5, `${what}: and stays attached as the pointer travels (${b.offX}, ${b.offY})`)
+    ok(!(await badge(win)), `${what}: and goes when the drag ends`)
+    return a
+  }
+  for (const scale of [1, 1.5, 2.25]) {
+    // Forced at 100% too: this machine runs at 225%, and an unforced window
+    // would measure that twice.
+    EXTRA_ARGS = [`--force-device-scale-factor=${scale}`]
+    const { app, win } = await launch(join(dir, 'alpha.txt'))
+    try {
+      await win.waitForSelector('aside [role="treeitem"]:has-text("beta.txt")', { timeout: 10000 })
+      await sleep(500)
+      const tree = (name) => win.locator(`aside [role="treeitem"]:has-text("${name}")`).first().locator('span.truncate').first()
+      const one = await carry(win, tree('beta.txt'), `${scale * 100}%, a file from the tree`, `drag-label-${scale * 100}.png`)
+      ok(!!one && Math.abs(one.dpr - scale) < 0.01, `the window really is at ${scale * 100}% (${one?.dpr})`)
+      ok(!!one && one.text.includes('beta.txt'), `and the label names the file (${one?.text})`)
+      if (scale !== 1) continue
+      await carry(win, tree('folder'), 'a folder from the tree')
+
+      /* ---------- the Explorer list ---------- */
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="draglabel"]').dblclick()
+      ok(
+        await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 2, 10000),
+        'the Explorer walked into the folder'
+      )
+      await sleep(400)
+      const row = (n) => win.locator(`[data-testid="browse-list"] [data-browse-path$="${n}"] .browse-name`).first()
+      await carry(win, row('alpha.txt'), 'a file from the Explorer list', 'drag-label-list.png')
+      await carry(win, row('folder'), 'a folder from the Explorer list')
+      await row('alpha.txt').click()
+      await win.keyboard.down('Control')
+      await row('beta.txt').click()
+      await win.keyboard.up('Control')
+      await sleep(200)
+      const many = await carry(win, row('beta.txt'), 'two marked items from the Explorer list', 'drag-label-many.png')
+      ok(!!many && /2 items/.test(many.text), `and the label counts them (${many?.text})`)
+
+      /* ---------- the places panel ---------- */
+      const pin = win.locator('.quick-access-pin').first()
+      if (await pin.count()) await carry(win, pin, 'a place from the places panel')
+      else ok(false, 'the places panel shows a place to drag')
+    } finally {
+      await app.close()
+      EXTRA_ARGS = []
+    }
+    await sleep(900)
+  }
+}
+
 async function dragScenario(fixtures) {
   console.log('drag and drop')
   // #70: a row dragged onto a folder MOVES; a member dragged out of an archive
@@ -15443,6 +15542,7 @@ await run(accentOpacityScenario)
 await run(styleColoursScenario)
 await run(seeThroughScenario)
 await run(dragScenario)
+await run(dragLabelScenario)
 await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(markTintScenario)
