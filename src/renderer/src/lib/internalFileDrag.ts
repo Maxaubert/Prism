@@ -99,6 +99,7 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       pressed = false
       cancelAnimationFrame(frame)
       delete document.body.dataset.internalFileDrag
+      delete document.documentElement.dataset.internalFileDrag
       setDrag(null)
       // A release over a file must not also select/open the drop destination.
       suppressClick = true
@@ -129,9 +130,13 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       const label =
         paths.length === 1 ? (paths[0].split(/[\\/]/).pop() ?? 'Item') : `${paths.length} items`
       badge.textContent = label
+      // THE ARROW STAYS (#320; owner, 2026-10-07: "when you left click drag an
+      // item dont switch the cursor to the hand, keep it the normal cursor").
+      // It was `grabbing`. Pinned to the arrow for the whole drag, so nothing
+      // under the pointer (a link, a text field, a splitter) changes it either.
       const cursorStyle = document.createElement('style')
       cursorStyle.textContent =
-        '[data-internal-file-drag], [data-internal-file-drag] * { cursor: grabbing !important; }'
+        'html[data-internal-file-drag], html[data-internal-file-drag] * { cursor: default !important; }'
       document.head.append(cursorStyle)
       Object.assign(badge.style, {
         position: 'fixed',
@@ -165,6 +170,7 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
         pin: !!pin
       }
       document.body.dataset.internalFileDrag = 'true'
+      document.documentElement.dataset.internalFileDrag = 'true'
       hover()
       frame = requestAnimationFrame(tick)
     }

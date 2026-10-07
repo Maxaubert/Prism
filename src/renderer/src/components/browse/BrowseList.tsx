@@ -21,7 +21,7 @@ import { DRAG_MIME, setDrag } from '../../lib/dragDrop'
 import { FolderIcon, KindIcon, SweepBand, iconColour } from '../TreeRows'
 import { OverlayScrollbar } from './OverlayScrollbar'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
-import { bandBox, nearestRow, onRowOwnPart, rowsInBand } from '../../lib/marquee'
+import { bandBox, nearestRow, rowsInBand } from '../../lib/marquee'
 import { useSweep } from '../../hooks/useSweep'
 import { BrowseIcon } from './BrowseIcon'
 import { useFolderDrop } from './useFolderDrop'
@@ -186,12 +186,19 @@ export function BrowseList(props: Props): JSX.Element {
     rowAt(first + index)
   )
   /**
-   * THE SWEEP (#257). From the list's blank space (under the rows, or a row
-   * to the right of its name, the other columns included) a drag draws the
-   * rectangle and marks every row it touches, live. A press on a row's icon
-   * or name is still the file's own drag, so a file still drags out to other
-   * apps. Rows are found by index, never by element: only the rows in view
-   * exist, and a row scrolled away under the rectangle is still in it.
+   * THE SWEEP (#257). From the list's blank space a drag draws the rectangle
+   * and marks every row it touches, live. Rows are found by index, never by
+   * element: only the rows in view exist, and a row scrolled away under the
+   * rectangle is still in it.
+   *
+   * THE WHOLE ROW IS THE FILE'S (#320; owner, 2026-10-07: "its not possible
+   * to pick up items unless you left click drag when hovering over the file
+   * name. the whole row should let me left click drag ... that drag should
+   * only be from empty spaces either under or beside the file row"). Until
+   * then a row's Type, Size and Date cells swept. Now a press anywhere on a
+   * row drags it, and the sweep starts only off the rows: under the last one,
+   * or beside them, since a row ends where its last column does and a gutter
+   * is always left on the right (browse.css), File Explorer's Details view.
    */
   const [sweeping, setSweeping] = useState<{ paths: string[]; add: boolean } | null>(null)
   const sweepAdd = useRef(false)
@@ -249,16 +256,10 @@ export function BrowseList(props: Props): JSX.Element {
   })
   const onListPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0 || props.loading || props.message || !props.onSweep) return
-    const el = e.target as HTMLElement
-    const row = el.closest<HTMLElement>('.browse-row')
-    if (row) {
-      // The row up to the end of its name is the file's: it drags it, as
-      // before. The other columns are blank space and sweep.
-      const name = row.querySelectorAll('.browse-name > svg, .browse-name-text')
-      if (onRowOwnPart(e.clientX, [...name].map((n) => n.getBoundingClientRect()))) return
-    }
+    // A file's row, every cell of it and the gaps between: its own drag.
+    if ((e.target as HTMLElement).closest('.browse-row[data-browse-path]')) return
     sweepAdd.current = e.ctrlKey
-    sweep.begin(e, row)
+    sweep.begin(e)
   }
   /** What reads as marked: the sweep in progress (plus, for Ctrl, what was
    *  marked before it), else the selection FolderBrowser holds. */
@@ -546,7 +547,10 @@ export function BrowseList(props: Props): JSX.Element {
         // the preview plays (owner, 2026-10-03: "i should have to click the
         // video or the pause icon"). A right press on an unmarked row too.
         onClick={(e) => {
-          if (e.target === e.currentTarget) props.onSelect(null, true)
+          // The space beside the rows (#320) is the row layer's own box.
+          const at = e.target as HTMLElement
+          if (at === e.currentTarget || at.matches('.browse-row-space, .browse-row-layer'))
+            props.onSelect(null, true)
         }}
         onContextMenu={(e) => {
           // The empty space's own menu, inside an archive (#300). A row's
@@ -562,14 +566,9 @@ export function BrowseList(props: Props): JSX.Element {
             {props.message}
           </div>
         ) : (
-          <div
-            className="browse-row-space"
-            style={{ height: spaceHeight }}
-            onClick={(e) => {
-              if (e.target === e.currentTarget) props.onSelect(null, true)
-            }}
-          >
+          <div className="browse-row-space" style={{ height: spaceHeight }}>
             <div
+              className="browse-row-layer"
               style={{
                 transform: `translateY(${props.scrollTop + first * rowHeight - logicalTop}px)`
               }}

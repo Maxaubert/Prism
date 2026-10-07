@@ -73,10 +73,10 @@
    right-aligned like Size's. The narrow layouts hide it before Type, the old
    panel's order. */
 .browse-list-area[data-in-archive] :is(.browse-columns, .browse-row) {
-  grid-template-columns: minmax(160px, 1fr) 128px 76px 76px 136px;
+  grid-template-columns: minmax(160px, var(--browse-name-max)) 128px 76px 76px 136px;
 }
 .browse-list-area[data-row-size='large'][data-in-archive] :is(.browse-columns, .browse-row) {
-  grid-template-columns: minmax(160px, 1fr) 150px 90px 90px 160px;
+  grid-template-columns: minmax(160px, var(--browse-name-max)) 150px 90px 90px 160px;
 }
 .browse-row .browse-column-packed {
   text-align: right;
@@ -89,13 +89,13 @@
 @container (max-width: 720px) {
   .browse-list-area[data-in-archive] :is(.browse-columns, .browse-row),
   .browse-list-area[data-row-size='large'][data-in-archive] :is(.browse-columns, .browse-row) {
-    grid-template-columns: minmax(120px, 1fr) 116px 72px 72px;
+    grid-template-columns: minmax(120px, var(--browse-name-max)) 116px 72px 72px;
   }
   .browse-list-area[data-in-archive] .browse-columns .browse-column-size {
     --browse-col-edge-r: calc(var(--browse-col-gap) / 2);
   }
   .browse-list-area[data-in-archive] .browse-columns .browse-column-packed {
-    --browse-col-edge-r: var(--browse-row-pad, 8px);
+    --browse-col-edge-r: var(--browse-col-edge-end);
   }
 }
 @container (max-width: 600px) {
@@ -104,22 +104,22 @@
   }
   .browse-list-area[data-in-archive] :is(.browse-columns, .browse-row),
   .browse-list-area[data-row-size='large'][data-in-archive] :is(.browse-columns, .browse-row) {
-    grid-template-columns: minmax(120px, 1fr) 116px 72px;
+    grid-template-columns: minmax(120px, var(--browse-name-max)) 116px 72px;
   }
   .browse-list-area[data-in-archive] .browse-columns .browse-column-size {
-    --browse-col-edge-r: var(--browse-row-pad, 8px);
+    --browse-col-edge-r: var(--browse-col-edge-end);
   }
 }
 @container (max-width: 510px) {
   .browse-list-area[data-in-archive] :is(.browse-columns, .browse-row),
   .browse-list-area[data-row-size='large'][data-in-archive] :is(.browse-columns, .browse-row) {
-    grid-template-columns: minmax(110px, 1fr) 72px;
+    grid-template-columns: minmax(110px, var(--browse-name-max)) 72px;
   }
 }
 @container (max-width: 300px) {
   .browse-list-area[data-in-archive] :is(.browse-columns, .browse-row),
   .browse-list-area[data-row-size='large'][data-in-archive] :is(.browse-columns, .browse-row) {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, var(--browse-name-max));
   }
 }
 
