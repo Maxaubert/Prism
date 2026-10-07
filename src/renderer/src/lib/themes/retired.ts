@@ -237,9 +237,25 @@ export const RETIRED_MAP: Record<string, string> = {
   default: 'new-void', // Onyx: black ground and indigo are Void's; its glass is carried over
   terminal: 'obsidian', // near-black, emerald, square
   driftwood: 'carbon', // warm charcoal, amber
-  'acrylic-red': 'ember', // Ruby: near-black, the warm accent nearest red
-  linen: 'sand' // beige, terracotta
+  // Ruby went to Ember until Ember retired (#316); Carbon is now the nearest
+  // look: near-black, the warm accent nearest red.
+  'acrylic-red': 'carbon',
+  linen: 'sand', // beige, terracotta
+  // ONE OF THE 18 RETIRED (#316; owner, 2026-10-07: "this theme should
+  // replace Ember. its Volt but with this teal instead of the yellow"). Its
+  // successor took its place on the wall.
+  ember: 'jade'
 }
+
+/**
+ * Themes of the 18 retired since #298, by the name the quiet line says. They
+ * are catalogue themes, not the old styles above, so they are not in
+ * `RETIRED_STYLES` (held to `legacy.snapshot.json`); only the name is needed.
+ */
+export const RETIRED_NAMES: Record<string, string> = { ember: 'Ember' }
 
 /** The retired style an id named, for its name and its glass. */
 export const retiredById = (id: string): Style | undefined => RETIRED_STYLES.find((s) => s.id === id)
+
+/** The name a retired id went by, for the quiet line. */
+export const retiredName = (id: string): string | undefined => retiredById(id)?.name ?? RETIRED_NAMES[id]

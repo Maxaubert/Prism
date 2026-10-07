@@ -14009,7 +14009,7 @@ async function settingsLookScenario(fixtures) {
  * keeps; past the row opens the wall; Home, End; Escape goes back with the
  * draft intact; focus is the fill, never a ring (#272).
  */
-const THEME_ORDER = ['aurora', 'new-void', 'carbon', 'obsidian', 'ember', 'volt', 'midnight-hc', 'glacier', 'lagoon', 'frost', 'paper', 'sand', 'sage', 'blush', 'chalk', 'daylight-hc', 'orchid', 'pearl']
+const THEME_ORDER = ['aurora', 'new-void', 'carbon', 'obsidian', 'jade', 'volt', 'midnight-hc', 'glacier', 'lagoon', 'frost', 'paper', 'sand', 'sage', 'blush', 'chalk', 'daylight-hc', 'orchid', 'pearl']
 
 /** The wall as the page has it. */
 const wallState = (win) =>
@@ -14308,7 +14308,7 @@ async function themeLooksScenario(fixtures) {
   const catalogue = JSON.parse(readFileSync(join(ROOT, 'src', 'renderer', 'src', 'lib', 'themes', 'catalogue.json'), 'utf8'))
   try {
     await win.waitForSelector('.cm-content', { timeout: 10000 })
-    for (const id of ['aurora', 'ember', 'chalk', 'midnight-hc', 'daylight-hc', 'orchid']) {
+    for (const id of ['aurora', 'jade', 'chalk', 'midnight-hc', 'daylight-hc', 'orchid']) {
       const r = await switchStyle(win, id)
       if (styleBefore === undefined) styleBefore = r
       await sleep(350)
@@ -14322,7 +14322,7 @@ async function themeLooksScenario(fixtures) {
       await win.screenshot({ path: join(SHOTS, `theme-code-${id}.png`) })
     }
     await win.locator('[role="tab"]:has-text("Explorer")').first().click()
-    for (const id of ['aurora', 'carbon', 'paper', 'midnight-hc', 'glacier', 'pearl']) {
+    for (const id of ['aurora', 'carbon', 'jade', 'paper', 'midnight-hc', 'glacier', 'pearl']) {
       await switchStyle(win, id)
       await sleep(350)
       await win.screenshot({ path: join(SHOTS, `theme-explorer-${id}.png`) })
@@ -14356,7 +14356,10 @@ async function themeMigrationScenario(fixtures) {
   const light = { ...dark, id: 'custom-0-2-Customtheme2', name: 'Custom theme 2', mode: 'light', material: 'solid', bg: '#f8f4ed', side: '#f1ebe1', title: '#e9e2d5', text: '#241f18', accent: '#92400e' }
   const cases = [
     { name: 'onyx', seed: { 'prism.style': 'default', 'prism.style.draft': JSON.stringify({ accent: '#22aa66' }), 'prism.style.presets': JSON.stringify([dark, light]), 'prism.mode': 'dark' }, want: 'new-void', retired: 'Onyx', mapped: 'Void' },
-    { name: 'driftwood', seed: { 'prism.style': 'driftwood', 'prism.mode': 'light' }, want: 'carbon', retired: 'Driftwood', mapped: 'Carbon' }
+    { name: 'driftwood', seed: { 'prism.style': 'driftwood', 'prism.mode': 'light' }, want: 'carbon', retired: 'Driftwood', mapped: 'Carbon' },
+    // Ember retired after the first pass (#316): a profile already on the
+    // first marker moves once more, to Jade.
+    { name: 'ember', seed: { 'prism.style': 'ember', 'prism.style.v': '2', 'prism.mode': 'dark' }, want: 'jade', retired: 'Ember', mapped: 'Jade' }
   ]
   for (const c of cases) {
     const profile = `${PROFILE}-migrate-${c.name}`
@@ -14368,7 +14371,7 @@ async function themeMigrationScenario(fixtures) {
         Object.fromEntries(['prism.style', 'prism.style.draft', 'prism.style.presets', 'prism.style.v', 'prism.style.retired', 'prism.mode'].map((k) => [k, localStorage.getItem(k)]))
       )
       ok(keys['prism.style'] === c.want, `${c.name}: the saved theme is now ${c.want} (${keys['prism.style']})`)
-      ok(keys['prism.style.v'] === '2', `${c.name}: the marker is set`)
+      ok(keys['prism.style.v'] === '3', `${c.name}: the marker is set`)
       ok(keys['prism.style.retired'] === c.retired, `${c.name}: the old name is kept for the one line (${keys['prism.style.retired']})`)
       if (c.name === 'onyx') {
         const draft = JSON.parse(keys['prism.style.draft'] ?? '{}')
@@ -14376,7 +14379,7 @@ async function themeMigrationScenario(fixtures) {
         ok(await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg').startsWith('rgba(')), 'onyx: the window is see-through')
         const presets = JSON.parse(keys['prism.style.presets'] ?? '[]')
         ok(JSON.stringify(presets) === JSON.stringify([{ ...dark, base: 'new-void' }, { ...light, base: 'new-void' }]), 'onyx: both own copies are kept field for field, their base mapped')
-      } else {
+      } else if (c.name === 'driftwood') {
         ok(keys['prism.mode'] === 'dark', `driftwood: the old light mode was not read; the boot mirror says dark (${keys['prism.mode']})`)
       }
       await settingsPage(win, 'appearance')
@@ -14386,7 +14389,8 @@ async function themeMigrationScenario(fixtures) {
       if (c.name === 'onyx') ok(JSON.stringify(w.ids.slice(-2)) === JSON.stringify([dark.id, light.id]), `onyx: the own copies are the last cards (${w.ids.slice(-2)})`)
       ok(JSON.stringify(w.checked) === JSON.stringify([c.want]), `${c.name}: the chosen card is ${c.want}, nothing reset to Aurora (${w.checked})`)
       await win.screenshot({ path: join(SHOTS, `theme-migration-${c.name}.png`) })
-      await win.locator('[data-theme-card="aurora"]').click()
+      // A card in the collapsed wall's one row: Jade's row may not hold Aurora.
+      await win.locator(`[data-theme-card="${c.name === 'ember' ? 'volt' : 'aurora'}"]`).click()
       ok(await until(async () => (await line.count()) === 0, 3000, 50), `${c.name}: a theme pick takes the line away`)
       ok((await win.evaluate(() => localStorage.getItem('prism.style.retired'))) === null, `${c.name}: and its key`)
     } finally {

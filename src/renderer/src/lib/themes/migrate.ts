@@ -1,4 +1,4 @@
-import { RETIRED_MAP, retiredById } from './retired'
+import { RETIRED_MAP, retiredById, retiredName } from './retired'
 
 /**
  * SAVED THEMES MOVE ONCE (#298, spec 4). The ten styles Prism shipped were
@@ -24,7 +24,13 @@ export const PRESETS_KEY = 'prism.style.presets'
 export const VERSION_KEY = 'prism.style.v'
 /** The retired theme's NAME, for the one quiet line on the Themes card. */
 export const RETIRED_KEY = 'prism.style.retired'
-export const THEME_VERSION = '2'
+/**
+ * '2' was the move off the ten old styles (#298); '3' is Ember to Jade
+ * (#316). A window already on '2' runs the map again: every id the first pass
+ * could write is a current theme, so only Ember (and an own copy based on it)
+ * moves.
+ */
+export const THEME_VERSION = '3'
 
 /**
  * Onyx's place on the old Acrylic slider: its glass was the acrylic dark
@@ -61,8 +67,8 @@ export function migrateThemes(snap: StorageSnapshot): Migration {
   const mapped = typeof saved === 'string' ? RETIRED_MAP[saved] : undefined
   if (saved && mapped) {
     out.set[STYLE_KEY] = mapped
-    const was = retiredById(saved)
-    if (was) out.set[RETIRED_KEY] = was.name
+    const was = retiredName(saved)
+    if (was) out.set[RETIRED_KEY] = was
     if (saved === 'default') {
       // Onyx was glass: Void carries it as an unsaved edit, unless the draft
       // already says how much glass (or none) the user wanted.

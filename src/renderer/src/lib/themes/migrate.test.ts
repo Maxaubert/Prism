@@ -20,8 +20,10 @@ describe('the map', () => {
     ['default', 'new-void', 'Onyx'],
     ['terminal', 'obsidian', 'Terminal'],
     ['driftwood', 'carbon', 'Driftwood'],
-    ['acrylic-red', 'ember', 'Ruby'],
-    ['linen', 'sand', 'Linen']
+    ['acrylic-red', 'carbon', 'Ruby'],
+    ['linen', 'sand', 'Linen'],
+    ['ember', 'jade', 'Ember'],
+    ['volt', 'volt', null]
   ]
   for (const [was, now, name] of cases) {
     it(`${was} becomes ${now}`, () => {
@@ -30,14 +32,14 @@ describe('the map', () => {
       else expect(m.set[STYLE]).toBe(now)
       if (name) expect(m.set[RETIRED_KEY]).toBe(name)
       else expect(m.set).not.toHaveProperty(RETIRED_KEY)
-      expect(m.set[VERSION_KEY]).toBe('2')
+      expect(m.set[VERSION_KEY]).toBe('3')
     })
   }
 
   it('leaves an own copy and an unknown id alone (the store falls back to Aurora)', () => {
-    expect(migrateThemes({ [STYLE]: 'custom-0-1-Customtheme1' }).set).toEqual({ [VERSION_KEY]: '2' })
-    expect(migrateThemes({ [STYLE]: 'nonsense' }).set).toEqual({ [VERSION_KEY]: '2' })
-    expect(migrateThemes({}).set).toEqual({ [VERSION_KEY]: '2' })
+    expect(migrateThemes({ [STYLE]: 'custom-0-1-Customtheme1' }).set).toEqual({ [VERSION_KEY]: '3' })
+    expect(migrateThemes({ [STYLE]: 'nonsense' }).set).toEqual({ [VERSION_KEY]: '3' })
+    expect(migrateThemes({}).set).toEqual({ [VERSION_KEY]: '3' })
   })
 })
 
@@ -95,7 +97,27 @@ describe('own copies', () => {
 
 describe('once', () => {
   it('does nothing once the marker is set', () => {
-    expect(migrateThemes({ [VERSION_KEY]: '2', [STYLE]: 'default' })).toEqual({ set: {}, remove: [] })
+    expect(migrateThemes({ [VERSION_KEY]: '3', [STYLE]: 'default' })).toEqual({ set: {}, remove: [] })
+  })
+
+  // EMBER RETIRED AFTER THE FIRST PASS (#316): a window already on '2' runs
+  // the map once more, and only Ember moves.
+  it('moves a window on the first marker off Ember, its draft kept as it is', () => {
+    const draft = JSON.stringify({ accent: '#ff0000' })
+    const m = migrateThemes({ [VERSION_KEY]: '2', [STYLE]: 'ember', [DRAFT]: draft })
+    expect(m.set).toEqual({ [VERSION_KEY]: '3', [STYLE]: 'jade', [RETIRED_KEY]: 'Ember' })
+  })
+
+  it('leaves every current theme on the first marker where it is', () => {
+    for (const id of ['aurora', 'new-void', 'carbon', 'obsidian', 'volt', 'sand', 'pearl']) {
+      expect(migrateThemes({ [VERSION_KEY]: '2', [STYLE]: id, [DRAFT]: '{}' }).set).toEqual({ [VERSION_KEY]: '3' })
+    }
+  })
+
+  it('maps an own copy based on Ember to Jade on the first marker', () => {
+    const copy = { id: 'custom-4', name: 'Custom theme 4', base: 'ember', bg: '#0f0d0c', text: '#f3ece6', mode: 'dark' }
+    const m = migrateThemes({ [VERSION_KEY]: '2', [PRESETS]: JSON.stringify([copy]) })
+    expect(JSON.parse(m.set[PRESETS])).toEqual([{ ...copy, base: 'jade' }])
   })
 
   it('does not read Colour mode for the choice', () => {
@@ -118,7 +140,7 @@ describe('once', () => {
     migrateThemeStorage(storage)
     const after = new Map(store)
     expect(after.get(STYLE)).toBe('new-void')
-    expect(after.get(VERSION_KEY)).toBe('2')
+    expect(after.get(VERSION_KEY)).toBe('3')
     expect(after.get(RETIRED_KEY)).toBe('Onyx')
     migrateThemeStorage(storage)
     expect(store).toEqual(after)

@@ -11,7 +11,7 @@ const ORDER = [
   ['new-void', 'Void'],
   ['carbon', 'Carbon'],
   ['obsidian', 'Obsidian'],
-  ['ember', 'Ember'],
+  ['jade', 'Jade'],
   ['volt', 'Volt'],
   ['midnight-hc', 'Midnight HC'],
   ['glacier', 'Glacier'],

@@ -31,7 +31,7 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 ahead and build"; spec `docs/superpowers/specs/2026-10-06-new-themes-design.md`, research and the
 approved mockup in `Documents/Claude/research/prism/2026-10-06-new-themes/`). The ten old styles
 are gone (Aurora, Void and Frost kept, refined). The rules (`lib/theme.ts`, `lib/themes/`):
-- **The 18, in wall order**: dark Aurora, Void (`new-void`), Carbon, Obsidian, Ember, Volt,
+- **The 18, in wall order**: dark Aurora, Void (`new-void`), Carbon, Obsidian, Jade, Volt,
   Midnight HC, Glacier, Lagoon; light Frost, Paper, Sand, Sage, Blush, Chalk, Daylight HC, Orchid,
   Pearl. High contrast before see-through in each half. Colours exactly as `themes/catalogue.json`
   (`catalogue.test.ts`); HC themes are MONOCHROME. Every theme sets in the SYSTEM face at 12.5px
@@ -58,8 +58,13 @@ are gone (Aurora, Void and Frost kept, refined). The rules (`lib/theme.ts`, `lib
   held Right over 50ms (MEASURED). This theme: See-through window (not on HC) and Save changes.
 - **Retired ids migrate once** (`themes/migrate.ts`, marker `prism.style.v`): Onyx to Void WITH
   its glass as an unsaved edit (level 55), Terminal to Obsidian, Driftwood to Carbon, Ruby to
-  Ember, Linen to Sand; own copies kept, their `base` mapped; one quiet line names the retired
-  theme until the next pick. Onboarding is three steps, the first the same wall.
+  Carbon (it went to Ember until #316), Linen to Sand; own copies kept, their `base` mapped; one
+  quiet line names the retired theme until the next pick.
+- **JADE TOOK EMBER'S PLACE** (#316; owner, 2026-10-07, with Volt's Colours edited to teal: "this
+  theme should replace Ember. its Volt but with this teal instead of the yellow"). Jade is Volt
+  with `#26ffb2` for every yellow-green value (accent, selection `#26ffb238`, folder, archive, the
+  accent-mixed keyword), built by the research `build-themes.mjs`. `ember` maps to `jade` under
+  marker `3` (`RETIRED_NAMES` gives the quiet line its name), so a window already on `2` moves too. Onboarding is three steps, the first the same wall.
 - Not adopted from the mockup, by recorded rules: the active tab stays told by its ink, not a
   ground fill; the Accent subtext stays (the chosen rail page is grey since #292).
 - **A ZIP FOLLOWS THE FOLDER COLOUR**, not a hardcoded indigo (owner, 2026-09-20). `--p-tree-zip`
