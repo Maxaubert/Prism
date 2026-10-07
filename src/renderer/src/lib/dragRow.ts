@@ -70,12 +70,67 @@ export interface RowMetrics {
   fontWeight: string
   color: string
   radius: string
+  /** The selection's tint as the source row shows it, opaque (`selectedFill`). */
+  fill: string
+}
+
+/** A computed CSS colour as [r, g, b, a], 0-255 and 0-1; null for a form not read here. */
+export function parseColour(css: string): [number, number, number, number] | null {
+  const s = css.trim()
+  const rgb = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/i.exec(s)
+  if (rgb) {
+    const a = rgb[4] === undefined ? 1 : Number(rgb[4]) / (rgb[5] ? 100 : 1)
+    return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), a]
+  }
+  // color-mix() computes to this form in Chromium.
+  const srgb = /^color\(srgb\s+([\d.e-]+)\s+([\d.e-]+)\s+([\d.e-]+)(?:\s*\/\s*([\d.]+)(%?))?\s*\)$/i.exec(s)
+  if (srgb) {
+    const a = srgb[4] === undefined ? 1 : Number(srgb[4]) / (srgb[5] ? 100 : 1)
+    return [Number(srgb[1]) * 255, Number(srgb[2]) * 255, Number(srgb[3]) * 255, a]
+  }
+  const hex = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(s)
+  if (hex) {
+    const n = parseInt(hex[1], 16)
+    return [n >> 16, (n >> 8) & 255, n & 255, hex[2] ? parseInt(hex[2], 16) / 255 : 1]
+  }
+  return null
 }
 
 /**
- * The carried row's box. The selection's tint as the eye gets it over the
- * window ground (`--p-sel-tint-seen`, opaque, so nothing under the pointer
- * shows through it) and its faint edge, plus a soft lift so it reads as held.
+ * The selection's tint over the ground the source row is painted on, opaque.
+ * `grounds` are the computed backgrounds from the row's parent outwards: the
+ * first opaque one is what the row's own tint sits on (the Explorer list's
+ * ground, the sidebar's, an archive's). Null when the tint or a ground is
+ * unreadable or every ground is see-through (acrylic): the caller then keeps
+ * the window's `--p-sel-tint-seen`.
+ */
+export function selectedFill(tint: string, grounds: string[]): string | null {
+  const t = parseColour(tint)
+  if (!t) return null
+  for (const g of grounds) {
+    const c = parseColour(g)
+    if (!c) return null
+    if (c[3] < 0.999) continue
+    const mix = (i: number): number => Math.round(t[i] * t[3] + c[i] * (1 - t[3]))
+    return `rgb(${mix(0)}, ${mix(1)}, ${mix(2)})`
+  }
+  return null
+}
+
+/**
+ * The name the carried row shows: what the row shows, less what is not part
+ * of the file's name. A tree row for an unsaved file reads "name.txt*"; the
+ * star is the editor's state, and the file carried is the one on disk.
+ */
+export function carriedName(shown: string, pathName: string | null): string {
+  if (pathName && shown !== pathName && shown.replace(/\*$/, '') === pathName) return pathName
+  return shown
+}
+
+/**
+ * The carried row's box. The selection's tint as the eye gets it on the
+ * source row's own ground (opaque, so nothing under the pointer shows
+ * through it) and its faint edge, plus a soft lift so it reads as held.
  */
 export function dragRowStyle(m: RowMetrics): Record<string, string> {
   return {
@@ -91,7 +146,7 @@ export function dragRowStyle(m: RowMetrics): Record<string, string> {
     fontWeight: m.fontWeight,
     color: m.color,
     borderRadius: m.radius,
-    background: 'var(--p-sel-tint-seen)',
+    background: m.fill,
     boxShadow: 'inset 0 0 0 1px var(--p-sel-line), 0 4px 14px rgb(0 0 0 / 0.28)',
     maxWidth: 'min(360px, calc(100vw - 8px))',
     whiteSpace: 'nowrap'
@@ -99,7 +154,7 @@ export function dragRowStyle(m: RowMetrics): Record<string, string> {
 }
 
 /** A copy of the row's icon that keeps its look away from the row's CSS. */
-function cloneIcon(icon: Element): Element {
+function cloneIcon(icon: Element, fill: string): Element {
   const box = icon.getBoundingClientRect()
   const seen = getComputedStyle(icon)
   const copy = icon.cloneNode(true) as Element
@@ -130,21 +185,42 @@ function cloneIcon(icon: Element): Element {
   style.opacity = '1'
   // An unmarked row's icon knocks out to the ground it sat on (the list's
   // `--p-bg`, the tree's `--p-side-flat`); carried, it sits on the tint.
-  style.setProperty('--p-bg', 'var(--p-sel-tint-seen)')
-  style.setProperty('--p-side-flat', 'var(--p-sel-tint-seen)')
+  style.setProperty('--p-bg', fill)
+  style.setProperty('--p-side-flat', fill)
   return copy
 }
 
 export interface DragRow {
   /** The whole carried element, what `dragBadgePlace` positions. */
   root: HTMLDivElement
-  /** Says Move or Copy under the row while a target would take the drop. */
+  /** Says Move or Copy by the row while a target would take the drop. */
   effect: HTMLDivElement
 }
 
+/** The selection's tint as `row` would show it, opaque (see `selectedFill`). */
+function fillFor(row: Element): string {
+  const probe = document.createElement('span')
+  probe.style.backgroundColor = 'var(--p-sel-tint)'
+  probe.hidden = true
+  document.body.append(probe)
+  const tint = getComputedStyle(probe).backgroundColor
+  probe.remove()
+  const grounds: string[] = []
+  for (let at = row.parentElement; at; at = at.parentElement) grounds.push(getComputedStyle(at).backgroundColor)
+  return selectedFill(tint, grounds) ?? 'var(--p-sel-tint-seen)'
+}
+
+/** The file name of the row's own path (a tree row's `data-row`, a list row's `data-browse-path`). */
+function pathNameOf(source: Element): string | null {
+  const at = source.closest('[data-row], [data-browse-path]')
+  const path = at?.getAttribute('data-row') ?? at?.getAttribute('data-browse-path')
+  return path ? (path.split(/[\\/]/).filter(Boolean).pop() ?? null) : null
+}
+
 /**
- * The carried row for a drag that started on `source`. `fallback` names it
- * when the source is not a row with an icon (an archive member list, say).
+ * The carried row for a drag that started on `source`. When the source is
+ * not a row with an icon (an archive member list, say) it is named by its
+ * own path, else by `fallback`.
  */
 export function buildDragRow(source: Element, fallback: string, count: number): DragRow {
   const row = source.closest('[draggable="true"]') ?? source
@@ -161,8 +237,10 @@ export function buildDragRow(source: Element, fallback: string, count: number): 
     fontFamily: rowSeen.fontFamily,
     fontWeight: nameSeen.fontWeight,
     color: nameSeen.color,
-    radius: rowSeen.borderTopRightRadius || '4px'
+    radius: rowSeen.borderTopRightRadius || '4px',
+    fill: fillFor(row)
   }
+  const pathName = pathNameOf(source)
 
   const root = document.createElement('div')
   root.dataset.fileDragBadge = ''
@@ -170,23 +248,20 @@ export function buildDragRow(source: Element, fallback: string, count: number): 
     position: 'fixed',
     pointerEvents: 'none',
     zIndex: '2147483647',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    gap: '4px'
+    display: 'block'
   })
   // The icons' knockouts take what is behind them: inside the carried row
   // that is the opaque tint, whatever the source row was drawn on.
-  root.style.setProperty('--p-sel-tint-side', 'var(--p-sel-tint-seen)')
-  root.style.setProperty('--sel-seen', 'var(--p-sel-tint-seen)')
+  root.style.setProperty('--p-sel-tint-side', metrics.fill)
+  root.style.setProperty('--sel-seen', metrics.fill)
 
   const box = document.createElement('div')
   box.dataset.dragRow = ''
   Object.assign(box.style, dragRowStyle(metrics))
-  if (found) box.append(cloneIcon(found.icon as Element))
+  if (found) box.append(cloneIcon(found.icon as Element, metrics.fill))
   const name = document.createElement('span')
   name.dataset.dragName = ''
-  name.textContent = found?.name || fallback
+  name.textContent = found?.name ? carriedName(found.name, pathName) : pathName || fallback
   Object.assign(name.style, { overflow: 'hidden', textOverflow: 'ellipsis', minWidth: '0' })
   box.append(name)
   const counted = dragCountText(count)
@@ -221,10 +296,17 @@ export function buildDragRow(source: Element, fallback: string, count: number): 
     box.style.paddingRight = `${metrics.padX + 10}px`
   }
 
+  // Move or Copy is said OUTSIDE the measured box (absolute), so the row is
+  // placed by its own size alone and never jumps as a target starts or stops
+  // taking the drop. The hook puts it under the row, or over it where the
+  // window's bottom leaves no room.
   const effect = document.createElement('div')
   effect.dataset.dragEffect = ''
   effect.hidden = true
   Object.assign(effect.style, {
+    position: 'absolute',
+    left: '0px',
+    whiteSpace: 'nowrap',
     padding: '2px 6px',
     borderRadius: '4px',
     fontSize: '11px',

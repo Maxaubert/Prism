@@ -11414,6 +11414,7 @@ async function dragLabelScenario(fixtures) {
         left: r.left,
         top: r.top,
         width: r.width,
+        height: r.height,
         text: el.textContent ?? '',
         dpr: devicePixelRatio,
         rowText: row?.textContent ?? '',
@@ -11427,7 +11428,6 @@ async function dragLabelScenario(fixtures) {
         font: seen.fontSize,
         bg: seen.backgroundColor,
         shadow: seen.boxShadow,
-        wantBg: probe('var(--p-sel-tint-seen)'),
         wantLine: probe('var(--p-sel-line)')
       }
     })
@@ -11449,6 +11449,34 @@ async function dragLabelScenario(fixtures) {
           .filter(Boolean)
       }
     })
+  /** The commonest colour in a box as drawn (a screenshot decoded in the
+   *  page), inset past its edge lines: a row's fill, whatever is written on it. */
+  const fillOf = async (win, r) => {
+    if (!r) return null
+    const png = await win.screenshot({ clip: { x: r.x + 3, y: r.y + 3, width: r.width - 6, height: r.height - 6 } })
+    return win.evaluate(async (b64) => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${b64}`
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth
+      c.height = img.naturalHeight
+      const g = c.getContext('2d')
+      g.drawImage(img, 0, 0)
+      const d = g.getImageData(0, 0, c.width, c.height).data
+      const seen = new Map()
+      for (let i = 0; i < d.length; i += 4) {
+        const k = `${d[i]},${d[i + 1]},${d[i + 2]}`
+        seen.set(k, (seen.get(k) ?? 0) + 1)
+      }
+      return [...seen.entries()].sort((a, b) => b[1] - a[1])[0][0].split(',').map(Number)
+    }, png.toString('base64'))
+  }
+  const rowBox = (el) =>
+    el.evaluate((n) => {
+      const r = (n.closest('[draggable="true"]') ?? n).getBoundingClientRect()
+      return { x: r.left, y: r.top, width: r.width, height: r.height }
+    })
   /** Press on `el`, travel to two places, read the label at each, let go with Escape. */
   const carry = async (win, el, what, shot, opts = {}) => {
     const box = await el.boundingBox()
@@ -11457,6 +11485,13 @@ async function dragLabelScenario(fixtures) {
       return null
     }
     const src = await sourceOf(el)
+    let look = null
+    if (opts.look) {
+      // The pointer off the row first, so no hover is in the sample.
+      await win.mouse.move(1, 1)
+      await sleep(250)
+      look = { source: await fillOf(win, await rowBox(el)), carried: null }
+    }
     const from = { x: Math.round(box.x + Math.min(24, box.width / 2)), y: Math.round(box.y + box.height / 2) }
     await win.mouse.move(from.x, from.y)
     await win.mouse.down()
@@ -11467,6 +11502,13 @@ async function dragLabelScenario(fixtures) {
       await sleep(120)
       const b = await badge(win)
       seen.push(b && { ...b, x: at.x, y: at.y, offX: b.left - at.x, offY: b.top - at.y })
+    }
+    if (look) {
+      const r = await win.evaluate(() => {
+        const b = document.querySelector('[data-drag-row]')?.getBoundingClientRect()
+        return b ? { x: b.left, y: b.top, width: b.width, height: b.height } : null
+      })
+      look.carried = await fillOf(win, r)
     }
     if (shot) {
       const last = seen[seen.length - 1]
@@ -11490,9 +11532,20 @@ async function dragLabelScenario(fixtures) {
     ok(Math.abs(a.iconSize - src.iconSize) <= 0.5, `${what}: at the row's icon size (${a.iconSize} and ${src.iconSize})`)
     ok(Math.abs(a.rowH - src.h) <= 1, `${what}: the row's height (${a.rowH} and ${src.h})`)
     ok(a.font === src.font, `${what}: the row's font size (${a.font} and ${src.font})`)
-    ok(a.bg === a.wantBg && a.shadow.includes(a.wantLine), `${what}: in the selected look (${a.bg}, ${a.shadow})`)
+    ok(/^rgb\(/.test(a.bg) && a.shadow.includes(a.wantLine), `${what}: opaque, with the selection's edge (${a.bg}, ${a.shadow})`)
+    if (look) {
+      // AS PAINTED, not as a token says (review of #327): the carried row's
+      // fill against the marked source row's own pixels, which sit on the
+      // list's or the sidebar's ground, not the window's.
+      const d = look.carried && look.source ? Math.max(...look.carried.map((v, i) => Math.abs(v - look.source[i]))) : 99
+      ok(d <= 3, `${what}: the tint the marked row shows on screen (${look.carried} and ${look.source})`)
+    }
     ok(src.cells.every((c) => !a.rowText.includes(c)), `${what}: no type, size or date (${src.cells.join(' / ')} not in "${a.rowText}")`)
     ok(a.rowLeft === a.left && a.rowTop === a.top, `${what}: the row is the corner that hangs off the pointer`)
+    ok(
+      seen.every((s) => Math.abs(s.height - s.rowH) < 0.5),
+      `${what}: what is placed is the row alone, so Move or Copy never moves it (${seen.map((s) => s.height)} and ${a.rowH})`
+    )
     if (opts.name) ok(a.name === opts.name, `${what}: it names the row pressed on (${a.name})`)
     ok(a.count === (opts.count ? String(opts.count) : null), `${what}: a count of ${opts.count ?? 'none'} (${a.count})`)
     const near = (o) => o >= 4 && o <= 8
@@ -11518,6 +11571,26 @@ async function dragLabelScenario(fixtures) {
       ok(!!one && one.text.includes('beta.txt'), `and the label names the file (${one?.text})`)
       if (scale !== 1) continue
       await carry(win, tree('folder'), 'a folder from the tree')
+      {
+        // The tree's rows sit on the SIDEBAR's ground, not the list's: the
+        // carried row matches the marked tree row as drawn, dark and light.
+        const was = await win.evaluate(() => localStorage.getItem('prism.style'))
+        try {
+          for (const [look, style] of [['dark', 'aurora'], ['light', 'paper']]) {
+            await switchStyle(win, style)
+            await sleep(500)
+            await tree('beta.txt').click()
+            await sleep(400)
+            await carry(win, tree('beta.txt'), `${look}: a marked file from the tree`, `drag-row-${look}-tree.png`, {
+              name: 'beta.txt',
+              zoom: true,
+              look: true
+            })
+          }
+        } finally {
+          await switchStyle(win, was)
+        }
+      }
 
       /* ---------- the Explorer list ---------- */
       await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
@@ -11548,7 +11621,8 @@ async function dragLabelScenario(fixtures) {
           await sleep(200)
           await carry(win, row('alpha.txt'), `${look} style (${style}), one row`, `drag-row-${look}-one.png`, {
             name: 'alpha.txt',
-            zoom: true
+            zoom: true,
+            look: true
           })
           await row('alpha.txt').click()
           await win.keyboard.down('Control')
@@ -11561,9 +11635,18 @@ async function dragLabelScenario(fixtures) {
           const many = await carry(win, row('beta.txt'), `${look}: three marked items, picked up by beta.txt`, `drag-row-${look}-many.png`, {
             name: 'beta.txt',
             count: marked,
-            zoom: true
+            zoom: true,
+            look: true
           })
           ok(!!many && !/items/.test(many.text), `${look}: one row and a count, not "3 items" (${many?.text})`)
+          // An UNMARKED row pressed while others are marked carries itself
+          // alone (review of #327): its own name and no count.
+          await row('alpha.txt').click()
+          await win.keyboard.down('Control')
+          await row('folder').click()
+          await win.keyboard.up('Control')
+          await sleep(200)
+          await carry(win, row('beta.txt'), `${look}: alpha and folder marked, beta.txt pressed`, null, { name: 'beta.txt' })
         }
       } finally {
         await switchStyle(win, before)

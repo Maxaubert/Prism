@@ -20,6 +20,10 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       shift: boolean
       badge: HTMLDivElement
       effect: HTMLDivElement
+      action: string
+      effectH: number
+      effectSide: '' | 'below' | 'above'
+      size: { width: number; height: number }
       cursorStyle: HTMLStyleElement
       pin: boolean
     } | null = null
@@ -63,15 +67,32 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       // see that mutation and otherwise retains the preceding 'none' narrowing.
       const effect = carry.data.dropEffect as DataTransfer['dropEffect']
       const action = effect === 'move' ? 'Move' : effect === 'copy' ? 'Copy' : ''
-      // The row stays the row; what the drop would do is said under it.
-      carry.effect.textContent = action
-      carry.effect.hidden = !action
-      const { width, height } = carry.badge.getBoundingClientRect()
+      // The row stays the row; what the drop would do is said by it. Written
+      // only when it changes: this runs every frame and every mouse move.
+      if (action !== carry.action) {
+        carry.action = action
+        carry.effect.textContent = action
+        carry.effect.hidden = !action
+        if (action && !carry.effectH) carry.effectH = carry.effect.getBoundingClientRect().height
+      }
+      // The line is outside the measured box (absolute), so the row's size is
+      // measured once, at the start, and placement never jumps with it.
+      const { width, height } = carry.size
       // Hang the carried row (#327) off the pointer's bottom right, attached (#310). It
       // used to sit its whole width LEFT of the pointer and 12 px below it.
       const place = dragBadgePlace(carry.x, carry.y, width, height, window.innerWidth, window.innerHeight)
       carry.badge.style.left = `${place.left}px`
       carry.badge.style.top = `${place.top}px`
+      if (action) {
+        // Under the row, or over it where the window's bottom leaves no room.
+        const below = place.top + height + 4 + carry.effectH <= window.innerHeight
+        const side = below ? 'below' : 'above'
+        if (side !== carry.effectSide) {
+          carry.effectSide = side
+          carry.effect.style.top = below ? `${height + 4}px` : ''
+          carry.effect.style.bottom = below ? '' : `${height + 4}px`
+        }
+      }
     }
     const tick = (): void => {
       if (!carry) return
@@ -144,6 +165,7 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
         'html[data-internal-file-drag], html[data-internal-file-drag] * { cursor: default !important; }'
       document.head.append(cursorStyle)
       document.body.append(badge)
+      const { width, height } = badge.getBoundingClientRect()
       carry = {
         source: event.target,
         data,
@@ -155,6 +177,10 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
         shift: event.shiftKey,
         badge,
         effect,
+        action: '',
+        effectH: 0,
+        effectSide: '',
+        size: { width, height },
         cursorStyle,
         pin: !!pin
       }
