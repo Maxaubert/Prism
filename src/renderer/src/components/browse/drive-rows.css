@@ -110,6 +110,20 @@ section[data-drive-style='tiles'] > h2 + .browse-drive-tiles {
 .folder-browser .browse-place.browse-drive-tiles:not([aria-current]):not([data-menu]):hover {
   background-color: color-mix(in srgb, var(--p-text) 7.5%, transparent);
 }
+/* On a black sidebar the same steps glare (owner, 2026-10-07, of the drive
+   tiles on Void: "too much of a contrast"): about half as strong, hover
+   included, the track still the clearest grey so the bar reads. */
+:root[data-side='black'] .folder-browser .browse-place.browse-drive {
+  --drive-track: color-mix(in srgb, var(--p-text) 10%, transparent);
+  --drive-chip: color-mix(in srgb, var(--p-text) 4%, transparent);
+}
+:root[data-side='black'] .folder-browser .browse-place.browse-drive-tiles {
+  --drive-tile: color-mix(in srgb, var(--p-text) 2.5%, transparent);
+  --drive-chip: color-mix(in srgb, var(--p-text) 4%, transparent);
+}
+:root[data-side='black'] .folder-browser .browse-place.browse-drive-tiles:not([aria-current]):not([data-menu]):hover {
+  background-color: color-mix(in srgb, var(--p-text) 4.5%, transparent);
+}
 .folder-browser .browse-place.browse-drive-tiles[aria-current] {
   border-color: transparent;
 }
