@@ -15,7 +15,10 @@ import { resetRoots } from './roots'
 
 let directory: string
 beforeEach(() => {
-  directory = mkdtempSync(join(tmpdir(), 'prism-desktop-access-'))
+  // Resolved: a CI runner's temp is an 8.3 short path (RUNNER~1), which the
+  // guard resolves for a folder that exists and cannot for one that does not,
+  // so the timing tests' paths under it read as outside (CI only, #322).
+  directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'prism-desktop-access-')))
   resetDesktopAccess()
   resetRoots()
 })
