@@ -3765,6 +3765,98 @@ async function codeScenario(fixtures) {
   }
 }
 
+/**
+ * JSONC comments are comments (#312; owner, 2026-10-07: "comments in jsonc
+ * arent read as comments in prism", with a wrangler.jsonc whose every // line
+ * was plain text under a red squiggle). Fails on the old build, where .jsonc
+ * went to the strict JSON grammar and JSON.parse.
+ */
+async function jsoncScenario(fixtures) {
+  console.log('JSONC comments read as comments')
+  const dir = join(fixtures, 'jsonc')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    join(dir, 'wrangler.jsonc'),
+    [
+      '/**',
+      ' * For more details on how to configure Wrangler, refer to:',
+      ' * https://developers.cloudflare.com/workers/wrangler/configuration/',
+      ' */',
+      '{',
+      '  "$schema": "node_modules/wrangler/config-schema.json",',
+      '  "name": "my-worker",',
+      '  "main": "src/index.ts",',
+      '  "compatibility_date": "2025-04-01",',
+      '  // "compatibility_flags": ["nodejs_compat"],',
+      '  "observability": {',
+      '    "enabled": true',
+      '  },',
+      '  /**',
+      '   * Smart Placement',
+      '   */',
+      '  // "placement": { "mode": "smart" },',
+      '  "assets": { "directory": "./public/" },',
+      '}',
+      ''
+    ].join('\n')
+  )
+  // A well-known name with no .jsonc on it, and a trailing comma.
+  writeFileSync(
+    join(dir, 'tsconfig.json'),
+    '{\n  // Base options\n  "compilerOptions": {\n    "strict": true, /* always */\n    "target": "ES2022",\n  },\n}\n'
+  )
+  // JSONC is not "anything goes": a missing comma is still an error.
+  writeFileSync(join(dir, 'zbroken.jsonc'), '{\n  // fine\n  "a": 1\n  "b": 2\n}\n')
+
+  const { app, win } = await launch(join(dir, 'wrangler.jsonc'))
+  /** Every rendered span whose text is a comment, with its colour and the theme's. */
+  const comments = () =>
+    win.evaluate(() => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--p-code-comment)'
+      document.querySelector('.cm-content').appendChild(probe)
+      const want = getComputedStyle(probe).color
+      probe.remove()
+      const spans = [...document.querySelectorAll('.cm-line span')]
+        .filter((s) => /^\s*(\/\/|\/\*|\*)/.test(s.textContent))
+        .map((s) => ({ text: s.textContent, color: getComputedStyle(s).color, italic: getComputedStyle(s).fontStyle }))
+      const plain = getComputedStyle(document.querySelector('.cm-line')).color
+      return { want, plain, spans }
+    })
+  try {
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    await win.waitForFunction(() => document.querySelectorAll('.cm-line span').length > 5, undefined, { timeout: 10000 })
+    await sleep(1500) // past the linter's debounce, so absence means absence
+    ok((await win.locator('.cm-lintRange-error').count()) === 0, 'a wrangler.jsonc with comments has no squiggles')
+    const c = await comments()
+    ok(c.spans.length >= 6, `every comment line is its own token (got ${c.spans.length})`)
+    ok(c.want !== c.plain, `the theme's comment colour differs from plain text (${c.want} vs ${c.plain})`)
+    ok(
+      c.spans.every((s) => s.color === c.want),
+      `and every comment wears it (${c.spans.filter((s) => s.color !== c.want).map((s) => s.text).join(' | ') || 'all do'})`
+    )
+    ok(c.spans.every((s) => s.italic === 'italic'), 'in the comment style')
+    await win.screenshot({ path: join(SHOTS, 'jsonc.png') })
+
+    await win.click('[role="treeitem"]:has-text("tsconfig.json")')
+    await win.waitForFunction(() => (document.querySelector('.cm-content')?.textContent ?? '').includes('compilerOptions'), undefined, { timeout: 10000 })
+    await sleep(1500)
+    ok((await win.locator('.cm-lintRange-error').count()) === 0, 'tsconfig.json takes comments and a trailing comma too')
+    const t = await comments()
+    ok(t.spans.length >= 2 && t.spans.every((s) => s.color === t.want), 'and colours them as comments')
+
+    await win.click('[role="treeitem"]:has-text("zbroken.jsonc")')
+    await win.waitForFunction(() => (document.querySelector('.cm-content')?.textContent ?? '').includes('"b": 2'), undefined, { timeout: 10000 })
+    await win.waitForSelector('.cm-lintRange-error', { timeout: 10000 }).catch(() => {})
+    const marked = await win.locator('.cm-lintRange-error').allTextContents()
+    ok(marked.length === 1 && marked[0].startsWith('"'), `a missing comma in JSONC is still underlined, once (${JSON.stringify(marked)})`)
+    await win.screenshot({ path: join(SHOTS, 'jsonc-error.png') })
+  } finally {
+    await app.close()
+  }
+}
+
 async function treeNavScenario(fixtures) {
   console.log('tree navigation')
   // Open inside code/, so the root has folders above and below the cursor.
@@ -16063,6 +16155,7 @@ await run(reloadScenario)
 await run(tailScenario)
 await run(hexScenario)
 await run(codeScenario)
+await run(jsoncScenario)
 await run(treeNavScenario)
 await run(unsavedScenario)
 await run(playerScenario)
