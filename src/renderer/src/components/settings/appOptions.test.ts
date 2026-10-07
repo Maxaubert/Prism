@@ -56,7 +56,7 @@ describe("Prism's own settings rows", () => {
         "tab-width=prism.window.tabWidth",
         "c-edges=prism.style.draft",
         "c-corners=prism.style.draft",
-        "tree-side=prism.tree.side",
+        "explorer-side=prism.explorer.side",
         "explorer-size=prism.explorer.size",
         "drive-style=prism.sidebar.driveStyle",
         "newtab-mode=prism.newtab.mode+prism.newtab.folder",
@@ -66,6 +66,7 @@ describe("Prism's own settings rows", () => {
         "win-e-shortcut=windows",
         "explorer-verb=windows",
         "default-apps=windows",
+        "tree-side=prism.tree.side",
         "newtab-show=prism.newtab.show",
         "viz-style=prism.viz.style+prism.viz.presets",
         "viz-colour=prism.viz.theme",
@@ -117,10 +118,11 @@ describe('Find a setting', () => {
     expect(at['agent-hooks']).toBe('agents/Claude Code')
     expect(at['agent-color']).toBe('agents/Mark colours')
     expect(at['win-e-shortcut']).toBe('explorer/Windows')
-    expect(at['tree-side']).toBe('explorer/Layout')
+    expect(at['tree-side']).toBe('project/Project tabs')
     expect(at['newtab-show']).toBe('project/Project tabs')
-    // One Sidebar position for the Explorer's places and the project tree
-    // (#304), on the Explorer page where the owner looks for it.
+    // Two Sidebar positions (#304; owner, 2026-10-07: "two settings, one on
+    // the project tab and one on the explorer tab"), each on its own page.
+    expect(at['explorer-side']).toBe('explorer/Layout')
     expect(at['explorer-size']).toBe('explorer/Layout')
     expect(at['newtab-mode']).toBe('explorer/Opening things')
     expect(at['transport-bg']).toBe('media/Behind the controls/progress')

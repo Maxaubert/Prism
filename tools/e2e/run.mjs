@@ -5101,7 +5101,7 @@ async function tabsScenario(fixtures) {
 const SETTINGS_PAGE_OF = {
   'style-theme': 'appearance', 'see-through': 'appearance', 'theme-edits': 'appearance', 'c-bg': 'appearance', 'c-accent': 'appearance', 'c-font': 'appearance',
   'tree-size': 'appearance', 'title-bar': 'appearance', 'tab-width': 'appearance', 'c-edges': 'appearance', 'c-corners': 'appearance',
-  'tree-side': 'explorer', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'project',
+  'explorer-side': 'explorer', 'tree-side': 'project', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'project',
   'open-external': 'explorer', 'remember-tabs': 'explorer', 'remember-folders': 'explorer', 'explorer-verb': 'explorer', 'default-apps': 'explorer',
   'term-shell': 'terminal', 'term-theme': 'terminal', 'agent-indicator': 'agents', 'agent-color': 'agents',
   'dictation-enabled': 'dictation', 'transport-bg': 'media', 'app-version': 'about'
@@ -14522,6 +14522,14 @@ async function settingsSearchScenario(fixtures) {
       if ((await find.inputValue()) !== '') misses.push(`${id}: the field kept its text`)
     }
     ok(misses.length === 0, `every row is found by its label and opened (${JSON.stringify(misses)})`)
+    // TWO SIDEBAR POSITIONS (#304; owner, 2026-10-07: "two settings, one on
+    // the project tab and one on the explorer tab"): one search finds both.
+    await find.fill('sidebar position')
+    ok(
+      await until(async () => (await win.locator('[data-settings-page] [role="option"][data-hit="explorer-side"]').count()) === 1 && (await win.locator('[data-settings-page] [role="option"][data-hit="tree-side"]').count()) === 1, 3000, 30),
+      'Sidebar position finds the Explorer row and the project row'
+    )
+    await find.fill('')
     // KEYBOARD ONLY: the field, Down, Enter, and the control has the focus.
     await find.focus()
     await win.keyboard.type('explorer menu')
@@ -15067,12 +15075,16 @@ async function previewClearsScenario(fixtures) {
  * the setting in Explorer for the sidebar where you can put it on the right
  * side or the left side? I think that's just an empty setting for now ... when
  * the sidebar goes on the right, the preview menu and button to open it would
- * have to go on the left"). One row, on Explorer's Layout, for the places AND
- * the project tree. On the right: the places against the window's right edge,
- * the preview pane against its left, the preview toggle before the history
- * buttons; the toggle, both grips, the hide, the peek and the pin all work
- * turned round, one coat of a see-through ground everywhere, and Left again
- * gives back every box exactly. The choice outlives a restart.
+ * have to go on the left"), AND IT IS TWO SETTINGS (owner, the same day, after
+ * testing one shared row: "No, it should be two settings, one on the project
+ * tab and one on the explorer tab"). Explorer > Layout's row (`explorer-side`)
+ * moves the places and leaves a project's tree where it is; Project settings'
+ * row (`tree-side`) moves the tree and leaves the Explorer where it is. On the
+ * right: the places against the window's right edge, the preview pane against
+ * its left, the preview toggle before the history buttons; the toggle, both
+ * grips, the hide, the peek and the pin all work turned round, one coat of a
+ * see-through ground everywhere, and Left again gives back every box exactly.
+ * Both choices outlive a restart.
  */
 async function explorerSideScenario(fixtures) {
   console.log('explorer sidebar side (#304)')
@@ -15151,15 +15163,24 @@ async function explorerSideScenario(fixtures) {
     })
   try {
     widthsBefore = await win.evaluate(() => localStorage.getItem('prism.explorer.widths'))
-    // 0. THE ROW IS EXPLORER'S, first in Layout, and Project settings has none.
-    await gotoPref(win, 'tree-side')
+    // 0. TWO ROWS, one per page: the Explorer's first in its Layout, the
+    // project tree's first in Project settings, each only there.
+    await gotoPref(win, 'explorer-side')
     const firstInLayout = await win.evaluate(() => document.querySelector('[data-settings-section="layout"] [data-pref]')?.getAttribute('data-pref'))
-    ok(firstInLayout === 'tree-side', `Sidebar position is the first row of Explorer's Layout (${firstInLayout})`)
+    ok(firstInLayout === 'explorer-side', `the Explorer's Sidebar position is the first row of its Layout (${firstInLayout})`)
+    ok((await win.locator('[data-pref="tree-side"]').count()) === 0, 'and the Explorer page has no project tree row')
+    const explorerSub = (await win.locator('[data-pref="explorer-side"]').innerText()).replace(/\s+/g, ' ')
+    ok(/Sidebar position/.test(explorerSub) && /places panel/.test(explorerSub), `it names the places panel (${explorerSub})`)
     await settingsPage(win, 'project')
-    await sleep(300)
-    ok((await win.locator('[data-pref="tree-side"]').count()) === 0, 'and Project settings no longer carries it')
+    await win.locator('[data-pref="tree-side"]').waitFor({ timeout: 10000 })
+    const firstInProject = await win.evaluate(() => document.querySelector('[data-settings-section="project"] [data-pref]')?.getAttribute('data-pref'))
+    ok(firstInProject === 'tree-side', `the project tree's Sidebar position is back on Project settings, first (${firstInProject})`)
+    ok((await win.locator('[data-pref="explorer-side"]').count()) === 0, 'and Project settings has no Explorer row')
+    const treeSub = (await win.locator('[data-pref="tree-side"]').innerText()).replace(/\s+/g, ' ')
+    ok(/Sidebar position/.test(treeSub) && /file tree/.test(treeSub), `it names the file tree (${treeSub})`)
     await win.click('[aria-label="Settings"]')
     await sleep(400)
+    await pickStyleSegment(win, 'explorer-side', 'Left')
     await pickStyleSegment(win, 'tree-side', 'Left')
 
     // 1. LEFT, as it always was: the project tab and the Explorer.
@@ -15185,8 +15206,9 @@ async function explorerSideScenario(fixtures) {
     ok(left.toggle.x >= left.field.r && left.toggle.r <= left.search.x, 'Left: the preview toggle is after the address, before search')
     await win.screenshot({ path: join(SHOTS, 'explorer-side-left.png') })
 
-    // 2. RIGHT.
-    await pickStyleSegment(win, 'tree-side', 'Right')
+    // 2. THE EXPLORER'S RIGHT.
+    await pickStyleSegment(win, 'explorer-side', 'Right')
+    ok((await win.evaluate(() => [localStorage.getItem('prism.explorer.side'), localStorage.getItem('prism.tree.side')])).join('/') === 'right/left', 'the Explorer row stores its own key and leaves the tree\'s')
     await toExplorer()
     await pick('notes.txt')
     const right = await boxes()
@@ -15304,40 +15326,62 @@ async function explorerSideScenario(fixtures) {
     now = await boxes()
     ok(now.places.r === now.work.r && now.places.w === right.places.w, `pinned at the right edge (${say(now.places)})`)
 
-    // 7. THE PROJECT TAB: the tree on the right, the file left of it.
-    await win.locator('[role="tablist"] [role="tab"]').last().click()
-    await win.waitForSelector('[data-project-sidebar]', { timeout: 10000 })
-    await settle()
+    // 7. THE PROJECT TAB stays put under the Explorer's Right.
+    const toProject = async () => {
+      await win.locator('[role="tablist"] [role="tab"]').last().click()
+      await win.waitForSelector('[data-project-sidebar]', { timeout: 10000 })
+      await settle()
+    }
+    await toProject()
+    const projStill = await project()
+    ok(JSON.stringify(projStill) === JSON.stringify(projLeft), `the Explorer's Right leaves the project tree at the left edge (${say(projStill)} vs ${say(projLeft)})`)
+
+    // 8. THE PROJECT'S RIGHT: the tree on the right, the file left of it.
+    await pickStyleSegment(win, 'tree-side', 'Right')
+    ok((await win.evaluate(() => [localStorage.getItem('prism.explorer.side'), localStorage.getItem('prism.tree.side')])).join('/') === 'right/right', 'the project row stores its own key')
+    await toProject()
     const projRight = await project()
     ok(projRight.tree?.r === projRight.work.r && projRight.viewer?.r <= projRight.tree.x + 1, `Right: the project tree is at the right edge, the file left of it (${say(projRight)})`)
     ok(projRight.tree.w === projLeft.tree.w, 'at the width it had')
     await win.screenshot({ path: join(SHOTS, 'explorer-side-right-project.png') })
 
-    // 8. LEFT AGAIN, in the same window: every box exactly as it was.
-    await pickStyleSegment(win, 'tree-side', 'Left')
+    // 9. THE EXPLORER'S LEFT AGAIN, with the project's Right kept: every
+    // Explorer box exactly as it was, so the project row moved nothing here.
+    await pickStyleSegment(win, 'explorer-side', 'Left')
     await toExplorer()
     await pick('notes.txt')
     const back = await boxes()
-    ok(JSON.stringify(back) === JSON.stringify(left), `Left gives back every box exactly (${say(back)} vs ${say(left)})`)
+    ok(JSON.stringify(back) === JSON.stringify(left), `the project's Right leaves the Explorer as it was, every box exactly (${say(back)} vs ${say(left)})`)
     await win.screenshot({ path: join(SHOTS, 'explorer-side-left-again.png') })
+    await toProject()
+    const projKept = await project()
+    ok(projKept.tree?.r === projKept.work.r, `and the project tree is still on the right (${say(projKept)})`)
 
-    // 9. A RESTART keeps Right. (Measured against the window it opens at:
-    // a restart restores the window's size, not to the pixel.)
-    await pickStyleSegment(win, 'tree-side', 'Right')
+    // 10. A RESTART keeps both, each its own. (Measured against the window it
+    // opens at: a restart restores the window's size, not to the pixel.)
+    await pickStyleSegment(win, 'explorer-side', 'Right')
     await app.close()
     await sleep(900)
     ;({ app, win } = await launch(join(dir, 'notes.txt')))
-    ok((await win.evaluate(() => localStorage.getItem('prism.tree.side'))) === 'right', 'the choice is stored')
+    ok((await win.evaluate(() => [localStorage.getItem('prism.explorer.side'), localStorage.getItem('prism.tree.side')])).join('/') === 'right/right', 'both choices are stored')
     await explorerAt(win, dir)
     await pick('notes.txt')
     const again = await boxes()
     ok(again.side === 'right' && again.places?.r === again.work.r && again.pane?.x === again.work.x, `after a restart the places are on the right and the preview on the left (${say(again)})`)
     ok(again.toggle.r <= again.back.x, 'and the preview toggle still leads the address row')
+    await toProject()
+    const projAgain = await project()
+    ok(projAgain.tree?.r === projAgain.work.r, `and the project tree is on the right (${say(projAgain)})`)
+    await pickStyleSegment(win, 'explorer-side', 'Left')
     await pickStyleSegment(win, 'tree-side', 'Left')
+    await toProject()
+    const projLeftAgain = await project()
+    ok(projLeftAgain.tree?.x === projLeftAgain.work.x, `the project row's Left puts the tree back at the left edge (${say(projLeftAgain)})`)
   } finally {
     await win
       .evaluate((w) => {
         localStorage.setItem('prism.tree.side', 'left')
+        localStorage.setItem('prism.explorer.side', 'left')
         localStorage.setItem('prism.explorer.places', '1')
         if (w === null) localStorage.removeItem('prism.explorer.widths')
         else localStorage.setItem('prism.explorer.widths', w)

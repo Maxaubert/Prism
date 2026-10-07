@@ -1,18 +1,20 @@
 import type { JSX } from 'react'
-import { Select } from 'prism-term-core/renderer/settings/fields'
+import { Segmented, Select } from 'prism-term-core/renderer/settings/fields'
 import { SettingRow } from 'prism-term-core/renderer/settings/layout/SettingRow'
 import { SettingsSection } from 'prism-term-core/renderer/settings/layout/SettingsSection'
 import { setNewTabShow, useNewTabShow, type NewTabShow } from '../../lib/newTabPrefs'
+import { setTreeSide, TREE_SIDES, useTreeSide, type TreeSide } from '../../lib/treePrefs'
 import { APP_SECTIONS, appOpt } from './appOptions'
 import { iconPath } from './icons'
 
 // PROJECT SETTINGS (#296; owner, 2026-10-06: "project specific settings
 // should be in a tab called project settings not in explorer"). The rows only
-// a project tab uses: what a folder opened as a project shows first. Folder
-// for new tabs stays on Explorer, since the + and Ctrl+T open an Explorer tab.
-// Sidebar position left this page for Explorer's Layout (#304; owner,
-// 2026-10-07): it moves the Explorer's places AND the project tree, one
-// sidebar, one row.
+// a project tab uses: the side its file tree sits on, and what a folder
+// opened as a project shows first. Folder for new tabs stays on Explorer,
+// since the + and Ctrl+T open an Explorer tab. Sidebar position here moves the
+// project tree only; the Explorer has its own row (#304; owner, 2026-10-07:
+// "No, it should be two settings, one on the project tab and one on the
+// explorer tab").
 
 const row = (id: string): { icon: string; label: string; sub: string } => {
   const o = appOpt(id)
@@ -20,9 +22,13 @@ const row = (id: string): { icon: string; label: string; sub: string } => {
 }
 
 export function ProjectPage(): JSX.Element {
+  const side = useTreeSide()
   const tabShow = useNewTabShow()
   return (
     <SettingsSection id="project" title={APP_SECTIONS.project}>
+      <SettingRow id="tree-side" {...row('tree-side')}>
+        <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
+      </SettingRow>
       <SettingRow id="newtab-show" {...row('newtab-show')}>
         <Select
           id="newtab-show"
