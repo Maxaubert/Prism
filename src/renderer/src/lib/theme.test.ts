@@ -196,7 +196,7 @@ describe('the progress bar follows the accent', () => {
   it('follows a style switch without being told', () => {
     setStyle('aurora')
     const auroraBar = resolveVizTheme(DEFAULT_BAR_THEME).accent
-    setStyle('ember')
+    setStyle('jade')
     expect(resolveVizTheme(DEFAULT_BAR_THEME).accent).not.toBe(auroraBar)
   })
 })
@@ -391,7 +391,8 @@ describe("the owner's picks of 2026-09-20", () => {
   })
 
   // Ruby's pin (near-black and red) retired with Ruby (#298): its
-  // successor in the migration is Ember, held by `themes/catalogue.test.ts`.
+  // successor in the migration is Crimson, the red of #316, held by
+  // `themes/migrate.test.ts`.
 
   it('hands the zip the folder colour, with an ink that reads on it', () => {
     // "the zip file icon should have dynamically adjusting colours based on the
