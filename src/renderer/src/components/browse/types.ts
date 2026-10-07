@@ -59,6 +59,9 @@ export interface FolderBrowserProps {
   /** THE COLLAPSED PANEL PEEKS (#250): 'in' while the hidden places panel is
    *  out OVER the list, 'out' for its slide away. */
   placesPeek?: 'in' | 'out' | null
+  /** SIDEBAR POSITION (#304): the edge the places panel sits on. On the
+   *  right, the preview pane and its toggle take the left. */
+  side?: 'left' | 'right'
   /** The peeking panel's own toggle: keep it open. */
   onPinPlaces?: () => void
   /** A place or a pin was picked from the peeking panel: the peek is over. */
