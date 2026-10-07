@@ -91,6 +91,52 @@
   pointer-events: none;
   animation-name: p-peek-out-left;
 }
+/* SIDEBAR POSITION, RIGHT (#304; owner, 2026-10-07: "when the sidebar goes on
+   the right, the preview menu and button to open it would have to go on the
+   left"). The grid mirrors: preview, list, places. Three columns always, the
+   preview's at 0px while it is shut, so its slide tweens one column as the
+   left side's does; the places column keeps its own variable, so hiding and
+   sliding it are the same rules as on the left. Every edge, peek and freeze
+   below is the left side's rule turned round. */
+.folder-browser[data-side='right'] {
+  grid-template-columns: 0px minmax(0, 1fr) var(--browse-places-width);
+}
+.folder-browser[data-side='right'][data-preview] {
+  grid-template-columns: var(--browse-preview-width, clamp(280px, 40%, 720px)) minmax(0, 1fr) var(
+      --browse-places-width
+    );
+}
+.folder-browser[data-side='right'] > .browse-places {
+  grid-column: 3;
+  border-right: 0;
+  border-left: 1px solid var(--p-divider);
+}
+.folder-browser[data-side='right'] > .browse-preview-slot {
+  grid-column: 1;
+  border-left: 0;
+  border-right: 1px solid var(--p-divider);
+}
+.folder-browser[data-side='right'] > .browse-status {
+  grid-column: 1 / 3;
+}
+/* Mid-slide the contents keep their open width against the WINDOW's edge, so
+   the panel is wiped from its inner side, as the left one is. */
+.folder-browser[data-side='right'][data-places-sliding] .browse-places {
+  align-items: flex-end;
+}
+.folder-browser[data-side='right'][data-places-peek] .browse-places {
+  /* Out of the grid, as on the left: an absolute box in a grid AREA would
+     measure its top from that area, not from the browser. */
+  grid-column: auto;
+  grid-row: auto;
+  left: auto;
+  right: 0;
+  box-shadow: -10px 0 28px -8px rgb(0 0 0 / 0.45);
+  animation-name: p-peek-in-right;
+}
+.folder-browser[data-side='right'][data-places-peek='out'] .browse-places {
+  animation-name: p-peek-out-right;
+}
 .browse-places-peekhead {
   display: flex;
   justify-content: flex-end;

@@ -65,16 +65,27 @@
   top: 48px;
   bottom: 26px;
 }
+/* SIDEBAR POSITION, RIGHT (#304): each handle is its left twin turned round,
+   on the same side of the same edge, its line against the edge. */
 .explorer-resize-places.is-right {
   left: auto;
   right: var(--explorer-places-width);
-  transform: translateX(100%);
+}
+.explorer-resize.is-right::after,
+.explorer-resize.is-left::after {
+  left: auto;
+  right: 0;
 }
 .explorer-resize-preview {
   top: 48px;
   bottom: 26px;
   right: var(--browse-preview-width);
   transform: translateX(100%);
+}
+.explorer-resize-preview.is-left {
+  right: auto;
+  left: var(--browse-preview-width);
+  transform: translateX(-100%);
 }
 .browse-viewer-places > .browse-places {
   width: 100%;
@@ -92,6 +103,13 @@
   bottom: 26px;
   width: var(--browse-preview-width);
   border-left: 1px solid var(--p-divider);
+}
+/* With the sidebar on the right the preview is on the left (#304). */
+.browse-workspace[data-sidebar-side='right'] [data-browse-preview] {
+  right: auto;
+  left: 0;
+  border-left: 0;
+  border-right: 1px solid var(--p-divider);
 }
 /* The preview pane slides open and shut on its toggle (#207, owner,
    2026-09-23), at the places panel's pace: the list's grid column, the viewer
@@ -113,6 +131,14 @@
   right: auto;
   width: var(--browse-preview-frozen, 100%);
   flex: none;
+}
+/* On the left the contents ride the pane's inner edge, its right. */
+.browse-workspace[data-sidebar-side='right'][data-preview-sliding] [data-browse-preview] {
+  justify-content: flex-end;
+}
+.browse-workspace[data-sidebar-side='right'][data-preview-sliding] [data-browse-preview] > * {
+  left: auto;
+  right: 0;
 }
 /* A TEXT PREVIEW STARTS ON THE COLUMN HEADER'S LINE (#283; owner, 2026-10-04:
    "the position of the sorting bar with name, type, size etc. that's the

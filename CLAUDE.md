@@ -2656,9 +2656,28 @@ Filesmith's conventions.
   **PROJECT SETTINGS IS ITS OWN PAGE, AND THE TREE ALWAYS FOLLOWS THE OPEN FILE** (#296; owner,
   2026-10-06: "project specific settings should be in a tab called project settings not in
   explorer. and remove the setting for scroll to open file, it should just be on by default, no
-  setting"). `ProjectPage.tsx` holds Sidebar position and First view of a new project; Folder for
+  setting"). `ProjectPage.tsx` holds Sidebar position (the tree's) and First view of a new project; Folder for
   new tabs stays on Explorer, since the + and Ctrl+T open an Explorer tab. Scroll to the open file
   is gone and a stored `prism.tree.autoscroll` is ignored.
+- **SIDEBAR POSITION IS TWO SETTINGS: THE EXPLORER'S PLACES AND THE PROJECT TREE, AND THE PREVIEW
+  TAKES THE OTHER SIDE** (#304; owner, 2026-10-07: "fix the setting in Explorer for the sidebar where
+  you can put it on the right side or the left side? I think that's just an empty setting for now,
+  but actually implement it. And remember that when the sidebar goes on the right, the preview menu
+  and button to open it would have to go on the left"; then, the same day, after testing one shared
+  row: "No, it should be two settings, one on the project tab and one on the explorer tab").
+  Explorer > Layout opens with `explorer-side` (key `prism.explorer.side`, `lib/explorerSidePrefs.ts`,
+  default Left): the Explorer tab's places panel, and nothing else. Project settings keeps
+  `tree-side` (key `prism.tree.side`, unchanged): the project tree, and nothing else. Neither moves
+  the other; App reads the Explorer's for an Explorer tab and the tree's for a project tab
+  (`workspaceSide`), and each panel peeks from its own. On the Explorer's Right:
+  `.folder-browser[data-side='right']` is a three-column grid (preview, list, places;
+  the preview column 0px while shut, so its slide still tweens one column), the places come after
+  the list in the DOM (Tab walks left to right), the preview toggle LEADS the address row (before
+  Back, the end nearest the pane), the viewer laid over the slot sits at `left: 0`
+  (`.browse-workspace[data-sidebar-side='right']`), each grip is its left twin turned round
+  (`ExplorerResize`'s `edge`: a drag toward the middle widens), and the places peek from the right
+  edge. Left is the window as it was, box for box. The `explorerSide` e2e holds it (it fails on
+  main), one coat of a see-through ground included, and that each row moves only its own panel.
 
 
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which
