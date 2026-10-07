@@ -775,8 +775,15 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Switch (on: `--p-text-soft` track, `--p-bg` knob), the pressed Segmented option and the row
   buttons (Default apps, Clear) are the terminal core's own `fields.tsx` since #292 (PrismTerminal
   #42 holds them there), and no page keeps a copy. Selection marks (style cards, swatches) and
-  Reset links are not buttons and keep the accent, as does the Win+E switch; the chosen rail page
-  is grey since #292. `settings/settingsControls.test.ts` holds it.
+  Reset links are not buttons and keep the accent; the chosen rail page is grey since #292.
+  `settings/settingsControls.test.ts` holds it. **EVERY SWITCH IS THE CORE'S** (#318; owner,
+  2026-10-07: "toggles differ in look i like the teal with black not the green and white", then
+  "it should depend on the theme so only teal on the teal theme"): the Win+E row (once its own
+  accent-and-white exception), the phone server switch and the player menu's toggles use the
+  core's `Switch` or its `SWITCH_ON` / `SWITCH_KNOB_ON`, and no file outside the core draws a
+  `role="switch"`. The LOOK is the core's call: from core 0.26.0 (PrismTerminal #139) an on switch
+  is `--p-sel-bg` with an `--p-on-accent` knob. The `settingsLook` e2e holds every switch on the
+  Explorer page to one track and one knob colour when on.
 - **NOTHING WEARS A FOCUS BOX; FOCUS IS THE HOVER'S FILL** (#272; owner, 2026-10-04, of a white box
   round the title bar's menu button: "remove the focus effect. go through the ui and remove focus
   effects like this"). `index.css`'s base-layer rule takes Chromium's ring off every focused

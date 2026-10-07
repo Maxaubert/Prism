@@ -13846,6 +13846,27 @@ const settingsLookOf = (win) =>
     }
   })
 
+// EVERY SWITCH IS ONE SWITCH (#318; owner, 2026-10-07: "toggles differ in
+// look i like the teal with black not the green and white"). The switches on
+// the page, grouped by state: each group must be ONE look (the button's and
+// the knob's classes, the track's and the knob's computed colours). The Win+E
+// row drew its own, the accent with a white knob, beside the core's.
+const switchLooksOf = (win) =>
+  win.evaluate(() => {
+    const bg = (el) => getComputedStyle(el).backgroundColor
+    return [...document.querySelectorAll('[data-settings-page] [role="switch"]')].map((sw) => {
+      const knob = sw.firstElementChild
+      return {
+        label: sw.getAttribute('aria-label'),
+        on: sw.getAttribute('aria-checked') === 'true',
+        look: JSON.stringify([sw.className, knob?.className ?? '', bg(sw), knob ? bg(knob) : '']),
+        // The markup with the state's own colour classes taken out: the same
+        // for every switch drawn by the one component, on or off.
+        shape: JSON.stringify([sw.className, knob?.className ?? ''].map((c) => c.split(/\s+/).filter((t) => !/^(enabled:hover:|disabled:opacity-)?(bg|brightness|opacity)-/.test(t)).join(' ')))
+      }
+    })
+  })
+
 /**
  * THE SETTINGS LOOK (#292; owner, 2026-10-05: the approved v1 "Grouped cards",
  * with no accent bar on the chosen rail item). Every page in a dark and a
@@ -13914,6 +13935,23 @@ async function settingsLookScenario(fixtures) {
         await win.mouse.move(5, 5)
         await sleep(450)
         const name = view ? `${page}-${view}` : page
+        if (page === 'explorer') {
+          const sws = await switchLooksOf(win)
+          for (const state of [true, false]) {
+            const group = sws.filter((x) => x.on === state)
+            const looks = [...new Set(group.map((x) => x.look))]
+            ok(
+              looks.length <= 1,
+              `${scheme} explorer: every ${state ? 'on' : 'off'} switch has one look (${group.map((x) => x.label).join(', ')}: ${looks.join(' | ')})`
+            )
+          }
+          ok(sws.some((x) => x.on), `${scheme} explorer: an on switch is measured (${sws.filter((x) => x.on).map((x) => x.label).join(', ')})`)
+          // Win+E is off and unavailable outside a packaged build, so it cannot
+          // be measured on: it is held to the same markup as the others, which
+          // is the core's component and so the core's on look.
+          const winE = sws.find((x) => x.label === 'Open in place of File Explorer')
+          ok(!!winE && sws.every((x) => x.shape === winE.shape), `${scheme} explorer: the Win+E switch is the core's (${winE?.shape})`)
+        }
         const m = await settingsLookOf(win)
         ok(m.label >= 4.5 && m.sub >= 4.5, `${scheme} ${name}: label and subtext read on the panel (${m.label.toFixed(1)}:1, ${m.sub.toFixed(1)}:1)`)
         ok(m.icon >= 3, `${scheme} ${name}: the icon reads 3:1 on its tile (${m.icon.toFixed(1)}:1)`)
