@@ -27,7 +27,7 @@ import { ContextMenu, type MenuItem } from './ContextMenu'
 import { fileVerbs, tickIf } from '../lib/fileVerbs'
 import { lintKeymap } from '@codemirror/lint'
 import { isProse, langFor } from '../lib/codeLang'
-import { jsonLinter, syntaxLinter } from '../lib/codeLint'
+import { lintFor } from '../lib/codeLint'
 import { prismCodeTheme } from '../lib/codeTheme'
 import { setWrapPref, useWrapPref, wrapPref, wrapsFor, type WrapPref } from '../lib/codePrefs'
 import { reloadAction, stampChanged, touchesFile, type Stamp } from '../lib/fileReload'
@@ -257,7 +257,7 @@ export function CodeView({
   // match it. Runs on every path change, since the view outlives the file.
   useEffect(() => {
     let alive = true
-    const lang = langFor(name)
+    const lang = langFor(name, path)
     void Promise.all([
       window.prism.readText(path),
       lang ? lang.load() : Promise.resolve<Extension>([]),
@@ -290,14 +290,9 @@ export function CodeView({
           wrapComp.reconfigure(wrapFor(name, wrapPref())),
           langComp.reconfigure(langExt),
           // Squiggles need a grammar to be wrong against. A stream lexer has
-          // none, so those languages get colour and no claims about errors.
-          lintComp.reconfigure(
-            /\.jsonc?$|\.json5$/i.test(name)
-              ? [syntaxLinter, jsonLinter]
-              : lang?.parsed
-                ? syntaxLinter
-                : []
-          )
+          // none, so those languages get colour and no claims about errors;
+          // JSONC is the one lexed language with a checker of its own (#312).
+          lintComp.reconfigure(lintFor(lang))
         ]
       })
       report(body === disk ? null : body)

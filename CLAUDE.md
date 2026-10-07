@@ -216,6 +216,14 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
   gets no gutter and no language. Token colours are the THEME's since #298 (`--p-code-*`).
+  **JSONC COMMENTS ARE COMMENTS** (#312; owner, 2026-10-07: "comments in jsonc arent read as
+  comments in prism"): the strict JSON grammar made every // line plain text under a squiggle.
+  `.jsonc`, `tsconfig(.*).json`, `jsconfig(.*).json`, `.eslintrc(.json)`, `.babelrc(.json)`,
+  `(.)devcontainer.json`, `wrangler/turbo/biome/deno.json` and every `.json` in a `.vscode`
+  folder go to `lib/jsoncMode.ts` (a tokenizer with the JSON grammar's own tags, comment tags,
+  brace folding) and `codeLint.jsoncErrors` (comments and trailing commas blanked to spaces,
+  offsets kept, then `JSON.parse`), so a missing comma is still underlined. `.json5` colours the
+  same with no linter (bare keys and single quotes). Plain `.json` stays strict. `jsonc` e2e.
   **A FILE THAT GROWS** (2026-08-31): "Follow the file" appends new bytes as they are
   written - a build log, an agent's transcript - and a file PAST THE 64MB CEILING now shows
   its TAIL (2MB) instead of an apology. Both are READ-ONLY, and structurally so: a followed

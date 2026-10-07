@@ -19,6 +19,8 @@ export type CodeLang = {
   readonly name: string
   /** True when the grammar can report syntax errors. */
   readonly parsed: boolean
+  /** A checker beyond the grammar's error nodes: JSON.parse, or its JSONC form. */
+  readonly lint?: 'json' | 'jsonc'
   readonly load: () => Promise<Extension>
 }
 
@@ -40,7 +42,21 @@ const JS = parsed('JavaScript', async () => (await import('@codemirror/lang-java
 const JSX = parsed('JSX', async () => (await import('@codemirror/lang-javascript')).javascript({ jsx: true }))
 const TS = parsed('TypeScript', async () => (await import('@codemirror/lang-javascript')).javascript({ typescript: true }))
 const TSX = parsed('TSX', async () => (await import('@codemirror/lang-javascript')).javascript({ jsx: true, typescript: true }))
-const JSON_ = parsed('JSON', async () => (await import('@codemirror/lang-json')).json())
+const JSON_: CodeLang = {
+  ...parsed('JSON', async () => (await import('@codemirror/lang-json')).json()),
+  lint: 'json'
+}
+// JSON with comments (#312): the strict grammar read every // line as an error.
+// A tokenizer colours it and codeLint's jsoncErrors judges it.
+const JSONC: CodeLang = {
+  name: 'JSON with Comments',
+  parsed: false,
+  lint: 'jsonc',
+  load: async () => (await import('./jsoncMode')).jsonc()
+}
+// JSON5 has bare keys, single quotes and hex, which jsoncErrors would call
+// wrong: the same colours, and no claims about errors.
+const JSON5: CodeLang = { name: 'JSON5', parsed: false, load: JSONC.load }
 const CSS = parsed('CSS', async () => (await import('@codemirror/lang-css')).css())
 const HTML = parsed('HTML', async () => (await import('@codemirror/lang-html')).html())
 const XML = parsed('XML', async () => (await import('@codemirror/lang-xml')).xml())
@@ -121,7 +137,7 @@ const COBOL = lexed('COBOL', async () => (await import('@codemirror/legacy-modes
 const BY_EXT: Record<string, CodeLang> = {
   '.js': JS, '.mjs': JS, '.cjs': JS, '.jsx': JSX,
   '.ts': TS, '.mts': TS, '.cts': TS, '.tsx': TSX,
-  '.json': JSON_, '.jsonc': JSON_, '.json5': JSON_, '.ipynb': JSON_,
+  '.json': JSON_, '.jsonc': JSONC, '.json5': JSON5, '.ipynb': JSON_,
   '.css': CSS, '.scss': SCSS, '.sass': SASS, '.less': LESS, '.styl': STYLUS,
   '.html': HTML, '.xhtml': HTML, '.svelte': HTML, '.astro': HTML, '.vue': VUE,
   '.xml': XML, '.svg': XML, '.svgz': XML,
@@ -189,8 +205,28 @@ const BY_NAME: Record<string, CodeLang> = {
   '.editorconfig': PROPERTIES,
   '.env': PROPERTIES,
   '.prettierrc': JSON_,
-  '.eslintrc': JSON_,
-  '.babelrc': JSON_
+  // The tools that read these allow comments in them, so JSONC (#312).
+  '.eslintrc': JSONC,
+  '.eslintrc.json': JSONC,
+  '.babelrc': JSONC,
+  '.babelrc.json': JSONC,
+  'tsconfig.json': JSONC,
+  'jsconfig.json': JSONC,
+  'devcontainer.json': JSONC,
+  '.devcontainer.json': JSONC,
+  'wrangler.json': JSONC,
+  'turbo.json': JSONC,
+  'biome.json': JSONC,
+  'deno.json': JSONC
+}
+
+/** `tsconfig.app.json` and the like: the variants read the same way. */
+const JSONC_FAMILY = /^(?:tsconfig|jsconfig)\..+\.json$/
+
+/** The folder a path sits in, lower-cased, or '' without one. */
+function parentName(path: string): string {
+  const parts = path.split(/[\\/]/)
+  return (parts[parts.length - 2] ?? '').toLowerCase()
 }
 
 /**
@@ -198,10 +234,13 @@ const BY_NAME: Record<string, CodeLang> = {
  * Null is a real answer, not a failure: prose (`.txt`, `.log`) is meant to be
  * plain, and an unmapped extension reads better uncoloured than mis-coloured.
  */
-export function langFor(name: string): CodeLang | null {
+export function langFor(name: string, path?: string): CodeLang | null {
   const n = name.toLowerCase()
   const byName = BY_NAME[n]
   if (byName) return byName
+  if (JSONC_FAMILY.test(n)) return JSONC
+  // VS Code's own folder: settings, launch, tasks, extensions all take comments.
+  if (path && n.endsWith('.json') && parentName(path) === '.vscode') return JSONC
   const ext = /\.[^.]*$/.exec(n)?.[0] ?? ''
   return BY_EXT[ext] ?? null
 }
