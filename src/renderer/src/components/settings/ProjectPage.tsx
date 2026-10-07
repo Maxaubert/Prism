@@ -11,7 +11,10 @@ import { iconPath } from './icons'
 // should be in a tab called project settings not in explorer"). The rows only
 // a project tab uses: the side its file tree sits on, and what a folder
 // opened as a project shows first. Folder for new tabs stays on Explorer,
-// since the + and Ctrl+T open an Explorer tab.
+// since the + and Ctrl+T open an Explorer tab. Sidebar position here moves the
+// project tree only; the Explorer has its own row (#304; owner, 2026-10-07:
+// "No, it should be two settings, one on the project tab and one on the
+// explorer tab").
 
 const row = (id: string): { icon: string; label: string; sub: string } => {
   const o = appOpt(id)

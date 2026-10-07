@@ -8,6 +8,8 @@ import { setRememberFolders, useRememberFolders } from '../../lib/listingCachePr
 import { setNewTabMode, useNewTabFolder, useNewTabMode } from '../../lib/newTabPrefs'
 import { setOpenMode, useOpenMode, type OpenMode } from '../../lib/openPrefs'
 import { setRememberTabs, useRememberTabs } from '../../lib/tabRestorePrefs'
+import { setExplorerSide, useExplorerSide, type ExplorerSide } from '../../lib/explorerSidePrefs'
+import { TREE_SIDES } from '../../lib/treePrefs'
 import { visitedDirectories } from '../../lib/visitedDirectories'
 import { APP_SECTIONS, appOpt } from './appOptions'
 import { iconPath } from './icons'
@@ -28,8 +30,16 @@ const row = (id: string): { icon: string; label: string; sub: string } => {
 function LayoutSection(): JSX.Element {
   const size = useExplorerSize()
   const drives = useDriveStyle()
+  const side = useExplorerSide()
   return (
     <SettingsSection id="layout" title={APP_SECTIONS.layout}>
+      {/* THE EXPLORER'S OWN SIDEBAR POSITION (#304; owner, 2026-10-07: "No,
+          it should be two settings, one on the project tab and one on the
+          explorer tab"). It moves the places panel; on the right the preview
+          pane takes the left. The project tree's row is on Project settings. */}
+      <SettingRow id="explorer-side" {...row('explorer-side')}>
+        <Segmented value={side} onChange={(v) => setExplorerSide(v as ExplorerSide)} options={TREE_SIDES} />
+      </SettingRow>
       {/* The Explorer's rows alone (owner, 2026-10-03): the tree and the rest
           of the app keep Font size. */}
       <SettingRow id="explorer-size" {...row('explorer-size')}>

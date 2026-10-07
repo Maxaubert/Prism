@@ -104,6 +104,7 @@ import { PropertiesDialog } from './components/PropertiesDialog'
 import './components/browse/workspace.css'
 import { focusTermSession } from 'prism-term-core/renderer/components/TerminalPanel'
 import { sortFiles, useSort } from './lib/sortPrefs'
+import { useExplorerSide } from './lib/explorerSidePrefs'
 import { useTreeSide } from './lib/treePrefs'
 import { VideoView } from './components/VideoView'
 import { AudioView } from './components/AudioView'
@@ -996,7 +997,12 @@ export default function App(): JSX.Element {
   )
   // The file tree. Off on a fresh install: the media is the point.
   const [sidebar, setSidebar] = useState(() => localStorage.getItem(SIDEBAR_KEY) === '1')
+  // TWO SIDEBAR POSITIONS (#304; owner, 2026-10-07: "No, it should be two
+  // settings, one on the project tab and one on the explorer tab"): the
+  // project tree's (Project settings) and the Explorer's places (Explorer >
+  // Layout). Neither moves the other.
   const treeSide = useTreeSide()
+  const explorerSide = useExplorerSide()
   // A PANEL SLIDES WHEN IT IS OPENED OR CLOSED, AND ONLY THEN (owner,
   // 2026-09-23: "when you collapse the explorer sidebar its not animated, it
   // should be", and "when you switch between a project and explorer with
@@ -2608,7 +2614,8 @@ export default function App(): JSX.Element {
   const peekPlaces = !!peekTarget?.startsWith('places:')
   const { phase: peekPhase, end: endPeek } = useSidebarPeek({
     target: peekTarget,
-    side: peekPlaces ? 'left' : treeSide,
+    // Each panel peeks from its own Sidebar position (#304).
+    side: peekPlaces ? explorerSide : treeSide,
     zone: () => document.querySelector<HTMLElement>('.browse-workspace'),
     panel: () =>
       document.querySelector<HTMLElement>(
@@ -2616,6 +2623,9 @@ export default function App(): JSX.Element {
       )
   })
   peekingRef.current = peekPhase === 'in'
+  // The side the open tab's sidebar sits on: an Explorer tab's places, else
+  // the project tree (#304).
+  const workspaceSide = active && isExplorerTab(active) ? explorerSide : treeSide
   // The peeking panel's own toggle pins it; so does Ctrl+B (togglePanel).
   const pinFromPeek = useCallback(() => {
     endPeek()
@@ -4034,7 +4044,8 @@ export default function App(): JSX.Element {
             : undefined
         }
         data-preview-sliding={previewSlide.sliding || undefined}
-        className={`browse-workspace relative flex min-h-0 flex-1 ${browsing.folder ? 'is-browsing' : ''} ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${
+        data-sidebar-side={workspaceSide === 'right' ? 'right' : undefined}
+        className={`browse-workspace relative flex min-h-0 flex-1 ${browsing.folder ? 'is-browsing' : ''} ${workspaceSide === 'right' ? 'flex-row-reverse' : ''} ${
           settingsOpen || setup ? 'invisible' : ''
         }`}
       >
@@ -4046,7 +4057,7 @@ export default function App(): JSX.Element {
             section="places"
             bounds={explorerWidths.bounds.places}
             onResize={(width) => explorerWidths.resize('places', width)}
-            right={!browsing.folder && treeSide === 'right'}
+            edge={explorerSide}
           />
         )}
         {active && active.kind !== 'settings' && !fullscreen && (
@@ -4140,6 +4151,7 @@ export default function App(): JSX.Element {
                 placesVisible={isExplorerTab(active) ? placesVisible : false}
                 placesSliding={isExplorerTab(active) && panelSliding}
                 placesPeek={peekPlaces ? peekPhase : null}
+                side={explorerSide}
                 onPinPlaces={pinFromPeek}
                 onPlacePicked={endPeek}
                 onOpenProject={isExplorerTab(active) ? openAsProject : undefined}
@@ -4239,6 +4251,7 @@ export default function App(): JSX.Element {
               section="preview"
               bounds={explorerWidths.bounds.preview}
               onResize={(width) => explorerWidths.resize('preview', width)}
+              edge={explorerSide === 'right' ? 'left' : 'right'}
             />
           )}
           {!browsing.folder &&

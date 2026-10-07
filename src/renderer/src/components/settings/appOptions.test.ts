@@ -56,6 +56,7 @@ describe("Prism's own settings rows", () => {
         "tab-width=prism.window.tabWidth",
         "c-edges=prism.style.draft",
         "c-corners=prism.style.draft",
+        "explorer-side=prism.explorer.side",
         "explorer-size=prism.explorer.size",
         "drive-style=prism.sidebar.driveStyle",
         "newtab-mode=prism.newtab.mode+prism.newtab.folder",
@@ -119,6 +120,10 @@ describe('Find a setting', () => {
     expect(at['win-e-shortcut']).toBe('explorer/Windows')
     expect(at['tree-side']).toBe('project/Project tabs')
     expect(at['newtab-show']).toBe('project/Project tabs')
+    // Two Sidebar positions (#304; owner, 2026-10-07: "two settings, one on
+    // the project tab and one on the explorer tab"), each on its own page.
+    expect(at['explorer-side']).toBe('explorer/Layout')
+    expect(at['explorer-size']).toBe('explorer/Layout')
     expect(at['newtab-mode']).toBe('explorer/Opening things')
     expect(at['transport-bg']).toBe('media/Behind the controls/progress')
     expect(at['viz-glow']).toBe('media/Visualizer colour/visualizer')
