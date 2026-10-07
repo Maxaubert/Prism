@@ -13815,8 +13815,12 @@ const settingsLookOf = (win) =>
     const accent = parse(root.getPropertyValue('--p-accent').trim())
     // A swatch IS its colour (its fill is inline), and the accent-following
     // scheme's swatch is the accent: a mark, not a button that wears it.
+    // A switch that is on wears the theme's selection colour since core 0.26.0
+    // (owner, 2026-10-07: "it should depend on the theme so only teal on the
+    // teal theme"): a state, not a button that wears the accent.
     const accentButtons = [...frame.querySelectorAll('button')].filter((b) => {
       if (b.style.background) return false
+      if (b.getAttribute('role') === 'switch') return false
       const mine = parse(getComputedStyle(b).backgroundColor)
       return mine.a > 0.3 && mine.rgb.map(Math.round).join() === accent.rgb.map(Math.round).join()
     })
