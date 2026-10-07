@@ -14387,7 +14387,7 @@ const switchLooksOf = (win) =>
         look: JSON.stringify([sw.className, knob?.className ?? '', bg(sw), knob ? bg(knob) : '']),
         // The markup with the state's own colour classes taken out: the same
         // for every switch drawn by the one component, on or off.
-        shape: JSON.stringify([sw.className, knob?.className ?? ''].map((c) => c.split(/\s+/).filter((t) => !/^(enabled:hover:|disabled:opacity-)?(bg|brightness|opacity)-/.test(t)).join(' ')))
+        shape: JSON.stringify([sw.className, knob?.className ?? ''].map((c) => c.split(/\s+/).filter((t) => !/^(enabled:hover:|disabled:)?(bg|brightness|opacity)-/.test(t)).join(' ')))
       }
     })
   })
