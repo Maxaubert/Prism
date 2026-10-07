@@ -11,6 +11,7 @@ import {
   nativeTheme,
   utilityProcess,
   Menu,
+  powerMonitor,
   powerSaveBlocker,
   session
 } from 'electron'
@@ -95,6 +96,10 @@ import { registerTermIpc } from 'prism-term-core/main/ipc'
 import { registerDictationIpc } from 'prism-term-core/main/dictationIpc'
 import { detectShells } from 'prism-term-core/main/shells'
 import { killAll, killWarm } from 'prism-term-core/main/terminal'
+import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnostics'
+import { withStackPolicy } from 'prism-term-core/main/diagIpc'
+import { diagMain } from 'prism-term-core/main/diagLog'
+import { LONG_WAIT_CHANNELS } from './diagChannels'
 import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, ffmpegDirs, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
@@ -1278,7 +1283,10 @@ const E2E = process.argv.includes('--e2e')
  * outside the app is started.
  */
 const e2eOpenedLinks: string[] = []
-if (E2E) Object.assign(globalThis, { __e2eOpenedLinks: e2eOpenedLinks })
+/** Folders Settings > Diagnostics asked Explorer to show, recorded the same
+ *  way under --e2e (#322): a test run never opens an Explorer window. */
+const e2eOpenedPaths: string[] = []
+if (E2E) Object.assign(globalThis, { __e2eOpenedLinks: e2eOpenedLinks, __e2eOpenedPaths: e2eOpenedPaths })
 function openLink(url: string): void {
   if (E2E) {
     e2eOpenedLinks.push(url)
@@ -1469,12 +1477,21 @@ function applyDwmBorder(): void {
  * that dies as fast as the one it replaced ends in a quit, not in a loop.
  */
 const windowBudget = crashBudget()
+/** THE DIAGNOSTICS LOG (#322), the core's (prism-term-core/main/diagnostics;
+ *  schema in Prism Terminal's docs/diagnostics.md). Started once the
+ *  single-instance lock is won; null in a launch that only hands its file over. */
+let diag: Diagnostics | null = null
 const crashLogFile = (): string => join(app.getPath('userData'), 'window-crashes.log')
 function logWindow(
   event: string,
   fields: Record<string, string | number | boolean | undefined>
 ): void {
   appendCrashLog(crashLogFile(), crashLine(new Date(), event, fields))
+  // AND IN THE DIAGNOSTICS LOG (#322): a crash, a hang or the watchdog belongs
+  // on the same timeline as the stalls and crumbs before it, where `npm run
+  // diag` reads it. window-crashes.log stays: the error box and the
+  // `neverWindowless` e2e name that file.
+  diagMain().write('main', 'window', { event, ...fields })
 }
 let appQuitting = false
 app.on('before-quit', () => (appQuitting = true))
@@ -1587,6 +1604,16 @@ function createWindow(): void {
   })
   mainWindow = win
   pageGen++
+  // The diagnostics log's watch (#322): this window's hang events, and its
+  // frame for the page's stack when the heartbeat stops. A rebuilt window
+  // (#265) is handed over the same way.
+  diag?.watchWindow(win)
+  // Windows is shutting down or logging off: no will-quit is coming, so the
+  // log's last lines (those just before a hang at shutdown) are written here.
+  win.on('session-end', () => {
+    diag?.log.write('main', 'session-end', {})
+    diag?.log.flushSync()
+  })
   let shown = false
   const showWindow = (): void => {
     if (shown) return
@@ -1817,6 +1844,31 @@ if (!app.requestSingleInstanceLock()) {
    * file over and exits (#189's fast path) never starts a crashpad_handler.
    */
   crashReporter.start({ uploadToServer: false })
+  /**
+   * THE DIAGNOSTICS LOG (#322; owner, 2026-10-07: "implement some robust
+   * logging and debugging into the program especially to catch stalls for
+   * example in explorer or in general"). Here and not at ready, for two
+   * reasons: the crash hooks should hear a failure during startup too, and
+   * every ipcMain registration comes after this line (the timing wraps
+   * ipcMain itself, so a channel registered earlier would go untimed). Only
+   * the instance holding the lock: a second launch hands its file over and
+   * ends, and two writers on one file would interleave their batches. An
+   * extra Explorer window (Win+E) runs on its own profile, so it keeps its
+   * own log there and never shares the owner's file.
+   */
+  diag = startDiagnostics({
+    diagLogDir: join(app.getPath('userData'), 'logs'),
+    ipcMain,
+    process,
+    app,
+    appInfo: { name: 'Prism', version: pkg.version, e2e: E2E },
+    openFolder: (dir) => {
+      if (E2E) e2eOpenedPaths.push(dir)
+      else void shell.openPath(dir)
+    },
+    longWaitChannels: [...LONG_WAIT_CHANNELS],
+    powerMonitor: () => powerMonitor
+  })
   markExplorerWindow(app.getPath('userData'), false)
   app.on('second-instance', (_e, argv) => {
     const shortcutRequest = winERequest(argv)
@@ -1893,6 +1945,10 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
     markExplorerWindow(app.getPath('userData'), true)
+    // The quit is going ahead: the log's queue is written synchronously, so
+    // its last lines land.
+    diag?.stop()
+    diag = null
     stopDictation()
     killAll()
     killSidecars()
@@ -1909,6 +1965,19 @@ if (!app.requestSingleInstanceLock()) {
   )
 
   app.whenReady().then(() => {
+    // THE PAGE OPTS IN TO HAVING ITS STACK READ (#322): the diagnostics log
+    // asks for it when the page's heartbeat stops (`collectJavaScriptCallStack`),
+    // and the frame only answers for a document served with this
+    // Document-Policy. MEASURED in Prism Terminal on Electron 43: without the
+    // header the answer is "Website owner has not opted in"; with it the stack
+    // of a 3 s busy loop came back in about 1 ms, file:// and dev server alike.
+    // The window's own document only (never a preview's frame); every other
+    // response passes untouched. Before the window exists, so its first load
+    // carries it.
+    session.defaultSession.webRequest.onHeadersReceived((d, callback) => {
+      if (d.resourceType !== 'mainFrame') return callback({})
+      callback({ responseHeaders: withStackPolicy(d.responseHeaders) })
+    })
     // E2E only (review of #271): the never-loading probe runs as a frame
     // preload, so it sees the page from before its first script. The harness
     // attaches only once the window exists, too late for that.
