@@ -7,6 +7,7 @@ import { DiagnosticsPage } from 'prism-term-core/renderer/settings/sections/Diag
 import { useTitleBarMode } from '../../lib/titleBarPrefs'
 import type { TransportStyle } from '../../lib/transport'
 import { useTreeSize } from '../../lib/treePrefs'
+import { crumb } from 'prism-term-core/renderer/lib/diag'
 import { useStyle } from '../../lib/theme'
 import { AboutPage } from './AboutPage'
 import { AgentsPage } from './AgentsPage'
@@ -148,6 +149,8 @@ export function Settings({
           pages={SETTINGS_PAGES}
           page={page}
           onPage={(id, v) => {
+            // Which page was looked at, on the diagnostics timeline (#322).
+            if (id !== page) crumb('settings-page', { page: id })
             setPage(id as AppPageId)
             if (v === 'visualizer' || v === 'progress') setView(v)
           }}
