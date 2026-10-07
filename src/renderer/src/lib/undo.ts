@@ -19,6 +19,9 @@ export type UndoEntry =
   /** Files MOVED into an archive: the members went in and the originals went
    *  to the bin, so undo takes both halves back. */
   | { kind: 'archive-in'; zip: string; dest: string; entries: string[]; originals: string[] }
+  /** A NEW FOLDER (#330, Ctrl+Shift+N): undo bins it, and only while it is
+   *  still empty; redo makes one of the same name in the same place. */
+  | { kind: 'mkdir'; path: string }
 
 export interface UndoState {
   past: readonly UndoEntry[]
@@ -35,6 +38,23 @@ const CAP = 40
  *  redo branch it diverged from is gone (the way every editor does it). */
 export function remember(state: UndoState, entry: UndoEntry): UndoState {
   return { past: [...state.past, entry].slice(-CAP), future: [] }
+}
+
+/**
+ * A RENAME THAT FINISHES A NEW FOLDER (#330). Ctrl+Shift+N makes "New folder"
+ * and puts it straight into a rename, Explorer's way, and Explorer's Undo then
+ * takes the folder away in one step, under whatever name it was given. So a
+ * rename of the folder the newest entry just made folds into that entry
+ * rather than stacking a second one; any other rename is remembered as usual.
+ */
+export function rememberRename(
+  state: UndoState,
+  entry: Extract<UndoEntry, { kind: 'rename' }>
+): UndoState {
+  const top = state.past[state.past.length - 1]
+  if (top?.kind === 'mkdir' && !entry.replaced && top.path.toLowerCase() === entry.from.toLowerCase())
+    return { past: [...state.past.slice(0, -1), { kind: 'mkdir', path: entry.to }], future: [] }
+  return remember(state, entry)
 }
 
 /** Take the newest action off the past; the caller reverses it, then it waits
@@ -68,6 +88,8 @@ export function describe(entry: UndoEntry): string {
       return entry.paths.length > 1 ? `deleting ${entry.paths.length} items` : `deleting ${baseName(entry.paths[0] ?? '')}`
     case 'duplicate':
       return `duplicating ${baseName(entry.path)}`
+    case 'mkdir':
+      return `making ${baseName(entry.path)}`
     case 'archive-in':
       return entry.entries.length > 1
         ? `moving ${entry.entries.length} items into ${baseName(entry.zip)}`

@@ -14,6 +14,10 @@ export interface TreeApi {
   /** The row the arrow keys are on. Usually the open file, but it steps onto
    *  folders too, where there is nothing to open and only a highlight to move. */
   cursor: string | null
+  /** False while the Ctrl keys moved the cursor apart from the marks (#330):
+   *  the row then has the keyboard's focus and NOT the mark, so Ctrl+Down
+   *  does not look like a pick. Optional: absent is true, as before. */
+  cursorMarks?: boolean
   size: (typeof TREE_SIZES)[number]
   /** Path of the file being renamed right now, if any. */
   editing: string | null

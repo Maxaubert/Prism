@@ -383,6 +383,13 @@ const api = {
   /** Copy the file next to itself as "name (2).ext"; resolves with the new path. */
   duplicateFile: (path: string): Promise<string | null> =>
     ipcRenderer.invoke('file:duplicate', path),
+  /** Ctrl+Shift+N (#330): "New folder" (or "(2)" and on) in `dir`; the path
+   *  made, or null. `name` is a redo's: the undone folder's own name. */
+  newFolder: (dir: string, name?: string): Promise<string | null> =>
+    ipcRenderer.invoke('file:newFolder', dir, name),
+  /** Undoing a new folder: the Recycle Bin, only while it is still empty. */
+  binIfEmpty: (path: string): Promise<'binned' | 'not-empty' | 'missing' | 'failed'> =>
+    ipcRenderer.invoke('file:binIfEmpty', path),
 
   /* ----- drag and drop (#70) ----- */
 

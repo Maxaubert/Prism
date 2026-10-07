@@ -1,4 +1,5 @@
 import { existsSync, renameSync } from 'fs'
+import { mkdir, readdir, stat } from 'fs/promises'
 import { dirname, extname, join } from 'path'
 import type { OnClash, RenameResult } from '@shared/types'
 
@@ -80,5 +81,56 @@ export async function renameFile(
     return { ok: true, path: target, replaced }
   } catch (e) {
     return { ok: false, reason: 'failed', message: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
+ * NEW FOLDER (#330; owner, 2026-10-07, Ctrl+Shift+N: the explicit yes to the
+ * "new folder is a fresh decision" rule). Makes "New folder" in `dir`, or
+ * "New folder (2)" and on when that is taken, Explorer's naming. `mkdir` is
+ * never recursive, so it cannot make a parent nobody asked for, and a name
+ * taken between the look and the make (EEXIST) just tries the next one.
+ * Null when `dir` is not a folder or the folder cannot be made.
+ */
+export async function makeFolder(dir: string, name = 'New folder'): Promise<string | null> {
+  if (nameError(name)) return null
+  try {
+    if (!(await stat(dir)).isDirectory()) return null
+  } catch {
+    return null
+  }
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const target = join(dir, uniqueName(dir, name))
+    try {
+      await mkdir(target)
+      return target
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') return null
+    }
+  }
+  return null
+}
+
+/**
+ * Undoing a new folder (#330): it goes to the Recycle Bin, and ONLY while it
+ * is still empty. Something put in it since is the user's, and undo never
+ * takes what it did not make ('not-empty' says so). A folder already gone is
+ * 'missing', which undo treats as done.
+ */
+export async function binIfEmpty(
+  path: string,
+  trash: (p: string) => Promise<void>
+): Promise<'binned' | 'not-empty' | 'missing' | 'failed'> {
+  try {
+    if (!(await stat(path)).isDirectory()) return 'failed'
+  } catch {
+    return 'missing'
+  }
+  try {
+    if ((await readdir(path)).length) return 'not-empty'
+    await trash(path)
+    return 'binned'
+  } catch {
+    return 'failed'
   }
 }

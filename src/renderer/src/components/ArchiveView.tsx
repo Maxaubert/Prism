@@ -725,6 +725,9 @@ function ArchiveInner({
       if (!hasFocus.current || member) return
       const el = e.target as HTMLElement | null
       if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
+      // The keyboard went on to the Explorer's list or the tree since the
+      // last press here (Tab): their own Ctrl+A answers (#330), not both.
+      if (el?.closest('.browse-list,[data-project-sidebar]')) return
       e.preventDefault()
       setSel({ anchor: order[0] ?? null, items: new Set(order) })
     }

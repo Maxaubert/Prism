@@ -47,3 +47,15 @@ export function clickSelect(
   return { anchor: path, items: new Set([path]) }
 }
 
+/**
+ * SHIFT+ARROW, Shift+Home, Shift+End (#330): the marks are the run from the
+ * anchor to `to`, and only that run, so a Shift+Up after two Shift+Downs gives
+ * a row back, as every file list does. The anchor stays where it is; an anchor
+ * that has left the rows starts the run at `to`. Marking by keyboard is quiet
+ * (#263): the caller selects nothing it would open or play.
+ */
+export function rangeSelect(order: readonly string[], sel: Selection, to: string): Selection {
+  const anchor = sel.anchor && order.includes(sel.anchor) ? sel.anchor : to
+  return { anchor, items: new Set(rangeOf(order, anchor, to)) }
+}
+

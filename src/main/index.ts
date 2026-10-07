@@ -125,7 +125,7 @@ import { sanitizeDoc } from './docSanitize'
 import { encodeText, shapeOf, type TextShape } from './textFile'
 import { readTail, startTail, stopAllTails, stopTail } from './fileTail'
 import { openComic, type ComicOpen } from './comic'
-import { renameFile, uniqueName } from './fileOps'
+import { binIfEmpty, makeFolder, renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
 import {
@@ -4185,6 +4185,33 @@ if (!app.requestSingleInstanceLock()) {
         return null
       }
     })
+    // NEW FOLDER (#330; owner, 2026-10-07: Ctrl+Shift+N in the Explorer and
+    // the tree, the explicit yes to "new folder is a fresh decision"). The
+    // page names a folder; main checks it is one this window may write in, on
+    // disk and not inside an archive, and picks the name itself ("New folder",
+    // "New folder (2)"...). `name` is only a redo's: the name the undone
+    // folder had, put through the same validation as any rename.
+    ipcMain.handle('file:newFolder', async (_e, dir: string, name?: string): Promise<string | null> => {
+      if (typeof dir !== 'string' || !dir || (name !== undefined && typeof name !== 'string')) return null
+      if (containerSync(dir) || !insideDesktop(dir)) return null
+      ownWrite(join(dir, 'New folder'))
+      const made = await makeFolder(dir, name)
+      await written(made ?? dir)
+      return made
+    })
+    // Undoing it: the Recycle Bin, and only while the folder is still empty.
+    ipcMain.handle(
+      'file:binIfEmpty',
+      async (_e, p: string): Promise<'binned' | 'not-empty' | 'missing' | 'failed'> => {
+        if (typeof p !== 'string' || containerSync(p) || !editable(p)) return 'failed'
+        ownWrite(p)
+        try {
+          return await binIfEmpty(p, (t) => shell.trashItem(t))
+        } finally {
+          await written(p)
+        }
+      }
+    )
     ipcMain.on('window:minimize', () => mainWindow?.minimize())
     ipcMain.on('window:toggle-maximize', () =>
       mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow?.maximize()

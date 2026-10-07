@@ -8135,6 +8135,347 @@ async function marqueeQuietScenario(fixtures) {
 }
 
 /**
+ * THE COMMON FILE KEYS (#330; owner, 2026-10-07: "add common hotkeys to the
+ * explorer and project so that for example ctrl + A selects all"). Every key
+ * of the chosen list, in the project tree and in the Explorer's list, against
+ * a folder of its own: select all and clear, Shift to extend (opening
+ * nothing), Ctrl to move without marking and Ctrl+Space to mark (a film
+ * marked does not play), Ctrl+Shift+N making and naming a folder that one
+ * Ctrl+Z takes away, Ctrl+D and Shift+Delete to the bin and back, Alt+Up to
+ * the parent row, type-to-jump in the tree, F3 to the search over an open PDF,
+ * Alt+Enter Properties, Ctrl+Shift+C the paths (read back in main, the owner's
+ * clipboard put back), Ctrl+Enter a new tab; and none of it while typing.
+ */
+async function hotkeysScenario(fixtures) {
+  console.log('the common file keys (#330)')
+  const dir = join(fixtures, 'hotkeys')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'golf'), { recursive: true })
+  mkdirSync(join(dir, 'hotel'), { recursive: true })
+  for (const n of ['alpha.txt', 'bravo.txt', 'charlie.txt']) writeFileSync(join(dir, n), `${n}\n`)
+  writeFileSync(join(dir, 'golf', 'inner.txt'), 'inner\n')
+  copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'delta.mp4'))
+  copyFileSync(join(fixtures, 'sample.pdf'), join(dir, 'echo.pdf'))
+  const { app, win } = await launch(join(dir, 'alpha.txt'))
+  const held = await app.evaluate(({ clipboard }) => clipboard.readText()).catch(() => '')
+  const clip = () => app.evaluate(({ clipboard }) => clipboard.readText())
+  const base = (p) => /[^\\]*$/.exec(p ?? '')?.[0] ?? ''
+  const playing = () =>
+    win.evaluate(() => [...document.querySelectorAll('video,audio')].filter((v) => !v.paused).length)
+  const dialogs = () => win.locator('[role="dialog"]').count()
+  const tabs = () => win.locator('[role="tablist"] [role="tab"]').count()
+  const focusedRow = () =>
+    win.evaluate(() => {
+      const a = document.activeElement
+      return /[^\\]*$/.exec(a?.getAttribute('data-row') ?? a?.getAttribute('data-browse-path') ?? '')?.[0] ?? ''
+    })
+  const confirmDelete = async () => {
+    ok(await until(async () => (await dialogs()) === 1, 5000), 'the bin key asks first, as Delete does')
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await sleep(300)
+  }
+  const back = (rel) => until(async () => existsSync(join(dir, rel)), 10000)
+  const gone = (rel) => until(async () => !existsSync(join(dir, rel)), 10000)
+  try {
+    /* ================= the project tree ================= */
+    await win.waitForSelector('aside [role="treeitem"]', { timeout: 15000 })
+    const treeRow = (name) =>
+      win.locator(`aside [role="treeitem"][data-row$="\\\\${name}"]`).first()
+    const treeMarked = () =>
+      win.evaluate(() => [...document.querySelectorAll('aside [data-row][data-selected]')].map((r) => /[^\\]*$/.exec(r.getAttribute('data-row') ?? '')?.[0]))
+    const treeOpen = async () => (await win.locator('aside [role="treeitem"][aria-selected="true"]').getAttribute('data-row').catch(() => '')) ?? ''
+    await until(async () => (await win.locator('aside [role="treeitem"]').count()) >= 7, 10000)
+    await treeRow('alpha.txt').click()
+    await sleep(400)
+
+    await win.keyboard.press('Control+a')
+    await sleep(300)
+    ok((await treeMarked()).length === 7, `tree: Ctrl+A marks every row (${await treeMarked()})`)
+    await win.keyboard.press('Escape')
+    await sleep(300)
+    ok((await treeMarked()).length === 0, `tree: Escape clears them (${await treeMarked()})`)
+    await win.keyboard.press('Control+a')
+    await sleep(200)
+    await win.keyboard.press('Control+Shift+A')
+    await sleep(300)
+    ok((await treeMarked()).length === 0, 'tree: and so does Ctrl+Shift+A')
+
+    await treeRow('alpha.txt').click()
+    await sleep(300)
+    await win.keyboard.press('Shift+ArrowDown')
+    await win.keyboard.press('Shift+ArrowDown')
+    await sleep(500)
+    ok((await treeMarked()).sort().join() === 'alpha.txt,bravo.txt,charlie.txt', `tree: Shift+Down twice marks a run of three (${await treeMarked()})`)
+    ok(base(await treeOpen()) === 'alpha.txt', `tree: and opens nothing it lands on (${base(await treeOpen())})`)
+    ok((await focusedRow()) === 'charlie.txt', `tree: the keyboard is on the last row of the run (${await focusedRow()})`)
+    await win.keyboard.press('Shift+ArrowUp')
+    await sleep(400)
+    ok((await treeMarked()).sort().join() === 'alpha.txt,bravo.txt', `tree: Shift+Up gives a row back (${await treeMarked()})`)
+
+    await win.keyboard.press('Control+ArrowDown')
+    await win.keyboard.press('Control+ArrowDown')
+    await sleep(400)
+    ok((await focusedRow()) === 'delta.mp4', `tree: Ctrl+Down moves the keyboard (${await focusedRow()})`)
+    ok((await treeMarked()).sort().join() === 'alpha.txt,bravo.txt', 'tree: and leaves the marks alone')
+    await win.keyboard.press('Control+Space')
+    await sleep(800)
+    ok((await treeMarked()).sort().join() === 'alpha.txt,bravo.txt,delta.mp4', `tree: Ctrl+Space marks the film (${await treeMarked()})`)
+    ok((await playing()) === 0 && base(await treeOpen()) === 'alpha.txt', 'tree: and neither opens nor plays it')
+
+    await win.keyboard.press('Control+Shift+C')
+    await sleep(400)
+    const treeClip = (await clip()).split(/\r?\n/)
+    ok(
+      treeClip.map(base).join() === 'alpha.txt,bravo.txt,delta.mp4' &&
+        treeClip.every((p) => p.toLowerCase().startsWith(dir.toLowerCase() + '\\')),
+      `tree: Ctrl+Shift+C copies the full paths, one per line (${treeClip.join(' | ')})`
+    )
+    await win.keyboard.press('Escape')
+    await sleep(200)
+
+    // Type to jump: a match is taken (and opens, as the arrows do); a letter
+    // with no match is not.
+    await win.keyboard.press('e')
+    await sleep(700)
+    ok((await focusedRow()) === 'echo.pdf', `tree: typing "e" jumps to echo.pdf (${await focusedRow()})`)
+    await win.keyboard.press('q')
+    await sleep(300)
+    ok((await focusedRow()) === 'echo.pdf', 'tree: a letter nothing starts with leaves the row where it is')
+    // F3 with a PDF open: the tree's filter, not the PDF's find.
+    await until(async () => base(await treeOpen()) === 'echo.pdf', 8000)
+    await sleep(800)
+    await treeRow('echo.pdf').focus()
+    await win.keyboard.press('F3')
+    await sleep(400)
+    ok(
+      (await win.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'Search files',
+      'tree: F3 focuses the tree filter'
+    )
+    ok((await win.locator('input[aria-label="Find in document"]').count()) === 0, 'tree: and the PDF find bar stays shut')
+    // Nothing while typing: Ctrl+A in the filter is the field's.
+    await win.keyboard.type('a')
+    await win.keyboard.press('Control+a')
+    await sleep(300)
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    ok((await treeMarked()).length <= 1, `tree: Ctrl+A in the filter marks no rows (${await treeMarked()})`)
+
+    // Alt+Up: the parent row.
+    await treeRow('golf').click()
+    await sleep(300)
+    await treeRow('golf').click()
+    await win.waitForSelector('aside [role="treeitem"][data-row$="inner.txt"]', { timeout: 8000 })
+    await treeRow('inner.txt').click()
+    await sleep(500)
+    await win.keyboard.press('Alt+ArrowUp')
+    await sleep(500)
+    ok((await focusedRow()) === 'golf', `tree: Alt+Up goes to the parent row (${await focusedRow()})`)
+
+    // Ctrl+Shift+N in the folder on the cursor, then its name; nothing in the
+    // rename field reaches the tree; one Ctrl+Z takes it away.
+    await win.keyboard.press('Control+Shift+N')
+    ok(await until(async () => existsSync(join(dir, 'golf', 'New folder')), 8000), 'tree: Ctrl+Shift+N makes "New folder" in the folder on the cursor')
+    const treeRename = win.locator('aside input:not([aria-label="Search files"])')
+    ok(await until(async () => (await treeRename.count()) === 1, 8000), 'tree: and starts renaming it')
+    await win.keyboard.press('Control+d')
+    await sleep(400)
+    ok((await dialogs()) === 0 && existsSync(join(dir, 'golf', 'New folder')), 'tree: Ctrl+D in the rename field deletes nothing')
+    await treeRename.fill('made-tree')
+    await win.keyboard.press('Enter')
+    ok(await back('golf\\made-tree'), 'tree: the name lands')
+    await sleep(600)
+    await treeRow('alpha.txt').click()
+    await sleep(400)
+    await win.keyboard.press('Control+z')
+    ok(await gone('golf\\made-tree'), 'tree: one Ctrl+Z takes the new folder away')
+    ok(!existsSync(join(dir, 'golf', 'New folder')), 'tree: under either name')
+    await sleep(600)
+
+    // Ctrl+D and Shift+Delete: the question, the bin, and Ctrl+Z.
+    await treeRow('bravo.txt').click()
+    await sleep(400)
+    await win.keyboard.press('Control+d')
+    await confirmDelete()
+    ok(await gone('bravo.txt'), 'tree: Ctrl+D sends it to the Recycle Bin')
+    await treeRow('alpha.txt').click()
+    await sleep(400)
+    await win.keyboard.press('Control+z')
+    ok(await back('bravo.txt'), 'tree: and Ctrl+Z brings it back')
+    await sleep(900)
+    await treeRow('charlie.txt').click()
+    await sleep(400)
+    await win.keyboard.press('Shift+Delete')
+    await confirmDelete()
+    ok(await gone('charlie.txt'), 'tree: Shift+Delete goes to the bin too, never past it')
+    await treeRow('alpha.txt').click()
+    await sleep(400)
+    await win.keyboard.press('Control+z')
+    ok(await back('charlie.txt'), 'tree: and Ctrl+Z brings that back')
+    await sleep(900)
+
+    // Alt+Enter: Properties.
+    await treeRow('alpha.txt').click()
+    await sleep(400)
+    await win.keyboard.press('Alt+Enter')
+    ok(await until(async () => /alpha\.txt/.test((await win.locator('[role="dialog"]').textContent().catch(() => '')) ?? ''), 5000), 'tree: Alt+Enter opens Properties')
+    await win.keyboard.press('Escape')
+    await sleep(400)
+
+    // Ctrl+Enter: a folder in a new tab.
+    const before = await tabs()
+    await treeRow('hotel').click()
+    await sleep(400)
+    await win.keyboard.press('Control+Enter')
+    ok(await until(async () => (await tabs()) === before + 1, 8000), `tree: Ctrl+Enter opens the folder in a new tab (${before} -> ${await tabs()})`)
+
+    /* ================= the Explorer's list ================= */
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"]', { timeout: 10000 })
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(dir)
+    await win.keyboard.press('Enter')
+    const list = win.locator('[data-testid="browse-list"]')
+    const exRow = (name) => list.locator(`[data-browse-path$="\\\\${name}"]`).first()
+    const exMarked = () =>
+      win.evaluate(() => [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]')].map((r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0]))
+    const status = async () => (await win.locator('.browse-status').textContent()) ?? ''
+    const paneFilm = () => win.evaluate(() => !!document.querySelector('[data-browse-preview] video'))
+    ok(await until(async () => (await list.locator('.browse-row[data-browse-path]').count()) === 7, 10000), 'explorer: the folder is listed')
+    const click = async (name) => {
+      const box = await exRow(name).boundingBox()
+      await exRow(name).click({ position: { x: 30, y: box.height / 2 } })
+      await sleep(400)
+    }
+    await click('alpha.txt')
+
+    await win.keyboard.press('Control+a')
+    await sleep(400)
+    ok((await exMarked()).length === 7, `explorer: Ctrl+A marks every row (${await exMarked()})`)
+    ok(/7 selected/.test(await status()), `explorer: the status line counts them (${await status()})`)
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    ok((await exMarked()).length === 0, `explorer: Escape clears them (${await exMarked()})`)
+    await click('alpha.txt')
+    await win.keyboard.press('Control+a')
+    await sleep(200)
+    await win.keyboard.press('Control+Shift+A')
+    await sleep(400)
+    ok((await exMarked()).length === 0, 'explorer: and so does Ctrl+Shift+A')
+
+    await click('alpha.txt')
+    await win.keyboard.press('Shift+ArrowDown')
+    await win.keyboard.press('Shift+ArrowDown')
+    await win.keyboard.press('Shift+ArrowDown')
+    await sleep(700)
+    ok((await exMarked()).sort().join() === 'alpha.txt,bravo.txt,charlie.txt,delta.mp4', `explorer: Shift+Down marks a run (${await exMarked()})`)
+    ok(!(await paneFilm()) && (await playing()) === 0, 'explorer: landing on the film by Shift previews and plays nothing')
+    await win.keyboard.press('Shift+ArrowUp')
+    await sleep(400)
+    ok((await exMarked()).sort().join() === 'alpha.txt,bravo.txt,charlie.txt', `explorer: Shift+Up gives a row back (${await exMarked()})`)
+
+    await win.keyboard.press('Control+ArrowDown')
+    await sleep(400)
+    ok((await focusedRow()) === 'delta.mp4', `explorer: Ctrl+Down moves the keyboard (${await focusedRow()})`)
+    ok((await exMarked()).length === 3, 'explorer: and leaves the marks alone')
+    await win.keyboard.press('Control+Space')
+    await sleep(900)
+    ok((await exMarked()).sort().join() === 'alpha.txt,bravo.txt,charlie.txt,delta.mp4', `explorer: Ctrl+Space marks the film (${await exMarked()})`)
+    ok(!(await paneFilm()) && (await playing()) === 0, 'explorer: and the film neither previews nor plays')
+    await win.keyboard.press('Control+Space')
+    await sleep(400)
+    ok((await exMarked()).length === 3, 'explorer: Ctrl+Space again takes it back out')
+
+    await win.keyboard.press('Control+Shift+C')
+    await sleep(400)
+    const exClip = (await clip()).split(/\r?\n/)
+    ok(
+      exClip.map(base).join() === 'alpha.txt,bravo.txt,charlie.txt' &&
+        exClip.every((p) => p.toLowerCase().startsWith(dir.toLowerCase() + '\\')),
+      `explorer: Ctrl+Shift+C copies the full paths, one per line (${exClip.join(' | ')})`
+    )
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
+    // Ctrl+Shift+N, its name, nothing from the rename field, one Ctrl+Z.
+    await click('alpha.txt')
+    await win.keyboard.press('Control+Shift+N')
+    ok(await until(async () => existsSync(join(dir, 'New folder')), 8000), 'explorer: Ctrl+Shift+N makes "New folder" in the folder shown')
+    const exRename = win.locator('input[aria-label="New name"]')
+    ok(await until(async () => (await exRename.count()) === 1, 5000), 'explorer: and asks for its name')
+    ok((await exRename.inputValue()) === 'New folder', 'explorer: starting from "New folder"')
+    await win.keyboard.press('Control+d')
+    await win.keyboard.press('Control+Shift+N')
+    await sleep(500)
+    ok(!existsSync(join(dir, 'New folder (2)')) && existsSync(join(dir, 'New folder')), 'explorer: no key in the rename field reaches the list')
+    await exRename.fill('made-ex')
+    await win.keyboard.press('Enter')
+    ok(await back('made-ex'), 'explorer: the name lands')
+    await sleep(800)
+    await click('alpha.txt')
+    await win.keyboard.press('Control+z')
+    ok(await gone('made-ex'), 'explorer: one Ctrl+Z takes the new folder away')
+    await sleep(900)
+
+    await click('bravo.txt')
+    await win.keyboard.press('Control+d')
+    await confirmDelete()
+    ok(await gone('bravo.txt'), 'explorer: Ctrl+D sends it to the Recycle Bin')
+    await click('alpha.txt')
+    await win.keyboard.press('Control+z')
+    ok(await back('bravo.txt'), 'explorer: and Ctrl+Z brings it back')
+    await sleep(900)
+    await until(async () => (await exRow('charlie.txt').count()) === 1, 5000)
+    await click('charlie.txt')
+    await win.keyboard.press('Shift+Delete')
+    await confirmDelete()
+    ok(await gone('charlie.txt'), 'explorer: Shift+Delete goes to the bin too')
+    await click('alpha.txt')
+    await win.keyboard.press('Control+z')
+    ok(await back('charlie.txt'), 'explorer: and Ctrl+Z brings that back')
+    await sleep(900)
+
+    // F3 with a PDF in the preview: the folder search, not the PDF's find.
+    await until(async () => (await exRow('echo.pdf').count()) === 1, 5000)
+    await click('echo.pdf')
+    await sleep(1500)
+    await exRow('echo.pdf').focus()
+    await win.keyboard.press('F3')
+    ok(await until(async () => (await win.locator('[data-search-popup]').count()) === 1, 5000), 'explorer: F3 opens the folder search')
+    ok((await win.locator('input[aria-label="Find in document"]').count()) === 0, 'explorer: and the PDF find bar stays shut')
+    // Nothing while typing in the search field.
+    const marksBefore = (await exMarked()).length
+    await win.keyboard.type('a')
+    await win.keyboard.press('Control+a')
+    await win.keyboard.press('Control+d')
+    await sleep(300)
+    ok(
+      (await exMarked()).length === marksBefore &&
+        (await win.locator('[role="dialog"] button:has-text("Delete")').count()) === 0,
+      'explorer: Ctrl+A and Ctrl+D in the search field act on no rows'
+    )
+    await win.keyboard.press('Escape')
+    await sleep(400)
+
+    await click('alpha.txt')
+    await win.keyboard.press('Alt+Enter')
+    ok(await until(async () => /alpha\.txt/.test((await win.locator('[role="dialog"]').textContent().catch(() => '')) ?? ''), 5000), 'explorer: Alt+Enter opens Properties')
+    await win.keyboard.press('Escape')
+    await sleep(400)
+
+    const exBefore = await tabs()
+    await click('golf')
+    await win.keyboard.press('Control+Enter')
+    ok(await until(async () => (await tabs()) === exBefore + 1, 8000), `explorer: Ctrl+Enter opens the folder in a new tab (${exBefore} -> ${await tabs()})`)
+    await win.screenshot({ path: join(SHOTS, 'hotkeys.png') })
+  } finally {
+    await win.evaluate(() => document.querySelectorAll('video,audio').forEach((v) => v.pause())).catch(() => {})
+    await app.evaluate(({ clipboard }, t) => clipboard.writeText(t), held).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
  * TWO HIGHLIGHTS FROM ONE ACCENT (owner, 2026-10-03, with a screenshot of an
  * opaque grey slab in the Explorer: "i want more saturated" for the settings
  * page that is chosen, and "more transparent like selecting files in file
@@ -16358,6 +16699,7 @@ await run(dragScenario)
 await run(dragLabelScenario)
 await run(marqueeScenario)
 await run(marqueeQuietScenario)
+await run(hotkeysScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(sidebarPlacesScenario)
