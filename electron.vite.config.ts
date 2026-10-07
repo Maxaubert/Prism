@@ -13,7 +13,13 @@ import type { Plugin } from 'vite'
  * resolved to its file here, by its exact specifier, until the core exports
  * them; the same list is in `vitest.config.ts` and `tsconfig.web.json`.
  */
-const CORE_TS = ['renderer/settings/coreIndex', 'renderer/settings/sectionIds', 'renderer/settings/layout/icons']
+const CORE_TS = [
+  'renderer/settings/coreIndex',
+  'renderer/settings/sectionIds',
+  'renderer/settings/layout/icons',
+  // The Diagnostics rows' list (#322), read by the settings tests.
+  'renderer/settings/diagnosticsOptions'
+]
 
 // pdf.js side data (character maps, the fourteen standard fonts, wasm image
 // decoders, ICC profiles), served next to the bundle as /pdf/<dir>/<file>.

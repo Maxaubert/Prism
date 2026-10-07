@@ -3,6 +3,7 @@ import { dictationHost } from 'prism-term-core/renderer/host'
 import { Segmented } from 'prism-term-core/renderer/settings/fields'
 import { SettingsFrame } from 'prism-term-core/renderer/settings/layout/SettingsFrame'
 import { DictationPage } from 'prism-term-core/renderer/settings/sections/DictationPage'
+import { DiagnosticsPage } from 'prism-term-core/renderer/settings/sections/DiagnosticsPage'
 import { useTitleBarMode } from '../../lib/titleBarPrefs'
 import type { TransportStyle } from '../../lib/transport'
 import { useTreeSize } from '../../lib/treePrefs'
@@ -168,6 +169,11 @@ export function Settings({
             // THE CORE'S PAGE, whole: the same settings Prism Terminal shows,
             // with this app's own values (the model files are shared).
             <DictationPage />
+          ) : page === 'diagnostics' ? (
+            // THE CORE'S PAGE (#322), the same as Prism Terminal's: Detailed
+            // logging, the log folder, Mark a problem. Handed the bridge,
+            // since the core's page never reaches for a global.
+            <DiagnosticsPage api={window.prism} />
           ) : page === 'media' ? (
             <MediaPage
               view={view}

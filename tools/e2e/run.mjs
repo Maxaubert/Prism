@@ -13885,8 +13885,8 @@ async function settingsLookScenario(fixtures) {
     ok((await win.locator('[data-settings-tab="appearance"]').getAttribute('aria-current')) === 'page', 'Settings opens on Appearance')
     const rail = await win.evaluate(() => [...document.querySelectorAll('[data-settings-tab]')].map((b) => b.getAttribute('data-settings-tab')))
     ok(
-      JSON.stringify(rail) === JSON.stringify(['appearance', 'explorer', 'project', 'terminal', 'agents', 'dictation', 'media', 'about']),
-      `the rail runs Appearance, Explorer, Project settings, Terminal, Agents, Dictation, Media, About (${rail.join(', ')})`
+      JSON.stringify(rail) === JSON.stringify(['appearance', 'explorer', 'project', 'terminal', 'agents', 'dictation', 'media', 'diagnostics', 'about']),
+      `the rail runs Appearance, Explorer, Project settings, Terminal, Agents, Dictation, Media, Diagnostics, About (${rail.join(', ')})`
     )
     const pages = [
       ['appearance'],
@@ -13897,6 +13897,7 @@ async function settingsLookScenario(fixtures) {
       ['dictation'],
       ['media', 'visualizer'],
       ['media', 'progress'],
+      ['diagnostics'],
       ['about']
     ]
     for (const [scheme, style] of [['dark', 'aurora'], ['light', 'paper']]) {
