@@ -5,7 +5,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent
 } from 'react'
-import { SWEEP_THRESHOLD, edgeSpeed, sameHits, type Band } from '../lib/marquee'
+import { SWEEP_THRESHOLD, edgeSpeed, sameHits, type Band, type SweepBox } from '../lib/marquee'
 
 /**
  * THE SWEEP RECTANGLE (#257; owner, 2026-10-03: "let me highlight files by
@@ -31,13 +31,10 @@ export interface SweepOptions {
   scroller: () => HTMLElement | null
   /** A pointer position in the list's own coordinates (y from row 0's top). */
   toList: (clientX: number, clientY: number) => { x: number; y: number }
-  /** The rows the span top..bottom covers, in list order, plus the one the
-   *  pointer is nearest (where the keyboard carries on from). */
-  hitsBetween: (
-    top: number,
-    bottom: number,
-    pointerY: number
-  ) => { paths: string[]; near: string | null }
+  /** The rows the rectangle touches, across AND down (#326: `rowsInBox`), in
+   *  list order, plus the one the pointer is nearest (where the keyboard
+   *  carries on from). */
+  hitsIn: (box: SweepBox, pointerY: number) => { paths: string[]; near: string | null }
   /** Scroll the list by this many screen pixels. */
   scrollBy: (dy: number) => void
   /** The sweep's covered rows, live, as it grows and shrinks. */
@@ -82,7 +79,15 @@ export function useSweep(options: SweepOptions): {
       const o = opts.current
       const at = o.toList(last.x, last.y)
       setBand({ x0: start.x, y0: start.y, x1: at.x, y1: at.y })
-      const next = o.hitsBetween(Math.min(start.y, at.y), Math.max(start.y, at.y), at.y)
+      const next = o.hitsIn(
+        {
+          left: Math.min(start.x, at.x),
+          right: Math.max(start.x, at.x),
+          top: Math.min(start.y, at.y),
+          bottom: Math.max(start.y, at.y)
+        },
+        at.y
+      )
       near = next.near
       if (!sameHits(hits, next.paths)) {
         hits = next.paths

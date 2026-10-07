@@ -5,6 +5,7 @@ import {
   onRowOwnPart,
   nearestRow,
   rowsInBand,
+  rowsInBox,
   sameHits,
   sweepSelect
 } from './marquee'
@@ -30,6 +31,49 @@ describe('rowsInBand', () => {
   })
   it('works by arithmetic for rows far outside the view (virtual lists)', () => {
     expect(rowsInBand(26 * 5000, 26 * 5002 + 1, 26, 100000)).toEqual({ first: 5000, last: 5002 })
+  })
+})
+
+describe('rowsInBox', () => {
+  // A details row as the Explorer draws it: from the list's left edge to the
+  // right edge of its last column, with blank space beside it (#326).
+  const row = { left: 0, right: 600, height: 26 }
+  const inset = { left: 40, right: 600, height: 26 }
+  it('a box wholly to the right of the rows marks nothing, at any height', () => {
+    // The owner's screenshot: a rectangle in the empty space past Date modified.
+    expect(rowsInBox({ left: 700, right: 840, top: 30, bottom: 160 }, row, 10)).toBeNull()
+    expect(rowsInBox({ left: 840, right: 700, top: 160, bottom: 30 }, row, 10)).toBeNull()
+  })
+  it('a box wholly to the left of the rows marks nothing', () => {
+    expect(rowsInBox({ left: 0, right: 39, top: 30, bottom: 160 }, inset, 10)).toBeNull()
+  })
+  it('a box that reaches one pixel into the rows marks them', () => {
+    expect(rowsInBox({ left: 599, right: 760, top: 30, bottom: 80 }, row, 10)).toEqual({ first: 1, last: 3 })
+    expect(rowsInBox({ left: 760, right: 599.5, top: 80, bottom: 30 }, row, 10)).toEqual({ first: 1, last: 3 })
+  })
+  it('a box that starts on the first pixel past the rows does not', () => {
+    expect(rowsInBox({ left: 600, right: 760, top: 30, bottom: 80 }, row, 10)).toBeNull()
+  })
+  it('a box that ends on the left edge of the rows does not reach them', () => {
+    expect(rowsInBox({ left: 0, right: 40, top: 30, bottom: 80 }, inset, 10)).toBeNull()
+    expect(rowsInBox({ left: 0, right: 41, top: 30, bottom: 80 }, inset, 10)).toEqual({ first: 1, last: 3 })
+  })
+  it('a box across the rows marks what it spans vertically, as before', () => {
+    expect(rowsInBox({ left: 100, right: 300, top: 30, bottom: 80 }, row, 10)).toEqual({ first: 1, last: 3 })
+  })
+  it('a box over the rows horizontally but below the last row marks nothing', () => {
+    expect(rowsInBox({ left: 100, right: 300, top: 300, bottom: 400 }, row, 10)).toBeNull()
+  })
+  it('a pure vertical drag inside the rows still marks', () => {
+    expect(rowsInBox({ left: 200, right: 200, top: 30, bottom: 80 }, row, 10)).toEqual({ first: 1, last: 3 })
+  })
+  it('works by arithmetic for rows far outside the view (virtual lists)', () => {
+    expect(
+      rowsInBox({ left: 10, right: 20, top: 26 * 5000, bottom: 26 * 5002 + 1 }, row, 100000)
+    ).toEqual({ first: 5000, last: 5002 })
+    expect(
+      rowsInBox({ left: 610, right: 620, top: 26 * 5000, bottom: 26 * 5002 + 1 }, row, 100000)
+    ).toBeNull()
   })
 })
 

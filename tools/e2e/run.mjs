@@ -7905,8 +7905,9 @@ async function marqueeScenario(fixtures) {
     const f4 = await rowAt(4).boundingBox()
     const f7 = await rowAt(7).boundingBox()
     exBlank = f0.x + f0.width + 14
-    // Ctrl adds: a4..a5 swept from the space beside the rows.
-    await sweep({ x: exBlank, y: f3.y + f3.height / 2 }, { x: exBlank - 10, y: f4.y + f4.height / 2 }, { ctrl: true })
+    // Ctrl adds: a4..a5 swept from the space beside the rows, into them (a
+    // box that stays beside them marks nothing, #326).
+    await sweep({ x: exBlank, y: f3.y + f3.height / 2 }, { x: exBlank - 30, y: f4.y + f4.height / 2 }, { ctrl: true })
     ex = await exMarked()
     ok(ex.sort().join() === 'a1.txt,a4.txt,a5.txt', `Ctrl+sweep adds to what was marked (${ex})`)
     // Escape restores.
@@ -8055,7 +8056,9 @@ async function marqueeQuietScenario(fixtures) {
     ok((await films()).playing.length === 0, `and plays nothing (${(await films()).playing})`)
     // A sweep that catches one row is still marking.
     const r1 = await rowAt(1).boundingBox()
-    await sweep({ x: blank, y: r1.y + r1.height / 2 }, { x: blank - 10, y: r1.y + r1.height / 2 + 3 })
+    // Into the row: a box that stays beside it marks nothing (#326).
+    await sweep({ x: blank, y: r1.y + r1.height / 2 }, { x: blank - 30, y: r1.y + r1.height / 2 + 3 })
+    ok((await exMarked()).join() === 'v2.mp4', `the sweep marked the one row (${await exMarked()})`)
     await sleep(600)
     ok(!(await paneShown()), 'a sweep over one row leaves the pane shut too')
     await rowAt(1).click({ modifiers: ['Control'], position: { x: 30, y: r1.height / 2 } })
@@ -8128,6 +8131,94 @@ async function marqueeQuietScenario(fixtures) {
     ok(f.pane === 'v2.mp4' && f.playing.includes('v2.mp4'), `a click on empty space keeps the film playing (${f.pane}, ${f.playing})`)
     ok((await exMarked()).length === 0, 'and clears the pick')
     await win.evaluate(() => document.querySelectorAll('video,audio').forEach((v) => v.pause()))
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * THE BOX MARKS ONLY WHAT IT TOUCHES (#326; owner, 2026-10-07, with a
+ * screenshot of a rectangle drawn in the empty space right of Date modified
+ * and seven rows marked at its height: "only the ones that are inside it,
+ * even if that's a px should get marked but this is not inside at all").
+ * A row is hit only when the rectangle overlaps what is DRAWN as the row (the
+ * list's left to the end of its last column), across and down. A box wholly
+ * beside the rows marks nothing, from beside a row or from under the last
+ * one; a box that reaches a pixel or two into them marks every row it spans.
+ */
+async function marqueeEdgeScenario(fixtures) {
+  console.log('the sweep box marks only the rows it touches')
+  const dir = join(fixtures, 'marqueeedge')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const names = ['b1.txt', 'b2.txt', 'b3.txt', 'b4.txt', 'b5.txt', 'b6.txt', 'b7.txt', 'b8.txt']
+  for (const n of names) writeFileSync(join(dir, n), `edge ${n}\n`)
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const sweep = async (from, to, mid) => {
+    await win.mouse.move(from.x, from.y)
+    await win.mouse.down()
+    await win.mouse.move(to.x, to.y, { steps: 12 })
+    await sleep(150)
+    const during = mid ? await mid() : undefined
+    await win.mouse.up()
+    await sleep(250)
+    return during
+  }
+  const listSel = '[data-testid="browse-list"]'
+  const band = () => win.evaluate((s) => document.querySelectorAll(`${s} [data-sweep-band]`).length, listSel)
+  const exMarked = () =>
+    win.evaluate(
+      (s) =>
+        [...document.querySelectorAll(`${s} [data-browse-path][aria-selected="true"]`)].map(
+          (r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0]
+        ),
+      listSel
+    )
+  try {
+    await win.waitForSelector('aside [data-row]', { timeout: 10000 })
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${listSel} .browse-row`, { timeout: 10000 })
+    await win.locator(`${listSel} [data-browse-path$="marqueeedge"]`).dblclick()
+    const list = win.locator(listSel)
+    const rowAt = (i) => list.locator(`[data-browse-index="${i}"]`)
+    ok(
+      await until(async () => (await list.locator('[data-browse-path$=".txt"]').count()) === 8, 10000),
+      'the Explorer walked into the folder of eight'
+    )
+    await sleep(400)
+    const box = await list.boundingBox()
+    const r1 = await rowAt(1).boundingBox()
+    const r2 = await rowAt(2).boundingBox()
+    const r4 = await rowAt(4).boundingBox()
+    const r7 = await rowAt(7).boundingBox()
+    const right = r1.x + r1.width
+    ok(box.x + box.width - right >= 40, `there is blank space beside the rows (${Math.round(box.x + box.width - right)}px)`)
+    const mid = async () => ({ band: await band(), marked: await exMarked() })
+
+    // Beside the rows, never reaching them: nothing is marked, live or after.
+    let seen = await sweep({ x: right + 10, y: r1.y + r1.height / 2 }, { x: right + 30, y: r4.y + r4.height / 2 }, mid)
+    await win.screenshot({ path: join(SHOTS, 'marquee-edge-beside.png') })
+    ok(seen.band === 1, `a press beside the rows draws the rectangle (${seen.band})`)
+    ok(seen.marked.length === 0, `a box wholly beside the rows marks nothing while it is drawn (${seen.marked})`)
+    ok((await exMarked()).length === 0, `nor after the release (${await exMarked()})`)
+
+    // The owner's shape: from under the last row, up the empty right side.
+    seen = await sweep({ x: right + 34, y: r7.y + r7.height + 40 }, { x: right + 12, y: r2.y + r2.height / 2 }, mid)
+    ok(seen.band === 1, `a press under the rows draws the rectangle (${seen.band})`)
+    ok(seen.marked.length === 0, `a box up the empty right side marks nothing (${seen.marked})`)
+    ok((await exMarked()).length === 0, `nor after the release (${await exMarked()})`)
+
+    // One pixel short of the rows is still not touching them.
+    seen = await sweep({ x: right + 20, y: r2.y + r2.height / 2 }, { x: right + 1, y: r4.y + r4.height / 2 }, mid)
+    ok(seen.marked.length === 0, `a box ending a pixel past the rows marks nothing (${seen.marked})`)
+
+    // Reaching a pixel or two into the rows marks every row it spans.
+    seen = await sweep({ x: right + 20, y: r2.y + r2.height / 2 }, { x: right - 2, y: r4.y + r4.height / 2 }, mid)
+    await win.screenshot({ path: join(SHOTS, 'marquee-edge-touch.png') })
+    ok(seen.marked.sort().join() === 'b3.txt,b4.txt,b5.txt', `a box two pixels into the rows marks them live (${seen.marked})`)
+    const ex = await exMarked()
+    ok(ex.sort().join() === 'b3.txt,b4.txt,b5.txt', `and they stay marked after the release (${ex})`)
   } finally {
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
@@ -16358,6 +16449,7 @@ await run(dragScenario)
 await run(dragLabelScenario)
 await run(marqueeScenario)
 await run(marqueeQuietScenario)
+await run(marqueeEdgeScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(sidebarPlacesScenario)
