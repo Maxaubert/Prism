@@ -10,7 +10,7 @@ const ORDER = [
   ['aurora', 'Aurora'],
   ['new-void', 'Void'],
   ['carbon', 'Carbon'],
-  ['obsidian', 'Obsidian'],
+  ['crimson', 'Crimson'],
   ['jade', 'Jade'],
   ['volt', 'Volt'],
   ['midnight-hc', 'Midnight HC'],

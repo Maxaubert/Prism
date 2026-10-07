@@ -235,16 +235,32 @@ export const RETIRED_STYLES: Style[] = [
  */
 export const RETIRED_MAP: Record<string, string> = {
   default: 'new-void', // Onyx: black ground and indigo are Void's; its glass is carried over
-  terminal: 'obsidian', // near-black, emerald, square
+  // Terminal went to Obsidian until Obsidian retired (#316); Jade is the
+  // nearest look now: near-black, a green accent, square.
+  terminal: 'jade',
   driftwood: 'carbon', // warm charcoal, amber
-  // Ruby went to Ember until Ember retired (#316); Carbon is now the nearest
-  // look: near-black, the warm accent nearest red.
-  'acrylic-red': 'carbon',
+  // Ruby went to Ember (#298); since Crimson (#316) there is a red, and it is
+  // Ruby's look: near-black and red.
+  'acrylic-red': 'crimson',
   linen: 'sand', // beige, terracotta
-  // ONE OF THE 18 RETIRED (#316; owner, 2026-10-07: "this theme should
-  // replace Ember. its Volt but with this teal instead of the yellow"). Its
-  // successor took its place on the wall.
-  ember: 'jade'
+  // TWO OF THE 18 RETIRED (#316; owner, 2026-10-07: "this theme should
+  // replace Ember. its Volt but with this teal instead of the yellow", then,
+  // of Volt's Colours edited to red, "have this replace obsidian"). Each
+  // successor took its place on the wall; Obsidian's emerald goes to the
+  // nearest green, Jade.
+  ember: 'jade',
+  obsidian: 'jade'
+}
+
+/**
+ * A profile the migration PUT on a theme, which it still wears unpicked: the
+ * quiet line still names the retired theme, and a pick takes that name away.
+ * Ruby went to Ember under marker '2' (and to Carbon under the unreleased
+ * '3'); while its line still says Ruby nobody chose either, so it moves on to
+ * Crimson, the red that now exists.
+ */
+export const PLACED_MOVES: Record<string, { from: string[]; to: string }> = {
+  Ruby: { from: ['ember', 'carbon'], to: 'crimson' }
 }
 
 /**
@@ -252,7 +268,7 @@ export const RETIRED_MAP: Record<string, string> = {
  * are catalogue themes, not the old styles above, so they are not in
  * `RETIRED_STYLES` (held to `legacy.snapshot.json`); only the name is needed.
  */
-export const RETIRED_NAMES: Record<string, string> = { ember: 'Ember' }
+export const RETIRED_NAMES: Record<string, string> = { ember: 'Ember', obsidian: 'Obsidian' }
 
 /** The retired style an id named, for its name and its glass. */
 export const retiredById = (id: string): Style | undefined => RETIRED_STYLES.find((s) => s.id === id)

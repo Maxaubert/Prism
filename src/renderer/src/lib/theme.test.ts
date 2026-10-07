@@ -391,7 +391,7 @@ describe("the owner's picks of 2026-09-20", () => {
   })
 
   // Ruby's pin (near-black and red) retired with Ruby (#298): its
-  // successor in the migration is Carbon since Ember retired (#316), held by
+  // successor in the migration is Crimson, the red of #316, held by
   // `themes/migrate.test.ts`.
 
   it('hands the zip the folder colour, with an ink that reads on it', () => {
