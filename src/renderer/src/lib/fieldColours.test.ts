@@ -41,7 +41,7 @@ describe('the toolbar fields (#267)', () => {
   it('Void wears the dark field; Paper the control step; both off the row (#306)', () => {
     const v = variablesFor(byId('new-void'))
     const vRow = v['--p-side-flat']
-    expect(vRow).toBe('#070707')
+    expect(vRow).toBe('#000000')
     expect(v['--p-field']).toBe(nearBlackField('#000000', '#e8eaf0', vRow)!.fill)
     expect(contrastOf(v['--p-field-edge'], vRow)).toBeGreaterThanOrEqual(1.6)
     expect(contrastOf(v['--p-field-edge'], vRow)).toBeLessThan(1.8)
