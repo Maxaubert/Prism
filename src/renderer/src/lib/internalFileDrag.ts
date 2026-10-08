@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { dragBadgePlace } from './dragBadgePlace'
+import { buildDragRow } from './dragRow'
 import { DRAG_MIME, getDrag, setDrag } from './dragDrop'
 import { QUICK_ACCESS_PIN_MIME } from './quickAccess'
 
@@ -18,8 +19,12 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       ctrl: boolean
       shift: boolean
       badge: HTMLDivElement
+      effect: HTMLDivElement
+      action: string
+      effectH: number
+      effectSide: '' | 'below' | 'above'
+      size: { width: number; height: number }
       cursorStyle: HTMLStyleElement
-      label: string
       pin: boolean
     } | null = null
     let frame = 0
@@ -62,13 +67,32 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       // see that mutation and otherwise retains the preceding 'none' narrowing.
       const effect = carry.data.dropEffect as DataTransfer['dropEffect']
       const action = effect === 'move' ? 'Move' : effect === 'copy' ? 'Copy' : ''
-      carry.badge.textContent = action ? `${action} ${carry.label}` : carry.label
-      const { width, height } = carry.badge.getBoundingClientRect()
-      // Hang the label off the pointer's bottom right, attached (#310). It
+      // The row stays the row; what the drop would do is said by it. Written
+      // only when it changes: this runs every frame and every mouse move.
+      if (action !== carry.action) {
+        carry.action = action
+        carry.effect.textContent = action
+        carry.effect.hidden = !action
+        if (action && !carry.effectH) carry.effectH = carry.effect.getBoundingClientRect().height
+      }
+      // The line is outside the measured box (absolute), so the row's size is
+      // measured once, at the start, and placement never jumps with it.
+      const { width, height } = carry.size
+      // Hang the carried row (#327) off the pointer's bottom right, attached (#310). It
       // used to sit its whole width LEFT of the pointer and 12 px below it.
       const place = dragBadgePlace(carry.x, carry.y, width, height, window.innerWidth, window.innerHeight)
       carry.badge.style.left = `${place.left}px`
       carry.badge.style.top = `${place.top}px`
+      if (action) {
+        // Under the row, or over it where the window's bottom leaves no room.
+        const below = place.top + height + 4 + carry.effectH <= window.innerHeight
+        const side = below ? 'below' : 'above'
+        if (side !== carry.effectSide) {
+          carry.effectSide = side
+          carry.effect.style.top = below ? `${height + 4}px` : ''
+          carry.effect.style.bottom = below ? '' : `${height + 4}px`
+        }
+      }
     }
     const tick = (): void => {
       if (!carry) return
@@ -124,12 +148,14 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
         data.setData(type, event.dataTransfer.getData(type))
       data.effectAllowed = event.dataTransfer.effectAllowed
       event.preventDefault()
-      const badge = document.createElement('div')
-      badge.dataset.fileDragBadge = ''
       const paths = pin ? [pin] : payload?.kind === 'files' ? payload.paths : payload!.entries
-      const label =
-        paths.length === 1 ? (paths[0].split(/[\\/]/).pop() ?? 'Item') : `${paths.length} items`
-      badge.textContent = label
+      // THE ROW IS PICKED UP, NOT A LABEL (#327): the pressed row's icon and
+      // name in the selected look, with the count of everything carried.
+      const { root: badge, effect } = buildDragRow(
+        event.target,
+        paths[0]?.split(/[\\/]/).pop() || 'Item',
+        paths.length
+      )
       // THE ARROW STAYS (#320; owner, 2026-10-07: "when you left click drag an
       // item dont switch the cursor to the hand, keep it the normal cursor").
       // It was `grabbing`. Pinned to the arrow for the whole drag, so nothing
@@ -138,23 +164,8 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       cursorStyle.textContent =
         'html[data-internal-file-drag], html[data-internal-file-drag] * { cursor: default !important; }'
       document.head.append(cursorStyle)
-      Object.assign(badge.style, {
-        position: 'fixed',
-        pointerEvents: 'none',
-        zIndex: '2147483647',
-        padding: '8px 12px',
-        borderRadius: '6px',
-        background: 'var(--p-bg)',
-        color: 'var(--p-text)',
-        border: '1px solid var(--p-divider)',
-        fontSize: '14px',
-        maxWidth: 'min(320px, calc(100vw - 8px))',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        boxShadow: '0 4px 16px #0006'
-      })
       document.body.append(badge)
+      const { width, height } = badge.getBoundingClientRect()
       carry = {
         source: event.target,
         data,
@@ -165,8 +176,12 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
         ctrl: event.ctrlKey,
         shift: event.shiftKey,
         badge,
+        effect,
+        action: '',
+        effectH: 0,
+        effectSide: '',
+        size: { width, height },
         cursorStyle,
-        label,
         pin: !!pin
       }
       document.body.dataset.internalFileDrag = 'true'

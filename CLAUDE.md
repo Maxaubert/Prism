@@ -837,7 +837,19 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   top-left corner 8 px right of and below the tip (File Explorer's way: the pointer never covers the
   name), flipping to the other side only where the window edge leaves no room. One rule for every
   drag the hook carries: tree, Explorer list, several items, places. The `dragLabel` e2e measures it
-  mid-drag at 100%, 150% and 225% (`--force-device-scale-factor`).
+  mid-drag at 100%, 150% and 225% (`--force-device-scale-factor`). **WHAT HANGS THERE IS THE ROW**
+  (#327; owner, 2026-10-07: "when i pick up an item i wanna pick up the row, essentially not just a
+  label, so i want the icon and so on"; then, asked: the row as it looks SELECTED, only its icon and
+  name; several items show only the row pressed on, with a count). `lib/dragRow.ts` builds it from the
+  source row's own DOM and computed style: the icon beside the name (never the tree's chevron), the
+  row's height, side padding, gap and font, the `--p-sel-line` edge, and the tint composited on the
+  SOURCE row's own ground (the first opaque one up from it: the list's, the sidebar's), so it matches
+  the marked row in every style (`--p-sel-tint-seen` only where no ground is opaque); never the type,
+  size or date, nor an unsaved file's `*`. Several items: a small count (`--p-sel-bg`,
+  `--p-on-accent`) on its corner, never "N items"; an unmarked row pressed carries itself alone. Move
+  or Copy is a small line OUTSIDE the placed box (absolute: under the row, over it at the window's
+  bottom), so the row never jumps as a target toggles. The same `dragLabel` e2e holds it, comparing
+  the carried row's PIXELS with the marked row's, in Aurora and Paper (`drag-row-*.png`).
 - **SETTINGS CONTROLS ARE NEUTRAL; ONLY SAVE WEARS THE ACCENT** (#202; owner, 2026-09-23: "i dont
   want settings buttons to be affected by the accent colour... grey based on the bg colour ... same
   colours as the drop down menus"; "the only ones to keep accented are the save buttons"). The
