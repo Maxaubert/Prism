@@ -628,7 +628,10 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Delete and a drag act on all; Open, Rename and More act on one and are off). The
   Explorer's MEDIUM row is the tree's default row (`rowLook()` in `treePrefs`). The `marquee`
   e2e measures both; a drag in a test is taken by the row's NAME, since a locator's centre is
-  blank space.
+  blank space. **THE BOX MARKS ONLY WHAT IT TOUCHES** (#326; owner, 2026-10-07: "only the ones
+  that are inside it, even if that's a px"): a row is hit when the rectangle overlaps it ACROSS
+  and down (`rowsInBox`), the row's across part being what is DRAWN (the Explorer's row ends at
+  its last column, measured off a row in view), never the scroll box. `marqueeEdge` holds it.
   **IN THE EXPLORER THE WHOLE ROW DRAGS, THE ARROW STAYS, AND THE BOX STARTS ONLY OFF THE ROWS**
   (#320; owner, 2026-10-07: "when you left click drag an item dont switch the cursor to the hand,
   keep it the normal cursor ... the whole row should let me left click drag ... that drag should
@@ -835,7 +838,19 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   top-left corner 8 px right of and below the tip (File Explorer's way: the pointer never covers the
   name), flipping to the other side only where the window edge leaves no room. One rule for every
   drag the hook carries: tree, Explorer list, several items, places. The `dragLabel` e2e measures it
-  mid-drag at 100%, 150% and 225% (`--force-device-scale-factor`).
+  mid-drag at 100%, 150% and 225% (`--force-device-scale-factor`). **WHAT HANGS THERE IS THE ROW**
+  (#327; owner, 2026-10-07: "when i pick up an item i wanna pick up the row, essentially not just a
+  label, so i want the icon and so on"; then, asked: the row as it looks SELECTED, only its icon and
+  name; several items show only the row pressed on, with a count). `lib/dragRow.ts` builds it from the
+  source row's own DOM and computed style: the icon beside the name (never the tree's chevron), the
+  row's height, side padding, gap and font, the `--p-sel-line` edge, and the tint composited on the
+  SOURCE row's own ground (the first opaque one up from it: the list's, the sidebar's), so it matches
+  the marked row in every style (`--p-sel-tint-seen` only where no ground is opaque); never the type,
+  size or date, nor an unsaved file's `*`. Several items: a small count (`--p-sel-bg`,
+  `--p-on-accent`) on its corner, never "N items"; an unmarked row pressed carries itself alone. Move
+  or Copy is a small line OUTSIDE the placed box (absolute: under the row, over it at the window's
+  bottom), so the row never jumps as a target toggles. The same `dragLabel` e2e holds it, comparing
+  the carried row's PIXELS with the marked row's, in Aurora and Paper (`drag-row-*.png`).
 - **SETTINGS CONTROLS ARE NEUTRAL; ONLY SAVE WEARS THE ACCENT** (#202; owner, 2026-09-23: "i dont
   want settings buttons to be affected by the accent colour... grey based on the bg colour ... same
   colours as the drop down menus"; "the only ones to keep accented are the save buttons"). The
@@ -1728,6 +1743,14 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   `pendingOpen` and `startupRestored`; a crash ends a pending hang timer; a launch during a quit
   or an install makes no window (a quit relaunches with the handed files, never under `--e2e`);
   `crashReporter` starts only once the single-instance lock is won.
+- **A STALL IS READ FROM THE DIAGNOSTICS LOG, NOT GUESSED** (#322; owner, 2026-10-07: "implement
+  some robust logging and debugging into the program especially to catch stalls for example in
+  explorer or in general"). When the owner says "it stalled", run `npm run diag -- --app prism
+  --since 10m` from a Prism Terminal checkout FIRST (schema: PT's `docs/diagnostics.md`). The log is
+  `%APPDATA%\Prism\logs\diag.jsonl`, local only. `startDiagnostics` runs before every IPC
+  registration (it wraps ipcMain) and stops LAST on the quit. A channel long BY DESIGN goes in
+  `src/main/diagChannels.ts` under the rule written there; a crumb that can fire many times a second
+  is `often` (Detailed only).
 - **THE EXPLORER NEVER SHOWS A LOADING SCREEN** (2026-10-04, #271; owner: "I don't ever want to
   see that ... not even if you launch it from a restart of the PC, or it's your first time after
   installing the program"). Design, the owner's six decisions and what was measured:

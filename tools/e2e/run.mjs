@@ -78,6 +78,9 @@ async function launchTestApp(options) {
   // connection. Kill fallback is restricted to this test process tree.
   app.close = async () => {
     const child = app.process()
+    // `app.exit` skips will-quit, where the diagnostics log writes its queue
+    // (#322): main's last batch is written here, for the Stalls table.
+    await app.evaluate(() => globalThis.__e2eDiagFlush?.()).catch(() => {})
     await app.evaluate(async () => { await globalThis.__prismIndexer?.dispose() }).catch(() => {})
     await app.evaluate(({ app }) => app.exit(0)).catch(() => {})
     if (child.exitCode === null) {
@@ -5196,7 +5199,8 @@ const SETTINGS_PAGE_OF = {
   'explorer-side': 'explorer', 'tree-side': 'project', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer', 'newtab-show': 'project',
   'open-external': 'explorer', 'remember-tabs': 'explorer', 'remember-folders': 'explorer', 'explorer-verb': 'explorer', 'default-apps': 'explorer',
   'term-shell': 'terminal', 'term-theme': 'terminal', 'agent-indicator': 'agents', 'agent-color': 'agents',
-  'dictation-enabled': 'dictation', 'transport-bg': 'media', 'app-version': 'about'
+  'dictation-enabled': 'dictation', 'transport-bg': 'media', 'app-version': 'about',
+  'diag-verbose': 'diagnostics', 'diag-folder': 'diagnostics', 'diag-mark': 'diagnostics'
 }
 
 /** Open Settings if it is not up, and go to one of its pages. */
@@ -7916,8 +7920,9 @@ async function marqueeScenario(fixtures) {
     const f4 = await rowAt(4).boundingBox()
     const f7 = await rowAt(7).boundingBox()
     exBlank = f0.x + f0.width + 14
-    // Ctrl adds: a4..a5 swept from the space beside the rows.
-    await sweep({ x: exBlank, y: f3.y + f3.height / 2 }, { x: exBlank - 10, y: f4.y + f4.height / 2 }, { ctrl: true })
+    // Ctrl adds: a4..a5 swept from the space beside the rows, into them (a
+    // box that stays beside them marks nothing, #326).
+    await sweep({ x: exBlank, y: f3.y + f3.height / 2 }, { x: exBlank - 30, y: f4.y + f4.height / 2 }, { ctrl: true })
     ex = await exMarked()
     ok(ex.sort().join() === 'a1.txt,a4.txt,a5.txt', `Ctrl+sweep adds to what was marked (${ex})`)
     // Escape restores.
@@ -8066,7 +8071,9 @@ async function marqueeQuietScenario(fixtures) {
     ok((await films()).playing.length === 0, `and plays nothing (${(await films()).playing})`)
     // A sweep that catches one row is still marking.
     const r1 = await rowAt(1).boundingBox()
-    await sweep({ x: blank, y: r1.y + r1.height / 2 }, { x: blank - 10, y: r1.y + r1.height / 2 + 3 })
+    // Into the row: a box that stays beside it marks nothing (#326).
+    await sweep({ x: blank, y: r1.y + r1.height / 2 }, { x: blank - 30, y: r1.y + r1.height / 2 + 3 })
+    ok((await exMarked()).join() === 'v2.mp4', `the sweep marked the one row (${await exMarked()})`)
     await sleep(600)
     ok(!(await paneShown()), 'a sweep over one row leaves the pane shut too')
     await rowAt(1).click({ modifiers: ['Control'], position: { x: 30, y: r1.height / 2 } })
@@ -8139,6 +8146,94 @@ async function marqueeQuietScenario(fixtures) {
     ok(f.pane === 'v2.mp4' && f.playing.includes('v2.mp4'), `a click on empty space keeps the film playing (${f.pane}, ${f.playing})`)
     ok((await exMarked()).length === 0, 'and clears the pick')
     await win.evaluate(() => document.querySelectorAll('video,audio').forEach((v) => v.pause()))
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * THE BOX MARKS ONLY WHAT IT TOUCHES (#326; owner, 2026-10-07, with a
+ * screenshot of a rectangle drawn in the empty space right of Date modified
+ * and seven rows marked at its height: "only the ones that are inside it,
+ * even if that's a px should get marked but this is not inside at all").
+ * A row is hit only when the rectangle overlaps what is DRAWN as the row (the
+ * list's left to the end of its last column), across and down. A box wholly
+ * beside the rows marks nothing, from beside a row or from under the last
+ * one; a box that reaches a pixel or two into them marks every row it spans.
+ */
+async function marqueeEdgeScenario(fixtures) {
+  console.log('the sweep box marks only the rows it touches')
+  const dir = join(fixtures, 'marqueeedge')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const names = ['b1.txt', 'b2.txt', 'b3.txt', 'b4.txt', 'b5.txt', 'b6.txt', 'b7.txt', 'b8.txt']
+  for (const n of names) writeFileSync(join(dir, n), `edge ${n}\n`)
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const sweep = async (from, to, mid) => {
+    await win.mouse.move(from.x, from.y)
+    await win.mouse.down()
+    await win.mouse.move(to.x, to.y, { steps: 12 })
+    await sleep(150)
+    const during = mid ? await mid() : undefined
+    await win.mouse.up()
+    await sleep(250)
+    return during
+  }
+  const listSel = '[data-testid="browse-list"]'
+  const band = () => win.evaluate((s) => document.querySelectorAll(`${s} [data-sweep-band]`).length, listSel)
+  const exMarked = () =>
+    win.evaluate(
+      (s) =>
+        [...document.querySelectorAll(`${s} [data-browse-path][aria-selected="true"]`)].map(
+          (r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0]
+        ),
+      listSel
+    )
+  try {
+    await win.waitForSelector('aside [data-row]', { timeout: 10000 })
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${listSel} .browse-row`, { timeout: 10000 })
+    await win.locator(`${listSel} [data-browse-path$="marqueeedge"]`).dblclick()
+    const list = win.locator(listSel)
+    const rowAt = (i) => list.locator(`[data-browse-index="${i}"]`)
+    ok(
+      await until(async () => (await list.locator('[data-browse-path$=".txt"]').count()) === 8, 10000),
+      'the Explorer walked into the folder of eight'
+    )
+    await sleep(400)
+    const box = await list.boundingBox()
+    const r1 = await rowAt(1).boundingBox()
+    const r2 = await rowAt(2).boundingBox()
+    const r4 = await rowAt(4).boundingBox()
+    const r7 = await rowAt(7).boundingBox()
+    const right = r1.x + r1.width
+    ok(box.x + box.width - right >= 40, `there is blank space beside the rows (${Math.round(box.x + box.width - right)}px)`)
+    const mid = async () => ({ band: await band(), marked: await exMarked() })
+
+    // Beside the rows, never reaching them: nothing is marked, live or after.
+    let seen = await sweep({ x: right + 10, y: r1.y + r1.height / 2 }, { x: right + 30, y: r4.y + r4.height / 2 }, mid)
+    await win.screenshot({ path: join(SHOTS, 'marquee-edge-beside.png') })
+    ok(seen.band === 1, `a press beside the rows draws the rectangle (${seen.band})`)
+    ok(seen.marked.length === 0, `a box wholly beside the rows marks nothing while it is drawn (${seen.marked})`)
+    ok((await exMarked()).length === 0, `nor after the release (${await exMarked()})`)
+
+    // The owner's shape: from under the last row, up the empty right side.
+    seen = await sweep({ x: right + 34, y: r7.y + r7.height + 40 }, { x: right + 12, y: r2.y + r2.height / 2 }, mid)
+    ok(seen.band === 1, `a press under the rows draws the rectangle (${seen.band})`)
+    ok(seen.marked.length === 0, `a box up the empty right side marks nothing (${seen.marked})`)
+    ok((await exMarked()).length === 0, `nor after the release (${await exMarked()})`)
+
+    // One pixel short of the rows is still not touching them.
+    seen = await sweep({ x: right + 20, y: r2.y + r2.height / 2 }, { x: right + 1, y: r4.y + r4.height / 2 }, mid)
+    ok(seen.marked.length === 0, `a box ending a pixel past the rows marks nothing (${seen.marked})`)
+
+    // Reaching a pixel or two into the rows marks every row it spans.
+    seen = await sweep({ x: right + 20, y: r2.y + r2.height / 2 }, { x: right - 2, y: r4.y + r4.height / 2 }, mid)
+    await win.screenshot({ path: join(SHOTS, 'marquee-edge-touch.png') })
+    ok(seen.marked.sort().join() === 'b3.txt,b4.txt,b5.txt', `a box two pixels into the rows marks them live (${seen.marked})`)
+    const ex = await exMarked()
+    ok(ex.sort().join() === 'b3.txt,b4.txt,b5.txt', `and they stay marked after the release (${ex})`)
   } finally {
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
@@ -11928,18 +12023,109 @@ async function dragLabelScenario(fixtures) {
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(join(dir, 'folder'), { recursive: true })
   for (const n of ['alpha.txt', 'beta.txt']) writeFileSync(join(dir, n), `drag label ${n}\n`)
+  // THE ROW IS PICKED UP (#327; owner, 2026-10-07: "when i pick up an item i
+  // wanna pick up the row, essentially not just a label, so i want the icon
+  // and so on"). Each read also takes the carried row apart: its icon, name,
+  // count, height and look, against the row it came from.
   const badge = (win) =>
     win.evaluate(() => {
       const el = document.querySelector('[data-file-drag-badge]')
       const r = el?.getBoundingClientRect()
-      return r ? { left: r.left, top: r.top, width: r.width, text: el.textContent ?? '', dpr: devicePixelRatio } : null
+      if (!r) return null
+      const row = el.querySelector('[data-drag-row]')
+      const icon = row?.querySelector('[data-drag-icon]')
+      const sig = (n) =>
+        !n ? null : n.tagName.toLowerCase() === 'img' ? `img:${n.getAttribute('src')}` : [...n.querySelectorAll('path')].map((p) => p.getAttribute('d')).join('|')
+      const seen = getComputedStyle(row ?? el)
+      const probe = (css) => {
+        const p = document.createElement('div')
+        p.style.color = css
+        document.body.append(p)
+        const v = getComputedStyle(p).color
+        p.remove()
+        return v
+      }
+      return {
+        left: r.left,
+        top: r.top,
+        width: r.width,
+        height: r.height,
+        text: el.textContent ?? '',
+        dpr: devicePixelRatio,
+        rowText: row?.textContent ?? '',
+        name: row?.querySelector('[data-drag-name]')?.textContent ?? null,
+        count: row?.querySelector('[data-drag-count]')?.textContent ?? null,
+        icon: sig(icon),
+        iconSize: icon ? icon.getBoundingClientRect().width : 0,
+        rowH: row?.getBoundingClientRect().height ?? 0,
+        rowLeft: row?.getBoundingClientRect().left ?? -1,
+        rowTop: row?.getBoundingClientRect().top ?? -1,
+        font: seen.fontSize,
+        bg: seen.backgroundColor,
+        shadow: seen.boxShadow,
+        wantLine: probe('var(--p-sel-line)')
+      }
+    })
+  /** What the source row draws: each icon's signature, its height and font, its other cells. */
+  const sourceOf = (el) =>
+    el.evaluate((n) => {
+      const row = n.closest('[draggable="true"]') ?? n
+      const sig = (s) =>
+        s.tagName.toLowerCase() === 'img' ? `img:${s.getAttribute('src')}` : [...s.querySelectorAll('path')].map((p) => p.getAttribute('d')).join('|')
+      const nameIcon = [...row.querySelectorAll('svg, img')].find((s) => (s.nextElementSibling?.textContent ?? '').trim())
+      return {
+        icons: [...row.querySelectorAll('svg, img')].map(sig),
+        nameIcon: nameIcon ? sig(nameIcon) : null,
+        iconSize: nameIcon ? nameIcon.getBoundingClientRect().width : 0,
+        h: row.getBoundingClientRect().height,
+        font: getComputedStyle(row).fontSize,
+        cells: [...row.querySelectorAll('.browse-column-type, .browse-column-size, .browse-column-modified')]
+          .map((c) => (c.textContent ?? '').trim())
+          .filter(Boolean)
+      }
+    })
+  /** The commonest colour in a box as drawn (a screenshot decoded in the
+   *  page), inset past its edge lines: a row's fill, whatever is written on it. */
+  const fillOf = async (win, r) => {
+    if (!r) return null
+    const png = await win.screenshot({ clip: { x: r.x + 3, y: r.y + 3, width: r.width - 6, height: r.height - 6 } })
+    return win.evaluate(async (b64) => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${b64}`
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth
+      c.height = img.naturalHeight
+      const g = c.getContext('2d')
+      g.drawImage(img, 0, 0)
+      const d = g.getImageData(0, 0, c.width, c.height).data
+      const seen = new Map()
+      for (let i = 0; i < d.length; i += 4) {
+        const k = `${d[i]},${d[i + 1]},${d[i + 2]}`
+        seen.set(k, (seen.get(k) ?? 0) + 1)
+      }
+      return [...seen.entries()].sort((a, b) => b[1] - a[1])[0][0].split(',').map(Number)
+    }, png.toString('base64'))
+  }
+  const rowBox = (el) =>
+    el.evaluate((n) => {
+      const r = (n.closest('[draggable="true"]') ?? n).getBoundingClientRect()
+      return { x: r.left, y: r.top, width: r.width, height: r.height }
     })
   /** Press on `el`, travel to two places, read the label at each, let go with Escape. */
-  const carry = async (win, el, what, shot) => {
+  const carry = async (win, el, what, shot, opts = {}) => {
     const box = await el.boundingBox()
     if (!box) {
       ok(false, `${what}: the row is on screen`)
       return null
+    }
+    const src = await sourceOf(el)
+    let look = null
+    if (opts.look) {
+      // The pointer off the row first, so no hover is in the sample.
+      await win.mouse.move(1, 1)
+      await sleep(250)
+      look = { source: await fillOf(win, await rowBox(el)), carried: null }
     }
     const from = { x: Math.round(box.x + Math.min(24, box.width / 2)), y: Math.round(box.y + box.height / 2) }
     await win.mouse.move(from.x, from.y)
@@ -11952,13 +12138,51 @@ async function dragLabelScenario(fixtures) {
       const b = await badge(win)
       seen.push(b && { ...b, x: at.x, y: at.y, offX: b.left - at.x, offY: b.top - at.y })
     }
-    if (shot) await win.screenshot({ path: join(SHOTS, shot) })
+    if (look) {
+      const r = await win.evaluate(() => {
+        const b = document.querySelector('[data-drag-row]')?.getBoundingClientRect()
+        return b ? { x: b.left, y: b.top, width: b.width, height: b.height } : null
+      })
+      look.carried = await fillOf(win, r)
+    }
+    if (shot) {
+      const last = seen[seen.length - 1]
+      // Close up, so the carried row can be LOOKED at, not just found.
+      if (opts.zoom && last)
+        await win.screenshot({
+          path: join(SHOTS, shot),
+          clip: { x: Math.max(0, last.x - 160), y: Math.max(0, last.y - 110), width: 520, height: 230 }
+        })
+      else await win.screenshot({ path: join(SHOTS, shot) })
+    }
     await win.keyboard.press('Escape')
     await win.mouse.up()
     await sleep(200)
     const [a, b] = seen
     ok(!!a && !!b, `${what}: a label is carried (${a?.text ?? 'none'})`)
     if (!a || !b) return null
+    /* ---------- the row, not a label (#327) ---------- */
+    ok(!!a.icon && src.icons.includes(a.icon), `${what}: it carries the row's own icon (${a.icon ? 'found' : 'none'})`)
+    ok(!src.nameIcon || a.icon === src.nameIcon, `${what}: the icon beside the name, never a chevron`)
+    ok(Math.abs(a.iconSize - src.iconSize) <= 0.5, `${what}: at the row's icon size (${a.iconSize} and ${src.iconSize})`)
+    ok(Math.abs(a.rowH - src.h) <= 1, `${what}: the row's height (${a.rowH} and ${src.h})`)
+    ok(a.font === src.font, `${what}: the row's font size (${a.font} and ${src.font})`)
+    ok(/^rgb\(/.test(a.bg) && a.shadow.includes(a.wantLine), `${what}: opaque, with the selection's edge (${a.bg}, ${a.shadow})`)
+    if (look) {
+      // AS PAINTED, not as a token says (review of #327): the carried row's
+      // fill against the marked source row's own pixels, which sit on the
+      // list's or the sidebar's ground, not the window's.
+      const d = look.carried && look.source ? Math.max(...look.carried.map((v, i) => Math.abs(v - look.source[i]))) : 99
+      ok(d <= 3, `${what}: the tint the marked row shows on screen (${look.carried} and ${look.source})`)
+    }
+    ok(src.cells.every((c) => !a.rowText.includes(c)), `${what}: no type, size or date (${src.cells.join(' / ')} not in "${a.rowText}")`)
+    ok(a.rowLeft === a.left && a.rowTop === a.top, `${what}: the row is the corner that hangs off the pointer`)
+    ok(
+      seen.every((s) => Math.abs(s.height - s.rowH) < 0.5),
+      `${what}: what is placed is the row alone, so Move or Copy never moves it (${seen.map((s) => s.height)} and ${a.rowH})`
+    )
+    if (opts.name) ok(a.name === opts.name, `${what}: it names the row pressed on (${a.name})`)
+    ok(a.count === (opts.count ? String(opts.count) : null), `${what}: a count of ${opts.count ?? 'none'} (${a.count})`)
     const near = (o) => o >= 4 && o <= 8
     ok(
       near(a.offX) && near(a.offY),
@@ -11982,6 +12206,26 @@ async function dragLabelScenario(fixtures) {
       ok(!!one && one.text.includes('beta.txt'), `and the label names the file (${one?.text})`)
       if (scale !== 1) continue
       await carry(win, tree('folder'), 'a folder from the tree')
+      {
+        // The tree's rows sit on the SIDEBAR's ground, not the list's: the
+        // carried row matches the marked tree row as drawn, dark and light.
+        const was = await win.evaluate(() => localStorage.getItem('prism.style'))
+        try {
+          for (const [look, style] of [['dark', 'aurora'], ['light', 'paper']]) {
+            await switchStyle(win, style)
+            await sleep(500)
+            await tree('beta.txt').click()
+            await sleep(400)
+            await carry(win, tree('beta.txt'), `${look}: a marked file from the tree`, `drag-row-${look}-tree.png`, {
+              name: 'beta.txt',
+              zoom: true,
+              look: true
+            })
+          }
+        } finally {
+          await switchStyle(win, was)
+        }
+      }
 
       /* ---------- the Explorer list ---------- */
       await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
@@ -11993,20 +12237,55 @@ async function dragLabelScenario(fixtures) {
       )
       await sleep(400)
       const row = (n) => win.locator(`[data-testid="browse-list"] [data-browse-path$="${n}"] .browse-name`).first()
-      await carry(win, row('alpha.txt'), 'a file from the Explorer list', 'drag-label-list.png')
-      await carry(win, row('folder'), 'a folder from the Explorer list')
-      await row('alpha.txt').click()
-      await win.keyboard.down('Control')
-      await row('beta.txt').click()
-      await win.keyboard.up('Control')
-      await sleep(200)
-      const many = await carry(win, row('beta.txt'), 'two marked items from the Explorer list', 'drag-label-many.png')
-      ok(!!many && /2 items/.test(many.text), `and the label counts them (${many?.text})`)
+      await carry(win, row('alpha.txt'), 'a file from the Explorer list', 'drag-label-list.png', { name: 'alpha.txt' })
+      await carry(win, row('folder'), 'a folder from the Explorer list', null, { name: 'folder' })
 
       /* ---------- the places panel ---------- */
       const pin = win.locator('.quick-access-pin').first()
       if (await pin.count()) await carry(win, pin, 'a place from the places panel')
       else ok(false, 'the places panel shows a place to drag')
+
+      /* ---------- one row and several, in a dark and a light style ---------- */
+      const before = await win.evaluate(() => localStorage.getItem('prism.style'))
+      try {
+        // Aurora is the default and dark; Paper is light.
+        for (const [look, style] of [['dark', 'aurora'], ['light', 'paper']]) {
+          await switchStyle(win, style)
+          await sleep(500)
+          await row('alpha.txt').click()
+          await sleep(200)
+          await carry(win, row('alpha.txt'), `${look} style (${style}), one row`, `drag-row-${look}-one.png`, {
+            name: 'alpha.txt',
+            zoom: true,
+            look: true
+          })
+          await row('alpha.txt').click()
+          await win.keyboard.down('Control')
+          await row('beta.txt').click()
+          await row('folder').click()
+          await win.keyboard.up('Control')
+          await sleep(200)
+          const marked = await win.locator('[data-testid="browse-list"] .browse-row[data-selected]').count()
+          ok(marked === 3, `${look}: three rows are marked (${marked})`)
+          const many = await carry(win, row('beta.txt'), `${look}: three marked items, picked up by beta.txt`, `drag-row-${look}-many.png`, {
+            name: 'beta.txt',
+            count: marked,
+            zoom: true,
+            look: true
+          })
+          ok(!!many && !/items/.test(many.text), `${look}: one row and a count, not "3 items" (${many?.text})`)
+          // An UNMARKED row pressed while others are marked carries itself
+          // alone (review of #327): its own name and no count.
+          await row('alpha.txt').click()
+          await win.keyboard.down('Control')
+          await row('folder').click()
+          await win.keyboard.up('Control')
+          await sleep(200)
+          await carry(win, row('beta.txt'), `${look}: alpha and folder marked, beta.txt pressed`, null, { name: 'beta.txt' })
+        }
+      } finally {
+        await switchStyle(win, before)
+      }
     } finally {
       await app.close()
       EXTRA_ARGS = []
@@ -14971,8 +15250,8 @@ async function settingsLookScenario(fixtures) {
     ok((await win.locator('[data-settings-tab="appearance"]').getAttribute('aria-current')) === 'page', 'Settings opens on Appearance')
     const rail = await win.evaluate(() => [...document.querySelectorAll('[data-settings-tab]')].map((b) => b.getAttribute('data-settings-tab')))
     ok(
-      JSON.stringify(rail) === JSON.stringify(['appearance', 'explorer', 'project', 'terminal', 'agents', 'dictation', 'media', 'about']),
-      `the rail runs Appearance, Explorer, Project settings, Terminal, Agents, Dictation, Media, About (${rail.join(', ')})`
+      JSON.stringify(rail) === JSON.stringify(['appearance', 'explorer', 'project', 'terminal', 'agents', 'dictation', 'media', 'diagnostics', 'about']),
+      `the rail runs Appearance, Explorer, Project settings, Terminal, Agents, Dictation, Media, Diagnostics, About (${rail.join(', ')})`
     )
     const pages = [
       ['appearance'],
@@ -14983,6 +15262,7 @@ async function settingsLookScenario(fixtures) {
       ['dictation'],
       ['media', 'visualizer'],
       ['media', 'progress'],
+      ['diagnostics'],
       ['about']
     ]
     for (const [scheme, style] of [['dark', 'aurora'], ['light', 'paper']]) {
@@ -15578,6 +15858,7 @@ async function settingsSearchScenario(fixtures) {
     for (const file of [
       'node_modules/prism-term-core/renderer/settings/options.ts',
       'node_modules/prism-term-core/renderer/settings/dictationOptions.ts',
+      'node_modules/prism-term-core/renderer/settings/diagnosticsOptions.ts',
       'src/renderer/src/components/settings/appOptions.ts'
     ])
       for (const m of readFileSync(join(ROOT, file), 'utf8').matchAll(/\{\s*id: '([a-z-]+)'[^}]*\}/g))
@@ -16802,11 +17083,308 @@ async function zipLockedScenario(fixtures) {
   ok(left.length === 0, `the run's member folder is gone after quit (${left.join(', ')})`)
 }
 
+/* ----- the diagnostics log (#322) ----- */
+
+/** The diagnostics log of the shared profile, one object per line (a line
+ *  that is not JSON comes back as `{ bad }`, so a scenario can say so). */
+const DIAG_DIR = join(PROFILE, 'logs')
+function readDiag() {
+  try {
+    return readFileSync(join(DIAG_DIR, 'diag.jsonl'), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => {
+        try {
+          return JSON.parse(l)
+        } catch {
+          return { bad: l }
+        }
+      })
+  } catch {
+    return []
+  }
+}
+/** Lines land in batches (the page's every 250 ms, the writer's every 250
+ *  ms), so every look waits for its line. */
+const diagHas = (fn, ms = 10000) => until(() => readDiag().find(fn) ?? false, ms, 100)
+
+/**
+ * A REAL QUIT, for the log's last line: the harness's `app.close()` is
+ * `app.exit(0)`, which skips will-quit, where the log writes its queue and
+ * its `quit` line. Falls back to the harness's close after 15 s.
+ */
+async function quitForLog(app) {
+  const child = app.process()
+  await app.evaluate(({ app }) => app.quit()).catch(() => {})
+  if (child.exitCode === null)
+    await Promise.race([new Promise((done) => child.once('exit', done)), sleep(15000)])
+  await app.close().catch(() => {})
+}
+
+/**
+ * THE DIAGNOSTICS LOG (#322; owner, 2026-10-07: "implement some robust logging
+ * and debugging into the program especially to catch stalls for example in
+ * explorer or in general"). Each problem is made on purpose and then found in
+ * <profile>\logs\diag.jsonl, the file the owner's "it stalled just now" is read
+ * from: a 2.5 s busy loop in the page (a page-stall naming the script, the
+ * crumbs before it, and the stack main took while it spun), a call main
+ * answers after 600 ms (`e2e:slow-ipc`, --e2e only), a thrown error and a
+ * rejected promise. Then Settings > Diagnostics: Open folder (recorded, never
+ * opened, under --e2e), Mark, and Detailed logging kept across a relaunch.
+ * The core's own scenario in Prism Terminal, on Prism's wiring.
+ *
+ * In `e2e:terminal`, RUNNER-SAFE: the page, the log and the bridge are the
+ * core's, so a core bump that breaks Prism's log is held here. The profile is
+ * shared, so the log folder is emptied first and Detailed logging is taken
+ * back off after (it lives in <profile>\diag.json, which every later
+ * scenario would otherwise start verbose from).
+ */
+async function diagLogScenario(fixtures) {
+  console.log('diagnostics log')
+  rmSync(DIAG_DIR, { recursive: true, force: true })
+  rmSync(join(PROFILE, 'diag.json'), { force: true })
+  let app
+  let win
+  try {
+    ;({ app, win } = await launch(join(fixtures, 'README.md')))
+    const session = await diagHas((l) => l.k === 'session')
+    ok(
+      !!session && session.src === 'main' && session.e2e === true && session.verbose === false && typeof session.version === 'string' && session.pid > 0,
+      `a session line opens the log (${JSON.stringify(session && { version: session.version, electron: session.electron, verbose: session.verbose })})`
+    )
+    // The Explorer tab in front: a tab-switch, from the page.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    ok(!!(await diagHas((l) => l.k === 'crumb' && l.a === 'tab-switch' && l.src === 'page')), 'putting the Explorer tab in front is a tab-switch crumb, from the page')
+
+    // A STALL: 2.5 s of the page's thread, started by a named timer.
+    await win.evaluate(() => {
+      setTimeout(function diagE2eBusy() {
+        const end = performance.now() + 2500
+        while (performance.now() < end) {
+          /* spin */
+        }
+      }, 0)
+    })
+    const stall = await diagHas((l) => l.k === 'page-stall' && l.ms >= 2000)
+    ok(!!stall && stall.src === 'page', `the busy loop is a page-stall (${stall?.ms} ms)`)
+    const scripts = Array.isArray(stall?.scripts) ? stall.scripts : []
+    ok(
+      scripts.some((x) => x && (x.fn === 'diagE2eBusy' || /setTimeout/i.test(x.invoker ?? ''))),
+      `with the script that ran named (${JSON.stringify(scripts)})`
+    )
+    const crumbs = Array.isArray(stall?.crumbs) ? stall.crumbs : []
+    ok(crumbs.some((c) => c && c.a === 'tab-switch'), `and the crumbs said before it (${JSON.stringify(crumbs)})`)
+    // The stack main took while the page spun, written because a page-stall
+    // overlapping it arrived. It needs the Document-Policy header main adds.
+    const stack = await diagHas((l) => l.k === 'page-stack', 6000)
+    ok(
+      !!stack && /diagE2eBusy/.test(stack.stack ?? '') && stack.ms >= 2000,
+      `main took the spinning page's stack (${stack ? `${stack.ms} ms, ${String(stack.stack).split('\n')[1]?.trim()}` : 'none'})`
+    )
+
+    // A SLOW CALL: main answers after 600 ms.
+    ok((await win.evaluate(() => window.prism.e2eSlowIpc())) === true, 'the slow call answers')
+    const slow = await diagHas((l) => l.k === 'ipc-slow' && l.ch === 'e2e:slow-ipc')
+    ok(!!slow && slow.ms >= 500 && slow.ok === true, `and is an ipc-slow line naming its channel (${slow?.ms} ms)`)
+
+    // ERRORS: thrown in a timer, so it reaches the page's own handler (one
+    // thrown inside evaluate is Playwright's), and a rejection nobody holds.
+    await win.evaluate(() => {
+      setTimeout(() => {
+        throw new Error('diag-e2e-thrown')
+      }, 0)
+      void Promise.reject(new Error('diag-e2e-rejected'))
+    })
+    const thrown = await diagHas((l) => l.k === 'page-error' && /diag-e2e-thrown/.test(l.msg ?? ''))
+    ok(!!thrown && /diag-e2e-thrown/.test(thrown.stack ?? ''), 'a thrown error is a page-error, with its stack')
+    ok(!!(await diagHas((l) => l.k === 'page-rejection' && /diag-e2e-rejected/.test(l.msg ?? ''))), 'a rejected promise is a page-rejection')
+
+    // THE PAGE: the folder, Mark, Detailed logging.
+    const folderRow = await gotoPref(win, 'diag-folder')
+    ok(!!(await diagHas((l) => l.k === 'crumb' && l.a === 'settings-page' && l.page === 'diagnostics')), 'opening the page is a crumb')
+    const shownDir = await until(async () => ((await folderRow.textContent()) ?? '').includes(DIAG_DIR), 5000, 100)
+    ok(!!shownDir, `Log files shows the folder the log is in (${await folderRow.textContent()})`)
+    await folderRow.locator('button').click()
+    const opened = await until(
+      () => app.evaluate(() => globalThis.__e2eOpenedPaths ?? []).then((x) => x.some((p) => String(p).toLowerCase() === DIAG_DIR.toLowerCase()) || false),
+      4000,
+      100
+    )
+    ok(!!opened, 'Open folder opens that folder (recorded under --e2e)')
+    const markAt = Date.now()
+    await win.locator('[data-diag-mark]').click()
+    ok(!!(await until(async () => await win.locator('[data-diag-mark] span').last().isVisible(), 2000, 50)), 'Mark says Marked')
+    const mark = await diagHas((l) => l.k === 'mark')
+    ok(!!mark && mark.src === 'page' && Math.abs(Date.parse(mark.t) - markAt) < 3000, `and stamps the moment in the log (${mark?.t})`)
+    const sw = win.locator('[data-pref="diag-verbose"] [role="switch"]')
+    ok((await sw.getAttribute('aria-checked')) === 'false', 'Detailed logging is off by default')
+    await sw.click()
+    ok(!!(await diagHas((l) => l.k === 'verbose' && l.on === true)), 'switching it on is a line')
+    // The log's own diag: channels are never timed, so an app call.
+    await win.evaluate(() => window.prism.appVersion())
+    ok(!!(await diagHas((l) => l.k === 'ipc' && l.ch && !l.ch.startsWith('diag:'))), 'and every call is logged from then on')
+    await quitForLog(app)
+    app = null
+    ok(readDiag().at(-1)?.k === 'quit', `a quit is the session's last line (${readDiag().at(-1)?.k})`)
+    await sleep(900) // let the single-instance lock go
+
+    // KEPT ACROSS A RELAUNCH: main reads it from <userData>\diag.json.
+    ;({ app, win } = await launch(join(fixtures, 'README.md')))
+    const second = await diagHas((l, i, all) => l.k === 'session' && all.slice(0, i).some((x) => x.k === 'session'))
+    ok(!!second && second.verbose === true, `the next session starts detailed (${second?.verbose})`)
+    await gotoPref(win, 'diag-verbose')
+    ok(
+      !!(await until(async () => (await win.locator('[data-pref="diag-verbose"] [role="switch"]').getAttribute('aria-checked')) === 'true', 5000, 100)),
+      'and the switch says so'
+    )
+    // Off again through the switch, the way the owner would.
+    await win.locator('[data-pref="diag-verbose"] [role="switch"]').click()
+    ok(!!(await diagHas((l) => l.k === 'verbose' && l.on === false)), 'and switching it off is a line too')
+    ok(readDiag().every((l) => !l.bad), 'every line in the file is one JSON object')
+  } finally {
+    await app?.close().catch(() => {})
+    await sleep(600)
+    // Whatever happened above, the scenarios after this one start quiet.
+    rmSync(join(PROFILE, 'diag.json'), { force: true })
+  }
+}
+
+/**
+ * THE EXPLORER ON THE TIMELINE (#322): a folder opened by a double click is an
+ * `open-folder` crumb saying where, why (`navigate`), how long and how many
+ * rows; a column header pressed is a `sort` crumb naming the column and the
+ * direction. These two are what a stall in the Explorer is read against.
+ */
+async function explorerDiagScenario(fixtures) {
+  console.log('explorer diagnostics')
+  const dir = join(fixtures, 'diag-folder')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'inner'), { recursive: true })
+  for (let i = 0; i < 6; i++) writeFileSync(join(dir, `file-${i}.txt`), 'x'.repeat(i + 1))
+  rmSync(DIAG_DIR, { recursive: true, force: true })
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  let app
+  let win
+  let verboseOn = false
+  try {
+    const started = await launch(join(fixtures, 'README.md'))
+    app = started.app
+    win = started.win
+    EXTRA_ENV = {}
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    const row = win.locator('[data-testid="browse-list"] [data-browse-path$="diag-folder"]')
+    await row.waitFor({ timeout: 10000 })
+    const target = await row.getAttribute('data-browse-path')
+    await row.dblclick()
+    ok(
+      await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 6, 10000),
+      'the folder opens'
+    )
+    const open = await diagHas((l) => l.k === 'crumb' && l.a === 'open-folder' && String(l.path ?? '').toLowerCase() === String(target).toLowerCase() && l.reason === 'navigate')
+    ok(!!open, `opening it is an open-folder crumb, reason navigate (${JSON.stringify(open)})`)
+    ok(!!open && typeof open.ms === 'number' && open.ms >= 0, `with how long the read took (${open?.ms} ms)`)
+    ok(!!open && open.entries === 7, `and how many rows it has (${open?.entries}, 6 files and a folder)`)
+    ok(!!open && typeof open.cached === 'boolean' && !open.unreadable, `and whether a cache painted first (${open?.cached})`)
+    // ONE READ, ONE CRUMB (review of #322): the location effect joins the
+    // navigation's read and must not say it again. Given time to.
+    const key = String(target).toLowerCase()
+    const opens = () => readDiag().filter((l) => l.k === 'crumb' && l.a === 'open-folder' && String(l.path ?? '').toLowerCase() === key)
+    await sleep(800)
+    ok(opens().length === 1, `the navigation is one open-folder crumb, not two (${opens().map((l) => l.reason).join(', ')})`)
+    // Detailed logging, so a quick background read is written as well. By
+    // the switch: the page keeps its own copy of the setting.
+    await (await gotoPref(win, 'diag-verbose')).locator('[role="switch"]').click()
+    verboseOn = true
+    ok(!!(await diagHas((l) => l.k === 'verbose' && l.on === true)), 'Detailed logging is on')
+    await win.click('[aria-label="Settings"]')
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.locator('.folder-browser nav.browse-path .browse-crumb button[aria-current="location"]').waitFor({ timeout: 10000 })
+    // The folder already shown, asked for again: no location moves, and the
+    // navigation's marker must not swallow the next read's crumb.
+    await win.locator('.folder-browser nav.browse-path .browse-crumb button[aria-current="location"]').click()
+    ok(!!(await until(() => opens().filter((l) => l.reason === 'navigate').length === 2, 10000, 100)), 'asking for the folder on screen again is a navigate crumb')
+    await win.evaluate(() => window.dispatchEvent(new Event('focus')))
+    const focus = await until(() => opens().find((l) => l.reason === 'focus'), 10000, 100)
+    ok(!!focus, `the window's focus re-read after it is said, reason focus (${opens().map((l) => l.reason).join(', ')})`)
+    const sortedBefore = readDiag().filter((l) => l.k === 'crumb' && l.a === 'sort').length
+    await win.locator('.browse-list-area .browse-columns .browse-column-name').click()
+    const sort = await diagHas((l, i, all) => l.k === 'crumb' && l.a === 'sort' && all.slice(0, i + 1).filter((x) => x.k === 'crumb' && x.a === 'sort').length > sortedBefore)
+    ok(!!sort && sort.key === 'name' && (sort.direction === 'asc' || sort.direction === 'desc'), `pressing the Name header is a sort crumb (${JSON.stringify(sort && { key: sort.key, direction: sort.direction })})`)
+  } finally {
+    EXTRA_ENV = {}
+    // The profile is shared and Detailed logging outlives a relaunch.
+    if (verboseOn) await win?.evaluate(() => window.prism.diagSetVerbose(false)).catch(() => {})
+    await app?.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/* ----- the Stalls table (#322) ----- */
+
+/**
+ * EVERY RUN SAYS WHAT STALLED (#322; spec, "the e2e as a stall detector"):
+ * each scenario starts on an empty log folder and its diagnostics log is read
+ * after it, and every line of 1 s or more and every error is listed in a table
+ * at the end. A REPORT, NOT A GATE: the exit code is the checks' alone, since
+ * a slow line on a busy machine is a lead, not a failure. diagLog's own lines
+ * are made on purpose and say so. Only the shared profile is read; a scenario
+ * on a profile of its own (launchProbed's, Win+E windows) is not in it.
+ */
+const stalls = []
+const DIAG_ERROR_KINDS = new Set(['page-error', 'page-rejection', 'main-error', 'main-rejection', 'ipc-error', 'gone', 'logger-error'])
+function stallDetail(l) {
+  const cut = (v) => String(v ?? '').replace(/\s+/g, ' ').slice(0, 70)
+  if (l.k === 'page-stall') {
+    const top = Array.isArray(l.scripts) ? l.scripts[0] : null
+    return cut(top ? [top.fn, top.src, top.invoker].filter(Boolean).join(' ') : `blocking ${l.blocking ?? '?'}`)
+  }
+  if (l.k === 'page-stack') return cut(String(l.stack ?? '').split('\n').find((x) => /^\s*at /.test(x))?.trim())
+  if (l.k === 'main-lag') return cut((Array.isArray(l.inflight) ? l.inflight : []).map((c) => `${c.ch} ${c.ms}${c.done ? ' done' : ''}`).join(', ') || 'nothing in flight')
+  if (l.k === 'ipc-slow' || l.k === 'ipc-error') return cut(`${l.ch}${l.err ? ` ${l.err}` : ''}`)
+  if (l.k === 'gone') return cut(`${l.type} ${l.reason} ${l.exitCode}`)
+  if (l.k === 'crumb') return cut(`${l.a} ${l.path ?? l.reason ?? ''}`)
+  if (l.k === 'sort-slow') return cut(`${l.entries} rows, ${l.trigger}`)
+  if (l.k === 'guard-slow') return cut(`${l.fn} ${l.paths} paths`)
+  return cut(l.msg ?? l.err ?? l.path ?? '')
+}
+function collectStalls(scenario) {
+  let files
+  try {
+    files = readdirSync(DIAG_DIR).filter((f) => f.startsWith('diag.jsonl'))
+  } catch {
+    return
+  }
+  for (const f of files) {
+    let text
+    try {
+      text = readFileSync(join(DIAG_DIR, f), 'utf8')
+    } catch {
+      continue
+    }
+    for (const raw of text.split('\n')) {
+      if (!raw) continue
+      let l
+      try {
+        l = JSON.parse(raw)
+      } catch {
+        continue
+      }
+      const err = DIAG_ERROR_KINDS.has(l.k)
+      if (!err && !(typeof l.ms === 'number' && l.ms >= 1000)) continue
+      const made = scenario === 'diagLog' && (['page-stall', 'page-stack', 'page-error', 'page-rejection'].includes(l.k) || l.ch === 'e2e:slow-ipc')
+      stalls.push({ scenario, kind: l.k === 'crumb' ? `crumb ${l.a}` : l.k, ms: typeof l.ms === 'number' ? l.ms : null, detail: stallDetail(l), expected: made })
+    }
+  }
+}
+
 async function run(fn, gap = 900) {
   const name = fn.name.replace(/Scenario$/, '')
   if (!chosen(name)) return
   const before = failures
   const started = Date.now()
+  // Each scenario's log is its own (#322): read after it, for the Stalls table.
+  rmSync(DIAG_DIR, { recursive: true, force: true })
   try {
     await fn(fixtures)
   } catch (e) {
@@ -16815,6 +17393,7 @@ async function run(fn, gap = 900) {
   }
   const left = reapStrays()
   if (left) console.log(`  (reaped ${left} stray process(es) from ${name})`)
+  collectStalls(name)
   results.push({ name, failed: failures > before, ms: Date.now() - started })
   await sleep(gap) // let the single-instance lock go
 }
@@ -16860,6 +17439,7 @@ await run(themeMigrationScenario)
 await run(onboardingThemeScenario)
 await run(themeLooksScenario)
 await run(settingsSearchScenario)
+await run(diagLogScenario)
 await run(dictationScenario)
 await run(dictationPageScenario)
 await run(pinRecentScenario)
@@ -16898,6 +17478,7 @@ await run(dragScenario)
 await run(dragLabelScenario)
 await run(marqueeScenario)
 await run(marqueeQuietScenario)
+await run(marqueeEdgeScenario)
 await run(hotkeysScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
@@ -16905,6 +17486,7 @@ await run(sidebarPlacesScenario)
 await run(sidebarGroundScenario)
 await run(rightClickSelectScenario)
 await run(columnHeadersScenario)
+await run(explorerDiagScenario)
 await run(panelsAlignScenario)
 await run(explorerSideScenario)
 await run(downloadsDateScenario)
@@ -16946,6 +17528,16 @@ if (only.length && !results.length) {
 const width = Math.max(...results.map((r) => r.name.length), 8)
 for (const r of results)
   console.log(`  ${r.failed ? 'FAIL' : 'ok  '}  ${r.name.padEnd(width)}  ${(r.ms / 1000).toFixed(1)}s`)
+
+console.log("\nStalls (lines of 1 s or more and errors, from each scenario's diagnostics log; a report, not a gate)")
+if (!stalls.length) console.log('  none')
+else {
+  const sw = Math.max(...stalls.map((r) => r.scenario.length), 8) + 2
+  const kw = Math.max(...stalls.map((r) => r.kind.length), 4) + 2
+  console.log(`  ${'scenario'.padEnd(sw)}${'kind'.padEnd(kw)}${'ms'.padStart(7)}  detail`)
+  for (const r of stalls)
+    console.log(`  ${r.scenario.padEnd(sw)}${r.kind.padEnd(kw)}${(r.ms === null ? '-' : String(r.ms)).padStart(7)}  ${r.expected ? '(expected) ' : ''}${r.detail}`)
+}
 
 console.log(failures ? `\n${failures} failure(s)` : '\nall e2e checks passed')
 process.exit(failures ? 1 : 0)

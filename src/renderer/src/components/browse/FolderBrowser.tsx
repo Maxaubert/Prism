@@ -6,7 +6,8 @@ import { BrowseSearchStatus } from './BrowseSearchStatus'
 import { BrowseSearchPopup } from './BrowseSearchPopup'
 import { BrowsePlaces } from './BrowsePlaces'
 import { BrowseToolbar } from './BrowseToolbar'
-import { browseEntries, datesKnown } from './entries'
+import { datesKnown } from './entries'
+import { createSortPass } from './sortTiming'
 import { dateDividers } from '../../lib/dateGroups'
 import { dateView } from '../../lib/downloadsView'
 import { useFolderSizes } from '../../hooks/useFolderSizes'
@@ -115,16 +116,19 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   // DOWNLOADS BY DATE (#285, lib/downloadsView.ts): files and folders mixed,
   // newest first, under File Explorer's date groups. Never a search.
   const dated = dateView(!!props.downloads, props.sort, !!props.query.trim() || !!props.searchState)
+  // The pass times itself (#322, `sortTiming.ts`): a slow one is `sort-slow`,
+  // with which input made it run again.
+  const [sortPass] = useState(createSortPass)
   const entries = useMemo(
     () =>
-      browseEntries(
-        props.listing,
-        props.searchState ? '' : props.query,
-        props.sort,
-        folderSizes,
+      sortPass({
+        listing: props.listing,
+        query: props.searchState ? '' : props.query,
+        sort: props.sort,
+        sizes: folderSizes,
         dated
-      ),
-    [props.listing, props.query, props.sort, props.searchState, folderSizes, dated]
+      }),
+    [sortPass, props.listing, props.query, props.sort, props.searchState, folderSizes, dated]
   )
   const weekStart = props.weekStart
   const dividers = useMemo(

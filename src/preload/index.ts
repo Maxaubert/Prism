@@ -12,6 +12,7 @@ import type {
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 import { createTermApi } from 'prism-term-core/preload/api'
 import { createDictationApi } from 'prism-term-core/preload/dictationApi'
+import { createDiagApi } from 'prism-term-core/preload/diagApi'
 import type { UpdateInfo } from 'prism-term-core/shared/updateTypes'
 import type { ExtractEvent } from '@shared/extraction'
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
@@ -632,6 +633,9 @@ const api = {
   ...createTermApi(ipcRenderer),
   // ...and dictation's (#162), the same way.
   ...createDictationApi(ipcRenderer),
+  // ...and the diagnostics log's (#322): the page's lines, its heartbeat, and
+  // Settings > Diagnostics. Timing stays main-side; these calls are not timed.
+  ...createDiagApi(ipcRenderer),
 
   // frameless window controls
   minimize: (): void => ipcRenderer.send('window:minimize'),
@@ -679,6 +683,9 @@ const api = {
   /** The running app's version (package.json's), for the update window's
    *  "You have" line. */
   appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  /** E2E only (#322): main registers the channel under --e2e alone, so
+   *  anywhere else this rejects. */
+  e2eSlowIpc: (): Promise<boolean> => ipcRenderer.invoke('e2e:slow-ipc'),
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
   openDefaultApps: (): void => ipcRenderer.send('app:default-apps'),
   windowPreferencesLoad: (): WindowPreferencesSnapshot | null => {

@@ -42,7 +42,7 @@ import { clickSelect, emptySelection, rangeSelect, type Selection } from '../lib
 import { isJumpKey, listKey, stepTo, typeJump, typedRun } from '../lib/listKeys'
 import { nearerEscape } from '../lib/nearerEscape'
 import { clipboardText } from '../lib/clipboardText'
-import { nearestRow, onRowOwnPart, rowsInBand, sweepSelect } from '../lib/marquee'
+import { nearestRow, onRowOwnPart, rowsInBox, sweepSelect } from '../lib/marquee'
 import { useSweep } from '../hooks/useSweep'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 
@@ -825,9 +825,21 @@ export function Sidebar({
         y: Math.min(top + box.scrollHeight, Math.max(top, y - r.top))
       }
     },
-    hitsBetween: (top, bottom, py) => {
+    rowAcross: () => {
+      // What is drawn as a row across (#326), measured off any row in view:
+      // the tree's rows run its whole width, so today every box that starts
+      // on the tree reaches them, but the rule is the Explorer's either way.
+      const list = treeList()
+      const drawn = list?.querySelector<HTMLElement>('[data-row]')
+      if (!list || !drawn) return null
+      const r = list.getBoundingClientRect()
+      const d = drawn.getBoundingClientRect()
+      return { left: d.left - r.left, right: d.right - r.left }
+    },
+    hitsIn: (box, py, drawnAcross) => {
       const rows = paintRef.current
-      const span = rowsInBand(top, bottom, size.row, rows.length)
+      const across = drawnAcross ?? { left: 0, right: treeList()?.getBoundingClientRect().width ?? 0 }
+      const span = rowsInBox(box, { ...across, height: size.row }, rows.length)
       if (!span) return { paths: [], near: null }
       const paths: string[] = []
       for (let i = span.first; i <= span.last; i++) {
