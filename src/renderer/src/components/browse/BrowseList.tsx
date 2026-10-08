@@ -29,8 +29,24 @@ import type { BrowseEntry, BrowseSort, FolderBrowserProps } from './types'
 import type { ListPending } from '../../lib/usePendingHint'
 import { divideRows, type DateDivider } from '../../lib/dateGroups'
 import { nextSort } from '../../lib/downloadsView'
+import { listKey, stepTo, type ListKey } from '../../lib/listKeys'
+import { nearerEscape } from '../../lib/nearerEscape'
 
 const OVERSCAN = 12
+/** The common keys the list answers itself (#330). */
+const LIST_OWN: ReadonlySet<ListKey> = new Set<ListKey>([
+  'select-all',
+  'clear',
+  'extend-up',
+  'extend-down',
+  'extend-home',
+  'extend-end',
+  'focus-up',
+  'focus-down',
+  'focus-home',
+  'focus-end',
+  'toggle-mark'
+])
 const columns: Array<{ key: BrowseSort['key']; label: string }> = [
   { key: 'name', label: 'Name' },
   { key: 'type', label: 'Type' },
@@ -100,6 +116,14 @@ type Props = Pick<
   archive?: ArchiveMeta | null
   /** Drawn above the column header: the archive's strip. */
   strip?: ReactNode
+  /** THE COMMON KEYS (#330), each quiet (#263): Shift+arrows mark the run
+   *  from the anchor to `path`; Ctrl+Space puts `path` in or out of the marks;
+   *  Ctrl+A marks every row; Ctrl+Shift+A and Escape clear, answering whether
+   *  there was anything to clear (an Escape with nothing marked is not taken). */
+  onExtend?: (path: string) => void
+  onToggleMark?: (path: string) => void
+  onSelectAll?: () => void
+  onClear?: () => boolean
   /** A right press on the list's empty space (inside an archive, #300). */
   onEmptyContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void
 }
@@ -374,9 +398,52 @@ export function BrowseList(props: Props): JSX.Element {
     pendingFocus.current = null
     selectionPosition.current = { path: '', index: -1 }
   }, [props.directory, props.query, props.sort])
+  /**
+   * THE KEYBOARD'S PLACE APART FROM THE MARKS (#330). Ctrl+Up/Down/Home/End
+   * move the focus and leave the selection alone, File Explorer's way, so a
+   * Ctrl+Space can then mark a row that is not next to the others. Null while
+   * the focus is on the selected row, which is almost always. Forgotten with
+   * the folder, the search and the sort, and by any plain pick (a click, the
+   * arrows), adjusted while rendering as React's pattern has it.
+   */
+  const [cursor, setCursor] = useState<string | null>(null)
+  const cursorKey = `${props.directory}\u0000${props.query}\u0000${props.sort.key}${props.sort.direction}`
+  const [cursorFor, setCursorFor] = useState(cursorKey)
+  if (cursorFor !== cursorKey) {
+    setCursorFor(cursorKey)
+    setCursor(null)
+  }
+  /** A path's row in the list as drawn (dividers counted), or -1. */
+  const indexOfPath = (path: string): number => {
+    if (props.indexedRows)
+      return [...props.indexedRows].find(([, entry]) => entry?.path === path)?.[0] ?? -1
+    const at = props.entries.findIndex((entry) => entry.path === path)
+    return divided && at >= 0 ? divided.rowOf(at) : at
+  }
+  /** Bring a row into view, stepping off a divider the way `toward` points;
+   *  the row's entry, or null when it is not there to land on. */
+  const reveal = (index: number, toward: 1 | -1): { index: number; entry: BrowseEntry } | null => {
+    const node = scroller.current
+    if (!node) return null
+    while (index >= 0 && index < count && rowAt(index) === null) index += toward
+    if (index < 0 || index >= count) return null
+    const top = (divided?.divider(index - 1) ? index - 1 : index) * rowHeight
+    const visibleTop = node.scrollTop * scale
+    if (top < visibleTop) node.scrollTop = top / scale
+    else if (index * rowHeight + rowHeight > visibleTop + node.clientHeight)
+      node.scrollTop = (index * rowHeight + rowHeight - node.clientHeight) / scale
+    props.onScroll(node.scrollTop)
+    const entry = rowAt(index)
+    if (!entry) return null
+    requestAnimationFrame(() =>
+      node.querySelector<HTMLElement>(`[data-browse-index="${index}"]`)?.focus({ preventScroll: true })
+    )
+    return { index, entry }
+  }
   const focusRow = (index: number): void => {
     const node = scroller.current
     if (!node) return
+    setCursor(null)
     const direction = index === 0 ? 1 : index < selectedIndex || index === count - 1 ? -1 : 1
     while (index >= 0 && index < count && rowAt(index) === null) index += direction
     if (index < 0 || index >= count) return
@@ -402,7 +469,59 @@ export function BrowseList(props: Props): JSX.Element {
       props.onSearchRange?.(Math.floor((node.scrollTop * scale) / rowHeight))
     }
   }
+  /** The common keys that act on the list's own rows (#330); the rest of them
+   *  (new folder, the bin, F3, Properties...) are FolderBrowser's. True when
+   *  the key was taken. */
+  const listOwnKey = (k: ListKey): boolean => {
+    if (k === 'clear') return !!props.onClear?.()
+    if (k === 'select-all') {
+      if (!count || !props.onSelectAll) return false
+      setCursor(null)
+      props.onSelectAll()
+      return true
+    }
+    // From the keyboard's place: the cursor while it is apart, else the row
+    // the selection is on (or was on, when it has scrolled away).
+    const here = cursor !== null ? indexOfPath(cursor) : -1
+    const from = here >= 0 ? here : selectedIndex >= 0 ? selectedIndex : -1
+    if (k === 'toggle-mark') {
+      const path = here >= 0 ? cursor : props.selectedPath
+      if (!path || !props.onToggleMark) return false
+      props.onToggleMark(path)
+      // The focus stays on the row whether it went in or out.
+      setCursor(path)
+      return true
+    }
+    const move = /^(extend|focus)-(up|down|home|end)$/.exec(k)
+    if (!move) return false
+    const to = stepTo(count, from, move[2] as 'up' | 'down' | 'home' | 'end')
+    if (to === null) return true
+    const toward: 1 | -1 = move[2] === 'up' || move[2] === 'end' ? -1 : 1
+    const landed = reveal(to, toward)
+    if (!landed) return true
+    if (move[1] === 'focus') {
+      setCursor(landed.entry.path)
+      return true
+    }
+    // Shift: the marks run from the anchor to here, and here is the place.
+    setCursor(null)
+    props.onExtend?.(landed.entry.path)
+    return true
+  }
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    const common = listKey(e)
+    if (common) {
+      // Escape is a nearer closer's first (a peek, the PDF's find bar, a
+      // menu): those listen on the window, after this (review of #330).
+      if (common === 'clear' && e.key === 'Escape' && nearerEscape()) return
+      if (LIST_OWN.has(common) && listOwnKey(common)) {
+        // Claimed: the player's window-wide keys (Ctrl+Space is play, Shift+
+        // Home a seek) yield to a key the list took.
+        e.preventDefault()
+        e.stopPropagation()
+      }
+      return
+    }
     if (e.altKey || e.ctrlKey || e.metaKey) return
     if (!count) {
       if (
@@ -422,9 +541,15 @@ export function BrowseList(props: Props): JSX.Element {
         : selectionPosition.current.path === props.selectedPath
           ? selectionPosition.current.index
           : -1
+    // The plain arrows carry on from a cursor the Ctrl keys moved (#330).
+    const cursorIndex = cursor !== null ? indexOfPath(cursor) : -1
     const currentIndex =
       pendingFocus.current ??
-      (rememberedIndex < 0 ? Math.floor(logicalTop / rowHeight) - 1 : rememberedIndex)
+      (cursorIndex >= 0
+        ? cursorIndex
+        : rememberedIndex < 0
+          ? Math.floor(logicalTop / rowHeight) - 1
+          : rememberedIndex)
     let next: number
     if (e.key === 'ArrowDown') next = Math.min(count - 1, currentIndex + 1)
     else if (e.key === 'ArrowUp') next = Math.max(0, currentIndex - 1)
@@ -646,6 +771,7 @@ export function BrowseList(props: Props): JSX.Element {
                     data-browse-path={entry.path}
                     data-browse-index={first + offset}
                     data-selected={selected || undefined}
+                    data-cursor={(cursor === entry.path && !primary) || undefined}
                     data-join-up={joinUp || undefined}
                     data-join-down={joinDown || undefined}
                     draggable
@@ -678,6 +804,7 @@ export function BrowseList(props: Props): JSX.Element {
                     onDragEnd={() => setDrag(null)}
                     title={searching ? entry.path : entry.name}
                     onClick={(e: ReactMouseEvent) => {
+                      setCursor(null)
                       if ((e.ctrlKey || e.shiftKey) && props.onPick)
                         props.onPick(entry, { ctrl: e.ctrlKey, shift: e.shiftKey })
                       else props.onSelect(entry.path)

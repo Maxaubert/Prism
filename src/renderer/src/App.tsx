@@ -183,6 +183,7 @@ import {
   emptyUndo,
   redone,
   remember,
+  rememberRename,
   undone,
   type UndoEntry,
   type UndoState
@@ -3034,8 +3035,12 @@ export default function App(): JSX.Element {
       setRefreshKey((n) => n + 1)
       // Unsaved text follows the file to its new name.
       rekeyBuffer(path, r.path)
+      // A rename that names a folder Ctrl+Shift+N just made folds into that
+      // entry (#330), so one Ctrl+Z takes the folder away, Explorer's way.
       if (track !== false)
-        noteUndo({ kind: 'rename', from: path, to: r.path, replaced: r.replaced })
+        setUndoState((u) =>
+          rememberRename(u, { kind: 'rename', from: path, to: r.path, replaced: r.replaced })
+        )
       // Follow whatever is on screen: it may have been the thing renamed, or a
       // file inside the folder that was, in which case its path just moved.
       const cur = file?.path
@@ -3044,7 +3049,27 @@ export default function App(): JSX.Element {
       else reopen(cur)
       return r.path
     },
-    [file, noteUndo, reopen, rekeyBuffer]
+    [file, reopen, rekeyBuffer]
+  )
+
+  /**
+   * NEW FOLDER (#330; owner, 2026-10-07, Ctrl+Shift+N in the Explorer and the
+   * project tree: the explicit yes to "new folder is a fresh decision"). Main
+   * picks the name and checks the place; the folder goes on the undo stack,
+   * where Ctrl+Z bins it again while it is still empty. The caller starts the
+   * rename that follows, each surface its own way.
+   */
+  const makeNewFolder = useCallback(
+    async (dir: string): Promise<string | null> => {
+      const made = await window.prism.newFolder(dir)
+      if (!made) {
+        setAsk({ kind: 'failed', message: 'A new folder could not be made here.' })
+        return null
+      }
+      noteUndo({ kind: 'mkdir', path: made })
+      return made
+    },
+    [noteUndo]
   )
 
   /**
@@ -3290,6 +3315,19 @@ export default function App(): JSX.Element {
             setAsk({ kind: 'failed', message: 'That copy could not be moved to the Recycle Bin.' })
           setRefreshKey((n) => n + 1)
           break
+        case 'mkdir': {
+          // Only while it is still empty: what was put in it since is yours.
+          const r = await window.prism.binIfEmpty(entry.path)
+          setRefreshKey((n) => n + 1)
+          if (r === 'not-empty')
+            setAsk({
+              kind: 'failed',
+              message: 'That folder has something in it now, so it was left where it is.'
+            })
+          else if (r === 'failed')
+            setAsk({ kind: 'failed', message: 'That folder could not be moved to the Recycle Bin.' })
+          break
+        }
         case 'archive-in': {
           // Both halves: the members leave the zip, the originals come back.
           // A folder member has no entry of its own, which deleteMember now
@@ -3342,6 +3380,16 @@ export default function App(): JSX.Element {
             break
           }
           return { ...entry, path: copy }
+        }
+        case 'mkdir': {
+          // The same name in the same place, or "(2)" when it was taken since.
+          const made = await window.prism.newFolder(parentDir(entry.path), baseName(entry.path))
+          setRefreshKey((n) => n + 1)
+          if (!made) {
+            setAsk({ kind: 'failed', message: 'That folder could not be made again.' })
+            break
+          }
+          return { ...entry, path: made }
         }
         case 'archive-in': {
           const r = await window.prism.archiveAdd(entry.zip, entry.originals, entry.dest, true)
@@ -3538,14 +3586,15 @@ export default function App(): JSX.Element {
           else if (file) void copyFilePaths([file.path], key === 'x')
           return
         }
-        if (explorerFileFocus && file && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+        if (explorerFileFocus && file && !e.ctrlKey && !e.altKey && !e.metaKey) {
           const entry = { path: file.path, name: file.name, isFolder: false, file }
-          if (e.key === 'F2') {
+          if (e.key === 'F2' && !e.shiftKey) {
             e.preventDefault()
             e.stopPropagation()
             setBrowseRename(entry)
             return
           }
+          // Shift+Delete is Delete, to the bin (owner, #330): never permanent.
           if (e.key === 'Delete') {
             e.preventDefault()
             e.stopPropagation()
@@ -3582,12 +3631,18 @@ export default function App(): JSX.Element {
           return
         }
       }
+      // THE COMMON LIST KEYS (#330) are the list's and the tree's own: Shift
+      // and Ctrl with Up/Down extend the marks or move the keyboard's place
+      // there, and must not also walk the tree (which OPENS what it lands on)
+      // or page the folder behind it. Alt+Up in the tree is its parent row.
+      const inLists = !!el?.closest('.browse-list,[data-project-sidebar]')
       if (
         active &&
         isExplorerTab(active) &&
         e.altKey &&
         !inTerm &&
         !typing &&
+        !el?.closest('[data-project-sidebar]') &&
         ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)
       ) {
         e.preventDefault()
@@ -3723,6 +3778,9 @@ export default function App(): JSX.Element {
         // from the sidebar behaves the same whatever kind of file it lands on.
         // (`typing` already covered the text editor's caret, above.)
         if (docFocused()) return
+        // Alt too: Alt+Up is the tree's parent row, and walking the tree here
+        // first would open or play the row above on the way (review of #330).
+        if (inLists && (e.ctrlKey || e.shiftKey || e.altKey)) return
         // The tree gets first refusal: it walks folders as well as files, and
         // says no when it isn't there to walk.
         const dir = e.key === 'ArrowDown' ? 'down' : 'up'
@@ -4127,12 +4185,13 @@ export default function App(): JSX.Element {
             onOpenFile={openFromPeekableTree}
             // Renaming or binning the edited file (or a folder over it) would
             // silently drop the editor's unsaved text; those ask first too.
-            onRename={(p, name) => void runRename(p, name, 'ask')}
+            onRename={(p, name) => runRename(p, name, 'ask')}
             onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
             onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
             onDropInto={onBrowseDropInto}
             archive={archiveActions}
             onDuplicated={(source, copy) => noteUndo({ kind: 'duplicate', source, path: copy })}
+            onNewFolder={makeNewFolder}
             wash={washed}
           />
         )}
@@ -4216,6 +4275,20 @@ export default function App(): JSX.Element {
                     : setAsk({ kind: 'delete-many', paths })
                 }
                 onPaste={(directory) => void pasteFiles(directory)}
+                // Ctrl+Shift+N (#330): made, marked quietly, then renamed in
+                // the same dialog F2 opens. Never inside a zip (FolderBrowser
+                // does not offer it there, and main refuses it).
+                onNewFolder={(directory) =>
+                  void makeNewFolder(directory).then((made) => {
+                    if (!made) return
+                    setRefreshKey((key) => key + 1)
+                    browsing.select(made, true)
+                    setBrowseRename({ path: made, name: baseName(made), isFolder: true })
+                  })
+                }
+                onProperties={(entry) => setBrowseProps(entry)}
+                // Ctrl+Shift+C (#330): the paths as text, the menu's Copy path.
+                onCopyPathText={(paths) => void clipboardText(paths.join('\n'))}
                 // Inside an archive F2 renames a FILE of a writable zip and
                 // Delete is the permanent question; both are inert elsewhere
                 // there (#300).

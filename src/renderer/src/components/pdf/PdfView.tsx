@@ -584,6 +584,9 @@ export function PdfView({
         return
       }
       if (e.key === 'F3') {
+        // The Explorer's list and the project tree take F3 for their own
+        // search (#330); with the focus in the PDF, or nowhere, it is find.
+        if (e.defaultPrevented) return
         e.preventDefault()
         if (findOpen) stepFind(e.shiftKey ? -1 : 1)
         else setFindOpen(true)
@@ -604,7 +607,8 @@ export function PdfView({
         goToPage(clamp(page + (e.key === 'PageDown' ? 1 : -1), 1, pageCount))
         return
       }
-      if (typing) return
+      // A letter the tree took for type-to-jump (#330) is not a zoom or a fit.
+      if (typing || e.defaultPrevented) return
       switch (e.key) {
         case '+':
         case '=':

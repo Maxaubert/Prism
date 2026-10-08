@@ -7,6 +7,7 @@ import {
   type DragEvent,
   type JSX,
   type MouseEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent
 } from 'react'
 import type { ArchiveMeta, OpenWithApp, ViewerFile } from '@shared/types'
@@ -37,7 +38,10 @@ import type { PeekPhase } from '../lib/useSidebarPeek'
 import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
-import { clickSelect, emptySelection, type Selection } from '../lib/selection'
+import { clickSelect, emptySelection, rangeSelect, type Selection } from '../lib/selection'
+import { isJumpKey, listKey, stepTo, typeJump, typedRun } from '../lib/listKeys'
+import { nearerEscape } from '../lib/nearerEscape'
+import { clipboardText } from '../lib/clipboardText'
 import { nearestRow, onRowOwnPart, rowsInBox, sweepSelect } from '../lib/marquee'
 import { useSweep } from '../hooks/useSweep'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
@@ -136,6 +140,16 @@ const SEARCH_HELP = [
   '-raw   leave these out'
 ].join('\n')
 
+/** Focus a tree row once it is drawn, for up to 40 frames, and only while
+ *  nothing else holds the keyboard (review of #330, after a rename). */
+function focusRowIn(box: HTMLElement | null, path: string, tries = 40): void {
+  const a = document.activeElement
+  if (a && a !== document.body) return
+  const el = box?.querySelector<HTMLElement>(`[data-row="${CSS.escape(path)}"]`)
+  if (el) el.focus({ preventScroll: true })
+  else if (tries > 0) requestAnimationFrame(() => focusRowIn(box, path, tries - 1))
+}
+
 export function Sidebar({
   open,
   sliding = false,
@@ -153,6 +167,7 @@ export function Sidebar({
   onDropInto,
   archive,
   onDuplicated,
+  onNewFolder,
   onNav,
   wash,
   onOpenFolder,
@@ -194,7 +209,9 @@ export function Sidebar({
   /** Bumped by App after a rename or delete, to re-read the folders on screen. */
   refreshKey: number
   onOpenFile: (path: string) => void
-  onRename: (path: string, name: string) => void
+  /** The new path once it landed (null when it did not), so the cursor and
+   *  the keyboard follow the row to its new name. */
+  onRename: (path: string, name: string) => Promise<string | null> | void
   onDelete: (path: string, name: string, isFolder: boolean) => void
   /** A multi-selection's delete: one question, then every path to the bin. */
   onDeleteMany: (paths: string[]) => void
@@ -216,6 +233,9 @@ export function Sidebar({
   /** A copy was just made: App remembers the source AND the copy, so Ctrl+Z
    *  can take it away and Ctrl+Y can ask for another one. */
   onDuplicated: (source: string, copyPath: string) => void
+  /** Ctrl+Shift+N (#330): a new folder in dir (main names it), already on
+   *  the undo stack; its path, or null. The tree then starts its rename. */
+  onNewFolder: (dir: string) => Promise<string | null>
   /** Lends App the tree's arrow keys. The callback returns false when the tree
    *  has nothing to say, and App pages the folder itself instead. */
   onNav: (step: ((dir: 'up' | 'down') => boolean) | null) => void
@@ -331,6 +351,9 @@ export function Sidebar({
   // something to view, so landing there must not disturb what's on screen.
   // Declared up here because the droppedOn reset below steers it during render.
   const [cursor, setCursor] = useState<string | null>(null)
+  /** Where the Ctrl keys left the cursor apart from the marks (#330): that row
+   *  has the focus but not the mark. Any landing or click forgets it. */
+  const [apartAt, setApartAt] = useState<string | null>(null)
   /** What a drop or a paste just LANDED (2026-09-03, owner - Explorer's way:
    *  the arrived files become the selection, narrowing the 2026-08-31
    *  folder-mark rule). State and not a ref, because the reset below reads it
@@ -675,13 +698,35 @@ export function Sidebar({
     [sel]
   )
 
+  /**
+   * AFTER A RENAME THE KEYBOARD STAYS ON THE ROW (review of #330). The field
+   * unmounts and the focus falls to <body>, and the cursor and the marks held
+   * the old path, which is gone: the next key reached no row. Ctrl+Shift+N
+   * always ends here, so the row it made, under its new name, takes the
+   * cursor and the focus once the tree has drawn it. Escape keeps
+   * the old row and gives it the focus back. Never from a focused field: a
+   * click elsewhere also ends a rename.
+   */
+  const focusRowSoon = useCallback((path: string): void => focusRowIn(panel.current, path), [])
   const submitRename = useCallback(
     (path: string, name: string) => {
       setEditing(null)
-      onRename(path, name)
+      void Promise.resolve(onRename(path, name)).then((to) => {
+        if (!to) return focusRowSoon(path)
+        // The marks are the refresh's to clear (a rename is one); the cursor
+        // lights the row under its new name.
+        const lower = path.toLowerCase()
+        setCursor((c) => (c && c.toLowerCase() === lower ? to : c))
+        focusRowSoon(to)
+      })
     },
-    [onRename]
+    [onRename, focusRowSoon]
   )
+  const cancelRename = useCallback((): void => {
+    const was = editing
+    setEditing(null)
+    if (was) requestAnimationFrame(() => focusRowSoon(was))
+  }, [editing, focusRowSoon])
 
   /* ---------- the keyboard cursor ---------- */
 
@@ -881,7 +926,7 @@ export function Sidebar({
       if (!hasFocus.current || !order.length) return
       const el = e.target as HTMLElement | null
       if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
-      if (el?.closest('.xterm')) return
+      if (el?.closest('.xterm,.browse-list')) return
       e.preventDefault()
       setSel({ anchor: order[0], items: new Set(order) })
     }
@@ -918,6 +963,7 @@ export function Sidebar({
       const wasOnlySelection = sel.items.size === 1 && sel.items.has(path)
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
       setCursor(path)
+      setApartAt(null)
       // A FILE keeps the tree's quick-look reflex: one click opens it, which
       // is what the sidebar is for. A FOLDER selects first and expands on the
       // second click (owner decision, 2026-08-31) - it is a destination for
@@ -1030,6 +1076,36 @@ export function Sidebar({
     [load, onOpenFile, showRow]
   )
 
+  /**
+   * THE MARKS DECIDE WHAT A DELETE KEY BINS (review of #330), the Explorer
+   * list's rule. A row the cursor sits on but the marks do not light (Ctrl+
+   * Up/Down took the keyboard away from them, or Escape cleared them) is not
+   * what Delete, Ctrl+D or Shift+Delete take: they take the marks, or nothing
+   * when there are none. True when this answered the key. A lit cursor row
+   * keeps the old rule (the row, or the whole selection it is in).
+   */
+  const binMarks = useCallback(
+    (path: string): boolean => {
+    const lower = path.toLowerCase()
+    const items = [...selRef.current.items]
+    const marked = items.some((p) => p.toLowerCase() === lower)
+    const apart = !!apartAt && apartAt.toLowerCase() === lower
+    if (marked || !apart) return false
+    // Inside an archive the members are the archive menu's; nothing here.
+    if (items.some((p) => state.children[parentDir(p)]?.archive)) return true
+    if (items.length > 1) onDeleteMany(items)
+    else if (items.length === 1) {
+      const only = items[0]
+      const isFolder = paintRef.current.some(
+        (r) => r.kind === 'folder' && r.path.toLowerCase() === only.toLowerCase()
+      )
+      onDelete(only, only.split(/[\\/]/).filter(Boolean).pop() ?? only, isFolder)
+    }
+    return true
+    },
+    [apartAt, state.children, onDelete, onDeleteMany]
+  )
+
   /** Ctrl+C / Ctrl+X / Ctrl+V in the tree (2026-09-03, owner). Behind the same
    *  surface guard as Ctrl+A: the last press was in the panel, and nothing
    *  else - search box, rename field, editor, terminal - holds the keyboard,
@@ -1048,14 +1124,16 @@ export function Sidebar({
         a.dataset.row === undefined &&
         (a.matches('input,textarea,select,[contenteditable]:not([contenteditable="false"])') ||
           !!a.closest('.cm-editor,.xterm,[role="dialog"],[role="menu"]'))
-      if (e.key === 'Delete' && !e.ctrlKey && !e.shiftKey) {
+      if (e.key === 'Delete' && !e.ctrlKey) {
         // Delete on the cursor row from anywhere in the panel's reach. The
         // row button handles its own when it is focused; this is for when
-        // the viewer took the focus with it.
+        // the viewer took the focus with it. Shift+Delete is Delete (owner,
+        // #330: never permanent).
         if (!hasFocus.current || typing || a?.dataset.row !== undefined) return
         const cur = at
         if (!cur) return
         e.preventDefault()
+        if (binMarks(cur)) return
         const items = selRef.current.items
         if (items.size > 1 && items.has(cur)) return onDeleteMany([...items])
         const isFolder = paintRef.current.some(
@@ -1088,7 +1166,7 @@ export function Sidebar({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [at, root, copyMark, runPaste, onDelete, onDeleteMany])
+  }, [at, root, copyMark, runPaste, onDelete, onDeleteMany, binMarks])
 
   /**
    * Extract a whole archive from its TREE ROW.
@@ -1220,6 +1298,7 @@ export function Sidebar({
   const land = useCallback(
     (row: { path: string; isFolder: boolean }, keepFocus = false): void => {
       setCursor(row.path)
+      setApartAt(null)
       setSel({ anchor: row.path, items: new Set([row.path]) })
       // The same rule the click follows: landing on a film or a track with the
       // arrows is the same intent as pointing at it, so it plays rather than
@@ -1301,6 +1380,141 @@ export function Sidebar({
     return () => onNav(null)
   }, [onNav, step])
 
+  /**
+   * THE COMMON KEYS IN THE TREE (#330; owner, 2026-10-07: "add common hotkeys
+   * to the explorer and project"), the Explorer list's set (lib/listKeys).
+   * Reached only with the focus inside the panel and past its typing guard.
+   * Marking is QUIET (#263): Shift and Ctrl with the arrows move the cursor
+   * and the marks and never open or play what they land on, which is why App
+   * leaves those chords to the tree. True when the key was taken; a taken key
+   * is claimed, so the player's window-wide keys (Ctrl+Space, Shift+Home,
+   * Alt+Left) and the PDF's F3 stand aside.
+   */
+  const typedTree = useRef({ text: '', at: 0 })
+  const rowOf = (path: string | null): (typeof rows)[number] | undefined =>
+    path ? rows.find((r) => r.path.toLowerCase() === path.toLowerCase()) : undefined
+  const onTreeKey = (e: ReactKeyboardEvent<HTMLElement>): boolean => {
+    const k = listKey(e)
+    const searching = !!query.trim()
+    if (!k) {
+      // TYPE TO JUMP (owner: "add it like the Explorer's"): a letter is taken
+      // only when it matches a row on screen; otherwise it still reaches the
+      // viewer (a film's k, j, l and m, a picture's f). Letters only: a digit
+      // is the player's seek and . and , its frame step, and a jump OPENS.
+      if (searching || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return false
+      if (!isJumpKey(e.key)) return false
+      const run = typedRun(typedTree.current, e.key, performance.now())
+      typedTree.current = run
+      const i = typeJump(
+        rows.map((r) => r.name),
+        at ? order.findIndex((p) => p.toLowerCase() === at.toLowerCase()) : -1,
+        run.text
+      )
+      if (i < 0) return false
+      land(rows[i])
+      return true
+    }
+    // Ctrl+A is the window listener's above (it predates this), and plain
+    // Back/Forward have no history here: Alt+Left and Alt+Right do nothing,
+    // but are still claimed, so a film behind the tree does not seek.
+    if (k === 'select-all') return false
+    if (k === 'back' || k === 'forward') return true
+    if (k === 'search') {
+      panel.current?.querySelector<HTMLInputElement>('input')?.focus()
+      return true
+    }
+    if (k === 'clear') {
+      if (!sel.items.size) return false
+      // A peek, the PDF's find bar, a menu: Escape is theirs to close first.
+      if (e.key === 'Escape' && nearerEscape()) return false
+      setSel(emptySelection)
+      // Nothing lit, the cursor's row included: it keeps the focus only.
+      setApartAt(at)
+      return true
+    }
+    // The rest act on the tree's own rows; while a search has replaced them
+    // they are claimed and do nothing.
+    if (searching) return true
+    const cur = rowOf(at)
+    const move = /^(extend|focus)-(up|down|home|end)$/.exec(k)
+    if (move) {
+      const from = cur ? rows.indexOf(cur) : -1
+      const to = stepTo(rows.length, from, move[2] as 'up' | 'down' | 'home' | 'end')
+      if (to === null) return true
+      const row = rows[to]
+      setCursor(row.path)
+      setApartAt(move[1] === 'focus' ? row.path : null)
+      if (move[1] === 'extend') setSel((s) => rangeSelect(order, { anchor: s.anchor ?? at, items: s.items }, row.path))
+      requestAnimationFrame(() => showRow(row.path, { focus: true }))
+      return true
+    }
+    if (k === 'toggle-mark') {
+      if (cur) {
+        setSel((s) => clickSelect(order, s, cur.path, { ctrl: true }))
+        // In or out, the row is lit by the marks alone from now on.
+        setApartAt(cur.path)
+      }
+      return true
+    }
+    if (k === 'parent') {
+      // Alt+Up: the row of the folder this one is in, as Backspace does for a
+      // row that is not an open folder. The root has no row of its own.
+      const up = cur ? rowOf(parentDir(cur.path)) : undefined
+      if (up) land(up)
+      return true
+    }
+    if (k === 'copy-paths') {
+      const paths = sel.items.size ? order.filter((p) => sel.items.has(p)) : cur ? [cur.path] : []
+      if (paths.length) void clipboardText(paths.join('\n'))
+      return true
+    }
+    if (!cur) return true
+    // Inside an archive the rows are its members: nothing here makes, bins or
+    // describes them (the archive's own menu does).
+    const member = !!memberMeta(cur.path)
+    if (k === 'open-new-tab') {
+      if (cur.isFolder && !member && fileKind(extOf(cur.name), cur.name) !== 'archive') onOpenNewTab(cur.path)
+      return true
+    }
+    if (member) return true
+    if (k === 'properties') {
+      const file = state.children[parentDir(cur.path)]?.files.find(
+        (f) => f.path.toLowerCase() === cur.path.toLowerCase()
+      )
+      setProps({ path: cur.path, name: cur.name, isFolder: cur.isFolder, size: file?.size })
+      return true
+    }
+    if (k === 'bin') {
+      // Ctrl+D and Shift+Delete are Delete, to the Recycle Bin (owner: Shift+
+      // Delete is not a permanent delete in Prism).
+      if (binMarks(cur.path)) return true
+      const items = selRef.current.items
+      if (items.size > 1 && items.has(cur.path)) onDeleteMany([...items])
+      else onDelete(cur.path, cur.name, cur.isFolder)
+      return true
+    }
+    if (k === 'new-folder') {
+      // In the folder row the cursor is on, or beside the file it is on.
+      const dir = cur.isFolder ? cur.path : parentDir(cur.path)
+      const dirName = dir.split(/[\\/]/).pop() ?? dir
+      if (fileKind(extOf(dirName), dirName) === 'archive' || !dir.toLowerCase().startsWith(root.toLowerCase()))
+        return true
+      void onNewFolder(dir).then((made) => {
+        if (!made) return
+        if (dir.toLowerCase() !== root.toLowerCase())
+          setState((s) => ({ ...s, expanded: new Set([...s.expanded, dir]) }))
+        void load(dir, true).then(() => {
+          setCursor(made)
+          setSel({ anchor: made, items: new Set([made]) })
+          setEditing(made)
+          requestAnimationFrame(() => showRow(made))
+        })
+      })
+      return true
+    }
+    return false
+  }
+
   const rootListing = state.children[root]
   const overlay = !open && !!peek
 
@@ -1325,6 +1539,12 @@ export function Sidebar({
           return
         }
         if (target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) return
+        // The common keys (#330), from the rows only.
+        if (scroller.current?.contains(target) && onTreeKey(event)) {
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
         if (event.key === 'F5' && !event.ctrlKey && !event.altKey) {
           event.preventDefault()
           event.stopPropagation()
@@ -1529,6 +1749,7 @@ export function Sidebar({
                 currentPath,
                 dirtyPaths,
                 cursor: at,
+                cursorMarks: !(apartAt && at && apartAt.toLowerCase() === at.toLowerCase()),
                 size,
                 editing,
                 menuPath: menu?.path ?? null,
@@ -1554,12 +1775,13 @@ export function Sidebar({
                   else setEditing(path)
                 },
                 onSubmitRename: submitRename,
-                onCancelRename: () => setEditing(null),
+                onCancelRename: cancelRename,
                 // Del on a row inside a multi-selection takes the whole
                 // selection; anywhere else it stays the single-row question.
                 onDelete: (path, name, isFolder) => {
                   const meta = memberMeta(path)
                   const many = sel.items.size > 1 && sel.items.has(path)
+                  if (!meta && binMarks(path)) return
                   if (meta && archive) archive.remove(many ? [...sel.items] : [path], meta)
                   else if (many) onDeleteMany([...sel.items])
                   else onDelete(path, name, isFolder)
