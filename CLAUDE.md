@@ -1699,6 +1699,14 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   `pendingOpen` and `startupRestored`; a crash ends a pending hang timer; a launch during a quit
   or an install makes no window (a quit relaunches with the handed files, never under `--e2e`);
   `crashReporter` starts only once the single-instance lock is won.
+- **A STALL IS READ FROM THE DIAGNOSTICS LOG, NOT GUESSED** (#322; owner, 2026-10-07: "implement
+  some robust logging and debugging into the program especially to catch stalls for example in
+  explorer or in general"). When the owner says "it stalled", run `npm run diag -- --app prism
+  --since 10m` from a Prism Terminal checkout FIRST (schema: PT's `docs/diagnostics.md`). The log is
+  `%APPDATA%\Prism\logs\diag.jsonl`, local only. `startDiagnostics` runs before every IPC
+  registration (it wraps ipcMain) and stops LAST on the quit. A channel long BY DESIGN goes in
+  `src/main/diagChannels.ts` under the rule written there; a crumb that can fire many times a second
+  is `often` (Detailed only).
 - **THE EXPLORER NEVER SHOWS A LOADING SCREEN** (2026-10-04, #271; owner: "I don't ever want to
   see that ... not even if you launch it from a restart of the PC, or it's your first time after
   installing the program"). Design, the owner's six decisions and what was measured:

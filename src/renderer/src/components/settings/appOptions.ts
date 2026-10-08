@@ -17,7 +17,16 @@
  */
 import { THEME_STYLES } from '../../lib/themes/catalogue'
 
-export type AppPageId = 'appearance' | 'explorer' | 'project' | 'terminal' | 'agents' | 'dictation' | 'media' | 'about'
+export type AppPageId =
+  | 'appearance'
+  | 'explorer'
+  | 'project'
+  | 'terminal'
+  | 'agents'
+  | 'dictation'
+  | 'media'
+  | 'diagnostics'
+  | 'about'
 export type MediaView = 'visualizer' | 'progress'
 
 export interface AppOption {

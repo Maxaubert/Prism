@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DICTATION_OPTIONS } from 'prism-term-core/renderer/settings/dictationOptions'
+import { DIAGNOSTICS_OPTIONS } from 'prism-term-core/renderer/settings/diagnosticsOptions'
 import { TERMINAL_OPTIONS } from 'prism-term-core/renderer/settings/options'
 import { APP_OPTIONS, APP_SECTIONS } from './appOptions'
 import { isIconName } from './icons'
@@ -9,7 +10,7 @@ import { ROW_ORDER, SETTINGS_PAGES, settingsIndex } from './settingsIndex'
 
 // Prism's command help is Prism Terminal's alone (owner, 2026-09-22), so the
 // core's help list is not Prism's to show.
-const CORE = [...TERMINAL_OPTIONS, ...DICTATION_OPTIONS]
+const CORE = [...TERMINAL_OPTIONS, ...DICTATION_OPTIONS, ...DIAGNOSTICS_OPTIONS]
 
 describe("Prism's own settings rows", () => {
   it('have unique ids, none of them a core row', () => {
@@ -129,5 +130,8 @@ describe('Find a setting', () => {
     expect(at['viz-glow']).toBe('media/Visualizer colour/visualizer')
     expect(at['dictation-enabled']).toBe('dictation/')
     expect(at['app-version']).toBe('about/')
+    // The core's Diagnostics page (#322), beside About.
+    expect(at['diag-verbose']).toBe('diagnostics/')
+    expect(at['diag-mark']).toBe('diagnostics/')
   })
 })

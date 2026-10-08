@@ -1,6 +1,8 @@
 import { useWinEOpen } from './lib/useWinEOpen'
 import { useExplorerArrival } from './lib/useExplorerArrival'
 import { visitedDirectories } from './lib/visitedDirectories'
+import { tabCrumbs } from './lib/tabCrumbs'
+import { crumb } from 'prism-term-core/renderer/lib/diag'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type ReactNode } from 'react'
 import type { OnClash, OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
@@ -916,6 +918,14 @@ export default function App(): JSX.Element {
   const [restoring, setRestoring] = useState(true)
   const { tabs, activeId } = tabState
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
+  // THE TAB STRIP ON THE DIAGNOSTICS TIMELINE (#322): opened, closed, switched
+  // to, a project opened, a file reaching the player. Read off the state
+  // (lib/tabCrumbs), since a tab changes from a dozen places.
+  const crumbedTabs = useRef<TabState>({ tabs: [], activeId: null })
+  useEffect(() => {
+    for (const c of tabCrumbs(crumbedTabs.current, tabState)) crumb(c.a, c.fields, { often: c.often })
+    crumbedTabs.current = tabState
+  }, [tabState])
   /**
    * WHICH SHELLS HOST AN AGENT, WHICH ARE MID-ANSWER, WHICH FINISHED BEHIND
    * YOUR BACK: prism-term-core's rules, the same code Prism Terminal runs
@@ -4180,7 +4190,10 @@ export default function App(): JSX.Element {
                 onScroll={(scrollTop) => browsing.patch({ scrollTop })}
                 onQueryChange={browsing.searchFor}
                 // A header click is a pick made here (#285): Downloads keeps it.
-                onSortChange={(sort) => browsing.patch({ sort, sortChosen: true, scrollTop: 0 })}
+                onSortChange={(sort) => {
+                  crumb('sort', { key: sort.key, direction: sort.direction })
+                  browsing.patch({ sort, sortChosen: true, scrollTop: 0 })
+                }}
                 onNewTerminal={termTabAt}
                 onCopy={(entry) =>
                   browseArchive

@@ -3,7 +3,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { browseLocation, newBrowse } from './browse'
 import { newTab, type Tab } from './tabs'
-import { arrivalSelection, useFolderBrowsing } from './useFolderBrowsing'
+import { arrivalSelection, BACKGROUND_READ_SLOW_MS, openFolderCrumb, useFolderBrowsing } from './useFolderBrowsing'
+import { crumb } from 'prism-term-core/renderer/lib/diag'
+
+// The diagnostics log's crumbs (#322), caught rather than sent.
+vi.mock('prism-term-core/renderer/lib/diag', () => ({ crumb: vi.fn() }))
 
 // Render the hook's initial state without starting filesystem effects. This
 // covers restored folder/search state before any IPC response can change it.
@@ -132,5 +136,69 @@ describe('an open that lands after a sweep (#263)', () => {
     tab.browse.history[0].selected = 'C:\\project\\v3.mp4'
     const tabs = arrivalSelection([tab], tab.id, 'C:\\project\\v1.mp4', true)
     expect(browseLocation(tabs[0].browse).selected).toBe('C:\\project\\v3.mp4')
+  })
+})
+
+describe('the open-folder crumb (#322)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.mocked(crumb).mockClear()
+  })
+
+  it('says where a navigation went, why, how long, how many rows, and whether rows were cached', async () => {
+    const listing = {
+      folders: [{ path: 'C:\\data\\a', name: 'a' }],
+      files: [{ path: 'C:\\data\\b.txt', name: 'b.txt' }, { path: 'C:\\data\\c.txt', name: 'c.txt' }]
+    }
+    vi.stubGlobal('window', {
+      prism: { browseDirectory: async (_tab: string, path: string) => ({ path, listing }) }
+    })
+    const tab = restored('explorer')
+    let result!: ReturnType<typeof useFolderBrowsing>
+    function Probe(): null {
+      result = useFolderBrowsing(tab, () => {}, 0)
+      return null
+    }
+    renderToStaticMarkup(createElement(Probe))
+    const doc = document as unknown as { querySelectorAll?: () => never[] }
+    doc.querySelectorAll ??= () => []
+    await result.navigate('C:\\data')
+    expect(vi.mocked(crumb).mock.calls).toEqual([
+      [
+        'open-folder',
+        { path: 'C:\\data', reason: 'navigate', ms: expect.any(Number), entries: 3, cached: false },
+        { often: false }
+      ]
+    ])
+  })
+
+  it('marks a folder that could not be read', async () => {
+    vi.stubGlobal('window', { prism: { browseDirectory: async () => null } })
+    const tab = restored('explorer')
+    let result!: ReturnType<typeof useFolderBrowsing>
+    function Probe(): null {
+      result = useFolderBrowsing(tab, () => {}, 0)
+      return null
+    }
+    renderToStaticMarkup(createElement(Probe))
+    const doc = document as unknown as { querySelectorAll?: () => never[] }
+    doc.querySelectorAll ??= () => []
+    await result.navigate('C:\\gone')
+    expect(vi.mocked(crumb).mock.calls[0][1]).toMatchObject({ path: 'C:\\gone', entries: null, unreadable: true })
+  })
+
+  it('keeps a quick background re-read for Detailed logging, and says a slow one quietly', () => {
+    const listing = { folders: [], files: [] }
+    const now = performance.now()
+    openFolderCrumb('C:\\dl', 'dir-changed', now, listing, true)
+    openFolderCrumb('C:\\dl', 'focus', now, listing, true)
+    openFolderCrumb('C:\\dl', 'dir-changed', now - BACKGROUND_READ_SLOW_MS - 50, listing, true)
+    openFolderCrumb('C:\\dl', 'refresh', now, listing, true)
+    expect(vi.mocked(crumb).mock.calls.map((c) => [c[1]?.reason, c[2]])).toEqual([
+      ['dir-changed', { often: true }],
+      ['focus', { often: true }],
+      ['dir-changed', { often: false }],
+      ['refresh', { often: false }]
+    ])
   })
 })

@@ -13,7 +13,12 @@ export default defineConfig({
       { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
       // The core's plain .ts settings modules its package does not export
       // (#292): see CORE_TS in electron.vite.config.ts.
-      ...['renderer/settings/coreIndex', 'renderer/settings/sectionIds', 'renderer/settings/layout/icons'].map((m) => ({
+      ...[
+        'renderer/settings/coreIndex',
+        'renderer/settings/sectionIds',
+        'renderer/settings/layout/icons',
+        'renderer/settings/diagnosticsOptions'
+      ].map((m) => ({
         find: new RegExp(`^prism-term-core/${m}$`),
         replacement: resolve(root, `node_modules/prism-term-core/${m}.ts`)
       }))

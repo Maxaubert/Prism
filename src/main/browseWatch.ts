@@ -10,6 +10,12 @@ interface BrowseWatch {
 
 const watches = new Map<string, BrowseWatch>()
 
+/** The tab's watcher, compared before and after a `browse:watch` call so its
+ *  crumb is written only when a watcher was actually set up (#322). */
+export function browseWatcherOf(tabId: string): FSWatcher | undefined {
+  return watches.get(tabId)?.watcher
+}
+
 export function closeBrowseWatch(tabId: string): void {
   const current = watches.get(tabId)
   if (!current) return

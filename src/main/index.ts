@@ -11,6 +11,7 @@ import {
   nativeTheme,
   utilityProcess,
   Menu,
+  powerMonitor,
   powerSaveBlocker,
   session
 } from 'electron'
@@ -53,6 +54,7 @@ import {
   extendDesktopDirectories,
   grantDesktopDirectory,
   insideDesktop,
+  insideDesktopAll,
   releaseDesktop,
   validDesktopRoot
 } from './desktopAccess'
@@ -95,6 +97,12 @@ import { registerTermIpc } from 'prism-term-core/main/ipc'
 import { registerDictationIpc } from 'prism-term-core/main/dictationIpc'
 import { detectShells } from 'prism-term-core/main/shells'
 import { killAll, killWarm } from 'prism-term-core/main/terminal'
+import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnostics'
+import { withStackPolicy } from 'prism-term-core/main/diagIpc'
+import { LONG_WAIT_CHANNELS } from './diagChannels'
+import { browseWatcherOf } from './browseWatch'
+import { diagWindowEvent } from './diagWindow'
+import { mainCrumb } from './diagCrumb'
 import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, ffmpegDirs, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
@@ -1278,7 +1286,10 @@ const E2E = process.argv.includes('--e2e')
  * outside the app is started.
  */
 const e2eOpenedLinks: string[] = []
-if (E2E) Object.assign(globalThis, { __e2eOpenedLinks: e2eOpenedLinks })
+/** Folders Settings > Diagnostics asked Explorer to show, recorded the same
+ *  way under --e2e (#322): a test run never opens an Explorer window. */
+const e2eOpenedPaths: string[] = []
+if (E2E) Object.assign(globalThis, { __e2eOpenedLinks: e2eOpenedLinks, __e2eOpenedPaths: e2eOpenedPaths })
 function openLink(url: string): void {
   if (E2E) {
     e2eOpenedLinks.push(url)
@@ -1469,12 +1480,26 @@ function applyDwmBorder(): void {
  * that dies as fast as the one it replaced ends in a quit, not in a loop.
  */
 const windowBudget = crashBudget()
+/** THE DIAGNOSTICS LOG (#322), the core's (prism-term-core/main/diagnostics;
+ *  schema in Prism Terminal's docs/diagnostics.md). Started once the
+ *  single-instance lock is won; null in a launch that only hands its file over. */
+let diag: Diagnostics | null = null
+/** A watcher set-up this slow is said at the quiet level (#322). */
+const SLOW_SETUP_MS = 50
+/** A folder size scan this long is said at the quiet level (#322). */
+const SLOW_SCAN_MS = 500
 const crashLogFile = (): string => join(app.getPath('userData'), 'window-crashes.log')
 function logWindow(
   event: string,
   fields: Record<string, string | number | boolean | undefined>
 ): void {
   appendCrashLog(crashLogFile(), crashLine(new Date(), event, fields))
+  // AND IN THE DIAGNOSTICS LOG (#322): a hang or the watchdog belongs on the
+  // same timeline as the stalls and crumbs before it, where `npm run diag`
+  // reads it; what the core already writes is not written twice
+  // (`diagWindow.ts`). window-crashes.log stays: the error box and the
+  // `neverWindowless` e2e name that file.
+  diagWindowEvent(event, fields)
 }
 let appQuitting = false
 app.on('before-quit', () => (appQuitting = true))
@@ -1587,6 +1612,16 @@ function createWindow(): void {
   })
   mainWindow = win
   pageGen++
+  // The diagnostics log's watch (#322): this window's hang events, and its
+  // frame for the page's stack when the heartbeat stops. A rebuilt window
+  // (#265) is handed over the same way.
+  diag?.watchWindow(win)
+  // Windows is shutting down or logging off: no will-quit is coming, so the
+  // log's last lines (those just before a hang at shutdown) are written here.
+  win.on('session-end', () => {
+    diag?.log.write('main', 'session-end', {})
+    diag?.log.flushSync()
+  })
   let shown = false
   const showWindow = (): void => {
     if (shown) return
@@ -1817,6 +1852,35 @@ if (!app.requestSingleInstanceLock()) {
    * file over and exits (#189's fast path) never starts a crashpad_handler.
    */
   crashReporter.start({ uploadToServer: false })
+  /**
+   * THE DIAGNOSTICS LOG (#322; owner, 2026-10-07: "implement some robust
+   * logging and debugging into the program especially to catch stalls for
+   * example in explorer or in general"). Here and not at ready, for two
+   * reasons: the crash hooks should hear a failure during startup too, and
+   * every ipcMain registration comes after this line (the timing wraps
+   * ipcMain itself, so a channel registered earlier would go untimed). Only
+   * the instance holding the lock: a second launch hands its file over and
+   * ends, and two writers on one file would interleave their batches. An
+   * extra Explorer window (Win+E) runs on its own profile, so it keeps its
+   * own log there and never shares the owner's file.
+   */
+  diag = startDiagnostics({
+    diagLogDir: join(app.getPath('userData'), 'logs'),
+    ipcMain,
+    process,
+    app,
+    appInfo: { name: 'Prism', version: pkg.version, e2e: E2E },
+    openFolder: (dir) => {
+      if (E2E) e2eOpenedPaths.push(dir)
+      else void shell.openPath(dir)
+    },
+    longWaitChannels: [...LONG_WAIT_CHANNELS],
+    powerMonitor: () => powerMonitor
+  })
+  // E2E only (review of #322): the harness ends a scenario with `app.exit`,
+  // which skips will-quit, so it writes main's queue first and the run's
+  // Stalls table sees a scenario's last moments.
+  if (E2E) Object.assign(globalThis, { __e2eDiagFlush: () => diag?.log.flushSync() })
   markExplorerWindow(app.getPath('userData'), false)
   app.on('second-instance', (_e, argv) => {
     const shortcutRequest = winERequest(argv)
@@ -1897,6 +1961,12 @@ if (!app.requestSingleInstanceLock()) {
     killAll()
     killSidecars()
     cancelAllConversions()
+    // The quit is going ahead: the log's queue is written synchronously, so
+    // its last lines land. LAST (review of #322): the shell, sidecar and
+    // conversion teardown above is where a quit goes wrong (PT #127), and a
+    // stopped log would hear nothing of it.
+    diag?.stop()
+    diag = null
   })
 
   // Warm the terminal's fixed costs shortly after launch: the native module
@@ -1909,6 +1979,21 @@ if (!app.requestSingleInstanceLock()) {
   )
 
   app.whenReady().then(() => {
+    // THE PAGE OPTS IN TO HAVING ITS STACK READ (#322): the diagnostics log
+    // asks for it when the page's heartbeat stops (`collectJavaScriptCallStack`),
+    // and the frame only answers for a document served with this
+    // Document-Policy. MEASURED in Prism Terminal on Electron 43: without the
+    // header the answer is "Website owner has not opted in"; with it the stack
+    // of a 3 s busy loop came back in about 1 ms, file:// and dev server alike.
+    // The window's own document only (never a preview's frame). The filter
+    // keeps every other response off main's thread entirely (review of #322):
+    // a folder of thumbnails or a seeking video must not queue behind the
+    // thread whose lag the log measures. Before the window exists, so its
+    // first load carries it.
+    session.defaultSession.webRequest.onHeadersReceived({ urls: ['<all_urls>'], types: ['mainFrame'] }, (d, callback) => {
+      if (d.resourceType !== 'mainFrame') return callback({})
+      callback({ responseHeaders: withStackPolicy(d.responseHeaders) })
+    })
     // E2E only (review of #271): the never-loading probe runs as a frame
     // preload, so it sees the page from before its first script. The harness
     // attaches only once the window exists, too late for that.
@@ -2384,6 +2469,9 @@ if (!app.requestSingleInstanceLock()) {
     // the old mock chip read "Update 43.2.0" in the e2e's own screenshots), so
     // the update window would say "You have 43.2.0".
     ipcMain.handle('app:version', () => pkg.version)
+    // E2E only (#322): a call main answers after 600 ms, so the diagLog
+    // scenario can find the ipc-slow line a real slow channel would write.
+    if (E2E) ipcMain.handle('e2e:slow-ipc', () => new Promise((r) => setTimeout(() => r(true), 600)))
 
     ipcMain.handle('open:dialog', async (): Promise<OpenPayload | null> => {
       const r = await openDialog({ properties: ['openFile'] })
@@ -2534,7 +2622,7 @@ if (!app.requestSingleInstanceLock()) {
     // removals arrive explicitly below, and a snapshot cannot remove what it
     // never knew about.
     const warmFolderSizes = (paths: string[]): void => {
-      void folderSizes.prefetchIndexed(paths.filter(insideDesktop)).catch(() => {})
+      void folderSizes.prefetchIndexed(insideDesktopAll(paths)).catch(() => {})
     }
     // NAMES FIRST (#271): the reply is the folder's names, and the sizes and
     // dates follow as `browse:details`. The indexer warm-up and the folder
@@ -2601,9 +2689,22 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on('browse:suggest-cancel', (_e, tabId: string, requestId: string) => {
       if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId), requestId)
     })
-    ipcMain.handle('browse:watch', (_e, tabId: string, path: string | null) =>
-      browseWatch(tabId, path, folderChanged)
-    )
+    ipcMain.handle('browse:watch', (_e, tabId: string, path: string | null) => {
+      // The watcher's set-up is timed (#322): it runs in main's thread, and a
+      // network folder can make it slow. One per folder shown, so a quick one
+      // is Detailed logging's only. The time includes the ownership guard,
+      // which times itself (`guard-slow`); a call that found the watch
+      // already on that folder set nothing up and writes nothing.
+      const before = typeof tabId === 'string' ? browseWatcherOf(tabId) : undefined
+      const t0 = performance.now()
+      const ok = browseWatch(tabId, path, folderChanged)
+      const setUp = typeof tabId === 'string' && browseWatcherOf(tabId) !== before
+      if (path !== null && (setUp || !ok)) {
+        const ms = Math.round(performance.now() - t0)
+        mainCrumb('watch', { path, ms, ok }, { often: ms < SLOW_SETUP_MS })
+      }
+      return ok
+    })
     ipcMain.handle('browse:locations', () => browseLocations((key) => app.getPath(key)))
     ipcMain.handle('browse:drives', async (_e, paths: unknown) =>
       E2E ? withUsedShare(await driveUsage(paths), process.env.PRISM_E2E_DRIVE_USED) : driveUsage(paths)
@@ -2612,11 +2713,11 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('system:week-start', () => weekStart())
     ipcMain.handle('folder:sizes-cached', async (_event, paths: unknown) => {
       if (!Array.isArray(paths) || paths.length > 10000) return {}
-      const authorized = paths.filter(
-        (path): path is string => typeof path === 'string' && insideDesktop(path)
-      )
+      // One timed guard call per list (#322): this is where suspect 1 runs.
+      const authorized = insideDesktopAll(paths)
       const cached = await folderSizes.readCached(authorized)
-      return Object.fromEntries(Object.entries(cached).filter(([path]) => insideDesktop(path)))
+      const still = new Set(insideDesktopAll(Object.keys(cached)))
+      return Object.fromEntries(Object.entries(cached).filter(([path]) => still.has(path)))
     })
     ipcMain.handle('folder:sizes-refresh', async (_event, path: unknown) => {
       if (typeof path !== 'string' || !insideDesktop(path)) return
@@ -2648,6 +2749,7 @@ if (!app.requestSingleInstanceLock()) {
       if (!requests.has(requestId) && requests.size >= 64) return null
       const controller = new AbortController()
       requests.set(requestId, controller)
+      const t0 = performance.now()
       try {
         const result = await folderSizes.get(path, controller.signal, (result) => {
           if (!controller.signal.aborted && !event.sender.isDestroyed() && insideDesktop(path))
@@ -2656,6 +2758,15 @@ if (!app.requestSingleInstanceLock()) {
         return insideDesktop(path) && !controller.signal.aborted ? result : null
       } finally {
         if (requests.get(requestId) === controller) requests.delete(requestId)
+        // A size scan finished (#322). Every visible folder row asks, two at a
+        // time, and most answer from the cache at once, so only a real scan
+        // (half a second or more) is said at the quiet level.
+        const ms = Math.round(performance.now() - t0)
+        mainCrumb(
+          'folder-size',
+          { path, ms, ...(controller.signal.aborted ? { cancelled: true } : {}) },
+          { often: ms < SLOW_SCAN_MS }
+        )
       }
     })
     ipcMain.on('folder:size-cancel', (event, requestId: string) => {
@@ -3467,7 +3578,25 @@ if (!app.requestSingleInstanceLock()) {
      * extract to temp so a member can be VIEWED or put on the clipboard open
      * none and stay silent, as they always were.
      */
+    // When each job began, for its end's `ms` in the diagnostics log.
+    const jobStarted = new Map<string, number>()
     const extractJobs = new ExtractJobs((e) => {
+      // THE ARCHIVE JOB ON THE TIMELINE (#322): its start and its end, from
+      // the one channel every extraction talks to the window through.
+      if (e.type === 'start') {
+        jobStarted.set(e.id, performance.now())
+        mainCrumb('archive-job', { phase: 'start', id: e.id, archive: e.archive, dest: e.dest })
+      } else if (e.type === 'end') {
+        const t0 = jobStarted.get(e.id)
+        jobStarted.delete(e.id)
+        mainCrumb('archive-job', {
+          phase: 'end',
+          id: e.id,
+          result: e.result,
+          ...(e.reason ? { reason: e.reason } : {}),
+          ...(t0 !== undefined ? { ms: Math.round(performance.now() - t0) } : {})
+        })
+      }
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('extract:event', e)
     })
     ipcMain.handle('extract:cancel', (_e, id: string) =>
