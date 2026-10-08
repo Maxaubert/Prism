@@ -97,6 +97,13 @@ never shipped: one small app that opens everything and looks good doing it.
   a window that keeps failing is rebuilt. Opening a file always brings up a working window.
   Crash reports stay on your PC (in Prism's own folder under `%APPDATA%`) and are never
   uploaded anywhere.
+- **Keeps a diagnostics log, on your PC only**: when Prism stalls or hits an error it writes down
+  what was slow and what you had just done, in `%APPDATA%\Prism\logs` (an extra Explorer window
+  keeps its own, in its own profile folder). That includes full file and folder paths, archive
+  names and where they were extracted to, and what you searched for, in plain text. It is never
+  sent anywhere.
+  Settings > Diagnostics opens the folder, turns on detailed logging and marks the moment
+  something went wrong.
 
 - **Opens instantly, every time**: the Explorer shows the folder you left, even right after a
   restart, because it keeps a small list of what is in the folders you open (file names, sizes
