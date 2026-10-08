@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { nameError, renameFile, uniqueName } from './fileOps'
+import { binIfEmpty, makeFolder, nameError, renameFile, uniqueName } from './fileOps'
 
 function folder(...names: string[]): string {
   const dir = mkdtempSync(join(tmpdir(), 'prism-ops-'))
@@ -110,5 +110,62 @@ describe('renameFile', () => {
   it('reports a missing source', async () => {
     const r = await renameFile(join(folder(), 'nope.jpg'), 'b.jpg', 'ask', noTrash)
     expect(r).toEqual({ ok: false, reason: 'missing' })
+  })
+})
+
+describe('makeFolder (#330)', () => {
+  it('makes "New folder", then "New folder (2)" and on', async () => {
+    const dir = folder()
+    expect(await makeFolder(dir)).toBe(join(dir, 'New folder'))
+    expect(await makeFolder(dir)).toBe(join(dir, 'New folder (2)'))
+    expect(await makeFolder(dir)).toBe(join(dir, 'New folder (3)'))
+    expect(existsSync(join(dir, 'New folder (3)'))).toBe(true)
+  })
+
+  it('counts a FILE of that name as taken', async () => {
+    const dir = folder('New folder')
+    expect(await makeFolder(dir)).toBe(join(dir, 'New folder (2)'))
+  })
+
+  it('makes a name it is given again, for a redo', async () => {
+    const dir = folder()
+    expect(await makeFolder(dir, 'Renamed')).toBe(join(dir, 'Renamed'))
+  })
+
+  it('refuses a missing folder, a file, and a name that is a path', async () => {
+    const dir = folder('a.txt')
+    expect(await makeFolder(join(dir, 'nope'))).toBeNull()
+    expect(existsSync(join(dir, 'nope'))).toBe(false)
+    expect(await makeFolder(join(dir, 'a.txt'))).toBeNull()
+    expect(await makeFolder(dir, '..\\out')).toBeNull()
+  })
+})
+
+describe('binIfEmpty (#330)', () => {
+  it('bins an empty folder', async () => {
+    const dir = folder()
+    const made = join(dir, 'New folder')
+    mkdirSync(made)
+    const trash = vi.fn(async () => {})
+    expect(await binIfEmpty(made, trash)).toBe('binned')
+    expect(trash).toHaveBeenCalledWith(made)
+  })
+
+  it('never bins a folder something was put in', async () => {
+    const dir = folder()
+    const made = join(dir, 'New folder')
+    mkdirSync(made)
+    writeFileSync(join(made, 'keep.txt'), 'mine')
+    const trash = vi.fn(async () => {})
+    expect(await binIfEmpty(made, trash)).toBe('not-empty')
+    expect(trash).not.toHaveBeenCalled()
+  })
+
+  it('says missing for a folder already gone, and failed for a file', async () => {
+    const dir = folder('a.txt')
+    const trash = vi.fn(async () => {})
+    expect(await binIfEmpty(join(dir, 'gone'), trash)).toBe('missing')
+    expect(await binIfEmpty(join(dir, 'a.txt'), trash)).toBe('failed')
+    expect(trash).not.toHaveBeenCalled()
   })
 })

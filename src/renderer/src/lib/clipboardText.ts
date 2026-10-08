@@ -32,6 +32,9 @@ export function canCopyText(): boolean {
  */
 function copyBySelection(text: string): boolean {
   if (typeof document === 'undefined' || !('execCommand' in document)) return false
+  // The keyboard goes back where it was (#330): Ctrl+Shift+C from a file
+  // row must leave that row with the focus, or the next key reaches nothing.
+  const had = document.activeElement instanceof HTMLElement ? document.activeElement : null
   const box = document.createElement('textarea')
   box.value = text
   box.readOnly = true
@@ -46,5 +49,6 @@ function copyBySelection(text: string): boolean {
     return false
   } finally {
     box.remove()
+    if (had?.isConnected) had.focus({ preventScroll: true })
   }
 }

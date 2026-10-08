@@ -130,6 +130,12 @@ export interface FolderBrowserProps {
   /** Several rows marked: one question for all of them, the tree's. */
   onDeleteMany?: (paths: string[]) => void
   onRefresh?: () => void
+  /** Ctrl+Shift+N (#330): a new folder in `directory`, then its rename. */
+  onNewFolder?: (directory: string) => void
+  /** Alt+Enter (#330): Prism's own Properties, as the menu's. */
+  onProperties?: (entry: BrowseEntry) => void
+  /** Ctrl+Shift+C (#330): these full paths as text, one per line. */
+  onCopyPathText?: (paths: string[]) => void
   onDropInto?: (directory: string, payload: DragPayload) => void
   /** The strip's Extract here (`here`) and Extract to... inside an archive
    *  (#300). Without it there is no strip. */

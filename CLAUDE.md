@@ -567,7 +567,8 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Prism's writes are therefore: rename, bin,
   duplicate, the editor's save, and the archive's member verbs (rename/delete inside a
   zip, 2026-08-22). Anything further (move, new folder) is a fresh decision, not a
-  natural next step - except MOVE, which was decided (2026-08-22, #70) and is reachable
+  natural next step - except NEW FOLDER, decided 2026-10-07 (#330, Ctrl+Shift+N, see THE
+  COMMON FILE KEYS), and MOVE, which was decided (2026-08-22, #70) and is reachable
   ONLY by dragging: a row (or a whole multi-selection) dropped on a folder row moves there,
   taken names asking cancel / keep both / replace. THE FOLDER DROPPED INTO becomes the marked
   row (2026-08-31): what you dragged has left, so a mark on it points at nothing, and clearing
@@ -921,6 +922,34 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   collapsed and invisible), or every member of the archive folder you are in.
   Behind the typing guard, so the search box, a rename, the editor and the
   shell keep their own Ctrl+A.
+  **THE COMMON FILE KEYS, IN THE EXPLORER'S LIST AND THE TREE** (#330; owner, 2026-10-07:
+  "add common hotkeys to the explorer and project so that for example ctrl + A selects all";
+  the list and four decisions picked in the session). ONE mapping, `lib/listKeys.ts` (pure,
+  tested): Ctrl+A all; Ctrl+Shift+A and Esc clear (Esc only when something is marked and
+  nothing nearer owns it: `lib/nearerEscape`, a `data-owns-escape` closer or the peek); Shift+Up/Down/Home/End mark the run from the anchor (`rangeSelect`,
+  a run that shrinks back, Explorer's, unlike the Shift CLICK's merge); Ctrl+Up/Down/Home/End
+  move the keyboard's place and not the marks (the Explorer's `cursor`, the tree's own
+  cursor), Ctrl+Space marks or unmarks it; Ctrl+Shift+N NEW FOLDER (the owner's yes to the
+  fresh decision above: main names it "New folder", "(2)"..., checks the place, never inside
+  a zip; then the rename; undo kind `mkdir` bins it ONLY while empty, and the rename that
+  follows folds into it, `rememberRename`, so one Ctrl+Z takes it away); Ctrl+D and Shift+Del
+  ARE Delete (OWNER: Shift+Del is NOT permanent, nothing changed the "nothing is destroyed"
+  rule; inert inside a zip; the MARKS decide, so a row the Ctrl keys or Esc left unlit is
+  never what a delete key takes, the Explorer's rule in the tree too); Alt+Up the tree's parent row (Alt+Left/Right claimed, nothing;
+  App leaves Alt+Up/Down to the lists, or it walks and OPENS the row above first);
+  type-to-jump in the tree too (OWNER: taken only on a match, else the letter reaches the
+  viewer; LETTERS only, `isJumpKey`, since a digit is the player's seek and a jump opens); F3 the folder search or the tree filter (OWNER: the PDF keeps F3 only with the
+  focus in it; its window listener yields a claimed F3 and letter); Alt+Enter Prism's own
+  Properties (OWNER); Ctrl+Shift+C the full paths as text, one per line, the menu's Copy path
+  (no badge, as the menu); Ctrl+Enter a folder in a new Explorer tab. NOT Ctrl+Left/Right
+  (2026-09-01). All of it is QUIET (#263: marking opens and plays nothing), behind the typing
+  guard, from the rows only, and CLAIMED, since the player, the PDF and the archive panel
+  listen on the window: App leaves Shift/Ctrl+Up/Down to the lists (`inLists`), the archive
+  panel's and the tree's Ctrl+A step aside for the other surface, tree rows ignore chords.
+  A letter chord matches the physical key only when the layout's key is not a Latin letter
+  (AZERTY's Ctrl+Q is not Ctrl+A). After a rename the keyboard follows the row to its new
+  name. Fullscreen unmounts both surfaces, so nothing here writes there. The `hotkeys` e2e
+  drives every key on both surfaces, a paused film under them, and a zip.
   Tabs reorder by dragging along the strip (`reorderTabs`, pure and tested), with a
   hairline showing where one would land.
   Selection is the accent tint (`data-selected`); `aria-selected` still means the OPEN

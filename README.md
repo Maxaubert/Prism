@@ -51,6 +51,15 @@ never shipped: one small app that opens everything and looks good doing it.
   open in another app, show in Explorer, copy, duplicate, rename, delete. Drive it entirely
   from the keyboard: arrows move through folders and files alike, `Enter` opens or collapses
   a folder, and files open as you land on them.
+- **The usual file keys, in the Explorer and the tree**: `Ctrl+A` selects all, `Ctrl+Shift+A`
+  or `Esc` clears; `Shift+Up/Down/Home/End` extend the selection and `Ctrl+Up/Down/Home/End`
+  move without changing it, with `Ctrl+Space` to mark the row you are on (marking never opens
+  or plays anything); `Ctrl+C/X/V` copy, cut and paste files, `Ctrl+Z` / `Ctrl+Y` undo and
+  redo; `Ctrl+Shift+N` makes a new folder and names it; `Del`, `Ctrl+D` and `Shift+Del` all go
+  to the Recycle Bin; `F2` renames; `Alt+Left/Right/Up` go back, forward and up (`Alt+Up` is
+  the parent row in the tree); type a name to jump to it; `Ctrl+F` or `F3` searches;
+  `Alt+Enter` shows Properties; `Ctrl+Shift+C` copies the full paths; `Ctrl+Enter` opens a
+  folder in a new tab.
 - **Code, highlighted**: source files open with syntax colouring, line numbers, folding and
   their own `Ctrl+F`, across ~150 languages. Where the language has a real grammar, a syntax
   error gets the red underline you would expect from an editor.

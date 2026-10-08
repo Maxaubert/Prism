@@ -11,7 +11,8 @@ import { createSortPass } from './sortTiming'
 import { dateDividers } from '../../lib/dateGroups'
 import { dateView } from '../../lib/downloadsView'
 import { useFolderSizes } from '../../hooks/useFolderSizes'
-import { clickSelect } from '../../lib/selection'
+import { clickSelect, rangeSelect } from '../../lib/selection'
+import { listKey } from '../../lib/listKeys'
 import { sweepSelect } from '../../lib/marquee'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
@@ -23,6 +24,9 @@ import { withinFolder, type PlaceRow } from '../../lib/placeMark'
 import { useActiveArea } from './useActiveArea'
 import './browse.css'
 import './archive.css'
+
+/** The common keys FolderBrowser answers for the list (#330). */
+const FOLDER_KEYS = new Set(['new-folder', 'bin', 'search', 'properties', 'copy-paths', 'open-new-tab'])
 
 export type {
   BrowseEntry,
@@ -198,22 +202,49 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           .sort(([a], [b]) => a - b)
           .flatMap(([, entry]) => (entry ? [entry.path] : []))
       : entries.map((entry) => entry.path)
-  const pick = (entry: BrowseEntry, mods: { ctrl: boolean; shift: boolean }): void => {
+  const pickPath = (path: string, mods: { ctrl: boolean; shift: boolean }): void => {
     const now = marked ?? new Set(props.selectedPath ? [props.selectedPath] : [])
     const next = clickSelect(
       order(),
       { anchor: anchor.current ?? props.selectedPath, items: now },
-      entry.path,
+      path,
       mods
     )
     anchor.current = next.anchor
     // The clicked row is where the keyboard goes, unless Ctrl just took it
     // back out; then any row still marked, or none.
-    const primary = next.items.has(entry.path) ? entry.path : ([...next.items][0] ?? null)
+    const primary = next.items.has(path) ? path : ([...next.items][0] ?? null)
     setMarks(next.items.size > 1 ? { key: marksKey, items: next.items } : null)
     // Quiet, even when it leaves one row (#263): a Ctrl or Shift click marks,
     // it does not preview or play what it lands on.
     props.onSelect(primary, true)
+  }
+  const pick = (entry: BrowseEntry, mods: { ctrl: boolean; shift: boolean }): void =>
+    pickPath(entry.path, mods)
+  /* THE COMMON KEYS (#330), every one of them QUIET (#263): marking by
+     keyboard previews, plays and opens nothing, as a Ctrl or Shift click. */
+  /** Shift+arrows, Shift+Home/End: the run from the anchor to `path`. */
+  const extendTo = (path: string): void => {
+    const now = marked ?? new Set(props.selectedPath ? [props.selectedPath] : [])
+    const next = rangeSelect(order(), { anchor: anchor.current ?? props.selectedPath, items: now }, path)
+    anchor.current = next.anchor
+    setMarks(next.items.size > 1 ? { key: marksKey, items: next.items } : null)
+    props.onSelect(path, true)
+  }
+  /** Ctrl+A: every row the list holds (a search's rows as far as they came). */
+  const selectAll = (): void => {
+    const all = order()
+    if (!all.length) return
+    const keep = props.selectedPath && all.includes(props.selectedPath) ? props.selectedPath : all[0]
+    anchor.current = anchor.current && all.includes(anchor.current) ? anchor.current : all[0]
+    setMarks(all.length > 1 ? { key: marksKey, items: new Set(all) } : null)
+    props.onSelect(keep, true)
+  }
+  /** Ctrl+Shift+A and Escape: nothing marked. False when nothing was. */
+  const clearMarks = (): boolean => {
+    if (!props.selectedPath && !marked) return false
+    pickOne(null, true)
+    return true
   }
   const swept = (paths: string[], near: string | null, add: boolean): void => {
     const base: ReadonlySet<string> = add
@@ -365,6 +396,39 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         )
         if (target.closest('[role="dialog"],[role="menu"]')) return
         const inList = !!target.closest('.browse-list')
+        // THE COMMON KEYS (#330) that act on the folder or a row rather than
+        // on the marks (the list answers those itself). From the list only,
+        // never while typing, and CLAIMED even where they do nothing (inside
+        // a zip), so no window-wide viewer key answers them instead: F3 was
+        // the PDF's find from anywhere.
+        const common = !typing && inList ? listKey(e) : null
+        if (common && FOLDER_KEYS.has(common)) {
+          e.preventDefault()
+          e.stopPropagation()
+          // The row with the keyboard (a cursor the Ctrl keys moved), else
+          // the selected one.
+          const at = target.closest<HTMLElement>('[data-browse-path]')?.dataset.browsePath
+          const focused =
+            (at && (entries.find((entry) => entry.path === at) ?? [...(indexedRows?.values() ?? [])].find((entry) => entry?.path === at))) ||
+            selected
+          if (common === 'search') openSearch()
+          else if (common === 'copy-paths') {
+            const paths = many ? markedPaths() : focused ? [focused.path] : []
+            if (paths.length) props.onCopyPathText?.(paths)
+          } else if (archive) return
+          else if (common === 'new-folder') props.onNewFolder?.(props.directory)
+          else if (common === 'bin') {
+            // Ctrl+D and Shift+Delete are Delete (owner, 2026-10-07: Shift+
+            // Delete is NOT permanent here): the question, then the bin.
+            if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
+            else if (selected) props.onDelete?.(selected)
+          } else if (common === 'properties') {
+            if (focused) props.onProperties?.(focused)
+          } else if (common === 'open-new-tab') {
+            if (focused?.isFolder) props.onOpenNewTab?.(focused.path, true)
+          }
+          return
+        }
         if (e.key === 'F5' && props.onRefresh) {
           e.preventDefault()
           e.stopPropagation()
@@ -518,6 +582,10 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         marked={marked}
         onPick={pick}
         onSweep={swept}
+        onExtend={extendTo}
+        onToggleMark={(path) => pickPath(path, { ctrl: true, shift: false })}
+        onSelectAll={selectAll}
+        onClear={clearMarks}
         // A right press inside several marked rows is a menu for all of them:
         // the marks stay lit, so a menu for the one row under the pointer
         // would delete one file while four looked chosen (review of #257).

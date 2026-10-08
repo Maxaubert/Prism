@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describe as label, emptyUndo, redone, remember, undone, type UndoEntry } from './undo'
+import { describe as label, emptyUndo, redone, remember, rememberRename, undone, type UndoEntry } from './undo'
 
 const move: UndoEntry = { kind: 'move', items: [{ from: 'C:\\a\\f.txt', to: 'C:\\b\\f.txt' }] }
 const ren: UndoEntry = { kind: 'rename', from: 'C:\\a\\old.txt', to: 'C:\\a\\new.txt' }
@@ -49,6 +49,10 @@ describe('the undo stack', () => {
     expect(undone(s)!.entry).toEqual({ kind: 'duplicate', source: 'C:\\a\\src.txt', path: 'C:\\a\\59.txt' })
   })
 
+  it('names a new folder for the message (#330)', () => {
+    expect(label({ kind: 'mkdir', path: 'C:\\a\\New folder (2)' })).toBe('making New folder (2)')
+  })
+
   it('names an archive move for the message too', () => {
     expect(
       label({ kind: 'archive-in', zip: 'C:\\a\\box.zip', dest: '', entries: ['one.txt'], originals: [] })
@@ -60,5 +64,21 @@ describe('the undo stack', () => {
     expect(label(bin)).toBe('deleting 2 items')
     expect(label(move)).toBe('moving f.txt')
     expect(label({ kind: 'duplicate', source: 'C:\\a\\p.png', path: 'C:\\a\\p (2).png' })).toBe('duplicating p (2).png')
+  })
+})
+
+describe('rememberRename (#330)', () => {
+  const made: UndoEntry = { kind: 'mkdir', path: 'C:\\a\\New folder' }
+  it('folds the rename of a folder just made into its entry, so one undo takes it away', () => {
+    const s = rememberRename(remember(emptyUndo, made), { kind: 'rename', from: 'C:\\a\\new FOLDER', to: 'C:\\a\\Photos' })
+    expect(s.past).toEqual([{ kind: 'mkdir', path: 'C:\\a\\Photos' }])
+    expect(undone(s)!.entry).toEqual({ kind: 'mkdir', path: 'C:\\a\\Photos' })
+  })
+  it('stacks any other rename as before', () => {
+    const s = rememberRename(remember(emptyUndo, made), ren as Extract<UndoEntry, { kind: 'rename' }>)
+    expect(s.past).toEqual([made, ren])
+    const over = rememberRename(remember(emptyUndo, made), { kind: 'rename', from: 'C:\\a\\New folder', to: 'C:\\a\\x', replaced: 'C:\\a\\x' })
+    expect(over.past.length).toBe(2)
+    expect(rememberRename(emptyUndo, ren as Extract<UndoEntry, { kind: 'rename' }>).past).toEqual([ren])
   })
 })
