@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bandBox,
   clampToView,
   clientToContent,
   contentToClient,
@@ -10,7 +9,6 @@ import {
   nearestRow,
   rowsInBand,
   rowsInBox,
-  sameHits,
   sameSpan,
   snapBox,
   sweepMark,
@@ -202,15 +200,7 @@ describe('sweepSelect', () => {
   })
 })
 
-describe('bandBox, onRowOwnPart, sameHits', () => {
-  it('normalises a band dragged up and left', () => {
-    expect(bandBox({ x0: 50, y0: 80, x1: 10, y1: 20 })).toEqual({
-      left: 10,
-      top: 20,
-      width: 40,
-      height: 60
-    })
-  })
+describe('onRowOwnPart', () => {
   it('gives the row everything up to the end of its name, gaps included', () => {
     const icon = { right: 14 }
     const name = { right: 90 }
@@ -220,9 +210,5 @@ describe('bandBox, onRowOwnPart, sameHits', () => {
     expect(onRowOwnPart(90, [icon, name])).toBe(true)
     expect(onRowOwnPart(91, [icon, name])).toBe(false)
     expect(onRowOwnPart(5, [])).toBe(false)
-  })
-  it('compares hit lists', () => {
-    expect(sameHits(['a', 'b'], ['a', 'b'])).toBe(true)
-    expect(sameHits(['a', 'b'], ['a'])).toBe(false)
   })
 })

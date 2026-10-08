@@ -4,27 +4,9 @@
 // which elements the rectangle covers: a row scrolled out of view has no
 // element, and it is still inside the rectangle.
 
-/** The rectangle, in the list's own coordinates: y is measured from the top
- *  of row 0, so it does not move when the list scrolls. */
-export interface Band {
-  x0: number
-  y0: number
-  x1: number
-  y1: number
-}
-
 /** How far the pointer must travel before a press becomes a sweep. Below it a
  *  press is a click and keeps everything a click does today. */
 export const SWEEP_THRESHOLD = 4
-
-export function bandBox(b: Band): { left: number; top: number; width: number; height: number } {
-  return {
-    left: Math.min(b.x0, b.x1),
-    top: Math.min(b.y0, b.y1),
-    width: Math.abs(b.x1 - b.x0),
-    height: Math.abs(b.y1 - b.y0)
-  }
-}
 
 /** The first and last row index the span top..bottom touches, or null when it
  *  touches none (all of it above row 0, or below the last row). A row counts
@@ -122,11 +104,6 @@ export function onRowOwnPart(x: number, rects: Iterable<{ right: number }>): boo
   let end = -Infinity
   for (const r of rects) end = Math.max(end, r.right)
   return x <= end
-}
-
-/** Two hit lists the same? Saves a render per pointer move that changed nothing. */
-export function sameHits(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((p, i) => p === b[i])
 }
 
 /** The rows a sweep covers, by index, and the one the pointer is nearest. */

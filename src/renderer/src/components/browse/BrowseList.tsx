@@ -202,10 +202,14 @@ export function BrowseList(props: Props): JSX.Element {
     node.addEventListener('scrollend', rest)
     window.addEventListener('pointerdown', before, true)
     window.addEventListener('keydown', before, true)
+    // And at every release: a wheel turn after Escape, with the button still
+    // held, came to rest under `data-sweeping`, and nothing told App of it.
+    window.addEventListener('pointerup', before, true)
     return () => {
       node.removeEventListener('scrollend', rest)
       window.removeEventListener('pointerdown', before, true)
       window.removeEventListener('keydown', before, true)
+      window.removeEventListener('pointerup', before, true)
     }
   }, [])
   const placedFor = useRef<string | null>(null)
