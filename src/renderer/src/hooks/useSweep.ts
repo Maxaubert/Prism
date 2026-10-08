@@ -5,6 +5,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent
 } from 'react'
+import { flushSync } from 'react-dom'
 import {
   SWEEP_THRESHOLD,
   bandBox,
@@ -44,7 +45,10 @@ import {
  * 430 px. So the box is ONE element React only mounts and unmounts
  * (`sweeping`, `bandRef`); the pointer handler writes its place directly,
  * from geometry measured once (`measure`, again only after the list
- * scrolled), with no layout read on the way. What the box marks is worked out
+ * scrolled or resized, and at the release), with no layout read on the way.
+ * The band is mounted synchronously (`flushSync`) by the move that starts the
+ * sweep, since a render scheduled from a native listener can land after that
+ * frame is painted and show it with no box at all. What the box marks is worked out
  * at most once a frame, in the frame's own callback, from the latest
  * position, and once more on the release, so the marks that stand are exactly
  * the box's. `pointerrawupdate` was weighed and left out: pointermove is
@@ -134,6 +138,7 @@ export function useSweep<G>(options: SweepOptions<G>): {
     let dirty = false
     let across: RowAcross | null = null
     let box: HTMLElement | null = null
+    let resized: ResizeObserver | null = null
     const wasDraggable = row?.draggable ?? false
     if (row) row.draggable = false
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -183,10 +188,11 @@ export function useSweep<G>(options: SweepOptions<G>): {
     const remeasure = (): void => {
       geo = opts.current.measure() ?? geo
     }
-    // The list scrolled (a wheel under the held button, or our own scroll):
-    // the box's far corner is still under the pointer, so it is drawn again
-    // with the new offsets, in this frame (scroll events come before the
-    // frame's callbacks).
+    // The list scrolled (a wheel under the held button, or our own scroll), or
+    // its layout changed (rows added or removed by the watcher, a window or
+    // pane resize): the box's far corner is still under the pointer, so it is
+    // drawn again with the new offsets, in this frame (scroll events and
+    // resize observations come before the frame is painted).
     const scrolled = (): void => {
       if (!started || cancelled) return
       remeasure()
@@ -237,6 +243,9 @@ export function useSweep<G>(options: SweepOptions<G>): {
       window.removeEventListener('keydown', key, true)
       window.removeEventListener('blur', abort)
       box?.removeEventListener('scroll', scrolled)
+      window.removeEventListener('resize', scrolled)
+      resized?.disconnect()
+      resized = null
       if (row) row.draggable = wasDraggable
       if (box?.hasPointerCapture?.(pointerId)) box.releasePointerCapture(pointerId)
       box?.removeAttribute('data-sweeping')
@@ -246,8 +255,13 @@ export function useSweep<G>(options: SweepOptions<G>): {
     }
     const finish = (): void => {
       const wasSweep = started && !cancelled
-      // The marks that stand are the box's at the release, never a frame old.
-      if (wasSweep) mark()
+      // The marks that stand are the box's at the release, never a frame old:
+      // measured again first, since a wheel turn just before the release has
+      // moved the list but not yet sent its scroll event. One layout read.
+      if (wasSweep) {
+        remeasure()
+        mark()
+      }
       const result = hits
       const at = near
       cleanup()
@@ -266,9 +280,24 @@ export function useSweep<G>(options: SweepOptions<G>): {
         )
           return
         started = true
+        // The list may have scrolled since the press (a wheel under the held
+        // button): measured again, while `start` keeps the press's own place
+        // in the list.
+        remeasure()
         box = opts.current.scroller()
         box?.setAttribute('data-sweeping', '')
         box?.addEventListener('scroll', scrolled, { passive: true })
+        window.addEventListener('resize', scrolled)
+        if (box && typeof ResizeObserver !== 'undefined') {
+          // The box and what it holds (the list grows or shrinks as rows come
+          // and go); never the band itself, which changes size on every move.
+          resized = new ResizeObserver(scrolled)
+          resized.observe(box)
+          for (const child of box.children)
+            if (!child.hasAttribute('data-sweep-band')) resized.observe(child)
+          const tree = box.querySelector('[role="tree"]')
+          if (tree && tree.parentElement !== box) resized.observe(tree)
+        }
         // Captured only now: a capture from the press would retarget the click
         // of a plain press, and that click is today's behaviour.
         try {
@@ -278,7 +307,9 @@ export function useSweep<G>(options: SweepOptions<G>): {
         }
         window.getSelection()?.removeAllRanges()
         draw.current = paint
-        setSweeping(true)
+        // Synchronous, once per sweep: the band is in the DOM (and placed, by
+        // `bandRef`) before this frame is painted.
+        flushSync(() => setSweeping(true))
         frame = requestAnimationFrame(tick)
       }
       paint()

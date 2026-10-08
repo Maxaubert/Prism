@@ -269,7 +269,11 @@ export function BrowseList(props: Props): JSX.Element {
       // scrollTop + (y - logicalTop). Clamped to what is in view, so a sweep
       // across a hundred thousand rows is still one small element. From the
       // measured scroll, not the rendered one, so it holds while the list
-      // auto-scrolls under it.
+      // auto-scrolls under it. Known and accepted: in the compressed scroll
+      // (`scale > 1`, about 180k rows and up) the rows are placed from the
+      // RENDERED `props.scrollTop`, a frame later, so while the list
+      // auto-scrolls there the box and the rows can disagree for a frame by
+      // the scroll step times `scale - 1`. Below that `logicalTopAt(s) === s`.
       const b = bandBox(band)
       const top = m.scrollTop + b.top - logicalTopAt(m.scrollTop)
       const lo = Math.max(top, m.scrollTop - 2)

@@ -655,9 +655,12 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   before, every move's first frame was a move behind (up to 54px, mean 23px, list and tree), and
   every auto-scroll frame was off (up to 430px Explorer, 203px tree); after, 0px in all of them.
   So `useSweep` only mounts the band (`sweeping`, `bandRef`) and the pointer handler writes its
-  place straight onto it from geometry read at the press and after a scroll (`measure`), never
-  per move; marks are worked out once a frame in the tick, and again on the release, so the
-  marks that stand are the box's. Do not put the box back in React state.
+  place straight onto it from geometry read at the press, at the sweep's start, after a scroll
+  or resize (`ResizeObserver`) and at the release (`measure`), never per move; marks are worked
+  out once a frame in the tick, and again on the release, so the marks that stand are the box's.
+  The band mounts through `flushSync` in the move that starts the sweep: a plain state update
+  from a native listener painted that frame with NO box (MEASURED, `sweepLag` counts such a
+  frame as late). Do not put the box back in React state.
   **MARKING IS NOT PICKING** (#263; owner, 2026-10-03: "when you multiselect like this it picks
   a file so here this drag starts one of the videos ... same is the case if i ctrl select it
   shouldnt start or preview anything"). In the Explorer a sweep and a Ctrl or Shift click call

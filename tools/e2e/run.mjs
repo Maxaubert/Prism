@@ -8315,7 +8315,14 @@ async function sweepLagScenario(fixtures) {
       const sample = () => {
         const band = document.querySelector(`${scope} [data-sweep-band]`)
         const p = s.pts[s.pts.length - 1]
-        if (!band || !p || !s.start) return
+        if (!p || !s.start) return
+        // Past the threshold (4 px) the sweep has begun, so a painted frame
+        // with no box showing is a late frame, not one to skip (review of #332).
+        const begun = s.pts.some((q) => Math.abs(q.x - s.start.x) >= 4 || Math.abs(q.y - s.start.y) >= 4)
+        if (!band || getComputedStyle(band).display === 'none') {
+          if (begun) s.frames.push({ phase: s.phase, off: 9999, behind: 0, top: scroller.scrollTop, at: `no box at ${p.x},${p.y}` })
+          return
+        }
         const r = band.getBoundingClientRect()
         // The moving corner. Level with the press, the box is only its two
         // 1px edges thick, and either edge is the pointer's.
