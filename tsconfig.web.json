@@ -19,7 +19,8 @@
       "@shared/*": ["src/shared/*"],
       "prism-term-core/renderer/settings/coreIndex": ["node_modules/prism-term-core/renderer/settings/coreIndex.ts"],
       "prism-term-core/renderer/settings/sectionIds": ["node_modules/prism-term-core/renderer/settings/sectionIds.ts"],
-      "prism-term-core/renderer/settings/layout/icons": ["node_modules/prism-term-core/renderer/settings/layout/icons.ts"]
+      "prism-term-core/renderer/settings/layout/icons": ["node_modules/prism-term-core/renderer/settings/layout/icons.ts"],
+      "prism-term-core/renderer/settings/diagnosticsOptions": ["node_modules/prism-term-core/renderer/settings/diagnosticsOptions.ts"]
     }
   },
   "include": [
