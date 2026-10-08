@@ -661,6 +661,20 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   The band mounts through `flushSync` in the move that starts the sweep: a plain state update
   from a native listener painted that frame with NO box (MEASURED, `sweepLag` counts such a
   frame as late). Do not put the box back in React state.
+  **AND IT DOES NOT SHAKE** (#332; owner, 2026-10-08: the box shakes "as if it keeps
+  re-rendering"). Explorer's `UIMarqueeSelector` does integer geometry from the message's own
+  point, from a corner kept in content coordinates (research:
+  `C:\Users\Admin\Documents\Claude\research\prism\2026-10-08-explorer-marquee.md`). So: the marks
+  during a sweep are the HOOK'S (`data-sweep-mark` on/off, `data-sweep-up/down` on the rows in
+  view, drawn by browse.css and index.css over React's while the scroller has `data-sweeping`,
+  re-applied after a render adds rows) and go to React ONCE, in a `flushSync` on the release, in
+  the task that takes them off; Escape only takes them off. The box is a clipped overlay
+  SIBLING of the scroller (`SweepBand`), never inside it; the press is kept in list coordinates
+  and mapped on every move and scroll; both corners snap to whole device pixels (`snapBox`),
+  held to the list plus a pixel; square, a one-device-pixel inset edge. The Explorer's list
+  draws from its own `top` and tells App on `scrollend`, at a release and before any press or
+  key; App's value is written back only when it is App's own (folder, load, sort, tab). The
+  `sweepLag` e2e asserts device-pixel edges, a still anchor and no list render mid-sweep.
   **MARKING IS NOT PICKING** (#263; owner, 2026-10-03: "when you multiselect like this it picks
   a file so here this drag starts one of the videos ... same is the case if i ctrl select it
   shouldnt start or preview anything"). In the Explorer a sweep and a Ctrl or Shift click call

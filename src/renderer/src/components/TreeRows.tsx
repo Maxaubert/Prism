@@ -477,6 +477,14 @@ function Guides({ depth, indent }: { depth: number; indent: number }): JSX.Eleme
 }
 
 
+/** What is behind a row's icon, which its knockouts take: a CSS variable the
+ *  row sets, not a prop, so a sweep's marks (#332, drawn by the stylesheet
+ *  while React's stand still) give a newly marked row's icon the tint too. */
+const ROW_GROUND = 'var(--tree-row-ground, var(--p-side-flat))'
+function rowGround(lit: boolean): CSSProperties {
+  return lit ? ({ '--tree-row-ground': 'var(--p-sel-tint-side)' } as CSSProperties) : {}
+}
+
 function FolderRow({
   path,
   name,
@@ -593,6 +601,7 @@ function FolderRow({
         fontSize: t.size.font,
         // A cut row is half gone already, and looks it (Explorer's cue).
         opacity: t.cut.has(path.toLowerCase()) ? 0.45 : undefined,
+        ...rowGround(lit),
         // Contiguous selected rows fuse: shared edges drop their rounding.
         // A drop target's grey wins over the tint, as its class does.
         ...(t.dropTarget !== path && lit
@@ -620,7 +629,7 @@ function FolderRow({
           ext={zip.ext}
           name={zip.name}
           color={iconColour('archive')}
-          bg={lit ? 'var(--p-sel-tint-side)' : undefined}
+          bg={ROW_GROUND}
         />
       ) : (
         <FolderIcon color="var(--p-tree-folder)" />
@@ -745,6 +754,7 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
           fontSize: t.size.font,
           // A cut row is half gone already, and looks it (Explorer's cue).
           opacity: t.cut.has(f.path.toLowerCase()) ? 0.45 : undefined,
+          ...rowGround(onSel || onMenuHl),
           // Contiguous selected rows fuse: shared edges drop rounding.
           ...(onSel
             ? markedLook(t.selected.has(f.path) ? t.selJoin(f.path) : ALONE)
@@ -760,7 +770,7 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
           // could vanish into, and a fifth of the accent is not one.
           color={iconColour(f.kind)}
           // The knockouts take what is BEHIND the row: the tint as seen.
-          bg={onSel || onMenuHl ? 'var(--p-sel-tint-side)' : undefined}
+          bg={ROW_GROUND}
           ext={f.ext}
           name={f.name}
         />
@@ -778,34 +788,35 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
  * see-through. Never animated: it is where the pointer is, and nothing else.
  * Its place is not a prop (#332): `useSweep` writes it straight onto the
  * element from the pointer handler, and it stays hidden until it has one.
+ *
+ * OUT OF THE LIST, SQUARE, ONE DEVICE PIXEL OF EDGE (#332; owner, 2026-10-08:
+ * the box shakes). Mounted as a SIBLING of the scroller, never inside it:
+ * inside, every resize of the box re-rastered the rows under it. The clip is
+ * the scroller's visible box (`useSweep` places it), so the box is cut where
+ * the list is; nothing in it takes the pointer. Square, as Explorer's is, and
+ * its edge an inset shadow of exactly one device pixel (`--sweep-hair`), which
+ * a 1px border at 225% is not.
  */
-export function SweepBand({
-  bandRef,
-  as = 'li'
-}: {
-  bandRef: (el: HTMLElement | null) => void
-  as?: 'li' | 'div'
-}): JSX.Element {
-  const style: CSSProperties = {
+export function SweepBand({ bandRef }: { bandRef: (el: HTMLElement | null) => void }): JSX.Element {
+  const clip: CSSProperties = {
     display: 'none',
+    overflow: 'hidden',
+    // Its size is its own: nothing in it lays out anything outside it.
+    contain: 'strict'
+  }
+  const band: CSSProperties = {
+    position: 'absolute',
     background: 'color-mix(in srgb, var(--p-sel-hue) 16%, transparent)',
     // The edge is the hue pulled toward the text colour: a pure accent edge
     // vanished into the rows it crossed when a mark was a solid accent fill
     // (MEASURED in the first screenshot, #257), and it still has to stand
     // apart from the marked rows' own edges, which are the same hue.
-    border: '1px solid color-mix(in srgb, var(--p-sel-hue-hi) 45%, var(--p-text))',
-    borderRadius: 2
+    boxShadow: 'inset 0 0 0 var(--sweep-hair, 1px) color-mix(in srgb, var(--p-sel-hue-hi) 45%, var(--p-text))'
   }
-  const Tag = as
   return (
-    <Tag
-      ref={bandRef}
-      role={as === 'li' ? 'none' : undefined}
-      aria-hidden
-      data-sweep-band
-      className="pointer-events-none absolute z-20"
-      style={style}
-    />
+    <div ref={bandRef} aria-hidden data-sweep-clip className="pointer-events-none absolute z-20" style={clip}>
+      <div data-sweep-band style={band} />
+    </div>
   )
 }
 
@@ -824,14 +835,10 @@ export function SweepBand({
  */
 export function TreeWindow({
   rows,
-  scroller,
-  band = null
+  scroller
 }: {
   rows: readonly PaintRow[]
   scroller: RefObject<HTMLDivElement | null>
-  /** While a sweep (#257) draws: where its rectangle is mounted. `useSweep`
-   *  places it, in this list's own coordinates (#332). */
-  band?: ((el: HTMLElement | null) => void) | null
 }): JSX.Element {
   const t = useTree()
   const list = useRef<HTMLUListElement>(null)
@@ -903,6 +910,8 @@ export function TreeWindow({
           <li
             key={r.key}
             role="none"
+            // Its place in `rows`, which is how a sweep finds it (#332).
+            data-tree-index={first + i}
             className={`absolute inset-x-0 ${inFresh(r.kind === 'note' ? path + '\\x' : path) ? 'tree-row-in' : ''}`}
             style={{ top: (first + i) * rowH, height: rowH }}
           >
@@ -917,7 +926,6 @@ export function TreeWindow({
           </li>
         )
       })}
-      {band && <SweepBand bandRef={band} />}
       {/* The space beneath the list means the root (#126): the line goes
           under the last row, since the root has no row of its own. */}
       {t.dropRow === 'end' && rows.length > 0 && (

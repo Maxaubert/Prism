@@ -21,8 +21,8 @@ import { DRAG_MIME, setDrag } from '../../lib/dragDrop'
 import { FolderIcon, KindIcon, SweepBand, iconColour } from '../TreeRows'
 import { OverlayScrollbar } from './OverlayScrollbar'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
-import { bandBox, nearestRow, rowsInBox } from '../../lib/marquee'
-import { useSweep } from '../../hooks/useSweep'
+import { contentToClient, nearestRow, rowsInBox } from '../../lib/marquee'
+import { useSweep, type SweepRow } from '../../hooks/useSweep'
 import { BrowseIcon } from './BrowseIcon'
 import { useFolderDrop } from './useFolderDrop'
 import type { BrowseEntry, BrowseSort, FolderBrowserProps } from './types'
@@ -150,8 +150,85 @@ export function BrowseList(props: Props): JSX.Element {
     observer.observe(node)
     return () => observer.disconnect()
   }, [])
+  /**
+   * THE SCROLL IS THE LIST'S OWN WHILE IT MOVES (#332; owner, 2026-10-08: the
+   * sweep box shakes). Every scroll event patched App's tab state, which
+   * re-rendered App, and an effect then wrote that value back to the box: a
+   * value already a step old, so it undid the newer scroll. While the sweep
+   * auto-scrolled the list advanced every other frame, and a smooth wheel
+   * scroll was cut short. Now the rows are drawn from `top`, the box's own
+   * position, and App hears it when the scroll comes to rest (`scrollend`), at
+   * the release of a sweep, and before any press or key that could take the
+   * list somewhere else (so the tab and the history keep the right place).
+   * A value from App is written to the box only when it is App's own: another
+   * folder, a load that ended, a sort that went back to the top, another tab.
+   */
+  const [top, setTop] = useState(props.scrollTop)
+  /** The last place App was told of, or was the one to set. */
+  const told = useRef(props.scrollTop)
+  /** A place App has not been told of yet. */
+  const untold = useRef<number | null>(null)
+  const onScrollRef = useRef(props.onScroll)
   useLayoutEffect(() => {
-    if (scroller.current && !props.loading) scroller.current.scrollTop = props.scrollTop
+    onScrollRef.current = props.onScroll
+  })
+  const tell = (value: number): void => {
+    untold.current = null
+    told.current = value
+    onScrollRef.current(value)
+  }
+  /** A scroll the list made itself (a key, a reveal): drawn and told at once. */
+  const scrolledTo = (value: number): void => {
+    setTop(value)
+    tell(value)
+  }
+  const flushScroll = (): void => {
+    if (untold.current !== null) tell(untold.current)
+  }
+  const flushRef = useRef(flushScroll)
+  useLayoutEffect(() => {
+    flushRef.current = flushScroll
+  })
+  useLayoutEffect(() => {
+    const node = scroller.current
+    if (!node) return
+    const rest = (): void => {
+      // A sweep's own auto-scroll is told once, at its release.
+      if (!node.hasAttribute('data-sweeping')) flushRef.current()
+    }
+    // Anything that can navigate (a click, a key, a back button) comes after
+    // a press or a key: the place is told first, to the folder it belongs to.
+    const before = (): void => flushRef.current()
+    node.addEventListener('scrollend', rest)
+    window.addEventListener('pointerdown', before, true)
+    window.addEventListener('keydown', before, true)
+    return () => {
+      node.removeEventListener('scrollend', rest)
+      window.removeEventListener('pointerdown', before, true)
+      window.removeEventListener('keydown', before, true)
+    }
+  }, [])
+  const placedFor = useRef<string | null>(null)
+  const wasLoading = useRef(props.loading)
+  useLayoutEffect(() => {
+    const node = scroller.current
+    // A load that ended puts the place back, as it always did: the rows were
+    // gone meanwhile and the box may have been held at the top.
+    const loaded = wasLoading.current && !props.loading
+    wasLoading.current = props.loading
+    if (!node || props.loading) return
+    const folder = placedFor.current !== props.directory
+    placedFor.current = props.directory
+    const own = folder || loaded
+    // App's echo of a place the list told it: the box may already be past it.
+    if (!own && props.scrollTop === told.current) return
+    if (!own && node.hasAttribute('data-sweeping')) return
+    // A new folder: a place not yet told belonged to the last one.
+    if (folder) untold.current = null
+    told.current = props.scrollTop
+    if (Math.abs(node.scrollTop - props.scrollTop) >= 1) node.scrollTop = props.scrollTop
+    // Where the box could go: a shorter folder holds it nearer the top.
+    setTop(node.scrollTop)
   }, [props.directory, props.scrollTop, props.loading])
 
   // DOWNLOADS' DATE GROUPS (#285): a divider is a row of the list's own
@@ -184,9 +261,9 @@ export function BrowseList(props: Props): JSX.Element {
   const spaceHeight = Math.min(count * rowHeight, 4000000)
   const scale = Math.max(1, (count * rowHeight - height) / Math.max(1, spaceHeight - height))
   const logicalTop =
-    props.scrollTop >= spaceHeight - height - 1
+    top >= spaceHeight - height - 1
       ? Math.max(0, count * rowHeight - height)
-      : props.scrollTop * scale
+      : top * scale
   const loadedSelectedIndex = props.indexedRows
     ? ([...props.indexedRows].find(([, entry]) => entry?.path === props.selectedPath)?.[0] ?? -1)
     : (() => {
@@ -224,15 +301,19 @@ export function BrowseList(props: Props): JSX.Element {
    * or beside them, since a row ends where its last column does and a gutter
    * is always left on the right (browse.css), File Explorer's Details view.
    */
-  const [sweeping, setSweeping] = useState<{ paths: string[]; add: boolean } | null>(null)
-  const sweepAdd = useRef(false)
   const geometry = useRef({ count, spaceHeight, height, scale, rowHeight })
   const rowAtRef = useRef(rowAt)
+  /** What React draws as marked now: during a sweep, still what was marked
+   *  before it (#332, the sweep's own marks are the hook's). */
+  const isMarked = (path: string): boolean =>
+    props.marked ? props.marked.has(path) : path === props.selectedPath
+  const heldRef = useRef(isMarked)
   // Mirrored after render (refs are not written while rendering); the sweep
   // reads them from pointer events, which only come after.
   useLayoutEffect(() => {
     geometry.current = { count, spaceHeight, height, scale, rowHeight }
     rowAtRef.current = rowAt
+    heldRef.current = isMarked
   })
   /** The list's top, in row coordinates, for a scroll position: the rule the
    *  render uses, so the rectangle and the rows agree when the list is huge. */
@@ -264,22 +345,15 @@ export function BrowseList(props: Props): JSX.Element {
         y: Math.max(0, Math.min(Math.max(g.count * g.rowHeight, g.height), logicalTopAt(m.scrollTop) + y - m.top))
       }
     },
-    place: (band, m) => {
-      // Row coordinates to the scroll box's own: the rows sit at
-      // scrollTop + (y - logicalTop). Clamped to what is in view, so a sweep
-      // across a hundred thousand rows is still one small element. From the
-      // measured scroll, not the rendered one, so it holds while the list
-      // auto-scrolls under it. Known and accepted: in the compressed scroll
-      // (`scale > 1`, about 180k rows and up) the rows are placed from the
-      // RENDERED `props.scrollTop`, a frame later, so while the list
-      // auto-scrolls there the box and the rows can disagree for a frame by
-      // the scroll step times `scale - 1`. Below that `logicalTopAt(s) === s`.
-      const b = bandBox(band)
-      const top = m.scrollTop + b.top - logicalTopAt(m.scrollTop)
-      const lo = Math.max(top, m.scrollTop - 2)
-      const hi = Math.min(top + b.height, m.scrollTop + geometry.current.height + 2)
-      return { x0: b.left, x1: b.left + b.width, y0: lo, y1: Math.max(lo, hi) }
-    },
+    // Row coordinates to the screen: row y sits at the box's top plus
+    // (y - logicalTop). From the measured scroll, not the rendered one, so it
+    // holds while the list auto-scrolls under it. Known and accepted: in the
+    // compressed scroll (`scale > 1`, about 180k rows and up) the rows are
+    // placed from the RENDERED scroll, a frame later, so while the list
+    // auto-scrolls there the box and the rows can disagree for a frame by the
+    // scroll step times `scale - 1`. Below that `logicalTopAt(s) === s`.
+    toClient: (p, m) =>
+      contentToClient(p, { x: m.left, y: m.top }, { x: m.scrollLeft, y: logicalTopAt(m.scrollTop) }),
     rowAcross: () => {
       // What is drawn as a row across (#326): the list's left to the end of
       // its last column, a gutter short of the edge (#320), measured off any
@@ -292,48 +366,62 @@ export function BrowseList(props: Props): JSX.Element {
       const d = drawn.getBoundingClientRect()
       return { left: d.left - r.left + node.scrollLeft, right: d.right - r.left + node.scrollLeft }
     },
-    hitsIn: (box, py, drawnAcross) => {
+    span: (box, py, drawnAcross) => {
       const g = geometry.current
       const across = drawnAcross ?? { left: 0, right: scroller.current?.scrollWidth ?? 0 }
       const span = rowsInBox(box, { ...across, height: g.rowHeight }, g.count)
-      if (!span) return { paths: [], near: null }
+      return span && { ...span, near: nearestRow(py, g.rowHeight, span.first, span.last) }
+    },
+    pathsIn: (span) => {
       const paths: string[] = []
       for (let i = span.first; i <= span.last; i++) {
         const entry = rowAtRef.current(i)
         if (entry) paths.push(entry.path)
       }
-      const near = rowAtRef.current(nearestRow(py, g.rowHeight, span.first, span.last))
+      const near = rowAtRef.current(span.near)
       return { paths, near: near?.path ?? paths[paths.length - 1] ?? null }
     },
+    // The rows drawn, in order. A marked run joins across the row drawn just
+    // above or below, the render's own rule (a divider or a row still on its
+    // way breaks it).
+    rows: () => {
+      const out: SweepRow[] = []
+      const layer = scroller.current?.querySelector('.browse-row-layer')
+      if (!layer) return out
+      const real = (el: Element | null): { index: number; path: string } | null => {
+        const path = el?.getAttribute('data-browse-path')
+        return el && path ? { index: Number(el.getAttribute('data-browse-index')), path } : null
+      }
+      for (const el of layer.children) {
+        const me = real(el)
+        if (me)
+          out.push({
+            el: el as HTMLElement,
+            ...me,
+            up: real(el.previousElementSibling),
+            down: real(el.nextElementSibling)
+          })
+      }
+      return out
+    },
+    held: (path) => heldRef.current(path),
     scrollBy: (dy) => {
       const node = scroller.current
       if (!node) return
       node.scrollTop += dy / geometry.current.scale
     },
-    onChange: (paths) => setSweeping({ paths, add: sweepAdd.current }),
-    onEnd: (paths, near) => {
-      setSweeping(null)
-      props.onSweep?.(paths, near, sweepAdd.current)
+    onEnd: (paths, near, add) => {
+      flushScroll()
+      props.onSweep?.(paths, near, add)
     },
-    onCancel: () => setSweeping(null)
+    onCancel: () => flushScroll()
   })
   const onListPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0 || props.loading || props.message || !props.onSweep) return
     // A file's row, every cell of it and the gaps between: its own drag.
     if ((e.target as HTMLElement).closest('.browse-row[data-browse-path]')) return
-    sweepAdd.current = e.ctrlKey
     sweep.begin(e)
   }
-  /** What reads as marked: the sweep in progress (plus, for Ctrl, what was
-   *  marked before it), else the selection FolderBrowser holds. */
-  const shownMarks: ReadonlySet<string> | null = sweeping
-    ? new Set([
-        ...(sweeping.add ? (props.marked ?? (props.selectedPath ? [props.selectedPath] : [])) : []),
-        ...sweeping.paths
-      ])
-    : (props.marked ?? null)
-  const isMarked = (path: string): boolean =>
-    shownMarks ? shownMarks.has(path) : path === props.selectedPath
   const onVisibleFolders = props.onVisibleFolders
   const onSearchRange = props.onSearchRange
   const indexed = !!props.indexedRows
@@ -369,8 +457,6 @@ export function BrowseList(props: Props): JSX.Element {
     )
   }, [props.entries, divided, logicalTop, height, onVisibleFolders, indexed, rowHeight])
   const onSelect = props.onSelect
-  const onScroll = props.onScroll
-  const scrollTop = props.scrollTop
   useLayoutEffect(() => {
     const pending = pendingFocus.current
     const node = scroller.current
@@ -391,7 +477,7 @@ export function BrowseList(props: Props): JSX.Element {
     // repeated correction of fractional native scroll coordinates.
     if (pending === Infinity) {
       node.scrollTop = Math.max(0, (count * rowHeight - height) / scale)
-      if (node.scrollTop !== scrollTop) onScroll(node.scrollTop)
+      if (node.scrollTop !== top) scrolledTo(node.scrollTop)
     }
     if (entry === undefined) {
       pendingFocus.current = index
@@ -408,7 +494,7 @@ export function BrowseList(props: Props): JSX.Element {
     // rowAt reads only what is listed here (the entries, the search rows and
     // the dividers' layout).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.indexedRows, props.entries, divided, onSelect, onScroll, onSearchRange, count, scale, scrollTop, height, rowHeight])
+  }, [props.indexedRows, props.entries, divided, onSelect, onSearchRange, count, scale, top, height, rowHeight])
   useLayoutEffect(() => {
     pendingFocus.current = null
     selectionPosition.current = { path: '', index: -1 }
@@ -447,7 +533,7 @@ export function BrowseList(props: Props): JSX.Element {
     if (top < visibleTop) node.scrollTop = top / scale
     else if (index * rowHeight + rowHeight > visibleTop + node.clientHeight)
       node.scrollTop = (index * rowHeight + rowHeight - node.clientHeight) / scale
-    props.onScroll(node.scrollTop)
+    scrolledTo(node.scrollTop)
     const entry = rowAt(index)
     if (!entry) return null
     requestAnimationFrame(() =>
@@ -468,7 +554,7 @@ export function BrowseList(props: Props): JSX.Element {
     if (top < visibleTop) node.scrollTop = top / scale
     else if (index * rowHeight + rowHeight > visibleTop + node.clientHeight)
       node.scrollTop = (index * rowHeight + rowHeight - node.clientHeight) / scale
-    props.onScroll(node.scrollTop)
+    scrolledTo(node.scrollTop)
     const entry = rowAt(index)
     if (entry) {
       pendingFocus.current = null
@@ -694,7 +780,9 @@ export function BrowseList(props: Props): JSX.Element {
             columnScroller.current.scrollLeft !== e.currentTarget.scrollLeft
           )
             columnScroller.current.scrollLeft = e.currentTarget.scrollLeft
-          if (!props.loading) props.onScroll(e.currentTarget.scrollTop)
+          // Drawn now; told to App when it comes to rest (above).
+          setTop(e.currentTarget.scrollTop)
+          if (!props.loading) untold.current = e.currentTarget.scrollTop
         }}
         // Empty space clears the pick QUIETLY: it is not a request to stop what
         // the preview plays (owner, 2026-10-03: "i should have to click the
@@ -723,7 +811,7 @@ export function BrowseList(props: Props): JSX.Element {
             <div
               className="browse-row-layer"
               style={{
-                transform: `translateY(${props.scrollTop + first * rowHeight - logicalTop}px)`
+                transform: `translateY(${top + first * rowHeight - logicalTop}px)`
               }}
             >
               {rendered.map((entry, offset) => {
@@ -859,14 +947,15 @@ export function BrowseList(props: Props): JSX.Element {
                         entry.file && (
                           // A marked row is a tint, so its icon keeps its own
                           // colours; its knockouts are the tint as seen
-                          // (dimmed or not: browse.css sets --sel-seen).
+                          // (dimmed or not, swept or not: browse.css sets
+                          // --browse-row-ground).
                           <KindIcon
                             kind={entry.file.kind}
                             ext={entry.file.ext}
                             name={entry.name}
                             color={iconColour(entry.file.kind)}
                             size={look.icon}
-                            bg={selected ? 'var(--sel-seen, var(--p-sel-tint-seen))' : 'var(--p-bg)'}
+                            bg="var(--browse-row-ground, var(--p-bg))"
                           />
                         )
                       )}
@@ -913,8 +1002,9 @@ export function BrowseList(props: Props): JSX.Element {
             </div>
           </div>
         )}
-        {sweep.sweeping && <SweepBand bandRef={sweep.bandRef} as="div" />}
       </div>
+      {/* Over the list, not in it (#332): the box never re-rasters the rows. */}
+      {sweep.sweeping && <SweepBand bandRef={sweep.bandRef} />}
       <OverlayScrollbar target={scroller} />
     </div>
   )
