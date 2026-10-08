@@ -45,6 +45,45 @@ export function rowsInBand(
   return first <= last ? { first, last } : null
 }
 
+/** The rectangle as edges, in the list's own coordinates (either way round). */
+export interface SweepBox {
+  left: number
+  right: number
+  top: number
+  bottom: number
+}
+
+/** Where a list's rows are drawn across, and how tall each one is. Every row
+ *  of one list shares the across part: the Explorer's rows are one grid, the
+ *  tree's run the tree's whole width. */
+export interface RowShape {
+  left: number
+  right: number
+  height: number
+}
+
+/**
+ * THE BOX MARKS ONLY WHAT IT TOUCHES (#326; owner, 2026-10-07: "only the ones
+ * that are inside it, even if that's a px should get marked but this is not
+ * inside at all"). The rows the rectangle overlaps ACROSS and DOWN, or null.
+ * Until then only the vertical span was asked, so a box drawn in the empty
+ * space right of the Explorer's last column marked every row at its height.
+ * A row's across part is what is DRAWN as the row, never the scroll box's
+ * width. One pixel of overlap counts: a box from the row's last pixel column
+ * touches it, a box from the first column past it does not. The edges follow
+ * `rowsInBand`'s rule, so a box with no width still marks where it stands.
+ */
+export function rowsInBox(
+  box: SweepBox,
+  row: RowShape,
+  count: number
+): { first: number; last: number } | null {
+  const lo = Math.min(box.left, box.right)
+  const hi = Math.max(box.left, box.right)
+  if (lo >= row.right || Math.max(lo, hi - 0.001) < row.left) return null
+  return rowsInBand(box.top, box.bottom, row.height, count)
+}
+
 /** The row nearest a point, clamped into first..last: the one the keyboard
  *  carries on from once the sweep ends. */
 export function nearestRow(y: number, rowH: number, first: number, last: number): number {

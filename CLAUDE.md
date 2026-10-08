@@ -627,7 +627,10 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Delete and a drag act on all; Open, Rename and More act on one and are off). The
   Explorer's MEDIUM row is the tree's default row (`rowLook()` in `treePrefs`). The `marquee`
   e2e measures both; a drag in a test is taken by the row's NAME, since a locator's centre is
-  blank space.
+  blank space. **THE BOX MARKS ONLY WHAT IT TOUCHES** (#326; owner, 2026-10-07: "only the ones
+  that are inside it, even if that's a px"): a row is hit when the rectangle overlaps it ACROSS
+  and down (`rowsInBox`), the row's across part being what is DRAWN (the Explorer's row ends at
+  its last column, measured off a row in view), never the scroll box. `marqueeEdge` holds it.
   **IN THE EXPLORER THE WHOLE ROW DRAGS, THE ARROW STAYS, AND THE BOX STARTS ONLY OFF THE ROWS**
   (#320; owner, 2026-10-07: "when you left click drag an item dont switch the cursor to the hand,
   keep it the normal cursor ... the whole row should let me left click drag ... that drag should
