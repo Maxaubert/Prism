@@ -648,6 +648,16 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   every element's cursor is pinned to `default` (`internalFileDrag.ts`; it was `grabbing`).
   The `marquee` e2e measures the gutter and the header, sweeps from beside, drags from the Size
   and Date cells (label up, no rectangle, `default` cursor under the pointer, on html and body).
+  **THE BOX IS UNDER THE POINTER IN EVERY FRAME** (#332; owner, 2026-10-08: "fast movements make
+  it fall behind the cursor, while it should stay at the cursor position perfectly the whole
+  time, file explorer's highlight does it perfectly"). The box was React state, so the list
+  rendered it AFTER each frame was painted. MEASURED (`sweepLag`, 300 rows, CDP moves of 25-40px):
+  before, every move's first frame was a move behind (up to 54px, mean 23px, list and tree), and
+  every auto-scroll frame was off (up to 430px Explorer, 203px tree); after, 0px in all of them.
+  So `useSweep` only mounts the band (`sweeping`, `bandRef`) and the pointer handler writes its
+  place straight onto it from geometry read at the press and after a scroll (`measure`), never
+  per move; marks are worked out once a frame in the tick, and again on the release, so the
+  marks that stand are the box's. Do not put the box back in React state.
   **MARKING IS NOT PICKING** (#263; owner, 2026-10-03: "when you multiselect like this it picks
   a file so here this drag starts one of the videos ... same is the case if i ctrl select it
   shouldnt start or preview anything"). In the Explorer a sweep and a Ctrl or Shift click call

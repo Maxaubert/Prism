@@ -2,7 +2,6 @@ import { useEffect, useId, useRef, useState, type CSSProperties, type JSX, type 
 import type { FileKind, ViewerFile } from '@shared/types'
 import { treeWindow, type PaintRow } from '../lib/treePaint'
 import { ROW_GAP, ROW_ICON, ROW_PAD_X, type TREE_SIZES } from '../lib/treePrefs'
-import { bandBox, type Band } from '../lib/marquee'
 import { ALONE, markedLook } from '../lib/markedLook'
 import { useTree } from '../lib/treeContext'
 import { dragIncludesPath } from '../lib/dragDrop'
@@ -777,14 +776,18 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
  * app's colours; Windows draws its drag box in the selection colour too.
  * `color-mix` against transparent keeps an accent that is itself see-through
  * see-through. Never animated: it is where the pointer is, and nothing else.
+ * Its place is not a prop (#332): `useSweep` writes it straight onto the
+ * element from the pointer handler, and it stays hidden until it has one.
  */
-export function SweepBand({ band, as = 'li' }: { band: Band; as?: 'li' | 'div' }): JSX.Element {
-  const box = bandBox(band)
+export function SweepBand({
+  bandRef,
+  as = 'li'
+}: {
+  bandRef: (el: HTMLElement | null) => void
+  as?: 'li' | 'div'
+}): JSX.Element {
   const style: CSSProperties = {
-    left: box.left,
-    top: box.top,
-    width: box.width,
-    height: box.height,
+    display: 'none',
     background: 'color-mix(in srgb, var(--p-sel-hue) 16%, transparent)',
     // The edge is the hue pulled toward the text colour: a pure accent edge
     // vanished into the rows it crossed when a mark was a solid accent fill
@@ -796,6 +799,7 @@ export function SweepBand({ band, as = 'li' }: { band: Band; as?: 'li' | 'div' }
   const Tag = as
   return (
     <Tag
+      ref={bandRef}
       role={as === 'li' ? 'none' : undefined}
       aria-hidden
       data-sweep-band
@@ -825,8 +829,9 @@ export function TreeWindow({
 }: {
   rows: readonly PaintRow[]
   scroller: RefObject<HTMLDivElement | null>
-  /** The sweep rectangle (#257), in this list's own coordinates. */
-  band?: Band | null
+  /** While a sweep (#257) draws: where its rectangle is mounted. `useSweep`
+   *  places it, in this list's own coordinates (#332). */
+  band?: ((el: HTMLElement | null) => void) | null
 }): JSX.Element {
   const t = useTree()
   const list = useRef<HTMLUListElement>(null)
@@ -912,7 +917,7 @@ export function TreeWindow({
           </li>
         )
       })}
-      {band && <SweepBand band={band} />}
+      {band && <SweepBand bandRef={band} />}
       {/* The space beneath the list means the root (#126): the line goes
           under the last row, since the root has no row of its own. */}
       {t.dropRow === 'end' && rows.length > 0 && (

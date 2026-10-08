@@ -244,15 +244,37 @@ export function BrowseList(props: Props): JSX.Element {
   }
   const sweep = useSweep({
     scroller: () => scroller.current,
-    toList: (x, y) => {
+    // Read at the press and after a scroll only (#332): never per move.
+    measure: () => {
       const node = scroller.current
-      if (!node) return { x: 0, y: 0 }
+      if (!node) return null
       const r = node.getBoundingClientRect()
+      return {
+        left: r.left,
+        top: r.top,
+        scrollTop: node.scrollTop,
+        scrollLeft: node.scrollLeft,
+        scrollWidth: node.scrollWidth
+      }
+    },
+    toList: (x, y, m) => {
       const g = geometry.current
       return {
-        x: Math.min(node.scrollWidth, Math.max(0, x - r.left + node.scrollLeft)),
-        y: Math.max(0, Math.min(Math.max(g.count * g.rowHeight, g.height), logicalTopAt(node.scrollTop) + y - r.top))
+        x: Math.min(m.scrollWidth, Math.max(0, x - m.left + m.scrollLeft)),
+        y: Math.max(0, Math.min(Math.max(g.count * g.rowHeight, g.height), logicalTopAt(m.scrollTop) + y - m.top))
       }
+    },
+    place: (band, m) => {
+      // Row coordinates to the scroll box's own: the rows sit at
+      // scrollTop + (y - logicalTop). Clamped to what is in view, so a sweep
+      // across a hundred thousand rows is still one small element. From the
+      // measured scroll, not the rendered one, so it holds while the list
+      // auto-scrolls under it.
+      const b = bandBox(band)
+      const top = m.scrollTop + b.top - logicalTopAt(m.scrollTop)
+      const lo = Math.max(top, m.scrollTop - 2)
+      const hi = Math.min(top + b.height, m.scrollTop + geometry.current.height + 2)
+      return { x0: b.left, x1: b.left + b.width, y0: lo, y1: Math.max(lo, hi) }
     },
     rowAcross: () => {
       // What is drawn as a row across (#326): the list's left to the end of
@@ -308,17 +330,6 @@ export function BrowseList(props: Props): JSX.Element {
     : (props.marked ?? null)
   const isMarked = (path: string): boolean =>
     shownMarks ? shownMarks.has(path) : path === props.selectedPath
-  const bandStyle = (() => {
-    if (!sweep.band) return null
-    // Row coordinates to the scroll box's own: the rows sit at
-    // scrollTop + (y - logicalTop). Clamped to what is in view, so a sweep
-    // across a hundred thousand rows is still one small element.
-    const b = bandBox(sweep.band)
-    const top = props.scrollTop + b.top - logicalTop
-    const lo = Math.max(top, props.scrollTop - 2)
-    const hi = Math.min(top + b.height, props.scrollTop + height + 2)
-    return { x0: b.left, x1: b.left + b.width, y0: lo, y1: Math.max(lo, hi) }
-  })()
   const onVisibleFolders = props.onVisibleFolders
   const onSearchRange = props.onSearchRange
   const indexed = !!props.indexedRows
@@ -898,7 +909,7 @@ export function BrowseList(props: Props): JSX.Element {
             </div>
           </div>
         )}
-        {bandStyle && <SweepBand band={bandStyle} as="div" />}
+        {sweep.sweeping && <SweepBand bandRef={sweep.bandRef} as="div" />}
       </div>
       <OverlayScrollbar target={scroller} />
     </div>
