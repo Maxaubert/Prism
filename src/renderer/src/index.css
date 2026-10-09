@@ -695,48 +695,6 @@ input[type='color']::-webkit-color-swatch {
   }
 }
 
-/* THE SWEEP'S MARKS IN THE TREE ARE THE HOOK'S UNTIL THE RELEASE (#332,
-   useSweep.ts). React draws a marked row with `markedLook` in its inline style;
-   while the tree's scroll box carries data-sweeping the hook marks the rows the
-   box covers `on` and the rows marked before it but not covered `off`, so a
-   pointer move never re-renders every row. The same look as `markedLook`,
-   over the inline style, hence !important: the tint, the faint edge round the
-   block (not between two marked neighbours), its shared corners squared. */
-[data-tree-sweep][data-sweeping] [data-row][data-sweep-mark='on'] {
-  --sweep-top: inset 0 1px 0 var(--p-sel-line);
-  --sweep-bottom: inset 0 -1px 0 var(--p-sel-line);
-  --tree-row-ground: var(--p-sel-tint-side) !important;
-  background: var(--p-sel-tint) !important;
-  box-shadow:
-    inset 1px 0 0 var(--p-sel-line),
-    inset -1px 0 0 var(--p-sel-line),
-    var(--sweep-top),
-    var(--sweep-bottom) !important;
-}
-/* A row's own rounding where it does not join (a folder's and a file's
-   differ, as their classes do); squared where it does. */
-[data-tree-sweep][data-sweeping] [data-row][aria-expanded][data-sweep-mark='on'] {
-  border-radius: var(--p-radius-sm) !important;
-}
-[data-tree-sweep][data-sweeping] [data-row]:not([aria-expanded])[data-sweep-mark='on'] {
-  border-radius: var(--radius-md, 0.375rem) !important;
-}
-[data-tree-sweep][data-sweeping] [data-row][data-sweep-mark='on'][data-sweep-up] {
-  --sweep-top: 0 0 0 transparent;
-  border-top-left-radius: 0 !important;
-  border-top-right-radius: 0 !important;
-}
-[data-tree-sweep][data-sweeping] [data-row][data-sweep-mark='on'][data-sweep-down] {
-  --sweep-bottom: 0 0 0 transparent;
-  border-bottom-left-radius: 0 !important;
-  border-bottom-right-radius: 0 !important;
-}
-[data-tree-sweep][data-sweeping] [data-row][data-sweep-mark='off'] {
-  --tree-row-ground: var(--p-side-flat) !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
 /* THE THEME WALL (#298). A card's frame is 2px of the card's one dark grey
    (`lib/themes/cardBox.ts`), on top of the preview, a step lighter on hover
    and on focus; the chosen card's ring sits outside it. A hidden card is out of the layout; while

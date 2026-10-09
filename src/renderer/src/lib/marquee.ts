@@ -4,9 +4,27 @@
 // which elements the rectangle covers: a row scrolled out of view has no
 // element, and it is still inside the rectangle.
 
+/** The rectangle, in the list's own coordinates: y is measured from the top
+ *  of row 0, so it does not move when the list scrolls. */
+export interface Band {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
 /** How far the pointer must travel before a press becomes a sweep. Below it a
  *  press is a click and keeps everything a click does today. */
 export const SWEEP_THRESHOLD = 4
+
+export function bandBox(b: Band): { left: number; top: number; width: number; height: number } {
+  return {
+    left: Math.min(b.x0, b.x1),
+    top: Math.min(b.y0, b.y1),
+    width: Math.abs(b.x1 - b.x0),
+    height: Math.abs(b.y1 - b.y0)
+  }
+}
 
 /** The first and last row index the span top..bottom touches, or null when it
  *  touches none (all of it above row 0, or below the last row). A row counts
@@ -106,88 +124,7 @@ export function onRowOwnPart(x: number, rects: Iterable<{ right: number }>): boo
   return x <= end
 }
 
-/** The rows a sweep covers, by index, and the one the pointer is nearest. */
-export interface SweepSpan {
-  first: number
-  last: number
-  near: number
-}
-
-/** Did the covered rows change? The hit set is a run of indices, so this is
- *  the whole incremental test (#332, Explorer's `_PerformItemCompare` re-tests
- *  only what moved): a move that covers the same run touches no row at all. */
-export function sameSpan(a: SweepSpan | null, b: SweepSpan | null): boolean {
-  if (!a || !b) return a === b
-  return a.first === b.first && a.last === b.last
-}
-
-/** Is row `index` inside the span? */
-export function inSpan(span: SweepSpan | null, index: number): boolean {
-  return !!span && index >= span.first && index <= span.last
-}
-
-/** A point, either in a list's content (y from row 0, so it does not move
- *  when the list scrolls) or on the screen (client pixels). */
-export interface Point {
-  x: number
-  y: number
-}
-
-/** A list's content point on screen: its content box's place on screen
- *  (`origin`) minus how far it is scrolled. And back. The anchor of a sweep is
- *  kept as content, so a scroll moves it with the rows (#332). */
-export function contentToClient(p: Point, origin: Point, scroll: Point): Point {
-  return { x: origin.x + p.x - scroll.x, y: origin.y + p.y - scroll.y }
-}
-export function clientToContent(p: Point, origin: Point, scroll: Point): Point {
-  return { x: p.x - origin.x + scroll.x, y: p.y - origin.y + scroll.y }
-}
-
-/** A box on screen, in client pixels. */
-export interface ClientRect {
-  left: number
-  top: number
-  right: number
-  bottom: number
-}
-
-/** A point held to a list's visible extent plus a pixel each way, as
- *  Explorer's `OnMouseMoved` holds the marquee to its viewer (#332): past the
- *  edge the box stops at it while the list scrolls under it. */
-export function clampToView(p: Point, view: ClientRect): Point {
-  return {
-    x: Math.min(view.right + 1, Math.max(view.left - 1, p.x)),
-    y: Math.min(view.bottom + 1, Math.max(view.top - 1, p.y))
-  }
-}
-
-/**
- * THE BOX IN WHOLE DEVICE PIXELS (#332; owner, 2026-10-08: the box shakes).
- * Explorer's marquee is integer geometry from one fixed corner: X = min,
- * Width = (max + 1) - min, in physical pixels. A box at fractional CSS pixels
- * has each edge snapped on its own by the compositor, so the edge that should
- * stand still flickers a device pixel as the other one moves. Here both
- * corners are rounded to the device grid first, then the box covers the
- * pixels from the lower one to the higher one, both included: the same anchor
- * gives the same edge on every frame, and a box level with the press is still
- * one device pixel thick.
- */
-export function snapBox(
-  a: Point,
-  b: Point,
-  dpr: number
-): { left: number; top: number; width: number; height: number } {
-  const d = dpr > 0 ? dpr : 1
-  const x0 = Math.round(Math.min(a.x, b.x) * d)
-  const x1 = Math.round(Math.max(a.x, b.x) * d)
-  const y0 = Math.round(Math.min(a.y, b.y) * d)
-  const y1 = Math.round(Math.max(a.y, b.y) * d)
-  return { left: x0 / d, top: y0 / d, width: (x1 + 1 - x0) / d, height: (y1 + 1 - y0) / d }
-}
-
-/** What a row reads as while a sweep runs: covered (`on`), marked before the
- *  sweep but not covered by it (`off`, the mark it had is taken away while the
- *  box draws), or left as it is (null). */
-export function sweepMark(covered: boolean, heldBefore: boolean): 'on' | 'off' | null {
-  return covered ? 'on' : heldBefore ? 'off' : null
+/** Two hit lists the same? Saves a render per pointer move that changed nothing. */
+export function sameHits(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((p, i) => p === b[i])
 }

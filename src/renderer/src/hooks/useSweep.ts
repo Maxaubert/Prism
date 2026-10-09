@@ -8,16 +8,11 @@ import {
 import { flushSync } from 'react-dom'
 import {
   SWEEP_THRESHOLD,
-  clampToView,
+  bandBox,
   edgeSpeed,
-  inSpan,
-  sameSpan,
-  snapBox,
-  sweepMark,
-  type ClientRect,
-  type Point,
-  type SweepBox,
-  type SweepSpan
+  sameHits,
+  type Band,
+  type SweepBox
 } from '../lib/marquee'
 
 /**
@@ -53,52 +48,16 @@ import {
  * scrolled or resized, and at the release), with no layout read on the way.
  * The band is mounted synchronously (`flushSync`) by the move that starts the
  * sweep, since a render scheduled from a native listener can land after that
- * frame is painted and show it with no box at all. `pointerrawupdate` was
- * weighed and left out: pointermove is already delivered just before the
- * frame is drawn, with the newest position the frame can show, and the raw
- * event is for secure origins only.
- *
- * AND IT DOES NOT SHAKE (#332; owner, 2026-10-08, the box "shakes, as if it
- * keeps re-rendering"; research `research/prism/2026-10-08-explorer-marquee.md`).
- * The shake was uneven lag: the gap to the pointer changed size from frame to
- * frame. Explorer's `UIMarqueeSelector` does little, in one place, from one
- * position, in whole pixels, and so does this:
- * - THE MARKS ARE NOT REACT'S UNTIL THE RELEASE. A sweep that changed the hit
- *   set re-rendered the list (the tree: every row) in that frame, and a long
- *   render held the box a frame and then jumped it two. Now the hook writes
- *   `data-sweep-mark` (`on` or `off`) and `data-sweep-up` / `-down` on the rows
- *   in view (`rows`), which the stylesheets draw over React's own marks while
- *   the scroller carries `data-sweeping`, again after any render adds rows
- *   (a MutationObserver), and only when the covered run of rows changed. The
- *   selection goes to React ONCE, on the release, in the same task that takes
- *   the hook's marks away, so no frame shows either half alone. Escape, a
- *   cancel and a lost focus only take them away: React never changed.
- * - THE BOX IS OUT OF THE LIST. Inside the scroller every resize of the box
- *   re-rastered the rows under it. It is a clipped overlay over the scroller
- *   now (`SweepBand`), placed in screen pixels.
- * - ONE CORNER STAYS PUT. The press is kept in the list's own coordinates
- *   (`start`) and mapped to the screen on every move and every scroll, with the
- *   last pointer position, as Explorer's ScrollUpdateEvent does; both corners
- *   are snapped to whole device pixels (`snapBox`), so the anchored edge is the
- *   same pixel on every frame, and each is held to the list plus a pixel.
- * - ONE POSITION SOURCE. The box is painted in the pointermove from that
- *   event's own point, one write per event, never animated; auto-scroll reads
- *   the list's edges from the measured geometry, not a layout read per frame.
+ * frame is painted and show it with no box at all. What the box marks is worked out
+ * at most once a frame, in the frame's own callback, from the latest
+ * position, and once more on the release, so the marks that stand are exactly
+ * the box's. `pointerrawupdate` was weighed and left out: pointermove is
+ * already delivered just before the frame is drawn, with the newest position
+ * the frame can show, and the raw event is for secure origins only.
  */
 export interface RowAcross {
   left: number
   right: number
-}
-
-/** A row drawn in the list, as the sweep marks it: its element, its index (the
- *  hit test's unit), its path (the selection's), and the neighbours a marked
- *  run joins across, by the host's own rule for its React marks. */
-export interface SweepRow {
-  el: HTMLElement
-  index: number
-  path: string
-  up: { index: number; path: string } | null
-  down: { index: number; path: string } | null
 }
 
 export interface SweepOptions<G> {
@@ -109,21 +68,19 @@ export interface SweepOptions<G> {
    *  never waits on a layout. Null while there is nothing to measure. */
   measure: () => G | null
   /** A pointer position in the list's own coordinates (y from row 0's top),
-   *  from the measured geometry alone, clamped to the list's content. */
-  toList: (clientX: number, clientY: number, geo: G) => Point
-  /** And back: a point in the list's coordinates, on the screen now. */
-  toClient: (p: Point, geo: G) => Point
-  /** The rows the rectangle touches, across AND down (#326: `rowsInBox`), by
-   *  index, plus the one the pointer is nearest (where the keyboard carries on
-   *  from), or null. */
-  span: (box: SweepBox, pointerY: number, across: RowAcross | null) => SweepSpan | null
-  /** A span's rows as paths, and the nearest one's: asked once, at the release. */
-  pathsIn: (span: SweepSpan) => { paths: string[]; near: string | null }
-  /** The rows drawn now, to be marked. */
-  rows: () => Iterable<SweepRow>
-  /** Is this row marked by React now? Read while the sweep runs, when React's
-   *  marks are still the ones from before it. */
-  held: (path: string) => boolean
+   *  from the measured geometry alone. */
+  toList: (clientX: number, clientY: number, geo: G) => { x: number; y: number }
+  /** The box, from the list's coordinates into the band element's own
+   *  container's, or null to leave it as it is. */
+  place?: (band: Band, geo: G) => Band
+  /** The rows the rectangle touches, across AND down (#326: `rowsInBox`), in
+   *  list order, plus the one the pointer is nearest (where the keyboard
+   *  carries on from). */
+  hitsIn: (
+    box: SweepBox,
+    pointerY: number,
+    across: RowAcross | null
+  ) => { paths: string[]; near: string | null }
   /** Where a drawn row runs across, in the list's own x, or null while no row
    *  is drawn. Measured once per sweep (a row cannot change width under a
    *  held button), not on every tick, which would force a layout read each
@@ -131,26 +88,16 @@ export interface SweepOptions<G> {
   rowAcross: () => RowAcross | null
   /** Scroll the list by this many screen pixels. */
   scrollBy: (dy: number) => void
-  /** Released with the rectangle up: the sweep's result stands. `add` is a
-   *  Ctrl sweep, which keeps what was marked before it. Called inside
-   *  `flushSync`, so what it sets is on screen in the release's own frame. */
-  onEnd: (paths: string[], near: string | null, add: boolean) => void
-  /** Escape, a cancel or a lost focus: put back what was marked before the
-   *  press, if the press itself changed it. */
+  /** The sweep's covered rows, live, as it grows and shrinks. */
+  onChange: (paths: string[]) => void
+  /** Released with the rectangle up: the sweep's result stands. */
+  onEnd: (paths: string[], near: string | null) => void
+  /** Escape: put back what was marked before the press. */
   onCancel: () => void
 }
 
-const MARK_ATTRS = ['data-sweep-mark', 'data-sweep-up', 'data-sweep-down'] as const
-
-/** Set or remove an attribute, touching the element only when it changes. */
-function attr(el: HTMLElement, name: string, value: string | null): void {
-  if (el.getAttribute(name) === value) return
-  if (value === null) el.removeAttribute(name)
-  else el.setAttribute(name, value)
-}
-
 export function useSweep<G>(options: SweepOptions<G>): {
-  /** A sweep is drawing: mount `SweepBand` and hand it `bandRef`. */
+  /** A sweep is drawing: mount the band element and hand it `bandRef`. */
   sweeping: boolean
   bandRef: (el: HTMLElement | null) => void
   begin: (e: ReactPointerEvent, row?: HTMLElement | null) => void
@@ -161,15 +108,14 @@ export function useSweep<G>(options: SweepOptions<G>): {
   })
   const [sweeping, setSweeping] = useState(false)
   const stop = useRef<(() => void) | null>(null)
-  /** The overlay's clip; the band is its one child. */
-  const clip = useRef<HTMLElement | null>(null)
-  /** Places the running sweep's overlay and draws the box, as it is now. */
+  const band = useRef<HTMLElement | null>(null)
+  /** Draws the running sweep's box, as it is now. */
   const draw = useRef<(() => void) | null>(null)
   useEffect(() => () => stop.current?.(), [])
   const bandRef = useCallback((el: HTMLElement | null): void => {
-    clip.current = el
-    // Mounted by the move that began the sweep: placed in the commit that
-    // adds it, so its first painted frame already has it under the pointer.
+    band.current = el
+    // Mounted a frame after the sweep began: placed in the commit that adds
+    // it, so its first painted frame already has it under the pointer.
     if (el) draw.current?.()
   }, [])
 
@@ -180,102 +126,50 @@ export function useSweep<G>(options: SweepOptions<G>): {
     const pointerId = e.pointerId
     const sx = e.clientX
     const sy = e.clientY
-    const add = e.ctrlKey
     let geo = opts.current.measure()
-    // The press, in the list's own coordinates: it moves with the rows.
     const start = geo ? opts.current.toList(sx, sy, geo) : { x: 0, y: 0 }
     let last = { x: sx, y: sy }
     let started = false
     let cancelled = false
-    let span: SweepSpan | null = null
-    // The marks were painted at least once (until then React's stand alone).
-    let marking = false
+    let hits: string[] = []
+    let near: string | null = null
     let frame = 0
     // The pointer moved (or the list scrolled) since the marks were worked out.
     let dirty = false
-    let across: { left: number; right: number } | null = null
+    let across: RowAcross | null = null
     let box: HTMLElement | null = null
     let resized: ResizeObserver | null = null
-    let added: MutationObserver | null = null
-    /** The scroller's visible box on screen, and where the overlay's container
-     *  starts: measured with the geometry, never per move. */
-    let view: ClientRect | null = null
-    let origin: Point | null = null
-    const dpr = window.devicePixelRatio || 1
     const wasDraggable = row?.draggable ?? false
     if (row) row.draggable = false
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-    const remeasure = (): void => {
-      geo = opts.current.measure() ?? geo
+    /** The box, in the list's own coordinates. */
+    const bandNow = (): Band | null => {
+      if (!geo) return null
+      const at = opts.current.toList(last.x, last.y, geo)
+      return { x0: start.x, y0: start.y, x1: at.x, y1: at.y }
     }
-    /** The scroller's box and the overlay's container. Only at the start and
-     *  after a resize: a scroll moves neither. */
-    const measureView = (): void => {
-      const sc = box ?? opts.current.scroller()
-      if (!sc) return
-      const r = sc.getBoundingClientRect()
-      const left = r.left + sc.clientLeft
-      const top = r.top + sc.clientTop
-      view = { left, top, right: left + sc.clientWidth, bottom: top + sc.clientHeight }
-      const c = clip.current
-      const host = c?.parentElement
-      if (!c || !host) return
-      const h = host.getBoundingClientRect()
-      origin = { x: h.left + host.clientLeft, y: h.top + host.clientTop }
-      // The clip is the scroller's visible box: the box is cut where the list is.
-      c.style.left = `${view.left - origin.x}px`
-      c.style.top = `${view.top - origin.y}px`
-      c.style.width = `${view.right - view.left}px`
-      c.style.height = `${view.bottom - view.top}px`
-    }
-    /** The box, from the anchor and the last pointer point. Written straight
-     *  onto the element: no render, no layout read. */
     const paint = (): void => {
-      const c = clip.current
-      const band = c?.firstElementChild as HTMLElement | null | undefined
-      if (!c || !band || !started || cancelled || !geo || !view) return
-      const o = opts.current
-      const anchor = clampToView(o.toClient(start, geo), view)
-      const at = clampToView(o.toClient(o.toList(last.x, last.y, geo), geo), view)
-      const s = snapBox(anchor, at, dpr)
-      band.style.left = `${s.left - view.left}px`
-      band.style.top = `${s.top - view.top}px`
-      band.style.width = `${s.width}px`
-      band.style.height = `${s.height}px`
-      if (c.style.display !== 'block') c.style.display = 'block'
+      const el = band.current
+      const b = started && !cancelled ? bandNow() : null
+      if (!el || !b || !geo) return
+      const p = bandBox(opts.current.place ? opts.current.place(b, geo) : b)
+      // Written straight onto the element: no render, no layout read.
+      el.style.display = 'block'
+      el.style.left = `${p.left}px`
+      el.style.top = `${p.top}px`
+      el.style.width = `${p.width}px`
+      el.style.height = `${p.height}px`
     }
-    /** Is this row inside what the sweep marks? */
-    const covered = (index: number, path: string): boolean =>
-      inSpan(span, index) || (add && opts.current.held(path))
-    /** The marks on the rows in view, from the current span. */
-    const paintMarks = (): void => {
-      if (!started || cancelled) return
-      marking = true
-      const o = opts.current
-      for (const r of o.rows()) {
-        const on = covered(r.index, r.path)
-        attr(r.el, 'data-sweep-mark', sweepMark(on, o.held(r.path)))
-        attr(r.el, 'data-sweep-up', on && r.up && covered(r.up.index, r.up.path) ? '' : null)
-        attr(r.el, 'data-sweep-down', on && r.down && covered(r.down.index, r.down.path) ? '' : null)
-      }
-    }
-    const clearMarks = (): void => {
-      marking = false
-      if (!box) return
-      for (const el of box.querySelectorAll<HTMLElement>('[data-sweep-mark],[data-sweep-up],[data-sweep-down]'))
-        for (const a of MARK_ATTRS) el.removeAttribute(a)
-    }
-    /** What the box covers, from the latest position. At most once a frame
-     *  while it moves, and once more on the release; the rows are touched only
-     *  when the covered run changed. */
+    /** What the box marks, from the latest position. At most once a frame
+     *  while it moves, and once more on the release. */
     const mark = (): void => {
       dirty = false
       const o = opts.current
-      if (!geo) return
-      const at = o.toList(last.x, last.y, geo)
+      const at = geo ? o.toList(last.x, last.y, geo) : null
+      if (!at) return
       across ??= o.rowAcross()
-      const next = o.span(
+      const next = o.hitsIn(
         {
           left: Math.min(start.x, at.x),
           right: Math.max(start.x, at.x),
@@ -285,26 +179,23 @@ export function useSweep<G>(options: SweepOptions<G>): {
         at.y,
         across
       )
-      const changed = !sameSpan(span, next) || !marking
-      span = next
-      if (changed) paintMarks()
+      near = next.near
+      if (!sameHits(hits, next.paths)) {
+        hits = next.paths
+        o.onChange(hits)
+      }
     }
-    // The list scrolled (a wheel under the held button, or our own scroll):
-    // the anchor moved with the rows and the far corner is still under the
-    // pointer, so the box is drawn again, in this frame (scroll events come
-    // before the frame is painted).
+    const remeasure = (): void => {
+      geo = opts.current.measure() ?? geo
+    }
+    // The list scrolled (a wheel under the held button, or our own scroll), or
+    // its layout changed (rows added or removed by the watcher, a window or
+    // pane resize): the box's far corner is still under the pointer, so it is
+    // drawn again with the new offsets, in this frame (scroll events and
+    // resize observations come before the frame is painted).
     const scrolled = (): void => {
       if (!started || cancelled) return
       remeasure()
-      paint()
-      dirty = true
-    }
-    // Its layout changed (rows added or removed by the watcher, a window or
-    // pane resize): the scroller's box may have moved too.
-    const relaid = (): void => {
-      if (!started || cancelled) return
-      remeasure()
-      measureView()
       paint()
       dirty = true
     }
@@ -315,12 +206,14 @@ export function useSweep<G>(options: SweepOptions<G>): {
     const tick = (): void => {
       frame = 0
       if (!started || cancelled) return
-      if (box && view) {
-        const dy = edgeSpeed(last.y, view.top, view.bottom, 36, still ? 11 : 22)
+      const sc = opts.current.scroller()
+      if (sc && geo) {
+        const r = sc.getBoundingClientRect()
+        const dy = edgeSpeed(last.y, r.top, r.bottom, 36, still ? 11 : 22)
         if (dy) {
-          const before = box.scrollTop
+          const before = sc.scrollTop
           opts.current.scrollBy(dy)
-          if (box.scrollTop !== before) scrolled()
+          if (sc.scrollTop !== before) scrolled()
         }
       }
       if (dirty) mark()
@@ -336,49 +229,43 @@ export function useSweep<G>(options: SweepOptions<G>): {
       window.addEventListener('click', eat, { capture: true, once: true })
       setTimeout(() => window.removeEventListener('click', eat, true), 0)
     }
-    /** Ends the sweep. `commit` hands the result to React; it runs in a
-     *  `flushSync` BEFORE the hook's marks come off, in one task, so the frame
-     *  after the release shows React's marks and never a frame of neither. */
-    const cleanup = (commit?: () => void): void => {
+    const hide = (): void => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = 0
+      // Gone in this frame, before React gets round to unmounting it.
+      if (band.current) band.current.style.display = 'none'
+      setSweeping(false)
+    }
+    const cleanup = (): void => {
       window.removeEventListener('pointermove', move, true)
       window.removeEventListener('pointerup', up, true)
       window.removeEventListener('pointercancel', abort, true)
       window.removeEventListener('keydown', key, true)
       window.removeEventListener('blur', abort)
       box?.removeEventListener('scroll', scrolled)
-      window.removeEventListener('resize', relaid)
+      window.removeEventListener('resize', scrolled)
       resized?.disconnect()
       resized = null
-      added?.disconnect()
-      added = null
-      if (frame) cancelAnimationFrame(frame)
-      frame = 0
       if (row) row.draggable = wasDraggable
       if (box?.hasPointerCapture?.(pointerId)) box.releasePointerCapture(pointerId)
-      // Gone in this frame, before React gets round to unmounting it.
-      if (clip.current) clip.current.style.display = 'none'
+      box?.removeAttribute('data-sweeping')
+      hide()
       draw.current = null
       stop.current = null
-      if (commit)
-        flushSync(() => {
-          setSweeping(false)
-          commit()
-        })
-      else setSweeping(false)
-      clearMarks()
-      box?.removeAttribute('data-sweeping')
     }
     const finish = (): void => {
       const wasSweep = started && !cancelled
       // The marks that stand are the box's at the release, never a frame old:
       // measured again first, since a wheel turn just before the release has
       // moved the list but not yet sent its scroll event. One layout read.
-      if (!wasSweep) return cleanup()
-      remeasure()
-      mark()
-      const o = opts.current
-      const result = span ? o.pathsIn(span) : { paths: [], near: null }
-      cleanup(() => o.onEnd(result.paths, result.near, add))
+      if (wasSweep) {
+        remeasure()
+        mark()
+      }
+      const result = hits
+      const at = near
+      cleanup()
+      if (wasSweep) opts.current.onEnd(result, at)
     }
     const move = (ev: PointerEvent): void => {
       if (ev.pointerId !== pointerId) return
@@ -400,24 +287,16 @@ export function useSweep<G>(options: SweepOptions<G>): {
         box = opts.current.scroller()
         box?.setAttribute('data-sweeping', '')
         box?.addEventListener('scroll', scrolled, { passive: true })
-        window.addEventListener('resize', relaid)
+        window.addEventListener('resize', scrolled)
         if (box && typeof ResizeObserver !== 'undefined') {
           // The box and what it holds (the list grows or shrinks as rows come
-          // and go).
-          resized = new ResizeObserver(relaid)
+          // and go); never the band itself, which changes size on every move.
+          resized = new ResizeObserver(scrolled)
           resized.observe(box)
-          for (const child of box.children) resized.observe(child)
+          for (const child of box.children)
+            if (!child.hasAttribute('data-sweep-band')) resized.observe(child)
           const tree = box.querySelector('[role="tree"]')
           if (tree && tree.parentElement !== box) resized.observe(tree)
-        }
-        if (box && typeof MutationObserver !== 'undefined') {
-          // A render that drew new rows (the list scrolled to them) drew them
-          // with React's marks: they get the sweep's before the frame is
-          // painted (observer callbacks run right after the commit).
-          added = new MutationObserver(() => {
-            if (marking) paintMarks()
-          })
-          added.observe(box, { childList: true, subtree: true })
         }
         // Captured only now: a capture from the press would retarget the click
         // of a plain press, and that click is today's behaviour.
@@ -427,15 +306,7 @@ export function useSweep<G>(options: SweepOptions<G>): {
           /* the pointer already went; the window listeners still hear it */
         }
         window.getSelection()?.removeAllRanges()
-        measureView()
-        draw.current = (): void => {
-          const band = clip.current?.firstElementChild as HTMLElement | null | undefined
-          // One device pixel of edge, whatever the zoom (#332): a 1px CSS
-          // border is 2.25 device pixels at 225% and is snapped on its own.
-          band?.style.setProperty('--sweep-hair', `${1 / dpr}px`)
-          measureView()
-          paint()
-        }
+        draw.current = paint
         // Synchronous, once per sweep: the band is in the DOM (and placed, by
         // `bandRef`) before this frame is painted.
         flushSync(() => setSweeping(true))
@@ -462,12 +333,7 @@ export function useSweep<G>(options: SweepOptions<G>): {
       ev.preventDefault()
       ev.stopPropagation()
       cancelled = true
-      if (frame) cancelAnimationFrame(frame)
-      frame = 0
-      if (clip.current) clip.current.style.display = 'none'
-      setSweeping(false)
-      // React never saw the sweep: taking the hook's marks away is the undo.
-      clearMarks()
+      hide()
       opts.current.onCancel()
       // Still listening for the release, so its click is eaten too.
     }
@@ -476,7 +342,7 @@ export function useSweep<G>(options: SweepOptions<G>): {
     window.addEventListener('pointercancel', abort, true)
     window.addEventListener('keydown', key, true)
     window.addEventListener('blur', abort)
-    stop.current = () => cleanup()
+    stop.current = cleanup
   }, [])
 
   return { sweeping, bandRef, begin }

@@ -7625,21 +7625,6 @@ async function folderArgScenario(fixtures) {
   }
 }
 
-/** In the page: how many sweep rectangles a list shows. The box is a sibling of
- *  the scroller since #332, so it is looked for in the list's own area. */
-function sweepBandCount(scope) {
-  const el = document.querySelector(scope)
-  const host = el?.closest('.browse-list-area') ?? el
-  return host ? host.querySelectorAll('[data-sweep-band]').length : 0
-}
-/** In the page: the Explorer's rows that read as marked. Mid-sweep that is the
- *  sweep's own mark (#332: React's marks stand still until the release). */
-function sweepListMarked(scope) {
-  return [...document.querySelectorAll(`${scope} [data-browse-path]`)]
-    .filter((r) => (r.hasAttribute('data-sweep-mark') ? r.getAttribute('data-sweep-mark') === 'on' : r.getAttribute('aria-selected') === 'true'))
-    .map((r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0])
-}
-
 /**
  * THE SWEEP RECTANGLE AND ONE ROW SIZE (#257; owner, 2026-10-03: "let me
  * highlight files by holding down left click ... that transparent quadrant",
@@ -7670,7 +7655,7 @@ async function marqueeScenario(fixtures) {
     await sleep(200)
     return during
   }
-  const band = (scope) => win.evaluate(sweepBandCount, scope)
+  const band = (scope) => win.evaluate((s) => document.querySelectorAll(`${s} [data-sweep-band]`).length, scope)
   try {
     /* ---------- the tree ---------- */
     await win.waitForSelector('aside [data-row]', { timeout: 10000 })
@@ -7679,12 +7664,9 @@ async function marqueeScenario(fixtures) {
       const r = win.locator('aside [data-row]').nth(i)
       return { box: await r.boundingBox(), path: await r.getAttribute('data-row') }
     }
-    // What reads as marked: mid-sweep the sweep's own marks (#332), else React's.
     const treeMarked = () =>
       win.evaluate(() =>
-        [...document.querySelectorAll('aside [data-row]')]
-          .filter((r) => (r.hasAttribute('data-sweep-mark') ? r.getAttribute('data-sweep-mark') === 'on' : r.hasAttribute('data-selected')))
-          .map((r) => /[^\\]*$/.exec(r.getAttribute('data-row') ?? '')?.[0])
+        [...document.querySelectorAll('aside [data-row][data-selected]')].map((r) => /[^\\]*$/.exec(r.getAttribute('data-row') ?? '')?.[0])
       )
     const r0 = await treeRow(0)
     const r2 = await treeRow(2)
@@ -7821,7 +7803,12 @@ async function marqueeScenario(fixtures) {
     ok(exLook.gap === treeLook.gap, `and the tree's gap after it (${exLook.gap} and ${treeLook.gap})`)
     await win.screenshot({ path: join(SHOTS, 'explorer-rows.png') })
 
-    const exMarked = () => win.evaluate(sweepListMarked, '[data-testid="browse-list"]')
+    const exMarked = () =>
+      win.evaluate(() =>
+        [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]')].map(
+          (r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0]
+        )
+      )
     const listBox = await list.boundingBox()
     const e0 = await rowAt(0).boundingBox()
     const e2 = await rowAt(2).boundingBox()
@@ -8194,8 +8181,15 @@ async function marqueeEdgeScenario(fixtures) {
     return during
   }
   const listSel = '[data-testid="browse-list"]'
-  const band = () => win.evaluate(sweepBandCount, listSel)
-  const exMarked = () => win.evaluate(sweepListMarked, listSel)
+  const band = () => win.evaluate((s) => document.querySelectorAll(`${s} [data-sweep-band]`).length, listSel)
+  const exMarked = () =>
+    win.evaluate(
+      (s) =>
+        [...document.querySelectorAll(`${s} [data-browse-path][aria-selected="true"]`)].map(
+          (r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0]
+        ),
+      listSel
+    )
   try {
     await win.waitForSelector('aside [data-row]', { timeout: 10000 })
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
@@ -8282,7 +8276,7 @@ async function sweepLagScenario(fixtures) {
   // The probe: installed before the press, read and removed after the release.
   const probe = (scope) =>
     win.evaluate((scope) => {
-      const s = { pts: [], frames: [], handler: [], commits: 0, liveCommits: { move: 0, burst: 0, scroll: 0 }, live: false, start: null, phase: 'move', t0: null }
+      const s = { pts: [], frames: [], handler: [], commits: 0, start: null, phase: 'move', t0: null }
       globalThis.__lag = s
       const down = (e) => (s.start = { x: e.clientX, y: e.clientY })
       const mv = (e) => {
@@ -8297,16 +8291,9 @@ async function sweepLagScenario(fixtures) {
       window.addEventListener('pointermove', mv, true)
       window.addEventListener('pointermove', mvEnd, false)
       const root = document.querySelector(scope)
-      const isBand = (n) =>
-        !!(n && n.nodeType === 1 ? n.closest('[data-sweep-band],[data-sweep-clip]') : n?.parentElement?.closest('[data-sweep-band],[data-sweep-clip]'))
-      // The sweep's own marks (#332) are the hook's writes, not a render.
-      const own = (r) => r.type === 'attributes' && /^data-sweep/.test(r.attributeName ?? '')
+      const isBand = (n) => !!(n && n.nodeType === 1 ? n.closest('[data-sweep-band]') : n?.parentElement?.closest('[data-sweep-band]'))
       const mo = new MutationObserver((recs) => {
-        const rendered = recs.filter((r) => !own(r) && !isBand(r.target) && ![...r.addedNodes, ...r.removedNodes].some(isBand))
-        if (!rendered.length) return
-        s.commits += 1
-        // Once the box is up: a render of the list in a frame of the sweep.
-        if (s.live) s.liveCommits[s.phase] += 1
+        if (recs.some((r) => !isBand(r.target) && ![...r.addedNodes, ...r.removedNodes].some(isBand))) s.commits += 1
       })
       mo.observe(root, { subtree: true, attributes: true, childList: true, characterData: true })
       const dot = document.createElement('div')
@@ -8325,39 +8312,24 @@ async function sweepLagScenario(fixtures) {
           if (/(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight) return n
         return root
       })()
-      // The box is a sibling of the scroller since #332: found in the list's area.
-      const host = root.closest('.browse-list-area') ?? root
-      const dpr = window.devicePixelRatio || 1
-      s.dpr = dpr
       const sample = () => {
-        const band = host.querySelector('[data-sweep-band]')
+        const band = document.querySelector(`${scope} [data-sweep-band]`)
         const p = s.pts[s.pts.length - 1]
         if (!p || !s.start) return
         // Past the threshold (4 px) the sweep has begun, so a painted frame
         // with no box showing is a late frame, not one to skip (review of #332).
         const begun = s.pts.some((q) => Math.abs(q.x - s.start.x) >= 4 || Math.abs(q.y - s.start.y) >= 4)
-        if (!band || !band.getClientRects().length) {
+        if (!band || getComputedStyle(band).display === 'none') {
           if (begun) s.frames.push({ phase: s.phase, off: 9999, behind: 0, top: scroller.scrollTop, at: `no box at ${p.x},${p.y}` })
           return
         }
-        s.live = true
         const r = band.getBoundingClientRect()
-        // EVERY EDGE ON A DEVICE PIXEL (#332): how far the worst one is off it.
-        const frac = Math.max(...[r.left, r.top, r.right, r.bottom].map((v) => Math.abs(v * dpr - Math.round(v * dpr))))
-        // The box covers the pointer's own pixel, both included, as Explorer's
-        // does: its far edge is one device pixel past that pixel's start.
-        const px = 1 / dpr
-        // The moving corner. Level with the press, the box is one device pixel
-        // thick, and either edge is the pointer's.
+        // The moving corner. Level with the press, the box is only its two
+        // 1px edges thick, and either edge is the pointer's.
         const edge = (pv, sv, lo, hi) =>
-          Math.abs(pv - sv) < 2 ? (Math.abs(lo - pv) < Math.abs(hi - px - pv) ? lo : hi - px) : pv >= sv ? hi - px : lo
+          Math.abs(pv - sv) < 2 ? (Math.abs(lo - pv) < Math.abs(hi - pv) ? lo : hi) : pv >= sv ? hi : lo
         const cx = edge(p.x, s.start.x, r.left, r.right)
         const cy = edge(p.y, s.start.y, r.top, r.bottom)
-        // THE ANCHORED CORNER, in device pixels (#332): the press's own pixel,
-        // which must not move while the list does not scroll.
-        const anchor = (pv, sv, lo, hi) => (Math.abs(pv - sv) < 2 ? null : pv >= sv ? Math.round(lo * dpr) : Math.round(hi * dpr) - 1)
-        const ax = anchor(p.x, s.start.x, r.left, r.right)
-        const ay = anchor(p.y, s.start.y, r.top, r.bottom)
         let behind = 0
         let bestD = Infinity
         for (let k = 0; k < Math.min(40, s.pts.length); k++) {
@@ -8372,9 +8344,6 @@ async function sweepLagScenario(fixtures) {
           phase: s.phase,
           off: Math.hypot(cx - p.x, cy - p.y),
           behind,
-          frac,
-          ax,
-          ay,
           top: scroller.scrollTop,
           at: `${Math.round((cx - p.x) * 10) / 10},${Math.round((cy - p.y) * 10) / 10} at ${p.x},${p.y} from ${s.start.x},${s.start.y} band ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)} top ${scroller.scrollTop}`
         })
@@ -8397,25 +8366,15 @@ async function sweepLagScenario(fixtures) {
     win.evaluate(() => {
       const s = globalThis.__lag
       s.stop()
-      const sum = (fs) => {
-        // The anchored corner over the frames the list did not scroll in.
-        const still = fs.filter((f) => f.top === fs[0]?.top)
-        const xs = new Set(still.map((f) => f.ax).filter((v) => v !== null && v !== undefined))
-        const ys = new Set(still.map((f) => f.ay).filter((v) => v !== null && v !== undefined))
-        return {
-          frames: fs.length,
-          late: fs.filter((f) => f.off > 1).length,
-          maxOff: Math.round(Math.max(0, ...fs.map((f) => f.off)) * 10) / 10,
-          meanOff: Math.round((fs.reduce((a, f) => a + f.off, 0) / Math.max(1, fs.length)) * 10) / 10,
-          maxBehind: Math.max(0, ...fs.map((f) => f.behind)),
-          worst: fs.filter((f) => f.off > 1).slice(0, 3).map((f) => f.at),
-          scrolled: fs.length ? Math.round(fs[fs.length - 1].top - fs[0].top) : 0,
-          offPixel: fs.filter((f) => f.frac !== undefined && f.frac > 0.05).length,
-          maxFrac: Math.round(Math.max(0, ...fs.map((f) => f.frac ?? 0)) * 1000) / 1000,
-          anchors: [...xs].length + 'x' + [...ys].length,
-          anchorStill: xs.size <= 1 && ys.size <= 1
-        }
-      }
+      const sum = (fs) => ({
+        frames: fs.length,
+        late: fs.filter((f) => f.off > 1).length,
+        maxOff: Math.round(Math.max(0, ...fs.map((f) => f.off)) * 10) / 10,
+        meanOff: Math.round((fs.reduce((a, f) => a + f.off, 0) / Math.max(1, fs.length)) * 10) / 10,
+        maxBehind: Math.max(0, ...fs.map((f) => f.behind)),
+        worst: fs.filter((f) => f.off > 1).slice(0, 3).map((f) => f.at),
+        scrolled: fs.length ? Math.round(fs[fs.length - 1].top - fs[0].top) : 0
+      })
       const h = s.handler
       return {
         move: sum(s.frames.filter((f) => f.phase === 'move')),
@@ -8424,9 +8383,7 @@ async function sweepLagScenario(fixtures) {
         handlerMean: Math.round((h.reduce((a, b) => a + b, 0) / Math.max(1, h.length)) * 100) / 100,
         handlerMax: Math.round(Math.max(0, ...h) * 100) / 100,
         moves: h.length,
-        commits: s.commits,
-        liveCommits: s.liveCommits,
-        dpr: s.dpr
+        commits: s.commits
       }
     })
   /** A walk of 25-40 px steps bouncing inside a box. */
@@ -8481,25 +8438,13 @@ async function sweepLagScenario(fixtures) {
       console.log(
         `  ${where} ${k}: ${r[k].frames} frames, ${r[k].late} more than 1 px off, max ${r[k].maxOff} px, mean ${r[k].meanOff} px, up to ${r[k].maxBehind} pointer events behind${k === 'scroll' ? `, scrolled ${r[k].scrolled} px` : ''}`
       )
-    console.log(
-      `  ${where}: ${r.moves} pointermoves, handler mean ${r.handlerMean} ms, max ${r.handlerMax} ms, ${r.commits} row-layer commits (while the box was up: ${JSON.stringify(r.liveCommits)}), dpr ${r.dpr}`
-    )
+    console.log(`  ${where}: ${r.moves} pointermoves, handler mean ${r.handlerMean} ms, max ${r.handlerMax} ms, ${r.commits} row-layer commits`)
     for (const k of ['move', 'burst', 'scroll'])
       ok(
         r[k].frames >= 10 && r[k].late === 0,
         `${where} ${k}: the box's corner is within 1 px of the pointer in every painted frame (${r[k].late} of ${r[k].frames} off, max ${r[k].maxOff} px${r[k].late ? `; ${r[k].worst.join(' | ')}` : ''})`
       )
     ok(r.scroll.scrolled > 100, `${where}: the list auto-scrolled under the held pointer (${r.scroll.scrolled} px)`)
-    // THE BOX DOES NOT SHAKE (#332): whole device pixels, one fixed corner, and
-    // no render of the list while the pointer moves it.
-    for (const k of ['move', 'burst', 'scroll'])
-      ok(r[k].offPixel === 0, `${where} ${k}: every edge of the box is on a device pixel (${r[k].offPixel} frames off, worst ${r[k].maxFrac} px at dpr ${r.dpr})`)
-    for (const k of ['move', 'burst'])
-      ok(r[k].anchorStill, `${where} ${k}: the anchored corner stays on one pixel while the pointer moves (${r[k].anchors} places)`)
-    ok(
-      r.liveCommits.move === 0 && r.liveCommits.burst === 0,
-      `${where}: the list is not rendered while the box moves over it, the marks are the sweep's own (${r.liveCommits.move} and ${r.liveCommits.burst} renders)`
-    )
   }
   /** The marks a burst released in one breath leaves, against a slow sweep
    *  to the same place. */

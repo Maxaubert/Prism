@@ -656,8 +656,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
   }
 }
 .browse-list {
-  /* The sweep rectangle is drawn over it, not in it (#332): a sibling in
-     .browse-list-area, clipped to this box. */
+  /* The sweep rectangle is drawn inside it, in its scroll coordinates. */
   position: relative;
   min-height: 0;
   overflow: auto;
@@ -850,40 +849,6 @@ body[data-internal-file-drag] .browse-path:focus-within {
 }
 .folder-browser .browse-row[data-selected][data-join-down] {
   --sel-bottom: 0 0 0 transparent;
-}
-/* What is behind a row's icon, which its knockouts take: the ground, or the
-   tint as seen. A variable, so the sweep's marks below reach the icon too. */
-.browse-row {
-  --browse-row-ground: var(--p-bg);
-}
-.browse-row[data-selected] {
-  --browse-row-ground: var(--sel-seen, var(--p-sel-tint-seen));
-}
-/* THE SWEEP'S MARKS ARE THE HOOK'S UNTIL THE RELEASE (#332, useSweep.ts):
-   while the list carries data-sweeping, a row the box covers is `on` and a row
-   marked before it but not covered is `off`, whatever React last drew, so a
-   pointer move never waits on a render. Same look as the marks above. */
-.folder-browser .browse-list[data-sweeping] .browse-row[data-sweep-mark='on'] {
-  --sel-top: inset 0 1px 0 var(--p-sel-line);
-  --sel-bottom: inset 0 -1px 0 var(--p-sel-line);
-  --browse-row-ground: var(--p-sel-tint-seen);
-  background-color: var(--p-sel-tint);
-  box-shadow:
-    inset 1px 0 0 var(--p-sel-line),
-    inset -1px 0 0 var(--p-sel-line),
-    var(--sel-top),
-    var(--sel-bottom);
-}
-.folder-browser .browse-list[data-sweeping] .browse-row[data-sweep-mark='on'][data-sweep-up] {
-  --sel-top: 0 0 0 transparent;
-}
-.folder-browser .browse-list[data-sweeping] .browse-row[data-sweep-mark='on'][data-sweep-down] {
-  --sel-bottom: 0 0 0 transparent;
-}
-.folder-browser .browse-list[data-sweeping] .browse-row[data-sweep-mark='off'] {
-  --browse-row-ground: var(--p-bg);
-  background-color: transparent;
-  box-shadow: none;
 }
 /* A right-clicked row has no look of its own any more: the click selects it,
    File Explorer's rule (#296; owner, 2026-10-06), so it wears the tint above.

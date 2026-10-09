@@ -30,7 +30,7 @@ import { copyFilePaths, fileCutPaths, clearFileCut, useFileCut, fileClipboardRea
 import { intendToPlay } from '../lib/playState'
 import { tickIf } from '../lib/fileVerbs'
 import { PropertiesDialog } from './PropertiesDialog'
-import { SweepBand, TreeWindow } from './TreeRows'
+import { TreeWindow } from './TreeRows'
 import { paintRows, scrollForRow } from '../lib/treePaint'
 import { SearchResults } from './SearchResults'
 import { PeekPinButton } from './PanelToggle'
@@ -42,8 +42,8 @@ import { clickSelect, emptySelection, rangeSelect, type Selection } from '../lib
 import { isJumpKey, listKey, stepTo, typeJump, typedRun } from '../lib/listKeys'
 import { nearerEscape } from '../lib/nearerEscape'
 import { clipboardText } from '../lib/clipboardText'
-import { contentToClient, nearestRow, onRowOwnPart, rowsInBox, sweepSelect } from '../lib/marquee'
-import { useSweep, type SweepRow } from '../hooks/useSweep'
+import { nearestRow, onRowOwnPart, rowsInBox, sweepSelect } from '../lib/marquee'
+import { useSweep } from '../hooks/useSweep'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
@@ -732,12 +732,6 @@ export function Sidebar({
 
   // (declared earlier, above the droppedOn reset that steers it)
   const at = cursor ?? currentPath
-  /** The row the cursor lights (lower case), or null: `cursorMarks` below. A
-   *  sweep reads it from its pointer events (#332). */
-  const cursorLit = useRef<string | null>(null)
-  useEffect(() => {
-    cursorLit.current = at && !(apartAt && apartAt.toLowerCase() === at.toLowerCase()) ? at.toLowerCase() : null
-  })
 
   // Reset to the open file whenever the viewer moves on its own (a click, a
   // drop, autoplay), so the cursor never trails a file the user has left.
@@ -839,8 +833,6 @@ export function Sidebar({
       x: Math.min(g.width, Math.max(0, x - g.left)),
       y: Math.min(g.contentTop + g.scrollHeight, Math.max(g.contentTop, y - g.top))
     }),
-    // The tree list's top moves with the scroll, and is measured after each.
-    toClient: (p, g) => contentToClient(p, { x: g.left, y: g.top }, { x: 0, y: 0 }),
     rowAcross: () => {
       // What is drawn as a row across (#326), measured off any row in view:
       // the tree's rows run its whole width, so today every box that starts
@@ -852,65 +844,34 @@ export function Sidebar({
       const d = drawn.getBoundingClientRect()
       return { left: d.left - r.left, right: d.right - r.left }
     },
-    span: (box, py, drawnAcross) => {
+    hitsIn: (box, py, drawnAcross) => {
       const rows = paintRef.current
       const across = drawnAcross ?? { left: 0, right: treeList()?.getBoundingClientRect().width ?? 0 }
       const span = rowsInBox(box, { ...across, height: size.row }, rows.length)
-      return span && { ...span, near: nearestRow(py, size.row, span.first, span.last) }
-    },
-    pathsIn: (span) => {
-      const rows = paintRef.current
+      if (!span) return { paths: [], near: null }
       const paths: string[] = []
       for (let i = span.first; i <= span.last; i++) {
         const r = rows[i]
-        if (r && r.kind !== 'note') paths.push(r.path)
+        if (r.kind !== 'note') paths.push(r.path)
       }
-      const n = rows[span.near]
+      const n = rows[nearestRow(py, size.row, span.first, span.last)]
       return { paths, near: n && n.kind !== 'note' ? n.path : (paths[paths.length - 1] ?? null) }
-    },
-    rows: () => sweepRows(),
-    // What React lights as SELECTED now. The cursor's own row is left out: it
-    // stays lit by the cursor whatever the sweep covers, so it is not one of
-    // the rows a sweep takes the mark from.
-    held: (path) => {
-      if (!selRef.current.items.has(path)) return false
-      const c = cursorLit.current
-      return !c || c !== path.toLowerCase()
     },
     scrollBy: (dy) => {
       if (scroller.current) scroller.current.scrollTop += dy
     },
-    onEnd: (paths, near, add) => {
-      const { base } = sweepFrom.current
+    onChange: (paths) => {
+      const { base, add } = sweepFrom.current
       setSel({
-        anchor: near ?? base.anchor ?? paths[0] ?? null,
+        anchor: base.anchor ?? paths[0] ?? null,
         items: sweepSelect(add ? base.items : emptySelection.items, paths)
       })
     },
+    onEnd: (_paths, near) => {
+      if (near) setSel((s) => ({ anchor: near, items: s.items }))
+    },
     onCancel: () => setSel(sweepFrom.current.base)
   })
-  /** The tree's drawn rows, for the sweep's marks (#332). A marked run joins
-   *  across the neighbours `selJoin` joins across: the rows before and after
-   *  in `order`, which skips the notes. */
-  const sweepRows = (): SweepRow[] => {
-    const rows = paintRef.current
-    const out: SweepRow[] = []
-    const neighbour = (from: number, step: 1 | -1): { index: number; path: string } | null => {
-      for (let i = from + step; i >= 0 && i < rows.length; i += step) {
-        const r = rows[i]
-        if (r.kind !== 'note') return { index: i, path: r.path }
-      }
-      return null
-    }
-    for (const li of treeList()?.querySelectorAll<HTMLElement>(':scope > li[data-tree-index]') ?? []) {
-      const index = Number(li.dataset.treeIndex)
-      const r = rows[index]
-      const el = li.querySelector<HTMLElement>(':scope > [data-row]')
-      if (!r || r.kind === 'note' || !el) continue
-      out.push({ el, index, path: r.path, up: neighbour(index, -1), down: neighbour(index, 1) })
-    }
-    return out
-  }
   const onTreePointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     const el = e.target as HTMLElement
     if (el.closest('input,textarea')) return
@@ -1727,129 +1688,124 @@ export function Sidebar({
           </div>
           <SortMenu />
         </div>
-        {/* The scroll box and, over it, the sweep's rectangle (#332): a
-            sibling, so the box never re-rasters the rows it crosses. */}
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
-          <div
-            ref={scroller}
-            data-tree-sweep={query.trim() ? undefined : ''}
-            onPointerDown={query.trim() ? undefined : onTreePointerDown}
-            className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden data-[sweeping]:select-none"
-            // A right-click that lands on no row is about the PLACE, not about a
-            // file. Rows stop it themselves, exactly as the archive panel's do.
-            onContextMenu={(e) => {
-              if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
-              e.preventDefault()
-              setPlaceMenu({ x: e.clientX, y: e.clientY })
-            }}
-            // A DROP that lands on no row is still ABOUT a row when there is
-            // one at that height (2026-09-03, owner): the scroller's left
-            // gutter sits outside the buttons, and a drop there used to mean
-            // the ROOT - an ISO dropped a few pixels left of a folder's rows
-            // landed a level up and was refused. The strip at that height is
-            // the target, Explorer's way; genuinely below every row still
-            // means the root. Rows stop their own drops, so this only ever
-            // sees the gutter and the space beneath.
-            onDragOver={(e) => {
-              if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
-              e.preventDefault()
-              e.dataTransfer.dropEffect = 'move'
-              const at = dropAt(e.clientY)
-              hoverDrop(at.dir, at.row)
-            }}
-            onDragLeave={() => hoverDrop(null)}
-            onDrop={(e) => {
-              if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
-              e.preventDefault()
-              e.stopPropagation()
-              onDropOn(e, dropDirAt(e.clientY))
-            }}
-          >
-            {query.trim() ? (
-              <SearchResults
-                key={root}
-                root={root}
-                query={query.trim()}
-                refreshKey={refreshKey}
-                currentPath={currentPath}
-                size={size}
-                onOpen={(path, isFolder) => (isFolder ? revealFolder(path) : onOpenFile(path))}
-                onRows={setHitRows}
-                cursorPath={at}
-                onMenu={(e, path, name, isFolder) =>
-                  onMenu(e, path, name, !!isFolder, undefined, true)
-                }
-                onMultiMenu={(e, paths) =>
-                  setMenu({
-                    x: e.clientX,
-                    y: e.clientY,
-                    path: paths[0],
-                    name: '',
-                    isFolder: false,
-                    multi: paths
-                  })
-                }
-              />
-            ) : (
-              <TreeProvider
-                value={{
-                  expanded: state.expanded,
-                  children: state.children,
-                  currentPath,
-                  dirtyPaths,
-                  cursor: at,
-                  cursorMarks: !(apartAt && at && apartAt.toLowerCase() === at.toLowerCase()),
-                  size,
-                  editing,
-                  menuPath: menu?.path ?? null,
-                  selected: sel.items,
-                  cut: cutSet,
-                  selJoin,
-                  onRowDragStart,
-                  dropTarget,
-                  dropRow,
-                  onDropHover: hoverDrop,
-                  onDragDone: () => {
-                    hoverDrop(null)
-                    setDrag(null)
-                  },
-                  onDropOn,
-                  onRowClick,
-                  onToggle: toggle,
-                  onOpenFile,
-                  // A member of an archive renames through the archive (#300).
-                  onStartRename: (path: string) => {
-                    const meta = memberMeta(path)
-                    if (meta && archive) archive.rename(memberEntry(path), meta)
-                    else setEditing(path)
-                  },
-                  onSubmitRename: submitRename,
-                  onCancelRename: cancelRename,
-                  // Del on a row inside a multi-selection takes the whole
-                  // selection; anywhere else it stays the single-row question.
-                  onDelete: (path, name, isFolder) => {
-                    const meta = memberMeta(path)
-                    const many = sel.items.size > 1 && sel.items.has(path)
-                    if (!meta && binMarks(path)) return
-                    if (meta && archive) archive.remove(many ? [...sel.items] : [path], meta)
-                    else if (many) onDeleteMany([...sel.items])
-                    else onDelete(path, name, isFolder)
-                  },
-                  onMenu
-                }}
-              >
-                {rootListing ? (
-                  <TreeWindow rows={paint} scroller={scroller} />
-                ) : (
-                  <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--p-dim2)]">
-                    loading…
-                  </div>
-                )}
-              </TreeProvider>
-            )}
-          </div>
-          {sweep.sweeping && <SweepBand bandRef={sweep.bandRef} />}
+        {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
+        <div
+          ref={scroller}
+          data-tree-sweep={query.trim() ? undefined : ''}
+          onPointerDown={query.trim() ? undefined : onTreePointerDown}
+          className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden data-[sweeping]:select-none"
+          // A right-click that lands on no row is about the PLACE, not about a
+          // file. Rows stop it themselves, exactly as the archive panel's do.
+          onContextMenu={(e) => {
+            if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
+            e.preventDefault()
+            setPlaceMenu({ x: e.clientX, y: e.clientY })
+          }}
+          // A DROP that lands on no row is still ABOUT a row when there is
+          // one at that height (2026-09-03, owner): the scroller's left
+          // gutter sits outside the buttons, and a drop there used to mean
+          // the ROOT - an ISO dropped a few pixels left of a folder's rows
+          // landed a level up and was refused. The strip at that height is
+          // the target, Explorer's way; genuinely below every row still
+          // means the root. Rows stop their own drops, so this only ever
+          // sees the gutter and the space beneath.
+          onDragOver={(e) => {
+            if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'move'
+            const at = dropAt(e.clientY)
+            hoverDrop(at.dir, at.row)
+          }}
+          onDragLeave={() => hoverDrop(null)}
+          onDrop={(e) => {
+            if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
+            e.preventDefault()
+            e.stopPropagation()
+            onDropOn(e, dropDirAt(e.clientY))
+          }}
+        >
+          {query.trim() ? (
+            <SearchResults
+              key={root}
+              root={root}
+              query={query.trim()}
+              refreshKey={refreshKey}
+              currentPath={currentPath}
+              size={size}
+              onOpen={(path, isFolder) => (isFolder ? revealFolder(path) : onOpenFile(path))}
+              onRows={setHitRows}
+              cursorPath={at}
+              onMenu={(e, path, name, isFolder) =>
+                onMenu(e, path, name, !!isFolder, undefined, true)
+              }
+              onMultiMenu={(e, paths) =>
+                setMenu({
+                  x: e.clientX,
+                  y: e.clientY,
+                  path: paths[0],
+                  name: '',
+                  isFolder: false,
+                  multi: paths
+                })
+              }
+            />
+          ) : (
+            <TreeProvider
+              value={{
+                expanded: state.expanded,
+                children: state.children,
+                currentPath,
+                dirtyPaths,
+                cursor: at,
+                cursorMarks: !(apartAt && at && apartAt.toLowerCase() === at.toLowerCase()),
+                size,
+                editing,
+                menuPath: menu?.path ?? null,
+                selected: sel.items,
+                cut: cutSet,
+                selJoin,
+                onRowDragStart,
+                dropTarget,
+                dropRow,
+                onDropHover: hoverDrop,
+                onDragDone: () => {
+                  hoverDrop(null)
+                  setDrag(null)
+                },
+                onDropOn,
+                onRowClick,
+                onToggle: toggle,
+                onOpenFile,
+                // A member of an archive renames through the archive (#300).
+                onStartRename: (path: string) => {
+                  const meta = memberMeta(path)
+                  if (meta && archive) archive.rename(memberEntry(path), meta)
+                  else setEditing(path)
+                },
+                onSubmitRename: submitRename,
+                onCancelRename: cancelRename,
+                // Del on a row inside a multi-selection takes the whole
+                // selection; anywhere else it stays the single-row question.
+                onDelete: (path, name, isFolder) => {
+                  const meta = memberMeta(path)
+                  const many = sel.items.size > 1 && sel.items.has(path)
+                  if (!meta && binMarks(path)) return
+                  if (meta && archive) archive.remove(many ? [...sel.items] : [path], meta)
+                  else if (many) onDeleteMany([...sel.items])
+                  else onDelete(path, name, isFolder)
+                },
+                onMenu
+              }}
+            >
+              {rootListing ? (
+                <TreeWindow rows={paint} scroller={scroller} band={sweep.sweeping ? sweep.bandRef : null} />
+              ) : (
+                <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--p-dim2)]">
+                  loading…
+                </div>
+              )}
+            </TreeProvider>
+          )}
         </div>
         {/* The footer row: the sidebar's actions on the place itself. One
             button today, right-aligned; a row so the next one has a home. The
