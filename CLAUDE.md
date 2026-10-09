@@ -315,6 +315,11 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   drops the file on display (`tabs.ts` `leaveShown`); a pane that was open stays open at its width
   as `PreviewEmpty` ("Select a file to preview", `browse.previewHeld`, renderer only), a shut one
   stays shut, nothing is previewed on its own, and a project keeps its open file. `previewClears` e2e.
+  COMING BACK OUT OF A ZIP SHOWS IT AGAIN (#334; owner, 2026-10-09: "when you go back again you
+  should see the zip in the preview since the main view is now just a different folder"): Back,
+  Up or a crumb to the folder holding it marks the zip (the way out) and, with the pane on, its
+  card returns (`lib/wayOutPreview.ts`, judged once per arrival in `useFolderBrowsing`). Only the
+  way out, only a file row: out of a folder the pane stays empty. `zipPreviewBack` e2e.
 - **Archive viewer** (2026-08-22, #68; since #300 the PHONE's only, the desktop's is above): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),

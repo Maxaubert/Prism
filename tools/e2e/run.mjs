@@ -16783,6 +16783,102 @@ async function previewClearsScenario(fixtures) {
 }
 
 /**
+ * OUT OF A ZIP, ITS PREVIEW COMES BACK (#334; owner, 2026-10-09: "when you go
+ * back again you should see the zip in the preview since the main view is now
+ * just a different folder"). Going into a zip empties the pane (#300 review);
+ * coming out to the folder that holds it marks the zip (the way out), and the
+ * pane shows its card with its entries again. Every way in (the card's Open,
+ * a double-click, Enter) and every way out (Backspace, the Back button,
+ * Alt+Left, Alt+Up). Going out of a FOLDER inside the zip still leaves the
+ * pane empty: a folder has no preview.
+ */
+async function zipPreviewBackScenario(fixtures) {
+  console.log('out of a zip, its preview comes back (#334)')
+  const { dir } = await zipWorld(fixtures, 'zippreviewback')
+  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  EXTRA_ENV = {}
+  const pane = () =>
+    win.evaluate(() => {
+      const box = document.querySelector('[data-browse-preview]')
+      const rect = box?.getClientRects().length ? box.getBoundingClientRect() : null
+      const copy = box ? box.cloneNode(true) : null
+      copy?.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove())
+      return {
+        shown: !!rect,
+        empty: !!box?.querySelector('[data-preview-empty]'),
+        card: !!box?.querySelector('[data-archive-card]'),
+        text: copy?.textContent ?? ''
+      }
+    })
+  const where = async () => (await win.locator('.browse-path').getAttribute('title')) ?? ''
+  const inside = () => until(async () => (await win.locator('[data-archive-strip]').count()) === 1, 10000)
+  const cleared = () => until(async () => (await pane()).empty, 5000)
+  const zipBack = async (how) => {
+    ok(await until(async () => (await where()) === dir, 10000), `${how} comes out to the zip's folder`)
+    ok(
+      await until(async () => {
+        const now = await pane()
+        return now.card && !now.empty && /package\.json/.test(now.text)
+      }, 10000),
+      `${how}: the pane shows the zip's entries again (${JSON.stringify(await pane())})`
+    )
+    ok(
+      (await zipRow(win, 'Wind-0.2.2.zip').getAttribute('aria-selected')) === 'true',
+      `${how}: the zip is the marked row`
+    )
+  }
+  const list = win.locator('[data-testid="browse-list"]')
+  try {
+    await explorerAt(win, dir)
+    await zipRow(win, 'Wind-0.2.2.zip').click()
+    ok(await until(async () => (await pane()).card, 10000), 'the selected zip previews as its card')
+    // In by the card's Open, out by Backspace.
+    await win.locator('[data-browse-preview] [data-archive-verb="open"]').click()
+    ok(await inside(), 'Open goes into the zip')
+    ok(await cleared(), 'and the pane empties beside its contents')
+    await list.focus()
+    await win.keyboard.press('Backspace')
+    await zipBack('Backspace')
+    await win.screenshot({ path: join(SHOTS, 'zip-preview-back.png') })
+    // In by a double-click, out by the Back button.
+    await zipRow(win, 'Wind-0.2.2.zip').dblclick()
+    ok(await inside(), 'a double-click goes into the zip')
+    ok(await cleared(), 'the pane empties again')
+    await win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Back"]').click()
+    await zipBack('the Back button')
+    // In by Enter, out by Alt+Left.
+    await list.focus()
+    await win.keyboard.press('Enter')
+    ok(await inside(), 'Enter goes into the zip')
+    ok(await cleared(), 'the pane empties again')
+    await list.focus()
+    await win.keyboard.press('Alt+ArrowLeft')
+    await zipBack('Alt+Left')
+    // Forward into it and Up out of it.
+    await list.focus()
+    await win.keyboard.press('Alt+ArrowRight')
+    ok(await inside(), 'Forward goes into the zip')
+    ok(await cleared(), 'the pane empties again')
+    await list.focus()
+    await win.keyboard.press('Alt+ArrowUp')
+    await zipBack('Alt+Up')
+    // Out of a FOLDER inside the zip: the folder is marked, nothing previews.
+    await zipRow(win, 'Wind-0.2.2.zip').dblclick()
+    ok(await inside(), 'into the zip once more')
+    await zipRow(win, 'Wind-0.2.2.zip\\Wind').dblclick()
+    await until(async () => (await zipRows(win)).some((p) => p.endsWith('package.json')), 10000)
+    await list.focus()
+    await win.keyboard.press('Backspace')
+    ok(await until(async () => (await where()).endsWith('Wind-0.2.2.zip')), 'Backspace walks out of the folder inside')
+    await sleep(500)
+    ok((await pane()).empty, 'and the pane stays empty: a folder has no preview')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
  * SIDEBAR POSITION MOVES THE EXPLORER'S SIDEBAR (#304; owner, 2026-10-07: "fix
  * the setting in Explorer for the sidebar where you can put it on the right
  * side or the left side? I think that's just an empty setting for now ... when
@@ -17779,6 +17875,7 @@ await run(zipRestoreScenario)
 await run(zipLockedScenario)
 await run(zipFolderScenario)
 await run(previewClearsScenario)
+await run(zipPreviewBackScenario)
 await run(comicScenario)
 await run(folderArgScenario)
 await run(gearScenario)
