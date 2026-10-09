@@ -739,4 +739,13 @@ const api = {
 
 contextBridge.exposeInMainWorld('prism', api)
 
+// SPIKE (#338, task 1), reverted at the end of the task: the sweep's test hook
+// for the native box, only when main was started with --sweep-spike.
+const sweepSpikeArg = process.argv.find((a) => a.startsWith('--prism-sweep-spike='))
+if (sweepSpikeArg)
+  contextBridge.exposeInMainWorld('prismSweepSpike', {
+    mode: sweepSpikeArg.slice('--prism-sweep-spike='.length),
+    send: (kind: 'begin' | 'update' | 'end', m: unknown): void => ipcRenderer.send(`sweep-spike:${kind}`, m)
+  })
+
 export type PrismApi = typeof api

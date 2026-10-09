@@ -31,3 +31,7 @@ tools/icons/sheet.png
 tools/icons/__pycache__/
 tools/icons/sheet-*.png
 tools/icons/compare.png
+
+# The native sweep box's addon build and its measuring tool (#338): build output.
+native/sweep/build/
+tools/sweep-latency/build/

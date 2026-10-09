@@ -55,6 +55,15 @@ import {
  * already delivered just before the frame is drawn, with the newest position
  * the frame can show, and the raw event is for secure origins only.
  */
+// SPIKE (#338, task 1), reverted at the end of the task: the native box's test
+// hook. Present only when main was started with --sweep-spike.
+interface SweepSpike {
+  mode: 'native' | 'dom' | 'both'
+  send: (kind: 'begin' | 'update' | 'end', m: unknown) => void
+}
+const sweepSpike = (): SweepSpike | undefined =>
+  (window as unknown as { prismSweepSpike?: SweepSpike }).prismSweepSpike
+
 export interface RowAcross {
   left: number
   right: number
@@ -142,6 +151,29 @@ export function useSweep<G>(options: SweepOptions<G>): {
     const wasDraggable = row?.draggable ?? false
     if (row) row.draggable = false
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    // SPIKE (#338): a mouse sweep hands its box to the native overlay.
+    const spike = e.pointerType === 'mouse' ? sweepSpike() : undefined
+    const spikeHides = spike?.mode === 'native'
+    const sc0 = spike ? opts.current.scroller() : null
+    const s0 = { top: sc0?.scrollTop ?? 0, left: sc0?.scrollLeft ?? 0 }
+    let spikeSent = false
+    let spikeLast = ''
+    const spikeMsg = (): {
+      anchor: { x: number; y: number }
+      clip: { left: number; top: number; right: number; bottom: number }
+      dpr: number
+    } | null => {
+      const sc = box ?? opts.current.scroller()
+      if (!sc) return null
+      const r = sc.getBoundingClientRect()
+      const left = r.left + sc.clientLeft
+      const top = r.top + sc.clientTop
+      return {
+        anchor: { x: sx - (sc.scrollLeft - s0.left), y: sy - (sc.scrollTop - s0.top) },
+        clip: { left, top, right: left + sc.clientWidth, bottom: top + sc.clientHeight },
+        dpr: window.devicePixelRatio
+      }
+    }
 
     /** The box, in the list's own coordinates. */
     const bandNow = (): Band | null => {
@@ -155,7 +187,7 @@ export function useSweep<G>(options: SweepOptions<G>): {
       if (!el || !b || !geo) return
       const p = bandBox(opts.current.place ? opts.current.place(b, geo) : b)
       // Written straight onto the element: no render, no layout read.
-      el.style.display = 'block'
+      el.style.display = spikeHides ? 'none' : 'block'
       el.style.left = `${p.left}px`
       el.style.top = `${p.top}px`
       el.style.width = `${p.width}px`
@@ -193,12 +225,22 @@ export function useSweep<G>(options: SweepOptions<G>): {
     // pane resize): the box's far corner is still under the pointer, so it is
     // drawn again with the new offsets, in this frame (scroll events and
     // resize observations come before the frame is painted).
-    const scrolled = (): void => {
+    const scrolled = (cause: 'auto' | 'scroll' | 'resize'): void => {
       if (!started || cancelled) return
       remeasure()
       paint()
       dirty = true
+      if (spike && spikeSent) {
+        const m = spikeMsg()
+        const key = JSON.stringify(m)
+        if (m && key !== spikeLast) {
+          spikeLast = key
+          spike.send('update', { ...m, cause })
+        }
+      }
     }
+    const onScroll = (): void => scrolled('scroll')
+    const onResize = (): void => scrolled('resize')
     // Every frame of the sweep: auto-scroll while the pointer sits near an
     // edge of the list (the pointer is the user's own hand, so it runs under
     // reduced motion too, at half the speed), then the marks, if anything
@@ -213,7 +255,7 @@ export function useSweep<G>(options: SweepOptions<G>): {
         if (dy) {
           const before = sc.scrollTop
           opts.current.scrollBy(dy)
-          if (sc.scrollTop !== before) scrolled()
+          if (sc.scrollTop !== before) scrolled('auto')
         }
       }
       if (dirty) mark()
@@ -234,6 +276,10 @@ export function useSweep<G>(options: SweepOptions<G>): {
       frame = 0
       // Gone in this frame, before React gets round to unmounting it.
       if (band.current) band.current.style.display = 'none'
+      if (spike && spikeSent) {
+        spikeSent = false
+        spike.send('end', { reason: cancelled ? 'escape' : 'release' })
+      }
       setSweeping(false)
     }
     const cleanup = (): void => {
@@ -242,8 +288,8 @@ export function useSweep<G>(options: SweepOptions<G>): {
       window.removeEventListener('pointercancel', abort, true)
       window.removeEventListener('keydown', key, true)
       window.removeEventListener('blur', abort)
-      box?.removeEventListener('scroll', scrolled)
-      window.removeEventListener('resize', scrolled)
+      box?.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onResize)
       resized?.disconnect()
       resized = null
       if (row) row.draggable = wasDraggable
@@ -286,12 +332,12 @@ export function useSweep<G>(options: SweepOptions<G>): {
         remeasure()
         box = opts.current.scroller()
         box?.setAttribute('data-sweeping', '')
-        box?.addEventListener('scroll', scrolled, { passive: true })
-        window.addEventListener('resize', scrolled)
+        box?.addEventListener('scroll', onScroll, { passive: true })
+        window.addEventListener('resize', onResize)
         if (box && typeof ResizeObserver !== 'undefined') {
           // The box and what it holds (the list grows or shrinks as rows come
           // and go); never the band itself, which changes size on every move.
-          resized = new ResizeObserver(scrolled)
+          resized = new ResizeObserver(onResize)
           resized.observe(box)
           for (const child of box.children)
             if (!child.hasAttribute('data-sweep-band')) resized.observe(child)
@@ -310,6 +356,15 @@ export function useSweep<G>(options: SweepOptions<G>): {
         // Synchronous, once per sweep: the band is in the DOM (and placed, by
         // `bandRef`) before this frame is painted.
         flushSync(() => setSweeping(true))
+        if (spike) {
+          const m = spikeMsg()
+          const cs = band.current ? getComputedStyle(band.current) : null
+          if (m) {
+            spikeLast = JSON.stringify(m)
+            spike.send('begin', { ...m, fill: cs?.backgroundColor, edge: cs?.borderTopColor })
+            spikeSent = true
+          }
+        }
         frame = requestAnimationFrame(tick)
       }
       paint()
