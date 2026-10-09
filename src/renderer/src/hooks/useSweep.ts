@@ -358,6 +358,10 @@ export function useSweep<G>(options: SweepOptions<G>): {
         flushSync(() => setSweeping(true))
         if (spike) {
           const m = spikeMsg()
+          // The measuring tool finds the DOM band by its edge colour, and a
+          // marked row's edge is the band's own hue: a colour nothing else on
+          // the page wears. Only the colour; place and timing are today's.
+          if (spike.mode !== 'native' && band.current) band.current.style.borderColor = 'rgb(0, 255, 0)'
           const cs = band.current ? getComputedStyle(band.current) : null
           if (m) {
             spikeLast = JSON.stringify(m)

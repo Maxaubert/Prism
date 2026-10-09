@@ -50,12 +50,12 @@ const SCALE = Number(opt('seconds-scale', '1'))
 
 // What the owner does in each phase. The tool beeps at every change.
 const SWEEP_PHASES = [
-  ['rest', 5, 'Press in the empty part of the list, drag down and to the right a little, then HOLD STILL with the button down.'],
+  ['rest', 5, 'AFTER the beep: press in the empty part of the list, drag down and to the right a little, then HOLD STILL with the button down.'],
   ['slow', 12, 'Keep holding. SLOW sweeps: down and up, then left and right. Release and press again whenever you like.'],
   ['medium', 12, 'MEDIUM speed sweeps: down and up, then left and right.'],
   ['fast', 12, 'FAST sweeps: down and up, then left and right, as fast as you would really move.'],
   ['escape', 8, 'Start a sweep, press Escape while still holding, then release. Repeat a few times.'],
-  ['autoscroll', 8, 'Drag past the bottom of the list so it scrolls by itself, then back up past the top.'],
+  ['autoscroll', 8, 'Press near the TOP of the list, drag JUST past its bottom edge so it scrolls slowly by itself for a second, then back up past the top. Repeat.'],
   ['wheel', 8, 'Hold the button still in the list with the box open, and turn the mouse wheel a few notches each way.']
 ]
 const BOTH_PHASES = [SWEEP_PHASES[0], SWEEP_PHASES[5], SWEEP_PHASES[6]]
@@ -141,6 +141,10 @@ async function oneRun(run, folder) {
     `--sweep-spike-quit-file=${quitFile}`,
     `--sweep-spike-mode=${SAMPLING}`,
     `--sweep-spike-lead-us=${LEAD}`,
+    // both: the native box is drawn 4 px down and right of its true place, so
+    // its edges never cover the DOM band's (they would, exactly when the origin
+    // is right); analyze.mjs takes the shift off again.
+    ...(run === 'both' ? ['--sweep-spike-origin=4,4'] : []),
     ...(has('parked') ? ['--e2e'] : [])
   ]
   console.log(`\n=== run "${run}": starting Prism (${flag}) on its own profile`)
@@ -161,7 +165,7 @@ async function oneRun(run, folder) {
   const phases = phasesFor(run)
   console.log('Prism is up. The phases (a beep at each change):')
   for (const [n, s, t] of phases) console.log(`  ${n.padEnd(10)} ${String(s).padStart(3)} s  ${t}`)
-  console.log('Recording starts in 5 seconds: bring Prism to the front, nothing else needs to change.')
+  console.log('Recording starts in 5 seconds: bring Prism to the front. Do not move, resize or maximise it until the run ends (the recording area is its window).')
   await sleep(has('parked') ? 500 : 5000)
   const tool = spawnSync(
     TOOL,

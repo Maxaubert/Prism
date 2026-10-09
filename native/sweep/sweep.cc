@@ -414,6 +414,7 @@ void ThreadMain() {
     if (!o.target) up = false;
 
     // ---- late in the frame (spike variant) -------------------------------------
+    LONGLONG waited = 0;  // time asleep below: not work, so not in workUs
     if (up && tick && mode == 1 && timer) {
       LONGLONG target = 0;
       COMPOSITION_FRAME_ID id = 0;
@@ -432,7 +433,12 @@ void ThreadMain() {
         due100ns.QuadPart = -(wait * 10000000 / freq);
         if (SetWaitableTimer(timer, &due100ns, 0, nullptr, nullptr, FALSE)) {
           HANDLE hs[2] = {timer, g.wake};
-          WaitForMultipleObjects(2, hs, FALSE, 50);
+          // A command that lands during this wait consumed the auto-reset wake
+          // event; set it again, so the next loop sees it at once instead of
+          // at the next tick (an end or an Escape would lose a frame).
+          const LONGLONG slept = Qpc();
+          if (WaitForMultipleObjects(2, hs, FALSE, 50) == WAIT_OBJECT_0 + 1) SetEvent(g.wake);
+          waited = Qpc() - slept;
         }
       }
     }
@@ -457,7 +463,7 @@ void ThreadMain() {
     if (tick) g.frames++;
     if (up && tick) g.upFrames++;
     if (hr == S_OK) g.commits++;
-    const int64_t workUs = (committed - woke) * 1000000 / freq;
+    const int64_t workUs = (committed - woke - waited) * 1000000 / freq;
     if (tick && workUs > g.maxWorkUs) g.maxWorkUs = workUs;
     g.workUs += workUs;
     ULONG64 cyc = 0;
