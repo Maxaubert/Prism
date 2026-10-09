@@ -215,7 +215,7 @@ export async function searchFiles(
  *
  * ASYNC, and with a bounded fan-out (2026-08-31). This was `readdirSync` plus
  * a `statSync` per file on MAIN'S ONE THREAD, up to 20000 entries per
- * debounced keystroke, which is the thing CLAUDE.md's own performance block
+ * debounced keystroke, which is the thing docs/features.md's performance block
  * rules out. Measured on System32 (about 5000 entries), median of five:
  *
  *   sync                140ms   (blocking every window and the media handler)
