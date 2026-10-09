@@ -3,18 +3,14 @@ import {
   IDLE,
   MIN_SHOW_MS,
   failureText,
+  fitPath,
   leavesAt,
-  middleEllipsis,
   reduce,
   type ExtractState
 } from './extraction'
 
 const start = (id = 'x1', at = 1000): ExtractState =>
-  reduce(
-    IDLE,
-    { type: 'start', id, archive: 'comics.zip', dest: 'X:\\Comics' },
-    at
-  )
+  reduce(IDLE, { type: 'start', id, archive: 'comics.zip', dest: 'X:\\Comics' }, at)
 
 describe('the extraction window, as a state machine', () => {
   it('is idle until main says an extraction started', () => {
@@ -122,9 +118,9 @@ describe('the extraction window, as a state machine', () => {
       IDLE
     )
     // Any other failure on that route is still an error.
-    expect(
-      reduce(s, { type: 'end', id: 'x2', result: 'failed', reason: 'failed' }, 10).phase
-    ).toBe('failed')
+    expect(reduce(s, { type: 'end', id: 'x2', result: 'failed', reason: 'failed' }, 10).phase).toBe(
+      'failed'
+    )
   })
 
   it('a password failure is the error when nobody is going to ask', () => {
@@ -160,35 +156,47 @@ describe('what the error says', () => {
     expect(failureText('aes')).toMatch(/7-Zip/)
   })
 
-  it("carries 7-Zip's own line when there is one", () => {
+  it("is the reason alone, since the window's heading says it failed (#336)", () => {
     expect(failureText('failed', 'ERROR: There is not enough space on the disk')).toBe(
-      "That couldn't be extracted. ERROR: There is not enough space on the disk"
+      'ERROR: There is not enough space on the disk'
     )
-    expect(failureText('failed')).toBe("That couldn't be extracted.")
-    expect(failureText(undefined)).toBe("That couldn't be extracted.")
+    expect(failureText('failed')).toBe('No reason was given.')
+    expect(failureText(undefined)).toBe('No reason was given.')
   })
 })
 
-describe('a long name, shortened in the MIDDLE', () => {
-  it('leaves a short one alone', () => {
-    expect(middleEllipsis('one.txt', 20)).toBe('one.txt')
+describe('the file line, fitted in the MIDDLE so the name is kept', () => {
+  // One unit per character: a stand-in for the canvas measure.
+  const within = (n: number) => (s: string) => s.length <= n
+
+  it('leaves a path that fits alone', () => {
+    expect(fitPath('a\\one.txt', within(20))).toBe('a\\one.txt')
+    expect(fitPath('', within(5))).toBe('')
   })
 
-  it('keeps both ends, since the end is where the file name is', () => {
-    const long = 'Comics/2019/Some Very Long Series Name/issue 042 (digital).cbz'
-    const out = middleEllipsis(long, 30)
-    expect(out.length).toBe(30)
-    expect(out.startsWith('Comics/2019')).toBe(true)
-    expect(out.endsWith('(digital).cbz')).toBe(true)
+  it('cuts the folders and keeps the whole file name', () => {
+    const long = 'mods\\mod_HDReworkedProject\\content\\textures\\cobblestone_path_02_n.dds'
+    const out = fitPath(long, within(40))
+    expect(out.length).toBeLessThanOrEqual(40)
+    expect(out.endsWith('\\cobblestone_path_02_n.dds')).toBe(true)
+    expect(out.startsWith('mods\\mod_HD')).toBe(true)
     expect(out).toContain('…')
   })
 
-  it('gives the tail the odd character', () => {
-    expect(middleEllipsis('abcdefghij', 6)).toBe('ab…hij')
+  it('reads forward slashes too, as a zip names its members', () => {
+    const out = fitPath('Comics/2019/Some Very Long Series Name/issue 042.cbz', within(24))
+    expect(out.endsWith('/issue 042.cbz')).toBe(true)
+    expect(out.length).toBeLessThanOrEqual(24)
   })
 
-  it('does not fall over on a tiny budget', () => {
-    expect(middleEllipsis('abcdef', 1)).toBe('…')
-    expect(middleEllipsis('', 10)).toBe('')
+  it('shortens the name itself only when the name alone is too long', () => {
+    const out = fitPath('a\\b\\an extremely long file name of a scan.jpg', within(16))
+    expect(out.length).toBeLessThanOrEqual(16)
+    expect(out.startsWith('…\\an')).toBe(true)
+    expect(out.endsWith('.jpg')).toBe(true)
+  })
+
+  it('does not fall over when nothing fits', () => {
+    expect(fitPath('abcdef', within(0))).toBe('…')
   })
 })
