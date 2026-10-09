@@ -71,6 +71,38 @@ Rect BoxRect(const Box& k, int cx, int cy) {
 }
 
 enum Cause { kAuto = 0, kScroll = 1, kResize = 2 };
+
+// ---- when the cursor is sampled ---------------------------------------------
+// LATE IN THE FRAME, kLeadUsDefault before the next compositor tick. MEASURED
+// 2026-10-09 at 1x with injected sweeps (research prism/2026-10-09-native-sweep-
+// spike.md): sampling AT the tick puts the box 1.15 frames behind the pointer,
+// no better than the DOM box (1.06); DWM latches a DComp commit shortly before
+// its tick, so a sample taken just after a tick always waits a whole frame.
+// Sampling late: lead 1200 us 0.29 frames, 0 of about 3500 frames missed; 900 us
+// 0.25 frames, 0.3 % missed; 600 us 6.6 % missed. Explorer is 0.65. The owner,
+// zoomed in under Wind, judged 1500 us "not quite there" and 1000 us "seems
+// like it works", so 1000 us is the default.
+constexpr int kLeadUsDefault = 1000;
+// A machine whose timer wakes later than this one's can miss DWM's latch at
+// 1000 us. The thread then WIDENS the lead (never narrows it below the
+// default) in kLeadUsStep steps up to kLeadUsMax, and past that it falls back
+// to sampling at the tick, which never misses (a frame late by design).
+constexpr int kLeadUsStep = 250;
+constexpr int kLeadUsMax = 2000;
+// A commit that lands closer than this to the predicted tick counts as a miss.
+// MEASURED 2026-10-10, lead 1000 us, three runs against Desktop Duplication:
+// the commits land a median 655 us before the tick (the timer wakes about
+// 345 us late); frames shown a frame late 17, 8 and 5 of about 3600, commits
+// under 100 us before the tick 16, 12 and 4. Under 300 us flagged 66 to 76,
+// several times the real misses, and widened the lead for nothing.
+constexpr int kLatchUs = 100;
+// Misses are counted over windows of up-frames (ten seconds of sweeping at 144
+// Hz, across sweeps); more than kMissLimit in one window (over 1 %) widens the
+// lead. MEASURED: a one-second window (144 frames, 2 misses) widened twice in
+// one minute of injected sweeps while the PC was busy, 1000 to 1500 us, and
+// the widening is never undone, so it must take a sustained rate, not a burst.
+constexpr int kMissWindow = 1440;
+constexpr int kMissLimit = 14;
 enum State { kNone = 0, kPending = 1, kReady = 2, kFailed = 3 };
 
 struct PendingUpdate {
@@ -112,8 +144,14 @@ struct Shared {
   bool endReq = false;
   std::vector<PendingUpdate> updates;
   // configuration
-  int mode = 0;  // 0 at the tick, 1 late in the frame
-  int leadUs = 2000;
+  int mode = 1;  // 0 at the tick, 1 late in the frame (the default)
+  int leadUs = kLeadUsDefault;
+  bool adaptive = true;  // widen the lead on missed frames (off: a fixed lead, for measuring)
+  int config = 0;        // bumped by configure(), so the thread restarts its adaptation
+  // what the thread is doing now (published by it)
+  int effLeadUs = kLeadUsDefault;
+  bool fellBackToTick = false;
+  int64_t lateCommits = 0, widenings = 0;
   int k[3] = {0, 0, 0};
   bool ignoreButton = false;
   // status
@@ -297,6 +335,11 @@ void ThreadMain() {
   int64_t frameNo = 0;
   std::deque<PendingUpdate> due;
   LONGLONG lastTick = 0, period = freq / 144;
+  // The late sample's adaptation (see kLeadUsDefault): the lead in force, and
+  // the misses in the current window of up-frames.
+  int seenConfig = -1, lead = kLeadUsDefault;
+  bool fellBack = false;
+  int windowFrames = 0, windowMisses = 0;
 
   for (;;) {
     // ---- wait --------------------------------------------------------------
@@ -341,7 +384,8 @@ void ThreadMain() {
     bool attachReq = false, detachReq = false, beginReq = false, endReq = false, stop = false, ignoreButton = false;
     Box beginBox;
     uint8_t fill[4], edgeColour[4];
-    int mode, leadUs, k[3];
+    int mode, leadUs, k[3], config;
+    bool adaptive;
     std::vector<PendingUpdate> updates;
     {
       std::lock_guard<std::mutex> lock(g.m);
@@ -361,10 +405,20 @@ void ThreadMain() {
       updates.swap(g.updates);
       mode = g.mode;
       leadUs = g.leadUs;
+      adaptive = g.adaptive;
+      config = g.config;
       std::memcpy(k, g.k, sizeof k);
       ignoreButton = g.ignoreButton;
     }
     if (stop) break;
+    if (config != seenConfig) {
+      // A new configuration starts the adaptation over from its lead.
+      seenConfig = config;
+      lead = leadUs;
+      fellBack = false;
+      windowFrames = windowMisses = 0;
+    }
+    const bool late = mode == 1 && !fellBack;
     auto fail = [&](HRESULT hr) {
       std::lock_guard<std::mutex> lock(g.m);
       g.failures++;
@@ -413,9 +467,10 @@ void ThreadMain() {
     if (endReq) up = false;
     if (!o.target) up = false;
 
-    // ---- late in the frame (spike variant) -------------------------------------
-    LONGLONG waited = 0;  // time asleep below: not work, so not in workUs
-    if (up && tick && mode == 1 && timer) {
+    // ---- late in the frame (the default) ---------------------------------------
+    LONGLONG waited = 0;   // time asleep below: not work, so not in workUs
+    LONGLONG nextTick = 0;  // the tick the late sample aims for
+    if (up && tick && late && timer) {
       LONGLONG target = 0;
       COMPOSITION_FRAME_ID id = 0;
       COMPOSITION_FRAME_STATS st{};
@@ -426,7 +481,7 @@ void ThreadMain() {
         target = static_cast<LONGLONG>(st.startTime + st.framePeriod);
       else
         target = woke + period;
-      target -= static_cast<LONGLONG>(leadUs) * freq / 1000000;
+      target -= static_cast<LONGLONG>(lead) * freq / 1000000;
       // MEASURED 2026-10-09: the CREATED frame's startTime is a period behind
       // the tick, so the target above was already past and late mode never
       // waited (sample-after-tick 0 in every late run). Roll it forward to the
@@ -435,6 +490,7 @@ void ThreadMain() {
                                 ? static_cast<LONGLONG>(st.framePeriod)
                                 : period;
       while (target <= woke) target += step;
+      nextTick = target + static_cast<LONGLONG>(lead) * freq / 1000000;
       const LONGLONG wait = target - Qpc();
       if (wait > 0) {
         LARGE_INTEGER due100ns;
@@ -471,6 +527,27 @@ void ThreadMain() {
     if (tick) g.frames++;
     if (up && tick) g.upFrames++;
     if (hr == S_OK) g.commits++;
+    if (nextTick) {
+      // Did the commit make this frame? Too close to the tick means DWM may
+      // already have latched it, and the box is then a frame late.
+      windowFrames++;
+      if (hr == S_OK && nextTick - committed < static_cast<LONGLONG>(kLatchUs) * freq / 1000000) {
+        windowMisses++;
+        g.lateCommits++;
+      }
+      if (windowFrames >= kMissWindow) {
+        if (adaptive && windowMisses > kMissLimit) {
+          g.widenings++;
+          if (lead + kLeadUsStep <= std::max(kLeadUsMax, leadUs))
+            lead = std::max(lead, kLeadUsDefault) + kLeadUsStep;
+          else
+            fellBack = true;  // sample at the tick from now on: never a miss, a frame behind
+        }
+        windowFrames = windowMisses = 0;
+      }
+    }
+    g.effLeadUs = lead;
+    g.fellBackToTick = fellBack;
     const int64_t workUs = (committed - woke - waited) * 1000000 / freq;
     if (tick && workUs > g.maxWorkUs) g.maxWorkUs = workUs;
     g.workUs += workUs;
@@ -727,7 +804,14 @@ napi_value JsConfigure(napi_env env, napi_callback_info info) {
     if (napi_get_value_string_utf8(env, v, s, sizeof s, &n) == napi_ok) g.mode = strcmp(s, "late") == 0 ? 1 : 0;
   }
   int i;
+  // Below the default only for measuring (the spike's lead sweep); the product
+  // passes nothing and gets kLeadUsDefault, widened at run time.
   if (GetInt(env, argv[0], "leadUs", &i)) g.leadUs = std::clamp(i, 0, 20000);
+  if (napi_get_named_property(env, argv[0], "adaptive", &v) == napi_ok) {
+    bool b = true;
+    if (napi_get_value_bool(env, v, &b) == napi_ok) g.adaptive = b;
+  }
+  g.config++;
   if (GetInt(env, argv[0], "kAuto", &i)) g.k[kAuto] = std::clamp(i, 0, 8);
   if (GetInt(env, argv[0], "kScroll", &i)) g.k[kScroll] = std::clamp(i, 0, 8);
   if (GetInt(env, argv[0], "kResize", &i)) g.k[kResize] = std::clamp(i, 0, 8);
@@ -759,6 +843,10 @@ napi_value JsStats(napi_env env, napi_callback_info) {
   Set(env, o, "awareness", Num(env, g.awareness));
   Set(env, o, "pmv2", Bool(env, g.pmv2));
   Set(env, o, "lastHr", Num(env, static_cast<double>(static_cast<uint32_t>(g.lastHr))));
+  Set(env, o, "sampling", Str(env, g.mode == 1 && !g.fellBackToTick ? "late" : "tick"));
+  Set(env, o, "leadUs", Num(env, g.effLeadUs));
+  Set(env, o, "lateCommits", Num(env, static_cast<double>(g.lateCommits)));
+  Set(env, o, "widenings", Num(env, static_cast<double>(g.widenings)));
   return o;
 }
 

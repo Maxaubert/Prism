@@ -172,13 +172,24 @@ hands back a texture that may be an ATLAS shared with other surfaces plus an `of
 `ClearRenderTargetView`, which would clear the whole atlas. Format `B8G8R8A8_UNORM`, premultiplied
 alpha, so the CSS straight-alpha bytes are premultiplied in the addon.
 
-**When the sample is taken.** The compositor clock ticks as DWM starts composing a frame; a commit
-made just after the tick is composed in the NEXT frame, so a cursor sampled at the tick is about one
-frame old when it reaches the glass. That is Explorer's floor, and the gate allows it. If the spike
-misses the gate, the first variant to measure before calling no-go is sampling late in the frame:
-after the tick, wait until about 2 ms before the next frame's target time
-(`DCompositionGetStatistics`' `nextEstimatedFrameTime`), then read the cursor and commit. It is a
-spike variant, not part of the design unless the numbers ask for it.
+**When the sample is taken: late in the frame, 1000 us before the next tick** (decided 2026-10-09
+from the spike's numbers and the owner's eye; research `prism/2026-10-09-native-sweep-spike.md`).
+The compositor clock ticks as DWM starts composing a frame; a commit made just after the tick is
+composed in the NEXT frame, so a cursor sampled at the tick is a whole frame old when it reaches the
+glass. MEASURED at 1x with injected sweeps: sampled at the tick the box is 1.15 frames behind the
+pointer, no better than today's DOM box (1.06), and the owner could not tell them apart; File
+Explorer is 0.65. So after the tick the thread waits until `kLeadUsDefault` (1000 us) before the
+next frame's tick, then reads the cursor and commits: 0.29 frames at 1200 us with no missed frame,
+0.25 at 900 us with 0.3 % missed. The owner, zoomed in under Wind, judged 1500 us "follows almost
+perfectly ... not quite there" and 1000 us "seems like it works". The lead is a constant with that
+reason beside it, not a setting.
+
+A machine whose timer wakes later can miss DWM's latch at 1000 us (a missed commit shows a frame
+late). The thread counts a commit that lands within `kLatchUs` of the tick as a miss; more than one
+in a window of 144 up-frames WIDENS the lead by 250 us, up to 2000 us, never narrower than 1000.
+Past 2000 us it falls back to sampling at the tick for the rest of the session: a frame behind, but
+never a miss. `stats()` reports the sampling, the lead in force, the misses and the widenings, and
+main writes them to the diagnostics log at `end`.
 
 While no box is up the thread waits on the event alone and costs nothing per frame.
 
@@ -197,8 +208,9 @@ and the gap depends on who scrolled:
 
 So the native side applies an update `K[cause]` compositor frames after it arrives, each `K` measured
 in the spike as the delay that minimises the anchored edge's distance from its row (not inferred
-from the pointer lag, which is a different path), constants in the addon, not settings. Expected:
-`auto` and `resize` 2 or 3, `scroll` 0. The far corner is never delayed. Mostly the anchored edge is
+from the pointer lag, which is a different path), constants in the addon, not settings. MEASURED in
+the spike (2026-10-10, injected): `auto` 2, `scroll` 0; `resize` not measured, 2 (as `auto`) until it
+is. The far corner is never delayed. Mostly the anchored edge is
 clipped out of view during auto-scroll; this keeps it glued to its row when it is in view (a wheel
 turn under a held button).
 
@@ -276,8 +288,13 @@ against it would hand over and exit. The owner's Prism is never closed.
 
 **Go** when all of these hold:
 
-1. Native box median lag at most 1.25 frames and p95 at most 2 frames at every speed.
-2. Native median at least 1 frame below the DOM box's median in the same run.
+1. Native box median lag at or below File Explorer's median at every speed, under the same
+   injected motion, and p95 at most 2 frames. (Was "median at most 1.25 frames": the tick-sampled
+   box passed that at 1.15 frames while the owner saw no difference from today's box, so the bar is
+   Explorer, the box the owner compares against. Changed 2026-10-09 with the spike's numbers.)
+2. Native median below the DOM box's median at every speed in the same run. (Was "at least 1 frame
+   below": the DOM box after #332 measures 1.06 frames, so that bar could not be met by any box
+   short of a negative lag.)
 3. Shake: the standard deviation of the native gap at most 0.5 frame at a steady speed.
 4. Visible above Chromium's content in six window states: acrylic on and off, mica, normal,
    maximised, fullscreen, and still visible after the material is switched WHILE the target is
