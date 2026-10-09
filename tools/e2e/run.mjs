@@ -16863,6 +16863,52 @@ async function zipPreviewBackScenario(fixtures) {
     await list.focus()
     await win.keyboard.press('Alt+ArrowUp')
     await zipBack('Alt+Up')
+    // In by a double-click, out by the crumb of the folder holding it.
+    await zipRow(win, 'Wind-0.2.2.zip').dblclick()
+    ok(await inside(), 'a double-click goes into the zip again')
+    ok(await cleared(), 'the pane empties again')
+    await win
+      .locator(`.folder-browser nav.browse-path .browse-crumb button[data-crumb-path="${dir.replace(/\\/g, '\\\\')}"]`)
+      .click()
+    await zipBack('the crumb')
+    // A SHUT pane stays shut on the way out: nothing opens on its own.
+    await win.locator('.folder-browser button[aria-label="Preview pane"]').click()
+    ok(await until(async () => !(await pane()).shown, 5000), 'the pane shuts')
+    await zipRow(win, 'Wind-0.2.2.zip').dblclick()
+    ok(await inside(), 'into the zip with the pane shut')
+    await list.focus()
+    await win.keyboard.press('Backspace')
+    ok(await until(async () => (await where()) === dir, 10000), 'Backspace comes out with the pane shut')
+    await sleep(500)
+    ok(!(await pane()).shown, 'and the shut pane stays shut')
+    await win.locator('.folder-browser button[aria-label="Preview pane"]').click()
+    ok(await until(async () => (await pane()).card, 10000), 'opening the pane shows the marked zip')
+    // A NESTED zip: out of it, the zip inside the zip is previewed.
+    await zipRow(win, 'Wind-0.2.2.zip').dblclick()
+    ok(await inside(), 'into the outer zip')
+    await zipRow(win, 'Wind-0.2.2.zip\\Wind').dblclick()
+    ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('nested.zip')), 10000), 'the nested zip is listed')
+    await zipRow(win, 'Wind\\nested.zip').click()
+    ok(await until(async () => (await pane()).card, 10000), 'the nested zip previews as its card')
+    // Coming out must show the SAME card it showed as a pick (a zip inside a
+    // zip has no listing of its own on the card).
+    const nestedCard = (await pane()).text
+    await zipRow(win, 'Wind\\nested.zip').dblclick()
+    ok(await until(async () => (await where()).endsWith('nested.zip'), 10000), 'a double-click goes into the nested zip')
+    ok(await cleared(), 'the pane empties beside its contents')
+    await list.focus()
+    await win.keyboard.press('Backspace')
+    ok(await until(async () => (await where()).endsWith('Wind-0.2.2.zip\\Wind'), 10000), 'Backspace comes out of the nested zip')
+    ok(
+      await until(async () => {
+        const now = await pane()
+        return now.card && !now.empty && /^nested\.zip/.test(now.text) && now.text === nestedCard
+      }, 10000),
+      `the pane shows the nested zip's card again (${JSON.stringify(await pane())})`
+    )
+    ok((await zipRow(win, 'Wind\\nested.zip').getAttribute('aria-selected')) === 'true', 'the nested zip is the marked row')
+    await win.locator(`.folder-browser nav.browse-path .browse-crumb button[data-crumb-path="${dir.replace(/\\/g, '\\\\')}"]`).click()
+    ok(await until(async () => (await where()) === dir, 10000), 'a crumb goes back to the folder holding the zip')
     // Out of a FOLDER inside the zip: the folder is marked, nothing previews.
     await zipRow(win, 'Wind-0.2.2.zip').dblclick()
     ok(await inside(), 'into the zip once more')
