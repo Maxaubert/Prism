@@ -16,8 +16,9 @@
  *                                    the two edges never cover each other).
  *   --sweep-spike-log=<dir>          where spike-info.json, spike-events.jsonl and
  *                                    native-frames.csv go (default userData/sweep-spike)
- *   --sweep-spike-mode=tick|late     sample at the clock tick, or late in the frame
- *   --sweep-spike-lead-us=<n>        late mode: sample this long before the next frame
+ *   --sweep-spike-mode=tick|late     sample at the clock tick, or late in the frame (default)
+ *   --sweep-spike-lead-us=<n>        late mode: sample this long before the next frame (1000)
+ *   --sweep-spike-adaptive=0         late mode: a fixed lead (default: widened on misses)
  *   --sweep-spike-k=auto:2,scroll:0,resize:2   anchor delays in frames
  *   --sweep-spike-origin=<x>,<y>     client-to-target offset in physical px
  *   --sweep-spike-quit-file=<path>   quit (app.quit) when this file appears
@@ -41,7 +42,7 @@ interface Addon {
   update(box: PhysBox, cause: string): void
   end(): void
   configure(c: Record<string, unknown>): void
-  stats(): Record<string, number | boolean>
+  stats(): Record<string, number | boolean | string>
   takeLog(): Float64Array
   qpc(): number
   qpcFreq(): number
@@ -160,8 +161,9 @@ export function initSweepSpike(win: BrowserWindow): void {
     nativeEdge: NATIVE_EDGE,
     origin: [ox, oy],
     k,
-    samplingMode: arg('sweep-spike-mode') === 'late' ? 'late' : 'tick',
-    leadUs: Number(arg('sweep-spike-lead-us') ?? 2000)
+    samplingMode: arg('sweep-spike-mode') === 'tick' ? 'tick' : 'late',
+    leadUs: Number(arg('sweep-spike-lead-us') ?? 1000),
+    adaptive: arg('sweep-spike-adaptive') !== '0'
   }
   const writeInfo = (more: Record<string, unknown>): void => {
     info = { ...info, ...more }
@@ -241,8 +243,9 @@ export function initSweepSpike(win: BrowserWindow): void {
     let attached: { state: string; hr: number } | null = null
     if (addon && mode !== 'dom') {
       addon.configure({
-        mode: arg('sweep-spike-mode') === 'late' ? 'late' : 'tick',
-        leadUs: Number(arg('sweep-spike-lead-us') ?? 2000),
+        mode: arg('sweep-spike-mode') === 'tick' ? 'tick' : 'late',
+        leadUs: Number(arg('sweep-spike-lead-us') ?? 1000),
+        adaptive: arg('sweep-spike-adaptive') !== '0',
         kAuto: k.auto ?? 0,
         kScroll: k.scroll ?? 0,
         kResize: k.resize ?? 0

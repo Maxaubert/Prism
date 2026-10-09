@@ -364,9 +364,12 @@ function analyzeRun(dir) {
     if (poll[i - 1].escape === 0 && poll[i].escape === 1 && poll[i].primary === 1) escapes.push(poll[i].qpc)
   }
   const goneAfter = (t, who) => {
-    // Only counted when the box was seen in the 150 ms before the moment.
-    const before = rows.filter((r) => r.f.present_qpc < t && r.f.present_qpc > t - 0.15 * F && visible(r.found, who))
-    if (!before.length) return null
+    // Only counted when the last image frame before the moment showed the box.
+    // Desktop Duplication makes no image frame while nothing changes, so with
+    // the pointer held still before a release that frame can be a second old.
+    let last = null
+    for (const r of rows) if (r.f.present_qpc < t && r.f.present_qpc > t - F) last = r
+    if (!last || !visible(last.found, who)) return null
     const gone = firstFrameAfter(t, (r) => !visible(r.found, who))
     if (!gone) return null
     // Frames presented after the moment that still showed the box: the gate's

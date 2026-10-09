@@ -90,12 +90,13 @@ struct Options {
   struct Seg {
     std::string name;
     double speed;  // physical px per second
-    char axis;     // 'y' down and up, 'x' across
+    char axis;     // 'y' down and up, 'x' across, 'a' auto-scroll, 'w' wheel, 'e' Escape
     double seconds;
   };
   std::vector<Seg> plan;
   POINT press{};
   RECT area{};
+  RECT list{};  // the list's scroller, screen px (auto-scroll segments)
   std::string abortFile;
 };
 
@@ -109,8 +110,18 @@ std::vector<Options::Seg> ParsePlan(const std::string& s) {
     const std::string part = s.substr(i, j - i);
     char name[64] = {0}, dir[16] = {0};
     double speed = 0, seconds = 0;
-    if (sscanf(part.c_str(), "%63[^:]:%lf:%15[^:]:%lf", name, &speed, dir, &seconds) == 4)
-      out.push_back({name, speed, strcmp(dir, "across") == 0 ? 'x' : 'y', seconds});
+    // down / across: the ping-pong at `speed` px/s. autoscroll: hold `speed` px
+    // inside the list's bottom edge, then inside its top (half the seconds each).
+    // wheel: still, `speed` wheel notches a second, down then up. escape: still,
+    // then Escape with the button held (`speed` unused).
+    if (sscanf(part.c_str(), "%63[^:]:%lf:%15[^:]:%lf", name, &speed, dir, &seconds) == 4) {
+      const char axis = strcmp(dir, "across") == 0       ? 'x'
+                        : strcmp(dir, "autoscroll") == 0 ? 'a'
+                        : strcmp(dir, "wheel") == 0      ? 'w'
+                        : strcmp(dir, "escape") == 0     ? 'e'
+                                                         : 'y';
+      out.push_back({name, speed, axis, seconds});
+    }
     i = j + 1;
   }
   return out;
@@ -375,12 +386,56 @@ void InjectPlanThread(Options o) {
       }
     }
     // Down: x held left of the press, y ping-pongs; across: y held below it.
-    const double fx = s.axis == 'y' ? A.left + (A.right - A.left) * 0.35 : A.right;
-    const double fy = s.axis == 'y' ? A.top : A.top + (A.bottom - A.top) * 0.65;
+    // The other kinds: x left of the press, y below it, inside the area.
+    const bool still = s.axis == 'a' || s.axis == 'w' || s.axis == 'e';
+    const double fx = s.axis == 'x' ? A.right : A.left + (A.right - A.left) * 0.35;
+    const double fy = s.axis == 'y' ? A.top : still ? A.top + (A.bottom - A.top) * 0.4 : A.top + (A.bottom - A.top) * 0.65;
     if (!hold(ax, ay, 0.15)) break;
     SendMouse(swap ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN);
     gButtonDown.store(true);
     if (!hold(ax, ay, 0.12) || !glide(ax, ay, fx, fy, 0.3) || !hold(fx, fy, 0.45)) break;
+    if (still) {
+      bool ok = true;
+      if (s.axis == 'a') {
+        // Near the list's bottom edge (auto-scroll down), then near its top.
+        const double yb = o.list.bottom - s.speed, yt = o.list.top + s.speed;
+        ok = glide(fx, fy, fx, yb, 0.2) && hold(fx, yb, s.seconds / 2) && glide(fx, yb, fx, yt, 0.3) &&
+             hold(fx, yt, s.seconds / 2);
+      } else if (s.axis == 'w') {
+        // Notches with the button held, the pointer still: down, then up.
+        const int n = std::max(2, static_cast<int>(s.speed * s.seconds));
+        for (int k = 0; k < n && ok; k++) {
+          INPUT in{};
+          in.type = INPUT_MOUSE;
+          in.mi.dwFlags = MOUSEEVENTF_WHEEL;
+          in.mi.mouseData = static_cast<DWORD>(k < n / 2 ? -WHEEL_DELTA : WHEEL_DELTA);
+          SendInput(1, &in, sizeof in);
+          ok = hold(fx, fy, 1.0 / std::max(0.5, s.speed));
+        }
+      } else {
+        // Escape with the button held: the sweep is cancelled, then released.
+        // Only when the window under the pointer is the one in front: a key
+        // goes to the foreground window, which could be the owner's terminal.
+        POINT c{};
+        GetCursorPos(&c);
+        if (GetAncestor(WindowFromPoint(c), GA_ROOT) != GetForegroundWindow()) {
+          abort("the window under test is not in front: Escape not sent");
+          break;
+        }
+        INPUT k[2]{};
+        k[0].type = k[1].type = INPUT_KEYBOARD;
+        k[0].ki.wVk = k[1].ki.wVk = VK_ESCAPE;
+        k[1].ki.dwFlags = KEYEVENTF_KEYUP;
+        SendInput(1, &k[0], sizeof(INPUT));
+        ok = hold(fx, fy, 0.05);
+        SendInput(1, &k[1], sizeof(INPUT));
+        ok = ok && hold(fx, fy, 0.4);
+      }
+      if (!ok || !hold(last[1].x, last[1].y, 0.3)) break;
+      ButtonUp();
+      if (!hold(last[1].x, last[1].y, 0.5)) break;
+      continue;
+    }
     const double L = s.axis == 'y' ? A.bottom - A.top : A.right - A.left;
     const LONGLONG t0 = Qpc();
     bool ok = true;
@@ -587,6 +642,7 @@ int wmain(int argc, wchar_t** wargv) {
     else if (a == "--inject-plan") o.plan = ParsePlan(next());
     else if (a == "--inject-press" && ParseInts(next(), v, 2)) o.press = {v[0], v[1]};
     else if (a == "--inject-area" && ParseInts(next(), v, 4)) o.area = {v[0], v[1], v[2], v[3]};
+    else if (a == "--inject-list" && ParseInts(next(), v, 4)) o.list = {v[0], v[1], v[2], v[3]};
     else if (a == "--abort-file") o.abortFile = next();
     else {
       fprintf(stderr, "unknown or malformed argument: %s\n", a.c_str());
