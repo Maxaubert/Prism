@@ -84,27 +84,54 @@ function useFittedLine(
   text: string,
   fit: boolean
 ): void {
+  // What the line says now, for the resize observer, which outlives a tick.
+  const latest = useRef({ text, fit })
+  // The line's font, read once per opening and again on a resize: a
+  // getComputedStyle per tick is a style flush per tick.
+  const font = useRef('')
+  // Every tick: one fit, nothing else. The observer is NOT rebuilt here, as
+  // it was at first: a new observer fires once on observe, which fitted every
+  // tick twice and churned an observer per progress event.
+  useLayoutEffect(() => {
+    latest.current = { text, fit }
+    const node = el.current
+    if (node) writeLine(node, text, fit, font)
+  }, [el, up, text, fit])
+  // A narrower window (or a zoom that changes the box) refits it. One
+  // observer per opening; its first call, at the width just fitted, is skipped.
   useLayoutEffect(() => {
     const node = el.current
-    if (!node) return
-    const paint = (): void => writeLine(node, text, fit)
-    paint()
-    // A zoom or a narrower window refits it.
-    const ro = new ResizeObserver(paint)
+    if (!node || !up) return
+    font.current = ''
+    let width = node.clientWidth
+    const ro = new ResizeObserver(() => {
+      if (node.clientWidth === width) return
+      width = node.clientWidth
+      font.current = ''
+      writeLine(node, latest.current.text, latest.current.fit, font)
+    })
     ro.observe(node)
     return () => ro.disconnect()
-  }, [el, up, text, fit])
+  }, [el, up])
 }
 
-function writeLine(node: HTMLElement, text: string, fit: boolean): void {
+function writeLine(
+  node: HTMLElement,
+  text: string,
+  fit: boolean,
+  font: { current: string }
+): void {
   const ctx = fit && text ? measurer() : null
   const width = node.clientWidth - 1
   if (!ctx || width <= 0) {
     node.textContent = text
     return
   }
-  const cs = getComputedStyle(node)
-  ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+  if (!font.current) {
+    const cs = getComputedStyle(node)
+    font.current = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+  }
+  ctx.font = font.current
   node.textContent = fitPath(text, (s) => ctx.measureText(s).width <= width)
 }
 
