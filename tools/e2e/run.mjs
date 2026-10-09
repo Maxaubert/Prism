@@ -8241,6 +8241,324 @@ async function marqueeEdgeScenario(fixtures) {
 }
 
 /**
+ * THE SWEEP BOX KEEPS UP WITH THE POINTER (#332; owner, 2026-10-08: "fast
+ * movements make it fall behind the cursor, while it should stay at the cursor
+ * position perfectly the whole time, file explorer's highlight does it
+ * perfectly"). A fast sweep driven by CDP mouse moves (one per frame, then
+ * four per frame) in a folder of 300 rows, in the Explorer's list and in the
+ * project tree, then a hold at the bottom edge while the list auto-scrolls.
+ * A probe in the page reads the box in the frame that is about to be PAINTED
+ * (a ResizeObserver, which runs after every animation frame callback and the
+ * layout, just before paint) and compares its moving corner with the pointer's
+ * latest position. It also times the pointermove handlers (window capture to
+ * window bubble) and counts the row layer's commits. Last, a burst of moves
+ * released in the same breath must leave the marks a slow sweep to the same
+ * place leaves.
+ */
+async function sweepLagScenario(fixtures) {
+  console.log('the sweep box keeps up with the pointer (#332)')
+  const dir = join(fixtures, 'sweeplag')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (let i = 0; i < 300; i++) writeFileSync(join(dir, `f${String(i).padStart(3, '0')}.txt`), `lag ${i}\n`)
+  const { app, win } = await launch(join(dir, 'f000.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  const mouse = (type, x, y) =>
+    cdp.send('Input.dispatchMouseEvent', {
+      type,
+      x: Math.round(x),
+      y: Math.round(y),
+      button: 'left',
+      buttons: type === 'mouseReleased' ? 0 : 1,
+      ...(type === 'mouseMoved' ? {} : { clickCount: 1 })
+    })
+  const frame = () => win.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())))
+  // The probe: installed before the press, read and removed after the release.
+  const probe = (scope) =>
+    win.evaluate((scope) => {
+      const s = { pts: [], frames: [], handler: [], commits: 0, start: null, phase: 'move', t0: null }
+      globalThis.__lag = s
+      const down = (e) => (s.start = { x: e.clientX, y: e.clientY })
+      const mv = (e) => {
+        s.t0 = performance.now()
+        s.pts.push({ x: e.clientX, y: e.clientY })
+      }
+      const mvEnd = () => {
+        if (s.t0 !== null) s.handler.push(performance.now() - s.t0)
+        s.t0 = null
+      }
+      window.addEventListener('pointerdown', down, true)
+      window.addEventListener('pointermove', mv, true)
+      window.addEventListener('pointermove', mvEnd, false)
+      const root = document.querySelector(scope)
+      const isBand = (n) => !!(n && n.nodeType === 1 ? n.closest('[data-sweep-band]') : n?.parentElement?.closest('[data-sweep-band]'))
+      const mo = new MutationObserver((recs) => {
+        if (recs.some((r) => !isBand(r.target) && ![...r.addedNodes, ...r.removedNodes].some(isBand))) s.commits += 1
+      })
+      mo.observe(root, { subtree: true, attributes: true, childList: true, characterData: true })
+      const dot = document.createElement('div')
+      dot.style.cssText = 'position:fixed;left:-20px;top:0;width:1px;height:1px;pointer-events:none'
+      document.body.appendChild(dot)
+      let flip = false
+      let on = true
+      const loop = () => {
+        if (!on) return
+        flip = !flip
+        dot.style.width = flip ? '2px' : '1px'
+        requestAnimationFrame(loop)
+      }
+      const scroller = (() => {
+        for (let n = root.querySelector('[role="tree"]') ?? root; n; n = n.parentElement)
+          if (/(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight) return n
+        return root
+      })()
+      const sample = () => {
+        const band = document.querySelector(`${scope} [data-sweep-band]`)
+        const p = s.pts[s.pts.length - 1]
+        if (!p || !s.start) return
+        // Past the threshold (4 px) the sweep has begun, so a painted frame
+        // with no box showing is a late frame, not one to skip (review of #332).
+        const begun = s.pts.some((q) => Math.abs(q.x - s.start.x) >= 4 || Math.abs(q.y - s.start.y) >= 4)
+        if (!band || getComputedStyle(band).display === 'none') {
+          if (begun) s.frames.push({ phase: s.phase, off: 9999, behind: 0, top: scroller.scrollTop, at: `no box at ${p.x},${p.y}` })
+          return
+        }
+        const r = band.getBoundingClientRect()
+        // The moving corner. Level with the press, the box is only its two
+        // 1px edges thick, and either edge is the pointer's.
+        const edge = (pv, sv, lo, hi) =>
+          Math.abs(pv - sv) < 2 ? (Math.abs(lo - pv) < Math.abs(hi - pv) ? lo : hi) : pv >= sv ? hi : lo
+        const cx = edge(p.x, s.start.x, r.left, r.right)
+        const cy = edge(p.y, s.start.y, r.top, r.bottom)
+        let behind = 0
+        let bestD = Infinity
+        for (let k = 0; k < Math.min(40, s.pts.length); k++) {
+          const q = s.pts[s.pts.length - 1 - k]
+          const d = Math.hypot(cx - q.x, cy - q.y)
+          if (d < bestD - 0.01) {
+            bestD = d
+            behind = k
+          }
+        }
+        s.frames.push({
+          phase: s.phase,
+          off: Math.hypot(cx - p.x, cy - p.y),
+          behind,
+          top: scroller.scrollTop,
+          at: `${Math.round((cx - p.x) * 10) / 10},${Math.round((cy - p.y) * 10) / 10} at ${p.x},${p.y} from ${s.start.x},${s.start.y} band ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)} top ${scroller.scrollTop}`
+        })
+      }
+      const ro = new ResizeObserver(sample)
+      ro.observe(dot)
+      requestAnimationFrame(loop)
+      s.stop = () => {
+        on = false
+        ro.disconnect()
+        mo.disconnect()
+        dot.remove()
+        window.removeEventListener('pointerdown', down, true)
+        window.removeEventListener('pointermove', mv, true)
+        window.removeEventListener('pointermove', mvEnd, false)
+      }
+    }, scope)
+  const phase = (p) => win.evaluate((p) => (globalThis.__lag.phase = p), p)
+  const readProbe = () =>
+    win.evaluate(() => {
+      const s = globalThis.__lag
+      s.stop()
+      const sum = (fs) => ({
+        frames: fs.length,
+        late: fs.filter((f) => f.off > 1).length,
+        maxOff: Math.round(Math.max(0, ...fs.map((f) => f.off)) * 10) / 10,
+        meanOff: Math.round((fs.reduce((a, f) => a + f.off, 0) / Math.max(1, fs.length)) * 10) / 10,
+        maxBehind: Math.max(0, ...fs.map((f) => f.behind)),
+        worst: fs.filter((f) => f.off > 1).slice(0, 3).map((f) => f.at),
+        scrolled: fs.length ? Math.round(fs[fs.length - 1].top - fs[0].top) : 0
+      })
+      const h = s.handler
+      return {
+        move: sum(s.frames.filter((f) => f.phase === 'move')),
+        burst: sum(s.frames.filter((f) => f.phase === 'burst')),
+        scroll: sum(s.frames.filter((f) => f.phase === 'scroll')),
+        handlerMean: Math.round((h.reduce((a, b) => a + b, 0) / Math.max(1, h.length)) * 100) / 100,
+        handlerMax: Math.round(Math.max(0, ...h) * 100) / 100,
+        moves: h.length,
+        commits: s.commits
+      }
+    })
+  /** A walk of 25-40 px steps bouncing inside a box. */
+  const walk = (from, area, n) => {
+    const pts = []
+    let { x, y } = from
+    let sx = -1
+    let sy = 1
+    for (let i = 0; i < n; i++) {
+      const dx = 25 + ((i * 7) % 16)
+      const dy = 25 + ((i * 11) % 16)
+      if (x + sx * dx < area.x0 || x + sx * dx > area.x1) sx = -sx
+      if (y + sy * dy < area.y0 || y + sy * dy > area.y1) sy = -sy
+      x += sx * dx
+      y += sy * dy
+      pts.push({ x, y })
+    }
+    return pts
+  }
+  /** The fast sweep: 60 moves one per frame, 60 more four per frame, then a
+   *  hold at the bottom edge while the list scrolls under it. */
+  const fastSweep = async (scope, start, area, bottom) => {
+    await probe(scope)
+    await mouse('mousePressed', start.x, start.y)
+    let at = start
+    for (const p of walk(at, area, 60)) {
+      await mouse('mouseMoved', p.x, p.y)
+      await frame()
+      at = p
+    }
+    await phase('burst')
+    const burst = walk(at, area, 60)
+    for (let i = 0; i < burst.length; i += 4) {
+      await Promise.all(burst.slice(i, i + 4).map((p) => mouse('mouseMoved', p.x, p.y)))
+      await frame()
+    }
+    at = burst[burst.length - 1]
+    await phase('scroll')
+    for (let i = 0; i < 40; i++) {
+      // A small move every other frame; between them the list scrolls alone.
+      if (i % 2 === 0) await mouse('mouseMoved', at.x + (i % 4 ? 3 : -3), bottom - 10)
+      await frame()
+    }
+    await frame()
+    const result = await readProbe()
+    await mouse('mouseReleased', at.x, bottom - 10)
+    await sleep(300)
+    return result
+  }
+  const report = (where, r) => {
+    for (const k of ['move', 'burst', 'scroll'])
+      console.log(
+        `  ${where} ${k}: ${r[k].frames} frames, ${r[k].late} more than 1 px off, max ${r[k].maxOff} px, mean ${r[k].meanOff} px, up to ${r[k].maxBehind} pointer events behind${k === 'scroll' ? `, scrolled ${r[k].scrolled} px` : ''}`
+      )
+    console.log(`  ${where}: ${r.moves} pointermoves, handler mean ${r.handlerMean} ms, max ${r.handlerMax} ms, ${r.commits} row-layer commits`)
+    for (const k of ['move', 'burst', 'scroll'])
+      ok(
+        r[k].frames >= 10 && r[k].late === 0,
+        `${where} ${k}: the box's corner is within 1 px of the pointer in every painted frame (${r[k].late} of ${r[k].frames} off, max ${r[k].maxOff} px${r[k].late ? `; ${r[k].worst.join(' | ')}` : ''})`
+      )
+    ok(r.scroll.scrolled > 100, `${where}: the list auto-scrolled under the held pointer (${r.scroll.scrolled} px)`)
+  }
+  /** The marks a burst released in one breath leaves, against a slow sweep
+   *  to the same place. */
+  const releaseCheck = async (where, start, path, marks, scrollerTop) => {
+    await scrollerTop()
+    await mouse('mousePressed', start.x, start.y)
+    const end = path[path.length - 1]
+    await mouse('mouseMoved', end.x, end.y)
+    await sleep(300)
+    await mouse('mouseReleased', end.x, end.y)
+    await sleep(400)
+    const slow = (await marks()).sort().join()
+    await scrollerTop()
+    await mouse('mousePressed', start.x, start.y)
+    await Promise.all([...path.map((p) => mouse('mouseMoved', p.x, p.y)), mouse('mouseReleased', end.x, end.y)])
+    await sleep(400)
+    const fast = (await marks()).sort().join()
+    ok(slow.split(',').length >= 3 && fast === slow, `${where}: a burst released at once leaves the slow sweep's marks (${fast} and ${slow})`)
+  }
+  try {
+    /* ---------- the project tree ---------- */
+    await win.waitForSelector('aside [data-row]', { timeout: 15000 })
+    await sleep(500)
+    const tr = await win.locator('aside [data-row]').nth(2).boundingBox()
+    const treeBox = await win.evaluate(() => {
+      for (let n = document.querySelector('aside [role="tree"]'); n; n = n.parentElement)
+        if (/(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight) {
+          const r = n.getBoundingClientRect()
+          return { x: r.x, y: r.y, width: r.width, height: r.height }
+        }
+      return null
+    })
+    ok(!!treeBox && treeBox.height > 250, `the tree scrolls its 300 rows (${JSON.stringify(treeBox)})`)
+    const blankX = tr.x + tr.width - 12
+    const trStart = { x: blankX, y: tr.y + tr.height / 2 }
+    const trArea = { x0: tr.x + 30, x1: blankX, y0: treeBox.y + 60, y1: treeBox.y + treeBox.height - 60 }
+    const tree = await fastSweep('aside', trStart, trArea, treeBox.y + treeBox.height)
+    report('tree', tree)
+    const trMarks = () =>
+      win.evaluate(() =>
+        [...document.querySelectorAll('aside [data-row][data-selected]')].map((r) => /[^\\]*$/.exec(r.getAttribute('data-row') ?? '')?.[0])
+      )
+    const trTop = () =>
+      win
+        .evaluate(() => {
+          for (let n = document.querySelector('aside [role="tree"]'); n; n = n.parentElement)
+            if (/(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight) n.scrollTop = 0
+        })
+        .then(() => sleep(250))
+    await trTop()
+    const trRows = await win.locator('aside [data-row]').nth(4).boundingBox()
+    const trRow1 = await win.locator('aside [data-row]').nth(1).boundingBox()
+    await releaseCheck(
+      'tree',
+      { x: blankX, y: trRows.y + trRows.height / 2 },
+      [
+        { x: tr.x + 40, y: treeBox.y + treeBox.height - 70 },
+        { x: tr.x + 50, y: treeBox.y + 200 },
+        { x: tr.x + 60, y: trRow1.y + trRow1.height / 2 }
+      ],
+      trMarks,
+      trTop
+    )
+
+    /* ---------- the Explorer's list ---------- */
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    const listSel = '[data-testid="browse-list"]'
+    await win.waitForSelector(`${listSel} .browse-row`, { timeout: 10000 })
+    await win.locator(`${listSel} [data-browse-path$="sweeplag"]`).dblclick()
+    const list = win.locator(listSel)
+    ok(
+      await until(async () => /300 items/.test((await win.locator('.browse-status').textContent()) ?? ''), 10000),
+      `the Explorer walked into the folder of 300 (${await win.locator('.browse-status').textContent()})`
+    )
+    await sleep(500)
+    const lb = await list.boundingBox()
+    const row0 = await list.locator('[data-browse-index="0"]').boundingBox()
+    const right = row0.x + row0.width
+    ok(lb.x + lb.width - right >= 40, `there is blank space beside the rows (${Math.round(lb.x + lb.width - right)}px)`)
+    const exStart = { x: right + 20, y: lb.y + 80 }
+    const exArea = { x0: row0.x + 40, x1: right + 20, y0: lb.y + 60, y1: lb.y + lb.height - 60 }
+    const ex = await fastSweep(listSel, exStart, exArea, lb.y + lb.height)
+    report('Explorer', ex)
+    const exMarks = async () => {
+      const shown = await win.evaluate(
+        (s) =>
+          [...document.querySelectorAll(`${s} [data-browse-path][aria-selected="true"]`)].map(
+            (r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0]
+          ),
+        listSel
+      )
+      const status = /(\d+) selected/.exec((await win.locator('.browse-status').textContent()) ?? '')?.[1] ?? '0'
+      return [...shown, `#${status}`]
+    }
+    const exTop = () => win.evaluate((s) => (document.querySelector(s).scrollTop = 0), listSel).then(() => sleep(200))
+    await releaseCheck(
+      'Explorer',
+      exStart,
+      [
+        { x: row0.x + 60, y: lb.y + lb.height - 70 },
+        { x: row0.x + 50, y: lb.y + 200 },
+        { x: row0.x + 80, y: lb.y + 140 }
+      ],
+      exMarks,
+      exTop
+    )
+
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
  * THE COMMON FILE KEYS (#330; owner, 2026-10-07: "add common hotkeys to the
  * explorer and project so that for example ctrl + A selects all"). Every key
  * of the chosen list, in the project tree and in the Explorer's list, against
@@ -17479,6 +17797,7 @@ await run(dragLabelScenario)
 await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(marqueeEdgeScenario)
+await run(sweepLagScenario)
 await run(hotkeysScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
