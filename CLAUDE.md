@@ -648,6 +648,27 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   every element's cursor is pinned to `default` (`internalFileDrag.ts`; it was `grabbing`).
   The `marquee` e2e measures the gutter and the header, sweeps from beside, drags from the Size
   and Date cells (label up, no rectangle, `default` cursor under the pointer, on html and body).
+  **THE BOX IS UNDER THE POINTER IN EVERY FRAME** (#332; owner, 2026-10-08: "fast movements make
+  it fall behind the cursor, while it should stay at the cursor position perfectly the whole
+  time, file explorer's highlight does it perfectly"). The box was React state, so the list
+  rendered it AFTER each frame was painted. MEASURED (`sweepLag`, 300 rows, CDP moves of 25-40px):
+  before, every move's first frame was a move behind (up to 54px, mean 23px, list and tree), and
+  every auto-scroll frame was off (up to 430px Explorer, 203px tree); after, 0px in all of them.
+  So `useSweep` only mounts the band (`sweeping`, `bandRef`) and the pointer handler writes its
+  place straight onto it from geometry read at the press, at the sweep's start, after a scroll
+  or resize (`ResizeObserver`) and at the release (`measure`), never per move; marks are worked
+  out once a frame in the tick, and again on the release, so the marks that stand are the box's.
+  The band mounts through `flushSync` in the move that starts the sweep: a plain state update
+  from a native listener painted that frame with NO box (MEASURED, `sweepLag` counts such a
+  frame as late). Do not put the box back in React state.
+  **THE REST OF THE TRAIL IS CHROMIUM'S, AND WAS LEFT** (#332; owner, 2026-10-09). The owner,
+  zoomed in, still sees the box trail and shake on fast moves where Explorer's does not. Explorer's
+  `UIMarqueeSelector` is about one frame behind the hardware cursor, Chromium's path two to four
+  (research: `C:\Users\Admin\Documents\Claude\research\prism\2026-10-08-explorer-marquee.md`).
+  TRIED AND REVERTED, the owner seeing no difference: the hook marking rows in the DOM with one
+  React commit at the release, no scroll round-trip through App, the box as a whole-device-pixel
+  overlay outside the scroller (b5f0517, b1c5014 on this PR's branch). The only route left is a
+  native overlay window (an N-API addon); the owner declined it. Do not redo the web-side attempt.
   **MARKING IS NOT PICKING** (#263; owner, 2026-10-03: "when you multiselect like this it picks
   a file so here this drag starts one of the videos ... same is the case if i ctrl select it
   shouldnt start or preview anything"). In the Explorer a sweep and a Ctrl or Shift click call

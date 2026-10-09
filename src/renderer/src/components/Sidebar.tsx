@@ -813,18 +813,26 @@ export function Sidebar({
     scroller.current?.querySelector<HTMLElement>('[role="tree"]') ?? null
   const sweep = useSweep({
     scroller: () => scroller.current,
-    toList: (x, y) => {
+    // Read at the press and after a scroll only (#332): never per move.
+    measure: () => {
       const box = scroller.current
       const r = treeList()?.getBoundingClientRect()
-      if (!box || !r) return { x: 0, y: 0 }
-      // Clamped to the scroll box's content, so the rectangle never pushes
-      // the box wider or longer than its rows.
-      const top = box.getBoundingClientRect().top - box.scrollTop - r.top
+      if (!box || !r) return null
       return {
-        x: Math.min(r.width, Math.max(0, x - r.left)),
-        y: Math.min(top + box.scrollHeight, Math.max(top, y - r.top))
+        left: r.left,
+        top: r.top,
+        width: r.width,
+        // The scroll box's content top, in the list's own y.
+        contentTop: box.getBoundingClientRect().top - box.scrollTop - r.top,
+        scrollHeight: box.scrollHeight
       }
     },
+    toList: (x, y, g) => ({
+      // Clamped to the scroll box's content, so the rectangle never pushes
+      // the box wider or longer than its rows.
+      x: Math.min(g.width, Math.max(0, x - g.left)),
+      y: Math.min(g.contentTop + g.scrollHeight, Math.max(g.contentTop, y - g.top))
+    }),
     rowAcross: () => {
       // What is drawn as a row across (#326), measured off any row in view:
       // the tree's rows run its whole width, so today every box that starts
@@ -1790,7 +1798,7 @@ export function Sidebar({
               }}
             >
               {rootListing ? (
-                <TreeWindow rows={paint} scroller={scroller} band={sweep.band} />
+                <TreeWindow rows={paint} scroller={scroller} band={sweep.sweeping ? sweep.bandRef : null} />
               ) : (
                 <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--p-dim2)]">
                   loading…
