@@ -17,6 +17,10 @@
 //
 //   sweep-latency.exe --out <dir> [--phases rest:3,slow:10,...] [--rect l,t,r,b]
 //                     [--monitor-at x,y] [--no-beep]
+//   injected (owner-allowed runs only), phases from the plan, inject.csv logged:
+//   sweep-latency.exe --out <dir> --rect l,t,r,b --owner-allowed-inject
+//                     --inject-plan name:pxPerSec:down|across:seconds,...
+//                     --inject-press x,y --inject-area l,t,r,b --abort-file <guard's file>
 //
 // Output in <dir>: meta.json, frames.csv, mouse.csv, poll.csv, strips.bin.
 #define WIN32_LEAN_AND_MEAN
@@ -26,9 +30,11 @@
 #include <d3d11.h>
 #include <dxgi1_6.h>
 #include <dwmapi.h>
+#include <timeapi.h>
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -41,6 +47,7 @@
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "winmm.lib")
 
 namespace {
 
@@ -77,7 +84,37 @@ struct Options {
   std::vector<int> injectSpeeds{4, 12, 30};
   POINT injectFrom{};
   int injectSpan = 600;
+  // --inject-plan: scripted sweeps at a steady speed (the measured run the owner
+  // allowed on 2026-10-09). Each segment: press, hold still (the rest offset),
+  // ping-pong along one axis at `speed` px/s for `seconds`, release.
+  struct Seg {
+    std::string name;
+    double speed;  // physical px per second
+    char axis;     // 'y' down and up, 'x' across
+    double seconds;
+  };
+  std::vector<Seg> plan;
+  POINT press{};
+  RECT area{};
+  std::string abortFile;
 };
+
+std::vector<Options::Seg> ParsePlan(const std::string& s) {
+  // name:speed:down|across:seconds,...
+  std::vector<Options::Seg> out;
+  size_t i = 0;
+  while (i < s.size()) {
+    size_t j = s.find(',', i);
+    if (j == std::string::npos) j = s.size();
+    const std::string part = s.substr(i, j - i);
+    char name[64] = {0}, dir[16] = {0};
+    double speed = 0, seconds = 0;
+    if (sscanf(part.c_str(), "%63[^:]:%lf:%15[^:]:%lf", name, &speed, dir, &seconds) == 4)
+      out.push_back({name, speed, strcmp(dir, "across") == 0 ? 'x' : 'y', seconds});
+    i = j + 1;
+  }
+  return out;
+}
 
 std::vector<Phase> ParsePhases(const std::string& s) {
   std::vector<Phase> out;
@@ -199,6 +236,177 @@ void InjectThread(Options o) {
     SendMouse(GetSystemMetrics(SM_SWAPBUTTON) ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP);
     Sleep(700);
   }
+}
+
+// ---- the scripted plan (--inject-plan) ---------------------------------------
+// Absolute moves at about 1 kHz, as a real mouse reports. Every injected point
+// is logged (inject.csv), so the analysis can use the exact track. The OWNER'S
+// HAND aborts at once: the guard (raw input from a real device, a separate
+// process) writes --abort-file, and the cursor straying from where we put it
+// counts too. The button is released on every way out.
+struct InjRow {
+  LONGLONG qpc;
+  double x, y;
+  int phase, down;
+};
+std::vector<InjRow> gInj;
+std::atomic<bool> gButtonDown{false};
+std::atomic<bool> gAborted{false};
+std::string gAbortWhy;
+
+void ButtonUp() {
+  if (gButtonDown.exchange(false))
+    SendMouse(GetSystemMetrics(SM_SWAPBUTTON) ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP);
+}
+
+BOOL WINAPI CtrlHandler(DWORD) {
+  ButtonUp();
+  gStop.store(true);
+  return FALSE;
+}
+
+void InjectPlanThread(Options o) {
+  SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+  timeBeginPeriod(1);
+  LARGE_INTEGER fq;
+  QueryPerformanceFrequency(&fq);
+  const double F = static_cast<double>(fq.QuadPart);
+  const int vx = GetSystemMetrics(SM_XVIRTUALSCREEN), vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+  const int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN), vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+  const bool swap = GetSystemMetrics(SM_SWAPBUTTON) != 0;
+  POINT last[2] = {o.press, o.press};
+  int step = 0;
+  int phase = 0;
+  auto abort = [&](const std::string& why) {
+    if (!gAborted.exchange(true)) {
+      gAbortWhy = why;
+      if (!o.abortFile.empty()) {
+        FILE* f = fopen(o.abortFile.c_str(), "ab");
+        if (f) {
+          fprintf(f, "%s\n", why.c_str());
+          fclose(f);
+        }
+      }
+    }
+  };
+  auto guard = [&]() -> bool {
+    if (gStop.load() || gAborted.load()) return false;
+    if (!o.abortFile.empty() && (step % 4) == 0 && GetFileAttributesA(o.abortFile.c_str()) != INVALID_FILE_ATTRIBUTES) {
+      abort("abort file present");
+      return false;
+    }
+    if (step % 3 == 0) {
+      POINT c{};
+      GetCursorPos(&c);
+      const auto d = [&](POINT a) { return std::hypot(double(c.x - a.x), double(c.y - a.y)); };
+      if (std::min(d(last[0]), d(last[1])) > 12) {
+        char buf[160];
+        snprintf(buf, sizeof buf, "cursor at %ld,%ld, expected %ld,%ld: real input", c.x, c.y, last[1].x, last[1].y);
+        abort(buf);
+        return false;
+      }
+    }
+    return true;
+  };
+  auto go = [&](double x, double y) {
+    INPUT in{};
+    in.type = INPUT_MOUSE;
+    in.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+    const LONG px = std::lround(x), py = std::lround(y);
+    in.mi.dx = static_cast<LONG>(((px - vx) * 65535LL + (vw - 1) / 2) / (vw - 1));
+    in.mi.dy = static_cast<LONG>(((py - vy) * 65535LL + (vh - 1) / 2) / (vh - 1));
+    SendInput(1, &in, sizeof in);
+    last[0] = last[1];
+    last[1] = {px, py};
+    gInj.push_back({Qpc(), x, y, phase, gButtonDown.load() ? 1 : 0});
+    step++;
+  };
+  auto waitUntil = [&](LONGLONG t) {
+    for (;;) {
+      const LONGLONG now = Qpc();
+      if (now >= t) return;
+      if (t - now > fq.QuadPart / 500) Sleep(1);  // > 2 ms away
+    }
+  };
+  // Holds a point for `s` seconds, re-sending it every 4 ms (the guard runs).
+  auto hold = [&](double x, double y, double s) -> bool {
+    const LONGLONG end = Qpc() + static_cast<LONGLONG>(s * F);
+    while (Qpc() < end) {
+      go(x, y);
+      if (!guard()) return false;
+      waitUntil(Qpc() + fq.QuadPart / 250);
+    }
+    return true;
+  };
+  auto glide = [&](double x0, double y0, double x1, double y1, double s) -> bool {
+    const LONGLONG t0 = Qpc();
+    for (;;) {
+      const double t = (Qpc() - t0) / F;
+      const double f = std::min(1.0, t / s);
+      go(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f);
+      if (!guard()) return false;
+      if (f >= 1.0) return true;
+      waitUntil(t0 + static_cast<LONGLONG>((std::floor(t * 1000) + 1) / 1000 * F));
+    }
+  };
+  const double ax = o.press.x, ay = o.press.y;
+  const RECT& A = o.area;
+  Sleep(800);
+  for (size_t i = 0; i < o.plan.size() && !gStop.load() && !gAborted.load(); i++) {
+    const auto& s = o.plan[i];
+    phase = static_cast<int>(i);
+    gPhase.store(phase);
+    // The jump to the press point: give the cursor time to arrive before the
+    // guard compares it (SendInput is not applied synchronously).
+    go(ax, ay);
+    last[0] = last[1];
+    {
+      const LONGLONG until = Qpc() + fq.QuadPart / 4;
+      POINT c{};
+      do {
+        Sleep(2);
+        GetCursorPos(&c);
+      } while ((c.x != o.press.x || c.y != o.press.y) && Qpc() < until);
+      if (c.x != o.press.x || c.y != o.press.y) {
+        char buf[160];
+        snprintf(buf, sizeof buf, "cursor did not reach the press point (%ld,%ld)", c.x, c.y);
+        abort(buf);
+        break;
+      }
+    }
+    // Down: x held left of the press, y ping-pongs; across: y held below it.
+    const double fx = s.axis == 'y' ? A.left + (A.right - A.left) * 0.35 : A.right;
+    const double fy = s.axis == 'y' ? A.top : A.top + (A.bottom - A.top) * 0.65;
+    if (!hold(ax, ay, 0.15)) break;
+    SendMouse(swap ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN);
+    gButtonDown.store(true);
+    if (!hold(ax, ay, 0.12) || !glide(ax, ay, fx, fy, 0.3) || !hold(fx, fy, 0.45)) break;
+    const double L = s.axis == 'y' ? A.bottom - A.top : A.right - A.left;
+    const LONGLONG t0 = Qpc();
+    bool ok = true;
+    for (;;) {
+      const double t = (Qpc() - t0) / F;
+      if (t >= s.seconds) break;
+      double d = std::fmod(s.speed * t, 2 * L);
+      if (d > L) d = 2 * L - d;
+      if (s.axis == 'y')
+        go(fx, A.top + d);
+      else
+        go(A.right - d, fy);
+      if (!guard()) {
+        ok = false;
+        break;
+      }
+      waitUntil(t0 + static_cast<LONGLONG>((std::floor(t * 1000) + 1) / 1000 * F));
+    }
+    if (!ok) break;
+    if (!hold(last[1].x, last[1].y, 0.3)) break;
+    ButtonUp();
+    if (!hold(last[1].x, last[1].y, 0.5)) break;
+  }
+  ButtonUp();
+  timeEndPeriod(1);
+  gStop.store(true);
 }
 
 // ---- duplication ------------------------------------------------------------------
@@ -376,6 +584,10 @@ int wmain(int argc, wchar_t** wargv) {
     else if (a == "--owner-allowed-inject") o.injectAllowed = true;
     else if (a == "--inject-from" && ParseInts(next(), v, 2)) o.injectFrom = {v[0], v[1]};
     else if (a == "--inject-span") o.injectSpan = atoi(next());
+    else if (a == "--inject-plan") o.plan = ParsePlan(next());
+    else if (a == "--inject-press" && ParseInts(next(), v, 2)) o.press = {v[0], v[1]};
+    else if (a == "--inject-area" && ParseInts(next(), v, 4)) o.area = {v[0], v[1], v[2], v[3]};
+    else if (a == "--abort-file") o.abortFile = next();
     else {
       fprintf(stderr, "unknown or malformed argument: %s\n", a.c_str());
       return 2;
@@ -385,9 +597,20 @@ int wmain(int argc, wchar_t** wargv) {
     fprintf(stderr, "usage: sweep-latency --out <dir> [--phases name:s,...] [--rect l,t,r,b] [--monitor-at x,y]\n");
     return 2;
   }
-  if (o.inject && !o.injectAllowed) {
+  if ((o.inject || !o.plan.empty()) && !o.injectAllowed) {
     fprintf(stderr, "--inject sends input to the screen: it needs --owner-allowed-inject, given only on the owner's yes\n");
     return 2;
+  }
+  const bool planMode = !o.plan.empty();
+  if (planMode) {
+    if (o.abortFile.empty() || o.area.right <= o.area.left || o.area.bottom <= o.area.top) {
+      fprintf(stderr, "--inject-plan needs --inject-press, --inject-area and --abort-file (the guard's)\n");
+      return 2;
+    }
+    o.inject = false;
+    o.phases.clear();
+    for (const auto& s : o.plan) o.phases.push_back({s.name, s.seconds});
+    SetConsoleCtrlHandler(CtrlHandler, TRUE);
   }
   CreateDirectoryA(o.out.c_str(), nullptr);
   if (!o.haveAt) {
@@ -429,6 +652,10 @@ int wmain(int argc, wchar_t** wargv) {
   std::thread poll(PollThread);
   std::thread inject;
   if (o.inject) inject = std::thread(InjectThread, o);
+  if (planMode) {
+    gInj.reserve(1 << 20);
+    inject = std::thread(InjectPlanThread, o);
+  }
 
   std::vector<LONGLONG> phaseStart;
   double total = 0;
@@ -448,8 +675,18 @@ int wmain(int argc, wchar_t** wargv) {
   int scanX = -1, scanY = -1;
   for (;;) {
     const double elapsed = static_cast<double>(Qpc() - t0) / freq.QuadPart;
-    if (elapsed >= total) break;
-    if (elapsed >= phaseEnd && phase + 1 < o.phases.size()) {
+    if (planMode) {
+      // The injector drives the phases and says when it is done (or aborted).
+      if (gStop.load() || elapsed > total * 3 + 60) break;
+      const size_t p = static_cast<size_t>(gPhase.load());
+      if (p != phase && p < o.phases.size()) {
+        phase = p;
+        phaseStart.push_back(Qpc());
+        printf("[%s]\n", o.phases[phase].name.c_str());
+        fflush(stdout);
+      }
+    } else if (elapsed >= total) break;
+    if (!planMode && elapsed >= phaseEnd && phase + 1 < o.phases.size()) {
       phase++;
       gPhase.store(static_cast<int>(phase));
       phaseStart.push_back(Qpc());
@@ -537,6 +774,16 @@ int wmain(int argc, wchar_t** wargv) {
   gStop.store(true);
   poll.join();
   if (inject.joinable()) inject.join();
+  ButtonUp();
+  if (planMode) {
+    FILE* jf = fopen((dir + "inject.csv").c_str(), "wb");
+    if (jf) {
+      fprintf(jf, "qpc,x,y,phase,down\n");
+      for (const auto& r : gInj) fprintf(jf, "%lld,%.3f,%.3f,%d,%d\n", r.qpc, r.x, r.y, r.phase, r.down);
+      fclose(jf);
+    }
+    if (gAborted.load()) printf("ABORTED: %s\n", gAbortWhy.c_str());
+  }
   if (o.beep) Beep(990, 300);
 
   FILE* pf = fopen((dir + "poll.csv").c_str(), "wb");
@@ -569,7 +816,7 @@ int wmain(int argc, wchar_t** wargv) {
             "  \"counts\": {\"frames\": %lld, \"mouseUpdates\": %lld, \"polls\": %zu, \"strips\": %lld, "
             "\"accumulatedOver1\": %lld, \"accessLost\": %lld},\n",
             nFrames, nMouse, gPoll.size(), nStrips, nAccumulatedOver1, nLost);
-    fprintf(mf, "  \"injected\": %s\n}\n", o.inject ? "true" : "false");
+    fprintf(mf, "  \"injected\": %s,\n  \"aborted\": %s\n}\n", (o.inject || planMode) ? "true" : "false", gAborted.load() ? "true" : "false");
     fclose(mf);
   }
   printf("done: %lld image frames, %lld pointer updates, %zu polls, %lld strips\n", nFrames, nMouse, gPoll.size(),

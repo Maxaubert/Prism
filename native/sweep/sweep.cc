@@ -427,6 +427,14 @@ void ThreadMain() {
       else
         target = woke + period;
       target -= static_cast<LONGLONG>(leadUs) * freq / 1000000;
+      // MEASURED 2026-10-09: the CREATED frame's startTime is a period behind
+      // the tick, so the target above was already past and late mode never
+      // waited (sample-after-tick 0 in every late run). Roll it forward to the
+      // first target still ahead of this tick.
+      const LONGLONG step = st.framePeriod > 0 && st.framePeriod < static_cast<UINT64>(freq / 20)
+                                ? static_cast<LONGLONG>(st.framePeriod)
+                                : period;
+      while (target <= woke) target += step;
       const LONGLONG wait = target - Qpc();
       if (wait > 0) {
         LARGE_INTEGER due100ns;
