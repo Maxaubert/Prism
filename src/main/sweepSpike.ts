@@ -6,9 +6,14 @@
  * (tools/sweep-latency) needs next to it. Nothing here runs without the flag.
  *
  *   --sweep-spike[=native|dom|both]  native: the native box, the DOM band hidden.
- *                                    dom: today's DOM box, unchanged; the hook
- *                                    only reports colours and timings.
- *                                    both: both drawn (the K and origin run).
+ *                                    dom: today's DOM box, its edge painted
+ *                                    lime so the tool finds it and nothing
+ *                                    else (a marked row's edge is the band's
+ *                                    hue); its place and timing are today's.
+ *                                    both: both drawn, the native box edge
+ *                                    only (the K and origin run; measure.mjs
+ *                                    shifts it with --sweep-spike-origin so
+ *                                    the two edges never cover each other).
  *   --sweep-spike-log=<dir>          where spike-info.json, spike-events.jsonl and
  *                                    native-frames.csv go (default userData/sweep-spike)
  *   --sweep-spike-mode=tick|late     sample at the clock tick, or late in the frame
@@ -102,9 +107,15 @@ export function initSweepSpike(win: BrowserWindow): void {
     })
   )
 
+  // In both, the native box has no fill: its tint over the DOM band's edges
+  // would move their colour out of the analysis' tolerance.
+  const nativeFill: Rgba = mode === 'both' ? [NATIVE_FILL[0], NATIVE_FILL[1], NATIVE_FILL[2], 0] : NATIVE_FILL
+
   let addon: Addon | null = null
   let loadError = ''
-  if (mode !== 'dom') {
+  // Loaded in every mode, so every run's events carry the same QPC clock as the
+  // measuring tool; only native and both attach and draw.
+  {
     for (const p of [
       join(__dirname, '..', '..', 'native', 'sweep', 'build', 'Release', 'prism_sweep.node'),
       join(__dirname, '..', '..', 'vendor', 'sweep', 'prism_sweep.node')
@@ -145,7 +156,7 @@ export function initSweepSpike(win: BrowserWindow): void {
     loadError: loadError || undefined,
     probe: addon?.probe(),
     qpcFreq: addon ? addon.qpcFreq() : 10_000_000,
-    nativeFill: NATIVE_FILL,
+    nativeFill,
     nativeEdge: NATIVE_EDGE,
     origin: [ox, oy],
     k,
@@ -172,7 +183,7 @@ export function initSweepSpike(win: BrowserWindow): void {
   ipcMain.on('sweep-spike:begin', (e, m: CssMsg) => {
     if (!fromPage(e)) return
     const phys = toPhys(m)
-    const ok = addon && mode !== 'dom' ? addon.begin(phys, NATIVE_FILL, NATIVE_EDGE) : false
+    const ok = addon && mode !== 'dom' ? addon.begin(phys, nativeFill, NATIVE_EDGE) : false
     event('begin', { css: m, phys, ok })
     writeInfo({ domFill: parseCss(m.fill), domEdge: parseCss(m.edge), dpr: m.dpr, clipPhys: phys, client: clientRect() })
   })
@@ -228,7 +239,7 @@ export function initSweepSpike(win: BrowserWindow): void {
   const ready = async (): Promise<void> => {
     if (win.isDestroyed()) return
     let attached: { state: string; hr: number } | null = null
-    if (addon) {
+    if (addon && mode !== 'dom') {
       addon.configure({
         mode: arg('sweep-spike-mode') === 'late' ? 'late' : 'tick',
         leadUs: Number(arg('sweep-spike-lead-us') ?? 2000),
@@ -244,7 +255,7 @@ export function initSweepSpike(win: BrowserWindow): void {
     const dpr = (await win.webContents.executeJavaScript('devicePixelRatio').catch(() => null)) as number | null
     writeInfo({ ready: true, attached, domFill: colours.fill, domEdge: colours.edge, dpr, client: clientRect() })
     event('ready', { attached })
-    if (addon && arg('sweep-spike-check') !== undefined) await checksAttached(addon)
+    if (addon && mode !== 'dom' && arg('sweep-spike-check') !== undefined) await checksAttached(addon)
     const quitFile = arg('sweep-spike-quit-file')
     if (quitFile) {
       const poll = setInterval(() => {

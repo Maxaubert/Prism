@@ -151,17 +151,24 @@ function analyzeRun(dir) {
   void cursorIdx
 
   // The list's clip in screen px, from the last begin the spike saw.
+  // clipPhys carries the spike's --sweep-spike-origin (the both run shifts the
+  // native box by it on purpose), so it is taken off again here.
   const client = info.client
   const clipPhys = info.clipPhys
+  const [ox, oy] = Array.isArray(info.origin) ? info.origin.map(Number) : [0, 0]
   const clip =
     client && clipPhys
       ? {
-          left: client.x + clipPhys.left,
-          top: client.y + clipPhys.top,
-          right: client.x + clipPhys.right,
-          bottom: client.y + clipPhys.bottom
+          left: client.x + clipPhys.left - ox,
+          top: client.y + clipPhys.top - oy,
+          right: client.x + clipPhys.right - ox,
+          bottom: client.y + clipPhys.bottom - oy
         }
       : null
+  // Only runs inside the list's clip (plus the shift and a margin) can be the
+  // box: anything else in the strip is other UI that happens to match.
+  const M = 3 + Math.max(Math.abs(ox), Math.abs(oy))
+  const inSpan = (lo, hi) => ([a, b]) => b >= lo - M && a <= hi + M
   const inClip = (p) =>
     !clip || (p.x > clip.left + 2 && p.x < clip.right - 3 && p.y > clip.top + 2 && p.y < clip.bottom - 3)
 
@@ -175,8 +182,12 @@ function analyzeRun(dir) {
     const found = {}
     for (const c of colours) {
       found[c.who] = {
-        col: runsOf(strips, base, meta.colLen, c.rgb).map(([a, b]) => [a + st, b + st]),
-        row: runsOf(strips, base + meta.colLen * 4, meta.rowLen, c.rgb).map(([a, b]) => [a + sl, b + sl])
+        col: runsOf(strips, base, meta.colLen, c.rgb)
+          .map(([a, b]) => [a + st, b + st])
+          .filter(clip ? inSpan(clip.top, clip.bottom) : () => true),
+        row: runsOf(strips, base + meta.colLen * 4, meta.rowLen, c.rgb)
+          .map(([a, b]) => [a + sl, b + sl])
+          .filter(clip ? inSpan(clip.left, clip.right) : () => true)
       }
     }
     rows.push({ f, found })
@@ -386,7 +397,16 @@ function analyzeRun(dir) {
         diffs.right.push(d.row.at(-1)[1] - n.row.at(-1)[1])
       }
     }
-    origin = Object.fromEntries(Object.entries(diffs).map(([k, v]) => [k, { n: v.length, domMinusNativeMedian: r3(quantile(v, 0.5)) }]))
+    // The native box was drawn shifted by (ox, oy) on purpose; the gate's number
+    // is the offset WITHOUT that shift (0 when the native box sits exactly on
+    // the DOM box). The raw median is kept for K, which compares the drawn edges.
+    origin = Object.fromEntries(
+      Object.entries(diffs).map(([k, v]) => {
+        const raw = quantile(v, 0.5)
+        const shift = k === 'top' || k === 'bottom' ? oy : ox
+        return [k, { n: v.length, rawDomMinusNative: r3(raw), domMinusNativeMedian: raw === null ? null : r3(raw + shift) }]
+      })
+    )
 
     // The anchored edge (vertical) per compositor frame slot, native vs DOM.
 
@@ -403,7 +423,7 @@ function analyzeRun(dir) {
       const slot = Math.round((f.present_qpc - t0) / P)
       ;(series[cause] ??= new Map()).set(slot, { ne, de })
     }
-    const restTop = origin.top.domMinusNativeMedian ?? 0
+    const restTop = origin.top.rawDomMinusNative ?? -oy
     kEstimate = {}
     for (const [cause, map] of Object.entries(series)) {
       const scores = []
