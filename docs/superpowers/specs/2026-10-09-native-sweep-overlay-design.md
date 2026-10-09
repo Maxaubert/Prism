@@ -34,6 +34,14 @@ follow the box by Chromium's frames (today the box follows the pointer by them).
 of today and is accepted: the box is what the eye tracks, the marks settle the moment the hand stops,
 and at the release the marks that stand are the box's (unchanged rule from #332).
 
+Two visible differences, both accepted here and on the hands-on list:
+
+- The native box has square corners (Explorer's are square); the DOM band has `borderRadius: 2`.
+- The native box is drawn above EVERYTHING in Prism's window, so an in-page layer that covers the
+  DOM band today (a toast, a tooltip, a popover over the list) is under the native box. The clip
+  keeps it inside the list's visible rows, so the column header, the tab strip and the panes are
+  never covered.
+
 Everywhere the native box cannot run (below), today's DOM box draws exactly as it does now. There is
 no setting.
 
@@ -68,7 +76,7 @@ down. The second is mitigated by keeping the addon tiny (one thread, a handful o
 HRESULT checked, any failure disables it for the session) and by the spike's quit loop.
 
 It is not a third-party runtime dependency: the addon is Prism's own code under `native/sweep/`, like
-`PrismDwm.cs`. `node-gyp` and `node-api-headers` are DEV dependencies (build time only).
+`PrismDwm.cs`. `node-gyp` is a DEV dependency (build time only); it fetches the Node headers itself.
 
 ## Who owns what
 
@@ -83,6 +91,11 @@ It is not a third-party runtime dependency: the addon is Prism's own code under 
 
 ### What the renderer sends (CSS px of the page, which is the window's client area)
 
+Only a MOUSE sweep uses the native box. A pen sweep (useSweep accepts `pointerType === 'pen'`) keeps
+the DOM box: Chromium handles WM_POINTER for a pen, so no mouse messages are promoted, the async state
+of the mouse buttons stays up and the safety net below would hide the box on its first frame, and
+`GetCursorPos` is not guaranteed to follow the pen tip. The renderer sends nothing for a pen sweep.
+
 Three messages, all one-way (`ipcRenderer.send`), none per pointer move:
 
 - `sweep-overlay:begin` `{ id, anchor: {x, y}, clip: {left, top, right, bottom}, dpr, fill, edge }`,
@@ -96,16 +109,25 @@ Three messages, all one-way (`ipcRenderer.send`), none per pointer move:
     (the band stays mounted with `display: none`), parsed to premultiplied-free RGBA bytes by a pure
     `cssColour` parser. Theme changes during a held sweep are not followed (the band does not
     follow them today either).
-- `sweep-overlay:update` `{ id, anchor, clip, dpr }`, from `scrolled()` (scroll, window resize, list
-  resize) after `remeasure()`, so the anchor follows the content as auto-scroll and the wheel move
-  it, and a DPI change mid-drag arrives as a new `dpr`.
+- `sweep-overlay:update` `{ id, cause, anchor, clip, dpr }`, from `scrolled()` (scroll, window
+  resize, list resize) after `remeasure()`, so the anchor follows the content as auto-scroll and the
+  wheel move it, and a DPI change mid-drag arrives as a new `dpr`. `cause` is `'auto'` (our own
+  `scrollTop` write in the auto-scroll tick), `'scroll'` (any other scroll event: the wheel, a
+  scrollbar) or `'resize'`, because the native side delays each cause differently (below).
 - `sweep-overlay:end` `{ id }`, from `hide()` (release, Escape, pointercancel, blur, a move with the
   button up, unmount): every path that hides the DOM box today.
 
-Main answers once per page and again on change: `sweep-overlay:state` `{ native: boolean }`. The
-renderer keeps the band hidden while `native` is true. If main finds the native side failed on a
-`begin` it sends `{ native: false }`, and the renderer shows the DOM band from the next move (one
-sweep may lose its box for a few frames; logged).
+Main sends `sweep-overlay:state` `{ native: boolean }` on every `did-finish-load` of the page (so a
+reload starts from the truth, not from a stale `true`) and again on every change. Until a page has
+heard `true` it treats the answer as `false`. The renderer keeps the band hidden while `native` is
+true. If main finds the native side failed on a `begin`, or drops a `begin` as invalid, it sends
+`{ native: false }`, and the renderer shows the DOM band from the next move (one sweep may lose its
+box for a few frames; logged).
+
+The three messages pass through main's event loop, so a busy main delays `begin` (the box appears
+late) and `end` from Escape (the box stays a little longer). The release is covered without main by
+the button check below. The spike records the begin-to-visible and Escape-to-gone delays; the
+diagnostics log's slow-IPC line already reports a main that is busy.
 
 ### What main does
 
@@ -119,15 +141,22 @@ sweep may lose its box for a few frames; logged).
 - Hands it to the addon for the sender's window (`BrowserWindow.fromWebContents`, HWND from
   `getNativeWindowHandle()`).
 - Ends the box itself, without waiting for the page, on the window's `blur`, `minimize`, `hide`,
-  `closed`, the page's `render-process-gone` and `did-start-navigation`, and at `will-quit`.
+  `closed`, the page's `render-process-gone` and a cross-document `did-start-navigation`
+  (`isSameDocument` false: an in-page URL change is not a reload), and at `will-quit`.
 
 ### What the native thread does, every compositor frame while a box is up
 
-1. `DCompositionWaitForCompositorClock(1, &wake, INFINITE)` (loaded with `GetProcAddress`; its
+1. `DCompositionWaitForCompositorClock(1, &wake, 100)` (loaded with `GetProcAddress`; its
    presence is the Windows 11 check). The wake event also carries begin, update, end and stop, so
-   nothing waits a frame for a state change.
-2. If the primary mouse button is up (`GetAsyncKeyState`, `SM_SWAPBUTTON` honoured), hide the box:
-   the box never outlives the button, even if the page's release never arrived.
+   nothing waits a frame for a state change. A bounded timeout, never `INFINITE`, so the stop flag
+   is always seen. The call returns AT ONCE with `STATUS_GRAPHICS_PRESENT_OCCLUDED` while the
+   display is off or occluded (documented): any return that is neither the clock nor the wake event
+   is followed by a plain 16 ms wait on the wake event, so a box up over a sleeping display never
+   spins a core.
+2. If the primary mouse button is up, hide the box: the box never outlives the button, even if the
+   page's release never arrived. `GetAsyncKeyState` reads PHYSICAL buttons (documented), so the
+   primary is `VK_RBUTTON` when `GetSystemMetrics(SM_SWAPBUTTON)` is set. It reads 0 on a desktop
+   that is not the input desktop (lock screen, UAC), which hides the box: the safe way to fail.
 3. `GetCursorPos`, `ScreenToClient(hwnd)`: physical client pixels (PMv1 and PMv2 both get
    unvirtualised coordinates; the spike confirms for the native thread).
 4. The box, in integer pixels, as Explorer's `_SetVisualLoc` does: `left = min(ax, cx)`,
@@ -135,19 +164,43 @@ sweep may lose its box for a few frames; logged).
    the clip plus one pixel, Explorer's `OnMouseMoved` clamp.
 5. If the rect equals the last committed one, do nothing (no commit, no GPU work). Otherwise set five
    visuals (fill, four edges) as offsets and scale transforms of two 1x1 premultiplied colour
-   surfaces with nearest-neighbour interpolation, and `Commit` once.
+   surfaces with nearest-neighbour interpolation and a hard border mode, and `Commit` once.
+
+The colour surfaces are filled once per `begin` that changes a colour. `IDCompositionSurface::BeginDraw`
+hands back a texture that may be an ATLAS shared with other surfaces plus an `offset` into it
+(documented), so the fill is `ID3D11DeviceContext1::ClearView` on the 1x1 rect at that offset, never
+`ClearRenderTargetView`, which would clear the whole atlas. Format `B8G8R8A8_UNORM`, premultiplied
+alpha, so the CSS straight-alpha bytes are premultiplied in the addon.
+
+**When the sample is taken.** The compositor clock ticks as DWM starts composing a frame; a commit
+made just after the tick is composed in the NEXT frame, so a cursor sampled at the tick is about one
+frame old when it reaches the glass. That is Explorer's floor, and the gate allows it. If the spike
+misses the gate, the first variant to measure before calling no-go is sampling late in the frame:
+after the tick, wait until about 2 ms before the next frame's target time
+(`DCompositionGetStatistics`' `nextEstimatedFrameTime`), then read the cursor and commit. It is a
+spike variant, not part of the design unless the numbers ask for it.
 
 While no box is up the thread waits on the event alone and costs nothing per frame.
 
 ### The anchor waits for its rows
 
-An `update` from a scroll reaches the native side before Chromium has shown the scrolled rows (that
-is the very latency being removed for the cursor). Applied at once, the anchored edge would run ahead
-of its row by two to four frames of scroll during auto-scroll, a new kind of mismatch. So the native
-side applies each `update` K compositor frames after it arrives, K being Chromium's own frame lag as
-the spike measures it on this machine (expected 2 or 3, a constant in the addon, not a setting). The
-far corner is never delayed. Mostly the anchored edge is clipped out of view during auto-scroll
-anyway; this keeps it glued to its row when it is in view (a wheel turn under a held button).
+An `update` reaches the native side at a different time from when Chromium shows the matching rows,
+and the gap depends on who scrolled:
+
+- **`auto`**: our tick writes `scrollTop` and sends the update in the same task; Chromium shows the
+  scrolled rows two to four frames later. Applied at once, the anchored edge would run ahead of its
+  row, a new kind of mismatch.
+- **`scroll`** (wheel, scrollbar): Chromium scrolls on its COMPOSITOR thread and the `scroll` event
+  reaches the page's main thread at or after the frame that showed it. Applied late, the edge would
+  lag its row instead.
+- **`resize`**: like `auto`, the new layout shows a few frames after the page measured it.
+
+So the native side applies an update `K[cause]` compositor frames after it arrives, each `K` measured
+in the spike as the delay that minimises the anchored edge's distance from its row (not inferred
+from the pointer lag, which is a different path), constants in the addon, not settings. Expected:
+`auto` and `resize` 2 or 3, `scroll` 0. The far corner is never delayed. Mostly the anchored edge is
+clipped out of view during auto-scroll; this keeps it glued to its row when it is in view (a wheel
+turn under a held button).
 
 ### Teardown
 
@@ -155,8 +208,17 @@ anyway; this keeps it glued to its row when it is in view (a wheel turn under a 
 - Per window: the DComp target is created when the window has painted its first frame (never on the
   startup path, the #189 rule) and released on `closed`.
 - Process: `will-quit` calls the addon's `shutdown()`, which sets stop, wakes the thread and joins it
-  (bounded, 250 ms; past that it detaches and logs). `process.on('exit')` calls it again (idempotent),
-  for the `app.exit` paths that skip `will-quit`.
+  (bounded, 250 ms; past that it logs and LEAKS the thread, which `ExitProcess` then ends).
+  `process.on('exit')` and a `napi_add_env_cleanup_hook` call it again (idempotent), for the
+  `app.exit` paths that skip `will-quit`.
+- The thread object is heap-allocated and never destroyed while joinable: a static or member
+  `std::thread` still joinable when the CRT tears down calls `std::terminate`, which is the same
+  0xc0000409 abort as #127. Nothing runs in `DllMain`. Every COM object is created and released on
+  the native thread; the JS side only writes the mutex-guarded state and sets the event.
+- A hung native thread would leave its last committed box on the window until the window closes
+  (main cannot draw on its behalf). The thread's only blocking call is the clock wait with its
+  100 ms timeout, and `stats().frames` is checked by main at `end`: no progress for 500 ms is logged
+  and turns the native box off for the session.
 
 ## When the native box is not used (automatic, no setting)
 
@@ -166,15 +228,18 @@ reason is written to the diagnostics log once per change:
 - the addon is missing or fails to load (dev without `npm run build:sweep`, a damaged install);
 - Windows has no `DCompositionWaitForCompositorClock` (Windows 10: the supported 1809+ range keeps
   today's box; `DwmFlush` was measured at 1.6 ms of jitter and would be a second timing path to keep
-  correct for a box the owner will not see; a later decision if Windows 10 users ask);
+  correct for a box the owner will not see; a later decision if Windows 10 users ask. OWNER'S CALL,
+  asked with the PR: Windows 10 users get exactly today's box);
 - `GetSystemMetrics(SM_REMOTESESSION)` (Remote Desktop composes on the client; rechecked on
   `session-change` and `display-metrics-changed`);
 - device or target creation failed, or any HRESULT failed during a sweep (off for the session);
+- the sweep is not a mouse sweep (a pen: above);
 - `--e2e` (the e2e records the contract instead, below);
 - `--sweep-overlay=off` on the command line, for diagnosing a report only. Not in Settings: the
   native box is the same feature drawn better, not a choice a user should have to make.
 
-No setting, because the two boxes look the same and the only difference is latency.
+No setting, because the two boxes look the same but for the corners and the layering above, and the
+difference that matters is latency.
 
 ## Magnifiers
 
@@ -193,13 +258,21 @@ Before any product code: a throwaway build of the addon drawing a box from `GetC
 Prism window, and a measuring tool.
 
 **What it measures.** A small C++ tool (`tools/sweep-latency/`) duplicates the monitor (Desktop
-Duplication), and per composed frame records the hardware pointer position from the frame info and
-the box's far edge found along a scan line. The lag of a frame is the pointer-to-edge gap divided by
-the pointer's speed over that frame, in frames. **The owner moves the mouse himself** (passive mode,
-the default): nothing is injected and nothing runs on the owner's screen without a run he starts. A
-SendInput mode exists only for a run the owner explicitly allows. It records three sweeps of about
-ten seconds each, slow, medium and fast, both down and across, once with the native box and once
-with `--sweep-overlay=off` (today's box) for the comparison.
+Duplication). Desktop Duplication reports the pointer per MOUSE UPDATE (`LastMouseUpdateTime`,
+`PointerPosition`), not per composed frame, and some acquisitions carry only a pointer update
+(`LastPresentTime` 0). So the tool logs the two streams separately, interpolates the pointer's
+position at each image frame's `LastPresentTime`, and finds the box's far edge along a scan line in
+that image. The lag of a frame is the pointer-to-edge gap divided by the pointer's speed over that
+frame, in frames. **The owner moves the mouse himself** (passive mode, the default): nothing is
+injected and nothing runs on the owner's screen without a run he starts. A SendInput mode exists only
+for a run the owner explicitly allows. It records three sweeps of about ten seconds each, slow,
+medium and fast, both down and across, once with the native box and once with the spike flag left
+off (today's DOM box) for the comparison. Wind is off or at 1x for the measured run: a magnified
+image would put the box's edge in Wind's pixels, not the screen's.
+
+The spike's Prism is a dev build started with its own `--user-data-dir` in the session scratchpad:
+the owner's installed Prism holds the single-instance lock of the default profile, and a launch
+against it would hand over and exit. The owner's Prism is never closed.
 
 **Go** when all of these hold:
 
@@ -207,27 +280,37 @@ with `--sweep-overlay=off` (today's box) for the comparison.
 2. Native median at least 1 frame below the DOM box's median in the same run.
 3. Shake: the standard deviation of the native gap at most 0.5 frame at a steady speed.
 4. Visible above Chromium's content in six window states: acrylic on and off, mica, normal,
-   maximised, fullscreen; its origin within one physical pixel of the DOM box's at rest.
-5. Gone within one frame of the button's release in every recorded sweep.
+   maximised, fullscreen, and still visible after the material is switched WHILE the target is
+   attached (Chromium rewrites DWM attributes on a backdrop change); its origin within one physical
+   pixel of the DOM box's at rest.
+5. Gone within one frame of the button's release in every recorded sweep. Recorded, not gated:
+   begin-to-visible and Escape-to-gone, which pass through main.
 6. 50 quits in a row (`app.quit()` from a test hook) with a box up, no crash dialog and no
    0xc0000409.
 7. The thread's CPU while a box is up under 1% of a core, and zero wakeups while idle.
 
-**No-go**: stop, write the numbers into the research folder, keep today's box, report to the owner.
-K (the anchor delay) is the DOM box's median lag from the same run, rounded.
+**No-go**: first measure the late-sample variant (above); if it still fails, stop, write the numbers
+into the research folder, keep today's box, report to the owner. `K[cause]` (the anchor delays) come
+from the same run: the delay that keeps the anchored edge closest to its row during an auto-scroll
+and during a wheel turn under a held button.
 
 ## Packaging and CI
 
 - Source `native/sweep/` (`binding.gyp`, `sweep.cc`, `overlay.cc`, `overlay.h`, `box.h`). Built by
   `tools/build-sweep.mjs` (`npm run build:sweep`), the `build:dwm` pattern: node-gyp with MSVC,
   `/MT` (static CRT, so nothing from the VC++ redistributable is needed on a fresh Windows; the
-  script checks `dumpbin /dependents` names only system DLLs), output
+  script checks `dumpbin /dependents` names only an allow-list: `KERNEL32`, `USER32`, `d3d11`,
+  `dxgi`, `dcomp`, and the delay-loaded `node.exe` that node-gyp's `win_delay_load_hook` redirects to
+  the host exe; any `VCRUNTIME*`, `MSVCP*` or `api-ms-win-crt-*` fails the build), output
   `vendor/sweep/prism_sweep.node`, then a self-test in plain Node (load, `selfTest()` runs the box
   math cases, `probe()` reports the Windows build and whether the clock exists, no window).
 - Shipped by `extraResources` (`vendor/sweep` to `sweep`), outside the asar, so no `asarUnpack`
   entry. Main loads `resources/sweep/prism_sweep.node` packaged and `vendor/sweep/` in dev.
 - `ci.yml` `check` job and `release.yml` run `npm run build:sweep` beside `build:dwm`; `package`
   runs it too. The windows-latest image has VS 2022 MSVC, SDK 26100 and Python (documented).
+  node-gyp fetches the Node headers and `node.lib` for its target version from nodejs.org on a
+  cold cache (build time only, never at run time); the build pins the target with `--target` to the
+  Node version Electron 43 embeds, so the build machine's own Node version does not matter.
 - Signing: the `.node` is a PE file like the exe and must be in the SignPath signing set once Prism
   is enrolled; until then it ships unsigned like everything else, and the PR says so.
 - No network request, so `PRIVACY.md` is unchanged.
@@ -247,13 +330,16 @@ K (the anchor delay) is the DOM box's median lag from the same run, rounded.
   one `begin` with the anchor at the press point, the scroller's clip, the page's `dpr` and the band's
   colours; an `update` per auto-scroll step whose anchor moved by the scroll; one `end` for each of
   release, Escape, blur; no message per pointer move; and the DOM box drawn throughout (the fallback
-  is what e2e users see). `marquee`, `marqueeEdge`, `marqueeQuiet` and `sweepLag` stay green
-  unchanged.
+  is what e2e users see); an `update` from a wheel turn carries `cause: 'scroll'`, one from the
+  auto-scroll `cause: 'auto'`; a pen sweep sends nothing; a reload sends a fresh `state`.
+  `marquee`, `marqueeEdge`, `marqueeQuiet` and `sweepLag` stay green unchanged.
 - **Hands-on** (installed build, owner's machine): fast sweeps unzoomed and zoomed with Wind (both
   engines), auto-scroll down and up, wheel under a held button, Escape mid-sweep, Alt+Tab and
   Win+D mid-sweep, release outside the window, a second monitor at another scale with the window
   moved across, acrylic on and off, maximised and fullscreen, a light and a dark theme and a picked
-  accent, the tree and the Explorer, two Prism windows, quit with a box up.
+  accent, the tree and the Explorer, two Prism windows, quit with a box up; the marks following the
+  box on a fast sweep (whether that reads well zoomed in is the owner's to judge); a toast or tooltip
+  over the list during a sweep (it is now under the box); square corners.
 
 ## Risks
 
@@ -268,8 +354,12 @@ K (the anchor delay) is the DOM box's median lag from the same run, rounded.
 | Shutdown abort (PrismTerminal #127) | No thread-safe function into JS; bounded join in `will-quit` and at exit. |
 | Startup stall (#189) | Nothing on the startup path: the target is created after the first paint, the addon is loaded lazily then. |
 | Marks lag the box | Accepted (the inverse of today); the release commits the box's marks. |
-| Anchored edge runs ahead during scroll | The K-frame delay on updates, measured. |
+| Anchored edge runs ahead of, or behind, its row during scroll | `K[cause]`, measured per cause. |
 | Remote Desktop, Windows 10 | Automatic fallback to today's box. |
+| Pen sweep | DOM box; nothing sent. |
+| Display off with a box up | Occluded return followed by a 16 ms wait, never a spin. |
+| Hung native thread leaves a box | Bounded waits only; main sees no progress and turns it off. |
+| GPU reset (TDR) | The D3D device is lost, the next HRESULT fails, native off for the session. |
 
 ## Version
 
