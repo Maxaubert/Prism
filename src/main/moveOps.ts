@@ -3,7 +3,7 @@ import { cp, rm, rmdir } from 'fs/promises'
 import { basename, dirname, join, resolve, sep } from 'path'
 import { uniqueName } from './fileOps'
 
-// Moving files and folders between real folders - the "move" verb CLAUDE.md
+// Moving files and folders between real folders - the "move" verb docs/features.md
 // reserved, decided 2026-08-22 and reachable only by dragging. Deliberately
 // free of electron imports so it can be unit-tested; binning what an overwrite
 // replaces is passed in, exactly as renameFile does it.
