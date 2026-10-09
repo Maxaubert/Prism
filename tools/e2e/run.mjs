@@ -3270,7 +3270,9 @@ async function extractCancelScenario() {
     await until(() => win.evaluate(() => window.__xs.files.filter(Boolean).length >= 3), 8000, 50)
     const xs = await win.evaluate(() => {
       clearInterval(window.__xs.timer)
-      const { timer, ...rest } = window.__xs
+      // The interval id does not cross to the runner; the rest does.
+      const rest = { ...window.__xs }
+      delete rest.timer
       return rest
     })
     ok(xs.samples > 10, `the sheet was sampled through the run (${xs.samples} samples)`)
