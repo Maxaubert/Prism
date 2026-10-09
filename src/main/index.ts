@@ -161,8 +161,6 @@ import { appendCrashLog, crashLine } from './crashLog'
 import { guardWindow, pageGone } from './windowGuard'
 import pkg from '../../package.json'
 import { fileKind } from '@shared/fileKind'
-// SPIKE (#338, task 1): reverted at the end of the task.
-import { initSweepSpike, sweepSpikeMode } from './sweepSpike'
 import type { BrowseDirectory } from '@shared/browse'
 import type {
   ArchiveListing,
@@ -1608,15 +1606,11 @@ function createWindow(): void {
       // than an IPC message, so it is there before the first render.
       additionalArguments: [
         ...(process.argv.includes('--setup') ? ['--prism-setup'] : []),
-        ...(process.argv.includes('--demo') ? ['--prism-demo'] : []),
-        // SPIKE (#338, task 1): reverted at the end of the task.
-        ...(sweepSpikeMode() ? [`--prism-sweep-spike=${sweepSpikeMode()}`] : [])
+        ...(process.argv.includes('--demo') ? ['--prism-demo'] : [])
       ]
     }
   })
   mainWindow = win
-  // SPIKE (#338, task 1): reverted at the end of the task.
-  initSweepSpike(win)
   pageGen++
   // The diagnostics log's watch (#322): this window's hang events, and its
   // frame for the page's stack when the heartbeat stops. A rebuilt window
