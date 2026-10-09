@@ -68,6 +68,7 @@ const sd = (xs) => {
   const m = mean(xs)
   return Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / (xs.length - 1))
 }
+const SPEEDS = ['slow', 'medium', 'fast', 'veryfast']
 const r3 = (x) => (x === null || x === undefined || Number.isNaN(x) ? null : Math.round(x * 1000) / 1000)
 const describe = (xs) => ({
   n: xs.length,
@@ -124,10 +125,16 @@ function analyzeRun(dir) {
   for (const c of colours) if (!c.rgb) throw new Error(`${dir}: no ${c.who} edge colour in spike-info.json; pass --edge`)
 
   // The pointer's track, screen physical px.
+  // inject: the injector's own log (the exact points sent, with their QPC
+  // time), the ground truth of an injected run.
+  const inject = csv(join(dir, 'inject.csv'))
+  const pointerSource = POINTER === 'inject' && inject.length ? 'inject' : POINTER === 'poll' || mouse.length < 10 ? 'poll' : 'dda'
   const track =
-    POINTER === 'poll' || mouse.length < 10
-      ? poll.map((p) => ({ t: p.qpc, x: p.x, y: p.y }))
-      : mouse.map((m) => ({ t: m.mouse_qpc, x: m.hot_x, y: m.hot_y }))
+    pointerSource === 'inject'
+      ? inject.map((p) => ({ t: p.qpc, x: p.x, y: p.y }))
+      : pointerSource === 'poll'
+        ? poll.map((p) => ({ t: p.qpc, x: p.x, y: p.y }))
+        : mouse.map((m) => ({ t: m.mouse_qpc, x: m.hot_x, y: m.hot_y }))
   track.sort((a, b) => a.t - b.t)
   let cursorIdx = 0
   const at = (t) => {
@@ -263,7 +270,7 @@ function analyzeRun(dir) {
     const pa = axis === 'y' ? p.y : p.x
     const dirA = Math.sign(pa - a) || 1
     const vCss = (Math.abs(v) * (meta.refreshHz || 144)) / dpr
-    const speed = vCss < 500 ? 'slow' : vCss < 1500 ? 'medium' : 'fast'
+    const speed = vCss < 500 ? 'slow' : vCss < 1500 ? 'medium' : vCss < 3000 ? 'fast' : 'veryfast'
     for (const c of colours) {
       const runs = axis === 'y' ? found[c.who].col : found[c.who].row
       const edge = farEdge(runs, a, pa)
@@ -305,7 +312,7 @@ function analyzeRun(dir) {
   for (const who of Object.keys(byWho)) {
     const xs = byWho[who].filter((r) => r.lag !== null)
     const out = { all: describe(xs.map((r) => r.lag)) }
-    for (const s of ['slow', 'medium', 'fast']) {
+    for (const s of SPEEDS) {
       const ss = xs.filter((r) => r.speed === s)
       out[s] = describe(ss.map((r) => r.lag))
       // Shake: the SD where the speed held steady (within 15% of the frames
@@ -320,8 +327,26 @@ function analyzeRun(dir) {
       out[s].gapOverSpeedMedian = r3(quantile(ss.map((r) => r.gapOverSpeed), 0.5))
     }
     const phases = {}
-    for (const r of xs) (phases[r.phase] ??= []).push(r.lag)
-    out.byPhase = Object.fromEntries(Object.entries(phases).map(([k, v]) => [k, describe(v)]))
+    for (const r of xs) (phases[r.phase] ??= []).push(r)
+    out.byPhase = Object.fromEntries(
+      Object.entries(phases).map(([k, rs]) => {
+        // Steady frames only: the reversals of the ping-pong are left out.
+        const steady = rs.filter((r, i) => {
+          const a = rs[i - 1]
+          const b = rs[i + 1]
+          return a && b && Math.abs(a.v - r.v) <= 0.15 * Math.abs(r.v) && Math.abs(b.v - r.v) <= 0.15 * Math.abs(r.v)
+        })
+        return [
+          k,
+          {
+            ...describe(rs.map((r) => r.lag)),
+            steady: describe(steady.map((r) => r.lag)),
+            gapPxSteady: describe(steady.map((r) => r.gapPx)),
+            vCssMedian: r3(quantile(rs.map((r) => r.vCss), 0.5))
+          }
+        ]
+      })
+    )
     out.unmatched = byWho[who].length - xs.length
     lagStats[who] = out
   }
@@ -446,6 +471,50 @@ function analyzeRun(dir) {
   const nf = csv(join(dir, 'native-frames.csv'))
   const ticks = nf.filter((r) => r.frame >= 0)
   const sampleToCommitUs = ticks.filter((r) => r.committed === 1).map((r) => ((r.commit_qpc - r.sample_qpc) * 1e6) / F)
+  // Commit to glass: for each image frame showing the native box's far bottom
+  // edge, the commit that drew that edge (the first of a run of commits with
+  // that bottom, before the present) and how many newer commits with another
+  // bottom had been made before the present but were not in it. 0 newer: the
+  // frame showed the latest commit.
+  let commitToPresent = null
+  if (nf.length && client && colours.some((c) => c.who === 'native')) {
+    const commits = nf.filter((r) => r.committed === 1 && r.shown === 1).sort((a, b) => a.commit_qpc - b.commit_qpc)
+    const ages = []
+    const newer = []
+    const sampleAges = []
+    for (const { f, found } of rows) {
+      if (!f.held) continue
+      const p = at(f.present_qpc)
+      if (!p || !inClip(p) || p.y <= f.anchor_y + 10) continue
+      const edge = farEdge(found.native.col, f.anchor_y, p.y)
+      if (edge === null) continue
+      const bottomClient = edge - client.y + 1 // the rect's exclusive bottom
+      let hit = -1
+      for (let i = commits.length - 1; i >= 0; i--) {
+        if (commits[i].commit_qpc > f.present_qpc) continue
+        if (f.present_qpc - commits[i].commit_qpc > 10 * P) break
+        if (commits[i].bottom === bottomClient) {
+          hit = i
+          break
+        }
+      }
+      if (hit < 0) continue
+      let first = hit
+      while (first > 0 && commits[first - 1].bottom === bottomClient && commits[hit].commit_qpc - commits[first - 1].commit_qpc < 2 * P) first--
+      let n = 0
+      for (let i = hit + 1; i < commits.length && commits[i].commit_qpc <= f.present_qpc; i++) if (commits[i].bottom !== bottomClient) n++
+      ages.push((f.present_qpc - commits[first].commit_qpc) / P)
+      sampleAges.push((f.present_qpc - commits[first].sample_qpc) / P)
+      newer.push(n)
+    }
+    commitToPresent = {
+      framesMatched: ages.length,
+      commitToPresentFrames: describe(ages),
+      sampleToPresentFrames: describe(sampleAges),
+      newerCommitsNotShown: describe(newer),
+      shareShowingLatest: r3(newer.length ? newer.filter((n) => n === 0).length / newer.length : null)
+    }
+  }
   const tickToSampleUs = ticks.map((r) => ((r.sample_qpc - r.tick_qpc) * 1e6) / F)
   const stats = events.filter((e) => e.kind === 'stats')
   const lastStats = stats.at(-1) ?? null
@@ -475,7 +544,7 @@ function analyzeRun(dir) {
     sampling: info.samplingMode ?? null,
     refreshHz: meta.refreshHz,
     dpr,
-    counts: { ...meta.counts, framesWithStrips: rows.length, pointerTrack: track.length, pointerSource: POINTER === 'poll' || mouse.length < 10 ? 'poll' : 'dda' },
+    counts: { ...meta.counts, framesWithStrips: rows.length, pointerTrack: track.length, pointerSource },
     colours,
     tolerance: TOL,
     edgeOffsetAtRest: offsets,
@@ -487,6 +556,7 @@ function analyzeRun(dir) {
       ticks: ticks.length,
       tickToSampleUs: describe(tickToSampleUs),
       sampleToCommitUs: describe(sampleToCommitUs),
+      commitToPresent,
       cpu
     }
   }
@@ -546,11 +616,15 @@ const lines = []
 for (const r of results) {
   lines.push(`== ${basename(r.dir)} (${r.mode}) refresh ${r.refreshHz} Hz, dpr ${r.dpr}, frames ${r.counts.frames}, strips ${r.counts.framesWithStrips}, pointer ${r.counts.pointerSource} ${r.counts.pointerTrack}`)
   for (const [who, L] of Object.entries(r.lag)) {
-    for (const s of ['slow', 'medium', 'fast'])
-      lines.push(`  ${who} ${s.padEnd(6)} lag median ${L[s].median} p95 ${L[s].p95} n ${L[s].n} steady SD ${L[s].steadySd} (n ${L[s].steadyN})`)
+    for (const s of SPEEDS)
+      lines.push(`  ${who} ${s.padEnd(8)} lag median ${L[s].median} p95 ${L[s].p95} n ${L[s].n} steady SD ${L[s].steadySd} (n ${L[s].steadyN})`)
+    for (const [ph, b] of Object.entries(L.byPhase ?? {}))
+      lines.push(`  ${who} phase ${ph.padEnd(14)} v ${b.vCssMedian} css/s  lag med ${b.median} p95 ${b.p95} n ${b.n}  steady med ${b.steady.median} p95 ${b.steady.p95} SD ${b.steady.sd} (n ${b.steady.n})  gap px med ${b.gapPxSteady.median} p95 ${b.gapPxSteady.p95}`)
     const p = r.presence[who]
     lines.push(`  ${who} release->gone max ${p.releaseToGoneFrames.max} median ${p.releaseToGoneFrames.median} (n ${p.releaseToGoneFrames.n}); escape->gone median ${p.escapeToGoneFrames.median} (n ${p.escapeToGoneFrames.n}); begin->visible median ${p.beginToVisibleFrames.median} (n ${p.beginToVisibleFrames.n})`)
   }
+  if (r.native.commitToPresent) lines.push(`  native commit->present: ${JSON.stringify(r.native.commitToPresent)}`)
+  if (r.native.ticks) lines.push(`  native tick->sample us ${JSON.stringify(r.native.tickToSampleUs)}`)
   if (r.native.cpu) lines.push(`  native thread: work ${r.native.cpu.workPctOfCoreWhileUp}% of a core while up, idle wakes ${r.native.cpu.idleWakes}, failures ${r.native.cpu.failures}`)
   if (r.origin) lines.push(`  origin (dom - native, px): ${JSON.stringify(r.origin)}`)
   if (r.kEstimate) lines.push(`  K: ${Object.entries(r.kEstimate).map(([c, k]) => `${c}=${k.best}`).join(', ')}`)
