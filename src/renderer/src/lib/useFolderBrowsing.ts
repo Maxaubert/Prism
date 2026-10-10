@@ -28,6 +28,7 @@ import { applyDetails } from './listingMerge'
 import { downloadsPath, isDownloads, viewSort } from './downloadsView'
 import { browseLocation, browseParent } from './browse'
 import { intendToPlay } from './playState'
+import { wayOutPreview } from './wayOutPreview'
 import { useBrowseSearch } from './useBrowseSearch'
 import { createDirectoryRequests, directoryKey, visitedDirectories } from './visitedDirectories'
 import { usePendingHint, type ListPending } from './usePendingHint'
@@ -542,6 +543,37 @@ export function useFolderBrowsing(
   const waiting = !!waitingPath || (folder && !directoryListing && !error)
   const pending: ListPending = usePendingHint(waiting ? `${id}\0${waitingPath ?? path}` : null)
   const listing = search.result?.listing ?? directoryListing
+  // OUT OF A ZIP, ITS PREVIEW COMES BACK (#334, `wayOutPreview`). Each move of
+  // this tab from one place to another is an arrival, said once; a tab switch
+  // is not one. It is judged when the folder arrived at has its rows.
+  const lastPlace = useRef<{ tabId: string; path: string } | null>(null)
+  const arrival = useRef<{ tabId: string; from: string; to: string } | null>(null)
+  useEffect(() => {
+    const was = lastPlace.current
+    lastPlace.current = id && path ? { tabId: id, path } : null
+    arrival.current =
+      was && id && path && was.tabId === id && directoryKey(was.path) !== directoryKey(path)
+        ? { tabId: id, from: was.path, to: path }
+        : null
+  }, [id, path])
+  const selectedHere = location?.selected ?? null
+  const previewOn = !!active?.browse.preview
+  useEffect(() => {
+    const came = arrival.current
+    if (!came || came.tabId !== id || !path || directoryKey(came.to) !== directoryKey(path)) return
+    // Rows still those of the folder left (a Back whose read is out) are not
+    // this folder's: wait for its own.
+    if (!folder || !directoryListing || waitingPath) return
+    arrival.current = null
+    const file = wayOutPreview({
+      from: came.from,
+      to: path,
+      selected: selectedHere,
+      preview: previewOn,
+      files: directoryListing.files
+    })
+    if (file) void openFile(file, false, false)
+  }, [id, path, folder, directoryListing, waitingPath, selectedHere, previewOn, openFile])
   const select = useCallback(
     (selected: string | null, quiet = false) => {
       // MARKING IS NOT PICKING (#263; owner, 2026-10-03: "when you multiselect

@@ -186,6 +186,11 @@ changing a feature: each entry records what the owner decided, why, and what hol
   drops the file on display (`tabs.ts` `leaveShown`); a pane that was open stays open at its width
   as `PreviewEmpty` ("Select a file to preview", `browse.previewHeld`, renderer only), a shut one
   stays shut, nothing is previewed on its own, and a project keeps its open file. `previewClears` e2e.
+  COMING BACK OUT OF A ZIP SHOWS IT AGAIN (#334; owner, 2026-10-09: "when you go back again you
+  should see the zip in the preview since the main view is now just a different folder"): Back,
+  Up or a crumb to the folder holding it marks the zip (the way out) and, with the pane on, its
+  card returns (`lib/wayOutPreview.ts`, judged once per arrival in `useFolderBrowsing`). Only the
+  way out, only a file row: out of a folder the pane stays empty. `zipPreviewBack` e2e.
 - **Archive viewer** (2026-08-22, #68; since #300 the PHONE's only, the desktop's is above): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),
@@ -336,6 +341,22 @@ changing a feature: each entry records what the owner decided, why, and what hol
   window into the error with 7-Zip's own line, and only Close removes that; a refusal main
   will not even start (the wall) opens the window straight into its error, since the callers
   show none of their own any more. One visible extraction at a time, refused in main as well.
+  **THE WINDOW IS AN OPEN SHEET** (#336; owner, 2026-10-09, picking B of round 2: "clean, fits
+  every theme, minimal text": the bar, the percentage, one live line naming the file being
+  extracted right now, WinRAR style, and Cancel; mockups in
+  `research/prism/mockups/2026-10-09-extract-dialog/round2`, round 1 beside it). Only the LOOK
+  and the words changed; every rule above stands. No title and no caption: the archive is the
+  box's `title` and its `aria-label` ("Extracting X to D"). Top row (40px): the number, 34px at
+  weight 400 with a small `%`, blank until the engine speaks; Cancel at its end. The bar is a
+  12px WELL, the widest and thickest thing (fill `--p-accent-solid` on `--p-control`, a
+  `--p-dim2` inset edge, corners `var(--p-radius)`, no pulse). Under it the file line (UI face,
+  tabular figures, 18px fixed), fitted by canvas measure in the MIDDLE so the member's own name
+  stays (`fitPath`). Cancelling: the line says Cancelling and Cancel dims. Failed: "Couldn't
+  extract" takes the number's place, the well keeps where it stopped HATCHED in `--p-dim` (never
+  orange: Sand's warn ink is its accent's hue), the line is the reason alone (`failureText`), and
+  Close is `--p-sel-bg` with `--p-on-accent`. 20px top and bottom. Main's 60ms progress cap is
+  the throttle. `extractCancel` samples the box and the well every 25ms through a run (they never
+  change), and writes `extract-sheet-*.png` (running in Aurora and Sand, failed in four styles).
   **7-ZIP ASKS FOR A PASSWORD ON STDIN, AND WAITED FOR EVER** (2026-09-20, found reviewing
   #166, MEASURED on 7-Zip 25.00). A 7z whose CONTENT is encrypted but whose names are not
   (the common case) lists without a password, so nothing fails early; extracted with no `-p`,
