@@ -4,6 +4,13 @@
   # on a fresh Windows (the build checks dumpbin /dependents against an
   # allow-list). /W4 /WX: a warning fails the build. node-gyp's own common.gypi
   # sets the language standard its Node headers need (C++20).
+  # Node 24's common.gypi (the headers built against) asks for enable_thin_lto,
+  # which only a Node 24 build machine's own config.gypi defines. MEASURED on
+  # CI (Node 22): "name 'enable_thin_lto' is not defined". A default here, off,
+  # as in Node's own builds; a machine that defines it keeps its value.
+  "variables": {
+    "enable_thin_lto%": "false"
+  },
   "targets": [
     {
       "target_name": "prism_sweep",
