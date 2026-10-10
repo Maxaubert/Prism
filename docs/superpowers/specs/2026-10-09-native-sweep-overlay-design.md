@@ -102,8 +102,11 @@ Three messages, all one-way (`ipcRenderer.send`), none per pointer move:
   in the move that starts the sweep (where `flushSync` mounts the band today).
   - `anchor`: the press point mapped from the list's coordinates back to the client with the
     CURRENT scroll (`start` through a new `fromList(start, geo)` option, the inverse of `toList`).
-  - `clip`: the scroller's visible client rect from the measured geometry (the rect the DOM box is
-    clamped to today, `place`'s `-2/+2` included).
+  - `clip`: the scroller's visible client rect from the measured geometry (`clipOf(geo)`),
+    exactly, without `place`'s `-2/+2`: the native box is drawn above everything in the window, so a
+    clip two pixels wider would draw over the column header. Where the clip cuts the box, that edge
+    is not drawn, which is what the DOM band's overflow-hidden `-2/+2` edge looks like (implementation,
+    2026-10-10; `box.h`).
   - `dpr`: `window.devicePixelRatio`, which already folds Chromium's zoom and the window's DPI.
   - `fill`, `edge`: the band element's computed `background-color` and `border-top-color`, read once
     (the band stays mounted with `display: none`), parsed to premultiplied-free RGBA bytes by a pure
@@ -161,7 +164,7 @@ diagnostics log's slow-IPC line already reports a main that is busy.
    unvirtualised coordinates; the spike confirms for the native thread).
 4. The box, in integer pixels, as Explorer's `_SetVisualLoc` does: `left = min(ax, cx)`,
    `right = max(ax, cx) + 1`, same down; then intersected with the clip. The far corner is clamped to
-   the clip plus one pixel, Explorer's `OnMouseMoved` clamp.
+   the clip plus one pixel, Explorer's `OnMouseMoved` clamp. An edge the clip cut off is not drawn.
 5. If the rect equals the last committed one, do nothing (no commit, no GPU work). Otherwise set five
    visuals (fill, four edges) as offsets and scale transforms of two 1x1 premultiplied colour
    surfaces with nearest-neighbour interpolation and a hard border mode, and `Commit` once.
@@ -185,11 +188,14 @@ perfectly ... not quite there" and 1000 us "seems like it works". The lead is a 
 reason beside it, not a setting.
 
 A machine whose timer wakes later can miss DWM's latch at 1000 us (a missed commit shows a frame
-late). The thread counts a commit that lands within `kLatchUs` of the tick as a miss; more than one
-in a window of 144 up-frames WIDENS the lead by 250 us, up to 2000 us, never narrower than 1000.
+late). The thread counts a commit that lands under `kLatchUs` (100 us) before the tick as a miss
+(calibrated 2026-10-10 against the frames Desktop Duplication saw a frame late; 300 us over-counted
+several times and widened for nothing); more than 14 in a window of 1440 up-frames (ten seconds of
+sweeping at 144 Hz, over 1 %) WIDENS the lead by 250 us, up to 2000 us, never narrower than 1000.
+The confirming run (injected, 2026-10-10) stayed at 1000 us with no widening.
 Past 2000 us it falls back to sampling at the tick for the rest of the session: a frame behind, but
 never a miss. `stats()` reports the sampling, the lead in force, the misses and the widenings, and
-main writes them to the diagnostics log at `end`.
+main writes them to the diagnostics log at the first `end` and at any `end` where they changed.
 
 While no box is up the thread waits on the event alone and costs nothing per frame.
 
