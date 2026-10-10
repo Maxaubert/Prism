@@ -60,8 +60,8 @@ describe('the box in physical pixels', () => {
 
   it('carries the cause through, and none for a begin', () => {
     expect(toPhysical(msg(1, 'scroll'), none).cause).toBe('scroll')
-    const { cause: _drop, id: _id, ...begin } = msg(1)
-    expect(toPhysical(begin, none).cause).toBeUndefined()
+    const m = msg(1)
+    expect(toPhysical({ anchor: m.anchor, clip: m.clip, dpr: m.dpr }, none).cause).toBeUndefined()
   })
 
   it('uses the origin the spike measured: none, normal and maximised', () => {

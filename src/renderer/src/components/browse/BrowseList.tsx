@@ -254,7 +254,14 @@ export function BrowseList(props: Props): JSX.Element {
         top: r.top,
         scrollTop: node.scrollTop,
         scrollLeft: node.scrollLeft,
-        scrollWidth: node.scrollWidth
+        scrollWidth: node.scrollWidth,
+        // The visible rows, in the page's client: the native box's clip (#338).
+        clip: {
+          left: r.left + node.clientLeft,
+          top: r.top + node.clientTop,
+          right: r.left + node.clientLeft + node.clientWidth,
+          bottom: r.top + node.clientTop + node.clientHeight
+        }
       }
     },
     toList: (x, y, m) => {
@@ -264,6 +271,9 @@ export function BrowseList(props: Props): JSX.Element {
         y: Math.max(0, Math.min(Math.max(g.count * g.rowHeight, g.height), logicalTopAt(m.scrollTop) + y - m.top))
       }
     },
+    // toList's inverse, with the same compressed-scroll rule (logicalTopAt).
+    fromList: (p, m) => ({ x: p.x - m.scrollLeft + m.left, y: p.y - logicalTopAt(m.scrollTop) + m.top }),
+    clipOf: (m) => m.clip,
     place: (band, m) => {
       // Row coordinates to the scroll box's own: the rows sit at
       // scrollTop + (y - logicalTop). Clamped to what is in view, so a sweep

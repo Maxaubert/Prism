@@ -14,6 +14,9 @@ import {
   type Band,
   type SweepBox
 } from '../lib/marquee'
+import type { CssRect, UpdateCause } from '@shared/sweepOverlay'
+import { cssColour } from '../lib/cssColour'
+import { nativeBox, sweepBridge } from './sweepOverlayState'
 
 /**
  * THE SWEEP RECTANGLE (#257; owner, 2026-10-03: "let me highlight files by
@@ -54,16 +57,17 @@ import {
  * the box's. `pointerrawupdate` was weighed and left out: pointermove is
  * already delivered just before the frame is drawn, with the newest position
  * the frame can show, and the raw event is for secure origins only.
+ *
+ * ON WINDOWS 11 THE BOX IS DRAWN NATIVELY (#338; owner, 2026-10-09). The rest
+ * of the trail was Chromium's own path, so a MOUSE sweep hands its box to main
+ * (`sweepOverlay`: the anchor, the clip and the band's own colours, at the
+ * start and when the list scrolls or resizes, never per move), which draws it
+ * with DirectComposition from the real cursor every compositor frame. The
+ * band stays mounted and placed; it is only kept `display: none` while main
+ * has said the box is native (`nativeBox`), so the fallback is a flag, not a
+ * code path. Hit testing, the marks, auto-scroll and Escape stay here.
  */
-// SPIKE (#338, task 1), reverted at the end of the task: the native box's test
-// hook. Present only when main was started with --sweep-spike.
-interface SweepSpike {
-  mode: 'native' | 'dom' | 'both'
-  send: (kind: 'begin' | 'update' | 'end', m: unknown) => void
-}
-const sweepSpike = (): SweepSpike | undefined =>
-  (window as unknown as { prismSweepSpike?: SweepSpike }).prismSweepSpike
-
+let sweepIds = 0
 export interface RowAcross {
   left: number
   right: number
@@ -79,6 +83,12 @@ export interface SweepOptions<G> {
   /** A pointer position in the list's own coordinates (y from row 0's top),
    *  from the measured geometry alone. */
   toList: (clientX: number, clientY: number, geo: G) => { x: number; y: number }
+  /** The list's own coordinates back to the page's client, with the measured
+   *  scroll: `toList`'s inverse, for the native box's anchor (#338). */
+  fromList: (p: { x: number; y: number }, geo: G) => { x: number; y: number }
+  /** The scroller's visible rect in the page's client, from the measured
+   *  geometry: what the native box is clipped to. */
+  clipOf: (geo: G) => CssRect
   /** The box, from the list's coordinates into the band element's own
    *  container's, or null to leave it as it is. */
   place?: (band: Band, geo: G) => Band
@@ -151,29 +161,19 @@ export function useSweep<G>(options: SweepOptions<G>): {
     const wasDraggable = row?.draggable ?? false
     if (row) row.draggable = false
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    // SPIKE (#338): a mouse sweep hands its box to the native overlay.
-    const spike = e.pointerType === 'mouse' ? sweepSpike() : undefined
-    const spikeHides = spike?.mode === 'native'
-    const sc0 = spike ? opts.current.scroller() : null
-    const s0 = { top: sc0?.scrollTop ?? 0, left: sc0?.scrollLeft ?? 0 }
-    let spikeSent = false
-    let spikeLast = ''
-    const spikeMsg = (): {
-      anchor: { x: number; y: number }
-      clip: { left: number; top: number; right: number; bottom: number }
-      dpr: number
-    } | null => {
-      const sc = box ?? opts.current.scroller()
-      if (!sc) return null
-      const r = sc.getBoundingClientRect()
-      const left = r.left + sc.clientLeft
-      const top = r.top + sc.clientTop
-      return {
-        anchor: { x: sx - (sc.scrollLeft - s0.left), y: sy - (sc.scrollTop - s0.top) },
-        clip: { left, top, right: left + sc.clientWidth, bottom: top + sc.clientHeight },
-        dpr: window.devicePixelRatio
-      }
-    }
+    // Only a MOUSE sweep is handed to the native box: a pen's moves are not
+    // promoted to mouse messages, so the native side's button check would hide
+    // the box at once, and the cursor need not follow the pen tip (#338).
+    const overlay = e.pointerType === 'mouse' ? sweepBridge() : null
+    /** The id the native box knows this sweep by, while main has it. */
+    let sent: number | null = null
+    let sentKey = ''
+    const overlayMsg = (): { anchor: { x: number; y: number }; clip: CssRect; dpr: number } | null =>
+      geo
+        ? { anchor: opts.current.fromList(start, geo), clip: opts.current.clipOf(geo), dpr: window.devicePixelRatio }
+        : null
+    /** The DOM band hides only while main draws this sweep natively. */
+    const drawnNatively = (): boolean => sent !== null && nativeBox()
 
     /** The box, in the list's own coordinates. */
     const bandNow = (): Band | null => {
@@ -186,8 +186,9 @@ export function useSweep<G>(options: SweepOptions<G>): {
       const b = started && !cancelled ? bandNow() : null
       if (!el || !b || !geo) return
       const p = bandBox(opts.current.place ? opts.current.place(b, geo) : b)
-      // Written straight onto the element: no render, no layout read.
-      el.style.display = spikeHides ? 'none' : 'block'
+      // Written straight onto the element: no render, no layout read. Placed
+      // even while the native box draws, so a fall back shows it in place.
+      el.style.display = drawnNatively() ? 'none' : 'block'
       el.style.left = `${p.left}px`
       el.style.top = `${p.top}px`
       el.style.width = `${p.width}px`
@@ -225,17 +226,21 @@ export function useSweep<G>(options: SweepOptions<G>): {
     // pane resize): the box's far corner is still under the pointer, so it is
     // drawn again with the new offsets, in this frame (scroll events and
     // resize observations come before the frame is painted).
-    const scrolled = (cause: 'auto' | 'scroll' | 'resize'): void => {
+    // The native box hears the new anchor and clip, with who moved the list:
+    // it applies each cause a measured number of frames late, so the anchored
+    // edge stays on its row. Our own auto-scroll write says 'auto' first; the
+    // scroll event that follows it carries the same place and is not sent.
+    const scrolled = (cause: UpdateCause): void => {
       if (!started || cancelled) return
       remeasure()
       paint()
       dirty = true
-      if (spike && spikeSent) {
-        const m = spikeMsg()
-        const key = JSON.stringify(m)
-        if (m && key !== spikeLast) {
-          spikeLast = key
-          spike.send('update', { ...m, cause })
+      if (overlay && sent !== null) {
+        const m = overlayMsg()
+        const k = JSON.stringify(m)
+        if (m && k !== sentKey) {
+          sentKey = k
+          overlay.update({ id: sent, cause, ...m })
         }
       }
     }
@@ -261,6 +266,21 @@ export function useSweep<G>(options: SweepOptions<G>): {
       if (dirty) mark()
       frame = requestAnimationFrame(tick)
     }
+    /** The move that starts a mouse sweep hands its box to main (#338), in the
+     *  band's own computed colours (one style read per sweep): the theme's,
+     *  exactly. Main decides whether it is drawn natively. */
+    const handOver = (): void => {
+      const el = band.current
+      if (!overlay || !el) return
+      const cs = getComputedStyle(el)
+      const fill = cssColour(cs.backgroundColor)
+      const edge = cssColour(cs.borderTopColor)
+      const m = overlayMsg()
+      if (!fill || !edge || !m) return
+      sent = ++sweepIds
+      sentKey = JSON.stringify(m)
+      overlay.begin({ id: sent, ...m, fill, edge })
+    }
     const swallowClick = (): void => {
       // The release lands a click on whatever is under it (a row, or the list,
       // which would clear everything). The sweep was the act; that click is not.
@@ -276,10 +296,9 @@ export function useSweep<G>(options: SweepOptions<G>): {
       frame = 0
       // Gone in this frame, before React gets round to unmounting it.
       if (band.current) band.current.style.display = 'none'
-      if (spike && spikeSent) {
-        spikeSent = false
-        spike.send('end', { reason: cancelled ? 'escape' : 'release' })
-      }
+      // And the native box: every path that hides the band ends it.
+      if (overlay && sent !== null) overlay.end({ id: sent })
+      sent = null
       setSweeping(false)
     }
     const cleanup = (): void => {
@@ -356,19 +375,7 @@ export function useSweep<G>(options: SweepOptions<G>): {
         // Synchronous, once per sweep: the band is in the DOM (and placed, by
         // `bandRef`) before this frame is painted.
         flushSync(() => setSweeping(true))
-        if (spike) {
-          const m = spikeMsg()
-          // The measuring tool finds the DOM band by its edge colour, and a
-          // marked row's edge is the band's own hue: a colour nothing else on
-          // the page wears. Only the colour; place and timing are today's.
-          if (spike.mode !== 'native' && band.current) band.current.style.borderColor = 'rgb(0, 255, 0)'
-          const cs = band.current ? getComputedStyle(band.current) : null
-          if (m) {
-            spikeLast = JSON.stringify(m)
-            spike.send('begin', { ...m, fill: cs?.backgroundColor, edge: cs?.borderTopColor })
-            spikeSent = true
-          }
-        }
+        handOver()
         frame = requestAnimationFrame(tick)
       }
       paint()
