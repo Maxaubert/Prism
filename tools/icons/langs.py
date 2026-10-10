@@ -16,7 +16,7 @@ WINDOWS ASSOCIATES ON EXTENSION. Docker and Git were drawn and are NOT in
 `EXTS`: `Dockerfile`, `Makefile` and `.gitignore` are bare names and dotfiles,
 which cannot be registered at all, so a mark for them could never appear in
 Explorer. They stay for the IN-APP tree, which resolves by name and can show
-them. That asymmetry is real and is recorded in CLAUDE.md, or it reads as a bug.
+them. That asymmetry is real and is recorded in docs/features.md, or it reads as a bug.
 
 Everything is FILLED rather than stroked. A hairline outline is the first thing
 a 16px frame throws away, and 16px is the frame that decides. Three of the marks
