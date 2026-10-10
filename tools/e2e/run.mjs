@@ -8720,6 +8720,299 @@ async function sweepLagScenario(fixtures) {
 }
 
 /**
+ * THE NATIVE SWEEP BOX'S CONTRACT (#338). Under --e2e main never loads the
+ * addon: it RECORDS every message the page sends on
+ * `globalThis.__e2eSweepOverlay`, and says `native: false`, so the DOM box is
+ * what the run sees. This holds the page's half, in the tree and the
+ * Explorer's list: one `begin` per mouse sweep, anchored at the press, with the
+ * scroller's clip, the page's dpr and the band's own colours; nothing per
+ * pointer move; an `update` per auto-scroll step ('auto', the anchor moved by
+ * the scroll) and per wheel turn ('scroll'); one `end` for a release, Escape
+ * and a lost focus; nothing at all for a pen; a fresh `state` on a reload; and
+ * the DOM box drawn throughout. Then, with main's e2e hook saying `native`
+ * (still no addon): the DOM box hides only for a sweep begun while native, and
+ * shows again at once when native goes off mid-sweep. The drawing itself is on
+ * the hands-on list.
+ */
+async function sweepOverlayScenario(fixtures) {
+  console.log('the native sweep box contract (#338)')
+  const dir = join(fixtures, 'sweepoverlay')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (let i = 0; i < 300; i++) writeFileSync(join(dir, `g${String(i).padStart(3, '0')}.txt`), `overlay ${i}\n`)
+  const { app, win } = await launch(join(dir, 'g000.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  const mouse = (type, x, y, extra = {}) =>
+    cdp.send('Input.dispatchMouseEvent', {
+      type,
+      x: Math.round(x),
+      y: Math.round(y),
+      button: 'left',
+      buttons: type === 'mouseReleased' ? 0 : 1,
+      ...(type === 'mouseMoved' ? {} : { clickCount: 1 }),
+      ...extra
+    })
+  const frame = () => win.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())))
+  const frames = async (n) => {
+    for (let i = 0; i < n; i++) await frame()
+  }
+  const rec = () => app.evaluate(() => (globalThis.__e2eSweepOverlay ?? []).slice())
+  const clear = () => app.evaluate(() => (globalThis.__e2eSweepOverlay.length = 0))
+  const kinds = (ms) => ms.filter((m) => m.kind !== 'state')
+  /** Chromium's computed colours as straight-alpha bytes (the page's cssColour). */
+  const bytes = (s) => {
+    let m = /^rgba?\(([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\)$/.exec(s.trim())
+    const a = (v) => (v === undefined ? 255 : Math.round(Math.min(1, Math.max(0, v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v))) * 255))
+    if (m) return [+m[1], +m[2], +m[3], a(m[4])].map(Math.round)
+    m = /^color\(srgb\s+([-\d.e]+)\s+([-\d.e]+)\s+([-\d.e]+)(?:\s*\/\s*([-\d.e]+%?))?\)$/.exec(s.trim())
+    const c = (v) => Math.round(Math.min(1, Math.max(0, parseFloat(v))) * 255)
+    return m ? [c(m[1]), c(m[2]), c(m[3]), a(m[4])] : null
+  }
+  /** The scroller's visible client rect, the band's colours and display, the dpr. */
+  const pageState = (scope) =>
+    win.evaluate((scope) => {
+      const root = document.querySelector(scope)
+      let sc = root
+      for (let n = root.querySelector('[role="tree"]') ?? root; n; n = n.parentElement)
+        if (/(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight) {
+          sc = n
+          break
+        }
+      const r = sc.getBoundingClientRect()
+      const band = document.querySelector(`${scope} [data-sweep-band]`)
+      const cs = band ? getComputedStyle(band) : null
+      return {
+        clip: {
+          left: r.left + sc.clientLeft,
+          top: r.top + sc.clientTop,
+          right: r.left + sc.clientLeft + sc.clientWidth,
+          bottom: r.top + sc.clientTop + sc.clientHeight
+        },
+        scrollTop: sc.scrollTop,
+        dpr: devicePixelRatio,
+        band: cs ? { display: cs.display, fill: cs.backgroundColor, edge: cs.borderTopColor } : null
+      }
+    }, scope)
+  const near = (a, b, d) => Math.abs(a - b) <= d
+
+  /** One full pass over a list: begin, moves, auto-scroll, release; a wheel
+   *  turn and Escape; a lost focus; a pen. */
+  const contract = async (where, scope, start, middle, bottom) => {
+    // ---- begin, plain moves, auto-scroll, release ----
+    await clear()
+    await mouse('mousePressed', start.x, start.y)
+    await mouse('mouseMoved', start.x - 6, start.y + 6)
+    await frame()
+    let ms = kinds(await rec())
+    const b = ms.find((m) => m.kind === 'begin')
+    const st = await pageState(scope)
+    ok(ms.length === 1 && !!b, `${where}: one begin as the sweep starts (${ms.map((m) => m.kind).join(',')})`)
+    ok(!!b && near(b.anchor.x, start.x, 1) && near(b.anchor.y, start.y, 1), `${where}: the anchor is the press point (${b && JSON.stringify(b.anchor)} at ${start.x},${start.y})`)
+    ok(
+      !!b && ['left', 'top', 'right', 'bottom'].every((k) => near(b.clip[k], st.clip[k], 2)),
+      `${where}: the clip is the scroller's visible rect (${b && JSON.stringify(b.clip)} against ${JSON.stringify(st.clip)})`
+    )
+    ok(!!b && b.dpr === st.dpr, `${where}: the dpr is the page's (${b?.dpr}, ${st.dpr})`)
+    ok(
+      !!b && !!st.band && JSON.stringify(b.fill) === JSON.stringify(bytes(st.band.fill)) && JSON.stringify(b.edge) === JSON.stringify(bytes(st.band.edge)),
+      `${where}: the colours are the band's own (${b && JSON.stringify([b.fill, b.edge])}; ${st.band && JSON.stringify([st.band.fill, st.band.edge])})`
+    )
+    ok(st.band?.display === 'block', `${where}: the DOM box is drawn (native is off under e2e) (${st.band?.display})`)
+    for (let i = 0; i < 12; i++) {
+      await mouse('mouseMoved', middle.x + (i % 3) * 9, middle.y + (i % 4) * 7)
+      await frame()
+    }
+    ms = kinds(await rec())
+    ok(ms.length === 1, `${where}: nothing is sent per pointer move (${ms.length - 1} messages for 12 moves)`)
+    const top0 = (await pageState(scope)).scrollTop
+    for (let i = 0; i < 30; i++) {
+      if (i % 3 === 0) await mouse('mouseMoved', middle.x + (i % 2 ? 2 : -2), bottom - 10)
+      await frame()
+    }
+    // Back off the edge, so the list stands still while it is read.
+    await mouse('mouseMoved', middle.x, middle.y)
+    await frames(4)
+    const mid = await pageState(scope)
+    ms = kinds(await rec())
+    const ups = ms.filter((m) => m.kind === 'update')
+    const auto = ups.filter((m) => m.cause === 'auto')
+    const scrolled = mid.scrollTop - top0
+    const lastUp = ups[ups.length - 1]
+    ok(scrolled > 60 && auto.length >= 5, `${where}: the auto-scroll sends an 'auto' update per step (${auto.length} for ${Math.round(scrolled)} px)`)
+    // Every place our own scroll reaches is said as 'auto' first. MEASURED in
+    // the Explorer: its list is a controlled scroll (`props.scrollTop`), and
+    // the render a scroll event asks for writes the previous step back a beat
+    // later, whose own scroll event then says that place again as 'scroll'.
+    // That one repeats a place already sent; a NEW place as 'scroll' is wrong.
+    const autoAt = new Set(auto.map((m) => m.anchor.y))
+    const strays = ups.filter((m) => m.cause === 'scroll' && !autoAt.has(m.anchor.y))
+    ok(
+      ups.every((m) => m.cause !== 'scroll' || autoAt.has(m.anchor.y)),
+      `${where}: our own scroll reaches each place as 'auto' (${strays.length} new places said as 'scroll'${strays.length ? `: ${JSON.stringify(ups.map((m) => [m.cause, Math.round(m.anchor.y * 10) / 10]))}` : ''})`
+    )
+    ok(
+      !!lastUp && !!b && near(lastUp.anchor.y, b.anchor.y - mid.scrollTop + st.scrollTop, 1) && ups.every((m) => m.id === b.id),
+      `${where}: the anchor moved by the scroll (${b?.anchor.y} to ${lastUp?.anchor.y}, scrolled ${Math.round(mid.scrollTop - st.scrollTop)})`
+    )
+    ok(mid.band?.display === 'block', `${where}: the DOM box is drawn while it scrolls`)
+    await mouse('mouseReleased', middle.x, bottom - 10)
+    await sleep(150)
+    ms = kinds(await rec())
+    const ends = ms.filter((m) => m.kind === 'end')
+    ok(ends.length === 1 && ends[0].id === b?.id, `${where}: one end on the release (${ends.length})`)
+
+    // ---- a wheel turn under the held button, then Escape ----
+    await win.evaluate((s) => {
+      const root = document.querySelector(s)
+      for (let n = root.querySelector('[role="tree"]') ?? root; n; n = n.parentElement)
+        if (/(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight) n.scrollTop = 0
+    }, scope)
+    await sleep(200)
+    await clear()
+    await mouse('mousePressed', start.x, start.y)
+    await mouse('mouseMoved', middle.x, middle.y)
+    await frame()
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: Math.round(middle.x), y: Math.round(middle.y), deltaX: 0, deltaY: 120, buttons: 1 })
+    await sleep(400)
+    ms = kinds(await rec())
+    const wheel = ms.filter((m) => m.kind === 'update')
+    ok(wheel.length >= 1 && wheel.every((m) => m.cause === 'scroll'), `${where}: a wheel turn under the button sends 'scroll' (${wheel.map((m) => m.cause).join(',')})`)
+    await win.keyboard.press('Escape')
+    await sleep(100)
+    ms = kinds(await rec())
+    ok(ms.filter((m) => m.kind === 'end').length === 1, `${where}: one end on Escape (${ms.map((m) => m.kind).join(',')})`)
+    await mouse('mouseReleased', middle.x, middle.y)
+    await sleep(100)
+    ok(kinds(await rec()).filter((m) => m.kind === 'end').length === 1, `${where}: and none more on the release after it`)
+
+    // ---- a lost focus ----
+    await clear()
+    await mouse('mousePressed', start.x, start.y)
+    await mouse('mouseMoved', middle.x, middle.y)
+    await frame()
+    await win.evaluate(() => window.dispatchEvent(new Event('blur')))
+    await sleep(100)
+    ms = kinds(await rec())
+    ok(ms.map((m) => m.kind).join(',') === 'begin,end', `${where}: one end on a lost focus (${ms.map((m) => m.kind).join(',')})`)
+    await mouse('mouseReleased', middle.x, middle.y)
+    await sleep(100)
+
+    // ---- a pen: the DOM box, nothing sent ----
+    await clear()
+    await mouse('mousePressed', start.x, start.y, { pointerType: 'pen' })
+    await mouse('mouseMoved', start.x - 6, start.y + 6, { pointerType: 'pen' })
+    await mouse('mouseMoved', middle.x, middle.y, { pointerType: 'pen' })
+    await frame()
+    const pen = await pageState(scope)
+    await mouse('mouseReleased', middle.x, middle.y, { pointerType: 'pen' })
+    await sleep(100)
+    ok(pen.band?.display === 'block', `${where}: a pen sweeps with the DOM box (${pen.band?.display})`)
+    ok(kinds(await rec()).length === 0, `${where}: a pen sweep sends nothing (${kinds(await rec()).length})`)
+  }
+
+  try {
+    ok(
+      await until(() => app.evaluate(() => Array.isArray(globalThis.__e2eSweepOverlay)), 10000),
+      'main records the native box messages under e2e'
+    )
+    ok(
+      await until(async () => (await rec()).some((m) => m.kind === 'state' && m.native === false), 5000),
+      'main tells the page the box is not native under e2e'
+    )
+
+    /* ---------- the project tree ---------- */
+    await win.waitForSelector('aside [data-row]', { timeout: 15000 })
+    await sleep(500)
+    const tr = await win.locator('aside [data-row]').nth(2).boundingBox()
+    const treeBox = (await pageState('aside')).clip
+    const blankX = tr.x + tr.width - 12
+    await contract(
+      'tree',
+      'aside',
+      { x: blankX, y: tr.y + tr.height / 2 },
+      { x: tr.x + 60, y: treeBox.top + (treeBox.bottom - treeBox.top) / 2 },
+      treeBox.bottom
+    )
+
+    /* ---------- the Explorer's list ---------- */
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    const listSel = '[data-testid="browse-list"]'
+    await win.waitForSelector(`${listSel} .browse-row`, { timeout: 10000 })
+    await win.locator(`${listSel} [data-browse-path$="sweepoverlay"]`).dblclick()
+    ok(
+      await until(async () => /300 items/.test((await win.locator('.browse-status').textContent()) ?? ''), 10000),
+      `the Explorer walked into the folder of 300 (${await win.locator('.browse-status').textContent()})`
+    )
+    await sleep(500)
+    const lb = await win.locator(listSel).boundingBox()
+    const row0 = await win.locator(`${listSel} [data-browse-index="0"]`).boundingBox()
+    const right = row0.x + row0.width
+    await contract('Explorer', listSel, { x: right + 20, y: lb.y + 80 }, { x: row0.x + 60, y: lb.y + lb.height / 2 }, lb.y + lb.height)
+
+    /* ---------- the page's half when main says native ---------- */
+    // No addon under e2e: main tells the page `native` through its e2e hook,
+    // as it would with a ready target, and draws nothing. Held: the DOM box
+    // hides only for a sweep begun while native; when main turns native off
+    // mid-sweep it is back AT ONCE with the pointer held still (it used to
+    // wait for the next move: no box at all until then); and a `true` that
+    // arrives mid-sweep, for a begin main ignored, leaves the DOM box drawn
+    // (it used to hide it, and nothing drew the box).
+    {
+      const setNative = async (on) => {
+        await app.evaluate((_e, on) => globalThis.__e2eSweepNative(on), on)
+        await sleep(150)
+      }
+      const s0 = { x: right + 20, y: lb.y + 80 }
+      const m0 = { x: row0.x + 60, y: lb.y + lb.height / 2 }
+      await win.evaluate((s) => (document.querySelector(s).scrollTop = 0), listSel)
+      await sleep(200)
+      await setNative(true)
+      await clear()
+      await mouse('mousePressed', s0.x, s0.y)
+      await mouse('mouseMoved', s0.x - 6, s0.y + 6)
+      await frame()
+      await mouse('mouseMoved', m0.x, m0.y)
+      await frames(2)
+      const hidden = await pageState(listSel)
+      ok(hidden.band?.display === 'none', `native: the DOM box hides for a sweep main took (${hidden.band?.display})`)
+      ok(kinds(await rec()).filter((m) => m.kind === 'begin').length === 1, 'native: the begin went to main')
+      await setNative(false)
+      const back = await pageState(listSel)
+      ok(back.band?.display === 'block', `native off mid-sweep: the DOM box is back with the pointer still (${back.band?.display})`)
+      await mouse('mouseReleased', m0.x, m0.y)
+      await sleep(150)
+      ok(kinds(await rec()).filter((m) => m.kind === 'end').length === 1, 'native off mid-sweep: one end on the release')
+
+      await clear()
+      await mouse('mousePressed', s0.x, s0.y)
+      await mouse('mouseMoved', s0.x - 6, s0.y + 6)
+      await frame()
+      await mouse('mouseMoved', m0.x, m0.y)
+      await frames(2)
+      await setNative(true)
+      await mouse('mouseMoved', m0.x + 8, m0.y + 8)
+      await frames(2)
+      const late = await pageState(listSel)
+      ok(late.band?.display === 'block', `native on mid-sweep: a begin main ignored keeps the DOM box (${late.band?.display})`)
+      await mouse('mouseReleased', m0.x + 8, m0.y + 8)
+      await sleep(150)
+      await setNative(false)
+    }
+
+    /* ---------- a reload starts from the truth ---------- */
+    await clear()
+    await win.reload()
+    ok(
+      await until(async () => (await rec()).some((m) => m.kind === 'state' && m.native === false), 15000),
+      'a reload is told the state afresh'
+    )
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
  * THE COMMON FILE KEYS (#330; owner, 2026-10-07: "add common hotkeys to the
  * explorer and project so that for example ctrl + A selects all"). Every key
  * of the chosen list, in the project tree and in the Explorer's list, against
@@ -18102,6 +18395,7 @@ await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(marqueeEdgeScenario)
 await run(sweepLagScenario)
+await run(sweepOverlayScenario)
 await run(hotkeysScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)

@@ -112,8 +112,11 @@ has gone.
   `remark-gfm` + `rehype-raw` + `rehype-sanitize` (markdown), `pdfjs-dist` (PDF),
   `heic-convert` (HEIC decode), `adm-zip` (the archive viewer: reading and rewriting zip
   containers is not a thing to hand-roll; pure JS, no native code), `node-pty` + `@xterm/*` (the terminal: a real ConPTY and
-  its renderer, not a thing to hand-roll; node-pty is the app's ONE native module, ships
-  N-API prebuilds, and must stay asarUnpacked or Windows cannot load it; `@xterm/*` now
+  its renderer, not a thing to hand-roll; node-pty is the app's ONE third-party native module, ships
+  N-API prebuilds, and must stay asarUnpacked or Windows cannot load it; the other native module
+  is Prism's OWN `native/sweep` addon (#338), built from source by `npm run build:sweep` with the
+  DEV dependency `node-gyp` and MSVC, `/MT`, shipped in `resources\sweep` beside `PrismDwm.exe`'s
+  `resources\dwm`, unsigned until SignPath enrolment, where the `.node` must join the set; `@xterm/*` now
   includes `addon-search`, because searching a terminal means the SCROLLBACK buffer,
   wrapped lines and the alternate screen, none of which a DOM search over the rendered
   rows can see), `exifr` (main-only, the photo's own EXIF). Shells spawn
