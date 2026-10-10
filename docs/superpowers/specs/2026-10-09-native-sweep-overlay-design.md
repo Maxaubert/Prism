@@ -123,9 +123,13 @@ Three messages, all one-way (`ipcRenderer.send`), none per pointer move:
 Main sends `sweep-overlay:state` `{ native: boolean }` on every `did-finish-load` of the page (so a
 reload starts from the truth, not from a stale `true`) and again on every change. Until a page has
 heard `true` it treats the answer as `false`. The renderer keeps the band hidden while `native` is
-true. If main finds the native side failed on a `begin`, or drops a `begin` as invalid, it sends
-`{ native: false }`, and the renderer shows the DOM band from the next move (one sweep may lose its
-box for a few frames; logged).
+true AND was true when the sweep's `begin` went: a `true` that arrives mid-sweep found no box main
+took (main ignores a `begin` while native is off), so that sweep keeps the DOM band. If main finds the
+native side failed on a `begin`, or drops a `begin` as invalid, it sends `{ native: false }`, and
+the renderer shows the DOM band AT ONCE, in place, the pointer held still or not (review, 2026-10-10:
+it used to wait for the next move; the `sweepOverlay` e2e drives both through main's e2e hook). A
+refusal because the window's target FAILED turns the native box off for the session
+(`target-failed`), so a reload is not told `true` again.
 
 The three messages pass through main's event loop, so a busy main delays `begin` (the box appears
 late) and `end` from Escape (the box stays a little longer). The release is covered without main by
@@ -139,8 +143,9 @@ diagnostics log's slow-IPC line already reports a main that is busy.
 - Maps to physical client pixels (`src/main/sweepOverlayMath.ts`, pure): `round(css * dpr)` for the
   anchor, `floor` for clip left and top, `ceil` for right and bottom, plus the window's
   client-to-target origin offset that the spike measures (expected 0,0 with `titleBarStyle: 'hidden'`;
-  the maximised inset is measured too). The edge is `max(1, round(dpr))` physical pixels, which is
-  what Chromium draws for today's 1 CSS px border.
+  the maximised inset is measured too). The edge is `max(1, floor(dpr))` physical pixels, which is
+  what Chromium draws for today's 1 CSS px border (MEASURED 2026-10-10 in this Electron: 1 px at 100
+  to 175 %, 2 at 200 to 250 %; the first build rounded and drew it twice as thick at 150 and 175 %).
 - Hands it to the addon for the sender's window (`BrowserWindow.fromWebContents`, HWND from
   `getNativeWindowHandle()`).
 - Ends the box itself, without waiting for the page, on the window's `blur`, `minimize`, `hide`,
@@ -249,7 +254,7 @@ reason is written to the diagnostics log once per change:
   correct for a box the owner will not see; a later decision if Windows 10 users ask. OWNER'S CALL,
   asked with the PR: Windows 10 users get exactly today's box);
 - `GetSystemMetrics(SM_REMOTESESSION)` (Remote Desktop composes on the client; rechecked on
-  `session-change` and `display-metrics-changed`);
+  every `begin`, on `unlock-screen` and on `display-metrics-changed` / `display-added`);
 - device or target creation failed, or any HRESULT failed during a sweep (off for the session);
 - the sweep is not a mouse sweep (a pen: above);
 - `--e2e` (the e2e records the contract instead, below);
@@ -382,7 +387,7 @@ and during a wheel turn under a held button.
 | Pen sweep | DOM box; nothing sent. |
 | Display off with a box up | Occluded return followed by a 16 ms wait, never a spin. |
 | Hung native thread leaves a box | Bounded waits only; main sees no progress and turns it off. |
-| GPU reset (TDR) | The D3D device is lost, the next HRESULT fails, native off for the session. |
+| GPU reset (TDR) | The thread asks the D3D device at every `begin` and every frame a box is up (`GetDeviceRemovedReason`): a commit on a lost device can succeed and show nothing, and the colour surfaces are refilled only when a colour changes, so no HRESULT would fail. Lost: every target is released, native off for the session. |
 
 ## Version
 

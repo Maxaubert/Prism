@@ -29,9 +29,16 @@ export interface PhysBox {
  */
 export const SWEEP_ORIGIN: Readonly<CssPoint> = { x: 0, y: 0 }
 
-/** What Chromium draws for a 1 CSS px border: whole device pixels, never 0. */
+/**
+ * What Chromium draws for a 1 CSS px border: whole device pixels ROUNDED DOWN,
+ * never 0 (CSS "snap as a border width"). MEASURED 2026-10-10 in this Electron
+ * (a 1px border, `--force-device-scale-factor`, rows counted in a capture):
+ * 1 device px at 100, 125, 150 and 175 %, 2 at 200, 225 and 250 %. Rounding
+ * drew the native edge twice as thick as the DOM box's at 150 and 175 %. The
+ * small allowance keeps a zoom product like 1.1 * (2 / 1.1) at 2.
+ */
 export function edgeWidth(dpr: number): number {
-  return Math.max(1, Math.round(dpr))
+  return Math.max(1, Math.floor(dpr + 1e-3))
 }
 
 export function toPhysical(

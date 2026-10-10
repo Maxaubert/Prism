@@ -89,6 +89,7 @@ beforeEach(() => vi.useFakeTimers())
 afterEach(() => {
   vi.useRealTimers()
   delete (globalThis as { __e2eSweepOverlay?: unknown }).__e2eSweepOverlay
+  delete (globalThis as { __e2eSweepNative?: unknown }).__e2eSweepNative
 })
 
 describe('sweepDirs', () => {
@@ -182,7 +183,7 @@ describe('forwarding', () => {
     t.say(t.w, 'begin', begin(7))
     expect(t.addon.begin).toHaveBeenCalledWith(
       t.w.hwnd,
-      { ax: 150, ay: 75, left: 15, top: 30, right: 600, bottom: 450, edge: 2 },
+      { ax: 150, ay: 75, left: 15, top: 30, right: 600, bottom: 450, edge: 1 },
       [1, 2, 3, 41],
       [4, 5, 6, 255]
     )
@@ -215,6 +216,18 @@ describe('forwarding', () => {
     const t = await ready()
     t.addon.begin = vi.fn(() => false)
     t.say(t.w, 'begin', begin())
+    expect(t.w.webContents.states().at(-1)).toBe(false)
+    expect(t.overlay.reason()).toBeNull()
+  })
+
+  it('turns it off for the session when the refusal is a failed target', async () => {
+    const t = await ready()
+    t.addon.begin = vi.fn(() => false)
+    t.addon.st = 'failed'
+    t.say(t.w, 'begin', begin())
+    expect(t.overlay.reason()).toBe('target-failed')
+    // A reload is not told `true` again for a window that cannot draw.
+    t.w.webContents.emit('did-finish-load')
     expect(t.w.webContents.states().at(-1)).toBe(false)
   })
 })
@@ -301,5 +314,16 @@ describe('under e2e', () => {
     expect(rec[1]).toMatchObject({ id: 4, dpr: 1.5, fill: [1, 2, 3, 41] })
     expect(t.addon.begin).not.toHaveBeenCalled()
     expect(w.webContents.states()).toEqual([false, false])
+  })
+
+  it('lets the e2e tell the pages a native state, still drawing nothing', () => {
+    const t = setup({ e2e: true })
+    const w = t.open()
+    const g = globalThis as unknown as { __e2eSweepNative: (on: boolean) => void }
+    g.__e2eSweepNative(true)
+    g.__e2eSweepNative(false)
+    expect(w.webContents.states()).toEqual([false, true, false])
+    t.say(w, 'begin', begin(5))
+    expect(t.addon.begin).not.toHaveBeenCalled()
   })
 })

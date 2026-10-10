@@ -16,7 +16,7 @@ import {
 } from '../lib/marquee'
 import type { CssRect, UpdateCause } from '@shared/sweepOverlay'
 import { cssColour } from '../lib/cssColour'
-import { nativeBox, sweepBridge } from './sweepOverlayState'
+import { nativeBox, onNativeBoxChange, sweepBridge } from './sweepOverlayState'
 
 /**
  * THE SWEEP RECTANGLE (#257; owner, 2026-10-03: "let me highlight files by
@@ -168,12 +168,18 @@ export function useSweep<G>(options: SweepOptions<G>): {
     /** The id the native box knows this sweep by, while main has it. */
     let sent: number | null = null
     let sentKey = ''
+    /** Main had said `native` when the begin went: only then can it have
+     *  taken this sweep. A `true` that arrives mid-sweep (the target became
+     *  ready, a Remote Desktop session ended) found no box to draw, since
+     *  main ignored the begin, so the DOM box stays. */
+    let nativeAtBegin = false
+    let unwatch: (() => void) | null = null
     const overlayMsg = (): { anchor: { x: number; y: number }; clip: CssRect; dpr: number } | null =>
       geo
         ? { anchor: opts.current.fromList(start, geo), clip: opts.current.clipOf(geo), dpr: window.devicePixelRatio }
         : null
     /** The DOM band hides only while main draws this sweep natively. */
-    const drawnNatively = (): boolean => sent !== null && nativeBox()
+    const drawnNatively = (): boolean => sent !== null && nativeAtBegin && nativeBox()
 
     /** The box, in the list's own coordinates. */
     const bandNow = (): Band | null => {
@@ -279,7 +285,12 @@ export function useSweep<G>(options: SweepOptions<G>): {
       if (!fill || !edge || !m) return
       sent = ++sweepIds
       sentKey = JSON.stringify(m)
+      nativeAtBegin = nativeBox()
       overlay.begin({ id: sent, ...m, fill, edge })
+      // Main turning native off mid-sweep (a refused begin, a failure, a
+      // Remote Desktop session) shows the DOM box in place at once, even
+      // with the pointer held still.
+      unwatch = onNativeBoxChange(paint)
     }
     const swallowClick = (): void => {
       // The release lands a click on whatever is under it (a row, or the list,
@@ -299,6 +310,8 @@ export function useSweep<G>(options: SweepOptions<G>): {
       // And the native box: every path that hides the band ends it.
       if (overlay && sent !== null) overlay.end({ id: sent })
       sent = null
+      unwatch?.()
+      unwatch = null
       setSweeping(false)
     }
     const cleanup = (): void => {

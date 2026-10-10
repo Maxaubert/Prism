@@ -29,7 +29,7 @@ describe('the box in physical pixels', () => {
     const p = toPhysical(msg(1.5), none)
     expect([p.ax, p.ay]).toEqual([Math.round(150.6), Math.round(75.9)])
     expect([p.left, p.top, p.right, p.bottom]).toEqual([15, 31, 601, 451])
-    expect(p.edge).toBe(2)
+    expect(p.edge).toBe(1)
   })
 
   it('maps at 225%, and at 225% with a 110% zoom', () => {
@@ -44,12 +44,17 @@ describe('the box in physical pixels', () => {
     expect(z.edge).toBe(2)
   })
 
-  it('draws the edge Chromium draws for one CSS pixel', () => {
+  it('draws the edge Chromium draws for one CSS pixel: rounded down, never 0', () => {
+    // MEASURED in this Electron, 2026-10-10 (sweepOverlayMath.ts).
     expect(edgeWidth(1)).toBe(1)
     expect(edgeWidth(1.25)).toBe(1)
-    expect(edgeWidth(1.5)).toBe(2)
+    expect(edgeWidth(1.5)).toBe(1)
+    expect(edgeWidth(1.75)).toBe(1)
+    expect(edgeWidth(2)).toBe(2)
     expect(edgeWidth(2.25)).toBe(2)
+    expect(edgeWidth(2.5)).toBe(2)
     expect(edgeWidth(3)).toBe(3)
+    expect(edgeWidth(1.1 * (2 / 1.1))).toBe(2)
     expect(edgeWidth(0.5)).toBe(1)
   })
 
