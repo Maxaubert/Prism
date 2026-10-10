@@ -66,6 +66,8 @@ jobs:
       - run: npm run test:everything-bundle
       - run: npm run build:win-e
       - run: npm run build:dwm
+      # The native sweep box (#338): vendor/sweep, shipped as resources/sweep.
+      - run: npm run build:sweep
       - run: npm run build
       - run: npx electron-builder --win --publish never
 

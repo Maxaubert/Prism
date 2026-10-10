@@ -41,6 +41,9 @@ jobs:
       - run: npm run test:win-e
       # Compiles the window-border helper and runs its self-test (#189).
       - run: npm run build:dwm
+      # Builds the native sweep box addon (#338) with node-gyp and MSVC, checks
+      # it imports only system DLLs (static CRT) and runs its self-test.
+      - run: npm run build:sweep
 
   bundled-indexer:
     runs-on: windows-latest
