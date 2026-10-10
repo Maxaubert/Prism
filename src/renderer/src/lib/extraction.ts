@@ -66,6 +66,8 @@ export type ExtractState =
       id: string
       archive: string
       dest: string
+      /** Where the bar stopped, kept so the well shows it, hatched (#336). */
+      pct: number | null
       reason?: ExtractFail
       message?: string
     }
@@ -120,6 +122,7 @@ export function reduce(s: ExtractState, a: ExtractAction, now: number): ExtractS
           id: s.id,
           archive: s.archive,
           dest: s.dest,
+          pct: s.pct,
           reason: a.reason,
           message: a.message
         }
@@ -138,35 +141,61 @@ export function reduce(s: ExtractState, a: ExtractAction, now: number): ExtractS
   }
 }
 
-/** The error's one paragraph. The password sentence is the one the verbs
- *  have always used: the archive panel is where a password is typed, so the
- *  way forward is to open a member there first. */
+/** The error's reason line. Since the open sheet (#336) the window's own
+ *  heading already says "Couldn't extract", so this is the WHY alone. The
+ *  password sentence is the one the verbs have always used: the archive panel
+ *  is where a password is typed, so the way forward is to open a member there
+ *  first. */
 export function failureText(reason: ExtractFail | undefined, message?: string): string {
   if (reason === 'password')
     return 'This archive is password protected. Open one of its files first to unlock it, then extract again.'
   if (reason === 'aes')
     return 'This archive is AES-encrypted, and the 7-Zip that opens those is missing from this install.'
-  // 7-Zip's own line when there is one: "couldn't be extracted" on its own
-  // is a failure nobody can act on.
-  return message ? `That couldn't be extracted. ${message}` : "That couldn't be extracted."
+  // 7-Zip's own line when there is one: "couldn't extract" on its own is a
+  // failure nobody can act on.
+  return message || 'No reason was given.'
 }
 
 /**
- * Shorten in the MIDDLE, keeping both ends.
- *
- * A member is named by its path, and the part that tells two of them apart
- * is the END (the file's own name), which is exactly what CSS's
- * `text-overflow: ellipsis` throws away. The tail gets the odd character for
- * the same reason. Counted in characters, which in a proportional face is an
- * estimate: the element still carries `truncate` as the backstop.
+ * A member path fitted to a width, shortened in the MIDDLE so the file's OWN
+ * NAME is kept whole (the open sheet, #336; WinRAR's file line does the same).
+ * The end of a path is what tells two members apart, and the end is exactly
+ * what CSS's `text-overflow: ellipsis` throws away. It replaced a count of
+ * characters, which in a proportional face was only an estimate.
+ * `fits` measures a candidate (the window hands in a canvas measure in the
+ * line's real font), so this stays pure. The folders are cut first; only a
+ * name too long for the line by itself is shortened inside the name.
  */
-export function middleEllipsis(text: string, max: number): string {
-  if (text.length <= max) return text
-  if (max <= 1) return '…'
-  const keep = max - 1
-  const head = Math.floor(keep / 2)
-  const tail = keep - head
-  return text.slice(0, head) + '…' + text.slice(text.length - tail)
+export function fitPath(path: string, fits: (s: string) => boolean): string {
+  if (!path || fits(path)) return path
+  const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
+  const leaf = cut >= 0 ? path.slice(cut) : path
+  const head = cut >= 0 ? path.slice(0, cut) : ''
+  // Keep the whole leaf (with its separator) and as much of the head as fits.
+  let lo = 0
+  let hi = head.length
+  while (lo < hi) {
+    const m = Math.ceil((lo + hi) / 2)
+    if (fits(head.slice(0, m) + '…' + leaf)) lo = m
+    else hi = m - 1
+  }
+  if (lo > 0) return head.slice(0, lo) + '…' + leaf
+  if (head && fits('…' + leaf)) return '…' + leaf
+  // The name alone is too long: shorten the name in its own middle.
+  const name = cut >= 0 ? leaf.slice(1) : leaf
+  const pre = cut >= 0 ? '…' + leaf[0] : ''
+  const mid = (n: number): string => {
+    const a = Math.ceil(n / 2)
+    return pre + name.slice(0, a) + '…' + name.slice(name.length - (n - a))
+  }
+  lo = 0
+  hi = name.length
+  while (lo < hi) {
+    const m = Math.ceil((lo + hi) / 2)
+    if (fits(mid(m))) lo = m
+    else hi = m - 1
+  }
+  return mid(lo)
 }
 
 /* ----- the store: module state with a tiny subscription, as `jobs` is ----- */
