@@ -553,14 +553,34 @@ changing a feature: each entry records what the owner decided, why, and what hol
   The band mounts through `flushSync` in the move that starts the sweep: a plain state update
   from a native listener painted that frame with NO box (MEASURED, `sweepLag` counts such a
   frame as late). Do not put the box back in React state.
-  **THE REST OF THE TRAIL IS CHROMIUM'S, AND WAS LEFT** (#332; owner, 2026-10-09). The owner,
-  zoomed in, still sees the box trail and shake on fast moves where Explorer's does not. Explorer's
-  `UIMarqueeSelector` is about one frame behind the hardware cursor, Chromium's path two to four
-  (research: `C:\Users\Admin\Documents\Claude\research\prism\2026-10-08-explorer-marquee.md`).
-  TRIED AND REVERTED, the owner seeing no difference: the hook marking rows in the DOM with one
-  React commit at the release, no scroll round-trip through App, the box as a whole-device-pixel
-  overlay outside the scroller (b5f0517, b1c5014 on this PR's branch). The only route left is a
-  native overlay window (an N-API addon); the owner declined it. Do not redo the web-side attempt.
+  **ON WINDOWS 11 THE BOX IS DRAWN NATIVELY** (#338; owner, 2026-10-09, after #332 still trailed
+  zoomed in: "it totally does happen even when not [zoomed]"; he chose the native overlay over
+  leaving it, reversing #332's "declined"). Explorer's `UIMarqueeSelector` is about one frame
+  behind the hardware cursor, Chromium's path two to four (research `prism\2026-10-08-explorer-
+  marquee.md`); the web-side attempts are TRIED AND REVERTED (b5f0517, b1c5014), do not redo them.
+  Prism's own N-API addon (`native/sweep/`, its README has the rules) puts a TOPMOST
+  DirectComposition visual on the window's own HWND and draws the box from `GetCursorPos` every
+  compositor frame on its own thread; main (`src/main/sweepOverlay.ts`) decides per window and
+  forwards; `useSweep` sends begin / update / end (anchor, clip, dpr, the band's colours; never per
+  move) for a MOUSE sweep and keeps the DOM band mounted and placed but `display: none` only while
+  main has said `native: true`. Hit testing, marks, auto-scroll and Escape stay in the page, so
+  the marks now trail the box by Chromium's frames (accepted). The cursor is sampled LATE, 1000 us
+  before the next tick: MEASURED (research `prism\2026-10-09-native-sweep-spike.md`, injected, 1x)
+  0.26 to 0.31 frames behind the pointer at every speed, File Explorer 0.72 to 0.86, the DOM box
+  1.06, sampling at the tick 1.15; owner by eye under Wind, 1500 us "not quite there", 1000 us
+  "seems like it works". More than 14 commits under 100 us before the tick in 1440 up-frames widens
+  the lead 250 us at a time to 2000 us, then it samples at the tick. Anchor delays K: auto 2,
+  wheel 0, resize 2 (not measured). FALLS BACK to the DOM box, automatically and with no
+  setting, when: the addon is missing or fails to load, no `DCompositionWaitForCompositorClock`
+  (Windows 10), Remote Desktop, a pen, `--e2e`, `--sweep-overlay=off` (diagnosis only), a failed
+  target or HRESULT, or a thread that stops moving (500 ms watchdog); one diagnostics crumb
+  (`sweep-overlay`) per change. THE THREAD NEVER CALLS INTO JS (PrismTerminal #127's quit abort),
+  the `std::thread` is never destroyed joinable, and it is joined at will-quit and at exit
+  (50 of 50 offscreen quits with a box up exited 0, `tools/sweep-latency/addon-check.mjs`). The
+  `sweepOverlay` e2e holds the page's contract (under `--e2e` main records instead of drawing);
+  the drawing is on the PR's hands-on list. Known and accepted: square corners, and an in-page
+  layer over the list (a toast, a tooltip) is now UNDER the box, which the clip keeps inside the
+  list's visible rows.
   **MARKING IS NOT PICKING** (#263; owner, 2026-10-03: "when you multiselect like this it picks
   a file so here this drag starts one of the videos ... same is the case if i ctrl select it
   shouldnt start or preview anything"). In the Explorer a sweep and a Ctrl or Shift click call

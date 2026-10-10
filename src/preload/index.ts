@@ -15,6 +15,7 @@ import { createDictationApi } from 'prism-term-core/preload/dictationApi'
 import { createDiagApi } from 'prism-term-core/preload/diagApi'
 import type { UpdateInfo } from 'prism-term-core/shared/updateTypes'
 import type { ExtractEvent } from '@shared/extraction'
+import { SWEEP_CHANNELS, type SweepBegin, type SweepEnd, type SweepState, type SweepUpdate } from '@shared/sweepOverlay'
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
@@ -734,6 +735,19 @@ const api = {
     const listener = (_: unknown, on: boolean): void => cb(on)
     ipcRenderer.on('window:fullscreen', listener)
     return () => ipcRenderer.removeListener('window:fullscreen', listener)
+  },
+  /** THE NATIVE SWEEP BOX (#338): the page hands main the box's anchor, clip
+   *  and colours at a sweep's start and when the list moves under it (never
+   *  per pointer move), and hears whether the box is drawn natively. */
+  sweepOverlay: {
+    begin: (m: SweepBegin): void => ipcRenderer.send(SWEEP_CHANNELS.begin, m),
+    update: (m: SweepUpdate): void => ipcRenderer.send(SWEEP_CHANNELS.update, m),
+    end: (m: SweepEnd): void => ipcRenderer.send(SWEEP_CHANNELS.end, m),
+    onState: (cb: (s: SweepState) => void): (() => void) => {
+      const listener = (_: unknown, s: SweepState): void => cb(s)
+      ipcRenderer.on(SWEEP_CHANNELS.state, listener)
+      return () => ipcRenderer.removeListener(SWEEP_CHANNELS.state, listener)
+    }
   }
 }
 

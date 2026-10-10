@@ -778,6 +778,10 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
  * see-through. Never animated: it is where the pointer is, and nothing else.
  * Its place is not a prop (#332): `useSweep` writes it straight onto the
  * element from the pointer handler, and it stays hidden until it has one.
+ * On Windows 11 a mouse sweep's box is drawn natively by main (#338) in this
+ * element's own computed colours, and this element stays mounted and placed
+ * but hidden, ready to show the moment main says it cannot draw. The native
+ * box's corners are square (Explorer's are too).
  */
 export function SweepBand({
   bandRef,

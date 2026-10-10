@@ -81,7 +81,9 @@ library manager, not an editor.
   `rehype-raw` + `rehype-sanitize` (markdown), `pdfjs-dist` (PDF), `heic-convert` (HEIC decode),
   `adm-zip` (the archive viewer; pure JS), `node-pty` + `@xterm/*` (the terminal, including
   `addon-search` for the scrollback), `exifr` (main-only, the photo's own EXIF). node-pty is the
-  app's ONE native module, ships N-API prebuilds, and must stay asarUnpacked. Shells spawn with
+  app's ONE third-party native module, ships N-API prebuilds, and must stay asarUnpacked. Prism's
+  OWN addon is `native/sweep` (#338, the native sweep box; rules in its README), built from source
+  by `npm run build:sweep` (dev dependency `node-gyp`, MSVC, `/MT`). Shells spawn with
   node-pty's bundled conpty.dll (`useConptyDll: true`): the OS conhost FAST-FAILS the whole app
   (0xc0000409, no dialog) when a pty is killed mid-read (crashed 2026-08-21).
 - A feature decision is recorded in `docs/features.md` (the look in `docs/ui-direction.md`) in the

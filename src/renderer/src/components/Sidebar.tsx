@@ -818,13 +818,21 @@ export function Sidebar({
       const box = scroller.current
       const r = treeList()?.getBoundingClientRect()
       if (!box || !r) return null
+      const b = box.getBoundingClientRect()
       return {
         left: r.left,
         top: r.top,
         width: r.width,
         // The scroll box's content top, in the list's own y.
-        contentTop: box.getBoundingClientRect().top - box.scrollTop - r.top,
-        scrollHeight: box.scrollHeight
+        contentTop: b.top - box.scrollTop - r.top,
+        scrollHeight: box.scrollHeight,
+        // The visible rows, in the page's client: the native box's clip (#338).
+        clip: {
+          left: b.left + box.clientLeft,
+          top: b.top + box.clientTop,
+          right: b.left + box.clientLeft + box.clientWidth,
+          bottom: b.top + box.clientTop + box.clientHeight
+        }
       }
     },
     toList: (x, y, g) => ({
@@ -833,6 +841,9 @@ export function Sidebar({
       x: Math.min(g.width, Math.max(0, x - g.left)),
       y: Math.min(g.contentTop + g.scrollHeight, Math.max(g.contentTop, y - g.top))
     }),
+    // toList's inverse: the list's own place, back to the page's client.
+    fromList: (p, g) => ({ x: p.x + g.left, y: p.y + g.top }),
+    clipOf: (g) => g.clip,
     rowAcross: () => {
       // What is drawn as a row across (#326), measured off any row in view:
       // the tree's rows run its whole width, so today every box that starts
