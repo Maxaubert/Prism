@@ -241,6 +241,7 @@ export function travelBrowse(tabs: readonly Tab[], tabId: string, delta: number)
  * another folder, the inside of a zip included, drops the file on display. A
  * pane that was open stays open and empty (`previewHeld`), so nothing jumps; a
  * shut one stays shut. A project keeps its open file: browsing never replaces it.
+ * Coming back OUT of a zip shows it again (#334): `wayOutPreview`, in the hook.
  */
 function leaveShown(was: Tab, tab: Tab): Tab {
   if (!isExplorerTab(was) || sameRoot(was.browse.path, tab.browse.path)) return tab
