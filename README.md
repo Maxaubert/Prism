@@ -151,7 +151,8 @@ npm run package    # build the Windows installer into dist/
 three binaries Prism bundles into `vendor/` and verifies each against a pinned SHA-256. They
 are not in git; the fetch is a one-off per clone.
 
-Stack: Electron + TypeScript, React + Vite + Tailwind v4. See `CLAUDE.md` for architecture and scope.
+Stack: Electron + TypeScript, React + Vite + Tailwind v4. See `CLAUDE.md` for the working rules, `docs/architecture.md` for architecture and
+`docs/features.md` for scope.
 
 ## Third-party
 
