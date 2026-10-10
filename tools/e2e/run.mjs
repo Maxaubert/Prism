@@ -2784,8 +2784,13 @@ async function armExtractProbe(win) {
       }
       if (el && !x.mounted) {
         x.mounted = performance.now()
-        x.title = el.querySelector('h2')?.textContent ?? ''
-        x.dest = el.querySelector('[data-extract-dest]')?.textContent ?? ''
+        // The open sheet (#336) draws no title and no caption: the archive
+        // and where it goes are in the accessible label, the archive alone
+        // on the tooltip.
+        x.title = el.getAttribute('aria-label') ?? ''
+        x.tip = el.getAttribute('title') ?? ''
+        x.headings = el.querySelectorAll('h1, h2, h3, [data-extract-dest]').length
+        x.drawnName = el.innerText.includes(el.getAttribute('title') || '\u0000')
         x.inert = document.getElementById('root')?.hasAttribute('inert') ?? false
         for (const target of [el, document.body])
           target.dispatchEvent(
@@ -2838,10 +2843,14 @@ async function throughTheWindow(win, label, archiveName, trigger) {
   }
   ok(!!r.mounted, `${label}: the extraction window appears`)
   ok(
-    r.title === `Extracting ${archiveName}`,
-    `${label}: and names the archive (${JSON.stringify(r.title)})`
+    r.title.startsWith(`Extracting ${archiveName} to `) && r.title.length > `Extracting ${archiveName} to `.length,
+    `${label}: its label names the archive and where it is going (${JSON.stringify(r.title)})`
   )
-  ok(/^to .+/.test(r.dest), `${label}: and where it is going (${JSON.stringify(r.dest)})`)
+  ok(r.tip === archiveName, `${label}: and its tooltip the archive (${JSON.stringify(r.tip)})`)
+  ok(
+    r.headings === 0 && r.drawnName === false,
+    `${label}: with no title, caption or archive name drawn (the open sheet, #336)`
+  )
   ok(r.inert === true, `${label}: the app behind it is inert`)
   ok(r.survived === true, `${label}: Escape and a press outside leave it up`)
   // 700ms is the window's own minimum showing. Dismissed by the probe it
@@ -3162,11 +3171,32 @@ async function extractCancelScenario() {
       ok((await until(() => sevenZipsOnTheBox() > 0, 8000)) > 0, `${label}: 7-Zip is running`)
     const at = await pctNow(win)
     ok(at >= 1 && at < 100, `${label}: caught mid-flight, at ${at}%`)
+    // The cancelling state, caught at the commit that draws it however short
+    // it is: the file line says so and Cancel dims (the open sheet, #336).
+    await win.evaluate((sel) => {
+      const c = (window.__xc = { seen: false })
+      const obs = new MutationObserver(() => {
+        const el = document.querySelector(sel)
+        if (!el) return obs.disconnect()
+        if (c.seen || el.getAttribute('data-phase') !== 'cancelling') return
+        const b = el.querySelector('[data-extract-cancel]')
+        c.seen = true
+        c.file = el.querySelector('[data-extract-file]')?.textContent ?? ''
+        c.disabled = !!b?.disabled
+        c.opacity = b ? getComputedStyle(b).opacity : ''
+      })
+      obs.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true })
+    }, XWIN)
     await win.locator('[data-extract-cancel]').click()
     // The window says it is cancelling until main has finished cleaning up,
     // or goes at once when that took no time at all: either is right, and
     // what must NOT appear is an error.
     await win.waitForSelector(XWIN, { state: 'detached', timeout: 30000 })
+    const xc = await win.evaluate(() => window.__xc)
+    ok(
+      xc.seen && xc.file === 'Cancelling' && xc.disabled && Number(xc.opacity) < 1,
+      `${label}: while it cleans up the file line says Cancelling and Cancel dims (${JSON.stringify(xc)})`
+    )
     ok(
       (await win.locator('[role="dialog"]').count()) === 0,
       `${label}: Cancel closes the window, with no error in its place`
@@ -3190,6 +3220,28 @@ async function extractCancelScenario() {
     const panelsBefore = await win.locator('aside, .browse-places').count()
 
     // ---- it cannot be dismissed: real keys, a real mouse ------------------
+    // THE OPEN SHEET (#336) is sampled every 25ms from before it mounts: the
+    // box and the well must never change size or place through a run (the
+    // archive panel's rule), the number and the file line are read at every
+    // change.
+    await win.evaluate((sel) => {
+      const x = (window.__xs = { boxes: [], wells: [], files: [], numbers: [], samples: 0 })
+      const note = (list, v) => {
+        if (list[list.length - 1] !== v) list.push(v)
+      }
+      x.timer = setInterval(() => {
+        const el = document.querySelector(sel)
+        if (!el || el.getAttribute('data-phase') !== 'running') return
+        const b = el.getBoundingClientRect()
+        const w = el.querySelector('[data-extract-well]').getBoundingClientRect()
+        if (!x.boxes.includes(`${b.width}x${b.height}`)) x.boxes.push(`${b.width}x${b.height}`)
+        const well = `${w.x - b.x},${w.y - b.y} ${w.width}x${w.height}`
+        if (!x.wells.includes(well)) x.wells.push(well)
+        note(x.files, el.querySelector('[data-extract-file]')?.textContent ?? '')
+        note(x.numbers, el.querySelector('[data-extract-number]')?.textContent ?? '')
+        x.samples++
+      }, 25)
+    }, XWIN)
     await win.click('[data-archive-strip] [data-archive-verb="extract-here"]')
     await win.waitForSelector(`${XWIN}[data-phase="running"]`, { timeout: 20000 })
     // Progress is REAL: a number, that grows, and the member being written.
@@ -3213,7 +3265,83 @@ async function extractCancelScenario() {
       return f.width / t.width
     })
     ok(fill > 0 && fill < 1, `and the bar is part full (${(fill * 100).toFixed(0)}% of its track)`)
+
+    // ---- the open sheet's look (#336) --------------------------------------
+    await until(() => win.evaluate(() => window.__xs.files.filter(Boolean).length >= 3), 8000, 50)
+    const xs = await win.evaluate(() => {
+      clearInterval(window.__xs.timer)
+      // The interval id does not cross to the runner; the rest does.
+      const rest = { ...window.__xs }
+      delete rest.timer
+      return rest
+    })
+    ok(xs.samples > 10, `the sheet was sampled through the run (${xs.samples} samples)`)
+    ok(xs.boxes.length === 1, `the window never changed size (${xs.boxes.join(' | ')})`)
+    ok(xs.wells.length === 1, `nor did the bar's box, or move (${xs.wells.join(' | ')})`)
+    const files = xs.files.filter(Boolean)
+    ok(
+      files.length >= 3 && files.every((f) => /part-\d+\.txt/.test(f)),
+      `the file line ticks through the members being written (${files.slice(0, 4).join(' > ')})`
+    )
+    ok(
+      xs.numbers.every((n) => /^(\d{1,3}%)?$/.test(n)) && /^\d{1,3}%$/.test(xs.numbers[xs.numbers.length - 1]),
+      `the number is a percentage and nothing else (${xs.numbers.slice(0, 5).join(', ')})`
+    )
+    const sheet = await win.evaluate((sel) => {
+      const el = document.querySelector(sel)
+      const num = el.querySelector('[data-extract-number] > span')
+      const well = el.querySelector('[data-extract-well]')
+      const cs = getComputedStyle(el)
+      const probe = (v) => {
+        const p = document.createElement('span')
+        p.style.color = v
+        document.body.appendChild(p)
+        const c = getComputedStyle(p).color
+        p.remove()
+        return c
+      }
+      const fill = getComputedStyle(el.querySelector('[data-extract-fill]'))
+      return {
+        size: getComputedStyle(num).fontSize,
+        weight: getComputedStyle(num).fontWeight,
+        wellH: well.getBoundingClientRect().height,
+        wellW: well.getBoundingClientRect().width,
+        widest: Math.max(...[...el.querySelectorAll('*')].map((n) => n.getBoundingClientRect().width)),
+        wellGround: getComputedStyle(well).backgroundColor,
+        control: probe('var(--p-control)'),
+        fill: fill.backgroundColor,
+        accent: probe('var(--p-accent-solid)'),
+        pad: [cs.paddingTop, cs.paddingBottom],
+        fileFont: getComputedStyle(el.querySelector('[data-extract-file]')).fontFamily,
+        ui: getComputedStyle(document.body).fontFamily
+      }
+    }, XWIN)
+    ok(sheet.size === '34px' && sheet.weight === '400', `the number is large and regular (${sheet.size}, ${sheet.weight})`)
+    ok(
+      sheet.wellH === 12 && sheet.wellW >= sheet.widest - 0.5,
+      `the bar is a 12px well, the widest thing in the window (${sheet.wellH}px, ${sheet.wellW} of ${sheet.widest})`
+    )
+    ok(
+      sheet.wellGround === sheet.control && sheet.fill === sheet.accent,
+      `the well is --p-control and its fill --p-accent-solid (${sheet.wellGround}, ${sheet.fill})`
+    )
+    ok(sheet.pad[0] === '20px' && sheet.pad[1] === '20px', `equal padding top and bottom (${sheet.pad.join(', ')})`)
+    ok(sheet.fileFont === sheet.ui, `the file line is in the UI face (${sheet.fileFont})`)
+
     await win.screenshot({ path: join(SHOTS, 'extract-window-running.png') })
+    {
+      // In a dark and a light style, cropped to the window so it can be held
+      // against the mockup. Switched the way another window's change arrives,
+      // and put back.
+      const was = await switchStyle(win, 'aurora')
+      for (const style of ['aurora', 'sand']) {
+        await switchStyle(win, style)
+        await sleep(350)
+        await win.locator(XWIN).screenshot({ path: join(SHOTS, `extract-sheet-running-${style}.png`) })
+      }
+      await switchStyle(win, was)
+      await sleep(200)
+    }
 
     const size = await win.evaluate(() => ({ w: innerWidth, h: innerHeight }))
     await win.keyboard.press('Escape')
@@ -3287,10 +3415,30 @@ async function extractCancelScenario() {
     await win.waitForSelector('[data-testid="browse-list"] .browse-row:has-text("b-bad.txt")', { timeout: 15000 })
     await win.click('[data-archive-strip] [data-archive-verb="extract-here"]')
     await win.waitForSelector(`${XWIN}[data-phase="failed"]`, { timeout: 30000 })
-    const title = (await win.locator(`${XWIN} h2`).textContent()) ?? ''
+    const failedLook = await win.evaluate((sel) => {
+      const el = document.querySelector(sel)
+      const well = el.querySelector('[data-extract-well]')
+      return {
+        label: el.getAttribute('aria-label'),
+        heading: el.querySelector('[data-extract-number]')?.textContent ?? '',
+        headings: el.querySelectorAll('h1, h2, h3').length,
+        stopped: well.hasAttribute('data-stopped'),
+        hatch: getComputedStyle(el.querySelector('[data-extract-fill]')).backgroundImage,
+        wellH: well.getBoundingClientRect().height
+      }
+    }, XWIN)
     const said = (await win.locator('[data-extract-error]').textContent()) ?? ''
-    ok(title === "Couldn't extract corrupt.7z", `a failure is the same window, retitled (${title})`)
-    ok(/ERROR|CRC|Data Error/i.test(said), `and it carries 7-Zip's own line (${said})`)
+    ok(
+      failedLook.heading === "Couldn't extract" && failedLook.headings === 0,
+      `a failure is the same window: "Couldn't extract" where the number was (${failedLook.heading})`
+    )
+    ok(failedLook.label === "Couldn't extract corrupt.7z", `and its label says which (${failedLook.label})`)
+    ok(
+      failedLook.stopped && /repeating-linear-gradient/.test(failedLook.hatch) && failedLook.wellH === 12,
+      `the well stays, its fill stopped and hatched (${failedLook.hatch.slice(0, 40)})`
+    )
+    ok(/ERROR|CRC|Data Error/i.test(said), `the file line is the reason, 7-Zip's own line (${said})`)
+    ok(!/couldn't be extracted/i.test(said), 'and does not say it failed a second time')
     ok(
       (await win.locator(`${XWIN} button`).count()) === 1 &&
         (await win.locator(`${XWIN} button`).textContent()) === 'Close',
@@ -3305,14 +3453,27 @@ async function extractCancelScenario() {
       probe.style.color = 'var(--p-on-accent)'
       document.body.appendChild(probe)
       const want = getComputedStyle(probe).color
+      probe.style.color = 'var(--p-sel-bg)'
+      const fill = getComputedStyle(probe).color
       probe.remove()
-      return { got: getComputedStyle(b).color, want }
+      return { got: getComputedStyle(b).color, want, bg: getComputedStyle(b).backgroundColor, fill }
     })
     ok(
       closeLook.got === closeLook.want,
       `Close wears the on-accent colour at once, not Cancel's fading out (${closeLook.got} vs ${closeLook.want})`
     )
+    ok(closeLook.bg === closeLook.fill, `on the accent fill, --p-sel-bg (${closeLook.bg} vs ${closeLook.fill})`)
     await win.screenshot({ path: join(SHOTS, 'extract-window-error.png') })
+    {
+      const was = await switchStyle(win, 'aurora')
+      for (const style of ['aurora', 'sand', 'jade', 'midnight-hc']) {
+        await switchStyle(win, style)
+        await sleep(350)
+        await win.locator(XWIN).screenshot({ path: join(SHOTS, `extract-sheet-failed-${style}.png`) })
+      }
+      await switchStyle(win, was)
+      await sleep(200)
+    }
     await win.keyboard.press('Escape')
     await win.mouse.click(12, size.h - 12)
     ok(
