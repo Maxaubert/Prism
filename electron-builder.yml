@@ -45,6 +45,13 @@ extraResources:
     to: dwm
     filter:
       - PrismDwm.exe
+  # The native sweep box (#338): Prism's own N-API addon, built by
+  # tools/build-sweep.mjs. Outside the asar, since Windows cannot load a .node
+  # out of one; main loads resources\sweep\prism_sweep.node.
+  - from: vendor/sweep
+    to: sweep
+    filter:
+      - prism_sweep.node
   - from: build/icon.ico
     to: icon.ico
   # One icon per ProgID, so a .zip opened with Prism does not wear the

@@ -103,6 +103,7 @@ import { LONG_WAIT_CHANNELS } from './diagChannels'
 import { browseWatcherOf } from './browseWatch'
 import { diagWindowEvent } from './diagWindow'
 import { mainCrumb } from './diagCrumb'
+import { initSweepOverlay, loadSweepAddon, sweepDirs, type SweepOverlay } from './sweepOverlay'
 import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, ffmpegDirs, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
@@ -1566,6 +1567,39 @@ function ensureLivePage(): boolean {
   return false
 }
 
+/**
+ * THE NATIVE SWEEP BOX (#338; src/main/sweepOverlay.ts): started lazily, once,
+ * after the first window has painted (#189: nothing on the startup path), and
+ * every window after that gets its target the same way.
+ */
+let sweepOverlay: SweepOverlay | null = null
+function sweepOverlayFor(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  if (!sweepOverlay) {
+    sweepOverlay = initSweepOverlay({
+      load: () => loadSweepAddon(sweepDirs(app.isPackaged, process.resourcesPath, app.getAppPath()), existsSync),
+      e2e: E2E,
+      argv: process.argv,
+      log: (fields) => mainCrumb('sweep-overlay', fields),
+      ipc: ipcMain,
+      windowOf: (sender) => BrowserWindow.fromWebContents(sender)
+    })
+    // Remote Desktop composes on the client: asked again when a session or
+    // the displays change.
+    const recheck = (): void => sweepOverlay?.recheck()
+    screen.on('display-metrics-changed', recheck)
+    screen.on('display-added', recheck)
+    powerMonitor.on('unlock-screen', recheck)
+    // The thread is joined at will-quit and again (idempotent) at the
+    // process's exit, which `app.exit` reaches and will-quit does not.
+    app.once('will-quit', () => sweepOverlay?.shutdown())
+    process.once('exit', () => sweepOverlay?.shutdown())
+  }
+  sweepOverlay.attach(win)
+}
+/** After the first frame is on screen, not in the race for it. */
+const SWEEP_OVERLAY_DELAY_MS = 400
+
 function createWindow(): void {
   const remembered = readWindowState()
   const win = new BrowserWindow({
@@ -1638,6 +1672,8 @@ function createWindow(): void {
   }
   mainWindow.once('ready-to-show', showWindow)
   mainWindow.webContents.once('dom-ready', showWindow)
+  // The native sweep box's target (#338), once this window has painted.
+  win.webContents.once('did-finish-load', () => setTimeout(() => sweepOverlayFor(win), SWEEP_OVERLAY_DELAY_MS))
   guardWindow(win, {
     budget: windowBudget,
     log: logWindow,
