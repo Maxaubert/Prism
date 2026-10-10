@@ -28,10 +28,20 @@ export function watchSweepOverlay(): void {
   if (!bridge) return
   watching = true
   bridge.onState((s) => {
+    const was = native
     native = s?.native === true
+    if (native !== was) for (const cb of [...changed]) cb()
   })
 }
 
 export function nativeBox(): boolean {
   return native
+}
+
+const changed = new Set<() => void>()
+/** Called when the answer changes, so a running sweep shows its DOM box the
+ *  moment main turns native off, not at the pointer's next move. */
+export function onNativeBoxChange(cb: () => void): () => void {
+  changed.add(cb)
+  return () => changed.delete(cb)
 }

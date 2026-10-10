@@ -8568,7 +8568,10 @@ async function sweepLagScenario(fixtures) {
  * pointer move; an `update` per auto-scroll step ('auto', the anchor moved by
  * the scroll) and per wheel turn ('scroll'); one `end` for a release, Escape
  * and a lost focus; nothing at all for a pen; a fresh `state` on a reload; and
- * the DOM box drawn throughout. The drawing itself is on the hands-on list.
+ * the DOM box drawn throughout. Then, with main's e2e hook saying `native`
+ * (still no addon): the DOM box hides only for a sweep begun while native, and
+ * shows again at once when native goes off mid-sweep. The drawing itself is on
+ * the hands-on list.
  */
 async function sweepOverlayScenario(fixtures) {
   console.log('the native sweep box contract (#338)')
@@ -8784,6 +8787,56 @@ async function sweepOverlayScenario(fixtures) {
     const row0 = await win.locator(`${listSel} [data-browse-index="0"]`).boundingBox()
     const right = row0.x + row0.width
     await contract('Explorer', listSel, { x: right + 20, y: lb.y + 80 }, { x: row0.x + 60, y: lb.y + lb.height / 2 }, lb.y + lb.height)
+
+    /* ---------- the page's half when main says native ---------- */
+    // No addon under e2e: main tells the page `native` through its e2e hook,
+    // as it would with a ready target, and draws nothing. Held: the DOM box
+    // hides only for a sweep begun while native; when main turns native off
+    // mid-sweep it is back AT ONCE with the pointer held still (it used to
+    // wait for the next move: no box at all until then); and a `true` that
+    // arrives mid-sweep, for a begin main ignored, leaves the DOM box drawn
+    // (it used to hide it, and nothing drew the box).
+    {
+      const setNative = async (on) => {
+        await app.evaluate((_e, on) => globalThis.__e2eSweepNative(on), on)
+        await sleep(150)
+      }
+      const s0 = { x: right + 20, y: lb.y + 80 }
+      const m0 = { x: row0.x + 60, y: lb.y + lb.height / 2 }
+      await win.evaluate((s) => (document.querySelector(s).scrollTop = 0), listSel)
+      await sleep(200)
+      await setNative(true)
+      await clear()
+      await mouse('mousePressed', s0.x, s0.y)
+      await mouse('mouseMoved', s0.x - 6, s0.y + 6)
+      await frame()
+      await mouse('mouseMoved', m0.x, m0.y)
+      await frames(2)
+      const hidden = await pageState(listSel)
+      ok(hidden.band?.display === 'none', `native: the DOM box hides for a sweep main took (${hidden.band?.display})`)
+      ok(kinds(await rec()).filter((m) => m.kind === 'begin').length === 1, 'native: the begin went to main')
+      await setNative(false)
+      const back = await pageState(listSel)
+      ok(back.band?.display === 'block', `native off mid-sweep: the DOM box is back with the pointer still (${back.band?.display})`)
+      await mouse('mouseReleased', m0.x, m0.y)
+      await sleep(150)
+      ok(kinds(await rec()).filter((m) => m.kind === 'end').length === 1, 'native off mid-sweep: one end on the release')
+
+      await clear()
+      await mouse('mousePressed', s0.x, s0.y)
+      await mouse('mouseMoved', s0.x - 6, s0.y + 6)
+      await frame()
+      await mouse('mouseMoved', m0.x, m0.y)
+      await frames(2)
+      await setNative(true)
+      await mouse('mouseMoved', m0.x + 8, m0.y + 8)
+      await frames(2)
+      const late = await pageState(listSel)
+      ok(late.band?.display === 'block', `native on mid-sweep: a begin main ignored keeps the DOM box (${late.band?.display})`)
+      await mouse('mouseReleased', m0.x + 8, m0.y + 8)
+      await sleep(150)
+      await setNative(false)
+    }
 
     /* ---------- a reload starts from the truth ---------- */
     await clear()

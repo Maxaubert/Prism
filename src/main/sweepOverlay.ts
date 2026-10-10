@@ -110,7 +110,17 @@ type Recorded = { kind: string; [k: string]: unknown }
 export function initSweepOverlay(deps: SweepOverlayDeps): SweepOverlay {
   const later = deps.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms))
   const recorded: Recorded[] | null = deps.e2e ? [] : null
-  if (recorded) Object.assign(globalThis, { __e2eSweepOverlay: recorded })
+  if (recorded)
+    Object.assign(globalThis, {
+      __e2eSweepOverlay: recorded,
+      // The page's half of a native box with no addon behind it: the e2e
+      // tells every page `native` as main would, to hold that the page hides
+      // its box only for a sweep main took, and shows it again at once when
+      // main turns native off mid-sweep. Nothing is drawn either way.
+      __e2eSweepNative: (native: boolean): void => {
+        for (const w of wins) send(w, { native })
+      }
+    })
 
   let addon: PrismSweep | null = null
   let reason: OffReason | null = null
@@ -221,8 +231,13 @@ export function initSweepOverlay(deps: SweepOverlayDeps): SweepOverlay {
     const before = addon.stats()
     failuresAtStart = before.failures
     if (!addon.begin(w.hwnd, toPhysical(m, SWEEP_ORIGIN), m.fill, m.edge)) {
-      say({ sweep: 'begin-refused', status: addon.status(w.hwnd) })
-      send(w, { native: false })
+      const status = addon.status(w.hwnd)
+      say({ sweep: 'begin-refused', status })
+      // A target that failed stays failed: off for the session, as a failed
+      // attach is, so a reload is not told `true` again for a window that
+      // cannot draw.
+      if (status === 'failed') setReason('target-failed', { status })
+      else send(w, { native: false })
       return
     }
     w.live = m.id

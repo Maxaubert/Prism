@@ -447,6 +447,8 @@ void ThreadMain() {
           break;
         }
         case Cmd::kDetach: {
+          // The state was dropped by Detach() itself, so an Attach queued
+          // after this (a new window given the same handle) is not lost.
           if (t) {
             t->Release(dev);
             targets.erase(targets.begin() + (t - targets.data()));
@@ -455,8 +457,6 @@ void ThreadMain() {
             up = false;
             active = nullptr;
           }
-          std::lock_guard<std::mutex> lock(g.m);
-          DropState(c.hwnd);
           break;
         }
         case Cmd::kBegin: {
@@ -471,6 +471,14 @@ void ThreadMain() {
           }
           t = find(c.hwnd);
           if (!t) break;
+          // A device lost since the last sweep (a GPU reset): the surfaces
+          // are filled only when a colour changes and the per-frame path only
+          // moves visuals, so nothing else would notice, and every later sweep
+          // would draw nothing while the page hides its own box.
+          if (dev.Lost()) {
+            fail(t, DXGI_ERROR_DEVICE_REMOVED);
+            break;
+          }
           HRESULT hr = S_OK;
           if (!t->coloured || std::memcmp(t->fillC, c.fill, 4) != 0)
             hr = FillSurface(dev, t->fillS, c.fill);
@@ -557,7 +565,9 @@ void ThreadMain() {
         ScreenToClient(t->hwnd, &p);
         r = BoxAt(box, p.x, p.y);
       }
-      hr = Draw(dev, *t, r, box.edge, up);
+      // Lost mid-sweep: the commit may still succeed and show nothing, so it
+      // is asked (GetDeviceRemovedReason, a few hundred ns) only while up.
+      hr = up && dev.Lost() ? DXGI_ERROR_DEVICE_REMOVED : Draw(dev, *t, r, box.edge, up);
       committed = Qpc();
       if (FAILED(hr)) {
         fail(t, hr);
@@ -694,10 +704,19 @@ void End(HWND hwnd) {
 }
 
 void Detach(HWND hwnd) {
-  Cmd c;
-  c.kind = Cmd::kDetach;
-  c.hwnd = hwnd;
-  Push(c);
+  {
+    std::lock_guard<std::mutex> lock(g.m);
+    if (!g.running) return;
+    // Dropped here, not on the thread: Windows reuses a closed window's handle,
+    // and an Attach for the new window that ran before the thread's detach
+    // would have found the old window's "ready" and queued nothing.
+    DropState(hwnd);
+    Cmd c;
+    c.kind = Cmd::kDetach;
+    c.hwnd = hwnd;
+    g.cmds.push_back(c);
+  }
+  SetEvent(g.wake);
 }
 
 // Idempotent. False when the join timed out: the thread is then LEAKED, never
