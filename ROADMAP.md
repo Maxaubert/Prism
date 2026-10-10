@@ -21,7 +21,7 @@ Decisions locked at kickoff:
 The phases below are the original plan and are kept as history. Most of them shipped, some
 of them did not happen the way they are written (`prism-core` was never extracted; the viewer
 still lives in this repo), and the detail of what Prism actually does now lives in
-[`CLAUDE.md`](CLAUDE.md), which is current. What follows is the direction, and the reasoning
+[`docs/features.md`](docs/features.md), which is current. What follows is the direction, and the reasoning
 that is worth keeping out of the issue tracker.
 
 ### Modularity: let people shape Prism down ([#83](../../issues/83))
