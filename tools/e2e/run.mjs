@@ -17416,6 +17416,11 @@ async function panelDragScenario(fixtures) {
   for (let i = 0; i < 400; i++) writeFileSync(join(dir, `row ${String(i).padStart(3, '0')}.txt`), `row ${i}\n`)
   writeFileSync(join(dir, 'a picture.png'), ZIP_PNG)
   const { app, win } = await launch(join(dir, 'row 000.txt'))
+  // Blink's own counter of time spent restyling (CDP Performance metrics).
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Performance.enable')
+  const restyleMs = async () =>
+    ((await cdp.send('Performance.getMetrics')).metrics.find((m) => m.name === 'RecalcStyleDuration')?.value ?? 0) * 1000
   try {
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await win.waitForSelector('[data-testid="folder-browser"] .browse-row', { timeout: 10000 })
@@ -17464,6 +17469,7 @@ async function panelDragScenario(fixtures) {
       // Sent without waiting for each, as a real mouse reports them, not one
       // per round trip: the page has to keep up on its own,
       // over 0.64 s, one every 8 ms: the pace of a hand on a 125 Hz mouse.
+      const restyleBefore = await restyleMs()
       const started = Date.now()
       const sent = []
       for (let i = 1; i <= 80; i++) {
@@ -17477,6 +17483,7 @@ async function panelDragScenario(fixtures) {
         return window.__frames.slice(1)
       })
       const midway = await win.evaluate(() => window.__keeps)
+      const restyled = (await restyleMs()) - restyleBefore
       await win.mouse.up()
       await sleep(300)
       const after = await win.evaluate(() => window.__keeps)
@@ -17485,6 +17492,9 @@ async function panelDragScenario(fixtures) {
       ok(midway === 0, `${name}: the drag paints without keeping, no width kept mid-drag (${midway} of 80 moves)`)
       ok(after === 1, `${name}: the release keeps it, once (${after})`)
       console.log(`  (${name}: ${perMove.toFixed(1)}ms a move, 80 moves 8 ms apart)`)
+      // Changing an inherited variable on the workspace restyled everything
+      // under it every frame; a pixel width on a box restyles the box.
+      ok(restyled < 40, `${name}: style recalculation over the whole drag ${restyled.toFixed(0)}ms`)
       ok(worst < 34, `${name}: the longest frame while dragging is ${worst}ms (${frames.length} frames)`)
     }
     const saved = JSON.parse(await win.evaluate(() => localStorage.getItem('prism.explorer.widths') ?? '{}'))
