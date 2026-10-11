@@ -1,4 +1,5 @@
 import type { IBufferLine, IDecoration, IDisposable, IMarker, Terminal } from '@xterm/xterm'
+import { rowsToReink } from './linkInkRows'
 import { findLinks } from './termLinks'
 
 /**
@@ -127,12 +128,13 @@ export function attachLinkPaint(
     }
   }
 
-  /** Ink the links in one drawn row of the alternate screen. */
-  const inkRow = (row: Element, ink: string): void => {
+  /** Ink the links in one drawn row of the alternate screen. True when the
+   *  row now holds ink. */
+  const inkRow = (row: Element, ink: string): boolean => {
     const text = row.textContent ?? ''
-    if (!/[\\/.]/.test(text)) return
+    if (!/[\\/.]/.test(text)) return false
     const links = find(text)
-    if (!links.length) return
+    if (!links.length) return false
     // Where each text node starts in the row's text.
     const nodes: Array<{ node: Text; at: number }> = []
     const walk = document.createTreeWalker(row, NodeFilter.SHOW_TEXT)
@@ -161,17 +163,67 @@ export function attachLinkPaint(
       span.style.textDecorationColor = `${ink}8c`
       range.surroundContents(span)
     }
+    return pieces.length > 0
+  }
+
+  /** Watches the rows for redraws that fire no `onRender` (below). */
+  let watch: MutationObserver | undefined
+  /** The row elements that held ink when last drawn or inked. xterm keeps a
+   *  row's element and replaces its contents, so the element is the key. */
+  let inked = new WeakSet<Element>()
+
+  const inkAndRemember = (row: Element, ink: string): void => {
+    if (inkRow(row, ink)) inked.add(row)
+    else inked.delete(row)
   }
 
   const inkDrawn = (start: number, end: number): void => {
     if (dead || term.buffer.active.type !== 'alternate') return
-    const rows = term.element?.querySelector('.xterm-rows')?.children
-    if (!rows) return
+    const box = term.element?.querySelector('.xterm-rows')
+    if (!box) return
+    watchRows(box)
+    const rows = box.children
     const ink = color()
     for (let r = start; r <= end; r += 1) {
       const row = rows[r]
-      if (row) inkRow(row, ink)
+      if (row) inkAndRemember(row, ink)
     }
+  }
+
+  // A HOVER REDRAWS A ROW BEHIND onRender's BACK (#163; owner's recording,
+  // 2026-10-10: a hovered link in Claude Code's fullscreen view turned white
+  // and stayed white until a scroll). xterm's DOM renderer underlines a hovered
+  // link, and takes the underline off again, by REPLACING the row's contents
+  // (`_setCellUnderline`), and that fires no onRender. So a row that held ink
+  // and lost it is inked again here; a row onRender just drew is not scanned
+  // twice (`rowsToReink`). Watched on the alternate screen only: the normal
+  // screen is painted with decorations, and the watch would fire every frame.
+  const watchRows = (box: Element): void => {
+    if (watch) return
+    watch = new MutationObserver((records) => {
+      if (dead || term.buffer.active.type !== 'alternate') return
+      const seen = new Set<Element>()
+      for (const rec of records) {
+        let row: Node | null = rec.target
+        while (row && row.parentNode !== box) row = row.parentNode
+        if (row instanceof Element) seen.add(row)
+      }
+      const lost = rowsToReink(
+        seen,
+        (row) => inked.has(row),
+        (row) => row.querySelector('[data-link-ink]') !== null
+      )
+      if (!lost.length) return
+      const ink = color()
+      for (const row of lost) inkAndRemember(row, ink)
+    })
+    watch.observe(box, { childList: true, subtree: true })
+  }
+
+  const unwatchRows = (): void => {
+    watch?.disconnect()
+    watch = undefined
+    inked = new WeakSet()
   }
 
   const scan = (): void => {
@@ -214,8 +266,12 @@ export function attachLinkPaint(
     term.onWriteParsed(soon),
     // A resize reflows every wrapped line: nothing painted is where it was.
     term.onResize(startOver),
-    // Into the alternate screen and back out of it.
-    term.buffer.onBufferChange(startOver),
+    // Into the alternate screen and back out of it. The row watch goes with
+    // the alternate screen; its first onRender there attaches it again.
+    term.buffer.onBufferChange((b) => {
+      if (b.type !== 'alternate') unwatchRows()
+      startOver()
+    }),
     term.onRender(({ start, end }) => inkDrawn(start, end))
   ]
 
@@ -223,6 +279,7 @@ export function attachLinkPaint(
     repaint: startOver,
     dispose: () => {
       dead = true
+      unwatchRows()
       if (timer !== undefined) window.clearTimeout(timer)
       subs.forEach((s) => s.dispose())
       forgetFrom(0)
