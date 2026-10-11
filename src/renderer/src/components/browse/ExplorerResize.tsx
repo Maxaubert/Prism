@@ -5,17 +5,35 @@ export function ExplorerResize({
   section,
   bounds,
   onResize,
+  onLive,
   edge
 }: {
   section: ExplorerSection
   bounds: ExplorerWidthBounds
   onResize: (value: number | null) => void
+  /** A drag's moves: paint the width without keeping it (`useExplorerWidths`
+   *  `live`). The release keeps it through `onResize`. */
+  onLive?: (value: number) => void
   /** The window edge the panel sits against (#304: Sidebar position moves
    *  the places to the right and the preview to the left). A drag or an
    *  arrow toward the middle widens it. */
   edge: 'left' | 'right'
 }): JSX.Element {
-  const drag = useRef<{ x: number; value: number } | null>(null)
+  const drag = useRef<{ x: number; value: number; last: number | null } | null>(null)
+  // One paint per frame however fast the pointer reports.
+  const frame = useRef(0)
+  const end = (keep: boolean): void => {
+    cancelAnimationFrame(frame.current)
+    frame.current = 0
+    const last = drag.current?.last ?? null
+    drag.current = null
+    setDragging(false)
+    if (!keep || last === null) return
+    // Painted too: a drag back to where it began changes no state, so React
+    // would leave the last frame's width standing.
+    onLive?.(last)
+    onResize(last)
+  }
   const [dragging, setDragging] = useState(false)
   const [pointerResize, setPointerResize] = useState(false)
   const direction = edge === 'right' ? -1 : 1
@@ -47,27 +65,31 @@ export function ExplorerResize({
         setPointerResize(true)
         event.currentTarget.focus()
         event.currentTarget.setPointerCapture(event.pointerId)
-        drag.current = { x: event.clientX, value: bounds.value }
+        drag.current = { x: event.clientX, value: bounds.value, last: null }
         setDragging(true)
       }}
       onPointerMove={(event) => {
-        if (drag.current)
-          onResize(drag.current.value + (event.clientX - drag.current.x) * direction)
+        const d = drag.current
+        if (!d) return
+        d.last = d.value + (event.clientX - d.x) * direction
+        if (!onLive) {
+          onResize(d.last)
+          return
+        }
+        if (frame.current) return
+        frame.current = requestAnimationFrame(() => {
+          frame.current = 0
+          if (drag.current?.last != null) onLive(drag.current.last)
+        })
       }}
       onPointerUp={(event) => {
         if (event.currentTarget.hasPointerCapture(event.pointerId))
           event.currentTarget.releasePointerCapture(event.pointerId)
-        drag.current = null
-        setDragging(false)
+        end(true)
       }}
-      onLostPointerCapture={() => {
-        drag.current = null
-        setDragging(false)
-      }}
-      onPointerCancel={() => {
-        drag.current = null
-        setDragging(false)
-      }}
+      // A capture lost mid-drag (the window lost focus) keeps where it got to.
+      onLostPointerCapture={() => end(true)}
+      onPointerCancel={() => end(true)}
       onDoubleClick={() => onResize(null)}
       onBlur={() => setPointerResize(false)}
       onKeyDown={(event) => {

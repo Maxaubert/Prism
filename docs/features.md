@@ -638,6 +638,13 @@ changing a feature: each entry records what the owner decided, why, and what hol
   evidence. Folders now carry `mtimeMs` (details stream, listing cache `folderTimes`), and the rows
   move once, when every date is in. Explorer's within-group files-before-folders is NOT copied.
   `downloadsDate` e2e (`PRISM_E2E_DOWNLOADS` points the Known Folder at a fixture, e2e only).
+  **DRAGGING A PANEL EDGE PAINTS, IT DOES NOT RE-RENDER** (owner, 2026-10-12: "the UI is very
+  unresponsive like when I'm dragging the left sidebar or the right sidebar with the preview ...
+  very choppy, very laggy"). Every move of a grip used to keep the width in React state, which
+  re-rendered the whole App (every tab, the list, the preview) and wrote localStorage: 42 to 54
+  times in a half-second drag, MEASURED by the `panelDrag` e2e. Now a move writes only the CSS
+  variable the layout reads (`useExplorerWidths` `live`, once per frame), clamped to the bounds
+  the drag began with, and the release keeps it once. Keys and double-click are unchanged.
   **THE LIST'S SCROLLBAR SHOWS ONLY WHILE IT SCROLLS** (owner, 2026-10-12: "i think prism
   wakes when your cursor is on that panel but i wanna change that too to only show when
   actually scrolling"). `browse/OverlayScrollbar.tsx`, Prism's own 4px bar (#267's "the

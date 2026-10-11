@@ -4105,6 +4105,7 @@ export default function App(): JSX.Element {
             section="places"
             bounds={explorerWidths.bounds.places}
             onResize={(width) => explorerWidths.resize('places', width)}
+            onLive={(width) => explorerWidths.live('places', width)}
             edge={explorerSide}
           />
         )}
@@ -4317,6 +4318,7 @@ export default function App(): JSX.Element {
               section="preview"
               bounds={explorerWidths.bounds.preview}
               onResize={(width) => explorerWidths.resize('preview', width)}
+              onLive={(width) => explorerWidths.live('preview', width)}
               edge={explorerSide === 'right' ? 'left' : 'right'}
             />
           )}
