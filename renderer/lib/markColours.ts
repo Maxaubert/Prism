@@ -53,6 +53,14 @@ export function rainbowGradient(cols: readonly string[], axis: 'x' | 'y'): strin
   return `linear-gradient(${axis === 'x' ? '90deg' : '180deg'}, ${[...cols, cols[0]].join(', ')})`
 }
 
+/** The icon's seven, RAW, across a whole Full fill as a looping gradient
+ *  (2026-10-10 rework, choice 1A: "the solid flowing rainbow across the whole
+ *  finished tab"). Not floored: a fill is the colour itself, and the name's ink
+ *  is what is held to the rule (`rainbowInk`). */
+export function rainbowFillX(): string {
+  return rainbowGradient(ICON_RAINBOW, 'x')
+}
+
 /** A see-through colour as the opaque one it shows over the solid ground: Full
  *  fills a tab SOLID (owner, 2026-10-10), so a half-alpha working colour (#112)
  *  is laid on the window's own ground first. */

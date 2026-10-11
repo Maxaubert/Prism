@@ -189,8 +189,8 @@ export const TERM_PRESETS: TermPreset[] = [
   // the cursor, the accent and all sixteen colours against its own ground.
 
   // The classic terminal looks: a green and an amber screen, the old PowerShell
-  // blue window, the Commodore's blue, the Windows console's own scheme, and a
-  // plain high-contrast one.
+  // blue window, the Commodore's blue, the Windows console's own scheme (High Contrast was
+  // removed, owner 2026-10-11).
   { id: 'phosphor', name: 'Phosphor', bg: '#050d06', fg: '#7ef08a', cursor: '#7ef08a', accent: '#3fcf5a' },
   { id: 'amber', name: 'Amber', bg: '#110b02', fg: '#ffbf5a', cursor: '#ffbf5a', accent: '#f0a030' },
   { id: 'marine', name: 'Marine', bg: '#012456', fg: '#eeedf0', cursor: '#ffd866', accent: '#ffd866' },
@@ -203,15 +203,6 @@ export const TERM_PRESETS: TermPreset[] = [
     cursor: '#ffffff',
     accent: '#3b78ff',
     ansi: { black: '#0c0c0c', red: '#c50f1f', green: '#13a10e', yellow: '#c19c00', blue: '#0037da', magenta: '#881798', cyan: '#3a96dd', white: '#cccccc', brightBlack: '#767676', brightRed: '#e74856', brightGreen: '#16c60c', brightYellow: '#f9f1a5', brightBlue: '#3b78ff', brightMagenta: '#b4009e', brightCyan: '#61d6d6', brightWhite: '#f2f2f2' }
-  },
-  {
-    id: 'high-contrast',
-    name: 'High Contrast',
-    bg: '#000000',
-    fg: '#ffffff',
-    cursor: '#ffff00',
-    accent: '#ffff00',
-    ansi: { black: '#000000', red: '#ff6b6b', green: '#5cff5c', yellow: '#ffff5c', blue: '#7aa8ff', magenta: '#ff7aff', cyan: '#5cffff', white: '#ffffff', brightBlack: '#a0a0a0', brightRed: '#ff9494', brightGreen: '#8cff8c', brightYellow: '#ffff99', brightBlue: '#a6c4ff', brightMagenta: '#ffa6ff', brightCyan: '#99ffff', brightWhite: '#ffffff' }
   },
 
   // More colours, dark and light, in the spirit of Umber and Blossom.

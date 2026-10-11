@@ -336,12 +336,16 @@ export const SEGMENT_ON = 'bg-[color-mix(in_srgb,var(--p-text)_16%,var(--p-contr
  * segments stay grey. The track is `--p-sel-bg`, the accent as a FILL, which
  * both apps move until `--p-on-accent` clears 4.5:1 on it (the update chip's
  * own pair); the raw accent is only held to 3:1, and a see-through accent's
- * fill is flattened under glass. The knob is that ink: near-black on a bright
- * accent (teal, orange), white on a dark one. Hovered it lifts like Save;
+ * fill is flattened under glass. The KNOB follows the theme, not the accent
+ * (owner, 2026-10-10: "keep that to being black on dark themes and white on
+ * light themes ... only when the color is very close"): `--p-switch-knob`,
+ * black on a dark ground and white on a light one, the opposite only where
+ * that reads under 2:1 on the track (`lib/switchKnob.ts`). A host that does
+ * not define it yet (Prism) keeps `--p-on-accent`. Hovered it lifts like Save;
  * disabled it is dimmed, so a switch nobody can change does not shout the
  * accent. Off is the grey track and white knob it always was, and keyboard
  * focus stays the row's fill (Prism #272: never a ring).
  */
 export const SWITCH_ON = 'bg-[var(--p-sel-bg)] enabled:hover:brightness-110 disabled:opacity-50'
-export const SWITCH_KNOB_ON = 'bg-[var(--p-on-accent)]'
+export const SWITCH_KNOB_ON = 'bg-[var(--p-switch-knob,var(--p-on-accent))]'
 

@@ -5,9 +5,9 @@ import { termThemeId } from './termLook'
 
 const ids = new Set(TERM_PRESETS.map((p) => p.id))
 
-describe('the theme list (owner, 2026-09-23: each its own; 2026-09-24: forty)', () => {
-  it('is forty, as the trailer says, and every id and name is unique', () => {
-    expect(TERM_PRESETS.length).toBe(40)
+describe('the theme list (owner, 2026-09-23: each its own; 2026-09-24: forty; 2026-10-11: High Contrast out)', () => {
+  it('is thirty-nine, and every id and name is unique', () => {
+    expect(TERM_PRESETS.length).toBe(39)
     expect(ids.size).toBe(TERM_PRESETS.length)
     expect(new Set(TERM_PRESETS.map((p) => p.name)).size).toBe(TERM_PRESETS.length)
   })

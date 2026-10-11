@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ICON_RAINBOW, floorMark, opaqueOver, rainbowGradient, rainbowOn } from './markColours'
+import { ICON_RAINBOW, floorMark, opaqueOver, rainbowFillX, rainbowGradient, rainbowOn } from './markColours'
 import { contrastRatio, mixHex } from './termAnsi'
 import { rgbToHsl, parseColour } from './colour'
 
@@ -49,6 +49,10 @@ describe('the rainbow of the app icon (#143)', () => {
   it('loops its gradient, along x or down y', () => {
     expect(rainbowGradient(['#111111', '#222222'], 'x')).toBe('linear-gradient(90deg, #111111, #222222, #111111)')
     expect(rainbowGradient(['#111111', '#222222'], 'y')).toBe('linear-gradient(180deg, #111111, #222222, #111111)')
+  })
+
+  it('lays the icon\'s seven, raw, across a whole fill as a looping gradient', () => {
+    expect(rainbowFillX()).toBe(`linear-gradient(90deg, ${[...ICON_RAINBOW, ICON_RAINBOW[0]].join(', ')})`)
   })
 
   it('makes a see-through colour opaque over the solid ground, for Full', () => {

@@ -7,14 +7,14 @@ import { TabMark } from './TabMark'
 const draw = (
   indicator: 'minimal' | 'ring' | 'full',
   state: MarkState,
-  extra: { active?: boolean; foot?: string; ink?: string } = {}
+  extra: { active?: boolean; overlay?: string; ink?: string } = {}
 ): string =>
   renderToStaticMarkup(
     createElement(TabMark, {
       mark: resolveTabMark({ indicator, tabStyle: 'flat', state, active: !!extra.active, rainbow: true }),
       state,
       background: '#123456',
-      foot: extra.foot,
+      overlay: extra.overlay,
       ink: extra.ink
     })
   )
@@ -50,19 +50,29 @@ describe('the flat tab mark (#143)', () => {
   })
 
   it('fills a Full tab not in front, the name ink a CSS variable, not per frame', () => {
-    const html = draw('full', 'working', { ink: '#0b0b0b' })
-    expect(html).toContain('data-mark="fill"')
-    expect(html).toContain('--mark-ink:#0b0b0b')
-    expect(html).toContain('p-mark-ride')
     const q = draw('full', 'question', { ink: '#eeeeee' })
+    expect(q).toContain('data-mark="fill"')
     expect(q).toContain('p-mark-breathe')
     expect(q).toContain('--mark-ink:#eeeeee')
   })
 
-  it('puts the rainbow along a finished badge\'s foot', () => {
-    const html = draw('full', 'done', { foot: 'linear-gradient(90deg, red, blue, red)' })
-    expect(html).toContain('data-mark-foot')
-    expect(html).toContain('p-mark-flow-x')
+  // Owner, 2026-10-10: on a working fill the Minimal bar is the NAME'S ink
+  // (black on Volt's yellow), never a faded shade of the working colour.
+  it('runs Minimal\'s bar over a working fill, in the colour it is given', () => {
+    const html = draw('full', 'working', { ink: '#0b0b0b', overlay: '#0b0b0b' })
+    expect(html).toContain('data-mark="fill"')
+    expect(html).toContain('data-mark-overlay="run"')
+    expect(html).toContain('p-agent-run')
+    expect(html).toContain('background:#0b0b0b')
+    expect(html).not.toContain('p-mark-ride')
+  })
+
+  it('flows the rainbow over a whole finished fill, no badge, no foot', () => {
+    const html = draw('full', 'done')
+    expect(html).toContain('data-mark="fill"')
+    expect(html).toContain('data-rainbow=""')
+    expect(html).toContain('p-mark-flow-fill')
+    expect(html).not.toContain('data-mark-foot')
   })
 
   it('draws nothing for a Full tab in front beyond Minimal\'s mark', () => {

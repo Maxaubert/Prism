@@ -7,6 +7,8 @@
 
 export const RETIRED_THEMES: Readonly<Record<string, string>> = {
   'bright-lights': 'pitch',
+  // High Contrast removed (owner, 2026-10-11); Pitch is the black kept.
+  'high-contrast': 'pitch',
   // Solarized Dark, Gruvbox Dark and Tokyo Night came BACK in the forty
   // (2026-09-24), so they are no longer here.
   molokai: 'monokai',

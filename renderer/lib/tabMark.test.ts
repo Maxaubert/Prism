@@ -10,7 +10,7 @@ const m = (
   rainbow = true
 ): string => {
   const r = resolveTabMark({ indicator, tabStyle, state, active, rainbow })
-  return `${r.place}/${r.colour ?? '-'}/${r.motion ?? '-'}`
+  return `${r.place}/${r.colour ?? '-'}/${r.motion ?? '-'}${r.overlay ? '+' + r.overlay : ''}`
 }
 
 // One line per cell of the spec's section 3 table.
@@ -44,10 +44,16 @@ describe('which mark a tab wears (#143)', () => {
       }
   })
 
+  // The 2026-10-10 rework (owner: "I really liked the new full style look"):
+  // working is the fill with Minimal's own working mark on top (the run on
+  // Classic; on Powerline the fill alone, owner: the pulsing arrow is only for
+  // the tab you are on), finished the rainbow over the whole
+  // tab, flowing. No badge, no ride.
   it('Full fills every marked tab NOT in front, in either style', () => {
+    expect(m('full', 'flat', 'working', false)).toBe('fill/working/-+run')
+    expect(m('full', 'prompt', 'working', false)).toBe('fill/working/-')
     for (const s of ['flat', 'prompt'] as const) {
-      expect(m('full', s, 'working', false)).toBe('fill/working/ride')
-      expect(m('full', s, 'done', false)).toBe('fill/badge/flow')
+      expect(m('full', s, 'done', false)).toBe('fill/rainbow/flow')
       expect(m('full', s, 'question', false)).toBe('fill/question/breathe')
       expect(m('full', s, 'failed', false)).toBe('fill/failed/still')
     }
@@ -67,7 +73,7 @@ describe('which mark a tab wears (#143)', () => {
       }
   })
 
-  it('with the rainbow off, finished is the finished colour, still, and Full has no badge', () => {
+  it('with the rainbow off, finished is the finished colour, still, filled or not', () => {
     expect(m('minimal', 'flat', 'done', false, false)).toBe('line/done/still')
     expect(m('minimal', 'prompt', 'done', false, false)).toBe('edge/done/still')
     expect(m('full', 'flat', 'done', false, false)).toBe('fill/done/still')

@@ -10,8 +10,9 @@ import { motionClass } from './markClasses'
  * - `line`: a 3 px line along the foot (finished, question, failed).
  * - `ring`: the spinner, an inline element the strip puts beside the name.
  * - `fill`: the whole tab, solid, under the name (Full, a tab not in front);
- *   with `foot` the rainbow along its foot (the finished badge), with a `ride`
- *   motion the bar riding along it in the name's ink.
+ *   a rainbow finish flows across all of it. With an `overlay` of `run`,
+ *   Minimal's running bar on top in the `overlay` colour (the name's ink,
+ *   owner, 2026-10-10). A Prompt fill has none: its edge is the host's.
  * - `edge`: a Prompt segment's arrow edge, which the host's Prompt strip draws
  *   itself; nothing here.
  *
@@ -22,20 +23,21 @@ export function TabMark({
   mark,
   state,
   background,
-  foot,
+  overlay,
   ink
 }: {
   mark: Mark
   state: MarkState | null
   /** The mark's colour, or the rainbow's gradient. */
   background: string
-  /** The rainbow along a finished fill's foot. */
-  foot?: string
+  /** The colour of the working mark drawn on a working fill (`markPalette`'s
+   *  `overlay.run`). */
+  overlay?: string
   /** The name's ink on a fill, chosen once per state colour (`nameInk`). */
   ink?: string
 }): JSX.Element | null {
   const attention = state && state !== 'working' ? state : undefined
-  const rainbow = mark.colour === 'rainbow' || mark.colour === 'badge' ? '' : undefined
+  const rainbow = mark.colour === 'rainbow' ? '' : undefined
   const common = {
     'data-mark': mark.place,
     'data-mark-motion': mark.motion ?? undefined,
@@ -70,18 +72,20 @@ export function TabMark({
       return (
         <span
           {...common}
-          className={`pointer-events-none absolute inset-0 z-0 ${mark.motion === 'breathe' ? motionClass('breathe') : ''}`}
-          style={{ background, ...(ink ? { ['--mark-ink' as string]: ink } : {}) }}
+          className={`pointer-events-none absolute inset-0 z-0 ${motionClass(mark.motion, 'fill')}`}
+          // The `background` shorthand resets the class's size, so the flowing
+          // rainbow's tile (228 px, two tabs) is said again here.
+          style={{
+            background,
+            ...(mark.motion === 'flow' ? { backgroundSize: '228px 100%' } : {}),
+            ...(ink ? { ['--mark-ink' as string]: ink } : {})
+          }}
         >
-          {foot && (
-            <span
-              data-mark-foot
-              className={`absolute inset-x-0 bottom-0 h-[3px] ${motionClass(mark.motion, 'x')}`}
-              style={{ background: foot, backgroundSize: '114px 100%' }}
-            />
-          )}
-          {mark.motion === 'ride' && (
-            <span data-mark-ride className="p-mark-ride absolute inset-x-1.5 bottom-[3px] h-0.5 rounded-sm" />
+          {/* Minimal's own run, on top of the fill: the run case's markup. */}
+          {mark.overlay === 'run' && overlay && (
+            <span data-mark-overlay="run" className="absolute inset-x-0 bottom-0 h-[3px] overflow-hidden">
+              <span className="p-agent-run absolute inset-y-0 w-[42%] rounded-full" style={{ background: overlay }} />
+            </span>
           )}
         </span>
       )

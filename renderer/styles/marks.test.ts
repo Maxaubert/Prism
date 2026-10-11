@@ -28,9 +28,12 @@ describe('the marks stylesheet (#143)', () => {
     expect(reduced).toMatch(/animation:\s*none\s*!important/)
   })
 
-  it('keeps a working edge FULL, the run and the ride whole, the question on', () => {
+  it('keeps a working edge FULL, the run whole, the question on, and has no ride', () => {
     expect(reduced).toMatch(/\.p-mark-grow\s*\{\s*transform:\s*none/)
     expect(reduced).toMatch(/\.p-agent-run\s*\{\s*left:\s*0;\s*width:\s*100%/)
     expect(reduced).toMatch(/\.p-mark-breathe\s*\{\s*opacity:\s*1/)
+    // The ride went with the 2026-10-10 rework: Full's working tab carries
+    // Minimal's own run.
+    expect(css).not.toContain('p-mark-ride')
   })
 })

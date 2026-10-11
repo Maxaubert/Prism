@@ -56,16 +56,17 @@
   animation: p-mark-flow-y 7s linear infinite;
 }
 
-/* ride: Full's working tab, a 2 px bar riding along its foot in the name's
-   own ink (`--mark-ink`), 40% of the tab, 1.4 s. */
-@keyframes p-mark-ride {
-  from { background-position: 200% 0 }
-  to { background-position: -100% 0 }
+/* flow-fill: Full's finished tab, the icon's ribbon across the WHOLE tab
+   (2026-10-10 rework, choice 1A: "the solid flowing rainbow"). The tile is
+   228 px, two tabs, so about half the ribbon shows on one tab; 14 s a lap. */
+@keyframes p-mark-flow-fill {
+  from { background-position: 0 0 }
+  to { background-position: var(--tile-fill, 228px) 0 }
 }
-.p-mark-ride {
-  background: linear-gradient(90deg, transparent 0 30%, var(--mark-ink) 30% 70%, transparent 70%) no-repeat;
-  background-size: 200% 100%;
-  animation: p-mark-ride 1.4s cubic-bezier(.45, 0, .55, 1) infinite;
+.p-mark-flow-fill {
+  background-size: var(--tile-fill, 228px) 100%;
+  background-repeat: repeat-x;
+  animation: p-mark-flow-fill 14s linear infinite;
 }
 
 /* spin: Ring's spinner beside the name, the resume ring's own second. */
@@ -74,7 +75,7 @@
 }
 .p-mark-spin { animation: p-mark-spin 1s linear infinite }
 
-/* REDUCED MOTION: everything still. The run and the ride are a full line, a
+/* REDUCED MOTION: everything still. The run is a full line, a
    working edge rests full, the question fully on, the rainbow stands still,
    the ring a still arc with two coloured sides. `!important` and a class
    selector, so the window's own "*" rule (a 0.01 ms single run, which would
@@ -85,13 +86,12 @@
   .p-mark-breathe,
   .p-mark-flow-x,
   .p-mark-flow-y,
-  .p-mark-ride,
+  .p-mark-flow-fill,
   .p-mark-spin {
     animation: none !important;
   }
   .p-agent-run { left: 0; width: 100% }
   .p-mark-grow { transform: none }
   .p-mark-breathe { opacity: 1 }
-  .p-mark-ride { background: var(--mark-ink) }
   .p-mark-spin { border-right-color: var(--mark-c) }
 }

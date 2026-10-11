@@ -205,7 +205,7 @@ is `settings/sections/DiagnosticsPage.tsx` (props only), its rows
 **THE TAB MARKS (#143, 2026-10-10)** are the sixth: how a tab says its agent
 is working, finished, asking or failed. `renderer/lib/tabMark.ts`
 (`resolveTabMark`, the one rule: which mark, in which colour role, with which
-motion, for Off, Minimal, Ring and Full on a flat or a Prompt tab),
+motion, for Off, Minimal, Ring and Full on a flat or a Powerline tab),
 `markColours.ts` (the icon's rainbow, `floorMark` to 3:1 on every ground),
 `nameInk.ts` (Full's name: the theme's text unless under 2:1 on the fill),
 `markPalette.ts` (every colour a strip's marks wear, pure),
@@ -221,6 +221,13 @@ host's own filled tab, and no rainbow row, so a host that has not adopted the
 marks sees no change. That row's list is `settings/markOptions.ts`, NOT
 `TERMINAL_OPTIONS`; `coreSettingsIndex({ marks: true })` indexes it. Its
 switch is `agentRainbow()` (`prism.term.agentRainbow`, on; no theme resets it).
+Since #154 Full's working fill on a flat tab carries Minimal's run on top
+(`overlay`, in the name's ink; a Powerline fill has no overlay) and finished is
+the rainbow across the whole tab (`rainbowInk` picks its name's ink).
+
+**THE ON SWITCH'S KNOB (#154)** is `--p-switch-knob` where the host defines it
+(`lib/switchKnob.ts`: the theme's black or white, flipped only under 2:1 on
+the track), else `--p-on-accent` as before. Prism has not defined it.
 
 ## Rules for code in here (lint-enforced in Prism Terminal's `eslint.config.js`)
 
