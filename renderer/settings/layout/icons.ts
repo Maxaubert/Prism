@@ -20,6 +20,8 @@ export const SETTING_ICONS = {
   size: 'M3 8V6h10v2M8 6v12M6 18h4M14 13v-1h7v1M17.5 12v6M16 18h3',
   titlebar: 'M4 5h16v14H4zM4 9h16',
   tabs: 'M3 10h18v9H3zM4 10V7h6v3M12 10V7h7v3',
+  // The tabs down the side (#162): a window with its left column of rows.
+  sidebar: 'M4 5h16v14H4zM9.5 5v14M6 9h1.5M6 12h1.5M6 15h1.5',
   edges: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
   newtab: 'M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5zM12 10v6M9 13h6',
   menu: 'M5 4h14v16H5zM8 8h8M8 12h8M8 16h5',

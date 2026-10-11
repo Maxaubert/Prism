@@ -49,6 +49,24 @@ describe('the flat tab mark (#143)', () => {
     expect(html).toContain('p-mark-spin')
   })
 
+  // #162: Ring is one mono glyph per state, in the name's ink, never a line.
+  it('draws Ring\'s other states as mono glyphs in the name\'s ink', () => {
+    const q = draw('ring', 'question')
+    expect(q).toContain('data-ring="question"')
+    expect(q).toContain('p-mark-breathe')
+    expect(q).toContain('bg-current')
+    const d = draw('ring', 'done')
+    expect(d).toContain('data-ring="done"')
+    expect(d).toContain('<path d="M3.2 8.6l3 3 6.6-7.2"')
+    const f = draw('ring', 'failed')
+    expect(f).toContain('data-ring="failed"')
+    expect(f).toContain('<path d="M4 4l8 8M12 4l-8 8"')
+    for (const html of [q, d, f]) {
+      expect(html).not.toContain('#123456')
+      expect(html).not.toContain('h-[3px]')
+    }
+  })
+
   it('fills a Full tab not in front, the name ink a CSS variable, not per frame', () => {
     const q = draw('full', 'question', { ink: '#eeeeee' })
     expect(q).toContain('data-mark="fill"')

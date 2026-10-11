@@ -34,14 +34,16 @@ describe('which mark a tab wears (#143)', () => {
     }
   })
 
-  it('Ring: the spinner while working, in front or not, in either style; else Minimal', () => {
+  // #162: one mono mark by the name for every state, no colour role, no line.
+  it('Ring: one mono mark by the name for every state, in front or not, in either style', () => {
     for (const s of ['flat', 'prompt'] as const)
-      for (const on of [false, true]) {
-        expect(m('ring', s, 'working', on)).toBe('ring/working/spin')
-        expect(m('ring', s, 'question', on)).toBe(m('minimal', s, 'question', on))
-        expect(m('ring', s, 'done', on)).toBe(m('minimal', s, 'done', on))
-        expect(m('ring', s, 'failed', on)).toBe(m('minimal', s, 'failed', on))
-      }
+      for (const on of [false, true])
+        for (const rainbow of [true, false]) {
+          expect(m('ring', s, 'working', on, rainbow)).toBe('ring/-/spin')
+          expect(m('ring', s, 'question', on, rainbow)).toBe('ring/-/breathe')
+          expect(m('ring', s, 'done', on, rainbow)).toBe('ring/-/still')
+          expect(m('ring', s, 'failed', on, rainbow)).toBe('ring/-/still')
+        }
   })
 
   // The 2026-10-10 rework (owner: "I really liked the new full style look"):

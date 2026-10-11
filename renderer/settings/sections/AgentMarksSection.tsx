@@ -22,7 +22,7 @@ import { opt, sectionTitle } from './opts'
 const INDICATOR_SUB: Record<AgentIndicator, string> = {
   off: 'No mark while an agent works.',
   minimal: 'A line under the tab while it works.',
-  ring: 'A spinner by the name while it works.',
+  ring: 'One small mark by the name, in its ink.',
   full: 'Tabs you are not on fill with colour.'
 }
 /** Full's subtext in a host that draws its OWN filled tab (Prism, no

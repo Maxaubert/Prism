@@ -8,7 +8,8 @@ import { motionClass } from './markClasses'
  *
  * - `run`: the working bar running along the foot.
  * - `line`: a 3 px line along the foot (finished, question, failed).
- * - `ring`: the spinner, an inline element the strip puts beside the name.
+ * - `ring`: an inline element the strip puts beside the name, mono (#162):
+ *   the spinner while working, a check, a breathing dot or a cross.
  * - `fill`: the whole tab, solid, under the name (Full, a tab not in front);
  *   a rainbow finish flows across all of it. With an `overlay` of `run`,
  *   Minimal's running bar on top in the `overlay` colour (the name's ink,
@@ -61,12 +62,31 @@ export function TabMark({
         />
       )
     case 'ring':
+      // MONO (#162): every state's glyph in the name's own ink (currentColor),
+      // one 12 px slot, so a name never moves when its state changes.
       return (
         <span
           {...common}
-          className="p-mark-spin pointer-events-none relative z-[2] -mr-0.5 inline-block h-3 w-3 shrink-0 rounded-full border-2 border-[color-mix(in_srgb,var(--p-text)_24%,transparent)]"
-          style={{ borderTopColor: background, ['--mark-c' as string]: background }}
-        />
+          data-ring={state ?? undefined}
+          className="pointer-events-none relative z-[2] -mr-0.5 grid h-3 w-3 shrink-0 place-items-center"
+        >
+          {state === 'working' ? (
+            <span
+              className="p-mark-spin block h-3 w-3 rounded-full border-2 border-[color-mix(in_srgb,currentColor_24%,transparent)] border-t-current"
+              style={{ ['--mark-c' as string]: 'currentColor' }}
+            />
+          ) : state === 'question' ? (
+            <span className={`block h-[7px] w-[7px] rounded-full bg-current ${motionClass(mark.motion)}`} />
+          ) : state === 'done' ? (
+            <svg viewBox="0 0 16 16" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3.2 8.6l3 3 6.6-7.2" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 16 16" width={10} height={10} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          )}
+        </span>
       )
     case 'fill':
       return (

@@ -11,7 +11,12 @@ import type { AgentIndicator } from '../host'
  * - Minimal: working is the running bar (flat) or the growing arrow edge
  *   (Prompt); finished, question and failed are a 3 px line (flat) or the whole
  *   edge (Prompt) in their colour.
- * - Ring: the spinner beside the name while working; everything else Minimal's.
+ * - Ring: ONE MONO MARK beside the name, for every state (#162; owner,
+ *   2026-10-11: "ultra minimal ... the spinning circle for working and a dot",
+ *   then "mono colour for ring, that should be the same for horizontal"): the
+ *   spinner while working, a check when finished, a breathing dot for a
+ *   question, a cross for a failure. No colour role: it wears the name's ink,
+ *   and no line or edge, in either tab style.
  * - Full: a tab NOT in front is filled edge to edge in its state colour. Working
  *   on a flat tab carries Minimal's run on top (`overlay`); a working Powerline
  *   segment is the fill alone, with no edge (owner, 2026-10-10: the pulsing
@@ -56,11 +61,12 @@ export function resolveTabMark({
   rainbow: boolean
 }): TabMark {
   if (!state) return NO_MARK
+  if (indicator === 'ring')
+    return { place: 'ring', colour: null, motion: state === 'working' ? 'spin' : state === 'question' ? 'breathe' : 'still' }
   const prompt = tabStyle === 'prompt'
   const filled = indicator === 'full' && !active
   if (state === 'working') {
     if (indicator === 'off') return NO_MARK
-    if (indicator === 'ring') return { place: 'ring', colour: 'working', motion: 'spin' }
     // The fill itself stands still; the mark on top of it moves.
     if (filled) return prompt ? { place: 'fill', colour: 'working', motion: null } : { place: 'fill', colour: 'working', motion: null, overlay: 'run' }
     // On the tab in front the growing edge wears the top rule's colour, so at

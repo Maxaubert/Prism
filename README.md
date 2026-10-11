@@ -226,7 +226,8 @@ motion, for Off, Minimal, Ring and Full on a flat or a Powerline tab),
 `markColours.ts` (the icon's rainbow, `floorMark` to 3:1 on every ground),
 `nameInk.ts` (Full's name: the theme's text unless under 2:1 on the fill),
 `markPalette.ts` (every colour a strip's marks wear, pure),
-`components/TabMark.tsx` (a flat tab's run, line, ring and fill, props only)
+`components/TabMark.tsx` (a flat tab's run, line, ring and fill, props only;
+Ring is one mono glyph per state in the name's ink since #162)
 and `styles/marks.css`, the motion, which a host IMPORTS
 (`prism-term-core/renderer/styles/marks.css`; without it the marks stand still).
 **`tabMarks`** on `TermHostConfig` declares what the host's strip draws: the
