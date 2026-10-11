@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { FileKind } from '@shared/types'
+import type { BrowseDriveUsage } from '@shared/browse'
+import { driveProps } from '../lib/driveProps'
 import { propsFor, type PropRow } from '../lib/fileProps'
 import { Dialog } from './Dialog'
 import { useFolderSizes } from '../hooks/useFolderSizes'
@@ -15,6 +17,7 @@ export function PropertiesDialog({
   name,
   kind,
   isFolder,
+  drive,
   onClose
 }: {
   /** The tab's root: a folder's contents row is a listDir, which is walled. */
@@ -23,13 +26,16 @@ export function PropertiesDialog({
   name: string
   kind: FileKind
   isFolder: boolean
+  /** A drive from the places panel: its own facts, and no size walk. */
+  drive?: BrowseDriveUsage
   onClose: () => void
 }): JSX.Element {
   const [rows, setRows] = useState<PropRow[] | null>(null)
-  const folderPaths = useMemo(() => (isFolder ? [path] : []), [path, isFolder])
+  const folderPaths = useMemo(() => (isFolder && !drive ? [path] : []), [path, isFolder, drive])
   const folderSize = useFolderSizes(folderPaths)[path]
-  const displayedRows =
-    rows && isFolder
+  const displayedRows = drive
+    ? driveProps(drive)
+    : rows && isFolder
       ? [
           ...rows.filter((row) => row.label !== 'Contents'),
           {
@@ -55,12 +61,13 @@ export function PropertiesDialog({
       : rows
 
   useEffect(() => {
+    if (drive) return
     let alive = true
     void propsFor(root, path, name, kind, isFolder).then((r) => alive && setRows(r))
     return () => {
       alive = false
     }
-  }, [root, path, name, kind, isFolder])
+  }, [root, path, name, kind, isFolder, drive])
 
   return (
     <Dialog

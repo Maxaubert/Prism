@@ -53,14 +53,14 @@ describe('the editor menu', () => {
       'Cut',
       'Copy',
       'Paste',
+      'Copy path',
       'Select all',
       'Find',
       'Go to line',
       'Word wrap',
       'Follow the file',
       'Save',
-      'Show in File Explorer',
-      'Copy path'
+      'Show in File Explorer'
     ])
     expect(row(items, 'Cut').disabled).toBe(false)
     expect(row(items, 'Follow the file').disabled).toBe(false)
@@ -94,12 +94,12 @@ describe('the editor menu', () => {
     const items = codeMenu(ctx({ readOnly: true }))
     expect(labels(items)).toEqual([
       'Copy',
+      'Copy path',
       'Select all',
       'Find',
       'Go to line',
       'Word wrap',
-      'Show in File Explorer',
-      'Copy path'
+      'Show in File Explorer'
     ])
     expect(row(codeMenu(ctx({ readOnly: true, hasSel: false })), 'Copy').disabled).toBe(true)
   })

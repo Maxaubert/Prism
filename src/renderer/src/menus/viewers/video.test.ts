@@ -55,8 +55,8 @@ describe('the film menu', () => {
       'Speed',
       'Subtitles',
       'Copy frame',
-      'Show in File Explorer',
-      'Copy path'
+      'Copy path',
+      'Show in File Explorer'
     ])
     expect(labels(row(items, 'Picture').children ?? [])).toEqual([
       'Fit to window',
@@ -97,8 +97,8 @@ describe('the film menu', () => {
       'Audio track',
       'Subtitles',
       'Copy frame',
-      'Show in File Explorer',
-      'Copy path'
+      'Copy path',
+      'Show in File Explorer'
     ])
     expect(labels(row(items, 'Audio track').children ?? [])).toEqual([
       'Default',

@@ -153,8 +153,8 @@ describe("the archive panel's empty space", () => {
       'Extract here',
       'Extract to…',
       'Copy archive',
-      'Show in File Explorer',
-      'Copy path'
+      'Copy path',
+      'Show in File Explorer'
     ])
   })
 

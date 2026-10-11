@@ -242,6 +242,8 @@ export function archivePanelMenu(ctx: ArchivePanelMenuContext): MenuItem[] {
           }
         ]
       : []),
+    // Beside Copy archive, and Show in File Explorer last (owner, 2026-10-12).
+    { label: 'Copy path', onPick: () => void navigator.clipboard.writeText(archivePath) },
     ...(caps.explorer
       ? [
           {
@@ -249,7 +251,6 @@ export function archivePanelMenu(ctx: ArchivePanelMenuContext): MenuItem[] {
             onPick: () => window.prism.showInExplorer(archivePath)
           }
         ]
-      : []),
-    { label: 'Copy path', onPick: () => void navigator.clipboard.writeText(archivePath) }
+      : [])
   ]
 }

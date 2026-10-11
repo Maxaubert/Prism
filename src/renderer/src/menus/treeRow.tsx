@@ -45,6 +45,8 @@ export interface TreeDeadSpaceMenuContext {
   paste: (dest: string) => void | Promise<void>
   /** Spawn a shell in a folder. */
   termHere: (folder: string) => void
+  /** The root folder's facts (owner, 2026-10-12: folders get Properties). */
+  showProperties: (target: { path: string; name: string; isFolder: boolean }) => void
 }
 
 export function treeDeadSpaceMenu(ctx: TreeDeadSpaceMenuContext): MenuItem[] {
@@ -57,7 +59,12 @@ export function treeDeadSpaceMenu(ctx: TreeDeadSpaceMenuContext): MenuItem[] {
       onPick: () => ctx.paste(root)
     },
     {
-      label: 'Open terminal here',
+      label: 'Copy path',
+      icon: <FileMenuIcon name="path" />,
+      onPick: () => void navigator.clipboard.writeText(root)
+    },
+    {
+      label: 'New terminal here',
       icon: <FileMenuIcon name="terminal" />,
       onPick: () => ctx.termHere(root)
     },
@@ -67,9 +74,9 @@ export function treeDeadSpaceMenu(ctx: TreeDeadSpaceMenuContext): MenuItem[] {
       onPick: () => window.prism.showInExplorer(root)
     },
     {
-      label: 'Copy path',
-      icon: <FileMenuIcon name="path" />,
-      onPick: () => void navigator.clipboard.writeText(root)
+      label: 'Properties',
+      icon: <FileMenuIcon name="properties" />,
+      onPick: () => ctx.showProperties({ path: root, name: root.split(/[\\/]/).filter(Boolean).pop() ?? root, isFolder: true })
     }
   ]
 }
@@ -166,6 +173,9 @@ export interface TreeRowMenuContext {
 export function treeRowMenu(ctx: TreeRowMenuContext): MenuItem[] {
   const { path, name, isFolder } = ctx
   return [
+    // Same order as the Explorer's row menu (explorerRow.tsx; owner,
+    // 2026-10-12): opening, the clipboard rows together, what changes the
+    // item, where it is and its facts, Delete LAST.
     {
       label: 'Open',
       hint: 'Enter',
@@ -220,6 +230,15 @@ export function treeRowMenu(ctx: TreeRowMenuContext): MenuItem[] {
           fileAppMenu(path, ctx.apps)
         ]
       : []),
+    ...(isFolder
+      ? [
+          {
+            label: 'New terminal here',
+            icon: <FileMenuIcon name="terminal" />,
+            onPick: () => ctx.termHere(path)
+          }
+        ]
+      : []),
     {
       label: 'Cut',
       hint: 'Ctrl+X',
@@ -232,6 +251,11 @@ export function treeRowMenu(ctx: TreeRowMenuContext): MenuItem[] {
       icon: <FileMenuIcon name="copy" />,
       onPick: () => ctx.copyMark([path], false)
     },
+    {
+      label: 'Copy path',
+      icon: <FileMenuIcon name="path" />,
+      onPick: () => void navigator.clipboard.writeText(path)
+    },
     ...(ctx.canPaste
       ? [
           {
@@ -243,23 +267,13 @@ export function treeRowMenu(ctx: TreeRowMenuContext): MenuItem[] {
              *
              * A FOLDER row takes it; a FILE row means its folder, which
              * is what "paste here" means when the thing under the
-             * cursor is a file. Near the top because it is what the
-             * menu was opened for, and drawn only when the clipboard
-             * actually holds files.
+             * cursor is a file. With the other clipboard rows, and
+             * drawn only when the clipboard actually holds files.
              */
             label: 'Paste',
             hint: 'Ctrl+V',
             icon: <FileMenuIcon name="paste" />,
             onPick: () => ctx.paste(isFolder ? path : parentDir(path))
-          }
-        ]
-      : []),
-    ...(isFolder
-      ? [
-          {
-            label: 'Open terminal here',
-            icon: <FileMenuIcon name="terminal" />,
-            onPick: () => ctx.termHere(path)
           }
         ]
       : []),
@@ -291,16 +305,6 @@ export function treeRowMenu(ctx: TreeRowMenuContext): MenuItem[] {
             : [])
         ]
       : []),
-    {
-      label: 'Show in File Explorer',
-      icon: <FileMenuIcon name="folder" />,
-      onPick: () => window.prism.showInExplorer(path)
-    },
-    {
-      label: 'Copy path',
-      icon: <FileMenuIcon name="path" />,
-      onPick: () => void navigator.clipboard.writeText(path)
-    },
     ...(!isFolder
       ? [
           {
@@ -321,6 +325,11 @@ export function treeRowMenu(ctx: TreeRowMenuContext): MenuItem[] {
       hint: 'F2',
       icon: <FileMenuIcon name="rename" />,
       onPick: () => ctx.rename(path)
+    },
+    {
+      label: 'Show in File Explorer',
+      icon: <FileMenuIcon name="folder" />,
+      onPick: () => window.prism.showInExplorer(path)
     },
     {
       label: 'Properties',

@@ -15,9 +15,9 @@ describe('the menus of a place inside an archive (#300)', () => {
       'Copy',
       'Copy path',
       'Rename',
-      'Delete',
       'Show in File Explorer',
-      'Properties'
+      'Properties',
+      'Delete'
     ])
     expect(labels({ kind: 'outside', writable: false })).not.toContain('Add files...')
   })
@@ -30,9 +30,9 @@ describe('the menus of a place inside an archive (#300)', () => {
       'Extract this folder to...',
       'Add files here...',
       'Copy folder',
-      'Delete from zip',
       'Show w.zip in File Explorer',
-      'Properties'
+      'Properties',
+      'Delete from zip'
     ])
     const ro = labels({ kind: 'folder', writable: false, zip: 'w.7z' })
     expect(ro.some((l) => /Rename|Delete|Add/.test(l))).toBe(false)
@@ -45,9 +45,9 @@ describe('the menus of a place inside an archive (#300)', () => {
       'Extract this file to...',
       'Copy file',
       'Rename',
-      'Delete from zip',
       'Show w.zip in File Explorer',
-      'Properties'
+      'Properties',
+      'Delete from zip'
     ])
     expect(labels({ kind: 'file', writable: false, zip: 'w.7z' })).toEqual([
       'Open',
@@ -73,8 +73,8 @@ describe('the menus of a place inside an archive (#300)', () => {
       'Extract here',
       'Extract to...',
       'Add files here...',
-      'Show w.zip in File Explorer',
-      'Copy address'
+      'Copy address',
+      'Show w.zip in File Explorer'
     ])
   })
 

@@ -27,7 +27,7 @@ describe('the markdown reader menu', () => {
   it('on the desktop', () => {
     host(true)
     const items = markdownMenu({ path: 'C:\\notes\\a.md', find: vi.fn() })
-    expect(items.map((i) => i.label)).toEqual(['Find', 'Show in File Explorer', 'Copy path'])
+    expect(items.map((i) => i.label)).toEqual(['Find', 'Copy path', 'Show in File Explorer'])
     expect(items[0].hint).toBe('Ctrl+F')
   })
 

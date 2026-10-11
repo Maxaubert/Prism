@@ -27,22 +27,23 @@ export function tabContextMenu(ctx: TabMenuContext): MenuItem[] {
     // Every row acts on the tab you clicked. "New tab" was here and
     // went (2026-08-31): the + is one pixel away and its tooltip
     // already teaches Ctrl+T.
-    ...(!ctx.pinned ? [{ label: 'Close tab', hint: 'Ctrl+W', onPick: ctx.onClose }] : []),
     // Settings is a tab with no folder. Offering these there did
     // nothing for one of them and wrote an EMPTY STRING over the
     // clipboard for the other, which is worse than doing nothing.
     ...(root
       ? [
           {
-            label: 'Show folder in File Explorer',
-            onPick: () => window.prism.showInExplorer(root)
-          },
-          {
             label: 'Copy folder path',
             onPick: () => void navigator.clipboard.writeText(root)
+          },
+          {
+            label: 'Show folder in File Explorer',
+            onPick: () => window.prism.showInExplorer(root)
           }
         ]
-      : [])
+      : []),
+    // Close LAST, where Delete sits on a file (owner, 2026-10-12).
+    ...(!ctx.pinned ? [{ label: 'Close tab', hint: 'Ctrl+W', onPick: ctx.onClose }] : [])
   ]
 }
 

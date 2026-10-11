@@ -32,6 +32,8 @@ export interface PlacesMenuContext {
   onUnpinQuickAccess?: (path: string) => void
   onMoveQuickAccess?: (path: string, beforePath?: string) => void
   onPinQuickAccessPaths?: (paths: string[], beforePath?: string) => void
+  /** Opens the place's Properties (the panel knows whether it is a drive). */
+  onProperties?: () => void
 }
 
 export function placesMenu(ctx: PlacesMenuContext): MenuItem[] {
@@ -76,10 +78,11 @@ export function placesMenu(ctx: PlacesMenuContext): MenuItem[] {
           }
         ]
       : []),
-    ...fileVerbs(pin.path).map((item) => ({
-      ...item,
-      icon: <FileMenuIcon name={item.label === 'Copy path' ? 'path' : 'folder'} />
-    })),
+    // The clipboard row, then the pin rows, then where it is and its facts
+    // (owner, 2026-10-12: the same order as a file or folder row).
+    ...fileVerbs(pin.path)
+      .filter((item) => item.label === 'Copy path')
+      .map((item) => ({ ...item, icon: <FileMenuIcon name="path" /> })),
     ...(ctx.pinned
       ? [
           {
@@ -110,6 +113,17 @@ export function placesMenu(ctx: PlacesMenuContext): MenuItem[] {
             disabled: !ctx.onPinQuickAccessPaths,
             onPick: () => ctx.onPinQuickAccessPaths?.([pin.path])
           }
-        ])
+        ]),
+    ...fileVerbs(pin.path)
+      .filter((item) => item.label !== 'Copy path')
+      .map((item) => ({ ...item, icon: <FileMenuIcon name="folder" /> })),
+    // Files, folders AND drives have Properties (owner, 2026-10-12); a drive
+    // shows its own facts (sizes, kind), not a walk of the whole disk.
+    {
+      label: 'Properties',
+      icon: <FileMenuIcon name="properties" />,
+      disabled: !ctx.onProperties,
+      onPick: () => ctx.onProperties?.()
+    }
   ]
 }
