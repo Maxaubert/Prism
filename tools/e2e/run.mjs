@@ -9802,7 +9802,8 @@ async function markTintScenario(fixtures) {
  * buggy ... it disappears too abruptly, it should fade quickly but not
  * instantly"). Prism draws its own over the list: hidden at rest, shown while
  * the list scrolls, gone again once it has been still a moment, and it FADES
- * (an opacity transition), where the native one was simply cut.
+ * (an opacity transition), where the native one was simply cut. Only scrolling
+ * shows it (2026-10-12): the pointer over the list no longer does.
  */
 async function listScrollbarScenario(fixtures) {
   console.log('the file list scrollbar')
@@ -9838,14 +9839,17 @@ async function listScrollbarScenario(fixtures) {
     ok(await until(async () => (await look())?.shown === false, 3000, 50), 'still a moment, it hides again')
     l = await look()
     ok(l.fade !== '0s', `and fades out rather than being cut (${l.fade})`)
-    // The pointer over the list keeps it up; leaving lets it go.
+    // ONLY scrolling shows it (owner, 2026-10-12: "only show when actually
+    // scrolling"): the pointer resting on the list leaves it hidden.
     const box = await win.locator('[data-testid="browse-list"]').boundingBox()
     await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-    ok(await until(async () => (await look())?.shown === true, 2000, 25), 'the pointer over the list shows it')
-    await sleep(1500)
-    ok((await look())?.shown === true, 'and keeps it while the pointer stays')
+    await sleep(1200)
+    ok((await look())?.shown === false, 'the pointer over the list does not wake it')
+    // A wheel over the list is scrolling: that shows it, and it goes again.
+    await win.mouse.wheel(0, 300)
+    ok(await until(async () => (await look())?.shown === true, 2000, 25), 'a wheel over the list shows it')
+    ok(await until(async () => (await look())?.shown === false, 3000, 50), 'and it hides once the wheel stops')
     await win.mouse.move(5, 5)
-    ok(await until(async () => (await look())?.shown === false, 3000, 50), 'leaving the list lets it go')
   } finally {
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })

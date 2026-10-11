@@ -638,6 +638,12 @@ changing a feature: each entry records what the owner decided, why, and what hol
   evidence. Folders now carry `mtimeMs` (details stream, listing cache `folderTimes`), and the rows
   move once, when every date is in. Explorer's within-group files-before-folders is NOT copied.
   `downloadsDate` e2e (`PRISM_E2E_DOWNLOADS` points the Known Folder at a fixture, e2e only).
+  **THE LIST'S SCROLLBAR SHOWS ONLY WHILE IT SCROLLS** (owner, 2026-10-12: "i think prism
+  wakes when your cursor is on that panel but i wanna change that too to only show when
+  actually scrolling"). `browse/OverlayScrollbar.tsx`, Prism's own 4px bar (#267's "the
+  scrollbar is too distracting"): a scroll or a wheel shows it, 900 ms of stillness fades it,
+  and the pointer resting on the list no longer wakes it. The pointer on the bar itself, while
+  it shows, and a drag of its thumb hold it up. `listScrollbar` e2e.
   **THE ADDRESS AND THE SEARCH ARE ONE FIELD** (#267; owner, 2026-10-04: "make the url box more
   visible and for the black theme make the grey colours used in search and in the url bar darker
   grey"). Both wear `.browse-field` (`--p-field`, `-edge`, `-edge-hover`, `-hint`). On a ground
