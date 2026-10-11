@@ -2516,9 +2516,24 @@ changing a feature: each entry records what the owner decided, why, and what hol
   natural". So: opening rows, then Cut, Copy, Copy path, Paste together, then what changes the
   item, then Show in File Explorer and Properties, and Delete LAST (Close tab last on a tab).
   Places in the left panel and the tree's empty space gained Properties; a drive's is its own
-  (`lib/driveProps.ts`: kind, location, label, capacity, used, free), never a walk of the disk.
+  (since 2026-10-12 the donut of its top-level folders, `components/properties/DriveBody.tsx`), never a walk of the disk.
   The tree's "Open terminal here" became "New terminal here", the Explorer's word. Held by the
-  `menus/*.test.ts` files, `driveProps.test.ts`, and the e2e `rowPaste` and zip-menu checks.
+  `menus/*.test.ts` files and the e2e `rowPaste` and zip-menu checks.
+  **THE PROPERTIES WINDOW, PER KIND** (owner, 2026-10-12: "build the properties pop up window a
+  bit nicer looking ... for the drives we could show a circle diagram"; picked over three rounds
+  of mockups in `research/prism/mockups/2026-10-12-properties`, then "plan then build"; spec
+  `docs/superpowers/specs/2026-10-12-properties-window-design.md`). `components/properties/`. A
+  DRIVE: a donut of its top-level folders sized from the search index, the legend beside it
+  scrolling (no Free row, the centre says it), a tooltip off the pointer's bottom right with the
+  slice's dot, a slice or row opens the folder; the disk's own model with underscores as spaces
+  ("WD BLACK SN850X 8000GB"), connection and file system; Disk Cleanup (Windows' `cleanmgr`),
+  Open, Close. A FOLDER: size, contents, Created, Modified, Opened; Close only. A PHOTO: the
+  picture on top, megapixels, camera, lens, exposure, place (no map button). A VIDEO: a frame on
+  top, resolution, frame rate, codec, bitrate, audio tracks, subtitles. A SONG: its cover, or
+  sound bars when it has none ("none of these ... have a default note or something similar",
+  then D), and its tags. TEXT and code: language, encoding, line endings, counts. Every FILE: an
+  on-demand SHA-256 with a copy button. `propertiesWindow` e2e (25 checks) and unit tests for
+  every parser.
   **NO ICONS on a viewer's menu, and almost no shortcut hints** (owner pick, 2026-08-31). The
   first cut read like a toolbar - the picture's menu offered next, previous, zoom in, zoom out,
   fit, actual size, rotate, fullscreen and copy, most with a key against the row - and every one

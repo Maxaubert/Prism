@@ -35,7 +35,7 @@ Every file or folder menu reads top to bottom in the same groups:
 5. **Delete, always LAST**, on every menu that has it (Close tab is last on a tab, the same way).
 
 Files, folders and drives all have Properties: the left panel's places (a drive shows its kind and
-sizes, `lib/driveProps.ts`, never a walk of the whole disk) and the project tree's empty space (its
+sizes and a donut of its folders, `components/properties/DriveBody.tsx`, never a walk of the whole disk) and the project tree's empty space (its
 root). The tree says "New terminal here" as the Explorer does. Open question, not done: Show in
 File Explorer may move under a "More" flyout or go.
 

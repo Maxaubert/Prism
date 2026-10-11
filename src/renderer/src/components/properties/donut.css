@@ -1,0 +1,149 @@
+/* THE DRIVE DONUT (DriveDonut.tsx; owner, 2026-10-12, round 2 layout 1).
+   The ring on the left, its legend scrolling beside it, as tall as the ring. */
+.donut-pair {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.donut-ring {
+  position: relative;
+  flex: none;
+}
+.donut-ring svg {
+  display: block;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+/* Free space is the track: a dark ring that still reads against the dialog
+   (the mockup's --p-hover-hi over the dialog's surface, flattened, so a slice
+   gap never shows the track through a translucent fill). */
+.donut-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--p-text) 11%, var(--p-side-flat));
+}
+.donut-slice {
+  fill: none;
+  cursor: pointer;
+  transition: stroke-width 120ms ease-out;
+}
+/* The centre never takes the pointer, or the slices under it lose their hover. */
+.donut-centre {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.donut-centre b {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--p-text);
+}
+.donut-centre span {
+  color: var(--p-dim);
+}
+
+/* The legend's box reaches 8px past the column each side and its rows pad 8px
+   back in, so a lit row's fill reaches past the text and the overlay bar sits
+   over the rows' right padding, never over a number. */
+.donut-legend-wrap {
+  position: relative;
+  min-width: 0;
+  margin: 0 -8px;
+}
+.donut-legend {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.donut-legend ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.donut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 4px;
+  color: var(--p-text-soft);
+  text-align: left;
+  cursor: pointer;
+}
+.donut-row[data-hot] {
+  background: var(--p-hover-hi);
+  color: var(--p-text);
+}
+.donut-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.donut-num {
+  font-variant-numeric: tabular-nums;
+}
+.donut-share {
+  width: 34px;
+  text-align: right;
+  color: var(--p-dim);
+}
+.donut-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 8px;
+  border-radius: 2px;
+}
+.donut-none {
+  margin: 0;
+  color: var(--p-dim2);
+}
+
+/* The slice's tooltip, fixed at the pointer's bottom right. */
+.donut-tip {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  padding: 6px 9px;
+  border: 1px solid var(--p-divider);
+  border-radius: 6px;
+  background: var(--p-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  color: var(--p-text);
+  white-space: nowrap;
+  animation: donut-tip-in 120ms ease-out;
+}
+.donut-tip .donut-dot {
+  margin-right: 7px;
+}
+.donut-tip b {
+  font-weight: 600;
+}
+.donut-tip span {
+  margin-left: 8px;
+  color: var(--p-dim);
+  font-variant-numeric: tabular-nums;
+}
+@keyframes donut-tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .donut-slice,
+  .donut-tip {
+    transition: none;
+    animation: none;
+  }
+}

@@ -78,30 +78,37 @@ execFile(workerData.exe, workerData.args, { windowsHide: true, timeout: 10000 },
 )
 `
 
-export function readLabels(): Promise<Map<string, Label>> {
-  if (process.platform !== 'win32') return Promise.resolve(new Map())
+/** One PowerShell command run from a worker thread (#351), its stdout or
+ *  null. Also the Properties window's drive model query (`driveModel.ts`). */
+export function powershellInWorker(command: string): Promise<string | null> {
   return new Promise((resolve) => {
     let worker: Worker
     try {
       worker = new Worker(LABEL_WORKER, {
         eval: true,
-        workerData: { exe: powershell(), args: ['-NoProfile', '-NonInteractive', '-Command', LABEL_COMMAND] }
+        workerData: { exe: powershell(), args: ['-NoProfile', '-NonInteractive', '-Command', command] }
       })
     } catch {
-      resolve(new Map())
+      resolve(null)
       return
     }
     let answered = false
     const answer = (stdout: string | null): void => {
       if (answered) return
       answered = true
-      resolve(stdout === null ? new Map() : parseLabels(stdout))
+      resolve(stdout)
       void worker.terminate()
     }
     worker.once('message', (stdout: string | null) => answer(stdout))
     worker.once('error', () => answer(null))
     worker.once('exit', () => answer(null))
   })
+}
+
+export async function readLabels(): Promise<Map<string, Label>> {
+  if (process.platform !== 'win32') return new Map()
+  const stdout = await powershellInWorker(LABEL_COMMAND)
+  return stdout === null ? new Map() : parseLabels(stdout)
 }
 
 async function readSpace(root: string): Promise<Space> {
