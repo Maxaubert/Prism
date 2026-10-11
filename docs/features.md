@@ -1770,6 +1770,24 @@ changing a feature: each entry records what the owner decided, why, and what hol
   when nothing is playing; the visualizer's frame loop stops once a paused
   picture has settled; and a cross-volume move copies with `fs/promises`
   rather than `cpSync`, which blocked every window for as long as it took.
+  **THE WALL RESOLVES A GRANT ONCE, AND A PROCESS IS STARTED OFF MAIN** (#351;
+  owner, 2026-10-11: "big issues with stalls at the beginning of using the
+  program, like entering the first folder, highlighting a file ... then it
+  becomes smooth"). MEASURED with a CPU profile of main over the first 25 s on
+  the owner's own profile: 3.6 s of it was `realpathSync`, from
+  `validDesktopRoot` on every `dir:list` of the restored project tree, which
+  resolved every one of 86 grants several times per call. Each grant (and each
+  open root, `roots.ts`) is resolved ONCE when it is granted now, and a call
+  resolves only the path it was asked about (`canonicalPath` /
+  `withinCanonical`): 178 ms, main busy 5.3 s down to 2.4 s. The asked path
+  is still resolved live, so a junction is judged by where it points; a
+  granted folder later swapped for a junction stops matching its grant, which
+  refuses. `desktopAccess.test.ts` caps the realpath count with 200 grants.
+  The drive labels' PowerShell is spawned from a WORKER THREAD
+  (`driveUsage.ts`): starting a process is synchronous on its thread, and the
+  log showed main frozen 2.95 to 3.25 s with only `browse:drives` in flight,
+  about every four hours. Read ahead was already two at a time; its slow
+  `browse:prefetch` times were queueing behind the blocked thread.
 - **The band behind the transport** is a slider (2026-08-25, Settings > Media > Progress bar, Control band opacity):
   0-100%, opaque by default, which is the bar exactly as it always looked. Below
   55% the controls carry their own drop shadow, because at that point they are
