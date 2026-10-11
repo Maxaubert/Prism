@@ -51,10 +51,10 @@ describe('the picture menu', () => {
     expect(labels(items)).toEqual([
       'Rotate',
       'Copy image',
+      'Copy path',
       'Save a copy',
       'Slideshow',
-      'Show in File Explorer',
-      'Copy path'
+      'Show in File Explorer'
     ])
     expect(labels(row(items, 'Save a copy').children ?? [])).toEqual(['PNG', 'JPEG'])
     expect(labels(row(items, 'Slideshow').children ?? [])).toEqual([
@@ -90,6 +90,6 @@ describe('the picture menu', () => {
 
   it('the phone page: no clipboard, no save dialog, no Explorer', () => {
     host(false)
-    expect(labels(imageMenu(ctx()))).toEqual(['Rotate', 'Slideshow', 'Copy path'])
+    expect(labels(imageMenu(ctx()))).toEqual(['Rotate', 'Copy path', 'Slideshow'])
   })
 })

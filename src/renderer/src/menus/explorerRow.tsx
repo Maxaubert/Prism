@@ -19,9 +19,6 @@ export interface ExplorerRowMenuContext {
   entry: BrowseEntry
   /** Several marked rows, when the press was on one of them (#257). */
   paths?: string[]
-  /** Where the menu was opened from; 'more' drops the rows a toolbar already
-   *  offers. */
-  source?: 'more'
   /** Whether the clipboard holds files (asked when the menu opens). */
   canPaste?: boolean
   /** The apps that open the file: null while still looking, undefined for a
@@ -78,6 +75,10 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
     ]
   }
   const rows: MenuItem[] = [
+    // THE ORDER (owner, 2026-10-12): opening, then the clipboard rows
+    // together (Cut, Copy, Copy path, Paste), then what changes the item,
+    // then where it is and its facts, and Delete always LAST. The project
+    // tree's row menu (treeRow.tsx) keeps the same order.
     {
       label: 'Open',
       icon: <FileMenuIcon name="open" />,
@@ -87,21 +88,15 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
         else if (entry.file) ctx.openFile(entry.file)
       }
     },
-    ...(entry.isFolder
+    ...(!entry.isFolder
       ? [
-          {
-            label: 'New terminal here',
-            icon: <FileMenuIcon name="terminal" />,
-            onPick: () => ctx.newTerminalAt(entry.path)
-          }
-        ]
-      : [
           {
             label: 'Show in preview',
             icon: <FileMenuIcon name="split" />,
             onPick: () => ctx.showInPreview(entry.path)
           }
-        ]),
+        ]
+      : []),
     {
       label: 'Open in new tab',
       icon: <FileMenuIcon name="new-tab" />,
@@ -112,6 +107,16 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
       icon: <FileMenuIcon name="project" />,
       onPick: () => ctx.openAsProject(entry)
     },
+    // A folder opens a shell where a file opens in another app.
+    ...(entry.isFolder
+      ? [
+          {
+            label: 'New terminal here',
+            icon: <FileMenuIcon name="terminal" />,
+            onPick: () => ctx.newTerminalAt(entry.path)
+          }
+        ]
+      : [fileAppMenu(entry.path, ctx.apps ?? null)]),
     {
       label: 'Cut',
       icon: <FileMenuIcon name="cut" />,
@@ -126,7 +131,7 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
     },
     // Copy path right under Copy (#286; owner, 2026-10-04: "copy and
     // copy path should be right under each other not spread out
-    // across the menu"). Show in File Explorer stays below.
+    // across the menu"). Show in File Explorer stays below, by Properties.
     ...fileVerbs(entry.path)
       .filter((item) => item.label === 'Copy path')
       .map((item) => ({ ...item, icon: <FileMenuIcon name="path" /> })),
@@ -150,7 +155,6 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
     },
     ...(!entry.isFolder
       ? [
-          fileAppMenu(entry.path, ctx.apps ?? null),
           {
             label: 'Duplicate',
             icon: <FileMenuIcon name="duplicate" />,
@@ -164,13 +168,6 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
       hint: 'F2',
       onPick: () => ctx.rename(entry)
     },
-    {
-      label: 'Delete',
-      icon: <FileMenuIcon name="delete" />,
-      hint: 'Del',
-      danger: true,
-      onPick: () => ctx.askDelete(entry)
-    },
     ...fileVerbs(entry.path)
       .filter((item) => item.label !== 'Copy path')
       .map((item) => ({ ...item, icon: <FileMenuIcon name="folder" /> })),
@@ -178,10 +175,14 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
       label: 'Properties',
       icon: <FileMenuIcon name="properties" />,
       onPick: () => ctx.properties(entry)
+    },
+    {
+      label: 'Delete',
+      icon: <FileMenuIcon name="delete" />,
+      hint: 'Del',
+      danger: true,
+      onPick: () => ctx.askDelete(entry)
     }
   ]
-  return rows.filter(
-    (item) =>
-      ctx.source !== 'more' || !['Open', 'Copy', 'Rename', 'Delete'].includes(item.label ?? '')
-  )
+  return rows
 }

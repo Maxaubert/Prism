@@ -14,18 +14,18 @@ afterEach(() => {
 const labels = (items: Array<{ label: string }>): string[] => items.map((i) => i.label)
 
 describe('tabContextMenu', () => {
-  it('a folder tab: close, then the folder rows', () => {
+  it('a folder tab: the folder rows, then close, last', () => {
     const showInExplorer = vi.fn()
     ;(globalThis as unknown as { prism: unknown }).prism = { showInExplorer }
     const items = tabContextMenu({ root: 'C:\\a', pinned: false, onClose: vi.fn() })
-    expect(labels(items)).toEqual(['Close tab', 'Show folder in File Explorer', 'Copy folder path'])
+    expect(labels(items)).toEqual(['Copy folder path', 'Show folder in File Explorer', 'Close tab'])
     items[1].onPick?.()
     expect(showInExplorer).toHaveBeenCalledWith('C:\\a')
   })
   it('a pinned Explorer tab cannot be closed', () => {
     expect(labels(tabContextMenu({ root: 'C:\\a', pinned: true, onClose: vi.fn() }))).toEqual([
-      'Show folder in File Explorer',
-      'Copy folder path'
+      'Copy folder path',
+      'Show folder in File Explorer'
     ])
   })
   it('Settings has no folder: only Close tab', () => {

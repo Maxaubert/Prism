@@ -132,8 +132,9 @@ export interface FolderBrowserProps {
   onRefresh?: () => void
   /** Ctrl+Shift+N (#330): a new folder in `directory`, then its rename. */
   onNewFolder?: (directory: string) => void
-  /** Alt+Enter (#330): Prism's own Properties, as the menu's. */
-  onProperties?: (entry: BrowseEntry) => void
+  /** Alt+Enter (#330): Prism's own Properties, as the menu's. A drive from
+   *  the places panel brings its usage, shown instead of a walk of the disk. */
+  onProperties?: (entry: BrowseEntry, drive?: BrowseDriveUsage) => void
   /** Ctrl+Shift+C (#330): these full paths as text, one per line. */
   onCopyPathText?: (paths: string[]) => void
   onDropInto?: (directory: string, payload: DragPayload) => void

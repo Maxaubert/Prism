@@ -44,11 +44,16 @@ export interface CodeMenuContext {
 export function codeMenu(ctx: CodeMenuContext): MenuItem[] {
   const { path, hasSel, wraps, setWrapPref, ready, dirty, tailed, following } = ctx
   const { selectAll, findHere, gotoHere } = ctx
+  // Copy path joins the clipboard verbs and Show in File Explorer closes the
+  // menu (owner, 2026-10-12).
+  const copyPath = fileVerbs(path).filter((item) => item.label === 'Copy path')
+  const elsewhere = fileVerbs(path).filter((item) => item.label !== 'Copy path')
   // A reader's menu (#106) has no Cut, Paste, Follow or Save: those change
   // the document or the file, and it can do neither.
   if (ctx.readOnly)
     return [
       { label: 'Copy', disabled: !hasSel, onPick: () => void document.execCommand('copy') },
+      ...copyPath,
       { label: 'Select all', onPick: selectAll },
       { label: 'Find', hint: 'Ctrl+F', onPick: findHere },
       { label: 'Go to line', hint: 'Ctrl+G', onPick: gotoHere },
@@ -57,7 +62,7 @@ export function codeMenu(ctx: CodeMenuContext): MenuItem[] {
         icon: tickIf(wraps),
         onPick: () => setWrapPref(wraps ? 'off' : 'on')
       },
-      ...fileVerbs(path)
+      ...elsewhere
     ]
   return [
     // No shortcut hints on the clipboard verbs: Ctrl+X/C/V are the three
@@ -67,6 +72,7 @@ export function codeMenu(ctx: CodeMenuContext): MenuItem[] {
     { label: 'Cut', disabled: !hasSel, onPick: () => void document.execCommand('cut') },
     { label: 'Copy', disabled: !hasSel, onPick: () => void document.execCommand('copy') },
     { label: 'Paste', onPick: ctx.pasteHere },
+    ...copyPath,
     { label: 'Select all', onPick: selectAll },
     { label: 'Find', hint: 'Ctrl+F', onPick: findHere },
     { label: 'Go to line', hint: 'Ctrl+G', onPick: gotoHere },
@@ -87,6 +93,6 @@ export function codeMenu(ctx: CodeMenuContext): MenuItem[] {
       onPick: ctx.toggleFollow
     },
     { label: 'Save', hint: 'Ctrl+S', disabled: following || tailed, onPick: () => void ctx.save() },
-    ...fileVerbs(path)
+    ...elsewhere
   ]
 }

@@ -36,8 +36,8 @@ describe('fileVerbs', () => {
   it('offers Explorer and the path on the desktop', () => {
     const { showInExplorer } = install(true)
     const verbs = fileVerbs('C:\\a\\b.txt')
-    expect(verbs.map((v) => v.label)).toEqual(['Show in File Explorer', 'Copy path'])
-    verbs[0].onPick?.()
+    expect(verbs.map((v) => v.label)).toEqual(['Copy path', 'Show in File Explorer'])
+    verbs[1].onPick?.()
     expect(showInExplorer).toHaveBeenCalledWith('C:\\a\\b.txt')
   })
   it('keeps only Copy path where there is no Explorer to show a file in', () => {
