@@ -5,7 +5,7 @@ import { MARK_OPTIONS } from './markOptions'
 import { terminalOptionIds } from './options'
 import type { SettingsIndexEntry } from './layout/search'
 import { SETTINGS_SECTIONS, type SettingsSectionId } from './sectionIds'
-import { acrylicSub, opt, themeSub } from './sections/opts'
+import { acrylicLabel, acrylicSub, opt, themeSub } from './sections/opts'
 
 /**
  * THE CORE'S ROWS FOR FIND A SETTING (2026-10-05): one entry per terminal,
@@ -48,7 +48,8 @@ export function coreSettingsIndex({
       page: pageOf(section),
       section: SETTINGS_SECTIONS[section] || '',
       sectionId: section,
-      label: o.label,
+      // The see-through row is named per host (#156), as the page names it.
+      label: id === 'term-acrylic' ? acrylicLabel() : o.label,
       sub,
       icon: o.icon,
       keywords: o.keywords

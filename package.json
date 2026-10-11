@@ -1,6 +1,6 @@
 {
   "name": "prism-term-core",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "description": "What Prism Terminal and Prism share: the terminal (pty, shells, agent detection and indicator, themes, links, the panel, dictation) and the update chip with its window. TypeScript source, compiled by the host.",
   "license": "MIT",
   "private": true,

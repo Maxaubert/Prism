@@ -137,6 +137,17 @@ there is no Opacity row and no `termOpacity`/`setTermOpacity`: where
 `acrylic.kind` is 'window' the theme Background's alpha is the window's
 see-through (`termGroundAlpha`, `withGroundAlpha`, `legacyTermOpacity` for a
 host's one-time migration); `TERMINAL_OPTIONS` is the same list in every host.
+Since 0.31.0 (#156) the switch alone makes such a window see-through: an
+opaque ground in force under it paints Prism's default levels
+(`seeThroughAlpha`, 0xb9 dark / 0xd1 light, `lib/seeThrough.ts`) through
+`paintsAlpha`, the one rule `termGroundAlpha` and Save changes' dirty check
+share. The switch is read as stored (`termAcrylic`): the rule that held High
+Contrast solid went with the theme (owner, 2026-10-11). The
+row is named by `acrylicLabel()` ("See-through window" there, the list's label
+in Prism) and drawn right under the wall, before `afterTheme`.
+Since 0.31.0 (#157) the wall orders the presets after its leading cards with
+`orderTermThemes` (`lib/themeOrder.ts`): neutral grounds first, then coloured,
+each black to white by OKLab L; neutral is chroma below `NEUTRAL_CHROMA`.
 Spec:
 `docs/superpowers/specs/2026-10-03-colour-picker-alpha-design.md`.
 

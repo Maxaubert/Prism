@@ -9,7 +9,12 @@ import {
   type AgentIndicator
 } from '../host'
 import { liveThemeId } from './termThemeRetired'
-import { alphaOf, parseColour, toStored, withAlpha } from './colour'
+import { alphaOf, opaque, parseColour, toStored, withAlpha } from './colour'
+import { seeThroughAlpha } from './seeThrough'
+// A CYCLE, and a safe one: termTheme imports this module too, and neither reads
+// the other at module load (only inside functions, at call time), so either may
+// be evaluated first.
+import { resolveTermTheme } from './termTheme'
 
 export type { AgentIndicator }
 
@@ -419,13 +424,44 @@ function stored(c: unknown): string | null {
  * they write, but a stored or hand-edited `#12121205` must not paint an all
  * but invisible window. The floor is the byte 30% gives (0x4d), so every
  * value a picker or the migration writes reads unchanged.
+ *
+ * And there, with the see-through switch on, an OPAQUE ground paints
+ * the default see-through (#156, `paintsAlpha`): a preset is no longer 1.
  */
 export function termGroundAlpha(): number {
   const a = rawGroundAlpha()
-  return hostOwnsWindowAcrylic() ? Math.max(GROUND_ALPHA_MIN, a) : a
+  if (!hostOwnsWindowAcrylic()) return a
+  // The ground is only looked up when the default can apply: resolving a
+  // theme on every read of an alpha that needs none would be waste.
+  const on = termAcrylic()
+  return paintsAlpha(a, on && isOpaque(a) ? groundInForce() : '#000000', on)
 }
 /** The lowest window see-through: Opacity 30's byte, round(0.3 * 255). */
 export const GROUND_ALPHA_MIN = 0x4d / 255
+
+/**
+ * THE ONE RULE for what a ground paints where the terminal owns the window
+ * acrylic (#156), shared by the window (`termGroundAlpha`) and Save changes'
+ * dirty check (`useTermSetup`), so the two can never disagree about a saved
+ * setup. With the switch on, an OPAQUE ground paints the default see-through
+ * (Prism's levels, by the ground light or dark): on means see-through by
+ * itself, as Prism's switch does, where before #156 a preset stayed solid and
+ * the switch looked broken. A ground that carries an alpha keeps it, floored
+ * at 30% as the Opacity slider was.
+ */
+export function paintsAlpha(raw: number, ground: string, acrylicOn: boolean): number {
+  if (acrylicOn && isOpaque(raw)) return seeThroughAlpha(ground)
+  return Math.max(GROUND_ALPHA_MIN, raw)
+}
+/** Opaque BY THE BYTE: an alpha that stores as ff is opaque. */
+const isOpaque = (a: number): boolean => Math.round(a * 255) >= 255
+
+/** The ground in force, opaque, in the order the window paints it: the
+ *  host's picked one, else the theme's own (a Custom's `bg` included). */
+function groundInForce(): string {
+  return opaque(hostGround() ?? resolveTermTheme(termThemeId()).background)
+}
+
 function rawGroundAlpha(): number {
   const picked = hostGround()
   if (picked) return alphaOf(picked)
@@ -442,10 +478,23 @@ function rawGroundAlpha(): number {
  * the colour editor opens on, so a see-through window stays see-through
  * through a save (the Opacity slider was carried in the setup the same way).
  * Where the host's style owns the glass (Prism), the palette as it is.
+ *
+ * It is the alpha the WINDOW paints (`termGroundAlpha`), the default measured
+ * from the picked Background where one is in force: what the user saw is what
+ * is saved, and what Save changes' dirty check reads back. Measuring from the
+ * palette's own ground instead (review of #156) saved a dark Custom under an
+ * opaque white pick at b9 while the window and the check stayed at d1, so
+ * Save changes stayed lit after every save.
+ *
+ * Without a pick the ground is the PALETTE's own, not the active theme's:
+ * every preset card has an edit button, and a light preset edited under a
+ * dark active theme opened, and saved, at the dark level (review of the fix
+ * above). For the active theme the two are the same ground.
  */
 export function withGroundAlpha<T extends { bg: string }>(palette: T): T {
   if (!hostOwnsWindowAcrylic()) return palette
-  return { ...palette, bg: withAlpha(palette.bg, termGroundAlpha()) }
+  const ground = opaque(hostGround() ?? palette.bg)
+  return { ...palette, bg: withAlpha(palette.bg, paintsAlpha(rawGroundAlpha(), ground, termAcrylic())) }
 }
 
 export function saveCustomTermTheme(theme: CustomTermTheme): void {

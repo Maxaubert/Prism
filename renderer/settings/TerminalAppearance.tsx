@@ -22,6 +22,7 @@ import { ColourField } from './ColourPicker'
 import { AgentIndicatorSetting, AttentionSettings } from './TerminalBehaviour'
 import { ThemeWall } from './theme/ThemeWall'
 import { useNoAcrylic, useTermSetup } from './theme/useTermSetup'
+import { acrylicLabel, saveSetupTitle } from './sections/opts'
 
 // THE TERMINAL'S LOOK, as one settings section for both hosts (#15): the theme
 // wall and its editor, font, size, acrylic, and the two agent indicator
@@ -76,6 +77,9 @@ export function TerminalAppearanceSettings({
   // The theme Background's alpha is the window's see-through here (#114).
   const windowAcrylic = hostOwnsWindowAcrylic()
   const noAcrylic = useNoAcrylic()
+  // Where the terminal owns the window acrylic, the see-through window (#156);
+  // in Prism the name this row always had.
+  const acrylicName = windowAcrylic ? acrylicLabel() : 'Acrylic background'
   return (
     <div className={ROWS}>
       {/* WHAT NO THEME OWNS COMES FIRST (owner, 2026-09-28: font and font size
@@ -122,7 +126,7 @@ export function TerminalAppearanceSettings({
             <SaveButton
               dirty={termDirty}
               onClick={saveTermSetup}
-              title="Saves the theme, agent colours and acrylic as Custom"
+              title={saveSetupTitle()}
             />
           }
         />
@@ -133,7 +137,7 @@ export function TerminalAppearanceSettings({
           why instead of offering a switch that would do nothing. */}
       <Pref
         id="term-acrylic"
-        label="Acrylic background"
+        label={acrylicName}
         off={noAcrylic}
         hint={
           noAcrylic
@@ -146,7 +150,7 @@ export function TerminalAppearanceSettings({
         <Switch
           on={acrylicOn && !noAcrylic}
           onChange={setTermAcrylic}
-          label="Acrylic background"
+          label={acrylicName}
           disabled={noAcrylic}
         />
       </Pref>

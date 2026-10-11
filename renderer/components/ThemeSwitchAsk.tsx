@@ -1,5 +1,6 @@
 import { useEffect, useRef, type JSX } from 'react'
 import { ROW_BUTTON } from '../settings/fields'
+import { acrylicWord } from '../settings/sections/opts'
 
 /**
  * UNSAVED CHANGES ASK BEFORE A THEME SWITCH (owner, 2026-09-23: "if you have
@@ -64,7 +65,7 @@ export default function ThemeSwitchAsk({
           Save your changes first?
         </h2>
         <p id="theme-switch-ask-body" className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--p-dim)]">
-          Switching theme puts the agent colours and acrylic back to the new theme&apos;s own.
+          Switching theme puts the agent colours and {acrylicWord()} back to the new theme&apos;s own.
           Your changes are not saved yet.
         </p>
         <div className="mt-5 flex justify-end gap-2">

@@ -51,7 +51,7 @@ export const TERMINAL_OPTIONS: readonly TerminalOption[] = [
   { id: 'agent-hooks', label: 'Exact status from Claude Code', type: 'switch', key: 'prism.term.agentHooks', section: 'claude', icon: 'hook', sub: 'Applies to terminals opened after a change.', keywords: 'hooks plugin status anthropic' },
   // The theme wall, and under it only what a theme sets (2026-09-28).
   { id: 'term-theme', label: 'Terminal theme', type: 'theme', key: 'prism.term.theme', section: 'theme', icon: 'brush', sub: 'Colours of the terminal and the window.', keywords: 'colors palette scheme dark light preset custom' },
-  { id: 'term-acrylic', label: 'Acrylic terminal background', type: 'switch', key: 'prism.term.acrylic', section: 'theme', icon: 'glass', sub: 'The desktop shows through the window.', keywords: 'transparent glass blur mica see through' },
+  { id: 'term-acrylic', label: 'Acrylic terminal background', type: 'switch', key: 'prism.term.acrylic', section: 'theme', icon: 'glass', sub: 'The desktop shows through the window.', keywords: 'acrylic transparent glass blur mica see through' },
   // No Opacity row (#114): the theme Background's alpha is the window's
   // see-through where the terminal owns the window acrylic.
   { id: 'agent-color', label: 'Agent working colour', type: 'colour', key: 'prism.term.agentColor', section: 'colours', icon: 'working', sub: 'Follows the accent.', keywords: 'color indicator busy' },

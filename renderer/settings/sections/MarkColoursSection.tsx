@@ -13,8 +13,7 @@ import { RESET_LINK, SaveButton } from '../fields'
 import { SettingRow } from '../layout/SettingRow'
 import { SettingsSection } from '../layout/SettingsSection'
 import { useTermSetup } from '../theme/useTermSetup'
-import { opt, sectionTitle } from './opts'
-import { SAVE_SETUP_TITLE } from './TerminalThemeSection'
+import { opt, saveSetupTitle, sectionTitle } from './opts'
 
 const OWN = 'Your own colour.'
 
@@ -37,7 +36,7 @@ export function MarkColoursSection(): JSX.Element {
     <SettingsSection
       id="colours"
       title={sectionTitle('colours')}
-      action={<SaveButton dirty={dirty} onClick={save} title={SAVE_SETUP_TITLE} />}
+      action={<SaveButton dirty={dirty} onClick={save} title={saveSetupTitle()} />}
     >
       <SettingRow id="agent-color" icon={working.icon} label={working.label} sub={agentCol ? OWN : working.sub}>
         {agentCol && (

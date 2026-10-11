@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react'
-import { hostOwnsWindowAcrylic, termHost } from '../../host'
+import { hostGround, hostOwnsWindowAcrylic, termHost } from '../../host'
 import {
+  agentColorChoice,
+  agentDoneColorChoice,
+  agentQuestionColorChoice,
+  customTermTheme,
   saveCustomTermTheme,
   setTermThemeId,
+  paintsAlpha,
+  termAcrylic,
   termExtraDefaults,
+  termGroundAlpha,
   termThemeId,
   useAgentColorChoice,
   useAgentDoneColorChoice,
@@ -14,7 +21,8 @@ import {
   useTermThemeId,
   withGroundAlpha
 } from '../../lib/termLook'
-import { alphaOf } from '../../lib/colour'
+import { alphaOf, opaque } from '../../lib/colour'
+import { resolveTermTheme } from '../../lib/termTheme'
 import { paletteOf } from './palette'
 
 /**
@@ -39,20 +47,31 @@ export interface TermSetup {
 }
 
 export function useTermSetup(): TermSetup {
-  const themeId = useTermThemeId()
-  const acrylicOn = useTermAcrylic()
+  // Subscribed for the re-render only; the state is read in one place below.
+  useTermThemeId()
+  useTermAcrylic()
+  useTermGroundAlpha()
+  useAgentColorChoice()
+  useAgentDoneColorChoice()
+  useAgentQuestionColorChoice()
+  useCustomTermTheme()
+  const { dirty, extras } = termSetupState()
+  return { dirty, save: saveTermSetup, extras }
+}
+
+/** Dirty and the extras, from the stores as they are (tested). */
+export function termSetupState(): Pick<TermSetup, 'dirty' | 'extras'> {
+  const themeId = termThemeId()
+  const acrylicOn = termAcrylic()
   // The window's see-through (#114): the alpha of the ground in force, the
   // picked Background's first. A byte, so the comparison below is exact.
-  const groundByte = Math.round(useTermGroundAlpha() * 255)
+  const groundByte = Math.round(termGroundAlpha() * 255)
+  const custom = customTermTheme()
   // The CHOICES ('' = follow the theme) are what is saved and compared.
-  const agentCol = useAgentColorChoice()
-  const doneCol = useAgentDoneColorChoice()
-  const questionCol = useAgentQuestionColorChoice()
-  const custom = useCustomTermTheme()
   const extras = {
-    indicatorColor: agentCol,
-    doneColor: doneCol,
-    questionColor: questionCol,
+    indicatorColor: agentColorChoice(),
+    doneColor: agentDoneColorChoice(),
+    questionColor: agentQuestionColorChoice(),
     acrylic: acrylicOn
   }
   // Dirty = the SETTINGS deviate from the selected theme's stock: any theme
@@ -65,22 +84,43 @@ export function useTermSetup(): TermSetup {
     indicatorColor: src?.indicatorColor ?? termExtraDefaults().indicatorColor,
     doneColor: src?.doneColor ?? termExtraDefaults().doneColor,
     questionColor: src?.questionColor ?? termExtraDefaults().questionColor,
-    acrylic: src?.acrylic ?? termExtraDefaults().acrylic
+    acrylic: (src?.acrylic ?? termExtraDefaults().acrylic)
   }
   // THE UNSAVED-CHANGES QUESTION SURVIVES THE SLIDER (#114, #60). Opacity was
   // one of the extras, so a changed one lit Save changes and a theme pick
   // asked before forgetting it. Its place is taken by the ground's alpha in
-  // force against the theme's own (a preset is opaque, a Custom has its bg's):
-  // a see-through picked Background lights Save changes in the same way.
-  // Only where that alpha is the window's (Prism has no such alpha).
-  const ownByte = src ? Math.round(alphaOf(src.bg) * 255) : 255
-  const dirty =
-    JSON.stringify(extras) !== JSON.stringify(baseline) || (hostOwnsWindowAcrylic() && groundByte !== ownByte)
-  const save = (): void => {
-    saveCustomTermTheme({ ...withGroundAlpha(paletteOf(termThemeId())), ...extras })
-    setTermThemeId('custom')
+  // force against what the theme's own setup paints: a see-through picked
+  // Background lights Save changes in the same way. Only where that alpha is
+  // the window's (Prism has no such alpha, and is not asked to resolve one).
+  // The theme's own is computed by the rule the window paints by (#156,
+  // `paintsAlpha`): an older Custom saved with acrylic on and an opaque `bg`
+  // paints the default see-through, so it is not dirty on pick. A preset's own
+  // setup has the host's default acrylic (off in Prism Terminal).
+  // Its default level is measured from the ground the WINDOW measures from,
+  // the picked Background first (review of #156): an opaque pick changes no
+  // setting, so it must not light Save changes by being lighter or darker
+  // than the theme's own ground.
+  const ownByte = (): number => {
+    const picked = hostGround()
+    const ground = picked ? opaque(picked) : (src?.bg ?? resolveTermTheme(themeId).background)
+    return Math.round(paintsAlpha(src ? alphaOf(src.bg) : 1, ground, baseline.acrylic) * 255)
   }
-  return { dirty, save, extras }
+  const dirty =
+    JSON.stringify(extras) !== JSON.stringify(baseline) || (hostOwnsWindowAcrylic() && groundByte !== ownByte())
+  return { dirty, extras }
+}
+
+/** Save the whole setup in force as Custom, and select it. */
+export function saveTermSetup(): void {
+  saveAsCustom(withGroundAlpha(paletteOf(termThemeId())))
+}
+
+/** Save a palette with the setup in force as Custom, and select it: Save
+ *  changes, and the colour editor's save. */
+export function saveAsCustom(palette: ReturnType<typeof paletteOf>): void {
+  const { extras } = termSetupState()
+  saveCustomTermTheme({ ...palette, ...extras })
+  setTermThemeId('custom')
 }
 
 /**
