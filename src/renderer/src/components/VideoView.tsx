@@ -13,7 +13,8 @@ import type { TransportStyle } from '../lib/transport'
 import { useViz } from '../lib/vizStore'
 import { wasPlaying, whenIntended } from '../lib/playState'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { pngFromVideo, videoHasFrame } from '../lib/copyImage'
+import { videoMenu } from '../menus/viewers/video'
+import { videoHasFrame } from '../lib/copyImage'
 import type { AudioTrackOffer } from '@shared/types'
 import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
 import { useBackgroundPause } from '../lib/useBackgroundPause'
@@ -338,142 +339,24 @@ export function VideoView({
   }, [showChrome, background])
 
 
-  /** A ticked row: the menu has no checkbox of its own, so the tick is the icon. */
-  const tickIf = (on: boolean): JSX.Element => (
-    <span className="w-2.5 shrink-0 text-[var(--color-accent-hi)]" aria-hidden>
-      {on ? '✓' : ''}
-    </span>
-  )
-
-  /**
-   * The right-click menu (2026-08-27), VLC-shaped: what the picture does, how
-   * fast it plays, which subtitles, and the file itself. Everything here is
-   * reachable elsewhere too - this is the place people look first.
-   */
-  const menuItems = (hasFrame: boolean, el: HTMLVideoElement | null): MenuItem[] => {
-    // Trimmed to what belongs here (owner picks, 2026-08-27). Play/pause and
-    // fullscreen came out: a click and a double-click already do them, and a
-    // menu you trim is not the place for a third way. Every row carries the
-    // tick column, ticked or not, so the labels line up.
-    const items: MenuItem[] = [
-      {
-        label: 'Next video',
-        icon: tickIf(false),
-        disabled: !canStep(1),
-        onPick: () => onStep(1)
-      },
-      {
-        label: 'Previous video',
-        icon: tickIf(false),
-        disabled: !canStep(-1),
-        onPick: () => onStep(-1)
-      },
-      {
-        label: 'Picture',
-        icon: tickIf(false),
-        // No hints in here: `hint` is the shortcut column, and a sentence in
-        // it is a wall of text down the right-hand side.
-        children: VIDEO_FITS.map((f) => ({
-          label: f.label,
-          icon: tickIf(fit === f.id),
-          onPick: () => pickFit(f.id)
-        }))
-      },
-      {
-        label: 'Speed',
-        // The same rate the cog's slider drives - one setting, two ways in -
-        // so the current value belongs on the row that opens the list.
-        hint: `${c.rate.toFixed(2)}×`,
-        icon: tickIf(false),
-        children: [0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => ({
-          label: r === 1 ? 'Normal' : `${r}×`,
-          icon: tickIf(Math.abs(c.rate - r) < 0.01),
-          onPick: () => c.setRate(r)
-        }))
-      },
-      ...(audioTracks.length > 1
-        ? [
-            {
-              // Only for a file that HAS a choice: one track needs no picker.
-              label: 'Audio track',
-              icon: tickIf(false),
-              children: [
-                {
-                  label: 'Default',
-                  icon: tickIf(track === null),
-                  onPick: () => setTrack(null)
-                },
-                ...audioTracks.map((t, i) => ({
-                  label: trackLabel(t, i),
-                  icon: tickIf(track === t.index),
-                  onPick: () => setTrack(t.index)
-                }))
-              ]
-            } as MenuItem
-          ]
-        : []),
-      {
-        // Always here, even with nothing found: this is the one place that can
-        // ADD a track, which is the point of the manual row. (The cog still
-        // hides its section when there is nothing to list - it is a list, not
-        // a way to do something.)
-        label: 'Subtitles',
-        icon: tickIf(false),
-        children: [
-          {
-            label: 'Off',
-            icon: tickIf(subtitles.active === null),
-            onPick: () => subtitles.pick(null)
-          },
-          ...subtitles.tracks.map((t) => ({
-            label: t.label,
-            icon: tickIf(subtitles.active === t.path),
-            onPick: () => subtitles.pick(t.path)
-          })),
-          { label: 'Add subtitle file…', icon: tickIf(false), onPick: () => subtitles.add() }
-        ]
-      },
-      // The frame goes to the OS clipboard and Explorer is the desktop's:
-      // on the phone (#106) neither row is offered.
-      ...(window.prism.capabilities.clipboard
-        ? [
-            {
-              // VLC's Shift+S, as a visible verb rather than a keystroke: the
-              // fullscreen read-only rule allows a click on something you can
-              // see. Greyed when there is no picture to take - an enabled row
-              // that does nothing is the failure that got the other rows cut.
-              label: 'Copy frame',
-              icon: tickIf(false),
-              disabled: !hasFrame,
-              // Wrapped rather than passed: menuItems() runs in the render
-              // pass that draws the menu, and the linter follows a bare
-              // reference into copyFrame's ref access. The extra closure is
-              // the seam.
-              onPick: () =>
-                void pngFromVideo(el).then((png) => {
-                  if (png) window.prism.copyImageToClipboard(png)
-                })
-            }
-          ]
-        : []),
-      ...(window.prism.capabilities.explorer
-        ? [
-            {
-              label: 'Show in File Explorer',
-              icon: tickIf(false),
-              onPick: () => window.prism.showInExplorer(path)
-            }
-          ]
-        : []),
-      {
-        label: 'Copy path',
-        icon: tickIf(false),
-        onPick: () => void navigator.clipboard.writeText(path)
-      }
-    ]
-    return items
-  }
-
+  /** The right-click menu; the rows and the reasons are in menus/viewers/video. */
+  const menuItems = (hasFrame: boolean, el: HTMLVideoElement | null): MenuItem[] =>
+    videoMenu({
+      path,
+      onStep,
+      canStep,
+      fit,
+      pickFit,
+      rate: c.rate,
+      setRate: (r) => c.setRate(r),
+      audioTracks,
+      track,
+      setTrack,
+      trackLabel,
+      subtitles,
+      hasFrame,
+      el
+    })
 
   /**
    * What the pointer was when it landed, and what the screen was showing then
