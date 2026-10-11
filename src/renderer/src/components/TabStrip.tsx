@@ -5,9 +5,10 @@ import { useAgentIndicator } from 'prism-term-core/renderer/lib/termLook'
 import { useAgentColors } from 'prism-term-core/renderer/lib/agentColors'
 import { inkOn } from 'prism-term-core/renderer/lib/colour'
 import { tabsOf, useStyle } from '../lib/theme'
-import { pinnedRoots, plusMenuList, recentLabels, recentRoots, togglePin } from 'prism-term-core/renderer/lib/recentRoots'
+import { pinnedRoots, plusMenuList, recentRoots, togglePin } from 'prism-term-core/renderer/lib/recentRoots'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 import { ContextMenu } from './ContextMenu'
+import { plusButtonMenu, tabContextMenu } from '../menus/tabStrip'
 import { TabKindIcon } from './TabKindIcon'
 import { useTabWidth } from '../lib/tabWidthPrefs'
 
@@ -21,13 +22,6 @@ import { useTabWidth } from '../lib/tabWidthPrefs'
 /** How far the pointer must travel before a press becomes a drag rather than
  *  a click on the tab. */
 const DRAG_SLOP = 4
-
-/** The tree's folder, at menu size: the + menu lists PLACES. */
-const FolderGlyph = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" width={13} height={13} fill="var(--p-tree-folder)" className="shrink-0" aria-hidden>
-    <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
-  </svg>
-)
 
 /** The pin on a + menu row (#99): outlined while the folder is only history,
  *  filled once it is pinned. One path, two fills, so the two states line up. */
@@ -148,10 +142,7 @@ export function TabStrip({
     y: number
     rows: Array<{ path: string; pinned: boolean }>
   } | null>(null)
-  /** A tab's own menu. Deliberately WITHOUT 'close others': each close can
-   *  raise the unsaved-changes question, and firing several would overwrite
-   *  it and lose the work it exists to protect. That wants App-side
-   *  batching, which is a decision rather than a gap to fill here. */
+  /** A tab's own menu (its rows: menus/tabStrip.tsx). */
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string; root: string; pinned: boolean } | null>(
     null
   )
@@ -549,29 +540,11 @@ export function TabStrip({
           x={tabMenu.x}
           y={tabMenu.y}
           onClose={() => setTabMenu(null)}
-          items={[
-            // Every row acts on the tab you clicked. "New tab" was here and
-            // went (2026-08-31): the + is one pixel away and its tooltip
-            // already teaches Ctrl+T.
-            ...(!tabMenu.pinned
-              ? [{ label: 'Close tab', hint: 'Ctrl+W', onPick: () => onClose(tabMenu.id) }]
-              : []),
-            // Settings is a tab with no folder. Offering these there did
-            // nothing for one of them and wrote an EMPTY STRING over the
-            // clipboard for the other, which is worse than doing nothing.
-            ...(tabMenu.root
-              ? [
-                  {
-                    label: 'Show folder in File Explorer',
-                    onPick: () => window.prism.showInExplorer(tabMenu.root)
-                  },
-                  {
-                    label: 'Copy folder path',
-                    onPick: () => void navigator.clipboard.writeText(tabMenu.root)
-                  }
-                ]
-              : [])
-          ]}
+          items={tabContextMenu({
+            root: tabMenu.root,
+            pinned: tabMenu.pinned,
+            onClose: () => onClose(tabMenu.id)
+          })}
         />
       )}
       {plusMenu && (
@@ -579,32 +552,15 @@ export function TabStrip({
           x={plusMenu.x}
           y={plusMenu.y}
           onClose={() => setPlusMenu(null)}
-          items={
-            plusMenu.rows.length
-              ? recentLabels(plusMenu.rows.map((r) => r.path)).map((r, i) => {
-                  const pinned = plusMenu.rows[i].pinned
-                  return {
-                    label: r.label,
-                    // A folder in front of each, in the tree's own folder
-                    // colour: the menu should say "places" at a glance, not
-                    // read as a list of commands.
-                    icon: <FolderGlyph />,
-                    onPick: () => onOpenRecent(r.path),
-                    // The pin (#99): toggles in place and the list re-reads,
-                    // so the row you pinned climbs to the top while the menu
-                    // stands. Pinned rows stay for good, above the recents.
-                    trailing: {
-                      icon: <PinGlyph filled={pinned} />,
-                      title: pinned ? 'Unpin' : 'Pin to this menu',
-                      onClick: () => {
-                        togglePin(r.path)
-                        setPlusMenu((m) => (m ? { ...m, rows: plusMenuRows() } : m))
-                      }
-                    }
-                  }
-                })
-              : [{ label: 'No recent folders', disabled: true }]
-          }
+          items={plusButtonMenu({
+            rows: plusMenu.rows,
+            onOpenRecent,
+            onTogglePin: (path) => {
+              togglePin(path)
+              setPlusMenu((m) => (m ? { ...m, rows: plusMenuRows() } : m))
+            },
+            pinIcon: (filled) => <PinGlyph filled={filled} />
+          })}
         />
       )}
     </div>

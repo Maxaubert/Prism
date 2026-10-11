@@ -17739,7 +17739,7 @@ async function zipGo(win, path, until_) {
 /**
  * THE MENUS (#300, mockups 02, 07, 08): a zip outside, a folder inside, a
  * file inside, and a read-only 7z inside, each exactly the rows the spec
- * lists (`lib/archiveMenus.ts`), with the left-out ones absent.
+ * lists (`menus/archiveMenus.ts`), with the left-out ones absent.
  */
 async function zipMenusScenario(fixtures) {
   console.log('zip menus (#300)')

@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { browseCrumbs, browseParent } from '../../lib/browse'
-import { clipboardText } from '../../lib/clipboardText'
+import { addressBarMenu } from '../../menus/addressBar'
 import { ContextMenu } from '../ContextMenu'
 import { BrowseIcon } from './BrowseIcon'
 import type { FolderBrowserProps } from './types'
@@ -229,14 +229,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[
-            // Explorer's own words and pair: the folder itself (a paste in
-            // Explorer takes the folder, a paste in text takes the path), and
-            // the path as plain text.
-            { label: 'Copy address', onPick: () => void window.prism.copyAddress(menu.path) },
-            { label: 'Copy address as text', onPick: () => void clipboardText(menu.path) },
-            { label: 'Edit address', hint: 'Ctrl+L', onPick: begin }
-          ]}
+          items={addressBarMenu({ path: menu.path, onEdit: begin })}
         />
       )}
       {props.trailing}

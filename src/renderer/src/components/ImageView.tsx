@@ -13,16 +13,9 @@ import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
 import { chromeClass, useAutoHideChrome, type ChromeActivityClock } from '../lib/autoHideChrome'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { FileMenuIcon } from './FileMenuIcon'
-import { fileVerbs, tickIf } from '../lib/fileVerbs'
+import { imageMenu } from '../menus/viewers/image'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
-import {
-  loadSlideSeconds,
-  saveSlideSeconds,
-  SLIDE_SECONDS,
-  stopsSlideshow,
-  type SlideSeconds
-} from '../lib/slideshow'
+import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
 
 // Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
 // measured at 2.3s of hard freeze for a 384 MP PNG, during which nothing paints
@@ -463,64 +456,20 @@ export function ImageView({
 
   const cursor = zoom > 1 ? (panning ? 'grabbing' : 'grab') : 'default'
 
-  /**
-   * The picture's own menu (2026-08-30, cut back 2026-08-31).
-   *
-   * It started as everything the picture could do and read like a toolbar:
-   * next, previous, zoom in, zoom out, fit, actual size, rotate, fullscreen,
-   * copy, and a shortcut against nearly every row. All of that was already
-   * one press or one button away - the arrows page the folder, the zoom
-   * cluster sits in the corner, F is fullscreen - so the menu was teaching
-   * keys nobody needed taught and burying the two verbs that are only here.
-   *
-   * What is left is what you cannot do another way with a pointer: turn the
-   * picture, take the PIXELS (which for a HEIC or a RAW is the one thing
-   * Windows itself cannot do), and get to the file. Shared action icons keep
-   * the menu consistent with the Explorer and project menus.
-   */
-  const menuItems = (): MenuItem[] => [
-    { label: 'Rotate', icon: <FileMenuIcon name="rotate" />, onPick: () => setRot((d) => (d + 90) % 360) },
-    // The pixels go to the OS clipboard and the copy through main's save
-    // dialog: neither exists on the phone (#106), so the rows are left out
-    // rather than offered and refused.
-    ...(window.prism.capabilities.clipboard
-      ? [{ label: 'Copy image', icon: <FileMenuIcon name="copy" />, disabled: !img, onPick: () => void copyImage() }]
-      : []),
-    ...(window.prism.capabilities.write
-      ? [
-          {
-            label: 'Save a copy',
-            icon: <FileMenuIcon name="save" />,
-            disabled: !img,
-            children: [
-              { label: 'PNG', icon: <FileMenuIcon name="image" />, onPick: () => void saveCopy('png') },
-              { label: 'JPEG', icon: <FileMenuIcon name="image" />, onPick: () => void saveCopy('jpeg') }
-            ]
-          }
-        ]
-      : []),
-    ...(onStep && canStep
-      ? [
-          {
-            label: slideshow ? 'Stop slideshow' : 'Slideshow',
-            icon: <FileMenuIcon name={slideshow ? 'stop' : 'slideshow'} />,
-            // The interval hangs off the same row, so starting one and saying
-            // how fast it goes are one gesture rather than two.
-            onPick: () => setSlideshow((on) => !on),
-            children: SLIDE_SECONDS.map((n) => ({
-              label: `${n} seconds`,
-              icon: tickIf(n === slideSecs),
-              onPick: () => {
-                setSlideSecs(n)
-                saveSlideSeconds(n)
-                setSlideshow(true)
-              }
-            }))
-          } as MenuItem
-        ]
-      : []),
-    ...(path ? fileVerbs(path, { icons: true }) : [])
-  ]
+  /** The picture's menu; the rows and the reasons are in menus/viewers/image. */
+  const menuItems = (): MenuItem[] =>
+    imageMenu({
+      path,
+      hasImage: !!img,
+      canSlideshow: !!(onStep && canStep),
+      slideshow,
+      slideSecs,
+      rotate: () => setRot((d) => (d + 90) % 360),
+      copyImage,
+      saveCopy,
+      setSlideshow,
+      setSlideSecs
+    })
 
   return (
     <div

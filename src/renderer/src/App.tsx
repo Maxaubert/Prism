@@ -80,9 +80,9 @@ import { TermDock } from './components/TermDock'
 // same lazy boundary, so xterm stays out of the launch bundle.
 const TerminalPanelLazy = lazy(() => import('prism-term-core/renderer/components/TerminalPanel'))
 import { ContextMenu } from './components/ContextMenu'
-import { FileMenuIcon } from './components/FileMenuIcon'
-import { tickIf, fileVerbs } from './lib/fileVerbs'
-import { fileAppMenu } from './lib/fileAppMenu'
+import { explorerRowMenu } from './menus/explorerRow'
+import { splitPaneMenu } from './menus/splitPane'
+import { titleBarMoreMenu } from './menus/moreMenu'
 import { useFolderBrowsing } from './lib/useFolderBrowsing'
 import { browseParent } from './lib/browse'
 import { terminalRestoreOrder } from './lib/terminalRestore'
@@ -715,16 +715,6 @@ function Viewer({
   }
 }
 
-/** The four places a split pane can sit, as a submenu (owner, 2026-09-03:
- *  "a tree structure ... so we don't bloat the options"). Shared by the
- *  pinned panes and the terminal dock. */
-export const SPLIT_DIRS: ReadonlyArray<{ dir: SplitDir; label: string }> = [
-  { dir: 'left', label: 'Left' },
-  { dir: 'right', label: 'Right' },
-  { dir: 'top', label: 'Top' },
-  { dir: 'bottom', label: 'Bottom' }
-]
-
 /** One pinned split pane: a fixed file, independent of paging, with its X. */
 function PinnedPaneView({
   paneId,
@@ -780,17 +770,7 @@ function PinnedPaneView({
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[
-            {
-              label: 'Split view position',
-              children: SPLIT_DIRS.map((d) => ({
-                label: d.label,
-                icon: tickIf(d.dir === dir),
-                onPick: () => onMove(d.dir)
-              }))
-            },
-            { label: 'Remove from split view', onPick: onClose }
-          ]}
+          items={splitPaneMenu({ dir, onMove, onClose })}
         />
       )}
       {term ? (
@@ -4972,134 +4952,40 @@ export default function App(): JSX.Element {
             },
             browseArchive,
             active?.browse.path ?? ''
-          ) ?? (browseMenu.paths && browseMenu.paths.length > 1 ? (() => {
-            // Several rows marked: only what acts on all of them, and each
-            // says how many, so the menu and the marks agree (review of #257).
-            // Open, Rename, Duplicate and Properties are one row's, and F2
-            // stands down in the same state.
-            const paths = browseMenu.paths
-            const n = `${paths.length} items`
-            return [
-              { label: `Cut ${n}`, icon: <FileMenuIcon name="cut" />, hint: 'Ctrl+X', onPick: () => void copyFilePaths(paths, true) },
-              { label: `Copy ${n}`, icon: <FileMenuIcon name="copy" />, hint: 'Ctrl+C', onPick: () => void copyFilePaths(paths) },
-              {
-                label: `Delete ${n}`,
-                icon: <FileMenuIcon name="delete" />,
-                hint: 'Del',
-                danger: true,
-                onPick: () => setAsk({ kind: 'delete-many', paths })
-              }
-            ]
-          })() : [
-            {
-              label: 'Open',
-              icon: <FileMenuIcon name="open" />,
-              hint: 'Enter',
-              onPick: () => {
-                if (browseMenu.entry.isFolder) void browsing.navigate(browseMenu.entry.path)
-                else if (browseMenu.entry.file) void browsing.openFile(browseMenu.entry.file)
-              }
-            },
-            ...(browseMenu.entry.isFolder
-              ? [{ label: 'New terminal here', icon: <FileMenuIcon name="terminal" />, onPick: () => termTabAt(browseMenu.entry.path) }]
-              : [
-                  {
-                    label: 'Show in preview',
-                    icon: <FileMenuIcon name="split" />,
-                    onPick: () => {
-                      pinSplit(browseMenu.entry.path)
-                    }
+          ) ??
+            explorerRowMenu({
+              entry: browseMenu.entry,
+              paths: browseMenu.paths,
+              source: browseMenu.source,
+              canPaste: browseMenu.canPaste,
+              apps: browseMenu.apps,
+              pinned: quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)),
+              openFolder: (path) => void browsing.navigate(path),
+              openFile: (file) => void browsing.openFile(file),
+              newTerminalAt: (path) => termTabAt(path),
+              showInPreview: (path) => {
+                pinSplit(path)
+              },
+              openInNewTab,
+              openAsProject,
+              copyFiles: (paths, cut) => void copyFilePaths(paths, cut),
+              paste: (directory) => void pasteFiles(directory),
+              pinQuickAccess,
+              unpinQuickAccess,
+              duplicate: (path) => {
+                void window.prism.duplicateFile(path).then((copy) => {
+                  if (copy) {
+                    noteUndo({ kind: 'duplicate', source: path, path: copy })
+                    setRefreshKey((key) => key + 1)
                   }
-                ]),
-            { label: 'Open in new tab', icon: <FileMenuIcon name="new-tab" />, onPick: () => openInNewTab(browseMenu.entry.path, browseMenu.entry.isFolder) },
-            { label: 'Open as project', icon: <FileMenuIcon name="project" />, onPick: () => openAsProject(browseMenu.entry) },
-            {
-              label: 'Cut',
-              icon: <FileMenuIcon name="cut" />,
-              hint: 'Ctrl+X',
-              onPick: () => void copyFilePaths([browseMenu.entry.path], true)
-            },
-            {
-              label: 'Copy',
-              icon: <FileMenuIcon name="copy" />,
-              hint: 'Ctrl+C',
-              onPick: () => void copyFilePaths([browseMenu.entry.path])
-            },
-            // Copy path right under Copy (#286; owner, 2026-10-04: "copy and
-            // copy path should be right under each other not spread out
-            // across the menu"). Show in File Explorer stays below.
-            ...fileVerbs(browseMenu.entry.path)
-              .filter((item) => item.label === 'Copy path')
-              .map((item) => ({ ...item, icon: <FileMenuIcon name="path" /> })),
-            {
-              label: 'Paste',
-              icon: <FileMenuIcon name="paste" />,
-              hint: 'Ctrl+V',
-              disabled: !browseMenu.canPaste,
-              onPick: () => {
-                const directory = browseMenu.entry.isFolder
-                  ? browseMenu.entry.path : browseParent(browseMenu.entry.path)
-                if (directory) void pasteFiles(directory)
-              }
-            },
-            {
-              label: quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path))
-                ? 'Unpin from Quick access'
-                : 'Pin to Quick access',
-              icon: <FileMenuIcon name={quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)) ? 'unpin' : 'pin'} />,
-              onPick: () => {
-                if (quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)))
-                  unpinQuickAccess(browseMenu.entry.path)
-                else
-                  pinQuickAccess([
-                    {
-                      path: browseMenu.entry.path,
-                      label: browseMenu.entry.name,
-                      isFolder: browseMenu.entry.isFolder
-                    }
-                  ])
-              }
-            },
-            ...(!browseMenu.entry.isFolder
-              ? [
-                  fileAppMenu(browseMenu.entry.path, browseMenu.apps ?? null),
-                  {
-                    label: 'Duplicate',
-                    icon: <FileMenuIcon name="duplicate" />,
-                    onPick: () => {
-                      void window.prism.duplicateFile(browseMenu.entry.path).then((copy) => {
-                        if (copy) {
-                          noteUndo({ kind: 'duplicate', source: browseMenu.entry.path, path: copy })
-                          setRefreshKey((key) => key + 1)
-                        }
-                      })
-                    }
-                  }
-                ]
-              : []),
-            { label: 'Rename', icon: <FileMenuIcon name="rename" />, hint: 'F2', onPick: () => setBrowseRename(browseMenu.entry) },
-            {
-              label: 'Delete',
-              icon: <FileMenuIcon name="delete" />,
-              hint: 'Del',
-              danger: true,
-              onPick: () =>
-                setAsk({
-                  kind: 'delete',
-                  path: browseMenu.entry.path,
-                  name: browseMenu.entry.name,
-                  isFolder: browseMenu.entry.isFolder
                 })
-            },
-            ...fileVerbs(browseMenu.entry.path)
-              .filter((item) => item.label !== 'Copy path')
-              .map((item) => ({ ...item, icon: <FileMenuIcon name="folder" /> })),
-            { label: 'Properties', icon: <FileMenuIcon name="properties" />, onPick: () => setBrowseProps(browseMenu.entry) }
-          ].filter(
-            (item) =>
-              browseMenu.source !== 'more' ||
-              !['Open', 'Copy', 'Rename', 'Delete'].includes(item.label ?? '')
-          ))}
+              },
+              rename: (entry) => setBrowseRename(entry),
+              askDelete: (entry) =>
+                setAsk({ kind: 'delete', path: entry.path, name: entry.name, isFolder: entry.isFolder }),
+              askDeleteMany: (paths) => setAsk({ kind: 'delete-many', paths }),
+              properties: (entry) => setBrowseProps(entry)
+            })}
         />
       )}
       {emptyMenu && browseArchive && active && (
@@ -5295,10 +5181,7 @@ export default function App(): JSX.Element {
           anchor={moreMenu.anchor}
           keyboard={moreMenu.keyboard}
           onClose={() => setMoreMenu(null)}
-          // One row per thing that is not about the open file (#272: "multiple
-          // things, remote just being one of them"). Phone stays first; a new
-          // row is one more entry here.
-          items={[{ label: 'Phone', onPick: () => setPhoneOpen(true) }]}
+          items={titleBarMoreMenu({ openPhone: () => setPhoneOpen(true) })}
         />
       )}
       {phoneOpen && (

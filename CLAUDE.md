@@ -153,4 +153,6 @@ Filesmith's conventions.
   touching main/preload wiring, the core pin, or Win+E.
 - `docs/build-and-conventions.md`: the full build, test, release and conventions notes, with the
   history and measurements behind each rule above. Read before changing the e2e, install or release flow.
+- `docs/menus.md`: every right-click menu and its builder in `src/renderer/src/menus/` (one file
+  per surface, a test pinning its rows). A menu is never an inline array in a component.
 - `ROADMAP.md` for phases; `docs/superpowers/` for specs and plans.

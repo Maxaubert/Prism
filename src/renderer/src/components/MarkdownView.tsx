@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
 import { ContextMenu } from './ContextMenu'
-import { fileVerbs } from '../lib/fileVerbs'
+import { markdownMenu } from '../menus/viewers/markdown'
 import { touchesFile } from '../lib/fileReload'
 import { DocFind } from './DocFind'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
@@ -337,10 +337,7 @@ export function MarkdownView({
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[
-            { label: 'Find', hint: 'Ctrl+F', onPick: () => setFinding(true) },
-            ...fileVerbs(path)
-          ]}
+          items={markdownMenu({ path, find: () => setFinding(true) })}
         />
       )}
       <div

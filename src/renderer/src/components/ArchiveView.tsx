@@ -7,7 +7,8 @@ import { typeLabel } from '../lib/typeLabel'
 import { loadTransportBg, loadTransportStyle } from '../lib/transport'
 import { useSysIcon } from '../lib/sysIcon'
 import { fileKind } from '@shared/fileKind'
-import { ContextMenu, type MenuItem } from './ContextMenu'
+import { ContextMenu } from './ContextMenu'
+import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
 import { Dialog } from './Dialog'
 import { PasswordDialog } from './PasswordDialog'
 import { ImageView } from './ImageView'
@@ -857,126 +858,11 @@ function ArchiveInner({
       .filter((e) => !e.dir && (e.path === folder || e.path.startsWith(folder + '/')))
       .map((e) => e.path)
 
-  /**
-   * A FOLDER row's menu (2026-08-30).
-   *
-   * Right-clicking one used to open nothing at all, which reads as a broken
-   * app rather than as a limit. Its verbs are the ones that mean something for
-   * a prefix: walk into it, copy out everything under it, delete all of that.
-   * No rename: renaming a folder inside a zip means rewriting every member
-   * path under it, and that is a decision, not a gap to be filled here.
-   */
-  const folderItems = (entry: Entry): MenuItem[] => {
-    const members = under(entry.path)
-    const n = members.length
-    const items: MenuItem[] = [
-      { label: 'Open', onPick: () => setCwd(entry.path) },
-      // The folder itself, not the files that happen to be in it.
-      ...(caps.clipboard
-        ? [{ label: 'Copy folder', disabled: n === 0, onPick: () => copyFolder(entry.path) }]
-        : []),
-      ...(caps.write
-        ? [
-            {
-              label: 'Extract folder here',
-              disabled: n === 0,
-              onPick: () => extractFolderHere(entry.path)
-            },
-            {
-              label: 'Extract folder to…',
-              disabled: n === 0,
-              // The FOLDER, not the files inside it (2026-09-19, found by
-              // #166's e2e). Handing over each member's own path made every
-              // one of them its own landing, and the landing rule drops the
-              // parents above what was asked for: "Collection/sub/two.txt"
-              // arrived as a bare "two.txt", so the verb that says "folder"
-              // delivered a flat pile, which is the very thing Copy folder
-              // was fixed for on 2026-08-31. Named as one entry, the shape
-              // below it is kept, exactly as a dragged folder's is.
-              onPick: () => extractMembers(entry, [entry.path], false)
-            }
-          ]
-        : []),
-      ...(caps.clipboard
-        ? [
-            {
-              label: `Copy ${n} file${n === 1 ? '' : 's'} inside`,
-              disabled: n === 0,
-              onPick: () => copyMany(members)
-            }
-          ]
-        : [])
-    ]
-    if (writable)
-      items.push({
-        label: `Delete ${n} file${n === 1 ? '' : 's'} from archive`,
-        danger: true,
-        disabled: n === 0,
-        onPick: () => setConfirmDelMany(members)
-      })
-    return items
-  }
-
-  const menuItems = (entry: Entry): MenuItem[] =>
-    entry.dir
-      ? folderItems(entry)
-      : [
-          { label: 'View', onPick: () => view(entry) },
-          ...(caps.clipboard ? [{ label: 'Copy file', onPick: () => copyOut(entry) }] : []),
-          ...(caps.write
-            ? [
-                {
-                  label: 'Extract here',
-                  onPick: () => extractMembers(entry, [entry.path], true)
-                },
-                {
-                  label: 'Extract to…',
-                  onPick: () => extractMembers(entry, [entry.path], false)
-                }
-              ]
-            : []),
-          ...(writable
-            ? [
-                { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
-                {
-                  label: 'Delete from archive',
-                  danger: true,
-                  onPick: () => setConfirmDel(entry)
-                }
-              ]
-            : [])
-        ]
   /** Only file members can be copied out or deleted; a folder in the
    *  selection is carried by its members, and counting it made the labels
    *  promise more than the verbs could do. */
   const filesOf = (paths: string[]): string[] =>
     paths.filter((p) => rows.some((r) => r.path === p && !r.dir))
-  /** Empty when the host can do nothing with several at once, and the row's
-   *  own menu stands in for it. */
-  const multiItems = (paths: string[]): MenuItem[] => {
-    const files = filesOf(paths)
-    return [
-      ...(caps.clipboard
-        ? [
-            {
-              label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`,
-              onPick: () => copyMany(files)
-            }
-          ]
-        : []),
-      ...(writable
-        ? [
-            {
-              label: `Delete ${files.length} from archive`,
-              danger: true,
-              disabled: !files.length,
-              onPick: () => setConfirmDelMany(files)
-            }
-          ]
-        : [])
-    ]
-  }
-
   // Locked is a question, not a failure: the archive is fine, it wants the
   // password before it will even say what is inside.
   if (entries === 'locked')
@@ -1429,69 +1315,41 @@ function ArchiveInner({
           x={panelMenu.x}
           y={panelMenu.y}
           onClose={() => setPanelMenu(null)}
-          items={[
-            ...(caps.write
-              ? [
-                  {
-                    label: 'Extract all…',
-                    disabled: busy !== null,
-                    onPick: () => void extractAll()
-                  }
-                ]
-              : []),
-            ...(writable
-              ? [{ label: 'Add files…', disabled: busy !== null, onPick: () => void addFiles() }]
-              : []),
-            {
-              label: 'Select all',
-              hint: 'Ctrl+A',
-              disabled: rows.length === 0,
-              onPick: () =>
-                setSel({ anchor: rows[0]?.path ?? null, items: new Set(rows.map((r) => r.path)) })
-            },
-            ...(caps.write
-              ? [
-                  {
-                    label: 'Extract here',
-                    disabled: busy !== null,
-                    onPick: () => extractAll(true)
-                  },
-                  {
-                    label: 'Extract to…',
-                    disabled: busy !== null,
-                    onPick: () => extractAll(false)
-                  }
-                ]
-              : []),
-            ...(caps.clipboard
-              ? [
-                  {
-                    label: 'Copy archive',
-                    onPick: () => void copyFilePaths([file.path])
-                  }
-                ]
-              : []),
-            ...(caps.explorer
-              ? [
-                  {
-                    label: 'Show in File Explorer',
-                    onPick: () => window.prism.showInExplorer(file.path)
-                  }
-                ]
-              : []),
-            { label: 'Copy path', onPick: () => void navigator.clipboard.writeText(file.path) }
-          ]}
+          items={archivePanelMenu({
+            archivePath: file.path,
+            caps,
+            writable,
+            busy: busy !== null,
+            hasRows: rows.length > 0,
+            extractAll,
+            addFiles,
+            selectAll: () =>
+              setSel({ anchor: rows[0]?.path ?? null, items: new Set(rows.map((r) => r.path)) })
+          })}
         />
       )}
       {menu && (
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          items={
-            menu.multi && multiItems(menu.multi).length
-              ? multiItems(menu.multi)
-              : menuItems(menu.entry)
-          }
+          items={archiveRowMenu({
+            entry: menu.entry,
+            multi: menu.multi,
+            caps,
+            writable,
+            membersUnder: under,
+            filesOf,
+            setCwd,
+            view,
+            copyOut,
+            copyFolder,
+            copyMany,
+            extractFolderHere,
+            extractMembers,
+            setEditing,
+            setConfirmDel,
+            setConfirmDelMany
+          })}
           onClose={() => setMenu(null)}
         />
       )}

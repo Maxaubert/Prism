@@ -24,7 +24,7 @@ import {
   searchPanelOpen
 } from '@codemirror/search'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { fileVerbs, tickIf } from '../lib/fileVerbs'
+import { codeMenu } from '../menus/viewers/code'
 import { lintKeymap } from '@codemirror/lint'
 import { isProse, langFor } from '../lib/codeLang'
 import { lintFor } from '../lib/codeLint'
@@ -610,62 +610,25 @@ export function CodeView({
     gotoLine(ed)
   }, [])
 
-  /**
-   * The editor's own menu (2026-08-30).
-   *
-   * Right-clicking a selection used to give nothing at all, not even Copy,
-   * which reads as a broken text field. CodeMirror renders a contenteditable,
-   * so preventing the default here removes Chromium's native menu: this one
-   * has to carry the clipboard verbs itself, and it does them through the
-   * document APIs rather than by dispatching keystrokes.
-   */
-  const menuItems = (hasSel: boolean): MenuItem[] => {
-    // A reader's menu (#106) has no Cut, Paste, Follow or Save: those change
-    // the document or the file, and it can do neither.
-    if (readOnly)
-      return [
-        { label: 'Copy', disabled: !hasSel, onPick: () => void document.execCommand('copy') },
-        { label: 'Select all', onPick: selectAll },
-        { label: 'Find', hint: 'Ctrl+F', onPick: findHere },
-        { label: 'Go to line', hint: 'Ctrl+G', onPick: gotoHere },
-        {
-          label: 'Word wrap',
-          icon: tickIf(wrapsFor(wrap, isProse(name))),
-          onPick: () => setWrapPref(wrapsFor(wrap, isProse(name)) ? 'off' : 'on')
-        },
-        ...fileVerbs(path)
-      ]
-    return [
-      // No shortcut hints on the clipboard verbs: Ctrl+X/C/V are the three
-      // keys nobody has ever needed a menu to teach them. Find and Save keep
-      // theirs, because those are the habits worth having in a viewer that
-      // happens to be editable.
-      { label: 'Cut', disabled: !hasSel, onPick: () => void document.execCommand('cut') },
-      { label: 'Copy', disabled: !hasSel, onPick: () => void document.execCommand('copy') },
-      { label: 'Paste', onPick: pasteHere },
-      { label: 'Select all', onPick: selectAll },
-      { label: 'Find', hint: 'Ctrl+F', onPick: findHere },
-      { label: 'Go to line', hint: 'Ctrl+G', onPick: gotoHere },
-      {
-        label: 'Word wrap',
-        icon: tickIf(wrapsFor(wrap, isProse(name))),
-        // Sets the OVERRIDE, so ticking it off a .txt stops that file
-        // wrapping rather than putting the auto rule back.
-        onPick: () => setWrapPref(wrapsFor(wrap, isProse(name)) ? 'off' : 'on')
-      },
-      {
-        // A log, a build's output, an agent's transcript: files whose whole
-        // point is that they grow. Following is read-only, and refused while
-        // there are unsaved edits, which the first chunk would throw away.
-        label: 'Follow the file',
-        icon: tickIf(following),
-        disabled: !ready || dirty || !!tailed,
-        onPick: toggleFollow
-      },
-      { label: 'Save', hint: 'Ctrl+S', disabled: following || !!tailed, onPick: () => void save() },
-      ...fileVerbs(path)
-    ]
-  }
+  /** The editor's menu; the rows and the reasons are in menus/viewers/code. */
+  const menuItems = (hasSel: boolean): MenuItem[] =>
+    codeMenu({
+      path,
+      readOnly,
+      hasSel,
+      wraps: wrapsFor(wrap, isProse(name)),
+      setWrapPref,
+      ready,
+      dirty,
+      tailed: !!tailed,
+      following,
+      pasteHere,
+      selectAll,
+      findHere,
+      gotoHere,
+      toggleFollow,
+      save
+    })
 
   return (
     <div
@@ -691,6 +654,9 @@ export function CodeView({
         <ContextMenu
           x={menu.x}
           y={menu.y}
+          // The builder only hangs these handlers on its rows' onPick; nothing
+          // is called while rendering, which is what this rule fears.
+          // eslint-disable-next-line react-hooks/refs
           items={menuItems(menu.hasSel)}
           onClose={() => setMenu(null)}
         />

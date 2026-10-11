@@ -1,7 +1,7 @@
 import type { JSX } from 'react'
 import type { MenuItem } from '../components/ContextMenu'
 import { FileMenuIcon } from '../components/FileMenuIcon'
-import { canCopyText, clipboardText } from './clipboardText'
+import { canCopyText, clipboardText } from '../lib/clipboardText'
 
 /**
  * The file verbs every surface shares.
