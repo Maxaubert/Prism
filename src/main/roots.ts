@@ -1,4 +1,4 @@
-import { isInsideRoot, isRoot } from './dirList'
+import { canonicalPath, withinCanonical } from './dirList'
 
 /**
  * The roots the user has open, and the wall built on them.
@@ -18,6 +18,10 @@ import { isInsideRoot, isRoot } from './dirList'
  */
 
 const roots: string[] = []
+/** Each root resolved once, when it opens (#351), beside `roots`: the checks
+ *  below run for every listing and every size row, and resolved every open
+ *  root natively each time. The path asked about is still resolved per call. */
+const resolved: string[] = []
 
 /**
  * Told whenever the set changes, so the folder watcher can follow it.
@@ -42,39 +46,49 @@ export function openRoots(): readonly string[] {
  *  separator do not make a second root: Windows would call them the same folder
  *  and so does the wall. */
 export function addRoot(root: string): void {
-  if (!root || roots.some((r) => isRoot(r, root))) return
+  if (!root) return
+  const real = canonicalPath(root)
+  if (resolved.includes(real)) return
   roots.push(root)
+  resolved.push(real)
   listener?.(root, true)
 }
 
 /** Close a root. Nothing beneath it is reachable afterwards. */
 export function dropRoot(root: string): void {
-  const i = roots.findIndex((r) => isRoot(r, root))
+  if (!root) return
+  const i = resolved.indexOf(canonicalPath(root))
   if (i >= 0) {
     const gone = roots[i]
     roots.splice(i, 1)
+    resolved.splice(i, 1)
     listener?.(gone, false)
   }
 }
 
 /** True when `p` sits in any open root. The general wall. */
 export function insideAnyRoot(p: string): boolean {
-  return roots.some((r) => isInsideRoot(r, p))
+  if (!p || !roots.length) return false
+  const target = canonicalPath(p)
+  return resolved.some((r) => withinCanonical(r, target))
 }
 
 /** True when `p` IS one of the open roots, which nothing may rename or bin:
  *  it would pull the ground out from under a tab. */
 export function isAnyRoot(p: string): boolean {
-  return roots.some((r) => isRoot(r, p))
+  return !!p && roots.length > 0 && resolved.includes(canonicalPath(p))
 }
 
 /** The strict check: `p` is inside `root`, AND `root` is genuinely open. A
  *  renderer that names a root it never opened gets nothing. */
 export function validRoot(root: string, p: string): boolean {
-  return roots.some((r) => isRoot(r, root)) && isInsideRoot(root, p)
+  if (!root || !p || !roots.length) return false
+  const owner = canonicalPath(root)
+  return resolved.includes(owner) && withinCanonical(owner, canonicalPath(p))
 }
 
 /** Tests only: forget every root. */
 export function resetRoots(): void {
   roots.length = 0
+  resolved.length = 0
 }

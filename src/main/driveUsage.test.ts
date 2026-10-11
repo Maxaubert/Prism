@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createDriveUsage, driveKind, LABEL_COMMAND, parseLabels, STATFS_WAIT, withUsedShare } from './driveUsage'
+import {
+  createDriveUsage,
+  driveKind,
+  LABEL_COMMAND,
+  parseLabels,
+  readLabels,
+  STATFS_WAIT,
+  withUsedShare
+} from './driveUsage'
 
 const TB = 1024 ** 4
 
@@ -130,4 +138,14 @@ describe('withUsedShare', () => {
   it('does nothing without a share that means anything', () => {
     for (const s of [undefined, '', 'x', '-1', '2']) expect(withUsedShare(drives, s)).toBe(drives)
   })
+})
+
+// #351: the query is spawned from a worker thread, so a slow process start
+// waits there rather than in main's. This proves the worker route answers.
+describe.runIf(process.platform === 'win32')('readLabels', () => {
+  it('reads the system drive through the worker', async () => {
+    const labels = await readLabels()
+    const system = `${(process.env.SystemDrive ?? 'C:').toUpperCase()}\\`
+    expect(labels.get(system)?.kind).toBe('local')
+  }, 20_000)
 })
