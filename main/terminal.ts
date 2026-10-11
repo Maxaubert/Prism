@@ -391,17 +391,40 @@ type Send = (channel: string, ...args: unknown[]) => void
  * guessed and missed). pwsh appends to its bootstrap; the others get their
  * native startup-command forms. WSL is left alone - claude-in-WSL is another
  * world's store.
+ *
+ * THE ID RIDES IN THE ENVIRONMENT, NOT THE COMMAND LINE (#180). Windows
+ * Defender judges every NEW command line a process starts, inside
+ * CreateProcess, and node-pty runs CreateProcess on main's thread. Measured
+ * from the packaged app (2026-10-11): 700 ms per new command line, 3 ms per
+ * one it has seen, so eight resumes carrying their ids held main, the window
+ * and every IPC call for 5.6 s at launch. With the id in `RESUME_ENV` every
+ * resume has the same command line; the shell clears the variable before
+ * claude starts, so nothing of it is left in the user's shell.
  */
-function withResume(def: { exe: string; args: string[]; id: string }, resume: string): { exe: string; args: string[] } {
+export const RESUME_ENV = 'PRISM_RESUME_ID'
+
+export function withResume(
+  def: { exe: string; args: string[]; id: string },
+  resume: string
+): { exe: string; args: string[]; env?: Record<string, string> } {
   // The ONE place Prism writes a command itself (the owner exception, 2026-08-21,
   // now covering codex too): claude comes back by session id, codex by its own
   // cwd-filtered --last. Never typed on screen, never a guess.
-  const cmd = resume === 'codex:last' ? 'codex resume --last' : `claude --resume ${resume}`
+  const codex = resume === 'codex:last'
+  const env = codex ? undefined : { [RESUME_ENV]: resume }
   // Both PowerShells end their args in a `-Command` bootstrap now (the prompt
-  // hook, #99), so the resume is appended to it for either.
-  if ((def.id === 'pwsh' || def.id === 'powershell') && def.args.length > 0)
-    return { exe: def.exe, args: [...def.args.slice(0, -1), `${def.args[def.args.length - 1]}; ${cmd}`] }
-  if (def.id === 'cmd') return { exe: def.exe, args: ['/K', cmd] }
+  // hook, #99), so the resume is appended to it for either. The script block
+  // keeps `$r` out of the user's session.
+  if ((def.id === 'pwsh' || def.id === 'powershell') && def.args.length > 0) {
+    const cmd = codex
+      ? 'codex resume --last'
+      : `& { $r = $env:${RESUME_ENV}; Remove-Item Env:${RESUME_ENV}; claude --resume $r }`
+    return { exe: def.exe, args: [...def.args.slice(0, -1), `${def.args[def.args.length - 1]}; ${cmd}`], ...(env && { env }) }
+  }
+  // cmd expands %VAR% when it reads the line, before `set` empties it. No
+  // quote: node-pty would escape it as \", which cmd does not read.
+  if (def.id === 'cmd')
+    return { exe: def.exe, args: ['/K', codex ? 'codex resume --last' : `set ${RESUME_ENV}=& claude --resume %${RESUME_ENV}%`], ...(env && { env }) }
   return { exe: def.exe, args: def.args }
 }
 
@@ -494,7 +517,7 @@ async function spawnPending(
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: ptyEnv(process.env, def.id, plugin, isOurPlugin)
+      env: { ...ptyEnv(process.env, def.id, plugin, isOurPlugin), ...('env' in launch ? launch.env : {}) }
     })
     // Closed while node-pty loaded: the tab is gone, so is this shell.
     if (killedWhilePending.has(id)) {

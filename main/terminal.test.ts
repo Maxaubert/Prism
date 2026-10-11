@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { OutputBatcher, pluginKey, ptyEnv, withPluginDir } from './terminal'
+import { OutputBatcher, pluginKey, ptyEnv, RESUME_ENV, withPluginDir, withResume } from './terminal'
 import { isOurPlugin, PLUGIN_NAME } from './claudePlugin'
 
 describe('OutputBatcher', () => {
@@ -194,5 +194,53 @@ describe('isOurPlugin', () => {
 
   it('names the plugin the app ships', () => {
     expect(isOurPlugin(join(__dirname, '..', 'claude-plugin'))).toBe(true)
+  })
+})
+
+describe('withResume', () => {
+  // THE COMMAND LINE IS THE SAME FOR EVERY RESTORED SHELL (#180). Windows
+  // Defender judges each NEW command line a process starts, inside
+  // CreateProcess, and node-pty runs that on main's thread: measured from the
+  // packaged app, 700 ms per new command line and 3 ms per repeated one, so
+  // eight resumes with the id in their command lines held main for 5.6 s. The
+  // id rides in the environment instead.
+  const pwsh = { id: 'pwsh', exe: 'pwsh.exe', args: ['-NoLogo', '-NoExit', '-Command', 'boot'] }
+  const powershell = { id: 'powershell', exe: 'powershell.exe', args: ['-NoLogo', '-NoExit', '-Command', 'boot'] }
+  const cmd = { id: 'cmd', exe: 'cmd.exe', args: [] }
+  const a = '5a1d0c2e-1111-4222-8333-94445555a666'
+  const b = '0f0e0d0c-2222-4333-8444-955566667777'
+
+  it('starts two claude resumes with the same command line, the id in the environment', () => {
+    for (const def of [pwsh, powershell, cmd]) {
+      const one = withResume(def, a)
+      const two = withResume(def, b)
+      expect(one.args).toEqual(two.args)
+      expect(one.args.join(' ')).not.toContain(a)
+      expect(one.env).toEqual({ [RESUME_ENV]: a })
+      expect(two.env).toEqual({ [RESUME_ENV]: b })
+    }
+  })
+
+  it('appends the resume to the PowerShell bootstrap, and clears the variable before claude starts', () => {
+    const r = withResume(pwsh, a)
+    expect(r.exe).toBe('pwsh.exe')
+    expect(r.args.slice(0, 3)).toEqual(['-NoLogo', '-NoExit', '-Command'])
+    expect(r.args[3]).toBe(`boot; & { $r = $env:${RESUME_ENV}; Remove-Item Env:${RESUME_ENV}; claude --resume $r }`)
+  })
+
+  it('gives cmd its startup command, with no quote for the command line to mangle', () => {
+    const r = withResume(cmd, a)
+    expect(r.args).toEqual(['/K', `set ${RESUME_ENV}=& claude --resume %${RESUME_ENV}%`])
+    expect(r.args[1]).not.toContain('"')
+  })
+
+  it('leaves codex as it was: its resume has no id, so its command line never varies', () => {
+    expect(withResume(pwsh, 'codex:last')).toEqual({ exe: 'pwsh.exe', args: ['-NoLogo', '-NoExit', '-Command', 'boot; codex resume --last'] })
+    expect(withResume(cmd, 'codex:last')).toEqual({ exe: 'cmd.exe', args: ['/K', 'codex resume --last'] })
+  })
+
+  it('leaves a shell with no startup-command form alone', () => {
+    const wsl = { id: 'wsl:Ubuntu', exe: 'wsl.exe', args: ['-d', 'Ubuntu'] }
+    expect(withResume(wsl, a)).toEqual({ exe: 'wsl.exe', args: ['-d', 'Ubuntu'] })
   })
 })
