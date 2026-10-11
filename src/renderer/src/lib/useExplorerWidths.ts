@@ -44,11 +44,13 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
   // The width the places panel HAS when shown, kept while it is hidden too:
   // a peek (#250) lays it over the list at that width, not at the zero its
   // column collapses to.
-  const placesOwn = clamp(preferred.places ?? (available <= 760 ? 160 : 210), minimum, placesMax)
+  // Unsaved widths are about 12% under what they were (owner, 2026-10-11: shrink the side
+  // panels "just a bit"); docs/features.md, the window-size entry.
+  const placesOwn = clamp(preferred.places ?? (available <= 760 ? 140 : 185), minimum, placesMax)
   const placesWidth = placesVisible ? placesOwn : 0
   const previewMax = Math.max(previewMin, available - placesWidth - listMin)
   const previewWidth = previewVisible
-    ? clamp(preferred.preview ?? Math.min(720, available * 0.4), previewMin, previewMax)
+    ? clamp(preferred.preview ?? Math.min(630, available * 0.35), previewMin, previewMax)
     : 0
   const bounds: Record<ExplorerSection, ExplorerWidthBounds> = {
     places: { min: minimum, max: placesMax, value: placesWidth },

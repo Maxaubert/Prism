@@ -3,8 +3,9 @@
  * should be the same size as file explorer"; asked, the owner chose "Explorer size,
  * remember resizes"). Pure, so the rules are tested without a screen.
  *
- * - Nothing saved: File Explorer's own size, MEASURED on the owner's machine the same day
- *   (a fresh File Explorer window, 933 x 756 DIP, windowed), centred by Electron and held
+ * - Nothing saved: File Explorer's height, MEASURED on the owner's machine the same day
+ *   (a fresh File Explorer window, 933 x 756 DIP), and wider: 1240 (owner, the same day: "it
+ *   should be wider then this as a default size"). Centred by Electron and held
  *   to 90% of a small screen. It was 1164 x 698 (2026-10-04).
  * - A size the user dragged to comes back, and its place while a display still holds it.
  * - NEVER MAXIMIZED: the saved flag is ignored. And a saved size that fills its screen
@@ -25,7 +26,7 @@ interface Rect {
   height: number
 }
 
-export const FIRST_WINDOW = { width: 933, height: 756 }
+export const FIRST_WINDOW = { width: 1240, height: 756 }
 export const MIN_WINDOW = { width: 560, height: 400 }
 /** A saved size at least this share of the work area both ways "fills the screen". */
 const FILLS = 0.95

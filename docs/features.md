@@ -2099,6 +2099,13 @@ changing a feature: each entry records what the owner decided, why, and what hol
   area both ways counts as nothing saved (the owner's was 1711 x 914 on 1707 x 912). This also
   ends a known e2e leak: a scenario that left the shared profile maximized made every later
   launch maximized.
+  **THEN WIDER, AND SLIMMER SIDE PANELS** (owner, the same day, after trying it: "it should be
+  wider then this as a default size and the left and right sidebar should be shrunk a bit on
+  default size, just a bit though like 10-15%"). The first window is 1240 x 756 (Explorer's
+  height, wider than its 933), and the panels' unsaved widths in
+  `src/renderer/src/lib/useExplorerWidths.ts` drop about 12%: places 210 to 185 (160 to 140 on a
+  narrow window), the preview 40% of the row to 35%, capped at 630 instead of 720. A width the
+  user dragged a panel to is unaffected. `windowSize.test.ts` holds the size.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start). The window is RAISED past
   Windows' foreground lock when it appears and when a file is handed to it (2026-08-28):
