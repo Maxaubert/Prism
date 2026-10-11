@@ -56,6 +56,24 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
     places: { min: minimum, max: placesMax, value: placesWidth },
     preview: { min: previewMin, max: previewMax, value: previewWidth }
   }
+  /**
+   * A DRAG PAINTS, IT DOES NOT RENDER (owner, 2026-10-12: "very choppy, very
+   * laggy" dragging either panel's edge). Every move used to set state here,
+   * which re-rendered the whole App (the Explorer, its 400 rows, the preview)
+   * and wrote localStorage: 29 to 36 ms a move, MEASURED by the `panelDrag`
+   * e2e, against a 16 ms frame. A move now writes only the CSS variable the
+   * layout already reads, clamped to the bounds the drag began with (the other
+   * panel does not move meanwhile); `resize` keeps it, once, on release.
+   */
+  const live = (section: ExplorerSection, value: number): void => {
+    const element = workspace.current
+    if (!element) return
+    const width = clamp(value, bounds[section].min, bounds[section].max)
+    if (section === 'places') {
+      if (placesVisible) element.style.setProperty('--explorer-places-width', `${width}px`)
+      element.style.setProperty('--explorer-places-peek-width', `${width}px`)
+    } else if (previewVisible) element.style.setProperty('--browse-preview-width', `${width}px`)
+  }
   const resize = (section: ExplorerSection, value: number | null): void => {
     setPreferred((current) => {
       const next = {
@@ -69,6 +87,7 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
   return {
     workspace,
     bounds,
+    live,
     resize,
     style: {
       '--explorer-places-width': `${placesWidth}px`,
