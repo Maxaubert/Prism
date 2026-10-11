@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { forgetAgentTitle, readAgentTitle } from './agentTitle'
+import { forgetAgentTitle, readAgentTitle, titleAgent, titleArmsAgent } from './agentTitle'
 
 const read = (t: string): string | null => {
   const r = readAgentTitle('s', t)
@@ -71,5 +71,38 @@ describe('readAgentTitle, everything else', () => {
     expect(read('✳ Claude Code')).toBe('claude:idle')
     forgetAgentTitle('s')
     expect(read('◐ Claude Code')).toBe('claude:starting')
+  })
+})
+
+describe('titleAgent, the title naming an agent with no memory (#175)', () => {
+  it("is claude for Claude's spinner and its idle glyph", () => {
+    expect(titleAgent('◐ Claude Code')).toBe('claude')
+    expect(titleAgent('◓ Create and read note.txt')).toBe('claude')
+    expect(titleAgent('✳ Claude Code')).toBe('claude')
+  })
+  it("is codex for a braille spinner and Codex's Action Required", () => {
+    expect(titleAgent('⠙ yeah')).toBe('codex')
+    expect(titleAgent('[ ! ] Action Required | proj')).toBe('codex')
+  })
+  it('is null for a shell, a path, a bare word and an empty title', () => {
+    expect(titleAgent('PS C:\\x')).toBeNull()
+    expect(titleAgent('C:\\Program Files\\PowerShell\\7\\pwsh.exe')).toBeNull()
+    expect(titleAgent('yeah')).toBeNull() // Codex's idle needs the session's memory
+    expect(titleAgent('')).toBeNull()
+  })
+  it('remembers nothing: a later read is not changed by it', () => {
+    expect(titleAgent('◐ Claude Code')).toBe('claude')
+    expect(read('◐ Claude Code')).toBe('claude:starting')
+  })
+})
+describe('titleArmsAgent, what may arm Shift+Enter before the poll (#175)', () => {
+  it("arms on Claude's glyphs and Codex's Action Required", () => {
+    expect(titleArmsAgent('✳ Claude Code')).toBe('claude')
+    expect(titleArmsAgent('◐ Claude Code')).toBe('claude')
+    expect(titleArmsAgent('[ ! ] Action Required | proj')).toBe('codex')
+  })
+  it('never on a bare braille spinner: any CLI draws one, and a plain shell would stay armed (#21)', () => {
+    expect(titleArmsAgent('⠙ npm install')).toBeNull()
+    expect(titleArmsAgent('PS C:\\x')).toBeNull()
   })
 })

@@ -14,9 +14,15 @@ export const CH = {
   data: 'term:data',
   agent: 'term:agent',
   agentLook: 'term:agent-look',
+  /** Send one session's next agent answer, changed or not. */
+  agentAgain: 'term:agent-again',
   exit: 'term:exit',
   clipboardRead: 'clipboard:read',
   clipboardWrite: 'clipboard:write',
+  /** A program's OSC 52 copy (#176): its own channel and its own cap. */
+  clipboardTerm: 'clipboard:term-write',
+  /** A session rang the bell (#177); the host decides what that looks like. */
+  bell: 'term:bell',
   openExternal: 'shell:open-external',
   pathKinds: 'term:path-kinds',
   openPath: 'term:open-path'

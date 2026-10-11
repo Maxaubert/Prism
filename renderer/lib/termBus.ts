@@ -8,8 +8,9 @@ import type { AgentSignal } from './agentHookSignal'
  * wraps the text in the bracketed-paste escape the shell is waiting for -
  * without it a multi-line paste arrives as a run of Enter presses, so the
  * first line executes and the rest are typed in after it. An image on the
- * clipboard is different again: the ^V KEYSTROKE is forwarded so the TUI
- * reads the clipboard itself, which is how Claude Code takes a screenshot.
+ * clipboard is different again: the agent's image-paste KEYSTROKE is
+ * forwarded so the TUI reads the clipboard itself, which is how Claude Code
+ * takes a screenshot.
  *
  * All of that already exists, once, in TerminalPanel's key handler. This lets
  * the menu call THAT rather than growing a second, wrong copy of it.

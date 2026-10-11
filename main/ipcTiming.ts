@@ -79,7 +79,7 @@ export const LONG_WAIT: ReadonlySet<string> = new Set([DCH.download])
 
 /** Typed text, the clipboard and recorded audio: never written down, even
  *  when the call that carried them was slow. */
-const OPAQUE = new Set<string>([CH.input, CH.clipboardWrite, DCH.transcribe])
+const OPAQUE = new Set<string>([CH.input, CH.clipboardWrite, CH.clipboardTerm, DCH.transcribe])
 const isOwn = (ch: string): boolean => ch.startsWith('diag:')
 const RECENT_MAX = 32
 

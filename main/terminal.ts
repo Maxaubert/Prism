@@ -178,6 +178,15 @@ export function ptyEnv(
   }
   env.TERM = PTY_OPTS.name
   env.COLORTERM = 'truecolor'
+  // NO FORCE_HYPERLINK (#173 set it; review 2026-10-11 took it out). Claude
+  // Code prints OSC 8 links only when told (MEASURED 2.1.296: "label (long
+  // url)" without it), but supports-hyperlinks, which it and the vercel CLI
+  // bundle, reads FORCE_HYPERLINK BEFORE its isTTY test (read in claude.exe:
+  // `if(e)return!(...)` ahead of `if(r&&!r.isTTY)return!1`), so set for the
+  // shell it put raw OSC 8 into every pipe and redirect, the commands
+  // Claude's own Bash tool runs among them. The panel still opens any OSC 8
+  // link a program prints (#169); Claude's `hyperlinks` setting turns them on.
+  // A user's own FORCE_HYPERLINK passes through like any other variable.
   // cmd reports its folder through PROMPT (#99), in front of whatever prompt
   // the user already had.
   if (shellId === 'cmd') env.PROMPT = cmdPrompt(prompt)

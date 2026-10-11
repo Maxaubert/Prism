@@ -42,12 +42,22 @@ export interface TermApi {
   /** Ask the process poll to look NOW, past its backoff (#73). Optional so a
    *  host bridge without it still builds; the poll then finds agents late. */
   termAgentLook?(): void
+  /** Ask the poll for this session's NEXT answer, sent even if unchanged.
+   *  Optional like the look: without it a Codex started again between two
+   *  looks waits for its title to give its keys back. */
+  termAgentAgain?(id: string): void
   onTermExit(cb: (id: string) => void): () => void
   readClipboard(): ClipboardRead
   /** Text onto the clipboard through main, for when the page itself is refused
    *  (no focus). Both hosts' bridges carry it (`createTermApi`); optional so a
    *  host that has none still builds, and `copyText` then reports a failure. */
   writeClipboard?(text: string): Promise<boolean>
+  /** A program's OSC 52 copy (#176), through main and capped at 1 MB.
+   *  Optional so an older host bridge still builds; the copy is then dropped,
+   *  as it was before. Write-only: there is no read. */
+  writeClipboardFromTerm?(text: string): Promise<boolean>
+  /** A session rang the bell (#177). Optional; without it the bell is silent. */
+  termBell?(id: string): void
   openExternal(url: string): void
   /** Paths (#99). Optional so a host bridge without them still builds; the
    *  terminal then paints and opens no paths. */

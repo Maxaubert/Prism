@@ -1,6 +1,7 @@
 import { CH } from '../shared/channels'
+import { OSC52_MAX } from '../shared/termLimits'
 import { validResume } from './agentResume'
-import { pollAgentsNow, pollAgentsSoon, startAgentPoll } from './agentPoll'
+import { pollAgentAgain, pollAgentsNow, pollAgentsSoon, startAgentPoll } from './agentPoll'
 import { detectShells } from './shells'
 import { cdTerm, killTerm, prewarmShell, resizeTerm, spawnTerm, writeTerm, type ClaudePluginEnv } from './terminal'
 import { openTermPath, pathKinds, PATHS_MAX, type PathOpeners } from './termPathOpen'
@@ -72,6 +73,14 @@ export interface TermIpcDeps {
    * environment is touched, whatever the page says.
    */
   claudePluginDir?: string
+  /**
+   * A session rang the bell (#177): the host draws the user's eye to its
+   * window (Prism Terminal flashes the taskbar button while the window is not
+   * focused). A bridge member, not a TermHostConfig field: the behaviour is
+   * the same in both apps, and the host only lends its window, as it lends
+   * `openExternal`. Absent: the bell is silent, as it always was.
+   */
+  attention?(): void
 }
 
 /** Registers every terminal channel and starts the agent poll. Returns the
@@ -116,6 +125,11 @@ export function registerTermIpc(deps: TermIpcDeps): () => void {
 
   // A title claimed an agent the poll has not seen (#73): look now.
   ipcMain.on(CH.agentLook, () => pollAgentsNow())
+  // The shell's prompt took an agent's keys back, or a resume's agent was
+  // not there yet: this session's next answer is wanted, news or not.
+  ipcMain.on(CH.agentAgain, (_e: unknown, id: unknown) => {
+    if (typeof id === 'string') pollAgentAgain(id)
+  })
 
   ipcMain.on(CH.prewarm, (_e: unknown, cwd: unknown, shellId: unknown, hooks: unknown) => {
     if (typeof cwd !== 'string') return
@@ -166,6 +180,25 @@ export function registerTermIpc(deps: TermIpcDeps): () => void {
       return false
     }
   })
+
+  // A PROGRAM'S COPY, OSC 52 (#176). Not clipboard:write, whose 4000 cap is
+  // right for a command and wrong for an answer Claude's /copy puts there.
+  // Checked again here (the page is never trusted with a limit), refused, not
+  // trimmed, over OSC52_MAX. Through main so a background tab or an unfocused
+  // window still copies. There is no read channel: OSC 52 is write-only.
+  ipcMain.handle(CH.clipboardTerm, (_e: unknown, text: unknown) => {
+    if (typeof text !== 'string' || text.length === 0 || text.length > OSC52_MAX) return false
+    try {
+      deps.clipboard.writeText(text)
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  // The bell (#177). The page already let at most one a second per tab
+  // through; what it means is the host's (`attention`), silence without one.
+  ipcMain.on(CH.bell, () => deps.attention?.())
 
   // A link clicked in the terminal. The page is never trusted with a scheme.
   ipcMain.on(CH.openExternal, (_e: unknown, url: unknown) => {

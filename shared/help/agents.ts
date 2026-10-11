@@ -566,7 +566,7 @@ export const AGENTS_HELP: readonly HelpEntry[] = [
     category: 'agents',
     task: 'Paste a screenshot or image into Claude',
     summary:
-      'A key, pressed inside Claude Code. Copy an image (Win+Shift+S takes a screenshot to the clipboard), then paste: this terminal hands the keystroke to Claude, which reads the image off the clipboard itself and shows an [Image] marker. Dragging an image file onto the terminal types its path instead, which works as well.',
+      'A key, pressed inside Claude Code. Copy an image (Win+Shift+S takes a screenshot to the clipboard), then press Ctrl+V: with a picture on the clipboard, this terminal hands Claude its own image-paste key (Alt+V on Windows), and Claude reads the image off the clipboard itself and shows an [Image] marker. Dragging an image file onto the terminal types its path instead, which works as well.',
     command: 'Ctrl+V',
     variants: [
       {

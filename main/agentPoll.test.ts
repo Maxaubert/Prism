@@ -161,4 +161,40 @@ describe('the agent poll', () => {
       ['t1', false, null]
     ])
   })
+
+  // Review 2026-10-11: the shell's prompt takes an agent's keys back at once,
+  // and a codex quit and started again between two looks is still "present"
+  // to the poll, which says only what changed: it was never armed again.
+  it('sends the next answer of a session asked about again, changed or not, past the waits', () => {
+    const w = world()
+    const poll = createAgentPoll(w.send, w.deps)
+    w.set({ out: '100 1\n200 100 codex\n' })
+    poll()
+    poll.again('t1')
+    w.set({ now: 1 }) // quiet and inside the backoff: only the ask lets it through
+    poll()
+    expect(w.sent).toEqual([
+      ['t1', true, 'codex'],
+      ['t1', true, 'codex']
+    ])
+    poll()
+    expect(w.asked()).toBe(2) // once answered, the ask is spent
+  })
+
+  it('keeps an ask that came during a look for the look after it', () => {
+    const w = world()
+    let finish: ((out: string | null) => void) | undefined
+    const deps = { ...w.deps, query: (done: (out: string | null) => void) => (finish = done) }
+    const poll = createAgentPoll(w.send, deps)
+    poll()
+    poll.again('t1') // the look in flight was taken before this ask
+    finish?.('100 1\n')
+    expect(w.sent).toEqual([['t1', false, null]])
+    poll()
+    finish?.('100 1\n')
+    expect(w.sent).toEqual([
+      ['t1', false, null],
+      ['t1', false, null]
+    ])
+  })
 })

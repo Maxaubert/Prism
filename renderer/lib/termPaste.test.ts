@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decidePaste, quotePath, quotePaths, sanitizePaste } from './termPaste'
+import { decidePaste, imagePasteKey, newlineKey, quotePath, quotePaths, sanitizePaste } from './termPaste'
 
 describe('decidePaste', () => {
   // Image wins: a clipboard-aware TUI (Claude Code) reads it itself off the
@@ -84,5 +84,32 @@ describe('quotePaths', () => {
   it('quotes each and joins with spaces', () => {
     expect(quotePaths(['C:\\a.png', 'C:\\b c.png'], 'powershell')).toBe("'C:\\a.png' 'C:\\b c.png'")
     expect(quotePaths(['C:\\a.png'])).toBe('"C:\\a.png"')
+  })
+})
+
+describe('imagePasteKey (#170)', () => {
+  // Claude 2.1.296 on Windows binds image paste to alt+v, not ctrl+v (read in
+  // its binary: `Me=Ie?"alt+v":"ctrl+v"`), so Ctrl+V's ^V did nothing there.
+  it('is Alt+V (ESC v) for Claude', () => {
+    expect(imagePasteKey('claude')).toBe('\x1bv')
+  })
+  it('is ^V for Codex, another agent and a plain shell', () => {
+    expect(imagePasteKey('codex')).toBe('\x16')
+    expect(imagePasteKey('other')).toBe('\x16')
+    expect(imagePasteKey(null)).toBe('\x16')
+  })
+  it('is ONE key, never both: two would paste the image twice where both are bound', () => {
+    expect(imagePasteKey('claude')).not.toContain('\x16')
+  })
+})
+
+describe('newlineKey (#175, measured 2026-10-11)', () => {
+  it('is Ctrl+J for Claude, its own chat:newline binding', () => {
+    expect(newlineKey('claude')).toBe('\n')
+  })
+  it('is backslash + Enter for Codex (it drops a bare LF) and for anything else', () => {
+    expect(newlineKey('codex')).toBe('\\\r')
+    expect(newlineKey('other')).toBe('\\\r')
+    expect(newlineKey(null)).toBe('\\\r')
   })
 })

@@ -53,6 +53,34 @@ interface Seen {
 
 const seen = new Map<string, Seen>()
 
+/**
+ * The agent a title NAMES on its own, with no session memory (#175): Claude's
+ * half-circle spinner or idle glyph, a braille spinner or Codex's "Action
+ * Required". A bare folder name (Codex at rest) needs the memory and is null.
+ * A braille spinner alone is weak proof of Codex: see `titleArmsAgent`.
+ */
+export function titleAgent(title: string): 'claude' | 'codex' | null {
+  const t = title.trim()
+  const first = [...t][0]
+  if (!first) return null
+  if (CODEX_ASKS.test(t)) return 'codex'
+  if (HALF.has(first) || first === IDLE_GLYPH) return 'claude'
+  if (isBraille(first)) return 'codex'
+  return null
+}
+
+/**
+ * The agent a title is proof enough of to ARM Shift+Enter's newline before the
+ * poll (#175): `titleAgent` less a bare braille spinner. That spinner is any
+ * CLI's (ora, npm), and in a plain shell it would arm a `\` + Enter that the
+ * poll, never having seen an agent there, would never take back: the line run
+ * with a backslash on its end (code review 2026-09-24, #21).
+ */
+export function titleArmsAgent(title: string): 'claude' | 'codex' | null {
+  const named = titleAgent(title)
+  return named === 'codex' && !CODEX_ASKS.test(title.trim()) ? null : named
+}
+
 /** Read one title change for a session. Null when it says nothing about an agent. */
 export function readAgentTitle(id: string, title: string): AgentTitle | null {
   const t = title.trim()
@@ -60,19 +88,21 @@ export function readAgentTitle(id: string, title: string): AgentTitle | null {
   if (!first) return null
   const rest = t.slice(first.length).trim()
   const s = seen.get(id)
-  if (CODEX_ASKS.test(t)) {
+  const named = titleAgent(t)
+  if (named === 'codex' && CODEX_ASKS.test(t)) {
     // Asking is past startup; the name it returns to at rest is kept.
     if (s?.kind === 'codex') s.ready = true
     else seen.set(id, { kind: 'codex', name: s?.name ?? '', ready: true })
     return { kind: 'codex', state: 'question' }
   }
-  if (HALF.has(first) || isBraille(first)) {
-    const kind = HALF.has(first) ? 'claude' : 'codex'
+  // What is left that names an agent is a spinner, or Claude's idle glyph.
+  if (named && first !== IDLE_GLYPH) {
+    const kind = named
     const next: Seen = { kind, name: rest, ready: s?.kind === kind ? s.ready : false }
     seen.set(id, next)
     return { kind, state: next.ready ? 'working' : 'starting' }
   }
-  if (first === IDLE_GLYPH) {
+  if (named === 'claude') {
     const next: Seen = { kind: 'claude', name: s?.kind === 'claude' ? s.name : rest, ready: true }
     seen.set(id, next)
     return { kind: 'claude', state: 'idle' }

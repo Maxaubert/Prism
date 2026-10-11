@@ -47,12 +47,14 @@ export interface TermPreloadApi {
   onTermAgent(cb: (id: string, has: boolean, kind: DetectedAgent | null) => void): () => void
   /** Ask the process poll to look now, past its backoff (#73). */
   termAgentLook(): void
+  /** Ask the process poll for this session's next answer, changed or not. */
+  termAgentAgain(id: string): void
   /** The shell ended by itself (`exit`); a shell main was told to kill says nothing. */
   onTermExit(cb: (id: string) => void): () => void
   /**
    * What the clipboard holds RIGHT NOW, for the terminal's paste rule. An
-   * image forwards the ^V key (a clipboard-aware TUI like Claude Code reads
-   * the image itself); text becomes a bracketed paste; copied files paste as
+   * image forwards the agent's image-paste key (a clipboard-aware TUI like
+   * Claude Code reads the image itself); text becomes a bracketed paste; copied files paste as
    * quoted paths. The decision itself is pure and lives in lib/termPaste.
    * Synchronous, as the key handler that calls it has to be; main does the
    * reading, since a sandboxed preload has no clipboard module.
@@ -66,6 +68,15 @@ export interface TermPreloadApi {
    * and main caps its length. Answers whether it was written.
    */
   writeClipboard(text: string): Promise<boolean>
+  /**
+   * A program's OSC 52 copy (#176): its own channel, capped at OSC52_MAX
+   * (1 MB) rather than the help panel's 4000. Write-only: nothing in the
+   * bridge lets a program read the clipboard. Answers whether it landed.
+   */
+  writeClipboardFromTerm(text: string): Promise<boolean>
+  /** A session rang the bell (#177). What it looks like is the host's
+   *  (`attention` in `registerTermIpc`); silent where it passes none. */
+  termBell(id: string): void
   /** The web-links addon's click-through: external URLs go to the OS browser. */
   openExternal(url: string): void
   /** Which of these texts name a file or a folder from `cwd` (#99). Main
@@ -96,9 +107,12 @@ export function createTermApi(ipc: IpcRendererLike): TermPreloadApi {
     onTermData: (cb) => on(CH.data, cb),
     onTermAgent: (cb) => on(CH.agent, cb),
     termAgentLook: () => ipc.send(CH.agentLook),
+    termAgentAgain: (id) => ipc.send(CH.agentAgain, id),
     onTermExit: (cb) => on(CH.exit, cb),
     readClipboard: () => ipc.sendSync(CH.clipboardRead) as ClipboardRead,
     writeClipboard: (text) => ipc.invoke(CH.clipboardWrite, text) as Promise<boolean>,
+    writeClipboardFromTerm: (text) => ipc.invoke(CH.clipboardTerm, text) as Promise<boolean>,
+    termBell: (id) => ipc.send(CH.bell, id),
     openExternal: (url) => {
       if (/^https?:/i.test(url)) ipc.send(CH.openExternal, url)
     },

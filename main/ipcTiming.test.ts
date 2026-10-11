@@ -240,4 +240,19 @@ describe('timeIpcMain', () => {
     ipc.emit('term:input', {}, 't1', 'hunter2')
     expect(log.lines[0].fields.args).toEqual(['string:2', 'string:7'])
   })
+
+  it("never writes down a program's clipboard copy (#176), by default", async () => {
+    const ipc = new FakeIpcMain()
+    const log = fakeLog()
+    const c = clock()
+    timeIpcMain(ipc, log, { now: c.now })
+    ipc.handle('clipboard:term-write', () => {
+      c.at(c.now() + 700)
+      return true
+    })
+    await ipc.invoke('clipboard:term-write', 'secret token')
+    await Promise.resolve()
+    expect(log.lines.length).toBeGreaterThan(0)
+    expect(JSON.stringify(log.lines)).not.toContain('secret token')
+  })
 })

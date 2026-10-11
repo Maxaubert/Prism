@@ -6,6 +6,8 @@
 // terminal's whole job is to forward that keystroke instead of swallowing it.
 // This is exactly where generic terminals break image paste.
 
+import type { DetectedAgent } from '../../shared/types'
+
 export interface ClipboardState {
   image: boolean
   text: string
@@ -13,7 +15,7 @@ export interface ClipboardState {
 }
 
 export type PasteDecision =
-  | { kind: 'key' } // forward the raw ^V byte; the TUI does the reading
+  | { kind: 'key' } // forward the agent's image-paste key (imagePasteKey); the TUI does the reading
   | { kind: 'text'; data: string } // bracketed paste
   | { kind: 'none' }
 
@@ -56,6 +58,40 @@ export function quotePath(p: string, shell?: PathShell): string {
 /** Quote each path and join with spaces: what a prompt (or claude) wants. */
 export function quotePaths(paths: string[], shell?: PathShell): string {
   return paths.map((p) => quotePath(p, shell)).join(' ')
+}
+
+/**
+ * THE AGENT'S OWN IMAGE-PASTE KEY (#170). Claude Code 2.1.296 binds image
+ * paste to alt+v on Windows and ctrl+v only elsewhere (read in its binary:
+ * `Me=Ie?"alt+v":"ctrl+v"`, `Ie` being windows or wsl), so the ^V this
+ * terminal forwarded did nothing on a fresh install; the owner's own
+ * keybindings.json binds both, which hid it. MEASURED 2026-10-11 through the
+ * bundled ConPTY: ESC v reaches Claude as alt+v (it ran chat:imagePaste).
+ * Codex reads the image on ^V. Claude under WSL wants alt+v too (`O()` is
+ * "wsl" there, review 2026-10-11): the poll only sees wsl.exe, so a WSL tab
+ * gets ESC v once Claude's own title has armed `claude` (`agentArm`), and ^V
+ * before it. EXACTLY ONE key: with both bound, sending both pasted the image
+ * twice.
+ */
+export function imagePasteKey(agent: DetectedAgent | null): string {
+  return agent === 'claude' ? '\x1bv' : '\x16'
+}
+
+/**
+ * SHIFT+ENTER'S NEWLINE (#175). MEASURED 2026-10-11 through the bundled ConPTY,
+ * typing `ab` (and `a\`) into an empty prompt, then each candidate, then `c`:
+ *
+ *   bytes        Claude 2.1.296      Codex 0.153.2
+ *   `\` + CR     newline, no `\`     newline, no `\`
+ *   LF (Ctrl+J)  newline             DROPPED (`abc`)
+ *   ESC CR       newline             newline
+ *
+ * Nothing submitted, and a typed trailing `\` survived in both. So Claude gets
+ * Ctrl+J, its own `chat:newline` binding rather than the backslash heuristic,
+ * and everything else keeps the `\` + CR every agent took before.
+ */
+export function newlineKey(agent: DetectedAgent | null): string {
+  return agent === 'claude' ? '\n' : '\\\r'
 }
 
 export function decidePaste(clip: ClipboardState, shell?: PathShell): PasteDecision {

@@ -75,20 +75,29 @@ const REAL: AgentPollDeps = {
  * without a timer: `createAgentPoll` holds the state, `startAgentPoll` is the
  * interval around it.
  */
-export function createAgentPoll(send: AgentSend, deps: AgentPollDeps = REAL): (force?: boolean) => void {
+/** A look, and `again(id)`: that session's next answer is sent even if it is
+ *  unchanged, and looked for at the next tick, past the waits. */
+export type AgentPoll = ((force?: boolean) => void) & { again: (id: string) => void }
+
+export function createAgentPoll(send: AgentSend, deps: AgentPollDeps = REAL): AgentPoll {
   const agentState = new Map<string, boolean>()
   let agentBusy = false
   let agentSeenTicks = -1
   let agentEvery = AGENT_POLL_MIN
   let agentNext = 0
+  // Asked again (review 2026-10-11): the renderer's prompt took an agent's
+  // keys back, and only an answer sent anyway gives back the keys of one
+  // started again between two looks. Held until a look STARTS, so a look
+  // already in flight, taken before the ask, does not spend it.
+  const asked = new Set<string>()
   // `force` skips the two waits below, never the answer (#73): a look the
   // renderer asked for sends only what CHANGED, like any other.
-  return (force = false): void => {
+  const poll = (force = false): void => {
     const pids = deps.pids()
     if (!pids.length || agentBusy) return
     const ticks = deps.ticks()
     const quiet = ticks === agentSeenTicks
-    const known = pids.every((s) => agentState.has(s.id))
+    const known = pids.every((s) => agentState.has(s.id) && !asked.has(s.id))
     // A shell that has said nothing since the last look, whose answer we
     // already have, cannot have changed its mind.
     if (quiet && known && !force) return
@@ -98,14 +107,19 @@ export function createAgentPoll(send: AgentSend, deps: AgentPollDeps = REAL): (f
     const now = deps.now()
     if (known && now < agentNext && !force) return
     agentBusy = true
+    const asking = new Set(asked)
+    asked.clear()
     deps.query((stdout) => {
       agentBusy = false
       // Only a query that actually answered counts as having looked: a
       // failed one used to consume the activity tick, so a shell that then
       // fell quiet kept a stale dot until it printed again (2026-08-28).
-      if (!stdout) return
-      const rows = parseProcLines(stdout)
-      if (!rows.length) return
+      // Nor does it spend an ask.
+      const rows = stdout ? parseProcLines(stdout) : []
+      if (!rows.length) {
+        asking.forEach((id) => asked.add(id))
+        return
+      }
       agentSeenTicks = ticks
       let changed = false
       for (const { id, pid } of deps.pids()) {
@@ -115,7 +129,7 @@ export function createAgentPoll(send: AgentSend, deps: AgentPollDeps = REAL): (f
           agentState.set(id, has)
           changed = true
           send(id, has, kind)
-        }
+        } else if (asking.has(id)) send(id, has, kind)
       }
       // forget sessions that ended
       const live = new Set(deps.pids().map((s) => s.id))
@@ -124,15 +138,17 @@ export function createAgentPoll(send: AgentSend, deps: AgentPollDeps = REAL): (f
       agentNext = deps.now() + agentEvery
     })
   }
+  return Object.assign(poll, { again: (id: string): void => void asked.add(id) })
 }
 
 /** The running poll, so a spawn can ask for an early look. */
-let running: ((force?: boolean) => void) | null = null
+let running: AgentPoll | null = null
 
 /**
  * Start the poll; the function it returns stops it. `send` is how an answer
  * that CHANGED reaches the renderer (`term:agent`): nothing is sent for a
- * session whose answer is what it was.
+ * session whose answer is what it was, unless the renderer asked again
+ * (`pollAgentAgain`).
  */
 export function startAgentPoll(send: AgentSend): () => void {
   const poll = createAgentPoll(send)
@@ -165,4 +181,14 @@ export function pollAgentsSoon(ms = 300): void {
  */
 export function pollAgentsNow(): void {
   setTimeout(() => running?.(true), 0)
+}
+
+/**
+ * SAY THIS SESSION'S NEXT ANSWER, CHANGED OR NOT (review 2026-10-11). The
+ * renderer asks when the shell's prompt took an agent's keys back, or when a
+ * resumed agent's first answer was "no agent": it needs the poll's word at
+ * the next tick either way, and the poll otherwise says only what changed.
+ */
+export function pollAgentAgain(id: string): void {
+  running?.again(id)
 }
