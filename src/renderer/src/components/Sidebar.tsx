@@ -15,20 +15,19 @@ import type { MenuItem } from './ContextMenu'
 import type { BrowseEntry } from './browse/types'
 import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
-import { lastSplitDir, type SplitDir } from '../lib/panes'
+import type { SplitDir } from '../lib/panes'
 import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
 import { memberOf } from '@shared/archivePlace'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
-import { FileMenuIcon } from './FileMenuIcon'
-import { fileAppMenu } from '../menus/fileAppMenu'
+import { treeDeadSpaceMenu, treeMarkedMenu, treeRowMenu } from '../menus/treeRow'
+import { terminalButtonMenu } from '../menus/terminalButton'
 import { Dialog } from './Dialog'
 import { JobChip } from './JobChip'
 import { endJob, startJob, updateJob } from '../lib/jobs'
 import { copyFilePaths, fileCutPaths, clearFileCut, useFileCut, fileClipboardReady } from '../lib/fileClipboard'
 import { intendToPlay } from '../lib/playState'
-import { tickIf } from '../menus/fileVerbs'
 import { PropertiesDialog } from './PropertiesDialog'
 import { TreeWindow } from './TreeRows'
 import { paintRows, scrollForRow } from '../lib/treePaint'
@@ -36,7 +35,6 @@ import { SearchResults } from './SearchResults'
 import { PeekPinButton } from './PanelToggle'
 import type { PeekPhase } from '../lib/useSidebarPeek'
 import { SortMenu } from './SortMenu'
-import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
 import { clickSelect, emptySelection, rangeSelect, type Selection } from '../lib/selection'
 import { isJumpKey, listKey, stepTo, typeJump, typedRun } from '../lib/listKeys'
@@ -110,24 +108,6 @@ interface ArcJob {
   pct: number | null
   error?: string
 }
-
-/** Menu glyphs: outlined, so they read as actions rather than as file kinds. */
-const MenuIcon = ({ d }: { d: string }): JSX.Element => (
-  <svg
-    viewBox="0 0 24 24"
-    width={13}
-    height={13}
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.7"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className="opacity-80"
-    aria-hidden
-  >
-    <path d={d} />
-  </svg>
-)
 
 /** What the search box can do, taught where you look for it: a placeholder
  *  cannot hold five lines and a help panel in a viewer's sidebar would be
@@ -1895,67 +1875,15 @@ export function Sidebar({
           x={termMenu.x}
           y={termMenu.y}
           onClose={() => setTermMenu(null)}
-          items={[
-            // SEVERAL SHELLS (owner, 2026-09-03): with more than one, the
-            // menu lists them to pick from (the current one ticked; the
-            // button's left click always opens the most recent), and the
-            // verbs that need a target - split, close - become submenus so
-            // the menu itself stays short.
-            ...(terms.length > 1
-              ? terms.map((t) => ({
-                  label: t.label,
-                  icon: tickIf(t.current),
-                  onPick: () => onPickTerm(t.id)
-                }))
-              : []),
-            {
-              label: 'Open new terminal',
-              // A window with a prompt in it (owner, 2026-09-03: not the plus).
-              icon: <MenuIcon d="M4 5.5h16v13H4zM4 9h16M7.5 12l2.5 2-2.5 2M12 16h4" />,
-              onPick: onNewTerm
-            },
-            terms.length > 1
-              ? {
-                  label: 'Open in split view',
-                  icon: <FileMenuIcon name="split" />,
-                  // A CHECKLIST (owner, 2026-09-03): a shell already on screen
-                  // is ticked, so it is plain which others to add; picking a
-                  // ticked one takes it out of the split again.
-                  children: terms.map((t) => ({
-                    label: t.label,
-                    icon: tickIf(t.shown),
-                    keepOpen: true, // tick several, or change your mind (owner)
-                    onPick: () => onSplitTermId(t.id)
-                  }))
-                }
-              : {
-                  label: 'Open in split view',
-                  icon: <FileMenuIcon name="split" />,
-                  onPick: onTermSplit
-                },
-            // CLOSE means close (owner, 2026-09-03): the shell dies, and the
-            // next open is a fresh one in the tab's current folder. It took
-            // Clear's place and Clear's bin glyph (owner, same day) - a fresh
-            // shell IS a cleared one - and it is not red: closing a shell is
-            // routine, not destructive. "Open in new tab" went with it.
-            ...(terms.length > 1
-              ? [
-                  {
-                    label: 'Close terminal',
-                    icon: <MenuIcon d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5" />,
-                    children: terms.map((t) => ({ label: t.label, onPick: () => onCloseTermId(t.id) }))
-                  }
-                ]
-              : onCloseTerm
-                ? [
-                    {
-                      label: 'Close terminal',
-                      icon: <MenuIcon d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5" />,
-                      onPick: onCloseTerm
-                    }
-                  ]
-                : [])
-          ]}
+          items={terminalButtonMenu({
+            terms,
+            pickTerm: onPickTerm,
+            newTerm: onNewTerm,
+            splitTermId: onSplitTermId,
+            termSplit: onTermSplit,
+            closeTermId: onCloseTermId,
+            closeTerm: onCloseTerm
+          })}
         />
       )}
 
@@ -1964,31 +1892,14 @@ export function Sidebar({
           x={placeMenu.x}
           y={placeMenu.y}
           onClose={() => setPlaceMenu(null)}
-          items={[
-            {
-              label: 'Paste',
-              hint: 'Ctrl+V',
-              icon: <FileMenuIcon name="paste" />,
-              onPick: () => runPaste(root)
-            },
-            {
-              label: 'Open terminal here',
-              icon: <FileMenuIcon name="terminal" />,
-              onPick: () => onTermHere(root)
-            },
-            {
-              label: 'Show in File Explorer',
-              icon: <FileMenuIcon name="folder" />,
-              onPick: () => window.prism.showInExplorer(root)
-            },
-            {
-              label: 'Copy path',
-              icon: (
-                <FileMenuIcon name="path" />
-              ),
-              onPick: () => void navigator.clipboard.writeText(root)
-            }
-          ]}
+          // The builder only hangs these handlers on its rows' onPick; nothing
+          // is called while rendering, which is what this rule fears.
+          // eslint-disable-next-line react-hooks/refs
+          items={treeDeadSpaceMenu({
+            root,
+            paste: runPaste,
+            termHere: onTermHere
+          })}
         />
       )}
 
@@ -2045,36 +1956,11 @@ export function Sidebar({
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[
-            {
-              label: `Cut ${menu.multi.length} files`,
-              hint: 'Ctrl+X',
-              icon: (
-                <FileMenuIcon name="cut" />
-              ),
-              onPick: () => copyMark(menu.multi!, true)
-            },
-            {
-              label: `Copy ${menu.multi.length} files`,
-              hint: 'Ctrl+C',
-              icon: <FileMenuIcon name="copy" />,
-              onPick: () => copyMark(menu.multi!, false)
-            },
-            {
-              label: 'Copy paths',
-              icon: (
-                <FileMenuIcon name="path" />
-              ),
-              onPick: () => void navigator.clipboard.writeText(menu.multi!.join('\n'))
-            },
-            {
-              label: `Delete ${menu.multi.length} items`,
-              hint: 'Del',
-              danger: true,
-              icon: <FileMenuIcon name="delete" />,
-              onPick: () => onDeleteMany(menu.multi!)
-            }
-          ]}
+          items={treeMarkedMenu({
+            paths: menu.multi,
+            copyMark,
+            deleteMany: onDeleteMany
+          })}
         />
       )}
       {menu && !menu.multi && !(archive && memberMeta(menu.path)) && (
@@ -2082,190 +1968,37 @@ export function Sidebar({
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[
-            {
-              label: 'Open',
-              hint: 'Enter',
-              icon: <FileMenuIcon name="open" />,
-              onPick: () => {
-                if (menu.isFolder) {
-                  if (query.trim()) revealFolder(menu.path)
-                  else if (!state.expanded.has(menu.path)) toggle(menu.path)
-                } else openPicked(menu.path)
-              }
-            },
-            {
-              label: 'Open in new tab',
-              icon: <FileMenuIcon name="new-tab" />,
-              onPick: () => onOpenNewTab(menu.path)
-            },
-            {
-              label: 'Open as project',
-              icon: <FileMenuIcon name="project" />,
-              onPick: () => onOpenProject(menu.path, menu.isFolder)
-            },
-            // Files also go places: another app, Explorer, the clipboard.
-            ...(!menu.isFolder
-              ? [
-                  // Split panes are file-agnostic: pin any file beside the
-                  // live one. The parent click reuses the remembered
-                  // direction; the flyout names one. A pinned file's menu
-                  // offers the way back out instead.
-                  pinnedPaths.some((pp) => pp.toLowerCase() === menu.path.toLowerCase())
-                    ? {
-                        label: 'Remove from split view',
-                        icon: <MenuIcon d="M4 5h16v14H4zM13 5v14M6.5 10.5l2 1.5-2 1.5" />,
-                        onPick: () => onUnpinSplit(menu.path)
-                      }
-                    : {
-                        label: 'Open in split view',
-                        icon: <FileMenuIcon name="split" />,
-                        onPick: () => onPinSplit(menu.path),
-                        // The remembered direction wears a check: it is where a
-                        // bare click on the parent will put the file.
-                        children: (['left', 'right', 'top', 'bottom'] as const).map((d) => ({
-                          label: d[0].toUpperCase() + d.slice(1),
-                          icon:
-                            d === lastSplitDir() ? (
-                              <MenuIcon d="M5 12.5l4.5 4.5L19 7" />
-                            ) : (
-                              <span className="w-[13px] shrink-0" aria-hidden />
-                            ),
-                          onPick: () => onPinSplit(menu.path, d)
-                        }))
-                      },
-                  fileAppMenu(menu.path, menu.apps)
-                ]
-              : []),
-            {
-              label: 'Cut',
-              hint: 'Ctrl+X',
-              icon: (
-                <FileMenuIcon name="cut" />
-              ),
-              onPick: () => copyMark([menu.path], true)
-            },
-            {
-              label: 'Copy',
-              hint: 'Ctrl+C',
-              icon: <FileMenuIcon name="copy" />,
-              onPick: () => copyMark([menu.path], false)
-            },
-            ...(menu.canPaste
-              ? [
-                  {
-                    /**
-                     * PASTE ON A ROW, not only on the panel's dead space
-                     * (2026-09-02). A full folder has no dead space to
-                     * right-click, and reaching for the one strip that is left
-                     * pasted into the ROOT rather than where you were looking.
-                     *
-                     * A FOLDER row takes it; a FILE row means its folder, which
-                     * is what "paste here" means when the thing under the
-                     * cursor is a file. Near the top because it is what the
-                     * menu was opened for, and drawn only when the clipboard
-                     * actually holds files.
-                     */
-                    label: 'Paste',
-                    hint: 'Ctrl+V',
-                    icon: <FileMenuIcon name="paste" />,
-                    onPick: () => runPaste(menu.isFolder ? menu.path : parentDir(menu.path))
-                  }
-                ]
-              : []),
-            ...(menu.isFolder
-              ? [
-                  {
-                    label: 'Open terminal here',
-                    icon: <FileMenuIcon name="terminal" />,
-                    onPick: () => onTermHere(menu.path)
-                  }
-                ]
-              : []),
-            ...(menu.arc !== undefined
-              ? [
-                  {
-                    // "Extract here" needs no dialog: the archive's own folder
-                    // is already inside a root, so there is nothing to consent
-                    // to. "Extract to…" keeps main's dialog, which IS the
-                    // consent that lets it write anywhere. Same pair, and the
-                    // same reasoning, as the archive panel's verb row.
-                    label: 'Extract here',
-                    icon: <MenuIcon d="M12 4v9m0 0l-3.5-3.5M12 13l3.5-3.5M4.5 16v3.5h15V16" />,
-                    onPick: () => extract(menu.path, true)
-                  },
-                  {
-                    label: 'Extract to…',
-                    icon: <MenuIcon d="M12 4v9m0 0l-3.5-3.5M12 13l3.5-3.5M2.5 15.5h6.2l2 2.6h10.8" />,
-                    onPick: () => extract(menu.path, false)
-                  },
-                  ...(menu.arc?.write
-                    ? [
-                        {
-                          label: 'Add files…',
-                          icon: <FileMenuIcon name="duplicate" />,
-                          onPick: () => addToArchive(menu.path, menu.name)
-                        }
-                      ]
-                    : [])
-                ]
-              : []),
-            {
-              label: 'Show in File Explorer',
-              icon: <FileMenuIcon name="folder" />,
-              onPick: () => window.prism.showInExplorer(menu.path)
-            },
-            {
-              label: 'Copy path',
-              icon: (
-                <FileMenuIcon name="path" />
-              ),
-              onPick: () => void navigator.clipboard.writeText(menu.path)
-            },
-            ...(!menu.isFolder
-              ? [
-                  {
-                    label: 'Duplicate',
-                    icon: <FileMenuIcon name="duplicate" />,
-                    onPick: () =>
-                      void window.prism.duplicateFile(menu.path).then((copy) => {
-                        if (copy) {
-                          onDuplicated(menu.path, copy)
-                          void load(parentDir(menu.path), true)
-                        }
-                      })
-                  }
-                ]
-              : []),
-            {
-              label: 'Rename',
-              hint: 'F2',
-              icon: <FileMenuIcon name="rename" />,
-              onPick: () => setEditing(menu.path)
-            },
-            {
-              label: 'Properties',
-              // The size right on the row: the question Properties answers most.
-              hint: menu.isFolder ? undefined : formatBytes(menu.size ?? NaN) || undefined,
-              icon: (
-                <FileMenuIcon name="properties" />
-              ),
-              onPick: () =>
-                setProps({
-                  path: menu.path,
-                  name: menu.name,
-                  isFolder: menu.isFolder,
-                  size: menu.size
-                })
-            },
-            {
-              label: 'Delete',
-              hint: 'Del',
-              danger: true,
-              icon: <FileMenuIcon name="delete" />,
-              onPick: () => onDelete(menu.path, menu.name, menu.isFolder)
-            }
-          ]}
+          // As above: the handlers are only stored on the rows.
+          // eslint-disable-next-line react-hooks/refs
+          items={treeRowMenu({
+            path: menu.path,
+            name: menu.name,
+            isFolder: menu.isFolder,
+            size: menu.size,
+            apps: menu.apps,
+            arc: menu.arc,
+            canPaste: menu.canPaste,
+            pinnedPaths,
+            searching: query.trim() !== '',
+            expanded: state.expanded.has(menu.path),
+            revealFolder,
+            toggle,
+            openFile: openPicked,
+            onOpenNewTab,
+            onOpenProject,
+            pinSplit: onPinSplit,
+            unpinSplit: onUnpinSplit,
+            copyMark,
+            paste: runPaste,
+            termHere: onTermHere,
+            extract,
+            addToArchive,
+            onDuplicated,
+            reload: (dir) => load(dir, true),
+            rename: setEditing,
+            showProperties: setProps,
+            onDelete
+          })}
         />
       )}
 

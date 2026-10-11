@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
-import { RATES, useMediaControls } from '../lib/useMediaControls'
+import { useMediaControls } from '../lib/useMediaControls'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { fileVerbs, stepVerbs, tickIf } from '../menus/fileVerbs'
+import { audioMenu } from '../menus/viewers/audio'
 import { usePlayerPrefs } from '../lib/playerPrefs'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
@@ -173,29 +173,9 @@ export function AudioView({
   }, [fullscreen])
   const chromeVisible = !fullscreen || chromeOn
 
-  /**
-   * The audio stage's menu (2026-08-30).
-   *
-   * A strict subset of the video's, for the reason the video's own rows were
-   * trimmed: play/pause and fullscreen are a click and a double-click away
-   * already. What is left is what you cannot otherwise reach without leaving
-   * the file - the next track, the speed, and where the thing lives.
-   */
-  const menuItems = (): MenuItem[] => [
-    ...(onStep && canStep ? stepVerbs('track', onStep, canStep) : []),
-    {
-      label: 'Speed',
-      // The hint is the current RATE, not a shortcut: the row says what the
-      // speed IS, which is the reason to open it.
-      hint: `${c.rate.toFixed(2)}x`,
-      children: RATES.map((r) => ({
-        label: r === 1 ? 'Normal' : `${r}x`,
-        icon: tickIf(Math.abs(c.rate - r) < 0.001),
-        onPick: () => c.setRate(r)
-      }))
-    },
-    ...fileVerbs(path)
-  ]
+  /** The stage's menu; the rows and the reasons are in menus/viewers/audio. */
+  const menuItems = (): MenuItem[] =>
+    audioMenu({ path, rate: c.rate, setRate: (r) => c.setRate(r), onStep, canStep })
 
   return (
     <div

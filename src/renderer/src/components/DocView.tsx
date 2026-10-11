@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { ContextMenu } from './ContextMenu'
-import { fileVerbs } from '../menus/fileVerbs'
+import { docMenu } from '../menus/viewers/doc'
 import { DocFind } from './DocFind'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 
@@ -151,14 +151,7 @@ export function DocView({ path, name }: { path: string; name: string }): JSX.Ele
         x={menu.x}
         y={menu.y}
         onClose={() => setMenu(null)}
-        items={[
-          { label: 'Find', hint: 'Ctrl+F', onPick: () => setFinding(true) },
-          // The honest escape hatch: this is a READING view, with no layout
-          // fidelity and no editing, so the app that made the file is one row
-          // away rather than a thing to go and hunt for.
-          { label: 'Open in default app', onPick: () => window.prism.openInDefault(path) },
-          ...fileVerbs(path)
-        ]}
+        items={docMenu({ path, find: () => setFinding(true) })}
       />
     )}
     <div

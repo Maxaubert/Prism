@@ -2,8 +2,7 @@ import { useState, type DragEvent, type JSX } from 'react'
 import { fileKind } from '@shared/fileKind'
 import { FolderIcon, KindIcon } from '../TreeRows'
 import { ContextMenu } from '../ContextMenu'
-import { FileMenuIcon } from '../FileMenuIcon'
-import { fileVerbs } from '../../menus/fileVerbs'
+import { placesMenu } from '../../menus/places'
 import { setDrag } from '../../lib/dragDrop'
 import {
   QUICK_ACCESS_PIN_MIME,
@@ -396,78 +395,21 @@ export function BrowsePlaces({
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[
-            {
-              label: 'Open',
-              icon: <FileMenuIcon name="open" />,
-              onPick: () => {
-                if (!menu.pin.isFolder) {
-                  onQuickAccessFile?.(menu.pin.path, true)
-                  return
-                }
-                // Open from a place's menu is a pick of that place.
-                choose(menu.row, menu.pin.path)
-                onNavigate(menu.pin.path)
-              }
-            },
-            {
-              label: 'Open in new tab',
-              icon: <FileMenuIcon name="new-tab" />,
-              disabled: !onOpenNewTab,
-              onPick: () => onOpenNewTab?.(menu.pin.path, menu.pin.isFolder)
-            },
-            {
-              label: 'Open as project',
-              icon: <FileMenuIcon name="project" />,
-              disabled: !onOpenProject,
-              onPick: () => onOpenProject?.({
-                path: menu.pin.path, name: menu.pin.label, isFolder: menu.pin.isFolder
-              })
-            },
-            ...(menu.pin.isFolder ? [{
-              label: 'New terminal here',
-              icon: <FileMenuIcon name="terminal" />,
-              onPick: () => onNewTerminal(menu.pin.path)
-            }] : []),
-            ...fileVerbs(menu.pin.path).map((item) => ({
-              ...item,
-              icon: <FileMenuIcon name={item.label === 'Copy path' ? 'path' : 'folder'} />
-            })),
-            ...(menu.pinned
-              ? [
-                  {
-                    label: 'Unpin from Quick access',
-                    icon: <FileMenuIcon name="unpin" />,
-                    disabled: !onUnpinQuickAccess,
-                    onPick: () => onUnpinQuickAccess?.(menu.pin.path)
-                  },
-                  {
-                    label: 'Move up',
-                    icon: <FileMenuIcon name="up" />,
-                    disabled: !onMoveQuickAccess || menuIndex <= 0,
-                    onPick: () =>
-                      onMoveQuickAccess?.(menu.pin.path, menuList[menuIndex - 1]?.path)
-                  },
-                  {
-                    label: 'Move down',
-                    icon: <FileMenuIcon name="down" />,
-                    disabled:
-                      !onMoveQuickAccess || menuIndex < 0 || menuIndex >= menuList.length - 1,
-                    // Before the row after next; the last row moves to the
-                    // end, which is the end of its section too.
-                    onPick: () =>
-                      onMoveQuickAccess?.(menu.pin.path, menuList[menuIndex + 2]?.path)
-                  }
-                ]
-              : [
-                  {
-                    label: 'Pin to Quick access',
-                    icon: <FileMenuIcon name="pin" />,
-                    disabled: !onPinQuickAccessPaths,
-                    onPick: () => onPinQuickAccessPaths?.([menu.pin.path])
-                  }
-                ])
-          ]}
+          items={placesMenu({
+            pin: menu.pin,
+            pinned: menu.pinned,
+            siblings: menuList,
+            index: menuIndex,
+            onChoose: () => choose(menu.row, menu.pin.path),
+            onNavigate,
+            onNewTerminal,
+            onQuickAccessFile,
+            onOpenNewTab,
+            onOpenProject,
+            onUnpinQuickAccess,
+            onMoveQuickAccess,
+            onPinQuickAccessPaths
+          })}
         />
       )}
     </aside>

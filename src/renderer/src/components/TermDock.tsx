@@ -4,10 +4,10 @@ import { clampTermSize, dockAxis, type DockEdge } from '../lib/termDock'
 import { dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
 import { quotePaths } from 'prism-term-core/renderer/lib/termPaste'
 import { shellOfShellId } from 'prism-term-core/shared/help/shells'
-import { ContextMenu, type MenuItem } from './ContextMenu'
+import { ContextMenu } from './ContextMenu'
 import { pasteInto } from 'prism-term-core/renderer/lib/termBus'
 import { copyText } from 'prism-term-core/renderer/lib/copyNotice'
-import { tickIf } from '../menus/fileVerbs'
+import { terminalPanelMenu } from '../menus/terminalPanel'
 
 // The terminal's dock: size, drag handle, right-click dock menu, drop scoping.
 // No xterm imports here - the heavy chunk stays behind the lazy boundary.
@@ -15,15 +15,6 @@ const TerminalPanel = lazy(() => import('prism-term-core/renderer/components/Ter
 // Same chunk as the panel, so the find bar's import of the session store
 // costs the launch bundle nothing.
 const TermFind = lazy(() => import('prism-term-core/renderer/components/TermFind'))
-
-// Under a "Split view position" parent (owner, 2026-09-03: a submenu, so the
-// menu does not bloat), so the labels are bare edges.
-const EDGE_NAMES: Array<{ edge: DockEdge; label: string }> = [
-  { edge: 'left', label: 'Left' },
-  { edge: 'right', label: 'Right' },
-  { edge: 'top', label: 'Top' },
-  { edge: 'bottom', label: 'Bottom' }
-]
 
 export function TermDock({
   mode,
@@ -219,47 +210,18 @@ export function TermDock({
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[
-            // THE MENU FITS WHAT WAS CLICKED (#210; owner, 2026-09-23, asked in
-            // Prism Terminal and agreed for Prism: "if i click it on a link it
-            // shows copy link, if i click it with text marked it says copy").
-            // Both copy exactly through the core's copyText, which raises the
-            // "Copied" badge once the clipboard has it (#215).
-            ...(menu.link
-              ? [{ label: 'Copy link', onPick: () => void copyText(menu.link!) }]
-              : []),
-            ...(menu.selection
-              ? [{ label: 'Copy', hint: 'Ctrl+C', onPick: () => void copyText(menu.selection) }]
-              : []),
-            {
-              label: 'Paste',
-              // Through the terminal's OWN paste (lib/termBus), which is
-              // bracketed for text and forwards the ^V keystroke for an image
-              // so the TUI can read the clipboard itself. Writing the text
-              // straight to the pty instead would send a multi-line paste as
-              // a run of Enter presses: the first line runs and the rest are
-              // typed in after it.
-              onPick: () => void pasteInto(sessionId)
-            },
-            { label: 'Find', hint: 'Ctrl+Shift+F', onPick: () => onFind(true) },
-            // The core's popup: find a command by describing it, then copy it.
-            ...(full
-              ? []
-              : ([
-                  {
-                    label: 'Split view position',
-                    children: EDGE_NAMES.map((it) => ({
-                      label: it.label,
-                      icon: tickIf(it.edge === edge),
-                      onPick: () => onDockPick(it.edge)
-                    }))
-                  },
-                  { label: 'Remove from split view', onPick: onClose }
-                ] as MenuItem[])),
-            // CLOSE means close (owner, 2026-09-03): the shell dies here, and
-            // the next open is a fresh one in the tab's current folder.
-            { label: 'Close terminal', onPick: onKill }
-          ]}
+          items={terminalPanelMenu({
+            full,
+            edge,
+            link: menu.link,
+            selection: menu.selection,
+            onCopy: copyText,
+            onPaste: () => pasteInto(sessionId),
+            onFind,
+            onDockPick,
+            onRemoveFromSplit: onClose,
+            onKill
+          })}
         />
       )}
     </div>
