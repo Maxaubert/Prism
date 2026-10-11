@@ -30,10 +30,18 @@ press gets an independent ACK worker, so a pending request never drops or blocks
 the next press. Thread creation happens on the dispatcher, outside the hook.
 
 A 500 ms lifecycle check exits the hook if its registration changes or the target
-executable/application resources disappear. Owned stale registrations are removed.
+executable/application resources disappear. It runs on its own thread, never the
+hook's: its registry and file reads used to share the hook's thread, and a slow one
+held the hook past Windows' `LowLevelHooksTimeout`, so the key went on to File
+Explorer (#350). The hook is re-armed every 15 seconds (the new one in before the old
+one out), because Windows removes a hook that timed out without telling its owner. Owned stale registrations are removed.
 Helper crashes naturally remove its process-owned hook. No shell associations or
 Windows shortcut configuration are replaced. The worker finishes any pending
-fallback before allowing installer replacement. No keyboard activity is logged.
+fallback before allowing installer replacement. No keyboard activity is logged. What IS logged, in `<profile>\logs\win-e.log` (256 KB,
+then one `.old`), is the watcher starting and stopping, a Win+E that reached the hook
+late, and how each request ended: acknowledged, or the reason it fell back to File
+Explorer (`no-connection`, `no-start`, `closed`, `closed after started`, `not-ready`,
+`wrong-reply`, `failed`). Never which keys were typed.
 
 `node tools/test-win-e.mjs` compiles and runs isolated self-tests. Tests use a unique
 temporary HKCU key and real named pipes, verify deletion/ownership/disable/upgrade

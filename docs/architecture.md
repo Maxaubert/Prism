@@ -115,6 +115,17 @@ Filesmith's conventions.
   (`LaunchAndWait`'s `patience`), and falls back at once if the pipe closes because Prism died. The
   helper and the app ship together; an old helper would read "started" as a wrong answer, which is
   why they must. `npm run test:win-e` holds the helper's three new cases.
+- **WIN+E OPENED FILE EXPLORER TOO, AND SOMETIMES ONLY IT** (#350; owner, 2026-10-11: "it will
+  almost always open both prism and file explorer"). MEASURED by playing the helper's part against
+  the installed app: Prism wrote "started" and its socket closed 4 ms later. The helper's server only
+  READS (`PipeDirection.In`), so Node's end sees end-of-file at once, and with the default
+  `allowHalfOpen: false` it closed the held socket; the helper took the close for a dead Prism and
+  opened File Explorer beside the Prism it had started, on every press. `announceWinE` connects
+  half-open now; `winERequests.test.ts` holds it against a real .NET read-only pipe. In the helper,
+  the 500 ms lifecycle check (registry and file reads) moved OFF the hook's thread, where a slow read
+  could hold the hook past `LowLevelHooksTimeout` (the key then reaches Explorer, and repeated
+  timeouts make Windows drop the hook silently), the hook is re-armed every 15 s, and the helper
+  keeps `logs\win-e.log` in the profile: start, stop, late presses, and how each request ended.
 - **THE TERMINAL ROWS COME IN ONE ORDER, THE CORE'S** (2026-09-22, owner: the two apps' terminal
   settings "the same in terms of order"). The core's sections draw them; `termOptions` reads each
   core section (`[data-settings-section]`) top to bottom against `TERMINAL_OPTIONS`, as Prism
