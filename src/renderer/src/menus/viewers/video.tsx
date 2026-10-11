@@ -171,6 +171,12 @@ export function videoMenu(ctx: VideoMenuContext): MenuItem[] {
           }
         ]
       : []),
+    // Beside Copy frame (owner, 2026-10-12: the clipboard rows together).
+    {
+      label: 'Copy path',
+      icon: tickIf(false),
+      onPick: () => void navigator.clipboard.writeText(path)
+    },
     ...(window.prism.capabilities.explorer
       ? [
           {
@@ -179,12 +185,7 @@ export function videoMenu(ctx: VideoMenuContext): MenuItem[] {
             onPick: () => window.prism.showInExplorer(path)
           }
         ]
-      : []),
-    {
-      label: 'Copy path',
-      icon: tickIf(false),
-      onPick: () => void navigator.clipboard.writeText(path)
-    }
+      : [])
   ]
   return items
 }

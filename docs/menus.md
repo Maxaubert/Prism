@@ -18,6 +18,27 @@ that would be bad for when we change things").
   onPick, one level of `children`, `keepOpen`, `trailing`). It draws no separators: every row has
   a top border.
 
+## The order (owner, 2026-10-12)
+
+"every menu with delete should have that option at the bottom. copy cut paste copy path settings
+should be in the same area ... most things should have a properties menu at least files and
+folders and drives ... make sure the order feels natural".
+
+Every file or folder menu reads top to bottom in the same groups:
+
+1. **Opening**: Open, Show in preview / Open in split view, Open in new tab, Open as project,
+   then New terminal here (a folder) or Open in (a file).
+2. **The clipboard, together**: Cut, Copy, Copy path, Paste. A menu with fewer keeps the same
+   order (a viewer's Copy image or Copy frame, then Copy path).
+3. **Changing it**: Pin / Unpin, Extract, Duplicate, Rename.
+4. **Where it is and its facts**: Show in File Explorer, then Properties.
+5. **Delete, always LAST**, on every menu that has it (Close tab is last on a tab, the same way).
+
+Files, folders and drives all have Properties: the left panel's places (a drive shows its kind and
+sizes, `lib/driveProps.ts`, never a walk of the whole disk) and the project tree's empty space (its
+root). The tree says "New terminal here" as the Explorer does. Open question, not done: Show in
+File Explorer may move under a "More" flyout or go.
+
 ## Shared rows
 
 | File | What | Used by |
@@ -60,14 +81,14 @@ that would be bad for when we change things").
 - Electron's default menus are off (`Menu.setApplicationMenu(null)`); text inputs have no
   right-click menu.
 
-## Known differences (found 2026-10-11, left for the reorder work)
+## Known differences (found 2026-10-11)
 
-- The Explorer row and the tree row are separate definitions of the same verbs, in a different
-  order and wording ("New terminal here" vs "Open terminal here", Paste greyed vs hidden,
-  Properties before vs after Delete, "items" vs "files", only the tree has Copy paths).
+- The Explorer row and the tree row are separate definitions of the same verbs. Since 2026-10-12
+  they share the order and the terminal row's wording; still different: Paste greyed (Explorer)
+  vs hidden (tree), "items" vs "files" on several marked rows, only the tree has Copy paths.
 - Show in File Explorer and Copy path are retyped (not `fileVerbs`) in the tree, tab, video and
   zip-panel menus, so those skip the phone's capability checks.
 - Three copies of the Left/Right/Top/Bottom list (`splitPane.tsx`, `terminalPanel.tsx`,
   `treeRow.tsx`).
 - A marked selection that includes a zip row gets the single-zip menu; ordinary folders have no
-  empty-space menu in the Explorer list; the `source: 'more'` filter in `explorerRow.tsx` is dead.
+  empty-space menu in the Explorer list.

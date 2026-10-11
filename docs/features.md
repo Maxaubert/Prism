@@ -2486,7 +2486,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **Every surface answers a right-click** (2026-08-30, #76). Seven had no menu at all while
   the video had a carefully trimmed one, and almost every verb they needed already existed
   somewhere else. The picture, the audio stage, the text editor, a tab, the archive panel's
-  DEAD SPACE, the documents and the terminal all have one now, and `lib/fileVerbs.tsx` holds
+  DEAD SPACE, the documents and the terminal all have one now, and `menus/fileVerbs.tsx` holds
   the rows that mean the same thing wherever a file is on screen. Two deliberate gaps: a tab
   has NO "close others" (each close can raise the unsaved-changes question, and firing several
   would overwrite it and lose the work it protects), and the terminal's menu carries paste but
@@ -2501,6 +2501,18 @@ changing a feature: each entry records what the owner decided, why, and what hol
   becomes "name (2)", the way Duplicate does. Deliberately NOT `ownWrite`'d, because the
   tree has no other way to hear about a paste and muting only DEFERS the watcher's event by
   a second and a half anyway.
+  **ONE PLACE AND ONE ORDER** (owner, 2026-10-11 and 2026-10-12). Every menu's rows are a
+  builder in `src/renderer/src/menus/`, one file per surface with a test pinning its order,
+  indexed in `docs/menus.md` ("make sure that the right click menus in the repo is organized
+  and easy to find"). Then the order: "every menu with delete should have that option at the
+  bottom. copy cut paste copy path settings should be in the same area ... most things should
+  have a properties menu at least files and folders and drives ... make sure the order feels
+  natural". So: opening rows, then Cut, Copy, Copy path, Paste together, then what changes the
+  item, then Show in File Explorer and Properties, and Delete LAST (Close tab last on a tab).
+  Places in the left panel and the tree's empty space gained Properties; a drive's is its own
+  (`lib/driveProps.ts`: kind, location, label, capacity, used, free), never a walk of the disk.
+  The tree's "Open terminal here" became "New terminal here", the Explorer's word. Held by the
+  `menus/*.test.ts` files, `driveProps.test.ts`, and the e2e `rowPaste` and zip-menu checks.
   **NO ICONS on a viewer's menu, and almost no shortcut hints** (owner pick, 2026-08-31). The
   first cut read like a toolbar - the picture's menu offered next, previous, zoom in, zoom out,
   fit, actual size, rotate, fullscreen and copy, most with a key against the row - and every one

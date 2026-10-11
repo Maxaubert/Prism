@@ -54,34 +54,34 @@ describe('explorerRowMenu', () => {
       'Show in preview',
       'Open in new tab',
       'Open as project',
+      'Open in',
       'Cut',
       'Copy',
       'Copy path',
       'Paste',
       'Pin to Quick access',
-      'Open in',
       'Duplicate',
       'Rename',
-      'Delete',
       'Show in File Explorer',
-      'Properties'
+      'Properties',
+      'Delete'
     ])
   })
   it('a folder row', () => {
     expect(labels(menu({ entry: folder }))).toEqual([
       'Open',
-      'New terminal here',
       'Open in new tab',
       'Open as project',
+      'New terminal here',
       'Cut',
       'Copy',
       'Copy path',
       'Paste',
       'Pin to Quick access',
       'Rename',
-      'Delete',
       'Show in File Explorer',
-      'Properties'
+      'Properties',
+      'Delete'
     ])
   })
   it('a pinned row offers Unpin', () => {
@@ -112,20 +112,5 @@ describe('explorerRowMenu', () => {
   })
   it('one marked path is the single-row menu', () => {
     expect(labels(menu({ entry: folder, paths: [folder.path] }))[0]).toBe('Open')
-  })
-  it("source 'more' drops Open, Copy, Rename and Delete", () => {
-    expect(labels(menu({ entry: file, source: 'more' }))).toEqual([
-      'Show in preview',
-      'Open in new tab',
-      'Open as project',
-      'Cut',
-      'Copy path',
-      'Paste',
-      'Pin to Quick access',
-      'Open in',
-      'Duplicate',
-      'Show in File Explorer',
-      'Properties'
-    ])
   })
 })

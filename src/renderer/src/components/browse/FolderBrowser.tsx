@@ -360,6 +360,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       onNewTerminal={props.onNewTerminal}
       onOpenProject={props.onOpenProject}
       onOpenNewTab={props.onOpenNewTab}
+      onProperties={props.onProperties}
     />
   )
 

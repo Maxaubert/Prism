@@ -12,6 +12,10 @@
  * into a zip (not in the mockup; it would be a new route). A read-only
  * container (a 7z and the rest, a zip past adm-zip's cap, a nested one) has no
  * Add, Rename or Delete anywhere.
+ *
+ * THE ORDER (owner, 2026-10-12): the same as every file menu, the clipboard
+ * rows together, Show in File Explorer and Properties near the end, and Delete
+ * always LAST.
  */
 
 export type ArchiveRowId =
@@ -60,9 +64,9 @@ export function archiveMenuRows(context: ArchiveMenuContext): ArchiveRow[] {
           { id: 'copy', label: 'Copy', hint: 'Ctrl+C' },
           { id: 'copy-path', label: 'Copy path' },
           { id: 'rename', label: 'Rename', hint: 'F2' },
-          { id: 'delete', label: 'Delete', hint: 'Del', danger: true },
           { id: 'show', label: 'Show in File Explorer' },
-          { id: 'properties', label: 'Properties' }
+          { id: 'properties', label: 'Properties' },
+          { id: 'delete', label: 'Delete', hint: 'Del', danger: true }
         ]
       case 'folder':
         return [
@@ -72,9 +76,9 @@ export function archiveMenuRows(context: ArchiveMenuContext): ArchiveRow[] {
           { id: 'extract-to', label: 'Extract this folder to...' },
           w && { id: 'add-files', label: 'Add files here...' },
           { id: 'copy', label: 'Copy folder', hint: 'Ctrl+C' },
-          w && { id: 'delete', label: 'Delete from zip', hint: 'Del', danger: true },
           { id: 'show', label: `Show ${context.zip} in File Explorer` },
-          { id: 'properties', label: 'Properties' }
+          { id: 'properties', label: 'Properties' },
+          w && { id: 'delete', label: 'Delete from zip', hint: 'Del', danger: true }
         ]
       case 'file':
         return [
@@ -83,9 +87,9 @@ export function archiveMenuRows(context: ArchiveMenuContext): ArchiveRow[] {
           { id: 'extract-to', label: 'Extract this file to...' },
           { id: 'copy', label: 'Copy file', hint: 'Ctrl+C' },
           w && { id: 'rename', label: 'Rename', hint: 'F2' },
-          w && { id: 'delete', label: 'Delete from zip', hint: 'Del', danger: true },
           { id: 'show', label: `Show ${context.zip} in File Explorer` },
-          { id: 'properties', label: 'Properties' }
+          { id: 'properties', label: 'Properties' },
+          w && { id: 'delete', label: 'Delete from zip', hint: 'Del', danger: true }
         ]
       case 'many':
         return [
@@ -104,8 +108,8 @@ export function archiveMenuRows(context: ArchiveMenuContext): ArchiveRow[] {
           { id: 'extract-here', label: 'Extract here' },
           { id: 'extract-to', label: 'Extract to...' },
           w && { id: 'add-files', label: 'Add files here...' },
-          { id: 'show', label: `Show ${context.zip} in File Explorer` },
-          { id: 'copy-path', label: 'Copy address' }
+          { id: 'copy-path', label: 'Copy address' },
+          { id: 'show', label: `Show ${context.zip} in File Explorer` }
         ]
     }
   })()

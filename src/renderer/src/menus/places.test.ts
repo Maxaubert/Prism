@@ -39,6 +39,7 @@ const build = (over: Partial<PlacesMenuContext> = {}): ReturnType<typeof placesM
     onOpenNewTab: vi.fn(),
     onOpenProject: vi.fn(),
     onUnpinQuickAccess: vi.fn(),
+    onProperties: vi.fn(),
     onMoveQuickAccess: vi.fn(),
     onPinQuickAccessPaths: vi.fn(),
     ...over
@@ -56,9 +57,10 @@ describe('placesMenu', () => {
       'Open in new tab',
       'Open as project',
       'New terminal here',
-      'Show in File Explorer',
       'Copy path',
-      ...PIN_ROWS
+      ...PIN_ROWS,
+      'Show in File Explorer',
+      'Properties'
     ])
     expect(disabled(build())).toEqual([])
   })
@@ -71,9 +73,10 @@ describe('placesMenu', () => {
       'Open',
       'Open in new tab',
       'Open as project',
-      'Show in File Explorer',
       'Copy path',
-      ...PIN_ROWS
+      ...PIN_ROWS,
+      'Show in File Explorer',
+      'Properties'
     ])
     items[0].onPick?.()
     expect(onQuickAccessFile).toHaveBeenCalledWith('C:\\b.txt', true)
@@ -86,9 +89,10 @@ describe('placesMenu', () => {
       'Open in new tab',
       'Open as project',
       'New terminal here',
-      'Show in File Explorer',
       'Copy path',
-      'Pin to Quick access'
+      'Pin to Quick access',
+      'Show in File Explorer',
+      'Properties'
     ])
   })
   it('Open on a folder picks the place, then goes there', () => {

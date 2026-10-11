@@ -5,6 +5,7 @@ import { tabCrumbs } from './lib/tabCrumbs'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type ReactNode } from 'react'
 import type { OnClash, OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
+import type { BrowseDriveUsage } from '@shared/browse'
 import { preloadImage } from './lib/imageLoader'
 import { captureMoveViews, movedPath, releaseMoveViews, restoreMoveViews, type FileMove } from './lib/moveViews'
 import {
@@ -2643,7 +2644,6 @@ export default function App(): JSX.Element {
     x: number
     y: number
     entry: BrowseEntry
-    source?: 'more'
     /** Several marked rows, when the press was on one of them (#257). */
     paths?: string[]
     canPaste?: boolean
@@ -2670,7 +2670,7 @@ export default function App(): JSX.Element {
     return () => { cancelled = true }
   }, [browseMenuPath, browseMenuFolder, browseMenu?.x, browseMenu?.y])
   const [browseRename, setBrowseRename] = useState<BrowseEntry | null>(null)
-  const [browseProps, setBrowseProps] = useState<BrowseEntry | null>(null)
+  const [browseProps, setBrowseProps] = useState<(BrowseEntry & { drive?: BrowseDriveUsage }) | null>(null)
   const refreshFiles = useCallback(() => setRefreshKey((key) => key + 1), [])
   const reportPasteError = useCallback(
     (message: string) => setAsk({ kind: 'failed', message }),
@@ -4266,7 +4266,7 @@ export default function App(): JSX.Element {
                     setBrowseRename({ path: made, name: baseName(made), isFolder: true })
                   })
                 }
-                onProperties={(entry) => setBrowseProps(entry)}
+                onProperties={(entry, drive) => setBrowseProps(drive ? { ...entry, drive } : entry)}
                 // Ctrl+Shift+C (#330): the paths as text, the menu's Copy path.
                 onCopyPathText={(paths) => void clipboardText(paths.join('\n'))}
                 // Inside an archive F2 renames a FILE of a writable zip and
@@ -4301,8 +4301,8 @@ export default function App(): JSX.Element {
                       setRefreshKey((key) => key + 1)
                     })
                 }}
-                onContextMenu={(event, entry, source, paths) =>
-                  setBrowseMenu({ x: event.clientX, y: event.clientY, entry, source, paths })
+                onContextMenu={(event, entry, _source, paths) =>
+                  setBrowseMenu({ x: event.clientX, y: event.clientY, entry, paths })
                 }
                 previewEnabled={active.browse.preview}
                 previewVisible={previewSlide.out}
@@ -4956,7 +4956,6 @@ export default function App(): JSX.Element {
             explorerRowMenu({
               entry: browseMenu.entry,
               paths: browseMenu.paths,
-              source: browseMenu.source,
               canPaste: browseMenu.canPaste,
               apps: browseMenu.apps,
               pinned: quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)),
@@ -5012,6 +5011,7 @@ export default function App(): JSX.Element {
           name={browseProps.name}
           kind={browseProps.file?.kind ?? 'other'}
           isFolder={browseProps.isFolder}
+          drive={browseProps.drive}
           onClose={() => setBrowseProps(null)}
         />
       )}

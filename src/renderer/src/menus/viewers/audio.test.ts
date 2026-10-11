@@ -42,8 +42,8 @@ describe('the audio stage menu', () => {
       'Next track',
       'Previous track',
       'Speed',
-      'Show in File Explorer',
-      'Copy path'
+      'Copy path',
+      'Show in File Explorer'
     ])
     expect(items[2].hint).toBe('1.50x')
     expect(labels(items[2].children ?? [])).toEqual([
@@ -69,8 +69,8 @@ describe('the audio stage menu', () => {
     host(true)
     expect(labels(audioMenu(ctx({ onStep: undefined, canStep: undefined })))).toEqual([
       'Speed',
-      'Show in File Explorer',
-      'Copy path'
+      'Copy path',
+      'Show in File Explorer'
     ])
   })
 

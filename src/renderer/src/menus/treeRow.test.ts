@@ -73,10 +73,10 @@ describe('treeRowMenu', () => {
       'Open in',
       'Cut',
       'Copy',
-      'Show in File Explorer',
       'Copy path',
       'Duplicate',
       'Rename',
+      'Show in File Explorer',
       'Properties',
       'Delete'
     ])
@@ -106,12 +106,12 @@ describe('treeRowMenu', () => {
       'Open',
       'Open in new tab',
       'Open as project',
+      'New terminal here',
       'Cut',
       'Copy',
-      'Open terminal here',
-      'Show in File Explorer',
       'Copy path',
       'Rename',
+      'Show in File Explorer',
       'Properties',
       'Delete'
     ])
@@ -121,7 +121,7 @@ describe('treeRowMenu', () => {
   it("Paste appears once the clipboard holds files, into the file row's folder", () => {
     const ctx = rowCtx({ canPaste: true })
     const items = treeRowMenu(ctx)
-    expect(labels(items).slice(5, 8)).toEqual(['Cut', 'Copy', 'Paste'])
+    expect(labels(items).slice(5, 9)).toEqual(['Cut', 'Copy', 'Copy path', 'Paste'])
     row(items, 'Paste').onPick?.()
     expect(ctx.paste).toHaveBeenCalledWith('C:\\p')
   })
@@ -131,13 +131,13 @@ describe('treeRowMenu', () => {
     expect(labels(items).slice(5)).toEqual([
       'Cut',
       'Copy',
+      'Copy path',
       'Extract here',
       'Extract to…',
       'Add files…',
-      'Show in File Explorer',
-      'Copy path',
       'Duplicate',
       'Rename',
+      'Show in File Explorer',
       'Properties',
       'Delete'
     ])
@@ -146,11 +146,7 @@ describe('treeRowMenu', () => {
   it('a read-only archive row, and one whose stat is in flight', () => {
     for (const arc of [{ write: false }, null]) {
       const items = treeRowMenu(rowCtx({ path: 'C:\\p\\z.7z', name: 'z.7z', arc }))
-      expect(labels(items).slice(7, 10)).toEqual([
-        'Extract here',
-        'Extract to…',
-        'Show in File Explorer'
-      ])
+      expect(labels(items).slice(8, 11)).toEqual(['Extract here', 'Extract to…', 'Duplicate'])
     }
   })
 
@@ -196,16 +192,20 @@ describe('treeMarkedMenu', () => {
 describe('treeDeadSpaceMenu', () => {
   it('the dead space acts on the root', () => {
     const paste = vi.fn()
-    const items = treeDeadSpaceMenu({ root: 'C:\\p', paste, termHere: vi.fn() })
+    const showProperties = vi.fn()
+    const items = treeDeadSpaceMenu({ root: 'C:\\p', paste, termHere: vi.fn(), showProperties })
     expect(labels(items)).toEqual([
       'Paste',
-      'Open terminal here',
+      'Copy path',
+      'New terminal here',
       'Show in File Explorer',
-      'Copy path'
+      'Properties'
     ])
     items[0].onPick?.()
     expect(paste).toHaveBeenCalledWith('C:\\p')
-    items[2].onPick?.()
+    items[4].onPick?.()
+    expect(showProperties).toHaveBeenCalledWith({ path: 'C:\\p', name: 'p', isFolder: true })
+    items[3].onPick?.()
     expect(showInExplorer).toHaveBeenCalledWith('C:\\p')
   })
 })

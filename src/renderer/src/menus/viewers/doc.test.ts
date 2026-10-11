@@ -33,8 +33,8 @@ describe('the document reader menu', () => {
     expect(items.map((i) => i.label)).toEqual([
       'Find',
       'Open in default app',
-      'Show in File Explorer',
-      'Copy path'
+      'Copy path',
+      'Show in File Explorer'
     ])
     items[1].onPick?.()
     expect(openInDefault).toHaveBeenCalledWith('C:\\docs\\a.docx')

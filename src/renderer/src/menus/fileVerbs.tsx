@@ -70,13 +70,15 @@ export function fileVerbs(path: string, { icons = false }: { icons?: boolean } =
       }
     : null
   if (!window.prism.capabilities.explorer) return copyPath ? [copyPath] : []
+  // Copy path first, beside whatever else the menu copies, and Show in File
+  // Explorer last (owner, 2026-10-12: the clipboard rows in one place).
   return [
+    ...(copyPath ? [copyPath] : []),
     {
       label: 'Show in File Explorer',
       icon: icons ? <FileMenuIcon name="folder" /> : undefined,
       onPick: () => window.prism.showInExplorer(path)
-    },
-    ...(copyPath ? [copyPath] : [])
+    }
   ]
 }
 

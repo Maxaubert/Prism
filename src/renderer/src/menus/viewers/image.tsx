@@ -41,6 +41,10 @@ export interface ImageMenuContext {
  */
 export function imageMenu(ctx: ImageMenuContext): MenuItem[] {
   const { path, hasImage: img, slideshow, slideSecs, setSlideshow, setSlideSecs } = ctx
+  const verbs = path ? fileVerbs(path, { icons: true }) : []
+  // Copy image and Copy path side by side (owner, 2026-10-12: the clipboard
+  // rows in one place); Show in File Explorer last.
+  const copyPath = verbs.filter((item) => item.label === 'Copy path')
   return [
     { label: 'Rotate', icon: <FileMenuIcon name="rotate" />, onPick: () => ctx.rotate() },
     // The pixels go to the OS clipboard and the copy through main's save
@@ -56,6 +60,7 @@ export function imageMenu(ctx: ImageMenuContext): MenuItem[] {
           }
         ]
       : []),
+    ...copyPath,
     ...(window.prism.capabilities.write
       ? [
           {
@@ -97,6 +102,6 @@ export function imageMenu(ctx: ImageMenuContext): MenuItem[] {
           } as MenuItem
         ]
       : []),
-    ...(path ? fileVerbs(path, { icons: true }) : [])
+    ...verbs.filter((item) => !copyPath.includes(item))
   ]
 }

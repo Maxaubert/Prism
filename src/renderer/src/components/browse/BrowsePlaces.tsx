@@ -11,7 +11,7 @@ import {
 } from '../../lib/quickAccess'
 import { useDriveStyle } from '../../lib/driveStylePrefs'
 import { useDriveUsage } from '../../lib/useDriveUsage'
-import { nearlyFull } from '../../lib/driveUsage'
+import { driveName, nearlyFull } from '../../lib/driveUsage'
 import { DriveBody } from './DriveRow'
 import { PlaceIcon } from './PlaceIcon'
 import { PeekPinButton } from '../PanelToggle'
@@ -36,6 +36,7 @@ type Props = Pick<
   | 'onOpenProject'
   | 'onOpenNewTab'
   | 'readDrives'
+  | 'onProperties'
 >
 
 type PlacesProps = Props & {
@@ -74,6 +75,7 @@ export function BrowsePlaces({
   onNewTerminal,
   onOpenProject,
   onOpenNewTab,
+  onProperties,
   quickAccess,
   onQuickAccessFile,
   onUnpinQuickAccess,
@@ -408,7 +410,23 @@ export function BrowsePlaces({
             onOpenProject,
             onUnpinQuickAccess,
             onMoveQuickAccess,
-            onPinQuickAccessPaths
+            onPinQuickAccessPaths,
+            onProperties: onProperties
+              ? () => {
+                  const { pin } = menu
+                  const drive = menu.row.startsWith('place:') && drives.some((d) => d.path === pin.path)
+                    ? (usage.get(pin.path.toUpperCase()) ?? { path: pin.path })
+                    : undefined
+                  onProperties(
+                    {
+                      path: pin.path,
+                      name: drive ? driveName(pin.path, drive) : pin.label,
+                      isFolder: pin.isFolder
+                    },
+                    drive
+                  )
+                }
+              : undefined
           })}
         />
       )}

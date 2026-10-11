@@ -1485,8 +1485,8 @@ async function contextMenuScenario(fixtures) {
       'files offer Open in split view'
     )
     ok(
-      (await win.locator('[role="menuitem"]:has-text("Open terminal here")').count()) === 0,
-      'a FILE is offered no "Open terminal here": you open a terminal in a folder'
+      (await win.locator('[role="menuitem"]:has-text("New terminal here")').count()) === 0,
+      'a FILE is offered no "New terminal here": you open a terminal in a folder'
     )
     await win.screenshot({ path: join(SHOTS, 'context-menu.png') })
     await win.keyboard.press('Escape')
@@ -1497,7 +1497,7 @@ async function contextMenuScenario(fixtures) {
     await codeRow.click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     ok(
-      (await win.locator('[role="menuitem"]:has-text("Open terminal here")').count()) === 1,
+      (await win.locator('[role="menuitem"]:has-text("New terminal here")').count()) === 1,
       'a folder is'
     )
     await win.keyboard.press('Escape')
@@ -1511,7 +1511,7 @@ async function contextMenuScenario(fixtures) {
     // dead space whatever the fixture holds.
     await win.mouse.click(box.x + box.width / 2, box.y + box.height + 24, { button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
-    for (const label of ['Paste', 'Show in File Explorer', 'Copy path', 'Open terminal here']) {
+    for (const label of ['Paste', 'Show in File Explorer', 'Copy path', 'New terminal here']) {
       ok(
         (await win.locator(`[role="menuitem"]:has-text("${label}")`).count()) >= 1,
         `the tree's dead space offers ${label}`
@@ -2533,10 +2533,12 @@ async function rowPasteScenario(fixtures) {
     const pasteAt = order.findIndex((t) => t.startsWith('Paste'))
     const cutAt = order.findIndex((t) => t.startsWith('Cut'))
     const copyAt = order.findIndex((t) => t.startsWith('Copy') && !t.startsWith('Copy path'))
+    const pathAt = order.findIndex((t) => t.startsWith('Copy path'))
     const renameAt = order.findIndex((t) => t.startsWith('Rename'))
+    // Copy path joined them (owner, 2026-10-12: the clipboard rows together).
     ok(
-      cutAt >= 0 && copyAt === cutAt + 1 && pasteAt === copyAt + 1 && renameAt > pasteAt,
-      `and Cut/Copy/Paste stay together before Rename (cut ${cutAt}, paste ${pasteAt} of ${order.length})`
+      cutAt >= 0 && copyAt === cutAt + 1 && pathAt === copyAt + 1 && pasteAt === pathAt + 1 && renameAt > pasteAt,
+      `and Cut/Copy/Copy path/Paste stay together before Rename (cut ${cutAt}, paste ${pasteAt} of ${order.length})`
     )
 
     // WAITED FOR, NOT SLEPT FOR (2026-09-21). The paste is a PowerShell read
@@ -6170,9 +6172,9 @@ async function termCwdScenario(fixtures) {
     await typeLine('$projectCwdProof = $PID')
     const projectTabs = await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()
     await win.locator('[role="treeitem"]').filter({ hasText: 'nested' }).first().click({ button: 'right' })
-    await win.getByRole('menuitem', { name: 'Open terminal here', exact: true }).click()
+    await win.getByRole('menuitem', { name: 'New terminal here', exact: true }).click()
     await win.waitForFunction(() => /nested>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()), null, { timeout: 10000 })
-    ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === projectTabs, 'Open terminal here adds a session inside the same project')
+    ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === projectTabs, 'New terminal here adds a session inside the same project')
     ok(
       /nested>\s*$/.test((await termText()).trimEnd()),
       'the new session starts in the explicitly selected folder'
@@ -6209,7 +6211,7 @@ async function termCwdScenario(fixtures) {
   /**
    * ...AND THE SHELL COMES BACK WHERE IT WAS (2026-09-09). The tab's root is
    * not where the shell was standing: a cd inside the root moves the shell
-   * and deliberately leaves the root alone, and so does "Open terminal here"
+   * and deliberately leaves the root alone, and so does "New terminal here"
    * on a folder row. Restore spawned at the ROOT, so the folder you had
    * walked to was gone every launch - and the agent resume, which looks a
    * conversation up by the folder it was held in, went to the root's newest
@@ -17756,15 +17758,15 @@ async function zipMenusScenario(fixtures) {
   try {
     await explorerAt(win, dir)
     const outside = await rowMenu(win, 'Wind-0.2.2.zip')
-    const wantOutside = ['Open', 'Open in new tab', 'Extract here', 'Extract to...', 'Add files...', 'Copy', 'Copy path', 'Rename', 'Delete', 'Show in File Explorer', 'Properties']
+    const wantOutside = ['Open', 'Open in new tab', 'Extract here', 'Extract to...', 'Add files...', 'Copy', 'Copy path', 'Rename', 'Show in File Explorer', 'Properties', 'Delete']
     ok(outside.join('|') === wantOutside.join('|'), `a zip outside has the archive's rows (${outside.join(', ')})`)
     await zipGo(win, `${zipPath}\\Wind`, async () => (await zipRows(win)).some((p) => p.endsWith('package.json')))
     const folder = await rowMenu(win, 'Wind\\src')
-    const wantFolder = ['Open', 'Open in new tab', 'Extract this folder', 'Extract this folder to...', 'Add files here...', 'Copy folder', 'Delete from zip', 'Show Wind-0.2.2.zip in File Explorer', 'Properties']
+    const wantFolder = ['Open', 'Open in new tab', 'Extract this folder', 'Extract this folder to...', 'Add files here...', 'Copy folder', 'Show Wind-0.2.2.zip in File Explorer', 'Properties', 'Delete from zip']
     ok(folder.join('|') === wantFolder.join('|'), `a folder inside has its rows (${folder.join(', ')})`)
     ok(!folder.includes('Rename'), 'and no Rename: a folder inside a zip is not renamed')
     const file = await rowMenu(win, 'package.json')
-    const wantFile = ['Open', 'Extract this file', 'Extract this file to...', 'Copy file', 'Rename', 'Delete from zip', 'Show Wind-0.2.2.zip in File Explorer', 'Properties']
+    const wantFile = ['Open', 'Extract this file', 'Extract this file to...', 'Copy file', 'Rename', 'Show Wind-0.2.2.zip in File Explorer', 'Properties', 'Delete from zip']
     ok(file.join('|') === wantFile.join('|'), `a file inside has its rows (${file.join(', ')})`)
     ok(!file.some((l) => /^Open (with|in)/.test(l)), 'and no Open with: a temp copy would lose its saves')
     // The empty space's own menu.
@@ -17773,7 +17775,7 @@ async function zipMenusScenario(fixtures) {
     await win.waitForSelector('[role="menu"] [role="menuitem"]', { timeout: 5000 })
     const empty = await menuLabels(win)
     await win.keyboard.press('Escape')
-    ok(empty.join('|') === ['Extract here', 'Extract to...', 'Add files here...', 'Show Wind-0.2.2.zip in File Explorer', 'Copy address'].join('|'), `the empty space inside has its rows (${empty.join(', ')})`)
+    ok(empty.join('|') === ['Extract here', 'Extract to...', 'Add files here...', 'Copy address', 'Show Wind-0.2.2.zip in File Explorer'].join('|'), `the empty space inside has its rows (${empty.join(', ')})`)
     await win.screenshot({ path: join(SHOTS, 'zip-menu.png') })
     // A 7z is read-only: no Add, Rename or Delete anywhere.
     await zipGo(win, join(dir, 'locked.7z'), async () => /locked\.7z/.test((await win.locator('[data-archive-strip]').textContent().catch(() => '')) ?? ''))

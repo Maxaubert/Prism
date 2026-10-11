@@ -1898,7 +1898,8 @@ export function Sidebar({
           items={treeDeadSpaceMenu({
             root,
             paste: runPaste,
-            termHere: onTermHere
+            termHere: onTermHere,
+            showProperties: setProps
           })}
         />
       )}
