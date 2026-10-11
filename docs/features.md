@@ -2090,6 +2090,24 @@ changing a feature: each entry records what the owner decided, why, and what hol
   hunted for. The switch reports what the REGISTRY says, not what was clicked, and a verb
   pointing at some other copy of Prism reads as off so turning it on repoints it here.
 - Keyboard-first controls; remember window size/position.
+  **IT OPENS AT FILE EXPLORER'S SIZE, AND NEVER MAXIMIZED** (owner, 2026-10-11: "i dont love
+  that it opens fullscreen, it should be the same size as file explorer"; asked, chose "Explorer
+  size, remember resizes"). `src/main/windowSize.ts`, pure and tested: nothing saved is File
+  Explorer's own 933 x 756 DIP (MEASURED from a fresh File Explorer window on the owner's
+  machine the same day; it was 1164 x 698), a size the user dragged to comes back with its
+  place, the saved maximized flag is never restored, and a saved size filling 95% of its work
+  area both ways counts as nothing saved (the owner's was 1711 x 914 on 1707 x 912). This also
+  ends a known e2e leak: a scenario that left the shared profile maximized made every later
+  launch maximized.
+  **THEN WIDER, AND SLIMMER SIDE PANELS** (owner, the same day, after trying it: "it should be
+  wider then this as a default size and the left and right sidebar should be shrunk a bit on
+  default size, just a bit though like 10-15%"). The first window is 1240 x 756 (Explorer's
+  height, wider than its 933). The panels' unsaved widths in
+  `src/renderer/src/lib/useExplorerWidths.ts` are the ones the owner then settled on, read from
+  the saved state of that window ("almost perfect, i extended the sidebar on the left
+  slightly, so my ui now if its capturable is perfcect"): places 190 (was 210; 145 on a narrow window, was 160),
+  the preview 26% of the row (322 of 1240; was 40%), capped at 630 instead of 720. A width the
+  user dragged a panel to is unaffected. `windowSize.test.ts` holds the size.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start). The window is RAISED past
   Windows' foreground lock when it appears and when a file is handed to it (2026-08-28):

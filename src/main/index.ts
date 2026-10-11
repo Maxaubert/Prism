@@ -39,6 +39,7 @@ import {
 import { Readable } from 'stream'
 import { pathsFromArgv } from './argv'
 import { createWinEShortcut } from './winEShortcut'
+import { restoredWindow, type WindowState } from './windowSize'
 import { createWinERequests, winERequest } from './winERequests'
 import {
   cleanExplorerWindows,
@@ -1072,63 +1073,33 @@ function flushTabs(): void {
  * Every launch opened at 1180x780 wherever Windows felt like putting it, so
  * anyone who wanted it bigger resized it again on every single file they opened.
  * The state is one small file in userData: size, position, and whether it was
- * maximised.
+ * maximised. What comes back is decided in windowSize.ts: File Explorer's size
+ * until the user drags it, and never maximised (owner, 2026-10-11).
  *
  * It is checked against the displays actually attached before it is used. A
  * window remembered on a second monitor that is no longer there would otherwise
  * open somewhere nobody can reach it.
  */
-interface WindowState {
-  width: number
-  height: number
-  x?: number
-  y?: number
+/** What is saved: the un-maximised bounds, and whether it was maximised (written, never
+ *  restored since 2026-10-11; see windowSize.ts). */
+interface SavedWindow extends WindowState {
   maximised?: boolean
 }
 
 const WINDOW_STATE = (): string => join(app.getPath('userData'), 'window-state.json')
 
-/** THE FIRST WINDOW (owner, 2026-10-04, of his own window, saved as 1164 x
- *  698: "make this the default window size of prism or around this size ...
- *  the default being what it defaults to when the user has never adjusted the
- *  window size"). It was 1180 x 780. Centred by Electron, since no position is
- *  given, and held to 90% of the work area so a small screen still fits it. */
-const FIRST_WINDOW = { width: 1164, height: 698 }
-
-function firstWindow(): WindowState {
-  const area = screen.getPrimaryDisplay().workAreaSize
-  return {
-    width: Math.max(560, Math.min(FIRST_WINDOW.width, Math.round(area.width * 0.9))),
-    height: Math.max(400, Math.min(FIRST_WINDOW.height, Math.round(area.height * 0.9)))
-  }
-}
-
 function readWindowState(): WindowState {
-  const fallback = firstWindow()
+  let saved: unknown = null
   try {
-    const saved = JSON.parse(readFileSync(WINDOW_STATE(), 'utf8')) as WindowState
-    if (!Number.isFinite(saved.width) || !Number.isFinite(saved.height)) return fallback
-    const size = {
-      width: Math.max(560, Math.round(saved.width)),
-      height: Math.max(400, Math.round(saved.height)),
-      maximised: saved.maximised === true
-    }
-    if (!Number.isFinite(saved.x) || !Number.isFinite(saved.y)) return size
-    // Only keep the position if some display still contains it: a window
-    // remembered on a monitor that has since been unplugged opens off-screen.
-    const visible = screen.getAllDisplays().some((d) => {
-      const a = d.workArea
-      return (
-        saved.x! + size.width > a.x &&
-        saved.x! < a.x + a.width &&
-        saved.y! + size.height > a.y &&
-        saved.y! < a.y + a.height
-      )
-    })
-    return visible ? { ...size, x: Math.round(saved.x!), y: Math.round(saved.y!) } : size
+    saved = JSON.parse(readFileSync(WINDOW_STATE(), 'utf8'))
   } catch {
-    return fallback // no file yet, or one written by something else
+    /* no file yet, or one written by something else */
   }
+  return restoredWindow(
+    saved,
+    screen.getAllDisplays(),
+    screen.getPrimaryDisplay().workArea
+  )
 }
 
 /** Save on a delay: a drag fires this continuously, and the disk does not need
@@ -1142,7 +1113,7 @@ function watchWindowState(win: BrowserWindow): void {
       // getNormalBounds is the un-maximised size, which is what should come back
       // when the window is restored.
       const b = win.getNormalBounds()
-      const state: WindowState = { ...b, maximised: win.isMaximized() }
+      const state: SavedWindow = { ...b, maximised: win.isMaximized() }
       try {
         writeFileSync(WINDOW_STATE(), JSON.stringify(state))
       } catch {
@@ -1660,9 +1631,7 @@ function createWindow(): void {
   const showWindow = (): void => {
     if (shown) return
     shown = true
-    // Maximised is restored after the window exists rather than at construction:
-    // a window created maximised has no sensible un-maximised size to go back to.
-    if (remembered.maximised) mainWindow?.maximize()
+    // Never reopened maximised (owner, 2026-10-11): see windowSize.ts.
     if (E2E) mainWindow?.showInactive()
     else if (mainWindow) raise(mainWindow)
     // No helper to warm (#189): the border program is compiled at build time
