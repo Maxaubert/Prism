@@ -1,6 +1,6 @@
-import { execFile } from 'child_process'
 import { statfs } from 'fs/promises'
 import { join } from 'path'
+import { Worker } from 'worker_threads'
 import type { BrowseDriveUsage } from '@shared/browse'
 
 /**
@@ -62,15 +62,45 @@ export const LABEL_COMMAND =
   '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); ' +
   'Get-CimInstance Win32_LogicalDisk | ForEach-Object { $_.DeviceID + "|" + $_.DriveType + "|" + $_.VolumeName }'
 
-function readLabels(): Promise<Map<string, Label>> {
+/**
+ * THE QUERY IS SPAWNED FROM A WORKER THREAD, NOT MAIN'S (#351). Starting a
+ * process is synchronous on the thread that starts it, and now and then it
+ * took main's whole event loop for three seconds (MEASURED in the diagnostics
+ * log: `main-lag` 2.95 to 3.25 s with only `browse:drives` in flight, about
+ * every four hours, against 550 ms for the query on every other refresh). A
+ * worker pays that wait on its own thread; main only hears the answer.
+ */
+const LABEL_WORKER = `
+const { parentPort, workerData } = require('worker_threads')
+const { execFile } = require('child_process')
+execFile(workerData.exe, workerData.args, { windowsHide: true, timeout: 10000 }, (error, stdout) =>
+  parentPort.postMessage(error ? null : String(stdout))
+)
+`
+
+export function readLabels(): Promise<Map<string, Label>> {
   if (process.platform !== 'win32') return Promise.resolve(new Map())
   return new Promise((resolve) => {
-    execFile(
-      powershell(),
-      ['-NoProfile', '-NonInteractive', '-Command', LABEL_COMMAND],
-      { windowsHide: true, timeout: 10_000 },
-      (error, stdout) => resolve(error ? new Map() : parseLabels(String(stdout)))
-    )
+    let worker: Worker
+    try {
+      worker = new Worker(LABEL_WORKER, {
+        eval: true,
+        workerData: { exe: powershell(), args: ['-NoProfile', '-NonInteractive', '-Command', LABEL_COMMAND] }
+      })
+    } catch {
+      resolve(new Map())
+      return
+    }
+    let answered = false
+    const answer = (stdout: string | null): void => {
+      if (answered) return
+      answered = true
+      resolve(stdout === null ? new Map() : parseLabels(stdout))
+      void worker.terminate()
+    }
+    worker.once('message', (stdout: string | null) => answer(stdout))
+    worker.once('error', () => answer(null))
+    worker.once('exit', () => answer(null))
   })
 }
 

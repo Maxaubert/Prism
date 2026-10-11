@@ -41,9 +41,16 @@ function canonical(p: string): string {
  */
 export function isInsideRoot(root: string, p: string): boolean {
   if (!root || !p) return false
-  const r = canonical(root)
-  const t = canonical(p)
-  return t === r || t.startsWith(r.endsWith(sep) ? r : r + sep)
+  return withinCanonical(canonical(root), canonical(p))
+}
+
+/** The comparable form `isInsideRoot` and `isRoot` compare, for a caller that
+ *  checks one path against many folders and resolves each side once (#351). */
+export const canonicalPath = canonical
+
+/** `isInsideRoot` over two `canonicalPath` answers: no disk touched. */
+export function withinCanonical(root: string, p: string): boolean {
+  return p === root || p.startsWith(root.endsWith(sep) ? root : root + sep)
 }
 
 /** True when `p` is the root itself, which nothing is allowed to rename or bin. */
