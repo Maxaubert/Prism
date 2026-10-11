@@ -1,5 +1,6 @@
 // Optional, per-user Win+E interception. Windows Explorer registrations are never changed.
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -261,6 +262,15 @@ internal static class Launcher
     // and falls back immediately rather than waiting the patience out.
     internal static bool LaunchAndWait(Action<string> launch, int timeout, int patience = 45000)
     {
+        string reason;
+        return LaunchAndWait(launch, timeout, patience, out reason);
+    }
+    // `reason` says how a request ended, for the helper's log (#350): "acknowledged",
+    // "no-connection", "no-start", "closed", "wrong-reply", "not-ready" or "failed".
+    internal static bool LaunchAndWait(Action<string> launch, int timeout, int patience, out string reason)
+    {
+        reason = "failed";
+        bool started = false;
         string token = Guid.NewGuid().ToString("D");
         var clock = Stopwatch.StartNew();
         long deadline = timeout;
@@ -270,24 +280,45 @@ internal static class Launcher
             {
                 IAsyncResult connect = pipe.BeginWaitForConnection(null, null);
                 launch(token);
-                if (!connect.AsyncWaitHandle.WaitOne((int)Math.Max(0, deadline - clock.ElapsedMilliseconds))) return false;
+                if (!connect.AsyncWaitHandle.WaitOne((int)Math.Max(0, deadline - clock.ElapsedMilliseconds)))
+                {
+                    reason = "no-connection";
+                    return false;
+                }
                 pipe.EndWaitForConnection(connect);
                 var bytes = new byte[256];
                 int total = 0;
                 while (total < bytes.Length)
                 {
                     IAsyncResult read = pipe.BeginRead(bytes, total, bytes.Length - total, null, null);
-                    if (!read.AsyncWaitHandle.WaitOne((int)Math.Max(0, deadline - clock.ElapsedMilliseconds))) return false;
+                    if (!read.AsyncWaitHandle.WaitOne((int)Math.Max(0, deadline - clock.ElapsedMilliseconds)))
+                    {
+                        reason = started ? "not-ready" : "no-start";
+                        return false;
+                    }
                     int count = pipe.EndRead(read);
-                    if (count == 0) return false;
+                    if (count == 0)
+                    {
+                        reason = started ? "closed after started" : "closed";
+                        return false;
+                    }
                     total += count;
                     string received = Encoding.UTF8.GetString(bytes, 0, total);
                     int newline;
                     while ((newline = received.IndexOf('\n')) >= 0)
                     {
                         string line = received.Substring(0, newline);
-                        if (line == token) return true;
-                        if (line != token + " started") return false;
+                        if (line == token)
+                        {
+                            reason = "acknowledged";
+                            return true;
+                        }
+                        if (line != token + " started")
+                        {
+                            reason = "wrong-reply";
+                            return false;
+                        }
+                        started = true;
                         deadline = clock.ElapsedMilliseconds + patience;
                         received = received.Substring(newline + 1);
                         byte[] rest = Encoding.UTF8.GetBytes(received);
@@ -303,14 +334,18 @@ internal static class Launcher
     internal static void Open(Owner owner)
     {
         bool acknowledged = false;
+        string reason = "not-owned";
+        var clock = Stopwatch.StartNew();
         try
         {
             acknowledged = owner.IsOwned && owner.TargetExists && LaunchAndWait(delegate(string token)
             {
                 Native.StartDetached(owner.Exe, Program.Quote("--user-data-dir=" + owner.Profile) + " " + Program.Quote("--win-e=" + token), true);
-            }, 8000);
+            }, 8000, 45000, out reason);
         }
-        catch (Exception) { }
+        catch (Exception) { reason = "failed"; }
+        Log.Write("request " + (acknowledged ? "acknowledged" : "fell back to File Explorer (" + reason + ")")
+            + " after " + clock.ElapsedMilliseconds + " ms");
         if (!acknowledged)
         {
             try { Native.StartDetached(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"), "", true); }
@@ -343,6 +378,8 @@ internal sealed class Watcher : IDisposable
     private readonly Native.HookProc callback;
     private IntPtr hook;
     private volatile bool active;
+    // Set by the checker thread, read by the hook thread's timer (#350).
+    private volatile bool keep = true;
     private readonly ShortcutPresses presses = new ShortcutPresses();
     private readonly AutoResetEvent request = new AutoResetEvent(false);
     private Thread worker;
@@ -361,6 +398,7 @@ internal sealed class Watcher : IDisposable
             {
                 if (!owner.ShouldWatch()) return 0;
                 stop.Reset();
+                Log.Start(owner.Profile);
                 watcher.hook = Native.SetWindowsHookEx(13, watcher.callback, Native.GetModuleHandle(null), 0);
                 if (watcher.hook == IntPtr.Zero) throw new IOException("Windows refused the shortcut hook.");
                 watcher.active = true;
@@ -368,22 +406,49 @@ internal sealed class Watcher : IDisposable
                 // Foreground lifetime allows an outstanding request to fall back after disable.
                 watcher.worker = new Thread(watcher.Work);
                 watcher.worker.Start();
+                // THE LIFECYCLE CHECK IS OFF THE HOOK'S THREAD (#350). It reads the registry
+                // and checks files every 500 ms; on this thread a slow read held the hook past
+                // Windows' LowLevelHooksTimeout, so Win+E reached File Explorer, and enough of
+                // those make Windows remove the hook without a word.
+                var checker = new Thread(delegate()
+                {
+                    while (watcher.keep)
+                    {
+                        bool still = false;
+                        try { still = !stop.WaitOne(500) && owner.ShouldWatch(); } catch (Exception) { }
+                        if (!still) watcher.keep = false;
+                    }
+                });
+                checker.IsBackground = true;
+                checker.Start();
+                int ticks = 0;
                 timer.Interval = 500;
                 timer.Tick += delegate
                 {
-                    bool keep = false;
-                    try { keep = !stop.WaitOne(0) && owner.ShouldWatch(); } catch (Exception) { }
-                    if (!keep)
+                    if (!watcher.keep)
                     {
                         watcher.active = false;
                         ready.Reset();
                         Application.ExitThread();
+                        return;
                     }
+                    // RE-ARMED EVERY 15 SECONDS (#350): Windows removes a low-level hook that
+                    // timed out without telling its owner, which left Win+E with File Explorer
+                    // until the next sign-in. A fresh hook goes in before the old one comes out.
+                    if (++ticks % 30 == 0) watcher.Rearm();
                 };
                 timer.Start();
                 ready.Set();
+                Log.Write("watching Win+E");
                 try { Application.Run(); }
-                finally { ready.Reset(); watcher.active = false; }
+                finally
+                {
+                    ready.Reset();
+                    watcher.active = false;
+                    watcher.keep = false;
+                    checker.Join(2000);
+                    Log.Write("stopped watching Win+E");
+                }
             }
             singleton.ReleaseMutex();
         }
@@ -408,6 +473,10 @@ internal sealed class Watcher : IDisposable
             if (active && Matches((int)key.vkCode, down, (key.flags & 0x10) != 0,
                 Held(0x5B) || Held(0x5C), Held(0x11), Held(0x12), Held(0x10)))
             {
+                // A press that reached the hook late may already have gone on to File
+                // Explorer: Windows does not wait past LowLevelHooksTimeout (#350).
+                int late = unchecked(Environment.TickCount - (int)key.time);
+                if (late > 200) Log.Write("Win+E reached the hook " + late + " ms late");
                 // Mark the Windows chord as used so its release does not open Start.
                 // Use an unassigned non-modifier key, never Ctrl/Alt/Shift: modifier
                 // masking can activate another app's Win+Ctrl dictation shortcut.
@@ -418,6 +487,18 @@ internal sealed class Watcher : IDisposable
             }
         }
         return Native.CallNextHookEx(hook, code, message, data);
+    }
+    private void Rearm()
+    {
+        IntPtr fresh = Native.SetWindowsHookEx(13, callback, Native.GetModuleHandle(null), 0);
+        if (fresh == IntPtr.Zero)
+        {
+            Log.Write("Windows refused to re-arm the hook");
+            return;
+        }
+        IntPtr old = hook;
+        hook = fresh;
+        Native.UnhookWindowsHookEx(old);
     }
     private static bool Held(int key) { return (Native.GetAsyncKeyState(key) & 0x8000) != 0; }
     private void Work()
@@ -462,6 +543,48 @@ internal sealed class Watcher : IDisposable
         }
         else request.Dispose();
         GC.KeepAlive(callback);
+    }
+}
+
+// THE HELPER'S OWN LOG (#350): <profile>\logs\win-e.log, what the watcher did and how each
+// request ended, never which keys were typed. Written on a thread of its own, so the hook's
+// thread never waits on the disk. 256 KB, then one .old.
+internal static class Log
+{
+    private const long Cap = 256 * 1024;
+    private static BlockingCollection<string> lines;
+    internal static void Start(string profile)
+    {
+        if (lines != null) return;
+        string file = Path.Combine(profile, "logs", "win-e.log");
+        lines = new BlockingCollection<string>(256);
+        var writer = new Thread(delegate()
+        {
+            foreach (string line in lines.GetConsumingEnumerable())
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(file));
+                    var info = new FileInfo(file);
+                    if (info.Exists && info.Length > Cap)
+                    {
+                        string old = file + ".old";
+                        if (File.Exists(old)) File.Delete(old);
+                        File.Move(file, old);
+                    }
+                    File.AppendAllText(file, line + Environment.NewLine);
+                }
+                catch (Exception) { /* A log that cannot be written is not worth the shortcut. */ }
+            }
+        });
+        writer.IsBackground = true;
+        writer.Start();
+    }
+    internal static void Write(string message)
+    {
+        var queue = lines;
+        if (queue != null)
+            queue.TryAdd(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " pid " + Process.GetCurrentProcess().Id + " " + message);
     }
 }
 
@@ -593,6 +716,13 @@ internal static class SelfTests
                 "a started Prism whose pipe closes falls back at once");
             Check(!PipeScript(new[] { " started", "" }, 300, 400, 900),
                 "a started Prism that never gets ready falls back after the patience");
+            string why;
+            Check(!Launcher.LaunchAndWait(delegate { }, 100, 1000, out why) && why == "no-connection",
+                "the log names a Prism that never connected (" + why + ")");
+            Check(PipeReason(new[] { " started" }, out why) == false && why == "closed after started",
+                "the log names a pipe closed after started, the #350 case (" + why + ")");
+            Check(PipeReason(new[] { " started", "" }, out why) && why == "acknowledged",
+                "the log names an acknowledged request (" + why + ")");
             Check(Watcher.Matches(0x45, true, false, true, false, false, false), "plain Win+E matches");
             Check(!Watcher.Matches(0x45, true, false, true, true, false, false), "Ctrl+Win+E passes through");
             Check(!Watcher.Matches(0x45, true, false, true, false, true, false), "Alt+Win+E passes through");
@@ -692,6 +822,36 @@ internal static class SelfTests
         }, timeout, patience);
         if (client != null) client.Join(patience + pause + 1000);
         return result && clock.ElapsedMilliseconds < patience + pause + 1000;
+    }
+
+    /** The reason LaunchAndWait gives for a client writing `lines`, then closing. */
+    private static bool PipeReason(string[] lines, out string reason)
+    {
+        Thread client = null;
+        bool result = Launcher.LaunchAndWait(delegate(string token)
+        {
+            client = new Thread(delegate()
+            {
+                try
+                {
+                    using (var pipe = new NamedPipeClientStream(".", "PrismWinE." + token, PipeDirection.Out))
+                    {
+                        pipe.Connect(1000);
+                        foreach (string line in lines)
+                        {
+                            byte[] bytes = Encoding.UTF8.GetBytes(token + line + "\n");
+                            pipe.Write(bytes, 0, bytes.Length);
+                            pipe.Flush();
+                        }
+                        Thread.Sleep(50);
+                    }
+                }
+                catch (Exception) { /* the server gave up first */ }
+            });
+            client.Start();
+        }, 2000, 2000, out reason);
+        if (client != null) client.Join(3000);
+        return result;
     }
 
     private static bool PipeResponse(bool valid)

@@ -20,7 +20,11 @@ const held = new Map<string, Socket>()
 /** Connect only to a generated local pipe, never to a path supplied by argv. */
 export function announceWinE(id: string): void {
   if (!UUID.test(id) || held.has(id)) return
-  const socket = createConnection(`\\\\.\\pipe\\PrismWinE.${id}`)
+  // HALF-OPEN (#350). The helper's server only reads, so this end sees
+  // end-of-file at once, and Node's default then closed the socket a few ms
+  // after "started": the helper took the close for a dead Prism and opened
+  // File Explorer as well, on every press. The write side stays open.
+  const socket = createConnection({ path: `\\\\.\\pipe\\PrismWinE.${id}`, allowHalfOpen: true })
   held.set(id, socket)
   socket.on('error', () => {
     held.delete(id)
