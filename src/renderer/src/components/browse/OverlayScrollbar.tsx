@@ -9,9 +9,11 @@ import { useEffect, useRef, useState, type JSX, type RefObject } from 'react'
  * Chromium repaints a native scrollbar only on some events and never
  * animates it, so its :hover and a scroll flag showed and hid it at random and
  * with no fade. This one is drawn by Prism over the list, which keeps its
- * native bar hidden. One rule: it shows while the list scrolls or the pointer
- * is over the list (or dragging the thumb), and hides 900 ms after the last
- * of those, fading in quickly and out softly. It can still be dragged.
+ * native bar hidden. One rule: it shows only while the list SCROLLS, and hides
+ * 900 ms after, fading in quickly and out softly. The pointer over the list no
+ * longer wakes it (owner, 2026-10-12: "i wanna change that too to only show
+ * when actually scrolling"); the pointer over the bar itself, once it shows,
+ * and a drag of the thumb keep it up, so it can still be grabbed.
  */
 /** Outside the component: the list is the DOM's, not render state. */
 function scrollListTo(list: HTMLElement, top: number): void {
@@ -47,28 +49,14 @@ export function OverlayScrollbar(props: { target: RefObject<HTMLElement | null> 
       setShown(true)
       hideLater()
     }
-    const onEnter = (): void => {
-      hover.current = true
-      measure()
-      setShown(true)
-      window.clearTimeout(idle.current)
-    }
-    const onLeave = (): void => {
-      hover.current = false
-      hideLater()
-    }
     measure()
     list.addEventListener('scroll', onScroll, { passive: true })
-    list.addEventListener('pointerenter', onEnter)
-    list.addEventListener('pointerleave', onLeave)
     const ro = new ResizeObserver(measure)
     ro.observe(list)
     if (list.firstElementChild) ro.observe(list.firstElementChild)
     return () => {
       window.clearTimeout(idle.current)
       list.removeEventListener('scroll', onScroll)
-      list.removeEventListener('pointerenter', onEnter)
-      list.removeEventListener('pointerleave', onLeave)
       ro.disconnect()
     }
   }, [props.target])
@@ -80,10 +68,17 @@ export function OverlayScrollbar(props: { target: RefObject<HTMLElement | null> 
       data-shown={shown || undefined}
       aria-hidden
       style={{ top: box.top, height: box.height }}
+      // Only reachable while it shows (hidden, it takes no pointer): the
+      // pointer on the bar holds it up so the thumb can be grabbed.
       onPointerEnter={() => {
         hover.current = true
-        setShown(true)
         window.clearTimeout(idle.current)
+      }}
+      onPointerLeave={() => {
+        hover.current = false
+        if (dragging.current) return
+        window.clearTimeout(idle.current)
+        idle.current = window.setTimeout(() => setShown(false), 900)
       }}
     >
       <div
