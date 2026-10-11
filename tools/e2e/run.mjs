@@ -11851,6 +11851,18 @@ async function explorerVerbsScenario(fixtures) {
     if (!(await row('alpha.txt').count())) await row('\\verbs').dblclick()
     ok(await until(async () => (await row('alpha.txt').count()) === 1, 10000), 'the Explorer shows the folder')
 
+    // THE LIST WEARS NO FOCUS FILL (owner, 2026-10-11: after an install "the main panel is
+    // grey/highlighted and i have to click a file"). Focus given by code reads as keyboard
+    // focus, and the base layer's grey fill covered the whole listbox; its row says where.
+    await win.keyboard.press('Shift')
+    const listFocus = await win.evaluate(() => {
+      const list = document.querySelector('[data-testid="browse-list"]')
+      list.focus()
+      return { visible: list.matches(':focus-visible'), fill: getComputedStyle(list).backgroundImage }
+    })
+    ok(listFocus.visible, 'the list holds keyboard focus')
+    ok(listFocus.fill === 'none', `and paints no focus fill over itself (${listFocus.fill})`)
+
     const shape = await win.evaluate(() => {
       const tb = document.querySelector('.folder-browser [data-testid="browse-toolbar"]').getBoundingClientRect()
       const list = document.querySelector('.folder-browser .browse-list-area').getBoundingClientRect()

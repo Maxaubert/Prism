@@ -31,9 +31,13 @@
   :focus-visible:where(:not(input, textarea, select, [contenteditable]), input[type='checkbox'], input[type='radio'], input[type='range'], input[type='button'], input[type='submit']) {
     outline: none;
   }
-  :where(button, summary, a[href], [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option'], [role='switch'], [role='radio'], [role='checkbox'], [role='listbox'], input[type='checkbox'], input[type='radio']):focus-visible {
+  :where(button, summary, a[href], [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option'], [role='switch'], [role='radio'], [role='checkbox'], input[type='checkbox'], input[type='radio']):focus-visible {
     background-image: linear-gradient(var(--p-hover), var(--p-hover));
   }
+  /* NOT a listbox (owner, 2026-10-11: after an install "the main panel is grey/highlighted
+     and i have to click a file"). The Explorer's list is focused by code at launch, which
+     reads as keyboard focus, and the fill covered the whole panel. A listbox's own row says
+     where the keys are; `explorerVerbs` holds it. */
   /* A slider's box IS its track, a thin one, so the fill is the stronger
      hover step or it would not read at that size (#272 review: a focused
      slider measured identical to an unfocused one). */
