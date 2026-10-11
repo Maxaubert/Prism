@@ -103,7 +103,7 @@ import {
   sameQuickAccessPath
 } from './lib/quickAccess'
 import { BrowseRename } from './components/browse/BrowseRename'
-import { PropertiesDialog } from './components/PropertiesDialog'
+import { PropertiesDialog } from './components/properties/PropertiesDialog'
 import './components/browse/workspace.css'
 import { focusTermSession } from 'prism-term-core/renderer/components/TerminalPanel'
 import { sortFiles, useSort } from './lib/sortPrefs'
@@ -5012,6 +5012,10 @@ export default function App(): JSX.Element {
           kind={browseProps.file?.kind ?? 'other'}
           isFolder={browseProps.isFolder}
           drive={browseProps.drive}
+          onOpenFolder={(path) => {
+            setBrowseProps(null)
+            void browsing.navigate(path)
+          }}
           onClose={() => setBrowseProps(null)}
         />
       )}
