@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
 import { ContextMenu } from './ContextMenu'
-import { fileVerbs } from '../lib/fileVerbs'
+import { fileVerbs } from '../menus/fileVerbs'
 import { touchesFile } from '../lib/fileReload'
 import { DocFind } from './DocFind'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'

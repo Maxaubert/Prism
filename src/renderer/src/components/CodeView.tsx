@@ -24,7 +24,7 @@ import {
   searchPanelOpen
 } from '@codemirror/search'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { fileVerbs, tickIf } from '../lib/fileVerbs'
+import { fileVerbs, tickIf } from '../menus/fileVerbs'
 import { lintKeymap } from '@codemirror/lint'
 import { isProse, langFor } from '../lib/codeLang'
 import { lintFor } from '../lib/codeLint'

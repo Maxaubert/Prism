@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import type { ArchiveMeta, ViewerFile } from '@shared/types'
 import { memberOf } from '@shared/archivePlace'
-import { archiveMenuRows, type ArchiveRow, type ArchiveRowId } from '../../lib/archiveMenus'
+import { archiveMenuRows, type ArchiveRow, type ArchiveRowId } from '../../menus/archiveMenus'
 import { archivePassword, rememberArchivePassword } from '../../lib/archivePass'
 import { copyFilePaths } from '../../lib/fileClipboard'
 import { clipboardText } from '../../lib/clipboardText'

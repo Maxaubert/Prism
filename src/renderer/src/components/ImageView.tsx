@@ -14,7 +14,7 @@ import { clampPan, panBounds } from '../lib/imagePan'
 import { chromeClass, useAutoHideChrome, type ChromeActivityClock } from '../lib/autoHideChrome'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { FileMenuIcon } from './FileMenuIcon'
-import { fileVerbs, tickIf } from '../lib/fileVerbs'
+import { fileVerbs, tickIf } from '../menus/fileVerbs'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import {
   loadSlideSeconds,

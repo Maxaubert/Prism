@@ -3,7 +3,7 @@ import { fileKind } from '@shared/fileKind'
 import { FolderIcon, KindIcon } from '../TreeRows'
 import { ContextMenu } from '../ContextMenu'
 import { FileMenuIcon } from '../FileMenuIcon'
-import { fileVerbs } from '../../lib/fileVerbs'
+import { fileVerbs } from '../../menus/fileVerbs'
 import { setDrag } from '../../lib/dragDrop'
 import {
   QUICK_ACCESS_PIN_MIME,

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { ContextMenu } from './ContextMenu'
-import { fileVerbs } from '../lib/fileVerbs'
+import { fileVerbs } from '../menus/fileVerbs'
 import { DocFind } from './DocFind'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 

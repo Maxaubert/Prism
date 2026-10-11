@@ -7,7 +7,7 @@ import { shellOfShellId } from 'prism-term-core/shared/help/shells'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { pasteInto } from 'prism-term-core/renderer/lib/termBus'
 import { copyText } from 'prism-term-core/renderer/lib/copyNotice'
-import { tickIf } from '../lib/fileVerbs'
+import { tickIf } from '../menus/fileVerbs'
 
 // The terminal's dock: size, drag handle, right-click dock menu, drop scoping.
 // No xterm imports here - the heavy chunk stays behind the lazy boundary.

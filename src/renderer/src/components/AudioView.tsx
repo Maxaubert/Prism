@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
 import { RATES, useMediaControls } from '../lib/useMediaControls'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { fileVerbs, stepVerbs, tickIf } from '../lib/fileVerbs'
+import { fileVerbs, stepVerbs, tickIf } from '../menus/fileVerbs'
 import { usePlayerPrefs } from '../lib/playerPrefs'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
