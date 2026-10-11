@@ -51,6 +51,11 @@ describe('pageLine', () => {
     expect(pageLine(null, NOW, false)).toBeNull()
     expect(pageLine({ k: 'not a kind!' }, NOW, false)).toBeNull()
   })
+  it("takes the agent indicator's kinds at the quiet level (#152), and no other agent- kind", () => {
+    for (const k of ['agent-hook', 'agent-title', 'agent-mark', 'agent-restore'])
+      expect(pageLine({ k, at: NOW, id: 't1' }, NOW, false)?.k).toBe(k)
+    expect(pageLine({ k: 'agent-anything', at: NOW }, NOW, false)).toBeNull()
+  })
   it("takes an app's own -slow kind (Prism's sort-slow)", () => {
     expect(pageLine({ k: 'sort-slow', at: NOW, ms: 80 }, NOW, false)?.k).toBe('sort-slow')
   })

@@ -7,6 +7,7 @@ import { onAgentSignal, onTermKey, onTitle, readScreenTail } from './termBus'
 import { answersQuestion, looksLikeQuestion, questionAnswered } from './agentQuestion'
 import { hookStep, raisedWhileSeen, screenDecides, type AttentionMark, type HookEvent, type HookSession } from './agentHookState'
 import { termApi } from '../host'
+import { forgetAgentDiag, logAgentHook, logAgentMarks, logAgentTitle, noteWhy } from './agentDiag'
 
 /**
  * Which tabs host an agent, which are mid-answer, and which finished while
@@ -109,6 +110,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
       window.setTimeout(() => {
         questionTimers.current.delete(id)
         const asking = titleState.current.get(id) === 'idle' && looksLikeQuestion(readScreenTail(id))
+        noteWhy(id, asking ? 'screen read: question box' : 'screen read: no question box')
         setQuestionIds((prev) => {
           if (asking && !prev.has(id)) return new Set(prev).add(id)
           if (!asking && prev.has(id)) return without(prev, id)
@@ -170,6 +172,14 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
       return
     }
     hooked.current.set(id, { phase: o.phase, kind: o.kind })
+    // The rule that fired, for the diagnostics log (#152).
+    const said =
+      ev.state === 'idle-title'
+        ? 'idle title after work (an Esc)'
+        : ev.state === 'working-title'
+          ? `spinner after ${prev?.phase ?? 'nothing'}`
+          : `hook ${ev.state}`
+    noteWhy(id, `${said}${boxUp ? ', box on screen' : ''}${lookedAt(id) ? ', tab in front' : ''}`)
     if (o.phase === 'failed' && o.kind) failedKinds.current.set(id, o.kind)
     else if (o.phase === 'failed' || o.clear.includes('failed')) failedKinds.current.delete(id)
     const away = !lookedAt(id)
@@ -196,6 +206,10 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
   useEffect(
     () =>
       termApi().onTermAgent((id, present, kind) => {
+        // For the log, only a verdict that changes something: an agent found,
+        // or one gone that the poll, a title or a hook had claimed.
+        if (present ? !polled.current.has(id) : polled.current.has(id) || hooked.current.has(id) || titled.current.has(id))
+          noteWhy(id, present ? 'poll found agent' : 'poll lost agent')
         if (present) polled.current.add(id)
         else polled.current.delete(id)
         // Another agent in this shell now: whatever Claude's hooks said was
@@ -270,12 +284,14 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
         // the run past the sustain sets working right then, and ONE timer
         // armed on the latest chunk clears it after the silence.
         if (r.last - r.start > 1200) {
+          noteWhy(id, 'output scored working')
           setWorkingIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
           stopFallback(id)
           fallbackTimers.current.set(
             id,
             window.setTimeout(() => {
               fallbackTimers.current.delete(id)
+              noteWhy(id, 'output went quiet')
               setWorkingIds((prev) => without(prev, id))
             }, 2000)
           )
@@ -301,8 +317,14 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     () =>
       onTitle((id, title) => {
         const r = readAgentTitle(id, title)
-        if (!r) return
+        // The title's MEANING for the log, never its text (#152): a no-op for a
+        // shell that never had an agent title.
+        if (!r) {
+          logAgentTitle(id, 'none')
+          return
+        }
         if (r.kind === 'codex' && !agentKinds.current.has(id)) return
+        logAgentTitle(id, r.state, r.kind)
         // Present by its title alone: have the poll look now, so it sees the
         // agent while it runs and can say when it leaves (#73). Only the poll
         // ever takes a title's claim back.
@@ -322,6 +344,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
           else if (r.state === 'working') applyHook(id, { state: 'working-title' })
           return
         }
+        noteWhy(id, `title ${r.state}`)
         // Idle is where a question is asked: read the screen for its box.
         // Codex says it outright (#131). Any other state is the agent at work
         // again, so no question is pending.
@@ -352,6 +375,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
   useEffect(
     () =>
       onAgentSignal((id, signal) => {
+        logAgentHook(id, signal.state, signal.kind)
         if (!polled.current.has(id)) termApi().termAgentLook?.()
         if (!hooked.current.has(id)) {
           outputRuns.current.delete(id)
@@ -389,6 +413,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
             window.setTimeout(() => {
               if (!questionAnswered(key, readScreenTail(id))) return
               stopAnswerCheck(id)
+              noteWhy(id, 'answer key, box gone')
               setQuestionIds((prev) => without(prev, id))
             }, ms)
           )
@@ -396,6 +421,14 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
       }),
     [stopAnswerCheck]
   )
+
+  // THE MARKS IN THE DIAGNOSTICS LOG (#152): every change of a tab's mark,
+  // with the rule noted just before it. Declared BEFORE the effect below, so a
+  // render's changes are written before that effect notes its own rules for
+  // the next render. Reads only; it changes nothing.
+  useEffect(() => {
+    logAgentMarks({ workingIds, questionIds, failedIds, doneIds }, (id) => agentKinds.current.get(id))
+  }, [workingIds, questionIds, failedIds, doneIds])
 
   // Finished-while-away: an agent that STOPS working on a background tab
   // leaves a mark that stays until the tab is visited (or work restarts).
@@ -407,6 +440,9 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     const was = prevWorking.current
     prevWorking.current = workingIds
     const seeing = (id: string): boolean => focused && id === activeId
+    /** Why a mark comes down here, for the log (#152). */
+    const cleared = (id: string): string =>
+      workingIds.has(id) ? 'working again' : seeing(id) ? 'tab looked at' : 'agent gone'
     setDoneIds((prev) => {
       let next: Set<string> | null = null
       const mut = (): Set<string> => (next ??= new Set(prev))
@@ -415,10 +451,16 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
         // tab was in the background, or the window was.
         // A hooked session is told apart by its hooks instead (#131): a
         // question or an Esc stops the work too, and neither is a finish.
-        if (!workingIds.has(id) && agentIds.has(id) && !seeing(id) && !hooked.current.has(id)) mut().add(id)
+        if (!workingIds.has(id) && agentIds.has(id) && !seeing(id) && !hooked.current.has(id)) {
+          noteWhy(id, 'stopped working while away')
+          mut().add(id)
+        }
       }
       for (const id of prev) {
-        if (workingIds.has(id) || seeing(id) || !agentIds.has(id)) mut().delete(id)
+        if (workingIds.has(id) || seeing(id) || !agentIds.has(id)) {
+          noteWhy(id, cleared(id))
+          mut().delete(id)
+        }
       }
       return next ?? prev
     })
@@ -428,19 +470,29 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     // answered, or when no agent is left in the session to wait.
     setQuestionIds((prev) => {
       let next = prev
-      for (const id of prev) if (!agentIds.has(id)) next = without(next, id)
+      for (const id of prev)
+        if (!agentIds.has(id)) {
+          noteWhy(id, 'agent gone')
+          next = without(next, id)
+        }
       return next
     })
     // A failure you are now looking at has been seen.
     setFailedIds((prev) => {
       let next = prev
-      for (const id of prev) if (seeing(id) || workingIds.has(id) || !agentIds.has(id)) next = without(next, id)
+      for (const id of prev)
+        if (seeing(id) || workingIds.has(id) || !agentIds.has(id)) {
+          noteWhy(id, cleared(id))
+          next = without(next, id)
+        }
       return next
     })
   }, [workingIds, activeId, agentIds, focused])
 
   // STABLE: a host subscribes to the pty's exit ONCE and calls this from there.
   const forget = useCallback((id: string): void => {
+    noteWhy(id, 'closed')
+    forgetAgentDiag(id)
     outputRuns.current.delete(id)
     titled.current.delete(id)
     polled.current.delete(id)

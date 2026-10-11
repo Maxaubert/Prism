@@ -1,3 +1,5 @@
+import { logAgentRestore } from './agentDiag'
+
 // Shared between App (which scores activity) and TerminalPanel (which causes
 // some of it): output provoked by OUR OWN resizes is not the shell working,
 // it is the shell repainting because we moved its walls. A sidebar toggle
@@ -67,8 +69,10 @@ export function isTouched(id: string): boolean {
 // never typed on screen (owner decision, 2026-08-21).
 const resumeIds = new Map<string, string>()
 
-export function markResume(id: string, session: string): void {
+/** `cwd`: the tab's folder, for the diagnostics log's `agent-restore` (#152). */
+export function markResume(id: string, session: string, cwd: string | null = null): void {
   resumeIds.set(id, session)
+  logAgentRestore(id, cwd)
 }
 
 /** One-shot: the session id exactly once per marked terminal. */

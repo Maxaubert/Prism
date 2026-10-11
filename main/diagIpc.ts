@@ -23,7 +23,18 @@ export interface DiagIpcDeps {
 
 /** The kinds a page may write. An app's own timing kinds end in `-slow`
  *  (Prism's `sort-slow`, `guard-slow`), written through `diag.time`. */
-const PAGE_KINDS = new Set(['page-stall', 'page-task', 'page-error', 'page-rejection', 'crumb'])
+const PAGE_KINDS = new Set([
+  'page-stall',
+  'page-task',
+  'page-error',
+  'page-rejection',
+  'crumb',
+  // The agent indicator's record (#152, `core/renderer/lib/agentDiag`).
+  'agent-hook',
+  'agent-title',
+  'agent-mark',
+  'agent-restore'
+])
 const KIND = /^[a-z][a-z-]{1,30}$/
 /** Lines only Detailed logging keeps. */
 const VERBOSE_ONLY = new Set(['page-task'])

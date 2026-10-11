@@ -158,6 +158,15 @@ export function crumb(a: string, fields: Record<string, unknown> = {}, opts: { o
 }
 
 /**
+ * A line of one of the page's own record kinds (`agent-mark`...; main holds
+ * a page to the kinds it may write, `core/main/diagIpc`). Not a crumb: it does
+ * not join the ring a stall reports.
+ */
+export function record(k: string, fields: Record<string, unknown> = {}, at: number = Date.now()): void {
+  enqueue({ ...fields, k, at })
+}
+
+/**
  * Run `fn`, and log it as `k` (an app's own `-slow` kind: `sort-slow`) when it
  * took `minMs` or more. Returns what `fn` returned; a throw passes through.
  */
