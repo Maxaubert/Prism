@@ -40,7 +40,7 @@ import { clickSelect, emptySelection, rangeSelect, type Selection } from '../lib
 import { isJumpKey, listKey, stepTo, typeJump, typedRun } from '../lib/listKeys'
 import { nearerEscape } from '../lib/nearerEscape'
 import { clipboardText } from '../lib/clipboardText'
-import { nearestRow, onRowOwnPart, rowsInBox, sweepSelect } from '../lib/marquee'
+import { nearestRow, onRowOwnPart, rowsInBox, sweepBase, sweepSelect } from '../lib/marquee'
 import { useSweep } from '../hooks/useSweep'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 
@@ -788,7 +788,11 @@ export function Sidebar({
    * are found by index (`paintRef` and the fixed row height), so a row that
    * has scrolled out of the window is still swept.
    */
-  const sweepFrom = useRef<{ base: Selection; add: boolean }>({ base: emptySelection, add: false })
+  const sweepFrom = useRef<{ base: Selection; add: boolean; clicked: string | null }>({
+    base: emptySelection,
+    add: false,
+    clicked: null
+  })
   const treeList = (): HTMLElement | null =>
     scroller.current?.querySelector<HTMLElement>('[role="tree"]') ?? null
   const sweep = useSweep({
@@ -852,10 +856,10 @@ export function Sidebar({
       if (scroller.current) scroller.current.scrollTop += dy
     },
     onChange: (paths) => {
-      const { base, add } = sweepFrom.current
+      const { base, add, clicked } = sweepFrom.current
       setSel({
         anchor: base.anchor ?? paths[0] ?? null,
-        items: sweepSelect(add ? base.items : emptySelection.items, paths)
+        items: sweepSelect(sweepBase(add, base.items, clicked), paths)
       })
     },
     onEnd: (_paths, near) => {
@@ -878,7 +882,14 @@ export function Sidebar({
     // gaps between) is the row's: a click opens or selects, a drag carries
     // the file. Only the blank space past the name sweeps.
     if (row && onRowOwnPart(e.clientX, [...row.children].map((c) => c.getBoundingClientRect()))) return
-    sweepFrom.current = { base: selRef.current, add: e.ctrlKey }
+    // The row the user clicked: the whole selection, or, with none, the lit
+    // cursor row (the open file), which looks selected and so must join.
+    const base = selRef.current
+    sweepFrom.current = {
+      base,
+      add: e.ctrlKey,
+      clicked: base.items.size === 1 ? base.anchor : base.items.size === 0 && row ? (at ?? null) : null
+    }
     // A plain press on the space under the rows clears, as it always has.
     if (!row && !e.ctrlKey && !e.shiftKey) setSel((s) => (s.items.size ? emptySelection : s))
     sweep.begin(e, row)

@@ -536,6 +536,13 @@ changing a feature: each entry records what the owner decided, why, and what hol
   narrow list has a place to start one; the header keeps the same grid and gutter, so its labels
   stay over the row's cells, and its LAST cell's box still runs on to the header's right edge
   (`--browse-col-edge-end`; the 2026-10-04 "no strip a hover cannot fill" rule).
+  **A CLICK THEN A SWEEP IS ONE BLOCK** (owner, 2026-10-12: "I clicked to select one file then I
+  drag selected the ones over it and ... the first file is selected but disconnected from the
+  rest, they should all be connected"; asked, chose that it joins). A plain sweep keeps the one
+  row just clicked (the whole selection, or in the tree with none the lit open file), so it
+  joins the swept rows, shares their square edges and the verbs act on all of it; marks a sweep
+  made are not a click, so a second plain sweep still replaces them, and Ctrl still adds
+  (`lib/marquee.ts` `sweepBase`, unit tested; `marquee` and `marqueeQuiet` e2e).
   A click beside the rows clears the marks like the space under them. During an internal drag
   every element's cursor is pinned to `default` (`internalFileDrag.ts`; it was `grabbing`).
   The `marquee` e2e measures the gutter and the header, sweeps from beside, drags from the Size
