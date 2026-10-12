@@ -256,6 +256,9 @@ Filesmith's conventions.
     per tab and the split's panes `lib/useTermPanes.ts`; the tabs (new, close, re-root, recent,
     pick, reorder) `lib/useTabOps.ts`; the session's tab and shell ids
     `lib/sessionIds.ts`.
+  - the project tree's parts (Sidebar.tsx): `components/sidebar/` (`usePanelResize` the width,
+    `useTreeKeys` a key on a row, `useTreeDrop` drag and drop, `useTreeClipboard` Ctrl+C/X/V,
+    paste and the delete keys; `types.ts` the menu and job shapes).
   - which viewer a file kind gets, and the lazy viewer chunks: `components/ViewerSwitch.tsx`, with
     a mode per host (`full` App's stage, `phone`, `member` an archive panel's preview). The host
     passes what an archive is (App's card, the phone's panel, a nested panel).
