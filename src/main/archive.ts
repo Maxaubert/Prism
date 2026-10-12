@@ -39,7 +39,6 @@ export type { AddResult, ArchiveEntry, ArchiveStat, MemberFail } from './zipShar
 // read the container with fs/promises and inflate on the libuv pool. Those
 // wait for any edit of the same zip asked for before them.
 
-
 let client: ZipClient | null = null
 
 /** How main starts the zip worker: `utilityProcess.fork` of zipWorker.js,
