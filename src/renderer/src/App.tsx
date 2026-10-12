@@ -400,11 +400,7 @@ function TitleButtons({
       <div className="no-drag flex items-center gap-0.5">
         {!setup && editable && (
           <button
-            className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
-              editing
-                ? 'text-[var(--p-accent-hi)]'
-                : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
-            }`}
+            className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
             onClick={onToggleEdit}
             title={editing ? 'Stop editing' : 'Edit'}
             aria-label="Edit"
@@ -420,18 +416,21 @@ function TitleButtons({
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden
+              data-toggle-glyph={editing ? 'on' : 'off'}
             >
-              <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
+              {/* Pressed, the pencil is SOLID, as the preview's column is: a
+                  pressed toggle is never tinted the accent (owner, 2026-10-12). */}
+              {editing ? (
+                <path d="M4 20h4L19 9l-4-4L4 16v4z" fill="currentColor" />
+              ) : (
+                <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
+              )}
             </svg>
           </button>
         )}
         {!setup && (
           <button
-            className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
-              settingsOpen
-                ? 'text-[var(--p-accent-hi)]'
-                : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
-            }`}
+            className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
             onClick={onToggleSettings}
             title="Settings"
             aria-label="Settings"
@@ -445,9 +444,19 @@ function TitleButtons({
               stroke="currentColor"
               strokeWidth="1.8"
               aria-hidden
+              data-toggle-glyph={settingsOpen ? 'on' : 'off'}
             >
-              <circle cx="12" cy="12" r="3.2" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+              {/* Open, the gear is SOLID with its hub cut out (evenodd). */}
+              {settingsOpen ? (
+                <path
+                  fill="currentColor"
+                  fillRule="evenodd"
+                  d="M15.2 12a3.2 3.2 0 1 0-6.4 0 3.2 3.2 0 1 0 6.4 0ZM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+                />
+              ) : (
+                <circle cx="12" cy="12" r="3.2" />
+              )}
+              {!settingsOpen && <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />}
             </svg>
           </button>
         )}
