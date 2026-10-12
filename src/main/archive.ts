@@ -1,151 +1,135 @@
 import AdmZip from 'adm-zip'
-import { execFile } from 'child_process'
-import { existsSync } from 'fs'
-import { access, mkdtemp, readFile, stat, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
+import { readFile, writeFile } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { crc32, inflateRaw } from 'zlib'
 import { Made } from './extractJob'
 import { uniqueNameAsync } from './fileOps'
+import { createZipClient, type ZipClient, type ZipProc } from './zipClient'
+import {
+  AES_METHOD,
+  exists,
+  failOf,
+  listZip,
+  norm,
+  sevenExtract,
+  sevenZipExe,
+  validMemberName,
+  type AddResult,
+  type ArchiveEntry,
+  type ArchiveStat,
+  type MemberFail,
+  type ZipEntryLike
+} from './zipShared'
+
+export { setSevenExe, sevenZipExe, validMemberName } from './zipShared'
+export type { AddResult, ArchiveEntry, ArchiveStat, MemberFail } from './zipShared'
 
 // The simple archive integration (2026-08-22, #68): zip only, via adm-zip.
 // Listing, viewing (extract one member to temp), renaming, deleting and
 // copying members - a quick look inside, not WinRAR. adm-zip holds the whole
 // container in memory to rewrite it, so operations refuse absurdly large
 // archives instead of freezing the window.
+//
+// MAIN'S SIDE ONLY (owner, 2026-10-12, "zip editing off the main process").
+// Every verb that hands adm-zip a PATH (list, extract one, rename, delete,
+// stat, add, move) runs in the zip worker (zipWorker.ts, logic in zipOps.ts)
+// and is a thin async call here. What stays is what already never waited:
+// the Explorer's listing and member unpacking, and the extraction out, which
+// read the container with fs/promises and inflate on the libuv pool. Those
+// wait for any edit of the same zip asked for before them.
 
 /** Past this, listing still works but member operations are refused. */
 const MAX_ARCHIVE_BYTES = 600 * 1024 * 1024
 
-export type ArchiveEntry = {
-  /** Forward-slash path inside the archive, folders ending with none. */
-  path: string
-  name: string
-  dir: boolean
-  size: number
-  /** What the member actually occupies inside the container. Folders have
-   *  none, and a stored (uncompressed) member has the same as `size`. */
-  packed?: number
-  /** The entry's own modified time, epoch ms. Every container carries one;
-   *  it is the archive's copy of it, not the file on disk's. */
-  mtime?: number
-  /** Password-protected. ZipCrypto opens with the password; AES cannot. */
-  encrypted?: boolean
+let client: ZipClient | null = null
+
+/** How main starts the zip worker: `utilityProcess.fork` of zipWorker.js,
+ *  handed over at startup (index.ts) so this file never imports Electron and
+ *  its tests can run the worker's code in-process. */
+export function setZipFork(fork: () => ZipProc, idleMs?: number): void {
+  client?.stop()
+  client = createZipClient({ fork, seven: sevenZipExe, idleMs })
 }
 
-/** Why a member operation could not deliver: it wants a password (missing or
- *  wrong), the entry is AES-encrypted (adm-zip only decrypts ZipCrypto), or
- *  something else broke. */
-export type MemberFail = 'password' | 'aes' | 'failed'
-
-const AES_METHOD = 99
-
-/** existsSync's answer without the wait (owner, 2026-10-12, main never waits
- *  on the disk). */
-const exists = (p: string): Promise<boolean> =>
-  access(p).then(
-    () => true,
-    () => false
-  )
-
-const failOf = (e: ZipEntryLike, hasPassword: boolean): MemberFail => {
-  if (e.header.method === AES_METHOD) return 'aes'
-  return (e.header.flags & 1) === 1 || hasPassword ? 'password' : 'failed'
+function zip(): ZipClient {
+  if (!client) throw new Error('zip worker not started')
+  return client
 }
-
-// AES-encrypted zips (7-Zip's and WinRAR's default) are beyond adm-zip, so
-// they go through 7-Zip - args-only execFile against a fixed path, the same
-// enumerated-exe rule the "Open in" menu holds to.
-//
-// The BUNDLED 7-Zip is the one to use (2026-08-30). This looked only in
-// Program Files and then told the user to install a tool Prism has been
-// shipping in resources/bin since 2026-08-24, so the commonest encrypted zip
-// there is (AES-256 is what 7-Zip and WinRAR both write by default) was
-// refused on a machine that could open it perfectly well. main injects the
-// bundled path at startup; the installed copies stay as a fallback for a
-// process that never injected one - the unit tests, and a dev run with no
-// vendor dir fetched yet.
-const SEVEN_ZIP_PATHS = [
-  'C:\\Program Files\\7-Zip\\7z.exe',
-  'C:\\Program Files (x86)\\7-Zip\\7z.exe'
-]
-let sevenCache: string | null | undefined
-let injected: string | null = null
-
-const probeInstalled = (): string | null =>
-  // sync-ok: startup (setSevenExe), or a process that never called it (the unit tests); cached
-  SEVEN_ZIP_PATHS.find((p) => existsSync(p)) ?? null
-
-/** Point the AES path at the 7-Zip Prism ships. Called once, from main, at
- *  startup: with none bundled, the installed copies are looked for HERE, so
- *  the first AES member opened later is not a stat on main's thread. */
-export function setSevenExe(exe: string | null): void {
-  injected = exe
-  if (!exe && sevenCache === undefined) sevenCache = probeInstalled()
-}
-
-export function sevenZipExe(): string | null {
-  if (injected) return injected
-  if (sevenCache === undefined) sevenCache = probeInstalled()
-  return sevenCache
-}
-
-/** Extract one member with 7z into a fresh temp dir, or into `into` (the run's
- *  member folder, #300) when given. */
-async function sevenExtract(
-  zipPath: string,
-  entryPath: string,
-  password: string,
-  into?: string
-): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
-  const exe = sevenZipExe()
-  if (!exe) return { ok: false, reason: 'aes' }
-  const dir = into ?? (await mkdtemp(join(tmpdir(), 'prism-zip-')))
-  // Switches first, then `--` so a member named "-something" inside a hostile
-  // zip can never be read as a 7z switch. Async, because execFileSync stopped
-  // the whole main process while 7-Zip worked (2026-08-26).
-  const failed = await new Promise<string | null>((resolve) => {
-    execFile(
-      exe,
-      ['e', `-o${dir}`, `-p${password}`, '-y', '--', zipPath, norm(entryPath)],
-      { windowsHide: true, timeout: 30000, encoding: 'utf8' },
-      (err, _out, stderr) => resolve(err ? String(stderr ?? '') : null)
-    )
-  })
-  if (failed !== null) {
-    return { ok: false, reason: /wrong password/i.test(failed) ? 'password' : 'failed' }
-  }
-  const out = join(dir, basename(norm(entryPath)))
-  return (await exists(out)) ? { ok: true, path: out } : { ok: false, reason: 'failed' }
-}
-
-type ZipEntryLike = {
-  header: { size: number; flags: number; method: number; crc: number }
-  isDirectory: boolean
-  getData: (pass?: string) => Buffer
-  getCompressedData: () => Buffer
-}
-
-/** A member name is a plain filename: no separators, no traversal, not empty. */
-export function validMemberName(name: string): boolean {
-  return (
-    name.length > 0 &&
-    name.length <= 200 &&
-    !/[\\/:*?"<>|]/.test(name) &&
-    name !== '.' &&
-    name !== '..'
-  )
-}
-
-const norm = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '')
 
 /** Every entry, folders included (some zips omit folder records, so folders
  *  are also derived from member paths). Sorted folders-first per level by the
  *  renderer; this just reports. */
-export function listArchive(zipPath: string): ArchiveEntry[] {
-  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-  return listZip(new AdmZip(zipPath))
+export function listArchive(zipPath: string): Promise<ArchiveEntry[]> {
+  return zip().read('listArchive', zipPath)
 }
+
+/** Extract one member to a fresh temp dir. */
+export function extractMember(
+  zipPath: string,
+  entryPath: string,
+  password?: string
+): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
+  return zip().read('extractMember', zipPath, entryPath, password)
+}
+
+/** Rename one FILE member in place (same folder, new name). Rewriting stores
+ *  the member decrypted, so an encrypted one needs its password here too. */
+export function renameMember(
+  zipPath: string,
+  entryPath: string,
+  newName: string,
+  password?: string
+): Promise<'ok' | MemberFail> {
+  if (!validMemberName(newName)) return Promise.resolve('failed')
+  return zip().edit('renameMember', zipPath, entryPath, newName, password)
+}
+
+/** Delete one member, or a folder and its subtree. Permanent: there is no
+ *  recycle bin inside a zip, which is why the renderer confirms first. */
+export function deleteMember(zipPath: string, entryPath: string): Promise<boolean> {
+  return zip().edit('deleteMember', zipPath, entryPath)
+}
+
+export function archiveTooLarge(sizeBytes: number): boolean {
+  return sizeBytes > MAX_ARCHIVE_BYTES
+}
+
+export function archiveStat(zipPath: string): Promise<ArchiveStat | null> {
+  return zip().read('archiveStat', zipPath)
+}
+
+/** True when any member is password protected (add and move refuse those). */
+export function hasEncrypted(zipPath: string): Promise<boolean> {
+  return zip().read('hasEncrypted', zipPath)
+}
+
+/** Put real files and folders INTO the zip, under `destFolder` ('' is the
+ *  root). A taken name comes back as a clash and nothing is written, unless
+ *  `keepBoth` renames the arrivals instead. */
+export function addToArchive(
+  zipPath: string,
+  srcPaths: readonly string[],
+  destFolder: string,
+  keepBoth = false
+): Promise<AddResult> {
+  return zip().edit('addToArchive', zipPath, [...srcPaths], destFolder, keepBoth)
+}
+
+/** Move members to another folder INSIDE the same zip; folders move whole. */
+export function moveMembers(
+  zipPath: string,
+  entryPaths: readonly string[],
+  destFolder: string
+): Promise<'ok' | 'encrypted' | 'failed'> {
+  return zip().edit('moveMembers', zipPath, [...entryPaths], destFolder)
+}
+
+/** Resolves once every edit of `zipPath` asked for so far has settled (no
+ *  worker started yet means there is none). adm-zip's writeZip is not atomic,
+ *  so a reader on main (the Explorer's listing, a member unpacked, an
+ *  extraction out) waits here rather than parse a half-written container. */
+export const editsSettled = (zipPath: string): Promise<void> =>
+  client?.settled(zipPath) ?? Promise.resolve()
 
 /**
  * A zip's entries and how it is locked, from bytes already read (#300). The
@@ -181,6 +165,7 @@ export async function unpackMember(
   password?: string
 ): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
   try {
+    await editsSettled(zipPath)
     const zip = new AdmZip(await readFile(zipPath))
     const entry = zip.getEntry(norm(entryPath))
     if (!entry || entry.isDirectory) return { ok: false, reason: 'failed' }
@@ -203,328 +188,6 @@ export async function unpackMember(
     return { ok: true, path: out }
   } catch {
     return { ok: false, reason: 'failed' }
-  }
-}
-
-function listZip(zip: AdmZip): ArchiveEntry[] {
-  const seen = new Map<string, ArchiveEntry>()
-  for (const e of zip.getEntries()) {
-    const p = norm(e.entryName)
-    if (!p || p.includes('../')) continue // hostile traversal names are not listed
-    if (e.isDirectory) {
-      if (!seen.has(p)) seen.set(p, { path: p, name: basename(p), dir: true, size: 0 })
-    } else {
-      const when = e.header.time instanceof Date ? e.header.time.getTime() : NaN
-      seen.set(p, {
-        path: p,
-        name: basename(p),
-        dir: false,
-        size: e.header.size,
-        packed: e.header.compressedSize,
-        ...(Number.isFinite(when) && when > 0 ? { mtime: when } : {}),
-        encrypted: (e.header.flags & 1) === 1 || undefined
-      })
-    }
-    // Parents implied by the path, for zips that never wrote folder records.
-    for (let i = p.indexOf('/'); i > 0; i = p.indexOf('/', i + 1)) {
-      const parent = p.slice(0, i)
-      if (!seen.has(parent))
-        seen.set(parent, { path: parent, name: basename(parent), dir: true, size: 0 })
-    }
-  }
-  return [...seen.values()]
-}
-
-/** Extract one member to a fresh temp dir. */
-export async function extractMember(
-  zipPath: string,
-  entryPath: string,
-  password?: string
-): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
-  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-  const zip = new AdmZip(zipPath)
-  const entry = zip.getEntry(norm(entryPath)) ?? zip.getEntry(norm(entryPath) + '/')
-  if (!entry || entry.isDirectory) return { ok: false, reason: 'failed' }
-  const like = entry as unknown as ZipEntryLike
-  if (like.header.method === AES_METHOD) {
-    // The password question comes first even on the 7z route, so the prompt
-    // flow is identical whichever cipher the zip used.
-    if (!password) return { ok: false, reason: 'password' }
-    return sevenExtract(zipPath, entryPath, password)
-  }
-  let data: Buffer
-  try {
-    data = like.getData(password)
-    if (!data?.length && entry.header.size > 0) throw new Error('no data')
-  } catch {
-    return { ok: false, reason: failOf(like, !!password) }
-  }
-  // The member's own basename, so the viewer's kind detection reads it; the
-  // random temp dir keeps two same-named members from colliding.
-  const out = join(await mkdtemp(join(tmpdir(), 'prism-zip-')), basename(norm(entryPath)))
-  await writeFile(out, data)
-  return { ok: true, path: out }
-}
-
-/** Rename one FILE member in place (same folder, new name). Rewriting stores
- *  the member decrypted, so an encrypted one needs its password here too. */
-export async function renameMember(
-  zipPath: string,
-  entryPath: string,
-  newName: string,
-  password?: string
-): Promise<'ok' | MemberFail> {
-  if (!validMemberName(newName)) return 'failed'
-  const p = norm(entryPath)
-  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-  const zip = new AdmZip(zipPath)
-  const entry = zip.getEntry(p)
-  if (!entry || entry.isDirectory) return 'failed'
-  const folder = p.includes('/') ? p.slice(0, p.lastIndexOf('/') + 1) : ''
-  const target = folder + newName
-  if (target === p) return 'ok'
-  if (zip.getEntry(target)) return 'failed' // a taken name refuses, never overwrites
-  const like = entry as unknown as ZipEntryLike
-  let data: Buffer
-  if (like.header.method === AES_METHOD) {
-    if (!password) return 'password'
-    const r = await sevenExtract(zipPath, p, password)
-    if (!r.ok) return r.reason
-    data = await readFile(r.path)
-  } else {
-    try {
-      data = like.getData(password)
-      if (!data?.length && entry.header.size > 0) throw new Error('no data')
-    } catch {
-      return failOf(like, !!password)
-    }
-  }
-  zip.deleteFile(p)
-  zip.addFile(target, data)
-  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-  zip.writeZip(zipPath)
-  return 'ok'
-}
-
-/** Delete one FILE member. Permanent: there is no recycle bin inside a zip,
- *  which is why the renderer confirms before calling this. */
-export function deleteMember(zipPath: string, entryPath: string): boolean {
-  const p = norm(entryPath)
-  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-  const zip = new AdmZip(zipPath)
-  const entry = zip.getEntry(p)
-  // A FOLDER (or a folder that exists only as a prefix of its members) takes
-  // its whole subtree with it. Undo of a folder dragged INTO a zip needs this,
-  // and so does the archive view's own Delete on a folder row.
-  if (!entry || entry.isDirectory) {
-    const under = zip.getEntries().filter((e) => norm(e.entryName).startsWith(p + '/'))
-    if (!under.length) return false
-    for (const e of under) zip.deleteFile(e.entryName)
-    if (entry) zip.deleteFile(entry.entryName)
-    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-    zip.writeZip(zipPath)
-    return true
-  }
-  zip.deleteFile(p)
-  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-  zip.writeZip(zipPath)
-  return true
-}
-
-export function archiveTooLarge(sizeBytes: number): boolean {
-  return sizeBytes > MAX_ARCHIVE_BYTES
-}
-
-/** What the Properties dialog says about an archive: what it holds, how hard
- *  it squeezed, and whether it is locked. */
-export type ArchiveStat = {
-  files: number
-  folders: number
-  /** Bytes the members take once unpacked. */
-  uncompressed: number
-  encryption: 'none' | 'zipcrypto' | 'aes'
-  /** 7z, rar, tar and the rest are read through 7-Zip and never written:
-   *  the panel hides its verbs rather than offering what would fail. */
-  readOnly?: boolean
-}
-
-export function archiveStat(zipPath: string): ArchiveStat | null {
-  try {
-    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-    const zip = new AdmZip(zipPath)
-    const folders = new Set<string>()
-    let files = 0
-    let uncompressed = 0
-    let encryption: ArchiveStat['encryption'] = 'none'
-    for (const e of zip.getEntries()) {
-      const p = norm(e.entryName)
-      if (!p) continue
-      for (let i = p.indexOf('/'); i > 0; i = p.indexOf('/', i + 1)) folders.add(p.slice(0, i))
-      if (e.isDirectory) {
-        folders.add(p)
-        continue
-      }
-      files += 1
-      uncompressed += e.header.size
-      if (e.header.method === AES_METHOD) encryption = 'aes'
-      else if ((e.header.flags & 1) === 1 && encryption === 'none') encryption = 'zipcrypto'
-    }
-    return { files, folders: folders.size, uncompressed, encryption }
-  } catch {
-    return null
-  }
-}
-
-/* ---------- drag and drop (#70): add, move within, extract out ---------- */
-
-/** True when any member is password protected. Rewriting such a container with
- *  adm-zip would re-emit those entries wrongly, so the write verbs that rebuild
- *  it (add, move) refuse rather than quietly corrupting the archive. */
-export function hasEncrypted(zipPath: string): boolean {
-  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-  return encryptedIn(new AdmZip(zipPath))
-}
-
-/** `hasEncrypted` for a zip already open: add and move read the container
- *  ONCE and ask this, where they used to read it twice. */
-function encryptedIn(zip: AdmZip): boolean {
-  return zip.getEntries().some((e) => (e.header.flags & 1) === 1)
-}
-
-const joinIn = (folder: string, name: string): string => (folder ? `${norm(folder)}/${name}` : name)
-
-export type AddResult =
-  | { added: Array<{ src: string; entry: string }>; clashes: string[]; failed: string[] }
-  | 'encrypted'
-  | 'failed'
-
-/**
- * Put real files and folders INTO the zip, under `destFolder` ('' is the root).
- * Folders go in whole. A taken name comes back as a clash and nothing is
- * written, unless `keepBoth` renames the arrivals instead.
- *
- * Async (owner, 2026-10-12, main never waits on the disk): each dropped
- * source is looked at with one awaited stat. The clashes are still all
- * found before anything is added.
- */
-export async function addToArchive(
-  zipPath: string,
-  srcPaths: readonly string[],
-  destFolder: string,
-  keepBoth = false
-): Promise<AddResult> {
-  try {
-    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-    const zip = new AdmZip(zipPath)
-    if (encryptedIn(zip)) return 'encrypted'
-    const taken = new Set(zip.getEntries().map((e) => norm(e.entryName).toLowerCase()))
-    const clashes: string[] = []
-    const failed: string[] = []
-    const jobs: Array<{ src: string; name: string; dir: boolean }> = []
-    const zipAt = resolve(zipPath)
-    for (const src of srcPaths) {
-      const st = await stat(src).catch(() => null)
-      if (!st) {
-        failed.push(src)
-        continue
-      }
-      // The archive cannot contain itself: dropping a zip (or a folder holding
-      // it) onto its own view would rewrite the file mid-read and then bin it.
-      const at = resolve(src)
-      if (at === zipAt || !relative(at, zipAt).startsWith('..')) {
-        failed.push(src)
-        continue
-      }
-      const name = basename(src)
-      const dir = st.isDirectory()
-      if (taken.has(joinIn(destFolder, name).toLowerCase())) {
-        if (!keepBoth) {
-          clashes.push(name)
-          continue
-        }
-        // "name (2)" inside the zip, the way the folder verbs spell it.
-        const ext = dir ? '' : (/\.[^.]*$/.exec(name)?.[0] ?? '')
-        const stem = ext ? name.slice(0, -ext.length) : name
-        let n = 2
-        let candidate = `${stem} (${n})${ext}`
-        while (taken.has(joinIn(destFolder, candidate).toLowerCase()) && n < 1000) {
-          n += 1
-          candidate = `${stem} (${n})${ext}`
-        }
-        jobs.push({ src, name: candidate, dir })
-        taken.add(joinIn(destFolder, candidate).toLowerCase())
-      } else {
-        jobs.push({ src, name, dir })
-        taken.add(joinIn(destFolder, name).toLowerCase())
-      }
-    }
-    if (clashes.length && !keepBoth) return { added: [], clashes, failed }
-    const added: Array<{ src: string; entry: string }> = []
-    for (const j of jobs) {
-      try {
-        const before = zip.getEntries().length
-        // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-        if (j.dir) zip.addLocalFolder(j.src, joinIn(destFolder, j.name))
-        else zip.addLocalFile(j.src, norm(destFolder), j.name)
-        // An EMPTY folder writes nothing at all: counting it as added would
-        // have the caller bin the original for a member that is not there.
-        if (zip.getEntries().length <= before) failed.push(j.src)
-        else added.push({ src: j.src, entry: joinIn(destFolder, j.name) })
-      } catch {
-        failed.push(j.src)
-      }
-    }
-    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-    if (added.length) zip.writeZip(zipPath)
-    return { added, clashes, failed }
-  } catch {
-    return 'failed'
-  }
-}
-
-/** Move members to another folder INSIDE the same zip; folders move whole. */
-export function moveMembers(
-  zipPath: string,
-  entryPaths: readonly string[],
-  destFolder: string
-): 'ok' | 'encrypted' | 'failed' {
-  try {
-    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-    const zip = new AdmZip(zipPath)
-    if (encryptedIn(zip)) return 'encrypted'
-    const dest = norm(destFolder)
-    // Dropping a folder on itself (or inside its own subtree) would nest its
-    // contents one level deeper every time; there is nothing to do instead.
-    const wanted = entryPaths.map(norm).filter((w) => dest !== w && !dest.startsWith(w + '/'))
-    const moves: Array<{ from: string; to: string; data: Buffer }> = []
-    for (const e of zip.getEntries()) {
-      if (e.isDirectory) continue
-      const p = norm(e.entryName)
-      for (const w of wanted) {
-        // The dragged member itself, or anything beneath a dragged folder.
-        const under = p === w || p.startsWith(w + '/')
-        if (!under) continue
-        const parent = w.includes('/') ? w.slice(0, w.lastIndexOf('/')) : ''
-        const rel = parent ? p.slice(parent.length + 1) : p
-        const to = dest ? `${dest}/${rel}` : rel
-        if (to !== p) moves.push({ from: p, to, data: e.getData() })
-        break
-      }
-    }
-    if (!moves.length) return 'ok'
-    // A move onto a taken name is refused whole: an archive is not the place to
-    // discover half a move happened.
-    const existing = new Set(zip.getEntries().map((e) => norm(e.entryName).toLowerCase()))
-    if (moves.some((m) => existing.has(m.to.toLowerCase()))) return 'failed'
-    for (const m of moves) {
-      zip.deleteFile(m.from)
-      zip.addFile(m.to, m.data)
-    }
-    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
-    zip.writeZip(zipPath)
-    return 'ok'
-  } catch {
-    return 'failed'
   }
 }
 
@@ -599,6 +262,7 @@ export async function extractTo(
   try {
     if (!(await exists(destDir))) return { ok: false, reason: 'failed' }
     const base = resolve(destDir)
+    await editsSettled(zipPath)
     // A Buffer, read without blocking: `new AdmZip(path)` is a readFileSync
     // of up to the 600MB cap.
     const zip = new AdmZip(await readFile(zipPath))

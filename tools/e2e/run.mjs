@@ -11,7 +11,7 @@
  */
 import { _electron as electron } from 'playwright-core'
 import { execFileSync, spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import electronPath from 'electron'
 import {
   appendFileSync,
@@ -17936,6 +17936,12 @@ async function zipMenusScenario(fixtures) {
  * folder with its subtree, add files here, and a Prism row dragged in (its
  * original binned, Ctrl+Z takes both halves back). Each is read back with
  * adm-zip, from the container itself.
+ *
+ * MAIN KEEPS ANSWERING WHILE A ZIP IS WRITTEN (owner, 2026-10-12, "zip
+ * editing off the main process"): adm-zip rewrites the whole container
+ * synchronously, so it runs in the zip worker. A large file added to the zip
+ * takes a while to deflate and write, and an IPC round trip from the page,
+ * timed in the page, answers in under 200 ms the whole time.
  */
 async function zipWritesScenario(fixtures) {
   console.log('writes inside a zip (#300)')
@@ -17991,6 +17997,32 @@ async function zipWritesScenario(fixtures) {
     await win.locator('body').press('Control+z')
     ok(await until(() => existsSync(join(dir, 'carry-me.txt')), 10000), 'Ctrl+Z puts the original back')
     ok(await until(() => !names().includes('carry-me.txt')), 'and takes the member out of the zip')
+    // A large write: 160 MB that does not compress, so the deflate and the
+    // rewrite take a while. The page times a cheap IPC round trip throughout.
+    const big = join(dir, 'big.bin')
+    writeFileSync(big, randomBytes(160 * 1024 * 1024))
+    const write = await win.evaluate(async ({ zip, src }) => {
+      const t0 = performance.now()
+      let done = false
+      let result = null
+      const job = window.prism.archiveAdd(zip, [src], '', false).then((r) => {
+        result = r
+        done = true
+      })
+      const trips = []
+      while (!done) {
+        const t = performance.now()
+        await window.prism.weekStart()
+        trips.push(performance.now() - t)
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      await job
+      return { ms: performance.now() - t0, trips, added: typeof result === 'object' ? (result?.added?.length ?? 0) : result }
+    }, { zip: zipPath, src: big })
+    const worst = Math.max(0, ...write.trips)
+    ok(write.added === 1 && names().includes('big.bin'), `the large file went into the zip (${write.added}, ${Math.round(write.ms)} ms)`)
+    ok(write.ms > 400 && write.trips.length >= 5, `and the write took long enough to measure (${Math.round(write.ms)} ms, ${write.trips.length} round trips)`)
+    ok(worst < 200, `main answered the page in under 200 ms throughout the write (worst ${Math.round(worst)} ms)`)
   } finally {
     await app.close()
   }
