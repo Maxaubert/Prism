@@ -1803,7 +1803,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
   window state, preferences, the listings index) are async now; window preferences and the
   listings index answer their `sendSync` from memory and write off main. What stays synchronous
   is startup, quit, worker code, a `sendSync` answer, the root wall's `canonical()` and adm-zip
-  (whole-archive reads and writes; moving zip edits to a worker is the follow-up), each with a
+  (whole-archive reads and writes; since moved to the zip worker, below), each with a
   `// sync-ok: <reason>`. `src/main/syncCalls.test.ts` fails `npm test` on any unmarked one.
   **THE TAB STRIP IS SAVED OFF MAIN** (owner, 2026-10-12: the app "stalled for like 5 seconds",
   first after an unpin, then on entering Downloads). A CPU profile of the owner's main process
@@ -1811,6 +1811,18 @@ changing a feature: each entry records what the owner decided, why, and what hol
   20 KB save, 400 ms after any tab change, waiting on a busy disk. `tabs.ts` `tabsWriter` now
   writes it on libuv's pool and swaps it in with a rename; only the quit flush is synchronous,
   and a write that lands after a newer one is dropped. `tabs.test.ts` holds both.
+  **ZIP WORK RUNS IN ITS OWN PROCESS** (owner, 2026-10-12: "handle this, create a plan then go
+  ahead"; plan `docs/superpowers/plans/2026-10-12-zip-worker-plan.md`). adm-zip reads and
+  writes a whole archive synchronously, so listing, previewing, renaming, deleting, adding or
+  moving inside a zip froze main for as long as that took. Every adm-zip call that takes a path
+  now runs in a utility process (`zipWorker.ts`, the HEIC worker's pattern; the logic in
+  `zipOps.ts`, unchanged). Main's side (`zipClient.ts`) runs edits to one archive one at a
+  time in order, holds a read behind an earlier edit of the same file, kills the worker after
+  60 s idle, and rejects every pending job if it exits (the next job starts a fresh one). The
+  Explorer's listing of a zip waits for a pending edit, since adm-zip rewrites the file in
+  place. `zipClient.test.ts` and `zipOps.test.ts` hold it; the e2e `zipWrites` adds a 160 MB
+  file and requires every IPC round trip during the write to stay under 200 ms (worst 58 ms
+  over a 2.3 s write).
   **THE WALL RESOLVES A GRANT ONCE, AND A PROCESS IS STARTED OFF MAIN** (#351;
   owner, 2026-10-11: "big issues with stalls at the beginning of using the
   program, like entering the first folder, highlighting a file ... then it
