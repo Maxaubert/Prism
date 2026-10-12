@@ -1,4 +1,5 @@
 import { app, ipcMain } from 'electron'
+import { CALL } from '@shared/channels'
 import { join } from 'path'
 import { createWinEShortcut } from '../winEShortcut'
 import { dropRoot } from '../roots'
@@ -11,12 +12,12 @@ import type { MainCtx } from './context'
 /** The window's preferences (shared between Prism's windows): load, seed, set. */
 export function registerPreferencesIpc(ctx: MainCtx): void {
   const { extraWindowOwner, listingCache, preferencesLoaded, windowPreferences } = ctx
-  ipcMain.on('window-preferences:load', (event) => {
+  ipcMain.on(CALL.windowPreferencesLoad, (event) => {
     event.returnValue =
       isMainSender(event.sender) ? windowPreferences.load() : null
     if (isMainSender(event.sender) && extraWindowOwner) preferencesLoaded()
   })
-  ipcMain.on('window-preferences:seed', (event, values: unknown) => {
+  ipcMain.on(CALL.windowPreferencesSeed, (event, values: unknown) => {
     event.returnValue = null
     if (!isMainSender(event.sender)) return
     try {
@@ -27,7 +28,7 @@ export function registerPreferencesIpc(ctx: MainCtx): void {
       preferencesLoaded()
     }
   })
-  ipcMain.on('window-preferences:set', (event, change: unknown) => {
+  ipcMain.on(CALL.windowPreferencesSet, (event, change: unknown) => {
     event.returnValue =
       isMainSender(event.sender) && windowPreferences.set(change)
     // The switch takes effect now, not when the folder watch gets round to it.
@@ -46,19 +47,19 @@ export function registerWinEIpc(ctx: MainCtx): void {
     profile: preferencesOwner,
     supported: process.platform === 'win32' && app.isPackaged && !E2E
   })
-  ipcMain.handle('win-e:status', (event) => {
+  ipcMain.handle(CALL.winEStatus, (event) => {
     if (!isMainSender(event.sender)) throw new Error('Unknown window')
     return winE.status()
   })
-  ipcMain.handle('win-e:set', (event, enabled: unknown) => {
+  ipcMain.handle(CALL.winESet, (event, enabled: unknown) => {
     if (!isMainSender(event.sender) || typeof enabled !== 'boolean')
       throw new Error('Invalid shortcut request')
     return winE.set(enabled)
   })
-  ipcMain.on('win-e:listen', (event) => {
+  ipcMain.on(CALL.winEListen, (event) => {
     if (isMainSender(event.sender)) winERequests.listen()
   })
-  ipcMain.on('win-e:ready', (event, id: unknown) => {
+  ipcMain.on(CALL.winEReady, (event, id: unknown) => {
     if (isMainSender(event.sender) && typeof id === 'string')
       winERequests.ready(id)
   })
@@ -68,13 +69,13 @@ export function registerWinEIpc(ctx: MainCtx): void {
 /** What the renderer reports for the session: the tab strip, playing media, a dropped root. */
 export function registerSessionIpc(ctx: MainCtx): void {
   const { keepAwake, saveTabs } = ctx
-  ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
+  ipcMain.on(CALL.tabsChanged, (_e, state: SavedTabs) => saveTabs(state))
   // The renderer is the only thing that knows whether a media element is
   // actually playing, so it owns the answer and main just holds the block.
-  ipcMain.on('power:awake', (_e, on: boolean) => keepAwake(on))
+  ipcMain.on(CALL.powerAwake, (_e, on: boolean) => keepAwake(on))
   // A root no longer held by ANY tab (closed, or rerooted away). Explicit,
   // one at a time, from the owner of the tab list.
-  ipcMain.on('roots:drop', (_e, root: string) => {
+  ipcMain.on(CALL.rootsDrop, (_e, root: string) => {
     dropRoot(root)
     killWarm(root) // a warm spare for a closed tab is an orphan
   })

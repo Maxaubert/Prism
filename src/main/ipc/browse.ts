@@ -1,4 +1,5 @@
 import { app, ipcMain } from 'electron'
+import { CALL, PUSH } from '@shared/channels'
 import { dirname, resolve } from 'path'
 import { listDir, searchFiles } from '../dirList'
 import {
@@ -54,7 +55,7 @@ export function registerBrowseIpc(ctx: MainCtx): void {
   // sizes go AFTER the reply leaves (setImmediate): the size warm-up's
   // realpath checks, two per subfolder, used to run before it.
   ipcMain.handle(
-    'browse:directory',
+    CALL.browseDirectory,
     async (_e, tabId: string, path: string, options?: { details?: boolean }) => {
       const directory = await explorerListings.browse(tabId, path, options?.details !== false)
       if (directory && !directory.listing.unreadable) {
@@ -69,18 +70,18 @@ export function registerBrowseIpc(ctx: MainCtx): void {
   )
   // The page's synchronous look at the cache (#271): a folder it has never
   // seen this session paints from disk in the same frame as the click.
-  ipcMain.on('browse:cached', (event, path: unknown) => {
+  ipcMain.on(CALL.browseCached, (event, path: unknown) => {
     event.returnValue =
       isMainSender(event.sender) && typeof path === 'string'
         ? explorerListings.cached(path)
         : null
   })
-  ipcMain.handle('browse:prefetch', (_e, path: unknown, pin?: unknown) => {
+  ipcMain.handle(CALL.browsePrefetch, (_e, path: unknown, pin?: unknown) => {
     if (typeof path !== 'string') return null
     if (pin === true) listingCache.pin([path])
     return explorerListings.prefetch(path)
   })
-  ipcMain.handle('listing-cache:clear', () => listingCache.clear())
+  ipcMain.handle(CALL.listingCacheClear, () => listingCache.clear())
   /**
    * The archive check before a search is an awaited stat now (2026-10-12),
    * and two of them can finish out of order: the older search would then
@@ -120,7 +121,7 @@ export function registerBrowseIpc(ctx: MainCtx): void {
     cancelled: true
   })
   ipcMain.handle(
-    'browse:search',
+    CALL.browseSearch,
     async (
       event,
       tabId: string,
@@ -143,7 +144,7 @@ export function registerBrowseIpc(ctx: MainCtx): void {
         query,
         requestId,
         (progress) => {
-          if (!event.sender.isDestroyed()) event.sender.send('browse:search-progress', progress)
+          if (!event.sender.isDestroyed()) event.sender.send(PUSH.browseSearchProgress, progress)
         },
         {},
         normalizeSearchWindow(window)
@@ -151,14 +152,14 @@ export function registerBrowseIpc(ctx: MainCtx): void {
       return result
     }
   )
-  ipcMain.on('browse:search-cancel', (_e, tabId: string, requestId: string) => {
+  ipcMain.on(CALL.browseSearchCancel, (_e, tabId: string, requestId: string) => {
     if (searchWaiting.get(tabId) === requestId) searchWaiting.delete(tabId)
     cancelBrowseSearch(tabId, requestId)
   })
   // The search popup's suggestions (#267): the same search and index as the
   // list's, in a slot of their own, with no progress (one answer each).
   ipcMain.handle(
-    'browse:suggest',
+    CALL.browseSuggest,
     async (_e, tabId: string, path: string, query: string, requestId: string) => {
       const outer = await searchContainer(suggestSlot(tabId), requestId, path, query)
       if (outer === 'gone') return searchGone(path)
@@ -169,12 +170,12 @@ export function registerBrowseIpc(ctx: MainCtx): void {
       return browseSuggest(tabId, path, query, requestId)
     }
   )
-  ipcMain.on('browse:suggest-cancel', (_e, tabId: string, requestId: string) => {
+  ipcMain.on(CALL.browseSuggestCancel, (_e, tabId: string, requestId: string) => {
     if (typeof tabId === 'string' && searchWaiting.get(suggestSlot(tabId)) === requestId)
       searchWaiting.delete(suggestSlot(tabId))
     if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId), requestId)
   })
-  ipcMain.handle('browse:watch', async (_e, tabId: string, path: string | null) => {
+  ipcMain.handle(CALL.browseWatch, async (_e, tabId: string, path: string | null) => {
     // The watcher's set-up is timed (#322): it runs in main's thread, and a
     // network folder can make it slow. One per folder shown, so a quick one
     // is Detailed logging's only. The time includes the ownership guard,
@@ -190,15 +191,15 @@ export function registerBrowseIpc(ctx: MainCtx): void {
     }
     return ok
   })
-  ipcMain.handle('browse:locations', () => browseLocations((key) => app.getPath(key)))
-  ipcMain.handle('browse:drives', async (_e, paths: unknown) =>
+  ipcMain.handle(CALL.browseLocations, () => browseLocations((key) => app.getPath(key)))
+  ipcMain.handle(CALL.browseDrives, async (_e, paths: unknown) =>
     E2E
       ? withUsedShare(await driveUsage(paths), process.env.PRISM_E2E_DRIVE_USED)
       : driveUsage(paths)
   )
   // Downloads' date groups count weeks from the user's first day (#285).
-  ipcMain.handle('system:week-start', () => weekStart())
-  ipcMain.handle('folder:sizes-cached', async (_event, paths: unknown) => {
+  ipcMain.handle(CALL.systemWeekStart, () => weekStart())
+  ipcMain.handle(CALL.folderSizesCached, async (_event, paths: unknown) => {
     if (!Array.isArray(paths) || paths.length > 10000) return {}
     // One timed guard call per list (#322): this is where suspect 1 runs.
     const authorized = insideDesktopAll(paths)
@@ -206,12 +207,12 @@ export function registerBrowseIpc(ctx: MainCtx): void {
     const still = new Set(insideDesktopAll(Object.keys(cached)))
     return Object.fromEntries(Object.entries(cached).filter(([path]) => still.has(path)))
   })
-  ipcMain.handle('folder:sizes-refresh', async (_event, path: unknown) => {
+  ipcMain.handle(CALL.folderSizesRefresh, async (_event, path: unknown) => {
     if (typeof path !== 'string' || !insideDesktop(path)) return
     await folderSizes.invalidate([path])
   })
   const folderSizeRequests = new Map<number, Map<string, AbortController>>()
-  ipcMain.handle('folder:size', async (event, path: string, requestId: string) => {
+  ipcMain.handle(CALL.folderSize, async (event, path: string, requestId: string) => {
     if (
       typeof path !== 'string' ||
       !insideDesktop(path) ||
@@ -240,7 +241,7 @@ export function registerBrowseIpc(ctx: MainCtx): void {
     try {
       const result = await folderSizes.get(path, controller.signal, (result) => {
         if (!controller.signal.aborted && !event.sender.isDestroyed() && insideDesktop(path))
-          event.sender.send('folder:size-progress', { requestId, result })
+          event.sender.send(PUSH.folderSizeProgress, { requestId, result })
       })
       return insideDesktop(path) && !controller.signal.aborted ? result : null
     } finally {
@@ -256,11 +257,11 @@ export function registerBrowseIpc(ctx: MainCtx): void {
       )
     }
   })
-  ipcMain.on('folder:size-cancel', (event, requestId: string) => {
+  ipcMain.on(CALL.folderSizeCancel, (event, requestId: string) => {
     if (typeof requestId === 'string')
       folderSizeRequests.get(event.sender.id)?.get(requestId)?.abort()
   })
-  ipcMain.on('browse:release', (_e, tabId: string) => {
+  ipcMain.on(CALL.browseRelease, (_e, tabId: string) => {
     cancelBrowseSearch(tabId)
     if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId))
     releaseDesktop(tabId)
@@ -278,7 +279,7 @@ export function registerTreeIpc(ctx: MainCtx): void {
   // A click in the sidebar tree. It leaves the root alone: the tree you
   // clicked from stays the tree you're in.
   ipcMain.handle(
-    'open:within',
+    CALL.openWithin,
     async (_e, root: string, p: string): Promise<OpenPayload | null> => {
       // A MEMBER of an archive (#300): the members beside it are the arrows'
       // list, read from the container's listing. The container must be one
@@ -292,7 +293,7 @@ export function registerTreeIpc(ctx: MainCtx): void {
       return validDesktopRoot(root, p) ? await buildPayload(p, root) : null
     }
   )
-  ipcMain.handle('dir:list', async (_e, root: string, p: string): Promise<DirListing | null> => {
+  ipcMain.handle(CALL.dirList, async (_e, root: string, p: string): Promise<DirListing | null> => {
     // The project tree inside an archive (#300): a zip node expands like a
     // folder, and its folders do, from the container's own listing.
     const outer = typeof p === 'string' ? await container(p) : null
@@ -320,7 +321,7 @@ export function registerTreeIpc(ctx: MainCtx): void {
     return listing
   })
   // The sidebar's search: that tab's whole root, bounded, never outside it.
-  ipcMain.handle('search:files', async (_e, root: string, query: string) => {
+  ipcMain.handle(CALL.searchFiles, async (_e, root: string, query: string) => {
     if (!validDesktopRoot(root, root)) return { hits: [], truncated: false }
     const result = await searchFiles(root, query)
     extendDesktopDirectories(

@@ -2,6 +2,7 @@ import type { Dirent } from 'fs'
 import { cp, mkdir, readdir, rename, rm, rmdir, stat } from 'fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { isInside, pathKey } from '@shared/path'
+import type { MoveClash, MoveOnClash, MoveResult } from '@shared/ipcTypes'
 import { uniqueNameAsync } from './fileOps'
 import { exists, isBusyError } from './fsUtil'
 
@@ -10,21 +11,7 @@ import { exists, isBusyError } from './fsUtil'
 // free of electron imports so it can be unit-tested; binning what an overwrite
 // replaces is passed in, exactly as renameFile does it.
 
-export type MoveClash = { path: string; name: string }
-export type MoveResult = {
-  /** Where each one came from and landed: undo needs both halves. */
-  moved: Array<{ from: string; to: string }>
-  /** Names already taken at the destination; with onClash 'ask' nothing moved. */
-  clashes: MoveClash[]
-  /** Paths that could not be moved at all (gone, locked, into themselves). */
-  failed: string[]
-  /** The ones among `failed` that Windows refused because something holds
-   *  the file open (EBUSY, EPERM) - which is Prism's own player as often as
-   *  not (#127), so the renderer lets go and tries these again. */
-  busy: string[]
-  /** What 'replace' sent to the bin, so undo can bring it back. */
-  replaced: string[]
-}
+export type { MoveClash, MoveResult }
 
 const lower = (p: string): string => pathKey(resolve(p))
 
@@ -102,7 +89,7 @@ async function mergeClashes(src: string, target: string): Promise<MoveClash[]> {
 async function mergeInto(
   src: string,
   target: string,
-  onClash: 'ask' | 'keep-both' | 'replace',
+  onClash: MoveOnClash,
   trash: (p: string) => Promise<void>,
   out: MoveResult
 ): Promise<void> {
@@ -144,7 +131,7 @@ async function mergeInto(
 export async function moveEntries(
   paths: readonly string[],
   destDir: string,
-  onClash: 'ask' | 'keep-both' | 'replace',
+  onClash: MoveOnClash,
   trash: (p: string) => Promise<void>
 ): Promise<MoveResult> {
   const out: MoveResult = { moved: [], clashes: [], failed: [], replaced: [], busy: [] }

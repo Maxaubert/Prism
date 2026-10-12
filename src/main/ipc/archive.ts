@@ -1,10 +1,19 @@
 import { app, ipcMain } from 'electron'
+import { CALL, PUSH } from '@shared/channels'
 import { basename, dirname, extname, join } from 'path'
 import { mkdir, mkdtemp, stat } from 'fs/promises'
 import { tmpdir } from 'os'
 import { insideDesktop } from '../desktopAccess'
 import { container } from '../archiveBrowse'
-import { type ExtractResult } from '../phone/server'
+import type {
+  ArchiveRenameResult,
+  ExtractAllResult,
+  ExtractDirResult,
+  ExtractFail,
+  ExtractFailure,
+  ExtractToResult,
+  MemberExtractResult
+} from '@shared/extraction'
 import { holders } from '../holders'
 import { userPaths } from '../paths'
 import { mainCrumb } from '../diagCrumb'
@@ -45,7 +54,7 @@ export interface ArchiveBodies {
     password: string
   ) => Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }>
   listArchiveWalled: (p: string, password?: string) => Promise<ArchiveListing>
-  extractMemberWalled: (p: string, entry: string, password?: string) => Promise<ExtractResult>
+  extractMemberWalled: (p: string, entry: string, password?: string) => Promise<MemberExtractResult>
 }
 
 /** Extraction jobs, the archive verbs and comics. Answers the bodies the
@@ -88,9 +97,9 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
       })
     }
     if (appState.mainWindow && !appState.mainWindow.isDestroyed())
-      appState.mainWindow.webContents.send('extract:event', e)
+      appState.mainWindow.webContents.send(PUSH.extractEvent, e)
   })
-  ipcMain.handle('extract:cancel', (_e, id: string) =>
+  ipcMain.handle(CALL.extractCancel, (_e, id: string) =>
     typeof id === 'string' ? extractJobs.cancel(id) : false
   )
   // No orphaned 7-Zip left writing into somebody's folder after the app
@@ -136,10 +145,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     destDir: string,
     pw: string,
     asksPassword: boolean
-  ): Promise<
-    | { ok: true; written: number }
-    | { ok: false; reason: 'password' | 'aes' | 'failed' | 'cancelled' | 'busy'; message?: string }
-  > {
+  ): Promise<ExtractToResult> {
     const job = extractJobs.begin({ archive: basename(zip), dest: destDir, asksPassword })
     if (!job) return BUSY
     try {
@@ -166,7 +172,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
   }
 
   ipcMain.handle(
-    'archive:extract-to',
+    CALL.archiveExtractTo,
     (
       _e,
       zip: string,
@@ -194,7 +200,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    * question.
    */
   ipcMain.handle(
-    'archive:extract-members-picked',
+    CALL.archiveExtractMembersPicked,
     async (_e, zip: string, entries: string[], password?: string) => {
       if (!archiveReadOk(zip) || !Array.isArray(entries)) return refused(zip, '')
       const r = await openDialog({ properties: ['openDirectory', 'createDirectory'] })
@@ -213,7 +219,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    * (#300): the read-only note's Extract here. Answers the extracted copy,
    * so it can be opened where editing can start.
    */
-  ipcMain.handle('archive:member-out', async (_e, path: string) => {
+  ipcMain.handle(CALL.archiveMemberOut, async (_e, path: string) => {
     const outer = typeof path === 'string' ? await container(path) : null
     if (!outer || !insideDesktop(outer)) return { ok: false }
     const r = await archives.resolve(path, { enterLast: false })
@@ -265,7 +271,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     if (pw) archivePasswords.set(p, pw)
     return got
   }
-  ipcMain.handle('comic:open', async (_e, p: string, password?: string) => {
+  ipcMain.handle(CALL.comicOpen, async (_e, p: string, password?: string) => {
     if (!comicOk(p)) return { error: 'failed' as const }
     const got = await openComicWalled(p, typeof password === 'string' ? password : '')
     if ('error' in got) return got
@@ -372,7 +378,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     return dest
   }
 
-  ipcMain.handle('archive:stat', async (_e, p: string): Promise<ArchiveStat | null> => {
+  ipcMain.handle(CALL.archiveStat, async (_e, p: string): Promise<ArchiveStat | null> => {
     if (!archiveOk(p)) return null
     const exe = await seven(p)
     if (!exe) return archiveStat(p).catch(() => null)
@@ -417,7 +423,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    * unchanged. `force` is an explicit Open, past the automatic-preview limit.
    * The container must be one the Explorer or a project may read.
    */
-  ipcMain.handle('archive:member', async (_e, path: string, password?: string, force?: boolean) => {
+  ipcMain.handle(CALL.archiveMember, async (_e, path: string, password?: string, force?: boolean) => {
     const outer = typeof path === 'string' ? await container(path) : null
     if (!outer || !insideDesktop(outer)) return { ok: false, reason: 'failed' }
     const out = await archives.member(
@@ -434,14 +440,14 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     return out
   })
   /** What the archive card shows (#300): totals and the top of the tree. */
-  ipcMain.handle('archive:summary', async (_e, path: string) => {
+  ipcMain.handle(CALL.archiveSummary, async (_e, path: string) => {
     const outer = typeof path === 'string' ? await container(path) : null
     if (!outer || !insideDesktop(outer)) return { ok: false, reason: 'failed' }
     return archives.summary(path)
   })
   /** A password the user typed for a container a listing asked about
    *  (#300): remembered for the session, as every archive password is. */
-  ipcMain.handle('archive:remember-password', (_e, container: string, password: string) => {
+  ipcMain.handle(CALL.archiveRememberPassword, (_e, container: string, password: string) => {
     if (typeof container !== 'string' || typeof password !== 'string' || !password) return false
     if (!insideDesktop(container) && !memberTemp.owns(container)) return false
     archivePasswords.set(container, password)
@@ -449,7 +455,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     return true
   })
   ipcMain.handle(
-    'archive:list',
+    CALL.archiveList,
     async (_e, p: string, password?: string): Promise<ArchiveListing> => {
       if (!archiveReadOk(p)) return { ok: false, reason: 'failed' }
       return listArchiveWalled(p, typeof password === 'string' ? password : undefined)
@@ -462,7 +468,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     p: string,
     entry: string,
     password?: string
-  ): Promise<ExtractResult> => {
+  ): Promise<MemberExtractResult> => {
     try {
       const exe = await seven(p)
       // The cap is ADM-ZIP's - it reads the whole container into memory.
@@ -486,8 +492,8 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     }
   }
   ipcMain.handle(
-    'archive:extract',
-    async (_e, p: string, entry: string, password?: string): Promise<ExtractResult> => {
+    CALL.archiveExtract,
+    async (_e, p: string, entry: string, password?: string): Promise<MemberExtractResult> => {
       // The READ gate: extracting a member to view it is a read, and the
       // container may itself be a member Prism extracted a moment ago.
       if (!archiveReadOk(p) || typeof entry !== 'string') return { ok: false, reason: 'failed' }
@@ -504,19 +510,12 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    * archive:extract-to, whose destination the renderer names.
    */
   ipcMain.handle(
-    'archive:extract-all',
+    CALL.archiveExtractAll,
     async (
       _e,
       p: string,
       here?: boolean
-    ): Promise<
-      | { ok: true; dest: string }
-      | {
-          ok: false
-          reason: 'cancelled' | 'password' | 'aes' | 'failed' | 'busy'
-          message?: string
-        }
-    > => {
+    ): Promise<ExtractAllResult> => {
       if (!archiveOk(p)) return refused(p, '')
       let parent = dirname(p)
       if (!here) {
@@ -581,20 +580,13 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    * real directory with the shape intact, which is what gets copied.
    */
   ipcMain.handle(
-    'archive:extract-dir',
+    CALL.archiveExtractDir,
     async (
       _e,
       p: string,
       entry: string,
       here?: boolean
-    ): Promise<
-      | { ok: true; path: string }
-      | {
-          ok: false
-          reason: 'password' | 'aes' | 'failed' | 'cancelled' | 'busy'
-          message?: string
-        }
-    > => {
+    ): Promise<ExtractDirResult> => {
       // A copy out of a nested archive reads a temp copy main made (#300).
       if (!(here ? archiveOk(p) : archiveReadOk(p)) || typeof entry !== 'string' || !entry) {
         return here ? refused(p, '') : { ok: false, reason: 'failed' }
@@ -606,10 +598,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
       if (here && !job) return BUSY
       const made = new Made()
       /** Say how it ended, to the window and to the caller, in one place. */
-      const fail = (
-        reason: 'password' | 'aes' | 'failed',
-        message?: string
-      ): { ok: false; reason: 'password' | 'aes' | 'failed'; message?: string } => {
+      const fail = (reason: ExtractFail, message?: string): ExtractFailure => {
         job?.end('failed', reason, message)
         return { ok: false, reason, ...(message ? { message } : {}) }
       }
@@ -732,8 +721,14 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     }
   )
   ipcMain.handle(
-    'archive:rename',
-    async (_e, p: string, entry: string, name: string, password?: string): Promise<string> => {
+    CALL.archiveRename,
+    async (
+      _e,
+      p: string,
+      entry: string,
+      name: string,
+      password?: string
+    ): Promise<ArchiveRenameResult> => {
       if (!archiveOk(p) || typeof entry !== 'string' || typeof name !== 'string') return 'failed'
       if (await seven(p)) return 'failed' // read-only format; the panel offers no verbs
       try {
@@ -749,7 +744,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
       }
     }
   )
-  ipcMain.handle('archive:delete', async (_e, p: string, entry: string): Promise<boolean> => {
+  ipcMain.handle(CALL.archiveDelete, async (_e, p: string, entry: string): Promise<boolean> => {
     if (!archiveOk(p) || typeof entry !== 'string') return false
     if (await seven(p)) return false
     try {

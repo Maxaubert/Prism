@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DCH } from 'prism-term-core/shared/channels'
+import { CALL } from '@shared/channels'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
 
 // A renamed channel must not leave a stale long-wait entry behind (#322): the
@@ -20,9 +21,12 @@ describe('the long-wait channels', () => {
   const main = sources(__dirname)
     .map((f) => readFileSync(f, 'utf8'))
     .join('\n')
-  // The core registers dictation's channels itself (`registerDictationIpc`).
-  const registered = new Set([
-    ...[...main.matchAll(/ipcMain\.(?:handle|on)\(\s*'([^']+)'/g)].map((m) => m[1]),
+  // Main registers each through the shared table (`CALL.x`, 2026-10-12); the
+  // core registers dictation's channels itself (`registerDictationIpc`).
+  const registered = new Set<string>([
+    ...[...main.matchAll(/ipcMain\.(?:handle|on)\(\s*CALL\.(\w+)/g)].map(
+      (m) => CALL[m[1] as keyof typeof CALL]
+    ),
     ...Object.values(DCH)
   ])
 

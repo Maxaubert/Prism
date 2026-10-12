@@ -5,6 +5,7 @@ import { tabCrumbs } from './lib/tabCrumbs'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type ReactNode } from 'react'
 import type { OnClash, OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
+import type { MoveOnClash } from '@shared/ipcTypes'
 import type { BrowseDriveUsage } from '@shared/browse'
 import { preloadImage } from './lib/imageLoader'
 import { captureMoveViews, movedPath, releaseMoveViews, restoreMoveViews, type FileMove } from './lib/moveViews'
@@ -3058,7 +3059,7 @@ export default function App(): JSX.Element {
     (
       paths: string[],
       dest: string,
-      mode: 'ask' | 'keep-both' | 'replace',
+      mode: MoveOnClash,
       track = true
     ): Promise<Array<{ from: string; to: string }>> => {
       const operation = async (): Promise<FileMove[]> => {

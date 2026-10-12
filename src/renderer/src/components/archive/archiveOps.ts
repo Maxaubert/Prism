@@ -8,9 +8,10 @@
  * The runners here take main's calls as an argument, so a test hands them
  * fakes; `useArchiveOps` holds the questions they raise and draws them.
  */
+import type { ExtractFail } from '@shared/extraction'
 import type { UndoEntry } from '../../lib/undo'
 
-export type ArchiveFail = 'password' | 'aes' | 'failed'
+export type ArchiveFail = ExtractFail
 
 /** Main's archive calls the runners use; `window.prism` in the app. */
 export type ArchiveIpc = Pick<

@@ -1,4 +1,6 @@
 import { ipcMain } from 'electron'
+import { CALL, PUSH } from '@shared/channels'
+import type { ConvertResult } from '@shared/ipcTypes'
 import { basename, dirname, extname } from 'path'
 import { extendDesktopDirectories, insideDesktop } from '../desktopAccess'
 import { userPaths } from '../paths'
@@ -23,7 +25,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
   // Sidecar tracks for a video (same name, same folder or Subs/), and their
   // text as WebVTT. Same wall as everything else: inside the root only.
-  ipcMain.handle('subs:for', async (_e, p: string): Promise<SubTrack[]> => {
+  ipcMain.handle(CALL.subsFor, async (_e, p: string): Promise<SubTrack[]> => {
     if (!insideDesktop(p)) return []
     const tracks = await sidecarsFor(p)
     extendDesktopDirectories(
@@ -41,7 +43,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
    * readable - it can sit outside every root, and the root wall would
    * otherwise refuse the file the user just chose.
    */
-  ipcMain.handle('subs:pick', async (_e, near?: string): Promise<SubTrack | null> => {
+  ipcMain.handle(CALL.subsPick, async (_e, near?: string): Promise<SubTrack | null> => {
     const r = await openDialog({
       properties: ['openFile'],
       ...(typeof near === 'string' && (await exists(dirname(near)))
@@ -54,7 +56,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
     pickedSubs.add(p)
     return { path: p, label: basename(p) }
   })
-  ipcMain.handle('subs:read', async (_e, p: string): Promise<string | null> =>
+  ipcMain.handle(CALL.subsRead, async (_e, p: string): Promise<string | null> =>
     insideDesktop(p) || pickedSubs.has(p) ? readAsVtt(p, ffmpegTools()?.ffmpeg) : null
   )
 
@@ -72,7 +74,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
    * because the renderer's old way - fetch the file, decodeAudioData the lot
    * - took 7.4GB on a 2GB film and threw at the end of it.
    */
-  ipcMain.handle('media:peaks', async (_e, p: string): Promise<number[] | null> => {
+  ipcMain.handle(CALL.mediaPeaks, async (_e, p: string): Promise<number[] | null> => {
     if (!readable(p)) return null
     // Known already: no ffprobe, no ffmpeg, no wait.
     const known = await cachedPeaks(p)
@@ -84,7 +86,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
     if (!info?.audio || !info.duration) return null
     return loadPeaks(tools.ffmpeg, p, info.duration)
   })
-  ipcMain.handle('media:probe', async (_e, p: string): Promise<MediaProbe> => {
+  ipcMain.handle(CALL.mediaProbe, async (_e, p: string): Promise<MediaProbe> => {
     const none: MediaProbe = { ffmpeg: false, needed: false }
     if (!readable(p)) return none
     // A MIDI file is a score, not a recording: it has to be synthesised
@@ -138,7 +140,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
   // Render a score. Separate from the probe because it can take seconds:
   // the player shows that it is working rather than an error.
-  ipcMain.handle('audio:synth', async (_e, p: string): Promise<string | null> => {
+  ipcMain.handle(CALL.audioSynth, async (_e, p: string): Promise<string | null> => {
     if (!readable(p)) return null
     const fluid = await fluidTools()
     if (!fluid || !isMidi(p)) return null
@@ -155,7 +157,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
   // The blind route: the renderer watched its own decoder produce no audio
   // and knows the duration the element reported, so it can ask for the first
   // audio track without anything having probed the file.
-  ipcMain.handle('audio:blind', (_e, p: string, duration: number): string | null => {
+  ipcMain.handle(CALL.audioBlind, (_e, p: string, duration: number): string | null => {
     if (!readable(p)) return null
     if (!Number.isFinite(duration) || duration <= 0) return null
     if (!ffmpegTools()) return null
@@ -172,8 +174,8 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
    *  cancel it out from under the other (2026-08-28). */
   const converting = new Map<string, { out: string; viewers: number }>()
   ipcMain.handle(
-    'video:convert',
-    async (e, p: string): Promise<{ url?: string; error?: string }> => {
+    CALL.videoConvert,
+    async (e, p: string): Promise<ConvertResult> => {
       if (!readable(p)) return { error: 'outside the folder' }
       const tools = ffmpegTools()
       if (!tools?.ffprobe) return { error: 'no decoder available' }
@@ -187,7 +189,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
           convertDir(),
           plan,
           info?.duration ?? 0,
-          (pct) => e.sender.send('video:progress', { path: p, pct })
+          (pct) => e.sender.send(PUSH.videoProgress, { path: p, pct })
         )
         // The renderer knows the FILE it asked about, never the copy's name,
         // so cancelling has to be answerable from the source (2026-08-28).
@@ -205,7 +207,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
   )
   // Nobody is waiting for this any more: the viewer moved on to another
   // file while a whole film was being re-encoded behind it (2026-08-28).
-  ipcMain.on('video:cancel', (_e, source: string) => {
+  ipcMain.on(CALL.videoCancel, (_e, source: string) => {
     if (typeof source !== 'string') return
     const job = converting.get(source)
     if (!job) return
@@ -217,7 +219,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
   // Office and ebook documents: converted to HTML in main, sanitised there
   // too, so nobody else's markup reaches a renderer that can see window.prism.
-  ipcMain.handle('doc:html', async (_e, p: string): Promise<string | null> => {
+  ipcMain.handle(CALL.docHtml, async (_e, p: string): Promise<string | null> => {
     if (!readable(p)) return null
     return docHtmlOf(p)
   })

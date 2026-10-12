@@ -1,6 +1,7 @@
 import { fileKind } from './fileKind'
 import { extOf, isInside, pathKey as key, trimSep } from './path'
 import type { ArchiveEntry, ArchiveMeta, FileKind } from './types'
+import type { ExtractFail } from './extraction'
 
 /**
  * PLACES INSIDE AN ARCHIVE (#300; owner, 2026-10-06: "make zips seem like
@@ -149,7 +150,7 @@ export type MemberAnswer =
   | { ok: true; path: string; kind: FileKind }
   | {
       ok: false
-      reason: 'password' | 'aes' | 'failed' | 'missing' | 'deep' | 'nest-big' | 'too-big' | 'space'
+      reason: ExtractFail | 'missing' | 'deep' | 'nest-big' | 'too-big' | 'space'
       size?: number
       container?: string
     }
@@ -163,4 +164,4 @@ export type ArchiveSummary =
       top: string | null
       rows: Array<{ name: string; dir: boolean; size: number }>
     }
-  | { ok: false; reason: 'password' | 'aes' | 'failed' | 'missing' | 'deep' | 'nest-big' }
+  | { ok: false; reason: ExtractFail | 'missing' | 'deep' | 'nest-big' }

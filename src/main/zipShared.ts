@@ -5,6 +5,8 @@ import { mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, join } from 'path'
 import { exists } from './fsUtil'
+import type { ExtractFail } from '@shared/extraction'
+import type { ArchiveAddResult, ArchiveStat } from '@shared/ipcTypes'
 
 // What the zip worker (zipOps.ts) and main's own zip code (archive.ts) share
 // (owner, 2026-10-12, zip work off the main process): the types, the member
@@ -29,26 +31,10 @@ export type ArchiveEntry = {
 
 /** Why a member operation could not deliver: it wants a password (missing or
  *  wrong), the entry is AES-encrypted (adm-zip only decrypts ZipCrypto), or
- *  something else broke. */
-export type MemberFail = 'password' | 'aes' | 'failed'
-
-/** What the Properties dialog says about an archive: what it holds, how hard
- *  it squeezed, and whether it is locked. */
-export type ArchiveStat = {
-  files: number
-  folders: number
-  /** Bytes the members take once unpacked. */
-  uncompressed: number
-  encryption: 'none' | 'zipcrypto' | 'aes'
-  /** 7z, rar, tar and the rest are read through 7-Zip and never written:
-   *  the panel hides its verbs rather than offering what would fail. */
-  readOnly?: boolean
-}
-
-export type AddResult =
-  | { added: Array<{ src: string; entry: string }>; clashes: string[]; failed: string[] }
-  | 'encrypted'
-  | 'failed'
+ *  something else broke. The extraction's own reasons, by another name. */
+export type MemberFail = ExtractFail
+export type { ArchiveStat }
+export type AddResult = ArchiveAddResult
 
 export const AES_METHOD = 99
 

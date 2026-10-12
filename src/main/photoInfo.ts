@@ -1,5 +1,6 @@
 import exifr from 'exifr'
 import { heifExifBlock, isHeif } from './heifExif'
+import type { PhotoInfo } from '@shared/ipcTypes'
 
 /**
  * What the camera wrote into the photo.
@@ -21,17 +22,7 @@ import { heifExifBlock, isHeif } from './heifExif'
  * empty answer rather than a throw.
  */
 
-export interface PhotoInfo {
-  camera?: string
-  lens?: string
-  /** "1/250s f/2.8 ISO 400", already assembled: the three are read together. */
-  exposure?: string
-  taken?: string
-  colour?: string
-  /** Decimal degrees, as exifr merges them. */
-  gps?: { lat: number; lon: number }
-  dimensions?: string
-}
+export type { PhotoInfo }
 
 /** "1/250" for a fast shutter, "2.5s" for a slow one. */
 function shutter(seconds: unknown): string | null {

@@ -30,12 +30,26 @@ import { Readable } from 'stream'
 import type {
   ArchiveListing,
   DirListing,
-  FileKind,
   FileMemory,
   FileMemoryPatch,
   SearchResult,
   TextRead
 } from '@shared/types'
+import type { MemberExtractResult } from '@shared/extraction'
+import type { SubtitleTrack } from '@shared/ipcTypes'
+import {
+  ROUTE,
+  hlsPlaylistPath,
+  mediaPath,
+  type DocAnswer,
+  type Me,
+  type PairAnswer,
+  type PhoneStat,
+  type PlayAnswer,
+  type PosAnswer,
+  type TabMoved,
+  type TabsAnswer
+} from '@shared/phoneWire'
 import type { ComicOpen } from '../comic'
 import type { MediaInfo } from '../ffmpeg'
 import { decide, parseCan } from './decide'
@@ -60,11 +74,6 @@ const PAIR_WINDOW_MS = 60_000
 const PORT_TRIES = 10
 /** How often idle HLS jobs are looked for; a job is idle after 30s. */
 const REAP_MS = 10_000
-/** What `archive:extract` answers, and so what `/api/archive/extract` does:
- *  the member's temp copy and the kind Prism will show it as. */
-export type ExtractResult =
-  { ok: true; path: string; kind: FileKind } | { ok: false; reason: 'password' | 'aes' | 'failed' }
-
 export interface PhoneDeps {
   /** Where the built phone bundle lives (`out/renderer`). */
   rendererDir: string
@@ -94,7 +103,7 @@ export interface PhoneDeps {
    *  nothing else. */
   openRoots: () => readonly string[]
   /** Sidecar subtitle tracks beside a media file. */
-  subsFor: (p: string) => Promise<Array<{ path: string; label: string }>>
+  subsFor: (p: string) => Promise<SubtitleTrack[]>
   /** One sidecar as WebVTT; null when it cannot be read or converted. */
   readSubs: (p: string) => Promise<string | null>
   /** Main's cached probe: what the file holds, or null when ffprobe could
@@ -129,7 +138,7 @@ export interface PhoneDeps {
   archiveList: (p: string, password?: string) => Promise<ArchiveListing>
   /** Main's `archive:extract` body: one member to a temp file main grants
    *  its own wall; the phone's grant is this server's, beside it. */
-  archiveExtract: (p: string, entry: string, password?: string) => Promise<ExtractResult>
+  archiveExtract: (p: string, entry: string, password?: string) => Promise<MemberExtractResult>
   /** The kind gates the IPC handlers apply (`archiveReadOk`, `comicOk`):
    *  a .txt must never be handed to 7-Zip because a phone asked. */
   isArchive: (p: string) => boolean
@@ -377,10 +386,10 @@ export class PhoneServer {
       // already has a token is the one that stays.
       forget(this.state, phone.token)
       this.move(existing, phone.root, now)
-      return void json(res, 200, { token: existing.token, root: existing.root })
+      return void json(res, 200, { token: existing.token, root: existing.root } satisfies PairAnswer)
     }
     this.deps.onChange()
-    json(res, 200, { token: phone.token, root: phone.root })
+    json(res, 200, { token: phone.token, root: phone.root } satisfies PairAnswer)
   }
 
   /**
@@ -425,17 +434,17 @@ export class PhoneServer {
       // plays in `can` and `decide` is a lookup against it. The wall is
       // here, once: a job is only ever opened on a path that passed it, and
       // the job id is what the /hls routes are keyed by afterwards.
-      case 'play': {
+      case ROUTE.play: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         const info = await this.deps.probe(path)
         const plan = decide(info, extname(path), parseCan(q.get('can')))
         if (plan.mode === 'direct') {
           return void json(res, 200, {
             mode: 'direct',
-            url: `/m/${encodeURIComponent(path)}?t=${token}`,
+            url: `${mediaPath(path)}?t=${token}`,
             fps: info?.fps ?? null,
             duration: info?.duration ?? 0
-          })
+          } satisfies PlayAnswer)
         }
         if (plan.mode === 'none') return void json(res, 200, plan)
         if (!this.deps.jobs || !info) {
@@ -467,7 +476,7 @@ export class PhoneServer {
         )
         return void json(res, 200, {
           mode: 'hls',
-          url: `/hls/${id}/index.m3u8?t=${token}`,
+          url: `${hlsPlaylistPath(id)}?t=${token}`,
           copyVideo: plan.copyVideo,
           // The phone hands an audio-only playlist to its <audio> as the
           // source and a film to the video's convert path (Task 6).
@@ -484,18 +493,18 @@ export class PhoneServer {
             title: t.title
           })),
           audio: audioIndex
-        })
+        } satisfies PlayAnswer)
       }
       // `name` is the PHONE's, as the PC lists it; `folder` is the TAB's, and
       // it is named here rather than on the phone so the header and the tab
       // list cannot spell one folder two ways.
-      case 'me':
+      case ROUTE.me:
         return void json(res, 200, {
           root,
           open: this.deps.rootOpen(root),
           name: phone.name,
           folder: rootName(root)
-        })
+        } satisfies Me)
       /**
        * THE TABS THE PC HAS OPEN (2026-09-08, owner: "i should be able to
        * switch tabs without scanning a new qr code"). This WIDENS the wall
@@ -506,10 +515,10 @@ export class PhoneServer {
        * open on their own screen, which is what a paired phone may reach.
        * Read fresh on every ask, since a tab closes without telling anyone.
        */
-      case 'tabs':
+      case ROUTE.tabs:
         return void json(res, 200, {
           tabs: tabList(this.deps.openRoots(), root, this.deps.isRoot)
-        })
+        } satisfies TabsAnswer)
       /**
        * And the move itself. Walled by the OPEN SET rather than by anything
        * the phone sent: a root the PC does not hold is refused with a reason,
@@ -524,7 +533,7 @@ export class PhoneServer {
       // Where the film had got to (#118), read and written by path: a film
       // left at minute 40 on the PC opens at minute 40 on the phone, and the
       // place the phone reaches is what the PC opens at next.
-      case 'pos': {
+      case ROUTE.pos: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         if (req.method === 'POST') {
           let body: unknown
@@ -539,9 +548,12 @@ export class PhoneServer {
           this.deps.positions.set(path, patch)
           return void json(res, 200, { ok: true })
         }
-        return void json(res, 200, { t: null, ...((await this.deps.positions.get(path)) ?? {}) })
+        return void json(res, 200, {
+          t: null,
+          ...((await this.deps.positions.get(path)) ?? {})
+        } satisfies PosAnswer)
       }
-      case 'diag': {
+      case ROUTE.diag: {
         if (req.method !== 'POST') return void json(res, 405, { error: 'POST' })
         let lines: string[]
         try {
@@ -553,7 +565,7 @@ export class PhoneServer {
         for (const l of lines) this.deps.log?.(`phone "${phone.name}" ${l}`)
         return void json(res, 200, { ok: true, lines: lines.length })
       }
-      case 'tab': {
+      case ROUTE.tab: {
         if (req.method !== 'POST') return void json(res, 405, { error: 'POST' })
         let want: unknown
         try {
@@ -567,18 +579,18 @@ export class PhoneServer {
         if (!open)
           return void json(res, 403, { error: 'that folder is not open in Prism any more' })
         this.move(phone, open, this.now())
-        return void json(res, 200, { root: open, name: rootName(open) })
+        return void json(res, 200, { root: open, name: rootName(open) } satisfies TabMoved)
       }
       // The tab's whole folder, bounded, and never a path from the query:
       // what is searched is the root THIS phone paired to, so the wall is the
       // IPC handler's own (`validRoot(root, root)`, which is also the check
       // that a tab still holds it) and there is nothing else here to refuse.
-      case 'search': {
+      case ROUTE.search: {
         if (!this.deps.validRoot(root, root))
           return void json(res, 403, { error: 'outside the folder' })
         return void json(res, 200, await this.deps.search(root, q.get('q') ?? ''))
       }
-      case 'dir': {
+      case ROUTE.dir: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         return void json(res, 200, await this.deps.listDir(path))
       }
@@ -588,13 +600,13 @@ export class PhoneServer {
       // The grid's pictures (#135): walled like every path, cached by the
       // phone for a day since a key changes with the file, and 404 for a
       // file with no picture in it, which the tile draws as its icon.
-      case 'thumb': {
+      case ROUTE.thumb: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         const jpg = await this.deps.thumb(path)
         if (!jpg) return void json(res, 404, { error: 'no thumbnail' })
         return await this.sendFile(jpg, 'image/jpeg', res, 'private, max-age=86400')
       }
-      case 'stat': {
+      case ROUTE.stat: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         try {
           const st = await fsp.stat(path)
@@ -602,16 +614,16 @@ export class PhoneServer {
             size: st.size,
             mtimeMs: st.mtimeMs,
             isFolder: st.isDirectory()
-          })
+          } satisfies PhoneStat)
         } catch {
           return void json(res, 404, { error: 'no such file' })
         }
       }
-      case 'subs': {
+      case ROUTE.subs: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         return void json(res, 200, await this.deps.subsFor(path))
       }
-      case 'subs/read': {
+      case ROUTE.subsRead: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         const vtt = await this.deps.readSubs(path)
         if (vtt === null) return void json(res, 404, { error: 'no subtitles' })
@@ -625,7 +637,7 @@ export class PhoneServer {
       // A MARKDOWN grants the pictures it names to the phone that read it
       // (they may sit outside its root, as `docImages.ts` explains), and to
       // main's own wall in the same breath, since `/m/` passes through both.
-      case 'text': {
+      case ROUTE.text: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         const r = await this.deps.readText(path)
         if ('text' in r && this.deps.isMarkdown(path)) {
@@ -637,12 +649,12 @@ export class PhoneServer {
       }
       // An office or ebook document as the sanitised HTML the PC's DocView
       // renders; 404 with a reason when main could not convert it.
-      case 'doc': {
+      case ROUTE.doc: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         const html = await this.deps.docHtml(path)
         if (html === null)
           return void json(res, 404, { error: 'Prism could not convert this document' })
-        return void json(res, 200, { html })
+        return void json(res, 200, { html } satisfies DocAnswer)
       }
       // A comic book, read-only: unpacked once under userData by main, and
       // the phone granted the WHOLE directory rather than each page (a book
@@ -651,7 +663,7 @@ export class PhoneServer {
       // already allows its comics directory, so nothing is added there.
       // The kind gate is the IPC's (`comicOk`) and so is the failure shape:
       // a phone asking to open a .txt as a comic gets the same `failed`.
-      case 'comic': {
+      case ROUTE.comic: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         if (!this.deps.isComic(path)) return void json(res, 200, { error: 'failed' })
         const got = await this.deps.comicOpen(path, q.get('pw') ?? '')
@@ -664,12 +676,12 @@ export class PhoneServer {
       // and the shim has no member for them. The extracted copy is main's
       // own temp file, already in main's `extractedPaths`; the grant here is
       // the one that lets THIS phone fetch it.
-      case 'archive': {
+      case ROUTE.archive: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         if (!this.deps.isArchive(path)) return void json(res, 200, { ok: false, reason: 'failed' })
         return void json(res, 200, await this.deps.archiveList(path, q.get('pw') || undefined))
       }
-      case 'archive/extract': {
+      case ROUTE.archiveExtract: {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         const entry = q.get('entry')
         if (!entry) return void json(res, 400, { error: 'no entry' })

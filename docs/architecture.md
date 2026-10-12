@@ -278,6 +278,19 @@ Filesmith's conventions.
     state and helpers, `ready` (`ReadyCtx`) what whenReady makes. A new handler goes in its
     area's file, never back into index.ts. Push to the page with `sendToPage`, check a sender
     with `isMainSender` (`appState.ts`).
+  - IPC channel names: `src/shared/channels.ts` (`PUSH` main to page, `CALL` page to main,
+    `SWEEP_CHANNELS`). Main and the preload never spell a channel as a string;
+    `channels.test.ts` fails on a bare one and on an entry one side lacks. The terminal's,
+    dictation's and diagnostics' channels stay the core's.
+  - what the bridge answers: `src/shared/ipcTypes.ts` (`FileStat`, `PhotoInfo`, `SubtitleTrack`,
+    paste, move and archive results, progress payloads, `HostCapabilities`); the extraction
+    results (`ExtractFailure` and the per-route answers) in `src/shared/extraction.ts`. Main
+    returns them, the preload promises them, the phone shim answers them.
+  - the preload's listener and sync-ask shapes: `subscribe<T>(PUSH.x)` and `syncOr(CALL.x,
+    fallback)` in `src/preload/index.ts`.
+  - the phone's wire: `src/shared/phoneWire.ts` (`ROUTE` names, the `/pair` `/api/` `/m/` `/hls/`
+    prefixes, `PlayAnswer`, `Me`, the stat, pos and tab answers). The page's fetch helpers are
+    `phone/api.ts` (`getJson`, `getOr`, `postJson`, `postFireAndForget`).
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

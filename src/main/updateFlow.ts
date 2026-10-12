@@ -1,4 +1,5 @@
 import { app, ipcMain, dialog } from 'electron'
+import { CALL, PUSH } from '@shared/channels'
 import { hasOtherExplorerWindows } from './explorerWindow'
 import { installUpdate, updateCalls, watchForUpdates, type UpdateInfo } from './update'
 import { previewUpdate, runPreviewInstall, wantsPreview } from 'prism-term-core/main/updatePreview'
@@ -21,7 +22,7 @@ let pendingUpdate: UpdateInfo | null = null
 let updateRun: AbortController | null = null
 export function offerUpdate(info: UpdateInfo): void {
   pendingUpdate = info
-  sendToPage('update:available', info)
+  sendToPage(PUSH.updateAvailable, info)
 }
 
 /** A real or preview offer is on the table (a second launch's
@@ -62,14 +63,14 @@ export function startUpdates(preferencesOwner: string): void {
       url: process.env.PRISM_E2E_UPDATE_OFFER,
       notes: process.env.PRISM_E2E_UPDATE_NOTES ?? ''
     })
-  ipcMain.on('update:announce', (e) => {
-    if (pendingUpdate) e.sender.send('update:available', pendingUpdate)
+  ipcMain.on(CALL.updateAnnounce, (e) => {
+    if (pendingUpdate) e.sender.send(PUSH.updateAvailable, pendingUpdate)
   })
   // Installing quits the app so NSIS can replace it. A dirty buffer VETOES
   // that quit (the close flow below), so without asking first the installer
   // would run over a live exe while a save dialog waited (2026-08-28). The
   // renderer answers Cancel / Discard / Save all before the download starts.
-  ipcMain.handle('update:install', async (_e, url: string) => {
+  ipcMain.handle(CALL.updateInstall, async (_e, url: string) => {
     // WHAT IS ON OFFER decides, never what the page sent (#168): while the
     // offer is a preview there is nothing this handler will download,
     // whatever url it is handed. The fake runs the chip's progress and
@@ -84,7 +85,7 @@ export function startUpdates(preferencesOwner: string): void {
       updateRun = fake
       try {
         return await runPreviewInstall(
-          (pct) => sendToPage('update:progress', pct),
+          (pct) => sendToPage(PUSH.updateProgress, pct),
           { cancelled: () => fake.signal.aborted }
         )
       } finally {
@@ -116,7 +117,7 @@ export function startUpdates(preferencesOwner: string): void {
     updateRun = run
     const ok = await installUpdate(
       url,
-      (pct) => sendToPage('update:progress', pct),
+      (pct) => sendToPage(PUSH.updateProgress, pct),
       canInstall,
       run.signal
     ).finally(() => {
@@ -133,7 +134,7 @@ export function startUpdates(preferencesOwner: string): void {
   })
   // The update window's Cancel (#178). It names nothing: there is one
   // download at most, and the page has no say in which.
-  ipcMain.on('update:cancel', () => updateRun?.abort())
+  ipcMain.on(CALL.updateCancel, () => updateRun?.abort())
   // The e2e's updateWindow reads this (through `app.evaluate`, as it reaches
   // the indexer) after a whole preview, fake install included: release
   // checks sent and installs attempted. Both must still be 0.

@@ -1,10 +1,12 @@
 import { ipcMain } from 'electron'
+import { CALL, PUSH } from '@shared/channels'
 import { basename, join } from 'path'
 import { open as openFile, readdir, stat, statfs } from 'fs/promises'
 import { spawn } from 'child_process'
 import { insideDesktop } from '../desktopAccess'
 import { getIndexedFolderSizes } from '../everythingBrowse'
-import { photoInfo, type PhotoInfo } from '../photoInfo'
+import { photoInfo } from '../photoInfo'
+import type { FileStat, PhotoInfo } from '@shared/ipcTypes'
 import { mediaPicture, mediaProps } from '../propsMedia'
 import { detectText, TEXT_PROBE_BYTES } from '../textProps'
 import { driveModel } from '../driveModel'
@@ -25,7 +27,7 @@ export function registerPropsIpc(ctx: MainCtx): void {
    * empty object rather than throwing: a picture with no EXIF is not an
    * error.
    */
-  ipcMain.handle('image:photo-info', async (_e, p: string): Promise<PhotoInfo> => {
+  ipcMain.handle(CALL.imagePhotoInfo, async (_e, p: string): Promise<PhotoInfo> => {
     if (!readable(p)) return {}
     return photoInfo(p)
   })
@@ -34,17 +36,8 @@ export function registerPropsIpc(ctx: MainCtx): void {
   // authoritative size, straight from the file system. Root-guarded.
   // Created and Opened are the Properties window's (owner, 2026-10-12).
   ipcMain.handle(
-    'file:stat',
-    async (
-      _e,
-      p: string
-    ): Promise<{
-      size: number
-      mtimeMs: number
-      birthtimeMs: number
-      atimeMs: number
-      isFolder: boolean
-    } | null> => {
+    CALL.fileStat,
+    async (_e, p: string): Promise<FileStat | null> => {
       if (!insideDesktop(p)) return null
       try {
         const st = await stat(p)
@@ -71,16 +64,16 @@ export function registerPropsIpc(ctx: MainCtx): void {
     const tools = ffmpegTools()
     return tools?.ffprobe ? { ffmpeg: tools.ffmpeg, ffprobe: tools.ffprobe } : null
   }
-  ipcMain.handle('props:media', async (_e, p: unknown): Promise<MediaProps | null> => {
+  ipcMain.handle(CALL.propsMedia, async (_e, p: unknown): Promise<MediaProps | null> => {
     const tools = readable(p) ? mediaTools() : null
     return tools ? mediaProps(tools.ffprobe, p as string) : null
   })
   // One JPEG as a data: URL, so the picture crosses no protocol wall.
-  ipcMain.handle('props:picture', async (_e, p: unknown): Promise<string | null> => {
+  ipcMain.handle(CALL.propsPicture, async (_e, p: unknown): Promise<string | null> => {
     const tools = readable(p) ? mediaTools() : null
     return tools ? mediaPicture(tools.ffmpeg, tools.ffprobe, p as string) : null
   })
-  ipcMain.handle('props:text', async (_e, p: unknown): Promise<TextProps | null> => {
+  ipcMain.handle(CALL.propsText, async (_e, p: unknown): Promise<TextProps | null> => {
     if (!readable(p)) return null
     let handle: Awaited<ReturnType<typeof openFile>> | undefined
     try {
@@ -99,7 +92,7 @@ export function registerPropsIpc(ctx: MainCtx): void {
   // places panel lists every drive, and `browse:drives` and
   // `browse:directory` ask no grant), so only its shape is checked here.
   const DRIVE_ROOT = /^[A-Z]:\\$/i
-  ipcMain.handle('drive:details', async (_e, root: unknown): Promise<DriveDetails | null> => {
+  ipcMain.handle(CALL.driveDetails, async (_e, root: unknown): Promise<DriveDetails | null> => {
     if (typeof root !== 'string' || !DRIVE_ROOT.test(root)) return null
     const drive = root.toUpperCase()
     const space = statfs(drive).then(
@@ -134,7 +127,7 @@ export function registerPropsIpc(ctx: MainCtx): void {
     }
   })
   // Windows' own Disk Cleanup for that drive: Prism has no cleaner of its own.
-  ipcMain.handle('drive:cleanup', (_e, root: unknown): boolean => {
+  ipcMain.handle(CALL.driveCleanup, (_e, root: unknown): boolean => {
     if (typeof root !== 'string' || !DRIVE_ROOT.test(root)) return false
     try {
       const exe = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cleanmgr.exe')
@@ -152,7 +145,7 @@ export function registerPropsIpc(ctx: MainCtx): void {
   // Keyed by the asking page and its id, so one page cannot stop another's.
   const HASH_TICK = 100
   const hashes = new Map<string, AbortController>()
-  ipcMain.handle('file:hash', async (event, p: unknown, id: unknown): Promise<string | null> => {
+  ipcMain.handle(CALL.fileHash, async (event, p: unknown, id: unknown): Promise<string | null> => {
     if (!readable(p) || typeof id !== 'string' || !id || id.length > 200) return null
     const key = `${event.sender.id}:${id}`
     hashes.get(key)?.abort()
@@ -170,7 +163,7 @@ export function registerPropsIpc(ctx: MainCtx): void {
           if (now - last < HASH_TICK && done < total) return
           last = now
           if (!event.sender.isDestroyed())
-            event.sender.send('file:hash-progress', { id, done, total })
+            event.sender.send(PUSH.fileHashProgress, { id, done, total })
         },
         stop.signal
       )
@@ -179,7 +172,7 @@ export function registerPropsIpc(ctx: MainCtx): void {
       if (hashes.get(key) === stop) hashes.delete(key)
     }
   })
-  ipcMain.on('file:hash-cancel', (event, id: unknown) => {
+  ipcMain.on(CALL.fileHashCancel, (event, id: unknown) => {
     if (typeof id === 'string') hashes.get(`${event.sender.id}:${id}`)?.abort()
   })
 }

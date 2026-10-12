@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
+import { PHONE_PAIR, ROUTE, routePath, type Me, type PairAnswer } from '@shared/phoneWire'
 import { codeFromLocation, getJson, PhoneError, readToken, writeToken } from './api'
 import { Pairing } from './Pairing'
 import { Browser } from './Browser'
 import { TabList } from './TabList'
 import { switchTab } from './tabs'
-
-/** `name` is this PHONE's, as the PC lists it; `folder` is the name of the
- *  TAB it is on, which main spells so the header and the tab list agree. */
-type Me = { root: string; open: boolean; name: string; folder: string }
 
 /** The phone's own name, as the PC lists it: the device out of the UA's
  *  parenthesis ("iPhone", "iPad", "Linux; Android 14; Pixel 8"). */
@@ -36,7 +33,7 @@ export function PhoneApp(): JSX.Element {
   // the callbacks the network hands back to.
   const load = useCallback((): Promise<void> => {
     if (!readToken()) return Promise.resolve()
-    return getJson<Me>('/api/me').then(
+    return getJson<Me>(routePath(ROUTE.me)).then(
       (m) => setMe(m),
       (e: unknown) => {
         if (e instanceof PhoneError && e.status === 401) {
@@ -65,7 +62,7 @@ export function PhoneApp(): JSX.Element {
 
   const pair = useCallback(
     (code: string): Promise<void> =>
-      fetch('/pair', {
+      fetch(PHONE_PAIR, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         // The current token rides along: an already-paired phone scanning
@@ -79,7 +76,7 @@ export function PhoneApp(): JSX.Element {
             setError(j.error ?? 'Could not pair')
             return
           }
-          const j = (await r.json()) as { token: string }
+          const j = (await r.json()) as PairAnswer
           setError(null)
           writeToken(j.token)
           setToken(j.token)
