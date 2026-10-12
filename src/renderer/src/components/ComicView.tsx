@@ -11,6 +11,7 @@ import { baseName } from '@shared/path'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 import { preloadImage } from '../lib/imageLoader'
 import { createChromeActivityClock } from '../lib/autoHideChrome'
+import { isTypingTarget } from '../lib/focusGuards'
 
 /**
  * A comic book (2026-08-31).
@@ -111,7 +112,7 @@ export function ComicView({
     const onKey = (e: KeyboardEvent): void => {
       const el = document.activeElement as HTMLElement | null
       // The search box, a rename and the shell keep their own arrows.
-      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
+      if (isTypingTarget(el)) return
       if (el?.closest('.xterm,[role="separator"]')) return
       // Ctrl+arrow is the FOLDER's, deliberately: it is how you reach the
       // next book. App handles that one; this only claims the plain arrows,

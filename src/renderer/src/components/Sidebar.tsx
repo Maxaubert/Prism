@@ -46,6 +46,7 @@ import { clipboardText } from '../lib/clipboardText'
 import { nearestRow, onRowOwnPart, rowsInBox, sweepBase, sweepSelect } from '../lib/marquee'
 import { useSweep } from '../hooks/useSweep'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
+import { EDITOR, FIELD, OVERLAY, inField, isTypingTarget } from '../lib/focusGuards'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
 // first time a folder is opened and are cached after that; main refuses anything
@@ -972,7 +973,7 @@ export function Sidebar({
       if (!e.ctrlKey || e.shiftKey || e.altKey || (e.key !== 'a' && e.key !== 'A')) return
       if (!hasFocus.current || !order.length) return
       const el = e.target as HTMLElement | null
-      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
+      if (isTypingTarget(el)) return
       if (el?.closest('.xterm,.browse-list')) return
       e.preventDefault()
       setSel({ anchor: order[0], items: new Set(order) })
@@ -1174,8 +1175,7 @@ export function Sidebar({
         !!a &&
         a !== document.body &&
         a.dataset.row === undefined &&
-        (a.matches('input,textarea,select,[contenteditable]:not([contenteditable="false"])') ||
-          !!a.closest('.cm-editor,.xterm,[role="dialog"],[role="menu"]'))
+        (a.matches(FIELD) || !!a.closest(`${EDITOR},${OVERLAY}`))
       if (e.key === 'Delete' && !e.ctrlKey) {
         // Delete on the cursor row from anywhere in the panel's reach. The
         // row button handles its own when it is focused; this is for when
@@ -1589,7 +1589,7 @@ export function Sidebar({
           panel.current?.querySelector<HTMLInputElement>('input')?.focus()
           return
         }
-        if (target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) return
+        if (inField(target)) return
         // The common keys (#330), from the rows only.
         if (scroller.current?.contains(target) && onTreeKey(event)) {
           event.preventDefault()

@@ -8,6 +8,7 @@ import { PdfPage } from './PdfPage'
 import { type PdfLink } from '../../lib/pdfLinks'
 import { baseZoom, zoomPercent } from '../../lib/pdfZoom'
 import { PdfFindBar } from './PdfFindBar'
+import { EDITOR, NAV_SURFACE, OVERLAY, isFormField } from '../../lib/focusGuards'
 import '../../assets/pdf.css'
 
 // Prism's own PDF viewer: pdf.js pages in a continuous scroll, the app's chrome
@@ -609,9 +610,9 @@ export function PdfView({
       // window-level listener doesn't know that unless it looks.
       if (scroller.current?.closest('[inert]')) return
       const el = e.target as HTMLElement | null
-      const typing = !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
+      const typing = isFormField(el)
       if ((e.key === 'f' || e.key === 'F') && e.ctrlKey) {
-        if (e.defaultPrevented || el?.closest('[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"],.xterm,.cm-editor,[role="dialog"],[role="menu"]')) return
+        if (e.defaultPrevented || el?.closest(`${NAV_SURFACE},${EDITOR},${OVERLAY}`)) return
         if (typing && !scroller.current?.contains(el)) return
         e.preventDefault()
         setFindOpen(true)

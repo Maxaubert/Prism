@@ -221,6 +221,10 @@ Filesmith's conventions.
     `theme.ts` and `vizStore.ts` keep their own stores.
   - a module value components follow: `src/renderer/src/lib/store.ts` (`createStore`; jobs,
     extraction, the cut mark).
+  - "is the user typing, or is the key somebody else's": `src/renderer/src/lib/focusGuards.ts`
+    (`isTypingTarget`, `isFormField`, `isTextBox`, and the `FIELD` / `EDITOR` / `OVERLAY` /
+    `NAV_SURFACE` selectors a key handler joins). The lists are pinned by `focusGuards.test.ts`.
+  - a document viewer's Ctrl+F (who owns it in split view): `src/renderer/src/lib/useFindShortcut.ts`.
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

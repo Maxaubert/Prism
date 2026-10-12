@@ -74,6 +74,7 @@ import {
 } from 'prism-term-core/renderer/lib/termActivity'
 import { onCwd } from 'prism-term-core/renderer/lib/termBus'
 import { ancestorChain } from './lib/fileTree'
+import { isTypingTarget } from './lib/focusGuards'
 import { decideFollow } from 'prism-term-core/shared/termCwd'
 import { humanFor, workingFor } from 'prism-term-core/renderer/lib/agentClock'
 import CopiedBadge from 'prism-term-core/renderer/components/CopiedBadge'
@@ -3508,7 +3509,7 @@ export default function App(): JSX.Element {
       // closed the tab under the popup, where from the search field it does
       // nothing. Ctrl+Z (a file move undone behind a scrim), Ctrl+T and the
       // vertical keys are behind the same shield for the same reason.
-      const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)
+      const typing = isTypingTarget(el)
       // A focused terminal is typing too (xterm's hidden textarea), but the
       // tab-management hotkeys (Ctrl+T/W/Tab/digits) and Ctrl+B (sidebar)
       // still belong to Prism there, by request - which does cost the shell

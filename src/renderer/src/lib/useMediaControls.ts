@@ -5,6 +5,7 @@ import { applyVolume, idleAudioContext, wakeAudioContext } from './audio'
 import { setTabRate, setTabVolume, tabRate, tabVolume } from './tabVolume'
 import { forgetPlayer, reportPlaying } from './awake'
 import { readStored } from './storage'
+import { isFormField } from './focusGuards'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
 // binds the media element's events + the keyboard. Video and audio use the same
@@ -273,7 +274,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
       // Never swallow keys meant for a text field: space would toggle playback
       // instead of typing a space, and the letter shortcuts would fire too.
       const el = e.target as HTMLElement | null
-      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return
+      if (isFormField(el)) return
       if (e.defaultPrevented) return // the app claimed this key (folder paging)
       const act = (): void => onActivity?.()
       switch (e.key) {
