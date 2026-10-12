@@ -46,6 +46,7 @@ import { diagLines } from './diag'
 import { memoryPatch } from './memory'
 import { parseRoute, tokenOf, type Route } from './routes'
 import { rootName, tabList } from './tabs'
+import { HLS_MIME, assetMime } from '../mime'
 
 export const DEFAULT_PORT = 47320
 /** A phone counts as watching for this long after its last fetch. */
@@ -59,15 +60,6 @@ const PAIR_WINDOW_MS = 60_000
 const PORT_TRIES = 10
 /** How often idle HLS jobs are looked for; a job is idle after 30s. */
 const REAP_MS = 10_000
-/** What the phone plays from a job directory, by file: the playlist Prism
- *  wrote, ffmpeg's init segment and its media segments. Nothing else there
- *  has a type because nothing else there is served. */
-const HLS_MIME: Record<string, string> = {
-  '.m3u8': 'application/vnd.apple.mpegurl',
-  '.mp4': 'video/mp4',
-  '.m4s': 'video/iso.segment'
-}
-
 /** What `archive:extract` answers, and so what `/api/archive/extract` does:
  *  the member's temp copy and the kind Prism will show it as. */
 export type ExtractResult =
@@ -161,22 +153,6 @@ export interface PhoneDeps {
   }
   loopbackOnly: boolean
   now?: () => number
-}
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  // pdf.js's worker is an ES module file (#106): without this a module
-  // worker gets application/octet-stream and the browser refuses it.
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.wasm': 'application/wasm',
-  '.json': 'application/json',
-  '.bcmap': 'application/octet-stream'
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -833,7 +809,7 @@ export class PhoneServer {
     }
     if (!st.isFile()) return void json(res, 404, { error: 'not found' })
     res.writeHead(200, {
-      'content-type': MIME[extname(full).toLowerCase()] ?? 'application/octet-stream',
+      'content-type': assetMime(full),
       'content-length': String(st.size),
       // Vite hashes its asset names, so those can be cached forever; the page
       // itself is re-validated so a new build shows up on the next open.
