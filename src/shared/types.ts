@@ -286,14 +286,6 @@ export type FileMemoryPatch = {
   fit?: string | null
 }
 
-/** A shell main detected on this machine; the only things term:spawn launches. */
-export interface ShellDef {
-  id: string
-  name: string
-  exe: string
-  args: string[]
-}
-
 /** What main knows about a media file, and whether Prism must decode its
  *  audio itself. Chromium ships no AC-3/E-AC-3/DTS/TrueHD decoder and no
  *  demuxer for ASF or raw AC-3, so those play as silence unless the sidecar

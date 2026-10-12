@@ -249,10 +249,6 @@ export const setWidth = (w: string): void => {
   localStorage.setItem(K.width, w)
   apply({ width: w })
 }
-export const setLogo = (b: boolean): void => {
-  localStorage.setItem(K.logo, b ? '1' : '0')
-  apply({ logo: b })
-}
 export const setDrop = (n: number): void => {
   localStorage.setItem(K.drop, String(n))
   apply({ drop: n })
@@ -285,8 +281,6 @@ export const setBarMove = (b: boolean): void => {
   localStorage.setItem(K.barMove, b ? '1' : '0')
   apply({ barMove: b })
 }
-/** Bump the preview counter so a drop effect plays once, right now. */
-export const firePreview = (): void => apply({ preview: state.preview + 1 })
 
 export function applyPreset(p: Preset): void {
   localStorage.setItem(K.style, p.style)

@@ -138,7 +138,3 @@ export async function loadPeaks(ffmpeg: string, file: string, duration: number):
 export async function cachedPeaks(file: string): Promise<number[] | null> {
   return cache.get(await key(file)) ?? null
 }
-
-export function clearPeaksCache(): void {
-  cache.clear()
-}

@@ -291,22 +291,3 @@ export function makeBands(
     }
   }
 }
-
-/** Same, but using absolute perceptual shaping rather than per-band gain. Better
- *  when you want an honest spectrum shape (loud bass really is bigger). */
-export function makeShapedBands(
-  n: number,
-  fMax = 16000
-): { values: Float32Array; update: (d: AudioFrame, o: VizOpts, rate?: number) => void } {
-  const ranges = bandRanges(n, 30, fMax)
-  const values = new Float32Array(n)
-  return {
-    values,
-    update(d, o, rate = 0.18) {
-      for (let i = 0; i < n; i++) {
-        const target = shape(bandValue(d.freq, ranges[i]), i, n, o)
-        values[i] += (target - values[i]) * rate
-      }
-    }
-  }
-}

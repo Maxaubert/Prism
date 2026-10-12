@@ -190,8 +190,8 @@ checks in the PR. A hands-on branch build must use a separate profile and must n
 installed Prism or close active user terminals. This document makes no installation claim.
 
 Package the follow-up trial with `npm run package -- --config.directories.output=dist/folder-size-trial`.
-Then `tools/preview-branch.ps1` opens `dist/folder-size-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/folder-size-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Then open `dist/folder-size-trial/win-unpacked/Prism.exe --preview --user-data-dir=<repo>\.e2e\folder-size-profile`
+(a separate profile). The `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.

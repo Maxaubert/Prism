@@ -599,7 +599,7 @@ export function VideoView({
       )}
 
       {/* The auto-hiding control overlay. MOUNTED and UNMOUNTED rather than
-          faded in place: see prism-chrome-in in index.css - a layer that goes
+          faded in place: see p-chrome-in in index.css - a layer that goes
           to opacity 0 inside a fullscreen element and comes back is composited
           once and never repainted, so the controls were painted at the right
           place and never appeared. */}
@@ -625,7 +625,7 @@ export function VideoView({
           // z-10 and a layer of its own, so nothing can order the picture over
           // the top of it.
           style={{
-            animation: 'prism-chrome-in 180ms ease-out',
+            animation: 'p-chrome-in 180ms ease-out',
             ...(bandPct > 0
               ? { background: `color-mix(in srgb, var(--p-title) ${bandPct}%, transparent)` }
               : {}),
