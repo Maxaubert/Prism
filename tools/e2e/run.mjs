@@ -11211,6 +11211,8 @@ async function downloadsDateScenario(fixtures) {
       rows: [...document.querySelectorAll(`${sel} [data-selected]`)].map((r) => (r.getAttribute('data-browse-path') ?? '').split(/[\\/]/).pop()),
       dividers: document.querySelectorAll(`${sel} .browse-divider[data-selected]`).length
     }), list)
+    // The row type-ahead selected is under a divider, not touching the
+    // sweep, so it does not join (owner, 2026-10-12, `sweepBase`).
     ok(
       marked.dividers === 0 && marked.rows.join('|') === order.slice(0, 4).join('|'),
       `a sweep over a divider marks the four rows and nothing else (${JSON.stringify(marked)})`

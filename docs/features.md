@@ -539,7 +539,8 @@ changing a feature: each entry records what the owner decided, why, and what hol
   **A CLICK THEN A SWEEP IS ONE BLOCK** (owner, 2026-10-12: "I clicked to select one file then I
   drag selected the ones over it and ... the first file is selected but disconnected from the
   rest, they should all be connected"; asked, chose that it joins). A plain sweep keeps the one
-  row just clicked (the whole selection, or in the tree with none the lit open file), so it
+  row just clicked (the whole selection, or in the tree with none the lit open file) when it
+  TOUCHES the swept rows (beside or inside them; one far away is dropped, as in Windows), so it
   joins the swept rows, shares their square edges and the verbs act on all of it; marks a sweep
   made are not a click, so a second plain sweep still replaces them, and Ctrl still adds
   (`lib/marquee.ts` `sweepBase`, unit tested; `marquee` and `marqueeQuiet` e2e).

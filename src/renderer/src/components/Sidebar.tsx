@@ -859,7 +859,7 @@ export function Sidebar({
       const { base, add, clicked } = sweepFrom.current
       setSel({
         anchor: base.anchor ?? paths[0] ?? null,
-        items: sweepSelect(sweepBase(add, base.items, clicked), paths)
+        items: sweepSelect(sweepBase(add, base.items, clicked, paths, order), paths)
       })
     },
     onEnd: (_paths, near) => {
