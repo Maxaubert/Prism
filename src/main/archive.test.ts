@@ -3,7 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { addToArchive, deleteMember, extractMember, extractTo, hasEncrypted, listArchive, moveMembers, renameMember, sevenZipExe, validMemberName } from './archive'
+import { extractTo } from './archive'
+import { listArchive } from './zipOps'
+
+// What stays on main: extracting members OUT, read with fs/promises and
+// inflated on the libuv pool (#166). The worker's verbs are in zipOps.test.ts,
+// the client in zipClient.test.ts.
 
 let zipPath: string
 
@@ -16,170 +21,7 @@ beforeEach(() => {
   zip.writeZip(zipPath)
 })
 
-describe('listArchive', () => {
-  it('lists files with sizes and derives the folders their paths imply', () => {
-    const entries = listArchive(zipPath)
-    const byPath = new Map(entries.map((e) => [e.path, e]))
-    expect(byPath.get('readme.txt')).toMatchObject({ dir: false, size: 5 })
-    expect(byPath.get('docs/guide.md')).toMatchObject({ dir: false, name: 'guide.md' })
-    // No folder records were written; both parents still appear.
-    expect(byPath.get('docs')).toMatchObject({ dir: true })
-    expect(byPath.get('docs/img')).toMatchObject({ dir: true })
-  })
-})
-
-describe('extractMember', () => {
-  it('writes the member to temp under its own name', async () => {
-    const r = await extractMember(zipPath, 'docs/guide.md')
-    if (!r.ok) throw new Error('expected ok')
-    expect(r.path).toMatch(/guide\.md$/)
-    expect(readFileSync(r.path, 'utf8')).toBe('# guide')
-  })
-  it('refuses folders and unknown members', async () => {
-    expect(await extractMember(zipPath, 'docs')).toEqual({ ok: false, reason: 'failed' })
-    expect(await extractMember(zipPath, 'nope.txt')).toEqual({ ok: false, reason: 'failed' })
-  })
-})
-
-describe('password-protected archives', () => {
-  // Authored with 7-Zip: crypto.zip is classic ZipCrypto (password letmein),
-  // aes.zip is AES-256 - adm-zip can only decrypt the former.
-  const crypto = join(__dirname, 'fixtures', 'crypto.zip')
-  const aes = join(__dirname, 'fixtures', 'aes.zip')
-
-  it('lists encrypted members with the flag', () => {
-    const [e] = listArchive(crypto)
-    expect(e.name).toBe('secret.txt')
-    expect(e.encrypted).toBe(true)
-  })
-  it('asks for a password, refuses a wrong one, opens with the right one', async () => {
-    expect(await extractMember(crypto, 'secret.txt')).toEqual({ ok: false, reason: 'password' })
-    expect(await extractMember(crypto, 'secret.txt', 'nope')).toEqual({ ok: false, reason: 'password' })
-    const r = await extractMember(crypto, 'secret.txt', 'letmein')
-    if (!r.ok) throw new Error('expected ok')
-    expect(readFileSync(r.path, 'utf8')).toBe('top secret')
-  })
-  it('opens AES through the system 7-Zip, or names it honestly without one', async () => {
-    // The password question comes first either way.
-    expect(await extractMember(aes, 'secret.txt')).toEqual({ ok: false, reason: 'password' })
-    if (sevenZipExe()) {
-      expect(await extractMember(aes, 'secret.txt', 'nope')).toEqual({ ok: false, reason: 'password' })
-      const r = await extractMember(aes, 'secret.txt', 'letmein')
-      if (!r.ok) throw new Error('expected ok via 7z, got ' + r.reason)
-      expect(readFileSync(r.path, 'utf8')).toBe('top secret')
-    } else {
-      expect(await extractMember(aes, 'secret.txt', 'letmein')).toEqual({ ok: false, reason: 'aes' })
-    }
-  })
-})
-
-describe('renameMember', () => {
-  it('renames within the same folder and keeps the data', async () => {
-    expect(await renameMember(zipPath, 'docs/guide.md', 'manual.md')).toBe('ok')
-    const entries = listArchive(zipPath).map((e) => e.path)
-    expect(entries).toContain('docs/manual.md')
-    expect(entries).not.toContain('docs/guide.md')
-    expect((await extractMember(zipPath, 'docs/manual.md')).ok).toBe(true)
-  })
-  it('refuses a taken name rather than overwriting', async () => {
-    expect(await renameMember(zipPath, 'readme.txt', 'readme.txt')).toBe('ok') // no-op
-    const zip = new AdmZip(zipPath)
-    zip.addFile('docs/manual.md', Buffer.from('x'))
-    zip.writeZip(zipPath)
-    expect(await renameMember(zipPath, 'docs/guide.md', 'manual.md')).toBe('failed')
-  })
-  it('refuses names that would escape or break the archive', async () => {
-    for (const bad of ['../up.md', 'a/b.md', 'a\\b.md', '', 'x?.md']) {
-      expect(await renameMember(zipPath, 'docs/guide.md', bad)).toBe('failed')
-    }
-  })
-  it('needs the password to rewrite an encrypted member', async () => {
-    // Rename rewrites the container, which stores the member decrypted; a
-    // copy is made first so the shared fixture is never mutated.
-    const copy = join(mkdtempSync(join(tmpdir(), 'prism-crypto-')), 'c.zip')
-    writeFileSync(copy, readFileSync(join(__dirname, 'fixtures', 'crypto.zip')))
-    expect(await renameMember(copy, 'secret.txt', 'renamed.txt')).toBe('password')
-    expect(await renameMember(copy, 'secret.txt', 'renamed.txt', 'letmein')).toBe('ok')
-    expect(listArchive(copy).map((e) => e.path)).toContain('renamed.txt')
-  })
-})
-
-describe('deleteMember', () => {
-  it('removes the member for good', () => {
-    expect(deleteMember(zipPath, 'readme.txt')).toBe(true)
-    expect(listArchive(zipPath).map((e) => e.path)).not.toContain('readme.txt')
-  })
-  it('takes a folder and its whole subtree', () => {
-    expect(deleteMember(zipPath, 'docs')).toBe(true)
-    expect(listArchive(zipPath).map((e) => e.path)).toEqual(['readme.txt'])
-  })
-
-  it('says no when there is nothing under that name', () => {
-    expect(deleteMember(zipPath, 'nope')).toBe(false)
-  })
-})
-
-describe('validMemberName', () => {
-  it('accepts plain filenames and refuses separators and reserved characters', () => {
-    expect(validMemberName('photo (2).jpg')).toBe(true)
-    for (const bad of ['a/b', 'a\\b', 'a:b', '..', '.', '', 'a*b', 'a|b']) {
-      expect(validMemberName(bad)).toBe(false)
-    }
-  })
-})
-
-describe('drag and drop (#70)', () => {
-  it('adds real files and whole folders into the zip, under a folder', async () => {
-    const src = mkdtempSync(join(tmpdir(), 'prism-add-'))
-    writeFileSync(join(src, 'new.txt'), 'fresh')
-    const r = await addToArchive(zipPath, [join(src, 'new.txt')], 'docs')
-    if (r === 'encrypted' || r === 'failed') throw new Error('expected a result')
-    expect(r.added.map((a) => a.entry)).toEqual(['docs/new.txt'])
-    expect(r.clashes).toEqual([])
-    expect(listArchive(zipPath).map((e) => e.path)).toContain('docs/new.txt')
-    const back = await extractMember(zipPath, 'docs/new.txt')
-    if (!back.ok) throw new Error('expected ok')
-    expect(readFileSync(back.path, 'utf8')).toBe('fresh')
-  })
-
-  it('reports a taken name and writes nothing, unless told to keep both', async () => {
-    const src = mkdtempSync(join(tmpdir(), 'prism-add2-'))
-    writeFileSync(join(src, 'readme.txt'), 'other')
-    expect(await addToArchive(zipPath, [join(src, 'readme.txt')], '')).toMatchObject({
-      added: [],
-      clashes: ['readme.txt']
-    })
-    expect(await extractMemberText(zipPath, 'readme.txt')).toBe('hello')
-    const kept = await addToArchive(zipPath, [join(src, 'readme.txt')], '', true)
-    if (kept === 'encrypted' || kept === 'failed') throw new Error('expected a result')
-    expect(kept.added.map((a) => a.entry)).toEqual(['readme (2).txt'])
-    expect(listArchive(zipPath).map((e) => e.path)).toContain('readme (2).txt')
-  })
-
-  it('reports a source that is not there as failed, and adds the rest', async () => {
-    const src = mkdtempSync(join(tmpdir(), 'prism-add3-'))
-    writeFileSync(join(src, 'here.txt'), 'here')
-    const r = await addToArchive(zipPath, [join(src, 'gone.txt'), join(src, 'here.txt')], '')
-    if (r === 'encrypted' || r === 'failed') throw new Error('expected a result')
-    expect(r.failed).toEqual([join(src, 'gone.txt')])
-    expect(r.added.map((a) => a.entry)).toEqual(['here.txt'])
-    expect(deleteMember(zipPath, 'here.txt')).toBe(true)
-  })
-
-  it('moves a member into another folder inside the zip', () => {
-    expect(moveMembers(zipPath, ['readme.txt'], 'docs')).toBe('ok')
-    const paths = listArchive(zipPath).map((e) => e.path)
-    expect(paths).toContain('docs/readme.txt')
-    expect(paths).not.toContain('readme.txt')
-  })
-
-  it('moves a folder whole, keeping its shape', () => {
-    expect(moveMembers(zipPath, ['docs/img'], '')).toBe('ok')
-    const paths = listArchive(zipPath).map((e) => e.path)
-    expect(paths).toContain('img/logo.png')
-    expect(paths).not.toContain('docs/img/logo.png')
-  })
-
+describe('extracting out (#70)', () => {
   it('extracts members out to a real folder, keeping the shape under a folder', async () => {
     const out = mkdtempSync(join(tmpdir(), 'prism-out-'))
     const r = await extractTo(zipPath, ['docs'], out)
@@ -204,23 +46,6 @@ describe('drag and drop (#70)', () => {
     expect(existsSync(join(out, 'docs', 'img', 'logo.png'))).toBe(true)
   })
 
-  it('carries the packed size and the time of each member, for the columns', () => {
-    const one = listArchive(zipPath).find((e) => e.path === 'readme.txt')!
-    expect(one.packed).toBeGreaterThan(0)
-    expect(one.mtime).toBeGreaterThan(Date.parse('2020-01-01'))
-  })
-
-  it('refuses to rebuild a password-protected archive', async () => {
-    const crypto = join(__dirname, 'fixtures', 'crypto.zip')
-    const copy = join(mkdtempSync(join(tmpdir(), 'prism-enc-')), 'c.zip')
-    writeFileSync(copy, readFileSync(crypto))
-    const src = mkdtempSync(join(tmpdir(), 'prism-enc-src-'))
-    writeFileSync(join(src, 'x.txt'), 'x')
-    expect(hasEncrypted(copy)).toBe(true)
-    expect(await addToArchive(copy, [join(src, 'x.txt')], '')).toBe('encrypted')
-    expect(moveMembers(copy, ['secret.txt'], 'sub')).toBe('encrypted')
-  })
-
   it('needs the password to extract an encrypted member out', async () => {
     const crypto = join(__dirname, 'fixtures', 'crypto.zip')
     const out = mkdtempSync(join(tmpdir(), 'prism-out2-'))
@@ -229,12 +54,6 @@ describe('drag and drop (#70)', () => {
     expect(readFileSync(join(out, 'secret.txt'), 'utf8')).toBe('top secret')
   })
 })
-
-/** Small helper: a member's text, for the clash assertions above. */
-async function extractMemberText(zip: string, entry: string): Promise<string> {
-  const r = await extractMember(zip, entry)
-  return r.ok ? readFileSync(r.path, 'utf8') : ''
-}
 
 describe('zip slip', () => {
   it('drops members whose name would land outside the destination', async () => {

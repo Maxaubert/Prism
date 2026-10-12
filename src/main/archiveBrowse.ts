@@ -16,7 +16,13 @@ import {
 import { withImpliedFolders } from '@shared/archiveTree'
 import { fileKind, isViewable } from '@shared/fileKind'
 import { matchesQuery, parseQuery } from '@shared/searchQuery'
-import { archiveTooLarge, listZipData, unpackMember, type MemberFail } from './archive'
+import {
+  archiveTooLarge,
+  editsSettled,
+  listZipData,
+  unpackMember,
+  type MemberFail
+} from './archive'
 import { extractSeven, listSeven } from './sevenZip'
 import { AUTO_PREVIEW_BYTES, type MemberTemp } from './memberTemp'
 
@@ -196,6 +202,9 @@ export function createArchiveBrowse(deps: ArchiveBrowseDeps) {
   ): Promise<{ ok: true; parsed: Parsed } | { ok: false; reason: MemberFail }> {
     let info: { size: number; mtimeMs: number }
     try {
+      // An edit of this zip still being written in the zip worker would be
+      // read half done (owner, 2026-10-12, zip work off main).
+      await editsSettled(real)
       info = await stat(real)
     } catch {
       return { ok: false, reason: 'failed' }
