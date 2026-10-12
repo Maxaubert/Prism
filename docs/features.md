@@ -2539,7 +2539,9 @@ changing a feature: each entry records what the owner decided, why, and what hol
   scrolling (no Free row, the centre says it), a tooltip off the pointer's bottom right with the
   slice's dot, a slice or row opens the folder; the disk's own model with underscores as spaces
   ("WD BLACK SN850X 8000GB"), connection and file system; Disk Cleanup (Windows' `cleanmgr`),
-  Open, Close. A FOLDER: size, contents, Created, Modified, Opened; Close only. A PHOTO: the
+  Close (no Open: "remove the open button. that should never be in properties", same day; the
+  legend's last row fades while rows remain below: "make the last list item fade out instead of
+  being cut"). A FOLDER: size, contents, Created, Modified, Opened; Close only. A PHOTO: the
   picture on top, megapixels, camera, lens, exposure, place (no map button). A VIDEO: a frame on
   top, resolution, frame rate, codec, bitrate, audio tracks, subtitles. A SONG: its cover, or
   sound bars when it has none ("none of these ... have a default note or something similar",

@@ -60,6 +60,10 @@
   overflow-x: hidden;
   overflow-y: auto;
 }
+/* Rows below: the bottom one fades into the dialog instead of being cut. */
+.donut-legend[data-more] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent);
+}
 .donut-legend ul {
   list-style: none;
   margin: 0;
