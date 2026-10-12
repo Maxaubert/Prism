@@ -11516,6 +11516,71 @@ async function columnHeadersScenario(fixtures) {
  * pressed preview button and a searching search button were the accent and
  * only an Explorer tab had an icon, a folder in the folder colour.
  */
+/**
+ * A PRESSED TOGGLE FILLS ITS GLYPH, NEVER THE ACCENT (owner, 2026-10-12: "instead
+ * of having ui buttons turn blue or accent colored when theyre active have them
+ * be filled in like the preview button"). The panel toggle, Settings and the
+ * terminal button wear the same grey pressed as not, and their drawing says
+ * which (`data-toggle-glyph`). Fails on main, where each turned the accent.
+ */
+async function pressedTogglesScenario(fixtures) {
+  console.log('pressed toggles')
+  const dir = join(fixtures, 'toggles')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'one.txt'), 'toggles\n')
+  const { app, win } = await launch(join(dir, 'one.txt'))
+  const read = (sel) =>
+    win.evaluate((sel) => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--p-accent-hi)'
+      document.body.append(probe)
+      const accent = getComputedStyle(probe).color
+      probe.remove()
+      const b = document.querySelector(sel)
+      const g = b?.querySelector('[data-toggle-glyph]')
+      return b
+        ? {
+            accent,
+            pressed: b.getAttribute('aria-pressed'),
+            glyph: g?.getAttribute('data-toggle-glyph') ?? null,
+            color: getComputedStyle(b).color
+          }
+        : null
+    }, sel)
+  const rest = async () => {
+    await win.mouse.move(600, 400)
+    await sleep(300)
+  }
+  const check = async (sel, what) => {
+    await rest()
+    const a = await read(sel)
+    ok(!!a, `${what}: the button is there`)
+    if (!a) return
+    await win.click(sel)
+    await sleep(600)
+    await rest()
+    const b = await read(sel)
+    ok(!!b && b.pressed !== a.pressed, `${what}: a click flips aria-pressed (${a.pressed} -> ${b?.pressed})`)
+    const on = [a, b].find((x) => x?.pressed === 'true')
+    const off = [a, b].find((x) => x?.pressed === 'false')
+    ok(on?.glyph === 'on' && off?.glyph === 'off', `${what}: the glyph is filled pressed, lines not (${on?.glyph} / ${off?.glyph})`)
+    ok(on?.color === off?.color, `${what}: the same grey pressed as not (${on?.color} / ${off?.color})`)
+    ok(on?.color !== on?.accent, `${what}: never the accent (${on?.color}, accent ${on?.accent})`)
+    await win.click(sel)
+    await sleep(600)
+  }
+  try {
+    await win.waitForSelector('[data-panel-toggle]', { timeout: 45000 })
+    await sleep(700)
+    await check('[data-panel-toggle]', 'panel toggle')
+    await check('aside [aria-label="Terminal"]', 'terminal button')
+    await check('button[aria-label="Settings"][aria-pressed]', 'Settings')
+  } finally {
+    await app.close()
+  }
+}
+
 async function toolbarIconsScenario(fixtures) {
   console.log('toolbar icons')
   const dir = join(fixtures, 'tbicons')
@@ -18879,6 +18944,7 @@ await run(rememberFoldersScenario)
 await run(listScrollbarScenario)
 await run(addressFieldScenario)
 await run(toolbarIconsScenario)
+await run(pressedTogglesScenario)
 await run(explorerVerbsScenario)
 await run(propertiesWindowScenario)
 await run(searchPopupScenario)
