@@ -1,4 +1,4 @@
-import { realpathSync, watch, type FSWatcher } from 'fs'
+import { realpath, watch, type FSWatcher } from 'fs'
 import type { DirChange } from '@shared/types'
 
 interface BrowseWatch {
@@ -10,6 +10,17 @@ interface BrowseWatch {
 
 const watches = new Map<string, BrowseWatch>()
 
+/** Each tab's newest watch ask (a global sequence, so a closed tab's stale ask
+ *  never matches a fresh one): an ask still waiting on its native path must
+ *  not land over a newer ask or a close. */
+const turns = new Map<string, number>()
+let turnSeq = 0
+
+/** fs/promises has no realpath.native; the callback one is off main too. */
+function nativeRealpath(path: string): Promise<string> {
+  return new Promise((done, fail) => realpath.native(path, (err, out) => (err ? fail(err) : done(out))))
+}
+
 /** The tab's watcher, compared before and after a `browse:watch` call so its
  *  crumb is written only when a watcher was actually set up (#322). */
 export function browseWatcherOf(tabId: string): FSWatcher | undefined {
@@ -17,6 +28,7 @@ export function browseWatcherOf(tabId: string): FSWatcher | undefined {
 }
 
 export function closeBrowseWatch(tabId: string): void {
+  turns.delete(tabId)
   const current = watches.get(tabId)
   if (!current) return
   watches.delete(tabId)
@@ -26,22 +38,29 @@ export function closeBrowseWatch(tabId: string): void {
 
 /** Call only after checking the tab owns this exact directory. Watching a
  * drive root is deliberately nonrecursive, and nothing filters hidden files. */
-export function setBrowseWatch(
+export async function setBrowseWatch(
   tabId: string,
   path: string,
   emit: (change: DirChange) => void,
   /** A place inside an archive (#300): watch the container's folder, hear
    *  only the container file (`only`, its name), and report the place. */
   inside?: { only: string; report: string }
-): boolean {
+): Promise<boolean> {
   const key = inside ? `${path}\0${inside.report}` : path
-  if (watches.get(tabId)?.path === key) return true
+  if (watches.get(tabId)?.path === key) {
+    turns.set(tabId, ++turnSeq) // this ask is the newest; an older one waiting stands down
+    return true
+  }
   closeBrowseWatch(tabId)
+  const turn = ++turnSeq
+  turns.set(tabId, turn)
   try {
     // libuv's Windows watcher compares native long paths internally; passing
     // an 8.3 alias can trip its directory-prefix assertion on a file event.
-    // Keep the requested path for ownership and renderer events only.
-    const nativePath = realpathSync.native(path)
+    // Keep the requested path for ownership and renderer events only. The
+    // lookup is awaited (owner, 2026-10-12: main never waits on the disk).
+    const nativePath = await nativeRealpath(path)
+    if (turns.get(tabId) !== turn) return true // a newer ask or a close decides
     const watcher = watch(nativePath, { recursive: false, persistent: false }, (_event, name) => {
       if (inside && (!name || String(name).toLowerCase() !== inside.only.toLowerCase())) return
       const current = watches.get(tabId)
@@ -74,5 +93,6 @@ export function setBrowseWatch(
 }
 
 export function closeAllBrowseWatches(): void {
+  turns.clear()
   for (const id of watches.keys()) closeBrowseWatch(id)
 }

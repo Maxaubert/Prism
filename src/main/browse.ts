@@ -1,6 +1,7 @@
 import { stat } from 'fs/promises'
 import { basename, dirname, isAbsolute, resolve } from 'path'
-import { containerSync } from './archiveBrowse'
+import { containerCandidates } from '@shared/archivePlace'
+import { container } from './archiveBrowse'
 import type { BrowseDirectory, BrowseShortcut } from '@shared/browse'
 import { listDir, listNames } from './dirList'
 import {
@@ -12,12 +13,24 @@ import {
 import { closeBrowseWatch, setBrowseWatch } from './browseWatch'
 import type { DirChange } from '@shared/types'
 
-export function browseWatch(
+/** Each tab's newest watch ask: an older one still waiting on its archive
+ *  check must not land over it. */
+const watchTurns = new Map<string, number>()
+
+/**
+ * Watch the folder a tab shows. The archive check is an awaited stat
+ * (owner, 2026-10-12: main never waits on the disk), taken only for a path
+ * with an archive's name in it, and a newer ask for the same tab wins
+ * whatever order the stats finish in: the older one sets nothing up.
+ */
+export async function browseWatch(
   tabId: string,
   path: string | null,
   emit: (change: DirChange) => void
-): boolean {
+): Promise<boolean> {
   if (typeof tabId !== 'string' || !tabId) return false
+  const turn = (watchTurns.get(tabId) ?? 0) + 1
+  watchTurns.set(tabId, turn)
   if (path === null) {
     closeBrowseWatch(tabId)
     return true
@@ -25,7 +38,8 @@ export function browseWatch(
   if (typeof path !== 'string' || !isAbsolute(path)) return false
   // Inside an archive (#300): the folder holding the zip is watched, and only
   // a change to the zip itself reports the place on screen.
-  const outer = containerSync(path)
+  const outer = containerCandidates(path).length ? await container(path) : null
+  if (watchTurns.get(tabId) !== turn) return true // a newer ask for this tab decides
   if (outer) {
     if (!ownsDesktopDirectory(tabId, dirname(outer))) return false
     return setBrowseWatch(tabId, dirname(outer), emit, { only: basename(outer), report: path })

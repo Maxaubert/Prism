@@ -3,7 +3,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { crashBudget } from './crashBudget'
-import { appendCrashLog, crashLine } from './crashLog'
+import { appendCrashLog, crashLine, crashLogSettled } from './crashLog'
 
 const MIN = 60_000
 
@@ -74,10 +74,12 @@ describe('crash log', () => {
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-  it('writes one line per entry, newlines in a value flattened', () => {
+  it('writes one line per entry in order, newlines in a value flattened', async () => {
     const file = join(dir, 'window-crashes.log')
-    appendCrashLog(file, crashLine(new Date(0), 'gone', { reason: 'crashed', exitCode: 5, url: '' }))
-    appendCrashLog(file, crashLine(new Date(1000), 'watchdog', { shown: false, note: 'a\nb' }))
+    // Not awaited one by one: the queue alone keeps them in order.
+    void appendCrashLog(file, crashLine(new Date(0), 'gone', { reason: 'crashed', exitCode: 5, url: '' }))
+    void appendCrashLog(file, crashLine(new Date(1000), 'watchdog', { shown: false, note: 'a\nb' }))
+    await crashLogSettled()
     const lines = readFileSync(file, 'utf8').trimEnd().split('\n')
     expect(lines).toEqual([
       '1970-01-01T00:00:00.000Z gone reason=crashed exitCode=5',
@@ -85,19 +87,19 @@ describe('crash log', () => {
     ])
   })
 
-  it('rotates past the cap, keeping one older file', () => {
+  it('rotates past the cap, keeping one older file', async () => {
     const file = join(dir, 'window-crashes.log')
     writeFileSync(file, 'x'.repeat(90) + '\n')
-    appendCrashLog(file, 'y'.repeat(20), 100)
+    await appendCrashLog(file, 'y'.repeat(20), 100)
     expect(readFileSync(`${file}.old`, 'utf8')).toBe('x'.repeat(90) + '\n')
     expect(readFileSync(file, 'utf8')).toBe('y'.repeat(20) + '\n')
-    appendCrashLog(file, 'z', 100)
+    await appendCrashLog(file, 'z', 100)
     expect(readFileSync(file, 'utf8')).toBe('y'.repeat(20) + '\nz\n')
   })
 
-  it('never throws when the folder is not there', () => {
+  it('never throws or rejects when the folder is not there', async () => {
     const file = join(dir, 'missing', 'window-crashes.log')
-    expect(() => appendCrashLog(file, 'line')).not.toThrow()
+    await expect(appendCrashLog(file, 'line')).resolves.toBeUndefined()
     expect(existsSync(file)).toBe(false)
   })
 })

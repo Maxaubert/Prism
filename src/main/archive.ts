@@ -1,12 +1,12 @@
 import AdmZip from 'adm-zip'
 import { execFile } from 'child_process'
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs'
-import { readFile, writeFile } from 'fs/promises'
+import { existsSync } from 'fs'
+import { access, mkdtemp, readFile, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { crc32, inflateRaw } from 'zlib'
 import { Made } from './extractJob'
-import { uniqueName } from './fileOps'
+import { uniqueNameAsync } from './fileOps'
 
 // The simple archive integration (2026-08-22, #68): zip only, via adm-zip.
 // Listing, viewing (extract one member to temp), renaming, deleting and
@@ -40,6 +40,14 @@ export type MemberFail = 'password' | 'aes' | 'failed'
 
 const AES_METHOD = 99
 
+/** existsSync's answer without the wait (owner, 2026-10-12, main never waits
+ *  on the disk). */
+const exists = (p: string): Promise<boolean> =>
+  access(p).then(
+    () => true,
+    () => false
+  )
+
 const failOf = (e: ZipEntryLike, hasPassword: boolean): MemberFail => {
   if (e.header.method === AES_METHOD) return 'aes'
   return (e.header.flags & 1) === 1 || hasPassword ? 'password' : 'failed'
@@ -64,14 +72,21 @@ const SEVEN_ZIP_PATHS = [
 let sevenCache: string | null | undefined
 let injected: string | null = null
 
-/** Point the AES path at the 7-Zip Prism ships. Called once, from main. */
+const probeInstalled = (): string | null =>
+  // sync-ok: startup (setSevenExe), or a process that never called it (the unit tests); cached
+  SEVEN_ZIP_PATHS.find((p) => existsSync(p)) ?? null
+
+/** Point the AES path at the 7-Zip Prism ships. Called once, from main, at
+ *  startup: with none bundled, the installed copies are looked for HERE, so
+ *  the first AES member opened later is not a stat on main's thread. */
 export function setSevenExe(exe: string | null): void {
   injected = exe
+  if (!exe && sevenCache === undefined) sevenCache = probeInstalled()
 }
 
 export function sevenZipExe(): string | null {
   if (injected) return injected
-  if (sevenCache === undefined) sevenCache = SEVEN_ZIP_PATHS.find((p) => existsSync(p)) ?? null
+  if (sevenCache === undefined) sevenCache = probeInstalled()
   return sevenCache
 }
 
@@ -85,7 +100,7 @@ async function sevenExtract(
 ): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
   const exe = sevenZipExe()
   if (!exe) return { ok: false, reason: 'aes' }
-  const dir = into ?? mkdtempSync(join(tmpdir(), 'prism-zip-'))
+  const dir = into ?? (await mkdtemp(join(tmpdir(), 'prism-zip-')))
   // Switches first, then `--` so a member named "-something" inside a hostile
   // zip can never be read as a 7z switch. Async, because execFileSync stopped
   // the whole main process while 7-Zip worked (2026-08-26).
@@ -101,7 +116,7 @@ async function sevenExtract(
     return { ok: false, reason: /wrong password/i.test(failed) ? 'password' : 'failed' }
   }
   const out = join(dir, basename(norm(entryPath)))
-  return existsSync(out) ? { ok: true, path: out } : { ok: false, reason: 'failed' }
+  return (await exists(out)) ? { ok: true, path: out } : { ok: false, reason: 'failed' }
 }
 
 type ZipEntryLike = {
@@ -128,6 +143,7 @@ const norm = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '')
  *  are also derived from member paths). Sorted folders-first per level by the
  *  renderer; this just reports. */
 export function listArchive(zipPath: string): ArchiveEntry[] {
+  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
   return listZip(new AdmZip(zipPath))
 }
 
@@ -225,6 +241,7 @@ export async function extractMember(
   entryPath: string,
   password?: string
 ): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
+  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
   const zip = new AdmZip(zipPath)
   const entry = zip.getEntry(norm(entryPath)) ?? zip.getEntry(norm(entryPath) + '/')
   if (!entry || entry.isDirectory) return { ok: false, reason: 'failed' }
@@ -244,8 +261,8 @@ export async function extractMember(
   }
   // The member's own basename, so the viewer's kind detection reads it; the
   // random temp dir keeps two same-named members from colliding.
-  const out = join(mkdtempSync(join(tmpdir(), 'prism-zip-')), basename(norm(entryPath)))
-  writeFileSync(out, data)
+  const out = join(await mkdtemp(join(tmpdir(), 'prism-zip-')), basename(norm(entryPath)))
+  await writeFile(out, data)
   return { ok: true, path: out }
 }
 
@@ -259,6 +276,7 @@ export async function renameMember(
 ): Promise<'ok' | MemberFail> {
   if (!validMemberName(newName)) return 'failed'
   const p = norm(entryPath)
+  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
   const zip = new AdmZip(zipPath)
   const entry = zip.getEntry(p)
   if (!entry || entry.isDirectory) return 'failed'
@@ -272,7 +290,7 @@ export async function renameMember(
     if (!password) return 'password'
     const r = await sevenExtract(zipPath, p, password)
     if (!r.ok) return r.reason
-    data = readFileSync(r.path)
+    data = await readFile(r.path)
   } else {
     try {
       data = like.getData(password)
@@ -283,6 +301,7 @@ export async function renameMember(
   }
   zip.deleteFile(p)
   zip.addFile(target, data)
+  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
   zip.writeZip(zipPath)
   return 'ok'
 }
@@ -291,6 +310,7 @@ export async function renameMember(
  *  which is why the renderer confirms before calling this. */
 export function deleteMember(zipPath: string, entryPath: string): boolean {
   const p = norm(entryPath)
+  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
   const zip = new AdmZip(zipPath)
   const entry = zip.getEntry(p)
   // A FOLDER (or a folder that exists only as a prefix of its members) takes
@@ -301,10 +321,12 @@ export function deleteMember(zipPath: string, entryPath: string): boolean {
     if (!under.length) return false
     for (const e of under) zip.deleteFile(e.entryName)
     if (entry) zip.deleteFile(entry.entryName)
+    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
     zip.writeZip(zipPath)
     return true
   }
   zip.deleteFile(p)
+  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
   zip.writeZip(zipPath)
   return true
 }
@@ -328,6 +350,7 @@ export type ArchiveStat = {
 
 export function archiveStat(zipPath: string): ArchiveStat | null {
   try {
+    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
     const zip = new AdmZip(zipPath)
     const folders = new Set<string>()
     let files = 0
@@ -358,7 +381,14 @@ export function archiveStat(zipPath: string): ArchiveStat | null {
  *  adm-zip would re-emit those entries wrongly, so the write verbs that rebuild
  *  it (add, move) refuse rather than quietly corrupting the archive. */
 export function hasEncrypted(zipPath: string): boolean {
-  return new AdmZip(zipPath).getEntries().some((e) => (e.header.flags & 1) === 1)
+  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
+  return encryptedIn(new AdmZip(zipPath))
+}
+
+/** `hasEncrypted` for a zip already open: add and move read the container
+ *  ONCE and ask this, where they used to read it twice. */
+function encryptedIn(zip: AdmZip): boolean {
+  return zip.getEntries().some((e) => (e.header.flags & 1) === 1)
 }
 
 const joinIn = (folder: string, name: string): string => (folder ? `${norm(folder)}/${name}` : name)
@@ -372,23 +402,29 @@ export type AddResult =
  * Put real files and folders INTO the zip, under `destFolder` ('' is the root).
  * Folders go in whole. A taken name comes back as a clash and nothing is
  * written, unless `keepBoth` renames the arrivals instead.
+ *
+ * Async (owner, 2026-10-12, main never waits on the disk): each dropped
+ * source is looked at with one awaited stat. The clashes are still all
+ * found before anything is added.
  */
-export function addToArchive(
+export async function addToArchive(
   zipPath: string,
   srcPaths: readonly string[],
   destFolder: string,
   keepBoth = false
-): AddResult {
+): Promise<AddResult> {
   try {
-    if (hasEncrypted(zipPath)) return 'encrypted'
+    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
     const zip = new AdmZip(zipPath)
+    if (encryptedIn(zip)) return 'encrypted'
     const taken = new Set(zip.getEntries().map((e) => norm(e.entryName).toLowerCase()))
     const clashes: string[] = []
     const failed: string[] = []
     const jobs: Array<{ src: string; name: string; dir: boolean }> = []
     const zipAt = resolve(zipPath)
     for (const src of srcPaths) {
-      if (!existsSync(src)) {
+      const st = await stat(src).catch(() => null)
+      if (!st) {
         failed.push(src)
         continue
       }
@@ -400,7 +436,7 @@ export function addToArchive(
         continue
       }
       const name = basename(src)
-      const dir = statSync(src).isDirectory()
+      const dir = st.isDirectory()
       if (taken.has(joinIn(destFolder, name).toLowerCase())) {
         if (!keepBoth) {
           clashes.push(name)
@@ -427,6 +463,7 @@ export function addToArchive(
     for (const j of jobs) {
       try {
         const before = zip.getEntries().length
+        // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
         if (j.dir) zip.addLocalFolder(j.src, joinIn(destFolder, j.name))
         else zip.addLocalFile(j.src, norm(destFolder), j.name)
         // An EMPTY folder writes nothing at all: counting it as added would
@@ -437,6 +474,7 @@ export function addToArchive(
         failed.push(j.src)
       }
     }
+    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
     if (added.length) zip.writeZip(zipPath)
     return { added, clashes, failed }
   } catch {
@@ -451,8 +489,9 @@ export function moveMembers(
   destFolder: string
 ): 'ok' | 'encrypted' | 'failed' {
   try {
-    if (hasEncrypted(zipPath)) return 'encrypted'
+    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
     const zip = new AdmZip(zipPath)
+    if (encryptedIn(zip)) return 'encrypted'
     const dest = norm(destFolder)
     // Dropping a folder on itself (or inside its own subtree) would nest its
     // contents one level deeper every time; there is nothing to do instead.
@@ -481,6 +520,7 @@ export function moveMembers(
       zip.deleteFile(m.from)
       zip.addFile(m.to, m.data)
     }
+    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
     zip.writeZip(zipPath)
     return 'ok'
   } catch {
@@ -557,7 +597,7 @@ export async function extractTo(
 ): Promise<{ ok: true; written: number } | { ok: false; reason: MemberFail | 'cancelled' }> {
   const made = new Made()
   try {
-    if (!existsSync(destDir)) return { ok: false, reason: 'failed' }
+    if (!(await exists(destDir))) return { ok: false, reason: 'failed' }
     const base = resolve(destDir)
     // A Buffer, read without blocking: `new AdmZip(path)` is a readFileSync
     // of up to the 600MB cap.
@@ -592,9 +632,9 @@ export async function extractTo(
       // Never overwrite what is already there: an extraction is a copy out,
       // and a member sharing a name with the user's own file must not destroy
       // it. "name (2)" is the same answer the folder verbs give.
-      if (existsSync(target)) {
+      if (await exists(target)) {
         const dir = dirname(target)
-        target = join(dir, uniqueName(dir, basename(target)))
+        target = join(dir, await uniqueNameAsync(dir, basename(target)))
       }
       const like = e as unknown as ZipEntryLike
       let data: Buffer

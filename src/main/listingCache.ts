@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto'
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, renameSync } from 'fs'
-import { mkdir, readdir, rename, rm, writeFile } from 'fs/promises'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'fs/promises'
 import { extname, join } from 'path'
 import { fileKind } from '@shared/fileKind'
 import type { ArchiveMeta, DirListing, ViewerFile } from '@shared/types'
@@ -281,27 +281,88 @@ export function createListingCache(options: ListingCacheOptions) {
   /** Listing writes in flight, which the start-up sweep leaves alone. */
   let pendingWrites = 0
   const writing = new Set<string>()
+  /** A Clear's delete in flight: writes wait for it, so it cannot take them. */
+  let clearing: Promise<boolean> | null = null
+  /** The index write in flight, and whether a newer index waits behind it. */
+  let indexWrite: Promise<void> | null = null
+  let indexDirty = false
+  /** Bumped by the quit flush: an async write already in flight must not land over it. */
+  let flushes = 0
 
   const fileOf = (key: string): string => join(directory, `${key}.json`)
+  const indexText = (): string => JSON.stringify({ v: 1, entries: [...index.values()] })
 
+  // Quit only (`flush`): the process is going, nothing is left to wait for.
   const writeIndexSync = (): void => {
     if (readOnly || !enabled) return
     try {
-      mkdirSync(directory, { recursive: true })
+      mkdirSync(directory, { recursive: true }) // sync-ok: quit flush
       const tmp = `${indexPath}.${randomUUID()}.tmp`
-      writeFileSync(tmp, JSON.stringify({ v: 1, entries: [...index.values()] }), 'utf8')
-      renameSync(tmp, indexPath)
+      writeFileSync(tmp, indexText(), 'utf8') // sync-ok: quit flush
+      renameSync(tmp, indexPath) // sync-ok: quit flush
     } catch {
       /* a cache that cannot be written is a cache that is not there */
     }
+  }
+  /** The debounced index write, off the main thread (owner, 2026-10-12: the
+   *  3.9 s tabs.json freeze was this kind of write). One at a time; a change
+   *  made while one is in flight is written after it, so the newest wins. */
+  const writeIndex = (): Promise<void> => {
+    indexDirty = true
+    if (indexWrite) return indexWrite
+    const run = (async (): Promise<void> => {
+      while (indexDirty) {
+        indexDirty = false
+        if (clearing) await clearing
+        if (readOnly || !enabled) break
+        const mine = epoch
+        const flushedAt = flushes
+        const tmp = `${indexPath}.${randomUUID()}.tmp`
+        try {
+          await mkdir(directory, { recursive: true })
+          if (mine !== epoch) continue
+          // The index as it is NOW, not as it was when the timer was set.
+          await writeFile(tmp, indexText(), 'utf8')
+          if (mine !== epoch || flushedAt !== flushes || !enabled) continue
+          await rename(tmp, indexPath)
+        } catch {
+          /* a cache that cannot be written is a cache that is not there */
+        } finally {
+          await rm(tmp, { force: true }).catch(() => {})
+        }
+      }
+    })()
+    indexWrite = run.finally(() => {
+      indexWrite = null
+    })
+    return indexWrite
   }
   const scheduleIndex = (): void => {
     if (readOnly || indexTimer) return
     indexTimer = setTimeout(() => {
       indexTimer = null
-      writeIndexSync()
+      void writeIndex()
     }, indexDelayMs)
     indexTimer.unref?.()
+  }
+  /** What a read's text holds (null: the file could not be read). A hit is
+   *  counted; a gone or damaged file is a miss, and its entry forgotten. */
+  const answer = (
+    key: string,
+    entry: IndexEntry,
+    path: string,
+    text: string | null
+  ): CachedListing | null => {
+    const cached = text === null ? null : decodeListing(text, path)
+    if (!cached) {
+      forget(key)
+      scheduleIndex()
+      return null
+    }
+    entry.hits += 1
+    entry.usedAt = now()
+    scheduleIndex()
+    return cached
   }
   const forget = (key: string): void => {
     index.delete(key)
@@ -315,6 +376,7 @@ export function createListingCache(options: ListingCacheOptions) {
     load(): void {
       index.clear()
       try {
+        // sync-ok: startup, the index must be in memory before the first window's restore
         const raw = JSON.parse(readFileSync(indexPath, 'utf8')) as { v?: number; entries?: unknown[] }
         if (raw?.v === 1 && Array.isArray(raw.entries))
           for (const e of raw.entries) if (validEntry(e)) index.set(e.key, e)
@@ -358,7 +420,8 @@ export function createListingCache(options: ListingCacheOptions) {
     setEnabled(on: boolean): void {
       if (enabled === on) return
       enabled = on
-      if (!on) this.clear()
+      // The epoch bump inside clear() stops any write already under way.
+      if (!on) void this.clear()
     },
     get enabled(): boolean {
       return enabled
@@ -378,30 +441,38 @@ export function createListingCache(options: ListingCacheOptions) {
     get generation(): number {
       return epoch
     },
-    /** One folder's stored listing, synchronously (a file of tens of KB). */
+    /** One folder's stored listing, synchronously (a file of tens of KB),
+     *  for the page's `browse:cached`. A caller that can wait uses readAsync. */
     read(path: string): CachedListing | null {
       if (!enabled) return null
       const key = cacheKey(path)
       const entry = index.get(key)
       if (!entry) return null
-      let text: string
+      let text: string | null = null
       try {
+        // sync-ok: browse:cached is sendSync by design, it paints in the same frame as the click
         text = readFileSync(fileOf(key), 'utf8')
       } catch {
-        forget(key)
-        scheduleIndex()
-        return null
+        /* gone: a miss */
       }
-      const cached = decodeListing(text, path)
-      if (!cached) {
-        forget(key)
-        scheduleIndex()
-        return null
+      return answer(key, entry, path, text)
+    },
+    /** read(), off the main thread: for callers that can await (the restore). */
+    async readAsync(path: string): Promise<CachedListing | null> {
+      if (!enabled) return null
+      const key = cacheKey(path)
+      const entry = index.get(key)
+      if (!entry) return null
+      const mine = epoch
+      let text: string | null = null
+      try {
+        text = await readFile(fileOf(key), 'utf8')
+      } catch {
+        /* gone: a miss */
       }
-      entry.hits += 1
-      entry.usedAt = now()
-      scheduleIndex()
-      return cached
+      // Cleared, switched off or rewritten while the file was read.
+      if (!enabled || mine !== epoch || index.get(key) !== entry) return null
+      return answer(key, entry, path, text)
     },
     /** Keep a COMPLETE listing (sizes and dates known). Written atomically, a
      *  temporary file renamed over the old one, so a crash mid-write leaves
@@ -435,6 +506,8 @@ export function createListingCache(options: ListingCacheOptions) {
         writing.add(key)
         void (async () => {
           try {
+            if (clearing) await clearing
+            if (mine !== epoch) return
             await mkdir(directory, { recursive: true })
             if (mine !== epoch) return
             await writeFile(tmp, text, 'utf8')
@@ -463,37 +536,54 @@ export function createListingCache(options: ListingCacheOptions) {
     },
     /** Delete every stored listing. Safe at any time. True when nothing is
      *  left on disk; a file Windows holds open (a virus scan, a backup) stays
-     *  and goes in the next start's sweep, since no index names it any more. */
-    clear(): boolean {
+     *  and goes in the next start's sweep, since no index names it any more.
+     *  Off the main thread (2026-10-12): a write that starts meanwhile waits
+     *  for it, so the delete never takes a listing kept after the Clear. */
+    clear(): Promise<boolean> {
       epoch += 1
       index.clear()
       if (indexTimer) clearTimeout(indexTimer)
       indexTimer = null
-      if (readOnly) return true
-      try {
-        rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 50 })
-        return true
-      } catch {
-        // One locked file fails the whole folder: delete the rest one by one.
-        let left = 0
+      if (readOnly) return Promise.resolve(true)
+      const previous = clearing
+      const run = (async (): Promise<boolean> => {
+        if (previous) await previous
         try {
-          for (const name of readdirSync(directory))
-            try {
-              rmSync(join(directory, name), { force: true })
-            } catch {
-              left += 1
-            }
+          await rm(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 50 })
+          return true
         } catch {
-          return false
+          // One locked file fails the whole folder: delete the rest one by one.
+          let names: string[]
+          try {
+            names = await readdir(directory)
+          } catch {
+            return false
+          }
+          const results = await Promise.allSettled(
+            names.map((name) => rm(join(directory, name), { force: true }))
+          )
+          return results.every((r) => r.status === 'fulfilled')
         }
-        return left === 0
-      }
+      })()
+      clearing = run
+      void run.finally(() => {
+        if (clearing === run) clearing = null
+      })
+      return run
     },
     /** Write the index now (quit). */
     flush(): void {
       if (indexTimer) clearTimeout(indexTimer)
       indexTimer = null
-      writeIndexSync()
+      flushes += 1
+      writeIndexSync() // sync-ok: quit flush
+    },
+    /** For tests: a Clear and the index write in flight have finished. */
+    async idle(): Promise<void> {
+      while (clearing || indexWrite) {
+        if (clearing) await clearing
+        if (indexWrite) await indexWrite
+      }
     },
     /** For tests and the e2e: what is held. */
     entries(): IndexEntry[] {

@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, statSync } from 'fs'
+import { access, mkdir, stat } from 'fs/promises'
 import { dirname, extname, join } from 'path'
 
 /**
@@ -44,21 +44,31 @@ export interface Fluid {
   soundfont: string
 }
 
-let cached: Fluid | null | undefined
+let cached: Promise<Fluid | null> | undefined
 
-export function findFluid(packaged: boolean, resourcesPath: string, appPath: string): Fluid | null {
+const exists = (p: string): Promise<boolean> =>
+  access(p).then(
+    () => true,
+    () => false
+  )
+
+/**
+ * The bundled synthesiser, looked for once a session. Async (owner,
+ * 2026-10-12, main never waits on the disk): the first MIDI opened probed up
+ * to eight paths on main's thread. Callers share one search.
+ */
+export function findFluid(packaged: boolean, resourcesPath: string, appPath: string): Promise<Fluid | null> {
   if (cached !== undefined) return cached
-  for (const dir of fluidDirs(packaged, resourcesPath, appPath)) {
-    const exe = join(dir, 'fluidsynth.exe')
-    const soundfont = join(dir, 'soundfont.sf3')
-    // Both halves or neither: a synthesiser with no bank renders silence.
-    if (existsSync(exe) && existsSync(soundfont)) {
-      cached = { exe, soundfont }
-      return cached
+  cached = (async (): Promise<Fluid | null> => {
+    for (const dir of fluidDirs(packaged, resourcesPath, appPath)) {
+      const exe = join(dir, 'fluidsynth.exe')
+      const soundfont = join(dir, 'soundfont.sf3')
+      // Both halves or neither: a synthesiser with no bank renders silence.
+      if ((await exists(exe)) && (await exists(soundfont))) return { exe, soundfont }
     }
-  }
-  cached = null
-  return null
+    return null
+  })()
+  return cached
 }
 
 /** Test seam. */
@@ -89,11 +99,13 @@ const jobs = new Map<string, Promise<string>>()
  * Render a MIDI file to WAV, or hand back the one rendered last time. Two
  * callers asking for the same file share one render.
  */
-export function renderMidi(fluid: Fluid, path: string, dir: string): Promise<string> {
-  mkdirSync(dir, { recursive: true })
-  const st = statSync(path)
+export async function renderMidi(fluid: Fluid, path: string, dir: string): Promise<string> {
+  await mkdir(dir, { recursive: true })
+  const st = await stat(path)
   const out = join(dir, renderName(path, st.mtimeMs, st.size))
-  if (existsSync(out) && statSync(out).size > 0) return Promise.resolve(out)
+  const have = await stat(out).catch(() => null)
+  if (have && have.size > 0) return out
+  // Nothing is awaited from here to `jobs.set`, so two callers share one render.
   const running = jobs.get(out)
   if (running) return running
 
@@ -104,8 +116,9 @@ export function renderMidi(fluid: Fluid, path: string, dir: string): Promise<str
       { timeout: 120000, windowsHide: true, maxBuffer: 4 << 20 },
       (err) => {
         jobs.delete(out)
-        if (!err && existsSync(out) && statSync(out).size > 0) resolve(out)
-        else reject(new Error('could not synthesise this MIDI file'))
+        const fail = (): void => reject(new Error('could not synthesise this MIDI file'))
+        if (err) return fail()
+        stat(out).then((made) => (made.size > 0 ? resolve(out) : fail()), fail)
       }
     )
   })

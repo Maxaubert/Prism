@@ -1,4 +1,5 @@
-import { existsSync, statSync } from 'fs'
+import { statSync } from 'fs'
+import { stat } from 'fs/promises'
 import { resolve } from 'path'
 
 /**
@@ -39,32 +40,59 @@ function ownFiles(): string[] {
   return mine
 }
 
+/** The argv entries worth a stat, in order: no switches, no repeats, none of
+ *  the app's own files. Pure, so both readers below share it. */
+function candidates(argv: string[], ignore: string[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const mine = new Set(ignore.filter(Boolean).map((p) => resolve(p).toLowerCase()))
+  for (let i = 1; i < argv.length; i += 1) {
+    const a = argv[i]
+    if (a.startsWith('--')) continue
+    const key = resolve(a).toLowerCase()
+    if (seen.has(key) || mine.has(key)) continue
+    seen.add(key)
+    out.push(a)
+  }
+  return out
+}
+
+/** At startup, before the first window, and in a quit's
+ *  relaunch decision. A handoff while Prism runs uses pathsFromArgvAsync. */
 export function pathsFromArgv(
   argv: string[],
   ignore: string[] = ownFiles()
 ): Array<{ path: string; dir: boolean }> {
   const out: Array<{ path: string; dir: boolean }> = []
-  const seen = new Set<string>()
-  const mine = new Set(ignore.filter(Boolean).map((p) => resolve(p).toLowerCase()))
-  for (let i = 1; i < argv.length && out.length < ARGV_MAX; i += 1) {
-    const a = argv[i]
-    if (a.startsWith('--')) continue
+  for (const a of candidates(argv, ignore)) {
+    if (out.length >= ARGV_MAX) break
     try {
-      if (!existsSync(a)) continue
-      const key = resolve(a).toLowerCase()
-      if (seen.has(key) || mine.has(key)) continue
-      const st = statSync(a)
-      if (st.isFile()) {
-        seen.add(key)
-        out.push({ path: a, dir: false })
-      } else if (st.isDirectory()) {
-        seen.add(key)
-        out.push({ path: a, dir: true })
-      }
+      const st = statSync(a) // sync-ok: startup argv (before the first window) and the quit relaunch only
+      if (st.isFile()) out.push({ path: a, dir: false })
+      else if (st.isDirectory()) out.push({ path: a, dir: true })
     } catch {
-      /* ignore */
+      /* missing or unreadable: ignore */
     }
   }
   return out
 }
 
+/** The same answer, awaited: a second instance's handoff arrives while the
+ *  user works (owner, 2026-10-12: main never waits on the disk). */
+export async function pathsFromArgvAsync(
+  argv: string[],
+  ignore: string[] = ownFiles()
+): Promise<Array<{ path: string; dir: boolean }>> {
+  const out: Array<{ path: string; dir: boolean }> = []
+  for (const a of candidates(argv, ignore)) {
+    if (out.length >= ARGV_MAX) break
+    try {
+      const st = await stat(a)
+      if (st.isFile()) out.push({ path: a, dir: false })
+      else if (st.isDirectory()) out.push({ path: a, dir: true })
+    } catch {
+      /* missing or unreadable: ignore */
+    }
+  }
+  return out
+}

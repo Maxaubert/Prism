@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, existsSync, rmSync, writeFileSync } from 'fs'
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -7,6 +7,7 @@ import {
   explorerWindowArgs,
   explorerWindowOwner,
   hasOtherExplorerWindows,
+  launchExplorerWindow,
   markExplorerWindow
 } from './explorerWindow'
 
@@ -88,6 +89,21 @@ describe('independent Explorer windows', () => {
     )
     await cleanExplorerWindows(owner)
     expect(existsSync(child)).toBe(true)
+  })
+  it('launches nothing for a token it has already seen, and marks a failed launch closed', async () => {
+    const owner = profile()
+    const opts = { owner, packaged: true, appPath: '', argv: [] }
+    const child = join(owner, 'explorer-windows', id)
+    mkdirSync(child, { recursive: true })
+    // The profile exists already: a retransmitted token resolves without a spawn.
+    await expect(
+      launchExplorerWindow({ ...opts, id, executable: join(owner, 'never-spawned.exe') })
+    ).resolves.toBeUndefined()
+    expect(existsSync(join(child, 'prism-window.json'))).toBe(false)
+    // A program that is not there fails asynchronously; its marker says closed.
+    await launchExplorerWindow({ ...opts, id: other, executable: join(owner, 'missing.exe') })
+    const marker = join(owner, 'explorer-windows', other, 'prism-window.json')
+    await vi.waitFor(() => expect(JSON.parse(readFileSync(marker, 'utf8')).closed).toBe(true))
   })
   it('cleans only closed, exited managed profiles', async () => {
     const owner = profile()

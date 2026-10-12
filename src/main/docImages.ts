@@ -1,4 +1,4 @@
-import { existsSync } from 'fs'
+import { access } from 'fs/promises'
 import { dirname, extname, isAbsolute, resolve } from 'path'
 
 /**
@@ -35,15 +35,40 @@ const MAX_GRANTS = 200
 const MD_IMAGE = /!\[[^\]]*\]\(\s*<?([^)>\s]+)/g
 const HTML_IMAGE = /<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi
 
-/** Everything the text points at that is a local image file which exists. */
-export function documentImages(docPath: string, text: string): string[] {
+const exists = (p: string): Promise<boolean> =>
+  access(p).then(
+    () => true,
+    () => false
+  )
+
+/**
+ * Everything the text points at that is a local image file which exists.
+ *
+ * Async (owner, 2026-10-12, main never waits on the disk): the existence
+ * checks were a stat each on main's thread for every markdown file opened.
+ * They are asked a batch at a time, in the text's order, so the answer and
+ * its cap are the same as one stat at a time.
+ */
+export async function documentImages(docPath: string, text: string): Promise<string[]> {
+  const out: string[] = []
+  const wanted = imageCandidates(docPath, text)
+  for (let i = 0; i < wanted.length && out.length < MAX_GRANTS; i += MAX_GRANTS) {
+    const batch = wanted.slice(i, i + MAX_GRANTS)
+    const there = await Promise.all(batch.map(exists))
+    for (let j = 0; j < batch.length && out.length < MAX_GRANTS; j++) if (there[j]) out.push(batch[j])
+  }
+  return out
+}
+
+/** The local image files the text names, deduplicated, in order, unchecked. */
+function imageCandidates(docPath: string, text: string): string[] {
   const dir = dirname(docPath)
   const out: string[] = []
   const seen = new Set<string>()
   for (const re of [MD_IMAGE, HTML_IMAGE]) {
     re.lastIndex = 0
     let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null && out.length < MAX_GRANTS) {
+    while ((m = re.exec(text)) !== null) {
       const raw = m[1].trim()
       // Anything with a scheme is somebody else's problem: http(s) is blocked
       // by the page's own CSP, data: carries its bytes with it, and fsmedia://
@@ -65,7 +90,6 @@ export function documentImages(docPath: string, text: string): string[] {
       if (seen.has(key)) continue
       seen.add(key)
       if (!IMAGE_EXTS.has(extname(full).toLowerCase())) continue
-      if (!existsSync(full)) continue
       out.push(full)
     }
   }

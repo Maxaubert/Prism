@@ -22,53 +22,66 @@ beforeAll(() => {
 const doc = (): string => join(docs, 'README.md')
 
 describe('what a document is allowed to show', () => {
-  it('grants a picture ABOVE its own folder, which the wall refused', () => {
-    expect(documentImages(doc(), '![logo](../assets/logo.png)')).toEqual([join(assets, 'logo.png')])
+  it('grants a picture ABOVE its own folder, which the wall refused', async () => {
+    expect(await documentImages(doc(), '![logo](../assets/logo.png)')).toEqual([join(assets, 'logo.png')])
   })
 
-  it('grants one beside it too', () => {
-    expect(documentImages(doc(), '![](./here.png)')).toEqual([join(docs, 'here.png')])
+  it('grants one beside it too', async () => {
+    expect(await documentImages(doc(), '![](./here.png)')).toEqual([join(docs, 'here.png')])
   })
 
-  it('reads an <img> tag as well as markdown', () => {
-    expect(documentImages(doc(), '<img src="../assets/logo.png" alt="x">')).toEqual([
+  it('reads an <img> tag as well as markdown', async () => {
+    expect(await documentImages(doc(), '<img src="../assets/logo.png" alt="x">')).toEqual([
       join(assets, 'logo.png')
     ])
   })
 
-  it('decodes a percent-escaped name', () => {
-    expect(documentImages(doc(), '![](../assets/a%20b.png)')).toEqual([join(assets, 'a b.png')])
+  it('decodes a percent-escaped name', async () => {
+    expect(await documentImages(doc(), '![](../assets/a%20b.png)')).toEqual([join(assets, 'a b.png')])
   })
 
-  it('ignores a url, a data: image and a protocol-relative one', () => {
+  it('ignores a url, a data: image and a protocol-relative one', async () => {
     const text = '![](https://x/y.png) ![](data:image/png;base64,AAA) ![](//cdn/z.png)'
-    expect(documentImages(doc(), text)).toEqual([])
+    expect(await documentImages(doc(), text)).toEqual([])
   })
 
-  it('grants nothing that is not an image file', () => {
-    expect(documentImages(doc(), '![](../assets/secrets.txt)')).toEqual([])
+  it('grants nothing that is not an image file', async () => {
+    expect(await documentImages(doc(), '![](../assets/secrets.txt)')).toEqual([])
   })
 
-  it('grants nothing that does not exist', () => {
-    expect(documentImages(doc(), '![](../assets/missing.png)')).toEqual([])
+  it('grants nothing that does not exist', async () => {
+    expect(await documentImages(doc(), '![](../assets/missing.png)')).toEqual([])
   })
 
-  it('never grants the same file twice', () => {
+  it('never grants the same file twice', async () => {
     const text = '![](../assets/logo.png)' + String.fromCharCode(10) + '![again](../assets/logo.png)'
-    expect(documentImages(doc(), text)).toEqual([join(assets, 'logo.png')])
+    expect(await documentImages(doc(), text)).toEqual([join(assets, 'logo.png')])
   })
 
-  it('drops the fragment and the query a url may carry', () => {
-    expect(documentImages(doc(), '![](../assets/logo.png?v=2#top)')).toEqual([
+  it('drops the fragment and the query a url may carry', async () => {
+    expect(await documentImages(doc(), '![](../assets/logo.png?v=2#top)')).toEqual([
       join(assets, 'logo.png')
     ])
   })
 
-  it('grants nothing named by an ABSOLUTE path', () => {
+  it('grants nothing named by an ABSOLUTE path', async () => {
     // A document points at what sits beside it. An absolute reference would
     // let any .md open a picture anywhere on the disk.
-    expect(documentImages(doc(), '![](' + join(assets, 'logo.png') + ')')).toEqual([])
-    expect(documentImages(doc(), '![](/assets/logo.png)')).toEqual([])
+    expect(await documentImages(doc(), '![](' + join(assets, 'logo.png') + ')')).toEqual([])
+    expect(await documentImages(doc(), '![](/assets/logo.png)')).toEqual([])
+  })
+
+  it('stops at the cap, counting only files that exist', async () => {
+    const refs: string[] = []
+    for (let i = 0; i < 150; i++) refs.push(`![](../assets/missing-${i}.png)`)
+    for (let i = 0; i < 260; i++) {
+      writeFileSync(join(assets, `n${i}.png`), '')
+      refs.push(`![](../assets/n${i}.png)`)
+    }
+    const got = await documentImages(doc(), refs.join(' '))
+    expect(got).toHaveLength(200)
+    expect(got[0]).toBe(join(assets, 'n0.png'))
+    expect(got[199]).toBe(join(assets, 'n199.png'))
   })
 
   it('knows a markdown file when it sees one', () => {

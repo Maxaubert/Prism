@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
-import { existsSync, readdirSync, rmSync } from 'fs'
-import { mkdir, rm, stat, statfs } from 'fs/promises'
+import { rmSync } from 'fs'
+import { access, mkdir, readdir, rm, stat, statfs } from 'fs/promises'
 import { basename, isAbsolute, join, relative, resolve } from 'path'
 
 /**
@@ -42,6 +42,14 @@ export interface MemberSlot {
   /** Where the file will be (or is), named as the member is. */
   file: string
 }
+
+/** existsSync's answer without the wait (owner, 2026-10-12, main never waits
+ *  on the disk): this is asked on every click and arrow through a zip. */
+const exists = (p: string): Promise<boolean> =>
+  access(p).then(
+    () => true,
+    () => false
+  )
 
 interface Held {
   file: string
@@ -97,27 +105,31 @@ export class MemberTemp {
       return { ok: false, reason: 'failed' }
     }
     const { dir } = this.slot(container, info.size, info.mtimeMs, member)
+    const pending = (): Promise<Unpacked<R | 'failed'>> | undefined =>
+      this.inflight.get(dir) as Promise<Unpacked<R | 'failed'>> | undefined
+    // An unpack under way is joined before the file is looked for, and again
+    // after: the look is awaited, and another ask may have started one meanwhile.
+    const early = pending()
+    if (early) return early
     const known = this.made.get(dir)
-    if (known && existsSync(known.file)) {
+    if (known && (await exists(known.file))) {
       known.used = ++this.clock
       return { ok: true, path: known.file }
     }
-    const running = this.inflight.get(dir) as Promise<Unpacked<R | 'failed'>> | undefined
+    const running = pending()
     if (running) return running
     const job = (async (): Promise<Unpacked<R | 'failed'>> => {
       try {
         await rm(dir, { recursive: true, force: true })
         await mkdir(dir, { recursive: true })
         const out = await write(dir)
-        if (!out.ok || !this.owns(out.path) || !existsSync(out.path)) {
+        // One stat answers both "is it there" and "how big".
+        const got = out.ok && this.owns(out.path) ? await stat(out.path).catch(() => null) : null
+        if (!out.ok || !got) {
           await rm(dir, { recursive: true, force: true }).catch(() => {})
           return out.ok ? { ok: false, reason: 'failed' } : out
         }
-        const bytes = await stat(out.path).then(
-          (s) => s.size,
-          () => 0
-        )
-        this.made.set(dir, { file: out.path, bytes, used: ++this.clock })
+        this.made.set(dir, { file: out.path, bytes: got.size, used: ++this.clock })
         return out
       } catch {
         await rm(dir, { recursive: true, force: true }).catch(() => {})
@@ -183,6 +195,7 @@ export class MemberTemp {
    *  going). A file a player still holds stays for the next start. */
   removeRun(): void {
     try {
+      // sync-ok: quit; an 'exit' handler cannot run async work
       rmSync(this.dir, { recursive: true, force: true })
     } catch {
       /* held open: the next start removes it */
@@ -201,7 +214,7 @@ export async function cleanDeadRuns(
 ): Promise<string[]> {
   let names: string[]
   try {
-    names = readdirSync(root)
+    names = await readdir(root)
   } catch {
     return []
   }

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { holders } from './holders'
-import { existsSync } from 'fs'
+import { access } from 'fs/promises'
 import {
   findFfmpeg,
   parseRange,
@@ -72,10 +72,18 @@ interface Deps {
   appPath: string
 }
 
-export function serveSidecarAudio(request: Request, deps: Deps): Response {
+/** Async (owner, 2026-10-12, main never waits on the disk): this answers every
+ *  Range request of a playing film, every seek included, and its existence
+ *  check was a stat on main's thread each time. */
+export async function serveSidecarAudio(request: Request, deps: Deps): Promise<Response> {
   const req = parseSidecarUrl(request.url)
   if (!req) return new Response(null, { status: 400 })
-  if (!deps.allowed(req.file) || !existsSync(req.file)) return new Response(null, { status: 403 })
+  if (!deps.allowed(req.file)) return new Response(null, { status: 403 })
+  const there = await access(req.file).then(
+    () => true,
+    () => false
+  )
+  if (!there) return new Response(null, { status: 403 })
 
   const tools = findFfmpeg(deps.packaged, deps.resourcesPath, deps.appPath)
   if (!tools) return new Response(null, { status: 503 })
