@@ -13,7 +13,7 @@ import { dateView } from '../../lib/downloadsView'
 import { useFolderSizes } from '../../hooks/useFolderSizes'
 import { clickSelect, rangeSelect } from '../../lib/selection'
 import { listKey } from '../../lib/listKeys'
-import { sweepSelect } from '../../lib/marquee'
+import { sweepBase, sweepSelect } from '../../lib/marquee'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import { useListingPrefetch } from '../../lib/useListingPrefetch'
@@ -247,9 +247,11 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     return true
   }
   const swept = (paths: string[], near: string | null, add: boolean): void => {
-    const base: ReadonlySet<string> = add
-      ? (marked ?? new Set(props.selectedPath ? [props.selectedPath] : []))
-      : new Set()
+    const base = sweepBase(
+      add,
+      marked ?? new Set(props.selectedPath ? [props.selectedPath] : []),
+      marked ? null : (props.selectedPath ?? null)
+    )
     const items = sweepSelect(base, paths)
     // A sweep is marking, however few rows it caught (#263).
     if (items.size <= 1) return pickOne([...items][0] ?? null, true)

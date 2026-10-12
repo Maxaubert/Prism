@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  sweepBase,
   bandBox,
   edgeSpeed,
   onRowOwnPart,
@@ -140,5 +141,20 @@ describe('bandBox, onRowOwnPart, sameHits', () => {
   it('compares hit lists', () => {
     expect(sameHits(['a', 'b'], ['a', 'b'])).toBe(true)
     expect(sameHits(['a', 'b'], ['a'])).toBe(false)
+  })
+})
+
+describe('what a sweep starts from (owner, 2026-10-12)', () => {
+  it('a plain sweep keeps the one row just clicked, so it joins the swept rows', () => {
+    expect([...sweepSelect(sweepBase(false, new Set(['a']), 'a'), ['b', 'c'])]).toEqual(['a', 'b', 'c'])
+  })
+  it('with nothing selected, the lit row passed in joins too', () => {
+    expect([...sweepBase(false, new Set(), 'a')]).toEqual(['a'])
+  })
+  it('marks a sweep made are not a click: a second plain sweep replaces them', () => {
+    expect([...sweepBase(false, new Set(['a', 'b']), 'a')]).toEqual([])
+  })
+  it('Ctrl keeps everything marked', () => {
+    expect([...sweepBase(true, new Set(['a', 'b']), null)]).toEqual(['a', 'b'])
   })
 })
