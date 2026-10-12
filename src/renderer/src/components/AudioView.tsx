@@ -7,6 +7,7 @@ import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
 import { Visualizer } from './Visualizer'
 import { VolumeReadout } from './VolumeReadout'
+import { StageNotice } from './StageNotice'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { resolveVizTheme } from '../lib/theme'
@@ -201,13 +202,13 @@ export function AudioView({
         <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />
       )}
       {(synthesising || synthFailed) && (
-        <div className="absolute inset-0 z-30 grid place-items-center bg-[var(--p-bg)]/90 p-8 text-center">
+        <StageNotice className="z-30 bg-[var(--p-bg)]/90">
           <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">
             {synthesising
               ? 'Synthesising this score. A MIDI file holds no sound of its own, so Prism is playing it through its instrument bank.'
               : 'Prism could not synthesise this score.'}
           </div>
-        </div>
+        </StageNotice>
       )}
       <audio
         ref={setMedia}
@@ -229,9 +230,7 @@ export function AudioView({
       />
 
       {c.error ? (
-        <div className="absolute inset-0 grid place-items-center p-8 text-center text-sm text-[#c9ccd6]">
-          {c.error}
-        </div>
+        <StageNotice className="text-sm text-[#c9ccd6]">{c.error}</StageNotice>
       ) : (
         <>
           {/* The visualizer fills the whole viewer, the same box the nav arrows

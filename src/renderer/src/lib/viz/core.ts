@@ -5,6 +5,7 @@
 // every style's state privately typed instead of sharing an untyped bag.
 
 import { hexToRgb } from '../colour'
+import { clamp } from '../clamp'
 
 export interface AudioFrame {
   /** Frequency magnitudes, 0-255. */
@@ -88,10 +89,6 @@ export const BRAND_PALETTE = ['#5b5bd6', '#9a6cff', '#ff9a8b']
 
 const BINS = 1024 // analyser.frequencyBinCount at fftSize 2048
 const NYQUIST = 22050
-
-export function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v
-}
 
 /** Log-spaced bin ranges. Music energy bunches at the bottom, so linear bins
  *  leave the top of the spectrum permanently dead. */

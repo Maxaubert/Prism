@@ -182,6 +182,8 @@ import { useInternalFileDrag } from './lib/internalFileDrag'
 import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
 import { compactRailPref, onboardedPref, placesPref, sidebarPref } from './lib/layoutPrefs'
 import { JobChip } from './components/JobChip'
+import { LoadingState } from './components/LoadingState'
+import { DIALOG_EMPHASIS } from './components/dialogLook'
 import {
   describe as describeUndo,
   emptyUndo,
@@ -512,9 +514,7 @@ function TitleButtons({
  *  the wait is long enough to notice, so a warm cache shows nothing at all. */
 function EditorLoading(): JSX.Element {
   return (
-    <div className="delayed-loader grid h-full w-full place-items-center">
-      <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
-    </div>
+    <LoadingState className="h-full w-full" />
   )
 }
 
@@ -4695,7 +4695,7 @@ export default function App(): JSX.Element {
           title="Move to the Recycle Bin?"
           body={
             <>
-              <span className="text-[#d7dae1]">{ask.name}</span> goes to the Recycle Bin, where
+              <span className={DIALOG_EMPHASIS}>{ask.name}</span> goes to the Recycle Bin, where
               Windows can put it back.
             </>
           }
@@ -4769,7 +4769,7 @@ export default function App(): JSX.Element {
           }
           body={
             <>
-              <span className="text-[#d7dae1]">{unsavedNames.join(', ') || 'This file'}</span>
+              <span className={DIALOG_EMPHASIS}>{unsavedNames.join(', ') || 'This file'}</span>
               {unsavedNames.length > 1
                 ? ' are not on disk yet.'
                 : ' has changes that are not on disk yet.'}{' '}
@@ -4824,7 +4824,7 @@ export default function App(): JSX.Element {
           title="This file changed on disk"
           body={
             <>
-              Something outside Prism rewrote <span className="text-[#d7dae1]">{ask.name}</span>{' '}
+              Something outside Prism rewrote <span className={DIALOG_EMPHASIS}>{ask.name}</span>{' '}
               while you have unsaved changes in it. There is no merge: it is your version or the one
               on disk.
             </>
@@ -4873,15 +4873,15 @@ export default function App(): JSX.Element {
             // the same close. The wording is Prism Terminal's, on purpose.
             ask.agent.forMs === null ? (
               <>
-                <span className="text-[#d7dae1]">{AGENT_NAMES[ask.agent.kind]}</span> is running in{' '}
-                <span className="text-[#d7dae1]">{ask.label}</span>. Closing the tab kills the
+                <span className={DIALOG_EMPHASIS}>{AGENT_NAMES[ask.agent.kind]}</span> is running in{' '}
+                <span className={DIALOG_EMPHASIS}>{ask.label}</span>. Closing the tab kills the
                 shell, and the session with it.
               </>
             ) : (
               <>
-                <span className="text-[#d7dae1]">{AGENT_NAMES[ask.agent.kind]}</span> has been
+                <span className={DIALOG_EMPHASIS}>{AGENT_NAMES[ask.agent.kind]}</span> has been
                 working for {humanFor(ask.agent.forMs)} in{' '}
-                <span className="text-[#d7dae1]">{ask.label}</span>
+                <span className={DIALOG_EMPHASIS}>{ask.label}</span>
                 {ask.kind === 'close-window-agent' &&
                   ask.others > 0 &&
                   `, and ${ask.others} other ${ask.others === 1 ? 'shell is' : 'shells are'} working too`}
@@ -5031,7 +5031,7 @@ export default function App(): JSX.Element {
           }
           body={
             <>
-              <span className="text-[#d7dae1]">{ask.names.join(', ')}</span>
+              <span className={DIALOG_EMPHASIS}>{ask.names.join(', ')}</span>
               {ask.names.length > 1
                 ? ' are not on disk yet.'
                 : ' has changes that are not on disk yet.'}{' '}
@@ -5090,7 +5090,7 @@ export default function App(): JSX.Element {
           }
           body={
             <>
-              <span className="text-[#d7dae1]">{ask.names.join(', ')}</span>
+              <span className={DIALOG_EMPHASIS}>{ask.names.join(', ')}</span>
               {ask.names.length > 1
                 ? ' are not on disk yet.'
                 : ' has changes that are not on disk yet.'}{' '}
@@ -5141,8 +5141,8 @@ export default function App(): JSX.Element {
           title="That name is taken"
           body={
             <>
-              This folder already has a <span className="text-[#d7dae1]">{ask.name}</span>. Keeping
-              both saves yours as <span className="text-[#d7dae1]">{ask.suggestion}</span>;
+              This folder already has a <span className={DIALOG_EMPHASIS}>{ask.name}</span>. Keeping
+              both saves yours as <span className={DIALOG_EMPHASIS}>{ask.suggestion}</span>;
               replacing it sends the old one to the Recycle Bin.
             </>
           }

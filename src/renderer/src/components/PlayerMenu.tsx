@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import { SWITCH_KNOB_ON, SWITCH_ON } from 'prism-term-core/renderer/settings/fields'
 import type { MediaControls } from '../lib/useMediaControls'
 import { setPlayerPref, usePlayerPrefs } from '../lib/playerPrefs'
+import { useDismiss } from '../lib/useDismiss'
 import type { SubTrackInfo } from '../lib/useSubtitles'
 
 // The cog at the right of both transports, where the speed button used to be.
@@ -175,37 +176,26 @@ export function PlayerMenu({
     return () => onOpenChange?.(false) // unmounting always reads as closed
   }, [open, onOpenChange])
 
-  useEffect(() => {
-    if (!open) return
+  useDismiss(
+    open,
+    box,
     // Closing forgets the level: the menu reopens at the top, as YouTube's does.
-    const close = (): void => {
+    () => {
       setOpen(false)
       setLevel('top')
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
+    },
+    {
       // Escape climbs one level; at the top it closes.
-      setLevel((l) => {
-        if (l === 'top') {
-          setOpen(false)
-          return l
-        }
-        return 'top'
-      })
+      onEscape: () =>
+        setLevel((l) => {
+          if (l === 'top') {
+            setOpen(false)
+            return l
+          }
+          return 'top'
+        })
     }
-    const onDown = (e: PointerEvent): void => {
-      if (!box.current?.contains(e.target as Node)) close()
-    }
-    window.addEventListener('keydown', onKey, true)
-    window.addEventListener('pointerdown', onDown, true)
-    window.addEventListener('blur', close)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('pointerdown', onDown, true)
-      window.removeEventListener('blur', close)
-    }
-  }, [open])
+  )
 
   const audioValue = audio ? (audio.tracks.find((t) => t.index === audio.active)?.label ?? 'Default') : ''
   const subsValue = subtitles ? (subtitles.tracks.find((t) => t.path === subtitles.active)?.label ?? 'Off') : ''
