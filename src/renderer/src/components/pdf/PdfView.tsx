@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { openDocAt, rememberDocPos, saveDocPos } from '../../lib/docPosition'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { IconFull } from '../icons'
+import { IconFull } from '../icons/transport'
 import { findMatches, stepMatch, type Match, type PageText } from '../../lib/pdfSearch'
 import { PdfPage } from './PdfPage'
 import { type PdfLink } from '../../lib/pdfLinks'

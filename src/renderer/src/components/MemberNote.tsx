@@ -1,7 +1,7 @@
 import { useState, type JSX } from 'react'
 import { browsableArchive, segments } from '@shared/archivePlace'
-import { KindIcon } from './TreeRows'
-import { FileMenuIcon } from './FileMenuIcon'
+import { KindIcon } from './icons/FileIcons'
+import { FileMenuIcon } from './icons/FileMenuIcon'
 import './browse/archive.css'
 
 /** The innermost archive a member's path runs through, by its name. */

@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { formatTime } from '../lib/format'
 import { MAX_VOL, type MediaControls } from '../lib/useMediaControls'
-import { IconMute, IconPause, IconPlay, IconVol } from './icons'
+import { IconMute, IconPause, IconPlay, IconVol } from './icons/transport'
 import type { TransportStyle } from '../lib/transport'
 import { paletteAt } from '../lib/viz/core'
 

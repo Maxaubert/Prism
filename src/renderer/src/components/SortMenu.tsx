@@ -1,6 +1,7 @@
 import { useRef, useState, type JSX } from 'react'
 import { useDismiss } from '../lib/useDismiss'
 import { SORT_FIELDS, setSortDir, setSortField, useSort } from '../lib/sortPrefs'
+import { Icon } from './icons/Icon'
 
 // The sidebar's handle on folder order, beside the filter. Playnite's shape:
 // one Ascending/Descending pair at the top, a rule, then the fields - one
@@ -21,9 +22,7 @@ function Row({ label, active, onPick }: { label: string; active: boolean; onPick
     >
       {label}
       {active && (
-        <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M4.5 12.5l5 5 10-11" />
-        </svg>
+        <Icon name="tickWide" size={12} weight="2.4" />
       )}
     </button>
   )

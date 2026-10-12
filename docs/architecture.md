@@ -247,6 +247,12 @@ Filesmith's conventions.
   - which viewer a file kind gets, and the lazy viewer chunks: `components/ViewerSwitch.tsx`, with
     a mode per host (`full` App's stage, `phone`, `member` an archive panel's preview). The host
     passes what an archive is (App's card, the phone's panel, a nested panel).
+  - icons: `components/icons/`. A line glyph is `<Icon name | d size weight>` (`Icon.tsx`, with
+    `FolderFill` and `Gear`) over `paths.ts` (`PATHS`, every drawing used twice, stated once;
+    `paths.test.ts` fails on a path string written out a second time). The families keep their
+    modules there: `FileMenuIcon`, `BrowseIcon`, `PlaceIcon`, `TabKindIcon`, `propertyGlyphs`,
+    `settingsIcons`, `transport`, `menuGlyphs` (`menuIcon`, `tickIf`), and `FileIcons`
+    (`KindIcon`, `FolderIcon`, `iconColour`). The generated file-kind art stays `lib/iconPaths.ts`.
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

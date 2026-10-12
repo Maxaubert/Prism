@@ -2,6 +2,8 @@ import { lazy, Suspense, useState, type JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
 import { formatBytes } from '../lib/format'
 import { unsupportedMessage } from '../lib/unsupported'
+import { Icon } from './icons/Icon'
+import { PATHS } from './icons/paths'
 
 // One page of bytes at a time, behind a lazy boundary: nobody who never
 // presses the button pays for it.
@@ -43,21 +45,11 @@ export function UnsupportedView({ file }: { file: ViewerFile }): JSX.Element {
       {/* A hairline and nothing else, so the window's own material carries
           through it, matching EmptyState. No backdrop-filter. */}
       <div className="grid h-[72px] w-[72px] place-items-center rounded-[20px] border border-[color:var(--p-line)] text-[var(--p-accent-hi)]">
-        <svg
-          viewBox="0 0 24 24"
-          width={30}
-          height={30}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-          <path d="M14 3v5h5" />
+        <Icon size={30}>
+          <path d={PATHS.page} />
+          <path d={PATHS.pageFold} />
           <path d="M10 13l4 4m0-4l-4 4" />
-        </svg>
+        </Icon>
       </div>
       <div className="text-lg font-semibold">{unsupportedMessage(file.ext)}</div>
       {/* The filename can be enormous and is the one thing worth reading, so it

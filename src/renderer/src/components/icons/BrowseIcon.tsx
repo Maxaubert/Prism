@@ -1,9 +1,11 @@
 import type { JSX } from 'react'
+import { Icon } from './Icon'
+import { PATHS } from './paths'
 
 const paths = {
   back: 'm14 6-6 6 6 6M8 12h12',
   forward: 'm10 6 6 6-6 6M16 12H4',
-  up: 'm6 10 6-6 6 6M12 4v16',
+  up: PATHS.arrowUp,
   chevron: 'm9 5 7 7-7 7',
   search: 'm20 20-5-5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0',
   terminal: 'm4 5 6 7-6 7M13 19h7',
@@ -20,21 +22,7 @@ const paths = {
 }
 
 export function BrowseIcon({ name }: { name: keyof typeof paths }): JSX.Element {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d={paths[name]} />
-    </svg>
-  )
+  return <Icon d={paths[name]} size={18} weight="1.5" />
 }
 
 /**
@@ -47,20 +35,9 @@ export function BrowseIcon({ name }: { name: keyof typeof paths }): JSX.Element 
  */
 export function PreviewGlyph({ open }: { open: boolean }): JSX.Element {
   return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      data-preview-glyph={open ? 'open' : 'hidden'}
-      aria-hidden="true"
-    >
+    <Icon size={18} data-preview-glyph={open ? 'open' : 'hidden'}>
       {open && <rect x="14.5" y="5" width="5.5" height="14" fill="currentColor" stroke="none" data-preview-column />}
       <path d="M4 5h16v14H4zM14.5 5v14" />
-    </svg>
+    </Icon>
   )
 }

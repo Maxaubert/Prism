@@ -8,6 +8,7 @@ import { ContextMenu } from './ContextMenu'
 import { pasteInto } from 'prism-term-core/renderer/lib/termBus'
 import { copyText } from 'prism-term-core/renderer/lib/copyNotice'
 import { terminalPanelMenu } from '../menus/terminalPanel'
+import { Icon } from './icons/Icon'
 
 // The terminal's dock: size, drag handle, right-click dock menu, drop scoping.
 // No xterm imports here - the heavy chunk stays behind the lazy boundary.
@@ -168,18 +169,7 @@ export function TermDock({
           title="Remove from split view"
           aria-label="Remove the terminal from the split"
         >
-          <svg
-            viewBox="0 0 24 24"
-            width={11}
-            height={11}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            aria-hidden
-          >
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
+          <Icon name="close" size={11} weight="2.2" join={false} />
         </button>
       )}
       <div className="relative min-h-0 min-w-0 flex-1">

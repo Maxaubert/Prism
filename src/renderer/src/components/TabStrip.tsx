@@ -9,8 +9,10 @@ import { pinnedRoots, plusMenuList, recentRoots, togglePin } from 'prism-term-co
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 import { ContextMenu } from './ContextMenu'
 import { plusButtonMenu, tabContextMenu } from '../menus/tabStrip'
-import { TabKindIcon } from './TabKindIcon'
+import { TabKindIcon } from './icons/TabKindIcon'
 import { useTabWidth } from '../lib/tabWidthPrefs'
+import { Icon } from './icons/Icon'
+import { PATHS } from './icons/paths'
 
 /**
  * The open projects, as a row under the title bar.
@@ -38,7 +40,7 @@ const PinGlyph = ({ filled }: { filled: boolean }): JSX.Element => (
     data-pin={filled ? 'on' : 'off'}
     aria-hidden
   >
-    <path d="M15 3l6 6-3 1-4 4 .5 4.5L10 14l-6 6-1-1 6-6-4.5-4.5L9 8l4-4z" />
+    <path d={PATHS.pin} />
   </svg>
 )
 
@@ -511,9 +513,7 @@ export function TabStrip({
                 onClose(t.id)
               }}
             >
-              <svg viewBox="0 0 24 24" width={10} height={10} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
+              <Icon name="close" size={10} weight="2.4" join={false} />
             </button>}
           </div>
         )

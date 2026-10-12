@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { formatBytes } from '../../lib/format'
-import { BrowseIcon, PreviewGlyph } from './BrowseIcon'
+import { BrowseIcon, PreviewGlyph } from '../icons/BrowseIcon'
 import { BrowseList } from './BrowseList'
 import { BrowseSearchStatus } from './BrowseSearchStatus'
 import { BrowseSearchPopup } from './BrowseSearchPopup'

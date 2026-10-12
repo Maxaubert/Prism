@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { Icon } from './icons/Icon'
 
 // The right-click menu for a tree row. Just the actions: you right-clicked the
 // row, so you know what it applies to. Small, keyboard-dismissable, clamped so
@@ -89,9 +90,7 @@ function Row({
           </span>
         )}
         {it.children && (
-          <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-70" aria-hidden>
-            <path d="M9 6l6 6-6 6" />
-          </svg>
+          <Icon name="chevronRight" size={11} weight="2.2" className="shrink-0 opacity-70" />
         )}
       </span>
     </button>

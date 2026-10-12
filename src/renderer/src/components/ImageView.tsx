@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type WheelEvent
 } from 'react'
-import { IconFull } from './icons'
+import { IconFull } from './icons/transport'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
 import { chromeClass, useAutoHideChrome, type ChromeActivityClock } from '../lib/autoHideChrome'

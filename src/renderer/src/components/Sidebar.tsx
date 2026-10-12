@@ -48,6 +48,8 @@ import { nearestRow, onRowOwnPart, rowsInBox, sweepBase, sweepSelect } from '../
 import { useSweep } from '../hooks/useSweep'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 import { EDITOR, FIELD, OVERLAY, inField, isTypingTarget } from '../lib/focusGuards'
+import { Icon } from './icons/Icon'
+import { PATHS } from './icons/paths'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
 // first time a folder is opened and are cached after that; main refuses anything
@@ -133,7 +135,7 @@ const SEARCH_HELP = [
  *  accent (owner, 2026-10-12: "filled in like the preview button"). */
 function TermGlyph({ open }: { open: boolean }): JSX.Element {
   const mask = useId()
-  const prompt = 'M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19'
+  const prompt = PATHS.prompt
   return (
     <svg
       viewBox="0 0 24 24"
@@ -1701,18 +1703,7 @@ export function Sidebar({
                 title="Clear"
                 aria-label="Clear search"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  width={10}
-                  height={10}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  aria-hidden
-                >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
+                <Icon name="close" size={10} weight="2.4" join={false} />
               </button>
             )}
           </div>

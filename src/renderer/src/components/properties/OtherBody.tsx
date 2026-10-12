@@ -3,7 +3,7 @@ import { propsFor } from '../../lib/fileProps'
 import { headerParent } from '../../lib/propsFormat'
 import type { BodyProps } from './bodyProps'
 import { ChecksumRow } from './ChecksumRow'
-import { FileGlyph } from './glyphs'
+import { FileGlyph } from '../icons/propertyGlyphs'
 import { Facts, Footer, Header, Reading } from './parts'
 import { useLoaded } from './useLoaded'
 

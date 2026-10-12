@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type JSX, type MouseEvent } 
 import type { SearchHit } from '@shared/types'
 import { extOf } from '@shared/path'
 import type { TREE_SIZES } from '../lib/treePrefs'
-import { FolderIcon, iconColour, KindIcon } from './TreeRows'
+import { FolderIcon, iconColour, KindIcon } from './icons/FileIcons'
 import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 

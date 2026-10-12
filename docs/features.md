@@ -1512,7 +1512,8 @@ changing a feature: each entry records what the owner decided, why, and what hol
   tab the phone is on, and that row filled in the hover grey; the panel comes in from its
   edge over a scrim that fades, rounded on the side that faces the folder. The current
   root left the header because the ticked row already says it. `FolderGlyph` moved to
-  its own file so the drawer and the explorer share one silhouette.
+  its own file so the drawer and the explorer share one silhouette (since 2026-10-12 it is
+  `FolderFill` in `components/icons/Icon.tsx`, the tree's own).
   **AND THE COG'S MENU IS A BOTTOM SHEET** (same change; owner: "the settings cog in
   videos on mobile is a bit flaky and small"). The desktop's popover is 230px of 30px rows
   at 12.5px hanging off the cog in the bottom corner, under a thumb. On the phone the SAME

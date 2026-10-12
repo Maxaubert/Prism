@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
-import { IconMute, IconVol } from './icons'
+import { IconMute, IconVol } from './icons/transport'
 
 /**
  * The on-picture volume readout (2026-08-27).

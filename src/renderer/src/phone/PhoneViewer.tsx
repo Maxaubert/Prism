@@ -14,6 +14,7 @@ import { diag, watchMedia } from './diag'
 import { watchReturn } from './returning'
 import { askPlay, chooseAudio, type PlayAnswer } from './prismShim'
 import { intendToPlay, rememberPaused, rememberTime } from '../lib/playState'
+import { Icon } from '../components/icons/Icon'
 
 /**
  * The reused viewers on a phone (2026-09-06, #104). Video, audio and
@@ -384,19 +385,7 @@ export function PhoneViewer({
             aria-label="Back to the folder"
             onClick={onClose}
           >
-            <svg
-              viewBox="0 0 24 24"
-              width={22}
-              height={22}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M15 6l-6 6 6 6" />
-            </svg>
+            <Icon name="chevronLeft" size={22} weight="2.2" />
           </button>
           <span className="min-w-0 flex-1 truncate" data-phone-title>
             {file.name}
@@ -427,19 +416,7 @@ export function PhoneViewer({
             disabled={!canStep(1)}
             onClick={() => onStep(1)}
           >
-            <svg
-              viewBox="0 0 24 24"
-              width={22}
-              height={22}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M6 9l6 6 6-6" />
-            </svg>
+            <Icon name="chevronDown" size={22} weight="2.2" />
           </button>
         </header>
       )}

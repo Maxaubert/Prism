@@ -7,7 +7,7 @@ import { usePlayableVideo } from '../lib/usePlayableVideo'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
 import { VolumeReadout } from './VolumeReadout'
-import { IconFull } from './icons'
+import { IconFull } from './icons/transport'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { useViz } from '../lib/vizStore'
@@ -21,6 +21,7 @@ import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
 import { useBackgroundPause } from '../lib/useBackgroundPause'
 import { resolveVizTheme } from '../lib/theme'
 import { tapVerb } from '../lib/tapChrome'
+import { Icon } from './icons/Icon'
 
 /** What a track is called in the picker: its own name if it has one, then the
  *  language, then what it actually is - "English - AC-3 5.1". A file that says
@@ -514,18 +515,7 @@ export function VideoView({
             aria-label="Dismiss"
             title="Dismiss"
           >
-            <svg
-              viewBox="0 0 24 24"
-              width={11}
-              height={11}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-              aria-hidden
-            >
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
+            <Icon name="close" size={11} weight="2.4" join={false} />
           </button>
         </div>
       )}

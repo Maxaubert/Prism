@@ -26,7 +26,7 @@ import {
   useStyle
 } from '../../lib/theme'
 import { APP_SECTIONS, appOpt } from './appOptions'
-import { iconPath } from './icons'
+import { iconPath } from '../icons/settingsIcons'
 
 /**
  * One colour of the style, as a row: the core's picker (ONE COLOUR PICKER,

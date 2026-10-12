@@ -1,4 +1,5 @@
 import { useEffect, useRef, type JSX } from 'react'
+import { Icon } from '../icons/Icon'
 
 // The find bar: Prism's own Ctrl+F. A quiet pill in the top corner: query,
 // where you are among the matches, step, close. The document-wide counting and
@@ -83,9 +84,7 @@ export function PdfFindBar({
         title="Close (Esc)"
         aria-label="Close find"
       >
-        <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
+        <Icon name="close" size={13} weight="2.2" join={false} />
       </button>
     </div>
   )

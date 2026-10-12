@@ -12,7 +12,8 @@ import { ContextMenu } from './ContextMenu'
 import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
 import { PasswordDialog } from './PasswordDialog'
 import { ViewerSwitch } from './ViewerSwitch'
-import { KindIcon, iconColour } from './TreeRows'
+import { KindIcon, iconColour } from './icons/FileIcons'
+import { PATHS } from './icons/paths'
 import { Spinner } from './LoadingState'
 import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
@@ -23,6 +24,7 @@ import { RenameField } from './RenameField'
 import { BrowseRename } from './browse/BrowseRename'
 import type { UndoEntry } from '../lib/undo'
 import { isTypingTarget } from '../lib/focusGuards'
+import { Icon } from './icons/Icon'
 
 // The inside of a zip (#68): Explorer-shaped, not a tree. You are always IN
 // one folder of the archive: clicking a folder walks into it, the breadcrumb
@@ -760,7 +762,7 @@ function ArchiveInner({
               <ArcVerb
                 label="Rename…"
                 onClick={() => setRenamingSelf(true)}
-                path="M4 20h4L19 9l-4-4L4 16z"
+                path={PATHS.pencil}
               />
             )}
             {caps.explorer && (
@@ -1062,19 +1064,7 @@ function ArchiveInner({
                 title="Back to the archive (Esc)"
                 aria-label="Back to the archive"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  width={13}
-                  height={13}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                >
-                  <path d="M15 6l-6 6 6 6" />
-                </svg>
+                <Icon name="chevronLeft" size={13} weight="2" />
               </button>
               {/*
                 A CRUMB, not a caption. Opening an iso inside a zip works, and
@@ -1092,20 +1082,7 @@ function ArchiveInner({
               >
                 {file.name}
               </button>
-              <svg
-                viewBox="0 0 24 24"
-                width={12}
-                height={12}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="shrink-0 text-[var(--p-dim2)]"
-                aria-hidden
-              >
-                <path d="M9 6l6 6-6 6" />
-              </svg>
+              <Icon name="chevronRight" size={12} weight="2" className="shrink-0 text-[var(--p-dim2)]" />
               <span className="min-w-0 truncate font-semibold text-[var(--p-text)]">
                 {member.name}
               </span>
