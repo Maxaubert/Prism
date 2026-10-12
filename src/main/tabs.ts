@@ -1,6 +1,6 @@
 import { containerSync } from './archiveBrowse'
-import { existsSync, readFileSync, statSync, writeFileSync } from 'fs'
-import { rename, rm, writeFile } from 'fs/promises'
+import { existsSync, readFileSync, statSync } from 'fs'
+import { latestWriter } from './latestWrite'
 import { isAbsolute, relative, resolve } from 'path'
 import type { BrowseLocation, SavedBrowse, SavedPane } from '@shared/browse'
 
@@ -83,6 +83,7 @@ const inside = (root: string, p: string): boolean => {
 
 const isFolder = (p: string): boolean => {
   try {
+    // sync-ok: startup, the tab restore (once per page load, before the strip shows)
     return statSync(p).isDirectory()
   } catch {
     return false
@@ -95,6 +96,7 @@ const isFolder = (p: string): boolean => {
  * stat'ed, never read: the restore stays fast (#271), and a folder that has
  * gone from inside the zip is found when it is listed, which falls back.
  */
+// sync-ok: startup, the tab restore (once per page load, before the strip shows)
 const isPlace = (p: string): boolean => isFolder(p) || containerSync(p) !== null
 
 /** History is a bounded suggestion. Each surviving location keeps its own view. */
@@ -213,6 +215,7 @@ export function parseTabs(raw: string): SavedTabs {
       cwd?: unknown
     }
     if (typeof root !== 'string' || !isAbsolute(root) || !isFolder(root)) return
+    // sync-ok: startup, the tab restore (once per page load, before the strip shows)
     const tab: SavedTab = typeof file === 'string' && existsSync(file) ? { root, file } : { root }
     if (role === 'explorer' || role === 'project') tab.role = role
     if (role === 'explorer' && pinned === true && !keptPinnedExplorer) {
@@ -253,6 +256,7 @@ export function parseTabs(raw: string): SavedTabs {
         }
         if (!isAbsolute(pane.path)) continue
         try {
+          // sync-ok: startup, the tab restore (once per page load, before the strip shows)
           if (statSync(pane.path).isFile())
             kept.push({ id: pane.id, path: pane.path, dir: pane.dir })
         } catch {
@@ -299,17 +303,10 @@ export function parseTabs(raw: string): SavedTabs {
 
 export function readTabs(path: string): SavedTabs {
   try {
+    // sync-ok: startup, the tab restore (once per page load, before the strip shows)
     return parseTabs(readFileSync(path, 'utf8'))
   } catch {
     return NONE // no file yet, or one we cannot read
-  }
-}
-
-export function writeTabs(path: string, state: SavedTabs): void {
-  try {
-    writeFileSync(path, JSON.stringify(state))
-  } catch {
-    /* a viewer that cannot write its tab strip is still a viewer */
   }
 }
 
@@ -322,32 +319,16 @@ export function writeTabs(path: string, state: SavedTabs): void {
  * pool and swaps them in with a rename, so a slow disk delays the file, never
  * the app, and a crash mid-write leaves the old file whole. Only `flushSync`,
  * at quit, still waits: a lost last write is a Claude session that never
- * resumes. A write that finishes after a newer one has landed is dropped.
+ * resumes. Writes run one at a time and the newest lands last (`latestWriter`).
  */
 export function tabsWriter(path: () => string): {
   write: (state: SavedTabs) => Promise<void>
   flushSync: (state: SavedTabs) => void
 } {
-  let version = 0
-  let landed = 0
+  const file = latestWriter(path)
   return {
-    async write(state) {
-      const mine = ++version
-      const target = path()
-      const tmp = `${target}.${mine}.tmp`
-      try {
-        await writeFile(tmp, JSON.stringify(state))
-        if (mine < landed) return void (await rm(tmp, { force: true }))
-        await rename(tmp, target)
-        landed = Math.max(landed, mine)
-      } catch {
-        await rm(tmp, { force: true }).catch(() => {})
-      }
-    },
-    flushSync(state) {
-      const mine = ++version
-      writeTabs(path(), state)
-      landed = mine
-    }
+    write: (state) => file.write(JSON.stringify(state)),
+    // sync-ok: the quit flush (window close)
+    flushSync: (state) => file.flushSync(JSON.stringify(state))
   }
 }

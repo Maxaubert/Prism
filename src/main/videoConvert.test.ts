@@ -1,5 +1,15 @@
+import { existsSync, mkdtempSync, utimesSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { cacheName, convertArgs, planConversion, readProgress, type ConvertPlan } from './videoConvert'
+import {
+  cacheName,
+  convertArgs,
+  evictCache,
+  planConversion,
+  readProgress,
+  type ConvertPlan
+} from './videoConvert'
 import type { MediaInfo } from './ffmpeg'
 
 const info = (videoCodec: string | null, audioCodec?: string): MediaInfo => {
@@ -123,5 +133,31 @@ describe('the cache name', () => {
 
   it('is a plain file name, whatever the source was called', () => {
     expect(cacheName('C:\\a b\\../weird "name".avi', 1, 2)).toMatch(/^[0-9a-f]{32}\.mp4$/)
+  })
+})
+
+describe('the cache ceiling', () => {
+  it('drops the oldest copies until the folder fits, and leaves other files alone', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-convert-'))
+    const make = (name: string, bytes: number, age: number): string => {
+      const p = join(dir, name)
+      writeFileSync(p, Buffer.alloc(bytes))
+      const t = new Date(Date.now() - age * 1000)
+      utimesSync(p, t, t)
+      return p
+    }
+    const old = make('old.mp4', 100, 30)
+    const mid = make('mid.mp4', 100, 20)
+    const fresh = make('fresh.mp4', 100, 10)
+    const other = make('note.txt', 500, 40)
+    await evictCache(dir, 200)
+    expect(existsSync(old)).toBe(false)
+    expect(existsSync(mid)).toBe(true)
+    expect(existsSync(fresh)).toBe(true)
+    expect(existsSync(other)).toBe(true)
+  })
+
+  it('is quiet about a folder that is not there', async () => {
+    await expect(evictCache(join(tmpdir(), 'prism-no-such-convert'), 0)).resolves.toBeUndefined()
   })
 })

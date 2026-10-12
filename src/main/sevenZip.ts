@@ -67,12 +67,20 @@ export function sevenFailReason(raw: string): 'password' | 'failed' {
   const wanted = /wrong password|cannot open encrypted|enter password \(will not be echoed\)/i
   return wanted.test(raw) ? 'password' : 'failed'
 }
-import { existsSync, mkdtempSync } from 'fs'
-import { cp, mkdtemp, rename, rm } from 'fs/promises'
+import { existsSync } from 'fs'
+import { access, cp, mkdtemp, rename, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ArchiveEntry, MemberFail } from './archive'
-import { uniqueName } from './fileOps'
+import { uniqueNameAsync } from './fileOps'
+
+/** existsSync's answer without the wait (owner, 2026-10-12, main never waits
+ *  on the disk): arrowing through a 7z or rar member asks this every time. */
+const exists = (p: string): Promise<boolean> =>
+  access(p).then(
+    () => true,
+    () => false
+  )
 
 /**
  * Archives that are not zip: 7z, rar, tar, gz, bz2, xz, iso, cab.
@@ -133,6 +141,7 @@ export function bundledSeven(
   cached =
     sevenDirs(packaged, resourcesPath, appPath)
       .map((d) => join(d, '7z.exe'))
+      // sync-ok: startup (main's setSevenExe, before the window); every later ask is the cache
       .find(existsSync) ?? null
   return cached
 }
@@ -420,7 +429,7 @@ export async function extractSeven(
   /** The run's member folder (#300), instead of a fresh temp dir. */
   into?: string
 ): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
-  const dir = into ?? mkdtempSync(join(tmpdir(), 'prism-arc-'))
+  const dir = into ?? (await mkdtemp(join(tmpdir(), 'prism-arc-')))
   const safe = safeMemberPath(entryPath, dir)
   if (!safe) return { ok: false, reason: 'failed' }
   const r = await run(exe, extractArgs(file, safe, dir, password), 120000)
@@ -433,7 +442,7 @@ export async function extractSeven(
   const out = join(dir, safe.replace(/\//g, sep))
   const rel = relative(resolve(dir), resolve(out))
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) return { ok: false, reason: 'failed' }
-  return existsSync(out) ? { ok: true, path: out } : { ok: false, reason: 'failed' }
+  return (await exists(out)) ? { ok: true, path: out } : { ok: false, reason: 'failed' }
 }
 
 /**
@@ -532,7 +541,7 @@ export async function extractSevenTo(
   | { ok: true; written: number }
   | { ok: false; reason: MemberFail | 'cancelled'; message?: string }
 > {
-  if (!existsSync(destDir)) return { ok: false, reason: 'failed' }
+  if (!(await exists(destDir))) return { ok: false, reason: 'failed' }
   // The listing fails EARLY on a container that cannot be read at all (a
   // wrong password, encrypted names), and counts what is coming so the
   // file-count fallback has something to be a fraction of. 7-Zip's own
@@ -598,7 +607,7 @@ export async function extractSevenTo(
         return { ok: false, reason: 'cancelled' }
       }
       const from = resolve(stage, ...w.split('/'))
-      if (!existsSync(from)) continue
+      if (!(await exists(from))) continue
       let target = resolve(base, basename(w))
       const inside = relative(base, target)
       if (
@@ -608,7 +617,7 @@ export async function extractSevenTo(
         isAbsolute(inside)
       )
         continue
-      if (existsSync(target)) target = join(base, uniqueName(base, basename(w)))
+      if (await exists(target)) target = join(base, await uniqueNameAsync(base, basename(w)))
       try {
         await rename(from, target)
       } catch {

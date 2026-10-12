@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BUCKETS, PEAKS_RATE, foldChunk, normalise, peaksArgs } from './peaks'
+import { BUCKETS, PEAKS_RATE, cachedPeaks, foldChunk, loadPeaks, normalise, peaksArgs } from './peaks'
 
 const acc = (duration: number, buckets = BUCKETS) => ({
   peaks: new Array<number>(buckets).fill(0),
@@ -82,5 +82,17 @@ describe('normalise', () => {
 
   it('has an answer for silence rather than dividing by zero', () => {
     expect(normalise([0, 0, 0]).every((v) => Number.isFinite(v))).toBe(true)
+  })
+})
+
+describe('the cache, asked without blocking', () => {
+  it('answers a Promise, and null for a file never measured', async () => {
+    const known = cachedPeaks('prism-no-such-dir/never.mp3')
+    expect(known).toBeInstanceOf(Promise)
+    expect(await known).toBeNull()
+  })
+
+  it('spawns nothing without a length to divide by', async () => {
+    expect(await loadPeaks('no-such-ffmpeg', 'prism-no-such-dir/never.mp3', 0)).toBeNull()
   })
 })

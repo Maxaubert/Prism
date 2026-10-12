@@ -7,7 +7,7 @@
  */
 import { execFile } from 'child_process'
 import { managedIndexerRuntime } from './indexerRuntime'
-import { existsSync } from 'fs'
+import { access } from 'fs/promises'
 import { basename, extname, join } from 'path'
 import { fileKind, isViewable } from '@shared/fileKind'
 import { everythingArgs, isDirAttr, isHiddenAttr } from '@shared/everythingQuery'
@@ -16,6 +16,13 @@ import type { SearchHit, SearchResult } from '@shared/types'
 import { isSkipped } from '@shared/listRules'
 
 let esPath: string | null | undefined
+
+/** existsSync's answer without blocking main: anything unreachable is absent. */
+const exists = (p: string): Promise<boolean> =>
+  access(p).then(
+    () => true,
+    () => false
+  )
 
 /** Where es.exe is, or null. Looked up once per run. */
 export function findEverything(root?: string, signal?: AbortSignal): Promise<string | null> {
@@ -29,13 +36,22 @@ export function findEverything(root?: string, signal?: AbortSignal): Promise<str
     join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Everything', 'es.exe'),
     join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Everything', 'es.exe')
   ]
-  return new Promise((done) => {
+  return new Promise<string>((done) => {
     execFile('where.exe', ['es.exe'], { windowsHide: true }, (err, out) => {
-      const fromPath = !err ? (out.split(/\r?\n/).find((l) => l.trim()) ?? '').trim() : ''
-      esPath =
-        fromPath && existsSync(fromPath) ? fromPath : (fixed.find((p) => existsSync(p)) ?? null)
-      done(esPath)
+      done(!err ? (out.split(/\r?\n/).find((l) => l.trim()) ?? '').trim() : '')
     })
+  }).then(async (fromPath) => {
+    // Probed in the same order as before, without blocking main (2026-10-12).
+    let found: string | null = null
+    if (fromPath && (await exists(fromPath))) found = fromPath
+    else
+      for (const p of fixed)
+        if (await exists(p)) {
+          found = p
+          break
+        }
+    esPath = found
+    return found
   })
 }
 

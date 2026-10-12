@@ -1,5 +1,4 @@
-import { existsSync, renameSync } from 'fs'
-import { mkdir, readdir, stat } from 'fs/promises'
+import { access, mkdir, readdir, rename, stat } from 'fs/promises'
 import { dirname, extname, join } from 'path'
 import type { OnClash, RenameResult } from '@shared/types'
 
@@ -27,17 +26,29 @@ export function nameError(name: string): string | null {
 /** Two paths that differ only in capitalisation are the same file on Windows. */
 const sameFile = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
 
+/** existsSync's answer without the wait: anything that cannot be reached is absent. */
+const exists = (p: string): Promise<boolean> =>
+  access(p).then(
+    () => true,
+    () => false
+  )
+
 /**
  * "photo.jpg" -> "photo (2).jpg", counting up until the folder has no such file.
  * The suffix goes before the extension, the way Explorer does it.
+ *
+ * Awaited, never synchronous (owner, 2026-10-12, the 3.9 s tabs.json freeze:
+ * main never waits on the disk while the user works); the synchronous
+ * `uniqueName` went with its last caller. The name is free when looked at, not when used: a
+ * caller that makes it should still take EEXIST as "try again".
  */
-export function uniqueName(dir: string, name: string): string {
-  if (!existsSync(join(dir, name))) return name
+export async function uniqueNameAsync(dir: string, name: string): Promise<string> {
+  if (!(await exists(join(dir, name)))) return name
   const ext = extname(name)
   const stem = ext ? name.slice(0, -ext.length) : name
   for (let i = 2; i < 1000; i += 1) {
     const candidate = `${stem} (${i})${ext}`
-    if (!existsSync(join(dir, candidate))) return candidate
+    if (!(await exists(join(dir, candidate)))) return candidate
   }
   return `${stem} (${Date.now()})${ext}`
 }
@@ -56,7 +67,7 @@ export async function renameFile(
 ): Promise<RenameResult> {
   const bad = nameError(name)
   if (bad) return { ok: false, reason: 'invalid', message: bad }
-  if (!existsSync(path)) return { ok: false, reason: 'missing' }
+  if (!(await exists(path))) return { ok: false, reason: 'missing' }
 
   const dir = dirname(path)
   const wanted = name.trim()
@@ -67,9 +78,10 @@ export async function renameFile(
 
   // Changing only the capitalisation of the same file isn't a clash.
   let replaced: string | undefined
-  if (existsSync(target) && !sameFile(target, path)) {
-    if (onClash === 'ask') return { ok: false, reason: 'clash', suggestion: uniqueName(dir, wanted) }
-    if (onClash === 'keep-both') target = join(dir, uniqueName(dir, wanted))
+  if ((await exists(target)) && !sameFile(target, path)) {
+    if (onClash === 'ask')
+      return { ok: false, reason: 'clash', suggestion: await uniqueNameAsync(dir, wanted) }
+    if (onClash === 'keep-both') target = join(dir, await uniqueNameAsync(dir, wanted))
     else {
       replaced = target
       await trash(target)
@@ -77,7 +89,7 @@ export async function renameFile(
   }
 
   try {
-    renameSync(path, target)
+    await rename(path, target)
     return { ok: true, path: target, replaced }
   } catch (e) {
     return { ok: false, reason: 'failed', message: e instanceof Error ? e.message : String(e) }
@@ -100,7 +112,7 @@ export async function makeFolder(dir: string, name = 'New folder'): Promise<stri
     return null
   }
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const target = join(dir, uniqueName(dir, name))
+    const target = join(dir, await uniqueNameAsync(dir, name))
     try {
       await mkdir(target)
       return target

@@ -1,5 +1,8 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { matchSubs, srtToVtt, stripVttStyles } from './subtitles'
+import { matchSubs, readAsVtt, sidecarsFor, srtToVtt, stripVttStyles } from './subtitles'
 
 describe('matchSubs', () => {
   const files = [
@@ -98,5 +101,30 @@ describe('stripVttStyles', () => {
   it('leaves a plain file untouched', () => {
     const vtt = 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nJust a cue\n'
     expect(stripVttStyles(vtt)).toBe(vtt)
+  })
+})
+
+describe('the tracks on disk, read without blocking', () => {
+  it('finds the sidecars beside the video and in a Subs folder', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-subs-'))
+    writeFileSync(join(dir, 'Film.mkv'), '')
+    writeFileSync(join(dir, 'Film.srt'), '')
+    writeFileSync(join(dir, 'Other.srt'), '')
+    mkdirSync(join(dir, 'Subs'))
+    writeFileSync(join(dir, 'Subs', 'Film.en.srt'), '')
+    const got = await sidecarsFor(join(dir, 'Film.mkv'))
+    expect(got.map((t) => t.path)).toEqual([join(dir, 'Film.srt'), join(dir, 'Subs', 'Film.en.srt')])
+  })
+
+  it('answers nothing for a folder that cannot be read', async () => {
+    expect(await sidecarsFor(join(tmpdir(), 'prism-no-such-dir', 'Film.mkv'))).toEqual([])
+  })
+
+  it('reads an srt as WebVTT, and nothing for a file that is not there', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-subs-read-'))
+    const srt = join(dir, 'a.srt')
+    writeFileSync(srt, '1\n00:00:01,000 --> 00:00:02,000\nHi\n')
+    expect(await readAsVtt(srt)).toBe('WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHi\n')
+    expect(await readAsVtt(join(dir, 'gone.srt'))).toBeNull()
   })
 })

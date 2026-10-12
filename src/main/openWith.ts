@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import { existsSync } from 'fs'
+import { access } from 'fs/promises'
 import { basename } from 'path'
 
 // "Open in ..." candidates for a file extension, read from the registry the way
@@ -130,10 +130,18 @@ async function friendlyName(appKey: string, exe: string): Promise<string> {
   return stemName(exe)
 }
 
+/** Is the exe there? Asked off the main thread: the "Open in" submenu probes
+ *  every registered app (owner, 2026-10-12, main never waits on the disk). */
+const exists = (p: string): Promise<boolean> =>
+  access(p).then(
+    () => true,
+    () => false
+  )
+
 async function candidateFromCommand(cmd: string): Promise<AppCandidate | null> {
   const args = splitCommandLine(expandEnv(cmd))
   const exe = args[0]
-  if (!exe || !existsSync(exe)) return null
+  if (!exe || !(await exists(exe))) return null
   return { exe, args, name: stemName(exe) }
 }
 
@@ -151,7 +159,7 @@ async function fromExeName(exeName: string): Promise<AppCandidate | null> {
   )
   if (appPath) {
     const exe = expandEnv(appPath.replace(/^"|"$/g, ''))
-    if (existsSync(exe)) {
+    if (await exists(exe)) {
       return { exe, args: [exe, '%1'], name: stemName(exe) }
     }
   }

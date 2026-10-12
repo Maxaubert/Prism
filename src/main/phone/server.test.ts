@@ -137,13 +137,13 @@ beforeEach(async () => {
     isRoot: sameRoot,
     rootOpen: (root) => open.some((r) => sameRoot(r, root)),
     openRoots: () => open,
-    subsFor: () => [{ path: join(dir, 'clip.srt'), label: 'English' }],
+    subsFor: async () => [{ path: join(dir, 'clip.srt'), label: 'English' }],
     readSubs: async () => 'WEBVTT\n',
     probe: async (p) => probeOf(p),
     readText: async (p): Promise<TextRead> =>
       p.endsWith('.md') ? { text: '![x](pic.png)' } : p.endsWith('.bin') ? { error: 'unreadable' } : { text: 'hello' },
     docHtml: async (p) => (p.endsWith('.docx') ? '<p>doc</p>' : null),
-    docImages: () => [picOutside],
+    docImages: async () => [picOutside],
     isMarkdown: (p) => p.endsWith('.md'),
     grantServable: (paths) => {
       servable.push(...paths)

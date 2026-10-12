@@ -290,11 +290,13 @@ let cached: FfmpegTools | null | undefined
 
 export function findFfmpeg(packaged: boolean, resourcesPath: string, appPath: string): FfmpegTools | null {
   if (cached !== undefined) return cached
+  // The first call is at startup (app.whenReady's hlsTools, before any IPC
+  // can arrive); the answer, null included, is cached for the process.
   for (const dir of ffmpegDirs(packaged, resourcesPath, appPath)) {
     const ffmpeg = join(dir, 'ffmpeg.exe')
-    if (!existsSync(ffmpeg)) continue
+    if (!existsSync(ffmpeg)) continue // sync-ok: startup, once per process (cached)
     const ffprobe = join(dir, 'ffprobe.exe')
-    cached = { ffmpeg, ffprobe: existsSync(ffprobe) ? ffprobe : null }
+    cached = { ffmpeg, ffprobe: existsSync(ffprobe) ? ffprobe : null } // sync-ok: startup, once per process (cached)
     return cached
   }
   cached = null

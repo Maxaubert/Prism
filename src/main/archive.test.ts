@@ -132,7 +132,7 @@ describe('drag and drop (#70)', () => {
   it('adds real files and whole folders into the zip, under a folder', async () => {
     const src = mkdtempSync(join(tmpdir(), 'prism-add-'))
     writeFileSync(join(src, 'new.txt'), 'fresh')
-    const r = addToArchive(zipPath, [join(src, 'new.txt')], 'docs')
+    const r = await addToArchive(zipPath, [join(src, 'new.txt')], 'docs')
     if (r === 'encrypted' || r === 'failed') throw new Error('expected a result')
     expect(r.added.map((a) => a.entry)).toEqual(['docs/new.txt'])
     expect(r.clashes).toEqual([])
@@ -145,15 +145,25 @@ describe('drag and drop (#70)', () => {
   it('reports a taken name and writes nothing, unless told to keep both', async () => {
     const src = mkdtempSync(join(tmpdir(), 'prism-add2-'))
     writeFileSync(join(src, 'readme.txt'), 'other')
-    expect(addToArchive(zipPath, [join(src, 'readme.txt')], '')).toMatchObject({
+    expect(await addToArchive(zipPath, [join(src, 'readme.txt')], '')).toMatchObject({
       added: [],
       clashes: ['readme.txt']
     })
     expect(await extractMemberText(zipPath, 'readme.txt')).toBe('hello')
-    const kept = addToArchive(zipPath, [join(src, 'readme.txt')], '', true)
+    const kept = await addToArchive(zipPath, [join(src, 'readme.txt')], '', true)
     if (kept === 'encrypted' || kept === 'failed') throw new Error('expected a result')
     expect(kept.added.map((a) => a.entry)).toEqual(['readme (2).txt'])
     expect(listArchive(zipPath).map((e) => e.path)).toContain('readme (2).txt')
+  })
+
+  it('reports a source that is not there as failed, and adds the rest', async () => {
+    const src = mkdtempSync(join(tmpdir(), 'prism-add3-'))
+    writeFileSync(join(src, 'here.txt'), 'here')
+    const r = await addToArchive(zipPath, [join(src, 'gone.txt'), join(src, 'here.txt')], '')
+    if (r === 'encrypted' || r === 'failed') throw new Error('expected a result')
+    expect(r.failed).toEqual([join(src, 'gone.txt')])
+    expect(r.added.map((a) => a.entry)).toEqual(['here.txt'])
+    expect(deleteMember(zipPath, 'here.txt')).toBe(true)
   })
 
   it('moves a member into another folder inside the zip', () => {
@@ -200,14 +210,14 @@ describe('drag and drop (#70)', () => {
     expect(one.mtime).toBeGreaterThan(Date.parse('2020-01-01'))
   })
 
-  it('refuses to rebuild a password-protected archive', () => {
+  it('refuses to rebuild a password-protected archive', async () => {
     const crypto = join(__dirname, 'fixtures', 'crypto.zip')
     const copy = join(mkdtempSync(join(tmpdir(), 'prism-enc-')), 'c.zip')
     writeFileSync(copy, readFileSync(crypto))
     const src = mkdtempSync(join(tmpdir(), 'prism-enc-src-'))
     writeFileSync(join(src, 'x.txt'), 'x')
     expect(hasEncrypted(copy)).toBe(true)
-    expect(addToArchive(copy, [join(src, 'x.txt')], '')).toBe('encrypted')
+    expect(await addToArchive(copy, [join(src, 'x.txt')], '')).toBe('encrypted')
     expect(moveMembers(copy, ['secret.txt'], 'sub')).toBe('encrypted')
   })
 

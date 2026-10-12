@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs'
+import { readFile } from 'fs/promises'
 import { extname } from 'path'
 
 /**
@@ -251,7 +251,9 @@ export async function convertDoc(path: string): Promise<string | null> {
   const AdmZip = (await import('adm-zip')).default
   const ext = extname(path).toLowerCase()
 
-  if (kind === 'rtf') return rtfToHtml(readFileSync(path, 'latin1'))
+  // Read with fs/promises (owner, 2026-10-12, main never waits on the disk):
+  // an rtf with pictures in it is tens of MB.
+  if (kind === 'rtf') return rtfToHtml(await readFile(path, 'latin1'))
 
   if (kind === 'word' && (ext === '.docx' || ext === '.docm')) {
     const mammoth = await import('mammoth')
@@ -270,6 +272,7 @@ export async function convertDoc(path: string): Promise<string | null> {
   }
 
   if (kind === 'word' || (kind === 'slides' && ext === '.odp')) {
+    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
     const zip = new AdmZip(path) as unknown as ZipLike
     const xml = readText(zip, 'content.xml')
     return xml ? odfToHtml(xml) : null
@@ -277,7 +280,7 @@ export async function convertDoc(path: string): Promise<string | null> {
 
   if (kind === 'sheet') {
     const XLSX = await import('xlsx')
-    const wb = XLSX.read(readFileSync(path), { type: 'buffer' })
+    const wb = XLSX.read(await readFile(path), { type: 'buffer' })
     return wb.SheetNames.map((name) => {
       const html = XLSX.utils.sheet_to_html(wb.Sheets[name], { id: 'sheet' })
       const table = /<table[^>]*>([\s\S]*?)<\/table>/i.exec(html)?.[1] ?? ''
@@ -286,6 +289,7 @@ export async function convertDoc(path: string): Promise<string | null> {
   }
 
   if (kind === 'slides') {
+    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
     const zip = new AdmZip(path) as unknown as ZipLike
     const names = zip.getEntries().map((e) => e.entryName)
     const slides = slideOrder(names)
@@ -299,6 +303,7 @@ export async function convertDoc(path: string): Promise<string | null> {
   }
 
   // epub
+  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
   const zip = new AdmZip(path) as unknown as ZipLike
   const container = readText(zip, 'META-INF/container.xml')
   const opfName = container ? opfPath(container) : null

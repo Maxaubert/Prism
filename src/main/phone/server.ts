@@ -102,7 +102,7 @@ export interface PhoneDeps {
    *  nothing else. */
   openRoots: () => readonly string[]
   /** Sidecar subtitle tracks beside a media file. */
-  subsFor: (p: string) => Array<{ path: string; label: string }>
+  subsFor: (p: string) => Promise<Array<{ path: string; label: string }>>
   /** One sidecar as WebVTT; null when it cannot be read or converted. */
   readSubs: (p: string) => Promise<string | null>
   /** Main's cached probe: what the file holds, or null when ffprobe could
@@ -119,7 +119,7 @@ export interface PhoneDeps {
   docHtml: (p: string) => Promise<string | null>
   /** The local pictures a markdown names (`documentImages`): what the
    *  phone that read it is granted. */
-  docImages: (p: string, text: string) => string[]
+  docImages: (p: string, text: string) => Promise<string[]>
   isMarkdown: (p: string) => boolean
   /** Main's own media wall has to learn the same pictures: `/m/` goes
    *  through `serveMedia`, which checks its `servable` set on top of this
@@ -633,7 +633,7 @@ export class PhoneServer {
       }
       case 'subs': {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
-        return void json(res, 200, this.deps.subsFor(path))
+        return void json(res, 200, await this.deps.subsFor(path))
       }
       case 'subs/read': {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
@@ -653,7 +653,7 @@ export class PhoneServer {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         const r = await this.deps.readText(path)
         if ('text' in r && this.deps.isMarkdown(path)) {
-          const imgs = this.deps.docImages(path, r.text)
+          const imgs = await this.deps.docImages(path, r.text)
           for (const img of imgs) this.grants.grant(token, img)
           if (imgs.length) this.deps.grantServable(imgs)
         }

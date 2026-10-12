@@ -1,6 +1,6 @@
 import { spawn } from 'child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
-import { readdir, rm } from 'fs/promises'
+import { writeFileSync } from 'fs'
+import { mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -39,12 +39,23 @@ export function explorerWindowArgs(options: {
   }
 }
 
+/** Startup (before the window) and will-quit only: both must land before what follows. */
 export function markExplorerWindow(profile: string, closed: boolean): void {
   try {
+    // sync-ok: startup before the window and will-quit, where the marker must be down before exit
     writeFileSync(join(profile, MARKER), JSON.stringify({ pid: process.pid, closed }))
   } catch {
     // A missing marker prevents cleanup rather than risking an unknown profile.
   }
+}
+
+/** A launched child that failed: the same marker, written without blocking main. */
+async function markClosed(profile: string): Promise<void> {
+  await writeFile(join(profile, MARKER), JSON.stringify({ pid: process.pid, closed: true })).catch(
+    () => {
+      // A missing marker prevents cleanup rather than risking an unknown profile.
+    }
+  )
 }
 
 /** An installer must not bypass another window's unsaved-file/terminal close flow. */
@@ -60,7 +71,7 @@ export async function hasOtherExplorerWindows(owner: string): Promise<boolean> {
   for (const profile of profiles) {
     let pid: number
     try {
-      const marker = JSON.parse(readFileSync(join(profile, MARKER), 'utf8'))
+      const marker = JSON.parse(await readFile(join(profile, MARKER), 'utf8'))
       if (marker.pid === process.pid) continue
       if (!Number.isSafeInteger(marker.pid) || marker.pid <= 0) return true
       pid = marker.pid
@@ -86,7 +97,7 @@ export async function cleanExplorerWindows(owner: string): Promise<void> {
     if (!item.isDirectory() || item.isSymbolicLink() || !UUID.test(item.name)) continue
     const profile = join(root, item.name)
     try {
-      const marker = JSON.parse(readFileSync(join(profile, MARKER), 'utf8'))
+      const marker = JSON.parse(await readFile(join(profile, MARKER), 'utf8'))
       if (marker.closed !== true || !Number.isSafeInteger(marker.pid) || marker.pid <= 0) continue
       try {
         process.kill(marker.pid, 0)
@@ -101,16 +112,18 @@ export async function cleanExplorerWindows(owner: string): Promise<void> {
   }
 }
 
-export function launchExplorerWindow(
+/** Async (owner, 2026-10-12: main never waits on the disk while the user
+ *  works); a Win+E arrives while Prism is in use. Rejects as it used to throw. */
+export async function launchExplorerWindow(
   options: Parameters<typeof explorerWindowArgs>[0] & {
     executable: string
   }
-): void {
+): Promise<void> {
   const { profile, args } = explorerWindowArgs(options)
-  mkdirSync(dirname(profile), { recursive: true })
+  await mkdir(dirname(profile), { recursive: true })
   try {
     // Request tokens are unique; a retransmitted token must not launch twice.
-    mkdirSync(profile)
+    await mkdir(profile)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') return
     throw error
@@ -119,21 +132,19 @@ export function launchExplorerWindow(
   try {
     child = spawn(options.executable, args, { detached: true, stdio: 'ignore' })
   } catch (error) {
-    markExplorerWindow(profile, true)
+    await markClosed(profile)
     throw error
   }
   // Never ACK from the old window. The new renderer acknowledges its own readiness;
   // launch failure or timeout leaves the helper's Windows Explorer fallback intact.
   child.on('spawn', () => {
-    try {
-      writeFileSync(join(profile, MARKER), JSON.stringify({ pid: child.pid, closed: false }), {
-        flag: 'wx'
-      })
-    } catch {
+    void writeFile(join(profile, MARKER), JSON.stringify({ pid: child.pid, closed: false }), {
+      flag: 'wx'
+    }).catch(() => {
       /* The child may already have written its own marker. */
-    }
+    })
   })
-  child.on('error', () => markExplorerWindow(profile, true))
+  child.on('error', () => void markClosed(profile))
   child.on('exit', () => void cleanExplorerWindows(options.owner))
   child.unref()
 }
