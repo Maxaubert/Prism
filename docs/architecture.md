@@ -232,6 +232,11 @@ Filesmith's conventions.
     `Dialog` and `PropertiesDialog` wrap it. The look stays in `dialogLook.ts` (with
     `DIALOG_EMPHASIS`, the name inside a question), which `ExtractWindow` shares.
   - `clamp`: `src/renderer/src/lib/clamp.ts`.
+  - the archive verbs (password retry, add with Keep both and the move's binning, extract,
+    rename, the permanent delete) and every line they say: `components/archive/archiveOps.ts`,
+    with their questions in `useArchiveOps.tsx`. The member panel (ArchiveView) and a zip in
+    the Explorer or tree (`useArchiveActions`) both use it. adm-zip's write cap is
+    `src/shared/archiveLimits.ts` (`ZIP_WRITE_MAX`), read by main and the renderer.
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

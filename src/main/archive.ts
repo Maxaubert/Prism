@@ -20,6 +20,7 @@ import {
   type ZipEntryLike
 } from './zipShared'
 import { exists } from './fsUtil'
+import { ZIP_WRITE_MAX } from '@shared/archiveLimits'
 
 export { setSevenExe, sevenZipExe, validMemberName } from './zipShared'
 export type { AddResult, ArchiveEntry, ArchiveStat, MemberFail } from './zipShared'
@@ -38,8 +39,6 @@ export type { AddResult, ArchiveEntry, ArchiveStat, MemberFail } from './zipShar
 // read the container with fs/promises and inflate on the libuv pool. Those
 // wait for any edit of the same zip asked for before them.
 
-/** Past this, listing still works but member operations are refused. */
-const MAX_ARCHIVE_BYTES = 600 * 1024 * 1024
 
 let client: ZipClient | null = null
 
@@ -91,7 +90,7 @@ export function deleteMember(zipPath: string, entryPath: string): Promise<boolea
 }
 
 export function archiveTooLarge(sizeBytes: number): boolean {
-  return sizeBytes > MAX_ARCHIVE_BYTES
+  return sizeBytes > ZIP_WRITE_MAX
 }
 
 export function archiveStat(zipPath: string): Promise<ArchiveStat | null> {
