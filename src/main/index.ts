@@ -160,6 +160,7 @@ import {
   moveMembers,
   renameMember,
   setSevenExe,
+  setZipFork,
   type ArchiveStat
 } from './archive'
 import { insideSelf, moveEntries } from './moveOps'
@@ -1369,6 +1370,10 @@ if (!E2E) Menu.setApplicationMenu(null)
 // to install one, while Prism has been shipping it in resources/bin since
 // 2026-08-24. Injected here so archive.ts stays electron-free and testable.
 setSevenExe(bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()))
+// Every adm-zip call that reads or rewrites a whole archive runs in this
+// utility process, forked on first use (owner, 2026-10-12, zip work off the
+// main process; zipWorker.ts).
+setZipFork(() => utilityProcess.fork(join(__dirname, 'zipWorker.js'), [], { serviceName: 'Prism zip' }))
 initDwmHelper(app.isPackaged, process.resourcesPath, app.getAppPath())
 // Set once rather than on first use: the media wall consults it, and a wall
 // whose rule appears part way through a session is a rule nobody can reason
@@ -3792,12 +3797,13 @@ if (!app.requestSingleInstanceLock()) {
       async (_e, zip: string, srcPaths: string[], destFolder: string, keepBoth?: boolean) => {
         if (!archiveOk(zip) || !Array.isArray(srcPaths) || !srcPaths.every(movable)) return 'failed'
         if (archiveTooLarge((await stat(zip)).size)) return 'failed'
+        // A worker that died mid-job answers like any other failure.
         return addToArchive(
           zip,
           srcPaths,
           typeof destFolder === 'string' ? destFolder : '',
           !!keepBoth
-        )
+        ).catch(() => 'failed' as const)
       }
     )
     ipcMain.handle(
@@ -3805,7 +3811,9 @@ if (!app.requestSingleInstanceLock()) {
       async (_e, zip: string, entries: string[], destFolder: string) => {
         if (!archiveOk(zip) || !Array.isArray(entries)) return 'failed'
         if (archiveTooLarge((await stat(zip)).size)) return 'failed'
-        return moveMembers(zip, entries, typeof destFolder === 'string' ? destFolder : '')
+        return moveMembers(zip, entries, typeof destFolder === 'string' ? destFolder : '').catch(
+          () => 'failed' as const
+        )
       }
     )
     /**
@@ -4141,7 +4149,7 @@ if (!app.requestSingleInstanceLock()) {
       }
       // Every top-level entry: extractTo matches members by prefix, and the
       // roots of the tree are what covers all of them.
-      const tops = listArchive(p)
+      const tops = (await listArchive(p))
         .filter((e) => !e.path.includes('/'))
         .map((e) => e.path)
       const out = await extractTo(p, tops, into, pw || undefined, watching(job))
@@ -4159,7 +4167,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('archive:stat', async (_e, p: string): Promise<ArchiveStat | null> => {
       if (!archiveOk(p)) return null
       const exe = await seven(p)
-      if (!exe) return archiveStat(p)
+      if (!exe) return archiveStat(p).catch(() => null)
       const listed = await listSeven(exe, p, archivePasswords.get(p) ?? '')
       if (!listed.ok) return null
       const list = listed.entries
@@ -4184,7 +4192,7 @@ if (!app.requestSingleInstanceLock()) {
       try {
         const exe = await seven(p)
         if (!exe) {
-          const entries = listArchive(p)
+          const entries = await listArchive(p)
           return entries ? { ok: true, entries } : { ok: false, reason: 'failed' }
         }
         const pw = password || (archivePasswords.get(p) ?? '')
@@ -4539,7 +4547,7 @@ if (!app.requestSingleInstanceLock()) {
       if (!archiveOk(p) || typeof entry !== 'string') return false
       if (await seven(p)) return false
       try {
-        return !archiveTooLarge((await stat(p)).size) && deleteMember(p, entry)
+        return !archiveTooLarge((await stat(p)).size) && (await deleteMember(p, entry))
       } catch {
         return false
       }

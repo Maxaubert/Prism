@@ -72,7 +72,10 @@ export default defineConfig({
           heicWorker: resolve(__dirname, 'src/main/heicWorker.ts'),
           // A worker thread, so documents are converted and their converters
           // loaded off main (2026-10-12, docClient.ts).
-          docWorker: resolve(__dirname, 'src/main/docWorker.ts')
+          docWorker: resolve(__dirname, 'src/main/docWorker.ts'),
+          // Forked the same way so adm-zip never reads or rewrites a whole
+          // archive on main (owner, 2026-10-12).
+          zipWorker: resolve(__dirname, 'src/main/zipWorker.ts')
         }
       }
     }
