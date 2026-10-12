@@ -15,6 +15,7 @@ import {
 } from '@shared/archivePlace'
 import { withImpliedFolders } from '@shared/archiveTree'
 import { fileKind, isViewable } from '@shared/fileKind'
+import { byName } from '@shared/path'
 import { matchesQuery, parseQuery } from '@shared/searchQuery'
 import {
   archiveTooLarge,
@@ -147,8 +148,6 @@ function hostile(path: string): boolean {
   return !p || p.startsWith('/') || /^[a-z]:/i.test(p) || p.split('/').some((s) => s === '..') || p.includes('\0')
 }
 
-const collator = new Intl.Collator(undefined, { numeric: true })
-const byName = (a: { name: string }, b: { name: string }): number => collator.compare(a.name, b.name)
 
 /** The container a path is inside, by a synchronous stat (the restore's
  *  check, #300): a stat of the candidates only, never a read of the zip.

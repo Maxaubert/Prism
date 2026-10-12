@@ -95,7 +95,3 @@ function imageCandidates(docPath: string, text: string): string[] {
   }
   return out
 }
-
-export function isMarkdownPath(p: string): boolean {
-  return /\.(md|markdown|mdx|mkd|mdown|mkdn|mk)$/i.test(p)
-}

@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'fs/promises'
 import { extname, join } from 'path'
 import { fileKind } from '@shared/fileKind'
+import { pathKey } from '@shared/path'
 import type { ArchiveMeta, DirListing, ViewerFile } from '@shared/types'
 
 /**
@@ -81,7 +82,7 @@ interface Stored {
 /** The cache's name for a folder: Windows paths compare without case. */
 export const cacheKey = (path: string): string =>
   createHash('sha1')
-    .update(path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase())
+    .update(pathKey(path))
     .digest('hex')
 
 /** Pure: a complete listing in its stored form, trimmed to `maxEntries`

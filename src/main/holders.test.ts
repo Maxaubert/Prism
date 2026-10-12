@@ -20,6 +20,12 @@ describe('under', () => {
     expect(under('C:\\Films\\sub\\a.mkv', 'C:\\Films')).toBe(true)
     expect(under('C:\\Films2\\a.mkv', 'C:\\Films')).toBe(false)
   })
+
+  it('resolves first, so a `..` cannot walk out and back in', () => {
+    expect(under('C:\\Films\\..\\Secret\\a.mkv', 'C:\\Films')).toBe(false)
+    expect(under('C:\\Other\\..\\Films\\a.mkv', 'C:\\Films')).toBe(true)
+    expect(under('C:\\a.mkv', 'C:\\')).toBe(true)
+  })
 })
 
 describe('Holders', () => {

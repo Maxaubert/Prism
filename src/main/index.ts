@@ -111,7 +111,7 @@ import { browseWatcherOf } from './browseWatch'
 import { diagWindowEvent } from './diagWindow'
 import { mainCrumb } from './diagCrumb'
 import { initSweepOverlay, loadSweepAddon, sweepDirs, type SweepOverlay } from './sweepOverlay'
-import { documentImages, isMarkdownPath } from './docImages'
+import { documentImages } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, ffmpegDirs, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
 import { decodableImages, decodeImage, needsImageDecode, tiffPages } from './imageDecode'
@@ -174,7 +174,8 @@ import { crashBudget } from './crashBudget'
 import { appendCrashLog, crashLine, crashLogSettled } from './crashLog'
 import { guardWindow, pageGone } from './windowGuard'
 import pkg from '../../package.json'
-import { fileKind } from '@shared/fileKind'
+import { fileKind, isMarkdown } from '@shared/fileKind'
+import { samePath } from '@shared/path'
 import type { BrowseDirectory, BrowseSearchResult } from '@shared/browse'
 import type {
   ArchiveListing,
@@ -2312,7 +2313,7 @@ if (!app.requestSingleInstanceLock()) {
       readText: readTextWalled,
       docHtml: docHtmlOf,
       docImages: documentImages,
-      isMarkdown: isMarkdownPath,
+      isMarkdown,
       // `/m/` passes through serveMedia, whose wall is `mediaAllowed`; the
       // phone's grant on its side is not enough on its own.
       grantServable: (paths) => {
@@ -3038,7 +3039,7 @@ if (!app.requestSingleInstanceLock()) {
       // opened in ("../assets/logo.png" from a doc in docs/), which the
       // media wall would otherwise refuse. Main grants exactly the files
       // this document names, having read it (see docImages.ts).
-      if ('text' in r && isMarkdownPath(p))
+      if ('text' in r && isMarkdown(p))
         for (const img of await documentImages(p, r.text)) servable.add(img)
       return r
     })
@@ -3622,12 +3623,11 @@ if (!app.requestSingleInstanceLock()) {
         const clipboard = await readWindowsFiles()
         const src = clipboard.paths
         if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
-        const norm = (p: string): string => p.replace(/[\\/]+$/, '').toLowerCase()
         const moving =
           clipboard.cut ??
           (Array.isArray(cut) &&
             cut.length === src.length &&
-            cut.every((c) => src.some((f) => norm(f) === norm(String(c)))))
+            cut.every((c) => src.some((f) => samePath(f, String(c)))))
         ownWrite(join(destDir, 'x'))
         const fs = await import('fs/promises')
         const total = moving
