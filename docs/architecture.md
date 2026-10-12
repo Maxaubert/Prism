@@ -243,7 +243,9 @@ Filesmith's conventions.
   - pasting files into a folder (Explorer and tree), with every line it says: `lib/useFilePaste.ts`
     (`useFilePaste`, `PASTE_MESSAGES`, `pasteMessage`).
   - the unsaved-changes question (closing, installing, closing a tab, re-rooting a tab):
-    `components/UnsavedDialog.tsx`; App's `saveAllThen` and `discardTabBuffers` answer it.
+    `dialogs/UnsavedDialog.tsx`; App's `saveAllThen` and `discardTabBuffers` answer it.
+  - every question and notice dialog: `src/renderer/src/dialogs/` (one file per dialog, a test
+    beside each; App's `Ask` union and `AskDialogs`). Index: `docs/dialogs.md`.
   - which viewer a file kind gets, and the lazy viewer chunks: `components/ViewerSwitch.tsx`, with
     a mode per host (`full` App's stage, `phone`, `member` an archive panel's preview). The host
     passes what an archive is (App's card, the phone's panel, a nested panel).

@@ -56,9 +56,7 @@ import {
 } from './lib/termDock'
 import { savedShellId } from 'prism-term-core/renderer/lib/termPrefs'
 import {
-  AGENT_NAMES,
   asksBeforeClosingTab,
-  closeQuestionTitle,
   holdsWindowClose
 } from 'prism-term-core/renderer/lib/agentClose'
 import { useAgentIndicator } from 'prism-term-core/renderer/lib/useAgentIndicator'
@@ -77,7 +75,7 @@ import { onCwd } from 'prism-term-core/renderer/lib/termBus'
 import { ancestorChain } from './lib/fileTree'
 import { isTypingTarget } from './lib/focusGuards'
 import { decideFollow } from 'prism-term-core/shared/termCwd'
-import { humanFor, workingFor } from 'prism-term-core/renderer/lib/agentClock'
+import { workingFor } from 'prism-term-core/renderer/lib/agentClock'
 import CopiedBadge from 'prism-term-core/renderer/components/CopiedBadge'
 import { TermDock } from './components/TermDock'
 // A shell pinned as a PANE renders the same panel the dock does, behind the
@@ -117,7 +115,7 @@ import { ArchiveCard } from './components/browse/ArchiveCard'
 import { PreviewEmpty } from './components/browse/PreviewEmpty'
 import { MemberGate } from './components/MemberGate'
 import { MemberNote } from './components/MemberNote'
-import { PasswordDialog } from './components/PasswordDialog'
+import { PasswordDialog } from './dialogs/PasswordDialog'
 import { browsableArchive } from '@shared/archivePlace'
 import { useArchiveActions } from './components/browse/useArchiveActions'
 import { clipboardText } from './lib/clipboardText'
@@ -139,8 +137,8 @@ import {
   setMove as setVizMove,
   setTheme as setVizTheme
 } from './lib/vizStore'
-import { Dialog } from './components/Dialog'
-import { UnsavedDialog } from './components/UnsavedDialog'
+import { AskDialogs, type AskAnswers } from './dialogs/AskDialogs'
+import type { Ask } from './dialogs/asks'
 import { PhoneDialog } from './components/PhoneDialog'
 import {
   loadTransportBg,
@@ -172,7 +170,6 @@ import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
 import { compactRailPref, onboardedPref, placesPref, sidebarPref } from './lib/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import { LoadingState } from './components/LoadingState'
-import { DIALOG_EMPHASIS } from './components/dialogLook'
 import {
   describe as describeUndo,
   emptyUndo,
@@ -209,38 +206,6 @@ const PLAYABLE = new Set(['video', 'audio'])
 // owns is a question about FOCUS, not about file kind: a pdf nobody has clicked
 // into has no more claim on Up/Down than a photo does. See docFocused().
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
-
-/** A question Prism has to put to the user before (or instead of) touching a file. */
-/** The agent a close is about to end: what it is, and how long it has been
- *  mid-answer. `forMs` is null when it is only present, waiting at its own
- *  prompt - still a conversation the close ends. */
-interface AgentBusy {
-  kind: 'claude' | 'codex' | 'other'
-  forMs: number | null
-}
-
-type Ask =
-  | { kind: 'delete'; path: string; name: string; isFolder: boolean }
-  | { kind: 'delete-many'; paths: string[] }
-  | { kind: 'move-clash'; paths: string[]; dest: string; names: string[] }
-  | { kind: 'clash'; path: string; name: string; suggestion: string }
-  | { kind: 'failed'; message: string }
-  | { kind: 'close-dirty'; then?: 'install' }
-  // Closing a TAB whose root holds unsaved text. Same three answers as the
-  // window's, because the stake is the same: leave that tab and the only route
-  // back to those buffers is gone, even though the window stays open.
-  | { kind: 'close-tab'; id: string; names: readonly string[] }
-  // The plain "sure?" for a clean tab, on by default and switchable in
-  // Settings. Dirty tabs take the unsaved-changes question above instead.
-  | { kind: 'close-tab-confirm'; id: string; label: string; agent: AgentBusy }
-  // The WINDOW, while an agent is mid-answer. `others` is how many more
-  // shells are working too; `then` carries an update install through.
-  | { kind: 'close-window-agent'; label: string; agent: AgentBusy; others: number; then?: 'install' }
-  | { kind: 'file-changed'; path: string; name: string }
-  // Pointing a tab at a different folder strands its unsaved text exactly as
-  // closing it would, so it asks the same question and carries the payload it
-  // will apply on the way through.
-  | { kind: 'reroot'; id: string; names: readonly string[]; payload: OpenPayload }
 
 function TopBar({
   name,
@@ -3862,6 +3827,25 @@ export default function App(): JSX.Element {
     onNew: newTab,
     wash: washed
   }
+  const askAnswers: AskAnswers = {
+    dismiss: () => setAsk(null),
+    unsavedNames,
+    runDelete: (path) => void runDelete(path),
+    runDeleteMany: (paths) => void runDeleteMany(paths),
+    runMove: (paths, dest, mode) => void runMove(paths, dest, mode),
+    runRename: (path, name, onClash) => void runRename(path, name, onClash),
+    leave,
+    discardAll: () => {
+      buffers.current.clear()
+      syncDirty()
+    },
+    saveAllThen,
+    discardTabBuffers,
+    forceCloseTab,
+    applyReroot,
+    answerReload: (path, reload) => setReloadAnswer({ path, reload }),
+    runInstall
+  }
 
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
@@ -4579,39 +4563,7 @@ export default function App(): JSX.Element {
         onPickTransportBg={pickTransportBg}
       />
 
-      {ask?.kind === 'delete' && (
-        <Dialog
-          title="Move to the Recycle Bin?"
-          body={
-            <>
-              <span className={DIALOG_EMPHASIS}>{ask.name}</span> goes to the Recycle Bin, where
-              Windows can put it back.
-            </>
-          }
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            { label: 'Delete', danger: true, primary: true, onPick: () => void runDelete(ask.path) }
-          ]}
-        />
-      )}
-
-      {ask?.kind === 'delete-many' && (
-        <Dialog
-          title={`Move ${ask.paths.length} items to the Recycle Bin?`}
-          body="Everything selected goes to the Recycle Bin, where Windows can put it back."
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              label: 'Delete',
-              danger: true,
-              primary: true,
-              onPick: () => void runDeleteMany(ask.paths)
-            }
-          ]}
-        />
-      )}
+      <AskDialogs ask={ask} layer="under" answers={askAnswers} />
 
       {/* What undo just did, said quietly and briefly: the change is often
           off screen, and a dialog would be asking a question nobody has. */}
@@ -4622,147 +4574,6 @@ export default function App(): JSX.Element {
         >
           {undoNote}
         </div>
-      )}
-
-      {ask?.kind === 'move-clash' && (
-        <Dialog
-          title={
-            ask.names.length > 1
-              ? `${ask.names.length} names are already taken`
-              : `"${ask.names[0]}" is already there`
-          }
-          body="Keep both lands them beside what is there; replacing sends the old ones to the Recycle Bin."
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              label: 'Keep both',
-              primary: true,
-              onPick: () => void runMove(ask.paths, ask.dest, 'keep-both')
-            },
-            {
-              label: 'Replace',
-              danger: true,
-              onPick: () => void runMove(ask.paths, ask.dest, 'replace')
-            }
-          ]}
-        />
-      )}
-
-      {ask?.kind === 'close-dirty' && (
-        <UnsavedDialog
-          names={unsavedNames}
-          consequence={
-            ask.then === 'install'
-              ? 'Installing the update restarts Prism, and restarting without saving throws them away.'
-              : 'Closing without saving throws them away.'
-          }
-          onCancel={() => setAsk(null)}
-          onDiscard={() => {
-            buffers.current.clear()
-            syncDirty()
-            setAsk(null)
-            leave(ask.then)
-          }}
-          // A failed write must not close the window over the top of the
-          // text it failed to keep: we stay put and say which file.
-          onSave={() => saveAllThen(() => leave(ask.then))}
-        />
-      )}
-
-      {ask?.kind === 'file-changed' && (
-        <Dialog
-          title="This file changed on disk"
-          body={
-            <>
-              Something outside Prism rewrote <span className={DIALOG_EMPHASIS}>{ask.name}</span>{' '}
-              while you have unsaved changes in it. There is no merge: it is your version or the one
-              on disk.
-            </>
-          }
-          onCancel={() => {
-            setReloadAnswer({ path: ask.path, reload: false })
-            setAsk(null)
-          }}
-          choices={[
-            {
-              label: 'Keep mine',
-              onPick: () => {
-                setReloadAnswer({ path: ask.path, reload: false })
-                setAsk(null)
-              }
-            },
-            {
-              label: 'Reload from disk',
-              danger: true,
-              onPick: () => {
-                setReloadAnswer({ path: ask.path, reload: true })
-                setAsk(null)
-              }
-            }
-          ]}
-        />
-      )}
-
-      {(ask?.kind === 'close-tab-confirm' || ask?.kind === 'close-window-agent') && (
-        <Dialog
-          title={closeQuestionTitle(
-            // An install is the window question by another door (#168), and it
-            // says what it is about to do: "close the window?" over a button
-            // the user pressed to INSTALL is a question about something they
-            // did not ask for. The wording is the core's, as the rest is.
-            ask.kind === 'close-window-agent'
-              ? ask.then === 'install'
-                ? 'install'
-                : 'window'
-              : 'tab',
-            ask.agent.forMs
-          )}
-          body={
-            // Naming the work is the whole point of asking (2026-08-31): an
-            // idle prompt and an agent eleven minutes into an answer are not
-            // the same close. The wording is Prism Terminal's, on purpose.
-            ask.agent.forMs === null ? (
-              <>
-                <span className={DIALOG_EMPHASIS}>{AGENT_NAMES[ask.agent.kind]}</span> is running in{' '}
-                <span className={DIALOG_EMPHASIS}>{ask.label}</span>. Closing the tab kills the
-                shell, and the session with it.
-              </>
-            ) : (
-              <>
-                <span className={DIALOG_EMPHASIS}>{AGENT_NAMES[ask.agent.kind]}</span> has been
-                working for {humanFor(ask.agent.forMs)} in{' '}
-                <span className={DIALOG_EMPHASIS}>{ask.label}</span>
-                {ask.kind === 'close-window-agent' &&
-                  ask.others > 0 &&
-                  `, and ${ask.others} other ${ask.others === 1 ? 'shell is' : 'shells are'} working too`}
-                .{' '}
-                {ask.kind === 'close-window-agent' && ask.then === 'install'
-                  ? 'Installing restarts Prism, which kills the shell, and the answer with it.'
-                  : 'Closing kills the shell, and the answer with it.'}
-              </>
-            )
-          }
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              label:
-                ask.kind === 'close-window-agent'
-                  ? ask.then === 'install'
-                    ? 'Install and restart'
-                    : 'Close window'
-                  : 'Close tab',
-              primary: true,
-              onPick: () => {
-                setAsk(null)
-                if (ask.kind === 'close-tab-confirm') forceCloseTab(ask.id)
-                else if (ask.then === 'install') runInstall()
-                else window.prism.close(true)
-              }
-            }
-          ]}
-        />
       )}
 
       {/* The update window (#168). Mounted once, here: the chip lives in the
@@ -4873,69 +4684,7 @@ export default function App(): JSX.Element {
           }}
         />
       )}
-      {ask?.kind === 'close-tab' && (
-        <UnsavedDialog
-          names={ask.names}
-          consequence="Closing this folder is the last way back to them."
-          onCancel={() => setAsk(null)}
-          onDiscard={() => {
-            discardTabBuffers(ask.id)
-            setAsk(null)
-            forceCloseTab(ask.id)
-          }}
-          onSave={() => saveAllThen(() => forceCloseTab(ask.id))}
-        />
-      )}
-
-      {ask?.kind === 'reroot' && (
-        <UnsavedDialog
-          names={ask.names}
-          consequence="Opening another folder here is the last way back to them."
-          onCancel={() => setAsk(null)}
-          onDiscard={() => {
-            discardTabBuffers(ask.id)
-            setAsk(null)
-            applyReroot(ask.id, ask.payload)
-          }}
-          onSave={() => saveAllThen(() => applyReroot(ask.id, ask.payload))}
-        />
-      )}
-
-      {ask?.kind === 'clash' && (
-        <Dialog
-          title="That name is taken"
-          body={
-            <>
-              This folder already has a <span className={DIALOG_EMPHASIS}>{ask.name}</span>. Keeping
-              both saves yours as <span className={DIALOG_EMPHASIS}>{ask.suggestion}</span>;
-              replacing it sends the old one to the Recycle Bin.
-            </>
-          }
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              label: 'Replace',
-              danger: true,
-              onPick: () => void runRename(ask.path, ask.name, 'overwrite')
-            },
-            {
-              label: 'Keep both',
-              primary: true,
-              onPick: () => void runRename(ask.path, ask.name, 'keep-both')
-            }
-          ]}
-        />
-      )}
-
-      {ask?.kind === 'failed' && (
-        <Dialog
-          title="That didn't work"
-          body={ask.message}
-          onCancel={() => setAsk(null)}
-          choices={[{ label: 'OK', primary: true, onPick: () => setAsk(null) }]}
-        />
-      )}
+      <AskDialogs ask={ask} layer="over" answers={askAnswers} />
       {moreMenu && (
         <ContextMenu
           x={moreMenu.x}

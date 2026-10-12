@@ -1,8 +1,10 @@
 import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { archivePassword, rememberArchivePassword } from '../../lib/archivePass'
 import type { UndoEntry } from '../../lib/undo'
-import { Dialog } from '../Dialog'
-import { PasswordDialog } from '../PasswordDialog'
+import { ArchiveClashDialog } from '../../dialogs/ArchiveClashDialog'
+import { ArchiveDeleteDialog } from '../../dialogs/ArchiveDeleteDialog'
+import { NoticeDialog } from '../../dialogs/NoticeDialog'
+import { PasswordDialog } from '../../dialogs/PasswordDialog'
 import {
   addMembers,
   ARCHIVE_COPY,
@@ -208,51 +210,29 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
         />
       )}
       {confirm && (
-        <Dialog
-          title={ARCHIVE_COPY.deleteTitle(confirm.names)}
-          body={ARCHIVE_COPY.deleteBody(confirm.inners.length)}
+        <ArchiveDeleteDialog
+          names={confirm.names}
+          count={confirm.inners.length}
           onCancel={() => setConfirm(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setConfirm(null), primary: true },
-            {
-              label: 'Delete',
-              danger: true,
-              onPick: () => {
-                const { container, inners, names, after } = confirm
-                setConfirm(null)
-                void deleteMembers(window.prism, container, inners, names).then((said) => {
-                  after?.()
-                  latest.current.refresh()
-                  if (said) setOops(said)
-                })
-              }
-            }
-          ]}
+          onDelete={() => {
+            const { container, inners, names, after } = confirm
+            setConfirm(null)
+            void deleteMembers(window.prism, container, inners, names).then((said) => {
+              after?.()
+              latest.current.refresh()
+              if (said) setOops(said)
+            })
+          }}
         />
       )}
       {clash && (
-        <Dialog
-          title={ARCHIVE_COPY.clashTitle(clash.names)}
-          body={ARCHIVE_COPY.clashBody}
+        <ArchiveClashDialog
+          names={clash.names}
           onCancel={() => setClash(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setClash(null) },
-            {
-              label: 'Keep both',
-              primary: true,
-              onPick: () => add(clash.container, clash.paths, clash.dest, true, clash.fromPrism)
-            }
-          ]}
+          onKeepBoth={() => add(clash.container, clash.paths, clash.dest, true, clash.fromPrism)}
         />
       )}
-      {oops && (
-        <Dialog
-          title="Archive"
-          body={oops}
-          onCancel={() => setOops(null)}
-          choices={[{ label: 'OK', primary: true, onPick: () => setOops(null) }]}
-        />
-      )}
+      {oops && <NoticeDialog title="Archive" message={oops} onClose={() => setOops(null)} />}
     </>
   )
 
