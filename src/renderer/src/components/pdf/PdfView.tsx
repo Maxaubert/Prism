@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { openDocAt, rememberDocPos, saveDocPos } from '../../lib/docPosition'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -56,6 +56,40 @@ interface DocState {
   error: 'load' | 'password' | null
   /** Page 1 at scale 1: the size every page is assumed to be until it corrects. */
   base: { w: number; h: number }
+}
+
+/** Fit width's arrows. On, they sit cut out of a SOLID tile, the way the
+ *  preview's column fills: a pressed toggle is never tinted the accent
+ *  (owner, 2026-10-12). */
+function FitWidthGlyph({ on }: { on: boolean }): JSX.Element {
+  const mask = useId()
+  const arrows = 'M3 12h18M6 8l-3 4 3 4M18 8l3 4-3 4'
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      data-toggle-glyph={on ? 'on' : 'off'}
+    >
+      {on ? (
+        <>
+          <mask id={mask}>
+            <rect width="24" height="24" fill="white" stroke="none" />
+            <path d="M6 12h12M8.5 9.5 6 12l2.5 2.5M15.5 9.5 18 12l-2.5 2.5" stroke="black" />
+          </mask>
+          <rect x="1" y="4" width="22" height="16" rx="3" fill="currentColor" stroke="none" mask={`url(#${mask})`} />
+        </>
+      ) : (
+        <path d={arrows} />
+      )}
+    </svg>
+  )
 }
 
 export function PdfView({
@@ -891,23 +925,12 @@ export function PdfView({
           </button>
           <div className="mx-1 h-5 w-px bg-white/15" />
           <button
-            className={`pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15 ${mode === 'fit-width' ? 'text-[var(--p-accent-hi)]' : ''}`}
+            className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15"
             onClick={() => fitTo(mode === 'fit-width' ? 'fit-page' : 'fit-width')}
             title={mode === 'fit-width' ? 'Fit page (P)' : 'Fit width (W)'}
+            aria-pressed={mode === 'fit-width'}
           >
-            <svg
-              viewBox="0 0 24 24"
-              width={16}
-              height={16}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M3 12h18M6 8l-3 4 3 4M18 8l3 4-3 4" />
-            </svg>
+            <FitWidthGlyph on={mode === 'fit-width'} />
           </button>
           <button
             className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15"
