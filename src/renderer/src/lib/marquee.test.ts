@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  sweepBase,
   bandBox,
   edgeSpeed,
   onRowOwnPart,
@@ -140,5 +141,24 @@ describe('bandBox, onRowOwnPart, sameHits', () => {
   it('compares hit lists', () => {
     expect(sameHits(['a', 'b'], ['a', 'b'])).toBe(true)
     expect(sameHits(['a', 'b'], ['a'])).toBe(false)
+  })
+})
+
+describe('what a sweep starts from (owner, 2026-10-12)', () => {
+  const order = ['a', 'b', 'c', 'd', 'e']
+  it('a plain sweep keeps the row just clicked when it touches the sweep', () => {
+    expect([...sweepSelect(sweepBase(false, new Set(['a']), 'a', ['b', 'c'], order), ['b', 'c'])]).toEqual(['a', 'b', 'c'])
+  })
+  it('a clicked row far from the sweep is dropped: no disconnected block', () => {
+    expect([...sweepBase(false, new Set(['a']), 'a', ['d', 'e'], order)]).toEqual([])
+  })
+  it('with nothing selected, the lit row passed in joins too', () => {
+    expect([...sweepBase(false, new Set(), 'c', ['d'], order)]).toEqual(['c'])
+  })
+  it('marks a sweep made are not a click: a second plain sweep replaces them', () => {
+    expect([...sweepBase(false, new Set(['a', 'b']), 'a', ['c'], order)]).toEqual([])
+  })
+  it('Ctrl keeps everything marked', () => {
+    expect([...sweepBase(true, new Set(['a', 'b']), null)]).toEqual(['a', 'b'])
   })
 })

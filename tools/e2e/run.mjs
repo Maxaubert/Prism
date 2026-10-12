@@ -7868,6 +7868,23 @@ async function marqueeScenario(fixtures) {
     await sweep({ x: blankX, y: r6.box.y + r6.box.height / 2 }, { x: blankX - 10, y: r7.box.y + r7.box.height / 2 }, { ctrl: true })
     marked = await treeMarked()
     ok(['a5.txt', 'a6.txt', 'a7.txt', 'a8.txt'].every((n) => marked.includes(n)), `Ctrl+sweep adds to them (${marked})`)
+    // Click one file, then sweep the rows under it: the clicked one JOINS
+    // (owner, 2026-10-12: "they should all be connected"), one block whose
+    // shared edges are square, and the verbs see all three.
+    const r1 = await treeRow(1)
+    const r3 = await treeRow(3)
+    await win.mouse.click(r1.box.x + 40, r1.box.y + r1.box.height / 2)
+    await sleep(300)
+    await sweep({ x: blankX, y: r2.box.y + r2.box.height / 2 }, { x: blankX - 10, y: r3.box.y + r3.box.height / 2 })
+    marked = await treeMarked()
+    ok(['a2.txt', 'a3.txt', 'a4.txt'].every((n) => marked.includes(n)) && marked.length === 3, `a click then a sweep below it marks all three (${marked})`)
+    const seam = await win.evaluate((p) => {
+      const row = document.querySelector(`aside [data-row="${CSS.escape(p)}"] [role="treeitem"], aside [data-row="${CSS.escape(p)}"] > *`)
+      const el = document.querySelector(`aside [data-row="${CSS.escape(p)}"]`)
+      const styled = [el, ...(el?.querySelectorAll('*') ?? [])].find((x) => x instanceof HTMLElement && x.style.borderBottomLeftRadius !== '')
+      return styled ? styled.style.borderBottomLeftRadius : 'none'
+    }, r1.path)
+    ok(seam === '0px', `and the clicked row joins them, its lower corners square (${seam})`)
     // Escape mid-sweep puts them back.
     const before = (await treeMarked()).sort().join()
     const escMid = await sweep({ x: blankX, y: r7.box.y + r7.box.height + 30 }, { x: blankX - 20, y: r0.box.y + 4 }, {
@@ -8273,8 +8290,10 @@ async function marqueeQuietScenario(fixtures) {
     await sleep(600)
     let f = await films()
     ex = await exMarked()
-    ok(ex.sort().join() === 'v2.mp4,v3.mp4,v4.mp4', `a sweep marks three films (${ex})`)
-    ok(/3 selected/.test(await status()), 'and the status line counts them')
+    // The film just clicked joins the swept ones (owner, 2026-10-12: "they
+    // should all be connected"; `sweepBase`).
+    ok(ex.sort().join() === 'v1.mp4,v2.mp4,v3.mp4,v4.mp4', `a sweep marks three films, and the clicked one joins (${ex})`)
+    ok(/4 selected/.test(await status()), 'and the status line counts them')
     ok(f.pane === 'v1.mp4', `the pane still shows what it showed (${f.pane})`)
     ok(f.playing.join() === 'v1.mp4', `its film plays on and nothing else starts (${f.playing})`)
     await rowAt(1).click({ modifiers: ['Control'], position: { x: 30, y: r1.height / 2 } })
@@ -11192,6 +11211,8 @@ async function downloadsDateScenario(fixtures) {
       rows: [...document.querySelectorAll(`${sel} [data-selected]`)].map((r) => (r.getAttribute('data-browse-path') ?? '').split(/[\\/]/).pop()),
       dividers: document.querySelectorAll(`${sel} .browse-divider[data-selected]`).length
     }), list)
+    // The row type-ahead selected is under a divider, not touching the
+    // sweep, so it does not join (owner, 2026-10-12, `sweepBase`).
     ok(
       marked.dividers === 0 && marked.rows.join('|') === order.slice(0, 4).join('|'),
       `a sweep over a divider marks the four rows and nothing else (${JSON.stringify(marked)})`

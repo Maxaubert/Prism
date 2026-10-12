@@ -92,7 +92,7 @@ import { pairLink } from './phone/routes'
 import { qrSvg } from './phone/qr'
 import { forget as forgetPhone } from './phone/pairing'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
-import { readTabs, restoredFileIndex, writeTabs, type SavedTabs } from './tabs'
+import { readTabs, restoredFileIndex, tabsWriter, type SavedTabs } from './tabs'
 import { CODEX_RESUME, claudeSessionsAsync } from 'prism-term-core/main/agentResume'
 import { registerTermIpc } from 'prism-term-core/main/ipc'
 import { registerDictationIpc } from 'prism-term-core/main/dictationIpc'
@@ -1052,12 +1052,13 @@ async function restoreTabs(send: (payload: OpenPayload) => void): Promise<boolea
  *  keys fires this continuously and the disk need not hear about each one. */
 let tabsTimer: NodeJS.Timeout | null = null
 let tabsPending: SavedTabs | null = null
+const tabsFile = tabsWriter(TABS_STATE)
 function saveTabs(state: SavedTabs): void {
   tabsPending = state
   if (tabsTimer) clearTimeout(tabsTimer)
   tabsTimer = setTimeout(() => {
     tabsTimer = null
-    if (tabsPending) writeTabs(TABS_STATE(), tabsPending)
+    if (tabsPending) void tabsFile.write(tabsPending)
   }, 400)
 }
 
@@ -1069,7 +1070,7 @@ function flushTabs(): void {
     clearTimeout(tabsTimer)
     tabsTimer = null
   }
-  if (tabsPending) writeTabs(TABS_STATE(), tabsPending)
+  if (tabsPending) tabsFile.flushSync(tabsPending)
 }
 
 /**

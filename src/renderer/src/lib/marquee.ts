@@ -106,6 +106,35 @@ export function edgeSpeed(y: number, top: number, bottom: number, edge = 36, max
 /** A sweep's selection: what it covers now, plus what was marked before it
  *  when it was a Ctrl sweep. Shrinking the rectangle gives rows back, since
  *  the base is fixed when the sweep starts, not grown as it goes. */
+/**
+ * What a sweep starts from (owner, 2026-10-12: "I clicked to select one file
+ * then I drag selected the ones over it and ... the first file is selected but
+ * disconnected from the rest, they should all be connected"; asked, chose that
+ * it joins). Ctrl keeps everything marked. A plain sweep keeps the ONE row the
+ * user had just clicked, when that click was the whole selection AND the row
+ * touches what the sweep covers (beside it or inside it, in `order`): one
+ * block, and the verbs act on all of it. A clicked row far from the sweep is
+ * dropped, as Windows does, since keeping it would be the disconnected look
+ * the owner reported. Marks a sweep made are not a click, so a second plain
+ * sweep still replaces them.
+ */
+export function sweepBase(
+  add: boolean,
+  items: ReadonlySet<string>,
+  clicked: string | null,
+  hits: readonly string[] = [],
+  order: readonly string[] = []
+): Set<string> {
+  if (add) return new Set(items)
+  if (!clicked || items.size > 1 || (items.size === 1 && !items.has(clicked))) return new Set()
+  const at = order.indexOf(clicked)
+  const touches = hits.some((h) => {
+    const i = order.indexOf(h)
+    return i >= 0 && at >= 0 && Math.abs(i - at) <= 1
+  })
+  return touches ? new Set([clicked]) : new Set()
+}
+
 export function sweepSelect(base: ReadonlySet<string>, hits: readonly string[]): Set<string> {
   const out = new Set(base)
   for (const h of hits) out.add(h)
