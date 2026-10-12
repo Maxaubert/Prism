@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -122,6 +123,40 @@ const SEARCH_HELP = [
 
 /** Focus a tree row once it is drawn, for up to 40 frames, and only while
  *  nothing else holds the keyboard (review of #330, after a rename). */
+/** The terminal button's prompt. Open, it sits cut out of a SOLID tile, the
+ *  way the preview's column fills: a pressed toggle is never tinted the
+ *  accent (owner, 2026-10-12: "filled in like the preview button"). */
+function TermGlyph({ open }: { open: boolean }): JSX.Element {
+  const mask = useId()
+  const prompt = 'M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19'
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={18}
+      height={18}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      data-toggle-glyph={open ? 'on' : 'off'}
+    >
+      {open ? (
+        <>
+          <mask id={mask}>
+            <rect width="24" height="24" fill="white" stroke="none" />
+            <path d={prompt} stroke="black" />
+          </mask>
+          <rect x="2.5" y="3.5" width="19" height="17" rx="3" fill="currentColor" stroke="none" mask={`url(#${mask})`} />
+        </>
+      ) : (
+        <path d={prompt} />
+      )}
+    </svg>
+  )
+}
+
 function focusRowIn(box: HTMLElement | null, path: string, tries = 40): void {
   const a = document.activeElement
   if (a && a !== document.body) return
@@ -1818,14 +1853,10 @@ export function Sidebar({
               beside the terminal button rather than over the window. */}
           <JobChip />
           {/* Bare prompt, frameless (picked from the button lab, 2026-08-21):
-              just the glyph. Hover brings the tree rows' grey tile; open tints
-              the glyph accent and nothing else. */}
+              just the glyph. Hover brings the tree rows' grey tile; open
+              fills the glyph (TermGlyph), never the accent. */}
           <button
-            className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[3px] transition-colors hover:bg-[var(--p-hover)] ${
-              termOpen
-                ? 'text-[var(--p-accent-hi)]'
-                : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
-            }`}
+            className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[3px] text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
             onClick={onToggleTerm}
             onContextMenu={(e) => {
               e.preventDefault()
@@ -1835,19 +1866,7 @@ export function Sidebar({
             aria-label="Terminal"
             aria-pressed={termOpen}
           >
-            <svg
-              viewBox="0 0 24 24"
-              width={18}
-              height={18}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.1"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19" />
-            </svg>
+            <TermGlyph open={termOpen} />
           </button>
         </div>
       </div>
