@@ -120,7 +120,7 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
     const type = mediaMime(filePath)
 
     // Small images are consumed whole by the renderer and never issue Range requests,
-    // so hand back one buffer instead of a stream — measured, the stream plumbing (not
+    // so hand back one buffer instead of a stream. Measured: the stream plumbing (not
     // the decode) dominated their load time. The cap is deliberately low: a single
     // large buffer crosses the process boundary as one IPC message, and tracing a
     // 40 MB image showed a 1.2s "Receive mojo message" stall in the renderer. Bigger
