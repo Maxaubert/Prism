@@ -21,6 +21,7 @@ import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
 import { archivePassword, rememberArchivePassword } from '../lib/archivePass'
 import type { UndoEntry } from '../lib/undo'
+import { isTypingTarget } from '../lib/focusGuards'
 
 // Lazy for the same reason App splits them: opening a zip should not carry
 // pdf.js and the markdown pipeline into the launch bundle. A member preview
@@ -718,7 +719,7 @@ function ArchiveInner({
       if (!e.ctrlKey || e.shiftKey || e.altKey || (e.key !== 'a' && e.key !== 'A')) return
       if (!hasFocus.current || member) return
       const el = e.target as HTMLElement | null
-      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
+      if (isTypingTarget(el)) return
       // The keyboard went on to the Explorer's list or the tree since the
       // last press here (Tab): their own Ctrl+A answers (#330), not both.
       if (el?.closest('.browse-list,[data-project-sidebar]')) return

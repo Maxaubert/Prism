@@ -16,6 +16,7 @@ import { ContextMenu, type MenuItem } from './ContextMenu'
 import { imageMenu } from '../menus/viewers/image'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
+import { isTypingTarget } from '../lib/focusGuards'
 
 // Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
 // measured at 2.3s of hard freeze for a 384 MP PNG, during which nothing paints
@@ -420,7 +421,7 @@ export function ImageView({
       // under someone searching for "r0ma" (2026-08-28).
       const el = e.target as HTMLElement | null
       if (e.defaultPrevented) return
-      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
+      if (isTypingTarget(el)) return
       switch (e.key) {
         case '+':
         case '=': zoomCentered(1.18); break

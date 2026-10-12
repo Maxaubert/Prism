@@ -22,6 +22,7 @@ import type { FolderSizes } from '../../lib/folderSize'
 import { ArchiveStrip } from './ArchiveStrip'
 import { withinFolder, type PlaceRow } from '../../lib/placeMark'
 import { useActiveArea } from './useActiveArea'
+import { EDITOR, FIELD, OVERLAY, inOverlay } from '../../lib/focusGuards'
 import './browse.css'
 import './archive.css'
 
@@ -396,10 +397,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       data-active-area={area}
       onKeyDown={(e) => {
         const target = e.target as HTMLElement
-        const typing = target.closest(
-          'input,textarea,select,[contenteditable]:not([contenteditable="false"]),.cm-editor,.xterm,[role="dialog"],[role="menu"]'
-        )
-        if (target.closest('[role="dialog"],[role="menu"]')) return
+        const typing = target.closest(`${FIELD},${EDITOR},${OVERLAY}`)
+        if (inOverlay(target)) return
         const inList = !!target.closest('.browse-list')
         // THE COMMON KEYS (#330) that act on the folder or a row rather than
         // on the marks (the list answers those itself). From the list only,

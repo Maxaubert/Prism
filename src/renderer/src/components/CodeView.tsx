@@ -31,6 +31,7 @@ import { lintFor } from '../lib/codeLint'
 import { prismCodeTheme } from '../lib/codeTheme'
 import { setWrapPref, useWrapPref, wrapPref, wrapsFor, type WrapPref } from '../lib/codePrefs'
 import { reloadAction, stampChanged, touchesFile, type Stamp } from '../lib/fileReload'
+import { inNavSurface, isFormField } from '../lib/focusGuards'
 
 // Text and code, shown and edited in the same surface. There is no "edit mode"
 // here: a .py or a .txt has no rendered form to toggle away from, so the buffer
@@ -547,7 +548,7 @@ export function CodeView({
       // Some other field has the keyboard (the sidebar's search box, a dialog).
       // Its keys are its own; only the editor's own inputs come back to us.
       const ours = !!target && !!host.current?.contains(target)
-      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && !ours) return
+      if (isFormField(target) && !ours) return
       if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
         // Not bound for a reader: the browser's own Ctrl+S (save the page)
         // is what the key means there, and it is left to it.
@@ -556,7 +557,7 @@ export function CodeView({
         e.stopPropagation()
         void save()
       } else if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) {
-        if (target?.closest('[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"]')) return
+        if (inNavSurface(target)) return
         e.preventDefault()
         e.stopPropagation()
         v.focus()
