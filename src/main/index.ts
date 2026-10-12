@@ -1,3 +1,4 @@
+import { startLagProfiler } from './lagProfiler'
 import {
   clipboard,
   app,
@@ -131,7 +132,8 @@ import {
   listSeven
 } from './sevenZip'
 import { ExtractJobs, Made, pruneEmpty, type ExtractJob } from './extractJob'
-import { convertDoc, docKind } from './docConvert'
+import { docKind } from './docConvert'
+import { createDocClient } from './docClient'
 import { findFluid, isMidi, renderMidi } from './midi'
 import { createShellVerbSetting } from './shellVerbSetting'
 import { isRaw, rawPreview } from './rawPreview'
@@ -141,7 +143,6 @@ import { detectText, TEXT_PROBE_BYTES } from './textProps'
 import { driveModel } from './driveModel'
 import { hashFile } from './fileHash'
 import type { DriveDetails, MediaProps, TextProps } from '@shared/props'
-import { sanitizeDoc } from './docSanitize'
 import { encodeText, shapeOf, type TextShape } from './textFile'
 import { readTail, startTail, stopAllTails, stopTail } from './fileTail'
 import { openComic, type ComicOpen } from './comic'
@@ -1919,6 +1920,9 @@ if (!app.requestSingleInstanceLock()) {
     longWaitChannels: [...LONG_WAIT_CHANNELS],
     powerMonitor: () => powerMonitor
   })
+  // A main-lag of 1 s or more carries a CPU profile (2026-10-12): e2e and
+  // Detailed logging only (lagProfiler.ts).
+  startLagProfiler({ log: diag.log, enabled: () => E2E || !!diag?.log.verbose() })
   // E2E only (review of #322): the harness ends a scenario with `app.exit`,
   // which skips will-quit, so it writes main's queue first and the run's
   // Stalls table sees a scenario's last moments.
@@ -2268,13 +2272,14 @@ if (!app.requestSingleInstanceLock()) {
       }
     }
     /** `doc:html`'s body, factored the same way (#106): converted AND
-     *  sanitised in main, null for anything that is not a document or
+     *  sanitised on the document worker, null for anything that is not a document or
      *  would not convert. No wall in here either. */
+    const docClient = createDocClient()
     const docHtmlOf = async (p: string): Promise<string | null> => {
       if (!docKind(extname(p))) return null
       try {
-        const html = await convertDoc(p)
-        return html === null ? null : await sanitizeDoc(html)
+        // On the document worker, never main (2026-10-12, docClient.ts).
+        return await docClient.html(p)
       } catch {
         return null
       }

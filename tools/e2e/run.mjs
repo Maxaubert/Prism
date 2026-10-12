@@ -18456,6 +18456,38 @@ async function diagLogScenario(fixtures) {
     const slow = await diagHas((l) => l.k === 'ipc-slow' && l.ch === 'e2e:slow-ipc')
     ok(!!slow && slow.ms >= 500 && slow.ok === true, `and is an ipc-slow line naming its channel (${slow?.ms} ms)`)
 
+    // A MAIN LAG CARRIES ITS PROFILE (2026-10-12, lagProfiler.ts): 1.3 s of
+    // main's own thread, in a named function, is a main-lag line naming a
+    // .cpuprofile in the log folder whose stacks hold that function.
+    await app.evaluate(() => {
+      setTimeout(function diagE2eMainBusy() {
+        const end = performance.now() + 1300
+        while (performance.now() < end) {
+          /* spin */
+        }
+      }, 0)
+    })
+    const lag = await diagHas((l) => l.k === 'main-lag' && l.ms >= 1000)
+    if (lag) MADE_LAGS.add(lag.t)
+    ok(!!lag && typeof lag.profile === 'string' && /^lag-.*\.cpuprofile$/.test(lag.profile), `the busy main is a main-lag naming its profile (${lag?.ms} ms, ${lag?.profile})`)
+    const prof = lag?.profile ? join(DIAG_DIR, lag.profile) : ''
+    const landed = await until(() => {
+      try {
+        return JSON.parse(readFileSync(prof, 'utf8'))
+      } catch {
+        return null
+      }
+    }, 10000, 100)
+    ok(
+      !!landed && Array.isArray(landed.nodes) && landed.nodes.some((n) => n?.callFrame?.functionName === 'diagE2eMainBusy'),
+      `and the profile holds the function that spun (${landed ? `${landed.nodes?.length} nodes` : 'not written'})`
+    )
+    const said = await diagHas((l) => l.k === 'lag-profile' && l.profile === lag?.profile)
+    ok(
+      !!said && said.jsMs >= 1000 && /diagE2eMainBusy/.test(said.top?.[0] ?? ''),
+      `and a lag-profile line says it was JavaScript, in that function (${JSON.stringify(said && { jsMs: said.jsMs, nativeMs: said.nativeMs, top: said.top?.[0] })})`
+    )
+
     // ERRORS: thrown in a timer, so it reaches the page's own handler (one
     // thrown inside evaluate is Playwright's), and a rejection nobody holds.
     await win.evaluate(() => {
@@ -18601,15 +18633,24 @@ async function explorerDiagScenario(fixtures) {
  * on a profile of its own (launchProbed's, Win+E windows) is not in it.
  */
 const stalls = []
+/** The `t` of each main-lag a scenario made on purpose (diagLog's busy main). */
+const MADE_LAGS = new Set()
 const DIAG_ERROR_KINDS = new Set(['page-error', 'page-rejection', 'main-error', 'main-rejection', 'ipc-error', 'gone', 'logger-error'])
-function stallDetail(l) {
+function stallDetail(l, profiled) {
   const cut = (v) => String(v ?? '').replace(/\s+/g, ' ').slice(0, 70)
   if (l.k === 'page-stall') {
     const top = Array.isArray(l.scripts) ? l.scripts[0] : null
     return cut(top ? [top.fn, top.src, top.invoker].filter(Boolean).join(' ') : `blocking ${l.blocking ?? '?'}`)
   }
   if (l.k === 'page-stack') return cut(String(l.stack ?? '').split('\n').find((x) => /^\s*at /.test(x))?.trim())
-  if (l.k === 'main-lag') return cut((Array.isArray(l.inflight) ? l.inflight : []).map((c) => `${c.ch} ${c.ms}${c.done ? ' done' : ''}`).join(', ') || 'nothing in flight')
+  if (l.k === 'main-lag') {
+    const calls = cut((Array.isArray(l.inflight) ? l.inflight : []).map((c) => `${c.ch} ${c.ms}${c.done ? ' done' : ''}`).join(', ') || 'nothing in flight')
+    // The lag's CPU profile (lagProfiler.ts, 2026-10-12), copied to LAG_PROFILES.
+    if (!l.profile) return calls
+    // And what it said (lagSummary.ts): JavaScript and where, or time outside it.
+    const what = profiled ? `js ${profiled.jsMs} ms${profiled.top?.[0] ? ` (${profiled.top[0]})` : ''}, outside js ${profiled.nativeMs} ms, ` : ''
+    return `${calls} [${what}${l.profile}]`
+  }
   if (l.k === 'ipc-slow' || l.k === 'ipc-error') return cut(`${l.ch}${l.err ? ` ${l.err}` : ''}`)
   if (l.k === 'gone') return cut(`${l.type} ${l.reason} ${l.exitCode}`)
   if (l.k === 'crumb') return cut(`${l.a} ${l.path ?? l.reason ?? ''}`)
@@ -18617,13 +18658,36 @@ function stallDetail(l) {
   if (l.k === 'guard-slow') return cut(`${l.fn} ${l.paths} paths`)
   return cut(l.msg ?? l.err ?? l.path ?? '')
 }
+/** Where a run keeps the CPU profiles its main-lags wrote (lagProfiler.ts),
+ *  as `<scenario>-lag-<time>.cpuprofile`; emptied at the start of a run. */
+const LAG_PROFILES = join(ROOT, '.e2e', 'lag-profiles')
+rmSync(LAG_PROFILES, { recursive: true, force: true })
+function copyLagProfiles(scenario) {
+  let names
+  try {
+    names = readdirSync(DIAG_DIR).filter((f) => /^lag-.*\.cpuprofile$/.test(f))
+  } catch {
+    return
+  }
+  if (!names.length) return
+  mkdirSync(LAG_PROFILES, { recursive: true })
+  for (const n of names) {
+    try {
+      copyFileSync(join(DIAG_DIR, n), join(LAG_PROFILES, `${scenario}-${n}`))
+    } catch {
+      /* a profile still being written is skipped */
+    }
+  }
+}
 function collectStalls(scenario) {
+  copyLagProfiles(scenario)
   let files
   try {
     files = readdirSync(DIAG_DIR).filter((f) => f.startsWith('diag.jsonl'))
   } catch {
     return
   }
+  const lines = []
   for (const f of files) {
     let text
     try {
@@ -18633,17 +18697,20 @@ function collectStalls(scenario) {
     }
     for (const raw of text.split('\n')) {
       if (!raw) continue
-      let l
       try {
-        l = JSON.parse(raw)
+        lines.push(JSON.parse(raw))
       } catch {
         continue
       }
-      const err = DIAG_ERROR_KINDS.has(l.k)
-      if (!err && !(typeof l.ms === 'number' && l.ms >= 1000)) continue
-      const made = scenario === 'diagLog' && (['page-stall', 'page-stack', 'page-error', 'page-rejection'].includes(l.k) || l.ch === 'e2e:slow-ipc')
-      stalls.push({ scenario, kind: l.k === 'crumb' ? `crumb ${l.a}` : l.k, ms: typeof l.ms === 'number' ? l.ms : null, detail: stallDetail(l), expected: made })
     }
+  }
+  // What each lag's profile said (`lag-profile`, lagSummary.ts), for its row.
+  const said = new Map(lines.filter((l) => l.k === 'lag-profile').map((l) => [l.profile, l]))
+  for (const l of lines) {
+    const err = DIAG_ERROR_KINDS.has(l.k)
+    if (!err && !(typeof l.ms === 'number' && l.ms >= 1000)) continue
+    const made = scenario === 'diagLog' && (['page-stall', 'page-stack', 'page-error', 'page-rejection'].includes(l.k) || l.ch === 'e2e:slow-ipc' || (l.k === 'main-lag' && MADE_LAGS.has(l.t)))
+    stalls.push({ scenario, kind: l.k === 'crumb' ? `crumb ${l.a}` : l.k, ms: typeof l.ms === 'number' ? l.ms : null, detail: stallDetail(l, said.get(l.profile)), expected: made })
   }
 }
 

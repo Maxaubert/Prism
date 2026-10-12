@@ -69,7 +69,10 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           // Forked as a utility process so HEIC decoding never blocks the main one.
-          heicWorker: resolve(__dirname, 'src/main/heicWorker.ts')
+          heicWorker: resolve(__dirname, 'src/main/heicWorker.ts'),
+          // A worker thread, so documents are converted and their converters
+          // loaded off main (2026-10-12, docClient.ts).
+          docWorker: resolve(__dirname, 'src/main/docWorker.ts')
         }
       }
     }

@@ -23,19 +23,65 @@
  * pipe. Changes made in the same tick (a border and a corner, a window and its
  * shroud) go in ONE process, since the program takes any number of triples.
  *
+ * AND IT IS STARTED FROM A WORKER THREAD, NEVER MAIN'S (2026-10-12; owner,
+ * "handle this", after e2e runs showed main freezing with nothing in flight).
+ * Starting a process is synchronous on the thread that starts it: the lag
+ * profiler (lagProfiler.ts) caught `spawn` of this helper holding main for
+ * 405 ms as a window was shown (e2e `tabs`), with no JavaScript of Prism's
+ * around it, and the same call is made on every theme, maximize and
+ * fullscreen change. One resident worker (started with the helper found,
+ * unref'd so it never holds a quit) takes each tick's triples and pays the
+ * start on its own thread, the way the drive-label query does (#351). Still
+ * no pipe to the helper: stdio 'ignore', so #189's first-pipe stall cannot
+ * come back.
+ *
  * Every attribute here is cosmetic: a missing helper (not built, not Windows)
- * is a no-op, never an error.
+ * or a worker that cannot start is a no-op, never an error.
  *
  * Attributes: 33 DWMWA_WINDOW_CORNER_PREFERENCE (0 default, 1 do not round),
  * 34 DWMWA_BORDER_COLOR (a COLORREF 0x00BBGGRR, -1 default, -2 none).
  */
-import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { dirname, join } from 'path'
+import { Worker } from 'worker_threads'
 
 let exe: string | null = null
 let queued: string[] = []
 let flushing = false
+let worker: Worker | null = null
+
+/** The worker's whole program: start the helper with what it is sent, no pipe
+ *  (stdio 'ignore', #189), and never let a failure out. Builtins only, so it
+ *  runs from a string with nothing to resolve. */
+export const DWM_WORKER = `
+const { parentPort } = require('worker_threads')
+const { spawn } = require('child_process')
+parentPort.on('message', (m) => {
+  try {
+    const child = spawn(m.exe, m.args, { stdio: 'ignore', windowsHide: true })
+    child.on('error', () => {})
+    child.unref()
+  } catch {}
+})
+`
+
+/** The resident worker, started once and again only after it died. */
+function spawner(): Worker | null {
+  if (worker) return worker
+  try {
+    const w = new Worker(DWM_WORKER, { eval: true })
+    w.unref()
+    const gone = (): void => {
+      if (worker === w) worker = null
+    }
+    w.on('error', gone)
+    w.on('exit', gone)
+    worker = w
+  } catch {
+    worker = null
+  }
+  return worker
+}
 
 /** Where the helper can be: the installed app's resources, else a vendor/
  *  folder at or above the app (a dev build, the e2e's out/ build). */
@@ -57,24 +103,21 @@ export function initDwmHelper(packaged: boolean, resourcesPath: string, appPath:
   exe = dwmDirs(packaged, resourcesPath, appPath)
     .map((d) => join(d, 'PrismDwm.exe'))
     .find((p) => existsSync(p)) ?? null // sync-ok: startup, module top level before ready, once
+  // Started now, so the first window's edge does not wait for a thread.
+  if (exe) spawner()
   return exe
 }
 
-/** Everything asked for in this tick, in one process. */
+/** Everything asked for in this tick, in one process, started by the worker. */
 function flush(): void {
   flushing = false
   const args = queued
   queued = []
   if (!exe || args.length === 0) return
   try {
-    // stdio 'ignore' is the whole point: no pipe, so no first-pipe stall.
-    const child = spawn(exe, args, { stdio: 'ignore', windowsHide: true })
-    child.on('error', () => {
-      /* cosmetic: a helper that cannot start changes nothing */
-    })
-    child.unref()
+    spawner()?.postMessage({ exe, args })
   } catch {
-    /* cosmetic */
+    /* cosmetic: a helper that cannot start changes nothing */
   }
 }
 
