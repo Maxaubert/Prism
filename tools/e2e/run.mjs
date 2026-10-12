@@ -14638,11 +14638,6 @@ const fixtures = buildFixtures()
  *  globalThis under --e2e. */
 const updateCalls = (app) => app.evaluate(() => globalThis.__prismUpdateCalls())
 
-/** A style, switched the way ANOTHER WINDOW's change arrives: the keys are
- *  written and the store's own `storage` listener repaints from them. It
- *  leaves the terminal theme and the accent schemes alone (`apply(false)`),
- *  which a click on a Settings card does not, and the profile is shared with
- *  every scenario after this one. Returns what to hand back to restore. */
 /** Set (or, with null, remove) one localStorage key in the page and tell its
  *  listeners, as another window's write would. Returns what it was. */
 function setPref(win, key, value) {
@@ -14658,6 +14653,11 @@ function setPref(win, key, value) {
   )
 }
 
+/** A style, switched the way ANOTHER WINDOW's change arrives: the keys are
+ *  written and the store's own `storage` listener repaints from them. It
+ *  leaves the terminal theme and the accent schemes alone (`apply(false)`),
+ *  which a click on a Settings card does not, and the profile is shared with
+ *  every scenario after this one. Returns what to hand back to restore. */
 async function switchStyle(win, style) {
   // ONE THEME, NO MODE (#298): each theme is dark or light by itself, and
   // `prism.mode` is only the boot screen's mirror of what is painted.

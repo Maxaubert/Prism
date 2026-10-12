@@ -29,6 +29,7 @@ on:
       - src/renderer/src/components/TermDock.tsx
       - src/renderer/src/menus/terminalPanel.tsx
       - tools/e2e/**
+      - tools/lib/**
       - .github/workflows/terminal-gate.yml
 
 concurrency:

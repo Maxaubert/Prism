@@ -179,7 +179,7 @@ export default function App(): JSX.Element {
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
   // THE TAB STRIP ON THE DIAGNOSTICS TIMELINE (#322): opened, closed, switched
   // to, a project opened, a file reaching the player. Read off the state
-  // (lib/tabs/tabs/tabCrumbs), since a tab changes from a dozen places.
+  // (lib/tabs/tabCrumbs), since a tab changes from a dozen places.
   const crumbedTabs = useRef<TabState>({ tabs: [], activeId: null })
   useEffect(() => {
     for (const c of tabCrumbs(crumbedTabs.current, tabState)) crumb(c.a, c.fields, { often: c.often })

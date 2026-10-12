@@ -77,7 +77,7 @@ export function AudioView({
   /** Mounted but not on screen: another tab is in front. The track plays on,
    *  with no controls, no keyboard and no visualizer - see lib/mediaDeck. */
   background?: boolean
-  /** Whose volume this is: the tab's, for the session (lib/tabs/tabs/tabVolume). */
+  /** Whose volume this is: the tab's, for the session (lib/tabs/tabVolume). */
   volumeKey?: string
   /** The phone's hls.js hook (2026-09-06, #105), as on VideoView: when given,
    *  the element is rendered WITHOUT src (the decoded-source swap included,
