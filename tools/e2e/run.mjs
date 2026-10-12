@@ -11536,6 +11536,36 @@ async function pressedTogglesScenario(fixtures) {
   }
 }
 
+// A TOOLTIP ONLY WHERE IT ADDS SOMETHING (owner, 2026-10-12: "remove tooltips
+// that basically duplicate the text already said"). A name drawn whole says
+// nothing on hover; a name the panel cut off gives its whole text back.
+async function quietTooltipsScenario(fixtures) {
+  console.log('quiet tooltips')
+  const dir = join(fixtures, 'quiettips')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const long = `${'a long name the panel cannot hold '.repeat(4).trim()}.txt`
+  writeFileSync(join(dir, 'short.txt'), 'short\n')
+  writeFileSync(join(dir, long), 'long\n')
+  const { app, win } = await launch(join(dir, 'short.txt'))
+  const tipOf = async (path) => {
+    const label = win.locator(`[data-row="${path.replace(/\\/g, '\\\\')}"] span.truncate`).first()
+    await label.hover()
+    await sleep(150)
+    return { tip: await label.getAttribute('title'), text: ((await label.textContent()) ?? '').trim() }
+  }
+  try {
+    await win.waitForSelector('[data-row]', { timeout: 45000 })
+    await sleep(700)
+    const short = await tipOf(join(dir, 'short.txt'))
+    ok(short.tip === null, `a tree name drawn whole has no tooltip (${short.tip})`)
+    const cut = await tipOf(join(dir, long))
+    ok(cut.tip === long, `a tree name the panel cut off gives its whole name (${cut.tip})`)
+  } finally {
+    await app.close()
+  }
+}
+
 async function toolbarIconsScenario(fixtures) {
   console.log('toolbar icons')
   const dir = join(fixtures, 'tbicons')
@@ -15971,9 +16001,9 @@ const settingsLookOf = (win) =>
     const panelGround = panelEl ? over(parse(getComputedStyle(panelEl).backgroundColor), ground) : ground
     const row = document.querySelector('[data-setting-row]')
     const label = row?.querySelector('label')
-    const sub = row?.querySelector('label + [title]')
+    const sub = row?.querySelector('label + [data-subtext], label + [title]')
     const tile = row?.firstElementChild?.firstElementChild
-    const warnEl = document.querySelector('[data-setting-row] [title] svg')?.closest('[title]')
+    const warnEl = document.querySelector('[data-setting-row] :is([data-subtext], [title]) svg')?.closest('[data-subtext], [title]')
     const ink = (el) => over(parse(getComputedStyle(el).color), panelGround)
     const chosen = document.querySelector('[data-settings-tab][aria-current="page"]')
     const accent = parse(root.getPropertyValue('--p-accent').trim())
@@ -18855,6 +18885,7 @@ await run(listScrollbarScenario)
 await run(addressFieldScenario)
 await run(toolbarIconsScenario)
 await run(pressedTogglesScenario)
+await run(quietTooltipsScenario)
 await run(explorerVerbsScenario)
 await run(propertiesWindowScenario)
 await run(searchPopupScenario)

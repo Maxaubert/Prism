@@ -121,3 +121,12 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   width keep their grey pressed and fill their drawing (`data-toggle-glyph="on"`): the panel's left
   column solid, a solid pencil, a solid gear, the prompt and the arrows cut out of a solid tile. The
   `pressedToggles` e2e holds the panel toggle, Settings and the terminal button.
+- **A TOOLTIP NEVER REPEATS WHAT IS DRAWN** (owner, 2026-10-12: "remove tooltips that basically
+  duplicate the text already said, like in settings ... a tooltip saying the exact same thing as
+  the setting"). A name, path or line drawn whole has no tooltip; one the width cut off gets its
+  whole text back on hover (`lib/hiddenTitle.ts`, measured on entry): tree and Explorer names, the
+  open file's crumb, the folder path while its crumbs are clipped, Properties' title and subline,
+  the drive legend, the return row's path. A tooltip that says MORE stays (an icon button's name and
+  key, a full path beside a short name, a line the code shortened, like the extraction window's).
+  The settings rows, the rail and the help rows follow the same rule in prism-term-core 0.34.1
+  (`hiddenTitle`). The `quietTooltips` e2e holds the tree's both ways.

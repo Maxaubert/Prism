@@ -32,6 +32,7 @@ import { divideRows, type DateDivider } from '../../lib/dateGroups'
 import { nextSort } from '../../lib/downloadsView'
 import { listKey, stepTo, type ListKey } from '../../lib/listKeys'
 import { nearerEscape } from '../../lib/nearerEscape'
+import { hiddenTitle } from '../../lib/hiddenTitle'
 
 const OVERSCAN = 12
 /** The common keys the list answers itself (#330). */
@@ -828,7 +829,7 @@ export function BrowseList(props: Props): JSX.Element {
                       event.dataTransfer.setData(DRAG_MIME, 'files')
                     }}
                     onDragEnd={() => setDrag(null)}
-                    title={searching ? entry.path : entry.name}
+                    title={searching ? entry.path : undefined}
                     onClick={(e: ReactMouseEvent) => {
                       setCursor(null)
                       if ((e.ctrlKey || e.shiftKey) && props.onPick)
@@ -882,7 +883,7 @@ export function BrowseList(props: Props): JSX.Element {
                         )
                       )}
                       <span className="browse-name-text">
-                        <span>{entry.name}</span>
+                        <span {...(searching ? {} : hiddenTitle(entry.name))}>{entry.name}</span>
                       </span>
                     </span>
                     <span

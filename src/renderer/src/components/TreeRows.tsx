@@ -9,6 +9,7 @@ import { useTree } from '../lib/treeContext'
 import { dragIncludesPath } from '../lib/drag/dragDrop'
 import { FolderIcon, KindIcon, iconColour } from './icons/FileIcons'
 import { Icon } from './icons/Icon'
+import { hiddenTitle } from '../lib/hiddenTitle'
 
 // The rows of the file tree: folders that expand, files that open, and the inline
 // rename editor. The panel shell (width, scrolling, loading) lives in Sidebar.
@@ -35,16 +36,8 @@ function Chevron({ open }: { open: boolean }): JSX.Element {
  * here to recover what the panel width took away.
  */
 function Label({ name }: { name: string }): JSX.Element {
-  const [clipped, setClipped] = useState(false)
   return (
-    <span
-      className="truncate"
-      title={clipped ? name : undefined}
-      onPointerEnter={(e) => {
-        const el = e.currentTarget
-        setClipped(el.scrollWidth > el.clientWidth)
-      }}
-    >
+    <span className="truncate" {...hiddenTitle(name)}>
       {name}
     </span>
   )
