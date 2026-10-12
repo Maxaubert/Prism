@@ -172,7 +172,10 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
   const remove = useCallback(
     (paths: string[], meta: ArchiveMeta): void => {
       if (meta.readOnly) return
-      askDelete(meta.container, inners(meta, paths), paths.map(baseName))
+      // The names are the members that go, so the question and its failure
+      // line count the same list the delete runs over.
+      const list = inners(meta, paths)
+      askDelete(meta.container, list, list.map(baseName))
     },
     [askDelete]
   )
