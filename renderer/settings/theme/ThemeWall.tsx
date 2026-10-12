@@ -279,14 +279,34 @@ const TWO_ROWS = 268
  * The wall itself: Custom, the host's default, Follow style where the host
  * has styles, then every preset neutral-first, black to white (#157); the pencil on the chosen card;
  * Show all; the question when a pick would drop unsaved changes; the editor.
- * `onThemePicked`: a pick landed (Custom included), for a host whose own rows
- * follow the theme (Prism Terminal forgets its picked background and accent).
+ * `onThemePicked`: a pick landed (Custom included, `id` says which; the
+ * editor's save says `edited`), for a host whose own rows follow the theme
+ * (Prism Terminal forgets its picked window colours, or brings Custom's back).
+ * `extraDirty` / `onSaved`: the host's own unsaved changes (Prism Terminal's
+ * window colours) light Save changes and ask before a pick drops them too, and
+ * a save tells the host to keep them with Custom (owner, 2026-10-12: Save
+ * changes "never grey when there are changes to save").
  */
-export function ThemeWall({ onThemePicked, className = '' }: { onThemePicked?: () => void; className?: string }): JSX.Element {
+export function ThemeWall({
+  onThemePicked,
+  extraDirty = false,
+  onSaved,
+  className = ''
+}: {
+  onThemePicked?: (id: string) => void
+  extraDirty?: boolean
+  onSaved?: () => void
+  className?: string
+}): JSX.Element {
   const themeId = useTermThemeId()
   const acrylicOn = useTermAcrylic()
   const custom = useCustomTermTheme()
-  const { dirty, save } = useTermSetup()
+  const setup = useTermSetup()
+  const dirty = setup.dirty || extraDirty
+  const save = (): void => {
+    setup.save()
+    onSaved?.()
+  }
   const noAcrylic = useNoAcrylic()
   const windowAcrylic = hostOwnsWindowAcrylic()
   // The Custom card draws what the terminal draws (#113 review), not the raw
@@ -326,7 +346,7 @@ export function ThemeWall({ onThemePicked, className = '' }: { onThemePicked?: (
       // acrylic come back with it when the save captured them.
       applyCustomExtras(saved)
     } else pickPreset(id)
-    onThemePicked?.()
+    onThemePicked?.(id)
   }
   const pick = (id: string): void => {
     if (dirty) setAsking(id)
@@ -459,7 +479,7 @@ export function ThemeWall({ onThemePicked, className = '' }: { onThemePicked?: (
             // the edited background is the one that shows.
             saveAsCustom(t)
             setEditing(null)
-            onThemePicked?.()
+            onThemePicked?.('edited')
           }}
           onCancel={() => setEditing(null)}
         />

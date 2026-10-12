@@ -18,15 +18,27 @@ import { acrylicLabel, acrylicSub, opt, saveSetupTitle, sectionTitle, themeSub }
  */
 export function TerminalThemeSection({
   afterTheme,
-  onThemePicked
+  onThemePicked,
+  extraDirty = false,
+  onSaved
 }: {
   /** The host's own rows that a theme sets, under the wall and acrylic. */
   afterTheme?: ReactNode
-  /** A card was picked (Custom included), after the pick landed. */
-  onThemePicked?: () => void
+  /** A card was picked (Custom included, `id` says which; the editor's save
+   *  says `edited`), after the pick landed. */
+  onThemePicked?: (id: string) => void
+  /** The host's own unsaved changes (its window colours): they light Save
+   *  changes too, and a save tells the host (`onSaved`) to keep them. */
+  extraDirty?: boolean
+  onSaved?: () => void
 } = {}): JSX.Element {
   const acrylicOn = useTermAcrylic()
-  const { dirty, save } = useTermSetup()
+  const setup = useTermSetup()
+  const dirty = setup.dirty || extraDirty
+  const save = (): void => {
+    setup.save()
+    onSaved?.()
+  }
   const noAcrylic = useNoAcrylic()
   const theme = opt('term-theme')
   const acrylic = opt('term-acrylic')
@@ -37,7 +49,7 @@ export function TerminalThemeSection({
         <SaveButton dirty={dirty} onClick={save} title={saveSetupTitle()} />
       </SettingRow>
       <SettingBlock pad data-term-wall="">
-        <ThemeWall onThemePicked={onThemePicked} />
+        <ThemeWall onThemePicked={onThemePicked} extraDirty={extraDirty} onSaved={onSaved} />
       </SettingBlock>
       {/* The material does not exist before Windows 11, so there the row says
           why instead of offering a switch that would do nothing. */}

@@ -326,7 +326,11 @@ export const ROW_BUTTON =
 
 /** The pressed segment: a step lighter than the control round it (darker on a
  *  light theme), in the text's own ink. */
-export const SEGMENT_ON = 'bg-[color-mix(in_srgb,var(--p-text)_16%,var(--p-control))] text-[var(--p-text)]'
+// The host may say how a pressed segment reads (Prism Terminal, 2026-10-12: a
+// dark pill with light ink on a light theme, where a 16 percent grey on a pale
+// control was "a very light gray color for buttons"); unset, the grey as before.
+export const SEGMENT_ON =
+  'bg-[var(--p-pressed,color-mix(in_srgb,var(--p-text)_16%,var(--p-control)))] text-[var(--p-pressed-ink,var(--p-text))]'
 
 /**
  * A switch that is on WEARS THE THEME'S ACCENT (#138; owner, 2026-10-07:
