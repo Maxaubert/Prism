@@ -1,5 +1,6 @@
 import { containerSync } from './archiveBrowse'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { rename, rm, writeFile } from 'fs/promises'
 import { isAbsolute, relative, resolve } from 'path'
 import type { BrowseLocation, SavedBrowse, SavedPane } from '@shared/browse'
 
@@ -309,5 +310,44 @@ export function writeTabs(path: string, state: SavedTabs): void {
     writeFileSync(path, JSON.stringify(state))
   } catch {
     /* a viewer that cannot write its tab strip is still a viewer */
+  }
+}
+
+/**
+ * THE TAB STRIP IS SAVED OFF THE MAIN THREAD (owner, 2026-10-12: the app
+ * "stalled for like 5 seconds"). `writeFileSync` on the debounce held main for
+ * 3954 ms writing a 20 KB file while Windows had the disk busy (MEASURED, a
+ * CPU profile of the owner's main process: every sample of the stall was in
+ * writeFileUtf8 under writeTabs). `write` hands the bytes to libuv's thread
+ * pool and swaps them in with a rename, so a slow disk delays the file, never
+ * the app, and a crash mid-write leaves the old file whole. Only `flushSync`,
+ * at quit, still waits: a lost last write is a Claude session that never
+ * resumes. A write that finishes after a newer one has landed is dropped.
+ */
+export function tabsWriter(path: () => string): {
+  write: (state: SavedTabs) => Promise<void>
+  flushSync: (state: SavedTabs) => void
+} {
+  let version = 0
+  let landed = 0
+  return {
+    async write(state) {
+      const mine = ++version
+      const target = path()
+      const tmp = `${target}.${mine}.tmp`
+      try {
+        await writeFile(tmp, JSON.stringify(state))
+        if (mine < landed) return void (await rm(tmp, { force: true }))
+        await rename(tmp, target)
+        landed = Math.max(landed, mine)
+      } catch {
+        await rm(tmp, { force: true }).catch(() => {})
+      }
+    },
+    flushSync(state) {
+      const mine = ++version
+      writeTabs(path(), state)
+      landed = mine
+    }
   }
 }

@@ -1788,6 +1788,12 @@ changing a feature: each entry records what the owner decided, why, and what hol
   when nothing is playing; the visualizer's frame loop stops once a paused
   picture has settled; and a cross-volume move copies with `fs/promises`
   rather than `cpSync`, which blocked every window for as long as it took.
+  **THE TAB STRIP IS SAVED OFF MAIN** (owner, 2026-10-12: the app "stalled for like 5 seconds",
+  first after an unpin, then on entering Downloads). A CPU profile of the owner's main process
+  put every sample of a 3954 ms freeze in `writeFileSync` under `writeTabs`: the tab strip's
+  20 KB save, 400 ms after any tab change, waiting on a busy disk. `tabs.ts` `tabsWriter` now
+  writes it on libuv's pool and swaps it in with a rename; only the quit flush is synchronous,
+  and a write that lands after a newer one is dropped. `tabs.test.ts` holds both.
   **THE WALL RESOLVES A GRANT ONCE, AND A PROCESS IS STARTED OFF MAIN** (#351;
   owner, 2026-10-11: "big issues with stalls at the beginning of using the
   program, like entering the first folder, highlighting a file ... then it
