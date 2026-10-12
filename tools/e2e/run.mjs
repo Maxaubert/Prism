@@ -30,7 +30,7 @@ import {
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir, tmpdir } from 'node:os'
-import { BIG, buildBigFixtures, buildFixtures, OTHER_ROOT } from './fixtures.mjs'
+import { BIG, buildBigFixtures, buildFixtures, FFMPEG, OTHER_ROOT } from './fixtures.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
@@ -1637,7 +1637,8 @@ async function contextMenuScenario(fixtures) {
     await win.waitForSelector('dd', { timeout: 8000 })
     const dlg = (await win.textContent('[role="dialog"]')) ?? ''
     ok(/Words/.test(dlg) && /Lines/.test(dlg), 'text properties show lines and words')
-    ok(/Text document \(MD\)/.test(dlg), 'kind row names the format')
+    // The text body names the language since 2026-10-12 (the Properties window, per kind).
+    ok(/Language\s*Markdown/.test(dlg), 'the language row names the format (Markdown)')
     await win.screenshot({ path: join(SHOTS, 'properties.png') })
     // Escape closes the dialog, not the window (the dialog owns the key).
     await win.keyboard.press('Escape')
@@ -18040,6 +18041,210 @@ function readDiag() {
  *  ms), so every look waits for its line. */
 const diagHas = (fn, ms = 10000) => until(() => readDiag().find(fn) ?? false, ms, 100)
 
+/* ---------- THE PROPERTIES WINDOW (owner, 2026-10-12) ---------- */
+
+/** Is there an ffmpeg to make the media fixtures with? */
+const HAS_FFMPEG = (() => {
+  try {
+    execFileSync(FFMPEG, ['-version'], { stdio: 'ignore', windowsHide: true })
+    return true
+  } catch {
+    return false
+  }
+})()
+
+/** The open Properties window's facts, label to value. */
+const propsFacts = (win) =>
+  win.evaluate(() =>
+    Object.fromEntries(
+      [...document.querySelectorAll('[data-props-window] dt')].map((dt) => [dt.textContent ?? '', dt.nextElementSibling?.textContent ?? ''])
+    )
+  )
+
+/** Right-click a row of the Explorer and pick Properties. */
+async function openRowProps(win, suffix) {
+  await zipRow(win, suffix).click({ button: 'right' })
+  await win.locator('[role="menu"] [role="menuitem"]:has-text("Properties")').click()
+  return until(async () => (await win.locator('[data-props-window]').count()) === 1, 8000)
+}
+
+/** Close, the window's own button, and the window is gone. */
+async function closeProps(win) {
+  await win.locator('[data-props-window] button[data-primary="true"]').click()
+  return until(async () => (await win.locator('[data-props-window]').count()) === 0, 5000)
+}
+
+/**
+ * THE PROPERTIES WINDOW, PER KIND (owner, 2026-10-12; spec
+ * `docs/superpowers/specs/2026-10-12-properties-window-design.md`, Tests).
+ * Opened from the Explorer's row menu on a CRLF text file, a .py, a folder,
+ * a PNG, and (made with the bundled ffmpeg) a film and two songs, one with
+ * its cover and one without (the sound bars, audio option D); then the C:
+ * drive from This PC: its donut, the legend, a slice's tooltip naming a
+ * legend row, Disk Cleanup (never clicked: it opens Windows' own cleaner)
+ * and Close. The checksum is held to Node's own SHA-256.
+ */
+async function propertiesWindowScenario(fixtures) {
+  console.log('properties window (2026-10-12)')
+  const dir = join(fixtures, 'propswin')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'sub'), { recursive: true })
+  writeFileSync(join(dir, 'sub', 'inside.txt'), 'inside the folder\n')
+  const notes = join(dir, 'notes.txt')
+  writeFileSync(notes, 'First line of the notes\r\nSecond line\r\nThird and last line\r\n')
+  writeFileSync(join(dir, 'hello.py'), 'def hello():\n    return 42\n')
+  writeFileSync(join(dir, 'pic.png'), ZIP_PNG)
+  let media = HAS_FFMPEG
+  if (media) {
+    const ff = (args) => execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...args], { windowsHide: true, stdio: 'ignore' })
+    try {
+      // libopenh264: the bundled ffmpeg is the LGPL build (see fixtures.mjs).
+      ff(['-f', 'lavfi', '-i', 'testsrc=duration=1:size=320x240:rate=10', '-pix_fmt', 'yuv420p', '-c:v', 'libopenh264', '-b:v', '300k', join(dir, 'clip.mp4')])
+      const cover = join(fixtures, 'propswin-cover.png')
+      ff(['-f', 'lavfi', '-i', 'testsrc=size=96x96', '-frames:v', '1', cover])
+      ff(['-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-i', cover, '-map', '0:a', '-map', '1:v', '-c:a', 'flac', '-c:v', 'png', '-disposition:v', 'attached_pic', join(dir, 'song-cover.flac')])
+      ff(['-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:a', 'flac', join(dir, 'song-plain.flac')])
+      rmSync(cover, { force: true })
+    } catch (e) {
+      media = false
+      console.log(`  (ffmpeg could not make the media fixtures, so the film and song checks are skipped: ${e.message})`)
+    }
+  } else console.log(`  (no ffmpeg found (tried ${FFMPEG}), so the film and song checks are skipped)`)
+
+  // The drive's donut sizes its folders from the search index; this machine's
+  // own Everything has C: indexed already, which a fresh e2e index has not.
+  EXTRA_ENV = { PRISM_E2E_EXISTING_INDEX: '1' }
+  const { app, win } = await launch(notes)
+  EXTRA_ENV = {}
+  try {
+    await explorerAt(win, dir)
+
+    // 1. A TEXT FILE: the language, the encoding, the line endings, the counts.
+    ok(await openRowProps(win, 'notes.txt'), 'text: Properties opens from the row menu')
+    const text = await until(async () => {
+      const f = await propsFacts(win)
+      return 'Lines' in f && 'Encoding' in f ? f : null
+    }, 8000)
+    ok(!!text && 'Language' in text, `text: a Language row (${text?.Language})`)
+    ok(/^UTF-8/.test(text?.Encoding ?? ''), `text: the encoding is UTF-8 (${text?.Encoding})`)
+    ok(/^CRLF/.test(text?.['Line endings'] ?? ''), `text: the line endings are CRLF (${text?.['Line endings']})`)
+    ok(text?.Lines === '3', `text: three lines (${text?.Lines})`)
+
+    // The checksum row: Compute, the hash, and it is Node's own SHA-256.
+    await win.locator('[data-props-window] [data-props-checksum] button:has-text("Compute")').click()
+    const hash = await until(() => win.locator('[data-props-hash]').getAttribute('data-props-hash', { timeout: 200 }).catch(() => null), 10000)
+    const want = createHash('sha256').update(readFileSync(notes)).digest('hex')
+    ok(hash === want, `checksum: Compute gives Node's SHA-256 (${hash})`)
+    ok((await win.locator('[data-props-checksum="done"] [data-props-copy]').count()) === 1, 'checksum: with a copy button')
+    await win.screenshot({ path: join(SHOTS, 'props-text.png') })
+    ok(await closeProps(win), 'text: Close closes')
+
+    // 2. CODE: the language by name.
+    await openRowProps(win, 'hello.py')
+    const py = await until(async () => {
+      const f = await propsFacts(win)
+      return 'Lines' in f ? f : null
+    }, 8000)
+    ok(/Python/.test(py?.Language ?? ''), `code: the language is Python (${py?.Language})`)
+    await closeProps(win)
+
+    // 3. A FOLDER: its own dates, no newest file, Close the only button.
+    await openRowProps(win, '\\sub')
+    const folder = await until(async () => {
+      const f = await propsFacts(win)
+      return 'Created' in f ? f : null
+    }, 8000)
+    ok(!!folder && 'Created' in folder && 'Opened' in folder, `folder: Created and Opened rows (${Object.keys(folder ?? {}).join(', ')})`)
+    ok(!/Newest file/.test((await win.locator('[data-props-window]').textContent()) ?? ''), 'folder: no Newest file')
+    const buttons = await win
+      .locator('[data-props-window] button:not([data-props-copy])')
+      .evaluateAll((els) => els.map((b) => b.textContent?.trim() ?? ''))
+    ok(buttons.join('|') === 'Close', `folder: Close is the only button (${buttons.join(', ')})`)
+    await win.screenshot({ path: join(SHOTS, 'props-folder.png') })
+    await closeProps(win)
+
+    // 4. A PICTURE: the picture across the top.
+    await openRowProps(win, 'pic.png')
+    ok(await until(async () => (await win.locator('[data-props-body="photo"] img').count()) === 1, 5000), 'photo: the picture is the header')
+    await closeProps(win)
+
+    if (media) {
+      // 5. A FILM: a frame on top, the resolution row.
+      await openRowProps(win, 'clip.mp4')
+      const film = await until(async () => {
+        const f = await propsFacts(win)
+        return 'Resolution' in f ? f : null
+      }, 15000)
+      ok(!!film, `video: a Resolution row (${film?.Resolution})`)
+      ok(await until(async () => (await win.locator('[data-props-body="video"] img').count()) === 1, 15000), 'video: a frame is the header')
+      await win.screenshot({ path: join(SHOTS, 'props-video.png') })
+      await closeProps(win)
+
+      // 6. SONGS: the file's own cover, or the sound bars on its tile.
+      await openRowProps(win, 'song-cover.flac')
+      ok(await until(async () => (await win.locator('[data-props-cover="art"] img').count()) === 1, 15000), 'song: the cover art is the header')
+      await closeProps(win)
+      await openRowProps(win, 'song-plain.flac')
+      ok(await until(async () => (await win.locator('[data-props-cover="bars"] svg').count()) === 1, 15000), 'song without a cover: the sound bars tile')
+      await win.screenshot({ path: join(SHOTS, 'props-song.png') })
+      await closeProps(win)
+    }
+
+    // 7. THE DRIVE, from This PC. The index answers when it has C:; until it
+    // does the window asks again, each opening its own question.
+    const cDrive = win.locator('.folder-browser .browse-places section[aria-label="This PC"] .browse-drive[title="C:\\\\"]')
+    ok(await until(async () => (await cDrive.count()) === 1, 15000), 'drive: C: is in This PC')
+    let slices = 0
+    const end = Date.now() + 90000
+    while (Date.now() < end) {
+      await cDrive.click({ button: 'right' })
+      await win.locator('[role="menu"] [role="menuitem"]:has-text("Properties")').click()
+      await until(async () => (await win.locator('[data-props-body="drive"]').count()) === 1, 8000)
+      // Main's answer is in once the ring stops saying Reading.
+      await until(async () => (await win.locator('[data-props-body="drive"] .donut-pair').count()) === 1, 20000)
+      slices = await win.locator('[data-props-body="drive"] svg circle.donut-slice').count()
+      if (slices > 0) break
+      await closeProps(win)
+      await sleep(3000)
+    }
+    ok((await win.locator('[data-props-body="drive"] svg').count()) >= 1 && slices > 0, `drive: the donut draws its folders (${slices} slices)`)
+    const legend = await win.locator('[data-props-body="drive"] .donut-row .donut-name').evaluateAll((els) => els.map((e) => e.textContent ?? ''))
+    ok(legend.length > 0, `drive: the legend has rows (${legend.length})`)
+    // A point on the ring over a slice: the circle's own box is the whole
+    // ring, and its middle is the hole.
+    const spot = await win.evaluate(() => {
+      const svg = document.querySelector('[data-props-body="drive"] .donut-ring svg')
+      if (!svg) return null
+      const r = svg.getBoundingClientRect()
+      const cx = r.left + r.width / 2
+      const cy = r.top + r.height / 2
+      const radius = (r.width / 150) * 65 // the ring's middle (DriveDonut: (150 - 20) / 2)
+      for (let a = 0; a < 360; a += 2) {
+        const x = cx + radius * Math.cos((a * Math.PI) / 180)
+        const y = cy + radius * Math.sin((a * Math.PI) / 180)
+        if (document.elementFromPoint(x, y)?.classList.contains('donut-slice')) return { x, y }
+      }
+      return null
+    })
+    ok(!!spot, 'drive: a slice is under the pointer somewhere on the ring')
+    if (spot) {
+      await win.mouse.move(spot.x - 4, spot.y - 4)
+      await win.mouse.move(spot.x, spot.y)
+      const tip = await until(() => win.locator('.donut-tip b').textContent({ timeout: 200 }).catch(() => null), 3000)
+      ok(!!tip && legend.includes(tip), `drive: the slice's tooltip names a legend row (${tip})`)
+      ok((await win.locator('[data-props-body="drive"] .donut-row[data-hot]').count()) === 1, 'drive: and lights that row')
+      await sleep(200) // the tooltip fades in over 120 ms; the shot shows it settled
+      await win.screenshot({ path: join(SHOTS, 'props-drive.png') })
+    }
+    ok((await win.locator('[data-props-window] button:has-text("Disk Cleanup")').count()) === 1, 'drive: a Disk Cleanup button')
+    ok(await closeProps(win), 'drive: Close closes')
+  } finally {
+    await app.close().catch(() => {})
+    // Its files must not outlive it: phoneDocs counts the fixtures' .py files.
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 /**
  * A REAL QUIT, for the log's last line: the harness's `app.close()` is
  * `app.exit(0)`, which skips will-quit, where the log writes its queue and
@@ -18436,6 +18641,7 @@ await run(listScrollbarScenario)
 await run(addressFieldScenario)
 await run(toolbarIconsScenario)
 await run(explorerVerbsScenario)
+await run(propertiesWindowScenario)
 await run(searchPopupScenario)
 await run(searchNavScenario)
 await run(phoneScenario)

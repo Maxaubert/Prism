@@ -61,7 +61,7 @@ function findFfmpeg() {
   return 'ffmpeg'
 }
 
-const FFMPEG = findFfmpeg()
+export const FFMPEG = findFfmpeg()
 
 /**
  * Serif-free single-font PDF: `pages` is an array of line arrays.
