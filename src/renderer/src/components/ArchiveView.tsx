@@ -1,26 +1,29 @@
 import { copyFilePaths } from '../lib/fileClipboard'
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import { withImpliedFolders } from '@shared/archiveTree'
 import type { FileKind, ViewerFile } from '@shared/types'
 import { formatBytes, formatWhen, savedPercent } from '../lib/format'
 import { typeLabel } from '../lib/typeLabel'
-import { loadTransportBg, loadTransportStyle } from '../lib/transport'
 import { useSysIcon } from '../lib/sysIcon'
 import { fileKind } from '@shared/fileKind'
 import { baseName, extOf, naturalCompare, parentDir } from '@shared/path'
 import { ContextMenu } from './ContextMenu'
 import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
 import { PasswordDialog } from '../dialogs/PasswordDialog'
-import { ViewerSwitch } from './ViewerSwitch'
 import { KindIcon, iconColour } from './icons/FileIcons'
 import { PATHS } from './icons/paths'
 import { Spinner } from './LoadingState'
 import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
-import { archivePassword, rememberArchivePassword } from '../lib/archivePass'
+import { archivePassword } from '../lib/archivePass'
 import { useArchiveOps } from './archive/useArchiveOps'
-import { RenameField } from './RenameField'
+import { COL_PACKED, COL_SIZE, COL_TYPE, COL_WHEN, type Entry } from './archive/entry'
+import { MemberView } from './archive/MemberView'
+import { LockBadge } from './archive/LockBadge'
+import { RenameInput } from './archive/RenameInput'
+import { ArcVerb } from './archive/ArcVerb'
+import { useArchiveListing } from './archive/useArchiveListing'
+import { useBandSelect } from './archive/useBandSelect'
 import { BrowseRename } from './browse/BrowseRename'
 import type { UndoEntry } from '../lib/undo'
 import { isTypingTarget } from '../lib/focusGuards'
@@ -33,90 +36,6 @@ import { Icon } from './icons/Icon'
 // delete (the one permanent delete in Prism; a zip has no recycle bin).
 // Password-protected members ask once per archive; ZipCrypto opens, AES says
 // so honestly (adm-zip cannot decrypt it).
-
-type Entry = {
-  path: string
-  name: string
-  dir: boolean
-  size: number
-  /** What the member occupies inside the container; folders have none. */
-  packed?: number
-  /** The entry's own modified time, epoch ms, as the container recorded it. */
-  mtime?: number
-  encrypted?: boolean
-}
-
-// The columns, Explorer-shaped. The widths live in one place because the
-// header row and every member row have to agree to the pixel, and the narrow
-// ones step out of the way on a small window rather than crushing the name:
-// the name is the column you cannot do without.
-const COL_TYPE = 'hidden w-[140px] shrink-0 truncate md:block'
-const COL_SIZE = 'w-[86px] shrink-0 text-right tabular-nums'
-const COL_PACKED = 'hidden w-[128px] shrink-0 text-right tabular-nums xl:block'
-const COL_WHEN = 'hidden w-[150px] shrink-0 text-right tabular-nums lg:block'
-
-/** The extracted member, shown with the same viewers the folder uses. */
-function MemberView({
-  name,
-  path,
-  kind,
-  trail
-}: {
-  name: string
-  path: string
-  kind: FileKind
-  trail?: { label: string; onBack: () => void }[]
-}): JSX.Element {
-  const file: ViewerFile = {
-    path,
-    name,
-    ext: name.slice(name.lastIndexOf('.')),
-    kind,
-    size: 0,
-    mtimeMs: 0
-  }
-  return (
-    <ViewerSwitch
-      file={file}
-      mode="member"
-      loading={null}
-      transportStyle={loadTransportStyle()}
-      transportBg={loadTransportBg()}
-      // A ZIP INSIDE A ZIP navigates like any other archive rather than
-      // dead-ending on "no viewer" (2026-09-01). It is an ordinary thing to
-      // meet - a game rip, a backup of a backup - and the member is a real
-      // file on disk by the time it gets here, so the panel that reads an
-      // archive can simply read this one. Recursion is bounded by the reader:
-      // each level is one more preview, and Escape closes them in turn.
-      archive={() => <ArchiveView trail={trail} file={file} />}
-      unsupported={() => (
-        <div className="grid h-full place-items-center text-[13px] text-[var(--p-dim)]">
-          No viewer for this file type
-        </div>
-      )}
-    />
-  )
-}
-
-function LockBadge(): JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={11}
-      height={11}
-      fill="none"
-      stroke="var(--p-dim2)"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="shrink-0"
-      aria-label="Password protected"
-    >
-      <rect x="5" y="11" width="14" height="9" rx="1.5" />
-      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-    </svg>
-  )
-}
 
 /** Keyed by path, so switching zip to zip starts the inner state fresh. */
 export function ArchiveView({
@@ -178,20 +97,13 @@ function ArchiveInner({
   /** The archives this one is nested inside, outermost first; see ArchiveView. */
   trail?: { label: string; onBack: () => void }[]
 }): JSX.Element {
-  // 'locked' is its own state (2026-08-30): a 7z or rar written with encrypted
-  // file NAMES cannot be listed at all without the password, which is not the
-  // same thing as a broken archive and must not read as one.
-  const [entries, setEntries] = useState<Entry[] | null | 'error' | 'locked'>(null)
-  // 7z, rar, tar and the rest are read through 7-Zip and never written, so the
-  // panel offers no verbs that would fail. zip keeps all of its.
-  const [readOnly, setReadOnly] = useState(false)
+  // The listing, the container's read-only flag and the reload
+  // (archive/useArchiveListing).
+  const { entries, setEntries, readOnly, load } = useArchiveListing(file.path, refreshKey)
   /** A password has already been tried and refused, so the dialog says so. */
   const [triedPass, setTriedPass] = useState(false)
   /** The panel's dead-space menu, kept apart from the row menu's state. */
   const [panelMenu, setPanelMenu] = useState<{ x: number; y: number } | null>(null)
-  useEffect(() => {
-    void window.prism.archiveStat(file.path).then((st) => setReadOnly(!!st?.readOnly))
-  }, [file.path])
   /**
    * What the HOST can do (#106). On the phone nothing writes, nothing
    * reaches the OS clipboard, nothing drags out and there is no Explorer, so
@@ -263,30 +175,8 @@ function ArchiveInner({
   const [busy, setBusy] = useState<'copy' | 'add' | null>(null)
   /** Renaming the archive itself, from the verb row. */
   const [renamingSelf, setRenamingSelf] = useState(false)
-  /** The drag-select band, in the panel box's own coordinates. */
-  const [band, setBand] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const sysIcon = useSysIcon(file.path)
 
-  const load = useCallback(
-    (password?: string) => {
-      void window.prism.archiveList(file.path, password).then((r) => {
-        if (r.ok) {
-          // A password that got us in belongs to the renderer's own store too,
-          // so dragging a member out to a folder does not ask again.
-          if (password) rememberArchivePassword(file.path, password)
-          // A zip's directory records are OPTIONAL and plenty of writers
-          // leave them out, which used to make such an archive read as
-          // EMPTY: every member's parent was two levels down and the
-          // folders those names imply did not exist to be listed.
-          setEntries(withImpliedFolders(r.entries))
-          return
-        }
-        setEntries(r.reason === 'password' ? 'locked' : 'error')
-      })
-    },
-    [file.path]
-  )
-  useEffect(() => load(), [load, refreshKey])
   // The password, the taken name on the way in, the permanent delete and the
   // message box: the verbs' questions, shared with a zip in the Explorer.
   // The password lives in lib/archivePass, one per archive, so the SIDEBAR
@@ -505,60 +395,16 @@ function ArchiveInner({
     [file.path]
   )
 
-  /**
-   * Drag-select, the archive's alone (2026-08-25).
-   *
-   * The tree's sweep was removed because its pointer state outlived real drags
-   * - a dropped folder started a phantom band with no button held. This one
-   * cannot: it begins ONLY on dead space (a row starts an HTML5 drag instead,
-   * and never reaches here), and its listeners are on `window`, removed by
-   * pointerup AND pointercancel, so releasing anywhere at all ends it.
-   *
-   * A plain press on dead space also clears the selection, which is the other
-   * half of what dead space should mean.
-   */
-  const panelBox = useRef<HTMLDivElement>(null)
-  /** Was the last press in here? Ctrl+A belongs to the surface you are in. */
-  const hasFocus = useRef(false)
-  const onPanelPointerDown = useCallback((e: React.PointerEvent): void => {
-    hasFocus.current = true
-    if (e.button !== 0) return
-    const el = e.target as HTMLElement | null
-    if (el?.closest('[data-arc-row]')) return // the row owns its own click
-    const box = panelBox.current
-    if (!box) return
-    if (!e.ctrlKey && !e.shiftKey) setSel(emptySelection)
-    const rect = box.getBoundingClientRect()
-    const sx = e.clientX
-    const sy = e.clientY
-    const base = e.ctrlKey ? new Set(selRef.current.items) : new Set<string>()
-    const move = (ev: PointerEvent): void => {
-      const x = Math.min(sx, ev.clientX)
-      const y = Math.min(sy, ev.clientY)
-      const w = Math.abs(ev.clientX - sx)
-      const h = Math.abs(ev.clientY - sy)
-      if (w < 4 && h < 4) return // a click, not a sweep
-      setBand({ x: x - rect.left, y: y - rect.top, w, h })
-      const hits = new Set(base)
-      box.querySelectorAll<HTMLElement>('[data-arc-row]').forEach((row) => {
-        const r = row.getBoundingClientRect()
-        if (r.bottom > y && r.top < y + h && r.right > x && r.left < x + w) {
-          const p = row.dataset.arcRow
-          if (p) hits.add(p)
-        }
-      })
-      setSel((s) => ({ anchor: s.anchor, items: hits }))
-    }
-    const end = (): void => {
-      setBand(null)
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', end)
-      window.removeEventListener('pointercancel', end)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', end)
-    window.addEventListener('pointercancel', end)
-  }, [])
+  // The drag-select band (archive/useBandSelect).
+  const {
+    panelBox,
+    hasFocus,
+    onPanelPointerDown,
+    band
+  } = useBandSelect({
+    setSel,
+    selRef
+  })
 
   /**
    * A press ANYWHERE else drops the marks (2026-08-25).
@@ -579,7 +425,7 @@ function ArchiveInner({
     }
     window.addEventListener('pointerdown', away, true)
     return () => window.removeEventListener('pointerdown', away, true)
-  }, [])
+  }, [hasFocus, panelBox])
 
   /** Ctrl+A marks everything in the folder you are looking at - this folder,
    *  not the whole archive, which is what Explorer means by it too. Only
@@ -599,7 +445,7 @@ function ArchiveInner({
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [order, member])
+  }, [order, member, hasFocus])
 
   const onRowDragStart = useCallback(
     (e: React.DragEvent, path: string): void => {
@@ -1160,72 +1006,5 @@ function ArchiveInner({
       )}
 
     </div>
-  )
-}
-
-/** Inline rename, Explorer-style: name selected up to the extension. */
-function RenameInput({
-  name,
-  onSubmit,
-  onCancel
-}: {
-  name: string
-  onSubmit: (v: string) => void
-  onCancel: () => void
-}): JSX.Element {
-  return (
-    <div className="flex h-[28px] items-center">
-      <RenameField
-        name={name}
-        onSubmit={onSubmit}
-        onCancel={onCancel}
-        className="w-full max-w-[320px] rounded border border-[var(--p-accent-hi)] bg-[var(--p-bg)] px-1.5 py-0.5 text-[12.5px] text-[var(--p-text)] outline-none"
-      />
-    </div>
-  )
-}
-
-/**
- * One verb in the archive's own row of them: a quiet pill, icon then label.
- *
- * Deliberately not the row hover-verbs that were tried and rejected twice
- * (#68): these act on the whole archive, they are always in the same place,
- * and nothing appears or disappears under the pointer.
- */
-function ArcVerb({
-  label,
-  path,
-  onClick,
-  disabled
-}: {
-  label: string
-  /** The icon's SVG path data, drawn in currentColor. */
-  path: string
-  onClick: () => void
-  disabled?: boolean
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="no-drag flex h-[26px] items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] px-2.5 text-[11.5px] text-[var(--p-text-soft)] transition-colors hover:border-[color:var(--p-accent-hi)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] disabled:cursor-default disabled:opacity-50 disabled:hover:border-[color:var(--p-divider)] disabled:hover:bg-transparent"
-    >
-      <svg
-        viewBox="0 0 24 24"
-        width={12}
-        height={12}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.9"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="shrink-0 opacity-80"
-        aria-hidden
-      >
-        <path d={path} />
-      </svg>
-      {label}
-    </button>
   )
 }
