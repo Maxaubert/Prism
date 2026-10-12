@@ -1,8 +1,8 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { parseTabs, restoredFileIndex, type SavedTabs } from './tabs'
+import { parseTabs, restoredFileIndex, tabsWriter, type SavedTabs } from './tabs'
 
 let box = ''
 beforeEach(() => {
@@ -266,5 +266,27 @@ describe('places inside an archive (#300)', () => {
     }
     const parsed = parseTabs(JSON.stringify({ tabs: [{ root, role: 'explorer', browse }], active: 0 }))
     expect(parsed.tabs[0].browse).toBeUndefined()
+  })
+})
+
+describe('the tab strip is saved off the main thread (owner, 2026-10-12)', () => {
+  const state = (n: number): SavedTabs => ({ tabs: [{ root: `C:\r${n}` }], active: 0 }) as unknown as SavedTabs
+  it('writes the newest state, whole', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tabs-'))
+    const file = join(dir, 'tabs.json')
+    const w = tabsWriter(() => file)
+    await Promise.all([w.write(state(1)), w.write(state(2))])
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual(state(2))
+    expect(readdirSync(dir)).toEqual(['tabs.json'])
+  })
+  it('a write still in flight never lands over the quit flush', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tabs-'))
+    const file = join(dir, 'tabs.json')
+    const w = tabsWriter(() => file)
+    const late = w.write(state(1))
+    w.flushSync(state(2))
+    await late
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual(state(2))
+    expect(readdirSync(dir)).toEqual(['tabs.json'])
   })
 })

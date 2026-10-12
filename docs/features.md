@@ -536,6 +536,14 @@ changing a feature: each entry records what the owner decided, why, and what hol
   narrow list has a place to start one; the header keeps the same grid and gutter, so its labels
   stay over the row's cells, and its LAST cell's box still runs on to the header's right edge
   (`--browse-col-edge-end`; the 2026-10-04 "no strip a hover cannot fill" rule).
+  **A CLICK THEN A SWEEP IS ONE BLOCK** (owner, 2026-10-12: "I clicked to select one file then I
+  drag selected the ones over it and ... the first file is selected but disconnected from the
+  rest, they should all be connected"; asked, chose that it joins). A plain sweep keeps the one
+  row just clicked (the whole selection, or in the tree with none the lit open file) when it
+  TOUCHES the swept rows (beside or inside them; one far away is dropped, as in Windows), so it
+  joins the swept rows, shares their square edges and the verbs act on all of it; marks a sweep
+  made are not a click, so a second plain sweep still replaces them, and Ctrl still adds
+  (`lib/marquee.ts` `sweepBase`, unit tested; `marquee` and `marqueeQuiet` e2e).
   A click beside the rows clears the marks like the space under them. During an internal drag
   every element's cursor is pinned to `default` (`internalFileDrag.ts`; it was `grabbing`).
   The `marquee` e2e measures the gutter and the header, sweeps from beside, drags from the Size
@@ -1788,6 +1796,12 @@ changing a feature: each entry records what the owner decided, why, and what hol
   when nothing is playing; the visualizer's frame loop stops once a paused
   picture has settled; and a cross-volume move copies with `fs/promises`
   rather than `cpSync`, which blocked every window for as long as it took.
+  **THE TAB STRIP IS SAVED OFF MAIN** (owner, 2026-10-12: the app "stalled for like 5 seconds",
+  first after an unpin, then on entering Downloads). A CPU profile of the owner's main process
+  put every sample of a 3954 ms freeze in `writeFileSync` under `writeTabs`: the tab strip's
+  20 KB save, 400 ms after any tab change, waiting on a busy disk. `tabs.ts` `tabsWriter` now
+  writes it on libuv's pool and swaps it in with a rename; only the quit flush is synchronous,
+  and a write that lands after a newer one is dropped. `tabs.test.ts` holds both.
   **THE WALL RESOLVES A GRANT ONCE, AND A PROCESS IS STARTED OFF MAIN** (#351;
   owner, 2026-10-11: "big issues with stalls at the beginning of using the
   program, like entering the first folder, highlighting a file ... then it
