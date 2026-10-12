@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { pathKey, samePath } from '@shared/path'
 
 export interface QuickAccessPin {
   path: string
@@ -9,9 +10,7 @@ export interface QuickAccessPin {
 export const QUICK_ACCESS_KEY = 'prism.quickAccess'
 export const QUICK_ACCESS_PIN_MIME = 'application/x-prism-quick-access-pin'
 const listeners = new Set<() => void>()
-const pathKey = (path: string): string =>
-  path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
-export const sameQuickAccessPath = (a: string, b: string): boolean => pathKey(a) === pathKey(b)
+export const sameQuickAccessPath = samePath
 
 /** Stored order is deliberate. Invalid entries and equivalent paths never add rows. */
 export function parseQuickAccess(raw: string | null): QuickAccessPin[] {

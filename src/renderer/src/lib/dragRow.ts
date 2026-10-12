@@ -13,6 +13,8 @@
  * `dragBadgePlace` (#310), never a native drag image (the Ctrl+Tab rule).
  */
 
+import { baseName } from '@shared/path'
+
 /** The slice of an Element the icon finder reads; a stand-in in the tests. */
 export interface RowNode {
   tagName: string
@@ -214,7 +216,7 @@ function fillFor(row: Element): string {
 function pathNameOf(source: Element): string | null {
   const at = source.closest('[data-row], [data-browse-path]')
   const path = at?.getAttribute('data-row') ?? at?.getAttribute('data-browse-path')
-  return path ? (path.split(/[\\/]/).filter(Boolean).pop() ?? null) : null
+  return path ? baseName(path) : null
 }
 
 /**

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
 import { ContextMenu } from './ContextMenu'
+import { parentDir } from '@shared/path'
 import { markdownMenu } from '../menus/viewers/markdown'
 import { touchesFile } from '../lib/fileReload'
 import { DocFind } from './DocFind'
@@ -132,7 +133,7 @@ export function MarkdownView({
   }
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   // The folder the document lives in, which its relative paths resolve against.
-  const baseDir = useMemo(() => path.replace(/[\\/][^\\/]*$/, ''), [path])
+  const baseDir = useMemo(() => parentDir(path), [path])
   const text = loaded?.path === path ? loaded.text : null
   /**
    * The local files this document's links name, by the url each became

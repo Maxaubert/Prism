@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { ViewerFile } from '@shared/types'
+import { byName } from '@shared/path'
 
 // How the folder is ordered: one field, one direction, shared by the tree rows
 // and the arrow-key paging so what you see is what the arrows walk. Persisted,
@@ -17,12 +18,10 @@ export const SORT_FIELDS: Array<{ id: SortField; name: string }> = [
 
 export const DEFAULT_SORT = { field: 'name' as SortField, dir: 'asc' as SortDir }
 
-// One collator, hoisted (#271): `localeCompare` with options builds a fresh
-// one on EVERY comparison, the 2026-08-31 trap main's listDir already fixed.
+// `byName` is the one hoisted collator (#271, now `@shared/path`): a
+// `localeCompare` with options builds a fresh one on EVERY comparison.
 // MEASURED on a new folder of 2000 files (the newFolder2000 e2e): 42 to 58 ms
 // from the double-click to the first row before, 25 ms after.
-const names = new Intl.Collator(undefined, { numeric: true })
-const byName = (a: ViewerFile, b: ViewerFile): number => names.compare(a.name, b.name)
 
 /** A new array of the same file objects, ordered by field + direction. Ties
  *  (and the tie inside every non-name field) fall back to natural name order.

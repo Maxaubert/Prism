@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent
 } from 'react'
 import { ImageView } from './ImageView'
+import { baseName } from '@shared/path'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 import { preloadImage } from '../lib/imageLoader'
 import { createChromeActivityClock } from '../lib/autoHideChrome'
@@ -182,7 +183,7 @@ export function ComicView({
   }
 
   const at = Math.min(page, total - 1)
-  const pageName = pages[at]?.split(/[\\/]/).pop() ?? name
+  const pageName = pages[at] !== undefined ? baseName(pages[at]) : name
 
   return (
     <div

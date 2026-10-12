@@ -42,7 +42,8 @@ import {
   type SplitDir,
   pinTermPane
 } from './lib/panes'
-import { fileKind } from '@shared/fileKind'
+import { fileKind, isMarkdown } from '@shared/fileKind'
+import { baseName, extOf, isInside, parentDir } from '@shared/path'
 import {
   dockAxis,
   dockFlex,
@@ -510,16 +511,6 @@ function TitleButtons({
   )
 }
 
-// The one kind with two faces: markdown renders, and the pencil shows its
-// source. Every other text file is only ever itself, so it needs no toggle.
-const isMarkdown = (name: string): boolean => /\.(md|markdown)$/i.test(name)
-
-/** The last segment of a path, either separator. */
-const baseName = (p: string): string => /[^\\/]*$/.exec(p)?.[0] ?? p
-
-/** The folder a path lives in. Undo puts things back where they came from. */
-const parentDir = (p: string): string => p.replace(/[\\/][^\\/]*$/, '') || p
-
 /** While the editor chunk arrives. `delayed-loader` keeps it invisible unless
  *  the wait is long enough to notice, so a warm cache shows nothing at all. */
 function EditorLoading(): JSX.Element {
@@ -753,8 +744,8 @@ function PinnedPaneView({
   /** What a FILE pane's viewer needs; a terminal pane has no viewer. */
   viewerProps?: Omit<Parameters<typeof Viewer>[0], 'file'>
 }): JSX.Element {
-  const name = term ? 'terminal' : (path.split(/[\\/]/).pop() ?? path)
-  const ext = /\.[^.]+$/.exec(name)?.[0]?.toLowerCase() ?? ''
+  const name = term ? 'terminal' : baseName(path)
+  const ext = extOf(name)
   const file: ViewerFile = { path, name, ext, kind: fileKind(ext, name), size: 0, mtimeMs: 0 }
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   return (
@@ -1127,7 +1118,7 @@ export default function App(): JSX.Element {
    */
   const [reloadAnswer, setReloadAnswer] = useState<{ path: string; reload: boolean } | null>(null)
   const onExternalChange = useCallback((path: string) => {
-    setAsk({ kind: 'file-changed', path, name: path.split(/[\\/]/).filter(Boolean).pop() ?? path })
+    setAsk({ kind: 'file-changed', path, name: baseName(path) })
   }, [])
   /** The tree's arrow keys, lent up by Sidebar. Null while there is no tree to
    *  drive (panel shut, search showing); App then pages the folder itself. */
@@ -1157,7 +1148,7 @@ export default function App(): JSX.Element {
   const browsingOpenFile = browsing.openFile
   const arriveFromWindows = useCallback(
     (path: string, full: boolean): Promise<boolean | undefined> =>
-      browsableArchive(path.replace(/^.*[\\/]/, ''))
+      browsableArchive(baseName(path))
         ? browsingNavigate(path).then(() => true)
         : browsingOpenFile(path, full),
     [browsingNavigate, browsingOpenFile]
@@ -1399,9 +1390,8 @@ export default function App(): JSX.Element {
       // A FILE from outside: the Explorer's, not a project's (2026-09-22). A
       // film or a track still plays - it was picked.
       if (p?.explorerFile) {
-        const name = p.explorerFile.split(/[\\/]/).pop() ?? ''
-        const dot = name.lastIndexOf('.')
-        const kind = fileKind(dot > 0 ? name.slice(dot).toLowerCase() : '', name)
+        const name = baseName(p.explorerFile)
+        const kind = fileKind(extOf(name), name)
         if (kind === 'video' || kind === 'audio') intendToPlay(window.prism.mediaUrl(p.explorerFile))
         arriveInExplorer(p.explorerFile)
         return
@@ -1602,7 +1592,7 @@ export default function App(): JSX.Element {
       const root = tabs.find((t) => t.terms.includes(busy[0]))?.root ?? ''
       setAsk({
         kind: 'close-window-agent',
-        label: root.split(/[\\/]/).filter(Boolean).pop() ?? root,
+        label: baseName(root),
         agent: { kind: agentKinds.current.get(busy[0]) ?? 'other', forMs: workingFor(busy[0]) },
         others: busy.length - 1,
         then
@@ -1832,7 +1822,7 @@ export default function App(): JSX.Element {
           setAsk({
             kind: 'close-tab-confirm',
             id,
-            label: tab.root.split(/[\\/]/).filter(Boolean).pop() ?? tab.root,
+            label: baseName(tab.root),
             agent: {
               kind: agentKinds.current.get(hostId) ?? 'other',
               forMs: workingIds.has(hostId) ? workingFor(hostId) : null
@@ -2741,7 +2731,7 @@ export default function App(): JSX.Element {
           return stat
             ? {
                 path,
-                label: baseName(path.replace(/[\\/]+$/, '')) || path,
+                label: baseName(path),
                 isFolder: stat.isFolder
               }
             : null
@@ -2962,11 +2952,7 @@ export default function App(): JSX.Element {
 
   /** True when `p` is `parent` itself or sits inside it. Renaming or binning a
    *  folder moves everything under it, including possibly the open file. */
-  const within = (p: string, parent: string): boolean => {
-    const a = p.toLowerCase()
-    const b = parent.toLowerCase()
-    return a === b || a.startsWith(b + String.fromCharCode(92)) || a.startsWith(b + '/')
-  }
+  const within = (p: string, parent: string): boolean => isInside(parent, p, { orEqual: true })
 
   const reopen = useCallback(
     (p: string) => {

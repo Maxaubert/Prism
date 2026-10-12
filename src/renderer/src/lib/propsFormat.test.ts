@@ -10,7 +10,7 @@ import {
   fpsLabel,
   languageName,
   megapixels,
-  parentOf,
+  headerParent,
   resolutionLabel,
   shortHash,
   subtitlesLabel,
@@ -119,7 +119,7 @@ describe('the rest', () => {
   })
 
   it('finds the folder a file sits in', () => {
-    expect(parentOf('C:\\Users\\Admin\\a.txt')).toBe('C:\\Users\\Admin')
-    expect(parentOf('C:\\a.txt')).toBe('C:\\')
+    expect(headerParent('C:\\Users\\Admin\\a.txt')).toBe('C:\\Users\\Admin')
+    expect(headerParent('C:\\a.txt')).toBe('C:\\')
   })
 })

@@ -1,3 +1,4 @@
+import { extOf } from './path'
 import type { FileKind } from './types'
 
 // Extension -> kind. This is the seed of prism-core's fileKind (Phase 1); keep it
@@ -48,8 +49,13 @@ const AUDIO = new Set([
   // (midi.ts, 2026-08-24), since nothing else here can make a sound from one.
   '.mid', '.midi', '.kar', '.rmi'
 ])
+// Markdown: text Prism RENDERS (2026-10-12). One list for the viewers, the
+// phone and main's image grants. Not `.mk` (a Makefile) and not `.mdx`
+// (JSX inside): both stay plain text below.
+const MARKDOWN = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn'])
 const TEXT = new Set([
-  '.txt', '.md', '.markdown', '.json', '.js', '.ts', '.tsx', '.jsx', '.css',
+  ...MARKDOWN,
+  '.txt', '.json', '.js', '.ts', '.tsx', '.jsx', '.css',
   '.html', '.xml', '.yml', '.yaml', '.ini', '.log', '.csv',
   // Subtitles are text too (2026-08-12): view one, fix a line, save it.
   '.srt', '.vtt',
@@ -147,6 +153,11 @@ export function fileKind(ext: string, name?: string): FileKind {
   if (TEXT.has(e)) return 'text'
   if (name !== undefined && isTextName(name)) return 'text'
   return 'other'
+}
+
+/** True for a markdown file, by name or path: shown rendered, not as code. */
+export function isMarkdown(name: string): boolean {
+  return MARKDOWN.has(extOf(name))
 }
 
 /** True for anything Prism can show (used to filter a folder listing). */

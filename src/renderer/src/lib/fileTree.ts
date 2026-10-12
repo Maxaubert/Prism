@@ -1,18 +1,12 @@
 import { browsableArchive } from '@shared/archivePlace'
-// Pure path and expansion helpers for the sidebar tree. The renderer has no
-// `path` module, so this does the small amount of splitting it needs, tolerating
-// either separator. Everything here is a plain function: no React, no IPC.
+// Pure expansion helpers for the sidebar tree, tolerating either separator.
+// Path arithmetic itself (parent, name, inside) is `@shared/path`. Everything
+// here is a plain function: no React, no IPC.
 
 const SEP = /[\\/]/
 
 /** Case-insensitive comparison, since Windows paths are. */
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
-
-/** Everything before the last separator: "C:\a\b.jpg" -> "C:\a". */
-export function parentDir(p: string): string {
-  const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'))
-  return i <= 0 ? '' : p.slice(0, i)
-}
 
 /**
  * The folders to open so `path` is visible: the root first, then each folder

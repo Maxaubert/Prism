@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from './fileTree'
+import { ancestorChain, stepRow, toggleExpanded, visibleRows } from './fileTree'
 
 const R = 'C:\\photos'
 
@@ -32,18 +32,6 @@ describe('ancestorChain', () => {
 
   it('handles forward slashes', () => {
     expect(ancestorChain('C:/photos', 'C:/photos/2024/a.jpg')).toEqual(['C:/photos', 'C:/photos/2024'])
-  })
-})
-
-describe('parentDir', () => {
-  it('drops the last segment', () => {
-    expect(parentDir('C:\\photos\\2024\\a.jpg')).toBe('C:\\photos\\2024')
-    expect(parentDir('C:/photos/a.jpg')).toBe('C:/photos')
-  })
-
-  it('returns empty when there is nothing to drop', () => {
-    expect(parentDir('a.jpg')).toBe('')
-    expect(parentDir('')).toBe('')
   })
 })
 

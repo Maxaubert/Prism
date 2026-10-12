@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { extOf } from '@shared/path'
 
 // The system's own icon for a file type, cached per extension: what Windows
 // would draw for it in Explorer, which is the user's association (WinRAR,
@@ -7,8 +8,6 @@ import { useEffect, useState } from 'react'
 
 const cache = new Map<string, string | null>()
 const waiting = new Map<string, Array<() => void>>()
-
-const extOf = (path: string): string => /\.[^.\\/]+$/.exec(path)?.[0]?.toLowerCase() ?? ''
 
 /** The association icon for `path`'s extension, or null while unknown.
  *  Pass null to opt out (renders nothing, fetches nothing). */

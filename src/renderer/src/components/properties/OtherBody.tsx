@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
 import { propsFor } from '../../lib/fileProps'
-import { parentOf } from '../../lib/propsFormat'
+import { headerParent } from '../../lib/propsFormat'
 import type { BodyProps } from './bodyProps'
 import { ChecksumRow } from './ChecksumRow'
 import { FileGlyph } from './glyphs'
@@ -28,7 +28,7 @@ export function OtherBody({ root, path, name, kind, onClose }: BodyProps): JSX.E
 
   return (
     <div data-props-body="other">
-      <Header icon={<FileGlyph />} iconColour={COLOUR[kind]} title={name} sub={parentOf(path)} />
+      <Header icon={<FileGlyph />} iconColour={COLOUR[kind]} title={name} sub={headerParent(path)} />
       {rows === undefined ? (
         <Reading />
       ) : (

@@ -1,4 +1,5 @@
 import type { FileKind } from '@shared/types'
+import { parentDir } from '@shared/path'
 import { formatBytes, formatTime } from './format'
 
 // What the Properties popup shows: label/value rows assembled per kind. The
@@ -177,7 +178,7 @@ export async function propsFor(root: string, path: string, name: string, kind: F
       if (secs > 0) rows.push({ label: 'Bitrate', value: `${Math.round((stat.size * 8) / secs / 1000)} kbps` })
     }
   }
-  rows.push({ label: 'Location', value: path.replace(/[\\/][^\\/]*$/, '') })
+  rows.push({ label: 'Location', value: parentDir(path) })
   if (stat) rows.push({ label: 'Modified', value: new Date(stat.mtimeMs).toLocaleString() })
   return rows
 }

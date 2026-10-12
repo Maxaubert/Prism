@@ -17,7 +17,8 @@ import type { BrowseEntry } from './browse/types'
 import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
 import type { SplitDir } from '../lib/panes'
-import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
+import { ancestorChain, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
+import { baseName, extOf, isInside, parentDir } from '@shared/path'
 import { memberOf } from '@shared/archivePlace'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTreeSide, useTreeSize } from '../lib/treePrefs'
@@ -67,10 +68,6 @@ function loadWidth(): number {
   return Number.isFinite(v) && v > 0 ? clampWidth(v) : DEFAULT_W
 }
 
-
-/** A file's extension, lowercased, dot included. Same one-liner the archive
- *  panel uses; not worth a shared module for one regex. */
-const extOf = (name: string): string => /\.[^.]*$/.exec(name.toLowerCase())?.[0] ?? ''
 
 interface Menu {
   x: number
@@ -503,7 +500,7 @@ export function Sidebar({
             truncated: false
           }
         }
-      : { path, name: file?.name ?? path.split(/[\\/]/).pop() ?? path, isFolder: false, file }
+      : { path, name: file?.name ?? baseName(path), isFolder: false, file }
   }
 
   const toggle = useCallback(
@@ -513,9 +510,8 @@ export function Sidebar({
         // Collapsing hides rows: anything selected under this folder would
         // stay selected and invisible, and the next Delete would take it.
         if (!expanded.has(p)) {
-          const under = p.toLowerCase() + '\\'
           setSel((sel) => {
-            const kept = [...sel.items].filter((x) => !x.toLowerCase().startsWith(under))
+            const kept = [...sel.items].filter((x) => !isInside(p, x))
             if (kept.length === sel.items.size) return sel
             return {
               anchor: sel.anchor && kept.includes(sel.anchor) ? sel.anchor : p,
@@ -1150,7 +1146,7 @@ export function Sidebar({
       const isFolder = paintRef.current.some(
         (r) => r.kind === 'folder' && r.path.toLowerCase() === only.toLowerCase()
       )
-      onDelete(only, only.split(/[\\/]/).filter(Boolean).pop() ?? only, isFolder)
+      onDelete(only, baseName(only), isFolder)
     }
     return true
     },
@@ -1190,7 +1186,7 @@ export function Sidebar({
         const isFolder = paintRef.current.some(
           (r) => r.kind === 'folder' && r.path.toLowerCase() === cur.toLowerCase()
         )
-        return onDelete(cur, cur.split(/[\\/]/).filter(Boolean).pop() ?? cur, isFolder)
+        return onDelete(cur, baseName(cur), isFolder)
       }
       if (!e.ctrlKey || e.shiftKey) return
       const k = e.key.toLowerCase()
@@ -1295,9 +1291,8 @@ export function Sidebar({
       // dragged has left where it was; where it ARRIVED is what you are now
       // looking at. Best effort on the names: a keep-both rename lands under
       // another name and simply goes unmarked.
-      const base = (q: string): string => q.split(/[\\/]/).filter(Boolean).pop() ?? q
       const mark = (paths: string[]): void => {
-        const to = paths.length ? paths.map((q) => folderPath + '\\' + base(q)) : [folderPath]
+        const to = paths.length ? paths.map((q) => folderPath + '\\' + baseName(q)) : [folderPath]
         setDroppedOn(to)
         setSel({ anchor: to[0], items: new Set(to) })
         setCursor(to[0])
@@ -1547,7 +1542,7 @@ export function Sidebar({
     if (k === 'new-folder') {
       // In the folder row the cursor is on, or beside the file it is on.
       const dir = cur.isFolder ? cur.path : parentDir(cur.path)
-      const dirName = dir.split(/[\\/]/).pop() ?? dir
+      const dirName = baseName(dir)
       if (fileKind(extOf(dirName), dirName) === 'archive' || !dir.toLowerCase().startsWith(root.toLowerCase()))
         return true
       void onNewFolder(dir).then((made) => {

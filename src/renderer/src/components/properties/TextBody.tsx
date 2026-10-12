@@ -3,7 +3,7 @@ import type { TextProps } from '@shared/props'
 import { langFor } from '../../lib/codeLang'
 import { formatBytes } from '../../lib/format'
 import { langColour } from '../../lib/langColour'
-import { count, encodingLabel, eolLabel, parentOf, textCounts, whenLabel } from '../../lib/propsFormat'
+import { count, encodingLabel, eolLabel, headerParent, textCounts, whenLabel } from '../../lib/propsFormat'
 import type { BodyProps } from './bodyProps'
 import { ChecksumRow } from './ChecksumRow'
 import { CodeGlyph, FileGlyph } from './glyphs'
@@ -66,7 +66,7 @@ export function TextBody({ path, name, onClose }: BodyProps): JSX.Element {
         icon={lang ? <CodeGlyph /> : <FileGlyph />}
         iconColour={colour}
         title={name}
-        sub={parentOf(path)}
+        sub={headerParent(path)}
       />
       {ready ? (
         <Facts rows={rows}>

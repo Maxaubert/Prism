@@ -202,6 +202,10 @@ Filesmith's conventions.
 - **Single homes** (structure cleanup, 2026-10-12): one module per shared job. Use it, never a
   local copy.
   - localStorage read that never throws: `src/renderer/src/lib/storage.ts` (`readStored`).
+  - paths: `src/shared/path.ts` (`baseName`, `parentDir`, `extOf`, `trimSep`, `pathKey`,
+    `samePath`, `isInside`, and the one natural-order collator `naturalCompare` / `byName`).
+    Pure strings, so the phone uses it too; not the root wall (that stays canonical, in main).
+  - which files are markdown: `isMarkdown` in `src/shared/fileKind.ts`.
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

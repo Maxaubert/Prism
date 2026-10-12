@@ -1,4 +1,4 @@
-import { fileKind } from '@shared/fileKind'
+import { fileKind, isMarkdown } from '@shared/fileKind'
 
 /**
  * The archive panel's Type column: "HEIC image", "TypeScript source", "Folder".
@@ -55,15 +55,13 @@ const NAMED: Record<string, string> = {
   '.htm': 'HTML'
 }
 
-/** Markdown is kind 'text' but Prism RENDERS it, so it reads as a document. */
-const MARKDOWN = new Set(['.md', '.markdown'])
-
 export function typeLabel(name: string, dir: boolean): string {
   if (dir) return 'Folder'
   const ext = /\.[^.]+$/.exec(name.toLowerCase())?.[0] ?? ''
   if (!ext) return 'File'
   const kind = fileKind(ext, name)
-  const noun = MARKDOWN.has(ext)
+  // Markdown is kind 'text' but Prism RENDERS it, so it reads as a document.
+  const noun = isMarkdown(ext)
     ? 'document'
     : kind === 'text' && !PROSE.has(ext)
       ? 'source'

@@ -1,4 +1,5 @@
 import { fileKind } from './fileKind'
+import { extOf, isInside, pathKey as key, trimSep } from './path'
 import type { ArchiveEntry, ArchiveMeta, FileKind } from './types'
 
 /**
@@ -22,8 +23,8 @@ export const MAX_NEST = 4
  *  archive (zip, 7z, rar, tar, gz, iso, cab...). Comics are their own kind and
  *  stay books. */
 export function browsableArchive(name: string): boolean {
-  const ext = /\.[^.\\/]*$/.exec(name)?.[0] ?? ''
-  return !!ext && fileKind(ext.toLowerCase(), name) === 'archive'
+  const ext = extOf(name)
+  return !!ext && fileKind(ext, name) === 'archive'
 }
 
 /** A Windows path's segments; the drive (`C:`) or share stays the first. */
@@ -33,14 +34,9 @@ export function segments(path: string): string[] {
   return path.replace(/\//g, '\\').replace(/\\+$/, '').split('\\')
 }
 
-/** Windows paths compare without case. */
-const key = (p: string): string => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
-
 /** Is `path` the place `base` or below it. */
 export function within(base: string, path: string): boolean {
-  const b = key(base)
-  const p = key(path)
-  return p === b || p.startsWith(b + '\\')
+  return isInside(base, path, { orEqual: true })
 }
 
 /**
@@ -58,7 +54,7 @@ export function innerOf(base: string, path: string): string | null {
 /** The address-bar path of a name inside a container whose root is `base`. */
 export function placeOf(base: string, inner: string): string {
   const clean = inner.replace(/^\/+|\/+$/g, '')
-  return clean ? `${base.replace(/[\\/]+$/, '')}\\${clean.replace(/\//g, '\\')}` : base
+  return clean ? `${trimSep(base)}\\${clean.replace(/\//g, '\\')}` : base
 }
 
 /** A member's name inside the innermost container of a listing, or null when

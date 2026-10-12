@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type JSX, type RefObject } from 'react'
 import type { FileKind, ViewerFile } from '@shared/types'
+import { parentDir } from '@shared/path'
 import { treeWindow, type PaintRow } from '../lib/treePaint'
 import { ROW_GAP, ROW_ICON, ROW_PAD_X, type TREE_SIZES } from '../lib/treePrefs'
 import { ALONE, markedLook } from '../lib/markedLook'
@@ -453,8 +454,7 @@ function RenameRow({
  *  every file manager does and what the tree did not do - the drop fell
  *  through to the window, which opens whatever it is handed, so dropping a
  *  FOLDER there re-rooted the tab instead of moving anything. */
-const dirOf = (p: string): string =>
-  p.slice(0, Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')))
+const dirOf = parentDir
 
 /** The hairlines dropped from each ancestor's chevron, so deep nesting stays
  *  legible. The nested tree drew one per group, the full height of the group;

@@ -937,6 +937,7 @@ GLINT = 1.0
 SPECIAL_EXT = {
     "iso": "iso",
     "md": "markdown", "markdown": "markdown",
+    "mdown": "markdown", "mkd": "markdown", "mkdn": "markdown",
     "pdf": "pdf",
     "docx": "word", "docm": "word",
     "xlsx": "sheet", "xlsm": "sheet", "xls": "sheet", "ods": "sheet",
