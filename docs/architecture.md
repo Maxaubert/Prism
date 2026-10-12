@@ -146,8 +146,8 @@ Filesmith's conventions.
   part is `components/settings/`: the pages, `appOptions.ts` (a CLOSED list of Prism's own rows,
   their subtexts and storage keys, the keys a snapshot in `appOptions.test.ts`: none changed),
   `settingsIndex.ts` (page order and what Find a setting indexes: the core's rows drawn here, no
-  command help, the GPU row only with an NVIDIA card) and `icons.ts` (Prism's own row icons beside
-  the core's). Every row carries `data-pref`; live state (Win+E's status, the Explorer menu
+  command help, the GPU row only with an NVIDIA card); Prism's own row icons beside the core's are
+  `components/icons/settingsIcons.ts`. Every row carries `data-pref`; live state (Win+E's status, the Explorer menu
   check, the band opacity, a chosen folder) is the row's SUBTEXT. The chosen rail page is a GREY
   fill (`--p-hover-hi`), never the accent. Settings' Escape yields while Find a setting holds text
   (`[data-settings-find][data-owns-escape]`), and App gives Settings its plain keys (Up and Down
