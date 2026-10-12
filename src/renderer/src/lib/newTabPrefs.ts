@@ -1,57 +1,44 @@
-import { useSyncExternalStore } from 'react'
+import { createPref } from './prefs/createPref'
 
 // What the + (and Ctrl+T) opens: where the new tab roots, and what it shows.
-// Same tiny-store shape as tabPrefs.
+// One saved setting per key (prefs/createPref.ts).
 
 export type NewTabMode = 'home' | 'folder' | 'ask'
 export type NewTabShow = 'file' | 'terminal' | 'none'
 
-const MODE_KEY = 'prism.newtab.mode'
-const FOLDER_KEY = 'prism.newtab.folder'
-const SHOW_KEY = 'prism.newtab.show'
+const modePref = createPref<NewTabMode>({
+  key: 'prism.newtab.mode',
+  read: 'always',
+  parse: (v) => (v === 'folder' || v === 'ask' ? v : 'home'),
+  fallback: 'home'
+})
+const folderPref = createPref<string>({
+  key: 'prism.newtab.folder',
+  read: 'always',
+  parse: (v) => v ?? '',
+  fallback: ''
+})
+const showPref = createPref<NewTabShow>({
+  key: 'prism.newtab.show',
+  read: 'always',
+  parse: (v) => (v === 'terminal' || v === 'file' ? v : 'none'),
+  fallback: 'none'
+})
 
-let listeners: Array<() => void> = []
-const notify = (): void => listeners.forEach((l) => l())
-
-export function newTabMode(): NewTabMode {
-  const v = localStorage.getItem(MODE_KEY)
-  return v === 'folder' || v === 'ask' ? v : 'home'
-}
+export const newTabMode = modePref.get
 
 /** The chosen folder, only meaningful while mode is 'folder'. */
-export function newTabFolder(): string {
-  return localStorage.getItem(FOLDER_KEY) ?? ''
-}
+export const newTabFolder = folderPref.get
 
-export function newTabShow(): NewTabShow {
-  const v = localStorage.getItem(SHOW_KEY)
-  return v === 'terminal' || v === 'file' ? v : 'none'
-}
+export const newTabShow = showPref.get
 
 export function setNewTabMode(mode: NewTabMode, folder?: string): void {
-  localStorage.setItem(MODE_KEY, mode)
-  if (folder !== undefined) localStorage.setItem(FOLDER_KEY, folder)
-  notify()
+  if (folder !== undefined) folderPref.set(folder)
+  modePref.set(mode)
 }
 
-export function setNewTabShow(show: NewTabShow): void {
-  localStorage.setItem(SHOW_KEY, show)
-  notify()
-}
+export const setNewTabShow = showPref.set
 
-const sub = (cb: () => void): (() => void) => {
-  listeners.push(cb)
-  return () => {
-    listeners = listeners.filter((l) => l !== cb)
-  }
-}
-
-export function useNewTabMode(): NewTabMode {
-  return useSyncExternalStore(sub, newTabMode)
-}
-export function useNewTabFolder(): string {
-  return useSyncExternalStore(sub, newTabFolder)
-}
-export function useNewTabShow(): NewTabShow {
-  return useSyncExternalStore(sub, newTabShow)
-}
+export const useNewTabMode = modePref.use
+export const useNewTabFolder = folderPref.use
+export const useNewTabShow = showPref.use

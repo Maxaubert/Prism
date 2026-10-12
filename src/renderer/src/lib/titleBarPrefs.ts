@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { createPref } from './prefs/createPref'
 
 // WHETHER THE WINDOW HAS A TITLE BAR (#250; owner, 2026-10-02: "normal prism
 // should also have no titlebar option", the same setting Prism Terminal got in
@@ -13,34 +13,19 @@ export type TitleBarMode = 'shown' | 'hidden'
 
 export const TITLE_BAR_KEY = 'prism.window.titleBar'
 
-let listeners: Array<() => void> = []
-
 export function validTitleBar(v: unknown): TitleBarMode {
   return v === 'hidden' ? 'hidden' : 'shown'
 }
 
-export function titleBarMode(): TitleBarMode {
-  try {
-    return validTitleBar(localStorage.getItem(TITLE_BAR_KEY))
-  } catch {
-    return 'shown'
-  }
-}
+const pref = createPref<TitleBarMode>({
+  key: TITLE_BAR_KEY,
+  read: 'always',
+  parse: validTitleBar,
+  serialize: validTitleBar,
+  fallback: 'shown'
+})
 
-export function setTitleBarMode(mode: TitleBarMode): void {
-  try {
-    localStorage.setItem(TITLE_BAR_KEY, validTitleBar(mode))
-  } catch {
-    /* a blocked store keeps the default */
-  }
-  listeners.forEach((l) => l())
-}
-
-export function onTitleBarChange(cb: () => void): () => void {
-  listeners.push(cb)
-  return () => {
-    listeners = listeners.filter((l) => l !== cb)
-  }
-}
-
-export const useTitleBarMode = (): TitleBarMode => useSyncExternalStore(onTitleBarChange, titleBarMode)
+export const titleBarMode = pref.get
+export const setTitleBarMode = pref.set
+export const onTitleBarChange = pref.subscribe
+export const useTitleBarMode = pref.use

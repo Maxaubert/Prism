@@ -1,3 +1,5 @@
+import { createPref } from './prefs/createPref'
+
 // The player's transport (scrub bar + controls) can take one of these shapes,
 // chosen in Settings. The look changes; the controls (scrub · play · volume ·
 // time · speed, plus fullscreen on video) stay the same. See Transport.tsx.
@@ -26,10 +28,16 @@ export type TransportStyle = (typeof TRANSPORT_STYLES)[number]['id']
 export const DEFAULT_TRANSPORT_STYLE: TransportStyle = 'inline'
 export const TRANSPORT_KEY = 'prism.transport.style'
 
-export function loadTransportStyle(): TransportStyle {
-  const v = localStorage.getItem(TRANSPORT_KEY)
-  return TRANSPORT_STYLES.some((s) => s.id === v) ? (v as TransportStyle) : DEFAULT_TRANSPORT_STYLE
-}
+const stylePref = createPref<TransportStyle>({
+  key: TRANSPORT_KEY,
+  read: 'always',
+  parse: (v) =>
+    TRANSPORT_STYLES.some((s) => s.id === v) ? (v as TransportStyle) : DEFAULT_TRANSPORT_STYLE,
+  fallback: DEFAULT_TRANSPORT_STYLE
+})
+
+export const loadTransportStyle = stylePref.get
+export const saveTransportStyle = stylePref.set
 
 /**
  * How solid the band BEHIND the transport is over a video (2026-08-25, owner
@@ -46,12 +54,19 @@ export function loadTransportStyle(): TransportStyle {
 export const DEFAULT_TRANSPORT_BG = 100
 export const TRANSPORT_BG_KEY = 'prism.transport.bg'
 
-export function loadTransportBg(): number {
-  // The raw string first: Number(null) and Number('') are both 0, which would
-  // read "never set" as "fully transparent" and quietly remove the bar.
-  const raw = localStorage.getItem(TRANSPORT_BG_KEY)
-  if (raw === null || raw.trim() === '') return DEFAULT_TRANSPORT_BG
-  const n = Number(raw)
-  if (!Number.isFinite(n)) return DEFAULT_TRANSPORT_BG
-  return Math.max(0, Math.min(100, Math.round(n)))
-}
+const bgPref = createPref<number>({
+  key: TRANSPORT_BG_KEY,
+  read: 'always',
+  parse: (raw) => {
+    // The raw string first: Number(null) and Number('') are both 0, which would
+    // read "never set" as "fully transparent" and quietly remove the bar.
+    if (raw === null || raw.trim() === '') return DEFAULT_TRANSPORT_BG
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return DEFAULT_TRANSPORT_BG
+    return Math.max(0, Math.min(100, Math.round(n)))
+  },
+  fallback: DEFAULT_TRANSPORT_BG
+})
+
+export const loadTransportBg = bgPref.get
+export const saveTransportBg = bgPref.set

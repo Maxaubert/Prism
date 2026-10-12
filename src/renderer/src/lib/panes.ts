@@ -1,3 +1,5 @@
+import { createPref } from './prefs/createPref'
+
 // The split-view panes: the live pane (the tab's current file, which paging
 // drives) plus up to three PINNED panes, each a fixed file. Four windows at
 // most - one per corner - and a fifth pin evicts the oldest pinned (never the
@@ -95,11 +97,12 @@ const DIR_KEY = 'prism.split.dir'
 const DIRS: SplitDir[] = ['left', 'right', 'top', 'bottom']
 
 /** The remembered direction: what a bare "Open in split view" click uses. */
-export function lastSplitDir(): SplitDir {
-  const v = localStorage.getItem(DIR_KEY)
-  return DIRS.includes(v as SplitDir) ? (v as SplitDir) : 'right'
-}
+const dirPref = createPref<SplitDir>({
+  key: DIR_KEY,
+  read: 'always',
+  parse: (v) => (DIRS.includes(v as SplitDir) ? (v as SplitDir) : 'right'),
+  fallback: 'right'
+})
 
-export function saveSplitDir(dir: SplitDir): void {
-  localStorage.setItem(DIR_KEY, dir)
-}
+export const lastSplitDir = dirPref.get
+export const saveSplitDir = dirPref.set

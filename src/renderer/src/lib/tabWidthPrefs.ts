@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { createPref } from './prefs/createPref'
 
 // HOW WIDE A TAB IS (owner, 2026-09-23, asked in Prism Terminal and agreed for
 // Prism: "add a setting for tab width, where the user can pick fixed size or
@@ -12,34 +12,19 @@ export type TabWidth = 'dynamic' | 'fixed'
 
 export const TAB_WIDTH_KEY = 'prism.window.tabWidth'
 
-let listeners: Array<() => void> = []
-
 export function validTabWidth(v: unknown): TabWidth {
   return v === 'fixed' ? 'fixed' : 'dynamic'
 }
 
-export function tabWidth(): TabWidth {
-  try {
-    return validTabWidth(localStorage.getItem(TAB_WIDTH_KEY))
-  } catch {
-    return 'dynamic'
-  }
-}
+const pref = createPref<TabWidth>({
+  key: TAB_WIDTH_KEY,
+  read: 'always',
+  parse: validTabWidth,
+  serialize: validTabWidth,
+  fallback: 'dynamic'
+})
 
-export function setTabWidth(width: TabWidth): void {
-  try {
-    localStorage.setItem(TAB_WIDTH_KEY, validTabWidth(width))
-  } catch {
-    /* a blocked store keeps the default */
-  }
-  listeners.forEach((l) => l())
-}
-
-export function onTabWidthChange(cb: () => void): () => void {
-  listeners.push(cb)
-  return () => {
-    listeners = listeners.filter((l) => l !== cb)
-  }
-}
-
-export const useTabWidth = (): TabWidth => useSyncExternalStore(onTabWidthChange, tabWidth)
+export const tabWidth = pref.get
+export const setTabWidth = pref.set
+export const onTabWidthChange = pref.subscribe
+export const useTabWidth = pref.use

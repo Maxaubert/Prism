@@ -9,30 +9,26 @@
  *
  * Pure, so the rules can be tested without a timer or a DOM.
  */
+import { createPref } from './prefs/createPref'
 
 /** Seconds a picture stays up. The middle one is the default. */
 export const SLIDE_SECONDS = [2, 3, 5, 10, 20] as const
 export type SlideSeconds = (typeof SLIDE_SECONDS)[number]
 
-const KEY = 'prism.slideshow.seconds'
 export const DEFAULT_SECONDS: SlideSeconds = 5
 
-export function loadSlideSeconds(): SlideSeconds {
-  try {
-    const n = Number(localStorage.getItem(KEY))
+const secondsPref = createPref<SlideSeconds>({
+  key: 'prism.slideshow.seconds',
+  read: 'always',
+  parse: (raw) => {
+    const n = Number(raw)
     return (SLIDE_SECONDS as readonly number[]).includes(n) ? (n as SlideSeconds) : DEFAULT_SECONDS
-  } catch {
-    return DEFAULT_SECONDS
-  }
-}
+  },
+  fallback: DEFAULT_SECONDS
+})
 
-export function saveSlideSeconds(n: SlideSeconds): void {
-  try {
-    localStorage.setItem(KEY, String(n))
-  } catch {
-    /* no storage: it lasts the session */
-  }
-}
+export const loadSlideSeconds = secondsPref.get
+export const saveSlideSeconds = secondsPref.set
 
 /**
  * Where the next slide goes.

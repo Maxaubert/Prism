@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { useEffect } from 'react'
 import { pathKey, samePath } from '@shared/path'
+import { createPref } from './prefs/createPref'
+import { readStored } from './storage'
 
 export interface QuickAccessPin {
   path: string
@@ -9,7 +11,6 @@ export interface QuickAccessPin {
 
 export const QUICK_ACCESS_KEY = 'prism.quickAccess'
 export const QUICK_ACCESS_PIN_MIME = 'application/x-prism-quick-access-pin'
-const listeners = new Set<() => void>()
 export const sameQuickAccessPath = samePath
 
 /** Stored order is deliberate. Invalid entries and equivalent paths never add rows. */
@@ -41,26 +42,22 @@ export function parseQuickAccess(raw: string | null): QuickAccessPin[] {
   }
 }
 
-const snapshot = (): string | null => {
-  try {
-    return localStorage.getItem(QUICK_ACCESS_KEY)
-  } catch {
-    return null
-  }
-}
-export const readQuickAccess = (): QuickAccessPin[] => parseQuickAccess(snapshot())
-const save = (pins: readonly QuickAccessPin[]): void => {
-  try {
-    localStorage.setItem(QUICK_ACCESS_KEY, JSON.stringify(pins))
-  } catch {
-    return
-  }
-  for (const notify of listeners) notify()
-}
+// Another window's pins arrive as a storage event (windowPreferences).
+const pref = createPref<QuickAccessPin[]>({
+  key: QUICK_ACCESS_KEY,
+  read: 'always',
+  live: true,
+  parse: parseQuickAccess,
+  serialize: (pins) => JSON.stringify(pins),
+  fallback: []
+})
+
+export const readQuickAccess = (): QuickAccessPin[] => pref.get()
+const save = (pins: readonly QuickAccessPin[]): void => pref.set([...pins])
 
 /** An explicitly emptied rail stays empty across both renders and restarts. */
 export function seedQuickAccess(defaults: readonly QuickAccessPin[]): void {
-  if (snapshot() === null && defaults.length) save(parseQuickAccess(JSON.stringify(defaults)))
+  if (readStored(QUICK_ACCESS_KEY) === null && defaults.length) save(parseQuickAccess(JSON.stringify(defaults)))
 }
 
 export function withQuickAccessPins(
@@ -99,17 +96,8 @@ export const unpinQuickAccess = (path: string): void =>
 export const moveQuickAccess = (path: string, beforePath?: string): void =>
   save(reorderedQuickAccess(readQuickAccess(), path, beforePath))
 
-function subscribe(notify: () => void): () => void {
-  listeners.add(notify)
-  window.addEventListener('storage', notify)
-  return () => {
-    listeners.delete(notify)
-    window.removeEventListener('storage', notify)
-  }
-}
-
 export function useQuickAccess(defaults: readonly QuickAccessPin[]): QuickAccessPin[] {
-  const raw = useSyncExternalStore(subscribe, snapshot)
+  const pins = pref.use()
   useEffect(() => seedQuickAccess(defaults), [defaults])
-  return useMemo(() => parseQuickAccess(raw), [raw])
+  return pins
 }

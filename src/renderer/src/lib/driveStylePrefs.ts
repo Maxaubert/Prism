@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { createPref } from './prefs/createPref'
 
 // HOW THE SIDEBAR DRAWS ITS DRIVES (#296; owner, 2026-10-06, of the drive row
 // mockups: "I want option A, D and E as options in settings, with A being
@@ -15,7 +15,6 @@ export const DRIVE_STYLES: Array<{ id: DriveStyle; name: string }> = [
   { id: 'gauge', name: 'Gauge' }
 ]
 
-const KEY = 'prism.sidebar.driveStyle'
 const DEFAULT: DriveStyle = 'tiles'
 
 /** A stored style, made safe: anything but a known id reads as Tiles. */
@@ -23,42 +22,15 @@ export function driveStyleOf(raw: unknown): DriveStyle {
   return DRIVE_STYLES.some((s) => s.id === raw) ? (raw as DriveStyle) : DEFAULT
 }
 
-function load(): DriveStyle {
-  try {
-    return driveStyleOf(localStorage.getItem(KEY))
-  } catch {
-    return DEFAULT
-  }
-}
+const pref = createPref<DriveStyle>({
+  key: 'prism.sidebar.driveStyle',
+  parse: driveStyleOf,
+  fallback: DEFAULT
+})
 
-let style: DriveStyle = load()
-const listeners = new Set<() => void>()
-
-export function setDriveStyle(s: DriveStyle): void {
-  style = driveStyleOf(s)
-  try {
-    localStorage.setItem(KEY, style)
-  } catch {
-    /* no storage: it lasts the session */
-  }
-  listeners.forEach((l) => l())
-}
-
-export function driveStyle(): DriveStyle {
-  return style
-}
-
-export function useDriveStyle(): DriveStyle {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    () => style
-  )
-}
+export const setDriveStyle = (s: DriveStyle): void => pref.set(driveStyleOf(s))
+export const driveStyle = pref.get
+export const useDriveStyle = pref.use
 
 /** For tests: read the store again, as a fresh launch would. */
-export function reloadDriveStyle(): void {
-  style = load()
-}
+export const reloadDriveStyle = pref.reload

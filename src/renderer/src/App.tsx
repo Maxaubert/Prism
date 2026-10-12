@@ -155,8 +155,8 @@ import { PhoneDialog } from './components/PhoneDialog'
 import {
   loadTransportBg,
   loadTransportStyle,
-  TRANSPORT_BG_KEY,
-  TRANSPORT_KEY,
+  saveTransportBg,
+  saveTransportStyle,
   type TransportStyle
 } from './lib/transport'
 import { archivePassword } from './lib/archivePass'
@@ -179,7 +179,7 @@ import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import { useInternalFileDrag } from './lib/internalFileDrag'
 import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
-import { readStored } from './lib/storage'
+import { compactRailPref, onboardedPref, placesPref, sidebarPref } from './lib/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import {
   describe as describeUndo,
@@ -216,10 +216,6 @@ const PLAYABLE = new Set(['video', 'audio'])
 // owns is a question about FOCUS, not about file kind: a pdf nobody has clicked
 // into has no more claim on Up/Down than a photo does. See docFocused().
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
-const SIDEBAR_KEY = 'prism.sidebar'
-const RAIL_KEY = 'prism.settings.rail'
-// Shown once, on the first launch, and again from Settings > About.
-const SETUP_KEY = 'prism.onboarded'
 
 /** A question Prism has to put to the user before (or instead of) touching a file. */
 /** The agent a close is about to end: what it is, and how long it has been
@@ -986,10 +982,10 @@ export default function App(): JSX.Element {
   // Setup launches with --setup, which shows the guide even here, where it has
   // been through once already.
   const [setup, setSetup] = useState(
-    () => window.prism.forceSetup === true || readStored(SETUP_KEY) !== '1'
+    () => window.prism.forceSetup === true || !onboardedPref.get()
   )
   // The file tree. Off on a fresh install: the media is the point.
-  const [sidebar, setSidebar] = useState(() => readStored(SIDEBAR_KEY) === '1')
+  const [sidebar, setSidebar] = useState(sidebarPref.get)
   // TWO SIDEBAR POSITIONS (#304; owner, 2026-10-07: "No, it should be two
   // settings, one on the project tab and one on the explorer tab"): the
   // project tree's (Project settings) and the Explorer's places (Explorer >
@@ -1014,12 +1010,12 @@ export default function App(): JSX.Element {
   const toggleSidebar = useCallback(() => {
     slidePanel()
     setSidebar((on) => {
-      localStorage.setItem(SIDEBAR_KEY, on ? '0' : '1')
+      sidebarPref.set(!on)
       return !on
     })
   }, [slidePanel])
   const [placesVisible, setPlacesVisible] = useState(
-    () => readStored('prism.explorer.places') !== '0'
+    placesPref.get
   )
   // The pencil: markdown's raw source, the one text kind with a rendered form
   // to toggle away from. Leaving the file leaves the editor; a save bumps
@@ -1160,10 +1156,10 @@ export default function App(): JSX.Element {
 
   // Settings covers the tree, so over it the same control collapses that page's
   // rail instead: one button, one idea - narrow the panel on the left.
-  const [compactRail, setCompactRail] = useState(() => readStored(RAIL_KEY) === '1')
+  const [compactRail, setCompactRail] = useState(compactRailPref.get)
   const toggleRail = useCallback(() => {
     setCompactRail((on) => {
-      localStorage.setItem(RAIL_KEY, on ? '0' : '1')
+      compactRailPref.set(!on)
       return !on
     })
   }, [])
@@ -1173,10 +1169,10 @@ export default function App(): JSX.Element {
   const pinPanel = useCallback(() => {
     if (active && isExplorerTab(active)) {
       setPlacesVisible(true)
-      localStorage.setItem('prism.explorer.places', '1')
+      placesPref.set(true)
     } else {
       setSidebar(true)
-      localStorage.setItem(SIDEBAR_KEY, '1')
+      sidebarPref.set(true)
     }
   }, [active])
   const togglePanel = useCallback(() => {
@@ -1186,7 +1182,7 @@ export default function App(): JSX.Element {
       if (active.browse.surface !== 'folder') return
       slidePanel()
       setPlacesVisible((visible) => {
-        localStorage.setItem('prism.explorer.places', visible ? '0' : '1')
+        placesPref.set(!visible)
         return !visible
       })
     }
@@ -1194,11 +1190,11 @@ export default function App(): JSX.Element {
   }, [settingsOpen, active, toggleRail, toggleSidebar, slidePanel, pinPanel])
   const pickTransport = useCallback((s: TransportStyle) => {
     setTransportStyle(s)
-    localStorage.setItem(TRANSPORT_KEY, s)
+    saveTransportStyle(s)
   }, [])
   const pickTransportBg = useCallback((pct: number) => {
     setTransportBg(pct)
-    localStorage.setItem(TRANSPORT_BG_KEY, String(pct))
+    saveTransportBg(pct)
   }, [])
 
   /**
@@ -1966,7 +1962,7 @@ export default function App(): JSX.Element {
             : addTab(state.tabs, { ...payload, role: 'project' }, nextTabId())
         })
         setSidebar(true)
-        localStorage.setItem(SIDEBAR_KEY, '1')
+        sidebarPref.set(true)
         setHasNavigated(false)
       })()
     },
@@ -5197,7 +5193,7 @@ export default function App(): JSX.Element {
       {setup && (
         <Onboarding
           onDone={() => {
-            localStorage.setItem(SETUP_KEY, '1')
+            onboardedPref.set(true)
             // The colour you picked is the colour the visualizer plays in:
             // that one accent, lit, rather than a spectrum sweeping past.
             setVizTheme(ACCENT_THEME_ID)

@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { createPref } from './prefs/createPref'
 
 /**
  * How the code viewer is set up, kept out of the component so a preference
@@ -15,33 +15,17 @@ import { useSyncExternalStore } from 'react'
 
 export type WrapPref = 'auto' | 'on' | 'off'
 
-const WRAP_KEY = 'prism.code.wrap'
-const listeners = new Set<() => void>()
+/** The phone writes its own default into the same key (phone/defaults.ts). */
+export const WRAP_KEY = 'prism.code.wrap'
 
-function loadWrap(): WrapPref {
-  try {
-    const v = localStorage.getItem(WRAP_KEY)
-    return v === 'on' || v === 'off' ? v : 'auto'
-  } catch {
-    return 'auto'
-  }
-}
+const wrap = createPref<WrapPref>({
+  key: WRAP_KEY,
+  parse: (v) => (v === 'on' || v === 'off' ? v : 'auto'),
+  fallback: 'auto'
+})
 
-let wrap: WrapPref = loadWrap()
-
-export function wrapPref(): WrapPref {
-  return wrap
-}
-
-export function setWrapPref(v: WrapPref): void {
-  wrap = v
-  try {
-    localStorage.setItem(WRAP_KEY, v)
-  } catch {
-    /* no storage: it lasts the session */
-  }
-  listeners.forEach((l) => l())
-}
+export const wrapPref = wrap.get
+export const setWrapPref = wrap.set
 
 /** Does THIS file wrap? `auto` keeps the old per-kind rule. */
 export function wrapsFor(pref: WrapPref, prose: boolean): boolean {
@@ -50,12 +34,4 @@ export function wrapsFor(pref: WrapPref, prose: boolean): boolean {
   return prose
 }
 
-export function useWrapPref(): WrapPref {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    () => wrap
-  )
-}
+export const useWrapPref = wrap.use

@@ -214,6 +214,13 @@ Filesmith's conventions.
   - colour maths on hex: `src/renderer/src/lib/colour.ts` (`hexToRgb` reads the first six digits,
     `rgbToHex`, `mix`, `luminance`, `contrast`); tests import it, never a copy. Computed CSS colours
     are `cssColour.ts`, the stored accent alpha `accentAlpha.ts`.
+  - a saved setting: `src/renderer/src/lib/prefs/createPref.ts` (`createPref({ key, parse, fallback })`
+    gives `get` / `set` / `use` / `subscribe`; storage that refuses never throws). Every `prism.*`
+    key and whether it travels between windows: `src/shared/prefKeys.ts`; the window sync's local
+    keys derive from it, and `prefKeys.test.ts` pins the strings. A new key goes there first.
+    `theme.ts` and `vizStore.ts` keep their own stores.
+  - a module value components follow: `src/renderer/src/lib/store.ts` (`createStore`; jobs,
+    extraction, the cut mark).
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

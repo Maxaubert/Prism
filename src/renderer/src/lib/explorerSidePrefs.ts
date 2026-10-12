@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { createPref } from './prefs/createPref'
 import type { TreeSide } from './treePrefs'
 
 // THE EXPLORER'S SIDEBAR POSITION, ITS OWN SETTING (#304; owner, 2026-10-07,
@@ -11,49 +11,20 @@ import type { TreeSide } from './treePrefs'
 
 export type ExplorerSide = TreeSide
 
-const KEY = 'prism.explorer.side'
-
 /** A stored side, made safe: anything but 'right' reads as Left. */
 export function explorerSideOf(raw: unknown): ExplorerSide {
   return raw === 'right' ? 'right' : 'left'
 }
 
-function load(): ExplorerSide {
-  try {
-    return explorerSideOf(localStorage.getItem(KEY))
-  } catch {
-    return 'left'
-  }
-}
+const pref = createPref<ExplorerSide>({
+  key: 'prism.explorer.side',
+  parse: explorerSideOf,
+  fallback: 'left'
+})
 
-let side: ExplorerSide = load()
-const listeners = new Set<() => void>()
-
-export function setExplorerSide(s: ExplorerSide): void {
-  side = explorerSideOf(s)
-  try {
-    localStorage.setItem(KEY, side)
-  } catch {
-    /* no storage: it lasts the session */
-  }
-  listeners.forEach((l) => l())
-}
-
-export function explorerSide(): ExplorerSide {
-  return side
-}
-
-export function useExplorerSide(): ExplorerSide {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    () => side
-  )
-}
+export const setExplorerSide = (s: ExplorerSide): void => pref.set(explorerSideOf(s))
+export const explorerSide = pref.get
+export const useExplorerSide = pref.use
 
 /** For tests: read the store again, as a fresh launch would. */
-export function reloadExplorerSide(): void {
-  side = load()
-}
+export const reloadExplorerSide = pref.reload
