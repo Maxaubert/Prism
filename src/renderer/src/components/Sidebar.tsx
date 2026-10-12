@@ -27,6 +27,7 @@ import { terminalButtonMenu } from '../menus/terminalButton'
 import { Dialog } from './Dialog'
 import { JobChip } from './JobChip'
 import { endJob, startJob, updateJob } from '../lib/jobs'
+import { readStored } from '../lib/storage'
 import { copyFilePaths, fileCutPaths, clearFileCut, useFileCut, fileClipboardReady } from '../lib/fileClipboard'
 import { intendToPlay } from '../lib/playState'
 import { PropertiesDialog } from './properties/PropertiesDialog'
@@ -62,7 +63,7 @@ const LOAD_AT_ONCE = 6
 const clampWidth = (n: number): number => Math.round(Math.min(MAX_W, Math.max(MIN_W, n)))
 
 function loadWidth(): number {
-  const v = Number(localStorage.getItem(WIDTH_KEY))
+  const v = Number(readStored(WIDTH_KEY))
   return Number.isFinite(v) && v > 0 ? clampWidth(v) : DEFAULT_W
 }
 
@@ -1116,6 +1117,11 @@ export function Sidebar({
           })
         }
         void load(dest, true)
+      }, () => {
+        // A paste main could not run still ends its job: the chip never
+        // spins on for a paste that is over.
+        endJob(job)
+        setPasteNote('The files could not be pasted. Try again.')
       })
     },
     [load, onOpenFile, showRow]

@@ -310,7 +310,7 @@ export function moveMembers(
 
 /** Every job the worker runs, by name. main posts the name and the arguments;
  *  the types travel to the client (zipClient.ts) as `import type` only, so
- *  adm-zip is never loaded on main. */
+ *  none of these whole-archive jobs is loaded on main. */
 export const ZIP_OPS = {
   listArchive,
   extractMember,

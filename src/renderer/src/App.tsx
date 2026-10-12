@@ -178,6 +178,7 @@ import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import { useInternalFileDrag } from './lib/internalFileDrag'
 import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
+import { readStored } from './lib/storage'
 import { JobChip } from './components/JobChip'
 import {
   describe as describeUndo,
@@ -994,10 +995,10 @@ export default function App(): JSX.Element {
   // Setup launches with --setup, which shows the guide even here, where it has
   // been through once already.
   const [setup, setSetup] = useState(
-    () => window.prism.forceSetup === true || localStorage.getItem(SETUP_KEY) !== '1'
+    () => window.prism.forceSetup === true || readStored(SETUP_KEY) !== '1'
   )
   // The file tree. Off on a fresh install: the media is the point.
-  const [sidebar, setSidebar] = useState(() => localStorage.getItem(SIDEBAR_KEY) === '1')
+  const [sidebar, setSidebar] = useState(() => readStored(SIDEBAR_KEY) === '1')
   // TWO SIDEBAR POSITIONS (#304; owner, 2026-10-07: "No, it should be two
   // settings, one on the project tab and one on the explorer tab"): the
   // project tree's (Project settings) and the Explorer's places (Explorer >
@@ -1027,7 +1028,7 @@ export default function App(): JSX.Element {
     })
   }, [slidePanel])
   const [placesVisible, setPlacesVisible] = useState(
-    () => localStorage.getItem('prism.explorer.places') !== '0'
+    () => readStored('prism.explorer.places') !== '0'
   )
   // The pencil: markdown's raw source, the one text kind with a rendered form
   // to toggle away from. Leaving the file leaves the editor; a save bumps
@@ -1168,7 +1169,7 @@ export default function App(): JSX.Element {
 
   // Settings covers the tree, so over it the same control collapses that page's
   // rail instead: one button, one idea - narrow the panel on the left.
-  const [compactRail, setCompactRail] = useState(() => localStorage.getItem(RAIL_KEY) === '1')
+  const [compactRail, setCompactRail] = useState(() => readStored(RAIL_KEY) === '1')
   const toggleRail = useCallback(() => {
     setCompactRail((on) => {
       localStorage.setItem(RAIL_KEY, on ? '0' : '1')

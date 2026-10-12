@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -108,5 +108,23 @@ describe('Positions', () => {
     expect(readFileSync(file, 'utf8')).toContain('"x"')
     writeFileSync(file, '{{{')
     expect(await new Positions(file).get('x')).toBeNull()
+  })
+
+  it('writes whole or not at all: a tmp file swapped in, the old one kept on a failure', async () => {
+    const file = join(dir, 'positions.json')
+    const before = JSON.stringify({ 'c:\\a.mkv': { t: 50, at: 1 } })
+    writeFileSync(file, before)
+    const p = new Positions(file, () => 2)
+    p.set('C:\\b.mkv', { t: 60 })
+    await p.flush()
+    expect(Object.keys(JSON.parse(readFileSync(file, 'utf8')))).toEqual(['c:\\a.mkv', 'c:\\b.mkv'])
+    expect(existsSync(`${file}.tmp`)).toBe(false)
+    // The tmp name taken by a folder: the write fails, and the file on disk
+    // is the last whole one rather than a half-written new one.
+    const kept = readFileSync(file, 'utf8')
+    mkdirSync(`${file}.tmp`)
+    p.set('C:\\c.mkv', { t: 70 })
+    await p.flush()
+    expect(readFileSync(file, 'utf8')).toBe(kept)
   })
 })
