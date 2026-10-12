@@ -272,7 +272,7 @@ export async function convertDoc(path: string): Promise<string | null> {
   }
 
   if (kind === 'word' || (kind === 'slides' && ext === '.odp')) {
-    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
+    // sync-ok: runs on the document worker thread (docWorker.ts), never main
     const zip = new AdmZip(path) as unknown as ZipLike
     const xml = readText(zip, 'content.xml')
     return xml ? odfToHtml(xml) : null
@@ -289,7 +289,7 @@ export async function convertDoc(path: string): Promise<string | null> {
   }
 
   if (kind === 'slides') {
-    // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
+    // sync-ok: runs on the document worker thread (docWorker.ts), never main
     const zip = new AdmZip(path) as unknown as ZipLike
     const names = zip.getEntries().map((e) => e.entryName)
     const slides = slideOrder(names)
@@ -303,7 +303,7 @@ export async function convertDoc(path: string): Promise<string | null> {
   }
 
   // epub
-  // sync-ok: adm-zip is synchronous; moving zip edits to a worker is the follow-up
+  // sync-ok: runs on the document worker thread (docWorker.ts), never main
   const zip = new AdmZip(path) as unknown as ZipLike
   const container = readText(zip, 'META-INF/container.xml')
   const opfName = container ? opfPath(container) : null

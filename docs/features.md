@@ -1829,6 +1829,35 @@ changing a feature: each entry records what the owner decided, why, and what hol
   log showed main frozen 2.95 to 3.25 s with only `browse:drives` in flight,
   about every four hours. Read ahead was already two at a time; its slow
   `browse:prefetch` times were queueing behind the blocked thread.
+  **A MAIN-LAG CARRIES ITS OWN CPU PROFILE, AND WHAT IT CAUGHT IS OFF MAIN** (owner,
+  2026-10-12: "handle this, create a plan then go ahead"; plan
+  `docs/superpowers/plans/2026-10-12-main-freezes-plan.md`). After the disk work left main,
+  e2e runs still showed 3 to 10 s `main-lag`s with only finished IPC in flight, so the cause
+  had to be caught in the act. `lagProfiler.ts` runs V8's sampling profiler (1 ms) in main
+  from its own inspector session, in 5 s windows; a `main-lag` of 1 s or more writes the
+  window holding it to `logs\lag-<time>.cpuprofile`, names it in the line, and a
+  `lag-profile` line says how much was JavaScript and where (`lagSummary.ts`; a builtin
+  such as `spawn` names its caller; the window named is the one holding most of the lag,
+  since the rotation can fire after a block but before the detector's tick logs it,
+  `lagProfiler.test.ts`). ON ONLY UNDER `--e2e` OR WITH DETAILED LOGGING (in normal use
+  nothing); the newest ten files are kept. The e2e's Stalls table prints the summary and copies the
+  files to `.e2e\lag-profiles`; `diagLog` holds the chain end to end with a 1.3 s busy
+  main. What the profiles showed, each fixed: (1) `spawn` of the DWM border helper held
+  main 405 ms as a window was shown (`tabs`); it is called on every show, theme, maximize
+  and fullscreen change, so `dwmHelper.ts` now starts it from one resident WORKER THREAD,
+  still with no pipe (`dwmHelper.test.ts`: main never spawns). (2) The first document of a
+  session held main 2.2 s (`document`, `doc:html` in flight), 1.9 s of it Node's module
+  loader reading mammoth's files one by one, and the first sanitise 0.4 to 1.1 s loading
+  the rehype tree (`seeThrough`); conversion and sanitising run on a document worker
+  thread now (`docWorker.ts`, `docClient.ts`, gone after a minute idle), and
+  `docClient.test.ts` fails if `index.ts` reaches a converter. After: `doc:html` still
+  takes 2.1 s on a cold run, on the worker, and the same eight scenarios ran twice with
+  no `main-lag` of 150 ms or more. NOT PRISM'S, left as they are: the terminal core's
+  dictation engine starts its server with `spawn` on main (239 ms, `addressField`; the fix
+  belongs in PrismTerminal's `core/`), and a 229 ms lag in `markTint` was all `(idle)`,
+  outside JavaScript, at the same millisecond as a lag in the owner's own running Prism,
+  so it was the machine or the window system, not either process's code (a plain Node
+  process timing its own 50 ms tick beside a later full run lagged up to 241 ms too).
 - **The band behind the transport** is a slider (2026-08-25, Settings > Media > Progress bar, Control band opacity):
   0-100%, opaque by default, which is the bar exactly as it always looked. Below
   55% the controls carry their own drop shadow, because at that point they are
