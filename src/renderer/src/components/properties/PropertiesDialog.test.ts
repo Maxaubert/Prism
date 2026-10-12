@@ -48,7 +48,7 @@ describe('PropertiesDialog', () => {
     })
     expect(html).toContain('data-props-body="drive"')
     expect(html).toContain('Local Disk (C:)')
-    expect(buttons(html)).toEqual(['Disk Cleanup', 'Open', 'Close'])
+    expect(buttons(html)).toEqual(['Disk Cleanup', 'Close'])
   })
 
   it('a drive with nowhere to open it has no Open', () => {

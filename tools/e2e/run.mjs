@@ -17398,6 +17398,118 @@ async function zipPreviewBackScenario(fixtures) {
 }
 
 /**
+ * DRAGGING A PANEL EDGE IS SMOOTH (owner, 2026-10-12: "the UI is very
+ * unresponsive like when I'm dragging the left sidebar or the right sidebar
+ * with the preview ... very choppy, very laggy"). Every move used to keep the
+ * width in React state, re-rendering the whole App (and writing localStorage)
+ * 42 to 54 times in a half-second drag, MEASURED here before the fix; a drag
+ * now only paints the CSS variable and keeps the width once, on release. Each
+ * grip dragged 160px in 80 moves 8 ms apart (a hand's pace) over a folder of
+ * 400 rows with a picture in the preview: no width kept mid-drag, one keep on
+ * release, no frame over 34 ms, and the width left is the one kept.
+ */
+async function panelDragScenario(fixtures) {
+  console.log('dragging a panel edge')
+  const dir = join(fixtures, 'paneldrag')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (let i = 0; i < 400; i++) writeFileSync(join(dir, `row ${String(i).padStart(3, '0')}.txt`), `row ${i}\n`)
+  writeFileSync(join(dir, 'a picture.png'), ZIP_PNG)
+  const { app, win } = await launch(join(dir, 'row 000.txt'))
+  // Blink's own counter of time spent restyling (CDP Performance metrics).
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Performance.enable')
+  const restyleMs = async () =>
+    ((await cdp.send('Performance.getMetrics')).metrics.find((m) => m.name === 'RecalcStyleDuration')?.value ?? 0) * 1000
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="folder-browser"] .browse-row', { timeout: 10000 })
+    if ((await win.locator('[data-testid="browse-list"] [data-browse-path$="a picture.png"]').count()) === 0)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="paneldrag"]').dblclick()
+    ok(await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$="a picture.png"]').count()) === 1, 10000), 'the Explorer shows the folder of 400')
+    await zipRow(win, 'a picture.png').click()
+    ok(await until(async () => (await win.locator('[data-browse-preview] img').count()) > 0, 10000), 'the picture shows in the preview')
+    await win.mouse.move(400, 300)
+    await sleep(600)
+    // What a move costs with nothing held: the harness's own share of the number.
+    {
+      const t0 = Date.now()
+      for (let i = 1; i <= 40; i++) await win.mouse.move(300 + i * 4, 400)
+      console.log(`  (idle moves cost ${((Date.now() - t0) / 40).toFixed(1)}ms each)`)
+    }
+    for (const [sel, dx] of [['.explorer-resize-places', 160], ['.explorer-resize-preview', -160]]) {
+      const g = await win.locator(sel).boundingBox()
+      ok(!!g, `${sel} is on screen`)
+      const x = g.x + g.width / 2
+      const y = g.y + g.height / 2
+      await win.mouse.move(x, y)
+      await win.mouse.down()
+      // Every keep of a width also writes it to localStorage: counting those
+      // writes counts the times the drag went through React state.
+      await win.evaluate(() => {
+        window.__keeps = 0
+        if (!window.__counting) {
+          window.__counting = true
+          const set = Storage.prototype.setItem
+          Storage.prototype.setItem = function (k, v) {
+            if (k === 'prism.explorer.widths') window.__keeps++
+            return set.call(this, k, v)
+          }
+        }
+        window.__frames = []
+        let last = performance.now()
+        window.__ticking = true
+        const tick = (t) => {
+          window.__frames.push(t - last)
+          last = t
+          if (window.__ticking) requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      })
+      // Sent without waiting for each, as a real mouse reports them, not one
+      // per round trip: the page has to keep up on its own,
+      // over 0.64 s, one every 8 ms: the pace of a hand on a 125 Hz mouse.
+      const restyleBefore = await restyleMs()
+      const started = Date.now()
+      const sent = []
+      for (let i = 1; i <= 80; i++) {
+        sent.push(win.mouse.move(x + (dx * i) / 80, y))
+        await sleep(8)
+      }
+      await Promise.all(sent)
+      const perMove = (Date.now() - started) / 80
+      const frames = await win.evaluate(() => {
+        window.__ticking = false
+        return window.__frames.slice(1)
+      })
+      const midway = await win.evaluate(() => window.__keeps)
+      const restyled = (await restyleMs()) - restyleBefore
+      await win.mouse.up()
+      await sleep(300)
+      const after = await win.evaluate(() => window.__keeps)
+      const worst = Math.round(Math.max(...frames))
+      const name = sel.includes('places') ? 'the places grip' : "the preview's grip"
+      ok(midway === 0, `${name}: the drag paints without keeping, no width kept mid-drag (${midway} of 80 moves)`)
+      ok(after === 1, `${name}: the release keeps it, once (${after})`)
+      console.log(`  (${name}: ${perMove.toFixed(1)}ms a move, 80 moves 8 ms apart)`)
+      // Changing an inherited variable on the workspace restyled everything
+      // under it every frame; a pixel width on a box restyles the box.
+      ok(restyled < 40, `${name}: style recalculation over the whole drag ${restyled.toFixed(0)}ms`)
+      ok(worst < 34, `${name}: the longest frame while dragging is ${worst}ms (${frames.length} frames)`)
+    }
+    const saved = JSON.parse(await win.evaluate(() => localStorage.getItem('prism.explorer.widths') ?? '{}'))
+    const shown = await win.evaluate(() => ({
+      places: Math.round(document.querySelector('[data-testid="folder-browser"] .browse-places')?.getBoundingClientRect().width ?? 0),
+      preview: Math.round(document.querySelector('[data-browse-preview]')?.getBoundingClientRect().width ?? 0)
+    }))
+    ok(Math.abs(saved.places - shown.places) <= 1 && Math.abs(saved.preview - shown.preview) <= 1, `and the widths the drags left are the ones kept (${JSON.stringify(saved)} vs ${JSON.stringify(shown)})`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
  * SIDEBAR POSITION MOVES THE EXPLORER'S SIDEBAR (#304; owner, 2026-10-07: "fix
  * the setting in Explorer for the sidebar where you can put it on the right
  * side or the left side? I think that's just an empty setting for now ... when
@@ -18629,6 +18741,7 @@ await run(columnHeadersScenario)
 await run(explorerDiagScenario)
 await run(panelsAlignScenario)
 await run(explorerSideScenario)
+await run(panelDragScenario)
 await run(downloadsDateScenario)
 await run(noLoadingEverScenario)
 await run(coldLaunchCachedScenario)

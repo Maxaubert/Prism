@@ -638,6 +638,18 @@ changing a feature: each entry records what the owner decided, why, and what hol
   evidence. Folders now carry `mtimeMs` (details stream, listing cache `folderTimes`), and the rows
   move once, when every date is in. Explorer's within-group files-before-folders is NOT copied.
   `downloadsDate` e2e (`PRISM_E2E_DOWNLOADS` points the Known Folder at a fixture, e2e only).
+  **DRAGGING A PANEL EDGE PAINTS, IT DOES NOT RE-RENDER** (owner, 2026-10-12: "the UI is very
+  unresponsive like when I'm dragging the left sidebar or the right sidebar with the preview ...
+  very choppy, very laggy"). Every move of a grip used to keep the width in React state, which
+  re-rendered the whole App (every tab, the list, the preview) and wrote localStorage: 42 to 54
+  times in a half-second drag, MEASURED by the `panelDrag` e2e. Nor may a move change the width
+  VARIABLES: on the workspace, an inherited custom property restyles every element under it with
+  all the theme's variables, 62 to 68 ms a frame (a trace of the owner's own drags: 4.8 s of
+  style recalculation in 7.8 s). A move now writes plain pixel widths onto the few boxes that show
+  them (the Explorer's grid, the preview pane, the viewer's places, the two grips), once per
+  frame (`useExplorerWidths` `live`); the release keeps the width once and hands the boxes back
+  to the variables. Restyling over a drag fell from 719 and 761 ms to 23 and 34 ms in the e2e,
+  the longest frame from 28 to 7 ms. Keys and double-click are unchanged.
   **THE LIST'S SCROLLBAR SHOWS ONLY WHILE IT SCROLLS** (owner, 2026-10-12: "i think prism
   wakes when your cursor is on that panel but i wanna change that too to only show when
   actually scrolling"). `browse/OverlayScrollbar.tsx`, Prism's own 4px bar (#267's "the
@@ -2527,7 +2539,9 @@ changing a feature: each entry records what the owner decided, why, and what hol
   scrolling (no Free row, the centre says it), a tooltip off the pointer's bottom right with the
   slice's dot, a slice or row opens the folder; the disk's own model with underscores as spaces
   ("WD BLACK SN850X 8000GB"), connection and file system; Disk Cleanup (Windows' `cleanmgr`),
-  Open, Close. A FOLDER: size, contents, Created, Modified, Opened; Close only. A PHOTO: the
+  Close (no Open: "remove the open button. that should never be in properties", same day; the
+  legend's last row fades while rows remain below: "make the last list item fade out instead of
+  being cut"). A FOLDER: size, contents, Created, Modified, Opened; Close only. A PHOTO: the
   picture on top, megapixels, camera, lens, exposure, place (no map button). A VIDEO: a frame on
   top, resolution, frame rate, codec, bitrate, audio tracks, subtitles. A SONG: its cover, or
   sound bars when it has none ("none of these ... have a default note or something similar",

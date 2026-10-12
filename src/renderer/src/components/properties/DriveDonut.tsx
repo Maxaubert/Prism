@@ -1,4 +1,4 @@
-import { useRef, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import type { DriveDetails } from '@shared/props'
 import {
@@ -51,6 +51,17 @@ export function DriveDonut(props: {
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
 
   const used = total !== undefined && free !== undefined ? Math.max(0, total - free) : undefined
+
+  // THE LAST ROW FADES rather than being cut (owner, 2026-10-12: "make the
+  // last list item fade out instead of being cut"), while rows remain below;
+  // scrolled to the end, nothing fades. A DOM flag, not state: a scroll must
+  // not re-render the donut.
+  const markMore = (): void => {
+    const el = legendRef.current
+    if (!el) return
+    el.toggleAttribute('data-more', el.scrollTop + el.clientHeight < el.scrollHeight - 1)
+  }
+  useEffect(markMore, [slices?.length])
 
   const enterSlice = (index: number, x: number, y: number): void => {
     setHot({ index, from: 'slice' })
@@ -111,7 +122,7 @@ export function DriveDonut(props: {
       </div>
       {slices ? (
         <div className="donut-legend-wrap">
-          <div className="donut-legend p-scroll" ref={legendRef} style={{ height: SIZE }}>
+          <div className="donut-legend p-scroll" ref={legendRef} style={{ height: SIZE }} onScroll={markMore}>
             <ul>
               {slices.map((s, i) => (
                 <li key={s.path}>
