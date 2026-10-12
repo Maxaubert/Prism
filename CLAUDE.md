@@ -74,6 +74,9 @@ library manager, not an editor.
 - Follow Filesmith's patterns (aliases `@shared`/`@renderer`, eslint/prettier config, IPC shape,
   frameless TopBar) so `prism-core` drops into both apps cleanly.
 - No em-dashes anywhere (use en-dashes, commas, or parentheses).
+- **Main never waits on the disk** (2026-10-12): no `*Sync` fs or process call in `src/main` on a
+  live path. Startup, quit, worker code and sync-IPC answers mark theirs `// sync-ok: <reason>`;
+  `syncCalls.test.ts` fails on an unmarked one.
 - A new bundled binary or dependency adds its entry to `THIRD-PARTY-NOTICES.md` in the same PR.
 - No new runtime dependencies beyond React / Electron / `prism-core` without a reason. Current
   reasoned exceptions (all viewer-core, destined for `prism-core`): CodeMirror 6
