@@ -1,5 +1,6 @@
 import { resolve } from 'path'
 import type { ZipOp, ZipOps, ZipReply, ZipRequest } from './zipOps'
+import { createWorkerPool } from './workerClient'
 
 // main's side of the zip worker (owner, 2026-10-12, "zip editing off the main
 // process"). Only TYPES come from zipOps.ts, so this file brings none of the
@@ -10,10 +11,8 @@ import type { ZipOp, ZipOps, ZipReply, ZipRequest } from './zipOps'
 // - ONE FILE, ONE WRITER: edits of one archive run one at a time, in the
 //   order they were asked for, and a read waits for the edits asked for
 //   before it, so it never sees a zip half way through an earlier request.
-// - KEPT WARM, NOT FOREVER: the worker forks on the first job and is killed
-//   after `idleMs` with nothing pending, the HEIC worker's rule (2026-08-28).
-// - A worker that exits or crashes rejects every job it held, and the next
-//   job forks a fresh one.
+// - KEPT WARM, NOT FOREVER, and a worker that exits rejects every job it
+//   held: the shared lifecycle in workerClient.ts.
 //
 // The process is injected (`fork`), so the unit tests drive this with a fake
 // that runs zipOps in-process; main hands it `utilityProcess.fork`.
@@ -61,70 +60,22 @@ type Tail<T extends unknown[]> = T extends [unknown, ...infer R] ? R : never
 export const ZIP_IDLE_MS = 60_000
 
 export function createZipClient(opts: ZipClientOptions): ZipClient {
-  const idleMs = opts.idleMs ?? ZIP_IDLE_MS
-  let proc: ZipProc | null = null
-  let seq = 0
-  let idle: ReturnType<typeof setTimeout> | null = null
-  const waiting = new Map<
-    number,
-    { proc: ZipProc; resolve: (v: unknown) => void; reject: (e: Error) => void }
-  >()
+  const pool = createWorkerPool<ZipReply>({
+    start: opts.fork,
+    settle: (m) => {
+      if (m.ok) return m.result
+      throw new Error(m.error)
+    },
+    exitError: 'zip worker exited',
+    idleMs: opts.idleMs ?? ZIP_IDLE_MS
+  })
   /** The last edit asked for, per archive (resolved, lower-cased path). */
   const tails = new Map<string, Promise<void>>()
 
   const keyOf = (p: string): string => resolve(p).toLowerCase()
 
-  function worker(): ZipProc {
-    if (proc) return proc
-    const p = opts.fork()
-    p.on('message', (m: ZipReply) => {
-      const job = waiting.get(m.id)
-      if (!job) return
-      waiting.delete(m.id)
-      if (m.ok) job.resolve(m.result)
-      else job.reject(new Error(m.error))
-    })
-    p.on('exit', () => {
-      if (proc === p) proc = null
-      for (const [id, job] of waiting) {
-        if (job.proc !== p) continue
-        waiting.delete(id)
-        job.reject(new Error('zip worker exited'))
-      }
-    })
-    proc = p
-    return p
-  }
-
-  function keepWarm(): void {
-    if (idle) clearTimeout(idle)
-    idle = setTimeout(() => {
-      idle = null
-      if (waiting.size) return keepWarm() // still busy; ask again later
-      const p = proc
-      proc = null
-      p?.kill()
-    }, idleMs)
-    // A timer that only exists to kill an idle worker never keeps the app up.
-    idle.unref?.()
-  }
-
-  function post(op: ZipOp, args: unknown[]): Promise<unknown> {
-    const id = ++seq
-    const job = new Promise<unknown>((res, rej) => {
-      try {
-        const p = worker()
-        waiting.set(id, { proc: p, resolve: res, reject: rej })
-        p.postMessage({ id, op, args, seven: opts.seven?.() ?? null })
-      } catch (err) {
-        waiting.delete(id)
-        rej(err instanceof Error ? err : new Error(String(err)))
-      }
-    })
-    // In a finally, the HEIC lesson: a failed job must not leave the worker
-    // resident for the life of the app (2026-08-28).
-    return job.finally(keepWarm)
-  }
+  const post = (op: ZipOp, args: unknown[]): Promise<unknown> =>
+    pool.call({ op, args, seven: opts.seven?.() ?? null })
 
   return {
     async read(op, zipPath, ...rest) {
@@ -148,12 +99,7 @@ export function createZipClient(opts: ZipClientOptions): ZipClient {
     settled(zipPath) {
       return tails.get(keyOf(zipPath)) ?? Promise.resolve()
     },
-    pending: () => waiting.size,
-    stop() {
-      if (idle) clearTimeout(idle)
-      idle = null
-      const p = proc
-      p?.kill()
-    }
+    pending: pool.pending,
+    stop: pool.stop
   }
 }

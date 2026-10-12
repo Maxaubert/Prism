@@ -256,6 +256,15 @@ Filesmith's conventions.
   - the root wall: `src/main/pathWall.ts` (`createPathWall`; `readable`, `editable`, `movable`,
     `archiveOk`, `archiveReadOk`, `comicOk`, `insideWall`, `mediaAllowed`, and the grants main
     makes itself). Every handler asks it; `pathWall.test.ts` pins each guard. Never loosen one.
+  - a worker main talks to (lazy start, pending map, a minute idle then killed, a dead one fails
+    what it held): `src/main/workerClient.ts` (`createWorkerPool`). The HEIC decoder
+    (`heicClient.ts`), the zip worker (`zipClient.ts`) and the document worker (`docClient.ts`)
+    sit on it.
+  - fsmedia://: `src/main/mediaProtocol.ts` (`createMediaServer`, Range answers, walled by
+    `mediaAllowed`). Content types: `src/main/mime.ts` (`mediaMime`, the phone page's `assetMime`,
+    `HLS_MIME`).
+  - the bundled programs: `src/main/bundledTools.ts` (`ffmpegTools()`, `sevenExe()`,
+    `fluidTools()`), never `findFfmpeg(app.isPackaged, ...)` spelled out.
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

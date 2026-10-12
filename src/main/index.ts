@@ -17,7 +17,7 @@ import {
   session
 } from 'electron'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
-import { createReadStream, existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import {
   copyFile,
   mkdir,
@@ -40,7 +40,6 @@ import {
   setBorder,
   setCornersRounded
 } from './dwmHelper'
-import { Readable } from 'stream'
 import { pathsFromArgv, pathsFromArgvAsync } from './argv'
 import { createWinEShortcut } from './winEShortcut'
 import { restoredWindow, type WindowState } from './windowSize'
@@ -113,8 +112,7 @@ import { mainCrumb } from './diagCrumb'
 import { initSweepOverlay, loadSweepAddon, sweepDirs, type SweepOverlay } from './sweepOverlay'
 import { documentImages } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
-import { FIRST_AUDIO, ffmpegDirs, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
-import { decodableImages, decodeImage, needsImageDecode, tiffPages } from './imageDecode'
+import { FIRST_AUDIO, ffmpegDirs, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
 import {
   cancelAllConversions,
   cancelConversion,
@@ -123,7 +121,6 @@ import {
 } from './videoConvert'
 import { cachedPeaks, loadPeaks } from './peaks'
 import {
-  bundledSeven,
   extractAllSeven,
   extractSeven,
   extractSevenSubtree,
@@ -134,9 +131,8 @@ import {
 import { ExtractJobs, Made, pruneEmpty, type ExtractJob } from './extractJob'
 import { docKind } from './docConvert'
 import { createDocClient } from './docClient'
-import { findFluid, isMidi, renderMidi } from './midi'
+import { isMidi, renderMidi } from './midi'
 import { createShellVerbSetting } from './shellVerbSetting'
-import { isRaw, rawPreview } from './rawPreview'
 import { photoInfo, type PhotoInfo } from './photoInfo'
 import { mediaPicture, mediaProps } from './propsMedia'
 import { detectText, TEXT_PROBE_BYTES } from './textProps'
@@ -191,8 +187,10 @@ import type {
   FileMemoryPatch
 } from '@shared/types'
 import { exists } from './fsUtil'
-import { createLru } from './lru'
 import { createPathWall } from './pathWall'
+import { MEDIA_SCHEME, createMediaServer } from './mediaProtocol'
+import { heicToJpeg } from './heicClient'
+import { ffmpegTools, fluidTools, sevenExe } from './bundledTools'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -278,6 +276,9 @@ const wall = createPathWall({
 })
 const { readable, editable, movable, archiveOk, archiveReadOk, comicOk, insideWall } = wall
 
+/** fsmedia:// (mediaProtocol.ts), walled by `mediaAllowed`. */
+const serveMedia = createMediaServer({ allowed: wall.mediaAllowed, ffmpeg: ffmpegTools, heic: heicToJpeg })
+
 /**
  * The encoding and line endings each text file arrived with.
  *
@@ -296,7 +297,7 @@ const archivePasswords = new Map<string, string>()
 
 /** Places inside archives (#300, archiveBrowse.ts). */
 const archives = createArchiveBrowse({
-  sevenExe: () => bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()),
+  sevenExe: () => sevenExe(),
   password: (container) => archivePasswords.get(container) ?? '',
   remember: (container, password) => {
     archivePasswords.set(container, password)
@@ -304,7 +305,6 @@ const archives = createArchiveBrowse({
   temp: memberTemp
 })
 
-const MEDIA_SCHEME = 'fsmedia'
 /** file:text's contract is a text file, not a log nobody can read: 64MB
  *  crosses the bridge as one string and lands in one CodeMirror doc. */
 const TEXT_MAX_BYTES = 64 * 1024 * 1024
@@ -336,143 +336,6 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-const MIME: Record<string, string> = {
-  '.mp4': 'video/mp4',
-  '.m4v': 'video/mp4',
-  '.webm': 'video/webm',
-  '.ogv': 'video/ogg',
-  '.mov': 'video/quicktime',
-  '.mkv': 'video/x-matroska',
-  '.avi': 'video/x-msvideo',
-  // Served only until the converted copy exists (videoConvert.ts).
-  '.wmv': 'video/x-ms-wmv',
-  '.asf': 'video/x-ms-asf',
-  '.flv': 'video/x-flv',
-  '.f4v': 'video/x-f4v',
-  '.mpg': 'video/mpeg',
-  '.mpeg': 'video/mpeg',
-  '.mpe': 'video/mpeg',
-  '.m1v': 'video/mpeg',
-  '.m2v': 'video/mpeg',
-  '.mpv': 'video/mpeg',
-  '.m2ts': 'video/mp2t',
-  '.vob': 'video/dvd',
-  '.3gp': 'video/3gpp',
-  '.3g2': 'video/3gpp2',
-  '.divx': 'video/x-msvideo',
-  '.mxf': 'application/mxf',
-  '.rm': 'application/vnd.rn-realmedia',
-  '.rmvb': 'application/vnd.rn-realmedia-vbr',
-  '.ogm': 'video/ogg',
-  '.dv': 'video/x-dv',
-  '.mp3': 'audio/mpeg',
-  '.m4a': 'audio/mp4',
-  '.aac': 'audio/aac',
-  '.ogg': 'audio/ogg',
-  '.opus': 'audio/opus',
-  '.flac': 'audio/flac',
-  '.wav': 'audio/wav',
-  // The rest reach the player as decoded PCM (audioSidecar), so these types
-  // only matter for the few Chromium can read by itself.
-  '.mka': 'audio/x-matroska',
-  '.m4b': 'audio/mp4',
-  '.wma': 'audio/x-ms-wma',
-  '.ac3': 'audio/ac3',
-  '.dts': 'audio/vnd.dts',
-  '.aiff': 'audio/aiff',
-  '.aif': 'audio/aiff',
-  '.amr': 'audio/amr',
-  '.ape': 'audio/x-ape',
-  '.wv': 'audio/x-wavpack',
-  '.au': 'audio/basic',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.jfif': 'image/jpeg',
-  '.webp': 'image/webp',
-  // Decoded to PNG before they ever reach the renderer (imageDecode.ts).
-  ...Object.fromEntries(decodableImages().map((e) => [e, 'image/png'])),
-  '.bmp': 'image/bmp',
-  '.svg': 'image/svg+xml',
-  '.avif': 'image/avif',
-  '.pdf': 'application/pdf'
-}
-const mimeFor = (p: string): string => MIME[extname(p).toLowerCase()] ?? 'application/octet-stream'
-
-// HEIC/HEIF stills are not decodable by Chromium, so we transcode them to JPEG in
-// the main process (pure-JS libheif, no native binary) and serve that instead. A
-// small cache keeps us from re-decoding on every request (preloads + the renderer
-// image cache both hit this). Keyed by path + mtime so an edited file re-decodes.
-const HEIC_EXTS = new Set(['.heic', '.heif'])
-const heicCache = createLru<string, Buffer>(6)
-
-// The decode itself happens in a utility process (see heicWorker.ts). Measured: a
-// 3MB iPhone HEIC takes ~2s, and doing that inline froze the entire window, since
-// the main process owns the window message loop on Windows.
-let heicProc: Electron.UtilityProcess | null = null
-let heicSeq = 0
-const heicPending = new Map<number, { resolve: (b: Buffer) => void; reject: (e: Error) => void }>()
-
-function heicWorker(): Electron.UtilityProcess {
-  if (heicProc) return heicProc
-  const proc = utilityProcess.fork(join(__dirname, 'heicWorker.js'))
-  proc.on('message', (m: { id: number; ok: boolean; data?: Uint8Array; error?: string }) => {
-    const p = heicPending.get(m.id)
-    if (!p) return
-    heicPending.delete(m.id)
-    if (m.ok && m.data) p.resolve(Buffer.from(m.data))
-    else p.reject(new Error(m.error ?? 'heic decode failed'))
-  })
-  proc.on('exit', () => {
-    heicProc = null
-    for (const p of heicPending.values()) p.reject(new Error('heic worker exited'))
-    heicPending.clear()
-  })
-  heicProc = proc
-  return proc
-}
-
-/**
- * The worker is kept alive between decodes (a fork costs more than most
- * decodes) but not FOREVER: a folder of photos browsed once used to leave a
- * node process resident for as long as Prism was, which for a resident app is
- * for as long as the machine is on (2026-08-28).
- */
-const HEIC_IDLE_MS = 60_000
-let heicIdle: NodeJS.Timeout | null = null
-
-function heicKeepWarm(): void {
-  if (heicIdle) clearTimeout(heicIdle)
-  heicIdle = setTimeout(() => {
-    heicIdle = null
-    if (heicPending.size) return heicKeepWarm() // still busy; ask again later
-    heicProc?.kill()
-    heicProc = null
-  }, HEIC_IDLE_MS)
-}
-
-async function heicToJpeg(filePath: string, mtimeMs: number): Promise<Buffer> {
-  const key = `${filePath}|${mtimeMs}`
-  const hit = heicCache.get(key) // a hit is a use: the newest again
-  if (hit) return hit
-  const id = ++heicSeq
-  let buf: Buffer
-  try {
-    buf = await new Promise<Buffer>((resolve, reject) => {
-      heicPending.set(id, { resolve, reject })
-      heicWorker().postMessage({ id, path: filePath })
-    })
-  } finally {
-    // In a finally, not on the happy path: a HEIC that fails to decode used to
-    // leave the worker resident for the life of the app (2026-08-28).
-    heicKeepWarm()
-  }
-  heicCache.set(key, buf)
-  return buf
-}
-
-// Serve a local file honouring Range requests (206), so media can seek. Mirrors
 
 /** Native dialogs are OWNED by the window (2026-08-28). Unparented, Windows
  *  makes them modeless: a click on Prism buries the picker, and in fullscreen
@@ -486,160 +349,6 @@ function openDialog(opts: Electron.OpenDialogOptions): Promise<Electron.OpenDial
  *  modeless, and a fullscreen picker never shows at all. */
 function saveDialog(opts: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue> {
   return mainWindow ? dialog.showSaveDialog(mainWindow, opts) : dialog.showSaveDialog(opts)
-}
-
-/** Media may only be served from a root, from an archive member main extracted
- *  on request, or from something main made itself (2026-08-28): the wall's
- *  `mediaAllowed`. The fsaudio:// sibling has always been walled; this one was
- *  not, which was an accident of the two handlers being written a month apart
- *  rather than a decision. */
-// Filesmith's serveMedia; becomes part of prism-core in Phase 1.
-async function serveMedia(request: Request): Promise<Response> {
-  let filePath: string
-  try {
-    filePath = decodeURIComponent(new URL(request.url).pathname).slice(1)
-  } catch {
-    return new Response(null, { status: 400 })
-  }
-  if (!wall.mediaAllowed(filePath)) return new Response(null, { status: 403 })
-  // Async since the phone server (2026-09-06) started answering a LAN's
-  // worth of Range requests through here: a sync stat on main's one thread
-  // was cheap for one window and is the wrong shape for many phones.
-  let st: Awaited<ReturnType<typeof stat>>
-  try {
-    st = await stat(filePath)
-  } catch {
-    return new Response(null, { status: 404 })
-  }
-
-  const ext = extname(filePath).toLowerCase()
-  // Camera raw: the full-size JPEG the camera embedded, which is what every
-  // fast viewer shows. Developing the sensor data is another program's job.
-  if (isRaw(filePath)) {
-    try {
-      const jpeg = await rawPreview(filePath, st.mtimeMs)
-      return new Response(jpeg, {
-        status: 200,
-        headers: {
-          'Content-Type': 'image/jpeg',
-          'Content-Length': String(jpeg.length),
-          'Access-Control-Allow-Origin': '*'
-        }
-      })
-    } catch {
-      return new Response(null, { status: 415 }) // no preview inside it
-    }
-  }
-  // Stills Chromium cannot draw (Targa, PCX, Photoshop, OpenEXR, DDS...) come
-  // back as PNG from the bundled ffmpeg.
-  if (needsImageDecode(filePath)) {
-    const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
-    if (tools) {
-      try {
-        const png = await decodeImage(tools.ffmpeg, filePath, st.mtimeMs)
-        // A multi-page TIFF shows its first page and nothing said so. ffmpeg
-        // cannot reach page 2 at all, so this is a hint rather than a picker -
-        // scans and faxes arrive this way constantly, and silence there is
-        // how someone misses eleven pages of a document.
-        const pages = /\.tiff?$/i.test(filePath) ? await tiffPages(filePath) : 1
-        return new Response(png, {
-          status: 200,
-          headers: {
-            'Content-Type': 'image/png',
-            'Content-Length': String(png.length),
-            'Access-Control-Allow-Origin': '*',
-            // fsmedia:// is a different origin from the renderer, so without
-            // the expose header res.headers.get() reads null and the hint
-            // silently never appears.
-            ...(pages > 1
-              ? {
-                  'X-Prism-Pages': String(pages),
-                  'Access-Control-Expose-Headers': 'X-Prism-Pages'
-                }
-              : {})
-          }
-        })
-      } catch {
-        return new Response(null, { status: 415 }) // a still even ffmpeg refused
-      }
-    }
-  }
-  if (HEIC_EXTS.has(ext)) {
-    try {
-      const jpeg = await heicToJpeg(filePath, st.mtimeMs)
-      return new Response(jpeg, {
-        status: 200,
-        headers: {
-          'Content-Type': 'image/jpeg',
-          'Content-Length': String(jpeg.length),
-          'Access-Control-Allow-Origin': '*'
-        }
-      })
-    } catch {
-      return new Response(null, { status: 415 }) // couldn't decode this HEIC
-    }
-  }
-
-  const size = st.size
-  const type = mimeFor(filePath)
-
-  // Small images are consumed whole by the renderer and never issue Range requests,
-  // so hand back one buffer instead of a stream — measured, the stream plumbing (not
-  // the decode) dominated their load time. The cap is deliberately low: a single
-  // large buffer crosses the process boundary as one IPC message, and tracing a
-  // 40 MB image showed a 1.2s "Receive mojo message" stall in the renderer. Bigger
-  // files stream, arriving in chunks that never block.
-  if (type.startsWith('image/') && size <= 8 * 1024 * 1024) {
-    try {
-      const buf = await readFile(filePath)
-      return new Response(buf, {
-        status: 200,
-        headers: {
-          'Content-Type': type,
-          'Content-Length': String(buf.length),
-          'Access-Control-Allow-Origin': '*'
-        }
-      })
-    } catch {
-      return new Response(null, { status: 404 })
-    }
-  }
-  const open = (opts?: { start: number; end: number }): NodeJS.ReadableStream => {
-    const s = createReadStream(filePath, opts)
-    s.on('error', () => s.destroy())
-    return s
-  }
-  const body = (s: NodeJS.ReadableStream): ReadableStream =>
-    Readable.toWeb(s as Readable) as unknown as ReadableStream
-
-  const range = request.headers.get('range')
-  const m = range ? /bytes=(\d*)-(\d*)/.exec(range) : null
-  if (m) {
-    let start = m[1] ? parseInt(m[1], 10) : 0
-    let end = m[2] ? parseInt(m[2], 10) : size - 1
-    if (!Number.isFinite(start) || start < 0) start = 0
-    if (!Number.isFinite(end) || end >= size) end = size - 1
-    if (start > end) start = end
-    return new Response(body(open({ start, end })), {
-      status: 206,
-      headers: {
-        'Content-Type': type,
-        'Content-Length': String(end - start + 1),
-        'Content-Range': `bytes ${start}-${end}/${size}`,
-        'Accept-Ranges': 'bytes',
-        'Access-Control-Allow-Origin': '*'
-      }
-    })
-  }
-  return new Response(body(open()), {
-    status: 200,
-    headers: {
-      'Content-Type': type,
-      'Content-Length': String(size),
-      'Accept-Ranges': 'bytes',
-      'Access-Control-Allow-Origin': '*'
-    }
-  })
 }
 
 /**
@@ -1330,7 +1039,7 @@ if (!E2E) Menu.setApplicationMenu(null)
 // The AES-zip path used to look for 7-Zip in Program Files and tell the user
 // to install one, while Prism has been shipping it in resources/bin since
 // 2026-08-24. Injected here so archive.ts stays electron-free and testable.
-setSevenExe(bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()))
+setSevenExe(sevenExe())
 // Every adm-zip call that reads or rewrites a whole archive runs in this
 // utility process, forked on first use (owner, 2026-10-12, zip work off the
 // main process; zipWorker.ts).
@@ -2162,7 +1871,7 @@ if (!app.requestSingleInstanceLock()) {
     // no ffprobe": the callers that tell those apart ask findFfmpeg first.
     const probeCache = new Map<string, MediaInfo | null>()
     const probeCached = async (p: string): Promise<MediaInfo | null> => {
-      const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+      const tools = ffmpegTools()
       if (!tools?.ffprobe) return null
       let key: string
       try {
@@ -2194,7 +1903,7 @@ if (!app.requestSingleInstanceLock()) {
       if (patch && typeof patch === 'object') positions.set(String(path), patch as FileMemoryPatch)
     })
     const logPhone = (line: string): void => phoneLog.line(line)
-    const hlsTools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+    const hlsTools = ffmpegTools()
     // The phone grid's pictures (#135), made once and cached under userData.
     // Its ffmpegs register with the holders (#133), so a move of the file wins.
     const thumbs = hlsTools
@@ -2269,7 +1978,7 @@ if (!app.requestSingleInstanceLock()) {
       openRoots,
       subsFor: async (p: string) => (await sidecarsFor(p)).map((t) => ({ path: t.path, label: t.label })),
       readSubs: (p: string) =>
-        readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg),
+        readAsVtt(p, ffmpegTools()?.ffmpeg),
       probe: probeCached,
       jobs: hlsJobs,
       readText: readTextWalled,
@@ -3093,7 +2802,7 @@ if (!app.requestSingleInstanceLock()) {
     // read keeps the wall: inside a root, or a member main extracted itself.
     // The guard is the wall's `readable` (pathWall.ts).
     const mediaTools = (): { ffmpeg: string; ffprobe: string } | null => {
-      const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+      const tools = ffmpegTools()
       return tools?.ffprobe ? { ffmpeg: tools.ffmpeg, ffprobe: tools.ffprobe } : null
     }
     ipcMain.handle('props:media', async (_e, p: unknown): Promise<MediaProps | null> => {
@@ -3240,7 +2949,7 @@ if (!app.requestSingleInstanceLock()) {
     })
     ipcMain.handle('subs:read', async (_e, p: string): Promise<string | null> =>
       insideDesktop(p) || pickedSubs.has(p)
-        ? readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg)
+        ? readAsVtt(p, ffmpegTools()?.ffmpeg)
         : null
     )
 
@@ -3263,7 +2972,7 @@ if (!app.requestSingleInstanceLock()) {
       // Known already: no ffprobe, no ffmpeg, no wait.
       const known = await cachedPeaks(p)
       if (known) return known
-      const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+      const tools = ffmpegTools()
       if (!tools) return null
       if (!tools.ffprobe) return null
       const info = await probeMedia(tools.ffprobe, p)
@@ -3279,10 +2988,10 @@ if (!app.requestSingleInstanceLock()) {
       // a 23MB soundfont takes a moment, and an <audio> pointed at the .mid
       // meanwhile would flash "can't be played".
       if (isMidi(p)) {
-        const fluid = await findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
+        const fluid = await fluidTools()
         return { ffmpeg: !!fluid, needed: true, synth: true, codec: 'midi' }
       }
-      if (!findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())) return none
+      if (!ffmpegTools()) return none
       const info = await probeCached(p)
       // No ffprobe, or a container it could not read: the renderer still has a
       // second way in (its decoder byte counter), so offer the first track
@@ -3326,7 +3035,7 @@ if (!app.requestSingleInstanceLock()) {
     // the player shows that it is working rather than an error.
     ipcMain.handle('audio:synth', async (_e, p: string): Promise<string | null> => {
       if (!readable(p)) return null
-      const fluid = await findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
+      const fluid = await fluidTools()
       if (!fluid || !isMidi(p)) return null
       try {
         const wav = await renderMidi(fluid, p, userPaths.converted())
@@ -3344,7 +3053,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('audio:blind', (_e, p: string, duration: number): string | null => {
       if (!readable(p)) return null
       if (!Number.isFinite(duration) || duration <= 0) return null
-      if (!findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())) return null
+      if (!ffmpegTools()) return null
       return sidecarUrl(p, FIRST_AUDIO, duration)
     })
 
@@ -3362,7 +3071,7 @@ if (!app.requestSingleInstanceLock()) {
       async (e, p: string): Promise<{ url?: string; error?: string }> => {
         if (!readable(p))
           return { error: 'outside the folder' }
-        const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+        const tools = ffmpegTools()
         if (!tools?.ffprobe) return { error: 'no decoder available' }
         const info = await probeMedia(tools.ffprobe, p)
         const plan = planConversion(info, extname(p))
@@ -3978,7 +3687,7 @@ if (!app.requestSingleInstanceLock()) {
     ): Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }> => {
       wall.setComicsDir(userPaths.comics())
       const pw = password || (archivePasswords.get(p) ?? '')
-      const exe = bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
+      const exe = sevenExe()
       if (!exe) return { error: 'failed' as const }
       const got = await openComic(exe, p, wall.comicsDir(), pw)
       if ('error' in got) return got
@@ -4011,7 +3720,7 @@ if (!app.requestSingleInstanceLock()) {
      */
     const seven = async (p: string): Promise<string | null> => {
       const exe = (): string | null =>
-        bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
+        sevenExe()
       if (isSevenArchive(extname(p))) return exe()
       try {
         return archiveTooLarge((await stat(p)).size) ? exe() : null

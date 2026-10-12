@@ -1,5 +1,6 @@
 import { join } from 'path'
 import { Worker } from 'worker_threads'
+import { createWorkerPool } from './workerClient'
 
 /**
  * DOCUMENTS ARE CONVERTED OFF MAIN (2026-10-12; owner, "handle this", after e2e
@@ -45,66 +46,29 @@ export function createDocClient(
   start: () => WorkerLike = () => new Worker(join(__dirname, 'docWorker.js')),
   idleMs = DOC_WORKER_IDLE_MS
 ): DocClient {
-  let worker: WorkerLike | null = null
-  let next = 1
-  let idle: ReturnType<typeof setTimeout> | null = null
-  const pending = new Map<
-    number,
-    { resolve: (html: string | null) => void; reject: (e: Error) => void }
-  >()
-
-  const armIdle = (): void => {
-    if (idle) clearTimeout(idle)
-    idle = setTimeout(() => {
-      idle = null
-      if (pending.size || !worker) return
-      const w = worker
-      worker = null
-      void w.terminate()
-    }, idleMs)
-    idle.unref?.()
-  }
-
-  const ensure = (): WorkerLike => {
-    if (worker) return worker
-    const w = start()
-    w.unref()
-    w.on('message', (m) => {
-      const r = m as Reply
-      const p = pending.get(r.id)
-      if (!p) return
-      pending.delete(r.id)
-      if (typeof r.error === 'string') p.reject(new Error(r.error))
-      else p.resolve(r.html ?? null)
-      if (!pending.size) armIdle()
-    })
-    const gone = (): void => {
-      if (worker !== w) return
-      worker = null
-      for (const p of pending.values()) p.reject(new Error('the document worker stopped'))
-      pending.clear()
-    }
-    w.on('error', gone)
-    w.on('exit', gone)
-    worker = w
-    return w
-  }
-
-  return {
-    html: (path) =>
-      new Promise((resolve, reject) => {
-        if (idle) {
-          clearTimeout(idle)
-          idle = null
-        }
-        const id = next++
-        pending.set(id, { resolve, reject })
-        try {
-          ensure().postMessage({ id, path })
-        } catch (err) {
-          pending.delete(id)
-          reject(err as Error)
-        }
-      })
-  }
+  // The lifecycle is workerClient.ts's; a worker thread is adapted to it:
+  // unref'd so it never holds a quit, terminated rather than killed, and an
+  // 'error' counts as the worker going.
+  const pool = createWorkerPool<Reply>({
+    start: () => {
+      const w = start()
+      w.unref()
+      return {
+        postMessage: (m) => w.postMessage(m),
+        on: (event: string, fn: (m: never) => void) => {
+          const listener = fn as (m?: unknown) => void
+          if (event === 'exit') w.on('error', () => listener(1))
+          return w.on(event, listener)
+        },
+        kill: () => w.terminate()
+      }
+    },
+    settle: (r) => {
+      if (typeof r.error === 'string') throw new Error(r.error)
+      return r.html ?? null
+    },
+    exitError: 'the document worker stopped',
+    idleMs
+  })
+  return { html: (path) => pool.call<string | null>({ path }) }
 }
