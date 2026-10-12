@@ -19,6 +19,7 @@ import { SWEEP_CHANNELS, type SweepBegin, type SweepEnd, type SweepState, type S
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
+import type { DriveDetails, MediaProps, TextProps } from '@shared/props'
 import type {
   ArchiveListing,
   BrowseDetails,
@@ -270,9 +271,45 @@ const api = {
   },
   /** Whether a Paste row is worth drawing at all. */
   clipboardHasFiles: (): Promise<boolean> => ipcRenderer.invoke('clipboard:has-files'),
-  /** Size, modified time and folder-ness for the Properties popup. */
-  statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
-    ipcRenderer.invoke('file:stat', path),
+  /** Size, dates and folder-ness for the Properties window. Created and
+   *  Opened are optional: the phone's stat does not carry them. */
+  statFile: (
+    path: string
+  ): Promise<{
+    size: number
+    mtimeMs: number
+    birthtimeMs?: number
+    atimeMs?: number
+    isFolder: boolean
+  } | null> => ipcRenderer.invoke('file:stat', path),
+  /** The Properties window's facts beyond the stat (owner, 2026-10-12). A
+   *  film's or a song's picture, tracks and tags; null without ffprobe. */
+  propsMedia: (path: string): Promise<MediaProps | null> => ipcRenderer.invoke('props:media', path),
+  /** One JPEG of the file as a `data:` URL: a frame 10% into a film, or a
+   *  song's own cover. null when it has neither. */
+  propsPicture: (path: string): Promise<string | null> => ipcRenderer.invoke('props:picture', path),
+  /** A text file's encoding, BOM and line endings, from its first 64 KB. */
+  propsText: (path: string): Promise<TextProps | null> => ipcRenderer.invoke('props:text', path),
+  /** A drive root's (`C:\`) model, connection, space and top-level folders. */
+  driveDetails: (root: string): Promise<DriveDetails | null> => ipcRenderer.invoke('drive:details', root),
+  /** Windows' own Disk Cleanup for that drive. */
+  driveCleanup: (root: string): Promise<boolean> => ipcRenderer.invoke('drive:cleanup', root),
+  /** A file's SHA-256, streamed in main. `done` is the hex, or null when it
+   *  could not be read or was stopped; `cancel` stops it. */
+  hashFile: (
+    path: string,
+    onProgress: (done: number, total: number) => void
+  ): { done: Promise<string | null>; cancel: () => void } => {
+    const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+    const listener = (_e: unknown, m: { id: string; done: number; total: number }): void => {
+      if (m.id === id) onProgress(m.done, m.total)
+    }
+    ipcRenderer.on('file:hash-progress', listener)
+    const done = (ipcRenderer.invoke('file:hash', path, id) as Promise<string | null>)
+      .catch(() => null)
+      .finally(() => ipcRenderer.removeListener('file:hash-progress', listener))
+    return { done, cancel: () => ipcRenderer.send('file:hash-cancel', id) }
+  },
   folderSize: (path: string, requestId: string): Promise<FolderSizeResult | null> =>
     ipcRenderer.invoke('folder:size', path, requestId),
   folderSizesCached: (paths: string[]): Promise<Record<string, FolderSizeResult>> =>

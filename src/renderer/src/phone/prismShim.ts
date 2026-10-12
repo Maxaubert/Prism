@@ -264,6 +264,14 @@ const implemented: Shim = {
   onConvertProgress: () => () => {},
   cancelConvert: () => {},
   mediaPeaks: () => Promise.resolve(null),
+  // The Properties window's extra facts (2026-10-12) are the PC's: on the
+  // phone each answers "not known", and a checksum never starts.
+  propsMedia: () => Promise.resolve(null),
+  propsPicture: () => Promise.resolve(null),
+  propsText: () => Promise.resolve(null),
+  driveDetails: () => Promise.resolve(null),
+  driveCleanup: () => Promise.resolve(false),
+  hashFile: () => ({ done: Promise.resolve(null), cancel: () => {} }),
   synthMidi: () => Promise.resolve(null),
   // The picture's copy and save verbs are the PC's clipboard and dialogs;
   // they answer "did not happen" here without a warning, since PR 3 hides
