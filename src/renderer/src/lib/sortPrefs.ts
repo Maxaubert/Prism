@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { createPref } from './prefs/createPref'
 import type { ViewerFile } from '@shared/types'
 import { byName } from '@shared/path'
 
@@ -58,42 +58,20 @@ export function sortFiles(
 
 /* ---------- the persisted setting ---------- */
 
-const KEY = 'prism.sort'
-
-function load(): { field: SortField; dir: SortDir } {
-  try {
-    const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<{ field: SortField; dir: SortDir }>
+const pref = createPref<{ field: SortField; dir: SortDir }>({
+  key: 'prism.sort',
+  parse: (stored) => {
+    const raw = JSON.parse(stored ?? '{}') as Partial<{ field: SortField; dir: SortDir }>
     return {
       field: SORT_FIELDS.some((f) => f.id === raw.field) ? (raw.field as SortField) : DEFAULT_SORT.field,
       dir: raw.dir === 'desc' ? 'desc' : 'asc'
     }
-  } catch {
-    return DEFAULT_SORT
-  }
-}
+  },
+  serialize: (sort) => JSON.stringify(sort),
+  fallback: DEFAULT_SORT
+})
 
-let sort = load()
-const listeners = new Set<() => void>()
+export const setSortField = (field: SortField): void => pref.set({ ...pref.get(), field })
+export const setSortDir = (dir: SortDir): void => pref.set({ ...pref.get(), dir })
 
-function save(next: { field: SortField; dir: SortDir }): void {
-  sort = next
-  try {
-    localStorage.setItem(KEY, JSON.stringify(sort))
-  } catch {
-    /* no storage: it lasts the session */
-  }
-  listeners.forEach((l) => l())
-}
-
-export const setSortField = (field: SortField): void => save({ ...sort, field })
-export const setSortDir = (dir: SortDir): void => save({ ...sort, dir })
-
-export function useSort(): { field: SortField; dir: SortDir } {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    () => sort
-  )
-}
+export const useSort = pref.use

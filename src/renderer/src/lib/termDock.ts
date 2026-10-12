@@ -1,3 +1,5 @@
+import { createPref, type Pref } from './prefs/createPref'
+
 // Where the terminal docks and how big it is. The edge is global (a habit, not
 // a per-project fact) and there is ONE remembered size per axis: a bottom dock
 // and a top dock share their height, left and right share their width.
@@ -35,20 +37,29 @@ export function clampTermSize(px: number, total: number): number {
   return Math.round(Math.min(Math.max(px, MIN), total * 0.8))
 }
 
-export function loadDock(): DockEdge {
-  const v = localStorage.getItem(DOCK_KEY)
-  return EDGES.includes(v as DockEdge) ? (v as DockEdge) : 'bottom'
-}
+const dockPref = createPref<DockEdge>({
+  key: DOCK_KEY,
+  read: 'always',
+  parse: (v) => (EDGES.includes(v as DockEdge) ? (v as DockEdge) : 'bottom'),
+  fallback: 'bottom'
+})
 
-export function saveDock(edge: DockEdge): void {
-  localStorage.setItem(DOCK_KEY, edge)
-}
+const sizePref = (axis: 'x' | 'y'): Pref<number> =>
+  createPref<number>({
+    key: SIZE_KEY[axis],
+    read: 'always',
+    parse: (raw) => {
+      const v = Number(raw)
+      return Number.isFinite(v) && v >= MIN ? Math.round(v) : DEFAULT_SIZE[axis]
+    },
+    serialize: (px) => String(Math.round(px)),
+    fallback: DEFAULT_SIZE[axis]
+  })
+const SIZE_PREF = { y: sizePref('y'), x: sizePref('x') }
 
-export function loadTermSize(axis: 'x' | 'y'): number {
-  const v = Number(localStorage.getItem(SIZE_KEY[axis]))
-  return Number.isFinite(v) && v >= MIN ? Math.round(v) : DEFAULT_SIZE[axis]
-}
+export const loadDock = dockPref.get
+export const saveDock = dockPref.set
 
-export function saveTermSize(axis: 'x' | 'y', px: number): void {
-  localStorage.setItem(SIZE_KEY[axis], String(Math.round(px)))
-}
+export const loadTermSize = (axis: 'x' | 'y'): number => SIZE_PREF[axis].get()
+
+export const saveTermSize = (axis: 'x' | 'y', px: number): void => SIZE_PREF[axis].set(px)

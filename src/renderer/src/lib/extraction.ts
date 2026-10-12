@@ -31,7 +31,7 @@
  *   window that vanished at the click would be claiming a clean-up that had
  *   not happened yet.
  */
-import { useSyncExternalStore } from 'react'
+import { createStore } from './store'
 import type { ExtractEvent, ExtractFail } from '@shared/extraction'
 
 /**
@@ -198,21 +198,19 @@ export function fitPath(path: string, fits: (s: string) => boolean): string {
   return mid(lo)
 }
 
-/* ----- the store: module state with a tiny subscription, as `jobs` is ----- */
+/* ----- the store: module state with a tiny subscription (store.ts), as `jobs` is ----- */
 
-let state: ExtractState = IDLE
-const listeners = new Set<() => void>()
+const store = createStore<ExtractState>(IDLE)
 let timer: ReturnType<typeof setTimeout> | null = null
 
 export function dispatch(a: ExtractAction, now = Date.now()): void {
-  const next = reduce(state, a, now)
-  if (next === state) return
-  state = next
+  const next = reduce(store.get(), a, now)
+  if (next === store.get()) return
   if (timer) {
     clearTimeout(timer)
     timer = null
   }
-  const at = leavesAt(state)
+  const at = leavesAt(next)
   // The tick is stamped no earlier than the moment it was set for: a timer
   // may fire a millisecond short of its delay, and a tick judged too early
   // would leave a finished window up with nothing left to take it down.
@@ -221,27 +219,19 @@ export function dispatch(a: ExtractAction, now = Date.now()): void {
       () => dispatch({ type: 'tick' }, Math.max(Date.now(), at)),
       Math.max(0, at - now)
     )
-  for (const l of listeners) l()
+  store.set(next)
 }
 
-export const extractState = (): ExtractState => state
+export const extractState = store.get
 
 /** Is the window up? Read by the key guard, which is not a component. */
-export const extractionUp = (): boolean => state.phase !== 'idle'
+export const extractionUp = (): boolean => store.get().phase !== 'idle'
 
-const subscribe = (l: () => void): (() => void) => {
-  listeners.add(l)
-  return () => listeners.delete(l)
-}
-
-export function useExtraction(): ExtractState {
-  return useSyncExternalStore(subscribe, extractState, extractState)
-}
+export const useExtraction = store.use
 
 /** Test seam. */
 export function resetExtraction(): void {
   if (timer) clearTimeout(timer)
   timer = null
-  state = IDLE
-  for (const l of listeners) l()
+  store.set(IDLE)
 }

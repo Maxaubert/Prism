@@ -1,22 +1,25 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { createPref } from './prefs/createPref'
 
-const WIDTHS_KEY = 'prism.explorer.widths'
 export type ExplorerSection = 'places' | 'preview'
 type Widths = Record<ExplorerSection, number | null>
 export type ExplorerWidthBounds = { min: number; max: number; value: number }
 
-function loadWidths(): Widths {
-  try {
-    const saved = JSON.parse(localStorage.getItem(WIDTHS_KEY) ?? '{}')
+const widthsPref = createPref<Widths>({
+  key: 'prism.explorer.widths',
+  read: 'always',
+  parse: (raw) => {
+    const saved = JSON.parse(raw ?? '{}')
     const read = (key: ExplorerSection): number | null =>
       typeof saved[key] === 'number' && Number.isFinite(saved[key]) && saved[key] > 0
         ? saved[key]
         : null
     return { places: read('places'), preview: read('preview') }
-  } catch {
-    return { places: null, preview: null }
-  }
-}
+  },
+  serialize: (widths) => JSON.stringify(widths),
+  fallback: { places: null, preview: null }
+})
+const loadWidths = widthsPref.get
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.round(Math.max(min, Math.min(max, value)))
@@ -118,7 +121,7 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
         ...current,
         [section]: value === null ? null : clamp(value, bounds[section].min, bounds[section].max)
       }
-      localStorage.setItem(WIDTHS_KEY, JSON.stringify(next))
+      widthsPref.set(next)
       return next
     })
   }

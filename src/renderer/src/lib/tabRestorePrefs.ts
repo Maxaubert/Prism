@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { createPref } from './prefs/createPref'
 
 // WHETHER PRISM REOPENS LAST TIME'S TABS (owner, 2026-09-22: "Prism should also
 // have the option to not remember tabs"). On by default, which is how Prism
@@ -10,30 +10,14 @@ import { useSyncExternalStore } from 'react'
 
 export const REMEMBER_TABS_KEY = 'prism.tabs.remember'
 
-let listeners: Array<() => void> = []
+const pref = createPref<boolean>({
+  key: REMEMBER_TABS_KEY,
+  read: 'always',
+  parse: (raw) => raw !== 'off',
+  serialize: (on) => (on ? 'on' : 'off'),
+  fallback: true
+})
 
-export function rememberTabs(): boolean {
-  try {
-    return localStorage.getItem(REMEMBER_TABS_KEY) !== 'off'
-  } catch {
-    return true
-  }
-}
-
-export function setRememberTabs(on: boolean): void {
-  try {
-    localStorage.setItem(REMEMBER_TABS_KEY, on ? 'on' : 'off')
-  } catch {
-    /* a blocked store keeps the default */
-  }
-  listeners.forEach((l) => l())
-}
-
-const sub = (cb: () => void): (() => void) => {
-  listeners.push(cb)
-  return () => {
-    listeners = listeners.filter((l) => l !== cb)
-  }
-}
-
-export const useRememberTabs = (): boolean => useSyncExternalStore(sub, rememberTabs)
+export const rememberTabs = pref.get
+export const setRememberTabs = pref.set
+export const useRememberTabs = pref.use

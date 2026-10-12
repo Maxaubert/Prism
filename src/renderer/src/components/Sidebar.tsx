@@ -28,7 +28,7 @@ import { terminalButtonMenu } from '../menus/terminalButton'
 import { Dialog } from './Dialog'
 import { JobChip } from './JobChip'
 import { endJob, startJob, updateJob } from '../lib/jobs'
-import { readStored } from '../lib/storage'
+import { createPref } from '../lib/prefs/createPref'
 import { copyFilePaths, fileCutPaths, clearFileCut, useFileCut, fileClipboardReady } from '../lib/fileClipboard'
 import { intendToPlay } from '../lib/playState'
 import { PropertiesDialog } from './properties/PropertiesDialog'
@@ -53,7 +53,6 @@ import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from 
 
 // Panel width: dragged from the edge, remembered, and bounded so it can't be
 // squeezed into uselessness or grow to swallow the media.
-const WIDTH_KEY = 'prism.sidebar.width'
 const MIN_W = 170
 const MAX_W = 520
 const DEFAULT_W = 260
@@ -63,10 +62,16 @@ const LOAD_AT_ONCE = 6
 
 const clampWidth = (n: number): number => Math.round(Math.min(MAX_W, Math.max(MIN_W, n)))
 
-function loadWidth(): number {
-  const v = Number(readStored(WIDTH_KEY))
-  return Number.isFinite(v) && v > 0 ? clampWidth(v) : DEFAULT_W
-}
+const widthPref = createPref<number>({
+  key: 'prism.sidebar.width',
+  read: 'always',
+  parse: (raw) => {
+    const v = Number(raw)
+    return Number.isFinite(v) && v > 0 ? clampWidth(v) : DEFAULT_W
+  },
+  fallback: DEFAULT_W
+})
+const loadWidth = widthPref.get
 
 
 interface Menu {
@@ -607,7 +612,7 @@ export function Sidebar({
   const resize = useCallback((next: number) => {
     const w = clampWidth(next)
     setWidth(w)
-    localStorage.setItem(WIDTH_KEY, String(w))
+    widthPref.set(w)
   }, [])
 
   const onHandleDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {

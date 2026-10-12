@@ -4,6 +4,7 @@ import { positionToSave, resumeAt, RESUME_SAVE_STEP } from './resumePoint'
 import { applyVolume, idleAudioContext, wakeAudioContext } from './audio'
 import { setTabRate, setTabVolume, tabRate, tabVolume } from './tabVolume'
 import { forgetPlayer, reportPlaying } from './awake'
+import { readStored } from './storage'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
 // binds the media element's events + the keyboard. Video and audio use the same
@@ -363,7 +364,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
         // element has moved on by then. The old localStorage key is the
         // fallback, read once and written through so it need not be again.
         const duration = m.duration
-        const legacy = resumeKey ? Number(localStorage.getItem(RESUME_PREFIX + resumeKey)) : 0
+        const legacy = resumeKey ? Number(readStored(RESUME_PREFIX + resumeKey)) : 0
         void window.prism
           .positionGet(resumePath)
           .catch(() => null)
@@ -372,7 +373,11 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
             if (place === null && legacy > 0) {
               place = legacy
               window.prism.positionSet(resumePath, legacy)
-              if (resumeKey) localStorage.removeItem(RESUME_PREFIX + resumeKey)
+              try {
+                if (resumeKey) localStorage.removeItem(RESUME_PREFIX + resumeKey)
+              } catch {
+                /* a blocked store: the PC's own store has the place now */
+              }
             }
             const at = resumeAt(place, duration)
             if (at === null || m.currentTime > RESUME_APPLY_BEFORE) return

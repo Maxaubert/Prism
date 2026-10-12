@@ -1,7 +1,7 @@
-import { useSyncExternalStore } from 'react'
+import { createPref } from './prefs/createPref'
 
 // The app's type size: the file tree's rows and the settings page both follow it,
-// so one setting covers "make the text bigger". Same tiny-store shape as navScope.
+// so one setting covers "make the text bigger". A saved setting (prefs/createPref.ts).
 
 export type TreeSize = 'small' | 'default' | 'large'
 
@@ -35,35 +35,18 @@ export function rowLook(size: (typeof TREE_SIZES)[number]): {
   return { height: size.row, font: size.font, icon: ROW_ICON, gap: ROW_GAP, padX: ROW_PAD_X }
 }
 
-const KEY = 'prism.tree.size'
 const DEFAULT: TreeSize = 'default'
 
-function load(): TreeSize {
-  try {
-    const v = localStorage.getItem(KEY)
-    return TREE_SIZES.some((s) => s.id === v) ? (v as TreeSize) : DEFAULT
-  } catch {
-    return DEFAULT
-  }
-}
+const sizePref = createPref<TreeSize>({
+  key: 'prism.tree.size',
+  parse: (v) => (TREE_SIZES.some((s) => s.id === v) ? (v as TreeSize) : DEFAULT),
+  fallback: DEFAULT
+})
 
-let size: TreeSize = load()
-const listeners = new Set<() => void>()
-
-export function setTreeSize(s: TreeSize): void {
-  localStorage.setItem(KEY, s)
-  size = s
-  listeners.forEach((l) => l())
-}
+export const setTreeSize = sizePref.set
 
 export function useTreeSize(): (typeof TREE_SIZES)[number] {
-  const id = useSyncExternalStore(
-    (l) => {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    () => size
-  )
+  const id = sizePref.use()
   return TREE_SIZES.find((s) => s.id === id) ?? TREE_SIZES[1]
 }
 
@@ -76,34 +59,11 @@ export const TREE_SIDES: Array<{ id: TreeSide; name: string }> = [
   { id: 'right', name: 'Right' }
 ]
 
-const SIDE_KEY = 'prism.tree.side'
+const sidePref = createPref<TreeSide>({
+  key: 'prism.tree.side',
+  parse: (v) => (v === 'right' ? 'right' : 'left'),
+  fallback: 'left'
+})
 
-function loadSide(): TreeSide {
-  try {
-    return localStorage.getItem(SIDE_KEY) === 'right' ? 'right' : 'left'
-  } catch {
-    return 'left'
-  }
-}
-
-let side: TreeSide = loadSide()
-
-export function setTreeSide(s: TreeSide): void {
-  side = s
-  try {
-    localStorage.setItem(SIDE_KEY, s)
-  } catch {
-    /* no storage: it lasts the session */
-  }
-  listeners.forEach((l) => l())
-}
-
-export function useTreeSide(): TreeSide {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    () => side
-  )
-}
+export const setTreeSide = sidePref.set
+export const useTreeSide = sidePref.use

@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { createPref } from './prefs/createPref'
 import { REMEMBER_FOLDERS_KEY } from '@shared/listingPrefs'
 
 // WHETHER THE EXPLORER KEEPS A LIST OF WHAT IS IN THE FOLDERS IT OPENS (#271;
@@ -8,30 +8,14 @@ import { REMEMBER_FOLDERS_KEY } from '@shared/listingPrefs'
 // launch, even after a reboot, show rows. Main reads the same key through the
 // window preferences store and deletes the cache when it goes off.
 
-let listeners: Array<() => void> = []
+const pref = createPref<boolean>({
+  key: REMEMBER_FOLDERS_KEY,
+  read: 'always',
+  parse: (raw) => raw !== 'off',
+  serialize: (on) => (on ? 'on' : 'off'),
+  fallback: true
+})
 
-export function rememberFolders(): boolean {
-  try {
-    return localStorage.getItem(REMEMBER_FOLDERS_KEY) !== 'off'
-  } catch {
-    return true
-  }
-}
-
-export function setRememberFolders(on: boolean): void {
-  try {
-    localStorage.setItem(REMEMBER_FOLDERS_KEY, on ? 'on' : 'off')
-  } catch {
-    /* a blocked store keeps the default */
-  }
-  listeners.forEach((l) => l())
-}
-
-const sub = (cb: () => void): (() => void) => {
-  listeners.push(cb)
-  return () => {
-    listeners = listeners.filter((l) => l !== cb)
-  }
-}
-
-export const useRememberFolders = (): boolean => useSyncExternalStore(sub, rememberFolders)
+export const rememberFolders = pref.get
+export const setRememberFolders = pref.set
+export const useRememberFolders = pref.use
