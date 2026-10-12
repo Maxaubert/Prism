@@ -152,6 +152,7 @@ import {
   setTheme as setVizTheme
 } from './lib/vizStore'
 import { Dialog } from './components/Dialog'
+import { UnsavedDialog } from './components/UnsavedDialog'
 import { PhoneDialog } from './components/PhoneDialog'
 import {
   loadTransportBg,
@@ -1152,6 +1153,21 @@ export default function App(): JSX.Element {
     if (fullscreen) setFs(false)
   })
   const [ask, setAsk] = useState<Ask | null>(null)
+  /** "Save all changes" in an unsaved-changes question: write everything,
+   *  then go on. A failed write must not close anything over the top of the
+   *  text it failed to keep: we stay put and say which file. */
+  const saveAllThen = useCallback(
+    (then: () => void): void =>
+      void saveAll().then((failed) => {
+        if (failed.length) {
+          setAsk({ kind: 'failed', message: `Couldn't save ${failed.map(baseName).join(', ')}.` })
+          return
+        }
+        setAsk(null)
+        then()
+      }),
+    [saveAll]
+  )
 
   // Settings covers the tree, so over it the same control collapses that page's
   // rail instead: one button, one idea - narrow the panel on the left.
@@ -1719,6 +1735,18 @@ export default function App(): JSX.Element {
       tab.panes.some((pane) => pane.path.toLowerCase() === key)
     )
   }, [])
+  /** Throw away the unsaved text a tab holds (its answer was Discard). */
+  const discardTabBuffers = useCallback(
+    (id: string): void => {
+      const tab = tabs.find((t) => t.id === id)
+      if (!tab) return
+      for (const key of [...buffers.current.keys()]) {
+        if (bufferBelongsTo(tab, key)) buffers.current.delete(key)
+      }
+      syncDirty()
+    },
+    [tabs, bufferBelongsTo, syncDirty]
+  )
   /** Where each shell last said it was (#99): its prompt's own report. A
    *  shell that has never reported (WSL, a shell still starting) is absent,
    *  and absent means Prism does not know, so it does not act. */
@@ -4761,61 +4789,23 @@ export default function App(): JSX.Element {
       )}
 
       {ask?.kind === 'close-dirty' && (
-        <Dialog
-          title={
-            unsavedNames.length > 1
-              ? `${unsavedNames.length} files have unsaved changes`
-              : 'Unsaved changes'
-          }
-          body={
-            <>
-              <span className={DIALOG_EMPHASIS}>{unsavedNames.join(', ') || 'This file'}</span>
-              {unsavedNames.length > 1
-                ? ' are not on disk yet.'
-                : ' has changes that are not on disk yet.'}{' '}
-              {ask.then === 'install'
-                ? 'Installing the update restarts Prism, and restarting without saving throws them away.'
-                : 'Closing without saving throws them away.'}
-            </>
+        <UnsavedDialog
+          names={unsavedNames}
+          consequence={
+            ask.then === 'install'
+              ? 'Installing the update restarts Prism, and restarting without saving throws them away.'
+              : 'Closing without saving throws them away.'
           }
           onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              // Not `danger`: discarding here throws away typing, not a file,
-              // and the red read as heavier than the act. Same weight as
-              // Cancel; "Save all changes" is the one carrying the accent.
-              label: 'Discard',
-              onPick: () => {
-                const then = ask.kind === 'close-dirty' ? ask.then : undefined
-                buffers.current.clear()
-                syncDirty()
-                setAsk(null)
-                leave(then)
-              }
-            },
-            {
-              label: 'Save all changes',
-              primary: true,
-              onPick: () => {
-                void (async () => {
-                  // A failed write must not close the window over the top of the
-                  // text it failed to keep: we stay put and say which file.
-                  const failed = await saveAll()
-                  if (failed.length) {
-                    setAsk({
-                      kind: 'failed',
-                      message: `Couldn't save ${failed.map(baseName).join(', ')}.`
-                    })
-                    return
-                  }
-                  const then = ask.kind === 'close-dirty' ? ask.then : undefined
-                  setAsk(null)
-                  leave(then)
-                })()
-              }
-            }
-          ]}
+          onDiscard={() => {
+            buffers.current.clear()
+            syncDirty()
+            setAsk(null)
+            leave(ask.then)
+          }}
+          // A failed write must not close the window over the top of the
+          // text it failed to keep: we stay put and say which file.
+          onSave={() => saveAllThen(() => leave(ask.then))}
         />
       )}
 
@@ -5023,116 +5013,30 @@ export default function App(): JSX.Element {
         />
       )}
       {ask?.kind === 'close-tab' && (
-        <Dialog
-          title={
-            ask.names.length > 1
-              ? `${ask.names.length} files have unsaved changes`
-              : 'Unsaved changes'
-          }
-          body={
-            <>
-              <span className={DIALOG_EMPHASIS}>{ask.names.join(', ')}</span>
-              {ask.names.length > 1
-                ? ' are not on disk yet.'
-                : ' has changes that are not on disk yet.'}{' '}
-              Closing this folder is the last way back to them.
-            </>
-          }
+        <UnsavedDialog
+          names={ask.names}
+          consequence="Closing this folder is the last way back to them."
           onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              // Same weight as Cancel, as in the window's question: discarding
-              // throws away typing, not a file, and red read heavier than the act.
-              label: 'Discard',
-              onPick: () => {
-                const tab = tabs.find((t) => t.id === ask.id)
-                if (tab) {
-                  for (const key of [...buffers.current.keys()]) {
-                    if (bufferBelongsTo(tab, key)) buffers.current.delete(key)
-                  }
-                  syncDirty()
-                }
-                setAsk(null)
-                forceCloseTab(ask.id)
-              }
-            },
-            {
-              label: 'Save all changes',
-              primary: true,
-              onPick: () => {
-                void (async () => {
-                  // A failed write must not close the tab over the top of the
-                  // text it failed to keep, exactly as on the window's route.
-                  const failed = await saveAll()
-                  if (failed.length) {
-                    setAsk({
-                      kind: 'failed',
-                      message: `Couldn't save ${failed.map(baseName).join(', ')}.`
-                    })
-                    return
-                  }
-                  setAsk(null)
-                  forceCloseTab(ask.id)
-                })()
-              }
-            }
-          ]}
+          onDiscard={() => {
+            discardTabBuffers(ask.id)
+            setAsk(null)
+            forceCloseTab(ask.id)
+          }}
+          onSave={() => saveAllThen(() => forceCloseTab(ask.id))}
         />
       )}
 
       {ask?.kind === 'reroot' && (
-        <Dialog
-          title={
-            ask.names.length > 1
-              ? `${ask.names.length} files have unsaved changes`
-              : 'Unsaved changes'
-          }
-          body={
-            <>
-              <span className={DIALOG_EMPHASIS}>{ask.names.join(', ')}</span>
-              {ask.names.length > 1
-                ? ' are not on disk yet.'
-                : ' has changes that are not on disk yet.'}{' '}
-              Opening another folder here is the last way back to them.
-            </>
-          }
+        <UnsavedDialog
+          names={ask.names}
+          consequence="Opening another folder here is the last way back to them."
           onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              label: 'Discard',
-              onPick: () => {
-                const tab = tabs.find((t) => t.id === ask.id)
-                if (tab) {
-                  for (const key of [...buffers.current.keys()]) {
-                    if (bufferBelongsTo(tab, key)) buffers.current.delete(key)
-                  }
-                  syncDirty()
-                }
-                setAsk(null)
-                applyReroot(ask.id, ask.payload)
-              }
-            },
-            {
-              label: 'Save all changes',
-              primary: true,
-              onPick: () => {
-                void (async () => {
-                  const failed = await saveAll()
-                  if (failed.length) {
-                    setAsk({
-                      kind: 'failed',
-                      message: `Couldn't save ${failed.map(baseName).join(', ')}.`
-                    })
-                    return
-                  }
-                  setAsk(null)
-                  applyReroot(ask.id, ask.payload)
-                })()
-              }
-            }
-          ]}
+          onDiscard={() => {
+            discardTabBuffers(ask.id)
+            setAsk(null)
+            applyReroot(ask.id, ask.payload)
+          }}
+          onSave={() => saveAllThen(() => applyReroot(ask.id, ask.payload))}
         />
       )}
 
