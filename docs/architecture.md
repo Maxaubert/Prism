@@ -259,6 +259,10 @@ Filesmith's conventions.
   - the project tree's parts (Sidebar.tsx): `components/sidebar/` (`usePanelResize` the width,
     `useTreeKeys` a key on a row, `useTreeDrop` drag and drop, `useTreeClipboard` Ctrl+C/X/V,
     paste and the delete keys; `types.ts` the menu and job shapes).
+  - the archive panel's parts (ArchiveView.tsx): `components/archive/` (`useArchiveListing` the
+    members and the reload, `useBandSelect` the drag-select band, `entry.ts` the row shape and
+    columns, `MemberView`, `LockBadge`, `RenameInput`, `ArcVerb`; the verbs stay
+    `archiveOps.ts` / `useArchiveOps.tsx`).
   - which viewer a file kind gets, and the lazy viewer chunks: `components/ViewerSwitch.tsx`, with
     a mode per host (`full` App's stage, `phone`, `member` an archive panel's preview). The host
     passes what an archive is (App's card, the phone's panel, a nested panel).
