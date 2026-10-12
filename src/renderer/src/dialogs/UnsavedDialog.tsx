@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
-import { Dialog } from './Dialog'
-import { DIALOG_EMPHASIS } from './dialogLook'
+import { Dialog } from '../components/Dialog'
+import { DIALOG_EMPHASIS } from '../components/dialogLook'
 
 /**
  * "Unsaved changes": the one question asked before something strands typed

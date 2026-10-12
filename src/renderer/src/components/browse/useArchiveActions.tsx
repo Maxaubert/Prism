@@ -10,7 +10,7 @@ import type { DragPayload } from '../../lib/dragDrop'
 import { formatBytes, formatWhen, savedPercent } from '../../lib/format'
 import type { UndoEntry } from '../../lib/undo'
 import type { MenuItem } from '../ContextMenu'
-import { Dialog } from '../Dialog'
+import { ArchiveFactsDialog } from '../../dialogs/ArchiveFactsDialog'
 import { FileMenuIcon, type FileMenuIconName } from '../icons/FileMenuIcon'
 import { ZIP_WRITE_MAX } from '@shared/archiveLimits'
 import { ARCHIVE_COPY } from '../archive/archiveOps'
@@ -373,21 +373,7 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
         />
       )}
       {facts && (
-        <Dialog
-          title={facts.name}
-          body={
-            <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-1">
-              {facts.lines.map(([k, v]) => (
-                <div key={k} className="contents">
-                  <dt className="text-[var(--p-dim)]">{k}</dt>
-                  <dd>{v}</dd>
-                </div>
-              ))}
-            </dl>
-          }
-          onCancel={() => setFacts(null)}
-          choices={[{ label: 'OK', primary: true, onPick: () => setFacts(null) }]}
-        />
+        <ArchiveFactsDialog name={facts.name} lines={facts.lines} onClose={() => setFacts(null)} />
       )}
     </>
   )

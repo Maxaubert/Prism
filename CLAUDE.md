@@ -158,4 +158,6 @@ Filesmith's conventions.
   history and measurements behind each rule above. Read before changing the e2e, install or release flow.
 - `docs/menus.md`: every right-click menu and its builder in `src/renderer/src/menus/` (one file
   per surface, a test pinning its rows). A menu is never an inline array in a component.
+- `docs/dialogs.md`: every question and notice dialog in `src/renderer/src/dialogs/` (one file
+  per dialog, a test pinning its text and buttons). A dialog is never inline in a component.
 - `ROADMAP.md` for phases; `docs/superpowers/` for specs and plans.

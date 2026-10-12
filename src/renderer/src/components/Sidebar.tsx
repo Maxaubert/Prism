@@ -25,7 +25,7 @@ import { useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
 import { treeDeadSpaceMenu, treeMarkedMenu, treeRowMenu } from '../menus/treeRow'
 import { terminalButtonMenu } from '../menus/terminalButton'
-import { Dialog } from './Dialog'
+import { NoticeDialog } from '../dialogs/NoticeDialog'
 import { JobChip } from './JobChip'
 import { endJob, startJob, updateJob } from '../lib/jobs'
 import { createPref } from '../lib/prefs/createPref'
@@ -1920,21 +1920,16 @@ export function Sidebar({
         // job that finishes simply leaves. A failure still has to speak.
         // Adding to a zip is the one verb left here: an extraction's failure
         // is the extraction window's own to show (#166).
-        <Dialog
+        <NoticeDialog
           title="Add to archive"
-          body={arcJob.error ?? 'Something went wrong.'}
-          onCancel={() => setArcJob(null)}
-          choices={[{ label: 'Close', primary: true, onPick: () => setArcJob(null) }]}
+          message={arcJob.error ?? 'Something went wrong.'}
+          button="Close"
+          onClose={() => setArcJob(null)}
         />
       )}
 
       {pasteNote && (
-        <Dialog
-          title="Paste"
-          body={pasteNote}
-          onCancel={() => setPasteNote(null)}
-          choices={[{ label: 'Close', primary: true, onPick: () => setPasteNote(null) }]}
-        />
+        <NoticeDialog title="Paste" message={pasteNote} button="Close" onClose={() => setPasteNote(null)} />
       )}
 
 

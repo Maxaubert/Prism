@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { Dialog } from './Dialog'
+import { Dialog } from '../components/Dialog'
 
 // Its own file since #300: the archive panel (the phone's) and the Explorer's
 // places inside archives ask the same question.
