@@ -1,12 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
-import { isMarkdown } from '@shared/fileKind'
-import { ImageView } from '../components/ImageView'
-import { VideoView } from '../components/VideoView'
-import { AudioView } from '../components/AudioView'
+import { ViewerSwitch } from '../components/ViewerSwitch'
 import { ArchiveView } from '../components/ArchiveView'
-import { UnsupportedView } from '../components/UnsupportedView'
-import { LoadingState } from '../components/LoadingState'
 import { DEFAULT_TRANSPORT_BG, DEFAULT_TRANSPORT_STYLE } from '../lib/transport'
 import {
   enterFullscreen,
@@ -19,30 +14,6 @@ import { diag, watchMedia } from './diag'
 import { watchReturn } from './returning'
 import { askPlay, chooseAudio, type PlayAnswer } from './prismShim'
 import { intendToPlay, rememberPaused, rememberTime } from '../lib/playState'
-
-// Split out exactly as App splits them (#106): none of these is on the path
-// of playing a film, and a phone that only ever plays films must never
-// download pdf.js or CodeMirror. Each is one chunk, fetched on first use.
-const CodeView = lazy(() => import('../components/CodeView').then((m) => ({ default: m.CodeView })))
-const PdfView = lazy(() => import('../components/pdf/PdfView').then((m) => ({ default: m.PdfView })))
-const MarkdownView = lazy(() =>
-  import('../components/MarkdownView').then((m) => ({ default: m.MarkdownView }))
-)
-const DocView = lazy(() => import('../components/DocView').then((m) => ({ default: m.DocView })))
-const ComicView = lazy(() =>
-  import('../components/ComicView').then((m) => ({ default: m.ComicView }))
-)
-
-const noop = (): void => {}
-const nothingPending = (): undefined => undefined
-
-/** While a viewer chunk arrives. `delayed-loader` keeps it invisible unless
- *  the wait is long enough to notice, the same as App's. */
-function ViewerLoading(): JSX.Element {
-  return (
-    <LoadingState className="h-full w-full" />
-  )
-}
 
 /**
  * The reused viewers on a phone (2026-09-06, #104). Video, audio and
@@ -358,137 +329,48 @@ export function PhoneViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [viaHlsJs, playlist]
   )
+  // A film or a track waits for /api/play's answer, and one the phone
+  // cannot play says so by name; everything else goes straight to the
+  // viewer, mounted with the props App gives it and nothing the phone cannot
+  // honour (ViewerSwitch's `phone` mode keeps text read-only: there is no
+  // writeText on the phone).
   let view: JSX.Element
-  switch (file.kind) {
-    case 'video':
-    case 'audio':
-      if (!answer) {
-        view = (
-          <p className="p-6 text-center opacity-70" data-phone-preparing>
-            Preparing...
-          </p>
-        )
-        break
-      }
-      if (answer.mode === 'none') {
-        view = (
-          <p className="p-6 text-center opacity-70" data-phone-unplayable>
-            {file.name}: {answer.reason}
-          </p>
-        )
-        break
-      }
-      view =
-        file.kind === 'video' ? (
-          <VideoView
-            key={file.path}
-            url={url}
-            path={file.path}
-            onToggleFullscreen={toggleFullscreen}
-            onAutoAdvance={() => onStep(1)}
-            onStep={onStep}
-            canStep={canStep}
-            transportStyle={DEFAULT_TRANSPORT_STYLE}
-            transportBg={DEFAULT_TRANSPORT_BG}
-            fullscreen={fullscreen}
-            attach={attach}
-            audioTrack={audio}
-            onAudioTrack={pickAudio}
-          />
-        ) : (
-          <AudioView
-            key={file.path}
-            url={url}
-            path={file.path}
-            name={file.name}
-            fullscreen={fullscreen}
-            onToggleFullscreen={toggleFullscreen}
-            onAutoAdvance={() => onStep(1)}
-            onStep={onStep}
-            canStep={canStep}
-            transportStyle={DEFAULT_TRANSPORT_STYLE}
-            attach={attach}
-          />
-        )
-      break
-    case 'image':
-      view = (
-        <ImageView
-          key={file.path}
-          url={url}
-          path={file.path}
-          name={file.name}
-          onToggleFullscreen={toggleFullscreen}
-          onStep={onStep}
-          canStep={canStep}
-          fullscreen={fullscreen}
-        />
-      )
-      break
-    case 'pdf':
-      view = (
-        <Suspense fallback={<ViewerLoading />}>
-          <PdfView key={file.path} url={url} path={file.path} onToggleFullscreen={toggleFullscreen} />
-        </Suspense>
-      )
-      break
-    case 'doc':
-      view = (
-        <Suspense fallback={<ViewerLoading />}>
-          <DocView key={file.path} path={file.path} name={file.name} />
-        </Suspense>
-      )
-      break
-    case 'comic':
-      view = (
-        <Suspense fallback={<ViewerLoading />}>
-          <ComicView
-            key={file.path}
-            path={file.path}
-            name={file.name}
-            onToggleFullscreen={toggleFullscreen}
-            fullscreen={fullscreen}
-          />
-        </Suspense>
-      )
-      break
-    case 'archive':
-      // No onUndoable, no onRenameSelf, no refreshKey: those are the writes
-      // and the undo stack, and the panel hides every verb that would need
-      // them once `capabilities` says so.
-      view = <ArchiveView key={file.path} file={file} fullscreen={fullscreen} />
-      break
-    case 'text':
-      // Read-only, structurally: the editor is told so and keeps no buffer,
-      // so `onBuffer` and `getPending` are what App would pass for a file
-      // with nothing unsaved. There is no writeText on the phone anyway.
-      // App's own rule: markdown is a document until the pencil says
-      // otherwise, and on the phone there is no pencil.
-      view = isMarkdown(file.name) ? (
-        <Suspense fallback={<ViewerLoading />}>
-          <MarkdownView key={file.path} path={file.path} onOpenLocal={onOpenLocal} />
-        </Suspense>
-      ) : (
-        <Suspense fallback={<ViewerLoading />}>
-          <CodeView
-            key={file.path}
-            path={file.path}
-            name={file.name}
-            readOnly
-            onSaved={noop}
-            onBuffer={noop}
-            getPending={nothingPending}
-            fullscreen={fullscreen}
-          />
-        </Suspense>
-      )
-      break
-    default:
-      // The listing never carries a kind Prism cannot show, so this is
-      // reached only by a path typed by hand; the view names the file and
-      // stops, its hex button being the desktop's (it reads `capabilities`).
-      view = <UnsupportedView file={file} />
-  }
+  if (media && !answer)
+    view = (
+      <p className="p-6 text-center opacity-70" data-phone-preparing>
+        Preparing...
+      </p>
+    )
+  else if (media && answer?.mode === 'none')
+    view = (
+      <p className="p-6 text-center opacity-70" data-phone-unplayable>
+        {file.name}: {answer.reason}
+      </p>
+    )
+  else
+    view = (
+      <ViewerSwitch
+        key={file.path}
+        file={file}
+        mode="phone"
+        url={url}
+        onToggleFullscreen={toggleFullscreen}
+        fullscreen={fullscreen}
+        onAutoAdvance={() => onStep(1)}
+        onStep={onStep}
+        canStep={canStep}
+        transportStyle={DEFAULT_TRANSPORT_STYLE}
+        transportBg={DEFAULT_TRANSPORT_BG}
+        attach={attach}
+        audioTrack={audio}
+        onAudioTrack={pickAudio}
+        onOpenLocal={onOpenLocal}
+        // No onUndoable, no onRenameSelf, no refreshKey: those are the writes
+        // and the undo stack, and the panel hides every verb that would need
+        // them once `capabilities` says so.
+        archive={() => <ArchiveView key={file.path} file={file} fullscreen={fullscreen} />}
+      />
+    )
   return (
     <div
       className="flex h-dvh flex-col bg-[var(--p-bg)] text-[var(--p-text)]"

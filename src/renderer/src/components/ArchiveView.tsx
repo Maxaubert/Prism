@@ -1,19 +1,17 @@
 import { copyFilePaths } from '../lib/fileClipboard'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { withImpliedFolders } from '@shared/archiveTree'
 import type { FileKind, ViewerFile } from '@shared/types'
 import { formatBytes, formatWhen, savedPercent } from '../lib/format'
 import { typeLabel } from '../lib/typeLabel'
 import { loadTransportBg, loadTransportStyle } from '../lib/transport'
 import { useSysIcon } from '../lib/sysIcon'
-import { fileKind, isMarkdown } from '@shared/fileKind'
+import { fileKind } from '@shared/fileKind'
 import { baseName, extOf, naturalCompare, parentDir } from '@shared/path'
 import { ContextMenu } from './ContextMenu'
 import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
 import { PasswordDialog } from './PasswordDialog'
-import { ImageView } from './ImageView'
-import { VideoView } from './VideoView'
-import { AudioView } from './AudioView'
+import { ViewerSwitch } from './ViewerSwitch'
 import { KindIcon, iconColour } from './TreeRows'
 import { Spinner } from './LoadingState'
 import { markedLook } from '../lib/markedLook'
@@ -25,13 +23,6 @@ import { RenameField } from './RenameField'
 import { BrowseRename } from './browse/BrowseRename'
 import type { UndoEntry } from '../lib/undo'
 import { isTypingTarget } from '../lib/focusGuards'
-
-// Lazy for the same reason App splits them: opening a zip should not carry
-// pdf.js and the markdown pipeline into the launch bundle. A member preview
-// waits a frame for its viewer; that is what MemberView's Suspense is for.
-const CodeView = lazy(() => import('./CodeView').then((m) => ({ default: m.CodeView })))
-const MarkdownView = lazy(() => import('./MarkdownView').then((m) => ({ default: m.MarkdownView })))
-const PdfView = lazy(() => import('./pdf/PdfView').then((m) => ({ default: m.PdfView })))
 
 // The inside of a zip (#68): Explorer-shaped, not a tree. You are always IN
 // one folder of the archive: clicking a folder walks into it, the breadcrumb
@@ -74,87 +65,35 @@ function MemberView({
   kind: FileKind
   trail?: { label: string; onBack: () => void }[]
 }): JSX.Element {
-  const url = window.prism.mediaUrl(path)
-  const noop = useCallback(() => {}, [])
-  switch (kind) {
-    case 'image':
-      return <ImageView url={url} name={name} onToggleFullscreen={noop} />
-    case 'video':
-      return (
-        <VideoView
-          url={url}
-          path={path}
-          onToggleFullscreen={noop}
-          onAutoAdvance={noop}
-          onStep={noop}
-          canStep={() => false}
-          transportStyle={loadTransportStyle()}
-          transportBg={loadTransportBg()}
-        />
-      )
-    case 'audio':
-      return (
-        <AudioView
-          url={url}
-          path={path}
-          name={name}
-          fullscreen={false}
-          onToggleFullscreen={noop}
-          onAutoAdvance={noop}
-          transportStyle={loadTransportStyle()}
-        />
-      )
-    case 'pdf':
-      return (
-        <Suspense fallback={null}>
-          <PdfView url={url} onToggleFullscreen={noop} />
-        </Suspense>
-      )
-    case 'text':
-      return isMarkdown(name) ? (
-        <Suspense fallback={null}>
-          <MarkdownView path={path} onOpenLocal={noop} />
-        </Suspense>
-      ) : (
-        <Suspense fallback={null}>
-          <CodeView
-            path={path}
-            name={name}
-            onSaved={noop}
-            onBuffer={noop}
-            getPending={() => undefined}
-          />
-        </Suspense>
-      )
-    case 'archive':
+  const file: ViewerFile = {
+    path,
+    name,
+    ext: name.slice(name.lastIndexOf('.')),
+    kind,
+    size: 0,
+    mtimeMs: 0
+  }
+  return (
+    <ViewerSwitch
+      file={file}
+      mode="member"
+      loading={null}
+      transportStyle={loadTransportStyle()}
+      transportBg={loadTransportBg()}
       // A ZIP INSIDE A ZIP navigates like any other archive rather than
       // dead-ending on "no viewer" (2026-09-01). It is an ordinary thing to
       // meet - a game rip, a backup of a backup - and the member is a real
       // file on disk by the time it gets here, so the panel that reads an
       // archive can simply read this one. Recursion is bounded by the reader:
       // each level is one more preview, and Escape closes them in turn.
-      return (
-        <ArchiveView
-          trail={trail}
-          file={
-            {
-              path,
-              name,
-              ext: name.slice(name.lastIndexOf('.')),
-              kind: 'archive',
-              size: 0,
-              mtimeMs: 0
-            } as ViewerFile
-          }
-        />
-      )
-    default:
-      return (
+      archive={() => <ArchiveView trail={trail} file={file} />}
+      unsupported={() => (
         <div className="grid h-full place-items-center text-[13px] text-[var(--p-dim)]">
           No viewer for this file type
         </div>
-      )
-  }
+      )}
+    />
+  )
 }
 
 function LockBadge(): JSX.Element {

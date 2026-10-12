@@ -244,6 +244,9 @@ Filesmith's conventions.
     (`useFilePaste`, `PASTE_MESSAGES`, `pasteMessage`).
   - the unsaved-changes question (closing, installing, closing a tab, re-rooting a tab):
     `components/UnsavedDialog.tsx`; App's `saveAllThen` and `discardTabBuffers` answer it.
+  - which viewer a file kind gets, and the lazy viewer chunks: `components/ViewerSwitch.tsx`, with
+    a mode per host (`full` App's stage, `phone`, `member` an archive panel's preview). The host
+    passes what an archive is (App's card, the phone's panel, a nested panel).
 
 ## Reuse from Filesmith (becomes `prism-core`)
 
