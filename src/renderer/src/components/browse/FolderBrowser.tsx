@@ -250,7 +250,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     const base = sweepBase(
       add,
       marked ?? new Set(props.selectedPath ? [props.selectedPath] : []),
-      marked ? null : (props.selectedPath ?? null)
+      marked ? null : (props.selectedPath ?? null),
+      paths,
+      order()
     )
     const items = sweepSelect(base, paths)
     // A sweep is marking, however few rows it caught (#263).
