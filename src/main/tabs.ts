@@ -1,8 +1,9 @@
 import { containerSync } from './archiveBrowse'
 import { existsSync, readFileSync, statSync } from 'fs'
 import { latestWriter } from './latestWrite'
-import { isAbsolute, relative, resolve } from 'path'
+import { isAbsolute, resolve } from 'path'
 import type { BrowseLocation, SavedBrowse, SavedPane } from '@shared/browse'
+import { isInside } from '@shared/path'
 
 /**
  * The tab strip, across restarts.
@@ -73,13 +74,10 @@ export function restoredFileIndex(tab: SavedTab, rebuiltIndex: number): number {
     : rebuiltIndex
 }
 
-/** Is `p` the folder `root` or somewhere inside it? Lower-cased first, since
- *  these are Windows paths and two spellings are one folder; `relative` is a
- *  plain string comparison and would call C:\Foo and C:\foo strangers. */
-const inside = (root: string, p: string): boolean => {
-  const rel = relative(resolve(root.toLowerCase()), resolve(p.toLowerCase()))
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
-}
+/** Is `p` the folder `root` or somewhere inside it? Resolved first, so `..`
+ *  cannot walk out; case and a trailing separator never make two folders. */
+const inside = (root: string, p: string): boolean =>
+  isInside(resolve(root), resolve(p), { orEqual: true })
 
 const isFolder = (p: string): boolean => {
   try {

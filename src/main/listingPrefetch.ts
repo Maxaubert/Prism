@@ -8,6 +8,8 @@
  * a real navigation cancels everything still waiting (the in-flight two
  * finish; they are a few milliseconds each).
  */
+import { pathKey } from '@shared/path'
+
 export function createPrefetchQueue<T>({
   run,
   limit = 2,
@@ -17,7 +19,7 @@ export function createPrefetchQueue<T>({
   limit?: number
   maxQueued?: number
 }) {
-  const key = (p: string): string => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+  const key = pathKey
   const queued: Array<{ path: string; resolve: (v: T | null) => void }> = []
   const inFlight = new Map<string, Promise<T | null>>()
   let active = 0

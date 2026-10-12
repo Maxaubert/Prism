@@ -2,6 +2,7 @@ import { realpathSync, type Dirent } from 'fs'
 import { readdir, stat } from 'fs/promises'
 import { basename, extname, join, resolve, sep } from 'path'
 import { fileKind, isViewable } from '@shared/fileKind'
+import { byName } from '@shared/path'
 import { matchesQuery, parseQuery } from '@shared/searchQuery'
 import type { DirListing, SearchHit, SearchResult, ViewerFile } from '@shared/types'
 import { searchEverything } from './everything'
@@ -108,9 +109,6 @@ const STAT_LIMIT = 16
 // Hoisted, and worth 23ms of every click (2026-08-31). `localeCompare` builds
 // a fresh collator on EVERY comparison, so sorting 5000 names paid for 5000
 // of them: 23.3ms sorting System32 against 0.5ms with one collator reused.
-const collator = new Intl.Collator(undefined, { numeric: true })
-const byName = (a: { name: string }, b: { name: string }): number =>
-  collator.compare(a.name, b.name)
 
 /**
  * Searches are SUPERSEDED, not stacked (2026-08-31).

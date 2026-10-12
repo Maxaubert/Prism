@@ -1,7 +1,8 @@
 import { execFile, spawn } from 'child_process'
 import { createHash, randomUUID } from 'crypto'
 import { access, mkdir, readFile, readdir, unlink, writeFile } from 'fs/promises'
-import { join, resolve, sep } from 'path'
+import { join, resolve } from 'path'
+import { isInside } from '@shared/path'
 import { createConnection, createServer, type Server } from 'net'
 
 export interface IndexerOptions {
@@ -74,7 +75,7 @@ const key = (path: string): string =>
     .replace(/[\\/]+$/, '')
     .toLowerCase()
 const contains = (parent: string, child: string): boolean =>
-  key(parent) === key(child) || key(child).startsWith(key(parent) + sep)
+  isInside(resolve(parent), resolve(child), { orEqual: true })
 
 /** Stable per owner profile; extra Explorer windows share it, previews do not. */
 export function indexerInstance(storageDirectory: string): string {

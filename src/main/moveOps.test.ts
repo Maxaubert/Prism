@@ -25,6 +25,11 @@ describe('insideSelf', () => {
     expect(insideSelf('C:\\a', 'C:\\ab')).toBe(false)
     expect(insideSelf('C:\\a', 'C:\\b')).toBe(false)
   })
+
+  it('reads either separator, any case and a trailing separator as one path', () => {
+    expect(insideSelf('C:\\A\\', 'c:/a/b')).toBe(true)
+    expect(insideSelf('C:\\a', 'C:\\a\\..\\b')).toBe(false)
+  })
 })
 
 describe('moveEntries', () => {

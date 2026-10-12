@@ -1,6 +1,7 @@
 import type { Dirent } from 'fs'
 import { cp, mkdir, readdir, rename, rm, rmdir, stat } from 'fs/promises'
-import { basename, dirname, join, resolve, sep } from 'path'
+import { basename, dirname, join, resolve } from 'path'
+import { isInside, pathKey } from '@shared/path'
 import { uniqueNameAsync } from './fileOps'
 
 // Moving files and folders between real folders - the "move" verb docs/features.md
@@ -24,7 +25,7 @@ export type MoveResult = {
   replaced: string[]
 }
 
-const lower = (p: string): string => resolve(p).toLowerCase()
+const lower = (p: string): string => pathKey(resolve(p))
 
 /** Is anything at `p`? Asked off the main thread (owner, 2026-10-12, the 3.9 s
  *  tabs.json freeze: a drag of hundreds of files was hundreds of blocking
@@ -45,9 +46,7 @@ const isBusy = (e: unknown): boolean => {
 /** True when `dest` is `src` itself or lives inside it: moving a folder into
  *  its own subtree would eat it, and the OS error for it is inscrutable. */
 export function insideSelf(src: string, dest: string): boolean {
-  const s = lower(src)
-  const d = lower(dest)
-  return d === s || d.startsWith(s.endsWith(sep) ? s : s + sep)
+  return isInside(resolve(src), resolve(dest), { orEqual: true })
 }
 
 /**
