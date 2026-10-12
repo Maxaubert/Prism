@@ -251,7 +251,10 @@ Filesmith's conventions.
     `EmptyState`); the file operations and undo/redo over them `lib/useFileOps.ts`, with the
     inverse of each undo entry in `lib/undoApply.ts` (`undoEntry`, `redoEntry`; `undo.ts` stays
     the pure stack); leaving the window and the update install `lib/useWindowClose.ts`;
-    fullscreen and its fade `lib/useFullscreenVeil.ts`.
+    fullscreen and its fade `lib/useFullscreenVeil.ts`; the window's keys `lib/useAppKeys.ts`;
+    the dock, the shells' roots and the tab's terminal view `lib/useTerminal.ts`; several shells
+    per tab and the split's panes `lib/useTermPanes.ts`; the session's tab and shell ids
+    `lib/sessionIds.ts`.
   - which viewer a file kind gets, and the lazy viewer chunks: `components/ViewerSwitch.tsx`, with
     a mode per host (`full` App's stage, `phone`, `member` an archive panel's preview). The host
     passes what an archive is (App's card, the phone's panel, a nested panel).
