@@ -46,7 +46,7 @@ library manager, not an editor.
 - **Releasing is automated** (2026-08-21): `.github/workflows/release.yml` builds and publishes on
   every push to main. A new `package.json` version creates release `v<version>` with generated
   notes; a push on an existing version replaces that release's installer in place. Bump the
-  version when a release should be NEW. CI gates are typecheck + unit tests only (the e2e needs
+  version when a release should be NEW. CI gates are typecheck, lint (0 errors), unit tests and the Win+E self-tests (the e2e needs
   this machine). Unsigned, per-user, GitHub Releases.
 - **Installing is the LAST verification step, every time work is finished**, after typecheck,
   lint and unit tests, and not something to ask about first. "Install" means: `npm run package`,
