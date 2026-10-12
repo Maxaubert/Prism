@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MenuItem } from '../components/ContextMenu'
 import { treeDeadSpaceMenu, treeMarkedMenu, treeRowMenu, type TreeRowMenuContext } from './treeRow'
+import { aliasWindow, clearHost, fakeClipboard, setHost } from '../testing/host'
 
-// The unit tests run under node, where `window` does not exist; in a browser
-// it IS globalThis.
-if (typeof window === 'undefined')
-  Object.defineProperty(globalThis, 'window', { value: globalThis })
+aliasWindow()
 
 let showInExplorer: ReturnType<typeof vi.fn>
 let duplicateFile: ReturnType<typeof vi.fn>
@@ -13,16 +11,11 @@ let writeText: ReturnType<typeof vi.fn>
 beforeEach(() => {
   showInExplorer = vi.fn()
   duplicateFile = vi.fn(() => Promise.resolve('C:\\p\\a - Copy.txt'))
-  ;(globalThis as unknown as { prism: unknown }).prism = { showInExplorer, duplicateFile }
+  setHost({ showInExplorer, duplicateFile })
   writeText = vi.fn(() => Promise.resolve())
-  Object.defineProperty(globalThis, 'navigator', {
-    value: { clipboard: { writeText } },
-    configurable: true
-  })
+  fakeClipboard(writeText)
 })
-afterEach(() => {
-  delete (globalThis as unknown as { prism?: unknown }).prism
-})
+afterEach(clearHost)
 
 const labels = (items: MenuItem[]): string[] => items.map((i) => i.label)
 const row = (items: MenuItem[], label: string): MenuItem => {

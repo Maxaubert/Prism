@@ -310,6 +310,16 @@ Filesmith's conventions.
   - the phone's wire: `src/shared/phoneWire.ts` (`ROUTE` names, the `/pair` `/api/` `/m/` `/hls/`
     prefixes, `PlayAnswer`, `Me`, the stat, pos and tab answers). The page's fetch helpers are
     `phone/api.ts` (`getJson`, `getOr`, `postJson`, `postFireAndForget`).
+  - build scripts: `tools/lib/pinnedDownload.mjs` (every SHA-256-pinned fetch, its `.source`
+    stamp and flat unzip, and the e2e's `.e2e/cache`), `tools/lib/csc.mjs` (the C# helpers),
+    `tools/lib/msvc.mjs` (vswhere, vcvars64, dumpbin), `tools/lib/repo.mjs` (`ROOT`,
+    `windowsOnly`). The pins stay in each `tools/fetch-*.mjs`, where the CI cache key reads them.
+  - e2e harness, inside `tools/e2e/run.mjs`: `until` (the one poll), `startApp` (every launch),
+    `launchWith(env, file)` (env for one launch), `explorerTab`/`writeTabs` (tab seeds),
+    `seedPreferences`, `powershell`/`processCount`, `setPref`/`styleKeeper` (theme and pref
+    save-restore).
+  - unit-test stand-ins: `src/renderer/src/testing/host.ts` (`aliasWindow`, `setHost`/`clearHost`,
+    `capabilityHost`, `fakeClipboard`).
 
 ## Reuse from Filesmith (becomes `prism-core`)
 
