@@ -6,7 +6,7 @@ import { archiveMenuRows, type ArchiveRow, type ArchiveRowId } from '../../menus
 import { archivePassword } from '../../lib/archivePass'
 import { copyFilePaths } from '../../lib/fileClipboard'
 import { clipboardText } from '../../lib/clipboardText'
-import type { DragPayload } from '../../lib/dragDrop'
+import type { DragPayload } from '../../lib/drag/dragDrop'
 import { formatBytes, formatWhen, savedPercent } from '../../lib/format'
 import type { UndoEntry } from '../../lib/undo'
 import type { MenuItem } from '../ContextMenu'

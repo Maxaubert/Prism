@@ -19,7 +19,7 @@ import {
   withChrome, isStylesOwn, acrylicLevel } from './theme'
 import { ACCENT_THEME_ID } from './viz/styles'
 import { RETIRED_STYLES } from './themes/retired'
-import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
+import { DEFAULT_BAR_THEME, visibleThemes } from './viz/vizStore'
 
 // Every shipped style has to be readable, in both modes. These are the numbers
 // that caught grey-on-white: a fixed dimming fraction reads fine on a dark panel

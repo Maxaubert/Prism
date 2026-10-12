@@ -3,7 +3,7 @@
  * (AudioView, anywhere on the visualizer; not while it plays in the background).
  */
 import type { MenuItem } from '../../components/ContextMenu'
-import { RATES } from '../../lib/useMediaControls'
+import { RATES } from '../../hooks/useMediaControls'
 import { fileVerbs, stepVerbs } from '../fileVerbs'
 import { tickIf } from '../../components/icons/menuGlyphs'
 

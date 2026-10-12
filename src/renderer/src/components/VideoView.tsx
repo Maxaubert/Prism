@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
-import { useMediaControls } from '../lib/useMediaControls'
-import { usePlayerPrefs } from '../lib/playerPrefs'
-import { useSubtitles } from '../lib/useSubtitles'
-import { useSidecarAudio } from '../lib/useSidecarAudio'
-import { usePlayableVideo } from '../lib/usePlayableVideo'
+import { useMediaControls } from '../hooks/useMediaControls'
+import { usePlayerPrefs } from '../lib/prefs/playerPrefs'
+import { useSubtitles } from '../hooks/useSubtitles'
+import { useSidecarAudio } from '../hooks/useSidecarAudio'
+import { usePlayableVideo } from '../hooks/usePlayableVideo'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
 import { VolumeReadout } from './VolumeReadout'
 import { IconFull } from './icons/transport'
-import { useWaveform } from '../lib/useWaveform'
+import { useWaveform } from '../hooks/useWaveform'
 import type { TransportStyle } from '../lib/transport'
-import { useViz } from '../lib/vizStore'
+import { useViz } from '../lib/viz/vizStore'
 import { wasPlaying, whenIntended } from '../lib/playState'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { StageNotice } from './StageNotice'
@@ -18,7 +18,7 @@ import { videoMenu } from '../menus/viewers/video'
 import { videoHasFrame } from '../lib/copyImage'
 import type { AudioTrackOffer } from '@shared/types'
 import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
-import { useBackgroundPause } from '../lib/useBackgroundPause'
+import { useBackgroundPause } from '../hooks/useBackgroundPause'
 import { resolveVizTheme } from '../lib/theme'
 import { tapVerb } from '../lib/tapChrome'
 import { Icon } from './icons/Icon'
@@ -96,7 +96,7 @@ export function VideoView({
    *  plays on (that is the whole point), but it owns no keyboard, shows no
    *  controls and opens no menus - see lib/mediaDeck. */
   background?: boolean
-  /** Whose volume this is: the tab's, for the session (lib/tabVolume). */
+  /** Whose volume this is: the tab's, for the session (lib/tabs/tabs/tabVolume). */
   volumeKey?: string
   /** Fullscreen paints the stage BLACK, whatever the theme says (2026-08-28):
    *  a film fills the screen and the letterbox is part of the picture, so a

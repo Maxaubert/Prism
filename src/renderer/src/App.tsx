@@ -1,13 +1,13 @@
-import { useFullscreenVeil } from './lib/useFullscreenVeil'
-import { useWindowClose } from './lib/useWindowClose'
-import { useFileOps } from './lib/useFileOps'
-import { useAppKeys } from './lib/useAppKeys'
-import { useTerminal } from './lib/useTerminal'
-import { useTermPanes } from './lib/useTermPanes'
-import { useTabOps } from './lib/useTabOps'
-import { useExplorerArrival } from './lib/useExplorerArrival'
+import { useFullscreenVeil } from './hooks/useFullscreenVeil'
+import { useWindowClose } from './hooks/useWindowClose'
+import { useFileOps } from './hooks/useFileOps'
+import { useAppKeys } from './hooks/useAppKeys'
+import { useTerminal } from './hooks/useTerminal'
+import { useTermPanes } from './hooks/useTermPanes'
+import { useTabOps } from './hooks/useTabOps'
+import { useExplorerArrival } from './hooks/useExplorerArrival'
 import { visitedDirectories } from './lib/visitedDirectories'
-import { tabCrumbs } from './lib/tabCrumbs'
+import { tabCrumbs } from './lib/tabs/tabCrumbs'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import {
   lazy,
@@ -41,7 +41,7 @@ import {
   setBrowseSurface,
   removeTerm,
   termLabel
-} from './lib/tabs'
+} from './lib/tabs/tabs'
 import {
   lastSplitDir,
   paneAreas,
@@ -59,7 +59,7 @@ import { useAgentIndicator } from 'prism-term-core/renderer/lib/useAgentIndicato
 import { useDictationArm } from 'prism-term-core/renderer/lib/useDictation'
 import UpdateChip from 'prism-term-core/renderer/components/UpdateChip'
 import UpdateDialog from 'prism-term-core/renderer/components/UpdateDialog'
-import { newTabShow } from './lib/newTabPrefs'
+import { newTabShow } from './lib/prefs/newTabPrefs'
 import {
   idleAtPrompt,
   isTouched,
@@ -78,17 +78,17 @@ import { EmptyState, NoFileState } from './components/stage/EmptyState'
 import { ContextMenu } from './components/ContextMenu'
 import { explorerRowMenu } from './menus/explorerRow'
 import { titleBarMoreMenu } from './menus/moreMenu'
-import { useFolderBrowsing } from './lib/useFolderBrowsing'
+import { useFolderBrowsing } from './hooks/useFolderBrowsing'
 import { browseParent } from './lib/browse'
 import { terminalRestoreOrder } from './lib/terminalRestore'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
 import { BrowseIcon } from './components/icons/BrowseIcon'
 import { ExplorerResize } from './components/browse/ExplorerResize'
-import { useExplorerWidths } from './lib/useExplorerWidths'
-import { usePreviewSlide } from './lib/usePreviewSlide'
+import { useExplorerWidths } from './hooks/useExplorerWidths'
+import { usePreviewSlide } from './hooks/usePreviewSlide'
 import { copyFilePaths, fileClipboardReady } from './lib/fileClipboard'
-import { useFilePaste } from './lib/useFilePaste'
+import { useFilePaste } from './hooks/useFilePaste'
 import {
   useQuickAccess,
   pinQuickAccess,
@@ -99,9 +99,9 @@ import {
 import { BrowseRename } from './components/browse/BrowseRename'
 import { PropertiesDialog } from './components/properties/PropertiesDialog'
 import './components/browse/workspace.css'
-import { sortFiles, useSort } from './lib/sortPrefs'
-import { useExplorerSide } from './lib/explorerSidePrefs'
-import { useTreeSide } from './lib/treePrefs'
+import { sortFiles, useSort } from './lib/prefs/sortPrefs'
+import { useExplorerSide } from './lib/prefs/explorerSidePrefs'
+import { useTreeSide } from './lib/prefs/treePrefs'
 import { PreviewEmpty } from './components/browse/PreviewEmpty'
 import { PasswordDialog } from './dialogs/PasswordDialog'
 import { browsableArchive } from '@shared/archivePlace'
@@ -114,8 +114,8 @@ import { Settings } from './components/settings/Settings'
 import { Sidebar } from './components/Sidebar'
 import { TabStrip } from './components/TabStrip'
 import { PanelToggle } from './components/PanelToggle'
-import { useTitleBarMode } from './lib/titleBarPrefs'
-import { useSidebarPeek } from './lib/useSidebarPeek'
+import { useTitleBarMode } from './lib/prefs/titleBarPrefs'
+import { useSidebarPeek } from './hooks/useSidebarPeek'
 import { Onboarding } from './components/Onboarding'
 import { ACCENT_THEME_ID } from './lib/viz/styles'
 import {
@@ -124,7 +124,7 @@ import {
   setGlow as setVizGlow,
   setMove as setVizMove,
   setTheme as setVizTheme
-} from './lib/vizStore'
+} from './lib/viz/vizStore'
 import { AskDialogs, type AskAnswers } from './dialogs/AskDialogs'
 import type { Ask } from './dialogs/asks'
 import { PhoneDialog } from './components/PhoneDialog'
@@ -143,10 +143,10 @@ import { warmOf } from './lib/viewerCache'
  *  would throw the cache away every time somebody glanced at another window. */
 const WARM_COOLDOWN_MS = 60_000
 import { intendToPlay, wasPlaying } from './lib/playState'
-import { dragPayload, setDrag } from './lib/dragDrop'
-import { useInternalFileDrag } from './lib/internalFileDrag'
+import { dragPayload, setDrag } from './lib/drag/dragDrop'
+import { useInternalFileDrag } from './lib/drag/internalFileDrag'
 import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
-import { compactRailPref, onboardedPref, placesPref, sidebarPref } from './lib/layoutPrefs'
+import { compactRailPref, onboardedPref, placesPref, sidebarPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { Icon } from './components/icons/Icon'
@@ -160,7 +160,7 @@ import { disposeSession, nextTabId, nextTermId } from './lib/sessionIds'
 // There is deliberately no DOC kind-set here any more. Which keys a document
 // owns is a question about FOCUS, not about file kind: a pdf nobody has clicked
 // into has no more claim on Up/Down than a photo does. See docFocused() in
-// lib/useAppKeys, beside PLAYABLE.
+// hooks/useAppKeys, beside PLAYABLE.
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
 
 export default function App(): JSX.Element {
@@ -179,7 +179,7 @@ export default function App(): JSX.Element {
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
   // THE TAB STRIP ON THE DIAGNOSTICS TIMELINE (#322): opened, closed, switched
   // to, a project opened, a file reaching the player. Read off the state
-  // (lib/tabCrumbs), since a tab changes from a dozen places.
+  // (lib/tabs/tabs/tabCrumbs), since a tab changes from a dozen places.
   const crumbedTabs = useRef<TabState>({ tabs: [], activeId: null })
   useEffect(() => {
     for (const c of tabCrumbs(crumbedTabs.current, tabState)) crumb(c.a, c.fields, { often: c.often })
@@ -695,7 +695,7 @@ export default function App(): JSX.Element {
     [open, arriveInExplorer]
   )
   useEffect(() => window.prism.onOpenFile(arrive, () => setRestoring(false)), [arrive])
-  // Fullscreen and the fade to black over its swap (lib/useFullscreenVeil).
+  // Fullscreen and the fade to black over its swap (hooks/useFullscreenVeil).
   const { setFs, viewerBox, fsVeilOuter, fsVeilEl } = useFullscreenVeil({ setFullscreen, fullscreen })
   // More > Phone (#104; the button was Tools until #272): the menu under the
   // title bar's three dots and the dialog its first row opens. The dialog is
@@ -717,7 +717,7 @@ export default function App(): JSX.Element {
     })
   }, [])
   const [phoneOpen, setPhoneOpen] = useState(false)
-  // Closing, and the update install that ends in a quit (lib/useWindowClose).
+  // Closing, and the update install that ends in a quit (hooks/useWindowClose).
   const { update, leave, runInstall } = useWindowClose({ workingIds, tabs, setAsk, agentKinds, dirtyPaths, ask })
   /** The running version, for the window's "You have" line. Asked once. */
   const [appVersion, setAppVersion] = useState('')
@@ -743,7 +743,7 @@ export default function App(): JSX.Element {
    *  shell whose folder no longer matches its tab gets replaced; Clear also
    *  re-syncs a stale one. */
   const termRoots = useRef(new Map<string, string>())
-  // The tabs: new, close, re-root, recent, pick, reorder (lib/useTabOps).
+  // The tabs: new, close, re-root, recent, pick, reorder (hooks/useTabOps).
   const {
     restoreTermFocus,
     newTab,
@@ -804,7 +804,7 @@ export default function App(): JSX.Element {
 
   /* ----- the terminal ----- */
 
-  // The dock, the shells' roots and the tab's terminal view (lib/useTerminal).
+  // The dock, the shells' roots and the tab's terminal view (hooks/useTerminal).
   const {
     termFolder,
     pickDock,
@@ -1179,7 +1179,7 @@ export default function App(): JSX.Element {
       return hit ? { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, hit.id)) } : s
     })
   }, [])
-  // Several shells per tab and the split's panes (lib/useTermPanes).
+  // Several shells per tab and the split's panes (hooks/useTermPanes).
   const {
     closeTermId,
     openTermSplit,
@@ -1679,7 +1679,7 @@ export default function App(): JSX.Element {
   const browseArchive = browsing.listing?.archive ?? null
 
   // Renaming, new folders, deleting, moving, the drops that move, and undo
-  // and redo over them (lib/useFileOps; the inverse table is lib/undoApply).
+  // and redo over them (hooks/useFileOps; the inverse table is lib/undoApply).
   const {
     redo,
     undo,
@@ -1710,7 +1710,7 @@ export default function App(): JSX.Element {
     flashUndo,
     archiveActions
   })
-  // The window's keys (lib/useAppKeys).
+  // The window's keys (hooks/useAppKeys).
   useAppKeys({
     setup,
     settingsOpen,

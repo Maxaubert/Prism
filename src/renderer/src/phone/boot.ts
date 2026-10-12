@@ -6,7 +6,7 @@
  * shim in place before anything can look for it.
  */
 import { installShim } from './prismShim'
-import { setWrapPref } from '../lib/codePrefs'
+import { setWrapPref } from '../lib/code/codePrefs'
 import { phoneWrapDefault } from './defaults'
 
 installShim()

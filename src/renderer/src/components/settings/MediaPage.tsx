@@ -17,7 +17,7 @@ import {
   useViz,
   type Preset,
   type VizState
-} from '../../lib/vizStore'
+} from '../../lib/viz/vizStore'
 import { VizPreview } from '../VizPreview'
 import { APP_SECTIONS, appOpt, type MediaView } from './appOptions'
 import { BlockLabel, CARD_GRID, Tile, TileFooter } from './cards'

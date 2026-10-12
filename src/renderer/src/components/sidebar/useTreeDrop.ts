@@ -8,8 +8,8 @@ import {
 } from 'react'
 import { parentDir, baseName } from '@shared/path'
 import { memberOf } from '@shared/archivePlace'
-import { setDrag, DRAG_MIME, dragPayload, droppedPaths, type DragPayload } from '../../lib/dragDrop'
-import type { TreeState } from '../../lib/tabs'
+import { setDrag, DRAG_MIME, dragPayload, droppedPaths, type DragPayload } from '../../lib/drag/dragDrop'
+import type { TreeState } from '../../lib/tabs/tabs'
 import type { Selection } from '../../lib/selection'
 
 // THE TREE'S DRAG AND DROP (out of Sidebar.tsx, structure cleanup 2026-10-12,

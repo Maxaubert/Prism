@@ -9,7 +9,7 @@ import {
   reloadExplorerSize,
   setExplorerSize
 } from './explorerSize'
-import { TREE_SIZES, rowLook } from './treePrefs'
+import { TREE_SIZES, rowLook } from './prefs/treePrefs'
 
 // Settings > Style > Explorer size (owner, 2026-10-03: "let the current be
 // medium the old be big, and make a slightly smaller version too").

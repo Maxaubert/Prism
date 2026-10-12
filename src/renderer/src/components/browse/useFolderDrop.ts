@@ -6,7 +6,7 @@ import {
   droppedPaths,
   setDrag,
   type DragPayload
-} from '../../lib/dragDrop'
+} from '../../lib/drag/dragDrop'
 import { isInside } from '@shared/path'
 
 const insideSource = (directory: string, payload: DragPayload | null): boolean =>

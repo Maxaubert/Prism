@@ -12,7 +12,7 @@ import { parentDir, extOf, baseName } from '@shared/path'
 import { clipboardText } from '../../lib/clipboardText'
 import { fileKind } from '@shared/fileKind'
 import type { ArchiveMeta } from '@shared/types'
-import type { TreeState } from '../../lib/tabs'
+import type { TreeState } from '../../lib/tabs/tabs'
 import type { TreeRow } from '../../lib/fileTree'
 import type { Menu } from './types'
 

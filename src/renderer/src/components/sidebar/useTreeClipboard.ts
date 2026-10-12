@@ -1,11 +1,11 @@
 import { useCallback, useEffect, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import { useFileCut, copyFilePaths } from '../../lib/fileClipboard'
 import { updateJob } from '../../lib/jobs'
-import { type PasteResult, useFilePaste, PASTE_MESSAGES } from '../../lib/useFilePaste'
+import { type PasteResult, useFilePaste, PASTE_MESSAGES } from '../../hooks/useFilePaste'
 import { parentDir, baseName } from '@shared/path'
 import { FIELD, EDITOR, OVERLAY } from '../../lib/focusGuards'
 import type { Selection } from '../../lib/selection'
-import type { TreeState } from '../../lib/tabs'
+import type { TreeState } from '../../lib/tabs/tabs'
 import type { PaintRow } from '../../lib/treePaint'
 
 // THE TREE'S CLIPBOARD AND DELETE KEYS (out of Sidebar.tsx, structure cleanup

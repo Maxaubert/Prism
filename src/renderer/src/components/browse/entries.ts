@@ -1,7 +1,7 @@
 import type { DirListing } from '@shared/types'
 import { matchesQuery, parseQuery } from '@shared/searchQuery'
 import { naturalCompare } from '@shared/path'
-import { sortFiles } from '../../lib/sortPrefs'
+import { sortFiles } from '../../lib/prefs/sortPrefs'
 import { browseParent } from '../../lib/browse'
 import type { BrowseEntry, BrowseSort } from './types'
 import type { FolderSizes } from '../../lib/folderSize'

@@ -1,6 +1,6 @@
 import { createContext, useContext, type DragEvent, type MouseEvent } from 'react'
 import type { DirListing } from '@shared/types'
-import type { TREE_SIZES } from './treePrefs'
+import type { TREE_SIZES } from './prefs/treePrefs'
 
 // What a tree row can do, shared through context so the recursive row components
 // don't have to thread a dozen callbacks down every level.

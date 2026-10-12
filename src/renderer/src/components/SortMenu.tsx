@@ -1,6 +1,6 @@
 import { useRef, useState, type JSX } from 'react'
-import { useDismiss } from '../lib/useDismiss'
-import { SORT_FIELDS, setSortDir, setSortField, useSort } from '../lib/sortPrefs'
+import { useDismiss } from '../hooks/useDismiss'
+import { SORT_FIELDS, setSortDir, setSortField, useSort } from '../lib/prefs/sortPrefs'
 import { Icon } from './icons/Icon'
 
 // The sidebar's handle on folder order, beside the filter. Playnite's shape:

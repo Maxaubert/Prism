@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { ACCENT_THEME_ID, THEMES, themeById } from './viz/styles'
 import type { VizTheme } from './viz/core'
-import { setBarTheme, setTheme, vizState } from './vizStore'
+import { setBarTheme, setTheme, vizState } from './viz/vizStore'
 import { resetTermExtras, setTermThemeId } from 'prism-term-core/renderer/lib/termLook'
 import {
   alphaOf,
