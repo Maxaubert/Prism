@@ -237,6 +237,9 @@ Filesmith's conventions.
     with their questions in `useArchiveOps.tsx`. The member panel (ArchiveView) and a zip in
     the Explorer or tree (`useArchiveActions`) both use it. adm-zip's write cap is
     `src/shared/archiveLimits.ts` (`ZIP_WRITE_MAX`), read by main and the renderer.
+  - renaming in place (the tree, an archive's member rows): `components/RenameField.tsx`; in a
+    dialog (the Explorer, a zip member there, an archive's own Rename): `browse/BrowseRename.tsx`.
+    The stem selection is `lib/selectStem.ts`.
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

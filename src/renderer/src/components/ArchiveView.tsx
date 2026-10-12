@@ -10,7 +10,6 @@ import { fileKind, isMarkdown } from '@shared/fileKind'
 import { baseName, extOf, naturalCompare, parentDir } from '@shared/path'
 import { ContextMenu } from './ContextMenu'
 import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
-import { Dialog } from './Dialog'
 import { PasswordDialog } from './PasswordDialog'
 import { ImageView } from './ImageView'
 import { VideoView } from './VideoView'
@@ -22,6 +21,8 @@ import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
 import { archivePassword, rememberArchivePassword } from '../lib/archivePass'
 import { useArchiveOps } from './archive/useArchiveOps'
+import { RenameField } from './RenameField'
+import { BrowseRename } from './browse/BrowseRename'
 import type { UndoEntry } from '../lib/undo'
 import { isTypingTarget } from '../lib/focusGuards'
 
@@ -1227,12 +1228,17 @@ function ArchiveInner({
       )}
       {ops.dialogs}
       {renamingSelf && (
-        <RenameArchiveDialog
+        // Renaming the archive itself. The answer goes to App, which owns
+        // renaming (taken names, following the open file, the undo stack).
+        <BrowseRename
+          title="Rename archive"
+          select="stem"
           name={file.name}
           onCancel={() => setRenamingSelf(false)}
-          onSubmit={(v) => {
+          onSave={(v) => {
             setRenamingSelf(false)
-            if (v && v !== file.name) onRenameSelf?.(v)
+            const next = v.trim()
+            if (next && next !== file.name) onRenameSelf?.(next)
           }}
         />
       )}
@@ -1251,35 +1257,12 @@ function RenameInput({
   onSubmit: (v: string) => void
   onCancel: () => void
 }): JSX.Element {
-  const input = useRef<HTMLInputElement>(null)
-  const [value, setValue] = useState(name)
-  const done = useRef(false)
-  useEffect(() => {
-    const el = input.current
-    if (!el) return
-    el.focus()
-    const dot = name.lastIndexOf('.')
-    el.setSelectionRange(0, dot > 0 ? dot : name.length)
-  }, [name])
-  const finish = (commit: boolean): void => {
-    if (done.current) return
-    done.current = true
-    if (commit && value.trim() && value.trim() !== name) onSubmit(value.trim())
-    else onCancel()
-  }
   return (
     <div className="flex h-[28px] items-center">
-      <input
-        ref={input}
-        value={value}
-        spellCheck={false}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={() => finish(true)}
-        onKeyDown={(e) => {
-          e.stopPropagation()
-          if (e.key === 'Enter') finish(true)
-          else if (e.key === 'Escape') finish(false)
-        }}
+      <RenameField
+        name={name}
+        onSubmit={onSubmit}
+        onCancel={onCancel}
         className="w-full max-w-[320px] rounded border border-[var(--p-accent-hi)] bg-[var(--p-bg)] px-1.5 py-0.5 text-[12.5px] text-[var(--p-text)] outline-none"
       />
     </div>
@@ -1328,50 +1311,5 @@ function ArcVerb({
       </svg>
       {label}
     </button>
-  )
-}
-
-/** Renaming the archive itself. The answer goes to App, which owns renaming
- *  (taken names, following the open file, the undo stack). */
-function RenameArchiveDialog({
-  name,
-  onSubmit,
-  onCancel
-}: {
-  name: string
-  onSubmit: (v: string) => void
-  onCancel: () => void
-}): JSX.Element {
-  const [value, setValue] = useState(name)
-  const input = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    const el = input.current
-    if (!el) return
-    el.focus()
-    const dot = name.lastIndexOf('.')
-    el.setSelectionRange(0, dot > 0 ? dot : name.length)
-  }, [name])
-  return (
-    <Dialog
-      title="Rename archive"
-      body={
-        <input
-          ref={input}
-          value={value}
-          spellCheck={false}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            e.stopPropagation()
-            if (e.key === 'Enter') onSubmit(value.trim())
-          }}
-          className="mt-2.5 w-full rounded border border-[color:var(--p-divider)] bg-[var(--p-bg)] px-2 py-1.5 text-[12.5px] text-[var(--p-text)] outline-none focus:border-[color:var(--p-accent-hi)]"
-        />
-      }
-      onCancel={onCancel}
-      choices={[
-        { label: 'Cancel', onPick: onCancel },
-        { label: 'Rename', primary: true, onPick: () => onSubmit(value.trim()) }
-      ]}
-    />
   )
 }
