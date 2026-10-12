@@ -242,6 +242,8 @@ Filesmith's conventions.
     The stem selection is `lib/selectStem.ts`.
   - pasting files into a folder (Explorer and tree), with every line it says: `lib/useFilePaste.ts`
     (`useFilePaste`, `PASTE_MESSAGES`, `pasteMessage`).
+  - the unsaved-changes question (closing, installing, closing a tab, re-rooting a tab):
+    `components/UnsavedDialog.tsx`; App's `saveAllThen` and `discardTabBuffers` answer it.
 
 ## Reuse from Filesmith (becomes `prism-core`)
 
