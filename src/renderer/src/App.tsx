@@ -111,10 +111,7 @@ import { focusTermSession } from 'prism-term-core/renderer/components/TerminalPa
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useExplorerSide } from './lib/explorerSidePrefs'
 import { useTreeSide } from './lib/treePrefs'
-import { VideoView } from './components/VideoView'
-import { AudioView } from './components/AudioView'
-import { ImageView } from './components/ImageView'
-import { UnsupportedView } from './components/UnsupportedView'
+import { ViewerSwitch } from './components/ViewerSwitch'
 import { ArchiveCard } from './components/browse/ArchiveCard'
 import { PreviewEmpty } from './components/browse/PreviewEmpty'
 import { MemberGate } from './components/MemberGate'
@@ -123,19 +120,9 @@ import { PasswordDialog } from './components/PasswordDialog'
 import { browsableArchive } from '@shared/archivePlace'
 import { useArchiveActions } from './components/browse/useArchiveActions'
 import { clipboardText } from './lib/clipboardText'
-// Split out, all four, for the same reason: none of them is on the path of
-// opening a photo, and the resident single-instance model exists so the window
-// is there the instant you ask. CodeMirror is ~770KB, pdf.js about a megabyte,
-// and react-markdown brings remark, rehype and micromark with it.
+// The code editor for markdown's pencil, split out like every viewer chunk
+// (ViewerSwitch): CodeMirror is ~770KB and not on the path of a photo.
 const CodeView = lazy(() => import('./components/CodeView').then((m) => ({ default: m.CodeView })))
-const PdfView = lazy(() => import('./components/pdf/PdfView').then((m) => ({ default: m.PdfView })))
-const MarkdownView = lazy(() =>
-  import('./components/MarkdownView').then((m) => ({ default: m.MarkdownView }))
-)
-const DocView = lazy(() => import('./components/DocView').then((m) => ({ default: m.DocView })))
-const ComicView = lazy(() =>
-  import('./components/ComicView').then((m) => ({ default: m.ComicView }))
-)
 import { Settings } from './components/settings/Settings'
 import { Sidebar } from './components/Sidebar'
 import { TabStrip } from './components/TabStrip'
@@ -601,79 +588,33 @@ function Viewer({
       </div>
     )
   }
-  const url = window.prism.mediaUrl(file.path)
-  switch (file.kind) {
-    case 'video':
-      return (
-        <VideoView
-          url={url}
-          path={file.path}
-          onToggleFullscreen={onToggleFullscreen}
-          onAutoAdvance={onAutoAdvance}
-          onStep={onStep}
-          canStep={canStep}
-          transportStyle={transportStyle}
-          transportBg={transportBg}
-          background={background}
-          volumeKey={volumeKey}
-          fullscreen={fullscreen}
-        />
-      )
-    case 'image':
-      return (
-        <ImageView
-          url={url}
-          path={file.path}
-          name={file.name}
-          onToggleFullscreen={onToggleFullscreen}
-          onStep={onStep}
-          canStep={canStep}
-          fullscreen={fullscreen}
-        />
-      )
-    case 'audio':
-      return (
-        <AudioView
-          url={url}
-          path={file.path}
-          name={file.name}
-          fullscreen={fullscreen}
-          onToggleFullscreen={onToggleFullscreen}
-          onAutoAdvance={onAutoAdvance}
-          onStep={onStep}
-          canStep={canStep}
-          transportStyle={transportStyle}
-          background={background}
-          volumeKey={volumeKey}
-        />
-      )
-    case 'pdf':
-      return (
-        <Suspense fallback={<EditorLoading />}>
-          <PdfView url={url} path={file.path} onToggleFullscreen={onToggleFullscreen} />
-        </Suspense>
-      )
-    case 'doc':
-      return (
-        <Suspense fallback={<EditorLoading />}>
-          <DocView path={file.path} name={file.name} />
-        </Suspense>
-      )
-    case 'comic':
-      return (
-        <Suspense fallback={<EditorLoading />}>
-          <ComicView
-            path={file.path}
-            name={file.name}
-            onToggleFullscreen={onToggleFullscreen}
-            fullscreen={fullscreen}
-          />
-        </Suspense>
-      )
-    case 'archive':
+  // Windows can always hand us a file we don't show: the "Choose another app"
+  // dialog lists every installed application, not just the ones registered for
+  // the type. The switch's UnsupportedView says so plainly instead of leaving
+  // an empty window with a grey line in it.
+  return (
+    <ViewerSwitch
+      file={file}
+      mode="full"
+      loading={<EditorLoading />}
+      onToggleFullscreen={onToggleFullscreen}
+      fullscreen={fullscreen}
+      onAutoAdvance={onAutoAdvance}
+      onStep={onStep}
+      canStep={canStep}
+      transportStyle={transportStyle}
+      transportBg={transportBg}
+      background={background}
+      volumeKey={volumeKey}
+      onOpenLocal={onOpenLocal}
+      readOnly={readOnly}
+      onBuffer={onBuffer}
+      getPending={getPending}
+      onExternalChange={onExternalChange}
+      reloadAnswer={reloadAnswer}
       // ZIPS ARE FOLDERS (#300): an archive is gone INTO, like a folder, and
       // its row previews as this card. The old panel lives on for the phone.
-      return (
+      archive={() => (
         <ArchiveCard
           path={file.path}
           name={file.name}
@@ -682,37 +623,9 @@ function Viewer({
           onExtractHere={() => void window.prism.archiveExtractAll(file.path, true)}
           onExtractTo={() => void window.prism.archiveExtractAll(file.path, false)}
         />
-      )
-    case 'text':
-      // Markdown is a document until the pencil says otherwise; everything else
-      // is its own source, editable where it sits. A save here changes nothing
-      // on screen that isn't already there, so it must not remount the viewer.
-      return isMarkdown(file.name) ? (
-        <Suspense fallback={<EditorLoading />}>
-          <MarkdownView path={file.path} onOpenLocal={onOpenLocal} />
-        </Suspense>
-      ) : (
-        <Suspense fallback={<EditorLoading />}>
-          <CodeView
-            path={file.path}
-            name={file.name}
-            readOnly={readOnly}
-            onSaved={() => {}}
-            onBuffer={onBuffer}
-            getPending={getPending}
-            onExternalChange={onExternalChange}
-            answer={reloadAnswer}
-            fullscreen={fullscreen}
-          />
-        </Suspense>
-      )
-    default:
-      // Windows can always hand us a file we don't show: the "Choose another
-      // app" dialog lists every installed application, not just the ones
-      // registered for the type. Say so plainly instead of leaving an empty
-      // window with a grey line in it.
-      return <UnsupportedView file={file} />
-  }
+      )}
+    />
+  )
 }
 
 /** One pinned split pane: a fixed file, independent of paging, with its X. */
