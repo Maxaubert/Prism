@@ -23,8 +23,6 @@ export function isMidi(path: string): boolean {
   return MIDI_EXTS.has(extname(path).toLowerCase())
 }
 
-export const midiExtensions = (): string[] => [...MIDI_EXTS]
-
 /** Where the bundled synthesiser lives; the same walk-up rule as ffmpeg. */
 export function fluidDirs(packaged: boolean, resourcesPath: string, appPath: string): string[] {
   const dirs: string[] = []

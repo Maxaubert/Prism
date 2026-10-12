@@ -114,8 +114,6 @@ export function isSevenArchive(ext: string): boolean {
   return SEVEN_EXTS.has(ext.toLowerCase())
 }
 
-export const sevenExtensions = (): string[] => [...SEVEN_EXTS]
-
 /** Where the bundled 7-Zip lives; the same walk-up rule as ffmpeg. */
 export function sevenDirs(packaged: boolean, resourcesPath: string, appPath: string): string[] {
   const dirs: string[] = []
@@ -144,11 +142,6 @@ export function bundledSeven(
       // sync-ok: startup (main's setSevenExe, before the window); every later ask is the cache
       .find(existsSync) ?? null
   return cached
-}
-
-/** Test seam. */
-export function resetSeven(): void {
-  cached = undefined
 }
 
 /**

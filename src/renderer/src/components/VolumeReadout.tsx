@@ -41,7 +41,7 @@ export function VolumeReadout({
       // part of the same player and is scaled with it from phone.css.
       data-vol-readout
       className="pointer-events-none absolute right-4 top-4 z-40 flex items-center gap-2.5 rounded-full bg-black/70 px-3.5 py-2 text-[var(--p-text)] shadow-[0_8px_20px_rgba(0,0,0,.45)] backdrop-blur-sm"
-      style={{ animation: 'prism-chrome-in 140ms ease-out' }}
+      style={{ animation: 'p-chrome-in 140ms ease-out' }}
       aria-live="polite"
     >
       {muted || pct === 0 ? IconMute : IconVol}

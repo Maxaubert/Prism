@@ -34,11 +34,9 @@ export const capabilities = {
   drag: false
 } as const
 
-/** `nativeDrag` is the drag-out bridge's flag (#103, not merged here yet);
- *  the phone says no to it either way, so a viewer can read it safely.
- *  `capabilities` IS on PrismApi (#106); it is named here so the shim
+/** `capabilities` IS on PrismApi (#106); it is named here so the shim
  *  cannot be built without one. */
-type Shim = Partial<PrismApi> & { capabilities: typeof capabilities; nativeDrag: false }
+type Shim = Partial<PrismApi> & { capabilities: typeof capabilities }
 
 /**
  * What `/api/play` answers (#105): direct is the `/m/` url the viewers
@@ -120,7 +118,6 @@ const withPw = (params: Record<string, string>, password?: string): Record<strin
 const implemented: Shim = {
   capabilities,
   mediaUrl,
-  nativeDrag: false,
   demo: false,
   forceSetup: false,
   listDir: (_root: string, path: string): Promise<DirListing | null> =>

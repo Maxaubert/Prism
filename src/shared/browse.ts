@@ -94,8 +94,6 @@ export interface BrowseDriveUsage {
   free?: number
 }
 
-export type BrowseState = SavedBrowse
-
 /** A file pinned beside the live viewer, retained across restart. */
 export interface SavedPane {
   id: string

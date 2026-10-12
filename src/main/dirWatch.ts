@@ -181,8 +181,3 @@ export function closeAllWatches(): void {
   for (const root of [...watched.keys()]) unwatchRoot(root)
   muted.clear()
 }
-
-/** Test seam: which roots are being watched. */
-export function watchedRoots(): string[] {
-  return [...watched.keys()]
-}

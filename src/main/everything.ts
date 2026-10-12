@@ -55,11 +55,6 @@ export function findEverything(root?: string, signal?: AbortSignal): Promise<str
   })
 }
 
-/** Test seam. */
-export function forgetEverything(): void {
-  esPath = undefined
-}
-
 interface EsRow {
   filename: string
   attributes?: number
