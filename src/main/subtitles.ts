@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import { readdirSync, readFileSync, statSync } from 'fs'
+import { readdir, readFile, stat } from 'fs/promises'
 import { basename, dirname, extname, join } from 'path'
 
 // Sidecar subtitles, the convention every player follows: "Episode.mkv" is
@@ -76,13 +76,15 @@ export function srtToVtt(srt: string): string {
 
 /** The tracks on disk for a video: its own folder, then the Subs/ variants.
  *  One readdir of the folder, reused for both the sidecars and the Subs/
- *  lookup: this runs in the main process, and disks can be network shares. */
-export function sidecarsFor(videoPath: string): SubTrack[] {
+ *  lookup: this runs in the main process, and disks can be network shares.
+ *  Async (owner, 2026-10-12, main never waits on the disk): a huge folder or
+ *  a slow share held every window for the length of the listing. */
+export async function sidecarsFor(videoPath: string): Promise<SubTrack[]> {
   const dir = dirname(videoPath)
   const video = basename(videoPath)
   let names: string[]
   try {
-    names = readdirSync(dir)
+    names = await readdir(dir)
   } catch {
     return []
   }
@@ -95,7 +97,7 @@ export function sidecarsFor(videoPath: string): SubTrack[] {
     if (!real) continue
     let subNames: string[]
     try {
-      subNames = readdirSync(join(dir, real))
+      subNames = await readdir(join(dir, real))
     } catch {
       continue // a file wearing a folder's name, or unreadable
     }
@@ -130,7 +132,7 @@ export async function readAsVtt(path: string, ffmpeg?: string | null): Promise<s
   const ext = extname(path).toLowerCase()
   if (!SUB_EXTS.has(ext)) return null
   try {
-    if (statSync(path).size > MAX_SUB_BYTES) return null
+    if ((await stat(path)).size > MAX_SUB_BYTES) return null
     if (FFMPEG_SUBS.has(ext)) {
       if (!ffmpeg) return null
       const out = await new Promise<Buffer | null>((resolve) => {
@@ -143,7 +145,7 @@ export async function readAsVtt(path: string, ffmpeg?: string | null): Promise<s
       })
       return out ? stripVttStyles(out.toString('utf-8')) : null
     }
-    const text = readFileSync(path, 'utf-8')
+    const text = await readFile(path, 'utf-8')
     return stripVttStyles(ext === '.srt' ? srtToVtt(text) : text)
   } catch {
     return null

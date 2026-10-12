@@ -1,15 +1,8 @@
 import { spawn } from 'child_process'
 import { holders } from './holders'
 import { createHash } from 'crypto'
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-  statSync,
-  utimesSync
-} from 'fs'
+import { rmSync } from 'fs'
+import { mkdir, readdir, rename, rm, stat, utimes } from 'fs/promises'
 import { join } from 'path'
 import { chromiumCanDemux, needsSidecar, type MediaInfo } from './ffmpeg'
 
@@ -127,30 +120,33 @@ interface Job {
 
 const jobs = new Map<string, Job>()
 
-/** Everything converted so far, oldest first. */
-function cached(dir: string): Array<{ path: string; mtimeMs: number; size: number }> {
+/** Everything converted so far, oldest first. Async, like everything here
+ *  that touches the disk while the user works (owner, 2026-10-12, the 3.9 s
+ *  tabs.json freeze: main never waits on the disk). */
+async function cached(dir: string): Promise<Array<{ path: string; mtimeMs: number; size: number }>> {
   try {
-    return readdirSync(dir)
-      .filter((n) => n.endsWith('.mp4'))
-      .map((n) => {
+    const names = (await readdir(dir)).filter((n) => n.endsWith('.mp4'))
+    const files = await Promise.all(
+      names.map(async (n) => {
         const p = join(dir, n)
-        const st = statSync(p)
+        const st = await stat(p)
         return { path: p, mtimeMs: st.mtimeMs, size: st.size }
       })
-      .sort((a, b) => a.mtimeMs - b.mtimeMs)
+    )
+    return files.sort((a, b) => a.mtimeMs - b.mtimeMs)
   } catch {
     return []
   }
 }
 
 /** Keep the converted-video folder under a ceiling, dropping the oldest. */
-export function evictCache(dir: string, maxBytes: number): void {
-  const files = cached(dir)
+export async function evictCache(dir: string, maxBytes: number): Promise<void> {
+  const files = await cached(dir)
   let total = files.reduce((n, f) => n + f.size, 0)
   for (const f of files) {
     if (total <= maxBytes) return
     try {
-      rmSync(f.path, { force: true })
+      await rm(f.path, { force: true })
       total -= f.size
     } catch {
       /* in use; the next pass will get it */
@@ -170,30 +166,32 @@ export interface ConvertHandle {
 /**
  * Convert a file to something the player can open, or hand back the copy made
  * last time. Two callers asking for the same file share one conversion.
+ *
+ * Async (owner, 2026-10-12): the cache check is a mkdir and two stats on
+ * every open of such a film, and the source can sit on a slow or network
+ * disk. Nothing is awaited between the `jobs` lookup and the `jobs.set`, so
+ * two callers still share one conversion.
  */
-export function convertVideo(
+export async function convertVideo(
   ffmpeg: string,
   file: string,
   dir: string,
   plan: ConvertPlan,
   durationSec: number,
   onProgress: (pct: number) => void
-): ConvertHandle {
-  mkdirSync(dir, { recursive: true })
-  const st = statSync(file)
+): Promise<ConvertHandle> {
+  await mkdir(dir, { recursive: true })
+  const st = await stat(file)
   const out = join(dir, cacheName(file, st.mtimeMs, st.size))
 
-  if (existsSync(out) && statSync(out).size > 0) {
+  const have = await stat(out).catch(() => null)
+  if (have && have.size > 0) {
     // Touch it, so the cache evicts genuinely cold entries and not this one:
     // eviction reads mtime oldest-first, so without this the film you rewatch
-    // every week is exactly the one that goes (2026-08-28). The comment said
-    // so; the code did not do it.
-    try {
-      const now = new Date()
-      utimesSync(out, now, now)
-    } catch {
-      /* a touch is an optimisation, never a reason to fail the open */
-    }
+    // every week is exactly the one that goes (2026-08-28). Not awaited: a
+    // touch is an optimisation, never a reason to fail or delay the open.
+    const now = new Date()
+    void utimes(out, now, now).catch(() => {})
     return { out, done: Promise.resolve(out) }
   }
   const running = jobs.get(out)
@@ -217,23 +215,36 @@ export function convertVideo(
     })
     proc.on('error', () => reject(new Error('ffmpeg could not start')))
     proc.on('close', (code) => {
-      jobs.delete(out)
-      if (code === 0 && existsSync(partial) && statSync(partial).size > 0) {
-        try {
-          // Rename only on success: a half-written file must never look like
-          // a finished one to the next open.
-          rmSync(out, { force: true })
-          renameSync(partial, out)
-        } catch {
-          reject(new Error('could not finish the converted file'))
-          return
-        }
-        evictCache(dir, CACHE_MAX)
-        resolve(out)
-      } else {
-        rmSync(partial, { force: true })
-        reject(new Error(err.trim().split('\n').pop() ?? 'conversion failed'))
+      // The job stays listed until its `.part` is renamed or removed: an open
+      // of the same film meanwhile joins it, where a fresh ffmpeg writing the
+      // same `.part` would race this rename or removal (review, 2026-10-12).
+      const finished = (): void => {
+        if (jobs.get(out)?.promise === promise) jobs.delete(out)
       }
+      void (async (): Promise<void> => {
+        const made = code === 0 ? await stat(partial).catch(() => null) : null
+        if (made && made.size > 0) {
+          try {
+            // Rename only on success: a half-written file must never look like
+            // a finished one to the next open.
+            await rm(out, { force: true })
+            await rename(partial, out)
+          } catch {
+            finished()
+            reject(new Error('could not finish the converted file'))
+            return
+          }
+          finished()
+          void evictCache(dir, CACHE_MAX)
+          resolve(out)
+        } else {
+          // A failure is swallowed: an EBUSY here used to throw out of the
+          // callback before the reject below was reached.
+          await rm(partial, { force: true }).catch(() => {})
+          finished()
+          reject(new Error(err.trim().split('\n').pop() ?? 'conversion failed'))
+        }
+      })()
     })
   })
   jobs.set(out, { out, promise, kill: () => child?.kill() })
@@ -247,27 +258,29 @@ export function cancelConversion(out: string): void {
   job.kill()
   jobs.delete(out)
   // kill() is TerminateProcess on Windows and returns before ffmpeg's handles
-  // are released, so removing the partial file can fail with EBUSY - and this
-  // runs inside a synchronous ipcMain.on listener, where a throw is an
-  // unhandled error in main (2026-08-28). Try, then leave it for the sweep.
-  try {
-    rmSync(out + '.part', { force: true })
-  } catch {
+  // are released, so removing the partial file can fail with EBUSY
+  // (2026-08-28): try, then once more later, then leave it for the sweep.
+  // Async, so a multi-GB partial is never deleted on main's thread (owner,
+  // 2026-10-12).
+  rm(out + '.part', { force: true }).catch(() => {
     setTimeout(() => {
-      try {
-        rmSync(out + '.part', { force: true })
-      } catch {
+      void rm(out + '.part', { force: true }).catch(() => {
         /* the next conversion of this file overwrites it anyway */
-      }
+      })
     }, 2000).unref?.()
-  }
+  })
 }
 
 /** Every conversion still running: quitting kills them. */
 export function cancelAllConversions(): void {
   for (const job of jobs.values()) {
     job.kill()
-    rmSync(job.out + '.part', { force: true })
+    try {
+      // sync-ok: quit; will-quit cannot await, and the process is going
+      rmSync(job.out + '.part', { force: true })
+    } catch {
+      /* EBUSY right after kill(): the next conversion of this file overwrites it */
+    }
   }
   jobs.clear()
 }

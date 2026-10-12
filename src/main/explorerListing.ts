@@ -191,6 +191,12 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
       const hit = cache.read(resolve(path))
       return hit ? { path: hit.path, listing: hit.listing } : null
     },
+    /** cached(), off the main thread: the restore can wait for it (2026-10-12). */
+    async cachedAsync(path: string): Promise<BrowseDirectory | null> {
+      if (typeof path !== 'string' || !isAbsolute(path)) return null
+      const hit = await cache.readAsync(resolve(path))
+      return hit ? { path: hit.path, listing: hit.listing } : null
+    },
     /** Read one folder ahead of the click. */
     prefetch(path: string): Promise<BrowseDirectory | null> {
       if (typeof path !== 'string' || !isAbsolute(path) || path.length > 1024)

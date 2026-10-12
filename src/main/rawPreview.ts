@@ -1,4 +1,3 @@
-import { statSync } from 'fs'
 import { open } from 'fs/promises'
 import { extname } from 'path'
 
@@ -89,11 +88,13 @@ export async function rawPreview(path: string, mtimeMs: number): Promise<Buffer>
     cache.set(key, hit) // LRU touch
     return hit
   }
-  const size = statSync(path).size
-  const want = Math.min(size, SCAN_BYTES)
-  const buf = Buffer.alloc(want)
+  // The size from the open handle, not a statSync first (owner, 2026-10-12,
+  // main never waits on the disk). A missing file still throws, at the open.
   const fd = await open(path, 'r')
+  let buf: Buffer
   try {
+    const want = Math.min((await fd.stat()).size, SCAN_BYTES)
+    buf = Buffer.alloc(want)
     await fd.read(buf, 0, want, 0)
   } finally {
     await fd.close()

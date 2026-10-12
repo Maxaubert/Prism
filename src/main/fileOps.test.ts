@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { binIfEmpty, makeFolder, nameError, renameFile, uniqueName } from './fileOps'
+import { binIfEmpty, makeFolder, nameError, renameFile, uniqueNameAsync } from './fileOps'
 
 function folder(...names: string[]): string {
   const dir = mkdtempSync(join(tmpdir(), 'prism-ops-'))
@@ -34,18 +34,24 @@ describe('nameError', () => {
   })
 })
 
-describe('uniqueName', () => {
-  it('returns the name when nothing holds it', () => {
-    expect(uniqueName(folder(), 'a.jpg')).toBe('a.jpg')
+describe('uniqueNameAsync (2026-10-12, off the main thread)', () => {
+  it('returns the name when nothing holds it', async () => {
+    expect(await uniqueNameAsync(folder(), 'a.jpg')).toBe('a.jpg')
   })
 
-  it('counts up past every taken name, suffixing before the extension', () => {
+  it('counts up past every taken name, suffixing before the extension', async () => {
     const dir = folder('a.jpg', 'a (2).jpg', 'a (3).jpg')
-    expect(uniqueName(dir, 'a.jpg')).toBe('a (4).jpg')
+    expect(await uniqueNameAsync(dir, 'a.jpg')).toBe('a (4).jpg')
   })
 
-  it('handles names with no extension', () => {
-    expect(uniqueName(folder('README'), 'README')).toBe('README (2)')
+  it('handles names with no extension', async () => {
+    expect(await uniqueNameAsync(folder('README'), 'README')).toBe('README (2)')
+  })
+
+  it('treats a folder of the same name as taken', async () => {
+    const dir = folder()
+    mkdirSync(join(dir, 'Photos'))
+    expect(await uniqueNameAsync(dir, 'Photos')).toBe('Photos (2)')
   })
 })
 

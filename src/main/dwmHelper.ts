@@ -56,7 +56,7 @@ export function dwmDirs(packaged: boolean, resourcesPath: string, appPath: strin
 export function initDwmHelper(packaged: boolean, resourcesPath: string, appPath: string): string | null {
   exe = dwmDirs(packaged, resourcesPath, appPath)
     .map((d) => join(d, 'PrismDwm.exe'))
-    .find((p) => existsSync(p)) ?? null
+    .find((p) => existsSync(p)) ?? null // sync-ok: startup, module top level before ready, once
   return exe
 }
 

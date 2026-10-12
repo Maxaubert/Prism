@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'fs'
-import { cp, rm, rmdir } from 'fs/promises'
+import type { Dirent } from 'fs'
+import { cp, mkdir, readdir, rename, rm, rmdir, stat } from 'fs/promises'
 import { basename, dirname, join, resolve, sep } from 'path'
-import { uniqueName } from './fileOps'
+import { uniqueNameAsync } from './fileOps'
 
 // Moving files and folders between real folders - the "move" verb docs/features.md
 // reserved, decided 2026-08-22 and reachable only by dragging. Deliberately
@@ -26,6 +26,15 @@ export type MoveResult = {
 
 const lower = (p: string): string => resolve(p).toLowerCase()
 
+/** Is anything at `p`? Asked off the main thread (owner, 2026-10-12, the 3.9 s
+ *  tabs.json freeze: a drag of hundreds of files was hundreds of blocking
+ *  probes). Anything that cannot be reached is absent, as existsSync said. */
+const exists = (p: string): Promise<boolean> =>
+  stat(p).then(
+    () => true,
+    () => false
+  )
+
 /** Windows' "another process has this open" (MEASURED 2026-09-13: EBUSY
  *  from a Node read stream on the file, and from ffmpeg reading it). */
 const isBusy = (e: unknown): boolean => {
@@ -42,19 +51,19 @@ export function insideSelf(src: string, dest: string): boolean {
 }
 
 /**
- * One move, rename first: `renameSync` is atomic on the same volume and costs
- * a syscall, so it stays synchronous. Only a CROSS-VOLUME move falls back to
- * copy-then-remove, and that one is async (2026-08-28): copying a folder from
- * one disk to another with cpSync blocked the whole main process - every
- * window, every IPC reply, the terminals and the Range handler a playing film
- * depends on - for as long as the copy took.
+ * One move, rename first: a rename is atomic on the same volume. Only a
+ * CROSS-VOLUME move falls back to copy-then-remove. All of it is async: copying
+ * a folder from one disk to another with cpSync blocked the whole main process
+ * (2026-08-28) - every window, every IPC reply, the terminals and the Range
+ * handler a playing film depends on - for as long as the copy took, and even
+ * the rename can stall on a busy or network disk (2026-10-12).
  */
 async function moveOne(src: string, target: string): Promise<void> {
   try {
     // The parent may not exist: undoing a MERGE puts files back into a folder
     // that was emptied and removed on the way in.
-    mkdirSync(dirname(target), { recursive: true })
-    renameSync(src, target)
+    await mkdir(dirname(target), { recursive: true })
+    await rename(src, target)
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e
     await cp(src, target, { recursive: true, force: true })
@@ -63,9 +72,9 @@ async function moveOne(src: string, target: string): Promise<void> {
 }
 
 /** Are both of these folders? Then landing one on the other is a MERGE. */
-function bothFolders(src: string, target: string): boolean {
+async function bothFolders(src: string, target: string): Promise<boolean> {
   try {
-    return statSync(src).isDirectory() && statSync(target).isDirectory()
+    return (await stat(src)).isDirectory() && (await stat(target)).isDirectory()
   } catch {
     return false
   }
@@ -79,19 +88,19 @@ function bothFolders(src: string, target: string): boolean {
  * only about the ones whose names are actually taken. Walked before anything
  * moves, so 'ask' can report the lot and leave the disk untouched.
  */
-function mergeClashes(src: string, target: string): MoveClash[] {
+async function mergeClashes(src: string, target: string): Promise<MoveClash[]> {
   const out: MoveClash[] = []
-  let entries: import('fs').Dirent[]
+  let entries: Dirent[]
   try {
-    entries = readdirSync(src, { withFileTypes: true })
+    entries = await readdir(src, { withFileTypes: true })
   } catch {
     return out
   }
   for (const e of entries) {
     const s = join(src, e.name)
     const dst = join(target, e.name)
-    if (!existsSync(dst)) continue
-    if (bothFolders(s, dst)) out.push(...mergeClashes(s, dst))
+    if (!(await exists(dst))) continue
+    if (await bothFolders(s, dst)) out.push(...(await mergeClashes(s, dst)))
     else out.push({ path: s, name: e.name })
   }
   return out
@@ -113,19 +122,19 @@ async function mergeInto(
   trash: (p: string) => Promise<void>,
   out: MoveResult
 ): Promise<void> {
-  for (const e of readdirSync(src, { withFileTypes: true })) {
+  for (const e of await readdir(src, { withFileTypes: true })) {
     const from = join(src, e.name)
     let to = join(target, e.name)
     try {
-      if (existsSync(to)) {
-        if (bothFolders(from, to)) {
+      if (await exists(to)) {
+        if (await bothFolders(from, to)) {
           await mergeInto(from, to, onClash, trash, out)
           continue
         }
         if (onClash === 'replace') {
           out.replaced.push(to)
           await trash(to)
-        } else to = join(target, uniqueName(target, e.name))
+        } else to = join(target, await uniqueNameAsync(target, e.name))
       }
       await moveOne(from, to)
       out.moved.push({ from, to })
@@ -155,10 +164,11 @@ export async function moveEntries(
   trash: (p: string) => Promise<void>
 ): Promise<MoveResult> {
   const out: MoveResult = { moved: [], clashes: [], failed: [], replaced: [], busy: [] }
-  if (!existsSync(destDir) || !statSync(destDir).isDirectory()) {
+  const dest = await stat(destDir).catch(() => null)
+  if (!dest?.isDirectory()) {
     return { moved: [], clashes: [], failed: [...paths], replaced: [], busy: [] }
   }
-  const usable: string[] = []
+  const candidates: string[] = []
   for (const p of paths) {
     // A folder and something inside it can both be selected; moving the
     // folder already carries the child, so the child is not a failure - it
@@ -169,12 +179,15 @@ export async function moveEntries(
     // nothing happens - and nothing is reported either. Only a path that has
     // GONE is a failure worth a word.
     if (insideSelf(p, destDir) || lower(dirname(p)) === lower(destDir)) continue
-    if (!existsSync(p)) {
-      out.failed.push(p)
-      continue
-    }
-    usable.push(p)
+    candidates.push(p)
   }
+  // Probed together (a multi-select drag can be hundreds), reported in order.
+  const present = await Promise.all(candidates.map(exists))
+  const usable: string[] = []
+  candidates.forEach((p, i) => {
+    if (present[i]) usable.push(p)
+    else out.failed.push(p)
+  })
   // The clash pass counts names the BATCH itself claims, not just what is
   // already on disk: two files called photo.jpg from different folders are a
   // clash with each other, and silently overwriting one was data loss.
@@ -187,12 +200,13 @@ export async function moveEntries(
     // anybody dragging one expects; asking "keep both or replace" there
     // offered a second copy of a tree or the destruction of one. The question
     // survives for the FILES inside, and only for the names actually taken.
-    if (existsSync(target) && bothFolders(p, target)) {
-      out.clashes.push(...mergeClashes(p, target))
+    const taken = await exists(target)
+    if (taken && (await bothFolders(p, target))) {
+      out.clashes.push(...(await mergeClashes(p, target)))
       claimed.add(name.toLowerCase())
       continue
     }
-    if (existsSync(target) || claimed.has(name.toLowerCase())) out.clashes.push({ path: p, name })
+    if (taken || claimed.has(name.toLowerCase())) out.clashes.push({ path: p, name })
     claimed.add(name.toLowerCase())
   }
   if (onClash === 'ask' && out.clashes.length) return out
@@ -201,10 +215,10 @@ export async function moveEntries(
     const name = basename(p)
     let target = join(destDir, name)
     try {
-      if (existsSync(target)) {
+      if (await exists(target)) {
         // Same name, both folders: pour one into the other rather than
         // landing a second copy beside it.
-        if (bothFolders(p, target)) {
+        if (await bothFolders(p, target)) {
           await mergeInto(p, target, onClash, trash, out)
           continue
         }
@@ -213,7 +227,7 @@ export async function moveEntries(
         if (onClash === 'replace') {
           out.replaced.push(target)
           await trash(target)
-        } else target = join(destDir, uniqueName(destDir, name))
+        } else target = join(destDir, await uniqueNameAsync(destDir, name))
       }
       await moveOne(p, target)
       out.moved.push({ from: p, to: target })
