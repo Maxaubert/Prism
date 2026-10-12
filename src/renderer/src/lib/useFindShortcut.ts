@@ -4,17 +4,13 @@ import { NAV_SURFACE, isTextBox } from './focusGuards'
 /**
  * Ctrl+F for a document viewer (DocView, MarkdownView): opens its find bar.
  *
- * Ctrl+F belongs to the open document whether or not it has focus, and
- * nothing focuses a document on arrival (2026-08-17), so this is a window
- * listener rather than one on the viewer's subtree - the same shape PdfView
- * and CodeView use. Capture, so it lands before anything else claims the key.
- *
  * Ctrl+F belongs to the document you are LOOKING at (2026-08-30).
  *
- * A window listener is right - nothing focuses a document on arrival, so
- * this key has to work without focus - but "the window" holds more than one
- * viewer: split view mounts up to four, and the media deck keeps others
- * alive behind the strip. Without an ownership test every mounted document
+ * Nothing focuses a document on arrival (2026-08-17), so this is a window
+ * listener rather than one on the viewer's subtree, the same shape PdfView and
+ * CodeView use, in capture so it lands before anything else claims the key.
+ * But "the window" holds more than one viewer: split view mounts up to four,
+ * and the media deck keeps others alive behind the strip. Without an ownership test every mounted document
  * opened its own find bar, and the last one to register won the focus, so
  * pressing Ctrl+F over a PDF opened the markdown pane's bar instead.
  *
