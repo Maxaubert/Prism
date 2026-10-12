@@ -2165,6 +2165,13 @@ async function treeVerbsScenario(fixtures) {
     // ---- the archive verbs are on the row -------------------------------
     await rowFor('wrapped.zip').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    // Writability is asked of the zip worker, which may still be
+    // starting: the row joins the open menu when the answer lands (~160 ms
+    // cold), as the app list does.
+    await win
+      .locator('[role="menu"] >> text="Add files…"')
+      .waitFor({ timeout: 5000 })
+      .catch(() => undefined)
     for (const label of ['Extract here', 'Extract to…', 'Add files…']) {
       ok(
         (await win.locator(`[role="menu"] >> text="${label}"`).count()) === 1,
