@@ -61,9 +61,6 @@
   }
 }
 
-/* Seamless scroll for the "Moving" colour-scheme swatches: the inner strip holds
-   two identical cyclic-gradient tiles and slides by exactly one tile, so the loop
-   is invisible. */
 /* The image viewer's loading spinner. It stays invisible briefly so quick loads
    never flash it, then fades in. CSS rather than a JS timer so it can't be delayed
    by main-thread work. The timings matter: measured end-to-end load for a large
