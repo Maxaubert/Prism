@@ -192,6 +192,7 @@ import type {
 } from '@shared/types'
 import { exists } from './fsUtil'
 import { createLru } from './lru'
+import { createPathWall } from './pathWall'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -249,21 +250,33 @@ if (process.argv.includes('--e2e') && process.env.PRISM_E2E_MIC) {
 if (process.argv.includes('--e2e') && process.env.PRISM_E2E_DOWNLOADS)
   app.setPath('downloads', process.env.PRISM_E2E_DOWNLOADS)
 
-// Archive members extracted to temp for viewing: each grant is one exact
-// path, made when archive:extract writes it. The reads that honour the root
-// wall (file:text, file:copy-clip) accept these too; writes never do.
-const extractedPaths = new Set<string>()
-
 /**
  * THE MEMBER TEMP FOLDER (#300, memberTemp.ts): a member opened or previewed
  * from a place inside a zip is unpacked under one folder per run, granted to
  * the reads as a DIRECTORY, never to a write.
  */
 const memberTemp = new MemberTemp(join(tmpdir(), 'prism-members'))
-/** A path main unpacked itself for viewing: an `extractedPaths` grant or a
- *  file under this run's member folder. Reads only. */
-const extracted = (p: unknown): boolean =>
-  typeof p === 'string' && (extractedPaths.has(p) || memberTemp.owns(p))
+
+/** Where the renderer's own files live. pdf.js fetches its cmaps, standard
+ *  fonts, wasm and icc profiles through fsmedia:// (fetch refuses file: URLs
+ *  in a packaged build), so the app's OWN asset tree has to be servable - and
+ *  the wall refused it, which broke every PDF that does not embed its fonts.
+ *  Invisible in dev, where the same data comes over the vite server. */
+const RENDERER_DIR = resolve(join(__dirname, '..', 'renderer'))
+
+/**
+ * THE ROOT WALL (pathWall.ts): every guard a handler asks, in one module with
+ * its own tests. Archive members extracted to temp for viewing are granted
+ * one exact path each, when archive:extract writes it; the reads that honour
+ * the wall (file:text, file:copy-clip) accept these too, writes never do.
+ */
+const wall = createPathWall({
+  insideDesktop,
+  isAnyRoot,
+  memberOwns: (p) => memberTemp.owns(p),
+  rendererDir: RENDERER_DIR
+})
+const { readable, editable, movable, archiveOk, archiveReadOk, comicOk, insideWall } = wall
 
 /**
  * The encoding and line endings each text file arrived with.
@@ -460,12 +473,6 @@ async function heicToJpeg(filePath: string, mtimeMs: number): Promise<Buffer> {
 }
 
 // Serve a local file honouring Range requests (206), so media can seek. Mirrors
-/**
- * Files main built itself and handed to the renderer as a media url: the
- * converted copy of a video, the wav a MIDI score was rendered to. They live
- * in userData, outside every root, so the wall below has to know about them.
- */
-const servable = new Set<string>()
 
 /** Native dialogs are OWNED by the window (2026-08-28). Unparented, Windows
  *  makes them modeless: a click on Prism buries the picker, and in fullscreen
@@ -482,38 +489,10 @@ function saveDialog(opts: Electron.SaveDialogOptions): Promise<Electron.SaveDial
 }
 
 /** Media may only be served from a root, from an archive member main extracted
- *  on request, or from something main made itself (2026-08-28). The fsaudio://
- *  sibling has always been walled; this one was not, which was an accident of
- *  the two handlers being written a month apart rather than a decision. */
-/** Where the renderer's own files live. pdf.js fetches its cmaps, standard
- *  fonts, wasm and icc profiles through fsmedia:// (fetch refuses file: URLs
- *  in a packaged build), so the app's OWN asset tree has to be servable - and
- *  the wall refused it, which broke every PDF that does not embed its fonts.
- *  Invisible in dev, where the same data comes over the vite server. */
-const RENDERER_DIR = resolve(join(__dirname, '..', 'renderer'))
-
-/** Where comic books are unpacked. Granted as a DIRECTORY (2026-08-31): a
- *  200-page book would otherwise put 200 entries into `extractedPaths`, which
- *  is a Set that never shrinks and doubles as the wall's allowlist - and
- *  evicting a page's file without evicting its grant leaves a permission for
- *  a file that is gone. One directory, one rule, nothing to keep in step. */
-let comicsDir = ''
-
-function underDir(dir: string, p: string): boolean {
-  const rel = relative(dir.toLowerCase(), resolve(p).toLowerCase())
-  return !!rel && !rel.startsWith('..') && !isAbsolute(rel)
-}
-
-function mediaAllowed(p: string): boolean {
-  return (
-    insideDesktop(p) ||
-    extracted(p) ||
-    servable.has(p) ||
-    underDir(RENDERER_DIR, p) ||
-    (!!comicsDir && underDir(comicsDir, p))
-  )
-}
-
+ *  on request, or from something main made itself (2026-08-28): the wall's
+ *  `mediaAllowed`. The fsaudio:// sibling has always been walled; this one was
+ *  not, which was an accident of the two handlers being written a month apart
+ *  rather than a decision. */
 // Filesmith's serveMedia; becomes part of prism-core in Phase 1.
 async function serveMedia(request: Request): Promise<Response> {
   let filePath: string
@@ -522,7 +501,7 @@ async function serveMedia(request: Request): Promise<Response> {
   } catch {
     return new Response(null, { status: 400 })
   }
-  if (!mediaAllowed(filePath)) return new Response(null, { status: 403 })
+  if (!wall.mediaAllowed(filePath)) return new Response(null, { status: 403 })
   // Async since the phone server (2026-09-06) started answering a LAN's
   // worth of Range requests through here: a sync stat on main's one thread
   // was cheap for one window and is the wrong shape for many phones.
@@ -1360,7 +1339,7 @@ initDwmHelper(app.isPackaged, process.resourcesPath, app.getAppPath())
 // Set once rather than on first use: the media wall consults it, and a wall
 // whose rule appears part way through a session is a rule nobody can reason
 // about.
-comicsDir = userPaths.comics()
+wall.setComicsDir(userPaths.comics())
 
 // All windows share the explicit shell-menu preference. Preview windows report
 // the installed registration without automatically repointing it at a trial.
@@ -2141,7 +2120,7 @@ if (!app.requestSingleInstanceLock()) {
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
     protocol.handle(AUDIO_SCHEME, (request) =>
       serveSidecarAudio(request, {
-        allowed: (p) => insideDesktop(p) || extracted(p),
+        allowed: readable,
         packaged: app.isPackaged,
         resourcesPath: process.resourcesPath,
         appPath: app.getAppPath()
@@ -2300,7 +2279,7 @@ if (!app.requestSingleInstanceLock()) {
       // `/m/` passes through serveMedia, whose wall is `mediaAllowed`; the
       // phone's grant on its side is not enough on its own.
       grantServable: (paths) => {
-        for (const img of paths) servable.add(img)
+        for (const img of paths) wall.grantServable(img)
       },
       // The comic and archive bodies are declared further down this block,
       // beside their IPC handlers and the gates they share. That is fine:
@@ -2622,7 +2601,7 @@ if (!app.requestSingleInstanceLock()) {
     // What is PRISM'S OWN is the wall: a shell STARTS in an open root or on
     // the desktop (it may leave; that is a shell), and only such a folder is
     // warmed ahead of the click or written into a used shell (#99).
-    const insideWall = (dir: string): boolean => insideDesktop(dir) || isAnyRoot(dir)
+    // The guard is the wall's `insideWall` (pathWall.ts).
     registerTermIpc({
       ipcMain,
       send: (ch, ...a) => mainWindow?.webContents.send(ch, ...a),
@@ -2955,8 +2934,7 @@ if (!app.requestSingleInstanceLock()) {
     // overwritten or deleted file goes to the Recycle Bin.
     // The root itself is off limits: renaming or binning the folder the tree is
     // rooted in would pull the ground out from under the window.
-    const editable = (p: string): boolean => insideDesktop(p) && !isAnyRoot(p)
-
+    // The guard is the wall's `editable` (pathWall.ts).
     ipcMain.handle(
       'file:rename',
       async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> => {
@@ -2996,7 +2974,7 @@ if (!app.requestSingleInstanceLock()) {
      * pretends to be the file, so nothing can save it back.
      */
     ipcMain.handle('file:tailBytes', async (_e, p: string, max: number) => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
+      if (!readable(p)) return null
       const want = Math.min(Math.max(64 * 1024, Number(max) || 0), TEXT_MAX_BYTES)
       return readTail(p, want)
     })
@@ -3004,7 +2982,7 @@ if (!app.requestSingleInstanceLock()) {
     /** Follow a file that is still being written: new bytes arrive on
      *  `file:appended` until `tail:stop`. One watch per path. */
     ipcMain.handle('tail:start', async (_e, p: string, from: number) => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return false
+      if (!readable(p)) return false
       return startTail(p, Number(from) || 0, (e) =>
         mainWindow?.webContents.send('file:appended', e)
       )
@@ -3016,14 +2994,14 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('file:text', async (_e, p: string): Promise<TextRead> => {
       // Extracted archive members live in temp, outside every root; each one
       // was granted individually when archive:extract wrote it.
-      if (!insideDesktop(p) && !extracted(p)) return { error: 'unreadable' }
+      if (!readable(p)) return { error: 'unreadable' }
       const r = await readTextWalled(p)
       // A markdown document may point at pictures OUTSIDE the folder Prism
       // opened in ("../assets/logo.png" from a doc in docs/), which the
       // media wall would otherwise refuse. Main grants exactly the files
       // this document names, having read it (see docImages.ts).
       if ('text' in r && isMarkdown(p))
-        for (const img of await documentImages(p, r.text)) servable.add(img)
+        for (const img of await documentImages(p, r.text)) wall.grantServable(img)
       return r
     })
     // The editor's save. Text files only, in place, inside the root: this is
@@ -3079,7 +3057,7 @@ if (!app.requestSingleInstanceLock()) {
      * error.
      */
     ipcMain.handle('image:photo-info', async (_e, p: string): Promise<PhotoInfo> => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return {}
+      if (!readable(p)) return {}
       return photoInfo(p)
     })
 
@@ -3113,7 +3091,7 @@ if (!app.requestSingleInstanceLock()) {
     // What the window shows beyond `file:stat`, per kind (spec
     // `docs/superpowers/specs/2026-10-12-properties-window-design.md`). Every
     // read keeps the wall: inside a root, or a member main extracted itself.
-    const readable = (p: unknown): p is string => typeof p === 'string' && (insideDesktop(p) || extracted(p))
+    // The guard is the wall's `readable` (pathWall.ts).
     const mediaTools = (): { ffmpeg: string; ffprobe: string } | null => {
       const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
       return tools?.ffprobe ? { ffmpeg: tools.ffmpeg, ffprobe: tools.ffprobe } : null
@@ -3281,7 +3259,7 @@ if (!app.requestSingleInstanceLock()) {
      * - took 7.4GB on a 2GB film and threw at the end of it.
      */
     ipcMain.handle('media:peaks', async (_e, p: string): Promise<number[] | null> => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
+      if (!readable(p)) return null
       // Known already: no ffprobe, no ffmpeg, no wait.
       const known = await cachedPeaks(p)
       if (known) return known
@@ -3294,7 +3272,7 @@ if (!app.requestSingleInstanceLock()) {
     })
     ipcMain.handle('media:probe', async (_e, p: string): Promise<MediaProbe> => {
       const none: MediaProbe = { ffmpeg: false, needed: false }
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return none
+      if (!readable(p)) return none
       // A MIDI file is a score, not a recording: it has to be synthesised
       // before there is anything to play. The answer comes back at once so the
       // player can say so, and the rendering is asked for separately - loading
@@ -3347,13 +3325,13 @@ if (!app.requestSingleInstanceLock()) {
     // Render a score. Separate from the probe because it can take seconds:
     // the player shows that it is working rather than an error.
     ipcMain.handle('audio:synth', async (_e, p: string): Promise<string | null> => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
+      if (!readable(p)) return null
       const fluid = await findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!fluid || !isMidi(p)) return null
       try {
         const wav = await renderMidi(fluid, p, userPaths.converted())
-        extractedPaths.add(wav)
-        servable.add(wav)
+        wall.grantExtracted(wav)
+        wall.grantServable(wav)
         return `${MEDIA_SCHEME}://local/${encodeURIComponent(wav)}`
       } catch {
         return null
@@ -3364,7 +3342,7 @@ if (!app.requestSingleInstanceLock()) {
     // and knows the duration the element reported, so it can ask for the first
     // audio track without anything having probed the file.
     ipcMain.handle('audio:blind', (_e, p: string, duration: number): string | null => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
+      if (!readable(p)) return null
       if (!Number.isFinite(duration) || duration <= 0) return null
       if (!findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())) return null
       return sidecarUrl(p, FIRST_AUDIO, duration)
@@ -3382,7 +3360,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'video:convert',
       async (e, p: string): Promise<{ url?: string; error?: string }> => {
-        if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p)))
+        if (!readable(p))
           return { error: 'outside the folder' }
         const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
         if (!tools?.ffprobe) return { error: 'no decoder available' }
@@ -3404,8 +3382,8 @@ if (!app.requestSingleInstanceLock()) {
           converting.set(p, { out: handle.out, viewers: (seen?.viewers ?? 0) + 1 })
           const out = await handle.done
           converting.delete(p)
-          extractedPaths.add(out) // the copy is ours to serve, wherever it sits
-          servable.add(out)
+          wall.grantExtracted(out) // the copy is ours to serve, wherever it sits
+          wall.grantServable(out)
           return { url: `${MEDIA_SCHEME}://local/${encodeURIComponent(out)}` }
         } catch (err) {
           return { error: err instanceof Error ? err.message : 'conversion failed' }
@@ -3427,7 +3405,7 @@ if (!app.requestSingleInstanceLock()) {
     // Office and ebook documents: converted to HTML in main, sanitised there
     // too, so nobody else's markup reaches a renderer that can see window.prism.
     ipcMain.handle('doc:html', async (_e, p: string): Promise<string | null> => {
-      if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
+      if (!readable(p)) return null
       return docHtmlOf(p)
     })
 
@@ -3508,7 +3486,7 @@ if (!app.requestSingleInstanceLock()) {
       const list = Array.isArray(p) ? p : [p]
       if (
         !list.length ||
-        list.some((x) => typeof x !== 'string' || (!insideDesktop(x) && !extracted(x)))
+        list.some((x) => !readable(x))
       )
         return Promise.resolve(false)
       return copyWindowsFiles(list, cut === true)
@@ -3729,8 +3707,7 @@ if (!app.requestSingleInstanceLock()) {
     // A folder that is ITSELF a tab's root cannot be moved or zipped away:
     // the wall would be left pointing at nothing and that tab dies. Renaming
     // and binning a root are already refused; this is the same rule.
-    const movable = (p: unknown): p is string =>
-      typeof p === 'string' && !isAnyRoot(p) && (insideDesktop(p) || extracted(p))
+    // The guard is the wall's `movable` (pathWall.ts).
     ipcMain.handle(
       'file:move',
       async (_e, paths: string[], destDir: string, onClash: 'ask' | 'keep-both' | 'replace') => {
@@ -3982,42 +3959,13 @@ if (!app.requestSingleInstanceLock()) {
     // Every verb names the zip, which must sit inside a root and actually be
     // an archive; the members have no independent existence on disk. Renames
     // and deletes rewrite the container, so an oversized archive is refused
-    // rather than frozen over.
-    const archiveOk = (p: unknown): p is string =>
-      typeof p === 'string' && insideDesktop(p) && fileKind(extname(p)) === 'archive'
-    /**
-     * READING an archive, which a WRITE guard cannot answer (2026-09-01).
-     *
-     * A zip inside a zip is an ordinary thing - a game rip, a backup of a
-     * backup - and opening the inner one dead-ended: `archiveOk` demands
-     * `insideAnyRoot`, and a member Prism has just extracted for viewing lives
-     * in temp under `extractedPaths` instead. So the listing was refused and
-     * the member preview had nothing to show.
-     *
-     * This is the same softening the media wall already makes and for the same
-     * reason: the path is one MAIN ITSELF created and granted a moment ago, so
-     * it is not user input at all. Deliberately NOT a widening of `archiveOk`,
-     * which also gates add, move and member delete - the rule that writes stay
-     * inside a root is worth keeping, and a nested archive is read-only by
-     * construction anyway.
-     */
-    const archiveReadOk = (p: unknown): p is string =>
-      typeof p === 'string' &&
-      (insideDesktop(p) || extracted(p)) &&
-      fileKind(extname(p)) === 'archive'
-    /**
-     * A comic book has its OWN guard, not `archiveOk` widened (2026-08-31).
-     *
-     * Widening that one would put Extract all, Add files and member Delete -
-     * the one permanent delete in Prism - onto a comic. The whole reason
-     * `.cbz` is not the archive kind is that its verbs are the wrong menu.
-     */
-    const comicOk = (p: unknown): p is string =>
-      typeof p === 'string' && insideDesktop(p) && fileKind(extname(p)) === 'comic'
+    // rather than frozen over. The guards are the wall's `archiveOk` (writes),
+    // `archiveReadOk` (reads, also a nested archive main extracted) and
+    // `comicOk` (pathWall.ts).
 
     /**
      * `comic:open`'s body, factored (#106) so the phone's `/api/comic` opens
-     * a book the same way: unpacked once under `comicsDir`, the password
+     * a book the same way: unpacked once under the comics folder, the password
      * remembered when it worked. No wall in here; the IPC handler checks
      * `comicOk` and the phone route checks its own root and kind. The answer
      * keeps the DIRECTORY, which the phone server grants to the phone that
@@ -4028,11 +3976,11 @@ if (!app.requestSingleInstanceLock()) {
       p: string,
       password: string
     ): Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }> => {
-      comicsDir = userPaths.comics()
+      wall.setComicsDir(userPaths.comics())
       const pw = password || (archivePasswords.get(p) ?? '')
       const exe = bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!exe) return { error: 'failed' as const }
-      const got = await openComic(exe, p, comicsDir, pw)
+      const got = await openComic(exe, p, wall.comicsDir(), pw)
       if ('error' in got) return got
       if (pw) archivePasswords.set(p, pw)
       return got
@@ -4252,12 +4200,12 @@ if (!app.requestSingleInstanceLock()) {
           const s7 = await extractSeven(exe, p, entry, pw)
           if (!s7.ok) return s7
           if (pw) archivePasswords.set(p, pw)
-          extractedPaths.add(s7.path)
+          wall.grantExtracted(s7.path)
           return { ok: true, path: s7.path, kind: fileKind(extname(s7.path), basename(s7.path)) }
         }
         const r = await extractMember(p, entry, password)
         if (!r.ok) return r
-        extractedPaths.add(r.path)
+        wall.grantExtracted(r.path)
         return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
       } catch {
         return { ok: false, reason: 'failed' }
@@ -4476,7 +4424,7 @@ if (!app.requestSingleInstanceLock()) {
             return fail('failed')
           }
           if (!here) {
-            extractedPaths.add(out1)
+            wall.grantExtracted(out1)
             return { ok: true, path: out1 }
           }
           // `here` lands it beside the archive, which is inside a root, so it

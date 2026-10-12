@@ -253,6 +253,9 @@ Filesmith's conventions.
     modules there: `FileMenuIcon`, `BrowseIcon`, `PlaceIcon`, `TabKindIcon`, `propertyGlyphs`,
     `settingsIcons`, `transport`, `menuGlyphs` (`menuIcon`, `tickIf`), and `FileIcons`
     (`KindIcon`, `FolderIcon`, `iconColour`). The generated file-kind art stays `lib/iconPaths.ts`.
+  - the root wall: `src/main/pathWall.ts` (`createPathWall`; `readable`, `editable`, `movable`,
+    `archiveOk`, `archiveReadOk`, `comicOk`, `insideWall`, `mediaAllowed`, and the grants main
+    makes itself). Every handler asks it; `pathWall.test.ts` pins each guard. Never loosen one.
 
 ## Reuse from Filesmith (becomes `prism-core`)
 
