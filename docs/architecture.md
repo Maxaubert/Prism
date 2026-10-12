@@ -272,6 +272,12 @@ Filesmith's conventions.
     fullscreen, DWM border, `raise`, the window:* messages), `tabsSession.ts` (restore, save,
     flush the strip), `updateFlow.ts` (the offer and update:*), `dialogs.ts` (parented native
     dialogs, `pickFolder`, `pickFiles`), `phone/index.ts` (`startPhoneService`, pos:*).
+  - the IPC handlers, by area: `src/main/ipc/` (`window`, `open`, `files`, `terminal`, `browse`,
+    `props`, `media`, `archive`). Each is a `registerXIpc(ctx)` that index.ts's whenReady calls
+    in the order the handlers were always registered; `ctx` (`MainCtx`) is index.ts's shared
+    state and helpers, `ready` (`ReadyCtx`) what whenReady makes. A new handler goes in its
+    area's file, never back into index.ts. Push to the page with `sendToPage`, check a sender
+    with `isMainSender` (`appState.ts`).
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

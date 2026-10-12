@@ -1,4 +1,4 @@
-import type { BrowserWindow } from 'electron'
+import type { BrowserWindow, WebContents } from 'electron'
 
 /**
  * What more than one part of main needs to know about the app right now
@@ -35,3 +35,13 @@ export const appState = {
  * the window is created unfocusable and shown inactive.
  */
 export const E2E = process.argv.includes('--e2e')
+
+/** Tell the page something, when there is a page (the IPC's push side). */
+export function sendToPage(channel: string, ...args: unknown[]): void {
+  appState.mainWindow?.webContents.send(channel, ...args)
+}
+
+/** Did this message come from THE window's page (not a preview's frame, not a
+ *  window that has since been replaced). */
+export const isMainSender = (sender: WebContents): boolean =>
+  sender === appState.mainWindow?.webContents
