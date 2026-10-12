@@ -14,7 +14,7 @@ import { forget as forgetPhone } from './pairing'
 import { writeAtomic } from '../latestWrite'
 import { userPaths } from '../paths'
 import type { PhoneState, FileMemoryPatch } from '@shared/types'
-import { E2E, appState } from '../appState'
+import { E2E, sendToPage } from '../appState'
 
 /**
  * Prism on your phone, main's side (stage 9c of the structure cleanup,
@@ -62,7 +62,7 @@ export function startPhoneService(opts: {
   }
   let phone: PhoneServer | null = null
   let phoneError = ''
-  const phoneChanged = (): void => appState.mainWindow?.webContents.send('phone:changed')
+  const phoneChanged = (): void => sendToPage('phone:changed')
   const rootIsOpen = (root: string): boolean => openRoots().some((r) => isRoot(r, root))
   const startPhone = async (): Promise<void> => {
     if (phone) return

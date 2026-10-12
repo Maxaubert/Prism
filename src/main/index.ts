@@ -1,6 +1,5 @@
 import { startLagProfiler } from './lagProfiler'
 import {
-  clipboard,
   app,
   protocol,
   shell,
@@ -15,27 +14,17 @@ import {
   powerSaveBlocker,
   session
 } from 'electron'
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { existsSync } from 'fs'
 import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  open as openFile,
-  readdir,
   rm,
-  stat,
-  statfs,
-  writeFile
+  stat
 } from 'fs/promises'
-import { homedir, tmpdir } from 'os'
-import { execFile, spawn } from 'child_process'
-import { copyWindowsFiles, readWindowsFiles } from './fileClipboard'
+import { tmpdir } from 'os'
 import {
   initDwmHelper
 } from './dwmHelper'
 import { pathsFromArgv, pathsFromArgvAsync } from './argv'
-import { createWinEShortcut } from './winEShortcut'
 import { createWinERequests, winERequest } from './winERequests'
 import {
   cleanExplorerWindows,
@@ -45,106 +34,55 @@ import {
 } from './explorerWindow'
 import { createWindowPreferences } from './windowPreferences'
 import { isRoot, isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
-import { addRoot, dropRoot, isAnyRoot, onRootsChanged, openRoots, validRoot } from './roots'
+import { addRoot, isAnyRoot, onRootsChanged, openRoots, validRoot } from './roots'
 import {
-  extendDesktopDirectories,
   grantDesktopDirectory,
-  insideDesktop,
-  insideDesktopAll,
-  releaseDesktop,
-  validDesktopRoot
+  insideDesktop
 } from './desktopAccess'
-import { browseDirectory, browseLocations, browseWatch, type BrowseRead } from './browse'
-import { driveUsage, withUsedShare } from './driveUsage'
+import { browseDirectory, type BrowseRead } from './browse'
 import { MemberTemp, cleanDeadRuns, pidAlive } from './memberTemp'
-import { container, createArchiveBrowse } from './archiveBrowse'
-import { containerCandidates, placeOf } from '@shared/archivePlace'
-import { weekStart } from './weekStart'
+import { createArchiveBrowse } from './archiveBrowse'
+import { placeOf } from '@shared/archivePlace'
 import { createListingCache } from './listingCache'
 import { createExplorerListings } from './explorerListing'
 import { isLocalFixed, learnDriveKinds } from './driveKinds'
 import { REMEMBER_FOLDERS_KEY } from '@shared/listingPrefs'
-import {
-  browseSearch,
-  browseSuggest,
-  cancelBrowseSearch,
-  normalizeSearchWindow,
-  suggestSlot
-} from './browseSearch'
 import { FolderSizeCache } from './folderSizeCache'
 import { getIndexedFolderSizes } from './everythingBrowse'
 import { initializeIndexerRuntime, indexerInstance } from './indexerRuntime'
 import { findRunningEverything } from './existingEverything'
-import { type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
 import { Positions } from './positions'
 import { holders } from './holders'
 import { Thumbs } from './thumbs'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
-import { readTabs, type SavedTabs } from './tabs'
+import { readTabs } from './tabs'
 import { userPaths } from './paths'
-import { registerTermIpc } from 'prism-term-core/main/ipc'
-import { registerDictationIpc } from 'prism-term-core/main/dictationIpc'
 import { detectShells } from 'prism-term-core/main/shells'
-import { killAll, killWarm } from 'prism-term-core/main/terminal'
+import { killAll } from 'prism-term-core/main/terminal'
 import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnostics'
 import { withStackPolicy } from 'prism-term-core/main/diagIpc'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
-import { browseWatcherOf } from './browseWatch'
 import { diagWindowEvent } from './diagWindow'
 import { mainCrumb } from './diagCrumb'
 import { initSweepOverlay, loadSweepAddon, sweepDirs, type SweepOverlay } from './sweepOverlay'
 import { documentImages } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
-import { FIRST_AUDIO, ffmpegDirs, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
+import { probeMedia, type MediaInfo } from './ffmpeg'
 import {
-  cancelAllConversions,
-  cancelConversion,
-  convertVideo,
-  planConversion
+  cancelAllConversions
 } from './videoConvert'
-import { cachedPeaks, loadPeaks } from './peaks'
-import {
-  extractAllSeven,
-  extractSeven,
-  extractSevenSubtree,
-  extractSevenTo,
-  isSevenArchive,
-  listSeven
-} from './sevenZip'
-import { ExtractJobs, Made, pruneEmpty, type ExtractJob } from './extractJob'
 import { docKind } from './docConvert'
 import { createDocClient } from './docClient'
-import { isMidi, renderMidi } from './midi'
 import { createShellVerbSetting } from './shellVerbSetting'
-import { photoInfo, type PhotoInfo } from './photoInfo'
-import { mediaPicture, mediaProps } from './propsMedia'
-import { detectText, TEXT_PROBE_BYTES } from './textProps'
-import { driveModel } from './driveModel'
-import { hashFile } from './fileHash'
-import type { DriveDetails, MediaProps, TextProps } from '@shared/props'
-import { encodeText, shapeOf, type TextShape } from './textFile'
-import { readTail, startTail, stopAllTails, stopTail } from './fileTail'
-import { openComic, type ComicOpen } from './comic'
-import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from './fileOps'
-import { appsForExt, argsFor, type AppCandidate } from './openWith'
-import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
+import { shapeOf, type TextShape } from './textFile'
+import { stopAllTails } from './fileTail'
+import { readAsVtt, sidecarsFor } from './subtitles'
 import {
-  addToArchive,
-  archiveStat,
-  archiveTooLarge,
-  deleteMember,
-  extractMember,
-  extractTo,
-  listArchive,
-  moveMembers,
-  renameMember,
   setSevenExe,
-  setZipFork,
-  type ArchiveStat
+  setZipFork
 } from './archive'
-import { insideSelf, moveEntries } from './moveOps'
 import {
   previewUpdate,
   wantsPreview
@@ -154,28 +92,26 @@ import { appendCrashLog, crashLine, crashLogSettled } from './crashLog'
 import { guardWindow, pageGone } from './windowGuard'
 import pkg from '../../package.json'
 import { fileKind, isMarkdown } from '@shared/fileKind'
-import { samePath } from '@shared/path'
-import type { BrowseSearchResult } from '@shared/browse'
 import type {
-  ArchiveListing,
-  DirListing,
-  OnClash,
   OpenPayload,
-  OpenWithApp,
-  MediaProbe,
-  RenameResult,
-  TextRead,
-  WriteResult
+  TextRead
 } from '@shared/types'
 import { exists } from './fsUtil'
-import { E2E, appState } from './appState'
+import { E2E, appState, sendToPage, isMainSender } from './appState'
 import { createPathWall } from './pathWall'
 import { MEDIA_SCHEME, createMediaServer } from './mediaProtocol'
 import { heicToJpeg } from './heicClient'
-import { ffmpegTools, fluidTools, sevenExe } from './bundledTools'
+import { ffmpegTools, sevenExe } from './bundledTools'
+import { registerArchiveIpc, type ArchiveBodies } from './ipc/archive'
+import { registerMediaIpc } from './ipc/media'
+import { registerPropsIpc } from './ipc/props'
+import { registerBrowseIpc, registerTreeIpc } from './ipc/browse'
+import { registerTerminalIpc } from './ipc/terminal'
+import { registerSaveCopyIpc, registerFilesIpc, registerShellIpc, registerMoveIpc, registerNewFilesIpc } from './ipc/files'
+import { registerOpenIpc } from './ipc/open'
+import { registerPreferencesIpc, registerWinEIpc, registerSessionIpc } from './ipc/window'
 import { createTabsSession } from './tabsSession'
 import { offerUpdate, startUpdates, updateOffered } from './updateFlow'
-import { openDialog, pickFiles, pickFolder, saveDialog } from './dialogs'
 import {
   registerPositionsIpc,
   startPhoneService,
@@ -478,7 +414,7 @@ let preferencesLoaded!: () => void
 const preferencesReady = new Promise<void>((resolve) => {
   preferencesLoaded = resolve
 })
-const winERequests = createWinERequests((id) => appState.mainWindow?.webContents.send('win-e:open', id))
+const winERequests = createWinERequests((id) => sendToPage('win-e:open', id))
 let pendingOpen: Array<{ path: string; dir: boolean }> = []
 /** Second-instance handoffs, read one after another so they keep arrival order. */
 let handoffs: Promise<void> = Promise.resolve()
@@ -500,7 +436,7 @@ async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
   // its place behind the restore.
   if (!target.dir) {
     const explorerFile: OpenPayload = { explorerFile: target.path, files: [], index: -1, root: dirname(target.path) }
-    appState.mainWindow?.webContents.send('open:file', explorerFile)
+    sendToPage('open:file', explorerFile)
     return
   }
   // A FOLDER roots there and tells the renderer so, which is what lets the
@@ -915,11 +851,11 @@ function createWindow(): void {
   appState.mainWindow.on('blur', sayState)
 
   appState.mainWindow.on('enter-full-screen', () => {
-    appState.mainWindow?.webContents.send('window:fullscreen', true)
+    sendToPage('window:fullscreen', true)
     applyMaterial(true)
   })
   appState.mainWindow.on('leave-full-screen', () => {
-    appState.mainWindow?.webContents.send('window:fullscreen', false)
+    sendToPage('window:fullscreen', false)
     applyMaterial(false)
   })
   /**
@@ -972,7 +908,7 @@ function createWindow(): void {
   // The lightweight loading shell can finish its document before App loads.
   // Start restore only once the renderer is actually listening for its files.
   const restoreWhenListening = (event: Electron.IpcMainEvent): void => {
-    if (event.sender !== appState.mainWindow?.webContents) return
+    if (!isMainSender(event.sender)) return
     if (restoreStarted) {
       if (startupRestored) event.sender.send('open:restored')
       return
@@ -1001,7 +937,7 @@ function createWindow(): void {
       const strained = windowBudget.strained(Date.now())
       if (strained && !skip && !extraWindowOwner) logWindow('restore', { tabs: 'skipped', reason: 'repeated-deaths' })
       const send = (payload: OpenPayload): void => {
-        if (!stale()) appState.mainWindow?.webContents.send('open:file', payload)
+        if (!stale()) sendToPage('open:file', payload)
       }
       // The home Explorer first when no pinned one was saved (#271): it is
       // the tab the window opens on, and a names-only read is 1 to 3 ms.
@@ -1060,6 +996,70 @@ function createWindow(): void {
   }
   ipcMain.on('open:listen', restoreWhenListening)
   appState.mainWindow.once('closed', () => ipcMain.removeListener('open:listen', restoreWhenListening))
+}
+
+/**
+ * What the IPC handlers in ipc/ reach that main holds (stage 9d of the
+ * structure cleanup, 2026-10-12): index.ts's own state and helpers, handed to
+ * every register function. A `let` that changes is never copied in here (the
+ * handler would hold a stale value); it is read through a function instead.
+ */
+const ctx = {
+  // The root wall (pathWall.ts) and its guards.
+  wall,
+  readable,
+  editable,
+  movable,
+  archiveOk,
+  archiveReadOk,
+  comicOk,
+  insideWall,
+  // Places inside archives, their passwords, and where members are unpacked.
+  archives,
+  archivePasswords,
+  memberTemp,
+  // The Explorer's listings and folder sizes, and the folder watch.
+  explorerListings,
+  listingCache,
+  folderSizes,
+  warmIndexer,
+  folderChanged,
+  SLOW_SETUP_MS,
+  SLOW_SCAN_MS,
+  // Prism's own writes: muted for the watcher, then sizes refreshed.
+  ownWrite,
+  written,
+  // Opening: the payload builders, a web link, picked subtitles.
+  buildPayload,
+  folderPayload,
+  openLink,
+  pickedSubs,
+  // Text files: the size cap and the shape each arrived with.
+  TEXT_MAX_BYTES,
+  textShape,
+  // The window, its preferences and the session.
+  windowPreferences,
+  extraWindowOwner,
+  preferencesLoaded,
+  preferencesOwner,
+  winERequests,
+  shellVerbSetting,
+  saveTabs,
+  keepAwake
+}
+export type MainCtx = typeof ctx
+
+/** What only exists once the app is ready: made in whenReady and handed to
+ *  the register functions that need it, beside `ctx`. */
+export interface ReadyCtx {
+  /** Where you had got to in each film (#118). */
+  positions: Positions
+  /** `file:text`'s body, shared with the phone's `/api/text`. */
+  readTextWalled: (p: string) => Promise<TextRead>
+  /** One ffprobe per file while it is unchanged, shared with the phone. */
+  probeCached: (p: string) => Promise<MediaInfo | null>
+  /** `doc:html`'s body, shared with the phone. */
+  docHtmlOf: (p: string) => Promise<string | null>
 }
 
 // Single instance: a second launch (opening another file) forwards its path to
@@ -1288,50 +1288,8 @@ if (!app.requestSingleInstanceLock()) {
     void explorerListings.settled.then(() =>
       setTimeout(() => void cleanDeadRuns(memberTemp.root, pidAlive, memberTemp.dir), 5000)
     )
-    ipcMain.on('window-preferences:load', (event) => {
-      event.returnValue = event.sender === appState.mainWindow?.webContents ? windowPreferences.load() : null
-      if (event.sender === appState.mainWindow?.webContents && extraWindowOwner) preferencesLoaded()
-    })
-    ipcMain.on('window-preferences:seed', (event, values: unknown) => {
-      event.returnValue = null
-      if (event.sender !== appState.mainWindow?.webContents) return
-      try {
-        event.returnValue = windowPreferences.seed(values)
-      } catch {
-        /* Local preferences still work if the shared store is unavailable. */
-      } finally {
-        preferencesLoaded()
-      }
-    })
-    ipcMain.on('window-preferences:set', (event, change: unknown) => {
-      event.returnValue = event.sender === appState.mainWindow?.webContents && windowPreferences.set(change)
-      // The switch takes effect now, not when the folder watch gets round to it.
-      const c = change as { key?: unknown; value?: unknown } | null
-      if (event.returnValue && c?.key === REMEMBER_FOLDERS_KEY)
-        listingCache.setEnabled(c.value !== 'off')
-    })
-    const winE = createWinEShortcut({
-      helper: join(process.resourcesPath, 'win-e', 'PrismShortcut.exe'),
-      executable: process.execPath,
-      profile: preferencesOwner,
-      supported: process.platform === 'win32' && app.isPackaged && !E2E
-    })
-    ipcMain.handle('win-e:status', (event) => {
-      if (event.sender !== appState.mainWindow?.webContents) throw new Error('Unknown window')
-      return winE.status()
-    })
-    ipcMain.handle('win-e:set', (event, enabled: unknown) => {
-      if (event.sender !== appState.mainWindow?.webContents || typeof enabled !== 'boolean')
-        throw new Error('Invalid shortcut request')
-      return winE.set(enabled)
-    })
-    ipcMain.on('win-e:listen', (event) => {
-      if (event.sender === appState.mainWindow?.webContents) winERequests.listen()
-    })
-    ipcMain.on('win-e:ready', (event, id: unknown) => {
-      if (event.sender === appState.mainWindow?.webContents && typeof id === 'string') winERequests.ready(id)
-    })
-    if (!extraWindowOwner) void winE.resume()
+    registerPreferencesIpc(ctx)
+    registerWinEIpc(ctx)
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
     protocol.handle(AUDIO_SCHEME, (request) =>
       serveSidecarAudio(request, {
@@ -1436,6 +1394,8 @@ if (!app.requestSingleInstanceLock()) {
       }
     }
 
+    // The archive bodies the phone shares, from `registerArchiveIpc` below.
+    let archiveBodies: ArchiveBodies | null = null
     const phoneDeps = (hooks: PhoneHooks): PhoneServerDeps => ({
       rendererDir: RENDERER_DIR,
       devUrl: !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined,
@@ -1464,13 +1424,13 @@ if (!app.requestSingleInstanceLock()) {
       grantServable: (paths) => {
         for (const img of paths) wall.grantServable(img)
       },
-      // The comic and archive bodies are declared further down this block,
-      // beside their IPC handlers and the gates they share. That is fine:
+      // The comic and archive bodies are made further down this block, by
+      // `registerArchiveIpc` beside the gates they share. That is fine:
       // `phoneDeps()` is only ever called from `startPhone`, which runs after
       // the block has finished, so nothing here is read before it exists.
-      comicOpen: (p, password) => openComicWalled(p, password),
-      archiveList: (p, password) => listArchiveWalled(p, password),
-      archiveExtract: (p, entry, password) => extractMemberWalled(p, entry, password),
+      comicOpen: (p, password) => archiveBodies!.openComicWalled(p, password),
+      archiveList: (p, password) => archiveBodies!.listArchiveWalled(p, password),
+      archiveExtract: (p, entry, password) => archiveBodies!.extractMemberWalled(p, entry, password),
       // The IPC's own kind gates, minus their root half (the route walls
       // with the phone's root instead): a .txt is never handed to 7-Zip.
       isArchive: (p) => fileKind(extname(p)) === 'archive',
@@ -1491,2024 +1451,23 @@ if (!app.requestSingleInstanceLock()) {
     })
     startPhoneService({ deps: phoneDeps, hlsJobs })
 
+    /** What the IPC handlers in ipc/ need that only exists now (`ReadyCtx`). */
+    const ready: ReadyCtx = { positions, readTextWalled, probeCached, docHtmlOf }
+
     startUpdates(preferencesOwner)
-    // package.json's, not app.getVersion(): the e2e and dev launch electron at
-    // a script, and there that one answers with ELECTRON's own version (SEEN:
-    // the old mock chip read "Update 43.2.0" in the e2e's own screenshots), so
-    // the update window would say "You have 43.2.0".
-    ipcMain.handle('app:version', () => pkg.version)
-    // E2E only (#322): a call main answers after 600 ms, so the diagLog
-    // scenario can find the ipc-slow line a real slow channel would write.
-    if (E2E) ipcMain.handle('e2e:slow-ipc', () => new Promise((r) => setTimeout(() => r(true), 600)))
-
-    ipcMain.handle('open:dialog', async (): Promise<OpenPayload | null> => {
-      const r = await openDialog({ properties: ['openFile'] })
-      if (r.canceled || !r.filePaths.length) return null
-      return buildPayload(r.filePaths[0])
-    })
-    // Choosing a folder rather than a file: the other way in, and the only one
-    // that names the root deliberately instead of inferring it from a file.
-    ipcMain.handle('open:folder', async (_e, from?: string): Promise<OpenPayload | null> => {
-      // Open the browser where the tab already is: changing a tab's folder
-      // almost always means a sibling or a child of the one it is on, and
-      // starting at Documents made every one of those a walk.
-      const at = typeof from === 'string' && (await exists(from)) ? from : undefined
-      const r = await openDialog({
-        properties: ['openDirectory'],
-        ...(at ? { defaultPath: at } : {})
-      })
-      if (r.canceled || !r.filePaths.length) return null
-      return folderPayload(r.filePaths[0])
-    })
-    // A new tab, with nothing to answer first. The + is meant to be instant, so
-    // it lands somewhere sensible - the user's own folder - and the sidebar's
-    // folder button is where choosing happens.
-    ipcMain.handle('open:home', (): Promise<OpenPayload | null> =>
-      folderPayload(app.getPath('home'))
-    )
-    // The Settings "new tabs open in" folder: stored renderer-side, opened
-    // here. folderPayload refuses a path that no longer exists, and the
-    // renderer falls back to home when it does.
-    ipcMain.handle('open:root', (_e, dir: string): Promise<OpenPayload | null> =>
-      folderPayload(dir)
-    )
-    // Choose a folder WITHOUT opening it - the Settings picker.
-    ipcMain.handle('dialog:pick-folder', () => pickFolder())
-    ipcMain.handle('dialog:pick-files', () => pickFiles())
-    ipcMain.handle('open:path', (_e, p: string): Promise<OpenPayload | null> => buildPayload(p))
-
-    /**
-     * Save the picture as an ordinary PNG or JPEG, somewhere the user picks.
-     *
-     * The destination is OUTSIDE every root on purpose, and that is not a hole
-     * in the wall: main's own save dialog IS the consent, exactly as it is for
-     * "Extract all" and for picking a subtitle file. The renderer hands over
-     * bytes it encoded from the decoded picture; main never re-reads the
-     * source, so a HEIC or a camera RAW saves as easily as a PNG.
-     */
-    ipcMain.handle(
-      'image:save-copy',
-      async (
-        _e,
-        bytes: ArrayBuffer,
-        suggested: string,
-        format: 'png' | 'jpeg'
-      ): Promise<string | null> => {
-        if (!(bytes instanceof ArrayBuffer) || !bytes.byteLength) return null
-        const ext = format === 'png' ? 'png' : 'jpg'
-        const r = await saveDialog({
-          defaultPath: suggested.replace(/\.[^.]*$/, '') + '.' + ext,
-          filters: [{ name: format === 'png' ? 'PNG image' : 'JPEG image', extensions: [ext] }]
-        })
-        if (r.canceled || !r.filePath) return null
-        try {
-          // Muted so the folder watcher does not report Prism's own write.
-          ownWrite(r.filePath)
-          await writeFile(r.filePath, Buffer.from(bytes))
-          await written(r.filePath)
-          return r.filePath
-        } catch {
-          return null
-        }
-      }
-    )
-    /* ----- the terminal ----- */
-
-    // Sessions are keyed by renderer-assigned ids, like tabs. The one check on
-    // spawn: the shell STARTS in an open root (it may leave; that is a shell).
-    // THE TERMINAL'S BRIDGE IS THE CORE'S (prism-term-core/main/ipc, #154): the
-    // channels, the argument checks, the resume shape check, the clipboard
-    // read, the link opener (http(s) only, checked on both sides) and the
-    // agent poll are registered there, once, for Prism and for Prism Terminal.
-    // What is PRISM'S OWN is the wall: a shell STARTS in an open root or on
-    // the desktop (it may leave; that is a shell), and only such a folder is
-    // warmed ahead of the click or written into a used shell (#99).
-    // The guard is the wall's `insideWall` (pathWall.ts).
-    registerTermIpc({
-      ipcMain,
-      send: (ch, ...a) => appState.mainWindow?.webContents.send(ch, ...a),
-      clipboard,
-      openExternal: openLink,
-      spawnDir: async (dir) => (insideWall(dir) ? dir : null),
-      mayPrewarm: async (dir) => insideWall(dir),
-      mayCd: insideWall
-    })
-
-    // DICTATION (#162) is prism-term-core's, the same feature Prism Terminal
-    // has. What is Prism's own: where ITS installer put the speech engine, the
-    // folder the two apps share for models, and the GPU question, answered by
-    // Electron's own adapter list. Nothing starts until the user switches
-    // dictation on and presses the key.
-    const whisperDirs = process.env.PRISM_WHISPER_DIR
-      ? [process.env.PRISM_WHISPER_DIR]
-      : ffmpegDirs(app.isPackaged, process.resourcesPath, app.getAppPath()).map((d) =>
-          // ffmpeg's own lookup, one folder over: resources/bin -> bin/whisper,
-          // vendor/ffmpeg -> vendor/whisper.
-          app.isPackaged ? join(d, 'whisper') : join(dirname(d), 'whisper')
-        )
-    // The core asks synchronously (`cpuEngineDir(): string | null`), so the
-    // engine is found once, here, off main, and the answer kept (2026-10-12):
-    // the installer puts it there and nothing moves it while Prism runs.
-    let whisperDir: string | null | undefined
-    void (async () => {
-      for (const d of whisperDirs) if (await exists(join(d, 'whisper-server.exe'))) return d
-      return null
-    })().then((d) => (whisperDir = d))
-    stopDictation = registerDictationIpc({
-      ipcMain,
-      send: (ch, ...a) => appState.mainWindow?.webContents.send(ch, ...a),
-      cpuEngineDir: () =>
-        whisperDir !== undefined
-          ? whisperDir
-          : // sync-ok: only if dictation starts before the probe above has answered; the core's interface is synchronous
-            (whisperDirs.find((d) => existsSync(join(d, 'whisper-server.exe'))) ?? null),
-      sharedRoot:
-        process.env.PRISM_DICTATION_ROOT ??
-        join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'PrismDictation'),
-      hasNvidia: async () => {
-        if (process.env.PRISM_E2E_NVIDIA) return process.env.PRISM_E2E_NVIDIA === '1'
-        const info = (await app.getGPUInfo('basic')) as { gpuDevice?: Array<{ vendorId?: number }> }
-        return (info.gpuDevice ?? []).some((d) => d.vendorId === 0x10de)
-      }
-    })
-    // The page may now ask for the MICROPHONE, so the answer is written down:
-    // audio capture, for Prism's own windows. Everything else keeps Electron's
-    // default (granted), because this app leans on several of them and a
-    // closed list here would be a guess; the CAMERA is the one thing refused.
-    session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
-      if (permission !== 'media') return callback(true)
-      const types = (details as { mediaTypes?: string[] }).mediaTypes ?? []
-      const ours = BrowserWindow.getAllWindows().some((w) => w.webContents === wc)
-      callback(ours && types.length > 0 && types.every((t) => t === 'audio'))
-    })
-
-    // The renderer owns the tab list; main persists it. The root wall is NOT
-    // rebuilt from this snapshot: a report races payloads still in flight, and
-    // replacing the set once tore out a root main had just registered for a
-    // file the renderer had not seen yet - whose listDir was then refused and
-    // cached as unreadable. Additions stay main's (the payload builders);
-    // removals arrive explicitly below, and a snapshot cannot remove what it
-    // never knew about.
-    const warmFolderSizes = (paths: string[]): void => {
-      void folderSizes.prefetchIndexed(insideDesktopAll(paths)).catch(() => {})
-    }
-    // NAMES FIRST (#271): the reply is the folder's names, and the sizes and
-    // dates follow as `browse:details`. The indexer warm-up and the folder
-    // sizes go AFTER the reply leaves (setImmediate): the size warm-up's
-    // realpath checks, two per subfolder, used to run before it.
-    ipcMain.handle(
-      'browse:directory',
-      async (_e, tabId: string, path: string, options?: { details?: boolean }) => {
-        const directory = await explorerListings.browse(tabId, path, options?.details !== false)
-        if (directory && !directory.listing.unreadable) {
-          const folders = directory.listing.folders.map((folder) => folder.path)
-          setImmediate(() => {
-            void warmIndexer(directory.path)
-            warmFolderSizes(folders)
-          })
-        }
-        return directory
-      }
-    )
-    // The page's synchronous look at the cache (#271): a folder it has never
-    // seen this session paints from disk in the same frame as the click.
-    ipcMain.on('browse:cached', (event, path: unknown) => {
-      event.returnValue =
-        event.sender === appState.mainWindow?.webContents && typeof path === 'string'
-          ? explorerListings.cached(path)
-          : null
-    })
-    ipcMain.handle('browse:prefetch', (_e, path: unknown, pin?: unknown) => {
-      if (typeof path !== 'string') return null
-      if (pin === true) listingCache.pin([path])
-      return explorerListings.prefetch(path)
-    })
-    ipcMain.handle('listing-cache:clear', () => listingCache.clear())
-    /**
-     * The archive check before a search is an awaited stat now (2026-10-12),
-     * and two of them can finish out of order: the older search would then
-     * start last and cancel the newer one, and a cancel that came during the
-     * wait would find nothing to cancel. So the newest per slot is the only
-     * one that goes on, a cancel still reaches one that is waiting, and a path
-     * with no archive in it (nearly all) is not awaited at all.
-     */
-    const searchWaiting = new Map<string, string>()
-    const searchContainer = async (
-      slot: string,
-      requestId: string,
-      path: string,
-      query: string
-    ): Promise<string | null | 'gone'> => {
-      if (typeof path !== 'string' || typeof query !== 'string' || !containerCandidates(path).length) {
-        searchWaiting.delete(slot)
-        return null
-      }
-      searchWaiting.set(slot, requestId)
-      const found = await container(path)
-      if (searchWaiting.get(slot) !== requestId) return 'gone'
-      searchWaiting.delete(slot)
-      return found
-    }
-    const searchGone = (path: string): BrowseSearchResult => ({
-      path,
-      listing: { folders: [], files: [] },
-      scanned: 0,
-      unreadable: 0,
-      skippedLinks: 0,
-      truncated: false,
-      cancelled: true
-    })
-    ipcMain.handle(
-      'browse:search',
-      async (event, tabId: string, path: string, query: string, requestId: string, window?: unknown) => {
-        // Inside an archive (#300): the whole archive below the folder, from
-        // memory, one answer.
-        const outer = await searchContainer(tabId, requestId, path, query)
-        if (outer === 'gone') return searchGone(path)
-        if (outer) {
-          const inside = await archives.search(path, query)
-          if (inside) return inside
-        }
-        const result = await browseSearch(tabId, path, query, requestId, (progress) => {
-          if (!event.sender.isDestroyed()) event.sender.send('browse:search-progress', progress)
-        }, {}, normalizeSearchWindow(window))
-        return result
-      }
-    )
-    ipcMain.on('browse:search-cancel', (_e, tabId: string, requestId: string) => {
-      if (searchWaiting.get(tabId) === requestId) searchWaiting.delete(tabId)
-      cancelBrowseSearch(tabId, requestId)
-    })
-    // The search popup's suggestions (#267): the same search and index as the
-    // list's, in a slot of their own, with no progress (one answer each).
-    ipcMain.handle(
-      'browse:suggest',
-      async (_e, tabId: string, path: string, query: string, requestId: string) => {
-        const outer = await searchContainer(suggestSlot(tabId), requestId, path, query)
-        if (outer === 'gone') return searchGone(path)
-        if (outer) {
-          const inside = await archives.search(path, query, 200)
-          if (inside) return inside
-        }
-        return browseSuggest(tabId, path, query, requestId)
-      }
-    )
-    ipcMain.on('browse:suggest-cancel', (_e, tabId: string, requestId: string) => {
-      if (typeof tabId === 'string' && searchWaiting.get(suggestSlot(tabId)) === requestId)
-        searchWaiting.delete(suggestSlot(tabId))
-      if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId), requestId)
-    })
-    ipcMain.handle('browse:watch', async (_e, tabId: string, path: string | null) => {
-      // The watcher's set-up is timed (#322): it runs in main's thread, and a
-      // network folder can make it slow. One per folder shown, so a quick one
-      // is Detailed logging's only. The time includes the ownership guard,
-      // which times itself (`guard-slow`); a call that found the watch
-      // already on that folder set nothing up and writes nothing.
-      const before = typeof tabId === 'string' ? browseWatcherOf(tabId) : undefined
-      const t0 = performance.now()
-      const ok = await browseWatch(tabId, path, folderChanged)
-      const setUp = typeof tabId === 'string' && browseWatcherOf(tabId) !== before
-      if (path !== null && (setUp || !ok)) {
-        const ms = Math.round(performance.now() - t0)
-        mainCrumb('watch', { path, ms, ok }, { often: ms < SLOW_SETUP_MS })
-      }
-      return ok
-    })
-    ipcMain.handle('browse:locations', () => browseLocations((key) => app.getPath(key)))
-    ipcMain.handle('browse:drives', async (_e, paths: unknown) =>
-      E2E ? withUsedShare(await driveUsage(paths), process.env.PRISM_E2E_DRIVE_USED) : driveUsage(paths)
-    )
-    // Downloads' date groups count weeks from the user's first day (#285).
-    ipcMain.handle('system:week-start', () => weekStart())
-    ipcMain.handle('folder:sizes-cached', async (_event, paths: unknown) => {
-      if (!Array.isArray(paths) || paths.length > 10000) return {}
-      // One timed guard call per list (#322): this is where suspect 1 runs.
-      const authorized = insideDesktopAll(paths)
-      const cached = await folderSizes.readCached(authorized)
-      const still = new Set(insideDesktopAll(Object.keys(cached)))
-      return Object.fromEntries(Object.entries(cached).filter(([path]) => still.has(path)))
-    })
-    ipcMain.handle('folder:sizes-refresh', async (_event, path: unknown) => {
-      if (typeof path !== 'string' || !insideDesktop(path)) return
-      await folderSizes.invalidate([path])
-    })
-    const folderSizeRequests = new Map<number, Map<string, AbortController>>()
-    ipcMain.handle('folder:size', async (event, path: string, requestId: string) => {
-      if (
-        typeof path !== 'string' ||
-        !insideDesktop(path) ||
-        typeof requestId !== 'string' ||
-        !requestId ||
-        requestId.length > 200 ||
-        event.sender.isDestroyed()
-      )
-        return null
-      const senderId = event.sender.id
-      let requests = folderSizeRequests.get(senderId)
-      if (!requests) {
-        requests = new Map()
-        folderSizeRequests.set(senderId, requests)
-        event.sender.once('destroyed', () => {
-          for (const controller of folderSizeRequests.get(senderId)?.values() ?? [])
-            controller.abort()
-          folderSizeRequests.delete(senderId)
-        })
-      }
-      requests.get(requestId)?.abort()
-      if (!requests.has(requestId) && requests.size >= 64) return null
-      const controller = new AbortController()
-      requests.set(requestId, controller)
-      const t0 = performance.now()
-      try {
-        const result = await folderSizes.get(path, controller.signal, (result) => {
-          if (!controller.signal.aborted && !event.sender.isDestroyed() && insideDesktop(path))
-            event.sender.send('folder:size-progress', { requestId, result })
-        })
-        return insideDesktop(path) && !controller.signal.aborted ? result : null
-      } finally {
-        if (requests.get(requestId) === controller) requests.delete(requestId)
-        // A size scan finished (#322). Every visible folder row asks, two at a
-        // time, and most answer from the cache at once, so only a real scan
-        // (half a second or more) is said at the quiet level.
-        const ms = Math.round(performance.now() - t0)
-        mainCrumb(
-          'folder-size',
-          { path, ms, ...(controller.signal.aborted ? { cancelled: true } : {}) },
-          { often: ms < SLOW_SCAN_MS }
-        )
-      }
-    })
-    ipcMain.on('folder:size-cancel', (event, requestId: string) => {
-      if (typeof requestId === 'string')
-        folderSizeRequests.get(event.sender.id)?.get(requestId)?.abort()
-    })
-    ipcMain.on('browse:release', (_e, tabId: string) => {
-      cancelBrowseSearch(tabId)
-      if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId))
-      releaseDesktop(tabId)
-    })
-    ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
-    // The renderer is the only thing that knows whether a media element is
-    // actually playing, so it owns the answer and main just holds the block.
-    ipcMain.on('power:awake', (_e, on: boolean) => keepAwake(on))
-    // A root no longer held by ANY tab (closed, or rerooted away). Explicit,
-    // one at a time, from the owner of the tab list.
-    ipcMain.on('roots:drop', (_e, root: string) => {
-      dropRoot(root)
-      killWarm(root) // a warm spare for a closed tab is an orphan
-    })
-    // The three navigation handlers take the root they act in, because they are
-    // per-tab operations and the renderer always knows which tab asked. Both the
-    // root and the path have to hold up: naming a root you never opened gets you
-    // nothing, and neither does a path from a DIFFERENT open root.
-    //
-    // A click in the sidebar tree. It leaves the root alone: the tree you
-    // clicked from stays the tree you're in.
-    ipcMain.handle(
-      'open:within',
-      async (_e, root: string, p: string): Promise<OpenPayload | null> => {
-        // A MEMBER of an archive (#300): the members beside it are the arrows'
-        // list, read from the container's listing. The container must be one
-        // this tab may read, as a file there would be.
-        const outer = typeof p === 'string' ? await container(p) : null
-        if (outer && outer !== resolve(p)) {
-          if (!validDesktopRoot(root, outer) && !insideDesktop(outer)) return null
-          const near = await archives.siblings(p)
-          return near ? { files: near.files, index: near.index, root } : null
-        }
-        return validDesktopRoot(root, p) ? await buildPayload(p, root) : null
-      }
-    )
-    ipcMain.handle('dir:list', async (_e, root: string, p: string): Promise<DirListing | null> => {
-      // The project tree inside an archive (#300): a zip node expands like a
-      // folder, and its folders do, from the container's own listing.
-      const outer = typeof p === 'string' ? await container(p) : null
-      if (outer) {
-        if (!validDesktopRoot(root, outer)) return null
-        const r = await archives.resolve(p)
-        if (!r) return null
-        if (!r.ok)
-          return {
-            folders: [],
-            files: [],
-            unreadable: true,
-            archiveError: { reason: r.reason, container: r.container, message: archives.failText(r.reason) }
-          }
-        if (r.place.entry && !r.place.entry.dir) return null
-        return archives.listing(r.place, 'tree')
-      }
-      if (!validDesktopRoot(root, p)) return null
-      const listing = await listDir(p)
-      if (!listing.unreadable) extendDesktopDirectories(root, [p])
-      return listing
-    })
-    // The sidebar's search: that tab's whole root, bounded, never outside it.
-    ipcMain.handle('search:files', async (_e, root: string, query: string) => {
-      if (!validDesktopRoot(root, root)) return { hits: [], truncated: false }
-      const result = await searchFiles(root, query)
-      extendDesktopDirectories(
-        root,
-        result.hits.map((hit) => dirname(hit.path))
-      )
-      return result
-    })
-    // File operations. Inside the root only, and nothing is ever destroyed: an
-    // overwritten or deleted file goes to the Recycle Bin.
-    // The root itself is off limits: renaming or binning the folder the tree is
-    // rooted in would pull the ground out from under the window.
-    // The guard is the wall's `editable` (pathWall.ts).
-    ipcMain.handle(
-      'file:rename',
-      async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> => {
-        ownWrite(p)
-        if (!editable(p))
-          return { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
-        await holders.release([p]) // a rename is refused for the same reason a move is (#127)
-        const r = await renameFile(p, name, onClash, (t) => shell.trashItem(t))
-        await written(p, r.ok ? r.path : dirname(p))
-        // The file's memory follows it (#124): its place and its choices.
-        if (r.ok) void positions.rename(p, r.path)
-        return r
-      }
-    )
-    ipcMain.handle('file:trash', async (_e, p: string): Promise<boolean> => {
-      ownWrite(p)
-      if (!editable(p)) return false
-      try {
-        await shell.trashItem(p)
-        return true
-      } catch {
-        return false
-      } finally {
-        await written(p)
-      }
-    })
-    // The same wall as every other handler. A text file only ever reaches the
-    // renderer from inside the session root, and opening one from outside
-    // re-roots first, so this refuses nothing the app legitimately asks for.
-    /**
-     * The LAST slice of a file, read-only (2026-08-31).
-     *
-     * For a file `file:text` refuses: over 64MB it cannot be handed over as
-     * one string, and the honest answer used to be an overlay saying so. The
-     * tail is the useful half of a 900MB log. Answers with the offset and
-     * the real size, so the editor can say what it is showing - and it never
-     * pretends to be the file, so nothing can save it back.
-     */
-    ipcMain.handle('file:tailBytes', async (_e, p: string, max: number) => {
-      if (!readable(p)) return null
-      const want = Math.min(Math.max(64 * 1024, Number(max) || 0), TEXT_MAX_BYTES)
-      return readTail(p, want)
-    })
-
-    /** Follow a file that is still being written: new bytes arrive on
-     *  `file:appended` until `tail:stop`. One watch per path. */
-    ipcMain.handle('tail:start', async (_e, p: string, from: number) => {
-      if (!readable(p)) return false
-      return startTail(p, Number(from) || 0, (e) =>
-        appState.mainWindow?.webContents.send('file:appended', e)
-      )
-    })
-    ipcMain.handle('tail:stop', (_e, p: string) => {
-      if (typeof p === 'string') stopTail(p)
-    })
-
-    ipcMain.handle('file:text', async (_e, p: string): Promise<TextRead> => {
-      // Extracted archive members live in temp, outside every root; each one
-      // was granted individually when archive:extract wrote it.
-      if (!readable(p)) return { error: 'unreadable' }
-      const r = await readTextWalled(p)
-      // A markdown document may point at pictures OUTSIDE the folder Prism
-      // opened in ("../assets/logo.png" from a doc in docs/), which the
-      // media wall would otherwise refuse. Main grants exactly the files
-      // this document names, having read it (see docImages.ts).
-      if ('text' in r && isMarkdown(p))
-        for (const img of await documentImages(p, r.text)) wall.grantServable(img)
-      return r
-    })
-    // The editor's save. Text files only, in place, inside the root: this is
-    // the third thing Prism writes (after rename and bin), and the narrowest.
-    /**
-     * Save the editor's text. Answers with a REASON (2026-08-30).
-     *
-     * It used to demand that the file already exist, and answer a bare
-     * boolean. Both hurt: a file renamed or moved out from under a dirty
-     * buffer could never be saved at all, and "Save all changes" at close
-     * time failed with nothing to show the user but a silence. The parent
-     * folder still has to exist, so a save cannot create a file somewhere
-     * nothing asked for, and the root wall and the text-kind check are
-     * unchanged. Extracted archive members stay unwritable: reads honour
-     * `extractedPaths`, writes never do.
-     */
-    ipcMain.handle('file:write', async (_e, p: string, text: string): Promise<WriteResult> => {
-      ownWrite(p)
-      if (!insideDesktop(p)) return { ok: false, reason: 'refused' }
-      if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text')
-        return { ok: false, reason: 'refused' }
-      if (!(await exists(dirname(p)))) return { ok: false, reason: 'gone' }
-      try {
-        // Back in the shape it came in. CodeMirror rejoins its document with
-        // a bare newline whatever it read, so without this one fixed typo in
-        // a .bat was 400 changed lines, and a UTF-16 file came back as UTF-8.
-        const shape = textShape.get(p.toLowerCase()) ?? {
-          encoding: 'utf8' as const,
-          eol: 'lf' as const
-        }
-        await writeFile(p, encodeText(text, shape))
-        return { ok: true }
-      } catch (e) {
-        // EACCES, EROFS, ENOSPC: the cases worth naming rather than leaving
-        // the user to guess why their work would not save.
-        return {
-          ok: false,
-          reason: 'failed',
-          message: String((e as NodeJS.ErrnoException)?.code ?? '')
-        }
-      } finally {
-        await written(p)
-      }
-    })
-
-    /**
-     * What the camera wrote into the photo, for the Properties rows.
-     *
-     * Read in MAIN from the path, because the renderer's copy of a HEIC, a
-     * camera RAW or an ffmpeg-decoded still is a re-encoded picture with the
-     * metadata stripped - exactly the photos worth asking about. Answers an
-     * empty object rather than throwing: a picture with no EXIF is not an
-     * error.
-     */
-    ipcMain.handle('image:photo-info', async (_e, p: string): Promise<PhotoInfo> => {
-      if (!readable(p)) return {}
-      return photoInfo(p)
-    })
-
-    // What the Properties popup can't compute in the renderer: dates and the
-    // authoritative size, straight from the file system. Root-guarded.
-    // Created and Opened are the Properties window's (owner, 2026-10-12).
-    ipcMain.handle(
-      'file:stat',
-      async (
-        _e,
-        p: string
-      ): Promise<{ size: number; mtimeMs: number; birthtimeMs: number; atimeMs: number; isFolder: boolean } | null> => {
-        if (!insideDesktop(p)) return null
-        try {
-          const st = await stat(p)
-          return {
-            size: st.size,
-            mtimeMs: st.mtimeMs,
-            birthtimeMs: st.birthtimeMs,
-            atimeMs: st.atimeMs,
-            isFolder: st.isDirectory()
-          }
-        } catch {
-          return null
-        }
-      }
-    )
-
-    /* ----- the Properties window (owner, 2026-10-12) ----- */
-
-    // What the window shows beyond `file:stat`, per kind (spec
-    // `docs/superpowers/specs/2026-10-12-properties-window-design.md`). Every
-    // read keeps the wall: inside a root, or a member main extracted itself.
-    // The guard is the wall's `readable` (pathWall.ts).
-    const mediaTools = (): { ffmpeg: string; ffprobe: string } | null => {
-      const tools = ffmpegTools()
-      return tools?.ffprobe ? { ffmpeg: tools.ffmpeg, ffprobe: tools.ffprobe } : null
-    }
-    ipcMain.handle('props:media', async (_e, p: unknown): Promise<MediaProps | null> => {
-      const tools = readable(p) ? mediaTools() : null
-      return tools ? mediaProps(tools.ffprobe, p as string) : null
-    })
-    // One JPEG as a data: URL, so the picture crosses no protocol wall.
-    ipcMain.handle('props:picture', async (_e, p: unknown): Promise<string | null> => {
-      const tools = readable(p) ? mediaTools() : null
-      return tools ? mediaPicture(tools.ffmpeg, tools.ffprobe, p as string) : null
-    })
-    ipcMain.handle('props:text', async (_e, p: unknown): Promise<TextProps | null> => {
-      if (!readable(p)) return null
-      let handle: Awaited<ReturnType<typeof openFile>> | undefined
-      try {
-        handle = await openFile(p, 'r')
-        const size = (await handle.stat()).size
-        const buffer = Buffer.alloc(Math.min(size, TEXT_PROBE_BYTES))
-        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
-        return detectText(buffer.subarray(0, bytesRead), size <= bytesRead)
-      } catch {
-        return null
-      } finally {
-        await handle?.close().catch(() => {})
-      }
-    })
-    // A drive root is the Explorer's to browse whatever the roots are (the
-    // places panel lists every drive, and `browse:drives` and
-    // `browse:directory` ask no grant), so only its shape is checked here.
-    const DRIVE_ROOT = /^[A-Z]:\\$/i
-    ipcMain.handle('drive:details', async (_e, root: unknown): Promise<DriveDetails | null> => {
-      if (typeof root !== 'string' || !DRIVE_ROOT.test(root)) return null
-      const drive = root.toUpperCase()
-      const space = statfs(drive).then(
-        (s) => ({ total: s.blocks * s.bsize, free: s.bavail * s.bsize }),
-        () => null
-      )
-      const folders = readdir(drive, { withFileTypes: true }).then(
-        async (entries) => {
-          // A junction ("Documents and Settings") is not a directory here, so
-          // nothing is counted twice; hidden and system folders are kept.
-          const paths = entries.filter((e) => e.isDirectory()).map((e) => join(drive, e.name))
-          const sizes = paths.length ? await getIndexedFolderSizes(paths).catch(() => null) : null
-          if (!sizes?.size) return null
-          return paths
-            .filter((path) => sizes.has(path))
-            .map((path) => ({ path, name: basename(path), bytes: sizes.get(path)!.bytes }))
-            .sort((a, b) => b.bytes - a.bytes)
-        },
-        () => null
-      )
-      const [model, usage, sized] = await Promise.all([driveModel(drive).catch(() => ({})), space, folders])
-      return {
-        ...model,
-        ...(usage && usage.total > 0
-          ? { total: usage.total, free: Math.min(Math.max(usage.free, 0), usage.total) }
-          : {}),
-        folders: sized
-      }
-    })
-    // Windows' own Disk Cleanup for that drive: Prism has no cleaner of its own.
-    ipcMain.handle('drive:cleanup', (_e, root: unknown): boolean => {
-      if (typeof root !== 'string' || !DRIVE_ROOT.test(root)) return false
-      try {
-        const exe = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cleanmgr.exe')
-        // A missing cleanmgr (some Server and LTSC builds) fails as an 'error'
-        // event after spawn returns; unheard, it would throw in main.
-        const child = spawn(exe, ['/d', root[0].toUpperCase()], { detached: true, stdio: 'ignore' })
-        child.on('error', () => {})
-        child.unref()
-        return true
-      } catch {
-        return false
-      }
-    })
-    // SHA-256, streamed, with progress at most every HASH_TICK ms and a Stop.
-    // Keyed by the asking page and its id, so one page cannot stop another's.
-    const HASH_TICK = 100
-    const hashes = new Map<string, AbortController>()
-    ipcMain.handle('file:hash', async (event, p: unknown, id: unknown): Promise<string | null> => {
-      if (!readable(p) || typeof id !== 'string' || !id || id.length > 200) return null
-      const key = `${event.sender.id}:${id}`
-      hashes.get(key)?.abort()
-      const stop = new AbortController()
-      hashes.set(key, stop)
-      // A page that goes away (the window reloads or closes) stops its read.
-      const gone = (): void => stop.abort()
-      event.sender.once('destroyed', gone)
-      let last = 0
-      try {
-        return await hashFile(
-          p,
-          (done, total) => {
-            const now = Date.now()
-            if (now - last < HASH_TICK && done < total) return
-            last = now
-            if (!event.sender.isDestroyed()) event.sender.send('file:hash-progress', { id, done, total })
-          },
-          stop.signal
-        )
-      } finally {
-        if (!event.sender.isDestroyed()) event.sender.removeListener('destroyed', gone)
-        if (hashes.get(key) === stop) hashes.delete(key)
-      }
-    })
-    ipcMain.on('file:hash-cancel', (event, id: unknown) => {
-      if (typeof id === 'string') hashes.get(`${event.sender.id}:${id}`)?.abort()
-    })
-
-    /* ----- subtitles ----- */
-
-    // Sidecar tracks for a video (same name, same folder or Subs/), and their
-    // text as WebVTT. Same wall as everything else: inside the root only.
-    ipcMain.handle('subs:for', async (_e, p: string): Promise<SubTrack[]> => {
-      if (!insideDesktop(p)) return []
-      const tracks = await sidecarsFor(p)
-      extendDesktopDirectories(
-        dirname(p),
-        tracks.map((track) => dirname(track.path))
-      )
-      return tracks
-    })
-    /**
-     * A subtitle file the user points at (2026-08-27), for the tracks the
-     * name-matching cannot find: a differently named .srt, or one kept
-     * somewhere else entirely.
-     *
-     * The dialog IS the consent, which is why the answer is remembered as
-     * readable - it can sit outside every root, and the root wall would
-     * otherwise refuse the file the user just chose.
-     */
-    ipcMain.handle('subs:pick', async (_e, near?: string): Promise<SubTrack | null> => {
-      const r = await openDialog({
-        properties: ['openFile'],
-        ...(typeof near === 'string' && (await exists(dirname(near)))
-          ? { defaultPath: dirname(near) }
-          : {}),
-        filters: [{ name: 'Subtitles', extensions: ['srt', 'vtt', 'ass', 'ssa'] }]
-      })
-      if (r.canceled || !r.filePaths.length) return null
-      const p = r.filePaths[0]
-      pickedSubs.add(p)
-      return { path: p, label: basename(p) }
-    })
-    ipcMain.handle('subs:read', async (_e, p: string): Promise<string | null> =>
-      insideDesktop(p) || pickedSubs.has(p)
-        ? readAsVtt(p, ffmpegTools()?.ffmpeg)
-        : null
-    )
-
-    /* ----- audio Chromium cannot decode ----- */
-
-    const sidecarUrl = (p: string, stream: number, duration: number): string =>
-      `${AUDIO_SCHEME}://track/${encodeURIComponent(p)}?s=${stream}&d=${duration}`
-
-    // Ask before playing: what does this file hold, does its audio need Prism's
-    // own decoder, and is there one? The renderer plays the answer's url beside
-    // the video (which stays silent by itself, having no decoder for the track
-    // either), or IN PLACE of the file for an audio-only viewer.
-    /**
-     * The waveform transport's envelope. Computed by ffmpeg here and streamed,
-     * because the renderer's old way - fetch the file, decodeAudioData the lot
-     * - took 7.4GB on a 2GB film and threw at the end of it.
-     */
-    ipcMain.handle('media:peaks', async (_e, p: string): Promise<number[] | null> => {
-      if (!readable(p)) return null
-      // Known already: no ffprobe, no ffmpeg, no wait.
-      const known = await cachedPeaks(p)
-      if (known) return known
-      const tools = ffmpegTools()
-      if (!tools) return null
-      if (!tools.ffprobe) return null
-      const info = await probeMedia(tools.ffprobe, p)
-      if (!info?.audio || !info.duration) return null
-      return loadPeaks(tools.ffmpeg, p, info.duration)
-    })
-    ipcMain.handle('media:probe', async (_e, p: string): Promise<MediaProbe> => {
-      const none: MediaProbe = { ffmpeg: false, needed: false }
-      if (!readable(p)) return none
-      // A MIDI file is a score, not a recording: it has to be synthesised
-      // before there is anything to play. The answer comes back at once so the
-      // player can say so, and the rendering is asked for separately - loading
-      // a 23MB soundfont takes a moment, and an <audio> pointed at the .mid
-      // meanwhile would flash "can't be played".
-      if (isMidi(p)) {
-        const fluid = await fluidTools()
-        return { ffmpeg: !!fluid, needed: true, synth: true, codec: 'midi' }
-      }
-      if (!ffmpegTools()) return none
-      const info = await probeCached(p)
-      // No ffprobe, or a container it could not read: the renderer still has a
-      // second way in (its decoder byte counter), so offer the first track
-      // blind rather than nothing.
-      if (!info) return { ffmpeg: true, needed: false, blind: true }
-      const plan = planConversion(info, extname(p))
-      // A converted copy carries its own sound, so the sidecar stands down.
-      const needed = !plan.needed && needsSidecar(info.audio?.codec, extname(p))
-      const base: MediaProbe = {
-        ffmpeg: true,
-        needed,
-        videoCodec: info.videoCodec ?? undefined,
-        fps: info.fps ?? undefined,
-        convert: plan.needed ? { reason: plan.reason ?? 'codec', quick: plan.copyVideo } : undefined
-      }
-      // More than one track: offer them all, each with the url that plays it.
-      // One track needs no picker, and a picker with one row is chrome.
-      const tracks =
-        info.duration > 0 && info.tracks.length > 1
-          ? info.tracks.map((t) => ({
-              index: t.index,
-              codec: t.codec,
-              channels: t.channels,
-              language: t.language,
-              title: t.title,
-              url: sidecarUrl(p, t.index, info.duration)
-            }))
-          : undefined
-      if (!info.audio || info.duration <= 0) return { ...base, blind: true, tracks }
-      return {
-        ...base,
-        codec: info.audio.codec,
-        channels: info.audio.channels,
-        layout: info.audio.layout,
-        url: sidecarUrl(p, info.audio.index, info.duration),
-        tracks
-      }
-    })
-
-    // Render a score. Separate from the probe because it can take seconds:
-    // the player shows that it is working rather than an error.
-    ipcMain.handle('audio:synth', async (_e, p: string): Promise<string | null> => {
-      if (!readable(p)) return null
-      const fluid = await fluidTools()
-      if (!fluid || !isMidi(p)) return null
-      try {
-        const wav = await renderMidi(fluid, p, userPaths.converted())
-        wall.grantExtracted(wav)
-        wall.grantServable(wav)
-        return `${MEDIA_SCHEME}://local/${encodeURIComponent(wav)}`
-      } catch {
-        return null
-      }
-    })
-
-    // The blind route: the renderer watched its own decoder produce no audio
-    // and knows the duration the element reported, so it can ask for the first
-    // audio track without anything having probed the file.
-    ipcMain.handle('audio:blind', (_e, p: string, duration: number): string | null => {
-      if (!readable(p)) return null
-      if (!Number.isFinite(duration) || duration <= 0) return null
-      if (!ffmpegTools()) return null
-      return sidecarUrl(p, FIRST_AUDIO, duration)
-    })
-
-    // Video Chromium cannot show: convert it once, then play the copy. The
-    // renderer waits on this and shows progress; a file already converted
-    // comes back immediately.
-    const convertDir = userPaths.converted
-    /** Source file -> the copy being written for it and how many viewers are
-     *  waiting. Two tabs can hold the same film (each tab keeps its own live
-     *  player), and they share ONE conversion: the first to walk away must not
-     *  cancel it out from under the other (2026-08-28). */
-    const converting = new Map<string, { out: string; viewers: number }>()
-    ipcMain.handle(
-      'video:convert',
-      async (e, p: string): Promise<{ url?: string; error?: string }> => {
-        if (!readable(p))
-          return { error: 'outside the folder' }
-        const tools = ffmpegTools()
-        if (!tools?.ffprobe) return { error: 'no decoder available' }
-        const info = await probeMedia(tools.ffprobe, p)
-        const plan = planConversion(info, extname(p))
-        if (!plan.needed) return { error: 'nothing to convert' }
-        try {
-          const handle = await convertVideo(
-            tools.ffmpeg,
-            p,
-            convertDir(),
-            plan,
-            info?.duration ?? 0,
-            (pct) => e.sender.send('video:progress', { path: p, pct })
-          )
-          // The renderer knows the FILE it asked about, never the copy's name,
-          // so cancelling has to be answerable from the source (2026-08-28).
-          const seen = converting.get(p)
-          converting.set(p, { out: handle.out, viewers: (seen?.viewers ?? 0) + 1 })
-          const out = await handle.done
-          converting.delete(p)
-          wall.grantExtracted(out) // the copy is ours to serve, wherever it sits
-          wall.grantServable(out)
-          return { url: `${MEDIA_SCHEME}://local/${encodeURIComponent(out)}` }
-        } catch (err) {
-          return { error: err instanceof Error ? err.message : 'conversion failed' }
-        }
-      }
-    )
-    // Nobody is waiting for this any more: the viewer moved on to another
-    // file while a whole film was being re-encoded behind it (2026-08-28).
-    ipcMain.on('video:cancel', (_e, source: string) => {
-      if (typeof source !== 'string') return
-      const job = converting.get(source)
-      if (!job) return
-      job.viewers -= 1
-      if (job.viewers > 0) return // somebody else is still waiting for it
-      converting.delete(source)
-      cancelConversion(job.out)
-    })
-
-    // Office and ebook documents: converted to HTML in main, sanitised there
-    // too, so nobody else's markup reaches a renderer that can see window.prism.
-    ipcMain.handle('doc:html', async (_e, p: string): Promise<string | null> => {
-      if (!readable(p)) return null
-      return docHtmlOf(p)
-    })
-
-    // "Open file" / "Open as project" in File Explorer's own context menu
-    // (HKCU only).
-    ipcMain.handle('shell:verb-status', () => shellVerbSetting.status())
-    ipcMain.handle('shell:verb-set', (_e, on: unknown): Promise<boolean> | false =>
-      typeof on === 'boolean' ? shellVerbSetting.set(on) : false
-    )
-
-    /* ----- context-menu verbs ----- */
-
-    ipcMain.on('file:show-in-explorer', (_e, p: string) => {
-      if (insideDesktop(p)) shell.showItemInFolder(p)
-    })
-    ipcMain.on('file:open-default', (_e, p: string) => {
-      if (insideDesktop(p)) void shell.openPath(p)
-    })
-    // The Windows "how do you want to open this?" chooser, which also reaches
-    // the store apps the submenu can't launch.
-    ipcMain.on('file:open-chooser', (_e, p: string) => {
-      if (!insideDesktop(p)) return
-      spawn('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', p], {
-        detached: true,
-        stdio: 'ignore'
-      }).unref()
-    })
-
-    // What the "Open in" submenu lists. The candidates main enumerated are the
-    // only executables the launch handler below will ever run. Entries expire:
-    // Prism is resident, and a list cached forever would never learn about a
-    // newly installed app (or unlearn a transient reg.exe failure).
-    const OPEN_WITH_TTL = 30_000
-    const openWithCache = new Map<string, { list: AppCandidate[]; at: number }>()
-    const cachedApps = (ext: string): AppCandidate[] | null => {
-      const hit = openWithCache.get(ext)
-      return hit && Date.now() - hit.at < OPEN_WITH_TTL ? hit.list : null
-    }
-    ipcMain.handle('apps:for', async (_e, p: string): Promise<OpenWithApp[]> => {
-      if (!insideDesktop(p)) return []
-      const ext = extname(p).toLowerCase()
-      if (!ext) return []
-      let list = cachedApps(ext)
-      if (!list) {
-        list = await appsForExt(ext)
-        openWithCache.set(ext, { list, at: Date.now() })
-      }
-      return Promise.all(
-        list.map(async (c) => ({
-          id: c.exe,
-          name: c.name,
-          icon: await app
-            .getFileIcon(c.exe, { size: 'small' })
-            .then((i) => i.toDataURL())
-            .catch(() => undefined)
-        }))
-      )
-    })
-    ipcMain.handle('file:open-with', (_e, p: string, exe: string): boolean => {
-      if (!insideDesktop(p)) return false
-      // The expired list still answers a launch: the menu the user is clicking
-      // was built from it moments ago.
-      const c = openWithCache.get(extname(p).toLowerCase())?.list.find((x) => x.exe === exe)
-      if (!c) return false
-      try {
-        spawn(c.exe, argsFor(c.args, p), { detached: true, stdio: 'ignore' }).unref()
-        return true
-      } catch {
-        return false
-      }
-    })
-
-    // The real file onto the clipboard (a drop list, so Ctrl+V in Explorer
-    // pastes it). Electron's clipboard has no CF_HDROP; PowerShell does.
-    // One path or a multi-selection's worth: every one must pass the wall
-    // (roots, or an individually granted extracted member) or nothing copies.
-    ipcMain.handle('file:copy-clip', (_e, p: string | string[], cut = false): Promise<boolean> => {
-      const list = Array.isArray(p) ? p : [p]
-      if (
-        !list.length ||
-        list.some((x) => !readable(x))
-      )
-        return Promise.resolve(false)
-      return copyWindowsFiles(list, cut === true)
-    })
-
-    // The address bar's "Copy address" (2026-09-22): the folder as a file
-    // drop AND its path as text, Explorer's own pair. Walled like the copy
-    // above; the folder is the only thing put on the clipboard.
-    ipcMain.handle('file:copy-address', (_e, p: string): Promise<boolean> => {
-      if (typeof p !== 'string' || !insideDesktop(p)) return Promise.resolve(false)
-      return copyWindowsFiles([p], false, p)
-    })
-
-    /**
-     * The files on the clipboard, if any (2026-08-31).
-     *
-     * Through PowerShell, symmetrically with the copy above: Windows puts a
-     * multi-file copy on the clipboard as CF_HDROP, which Electron's own
-     * clipboard API does not expose - `readBuffer('FileNameW')` gives one
-     * path and nothing else. `Get-Clipboard -Format FileDropList` gives the
-     * list, and the copy side is already a PowerShell call for the same
-     * reason.
-     */
-    async function clipboardFiles(): Promise<string[]> {
-      return (await readWindowsFiles()).paths
-    }
-
-    /**
-     * Paste whatever is on the clipboard into a folder.
-     *
-     * The SOURCES may be anywhere - that is the point, you copied them in
-     * Explorer - but the DESTINATION has to be inside a root, which is the
-     * wall doing its job. Names never collide: `uniqueName` picks "name (2)"
-     * the way Duplicate does, so a paste can add to a folder but never write
-     * over what is in it.
-     */
-    /** Are there files on the clipboard? Asked when a menu OPENS, so a Paste
-     *  row that would do nothing is never drawn (2026-09-02). The same
-     *  PowerShell route the paste itself uses - Electron's clipboard API
-     *  exposes one path and Windows puts a multi-file copy on as CF_HDROP. */
-    ipcMain.handle('clipboard:has-files', async () => (await clipboardFiles()).length > 0)
-
-    /** Every file under a path, with sizes, for the progress arithmetic. */
-    async function walkSizes(p: string): Promise<number> {
-      const fs = await import('fs/promises')
-      const st = await fs.stat(p)
-      if (!st.isDirectory()) return st.size
-      let total = 0
-      for (const e of await fs.readdir(p, { withFileTypes: true })) {
-        try {
-          total += await walkSizes(join(p, e.name))
-        } catch {
-          /* unreadable entries copy as failures later; the bar only guides */
-        }
-      }
-      return total
-    }
-
-    /** Copy a file or a whole folder, streaming files so the byte count can
-     *  tick. fs.cp gives no progress at all, which for a 4GB ISO is minutes
-     *  of nothing (owner, 2026-09-03). */
-    async function copyCounted(
-      src: string,
-      target: string,
-      tick: (bytes: number) => void
-    ): Promise<void> {
-      const fs = await import('fs/promises')
-      const st = await fs.stat(src)
-      if (st.isDirectory()) {
-        await fs.mkdir(target)
-        for (const e of await fs.readdir(src)) {
-          await copyCounted(join(src, e), join(target, e), tick)
-        }
-        return
-      }
-      const { createReadStream, createWriteStream } = await import('fs')
-      const { pipeline } = await import('stream/promises')
-      const reader = createReadStream(src)
-      reader.on('data', (chunk) => tick(chunk.length))
-      await pipeline(reader, createWriteStream(target, { flags: 'wx' }))
-    }
-
-    /**
-     * Paste, with PROGRESS and an answer that names what landed (2026-09-03).
-     * Windows copy/cut metadata is authoritative, including when another app
-     * copies the same paths that Prism previously marked as cut. Older file
-     * clipboards without this format retain the matching renderer mark fallback.
-     */
-    ipcMain.handle(
-      'file:paste-into',
-      async (_e, destDir: string, cut?: string[], jobId?: string) => {
-        if (typeof destDir !== 'string' || !insideDesktop(destDir)) {
-          return { pasted: 0, failed: 0, refused: true, paths: [] }
-        }
-        const clipboard = await readWindowsFiles()
-        const src = clipboard.paths
-        if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
-        const moving =
-          clipboard.cut ??
-          (Array.isArray(cut) &&
-            cut.length === src.length &&
-            cut.every((c) => src.some((f) => samePath(f, String(c)))))
-        ownWrite(join(destDir, 'x'))
-        const fs = await import('fs/promises')
-        const total = moving
-          ? 0 // a rename is instant; only the cross-volume fallback counts bytes
-          : await Promise.all(src.map((f) => walkSizes(f).catch(() => 0))).then((a) =>
-              a.reduce((x, y) => x + y, 0)
-            )
-        let done = 0
-        let lastSent = 0
-        const tick = (bytes: number, of = total): void => {
-          done += bytes
-          const now = Date.now()
-          if (of > 0 && now - lastSent > 120) {
-            lastSent = now
-            appState.mainWindow?.webContents.send('paste:progress', {
-              jobId: typeof jobId === 'string' ? jobId : '',
-              pct: Math.min(100, (done / of) * 100)
-            })
-          }
-        }
-        let pasted = 0
-        let failed = 0
-        const paths: string[] = []
-        for (const s of src) {
-          try {
-            const target = join(destDir, await uniqueNameAsync(destDir, basename(s)))
-            if (moving) {
-              try {
-                await fs.rename(s, target)
-              } catch {
-                // EXDEV or a lock: counted copy, then the source goes.
-                const size = await walkSizes(s).catch(() => 0)
-                let moved = 0
-                await copyCounted(s, target, (b) => {
-                  moved += b
-                  tick(b, size)
-                })
-                void moved
-                await fs.rm(s, { recursive: true })
-              }
-            } else {
-              await copyCounted(s, target, tick)
-            }
-            paths.push(target)
-            pasted += 1
-          } catch {
-            failed += 1
-          }
-        }
-        await written(destDir, ...(moving ? src : []))
-        return { pasted, failed, paths, moved: moving }
-      }
-    )
-
-    // The icon Windows itself shows for a file of this type - the user's own
-    // association (WinRAR, 7-Zip, Explorer's zip folder...). One fetch per
-    // extension; the tree shows it for archives (#68, revised 2026-08-22).
-    const extIconCache = new Map<string, string | null>()
-    ipcMain.handle('icon:for-ext', async (_e, p: string): Promise<string | null> => {
-      if (typeof p !== 'string' || !insideDesktop(p)) return null
-      const ext = extname(p).toLowerCase()
-      if (!ext) return null
-      const hit = extIconCache.get(ext)
-      if (hit !== undefined) return hit
-      try {
-        const img = await app.getFileIcon(p, { size: 'normal' })
-        const url = img.isEmpty() ? null : img.toDataURL()
-        extIconCache.set(ext, url)
-        return url
-      } catch {
-        extIconCache.set(ext, null)
-        return null
-      }
-    })
-
-    // Undo's half of a delete: ask the shell for the items back. MoveHere
-    // rather than InvokeVerb, because the Restore verb's NAME is localised
-    // and the namespace move is not. Best effort: an item the user has since
-    // emptied simply is not there any more.
-    ipcMain.handle('file:restore', async (_e, paths: string[]): Promise<boolean> => {
-      ownWrite(...(Array.isArray(paths) ? paths : []))
-      if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideDesktop(p)))
-        return Promise.resolve(false)
-      const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
-      const script = [
-        '$ErrorActionPreference = "SilentlyContinue"',
-        '$missing = $false',
-        '$sh = New-Object -ComObject Shell.Application',
-        '$bin = $sh.Namespace(0xA)',
-        `foreach ($p in @(${list})) {`,
-        '  $dir = Split-Path $p -Parent; $name = Split-Path $p -Leaf',
-        '  $item = @($bin.Items() | Where-Object {',
-        '    $_.Name -eq $name -and $_.ExtendedProperty("System.Recycle.DeletedFrom") -eq $dir',
-        '  })[-1]',
-        '  if ($item) { $sh.Namespace($dir).MoveHere($item) } else { $missing = $true }',
-        '}',
-        // Nothing came back: say so, or undo would claim a restore that never
-        // happened (an emptied Recycle Bin is the common case).
-        'if ($missing) { exit 1 }'
-      ].join('; ')
-      return new Promise<boolean>((done) => {
-        execFile(
-          'powershell.exe',
-          ['-NoProfile', '-Command', script],
-          { windowsHide: true, timeout: 20000 },
-          (err) => done(!err)
-        )
-      }).finally(() => written(...paths))
-    })
-
-    /* ----- drag and drop (#70): move, add to a zip, extract out of one ----- */
-
-    // Every path, source and destination alike, must sit inside an open root:
-    // dragging is not a way out of the wall. Extracted archive members are
-    // granted individually, so a member dragged to a folder can be written.
-    // A folder that is ITSELF a tab's root cannot be moved or zipped away:
-    // the wall would be left pointing at nothing and that tab dies. Renaming
-    // and binning a root are already refused; this is the same rule.
-    // The guard is the wall's `movable` (pathWall.ts).
-    ipcMain.handle(
-      'file:move',
-      async (_e, paths: string[], destDir: string, onClash: 'ask' | 'keep-both' | 'replace') => {
-        // Both ends: a move empties one folder and fills another.
-        ownWrite(destDir + sep + 'x', ...(Array.isArray(paths) ? paths : []))
-        /**
-         * A drop that asks for nothing does nothing, SILENTLY (2026-08-31).
-         *
-         * Picking a folder up and putting it back down where it was is how
-         * anybody changes their mind mid-drag, and it was answering with "a
-         * tab's own folder cannot be moved" - the wall talking about a move
-         * nobody requested. Filtered out BEFORE the wall check, so the
-         * gesture is a no-op rather than a refusal.
-         */
-        const wanted = (Array.isArray(paths) ? paths : []).filter(
-          (p) =>
-            typeof p === 'string' &&
-            !insideSelf(p, destDir) &&
-            resolve(dirname(p)).toLowerCase() !== resolve(destDir).toLowerCase()
-        )
-        if (!wanted.length) return { moved: [], clashes: [], failed: [], replaced: [], busy: [] }
-        if (!wanted.every(movable) || !insideDesktop(destDir))
-          // `refused` is the wall talking, which is a different sentence from
-          // "that file is locked": the renderer branches on it.
-          return {
-            moved: [],
-            clashes: [],
-            failed: wanted,
-            replaced: [],
-            busy: [],
-            refused: true
-          }
-        // Prism's own decoders on these files go first (#127): the audio
-        // sidecar, the waveform, a conversion. MEASURED: two sidecar ffmpegs
-        // outlived the player and held the film past every retry.
-        await holders.release(wanted)
-        const r = await moveEntries(wanted, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
-          shell.trashItem(t)
-        ).finally(() => written(destDir, ...wanted))
-        // Each file's memory follows it (#124).
-        for (const m of r.moved) void positions.rename(m.from, m.to)
-        return r
-      }
-    )
-    ipcMain.handle(
-      'archive:add',
-      async (_e, zip: string, srcPaths: string[], destFolder: string, keepBoth?: boolean) => {
-        if (!archiveOk(zip) || !Array.isArray(srcPaths) || !srcPaths.every(movable)) return 'failed'
-        if (archiveTooLarge((await stat(zip)).size)) return 'failed'
-        // A worker that died mid-job answers like any other failure.
-        return addToArchive(
-          zip,
-          srcPaths,
-          typeof destFolder === 'string' ? destFolder : '',
-          !!keepBoth
-        ).catch(() => 'failed' as const)
-      }
-    )
-    ipcMain.handle(
-      'archive:move-members',
-      async (_e, zip: string, entries: string[], destFolder: string) => {
-        if (!archiveOk(zip) || !Array.isArray(entries)) return 'failed'
-        if (archiveTooLarge((await stat(zip)).size)) return 'failed'
-        return moveMembers(zip, entries, typeof destFolder === 'string' ? destFolder : '').catch(
-          () => 'failed' as const
-        )
-      }
-    )
-    /**
-     * THE ONE EXTRACTION WINDOW (2026-09-19, #166).
-     *
-     * Owner: "When you extract something, the progress bar works differently
-     * based on like how you extracted ... I would like it to just be one kind
-     * of view that appears, and I want it to be a pop-up window that you
-     * can't close, kind of like it is with WinRAR." Asked the same day: it
-     * gets a Cancel button, which stops the extraction and cleans up what was
-     * half written.
-     *
-     * Every route below that writes extracted files to a folder the user can
-     * see opens a JOB, and the job is what talks to the window: one channel,
-     * whatever the engine and whatever the landing rule. The routes that
-     * extract to temp so a member can be VIEWED or put on the clipboard open
-     * none and stay silent, as they always were.
-     */
-    // When each job began, for its end's `ms` in the diagnostics log.
-    const jobStarted = new Map<string, number>()
-    const extractJobs = new ExtractJobs((e) => {
-      // THE ARCHIVE JOB ON THE TIMELINE (#322): its start and its end, from
-      // the one channel every extraction talks to the window through.
-      if (e.type === 'start') {
-        jobStarted.set(e.id, performance.now())
-        mainCrumb('archive-job', { phase: 'start', id: e.id, archive: e.archive, dest: e.dest })
-      } else if (e.type === 'end') {
-        const t0 = jobStarted.get(e.id)
-        jobStarted.delete(e.id)
-        mainCrumb('archive-job', {
-          phase: 'end',
-          id: e.id,
-          result: e.result,
-          ...(e.reason ? { reason: e.reason } : {}),
-          ...(t0 !== undefined ? { ms: Math.round(performance.now() - t0) } : {})
-        })
-      }
-      if (appState.mainWindow && !appState.mainWindow.isDestroyed()) appState.mainWindow.webContents.send('extract:event', e)
-    })
-    ipcMain.handle('extract:cancel', (_e, id: string) =>
-      typeof id === 'string' ? extractJobs.cancel(id) : false
-    )
-    // No orphaned 7-Zip left writing into somebody's folder after the app
-    // has gone.
-    app.on('will-quit', () => extractJobs.killAll())
-    /** The second job while one is up. The modal makes it unreachable from
-     *  the UI; refused here too, so the rule is not the renderer's to keep. */
-    const BUSY = { ok: false as const, reason: 'busy' as const }
-    /**
-     * A request main will not even start (the wall, a path that is not an
-     * archive) is still a failure SOMEBODY has to show, and since #166 the
-     * callers show none of their own: the window is where an extraction's
-     * error lives. So a refusal opens the window straight into its error,
-     * and the five routes keep one way of saying no.
-     */
-    const refused = (zip: unknown, dest: unknown): { ok: false; reason: 'failed' } => {
-      extractJobs
-        .begin({
-          archive: typeof zip === 'string' ? basename(zip) : 'archive',
-          dest: typeof dest === 'string' ? dest : ''
-        })
-        ?.end('failed', 'failed')
-      return { ok: false, reason: 'failed' }
-    }
-    /** What the engines hand a job: its progress, its child, its question. */
-    const watching = (
-      job: ExtractJob
-    ): {
-      onProgress: (pct: number | null, file: string | null) => void
-      onChild: (child: import('child_process').ChildProcess) => void
-      cancelled: () => boolean
-    } => ({
-      onProgress: (pct, file) => job.progress(pct, file),
-      onChild: (child) => job.attach(child),
-      cancelled: () => job.cancelled
-    })
-
-    /** Members out to `destDir`, as a job. Both engines take back what they
-     *  made when cancelled, so there is nothing left for this to remove. */
-    async function membersOut(
-      zip: string,
-      entries: string[],
-      destDir: string,
-      pw: string,
-      asksPassword: boolean
-    ): Promise<
-      | { ok: true; written: number }
-      | { ok: false; reason: 'password' | 'aes' | 'failed' | 'cancelled' | 'busy'; message?: string }
-    > {
-      const job = extractJobs.begin({ archive: basename(zip), dest: destDir, asksPassword })
-      if (!job) return BUSY
-      try {
-        // A .7z/.rar/.iso is not a zip: adm-zip cannot read one, so dragging a
-        // member out of one always failed (2026-08-28).
-        const exe = await seven(zip)
-        const out = exe
-          ? await extractSevenTo(exe, zip, entries, destDir, pw, watching(job))
-          : await extractTo(zip, entries, destDir, pw || undefined, watching(job))
-        if (out.ok) job.end('done')
-        else if (out.reason === 'cancelled') job.end('cancelled')
-        else
-          job.end(
-            'failed',
-            out.reason,
-            // 7-Zip's own line; the in-process engine has none to give.
-            'message' in out && typeof out.message === 'string' ? out.message : undefined
-          )
-        return out
-      } catch {
-        job.end('failed', 'failed')
-        return { ok: false, reason: 'failed' }
-      }
-    }
-
-    ipcMain.handle(
-      'archive:extract-to',
-      (
-        _e,
-        zip: string,
-        entries: string[],
-        destDir: string,
-        password?: string,
-        asksPassword?: boolean
-      ) => {
-        // The READ gate for the source (#300): a nested archive is a temp copy
-        // main made, and extracting out of it reads it; the destination is
-        // still a folder the tab may write to.
-        if (!archiveReadOk(zip) || !Array.isArray(entries) || !insideDesktop(destDir))
-          return refused(zip, destDir)
-        const pw = typeof password === 'string' ? password : ''
-        return membersOut(zip, entries, destDir, pw, !!asksPassword)
-      }
-    )
-
-    /**
-     * Members OUT to a folder the user PICKS (2026-09-03, owner: "Extract
-     * to..." on a member row). Main's dialog is the consent, exactly as
-     * extract-all's is, which is why the destination is not bound by the
-     * root wall; everything else is the extract-to above. The job opens
-     * AFTER the dialog is answered: the window is for the work, not for the
-     * question.
-     */
-    ipcMain.handle(
-      'archive:extract-members-picked',
-      async (_e, zip: string, entries: string[], password?: string) => {
-        if (!archiveReadOk(zip) || !Array.isArray(entries)) return refused(zip, '')
-        const r = await openDialog({ properties: ['openDirectory', 'createDirectory'] })
-        if (r.canceled || !r.filePaths.length) return { ok: false, reason: 'cancelled' }
-        const destDir = r.filePaths[0]
-        const pw = typeof password === 'string' ? password : ''
-        // The archive panel is the only caller, and it asks for a password
-        // and tries again.
-        const out = await membersOut(zip, entries, destDir, pw, true)
-        return out.ok ? { ok: true, dest: destDir, written: out.written } : out
-      }
-    )
-
-    /**
-     * A MEMBER out beside the outermost archive, as a job with the window
-     * (#300): the read-only note's Extract here. Answers the extracted copy,
-     * so it can be opened where editing can start.
-     */
-    ipcMain.handle('archive:member-out', async (_e, path: string) => {
-      const outer = typeof path === 'string' ? await container(path) : null
-      if (!outer || !insideDesktop(outer)) return { ok: false }
-      const r = await archives.resolve(path, { enterLast: false })
-      if (!r?.ok || !r.place.entry || r.place.entry.dir) return { ok: false }
-      const dest = dirname(r.place.outer)
-      const name = r.place.entry.name || basename(r.place.entry.path)
-      const landing = join(dest, (await exists(join(dest, name))) ? await uniqueNameAsync(dest, name) : name)
-      const out = await membersOut(
-        r.place.real,
-        [r.place.entry.path],
-        dest,
-        archivePasswords.get(r.place.real) ?? '',
-        false
-      )
-      return out.ok ? { ok: true, path: (await exists(landing)) ? landing : null } : { ok: false }
-    })
-
-    /* ----- the archive verbs (#68): zip only, through src/main/archive.ts ----- */
-
-    // Every verb names the zip, which must sit inside a root and actually be
-    // an archive; the members have no independent existence on disk. Renames
-    // and deletes rewrite the container, so an oversized archive is refused
-    // rather than frozen over. The guards are the wall's `archiveOk` (writes),
-    // `archiveReadOk` (reads, also a nested archive main extracted) and
-    // `comicOk` (pathWall.ts).
-
-    /**
-     * `comic:open`'s body, factored (#106) so the phone's `/api/comic` opens
-     * a book the same way: unpacked once under the comics folder, the password
-     * remembered when it worked. No wall in here; the IPC handler checks
-     * `comicOk` and the phone route checks its own root and kind. The answer
-     * keeps the DIRECTORY, which the phone server grants to the phone that
-     * asked; the IPC drops it, since the media wall already allows
-     * `comicsDir` as a whole.
-     */
-    const openComicWalled = async (
-      p: string,
-      password: string
-    ): Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }> => {
-      wall.setComicsDir(userPaths.comics())
-      const pw = password || (archivePasswords.get(p) ?? '')
-      const exe = sevenExe()
-      if (!exe) return { error: 'failed' as const }
-      const got = await openComic(exe, p, wall.comicsDir(), pw)
-      if ('error' in got) return got
-      if (pw) archivePasswords.set(p, pw)
-      return got
-    }
-    ipcMain.handle('comic:open', async (_e, p: string, password?: string) => {
-      if (!comicOk(p)) return { error: 'failed' as const }
-      const got = await openComicWalled(p, typeof password === 'string' ? password : '')
-      if ('error' in got) return got
-      // No per-page grant: the pages live under `comicsDir`, which the media
-      // wall allows as a directory.
-      return { pages: got.pages }
-    })
-    /**
-     * Which archives go through the bundled 7-Zip rather than adm-zip.
-     *
-     * 7z, rar, tar, gz and friends always do: they are READ-ONLY, since 7-Zip
-     * lists and extracts them all and Prism never writes with it. zip keeps
-     * its own in-process path, and its verbs.
-     *
-     * A .zip that is TOO BIG for adm-zip goes through 7-Zip as well
-     * (2026-08-31). adm-zip reads the whole container into memory, which is
-     * why anything over the cap was refused - but the cap is adm-zip's limit,
-     * not zip's, and 7-Zip streams. A 1.9GB zip used to list (by reading 1.9GB
-     * into main) and then answer "failed" to every extract, which is the worst
-     * of both. Now it lists cheaply and extracts fine, and simply has no write
-     * verbs, exactly like a .7z. The size is an awaited stat (2026-10-12):
-     * every archive verb asks this first, and main never waits on the disk.
-     */
-    const seven = async (p: string): Promise<string | null> => {
-      const exe = (): string | null =>
-        sevenExe()
-      if (isSevenArchive(extname(p))) return exe()
-      try {
-        return archiveTooLarge((await stat(p)).size) ? exe() : null
-      } catch {
-        return null // gone between the listing and now
-      }
-    }
-
-    /**
-     * Extract-all's landing folder, and the ONE-FOLDER RULE (2026-08-31).
-     *
-     * An archive whose whole content is a single top-level folder - which is
-     * what every "download as zip" produces - used to land as
-     * `chosen/archive-name/TheFolder`, one level deeper than anybody wanted.
-     * So after a successful extract, a wrapper holding exactly one directory
-     * hands that directory up to its parent and removes itself.
-     *
-     * Done by MOVING rather than by extracting straight into the destination,
-     * because the rule that Prism never writes over an existing folder is
-     * worth more than the one rmdir it costs: the move picks "name (2)" the
-     * same way the wrapper itself does, and a same-volume rename is instant
-     * whatever the folder weighs.
-     */
-    async function unwrapSingleFolder(wrapper: string, parent: string): Promise<string> {
-      try {
-        const fs = await import('fs/promises')
-        const kids = await fs.readdir(wrapper, { withFileTypes: true })
-        if (kids.length !== 1 || !kids[0].isDirectory()) return wrapper
-        let out = join(parent, kids[0].name)
-        for (let n = 2; (await exists(out)) && n < 100; n += 1)
-          out = join(parent, `${kids[0].name} (${n})`)
-        await fs.rename(join(wrapper, kids[0].name), out)
-        await fs.rmdir(wrapper).catch(() => {})
-        return out
-      } catch {
-        return wrapper
-      }
-    }
-
-    /** Extract the whole archive into `into`, which must already exist. */
-    async function extractWhole(
-      p: string,
-      into: string,
-      job: ExtractJob
-    ): Promise<
-      | { ok: true }
-      | { ok: false; reason: 'password' | 'aes' | 'failed' | 'cancelled'; message?: string }
-    > {
-      const pw = archivePasswords.get(p) ?? ''
-      const exe = await seven(p)
-      if (exe) {
-        // 7-Zip's own percentage, forwarded to the window: a 2GB archive takes
-        // minutes, and a window that says nothing for minutes is
-        // indistinguishable from one that has hung.
-        // How many entries there are, so the file-count fallback has
-        // something to be a fraction OF. Folders included, because `-bb1`
-        // logs a line for each of those as well. One extra 7z listing,
-        // measured at 88ms on a 1.9GB archive - nothing against the minutes
-        // that follow.
-        const listed = await listSeven(exe, p, pw)
-        const total = listed.ok ? listed.entries.length : 0
-        const s7 = await extractAllSeven(exe, p, into, pw, { ...watching(job), total })
-        // A killed 7-Zip and a failed one look the same from here.
-        if (job.cancelled) return { ok: false, reason: 'cancelled' }
-        return s7.ok ? { ok: true } : { ok: false, reason: s7.reason, message: s7.message }
-      }
-      // Every top-level entry: extractTo matches members by prefix, and the
-      // roots of the tree are what covers all of them.
-      const tops = (await listArchive(p))
-        .filter((e) => !e.path.includes('/'))
-        .map((e) => e.path)
-      const out = await extractTo(p, tops, into, pw || undefined, watching(job))
-      return out.ok ? { ok: true } : { ok: false, reason: out.reason }
-    }
-
-    /** A folder to extract into, named after the archive, never overwriting. */
-    async function landingDir(p: string, parent: string): Promise<string> {
-      const stem = basename(p).replace(/\.[^.]+$/, '') || 'extracted'
-      let dest = join(parent, stem)
-      for (let n = 2; (await exists(dest)) && n < 100; n += 1) dest = join(parent, `${stem} (${n})`)
-      return dest
-    }
-
-    ipcMain.handle('archive:stat', async (_e, p: string): Promise<ArchiveStat | null> => {
-      if (!archiveOk(p)) return null
-      const exe = await seven(p)
-      if (!exe) return archiveStat(p).catch(() => null)
-      const listed = await listSeven(exe, p, archivePasswords.get(p) ?? '')
-      if (!listed.ok) return null
-      const list = listed.entries
-      return {
-        files: list.filter((e) => !e.dir).length,
-        folders: list.filter((e) => e.dir).length,
-        uncompressed: list.reduce((n, e) => n + (e.dir ? 0 : e.size), 0),
-        encryption: list.some((e) => e.encrypted) ? 'aes' : 'none',
-        readOnly: true
-      }
-    })
-    // Answers WHY it could not list (2026-08-30). A 7z or rar written with
-    // encrypted file NAMES cannot be listed at all without the password, and
-    // the old flat null reached the panel as "this archive looks corrupt": a
-    // good archive read as broken, with nowhere to type what it was asking
-    // for. A password that works is remembered here too, so the member verbs
-    // and the drag-out do not ask again.
-    /** `archive:list`'s body, factored (#106) for the phone's `/api/archive`.
-     *  No wall in here: the IPC handler checks `archiveReadOk`, the phone
-     *  route its own root and kind. */
-    const listArchiveWalled = async (p: string, password?: string): Promise<ArchiveListing> => {
-      try {
-        const exe = await seven(p)
-        if (!exe) {
-          const entries = await listArchive(p)
-          return entries ? { ok: true, entries } : { ok: false, reason: 'failed' }
-        }
-        const pw = password || (archivePasswords.get(p) ?? '')
-        const listed = await listSeven(exe, p, pw)
-        if (listed.ok && pw) archivePasswords.set(p, pw)
-        return listed
-      } catch {
-        return { ok: false, reason: 'failed' }
-      }
-    }
-    /**
-     * A MEMBER of a place inside an archive, unpacked for a viewer (#300): the
-     * run's member folder, one member, reused while the container is
-     * unchanged. `force` is an explicit Open, past the automatic-preview limit.
-     * The container must be one the Explorer or a project may read.
-     */
-    ipcMain.handle(
-      'archive:member',
-      async (_e, path: string, password?: string, force?: boolean) => {
-        const outer = typeof path === 'string' ? await container(path) : null
-        if (!outer || !insideDesktop(outer)) return { ok: false, reason: 'failed' }
-        const out = await archives.member(
-          path,
-          typeof password === 'string' && password ? password : undefined,
-          force === true
-        )
-        if (out.ok) {
-          memberTemp.touch(out.path)
-          // Over the run's cap, the least recently viewed go: never the one
-          // just asked for, nor one a player or a converter holds.
-          void memberTemp.evict((f) => f === out.path || holders.count([f]) > 0)
-        }
-        return out
-      }
-    )
-    /** What the archive card shows (#300): totals and the top of the tree. */
-    ipcMain.handle('archive:summary', async (_e, path: string) => {
-      const outer = typeof path === 'string' ? await container(path) : null
-      if (!outer || !insideDesktop(outer)) return { ok: false, reason: 'failed' }
-      return archives.summary(path)
-    })
-    /** A password the user typed for a container a listing asked about
-     *  (#300): remembered for the session, as every archive password is. */
-    ipcMain.handle('archive:remember-password', (_e, container: string, password: string) => {
-      if (typeof container !== 'string' || typeof password !== 'string' || !password) return false
-      if (!insideDesktop(container) && !memberTemp.owns(container)) return false
-      archivePasswords.set(container, password)
-      archives.forget(container)
-      return true
-    })
-    ipcMain.handle(
-      'archive:list',
-      async (_e, p: string, password?: string): Promise<ArchiveListing> => {
-        if (!archiveReadOk(p)) return { ok: false, reason: 'failed' }
-        return listArchiveWalled(p, typeof password === 'string' ? password : undefined)
-      }
-    )
-    /** `archive:extract`'s body, factored the same way (#106): one member to
-     *  a temp file, which joins `extractedPaths` so the media wall serves it.
-     *  The phone server adds its own per-phone grant on top. */
-    const extractMemberWalled = async (
-      p: string,
-      entry: string,
-      password?: string
-    ): Promise<ExtractResult> => {
-      try {
-        const exe = await seven(p)
-        // The cap is ADM-ZIP's - it reads the whole container into memory.
-        // 7-Zip streams, so a 3GB .7z is fine and used to be refused here
-        // by a check that ran before the branch (2026-08-28).
-        if (!exe && archiveTooLarge((await stat(p)).size)) return { ok: false, reason: 'failed' }
-        if (exe) {
-          const pw = password ?? ''
-          const s7 = await extractSeven(exe, p, entry, pw)
-          if (!s7.ok) return s7
-          if (pw) archivePasswords.set(p, pw)
-          wall.grantExtracted(s7.path)
-          return { ok: true, path: s7.path, kind: fileKind(extname(s7.path), basename(s7.path)) }
-        }
-        const r = await extractMember(p, entry, password)
-        if (!r.ok) return r
-        wall.grantExtracted(r.path)
-        return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
-      } catch {
-        return { ok: false, reason: 'failed' }
-      }
-    }
-    ipcMain.handle(
-      'archive:extract',
-      async (_e, p: string, entry: string, password?: string): Promise<ExtractResult> => {
-        // The READ gate: extracting a member to view it is a read, and the
-        // container may itself be a member Prism extracted a moment ago.
-        if (!archiveReadOk(p) || typeof entry !== 'string') return { ok: false, reason: 'failed' }
-        return extractMemberWalled(p, entry, typeof password === 'string' ? password : undefined)
-      }
-    )
-    /**
-     * Extract the WHOLE archive, Explorer-shaped: the user picks where, and
-     * the contents land in a folder named after the archive so a zip full of
-     * loose files never sprays them over the chosen folder.
-     *
-     * The destination is chosen in MAIN's own dialog, which is the consent -
-     * that is why this one is not bound by the root wall, unlike
-     * archive:extract-to, whose destination the renderer names.
-     */
-    ipcMain.handle(
-      'archive:extract-all',
-      async (
-        _e,
-        p: string,
-        here?: boolean
-      ): Promise<
-        | { ok: true; dest: string }
-        | {
-            ok: false
-            reason: 'cancelled' | 'password' | 'aes' | 'failed' | 'busy'
-            message?: string
-          }
-      > => {
-        if (!archiveOk(p)) return refused(p, '')
-        let parent = dirname(p)
-        if (!here) {
-          // The dialog IS the consent: it is why the destination does not have
-          // to be inside a root. "Extract here" needs none, because the
-          // archive's own folder already is one.
-          const r = await openDialog({
-            properties: ['openDirectory', 'createDirectory'],
-            defaultPath: dirname(p),
-            buttonLabel: 'Extract here'
-          })
-          if (r.canceled || !r.filePaths.length) return { ok: false, reason: 'cancelled' }
-          parent = r.filePaths[0]
-        }
-        const dest = await landingDir(p, parent)
-        // The landing folder is what a Cancel removes WHOLE, so it has to be
-        // one this job made. `landingDir` gives up after "name (99)", and
-        // extracting into a folder that was already there would make the
-        // clean-up a delete of somebody's files.
-        if (await exists(dest)) return refused(p, parent)
-        // Opened AFTER the dialog: the window is for the work, not for the
-        // question. It names the folder that was chosen, which is where the
-        // result lands whether or not the one-folder rule unwraps it.
-        const job = extractJobs.begin({ archive: basename(p), dest: parent })
-        if (!job) return BUSY
-        const made = new Made()
-        try {
-          await mkdir(dest, { recursive: true })
-          made.tree(dest)
-          const out = await extractWhole(p, dest, job)
-          if (!out.ok) {
-            if (out.reason === 'cancelled') {
-              // 7-Zip has closed by now (its promise resolves on `close`), so
-              // nothing is still holding what is about to be removed.
-              await made.undo()
-              job.end('cancelled')
-              return out
-            }
-            // A FAILURE keeps what came out, as it always has: those files
-            // are good. Only a landing folder with nothing in it goes, which
-            // is what a wrong password used to leave behind.
-            await pruneEmpty(dest)
-            job.end('failed', out.reason, out.message)
-            return out
-          }
-          const landed = await unwrapSingleFolder(dest, parent)
-          job.end('done')
-          return { ok: true, dest: landed }
-        } catch {
-          job.end('failed', 'failed')
-          return { ok: false, reason: 'failed' }
-        }
-      }
-    )
-
-    /**
-     * A FOLDER inside the archive, extracted whole to a temp copy.
-     *
-     * The panel's "Copy" on a folder used to extract its members one at a
-     * time and put the loose FILES on the clipboard, so pasting gave you a
-     * flat pile and never the folder you right-clicked. This hands back one
-     * real directory with the shape intact, which is what gets copied.
-     */
-    ipcMain.handle(
-      'archive:extract-dir',
-      async (
-        _e,
-        p: string,
-        entry: string,
-        here?: boolean
-      ): Promise<
-        | { ok: true; path: string }
-        | {
-            ok: false
-            reason: 'password' | 'aes' | 'failed' | 'cancelled' | 'busy'
-            message?: string
-          }
-      > => {
-        // A copy out of a nested archive reads a temp copy main made (#300).
-        if (!(here ? archiveOk(p) : archiveReadOk(p)) || typeof entry !== 'string' || !entry) {
-          return here ? refused(p, '') : { ok: false, reason: 'failed' }
-        }
-        // `here` writes beside the archive, where the user can see it, so it
-        // is a job with the window (#166). The temp copy that "Copy folder"
-        // puts on the clipboard is not, and stays silent.
-        const job = here ? extractJobs.begin({ archive: basename(p), dest: dirname(p) }) : null
-        if (here && !job) return BUSY
-        const made = new Made()
-        /** Say how it ended, to the window and to the caller, in one place. */
-        const fail = (
-          reason: 'password' | 'aes' | 'failed',
-          message?: string
-        ): { ok: false; reason: 'password' | 'aes' | 'failed'; message?: string } => {
-          job?.end('failed', reason, message)
-          return { ok: false, reason, ...(message ? { message } : {}) }
-        }
-        try {
-          const clean = entry.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
-          const name = clean.split('/').pop() || 'folder'
-          /**
-           * Staged on the DESTINATION's volume when it is going to land
-           * somewhere real (2026-08-31).
-           *
-           * `here` finishes with a rename, and `fs.rename` CANNOT CROSS
-           * VOLUMES - it throws EXDEV. The temp directory is on C: and the
-           * archive very often is not (an X: drive full of comics is what
-           * found this), so every "Extract folder here" onto another disk
-           * failed after 7-Zip had already done the work, with no message,
-           * because the failure was the move and not the extraction.
-           *
-           * Staging beside the archive makes the rename same-volume and
-           * therefore instant, whatever the folder weighs. The clipboard copy
-           * still stages in temp: nothing renames it anywhere.
-           */
-          const dir = here
-            ? await mkdtemp(join(dirname(p), '.prism-extract-'))
-            : await mkdtemp(join(tmpdir(), 'prism-arcdir-'))
-          // The staging folder is this call's own, whole: it is what a
-          // Cancel removes, and nothing else is.
-          if (here) made.tree(dir)
-          const pw = archivePasswords.get(p) ?? ''
-          const exe = await seven(p)
-          let out1 = join(dir, name)
-          if (exe) {
-            // ONE 7-Zip call for the whole subtree. The member-at-a-time
-            // route spawns a process per file, each re-opening the container:
-            // measured on a 2GB zip, a 25-file folder came out in 0.41s as
-            // one call, and the folder next to it holds 561 files. That is
-            // what "Extract folder here" was failing on.
-            let total = 0
-            if (job) {
-              // What the folder holds, so a count of files is a fraction of
-              // something when 7-Zip prints no percentage.
-              const listed = await listSeven(exe, p, pw)
-              if (listed.ok)
-                total = listed.entries.filter(
-                  (e) => e.path === clean || e.path.startsWith(clean + '/')
-                ).length
-            }
-            const s7 = await extractSevenSubtree(
-              exe,
-              p,
-              clean,
-              dir,
-              pw,
-              job ? { ...watching(job), total } : undefined
-            )
-            if (job?.cancelled) {
-              await made.undo()
-              job.end('cancelled')
-              return { ok: false, reason: 'cancelled' }
-            }
-            if (!s7.ok) {
-              await made.undo()
-              return fail(s7.reason, s7.message)
-            }
-            // 7-Zip keeps the full path under -o, so the folder is as deep as
-            // its name was.
-            out1 = join(dir, ...clean.split('/'))
-          } else {
-            const out = await extractTo(
-              p,
-              [clean],
-              dir,
-              pw || undefined,
-              job ? watching(job) : undefined
-            )
-            if (!out.ok) {
-              await made.undo()
-              if (out.reason === 'cancelled') {
-                job?.end('cancelled')
-                return { ok: false, reason: 'cancelled' }
-              }
-              return fail(out.reason)
-            }
-          }
-          if (!(await exists(out1))) {
-            await made.undo()
-            return fail('failed')
-          }
-          if (!here) {
-            wall.grantExtracted(out1)
-            return { ok: true, path: out1 }
-          }
-          // `here` lands it beside the archive, which is inside a root, so it
-          // needs no dialog to consent to. Extracted to staging first and
-          // renamed across, so a taken name never merges into somebody
-          // else's folder - the same rule extract-all follows.
-          const parent = dirname(p)
-          let out2 = join(parent, name)
-          for (let n = 2; (await exists(out2)) && n < 100; n += 1) out2 = join(parent, `${name} (${n})`)
-          const fs = await import('fs/promises')
-          try {
-            await fs.rename(out1, out2)
-          } catch (e) {
-            // Belt and braces: if the stage ever does end up on another
-            // volume, copy across rather than answering "failed" for work
-            // that has already been done.
-            if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e
-            await fs.cp(out1, out2, { recursive: true })
-          }
-          await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
-          job?.end('done')
-          return { ok: true, path: out2 }
-        } catch {
-          // The staging folder goes whatever went wrong: it has a dot name
-          // the tree never shows, so left behind it is clutter nobody can
-          // see to remove.
-          await made.undo()
-          return fail('failed')
-        }
-      }
-    )
-    ipcMain.handle(
-      'archive:rename',
-      async (_e, p: string, entry: string, name: string, password?: string): Promise<string> => {
-        if (!archiveOk(p) || typeof entry !== 'string' || typeof name !== 'string') return 'failed'
-        if (await seven(p)) return 'failed' // read-only format; the panel offers no verbs
-        try {
-          if (archiveTooLarge((await stat(p)).size)) return 'failed'
-          return await renameMember(
-            p,
-            entry,
-            name,
-            typeof password === 'string' ? password : undefined
-          )
-        } catch {
-          return 'failed'
-        }
-      }
-    )
-    ipcMain.handle('archive:delete', async (_e, p: string, entry: string): Promise<boolean> => {
-      if (!archiveOk(p) || typeof entry !== 'string') return false
-      if (await seven(p)) return false
-      try {
-        return !archiveTooLarge((await stat(p)).size) && (await deleteMember(p, entry))
-      } catch {
-        return false
-      }
-    })
-
-    ipcMain.handle('file:duplicate', async (_e, p: string): Promise<string | null> => {
-      ownWrite(p)
-      if (!insideDesktop(p)) return null
-      try {
-        if (!(await stat(p)).isFile()) return null // folders are a different feature
-        const dir = dirname(p)
-        // basename, not a slice: dirname keeps its trailing separator at a
-        // drive root, and slicing past it ate the name's first character.
-        const copy = join(dir, await uniqueNameAsync(dir, basename(p)))
-        await copyFile(p, copy)
-        await written(copy)
-        return copy
-      } catch {
-        return null
-      }
-    })
-    // NEW FOLDER (#330; owner, 2026-10-07: Ctrl+Shift+N in the Explorer and
-    // the tree, the explicit yes to "new folder is a fresh decision"). The
-    // page names a folder; main checks it is one this window may write in, on
-    // disk and not inside an archive, and picks the name itself ("New folder",
-    // "New folder (2)"...). `name` is only a redo's: the name the undone
-    // folder had, put through the same validation as any rename.
-    ipcMain.handle('file:newFolder', async (_e, dir: string, name?: string): Promise<string | null> => {
-      if (typeof dir !== 'string' || !dir || (name !== undefined && typeof name !== 'string')) return null
-      if ((await container(dir)) || !insideDesktop(dir)) return null
-      ownWrite(join(dir, 'New folder'))
-      const made = await makeFolder(dir, name)
-      await written(made ?? dir)
-      return made
-    })
-    // Undoing it: the Recycle Bin, and only while the folder is still empty.
-    ipcMain.handle(
-      'file:binIfEmpty',
-      async (_e, p: string): Promise<'binned' | 'not-empty' | 'missing' | 'failed'> => {
-        if (typeof p !== 'string' || (await container(p)) || !editable(p)) return 'failed'
-        ownWrite(p)
-        try {
-          return await binIfEmpty(p, (t) => shell.trashItem(t))
-        } finally {
-          await written(p)
-        }
-      }
-    )
+    registerOpenIpc(ctx)
+    registerSaveCopyIpc(ctx)
+    stopDictation = registerTerminalIpc(ctx)
+    registerBrowseIpc(ctx)
+    registerSessionIpc(ctx)
+    registerTreeIpc(ctx)
+    registerFilesIpc(ctx, ready)
+    registerPropsIpc(ctx)
+    registerMediaIpc(ctx, ready)
+    registerShellIpc(ctx)
+    registerMoveIpc(ctx, ready)
+    archiveBodies = registerArchiveIpc(ctx)
+    registerNewFilesIpc(ctx)
 
     registerWindowIpc()
 

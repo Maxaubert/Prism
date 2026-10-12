@@ -3,7 +3,7 @@ import { hasOtherExplorerWindows } from './explorerWindow'
 import { installUpdate, updateCalls, watchForUpdates, type UpdateInfo } from './update'
 import { previewUpdate, runPreviewInstall, wantsPreview } from 'prism-term-core/main/updatePreview'
 import pkg from '../../package.json'
-import { E2E, appState } from './appState'
+import { E2E, appState, sendToPage } from './appState'
 
 // THE UPDATE FLOW (stage 9c of the structure cleanup, 2026-10-12, out of
 // index.ts): the offer main remembers, the check that makes one, and the
@@ -21,7 +21,7 @@ let pendingUpdate: UpdateInfo | null = null
 let updateRun: AbortController | null = null
 export function offerUpdate(info: UpdateInfo): void {
   pendingUpdate = info
-  appState.mainWindow?.webContents.send('update:available', info)
+  sendToPage('update:available', info)
 }
 
 /** A real or preview offer is on the table (a second launch's
@@ -84,7 +84,7 @@ export function startUpdates(preferencesOwner: string): void {
       updateRun = fake
       try {
         return await runPreviewInstall(
-          (pct) => appState.mainWindow?.webContents.send('update:progress', pct),
+          (pct) => sendToPage('update:progress', pct),
           { cancelled: () => fake.signal.aborted }
         )
       } finally {
@@ -116,7 +116,7 @@ export function startUpdates(preferencesOwner: string): void {
     updateRun = run
     const ok = await installUpdate(
       url,
-      (pct) => appState.mainWindow?.webContents.send('update:progress', pct),
+      (pct) => sendToPage('update:progress', pct),
       canInstall,
       run.signal
     ).finally(() => {

@@ -1869,7 +1869,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
   loader reading mammoth's files one by one, and the first sanitise 0.4 to 1.1 s loading
   the rehype tree (`seeThrough`); conversion and sanitising run on a document worker
   thread now (`docWorker.ts`, `docClient.ts`, gone after a minute idle), and
-  `docClient.test.ts` fails if `index.ts` reaches a converter. After: `doc:html` still
+  `docClient.test.ts` fails if `index.ts` or an `ipc/` handler reaches a converter. After: `doc:html` still
   takes 2.1 s on a cold run, on the worker, and the same eight scenarios ran twice with
   no `main-lag` of 150 ms or more. NOT PRISM'S, left as they are: the terminal core's
   dictation engine starts its server with `spawn` on main (239 ms, `addressField`; the fix
