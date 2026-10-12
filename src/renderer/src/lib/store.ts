@@ -2,8 +2,8 @@ import { useSyncExternalStore } from 'react'
 
 /**
  * A value in module state that components can follow (structure cleanup,
- * 2026-10-12): the jobs chip, the extraction window, the cut mark and every
- * pref store hold one. `set` always tells the listeners, so a caller that
+ * 2026-10-12): the jobs chip, the extraction window and the cut mark each
+ * hold one. A saved setting is `prefs/createPref.ts` instead. `set` always tells the listeners, so a caller that
  * wants "only on change" checks before it sets, as the reducers do.
  */
 export interface Store<T> {
