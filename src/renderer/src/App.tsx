@@ -1,38 +1,47 @@
-import { useWinEOpen } from './lib/useWinEOpen'
-import { useExplorerArrival } from './lib/useExplorerArrival'
+import { useFullscreenVeil } from './hooks/useFullscreenVeil'
+import { useWindowClose } from './hooks/useWindowClose'
+import { useFileOps } from './hooks/useFileOps'
+import { useAppKeys } from './hooks/useAppKeys'
+import { useTerminal } from './hooks/useTerminal'
+import { useTermPanes } from './hooks/useTermPanes'
+import { useTabOps } from './hooks/useTabOps'
+import { useExplorerArrival } from './hooks/useExplorerArrival'
 import { visitedDirectories } from './lib/visitedDirectories'
-import { tabCrumbs } from './lib/tabCrumbs'
+import { tabCrumbs } from './lib/tabs/tabCrumbs'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type ReactNode } from 'react'
-import type { OnClash, OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type JSX
+} from 'react'
+import type { OpenPayload, OpenWithApp } from '@shared/types'
 import type { BrowseDriveUsage } from '@shared/browse'
 import { preloadImage } from './lib/imageLoader'
-import { captureMoveViews, movedPath, releaseMoveViews, restoreMoveViews, type FileMove } from './lib/moveViews'
 import {
   addTab,
   addRestoredTab,
   addExplorerTab,
   addProjectTab,
   isExplorerTab,
-  isPinnedExplorer,
   ensurePinnedExplorer,
   closeTab,
   toggleSettingsTab,
   receiveFile,
-  reorderTabs,
-  rerootTab,
   sameRoot,
   setTabPanes,
   setTabTerm,
-  toggleTermView,
   type TabState,
   type TreeState,
   setBrowseSurface,
-  type Tab,
-  pickTerm,
   removeTerm,
   termLabel
-} from './lib/tabs'
+} from './lib/tabs/tabs'
 import {
   lastSplitDir,
   paneAreas,
@@ -42,30 +51,15 @@ import {
   type SplitDir,
   pinTermPane
 } from './lib/panes'
-import { fileKind } from '@shared/fileKind'
-import {
-  dockAxis,
-  dockFlex,
-  loadDock,
-  loadTermSize,
-  saveDock,
-  saveTermSize,
-  type DockEdge
-} from './lib/termDock'
+import { fileKind, isMarkdown } from '@shared/fileKind'
+import { baseName, extOf } from '@shared/path'
+import { dockAxis, dockFlex } from './lib/termDock'
 import { savedShellId } from 'prism-term-core/renderer/lib/termPrefs'
-import {
-  AGENT_NAMES,
-  asksBeforeClosingTab,
-  closeQuestionTitle,
-  holdsWindowClose
-} from 'prism-term-core/renderer/lib/agentClose'
 import { useAgentIndicator } from 'prism-term-core/renderer/lib/useAgentIndicator'
 import { useDictationArm } from 'prism-term-core/renderer/lib/useDictation'
 import UpdateChip from 'prism-term-core/renderer/components/UpdateChip'
 import UpdateDialog from 'prism-term-core/renderer/components/UpdateDialog'
-import { useUpdateFlow } from 'prism-term-core/renderer/lib/useUpdateFlow'
-import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
-import { forgetRoot, rememberRoot } from 'prism-term-core/renderer/lib/recentRoots'
+import { newTabShow } from './lib/prefs/newTabPrefs'
 import {
   idleAtPrompt,
   isTouched,
@@ -74,27 +68,27 @@ import {
 import { onCwd } from 'prism-term-core/renderer/lib/termBus'
 import { ancestorChain } from './lib/fileTree'
 import { decideFollow } from 'prism-term-core/shared/termCwd'
-import { humanFor, workingFor } from 'prism-term-core/renderer/lib/agentClock'
 import CopiedBadge from 'prism-term-core/renderer/components/CopiedBadge'
 import { TermDock } from './components/TermDock'
-// A shell pinned as a PANE renders the same panel the dock does, behind the
-// same lazy boundary, so xterm stays out of the launch bundle.
-const TerminalPanelLazy = lazy(() => import('prism-term-core/renderer/components/TerminalPanel'))
+import { TopBar } from './components/titlebar/TopBar'
+import { TitleButtons } from './components/titlebar/TitleButtons'
+import { EditorLoading, Viewer } from './components/stage/Viewer'
+import { PinnedPaneView } from './components/stage/PinnedPaneView'
+import { EmptyState, NoFileState } from './components/stage/EmptyState'
 import { ContextMenu } from './components/ContextMenu'
 import { explorerRowMenu } from './menus/explorerRow'
-import { splitPaneMenu } from './menus/splitPane'
 import { titleBarMoreMenu } from './menus/moreMenu'
-import { useFolderBrowsing } from './lib/useFolderBrowsing'
+import { useFolderBrowsing } from './hooks/useFolderBrowsing'
 import { browseParent } from './lib/browse'
 import { terminalRestoreOrder } from './lib/terminalRestore'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
-import { BrowseIcon } from './components/browse/BrowseIcon'
+import { BrowseIcon } from './components/icons/BrowseIcon'
 import { ExplorerResize } from './components/browse/ExplorerResize'
-import { useExplorerWidths } from './lib/useExplorerWidths'
-import { usePreviewSlide } from './lib/usePreviewSlide'
+import { useExplorerWidths } from './hooks/useExplorerWidths'
+import { usePreviewSlide } from './hooks/usePreviewSlide'
 import { copyFilePaths, fileClipboardReady } from './lib/fileClipboard'
-import { useFilePaste } from './lib/useFilePaste'
+import { useFilePaste } from './hooks/useFilePaste'
 import {
   useQuickAccess,
   pinQuickAccess,
@@ -105,41 +99,23 @@ import {
 import { BrowseRename } from './components/browse/BrowseRename'
 import { PropertiesDialog } from './components/properties/PropertiesDialog'
 import './components/browse/workspace.css'
-import { focusTermSession } from 'prism-term-core/renderer/components/TerminalPanel'
-import { sortFiles, useSort } from './lib/sortPrefs'
-import { useExplorerSide } from './lib/explorerSidePrefs'
-import { useTreeSide } from './lib/treePrefs'
-import { VideoView } from './components/VideoView'
-import { AudioView } from './components/AudioView'
-import { ImageView } from './components/ImageView'
-import { UnsupportedView } from './components/UnsupportedView'
-import { ArchiveCard } from './components/browse/ArchiveCard'
+import { sortFiles, useSort } from './lib/prefs/sortPrefs'
+import { useExplorerSide } from './lib/prefs/explorerSidePrefs'
+import { useTreeSide } from './lib/prefs/treePrefs'
 import { PreviewEmpty } from './components/browse/PreviewEmpty'
-import { MemberGate } from './components/MemberGate'
-import { MemberNote } from './components/MemberNote'
-import { PasswordDialog } from './components/PasswordDialog'
+import { PasswordDialog } from './dialogs/PasswordDialog'
 import { browsableArchive } from '@shared/archivePlace'
 import { useArchiveActions } from './components/browse/useArchiveActions'
 import { clipboardText } from './lib/clipboardText'
-// Split out, all four, for the same reason: none of them is on the path of
-// opening a photo, and the resident single-instance model exists so the window
-// is there the instant you ask. CodeMirror is ~770KB, pdf.js about a megabyte,
-// and react-markdown brings remark, rehype and micromark with it.
+// The code editor for markdown's pencil, split out like every viewer chunk
+// (ViewerSwitch): CodeMirror is ~770KB and not on the path of a photo.
 const CodeView = lazy(() => import('./components/CodeView').then((m) => ({ default: m.CodeView })))
-const PdfView = lazy(() => import('./components/pdf/PdfView').then((m) => ({ default: m.PdfView })))
-const MarkdownView = lazy(() =>
-  import('./components/MarkdownView').then((m) => ({ default: m.MarkdownView }))
-)
-const DocView = lazy(() => import('./components/DocView').then((m) => ({ default: m.DocView })))
-const ComicView = lazy(() =>
-  import('./components/ComicView').then((m) => ({ default: m.ComicView }))
-)
 import { Settings } from './components/settings/Settings'
 import { Sidebar } from './components/Sidebar'
 import { TabStrip } from './components/TabStrip'
 import { PanelToggle } from './components/PanelToggle'
-import { useTitleBarMode } from './lib/titleBarPrefs'
-import { useSidebarPeek } from './lib/useSidebarPeek'
+import { useTitleBarMode } from './lib/prefs/titleBarPrefs'
+import { useSidebarPeek } from './hooks/useSidebarPeek'
 import { Onboarding } from './components/Onboarding'
 import { ACCENT_THEME_ID } from './lib/viz/styles'
 import {
@@ -148,17 +124,17 @@ import {
   setGlow as setVizGlow,
   setMove as setVizMove,
   setTheme as setVizTheme
-} from './lib/vizStore'
-import { Dialog } from './components/Dialog'
+} from './lib/viz/vizStore'
+import { AskDialogs, type AskAnswers } from './dialogs/AskDialogs'
+import type { Ask } from './dialogs/asks'
 import { PhoneDialog } from './components/PhoneDialog'
 import {
   loadTransportBg,
   loadTransportStyle,
-  TRANSPORT_BG_KEY,
-  TRANSPORT_KEY,
+  saveTransportBg,
+  saveTransportStyle,
   type TransportStyle
 } from './lib/transport'
-import { archivePassword } from './lib/archivePass'
 import { deckOf } from './lib/mediaDeck'
 import { warmOf } from './lib/viewerCache'
 
@@ -166,734 +142,26 @@ import { warmOf } from './lib/viewerCache'
  *  front. Coming back is the common case, so releasing on the very first blur
  *  would throw the cache away every time somebody glanced at another window. */
 const WARM_COOLDOWN_MS = 60_000
-import {
-  intendToPlay,
-  rememberPaused,
-  rememberTime,
-  sessionTime,
-  wasPaused,
-  wasPlaying
-} from './lib/playState'
-import { forgetTabVolume } from './lib/tabVolume'
-import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
-import { useInternalFileDrag } from './lib/internalFileDrag'
+import { intendToPlay, wasPlaying } from './lib/playState'
+import { dragPayload, setDrag } from './lib/drag/dragDrop'
+import { useInternalFileDrag } from './lib/drag/internalFileDrag'
 import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
+import { compactRailPref, onboardedPref, placesPref, sidebarPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
-import {
-  describe as describeUndo,
-  emptyUndo,
-  redone,
-  remember,
-  rememberRename,
-  undone,
-  type UndoEntry,
-  type UndoState
-} from './lib/undo'
-
-// Tab ids only have to be unique within a session and stable while a tab lives:
-// they are React keys and the handle every tab action names, never anything
-// persisted. A counter is enough and, unlike a path, survives a rename.
-let tabSeq = 0
-const nextTabId = (): string => `tab-${Date.now()}-${(tabSeq += 1)}`
-let termSeq = 0
-const nextTermId = (): string => `term-${(termSeq += 1)}`
-
-/** The renderer half of ending a shell. Lazy: if a session exists, the chunk
- *  that owns the store is already loaded, so this import is always a cache hit. */
-const disposeSession = (id: string): void => {
-  void import('prism-term-core/renderer/components/TerminalPanel').then((m) => m.disposeTermSession(id))
-}
+import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
+import { Icon } from './components/icons/Icon'
+import { disposeSession, nextTabId, nextTermId } from './lib/sessionIds'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
 // or dialog), routes by kind to a viewer, and pages through the folder. Video,
 // audio, and image are the built "perfect" viewers; pdf/text are still stubs and
 // get their own phase. All viewers eventually come from prism-core.
 
-const PLAYABLE = new Set(['video', 'audio'])
 // There is deliberately no DOC kind-set here any more. Which keys a document
 // owns is a question about FOCUS, not about file kind: a pdf nobody has clicked
-// into has no more claim on Up/Down than a photo does. See docFocused().
+// into has no more claim on Up/Down than a photo does. See docFocused() in
+// hooks/useAppKeys, beside PLAYABLE.
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
-const SIDEBAR_KEY = 'prism.sidebar'
-const RAIL_KEY = 'prism.settings.rail'
-// Shown once, on the first launch, and again from Settings > About.
-const SETUP_KEY = 'prism.onboarded'
-
-/** A question Prism has to put to the user before (or instead of) touching a file. */
-/** The agent a close is about to end: what it is, and how long it has been
- *  mid-answer. `forMs` is null when it is only present, waiting at its own
- *  prompt - still a conversation the close ends. */
-interface AgentBusy {
-  kind: 'claude' | 'codex' | 'other'
-  forMs: number | null
-}
-
-type Ask =
-  | { kind: 'delete'; path: string; name: string; isFolder: boolean }
-  | { kind: 'delete-many'; paths: string[] }
-  | { kind: 'move-clash'; paths: string[]; dest: string; names: string[] }
-  | { kind: 'clash'; path: string; name: string; suggestion: string }
-  | { kind: 'failed'; message: string }
-  | { kind: 'close-dirty'; then?: 'install' }
-  // Closing a TAB whose root holds unsaved text. Same three answers as the
-  // window's, because the stake is the same: leave that tab and the only route
-  // back to those buffers is gone, even though the window stays open.
-  | { kind: 'close-tab'; id: string; names: readonly string[] }
-  // The plain "sure?" for a clean tab, on by default and switchable in
-  // Settings. Dirty tabs take the unsaved-changes question above instead.
-  | { kind: 'close-tab-confirm'; id: string; label: string; agent: AgentBusy }
-  // The WINDOW, while an agent is mid-answer. `others` is how many more
-  // shells are working too; `then` carries an update install through.
-  | { kind: 'close-window-agent'; label: string; agent: AgentBusy; others: number; then?: 'install' }
-  | { kind: 'file-changed'; path: string; name: string }
-  // Pointing a tab at a different folder strands its unsaved text exactly as
-  // closing it would, so it asks the same question and carries the payload it
-  // will apply on the way through.
-  | { kind: 'reroot'; id: string; names: readonly string[]; payload: OpenPayload }
-
-function TopBar({
-  name,
-  pos,
-  settingsOpen,
-  onToggleSettings,
-  chip,
-  panelOpen,
-  onTogglePanel,
-  setup,
-  wash,
-  editable,
-  editing,
-  dirty,
-  onToggleEdit,
-  onMore,
-  moreOpen
-}: {
-  /** The open file's name - or '' while the sidebar is showing it, so the
-   *  same fact isn't said twice on one screen. */
-  name: string
-  pos: string
-  settingsOpen: boolean
-  onToggleSettings: () => void
-  /** The left-hand panel of whatever is on screen: the tree, or the rail. */
-  panelOpen: boolean
-  onTogglePanel?: () => void
-  /** First-run setup is up: the bar keeps the name and the window buttons, and
-   *  drops the controls for an app you haven't met yet. */
-  setup: boolean
-  /** Whether the style's light reaches the bar. It follows the window: with a
-   *  file on screen there is no wash anywhere. */
-  wash: boolean
-  /** Whether the open file takes the pencil (only markdown does). */
-  editable: boolean
-  editing: boolean
-  /** The open buffer holds unsaved text: the bar says so with a dot. */
-  dirty: boolean
-  onToggleEdit: () => void
-  /** The update chip, or nothing when there is no update. It is handed in,
-   *  not built here: it is prism-term-core's component since #168, and its
-   *  state lives in App beside the window it opens, so the bar only gives it
-   *  its place. */
-  chip?: ReactNode
-  /** The More menu: opened under the button, shut by a second press on it. */
-  onMore: (button: HTMLElement, keyboard?: boolean) => void
-  moreOpen: boolean
-}): JSX.Element {
-  return (
-    // The bar changes colour on a curve rather than in a frame: during the
-    // setup's mode wipe it is the one surface the still doesn't cover, and a
-    // hard swap there read as a flash.
-    <div
-      // Named for the e2e (updateWindow asserts the chip is IN the bar), as
-      // Prism Terminal's bar is.
-      data-title-bar
-      className={`drag p-styled-font flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
-    >
-      {!setup && onTogglePanel && (
-        <PanelToggle open={panelOpen} settingsOpen={settingsOpen} onToggle={onTogglePanel} />
-      )}
-      <span data-wordmark className={`font-semibold text-[var(--p-accent-hi)] ${setup ? '-ml-0.5' : ''}`}>
-        Prism
-      </span>
-      <span data-testid="titlebar-file-name" className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{name}</span>
-      {/* Unsaved work is the one thing the bar interrupts itself to say. The
-          tree names the file, so the dot goes where the eye already is. */}
-      {dirty && (
-        <span
-          className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--p-accent-hi)]"
-          title="Unsaved changes (Ctrl+S)"
-          aria-label="Unsaved changes"
-        />
-      )}
-      {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
-      <TitleButtons
-        setup={setup}
-        chip={chip}
-        onMore={onMore}
-        moreOpen={moreOpen}
-        editable={editable}
-        editing={editing}
-        onToggleEdit={onToggleEdit}
-        settingsOpen={settingsOpen}
-        onToggleSettings={onToggleSettings}
-      />
-    </div>
-  )
-}
-
-/**
- * The title bar's right end: the update chip, More, the pencil, the cog and
- * the three window buttons. Its own component because with the title bar
- * hidden (#250) the same group sits at the end of the tab row instead.
- */
-function TitleButtons({
-  setup,
-  chip,
-  onMore,
-  moreOpen,
-  editable,
-  editing,
-  onToggleEdit,
-  settingsOpen,
-  onToggleSettings
-}: {
-  setup: boolean
-  chip?: ReactNode
-  onMore: (button: HTMLElement, keyboard?: boolean) => void
-  moreOpen: boolean
-  editable: boolean
-  editing: boolean
-  onToggleEdit: () => void
-  settingsOpen: boolean
-  onToggleSettings: () => void
-}): JSX.Element {
-  const w = window.prism
-  return (
-    <>
-      {/* The update chip: a quiet pill, present only while there is something
-          to install, and the SAME component as Prism Terminal's (#168). The
-          rule it was built to keep is this bar's own (owner pick from 12
-          mockups, 2026-08-24): the chip IS the progress bar, one shape for
-          every state, and it never changes width. A click opens the update
-          window; it no longer installs. IT LEADS THE GROUP (owner,
-          2026-09-20, #179: "update button in prism should be the left most
-          button, right now it has the remote button to its left"): the one
-          control in the bar that comes and goes should not sit BETWEEN two
-          that stay, where its arrival pushes More sideways from under the
-          pointer. At the head of the group it only ever takes room from the
-          file's name, which truncates. */}
-      {!setup && chip}
-      {/* More (2026-09-06, #104, as Tools): a menu of things that are not
-          about the open file. Glyph only like its neighbours, and RIGHT of the
-          update chip since 2026-09-20 (#179): it was built to its left.
-          THREE VERTICAL DOTS since #272 (owner, 2026-10-04: "remote should be
-          where it is but the icon should be a 3 vertical dot menu where will
-          have multiple things, remote just being one of them"): the pen read
-          as one tool, and the menu is a drawer for several. It TOGGLES ("it
-          should open then close open close"): the menu ignores a press on
-          the button that owns it, so the button's own click is what shuts it. */}
-      {/* TWO GROUPS (owner, 2026-10-04, of More, the cog and the window
-          buttons: "the icons here seem too far apart, or maybe it should be
-          the 3 vertical dots on the inside"): the app's own buttons sit close
-          together with More on the INSIDE, next to the window buttons, where
-          Chrome and VS Code keep it; a wider step then parts them from
-          minimize, maximize and close. */}
-      <div className="no-drag flex items-center gap-0.5">
-        {!setup && editable && (
-          <button
-            className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-            onClick={onToggleEdit}
-            title={editing ? 'Stop editing' : 'Edit'}
-            aria-label="Edit"
-            aria-pressed={editing}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              width={15}
-              height={15}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-              data-toggle-glyph={editing ? 'on' : 'off'}
-            >
-              {/* Pressed, the pencil is SOLID, as the preview's column is: a
-                  pressed toggle is never tinted the accent (owner, 2026-10-12). */}
-              {editing ? (
-                <path d="M4 20h4L19 9l-4-4L4 16v4z" fill="currentColor" />
-              ) : (
-                <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
-              )}
-            </svg>
-          </button>
-        )}
-        {!setup && (
-          <button
-            className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-            onClick={onToggleSettings}
-            title="Settings"
-            aria-label="Settings"
-            aria-pressed={settingsOpen}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              width={15}
-              height={15}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              aria-hidden
-              data-toggle-glyph={settingsOpen ? 'on' : 'off'}
-            >
-              {/* Open, the gear is SOLID with its hub cut out (evenodd). */}
-              {settingsOpen ? (
-                <path
-                  fill="currentColor"
-                  fillRule="evenodd"
-                  d="M15.2 12a3.2 3.2 0 1 0-6.4 0 3.2 3.2 0 1 0 6.4 0ZM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
-                />
-              ) : (
-                <circle cx="12" cy="12" r="3.2" />
-              )}
-              {!settingsOpen && <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />}
-            </svg>
-          </button>
-        )}
-        {!setup && (
-          <button
-            className="no-drag grid h-7 w-8 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-            // detail 0 is Enter or Space: the menu then takes the focus.
-            onClick={(e) => onMore(e.currentTarget, e.detail === 0)}
-            title="More"
-            aria-label="More"
-            aria-haspopup="menu"
-            aria-expanded={moreOpen}
-            data-more-button
-          >
-            <svg viewBox="0 0 24 24" width={15} height={15} fill="currentColor" aria-hidden data-more-glyph>
-              <circle cx="12" cy="5.5" r="1.7" />
-              <circle cx="12" cy="12" r="1.7" />
-              <circle cx="12" cy="18.5" r="1.7" />
-            </svg>
-          </button>
-        )}
-      </div>
-      <div className="no-drag ml-2 flex items-center gap-1">
-        <button
-          className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-          onClick={() => w.minimize()}
-          aria-label="Minimize"
-          data-window-button
-        >
-          –
-        </button>
-        <button
-          className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-          onClick={() => w.toggleMaximize()}
-          aria-label="Maximize"
-          data-window-button
-        >
-          ▢
-        </button>
-        <button
-          className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-red-500/80 hover:text-[var(--p-text)]"
-          onClick={() => w.close()}
-          aria-label="Close window"
-          data-window-button
-        >
-          ✕
-        </button>
-      </div>
-    </>
-  )
-}
-
-// The one kind with two faces: markdown renders, and the pencil shows its
-// source. Every other text file is only ever itself, so it needs no toggle.
-const isMarkdown = (name: string): boolean => /\.(md|markdown)$/i.test(name)
-
-/** The last segment of a path, either separator. */
-const baseName = (p: string): string => /[^\\/]*$/.exec(p)?.[0] ?? p
-
-/** The folder a path lives in. Undo puts things back where they came from. */
-const parentDir = (p: string): string => p.replace(/[\\/][^\\/]*$/, '') || p
-
-/** While the editor chunk arrives. `delayed-loader` keeps it invisible unless
- *  the wait is long enough to notice, so a warm cache shows nothing at all. */
-function EditorLoading(): JSX.Element {
-  return (
-    <div className="delayed-loader grid h-full w-full place-items-center">
-      <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
-    </div>
-  )
-}
-
-function Viewer({
-  file,
-  onUndoable,
-  refreshKey,
-  onToggleFullscreen,
-  fullscreen,
-  transportStyle,
-  transportBg,
-  onOpenLocal,
-  onAutoAdvance,
-  onStep,
-  canStep,
-  onBuffer,
-  onRenameSelf,
-  getPending,
-  onExternalChange,
-  reloadAnswer,
-  background = false,
-  volumeKey = '',
-  onOpenArchive,
-  note = false,
-  readOnly = false
-}: {
-  file: ViewerFile
-  /** An archive's card asks to go in (#300): the Explorer walks into it, a
-   *  project's tree opens its node. */
-  onOpenArchive?: (path: string) => void
-  /** Full view or a project: a member wears its read-only note (#300). The
-   *  preview pane carries none (mockup 04). */
-  note?: boolean
-  /** A member of an archive, shown from its temp copy: nothing edits it. */
-  readOnly?: boolean
-  /** An archive reports its own undoable writes up to App's stack. */
-  onUndoable: (entry: UndoEntry) => void
-  /** An archive's own "Rename" verb: App owns renaming, so it does it. */
-  onRenameSelf: (name: string) => void
-  /** Bumped after an undo, so an open archive re-reads its container. */
-  refreshKey: number
-  onToggleFullscreen: () => void
-  fullscreen: boolean
-  transportStyle: TransportStyle
-  /** How solid the band behind the video's controls is, 0-100%. */
-  transportBg: number
-  /** Something outside Prism rewrote a file that holds unsaved edits. */
-  onExternalChange: (path: string) => void
-  /** What the user answered about it. */
-  reloadAnswer: { path: string; reload: boolean } | null
-  /** A markdown link to a local file; opened the same way as a tree click. */
-  onOpenLocal: (path: string) => void
-  /** Autoplay: a finished video/track moves to the next of its kind. */
-  onAutoAdvance: () => void
-  /** The video menu's Next / Previous, by the same rule. */
-  onStep: (dir: 1 | -1) => void
-  canStep: (dir: 1 | -1) => boolean
-  /** Code and text edit in place, so the viewer hands its buffer up to App. */
-  onBuffer: (path: string, text: string | null) => void
-  /** Asked for the unsaved text of a file, if App is holding any. */
-  getPending: (path: string) => string | undefined
-  /** This tab is not the one in front: its player keeps going, unseen. */
-  background?: boolean
-  /** Whose volume this player uses - the tab's, for the session. */
-  volumeKey?: string
-}): JSX.Element {
-  // A MEMBER of an archive (#300): main unpacks it to the run's temp folder
-  // first, and the same viewer is drawn on the copy, read-only.
-  if (file.member) {
-    const props = {
-      onUndoable, refreshKey, onToggleFullscreen, fullscreen, transportStyle, transportBg,
-      onOpenLocal, onAutoAdvance, onStep, canStep, onBuffer, onRenameSelf, getPending,
-      onExternalChange, reloadAnswer, background, volumeKey, onOpenArchive
-    }
-    const gate = (
-      <MemberGate file={file} render={(real) => <Viewer {...props} file={real} readOnly />} />
-    )
-    if (!note) return gate
-    return (
-      <div className="flex h-full w-full min-h-0 flex-col">
-        <MemberNote path={file.path} onExtracted={onOpenLocal} />
-        <div className="relative flex min-h-0 flex-1 items-center justify-center">{gate}</div>
-      </div>
-    )
-  }
-  const url = window.prism.mediaUrl(file.path)
-  switch (file.kind) {
-    case 'video':
-      return (
-        <VideoView
-          url={url}
-          path={file.path}
-          onToggleFullscreen={onToggleFullscreen}
-          onAutoAdvance={onAutoAdvance}
-          onStep={onStep}
-          canStep={canStep}
-          transportStyle={transportStyle}
-          transportBg={transportBg}
-          background={background}
-          volumeKey={volumeKey}
-          fullscreen={fullscreen}
-        />
-      )
-    case 'image':
-      return (
-        <ImageView
-          url={url}
-          path={file.path}
-          name={file.name}
-          onToggleFullscreen={onToggleFullscreen}
-          onStep={onStep}
-          canStep={canStep}
-          fullscreen={fullscreen}
-        />
-      )
-    case 'audio':
-      return (
-        <AudioView
-          url={url}
-          path={file.path}
-          name={file.name}
-          fullscreen={fullscreen}
-          onToggleFullscreen={onToggleFullscreen}
-          onAutoAdvance={onAutoAdvance}
-          onStep={onStep}
-          canStep={canStep}
-          transportStyle={transportStyle}
-          background={background}
-          volumeKey={volumeKey}
-        />
-      )
-    case 'pdf':
-      return (
-        <Suspense fallback={<EditorLoading />}>
-          <PdfView url={url} path={file.path} onToggleFullscreen={onToggleFullscreen} />
-        </Suspense>
-      )
-    case 'doc':
-      return (
-        <Suspense fallback={<EditorLoading />}>
-          <DocView path={file.path} name={file.name} />
-        </Suspense>
-      )
-    case 'comic':
-      return (
-        <Suspense fallback={<EditorLoading />}>
-          <ComicView
-            path={file.path}
-            name={file.name}
-            onToggleFullscreen={onToggleFullscreen}
-            fullscreen={fullscreen}
-          />
-        </Suspense>
-      )
-    case 'archive':
-      // ZIPS ARE FOLDERS (#300): an archive is gone INTO, like a folder, and
-      // its row previews as this card. The old panel lives on for the phone.
-      return (
-        <ArchiveCard
-          path={file.path}
-          name={file.name}
-          mtimeMs={file.mtimeMs}
-          onOpen={() => onOpenArchive?.(file.path)}
-          onExtractHere={() => void window.prism.archiveExtractAll(file.path, true)}
-          onExtractTo={() => void window.prism.archiveExtractAll(file.path, false)}
-        />
-      )
-    case 'text':
-      // Markdown is a document until the pencil says otherwise; everything else
-      // is its own source, editable where it sits. A save here changes nothing
-      // on screen that isn't already there, so it must not remount the viewer.
-      return isMarkdown(file.name) ? (
-        <Suspense fallback={<EditorLoading />}>
-          <MarkdownView path={file.path} onOpenLocal={onOpenLocal} />
-        </Suspense>
-      ) : (
-        <Suspense fallback={<EditorLoading />}>
-          <CodeView
-            path={file.path}
-            name={file.name}
-            readOnly={readOnly}
-            onSaved={() => {}}
-            onBuffer={onBuffer}
-            getPending={getPending}
-            onExternalChange={onExternalChange}
-            answer={reloadAnswer}
-            fullscreen={fullscreen}
-          />
-        </Suspense>
-      )
-    default:
-      // Windows can always hand us a file we don't show: the "Choose another
-      // app" dialog lists every installed application, not just the ones
-      // registered for the type. Say so plainly instead of leaving an empty
-      // window with a grey line in it.
-      return <UnsupportedView file={file} />
-  }
-}
-
-/** One pinned split pane: a fixed file, independent of paging, with its X. */
-function PinnedPaneView({
-  paneId,
-  path,
-  area,
-  dir,
-  term,
-  termRoot,
-  shellId,
-  onMove,
-  onClose,
-  viewerProps
-}: {
-  paneId: string
-  path: string
-  area: string
-  dir: SplitDir
-  /** A TERMINAL pane (2026-09-03): the shell's id, its root and the shell
-   *  to spawn, instead of a file. */
-  term?: string
-  termRoot?: string
-  shellId?: string
-  onMove: (dir: SplitDir) => void
-  onClose: () => void
-  /** What a FILE pane's viewer needs; a terminal pane has no viewer. */
-  viewerProps?: Omit<Parameters<typeof Viewer>[0], 'file'>
-}): JSX.Element {
-  const name = term ? 'terminal' : (path.split(/[\\/]/).pop() ?? path)
-  const ext = /\.[^.]+$/.exec(name)?.[0]?.toLowerCase() ?? ''
-  const file: ViewerFile = { path, name, ext, kind: fileKind(ext, name), size: 0, mtimeMs: 0 }
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  return (
-    <div
-      data-pane="pinned"
-      data-pane-id={paneId}
-      className="group/pane relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
-      style={{ gridArea: area }}
-      // A right-click along the pane's TOP BAND (owner, 2026-09-03) is about
-      // the pane - where it sits, and taking it out of the split. Lower down
-      // the file's own menu answers, so this is decided by height in the
-      // capture phase rather than by a strip that would eat the picture's
-      // clicks.
-      onContextMenuCapture={(e) => {
-        const top = e.currentTarget.getBoundingClientRect().top
-        if (e.clientY - top > 28) return
-        e.preventDefault()
-        e.stopPropagation()
-        setMenu({ x: e.clientX, y: e.clientY })
-      }}
-    >
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(null)}
-          items={splitPaneMenu({ dir, onMove, onClose })}
-        />
-      )}
-      {term ? (
-        <div className="h-full w-full" data-term-region>
-          <Suspense
-            fallback={
-              <div className="grid h-full place-items-center text-sm text-[var(--p-dim)]">
-                Starting shell…
-              </div>
-            }
-          >
-            <TerminalPanelLazy sessionId={term} root={termRoot ?? ''} shellId={shellId} />
-          </Suspense>
-        </div>
-      ) : viewerProps ? (
-        <Viewer key={`${file.kind}:${path}`} file={file} {...viewerProps} />
-      ) : null}
-      <button
-        className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/pane:opacity-100"
-        onClick={onClose}
-        title="Remove from split view"
-        aria-label={`Remove ${name} from split view`}
-      >
-        <svg
-          viewBox="0 0 24 24"
-          width={11}
-          height={11}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          aria-hidden
-        >
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
-      </button>
-    </div>
-  )
-}
-
-/**
- * The window with nothing in it at all.
- *
- * The first button is NEW TAB, not "Open file…" (owner pick, 2026-08-31).
- * Picking one file from a dialog is the narrowest way into an app whose whole
- * model is a tab rooted at a FOLDER you then browse: it left you with one
- * file and no obvious next move. New tab is instant and lands you somewhere
- * to look around, exactly as the + does, and the folder chooser is beside it
- * for when you know where you are going. Dropping a file still works and the
- * line above still says so.
- */
-function EmptyState({
-  onNewTab,
-  onOpenFolder
-}: {
-  onNewTab: () => void
-  onOpenFolder: () => void
-}): JSX.Element {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-      {/* A hairline and nothing else, so the window's own material carries
-          through it. No backdrop-filter: inside a transparent window it has
-          nothing behind to sample and composites as a solid fill, which is
-          exactly the opaque tile this was meant to get rid of. */}
-      <div className="grid h-[72px] w-[72px] place-items-center rounded-[20px] border border-[color:var(--p-line)] text-[var(--p-accent-hi)]">
-        <svg
-          viewBox="0 0 24 24"
-          width={30}
-          height={30}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M7 18a4 4 0 0 1 .6-8 5.2 5.2 0 0 1 10 1.2A3.4 3.4 0 0 1 17.5 18z" />
-          <path d="M12 11v6m0 0l-2.2-2.2M12 17l2.2-2.2" />
-        </svg>
-      </div>
-      <div className="text-lg font-semibold">Open a file or folder to view it</div>
-      <div className="text-sm text-[var(--p-dim)]">Drop a file here, or</div>
-      <div className="flex items-center gap-2">
-        <button
-          className="no-drag rounded-xl bg-[var(--p-accent)] px-4 py-2 text-sm font-semibold text-[var(--p-on-accent)] hover:brightness-110"
-          onClick={onNewTab}
-        >
-          New tab
-        </button>
-        <button
-          className="no-drag rounded-xl border border-[color:var(--p-line)] px-4 py-2 text-sm font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-accent-hi)]"
-          onClick={onOpenFolder}
-        >
-          Open folder…
-        </button>
-      </div>
-    </div>
-  )
-}
-
-/** A tab with a root but nothing on screen yet (a terminal-first tab whose
- *  terminal was tucked away): quiet words, not the open-file pitch. The way
- *  in is the sidebar this tab already has, so nothing here needs a button.
- *  Deliberately NOT the first file auto-opened: a hidden terminal must never
- *  start playing whatever happens to sort first. */
-function NoFileState(): JSX.Element {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-1.5 text-center">
-      <div className="text-sm font-medium text-[var(--p-dim)]">No file selected</div>
-      <div className="text-xs text-[var(--p-dim2)]">Pick one from the sidebar</div>
-    </div>
-  )
-}
 
 export default function App(): JSX.Element {
   // The open projects. A tab carries every viewable sibling main found for its
@@ -911,7 +179,7 @@ export default function App(): JSX.Element {
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
   // THE TAB STRIP ON THE DIAGNOSTICS TIMELINE (#322): opened, closed, switched
   // to, a project opened, a file reaching the player. Read off the state
-  // (lib/tabCrumbs), since a tab changes from a dozen places.
+  // (lib/tabs/tabCrumbs), since a tab changes from a dozen places.
   const crumbedTabs = useRef<TabState>({ tabs: [], activeId: null })
   useEffect(() => {
     for (const c of tabCrumbs(crumbedTabs.current, tabState)) crumb(c.a, c.fields, { often: c.often })
@@ -994,10 +262,10 @@ export default function App(): JSX.Element {
   // Setup launches with --setup, which shows the guide even here, where it has
   // been through once already.
   const [setup, setSetup] = useState(
-    () => window.prism.forceSetup === true || localStorage.getItem(SETUP_KEY) !== '1'
+    () => window.prism.forceSetup === true || !onboardedPref.get()
   )
   // The file tree. Off on a fresh install: the media is the point.
-  const [sidebar, setSidebar] = useState(() => localStorage.getItem(SIDEBAR_KEY) === '1')
+  const [sidebar, setSidebar] = useState(sidebarPref.get)
   // TWO SIDEBAR POSITIONS (#304; owner, 2026-10-07: "No, it should be two
   // settings, one on the project tab and one on the explorer tab"): the
   // project tree's (Project settings) and the Explorer's places (Explorer >
@@ -1022,13 +290,11 @@ export default function App(): JSX.Element {
   const toggleSidebar = useCallback(() => {
     slidePanel()
     setSidebar((on) => {
-      localStorage.setItem(SIDEBAR_KEY, on ? '0' : '1')
+      sidebarPref.set(!on)
       return !on
     })
   }, [slidePanel])
-  const [placesVisible, setPlacesVisible] = useState(
-    () => localStorage.getItem('prism.explorer.places') !== '0'
-  )
+  const [placesVisible, setPlacesVisible] = useState(placesPref.get)
   // The pencil: markdown's raw source, the one text kind with a rendered form
   // to toggle away from. Leaving the file leaves the editor; a save bumps
   // docVersion so the rendered view re-reads what was written.
@@ -1126,7 +392,7 @@ export default function App(): JSX.Element {
    */
   const [reloadAnswer, setReloadAnswer] = useState<{ path: string; reload: boolean } | null>(null)
   const onExternalChange = useCallback((path: string) => {
-    setAsk({ kind: 'file-changed', path, name: path.split(/[\\/]/).filter(Boolean).pop() ?? path })
+    setAsk({ kind: 'file-changed', path, name: baseName(path) })
   }, [])
   /** The tree's arrow keys, lent up by Sidebar. Null while there is no tree to
    *  drive (panel shut, search showing); App then pages the folder itself. */
@@ -1156,7 +422,7 @@ export default function App(): JSX.Element {
   const browsingOpenFile = browsing.openFile
   const arriveFromWindows = useCallback(
     (path: string, full: boolean): Promise<boolean | undefined> =>
-      browsableArchive(path.replace(/^.*[\\/]/, ''))
+      browsableArchive(baseName(path))
         ? browsingNavigate(path).then(() => true)
         : browsingOpenFile(path, full),
     [browsingNavigate, browsingOpenFile]
@@ -1165,13 +431,28 @@ export default function App(): JSX.Element {
     if (fullscreen) setFs(false)
   })
   const [ask, setAsk] = useState<Ask | null>(null)
+  /** "Save all changes" in an unsaved-changes question: write everything,
+   *  then go on. A failed write must not close anything over the top of the
+   *  text it failed to keep: we stay put and say which file. */
+  const saveAllThen = useCallback(
+    (then: () => void): void =>
+      void saveAll().then((failed) => {
+        if (failed.length) {
+          setAsk({ kind: 'failed', message: `Couldn't save ${failed.map(baseName).join(', ')}.` })
+          return
+        }
+        setAsk(null)
+        then()
+      }),
+    [saveAll]
+  )
 
   // Settings covers the tree, so over it the same control collapses that page's
   // rail instead: one button, one idea - narrow the panel on the left.
-  const [compactRail, setCompactRail] = useState(() => localStorage.getItem(RAIL_KEY) === '1')
+  const [compactRail, setCompactRail] = useState(compactRailPref.get)
   const toggleRail = useCallback(() => {
     setCompactRail((on) => {
-      localStorage.setItem(RAIL_KEY, on ? '0' : '1')
+      compactRailPref.set(!on)
       return !on
     })
   }, [])
@@ -1181,10 +462,10 @@ export default function App(): JSX.Element {
   const pinPanel = useCallback(() => {
     if (active && isExplorerTab(active)) {
       setPlacesVisible(true)
-      localStorage.setItem('prism.explorer.places', '1')
+      placesPref.set(true)
     } else {
       setSidebar(true)
-      localStorage.setItem(SIDEBAR_KEY, '1')
+      sidebarPref.set(true)
     }
   }, [active])
   const togglePanel = useCallback(() => {
@@ -1194,7 +475,7 @@ export default function App(): JSX.Element {
       if (active.browse.surface !== 'folder') return
       slidePanel()
       setPlacesVisible((visible) => {
-        localStorage.setItem('prism.explorer.places', visible ? '0' : '1')
+        placesPref.set(!visible)
         return !visible
       })
     }
@@ -1202,11 +483,11 @@ export default function App(): JSX.Element {
   }, [settingsOpen, active, toggleRail, toggleSidebar, slidePanel, pinPanel])
   const pickTransport = useCallback((s: TransportStyle) => {
     setTransportStyle(s)
-    localStorage.setItem(TRANSPORT_KEY, s)
+    saveTransportStyle(s)
   }, [])
   const pickTransportBg = useCallback((pct: number) => {
     setTransportBg(pct)
-    localStorage.setItem(TRANSPORT_BG_KEY, String(pct))
+    saveTransportBg(pct)
   }, [])
 
   /**
@@ -1398,9 +679,8 @@ export default function App(): JSX.Element {
       // A FILE from outside: the Explorer's, not a project's (2026-09-22). A
       // film or a track still plays - it was picked.
       if (p?.explorerFile) {
-        const name = p.explorerFile.split(/[\\/]/).pop() ?? ''
-        const dot = name.lastIndexOf('.')
-        const kind = fileKind(dot > 0 ? name.slice(dot).toLowerCase() : '', name)
+        const name = baseName(p.explorerFile)
+        const kind = fileKind(extOf(name), name)
         if (kind === 'video' || kind === 'audio') intendToPlay(window.prism.mediaUrl(p.explorerFile))
         arriveInExplorer(p.explorerFile)
         return
@@ -1415,142 +695,8 @@ export default function App(): JSX.Element {
     [open, arriveInExplorer]
   )
   useEffect(() => window.prism.onOpenFile(arrive, () => setRestoring(false)), [arrive])
-
-  useEffect(() => window.prism.onFullscreen(setFullscreen), [])
-  /**
-   * Fullscreen the way YouTube actually does it: the DOM Fullscreen API on
-   * the viewer element, which gets Chromium's own built-in smooth transition
-   * for free - no hand-rolled veil, no animation of ours at all. The window
-   * fullscreen IPC survives only as the fallback for when the element can't
-   * take it (e.g. the viewer is display:none under a full terminal).
-   */
-  const viewerBox = useRef<HTMLDivElement>(null)
-  // The fade-to-black rides ON TOP of the DOM fullscreen: darken (150ms), do
-  // the swap under full black, lift (280ms) once the new frame has laid out.
-  // Driven by transitionend and rAF, styled directly on the nodes, so nothing
-  // re-renders mid-fade.
-  //
-  // TWO VEILS, and the reason is the whole staging (2026-09-02). The inner one
-  // lives INSIDE the fullscreen element, because anything outside it stops
-  // rendering the moment the element goes fullscreen - it is what covers the
-  // swap itself. But on its own it darkened only the picture: the sidebar, the
-  // tab strip and the title bar stayed lit through the fade and then vanished
-  // when fullscreen began. That reads as three steps - the view goes black, the
-  // chrome disappears, the screen fills - instead of one.
-  //
-  // So the OUTER one covers the whole window and fades WITH it. It stops
-  // existing when fullscreen starts, which is exactly when the inner one is
-  // already fully black, so the handover is black to black. Coming back out it
-  // is there again, covering the window as it reappears.
-  const fsVeilEl = useRef<HTMLDivElement>(null)
-  const fsVeilOuter = useRef<HTMLDivElement>(null)
-  const veils = useCallback(
-    (): HTMLDivElement[] =>
-      [fsVeilEl.current, fsVeilOuter.current].filter((v): v is HTMLDivElement => !!v),
-    []
-  )
-  /** Every raise of the veil starts a new GENERATION, and every scheduled
-   *  lift carries the generation it belongs to (2026-09-03). Without this the
-   *  1.5s safety lift outlived its own toggle: its delayed chain fired INTO
-   *  the next toggle's fade-in and yanked the fresh black back to transparent
-   *  mid-rise, so at certain toggle rhythms the swap ran half-veiled or bare -
-   *  the owner's "sometimes it just switches without fading". A stale lift
-   *  now checks its generation at every step and dies quietly. */
-  const veilGen = useRef(0)
-  const liftVeil = useCallback(
-    (gen: number) => {
-      const list = veils()
-      const fresh = (): boolean => gen === veilGen.current
-      if (!list.length) {
-        window.prism.setFsTransition(false)
-        window.prism.setFsShroud(false)
-        return
-      }
-      // Hold the black (320ms) before lifting: long enough for main's shroud
-      // to have covered the resize and gone (it leaves at 300ms), so the far
-      // side is revealed under black. The double rAF then guarantees the new
-      // frame is laid out.
-      setTimeout(() => {
-        if (!fresh()) return
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() => {
-            if (!fresh()) return
-            for (const v of list) {
-              v.style.transition = 'opacity 280ms ease-out'
-              v.style.opacity = '0'
-            }
-            // The shroud fades out on the same clock, so the taskbar and the
-            // desktop reappear WITH the window instead of popping a frame
-            // ahead of it.
-            window.prism.setFsShroud(false)
-            // The far side is painted and the black is lifting: the window may
-            // have its material back. Held until now rather than released on
-            // `enter-full-screen`, which fires while the resize is still running.
-            setTimeout(() => {
-              if (fresh()) window.prism.setFsTransition(false)
-            }, 300)
-          })
-        )
-      }, 320)
-    },
-    [veils]
-  )
-  const setFs = useCallback(
-    (on: boolean) => {
-      veilGen.current += 1
-      const gen = veilGen.current
-      const doSwap = (): void => {
-        // Main covers the display first and asks Windows for real fullscreen a
-        // beat later - the sandwich; see `window:set-fullscreen` in main.
-        window.prism.setFullscreen(on)
-        liftVeil(gen)
-      }
-      const list = veils()
-      const veil = fsVeilEl.current
-      // Opaque FIRST, and before anything moves: this is the whole fix for the
-      // one-frame desktop flash, and it has to happen while the black is up.
-      window.prism.setFsTransition(true)
-      // And the shroud rises with the veil, so the taskbar and the desktop
-      // fade to black on the same clock as the window instead of snapping.
-      window.prism.setFsShroud(true)
-      if (!veil || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        doSwap()
-        return
-      }
-      for (const v of list) {
-        v.style.transition = 'opacity 150ms ease-in'
-        v.style.opacity = '1'
-      }
-      let fired = false
-      const done = (): void => {
-        if (fired || gen !== veilGen.current) return
-        fired = true
-        // One frame of margin after the fade completes, so the swap happens
-        // under GUARANTEED full black, never on the fade's last visible frame.
-        setTimeout(() => {
-          if (gen === veilGen.current) doSwap()
-        }, 40)
-      }
-      veil.addEventListener('transitionend', done, { once: true })
-      setTimeout(done, 240) // transitionend can be swallowed; the swap may not
-      setTimeout(() => liftVeil(gen), 1500) // if the swap failed, never stay black
-    },
-    [liftVeil, veils]
-  )
-  useEffect(() => {
-    // Element fullscreen is the source of truth; Escape exits it natively and
-    // this keeps the app state honest either way.
-    const onChange = (): void => setFullscreen(!!document.fullscreenElement)
-    document.addEventListener('fullscreenchange', onChange)
-    return () => document.removeEventListener('fullscreenchange', onChange)
-  }, [])
-  // Whichever path changed the state (element, fallback, OS), the new frame is
-  // up: lift the veil over it.
-  useEffect(() => liftVeil(veilGen.current), [fullscreen, liftVeil])
-  // Main held the window open because the editor is dirty; ask, then answer it.
-  const askClose = useRef<() => void>(() => {})
-  useEffect(() => window.prism.onAskClose(() => askClose.current()), [])
-
+  // Fullscreen and the fade to black over its swap (hooks/useFullscreenVeil).
+  const { setFs, viewerBox, fsVeilOuter, fsVeilEl } = useFullscreenVeil({ setFullscreen, fullscreen })
   // More > Phone (#104; the button was Tools until #272): the menu under the
   // title bar's three dots and the dialog its first row opens. The dialog is
   // handed the ACTIVE tab's root, so the QR it shows pairs a phone to the
@@ -1571,82 +717,8 @@ export default function App(): JSX.Element {
     })
   }, [])
   const [phoneOpen, setPhoneOpen] = useState(false)
-  /**
-   * What STARTS the install once every question has been answered. It is the
-   * core's (`useUpdateFlow` hands it to the guard below: it moves the chip to
-   * "downloading" and calls the bridge); Prism only decides WHEN it may run.
-   * Held in a ref because the questions are asked through `ask`, which carries
-   * `then: 'install'` and not a function, as it always has.
-   */
-  const installStart = useRef<(() => void) | null>(null)
-  const runInstall = useCallback(() => {
-    const start = installStart.current
-    installStart.current = null
-    start?.()
-  }, [])
-  /**
-   * LEAVING THE APP - closing the window, or the quit an update install ends
-   * in - once unsaved text has been settled. prism-term-core's rule, the same
-   * in Prism Terminal (owner, 2026-09-19): the window is held only while an
-   * agent is MID-ANSWER, since an idle one comes back at the next launch.
-   */
-  const leave = useCallback(
-    (then?: 'install') => {
-      const busy = [...workingIds]
-      if (!holdsWindowClose(busy.length)) {
-        if (then === 'install') runInstall()
-        else window.prism.close(true)
-        return
-      }
-      const root = tabs.find((t) => t.terms.includes(busy[0]))?.root ?? ''
-      setAsk({
-        kind: 'close-window-agent',
-        label: root.split(/[\\/]/).filter(Boolean).pop() ?? root,
-        agent: { kind: agentKinds.current.get(busy[0]) ?? 'other', forMs: workingFor(busy[0]) },
-        others: busy.length - 1,
-        then
-      })
-    },
-    [agentKinds, runInstall, tabs, workingIds]
-  )
-  useEffect(() => {
-    askClose.current = () => (dirtyPaths.size ? setAsk({ kind: 'close-dirty' }) : leave())
-  }, [dirtyPaths, leave])
-  // Main holds every route out of the window while this is true.
-  useEffect(() => window.prism.setAgentBusy(holdsWindowClose(workingIds.size)), [workingIds])
-  /**
-   * THE UPDATE CHIP AND ITS WINDOW (#168). Both are prism-term-core's, the
-   * same in Prism Terminal (owner, 2026-09-19: "yes keep the core"): a click on
-   * the chip opens a window with the release's notes, and Install in that
-   * window comes HERE before anything is downloaded. What is Prism's is this
-   * guard, and it is the path the chip's click used to take, unchanged:
-   * installing ends in a quit, and unsaved text vetoes a quit, so the same
-   * question closing asks is asked first (2026-08-28; main refuses the install
-   * outright while anything is dirty), and then `leave` asks about an agent
-   * that is mid-answer. Never calling `start` is the cancel. A PREVIEW never
-   * gets here: the core starts its fake install unguarded, because it closes
-   * nothing and asking "discard your changes?" for a demo would be the app
-   * lying to make it look real.
-   */
-  const installGuard = useCallback(
-    (start: () => void) => {
-      installStart.current = start
-      if (dirtyPaths.size) setAsk({ kind: 'close-dirty', then: 'install' })
-      else leave('install')
-    },
-    [dirtyPaths, leave]
-  )
-  // ONE QUESTION AT A TIME, Prism Terminal's finding and the same here: the
-  // app's chords still work while the update window is up (Ctrl+W, Alt+F4), and
-  // a question raised from behind it mounts UNDER it (same z-index, earlier in
-  // the document) and takes the focus onto its primary button where nobody can
-  // see it, so Enter, pressed at what looks like Install, answers the hidden
-  // question instead. A question about losing work outranks a list of patch
-  // notes, so the window gives way. That is the core's `covered` since #178:
-  // it holds mid-install too, where the user cannot close the window (it stays
-  // up and draws the progress, owner 2026-09-20), and a running install's
-  // window comes back once the question has been answered.
-  const update = useUpdateFlow(window.prism, installGuard, !!ask)
+  // Closing, and the update install that ends in a quit (hooks/useWindowClose).
+  const { update, leave, runInstall } = useWindowClose({ workingIds, tabs, setAsk, agentKinds, dirtyPaths, ask })
   /** The running version, for the window's "You have" line. Asked once. */
   const [appVersion, setAppVersion] = useState('')
   useEffect(() => {
@@ -1662,300 +734,48 @@ export default function App(): JSX.Element {
     activeIdRef.current = activeId
   }, [tabs, activeId])
 
-  /**
-   * A new tab, immediately. No dialog: the + and Ctrl+T are meant to be instant,
-   * so a tab arrives rooted at the user's own folder and you browse from there.
-   * Choosing a folder is the sidebar's button, which changes THIS tab.
-   *
-   * It spawns unconditionally, unlike an arriving file: pressing + and watching
-   * nothing happen because that root was already open would be worse than two
-   * tabs on one folder.
-   */
-  const newTab = useCallback(() => {
-    void (async () => {
-      const mode = newTabMode()
-      const home = (await window.prism.browseLocations()).find(
-        (place) => place.name === 'Home'
-      )?.path
-      const path =
-        mode === 'ask' ? await window.prism.pickFolder() : mode === 'folder' ? newTabFolder() : home
-      if (!path) return
-      const id = nextTabId()
-      const directory =
-        (await window.prism.browseDirectory(id, path)) ??
-        (home ? await window.prism.browseDirectory(id, home) : null)
-      if (!directory) return
-      visitedDirectories.remember(directory)
-      const p: OpenPayload = { root: directory.path, files: directory.listing.files, index: -1 }
-      setTabState((s) => addExplorerTab(s.tabs, p, id))
-      setHasNavigated(false)
-    })()
-  }, [])
-
-  useWinEOpen(tabState, setTabState, browsing.folder && !setup && !fullscreen, nextTabId, () => {
-    if (fullscreen) setFs(false)
-  })
-
-  /** Close one tab. The last one leaves an empty window rather than taking the
-   *  window with it: Prism is resident, and a window that vanishes under a
-   *  reflex keystroke is the failure this app has been careful to avoid. */
-  const forceCloseTab = useCallback((id: string) => {
-    setTabState((s) => {
-      // The tab's shell dies with it, both halves: main's pty and the
-      // renderer's xterm instance.
-      const tab = s.tabs.find((t) => t.id === id)
-      if (tab && isPinnedExplorer(tab)) return s
-      // EVERY shell the tab held (2026-09-03), not only the current one.
-      for (const termId of tab?.terms ?? []) {
-        window.prism.termKill(termId)
-        disposeSession(termId)
-        termRoots.current.delete(termId)
-      }
-      // ...and so does the level it was playing at: the id never comes back.
-      forgetTabVolume(id)
-      window.prism.browseRelease(id)
-      bufferOwners.current.delete(id)
-      return closeTab(s.tabs, id, s.activeId)
-    })
-  }, [])
-  /** Unsaved buffers living under a tab's root, as their names are spelled. */
-  const dirtyUnder = useCallback((root: string): string[] => {
-    const r = root.toLowerCase()
-    return [...buffers.current.values()]
-      .filter((b) => b.path.toLowerCase().startsWith(r))
-      .map((b) => baseName(b.path))
-  }, [])
-  const bufferBelongsTo = useCallback((tab: Tab, path: string): boolean => {
-    const key = path.toLowerCase()
-    return (
-      !!bufferOwners.current.get(tab.id)?.has(key) ||
-      tab.files[tab.index]?.path.toLowerCase() === key ||
-      tab.panes.some((pane) => pane.path.toLowerCase() === key)
-    )
-  }, [])
   /** Where each shell last said it was (#99): its prompt's own report. A
    *  shell that has never reported (WSL, a shell still starting) is absent,
    *  and absent means Prism does not know, so it does not act. */
   const termCwd = useRef(new Map<string, string>())
   const [cwdRevision, setCwdRevision] = useState(0)
-  const applyReroot = useCallback((id: string | null, p: OpenPayload) => {
-    setTabState((s) => {
-      const next = rerootTab(s.tabs, id, p, nextTabId())
-      // The terminal policy on a folder change: an UNTOUCHED shell simply
-      // follows - killed and respawned in the new folder, view kept. A
-      // touched one (a Claude session, half-typed work) stays where it was;
-      // Clear later re-syncs it.
-      const tab = next.tabs.find((t) => t.id === id)
-      if (
-        tab?.term &&
-        !isTouched(tab.term.id) &&
-        !agentKinds.current.has(tab.term.id) &&
-        !sameRoot(termRoots.current.get(tab.term.id) ?? '', p.root)
-      ) {
-        window.prism.termKill(tab.term.id)
-        disposeSession(tab.term.id)
-        termRoots.current.delete(tab.term.id)
-        const termId = nextTermId()
-        termRoots.current.set(termId, p.root)
-        return { ...next, tabs: setTabTerm(next.tabs, tab.id, { id: termId, view: tab.term.view }) }
-      }
-      // A TOUCHED shell follows too now (#99, owner decision 2026-09-04), by
-      // one Set-Location written into it - and only at a moment that cannot
-      // hurt: it has reported a prompt and nothing has been typed since (so
-      // no half-typed line runs with the cd in front of it), no agent is
-      // living in it (its folder is the agent's, not the tab's), and it is
-      // not already there. Anything else, it is left alone, silently: the
-      // shell is somebody's work and a folder change is not a reason to
-      // interrupt it.
-      if (
-        tab?.term &&
-        isTouched(tab.term.id) &&
-        !agentKinds.current.has(tab.term.id) &&
-        idleAtPrompt(tab.term.id) &&
-        decideFollow(p.root, termCwd.current.get(tab.term.id) ?? '') !== 'same' &&
-        termCwd.current.has(tab.term.id)
-      ) {
-        termCwd.current.set(tab.term.id, p.root)
-        window.prism.termCd(tab.term.id, p.root)
-      }
-      return next
-    })
-    setHasNavigated(false)
-  }, [agentKinds])
-  /**
-   * The sidebar's folder button: this tab becomes that folder, rather than a new
-   * tab beside it. The strip's `+` is the one that accumulates.
-   *
-   * It asks first when the tab holds unsaved text, because the consequence is
-   * the close-a-tab consequence: the route back to those buffers goes with the
-   * root. A folder already open in another tab switches there instead, so the
-   * one-tab-per-root rule the arriving-file logic leans on still holds.
-   */
-  const rerootHere = useCallback(() => {
-    void window.prism.openFolder(tabs.find((t) => t.id === activeId)?.root).then((p) => {
-      if (!p) return
-      const here = tabs.find((t) => t.id === activeId)
-      const names = here && !sameRoot(here.root, p.root) ? dirtyUnder(here.root) : []
-      if (names.length && activeId) setAsk({ kind: 'reroot', id: activeId, names, payload: p })
-      else applyReroot(activeId, p)
-    })
-  }, [activeId, applyReroot, dirtyUnder, tabs])
-  /** Close a tab, asking first when that would strand unsaved text. */
-  const closeOneTab = useCallback(
-    (id: string) => {
-      const tab = tabs.find((t) => t.id === id)
-      if (!tab) return
-      if (isPinnedExplorer(tab)) return
-      if (tab.kind === 'settings') {
-        forceCloseTab(id)
-        return
-      }
-      // Unsaved text asks in EVERY mode: the setting below only governs the
-      // plain "you are closing a tab" confirmation, never data loss.
-      const names = [...buffers.current.values()]
-        .filter((b) => bufferBelongsTo(tab, b.path))
-        .map((b) => baseName(b.path))
-      if (names.length) setAsk({ kind: 'close-tab', id, names })
-      else {
-        // THE CLOSE QUESTION IS ONE RULE, NOT A SETTING (owner, 2026-09-19;
-        // prism-term-core's agentClose, the same in Prism Terminal): a plain
-        // shell closes unasked, a tab whose shell HOSTS an agent asks, working
-        // or idle. It replaced the Agents / Off setting that lived here.
-        // ANY of the tab's shells (2026-09-03): an agent in a hidden second
-        // terminal is exactly what the question exists to protect; a working
-        // one is named ahead of an idle one, being what is most at stake.
-        const hostId =
-          tab.terms.find((t) => workingIds.has(t)) ?? tab.terms.find((t) => agentIds.has(t))
-        if (hostId === undefined || !asksBeforeClosingTab(true)) forceCloseTab(id)
-        else
-          setAsk({
-            kind: 'close-tab-confirm',
-            id,
-            label: tab.root.split(/[\\/]/).filter(Boolean).pop() ?? tab.root,
-            agent: {
-              kind: agentKinds.current.get(hostId) ?? 'other',
-              forMs: workingIds.has(hostId) ? workingFor(hostId) : null
-            }
-          })
-      }
-    },
-    [agentIds, agentKinds, bufferBelongsTo, forceCloseTab, tabs, workingIds]
-  )
-  const closeActiveTab = useCallback(() => {
-    if (activeId) closeOneTab(activeId)
-  }, [activeId, closeOneTab])
-  /** Whatever a tab interaction did to DOM focus, a SHOWING terminal gets the
-   *  keyboard back: clicking or dragging a tab is not "I left the shell", and
-   *  losing focus there sent the arrows off to page the folder instead. */
-  const restoreTermFocus = useCallback((id?: string) => {
-    setTabState((s) => {
-      const tab = s.tabs.find((t) => t.id === (id ?? s.activeId))
-      if (tab?.term && tab.term.view !== 'hidden')
-        requestAnimationFrame(() => focusTermSession(tab.term!.id))
-      return s
-    })
-  }, [])
-  /* The folders Prism has been opened in (2026-08-23): the strip's + offers
-     the last few on a right-click. Every root a tab holds is remembered as it
-     appears, so the list is what actually happened rather than a curated
-     thing to maintain. */
-  // Writing only: the menu reads the list when it opens, so there is no
-  // second copy of it to keep in step.
-  const seenRoots = useRef<Set<string>>(new Set())
-  useEffect(() => {
-    for (const t of tabs) {
-      if (t.kind === 'settings' || !t.root) continue
-      const key = t.root.toLowerCase()
-      if (seenRoots.current.has(key)) continue
-      seenRoots.current.add(key)
-      rememberRoot(t.root)
-    }
-  }, [tabs])
-  /** A folder from that menu: a tab rooted there, exactly like the + makes.
-   *  One that has since been moved or deleted drops out of the list. */
-  const openRecent = useCallback((path: string) => {
-    const id = nextTabId()
-    void window.prism.browseDirectory(id, path).then((directory) => {
-      if (!directory) {
-        forgetRoot(path)
-        setAsk({ kind: 'failed', message: 'That folder is not there any more.' })
-        return
-      }
-      visitedDirectories.remember(directory)
-      setTabState((s) =>
-        addExplorerTab(
-          s.tabs,
-          {
-            root: directory.path,
-            files: directory.listing.files,
-            index: -1
-          },
-          id
-        )
-      )
-      setHasNavigated(false)
-    })
-  }, [])
-
-  const pickTab = useCallback(
-    (id: string) => {
-      setTabState((s) => ({ ...s, activeId: id }))
-      restoreTermFocus(id)
-    },
-    [restoreTermFocus]
-  )
-  /** The strip's own drag: a tab lands in front of `toIndex` (#70). */
-  const reorderTab = useCallback(
-    (id: string, toIndex: number) =>
-      // Focus is the strip's business: it puts back whatever the drag
-      // interrupted - a shell, a tree row, the search box - rather than
-      // assuming the terminal.
-      setTabState((s) => ({ ...s, tabs: reorderTabs(s.tabs, id, toIndex) })),
-    []
-  )
-
-  /* ----- the terminal ----- */
-
-  const [dockEdge, setDockEdge] = useState<DockEdge>(loadDock)
-  const [termSizes, setTermSizes] = useState(() => ({ x: loadTermSize('x'), y: loadTermSize('y') }))
-  const pickDock = useCallback((edge: DockEdge) => {
-    setDockEdge(edge)
-    saveDock(edge)
-  }, [])
-  const resizeTermPanel = useCallback(
-    (px: number) => {
-      const axis = dockAxis(dockEdge)
-      setTermSizes((s) => ({ ...s, [axis]: px }))
-      saveTermSize(axis, px)
-    },
-    [dockEdge]
-  )
-  /** Apply a term-view transition to the active tab, spawning ids as needed.
-   *  The shell itself only dies to exit, tab close, or quit. */
   /** Where each live session was SPAWNED, for the reroot policy: an untouched
    *  shell whose folder no longer matches its tab gets replaced; Clear also
    *  re-syncs a stale one. */
   const termRoots = useRef(new Map<string, string>())
-  /** The folder a shell is standing in: its own report if it has made one,
-   *  else where it was spawned. Used for persistence, so a shell comes back
-   *  where it was and its agent resumes THAT folder's conversation. */
-  const termFolder = useCallback(
-    (id: string): string | undefined => termCwd.current.get(id) ?? termRoots.current.get(id),
-    []
-  )
-  const termTabAt = useCallback((root: string) => {
-    void window.prism.openRoot(root).then((p) => {
-      if (!p) return
-      setTabState((s) => addTab(s.tabs, p, nextTabId()))
-      setTabState((s) => {
-        const tab = s.tabs.find((t) => t.id === s.activeId)
-        if (!tab || tab.term) return s
-        const termId = nextTermId()
-        termRoots.current.set(termId, tab.root)
-        return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
-      })
-    })
-  }, [])
+  // The tabs: new, close, re-root, recent, pick, reorder (hooks/useTabOps).
+  const {
+    restoreTermFocus,
+    newTab,
+    closeActiveTab,
+    reorderTab,
+    openRecent,
+    pickTab,
+    closeOneTab,
+    discardTabBuffers,
+    forceCloseTab,
+    applyReroot,
+    rerootHere
+  } = useTabOps({
+    setTabState,
+    setHasNavigated,
+    tabState,
+    browsing,
+    setup,
+    fullscreen,
+    setFs,
+    termRoots,
+    bufferOwners,
+    buffers,
+    tabs,
+    syncDirty,
+    agentKinds,
+    termCwd,
+    activeId,
+    setAsk,
+    workingIds,
+    agentIds
+  })
 
   const openAsProject = useCallback(
     (entry: BrowseEntry) => {
@@ -1975,34 +795,32 @@ export default function App(): JSX.Element {
             : addTab(state.tabs, { ...payload, role: 'project' }, nextTabId())
         })
         setSidebar(true)
-        localStorage.setItem(SIDEBAR_KEY, '1')
+        sidebarPref.set(true)
         setHasNavigated(false)
       })()
     },
     []
   )
-  const applyTermView = useCallback(
-    (fn: typeof toggleTermView) =>
-      setTabState((s) => {
-        const tab = s.tabs.find((t) => t.id === s.activeId)
-        if (!tab || tab.kind === 'settings') return s
-        const next = fn(tab.term, nextTermId())
-        if (next.id !== tab.term?.id) termRoots.current.set(next.id, tab.root)
-        const tabs = setTabTerm(s.tabs, tab.id, next)
-        return { ...s, tabs }
-      }),
-    []
-  )
-  /** The sidebar button and Ctrl+`: full view, the terminal's home. */
-  const toggleTerm = useCallback(() => {
-    if (active && isExplorerTab(active)) termTabAt(active.browse.path)
-    else applyTermView(toggleTermView)
-  }, [active, termTabAt, applyTermView])
-  /** Ctrl+Shift+T: open full, unconditionally (never hides). */
-  const openTermFull = useCallback(() => {
-    if (active && isExplorerTab(active)) termTabAt(active.browse.path)
-    else applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' }))
-  }, [active, termTabAt, applyTermView])
+
+  /* ----- the terminal ----- */
+
+  // The dock, the shells' roots and the tab's terminal view (hooks/useTerminal).
+  const {
+    termFolder,
+    pickDock,
+    applyTermView,
+    termTabAt,
+    openTermFull,
+    toggleTerm,
+    dockEdge,
+    termSizes,
+    resizeTermPanel
+  } = useTerminal({
+    termRoots,
+    termCwd,
+    setTabState,
+    active
+  })
   // Tell main what is open, whenever it changes: persistence for next launch.
   // The root wall is deliberately NOT rebuilt from this snapshot. A report
   // races payloads still in flight (a restore, plus a file Explorer just
@@ -2256,155 +1074,6 @@ export default function App(): JSX.Element {
     [active, browsing, setTree]
   )
 
-  /** The terminal button's own context menu. */
-  const openTermSplit = useCallback(
-    () => applyTermView((term, id) => (term ? { ...term, view: 'split' } : { id, view: 'split' })),
-    [applyTermView]
-  )
-  /**
-   * CLOSE THE TERMINAL means close it (owner, 2026-09-03): the shell is
-   * killed and the tab forgets it, so the next open spawns a FRESH shell in
-   * the tab's CURRENT root - which is how a tab that re-rooted since gets a
-   * terminal in the right folder. Hiding (Ctrl+`, the X) still keeps the
-   * shell running; this is the verb for when you are done with it.
-   */
-  const closeTermId = useCallback(
-    (termId: string) => {
-      if (!active) return
-      window.prism.termKill(termId)
-      disposeSession(termId)
-      termRoots.current.delete(termId)
-      setTabState((s) => {
-        const tab = s.tabs.find((t) => t.id === active.id)
-        if (!tab) return s
-        // A pane holding this shell goes with it; the survivors keep their
-        // places, and the most recent survivor becomes current.
-        const pane = tab.panes.find((pn) => pn.term === termId)
-        let tabs = pane ? setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, pane.id)) : s.tabs
-        tabs = removeTerm(tabs, tab.id, termId)
-        return { ...s, tabs }
-      })
-      setPaneFocus('live')
-    },
-    [active]
-  )
-  const closeTerm = useCallback(() => {
-    if (active?.term) closeTermId(active.term.id)
-  }, [active, closeTermId])
-
-  /**
-   * SEVERAL TERMINALS PER TAB (2026-09-03, owner). "Open new terminal" mints
-   * a shell and makes it current; picking one from the button's menu makes
-   * THAT one current (the button's left click always opens the most recent);
-   * and a shell can be pinned as a PANE beside the live file or another
-   * shell, through the same grid the file pins use.
-   */
-
-  const openNewTerm = useCallback(() => {
-    if (!active || active.kind === 'settings') return
-    if (isExplorerTab(active)) {
-      termTabAt(active.browse.path)
-      return
-    }
-    const termId = nextTermId()
-    termRoots.current.set(termId, active.root)
-    setTabState((s) => ({
-      ...s,
-      tabs: setTabTerm(s.tabs, active.id, { id: termId, view: 'full' })
-    }))
-    setPaneFocus('term')
-  }, [active, termTabAt])
-  const pickTermId = useCallback(
-    (termId: string) => {
-      if (!active) return
-      setTabState((s) => ({ ...s, tabs: pickTerm(s.tabs, active.id, termId) }))
-      setPaneFocus('term')
-    },
-    [active]
-  )
-  const pinTermAsPane = useCallback(
-    (termId: string, dir?: SplitDir) => {
-      if (!active || active.kind === 'settings') return
-      const d = dir ?? lastSplitDir()
-      saveSplitDir(d)
-      const already = active.panes.find((pn) => pn.term === termId)
-      const paneId = already?.id ?? `pane-${Date.now()}-${(paneSeq.current += 1)}`
-      setTabState((s) => {
-        const tab = s.tabs.find((t) => t.id === active.id)
-        if (!tab || tab.kind === 'settings' || !tab.terms.includes(termId)) return s
-        // From a FULL terminal the split is TERMINALS ONLY (owner, 2026-09-03:
-        // "I just wanted the two terminals"): the file pins are already gone
-        // (applyTermView) and the current shell stays full, with the pinned
-        // shells drawn inside the terminal area beside it. From fullscreen a
-        // pin starts fresh; otherwise it adds to the grid you can see.
-        const cur = tab.term
-        const base =
-          cur?.view === 'full' ? tab.panes.filter((pn) => !!pn.term) : fullscreen ? [] : tab.panes
-        let tabs = setTabPanes(s.tabs, tab.id, pinTermPane(base, paneId, termId, d))
-        // A shell that just became a pane leaves the dock, or it would be
-        // drawn twice.
-        if (cur?.id === termId) tabs = setTabTerm(tabs, tab.id, { ...cur, view: 'hidden' })
-        return { ...s, tabs }
-      })
-      setPaneFocus(paneId)
-    },
-    [active, fullscreen]
-  )
-  /** "Open in split view" for one of several is a TOGGLE (owner, 2026-09-03):
-   *  a shell on screen comes out of the split, one that is not goes in - the
-   *  current shell through the dock, any other as a pane. */
-  const splitTermId = useCallback(
-    (termId: string) => {
-      if (!active) return
-      const pane = active.panes.find((pn) => pn.term === termId)
-      if (pane) return unpinSplitId(pane.id)
-      if (active.term?.id === termId) {
-        // openTermSplit is declared further down and resolved at call time;
-        // it is not a dep on purpose (its own deps are stable). It folds a
-        // showing dock back and opens a hidden one, which is the toggle.
-        openTermSplit()
-        return
-      }
-      pinTermAsPane(termId)
-    },
-    // unpinSplitId is declared further down too, and resolved at call time.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
-    [active, pinTermAsPane]
-  )
-
-  /** The split's X buttons and the context menu's "Remove from split view".
-   *  Closing ONE window of a split leaves the others standing: with pinned
-   *  panes up, closing the live file promotes the OLDEST pin into the live
-   *  slot and the terminal (if any) stays where it is. Only with nothing else
-   *  on the file side does closing the file hand the terminal the full view;
-   *  closing the TERMINAL pane always just leaves the files. */
-  const closeFilePane = useCallback(() => {
-    const first = active?.panes[0]
-    if (active && first) {
-      setTabState((s) => {
-        const tab = s.tabs.find((t) => t.id === s.activeId)
-        if (!tab) return s
-        return { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, first.id)) }
-      })
-      if (isExplorerTab(active)) void openBrowseFile(first.path)
-      else void window.prism.openWithin(active.root, first.path).then((p) => p && open(p))
-      setPaneFocus('live')
-      return
-    }
-    applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' }))
-  }, [active, applyTermView, open, openBrowseFile])
-  const closeTermPane = useCallback(
-    () =>
-      applyTermView((term, id) => (term ? { ...term, view: 'hidden' } : { id, view: 'hidden' })),
-    [applyTermView]
-  )
-
-  /**
-   * Split-view pins: "Open in split view" adds the file as a pane beside the
-   * live one - agnostic of what else is showing, files beside files. The
-   * direction is remembered, a bare click reuses it, and the fourth window
-   * FIFO-evicts the oldest pin.
-   */
   /**
    * Which window of a split the user is IN: the live pane, a pinned pane (by
    * id), or the terminal. The sidebar's selected row follows it - the file in
@@ -2510,7 +1179,37 @@ export default function App(): JSX.Element {
       return hit ? { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, hit.id)) } : s
     })
   }, [])
+  // Several shells per tab and the split's panes (hooks/useTermPanes).
+  const {
+    closeTermId,
+    openTermSplit,
+    pickTermId,
+    openNewTerm,
+    splitTermId,
+    closeTerm,
+    closeFilePane,
+    pinTermAsPane,
+    closeTermPane
+  } = useTermPanes({
+    applyTermView,
+    active,
+    termRoots,
+    setTabState,
+    setPaneFocus,
+    termTabAt,
+    paneSeqRef: paneSeq,
+    fullscreen,
+    unpinSplitId,
+    openBrowseFile,
+    open
+  })
 
+  /**
+   * Split-view pins: "Open in split view" adds the file as a pane beside the
+   * live one - agnostic of what else is showing, files beside files. The
+   * direction is remembered, a bare click reuses it, and the fourth window
+   * FIFO-evicts the oldest pin.
+   */
   /** "Open in new tab": a fresh tab rooted at the file's folder, like an
    *  Explorer open would make, spawned unconditionally. */
   const openInNewTab = useCallback((path: string, knownFolder?: boolean) => {
@@ -2740,7 +1439,7 @@ export default function App(): JSX.Element {
           return stat
             ? {
                 path,
-                label: baseName(path.replace(/[\\/]+$/, '')) || path,
+                label: baseName(path),
                 isFolder: stat.isFolder
               }
             : null
@@ -2894,14 +1593,6 @@ export default function App(): JSX.Element {
     return next.entries
   }, [tabs, activeId, keepWarm])
 
-  // Whether the open document currently holds focus. Documents mark their own
-  // scroller with data-doc-scroller; nothing auto-focuses one, so this is true
-  // only after the user has actually clicked into (or tabbed to) the document.
-  const docFocused = (): boolean => {
-    const el = document.activeElement
-    return !!el && !!el.closest('[data-doc-scroller]')
-  }
-
   // Autoplay's landing: the next file of the SAME kind, however many images or
   // documents sit between - a folder of episodes plays like a season, whatever
   // else lives beside them. Stops quietly at the end of the folder.
@@ -2952,30 +1643,6 @@ export default function App(): JSX.Element {
     setEditMode(false)
   }
 
-  /* ---------- file operations ---------- */
-
-  // Renaming, deleting, duplicating and the editor's save are the things Prism
-  // does that change your files; the destructive ones are confirmable, and
-  // nothing is destroyed: an overwritten or deleted file goes to the Recycle
-  // Bin. (`refreshKey` and `ask` are declared above, with the edit guard.)
-
-  /** True when `p` is `parent` itself or sits inside it. Renaming or binning a
-   *  folder moves everything under it, including possibly the open file. */
-  const within = (p: string, parent: string): boolean => {
-    const a = p.toLowerCase()
-    const b = parent.toLowerCase()
-    return a === b || a.startsWith(b + String.fromCharCode(92)) || a.startsWith(b + '/')
-  }
-
-  const reopen = useCallback(
-    (p: string) => {
-      if (!active) return
-      if (isExplorerTab(active)) void openBrowseFile(p, active.browse.surface === 'viewer')
-      else void window.prism.openWithin(active.root, p).then((payload) => payload && open(payload))
-    },
-    [active, open, openBrowseFile]
-  )
-
   /* Undo and redo (2026-08-22), for the things Prism WRITES: moving,
      renaming, binning and duplicating. The text editor keeps its own Ctrl+Z
      inside a focused document; this stack only sees the file operations. */
@@ -3011,824 +1678,70 @@ export default function App(): JSX.Element {
   const [emptyMenu, setEmptyMenu] = useState<{ x: number; y: number } | null>(null)
   const browseArchive = browsing.listing?.archive ?? null
 
-  const runRename = useCallback(
-    async (path: string, name: string, onClash: OnClash, track = true): Promise<string | null> => {
-      const r = await window.prism.renameFile(path, name, onClash)
-      if (!r.ok) {
-        if (r.reason === 'clash')
-          setAsk({ kind: 'clash', path, name, suggestion: r.suggestion ?? name })
-        else setAsk({ kind: 'failed', message: r.message ?? 'That could not be renamed.' })
-        return null
-      }
-      setAsk(null)
-      setRefreshKey((n) => n + 1)
-      // Unsaved text follows the file to its new name.
-      rekeyBuffer(path, r.path)
-      // A rename that names a folder Ctrl+Shift+N just made folds into that
-      // entry (#330), so one Ctrl+Z takes the folder away, Explorer's way.
-      if (track !== false)
-        setUndoState((u) =>
-          rememberRename(u, { kind: 'rename', from: path, to: r.path, replaced: r.replaced })
-        )
-      // Follow whatever is on screen: it may have been the thing renamed, or a
-      // file inside the folder that was, in which case its path just moved.
-      const cur = file?.path
-      if (!cur) return r.path
-      if (within(cur, path)) reopen(r.path + cur.slice(path.length))
-      else reopen(cur)
-      return r.path
-    },
-    [file, reopen, rekeyBuffer]
-  )
-
-  /**
-   * NEW FOLDER (#330; owner, 2026-10-07, Ctrl+Shift+N in the Explorer and the
-   * project tree: the explicit yes to "new folder is a fresh decision"). Main
-   * picks the name and checks the place; the folder goes on the undo stack,
-   * where Ctrl+Z bins it again while it is still empty. The caller starts the
-   * rename that follows, each surface its own way.
-   */
-  const makeNewFolder = useCallback(
-    async (dir: string): Promise<string | null> => {
-      const made = await window.prism.newFolder(dir)
-      if (!made) {
-        setAsk({ kind: 'failed', message: 'A new folder could not be made here.' })
-        return null
-      }
-      noteUndo({ kind: 'mkdir', path: made })
-      return made
-    },
-    [noteUndo]
-  )
-
-  /**
-   * LET GO OF A FILE BEFORE IT GOES (2026-09-03, owner: "still getting the
-   * block when trying to delete a movie I'm watching"). A film that is
-   * playing - in this tab or any other, since the deck keeps their players
-   * mounted - holds an open handle through the media stream, and the
-   * Recycle Bin refuses a file with a handle open. So every tab showing the
-   * file steps off it FIRST, which unmounts its element, and the bin is
-   * asked after a beat and with retries, because Chromium closes the stream
-   * on its own clock rather than on ours. Returns whether anything had it.
-   */
-  const releaseFiles = useCallback((paths: string[]): boolean => {
-    let held = false
-    setTabState((s) => {
-      const tabs = s.tabs.map((t) => {
-        const cur = t.index >= 0 ? t.files[t.index]?.path : undefined
-        if (!cur || !paths.some((p) => within(cur, p))) return t
-        held = true
-        return { ...t, index: -1 }
-      })
-      return held ? { ...s, tabs } : s
-    })
-    return held
-  }, [])
-  const trashWithRetry = useCallback(async (path: string, held: boolean): Promise<boolean> => {
-    if (held) await new Promise((r) => setTimeout(r, 350))
-    for (let i = 0; i < 4; i += 1) {
-      if (await window.prism.trashFile(path)) return true
-      await new Promise((r) => setTimeout(r, 300))
-    }
-    return false
-  }, [])
-
-  const runDelete = useCallback(
-    async (path: string): Promise<void> => {
-      setAsk(null)
-      const held = releaseFiles([path])
-      const ok = await trashWithRetry(path, held)
-      if (!ok) {
-        setAsk({ kind: 'failed', message: 'That could not be moved to the Recycle Bin.' })
-        return
-      }
-      setRefreshKey((n) => n + 1)
-      dropBuffers([path])
-      noteUndo({ kind: 'trash', paths: [path] })
-      const cur = file?.path
-      if (!cur || !within(cur, path)) {
-        if (cur) reopen(cur)
-        return
-      }
-      // What we were looking at is gone. Step to the nearest surviving neighbour,
-      // skipping anything that lived inside the same folder.
-      const survivors = view?.files.filter((f) => !within(f.path, path)) ?? []
-      const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
-      if (next) reopen(next.path)
-      else showNothing()
-    },
-    [dropBuffers, file, noteUndo, reopen, showNothing, view, releaseFiles, trashWithRetry]
-  )
-  /** The multi-selection's delete (2026-08-22): every path to the bin, one
-   *  refresh, and the viewer steps off anything that just vanished. */
-  const runDeleteMany = useCallback(
-    async (paths: string[]): Promise<void> => {
-      setAsk(null)
-      const held = releaseFiles(paths)
-      const binned: string[] = []
-      for (const p of paths) {
-        if (await trashWithRetry(p, held && binned.length === 0)) binned.push(p)
-      }
-      const failed = paths.length - binned.length
-      setRefreshKey((n) => n + 1)
-      // Only the ones that really went: undoing a path that never left would
-      // restore a file the user deliberately binned earlier.
-      if (binned.length) {
-        dropBuffers(binned)
-        noteUndo({ kind: 'trash', paths: binned })
-      }
-      const cur = file?.path
-      if (cur && paths.some((p) => within(cur, p))) {
-        const survivors = view?.files.filter((f) => !paths.some((p) => within(f.path, p))) ?? []
-        const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
-        if (next) reopen(next.path)
-        else showNothing()
-      } else if (cur) reopen(cur)
-      if (failed)
-        setAsk({
-          kind: 'failed',
-          message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.`
-        })
-    },
-    [dropBuffers, file, noteUndo, reopen, showNothing, view, releaseFiles, trashWithRetry]
-  )
-
-  /** A drop landed on a folder (#70): files move in, archive members extract
-   *  there. Moving asks about taken names before it touches anything. */
-  const moveTabs = useRef(tabs)
-  const moveQueue = useRef<Promise<void>>(Promise.resolve())
-  const moveCommits = useRef<Array<() => void>>([])
-  useLayoutEffect(() => {
-    moveTabs.current = tabs
-    for (const done of moveCommits.current.splice(0)) done()
-  }, [tabs])
-  const runMove = useCallback(
-    (
-      paths: string[],
-      dest: string,
-      mode: 'ask' | 'keep-both' | 'replace',
-      track = true
-    ): Promise<Array<{ from: string; to: string }>> => {
-      const operation = async (): Promise<FileMove[]> => {
-        // Release every tab that holds this cargo, including background previews
-        // and pinned players. Read the latest committed tabs after async grants.
-        const held = captureMoveViews(moveTabs.current, paths)
-        const marks = new Map<string, { t: number; paused: boolean }>()
-        for (const entry of held) {
-          const viewing = entry.live ? [entry.tab.files[entry.tab.index].path] : []
-          viewing.push(
-            ...entry.tab.panes
-              .filter((pane) => !pane.term && !entry.panes.includes(pane))
-              .map((pane) => pane.path)
-          )
-          for (const path of viewing) {
-            const url = window.prism.mediaUrl(path)
-            marks.set(path, { t: sessionTime(url), paused: wasPaused(url) })
-          }
-        }
-        setTabState((state) => ({ ...state, tabs: releaseMoveViews(state.tabs, held) }))
-        const restore = (moves: FileMove[]): Promise<void> => {
-          for (const [path, mark] of marks) {
-            const url = window.prism.mediaUrl(movedPath(path, moves))
-            if (mark.t > 0) rememberTime(url, mark.t)
-            rememberPaused(url, mark.paused)
-          }
-          for (const buffer of [...buffers.current.values()]) {
-            const path = movedPath(buffer.path, moves)
-            if (path !== buffer.path) rekeyBuffer(buffer.path, path)
-          }
-          // A queued move must see the restored viewers in committed React state.
-          // Register first, then always issue a fresh tabs array to trigger the effect.
-          return new Promise((resolve) => {
-            moveCommits.current.push(resolve)
-            setTabState((state) => ({ ...state, tabs: restoreMoveViews(state.tabs, held, moves) }))
-          })
-        }
-        if (held.length) await new Promise((res) => setTimeout(res, 350))
-        let moved: FileMove[] = []
-        try {
-          let r = await window.prism.moveEntries(paths, dest, mode)
-          moved = r.moved
-          if (mode === 'ask' && r.clashes.length) {
-            setAsk({ kind: 'move-clash', paths, dest, names: r.clashes.map((c) => c.name) })
-            return []
-          }
-          for (let i = 0; i < 3 && r.busy.length; i += 1) {
-            await new Promise((res) => setTimeout(res, 300))
-            const again = await window.prism.moveEntries(r.busy, dest, mode)
-            const movedNow = new Set(again.moved.map((m) => m.from.toLowerCase()))
-            r = {
-              ...r,
-              moved: [...r.moved, ...again.moved],
-              failed: [
-                ...r.failed.filter((p) => !movedNow.has(p.toLowerCase())),
-                ...again.failed.filter((p) => !r.failed.includes(p))
-              ],
-              busy: again.busy,
-              replaced: [...r.replaced, ...again.replaced],
-              refused: r.refused || again.refused
-            }
-            moved = r.moved
-          }
-          setAsk(null)
-          setRefreshKey((n) => n + 1)
-          if (track && r.moved.length)
-            noteUndo({
-              kind: 'move',
-              items: r.moved,
-              replaced: r.replaced?.length ? r.replaced : undefined
-            })
-          moved = r.moved
-          if (r.failed.length)
-            setAsk({
-              kind: 'failed',
-              message: r.refused
-                ? 'Those can only be moved inside the folder Prism opened, and a tab\u2019s own folder cannot be moved.'
-                : r.busy.length
-                  ? `${r.busy.length === 1 && paths.length === 1 ? 'That file' : `${r.busy.length} of ${paths.length}`} could not be moved: in use by another program.`
-                  : `${r.failed.length} of ${paths.length} could not be moved.`
-            })
-          return r.moved
-        } finally {
-          await restore(moved)
-        }
-      }
-      // Only one move can detach players at once, including moves queued while
-      // another is waiting for Windows handles. A failure does not block the next.
-      const result = moveQueue.current.then(operation)
-      moveQueue.current = result.then(() => undefined, () => undefined)
-      return result
-    },
-    [noteUndo, rekeyBuffer]
-  )
-
-  /** Reverse one action. Undo never asks: it puts things back beside whatever
-   *  has appeared in the meantime rather than overwriting it. */
-  const applyUndo = useCallback(
-    async (entry: UndoEntry): Promise<UndoEntry | void> => {
-      switch (entry.kind) {
-        case 'move': {
-          // Undo lands beside whatever appeared meanwhile, so the file may now
-          // sit under a "(2)" name. The entry is corrected to where it REALLY
-          // is, or a redo would move a stranger.
-          const items: Array<{ from: string; to: string }> = []
-          for (const it of entry.items) {
-            const [back] = await runMove([it.to], parentDir(it.from), 'keep-both', false)
-            items.push(back ? { from: back.to, to: it.to } : it)
-          }
-          // The name is free again only now, so the replaced file comes back
-          // after the mover has left, not before.
-          if (entry.replaced?.length) await window.prism.restoreFromBin(entry.replaced)
-          setRefreshKey((n) => n + 1)
-          return { ...entry, items, replaced: undefined }
-        }
-        case 'rename': {
-          const back = await runRename(entry.to, baseName(entry.from), 'keep-both', false)
-          if (entry.replaced) await window.prism.restoreFromBin([entry.replaced])
-          setRefreshKey((n) => n + 1)
-          return back ? { ...entry, from: back, replaced: undefined } : entry
-        }
-        case 'trash': {
-          const ok = await window.prism.restoreFromBin(entry.paths)
-          setRefreshKey((n) => n + 1)
-          if (!ok)
-            setAsk({
-              kind: 'failed',
-              message:
-                'Windows would not give those back. They may have been emptied from the Recycle Bin.'
-            })
-          break
-        }
-        case 'duplicate':
-          if (!(await window.prism.trashFile(entry.path)))
-            setAsk({ kind: 'failed', message: 'That copy could not be moved to the Recycle Bin.' })
-          setRefreshKey((n) => n + 1)
-          break
-        case 'mkdir': {
-          // Only while it is still empty: what was put in it since is yours.
-          const r = await window.prism.binIfEmpty(entry.path)
-          setRefreshKey((n) => n + 1)
-          if (r === 'not-empty')
-            setAsk({
-              kind: 'failed',
-              message: 'That folder has something in it now, so it was left where it is.'
-            })
-          else if (r === 'failed')
-            setAsk({ kind: 'failed', message: 'That folder could not be moved to the Recycle Bin.' })
-          break
-        }
-        case 'archive-in': {
-          // Both halves: the members leave the zip, the originals come back.
-          // A folder member has no entry of its own, which deleteMember now
-          // handles by taking its subtree; a refusal is worth saying out loud
-          // rather than leaving a copy behind silently.
-          let stuck = 0
-          for (const e of entry.entries) {
-            if (!(await window.prism.archiveDelete(entry.zip, e))) stuck += 1
-          }
-          if (entry.originals.length) await window.prism.restoreFromBin(entry.originals)
-          setRefreshKey((n) => n + 1)
-          if (stuck)
-            setAsk({
-              kind: 'failed',
-              message: `${stuck} of ${entry.entries.length} could not be taken back out of the archive.`
-            })
-          break
-        }
-      }
-    },
-    [runMove, runRename]
-  )
-  /** Do one again, after it was undone. */
-  const applyRedo = useCallback(
-    async (entry: UndoEntry): Promise<UndoEntry | void> => {
-      switch (entry.kind) {
-        case 'move': {
-          const items: Array<{ from: string; to: string }> = []
-          for (const it of entry.items) {
-            const [again] = await runMove([it.from], parentDir(it.to), 'keep-both', false)
-            items.push(again ? { from: it.from, to: again.to } : it)
-          }
-          return { ...entry, items }
-        }
-        case 'rename': {
-          const again = await runRename(entry.from, baseName(entry.to), 'keep-both', false)
-          return again ? { ...entry, to: again } : entry
-        }
-        case 'trash':
-          for (const p of entry.paths) await window.prism.trashFile(p)
-          setRefreshKey((n) => n + 1)
-          break
-        case 'duplicate': {
-          // Ask the SOURCE for another copy and remember the one it made: the
-          // name is chosen by the folder, not by us.
-          const copy = await window.prism.duplicateFile(entry.source)
-          setRefreshKey((n) => n + 1)
-          if (!copy) {
-            setAsk({ kind: 'failed', message: 'That could not be duplicated again.' })
-            break
-          }
-          return { ...entry, path: copy }
-        }
-        case 'mkdir': {
-          // The same name in the same place, or "(2)" when it was taken since.
-          const made = await window.prism.newFolder(parentDir(entry.path), baseName(entry.path))
-          setRefreshKey((n) => n + 1)
-          if (!made) {
-            setAsk({ kind: 'failed', message: 'That folder could not be made again.' })
-            break
-          }
-          return { ...entry, path: made }
-        }
-        case 'archive-in': {
-          const r = await window.prism.archiveAdd(entry.zip, entry.originals, entry.dest, true)
-          if (r === 'encrypted' || r === 'failed') {
-            setAsk({
-              kind: 'failed',
-              message: 'That archive could not be written, so nothing was moved into it.'
-            })
-            break
-          }
-          // Bin only what actually landed - never the whole wish list - and
-          // remember the member names keep-both actually used.
-          for (const a of r.added) await window.prism.trashFile(a.src)
-          setRefreshKey((n) => n + 1)
-          return {
-            ...entry,
-            entries: r.added.map((a) => a.entry),
-            originals: r.added.map((a) => a.src)
-          }
-        }
-      }
-    },
-    [runMove, runRename]
-  )
-  // One at a time. Restoring from the Recycle Bin spawns PowerShell and takes
-  // half a second; a held Ctrl+Z would otherwise run the next inverse against
-  // a file the previous one has not put back yet.
-  const undoChain = useRef<Promise<void>>(Promise.resolve())
-  /** An inverse can land somewhere else than it left (a taken name). Patching
-   *  the entry by identity keeps the OTHER direction honest. */
-  const patchEntry = useCallback((was: UndoEntry, now: UndoEntry): void => {
-    setUndoState((u) => ({
-      past: u.past.map((e) => (e === was ? now : e)),
-      future: u.future.map((e) => (e === was ? now : e))
-    }))
-  }, [])
-  const queueUndo = useCallback(
-    (entry: UndoEntry, run: () => Promise<UndoEntry | void>): void => {
-      undoChain.current = undoChain.current
-        .then(async () => {
-          const corrected = await run()
-          if (corrected) patchEntry(entry, corrected)
-        })
-        .catch(() => {})
-    },
-    [patchEntry]
-  )
-  const undo = useCallback((): void => {
-    const step = undone(undoState)
-    if (!step) {
-      flashUndo('Nothing to undo')
-      return
-    }
-    setUndoState(step.state)
-    flashUndo(`Undid ${describeUndo(step.entry)}`)
-    queueUndo(step.entry, () => applyUndo(step.entry))
-  }, [applyUndo, flashUndo, queueUndo, undoState])
-  const redo = useCallback((): void => {
-    const step = redone(undoState)
-    if (!step) {
-      flashUndo('Nothing to redo')
-      return
-    }
-    setUndoState(step.state)
-    flashUndo(`Redid ${describeUndo(step.entry)}`)
-    queueUndo(step.entry, () => applyRedo(step.entry))
-  }, [applyRedo, flashUndo, queueUndo, undoState])
-  const onDropInto = useCallback(
-    (dest: string, payload: DragPayload): void => {
-      if (payload.kind === 'files') {
-        void runMove(payload.paths, dest, 'ask')
-        return
-      }
-      // Members out of an archive: extracted where they were dropped, with the
-      // password the archive view already asked for, if it needed one.
-      //
-      // This route used to show NOTHING while it ran (2026-09-19, #166,
-      // owner: "the progress bar works differently based on like how you
-      // extracted"), and then a dialog of its own when it failed. It is a job
-      // like the other four now: main opens the extraction window, and a
-      // failure is that window's error, password sentence included. A
-      // cancelled drag still refreshes nothing, because nothing landed.
-      void window.prism
-        .archiveExtractTo(payload.archive, payload.entries, dest, archivePassword(payload.archive))
-        .then((r) => {
-          if (r.ok) setRefreshKey((n) => n + 1)
-        })
-    },
-    [runMove]
-  )
-  const onBrowseDropInto = useCallback(
-    (dest: string, payload: DragPayload, tabId = active?.id): void => {
-      if (!tabId) return
-      // A desktop drop explicitly chooses both ends, including a drive or a
-      // breadcrumb the tab has not visited. These grants never widen phone roots.
-      const directories = new Set([
-        dest,
-        ...(payload.kind === 'files'
-          ? payload.paths.map((path) => browseParent(path)).filter((path): path is string => !!path)
-          : [])
-      ])
-      void Promise.all(
-        [...directories].map((path) => window.prism.browseDirectory(tabId, path, { details: false }))
-      )
-        .then((results) => {
-          if (results.some((result) => !result || result.listing.unreadable)) {
-            setAsk({ kind: 'failed', message: 'The source or destination folder could not be opened.' })
-            return
-          }
-          // INTO A ZIP (#300): the destination's own answer says it is a
-          // place inside an archive, and the archive verbs take it.
-          const inside = results[0]?.listing.archive
-          if (inside) archiveActions.drop(dest, payload, inside)
-          else onDropInto(dest, payload)
-        })
-        .catch(() => setAsk({ kind: 'failed', message: 'The source or destination folder could not be opened.' }))
-    },
-    [active, onDropInto, archiveActions]
-  )
-  const onDropIntoTab = useCallback(
-    (tabId: string, payload: DragPayload): void => {
-      const target = moveTabs.current.find((tab) => tab.id === tabId)
-      if (!target || target.kind === 'settings') return
-      onBrowseDropInto(isExplorerTab(target) ? target.browse.path : target.root, payload, target.id)
-    },
-    [onBrowseDropInto]
-  )
-
-  // App-level keys, in the capture phase so this runs before the player's own
-  // (bubble-phase) key listener. Arrow keys page through the folder, except a
-  // freshly opened audio/video owns them for seeking (the player handles them).
-  // The moment the user starts navigating — paging, or arrowing through
-  // non-playable files — arrows keep navigating even on playable files; we then
-  // claim the key (preventDefault) so the player yields it.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const el = e.target as HTMLElement | null
-      // isContentEditable covers the code editor: CodeMirror types into a div,
-      // not a textarea, and the arrows there belong to the caret, not the folder.
-      // THE HELP POPUP (#175) IS A TEXT FIELD WHEREVER ITS FOCUS IS. Its search
-      // field already shielded these keys, but a click on a copy button, which
-      // is what the popup is FOR, leaves the focus on that button, and this
-      // listener hears every key the popup does (both are on window in the
-      // capture phase, where one's stopPropagation does not silence the other).
-      // MEASURED in the e2e before this line existed: Ctrl+W from a copy button
-      // closed the tab under the popup, where from the search field it does
-      // nothing. Ctrl+Z (a file move undone behind a scrim), Ctrl+T and the
-      // vertical keys are behind the same shield for the same reason.
-      const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)
-      // A focused terminal is typing too (xterm's hidden textarea), but the
-      // tab-management hotkeys (Ctrl+T/W/Tab/digits) and Ctrl+B (sidebar)
-      // still belong to Prism there, by request - which does cost the shell
-      // Ctrl+W (delete-word) and Ctrl+B (vim page-up, tmux's prefix). The
-      // keys shells truly live on - Ctrl+C, Ctrl+D (EOF), Ctrl+S (XOFF),
-      // Escape, the arrows - stay the shell's; only the search box, a rename
-      // and the text editor keep the full typing shield.
-      const inTerm = !!el && !!el.closest('.xterm')
-      // THE EXPLORER'S SEARCH POPUP (#267) owns every key while it is up: it
-      // is drawn outside the Explorer (over the whole window), and a chord
-      // that reached the app behind it would change what is under it.
-      if (el?.closest('[data-search-popup]')) return
-      // A MENU ROW WITH THE FOCUS owns the plain keys (#272): More opened from
-      // the keyboard puts the focus on its first row, and Down there walked
-      // the sidebar's tree too, whose row then took the focus out of the
-      // menu (measured in the moreMenu e2e). The chords stay the app's.
-      if (el?.closest('[role="menu"]') && !e.ctrlKey && !e.altKey && !e.metaKey) return
-      // SETTINGS OWNS ITS PLAIN KEYS (#292): Up and Down walk its rail and
-      // Find a setting's results, and the same press used to page the folder
-      // behind it too. The chords and the function keys stay the app's.
-      if (el?.closest('[data-settings-page]') && !e.ctrlKey && !e.altKey && !e.metaKey && !/^F\d+$/.test(e.key) && e.key !== 'Escape') return
-      const inBrowser = !!el?.closest('.folder-browser')
-      if (inBrowser && e.altKey) return
-      if (inBrowser && !e.ctrlKey && !e.altKey && e.key !== 'F11') return
-      // The setup owns the window while it is up: none of these should reach the
-      // app behind it, least of all Escape, which would close Prism mid-guide.
-      if (setup) return
-      if (!settingsOpen && !fullscreen && !document.querySelector('[data-owns-escape]')) {
-        const explorerFileFocus =
-          active && isExplorerTab(active) && termView !== 'full' &&
-          (!browsing.folder || !!el?.closest('[data-workspace-viewer]')) &&
-          !typing && !inTerm &&
-          !el?.closest('.cm-editor,[role="dialog"],[role="menu"],[role="separator"],.browse-viewer-places') &&
-          (el === document.body || !!el?.closest('[data-workspace-viewer]'))
-        if (
-          explorerFileFocus &&
-          e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey &&
-          ['c', 'x', 'v'].includes(e.key.toLowerCase()) &&
-          !window.getSelection()?.toString()
-        ) {
-          e.preventDefault()
-          e.stopPropagation()
-          const key = e.key.toLowerCase()
-          if (key === 'v' && viewerDirectory) void pasteFiles(viewerDirectory)
-          else if (file) void copyFilePaths([file.path], key === 'x')
-          return
-        }
-        if (explorerFileFocus && file && !e.ctrlKey && !e.altKey && !e.metaKey) {
-          const entry = { path: file.path, name: file.name, isFolder: false, file }
-          if (e.key === 'F2' && !e.shiftKey) {
-            e.preventDefault()
-            e.stopPropagation()
-            setBrowseRename(entry)
-            return
-          }
-          // Shift+Delete is Delete, to the bin (owner, #330): never permanent.
-          if (e.key === 'Delete') {
-            e.preventDefault()
-            e.stopPropagation()
-            setAsk({ kind: 'delete', ...entry })
-            return
-          }
-        }
-        if (
-          viewingFile &&
-          !typing &&
-          !inTerm &&
-          e.key === 'Backspace' &&
-          !e.ctrlKey &&
-          !e.altKey &&
-          !e.metaKey
-        ) {
-          const archiveOwnsBackspace = [
-            ...document.querySelectorAll('[data-archive-subfolder]')
-          ].some((node) => !node.closest('[inert],[aria-hidden="true"]'))
-          if (archiveOwnsBackspace || e.defaultPrevented) return
-          e.preventDefault()
-          e.stopPropagation()
-          returnToFolder()
-          return
-        }
-        if (viewingFile && !inTerm && e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
-          e.preventDefault()
-          e.stopPropagation()
-          document
-            .querySelector<HTMLButtonElement>(
-              '.browse-viewer-toolbar [data-testid="browse-edit-path"]'
-            )
-            ?.click()
-          return
-        }
-      }
-      // THE COMMON LIST KEYS (#330) are the list's and the tree's own: Shift
-      // and Ctrl with Up/Down extend the marks or move the keyboard's place
-      // there, and must not also walk the tree (which OPENS what it lands on)
-      // or page the folder behind it. Alt+Up in the tree is its parent row.
-      const inLists = !!el?.closest('.browse-list,[data-project-sidebar]')
-      if (
-        active &&
-        isExplorerTab(active) &&
-        e.altKey &&
-        !inTerm &&
-        !typing &&
-        !el?.closest('[data-project-sidebar]') &&
-        ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)
-      ) {
-        e.preventDefault()
-        if (e.key === 'ArrowLeft') {
-          if (viewingFile) returnToFolder()
-          else browsing.travel(-1)
-        } else if (e.key === 'ArrowRight') browsing.travel(1)
-        else if (active) {
-          const parent = viewingFile ? viewerDirectory : browseParent(active.browse.path)
-          if (parent) void browsing.navigate(parent)
-        }
-      } else if (e.key === 'F11') {
-        e.preventDefault()
-        setFs(!fullscreen)
-      } else if (e.ctrlKey && !typing && !inTerm && !fullscreen && /^[zy]$/i.test(e.key)) {
-        // Ctrl+Z / Ctrl+Y (and Ctrl+Shift+Z) undo Prism's OWN writes. Behind
-        // the typing guard, so the text editor and the shell keep their own -
-        // and behind FULLSCREEN (2026-08-28), where the tree and its verbs are
-        // not on screen: a keystroke that moves files about while you cannot
-        // see them is a change you did not mean to make.
-        e.preventDefault()
-        if (e.key.toLowerCase() === 'y' || e.shiftKey) redo()
-        else undo()
-      } else if (e.key === '`' && e.ctrlKey) {
-        // NOT behind the typing guard: one of the few keys Prism claims over
-        // a focused terminal (F11 and Ctrl+Shift+T are the others).
-        // Everything else, Escape and Ctrl+W included, belongs to the shell.
-        //
-        // Three-way, VS Code's rule (2026-08-31): a terminal that is SHOWING
-        // but does not have the keyboard gets the keyboard, and only a second
-        // press - from inside it - hides it. The old two-way toggle meant
-        // that reaching for the shell you could already see put it away, so
-        // you pressed it twice and got a scroll position you had not asked
-        // for. `toggleTermView` itself is unchanged, and still tested.
-        e.preventDefault()
-        // Over the help popup (#175) the key means what it says, "the terminal":
-        // the popup goes and the shell has the keyboard. Handing the shell the
-        // focus with the popup still up is the failure the core warns about,
-        // a question typed "into the search field" landing in the shell.
-        if (termView !== 'hidden' && !inTerm) restoreTermFocus()
-        else toggleTerm()
-      } else if (
-        (e.code === 'KeyF' || e.key === 'f' || e.key === 'F') &&
-        e.ctrlKey &&
-        e.shiftKey &&
-        termView !== 'hidden'
-      ) {
-        // Claimed over a focused shell too (xterm's own handler returns false
-        // for it, or the pty would get the bytes as well). Only while a
-        // terminal is showing: Ctrl+Shift+F means nothing otherwise, and
-        // swallowing it everywhere would be chrome pretending to be a feature.
-        e.preventDefault()
-        setTermFind(true)
-      } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && e.shiftKey) {
-        // Also claimed while the shell is focused: it never hides, it only
-        // brings the terminal to full view, so it cannot eat typed text.
-        e.preventDefault()
-        openTermFull()
-      } else if (
-        (e.code === 'KeyT' || e.key === 't' || e.key === 'T') &&
-        e.ctrlKey &&
-        (!typing || inTerm)
-      ) {
-        e.preventDefault()
-        newTab()
-      } else if (
-        (e.code === 'KeyW' || e.key === 'w' || e.key === 'W') &&
-        e.ctrlKey &&
-        (!typing || inTerm)
-      ) {
-        // Close the innermost thing first: split panes pop LIFO (tabs within
-        // the tab), and only with none left does Ctrl+W reach the tab itself.
-        // It still never takes the window on the last tab: Prism is resident,
-        // and a window that vanishes under a reflex keystroke - with unsaved
-        // text in it - is the failure the close flow exists to prevent.
-        e.preventDefault()
-        if (active && !isExplorerTab(active) && active.panes.length > 0) {
-          unpinSplitId(active.panes[active.panes.length - 1].id)
-        } else {
-          closeActiveTab()
-        }
-      } else if (e.key === 'Tab' && e.ctrlKey && (!typing || inTerm)) {
-        e.preventDefault()
-        stepTab(e.shiftKey ? -1 : 1)
-      } else if (e.ctrlKey && (!typing || inTerm) && /^[1-9]$/.test(e.key)) {
-        e.preventDefault()
-        jumpTab(Number(e.key))
-      } else if (
-        (e.code === 'KeyB' || e.key === 'b' || e.key === 'B') &&
-        e.ctrlKey &&
-        (!typing || inTerm)
-      ) {
-        e.preventDefault()
-        togglePanel()
-      } else if (e.key === 'Escape') {
-        // Settings owns Escape while it's open (its own handler closes it).
-        // Without this, the window would shut instead: both listeners are on
-        // window in the capture phase, and this one was registered first.
-        if (settingsOpen) return
-        // So does anything transient that closes itself on Escape (the PDF find
-        // bar, an open menu) and any focused input: this listener runs first
-        // (capture, registered earliest), so it has to yield by inspection.
-        if (typing || document.querySelector('[data-owns-escape]')) return
-        // A focused document gives the keys back before the window gives up.
-        // Escape is the way out of a document you clicked into, the same as it
-        // is out of the text editor; only then does it reach the window.
-        if (docFocused()) {
-          e.preventDefault()
-          ;(document.activeElement as HTMLElement | null)?.blur()
-          return
-        }
-        // ESCAPE DOES NOT CLOSE THE WINDOW (owner, 2026-09-01). It used to,
-        // which is the image-viewer habit and wrong for this one: Prism is
-        // RESIDENT and holds tabs, a terminal and unsaved text, and a reflex
-        // keystroke that puts all of that away is the same failure the close
-        // flow exists to prevent - the more so because Escape is the key you
-        // press to back out of things, not to leave.
-        //
-        // What it still does is step back out of something: fullscreen here,
-        // and a focused document just above. When there is nothing to back out
-        // of, it does nothing at all. Ctrl+W closes a tab; the X closes the
-        // window.
-        if (fullscreen) setFs(false)
-      } else if ((e.key === 'PageDown' || e.key === 'PageUp') && !typing && termView !== 'full') {
-        // Same rule as the arrows: the document has these only once it has
-        // been focused. Reading a pdf from the sidebar should page the folder.
-        if (docFocused()) return
-        go(e.key === 'PageDown' ? 1 : -1)
-      } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing && termView !== 'full') {
-        // FOCUS decides, for every kind. A document owns the vertical keys only
-        // while it is focused - click into it, or Tab to it. Until then it has
-        // no more claim on them than a photo does, so arrowing through a folder
-        // from the sidebar behaves the same whatever kind of file it lands on.
-        // (`typing` already covered the text editor's caret, above.)
-        if (docFocused()) return
-        // Alt too: Alt+Up is the tree's parent row, and walking the tree here
-        // first would open or play the row above on the way (review of #330).
-        if (inLists && (e.ctrlKey || e.shiftKey || e.altKey)) return
-        // The tree gets first refusal: it walks folders as well as files, and
-        // says no when it isn't there to walk.
-        const dir = e.key === 'ArrowDown' ? 'down' : 'up'
-        if (!fullscreen && treeNav.current?.(dir)) {
-          e.preventDefault()
-          return
-        }
-        // Nothing to walk, and a player in front of you: Up/Down are the
-        // VOLUME, which is what every media player has taught (2026-08-30).
-        // They used to be preventDefault-ed unconditionally here, and
-        // useMediaControls yields on defaultPrevented, so the volume keys were
-        // dead everywhere - most obviously in fullscreen, where the sidebar is
-        // gone and there is nothing else for them to do. The player only gets
-        // them when the tree does not want them, so browsing a folder from the
-        // sidebar is unchanged.
-        if (!!file && PLAYABLE.has(file.kind)) return // player handles it
-        e.preventDefault()
-        go(e.key === 'ArrowDown' ? 1 : -1)
-      }
-      // LEFT AND RIGHT ARE NOT NAVIGATION KEYS (owner, 2026-09-01: "we only use
-      // up and down there from now on"). They used to page the folder and drive
-      // the tree, which meant every viewer that wanted them had to be FOCUSED
-      // first, and the two kinds that did want them - a comic turning pages, a
-      // player scrubbing - had to be carved out of App by hand.
-      //
-      // So App does not handle them at all now. Nothing is preventDefaulted,
-      // and the keys reach whichever viewer is mounted: `useMediaControls`
-      // seeks a video or a track five seconds, and ComicView turns a page. Every
-      // other kind gets them and does nothing with them, which is the intent -
-      // the folder is paged with Up and Down, in the tree or out of it.
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [
-    active,
-    closeActiveTab,
-    browsing,
-    pasteFiles,
-    viewingFile,
-    viewerDirectory,
-    returnToFolder,
-    file,
-    fullscreen,
-    go,
-    hasNavigated,
-    jumpTab,
-    newTab,
-    openTermFull,
+  // Renaming, new folders, deleting, moving, the drops that move, and undo
+  // and redo over them (hooks/useFileOps; the inverse table is lib/undoApply).
+  const {
     redo,
-    restoreTermFocus,
-    settingsOpen,
-    setup,
-    stepTab,
-    termView,
-    togglePanel,
-    toggleTerm,
     undo,
-    unpinSplitId
-  ])
+    onDropIntoTab,
+    runDelete,
+    runDeleteMany,
+    runMove,
+    runRename,
+    onBrowseDropInto,
+    makeNewFolder
+  } = useFileOps({
+    active,
+    openBrowseFile,
+    open,
+    setAsk,
+    setRefreshKey,
+    rekeyBuffer,
+    setUndoState,
+    file,
+    noteUndo,
+    setTabState,
+    dropBuffers,
+    view,
+    showNothing,
+    tabs,
+    buffers,
+    undoState,
+    flashUndo,
+    archiveActions
+  })
+  // The window's keys (hooks/useAppKeys).
+  useAppKeys({
+    setup,
+    settingsOpen,
+    fullscreen,
+    active,
+    termView,
+    browsing,
+    viewerDirectory,
+    pasteFiles,
+    file,
+    setBrowseRename,
+    setAsk,
+    viewingFile,
+    returnToFolder,
+    setFs,
+    redo,
+    undo,
+    restoreTermFocus,
+    toggleTerm,
+    setTermFind,
+    openTermFull,
+    newTab,
+    unpinSplitId,
+    closeActiveTab,
+    stepTab,
+    jumpTab,
+    togglePanel,
+    go,
+    treeNav,
+    hasNavigated
+  })
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -3968,6 +1881,25 @@ export default function App(): JSX.Element {
     onClose: closeOneTab,
     onNew: newTab,
     wash: washed
+  }
+  const askAnswers: AskAnswers = {
+    dismiss: () => setAsk(null),
+    unsavedNames,
+    runDelete: (path) => void runDelete(path),
+    runDeleteMany: (paths) => void runDeleteMany(paths),
+    runMove: (paths, dest, mode) => void runMove(paths, dest, mode),
+    runRename: (path, name, onClash) => void runRename(path, name, onClash),
+    leave,
+    discardAll: () => {
+      buffers.current.clear()
+      syncDirty()
+    },
+    saveAllThen,
+    discardTabBuffers,
+    forceCloseTab,
+    applyReroot,
+    answerReload: (path, reload) => setReloadAnswer({ path, reload }),
+    runInstall
   }
 
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
@@ -4555,18 +2487,7 @@ export default function App(): JSX.Element {
                       title="Remove from split view"
                       aria-label="Remove the open file from split view"
                     >
-                      <svg
-                        viewBox="0 0 24 24"
-                        width={11}
-                        height={11}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                        aria-hidden
-                      >
-                        <path d="M6 6l12 12M18 6L6 18" />
-                      </svg>
+                      <Icon name="close" size={11} weight="2.2" join={false} />
                     </button>
                   </div>
                   {pins.map((pn, i) => (
@@ -4619,18 +2540,7 @@ export default function App(): JSX.Element {
                 title="Remove from split view"
                 aria-label="Remove the file from the split"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  width={11}
-                  height={11}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  aria-hidden
-                >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
+                <Icon name="close" size={11} weight="2.2" join={false} />
               </button>
             )}
           </div>
@@ -4708,39 +2618,7 @@ export default function App(): JSX.Element {
         onPickTransportBg={pickTransportBg}
       />
 
-      {ask?.kind === 'delete' && (
-        <Dialog
-          title="Move to the Recycle Bin?"
-          body={
-            <>
-              <span className="text-[#d7dae1]">{ask.name}</span> goes to the Recycle Bin, where
-              Windows can put it back.
-            </>
-          }
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            { label: 'Delete', danger: true, primary: true, onPick: () => void runDelete(ask.path) }
-          ]}
-        />
-      )}
-
-      {ask?.kind === 'delete-many' && (
-        <Dialog
-          title={`Move ${ask.paths.length} items to the Recycle Bin?`}
-          body="Everything selected goes to the Recycle Bin, where Windows can put it back."
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              label: 'Delete',
-              danger: true,
-              primary: true,
-              onPick: () => void runDeleteMany(ask.paths)
-            }
-          ]}
-        />
-      )}
+      <AskDialogs ask={ask} layer="under" answers={askAnswers} />
 
       {/* What undo just did, said quietly and briefly: the change is often
           off screen, and a dialog would be asking a question nobody has. */}
@@ -4751,185 +2629,6 @@ export default function App(): JSX.Element {
         >
           {undoNote}
         </div>
-      )}
-
-      {ask?.kind === 'move-clash' && (
-        <Dialog
-          title={
-            ask.names.length > 1
-              ? `${ask.names.length} names are already taken`
-              : `"${ask.names[0]}" is already there`
-          }
-          body="Keep both lands them beside what is there; replacing sends the old ones to the Recycle Bin."
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              label: 'Keep both',
-              primary: true,
-              onPick: () => void runMove(ask.paths, ask.dest, 'keep-both')
-            },
-            {
-              label: 'Replace',
-              danger: true,
-              onPick: () => void runMove(ask.paths, ask.dest, 'replace')
-            }
-          ]}
-        />
-      )}
-
-      {ask?.kind === 'close-dirty' && (
-        <Dialog
-          title={
-            unsavedNames.length > 1
-              ? `${unsavedNames.length} files have unsaved changes`
-              : 'Unsaved changes'
-          }
-          body={
-            <>
-              <span className="text-[#d7dae1]">{unsavedNames.join(', ') || 'This file'}</span>
-              {unsavedNames.length > 1
-                ? ' are not on disk yet.'
-                : ' has changes that are not on disk yet.'}{' '}
-              {ask.then === 'install'
-                ? 'Installing the update restarts Prism, and restarting without saving throws them away.'
-                : 'Closing without saving throws them away.'}
-            </>
-          }
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              // Not `danger`: discarding here throws away typing, not a file,
-              // and the red read as heavier than the act. Same weight as
-              // Cancel; "Save all changes" is the one carrying the accent.
-              label: 'Discard',
-              onPick: () => {
-                const then = ask.kind === 'close-dirty' ? ask.then : undefined
-                buffers.current.clear()
-                syncDirty()
-                setAsk(null)
-                leave(then)
-              }
-            },
-            {
-              label: 'Save all changes',
-              primary: true,
-              onPick: () => {
-                void (async () => {
-                  // A failed write must not close the window over the top of the
-                  // text it failed to keep: we stay put and say which file.
-                  const failed = await saveAll()
-                  if (failed.length) {
-                    setAsk({
-                      kind: 'failed',
-                      message: `Couldn't save ${failed.map(baseName).join(', ')}.`
-                    })
-                    return
-                  }
-                  const then = ask.kind === 'close-dirty' ? ask.then : undefined
-                  setAsk(null)
-                  leave(then)
-                })()
-              }
-            }
-          ]}
-        />
-      )}
-
-      {ask?.kind === 'file-changed' && (
-        <Dialog
-          title="This file changed on disk"
-          body={
-            <>
-              Something outside Prism rewrote <span className="text-[#d7dae1]">{ask.name}</span>{' '}
-              while you have unsaved changes in it. There is no merge: it is your version or the one
-              on disk.
-            </>
-          }
-          onCancel={() => {
-            setReloadAnswer({ path: ask.path, reload: false })
-            setAsk(null)
-          }}
-          choices={[
-            {
-              label: 'Keep mine',
-              onPick: () => {
-                setReloadAnswer({ path: ask.path, reload: false })
-                setAsk(null)
-              }
-            },
-            {
-              label: 'Reload from disk',
-              danger: true,
-              onPick: () => {
-                setReloadAnswer({ path: ask.path, reload: true })
-                setAsk(null)
-              }
-            }
-          ]}
-        />
-      )}
-
-      {(ask?.kind === 'close-tab-confirm' || ask?.kind === 'close-window-agent') && (
-        <Dialog
-          title={closeQuestionTitle(
-            // An install is the window question by another door (#168), and it
-            // says what it is about to do: "close the window?" over a button
-            // the user pressed to INSTALL is a question about something they
-            // did not ask for. The wording is the core's, as the rest is.
-            ask.kind === 'close-window-agent'
-              ? ask.then === 'install'
-                ? 'install'
-                : 'window'
-              : 'tab',
-            ask.agent.forMs
-          )}
-          body={
-            // Naming the work is the whole point of asking (2026-08-31): an
-            // idle prompt and an agent eleven minutes into an answer are not
-            // the same close. The wording is Prism Terminal's, on purpose.
-            ask.agent.forMs === null ? (
-              <>
-                <span className="text-[#d7dae1]">{AGENT_NAMES[ask.agent.kind]}</span> is running in{' '}
-                <span className="text-[#d7dae1]">{ask.label}</span>. Closing the tab kills the
-                shell, and the session with it.
-              </>
-            ) : (
-              <>
-                <span className="text-[#d7dae1]">{AGENT_NAMES[ask.agent.kind]}</span> has been
-                working for {humanFor(ask.agent.forMs)} in{' '}
-                <span className="text-[#d7dae1]">{ask.label}</span>
-                {ask.kind === 'close-window-agent' &&
-                  ask.others > 0 &&
-                  `, and ${ask.others} other ${ask.others === 1 ? 'shell is' : 'shells are'} working too`}
-                .{' '}
-                {ask.kind === 'close-window-agent' && ask.then === 'install'
-                  ? 'Installing restarts Prism, which kills the shell, and the answer with it.'
-                  : 'Closing kills the shell, and the answer with it.'}
-              </>
-            )
-          }
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              label:
-                ask.kind === 'close-window-agent'
-                  ? ask.then === 'install'
-                    ? 'Install and restart'
-                    : 'Close window'
-                  : 'Close tab',
-              primary: true,
-              onPick: () => {
-                setAsk(null)
-                if (ask.kind === 'close-tab-confirm') forceCloseTab(ask.id)
-                else if (ask.then === 'install') runInstall()
-                else window.prism.close(true)
-              }
-            }
-          ]}
-        />
       )}
 
       {/* The update window (#168). Mounted once, here: the chip lives in the
@@ -5040,155 +2739,7 @@ export default function App(): JSX.Element {
           }}
         />
       )}
-      {ask?.kind === 'close-tab' && (
-        <Dialog
-          title={
-            ask.names.length > 1
-              ? `${ask.names.length} files have unsaved changes`
-              : 'Unsaved changes'
-          }
-          body={
-            <>
-              <span className="text-[#d7dae1]">{ask.names.join(', ')}</span>
-              {ask.names.length > 1
-                ? ' are not on disk yet.'
-                : ' has changes that are not on disk yet.'}{' '}
-              Closing this folder is the last way back to them.
-            </>
-          }
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              // Same weight as Cancel, as in the window's question: discarding
-              // throws away typing, not a file, and red read heavier than the act.
-              label: 'Discard',
-              onPick: () => {
-                const tab = tabs.find((t) => t.id === ask.id)
-                if (tab) {
-                  for (const key of [...buffers.current.keys()]) {
-                    if (bufferBelongsTo(tab, key)) buffers.current.delete(key)
-                  }
-                  syncDirty()
-                }
-                setAsk(null)
-                forceCloseTab(ask.id)
-              }
-            },
-            {
-              label: 'Save all changes',
-              primary: true,
-              onPick: () => {
-                void (async () => {
-                  // A failed write must not close the tab over the top of the
-                  // text it failed to keep, exactly as on the window's route.
-                  const failed = await saveAll()
-                  if (failed.length) {
-                    setAsk({
-                      kind: 'failed',
-                      message: `Couldn't save ${failed.map(baseName).join(', ')}.`
-                    })
-                    return
-                  }
-                  setAsk(null)
-                  forceCloseTab(ask.id)
-                })()
-              }
-            }
-          ]}
-        />
-      )}
-
-      {ask?.kind === 'reroot' && (
-        <Dialog
-          title={
-            ask.names.length > 1
-              ? `${ask.names.length} files have unsaved changes`
-              : 'Unsaved changes'
-          }
-          body={
-            <>
-              <span className="text-[#d7dae1]">{ask.names.join(', ')}</span>
-              {ask.names.length > 1
-                ? ' are not on disk yet.'
-                : ' has changes that are not on disk yet.'}{' '}
-              Opening another folder here is the last way back to them.
-            </>
-          }
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              label: 'Discard',
-              onPick: () => {
-                const tab = tabs.find((t) => t.id === ask.id)
-                if (tab) {
-                  for (const key of [...buffers.current.keys()]) {
-                    if (bufferBelongsTo(tab, key)) buffers.current.delete(key)
-                  }
-                  syncDirty()
-                }
-                setAsk(null)
-                applyReroot(ask.id, ask.payload)
-              }
-            },
-            {
-              label: 'Save all changes',
-              primary: true,
-              onPick: () => {
-                void (async () => {
-                  const failed = await saveAll()
-                  if (failed.length) {
-                    setAsk({
-                      kind: 'failed',
-                      message: `Couldn't save ${failed.map(baseName).join(', ')}.`
-                    })
-                    return
-                  }
-                  setAsk(null)
-                  applyReroot(ask.id, ask.payload)
-                })()
-              }
-            }
-          ]}
-        />
-      )}
-
-      {ask?.kind === 'clash' && (
-        <Dialog
-          title="That name is taken"
-          body={
-            <>
-              This folder already has a <span className="text-[#d7dae1]">{ask.name}</span>. Keeping
-              both saves yours as <span className="text-[#d7dae1]">{ask.suggestion}</span>;
-              replacing it sends the old one to the Recycle Bin.
-            </>
-          }
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAsk(null) },
-            {
-              label: 'Replace',
-              danger: true,
-              onPick: () => void runRename(ask.path, ask.name, 'overwrite')
-            },
-            {
-              label: 'Keep both',
-              primary: true,
-              onPick: () => void runRename(ask.path, ask.name, 'keep-both')
-            }
-          ]}
-        />
-      )}
-
-      {ask?.kind === 'failed' && (
-        <Dialog
-          title="That didn't work"
-          body={ask.message}
-          onCancel={() => setAsk(null)}
-          choices={[{ label: 'OK', primary: true, onPick: () => setAsk(null) }]}
-        />
-      )}
+      <AskDialogs ask={ask} layer="over" answers={askAnswers} />
       {moreMenu && (
         <ContextMenu
           x={moreMenu.x}
@@ -5210,7 +2761,7 @@ export default function App(): JSX.Element {
       {setup && (
         <Onboarding
           onDone={() => {
-            localStorage.setItem(SETUP_KEY, '1')
+            onboardedPref.set(true)
             // The colour you picked is the colour the visualizer plays in:
             // that one accent, lit, rather than a spectrum sweeping past.
             setVizTheme(ACCENT_THEME_ID)

@@ -1,4 +1,5 @@
 import { fileKind } from './fileKind'
+import { extOf, naturalCompare } from './path'
 
 /**
  * Which members of a comic book are pages, and in what order (2026-08-31).
@@ -17,8 +18,6 @@ import { fileKind } from './fileKind'
  * one - it is a page if Prism would call it an image.
  */
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
-
 /** Paths that are in the container but are not part of the book. */
 function noise(path: string): boolean {
   const p = path.replace(/\\/g, '/')
@@ -30,12 +29,6 @@ function noise(path: string): boolean {
   if (segments.some((s) => s.startsWith('.') && s.length > 1)) return true
   const name = segments[segments.length - 1]?.toLowerCase() ?? ''
   return name === 'thumbs.db' || name === 'desktop.ini'
-}
-
-const extOf = (path: string): string => {
-  const name = path.replace(/\\/g, '/').split('/').pop() ?? ''
-  const at = name.lastIndexOf('.')
-  return at > 0 ? name.slice(at).toLowerCase() : ''
 }
 
 export interface ComicMember {
@@ -53,5 +46,5 @@ export function comicPages(entries: readonly ComicMember[]): string[] {
   return entries
     .filter((e) => !e.dir && !noise(e.path) && fileKind(extOf(e.path)) === 'image')
     .map((e) => e.path.replace(/\\/g, '/'))
-    .sort((a, b) => collator.compare(a, b))
+    .sort(naturalCompare)
 }

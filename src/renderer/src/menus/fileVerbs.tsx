@@ -1,6 +1,5 @@
-import type { JSX } from 'react'
 import type { MenuItem } from '../components/ContextMenu'
-import { FileMenuIcon } from '../components/FileMenuIcon'
+import { FileMenuIcon } from '../components/icons/FileMenuIcon'
 import { canCopyText, clipboardText } from '../lib/clipboardText'
 
 /**
@@ -19,29 +18,6 @@ import { canCopyText, clipboardText } from '../lib/clipboardText'
  * Viewer menus retain their compact text presentation by default. Surfaces
  * that use the shared file-menu icons can opt in without changing actions.
  */
-
-/** A tick, or the space one would take, so labels line up either way. Ticks
- *  are not icons: they say what is currently ON, which is state the row
- *  cannot express any other way. */
-export const tickIf = (on: boolean): JSX.Element =>
-  on ? (
-    <svg
-      viewBox="0 0 24 24"
-      width={13}
-      height={13}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="opacity-80"
-      aria-hidden
-    >
-      <path d="M5 12.5l4.5 4.5L19 7" />
-    </svg>
-  ) : (
-    <span className="w-[13px] shrink-0" aria-hidden />
-  )
 
 /**
  * Where the file is: the two rows that mean the same thing wherever it is.

@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
-import { useMediaControls } from '../lib/useMediaControls'
+import { useMediaControls } from '../hooks/useMediaControls'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { audioMenu } from '../menus/viewers/audio'
-import { usePlayerPrefs } from '../lib/playerPrefs'
+import { usePlayerPrefs } from '../lib/prefs/playerPrefs'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
 import { Visualizer } from './Visualizer'
 import { VolumeReadout } from './VolumeReadout'
-import { useWaveform } from '../lib/useWaveform'
+import { StageNotice } from './StageNotice'
+import { useWaveform } from '../hooks/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { resolveVizTheme } from '../lib/theme'
-import { useViz, WIDTHS } from '../lib/vizStore'
-import { useDecodedSource } from '../lib/useDecodedSource'
+import { useViz, WIDTHS } from '../lib/viz/vizStore'
+import { useDecodedSource } from '../hooks/useDecodedSource'
 import { wasPlaying, whenIntended } from '../lib/playState'
-import { useBackgroundPause } from '../lib/useBackgroundPause'
+import { useBackgroundPause } from '../hooks/useBackgroundPause'
 
 // The audio player: the chosen visualizer fills the window. Style, colour, and
 // framing all come from the shared vizStore (set in the app Settings window). The
@@ -76,7 +77,7 @@ export function AudioView({
   /** Mounted but not on screen: another tab is in front. The track plays on,
    *  with no controls, no keyboard and no visualizer - see lib/mediaDeck. */
   background?: boolean
-  /** Whose volume this is: the tab's, for the session (lib/tabVolume). */
+  /** Whose volume this is: the tab's, for the session (lib/tabs/tabVolume). */
   volumeKey?: string
   /** The phone's hls.js hook (2026-09-06, #105), as on VideoView: when given,
    *  the element is rendered WITHOUT src (the decoded-source swap included,
@@ -201,13 +202,13 @@ export function AudioView({
         <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />
       )}
       {(synthesising || synthFailed) && (
-        <div className="absolute inset-0 z-30 grid place-items-center bg-[var(--p-bg)]/90 p-8 text-center">
+        <StageNotice className="z-30 bg-[var(--p-bg)]/90">
           <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">
             {synthesising
               ? 'Synthesising this score. A MIDI file holds no sound of its own, so Prism is playing it through its instrument bank.'
               : 'Prism could not synthesise this score.'}
           </div>
-        </div>
+        </StageNotice>
       )}
       <audio
         ref={setMedia}
@@ -229,9 +230,7 @@ export function AudioView({
       />
 
       {c.error ? (
-        <div className="absolute inset-0 grid place-items-center p-8 text-center text-sm text-[#c9ccd6]">
-          {c.error}
-        </div>
+        <StageNotice className="text-sm text-[#c9ccd6]">{c.error}</StageNotice>
       ) : (
         <>
           {/* The visualizer fills the whole viewer, the same box the nav arrows

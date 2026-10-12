@@ -1,9 +1,5 @@
+import { pathKey as key } from '@shared/path'
 import { browseParent } from './browse'
-
-/** Windows folder identity, including equivalent slash and trailing-slash forms. */
-function key(path: string): string {
-  return path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
-}
 
 /**
  * OUT OF A ZIP, ITS PREVIEW COMES BACK (#334; owner, 2026-10-09: "when you go

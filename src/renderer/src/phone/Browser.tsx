@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
 import type { DirListing, SearchHit, ViewerFile } from '@shared/types'
+import { extOf } from '@shared/path'
 import { crumbs, fileFromHit, parentOf, samePath, stepFile } from './browse'
 import { formatBytes } from '../lib/format'
 import { narrowHits } from './narrow'
@@ -9,7 +10,7 @@ import { ROW_CLASS } from './rows'
 import { thumbUrl } from './api'
 import { readView, writeView, type PhoneView } from './view'
 import { TabList } from './TabList'
-import { FolderGlyph } from './FolderGlyph'
+import { FolderFill, Icon } from '../components/icons/Icon'
 
 /** The debounce the sidebar's own search box waits, so a phone typing at the
  *  same speed costs the PC the same number of walks. KEPT at 180ms rather
@@ -293,18 +294,7 @@ export function Browser({
                 onClick={() => (query ? setQuery('') : setSearching(false))}
                 data-phone-search-clear
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  width={22}
-                  height={22}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  aria-hidden
-                >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
+                <Icon name="close" size={22} weight="2.2" join={false} />
               </button>
             </>
           ) : (
@@ -332,19 +322,7 @@ export function Browser({
                   aria-label="Up"
                   onClick={() => setDir(up)}
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width={22}
-                    height={22}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                  >
-                    <path d="M15 6l-6 6 6 6" />
-                  </svg>
+                  <Icon name="chevronLeft" size={22} weight="2.2" />
                 </button>
               )}
               <nav
@@ -475,7 +453,7 @@ export function Browser({
                 <li key={f.path}>
                   <button className={TILE_CLASS} onClick={() => setDir(f.path)} data-phone-folder>
                     <span className="grid aspect-square w-full place-items-center rounded-md bg-[var(--p-hover)]">
-                      <FolderGlyph size={40} />
+                      <FolderFill size={40} />
                     </span>
                     <TileName name={f.name} />
                   </button>
@@ -496,7 +474,7 @@ export function Browser({
               {listing.folders.map((f) => (
                 <li key={f.path}>
                   <button className={ROW_CLASS} onClick={() => setDir(f.path)} data-phone-folder>
-                    <FolderGlyph />
+                    <FolderFill size={22} />
                     <span className="truncate">{f.name}</span>
                   </button>
                 </li>
@@ -579,7 +557,7 @@ function Results({
             data-phone-hit
             data-kind={h.isFolder ? 'folder' : h.kind}
           >
-            {h.isFolder ? <FolderGlyph /> : <ExtChip ext={extOf(h.name)} />}
+            {h.isFolder ? <FolderFill size={22} /> : <ExtChip ext={extOf(h.name)} />}
             <span className="min-w-0">
               <span className="block truncate">{h.name}</span>
               {h.dir && <span className="block truncate text-[13px] opacity-60">{h.dir}</span>}
@@ -657,18 +635,7 @@ function Drawer({
             onClick={onClose}
             data-phone-sheet-close
           >
-            <svg
-              viewBox="0 0 24 24"
-              width={22}
-              height={22}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              aria-hidden
-            >
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
+            <Icon name="close" size={22} weight="2.2" join={false} />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto pb-[max(env(safe-area-inset-bottom),12px)]">{children}</div>
@@ -677,12 +644,6 @@ function Drawer({
   )
 }
 
-/** A hit carries a name, not an extension; the chip wants one. */
-const extOf = (name: string): string => /\.[^.]*$/.exec(name)?.[0] ?? ''
-
-/** The sidebar's own folder silhouette (TreeRows.FolderIcon), inlined rather
- *  than imported: TreeRows carries the whole tree, its drag and its selection
- *  into any bundle that imports it. */
 /** A tile: the picture where there is one, the kind's chip where there is
  *  not. Asked for lazily, so a folder of three hundred photos asks only for
  *  the tiles on screen, and a file main could not thumbnail falls back to

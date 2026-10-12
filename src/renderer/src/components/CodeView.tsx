@@ -24,13 +24,16 @@ import {
   searchPanelOpen
 } from '@codemirror/search'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { LoadingState } from './LoadingState'
+import { StageNotice } from './StageNotice'
 import { codeMenu } from '../menus/viewers/code'
 import { lintKeymap } from '@codemirror/lint'
-import { isProse, langFor } from '../lib/codeLang'
-import { lintFor } from '../lib/codeLint'
-import { prismCodeTheme } from '../lib/codeTheme'
-import { setWrapPref, useWrapPref, wrapPref, wrapsFor, type WrapPref } from '../lib/codePrefs'
+import { isProse, langFor } from '../lib/code/codeLang'
+import { lintFor } from '../lib/code/codeLint'
+import { prismCodeTheme } from '../lib/code/codeTheme'
+import { setWrapPref, useWrapPref, wrapPref, wrapsFor, type WrapPref } from '../lib/code/codePrefs'
 import { reloadAction, stampChanged, touchesFile, type Stamp } from '../lib/fileReload'
+import { inNavSurface, isFormField } from '../lib/focusGuards'
 
 // Text and code, shown and edited in the same surface. There is no "edit mode"
 // here: a .py or a .txt has no rendered form to toggle away from, so the buffer
@@ -547,7 +550,7 @@ export function CodeView({
       // Some other field has the keyboard (the sidebar's search box, a dialog).
       // Its keys are its own; only the editor's own inputs come back to us.
       const ours = !!target && !!host.current?.contains(target)
-      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && !ours) return
+      if (isFormField(target) && !ours) return
       if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
         // Not bound for a reader: the browser's own Ctrl+S (save the page)
         // is what the key means there, and it is left to it.
@@ -556,7 +559,7 @@ export function CodeView({
         e.stopPropagation()
         void save()
       } else if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) {
-        if (target?.closest('[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"]')) return
+        if (inNavSurface(target)) return
         e.preventDefault()
         e.stopPropagation()
         v.focus()
@@ -662,9 +665,7 @@ export function CodeView({
         />
       )}
       {!ready && (
-        <div className="delayed-loader absolute inset-0 grid place-items-center">
-          <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
-        </div>
+        <LoadingState className="absolute inset-0" />
       )}
 
       {/* Quiet until there is something to say: the pill appears when the buffer
@@ -680,13 +681,13 @@ export function CodeView({
         </div>
       )}
       {unreadable && (
-        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-[var(--p-bg)]/92 p-8 text-center">
+        <StageNotice className="pointer-events-none z-10 bg-[var(--p-bg)]/92">
           <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">
             {unreadable === 'too-large'
               ? 'This file is too large to open in the editor (over 64MB). Nothing has been changed on disk.'
               : 'This file could not be read. Nothing has been changed on disk.'}
           </div>
-        </div>
+        </StageNotice>
       )}
       {/* Where the caret is. Only while the editor has FOCUS, so a file you
           are reading from the sidebar stays chrome-free - the same rule that

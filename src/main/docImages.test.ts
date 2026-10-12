@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { documentImages, isMarkdownPath } from './docImages'
+import { documentImages } from './docImages'
 
 let docs: string
 let assets: string
@@ -82,11 +82,5 @@ describe('what a document is allowed to show', () => {
     expect(got).toHaveLength(200)
     expect(got[0]).toBe(join(assets, 'n0.png'))
     expect(got[199]).toBe(join(assets, 'n199.png'))
-  })
-
-  it('knows a markdown file when it sees one', () => {
-    expect(isMarkdownPath('a/b/README.md')).toBe(true)
-    expect(isMarkdownPath('notes.markdown')).toBe(true)
-    expect(isMarkdownPath('code.ts')).toBe(false)
   })
 })

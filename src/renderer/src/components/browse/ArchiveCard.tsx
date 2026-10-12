@@ -1,12 +1,11 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { ArchiveSummary } from '@shared/archivePlace'
 import { formatBytes, formatWhen } from '../../lib/format'
-import { FolderIcon, KindIcon, iconColour } from '../TreeRows'
-import { FileMenuIcon } from '../FileMenuIcon'
+import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
+import { FileMenuIcon } from '../icons/FileMenuIcon'
 import { fileKind } from '@shared/fileKind'
+import { extOf } from '@shared/path'
 import './archive.css'
-
-const extOf = (name: string): string => /\.[^.]*$/.exec(name.toLowerCase())?.[0] ?? ''
 
 /**
  * THE ARCHIVE CARD (#300, mockup 01): what the preview pane shows for an

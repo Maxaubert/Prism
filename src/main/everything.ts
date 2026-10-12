@@ -7,22 +7,15 @@
  */
 import { execFile } from 'child_process'
 import { managedIndexerRuntime } from './indexerRuntime'
-import { access } from 'fs/promises'
 import { basename, extname, join } from 'path'
 import { fileKind, isViewable } from '@shared/fileKind'
 import { everythingArgs, isDirAttr, isHiddenAttr } from '@shared/everythingQuery'
 import type { Term } from '@shared/searchQuery'
 import type { SearchHit, SearchResult } from '@shared/types'
 import { isSkipped } from '@shared/listRules'
+import { exists } from './fsUtil'
 
 let esPath: string | null | undefined
-
-/** existsSync's answer without blocking main: anything unreachable is absent. */
-const exists = (p: string): Promise<boolean> =>
-  access(p).then(
-    () => true,
-    () => false
-  )
 
 /** Where es.exe is, or null. Looked up once per run. */
 export function findEverything(root?: string, signal?: AbortSignal): Promise<string | null> {
@@ -53,11 +46,6 @@ export function findEverything(root?: string, signal?: AbortSignal): Promise<str
     esPath = found
     return found
   })
-}
-
-/** Test seam. */
-export function forgetEverything(): void {
-  esPath = undefined
 }
 
 interface EsRow {

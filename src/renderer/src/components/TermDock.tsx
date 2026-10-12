@@ -1,13 +1,14 @@
 import { DictationPill } from 'prism-term-core/renderer/components/DictationPill'
 import { lazy, Suspense, useCallback, useRef, useState, type JSX } from 'react'
 import { clampTermSize, dockAxis, type DockEdge } from '../lib/termDock'
-import { dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
+import { dragPayload, droppedPaths, setDrag } from '../lib/drag/dragDrop'
 import { quotePaths } from 'prism-term-core/renderer/lib/termPaste'
 import { shellOfShellId } from 'prism-term-core/shared/help/shells'
 import { ContextMenu } from './ContextMenu'
 import { pasteInto } from 'prism-term-core/renderer/lib/termBus'
 import { copyText } from 'prism-term-core/renderer/lib/copyNotice'
 import { terminalPanelMenu } from '../menus/terminalPanel'
+import { Icon } from './icons/Icon'
 
 // The terminal's dock: size, drag handle, right-click dock menu, drop scoping.
 // No xterm imports here - the heavy chunk stays behind the lazy boundary.
@@ -168,18 +169,7 @@ export function TermDock({
           title="Remove from split view"
           aria-label="Remove the terminal from the split"
         >
-          <svg
-            viewBox="0 0 24 24"
-            width={11}
-            height={11}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            aria-hidden
-          >
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
+          <Icon name="close" size={11} weight="2.2" join={false} />
         </button>
       )}
       <div className="relative min-h-0 min-w-0 flex-1">

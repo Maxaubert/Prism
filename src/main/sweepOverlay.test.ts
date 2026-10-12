@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BrowserWindow, WebContents } from 'electron'
-import { SWEEP_CHANNELS, type SweepBegin } from '@shared/sweepOverlay'
+import { SWEEP_CHANNELS } from '@shared/channels'
+import type { SweepBegin } from '@shared/sweepOverlay'
 import { WATCHDOG_MS, initSweepOverlay, sweepDirs, type PrismSweep, type SweepLoad } from './sweepOverlay'
 
 class FakeContents extends EventEmitter {

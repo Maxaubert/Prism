@@ -1,5 +1,5 @@
-import { useSyncExternalStore } from 'react'
-import { TREE_SIZES, rowLook } from './treePrefs'
+import { createPref } from './prefs/createPref'
+import { TREE_SIZES, rowLook } from './prefs/treePrefs'
 
 // HOW BIG THE EXPLORER'S ROWS ARE (owner, 2026-10-03: "let there be size
 // options for explorer in the appearance menu, let the current be medium the
@@ -35,7 +35,6 @@ export const EXPLORER_SIZES: Array<{ id: ExplorerSize; name: string; row: Explor
   { id: 'large', name: 'Large', row: { height: 40, font: 15, icon: 18, gap: 12, padX: 16 } }
 ]
 
-const KEY = 'prism.explorer.size'
 const DEFAULT: ExplorerSize = 'medium'
 
 /** A stored size, made safe: anything but a known id reads as Medium. */
@@ -43,30 +42,14 @@ export function explorerSizeOf(raw: unknown): ExplorerSize {
   return EXPLORER_SIZES.some((s) => s.id === raw) ? (raw as ExplorerSize) : DEFAULT
 }
 
-function load(): ExplorerSize {
-  try {
-    return explorerSizeOf(localStorage.getItem(KEY))
-  } catch {
-    return DEFAULT
-  }
-}
+const pref = createPref<ExplorerSize>({
+  key: 'prism.explorer.size',
+  parse: explorerSizeOf,
+  fallback: DEFAULT
+})
 
-let size: ExplorerSize = load()
-const listeners = new Set<() => void>()
-
-export function setExplorerSize(s: ExplorerSize): void {
-  size = explorerSizeOf(s)
-  try {
-    localStorage.setItem(KEY, size)
-  } catch {
-    /* no storage: it lasts the session */
-  }
-  listeners.forEach((l) => l())
-}
-
-export function explorerSize(): ExplorerSize {
-  return size
-}
+export const setExplorerSize = (s: ExplorerSize): void => pref.set(explorerSizeOf(s))
+export const explorerSize = pref.get
 
 export function explorerRow(id: ExplorerSize): ExplorerRow {
   return (EXPLORER_SIZES.find((s) => s.id === id) ?? EXPLORER_SIZES[1]).row
@@ -113,17 +96,7 @@ export function explorerHeadVars(id: ExplorerSize): Record<string, string> {
   }
 }
 
-export function useExplorerSize(): ExplorerSize {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    () => size
-  )
-}
+export const useExplorerSize = pref.use
 
 /** For tests: read the store again, as a fresh launch would. */
-export function reloadExplorerSize(): void {
-  size = load()
-}
+export const reloadExplorerSize = pref.reload

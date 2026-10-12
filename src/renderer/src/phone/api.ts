@@ -4,6 +4,8 @@
  * refused request into a PhoneError carrying the status, so the shell can
  * tell "forgotten" (401) from "could not read the folder".
  */
+import { ROUTE, mediaPath, routePath } from '@shared/phoneWire'
+
 export const TOKEN_KEY = 'prism.phone.token'
 
 export class PhoneError extends Error {
@@ -43,17 +45,43 @@ export function apiUrl(path: string, params: Record<string, string> = {}): strin
 
 /** A tile's picture (#135): an `<img src>` carries no header either. */
 export function thumbUrl(path: string): string {
-  return apiUrl('/api/thumb', { path })
+  return apiUrl(routePath(ROUTE.thumb), { path })
 }
 
 /** `<video src>` cannot carry a header, so the token rides in the query. */
 export function mediaUrl(path: string): string {
   const t = readToken()
-  return `/m/${encodeURIComponent(path)}${t ? `?t=${t}` : ''}`
+  return `${mediaPath(path)}${t ? `?t=${t}` : ''}`
 }
 
 export async function getJson<T>(path: string, params: Record<string, string> = {}): Promise<T> {
   return answer<T>(await fetch(apiUrl(path, params)))
+}
+
+/** A read whose failure is an answer: the shim's verbs say what the IPC
+ *  would on a refusal (no listing, no hits, unreadable) rather than throw. */
+export function getOr<T, F = T>(
+  path: string,
+  params: Record<string, string>,
+  fallback: F
+): Promise<T | F> {
+  return getJson<T>(path, params).catch(() => fallback)
+}
+
+/** A POST nobody waits for: a position, a memory patch, a batch of log
+ *  lines. `keepalive` so a page going to the background still hands it
+ *  over, and a post that fails is dropped. */
+export function postFireAndForget(
+  path: string,
+  body: unknown,
+  params: Record<string, string> = {}
+): void {
+  void fetch(apiUrl(path, params), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    keepalive: true
+  }).catch(() => undefined)
 }
 
 /** The one route the phone POSTs to besides pairing: moving itself to

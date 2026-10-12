@@ -2,12 +2,15 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { openDocAt, rememberDocPos, saveDocPos } from '../../lib/docPosition'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { IconFull } from '../icons'
-import { findMatches, stepMatch, type Match, type PageText } from '../../lib/pdfSearch'
+import { IconFull } from '../icons/transport'
+import { findMatches, stepMatch, type Match, type PageText } from '../../lib/pdf/pdfSearch'
 import { PdfPage } from './PdfPage'
-import { type PdfLink } from '../../lib/pdfLinks'
-import { baseZoom, zoomPercent } from '../../lib/pdfZoom'
+import { type PdfLink } from '../../lib/pdf/pdfLinks'
+import { baseZoom, zoomPercent } from '../../lib/pdf/pdfZoom'
 import { PdfFindBar } from './PdfFindBar'
+import { LoadingState } from '../LoadingState'
+import { EDITOR, NAV_SURFACE, OVERLAY, isFormField } from '../../lib/focusGuards'
+import { clamp } from '../../lib/clamp'
 import '../../assets/pdf.css'
 
 // Prism's own PDF viewer: pdf.js pages in a continuous scroll, the app's chrome
@@ -34,7 +37,7 @@ const sideData = (dir: string): string => {
 const MIN_SCALE = 0.25
 const MAX_SCALE = 5
 const STEP = 1.18
-// What the pill calls 100% is now DERIVED PER DOCUMENT, in lib/pdfZoom.ts:
+// What the pill calls 100% is now DERIVED PER DOCUMENT, in lib/pdf/pdfZoom.ts:
 // pdf.js units are relative to the page's own size, so a flat 1.9 meant "1.9x
 // whatever this document happens to measure" and an artbook with 1800pt pages
 // opened three times the width of a letter one (2026-08-31). 100% is a fixed
@@ -46,7 +49,6 @@ const PAD_X = 48
 const PAD_Y = 24
 // US Letter, until page 1 announces the document's real size.
 const FALLBACK_DIMS = { w: 612, h: 792 }
-const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
 
 type FitMode = 'fit-page' | 'fit-width' | 'manual'
 
@@ -609,9 +611,9 @@ export function PdfView({
       // window-level listener doesn't know that unless it looks.
       if (scroller.current?.closest('[inert]')) return
       const el = e.target as HTMLElement | null
-      const typing = !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
+      const typing = isFormField(el)
       if ((e.key === 'f' || e.key === 'F') && e.ctrlKey) {
-        if (e.defaultPrevented || el?.closest('[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"],.xterm,.cm-editor,[role="dialog"],[role="menu"]')) return
+        if (e.defaultPrevented || el?.closest(`${NAV_SURFACE},${EDITOR},${OVERLAY}`)) return
         if (typing && !scroller.current?.contains(el)) return
         e.preventDefault()
         setFindOpen(true)
@@ -819,9 +821,7 @@ export function PdfView({
         style={{ scrollbarGutter: 'stable' }}
       >
         {!doc ? (
-          <div className="delayed-loader grid h-full place-items-center">
-            <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
-          </div>
+          <LoadingState className="h-full" />
         ) : (
           <div
             className="flex min-h-full w-max min-w-full flex-col items-center"

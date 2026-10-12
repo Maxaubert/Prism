@@ -2,7 +2,7 @@ import { coreSettingsIndex } from 'prism-term-core/renderer/settings/coreIndex'
 import type { SettingsIndexEntry, SettingsPageDef } from 'prism-term-core/renderer/settings/layout/SettingsFrame'
 import type { SettingsSectionId } from 'prism-term-core/renderer/settings/sectionIds'
 import { APP_OPTIONS, APP_SECTIONS, type AppPageId } from './appOptions'
-import { iconPath } from './icons'
+import { iconPath } from '../icons/settingsIcons'
 
 // Prism's pages, where the core's sections sit on them, and the index Find a
 // setting reads (2026-10-05, the grouped cards redesign, #292).

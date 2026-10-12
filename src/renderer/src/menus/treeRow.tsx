@@ -1,10 +1,11 @@
-import type { JSX } from 'react'
 import type { OpenWithApp } from '@shared/types'
 import type { MenuItem } from '../components/ContextMenu'
-import { FileMenuIcon } from '../components/FileMenuIcon'
+import { FileMenuIcon } from '../components/icons/FileMenuIcon'
+import { menuIcon } from '../components/icons/menuGlyphs'
+import { PATHS } from '../components/icons/paths'
 import { fileAppMenu } from './fileAppMenu'
 import { lastSplitDir, type SplitDir } from '../lib/panes'
-import { parentDir } from '../lib/fileTree'
+import { baseName, parentDir } from '@shared/path'
 import { formatBytes } from '../lib/format'
 
 /**
@@ -18,24 +19,6 @@ import { formatBytes } from '../lib/format'
  * The component keeps the state and the handlers; these only say which rows
  * show, in what order, and which handler each one calls.
  */
-
-/** Menu glyphs: outlined, so they read as actions rather than as file kinds. */
-export const menuIcon = (d: string): JSX.Element => (
-  <svg
-    viewBox="0 0 24 24"
-    width={13}
-    height={13}
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.7"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className="opacity-80"
-    aria-hidden
-  >
-    <path d={d} />
-  </svg>
-)
 
 /** The panel's dead space: the root folder, nothing else under the cursor. */
 export interface TreeDeadSpaceMenuContext {
@@ -76,7 +59,7 @@ export function treeDeadSpaceMenu(ctx: TreeDeadSpaceMenuContext): MenuItem[] {
     {
       label: 'Properties',
       icon: <FileMenuIcon name="properties" />,
-      onPick: () => ctx.showProperties({ path: root, name: root.split(/[\\/]/).filter(Boolean).pop() ?? root, isFolder: true })
+      onPick: () => ctx.showProperties({ path: root, name: baseName(root), isFolder: true })
     }
   ]
 }
@@ -220,7 +203,7 @@ export function treeRowMenu(ctx: TreeRowMenuContext): MenuItem[] {
                   label: d[0].toUpperCase() + d.slice(1),
                   icon:
                     d === lastSplitDir() ? (
-                      menuIcon('M5 12.5l4.5 4.5L19 7')
+                      menuIcon(PATHS.tick)
                     ) : (
                       <span className="w-[13px] shrink-0" aria-hidden />
                     ),

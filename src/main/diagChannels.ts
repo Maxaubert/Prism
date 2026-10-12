@@ -1,4 +1,5 @@
 import { DCH } from 'prism-term-core/shared/channels'
+import { CALL } from '@shared/channels'
 
 /**
  * PRISM'S CALLS THAT ARE SUPPOSED TO TAKE LONG (#322), for the diagnostics
@@ -31,49 +32,49 @@ import { DCH } from 'prism-term-core/shared/channels'
  */
 export const LONG_WAIT_CHANNELS: readonly string[] = [
   // Waits on the user: each opens a system dialog and answers when it closes.
-  'dialog:pick-folder',
-  'open:folder',
-  'dialog:pick-files',
-  'open:dialog',
-  'subs:pick',
-  'image:save-copy',
+  CALL.dialogPickFolder,
+  CALL.openFolder,
+  CALL.dialogPickFiles,
+  CALL.openDialog,
+  CALL.subsPick,
+  CALL.imageSaveCopy,
   // Searches: a recursive walk (or Everything's index) that answers when the
   // walk ends or the user cancels. Their `search-*` crumbs carry the time,
   // and `guard-slow` the path guard inside them.
-  'browse:search',
-  'browse:suggest',
-  'search:files',
+  CALL.browseSearch,
+  CALL.browseSuggest,
+  CALL.searchFiles,
   // A folder's size: a full recursive scan, cancellable, answering at the end.
   // Its `folder-size` crumb carries the time.
-  'folder:size',
+  CALL.folderSize,
   // Archive jobs with the extraction window (ExtractJobs): 7-Zip or the
   // extractor writing every member out, for as long as the archive is big.
   // Their `archive-job` crumbs carry start, end and time. Two of them open
   // the folder dialog first.
-  'archive:extract-to',
-  'archive:extract-members-picked',
-  'archive:extract-all',
-  'archive:extract-dir',
-  'archive:member-out',
+  CALL.archiveExtractTo,
+  CALL.archiveExtractMembersPicked,
+  CALL.archiveExtractAll,
+  CALL.archiveExtractDir,
+  CALL.archiveMemberOut,
   // 7-Zip (only ever 7-Zip) unpacking every page of a comic.
-  'comic:open',
+  CALL.comicOpen,
   // ffmpeg converting a whole video, with its own progress.
-  'video:convert',
+  CALL.videoConvert,
   // The update's download (and, for a preview, its three seconds of fake
   // progress).
-  'update:install',
+  CALL.updateInstall,
   // File copies with progress: a paste, and a move across drives, which is a
   // copy, last as long as the bytes do.
-  'file:paste-into',
-  'file:move',
+  CALL.filePasteInto,
+  CALL.fileMove,
   // A duplicate is an async copy of a file that may be gigabytes.
-  'file:duplicate',
+  CALL.fileDuplicate,
   // Undoing a delete: a PowerShell child walks the Recycle Bin (20 s cap).
-  'file:restore',
+  CALL.fileRestore,
   // ffmpeg or FluidSynth decoding a whole track in a child process: as long as
   // the file is.
-  'media:peaks',
-  'audio:synth',
+  CALL.mediaPeaks,
+  CALL.audioSynth,
   // Dictation's passes run in whisper-server or parakeet-cli: Parakeet is one
   // process per pass, MEASURED 0.72-0.86 s on CPU, so every pass would cross
   // the 500 ms line, and a cold GPU's first pass took 31.8 s. The core's own

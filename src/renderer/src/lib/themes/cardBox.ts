@@ -1,4 +1,4 @@
-import { contrastOf } from '../fieldColours'
+import { contrast } from '../colour'
 
 /**
  * THE CARD'S OWN BOX IS ONE DARK GREY FOR EVERY THEME (owner, 2026-10-06:
@@ -17,4 +17,4 @@ export const CARD_TEXT = '#e6e6e9'
 
 /** The chosen card's check: the theme's own accent where it reads on the
  *  grey (3:1, a mark, not text), else the band's text. */
-export const cardCheck = (accent: string): string => (contrastOf(accent, CARD_BOX) >= 3 ? accent : CARD_TEXT)
+export const cardCheck = (accent: string): string => (contrast(accent, CARD_BOX) >= 3 ? accent : CARD_TEXT)

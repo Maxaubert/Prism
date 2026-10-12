@@ -1,8 +1,10 @@
 import { useEffect, useRef, type JSX } from 'react'
-import { clamp, type AudioFrame, type DrawFn, type VizOpts, type VizTheme } from '../lib/viz/core'
+import type { AudioFrame, DrawFn, VizOpts, VizTheme } from '../lib/viz/core'
+import { clamp } from '../lib/clamp'
 import { styleById } from '../lib/viz/styles'
 import { analyzeDrops } from '../lib/viz/drops'
 import { getAudioContext, mediaGraph } from '../lib/audio'
+import { hexToRgb } from '../lib/colour'
 
 // Drives whichever visualizer style is selected. Owns the Web Audio graph and
 // the per-frame analysis (bands, level, beat) so the styles only have to draw.
@@ -20,11 +22,7 @@ function appBackground(): string {
 }
 
 function rgbOf(colour: string): [number, number, number] {
-  if (colour.startsWith('#')) {
-    const s = colour.slice(1)
-    const n = parseInt(s.length === 3 ? s.split('').map((c) => c + c).join('') : s.slice(0, 6), 16)
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-  }
+  if (colour.startsWith('#')) return hexToRgb(colour)
   const m = colour.match(/[\d.]+/g)
   return m ? [Number(m[0]), Number(m[1]), Number(m[2])] : [13, 15, 20]
 }

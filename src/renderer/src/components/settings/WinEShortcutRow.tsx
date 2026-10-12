@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import { Switch } from 'prism-term-core/renderer/settings/fields'
 import { SettingRow } from 'prism-term-core/renderer/settings/layout/SettingRow'
 import { appOpt } from './appOptions'
-import { iconPath } from './icons'
+import { iconPath } from '../icons/settingsIcons'
 
 /**
  * OPEN IN PLACE OF FILE EXPLORER (Win+E), as a row. Windows owns this

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { ACCENT_THEME_ID, THEMES, themeById } from './viz/styles'
 import type { VizTheme } from './viz/core'
-import { setBarTheme, setTheme, vizState } from './vizStore'
+import { setBarTheme, setTheme, vizState } from './viz/vizStore'
 import { resetTermExtras, setTermThemeId } from 'prism-term-core/renderer/lib/termLook'
 import {
   alphaOf,
@@ -13,6 +13,7 @@ import {
   toStored,
   withAlpha
 } from 'prism-term-core/renderer/lib/colour'
+import { contrast, hexToRgb, mix, rgbToHex } from './colour'
 import { accentAlphaOf, fillOf } from './accentAlpha'
 import { controlFieldOn, hintOn, isNearBlack, nearBlackField } from './fieldColours'
 import { THEME_STYLES } from './themes/catalogue'
@@ -208,29 +209,17 @@ export const DEFAULT_STYLE = 'aurora'
 
 /* ---------- colour maths ---------- */
 
-// The first SIX digits only: a colour may carry an alpha now (#249 rework),
-// and parsing all eight shifted G, B and A into R, G and B.
-const hex2rgb = (h: string): number[] => {
-  const s = h.replace('#', '')
-  const n = parseInt(s.length === 3 ? s.split('').map((c) => c + c).join('') : s.slice(0, 6), 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-const rgb2hex = (c: number[]): string =>
-  '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
-export const mix = (a: string, b: string, t: number): string => {
-  const A = hex2rgb(a)
-  const B = hex2rgb(b)
-  return rgb2hex(A.map((v, i) => v + (B[i] - v) * t))
-}
+// hexToRgb, mix, luminance and contrast are lib/colour.ts's (the first six
+// digits only, so a colour carrying an alpha parses right).
 const lighten = (c: string, t: number): string => mix(c, '#ffffff', t)
 /** `c` moved `t` of the way to the grey of its own lightness. */
 const greyer = (c: string, t: number): string => {
-  const [r, g, b] = hex2rgb(c)
+  const [r, g, b] = hexToRgb(c)
   const y = Math.round(0.299 * r + 0.587 * g + 0.114 * b)
-  return mix(c, rgb2hex([y, y, y]), t)
+  return mix(c, rgbToHex([y, y, y]), t)
 }
 export const rgba = (c: string, a: number): string => {
-  const [r, g, b] = hex2rgb(c)
+  const [r, g, b] = hexToRgb(c)
   return `rgba(${r},${g},${b},${a})`
 }
 
@@ -257,21 +246,6 @@ function seenStyle(s: Style): Style {
   const text = picks.reduce((a, b) => (worst(b) > worst(a) ? b : a))
   return { ...s, text }
 }
-
-function luminance(hex: string): number {
-  const [r, g, b] = hex2rgb(hex).map((v) => {
-    const c = v / 255
-    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-  })
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-function contrast(a: string, b: string): number {
-  const l1 = luminance(a)
-  const l2 = luminance(b)
-  const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1]
-  return (hi + 0.05) / (lo + 0.05)
-}
-
 
 /**
  * Ink or paper on `bg`. White is the default and only loses when black is

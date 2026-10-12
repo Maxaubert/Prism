@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type RefObject } from 'react'
 import { matchRanges, stepMatch } from '../lib/findInText'
+import { Icon } from './icons/Icon'
 
 /**
  * Ctrl+F for the documents that had none: markdown, docx, odt, pptx, xlsx,
@@ -220,18 +221,14 @@ export function DocFind({
         className="grid h-5 w-5 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] disabled:opacity-40"
         onClick={() => step(1)}
       >
-        <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        <Icon name="chevronDown" size={12} weight="2.2" join={false} />
       </button>
       <button
         aria-label="Close find"
         className="grid h-5 w-5 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
         onClick={onClose}
       >
-        <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
+        <Icon name="close" size={12} weight="2.2" join={false} />
       </button>
     </div>
   )

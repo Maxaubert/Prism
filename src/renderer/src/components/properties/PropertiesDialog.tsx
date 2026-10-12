@@ -1,7 +1,8 @@
-import { useEffect, useRef, type JSX } from 'react'
+import type { JSX } from 'react'
 import type { FileKind } from '@shared/types'
 import type { BrowseDriveUsage } from '@shared/browse'
-import { DIALOG_BOX, DIALOG_SCRIM } from '../dialogLook'
+import { DIALOG_BOX } from '../dialogLook'
+import { Modal } from '../Modal'
 import { AudioBody } from './AudioBody'
 import type { BodyProps } from './bodyProps'
 import { DriveBody } from './DriveBody'
@@ -43,58 +44,27 @@ export function PropertiesDialog({
   onOpenFolder?: (path: string) => void
   onClose: () => void
 }): JSX.Element {
-  const box = useRef<HTMLDivElement>(null)
-  // The listener is registered once and reads the latest onClose from a ref,
-  // as Dialog's does (#168): keyed on an inline arrow it was torn down and
-  // put back on every render, and an Escape could fall between the two.
-  const close = useRef(onClose)
-  useEffect(() => {
-    close.current = onClose
-  })
-
-  // Close is focused, so Enter and Escape both close without the mouse.
-  useEffect(() => {
-    box.current?.querySelector<HTMLButtonElement>('[data-primary="true"]')?.focus()
-  }, [path])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        e.preventDefault()
-        close.current()
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [])
-
   const body: BodyProps = { root, path, name, kind, onClose }
 
   return (
-    // data-owns-escape: the app's capture-phase Escape handler registered
-    // first and would otherwise close the WINDOW while a dialog is up.
-    <div data-owns-escape className={DIALOG_SCRIM} role="presentation" onMouseDown={onClose}>
-      <div
-        ref={box}
-        role="dialog"
-        aria-modal="true"
-        aria-label={drive ? `Properties of ${path}` : `Properties of ${name}`}
-        data-props-window
-        onMouseDown={(e) => e.stopPropagation()}
-        // A tall body (a film with many tracks) scrolls inside the box rather
-        // than past the window's edge.
-        className={`${DIALOG_BOX} max-h-full overflow-y-auto text-[12.5px] text-[var(--p-text)]`}
-      >
-        {drive ? (
-          <DriveBody key={path} drive={drive} onOpenFolder={onOpenFolder} onClose={onClose} />
-        ) : isFolder ? (
-          <FolderBody key={path} {...body} />
-        ) : (
-          <FileBody key={path} {...body} />
-        )}
-      </div>
-    </div>
+    // Close is focused, so Enter and Escape both close without the mouse.
+    <Modal
+      label={drive ? `Properties of ${path}` : `Properties of ${name}`}
+      focusKey={path}
+      onCancel={onClose}
+      attrs={{ 'data-props-window': '' }}
+      // A tall body (a film with many tracks) scrolls inside the box rather
+      // than past the window's edge.
+      className={`${DIALOG_BOX} max-h-full overflow-y-auto text-[12.5px] text-[var(--p-text)]`}
+    >
+      {drive ? (
+        <DriveBody key={path} drive={drive} onOpenFolder={onOpenFolder} onClose={onClose} />
+      ) : isFolder ? (
+        <FolderBody key={path} {...body} />
+      ) : (
+        <FileBody key={path} {...body} />
+      )}
+    </Modal>
   )
 }
 

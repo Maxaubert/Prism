@@ -4,7 +4,7 @@ import type { DriveDetails } from '@shared/props'
 import { driveName } from '../../lib/driveUsage'
 import { donutBytes } from '../../lib/donut'
 import { DriveDonut } from './DriveDonut'
-import { DriveGlyph } from './glyphs'
+import { DriveGlyph } from '../icons/propertyGlyphs'
 import { Facts, Footer, FooterButton, Header, type Fact } from './parts'
 import { useLoaded } from './useLoaded'
 

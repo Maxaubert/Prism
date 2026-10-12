@@ -1,30 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { docMenu } from './doc'
+import { aliasWindow, capabilityHost, clearHost, fakeClipboard } from '../../testing/host'
 
-// The unit tests run under node, where `window` does not exist; in a browser
-// it IS globalThis, which is what the phone shim leans on too.
-if (typeof window === 'undefined')
-  Object.defineProperty(globalThis, 'window', { value: globalThis })
+aliasWindow()
 
 /** The desktop (every capability) or the phone page (#106: none of them). */
 const host = (desktop: boolean): { openInDefault: ReturnType<typeof vi.fn> } => {
   const openInDefault = vi.fn()
-  ;(globalThis as unknown as { prism: unknown }).prism = {
-    capabilities: { write: desktop, clipboard: desktop, explorer: desktop, drag: desktop },
-    showInExplorer: vi.fn(),
-    openInDefault
-  }
+  capabilityHost(desktop, { openInDefault })
   return { openInDefault }
 }
 beforeEach(() => {
-  Object.defineProperty(globalThis, 'navigator', {
-    value: { clipboard: { writeText: vi.fn(() => Promise.resolve()) } },
-    configurable: true
-  })
+  fakeClipboard()
 })
-afterEach(() => {
-  delete (globalThis as unknown as { prism?: unknown }).prism
-})
+afterEach(clearHost)
 
 describe('the document reader menu', () => {
   it('on the desktop', () => {

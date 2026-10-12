@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { SWEEP_CHANNELS, parseBegin, parseEnd, parseUpdate, type SweepBegin, type SweepUpdate } from './sweepOverlay'
+import { SWEEP_CHANNELS } from './channels'
+import { parseBegin, parseEnd, parseUpdate, type SweepBegin, type SweepUpdate } from './sweepOverlay'
 
 const begin: SweepBegin = {
   id: 3,

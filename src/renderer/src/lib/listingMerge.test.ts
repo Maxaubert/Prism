@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { DirListing, ViewerFile } from '@shared/types'
 import { applyDetails, carryDetails, detailsPending } from './listingMerge'
-import { sortFiles } from './sortPrefs'
-import { addRestoredTab, newTab, type Tab } from './tabs'
-import { smallFolderChildren } from './useListingPrefetch'
+import { sortFiles } from './prefs/sortPrefs'
+import { addRestoredTab, newTab, type Tab } from './tabs/tabs'
+import { smallFolderChildren } from '../hooks/useListingPrefetch'
 
 const file = (name: string, size?: number, mtimeMs?: number): ViewerFile => ({
   path: `C:\\x\\${name}`,

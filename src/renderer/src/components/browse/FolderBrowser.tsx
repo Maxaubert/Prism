@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { formatBytes } from '../../lib/format'
-import { BrowseIcon, PreviewGlyph } from './BrowseIcon'
+import { BrowseIcon, PreviewGlyph } from '../icons/BrowseIcon'
 import { BrowseList } from './BrowseList'
 import { BrowseSearchStatus } from './BrowseSearchStatus'
 import { BrowseSearchPopup } from './BrowseSearchPopup'
@@ -16,12 +16,13 @@ import { listKey } from '../../lib/listKeys'
 import { sweepBase, sweepSelect } from '../../lib/marquee'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
-import { useListingPrefetch } from '../../lib/useListingPrefetch'
+import { useListingPrefetch } from '../../hooks/useListingPrefetch'
 import { browsableArchive } from '@shared/archivePlace'
 import type { FolderSizes } from '../../lib/folderSize'
 import { ArchiveStrip } from './ArchiveStrip'
 import { withinFolder, type PlaceRow } from '../../lib/placeMark'
 import { useActiveArea } from './useActiveArea'
+import { EDITOR, FIELD, OVERLAY, inOverlay } from '../../lib/focusGuards'
 import './browse.css'
 import './archive.css'
 
@@ -396,10 +397,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       data-active-area={area}
       onKeyDown={(e) => {
         const target = e.target as HTMLElement
-        const typing = target.closest(
-          'input,textarea,select,[contenteditable]:not([contenteditable="false"]),.cm-editor,.xterm,[role="dialog"],[role="menu"]'
-        )
-        if (target.closest('[role="dialog"],[role="menu"]')) return
+        const typing = target.closest(`${FIELD},${EDITOR},${OVERLAY}`)
+        if (inOverlay(target)) return
         const inList = !!target.closest('.browse-list')
         // THE COMMON KEYS (#330) that act on the folder or a row rather than
         // on the marks (the list answers those itself). From the list only,

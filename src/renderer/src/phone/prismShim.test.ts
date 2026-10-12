@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { askPlay, installShim, type PlayAnswer } from './prismShim'
 import { writeToken } from './api'
+import { aliasWindow } from '../testing/host'
 
-// The unit tests run under node, where `window` does not exist; in a browser
-// it IS globalThis, which is where the shim installs itself.
-if (typeof window === 'undefined')
-  Object.defineProperty(globalThis, 'window', { value: globalThis })
+aliasWindow()
 
 // What the device plays is a `<video>` question, and node has no `<video>`.
 vi.mock('./canPlay', () => ({ canCsv: () => 'h264,aac,mp4', nativeHls: () => false }))
@@ -37,14 +35,11 @@ describe('the phone shim', () => {
   })
   it('says what it cannot do, and never throws for it', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    // `capabilities` is on both bridges since #106; `nativeDrag` is not on
-    // PrismApi yet (it arrives with #103), so the cast covers it.
+    // `capabilities` is on both bridges since #106.
     const p = window.prism as unknown as {
-      nativeDrag: boolean
       capabilities: unknown
       trashFile: (p: string) => Promise<unknown>
     }
-    expect(p.nativeDrag).toBe(false)
     expect(p.capabilities).toEqual({ write: false, clipboard: false, explorer: false, drag: false })
     await expect(p.trashFile('x')).resolves.toBe(false)
     await expect(p.trashFile('y')).resolves.toBe(false)

@@ -4,6 +4,7 @@ import { visibleIndices } from '../lib/themes/wall'
 import { ThemeCard } from './ThemeCard'
 import { ThemeWall } from './settings/ThemeWall'
 import appIcon from '../assets/icon.png'
+import { Icon } from './icons/Icon'
 
 // The first-run setup: a full-window page, not a dialog. Three steps and a
 // welcome (#298: the Dark / Light step and the Style step became ONE theme
@@ -14,9 +15,7 @@ import appIcon from '../assets/icon.png'
 // closed while it is up.
 
 const CHECK = (
-  <svg viewBox="0 0 24 24" width={22} height={22} fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d="M5 13l4 4L19 7" />
-  </svg>
+  <Icon name="check" size={22} weight="3.2" />
 )
 
 /* ---------- the art, drawn from the theme's own tokens ---------- */

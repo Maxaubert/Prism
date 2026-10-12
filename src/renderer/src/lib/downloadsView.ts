@@ -1,4 +1,5 @@
 import type { BrowseLocation, BrowseShortcut, BrowseSort } from '@shared/browse'
+import { samePath } from '@shared/path'
 
 /**
  * DOWNLOADS IS NEWEST FIRST, FILES AND FOLDERS TOGETHER, IN DATE GROUPS (#285;
@@ -19,15 +20,12 @@ import type { BrowseLocation, BrowseShortcut, BrowseSort } from '@shared/browse'
 
 export const DOWNLOADS_SORT: BrowseSort = { key: 'modified', direction: 'desc' }
 
-const folderKey = (path: string): string =>
-  path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
-
 export function downloadsPath(locations: readonly BrowseShortcut[]): string | null {
   return locations.find((l) => l.known === 'downloads')?.path ?? null
 }
 
 export function isDownloads(path: string | null | undefined, downloads: string | null): boolean {
-  return !!path && !!downloads && folderKey(path) === folderKey(downloads)
+  return !!path && !!downloads && samePath(path, downloads)
 }
 
 /** The sort the folder is shown in. */

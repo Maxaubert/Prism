@@ -1,7 +1,8 @@
 import { execFile } from 'child_process'
 import { createHash } from 'crypto'
-import { access, mkdir, stat } from 'fs/promises'
+import { mkdir, stat } from 'fs/promises'
 import { dirname, extname, join } from 'path'
+import { exists } from './fsUtil'
 
 /**
  * MIDI, synthesised.
@@ -23,8 +24,6 @@ export function isMidi(path: string): boolean {
   return MIDI_EXTS.has(extname(path).toLowerCase())
 }
 
-export const midiExtensions = (): string[] => [...MIDI_EXTS]
-
 /** Where the bundled synthesiser lives; the same walk-up rule as ffmpeg. */
 export function fluidDirs(packaged: boolean, resourcesPath: string, appPath: string): string[] {
   const dirs: string[] = []
@@ -45,12 +44,6 @@ export interface Fluid {
 }
 
 let cached: Promise<Fluid | null> | undefined
-
-const exists = (p: string): Promise<boolean> =>
-  access(p).then(
-    () => true,
-    () => false
-  )
 
 /**
  * The bundled synthesiser, looked for once a session. Async (owner,

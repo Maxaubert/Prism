@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { newTab } from './tabs'
+import { newTab } from './tabs/tabs'
 import { captureMoveViews, movedPath, releaseMoveViews, restoreMoveViews } from './moveViews'
 
 const tab = (id: string, path: string) =>

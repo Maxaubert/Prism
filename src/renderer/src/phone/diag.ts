@@ -11,7 +11,8 @@
  * `pack` is the pure part: what one post carries, capped, so a stalled
  * player that logs every frame cannot grow a batch without bound.
  */
-import { apiUrl } from './api'
+import { ROUTE, routePath } from '@shared/phoneWire'
+import { postFireAndForget } from './api'
 
 export const BATCH = 40
 const FLUSH_MS = 5000
@@ -32,12 +33,7 @@ function flush(): void {
   if (!queue.length) return
   const { send, rest } = pack(queue)
   queue = rest
-  void fetch(apiUrl('/api/diag'), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ lines: send }),
-    keepalive: true
-  }).catch(() => undefined)
+  postFireAndForget(routePath(ROUTE.diag), { lines: send })
   if (queue.length) flush()
 }
 

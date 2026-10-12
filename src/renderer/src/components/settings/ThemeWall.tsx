@@ -15,6 +15,7 @@ import {
 import { columnsFor, rowOf, visibleIndices, wallTarget, WALL_COLS } from '../../lib/themes/wall'
 import { useWallMotion } from '../../hooks/useWallMotion'
 import { ThemeCard } from '../ThemeCard'
+import { PATHS } from '../icons/paths'
 
 /**
  * THE THEME WALL (#298; owner, 2026-10-06): ONE picker, the 18 themes then
@@ -210,7 +211,7 @@ export function ThemeWall({
         >
           <span>{open ? 'Show fewer' : `Show all ${themes.length} themes`}</span>
           <span data-wall-chevron="" className="wall-chevron grid place-items-center" style={{ transform: open ? 'rotate(180deg)' : 'none' }}>
-            <Glyph name="M6 9l6 6 6-6" size={14} stroke={2} />
+            <Glyph name={PATHS.chevronDown} size={14} stroke={2} />
           </span>
         </button>
       </div>

@@ -1,12 +1,11 @@
 // Build-time only. Both the indexing engine and its IPC client are bundled;
 // end users never need to download or configure a separate Everything install.
-import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import AdmZip from 'adm-zip'
+import { pinnedDownload, sha256Of as digest } from './lib/pinnedDownload.mjs'
+import { ROOT as root } from './lib/repo.mjs'
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const output = join(root, 'vendor', 'everything')
 const assets = [
   {
@@ -20,7 +19,6 @@ const assets = [
     files: { 'es.exe': 'es.exe' }
   }
 ]
-const digest = (data) => createHash('sha256').update(data).digest('hex')
 mkdirSync(output, { recursive: true })
 const stampPath = join(output, '.source')
 let previous = {}
@@ -39,11 +37,9 @@ for (const asset of assets) {
         digest(readFileSync(join(output, name))) === previous.files?.[name]
     )
   if (!valid) {
-    console.log(`Everything: downloading pinned ${asset.name}`)
-    const response = await fetch(`https://www.voidtools.com/${asset.name}`)
-    if (!response.ok) throw new Error(`Everything download failed: HTTP ${response.status}`)
-    const archive = Buffer.from(await response.arrayBuffer())
-    if (digest(archive) !== asset.sha256) throw new Error(`SHA-256 mismatch: ${asset.name}`)
+    const archive = await pinnedDownload('Everything', `https://www.voidtools.com/${asset.name}`, asset.sha256, {
+      what: `pinned ${asset.name}`
+    })
     const zip = new AdmZip(archive)
     // Extract only explicitly named entries, never archive-controlled paths.
     for (const [entry, name] of Object.entries(asset.files)) {

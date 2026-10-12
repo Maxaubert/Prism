@@ -1,53 +1,24 @@
 import type { Dirent } from 'fs'
 import { cp, mkdir, readdir, rename, rm, rmdir, stat } from 'fs/promises'
-import { basename, dirname, join, resolve, sep } from 'path'
+import { basename, dirname, join, resolve } from 'path'
+import { isInside, pathKey } from '@shared/path'
+import type { MoveClash, MoveOnClash, MoveResult } from '@shared/ipcTypes'
 import { uniqueNameAsync } from './fileOps'
+import { exists, isBusyError } from './fsUtil'
 
 // Moving files and folders between real folders - the "move" verb docs/features.md
 // reserved, decided 2026-08-22 and reachable only by dragging. Deliberately
 // free of electron imports so it can be unit-tested; binning what an overwrite
 // replaces is passed in, exactly as renameFile does it.
 
-export type MoveClash = { path: string; name: string }
-export type MoveResult = {
-  /** Where each one came from and landed: undo needs both halves. */
-  moved: Array<{ from: string; to: string }>
-  /** Names already taken at the destination; with onClash 'ask' nothing moved. */
-  clashes: MoveClash[]
-  /** Paths that could not be moved at all (gone, locked, into themselves). */
-  failed: string[]
-  /** The ones among `failed` that Windows refused because something holds
-   *  the file open (EBUSY, EPERM) - which is Prism's own player as often as
-   *  not (#127), so the renderer lets go and tries these again. */
-  busy: string[]
-  /** What 'replace' sent to the bin, so undo can bring it back. */
-  replaced: string[]
-}
+export type { MoveClash, MoveResult }
 
-const lower = (p: string): string => resolve(p).toLowerCase()
-
-/** Is anything at `p`? Asked off the main thread (owner, 2026-10-12, the 3.9 s
- *  tabs.json freeze: a drag of hundreds of files was hundreds of blocking
- *  probes). Anything that cannot be reached is absent, as existsSync said. */
-const exists = (p: string): Promise<boolean> =>
-  stat(p).then(
-    () => true,
-    () => false
-  )
-
-/** Windows' "another process has this open" (MEASURED 2026-09-13: EBUSY
- *  from a Node read stream on the file, and from ffmpeg reading it). */
-const isBusy = (e: unknown): boolean => {
-  const code = (e as NodeJS.ErrnoException)?.code
-  return code === 'EBUSY' || code === 'EPERM'
-}
+const lower = (p: string): string => pathKey(resolve(p))
 
 /** True when `dest` is `src` itself or lives inside it: moving a folder into
  *  its own subtree would eat it, and the OS error for it is inscrutable. */
 export function insideSelf(src: string, dest: string): boolean {
-  const s = lower(src)
-  const d = lower(dest)
-  return d === s || d.startsWith(s.endsWith(sep) ? s : s + sep)
+  return isInside(resolve(src), resolve(dest), { orEqual: true })
 }
 
 /**
@@ -118,7 +89,7 @@ async function mergeClashes(src: string, target: string): Promise<MoveClash[]> {
 async function mergeInto(
   src: string,
   target: string,
-  onClash: 'ask' | 'keep-both' | 'replace',
+  onClash: MoveOnClash,
   trash: (p: string) => Promise<void>,
   out: MoveResult
 ): Promise<void> {
@@ -140,7 +111,7 @@ async function mergeInto(
       out.moved.push({ from, to })
     } catch (e) {
       out.failed.push(from)
-      if (isBusy(e)) out.busy.push(from)
+      if (isBusyError(e)) out.busy.push(from)
     }
   }
   // Empty now, unless something above failed - in which case it stays, with
@@ -160,7 +131,7 @@ async function mergeInto(
 export async function moveEntries(
   paths: readonly string[],
   destDir: string,
-  onClash: 'ask' | 'keep-both' | 'replace',
+  onClash: MoveOnClash,
   trash: (p: string) => Promise<void>
 ): Promise<MoveResult> {
   const out: MoveResult = { moved: [], clashes: [], failed: [], replaced: [], busy: [] }
@@ -233,7 +204,7 @@ export async function moveEntries(
       out.moved.push({ from: p, to: target })
     } catch (e) {
       out.failed.push(p)
-      if (isBusy(e)) out.busy.push(p)
+      if (isBusyError(e)) out.busy.push(p)
     }
   }
   return out

@@ -13,6 +13,8 @@
  * place to go), then the shorter name.
  */
 
+import { baseName, isInside, parentDir, trimSep } from './path'
+
 export interface SuggestHit {
   path: string
   name: string
@@ -54,7 +56,7 @@ export function nameRank(name: string, query: string): number {
 }
 
 const depth = (path: string, root: string): number => {
-  const rest = path.slice(root.replace(/[\\/]+$/, '').length)
+  const rest = path.slice(trimSep(root).length)
   return rest.split(/[\\/]/).filter(Boolean).length
 }
 
@@ -81,11 +83,10 @@ export function rankSuggestions<T extends SuggestHit>(
 /** Where a hit lives, said from the folder you are in: its own folder's path
  *  under `root`, or the folder's name when it sits right in it. */
 export function hitFolder(path: string, root: string): string {
-  const base = root.replace(/[\\/]+$/, '')
-  const parent = path.replace(/[\\/][^\\/]*$/, '')
-  if (parent.toLowerCase() === base.toLowerCase()) return base.split(/[\\/]/).pop() || base
-  if (parent.toLowerCase().startsWith(base.toLowerCase() + '\\') || parent.toLowerCase().startsWith(base.toLowerCase() + '/'))
-    return parent.slice(base.length + 1)
+  const base = trimSep(root)
+  const parent = parentDir(path)
+  if (parent.toLowerCase() === base.toLowerCase()) return baseName(base)
+  if (isInside(base, parent)) return parent.slice(base.length + 1)
   return parent
 }
 

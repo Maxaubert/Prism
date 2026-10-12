@@ -8,8 +8,7 @@
  * or anything beneath it; else the first place whose path IS the folder; else
  * none. Pure, so the rule is tested apart from the panel.
  */
-
-const key = (path: string): string => path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+import { pathKey as key } from '@shared/path'
 
 /** True when `folder` is `root` or anywhere beneath it. */
 export function withinFolder(folder: string, root: string): boolean {

@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import { extname } from 'path'
+import { createLru } from './lru'
 
 /**
  * Stills Chromium cannot draw, decoded to PNG by the bundled ffmpeg.
@@ -60,18 +61,13 @@ export function imageArgs(file: string): string[] {
   ]
 }
 
-const cache = new Map<string, Buffer>()
-const CACHE_MAX = 6
+const cache = createLru<string, Buffer>(6)
 
 /** Decode one still to PNG bytes. Keyed by path + mtime, so an edit re-decodes. */
 export async function decodeImage(ffmpeg: string, file: string, mtimeMs: number): Promise<Buffer> {
   const key = `${file}|${mtimeMs}`
-  const hit = cache.get(key)
-  if (hit) {
-    cache.delete(key)
-    cache.set(key, hit) // LRU touch
-    return hit
-  }
+  const hit = cache.get(key) // a hit is a use: the newest again
+  if (hit) return hit
   const png = await new Promise<Buffer>((resolve, reject) => {
     execFile(
       ffmpeg,
@@ -84,10 +80,6 @@ export async function decodeImage(ffmpeg: string, file: string, mtimeMs: number)
     )
   })
   cache.set(key, png)
-  if (cache.size > CACHE_MAX) {
-    const oldest = cache.keys().next().value
-    if (oldest) cache.delete(oldest)
-  }
   return png
 }
 

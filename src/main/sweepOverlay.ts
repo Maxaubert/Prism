@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import type { BrowserWindow, WebContents } from 'electron'
+import { SWEEP_CHANNELS } from '@shared/channels'
 import {
-  SWEEP_CHANNELS,
   parseBegin,
   parseEnd,
   parseUpdate,

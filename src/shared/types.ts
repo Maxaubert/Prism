@@ -1,4 +1,6 @@
 import type { SavedBrowse, SavedPane } from './browse'
+import type { ArchiveEncryption } from './ipcTypes'
+import type { ExtractFail } from './extraction'
 
 export type FileKind =
   'image' | 'video' | 'audio' | 'pdf' | 'doc' | 'text' | 'archive' | 'comic' | 'other'
@@ -74,7 +76,7 @@ export interface ArchiveEntry {
  *  listed without the password, and null reached the panel as "this archive
  *  looks corrupt" with nowhere to type one. */
 export type ArchiveListing =
-  { ok: true; entries: ArchiveEntry[] } | { ok: false; reason: 'password' | 'aes' | 'failed' }
+  { ok: true; entries: ArchiveEntry[] } | { ok: false; reason: ExtractFail }
 
 /** What saving the editor's text answered. A REASON rather than a bare false
  *  (2026-08-30): the close-time "Save all changes" could fail with nothing to
@@ -119,7 +121,7 @@ export interface DirListing {
    *  there, and this says what was missing). `container` names the archive
    *  a password is for. */
   archiveError?: {
-    reason: 'password' | 'aes' | 'failed' | 'missing' | 'deep' | 'nest-big'
+    reason: ExtractFail | 'missing' | 'deep' | 'nest-big'
     container: string
     message: string
   }
@@ -161,7 +163,7 @@ export interface ArchiveMeta {
   readOnly: boolean
   /** Inside another archive. */
   nested: boolean
-  encryption: 'none' | 'zipcrypto' | 'aes'
+  encryption: ArchiveEncryption
 }
 
 /** Sizes and dates for files of a names-first listing (#271). `done` is the
@@ -284,14 +286,6 @@ export type FileMemoryPatch = {
   audio?: number | null
   subs?: string | null
   fit?: string | null
-}
-
-/** A shell main detected on this machine; the only things term:spawn launches. */
-export interface ShellDef {
-  id: string
-  name: string
-  exe: string
-  args: string[]
 }
 
 /** What main knows about a media file, and whether Prism must decode its

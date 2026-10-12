@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
 import { ContextMenu } from './ContextMenu'
+import { parentDir } from '@shared/path'
 import { markdownMenu } from '../menus/viewers/markdown'
 import { touchesFile } from '../lib/fileReload'
 import { DocFind } from './DocFind'
+import { LoadingState } from './LoadingState'
+import { useFindShortcut } from '../hooks/useFindShortcut'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 
 /** How far the reader must move before the position is written to disk. */
@@ -132,7 +135,7 @@ export function MarkdownView({
   }
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   // The folder the document lives in, which its relative paths resolve against.
-  const baseDir = useMemo(() => path.replace(/[\\/][^\\/]*$/, ''), [path])
+  const baseDir = useMemo(() => parentDir(path), [path])
   const text = loaded?.path === path ? loaded.text : null
   /**
    * The local files this document's links name, by the url each became
@@ -281,47 +284,8 @@ export function MarkdownView({
     })
   }, [text, path])
 
-  /**
-   * Ctrl+F belongs to the document you are LOOKING at (2026-08-30).
-   *
-   * A window listener is right - nothing focuses a document on arrival, so
-   * this key has to work without focus - but "the window" holds more than one
-   * viewer: split view mounts up to four, and the media deck keeps others
-   * alive behind the strip. Without an ownership test every mounted document
-   * opened its own find bar, and the last one to register won the focus, so
-   * pressing Ctrl+F over a PDF opened the markdown pane's bar instead.
-   *
-   * Three tests, cheapest first: not covered by Settings (`[inert]`, the same
-   * check PdfView makes), not in a hidden tab, and either this pane holds the
-   * focus or nothing in another pane does.
-   */
-  const ownsKeys = (): boolean => {
-    const el = box.current
-    if (!el || el.closest('[inert]') || el.closest('[hidden]')) return false
-    if (!el.isConnected || !el.offsetParent) return false
-    const active = document.activeElement as HTMLElement | null
-    if (active && active !== document.body) {
-      // Somebody has the focus: only the pane containing it may answer.
-      const pane = active.closest('[data-doc-scroller], .cm-editor, [data-pdf-scroller]')
-      if (pane && pane !== el && !el.contains(active)) return false
-    }
-    return true
-  }
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (!(e.ctrlKey && (e.key === 'f' || e.key === 'F'))) return
-      const el = e.target as HTMLElement | null
-      if (e.defaultPrevented || el?.closest('[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"]')) return
-      if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)) return
-      if (!ownsKeys()) return
-      e.preventDefault()
-      e.stopPropagation()
-      setFinding(true)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [])
+  // Ctrl+F opens the find bar over the document you are looking at.
+  useFindShortcut(box, () => setFinding(true))
 
   return (
     <div
@@ -358,9 +322,7 @@ export function MarkdownView({
         className="h-full w-full overflow-y-auto outline-none select-text"
       >
         {text === null ? (
-          <div className="delayed-loader grid h-full place-items-center">
-            <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
-          </div>
+          <LoadingState className="h-full" />
         ) : (
           <div className="p-md mx-auto max-w-[780px] px-6 py-10">
             <ReactMarkdown

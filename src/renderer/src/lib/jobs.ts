@@ -20,7 +20,7 @@
  * the chip renders in two places (the sidebar footer, or floating when the
  * panel is shut) that must agree.
  */
-import { useSyncExternalStore } from 'react'
+import { createStore } from './store'
 
 export type JobKind = 'paste' | 'add'
 
@@ -46,64 +46,57 @@ export interface Job {
  */
 export const MIN_SHOW_MS = 900
 
-let jobs: readonly Job[] = []
-const listeners = new Set<() => void>()
+const store = createStore<readonly Job[]>([])
 let seq = 0
 const leaving = new Map<string, ReturnType<typeof setTimeout>>()
-
-function emit(): void {
-  for (const l of listeners) l()
-}
 
 /** Register a job; returns its id for update/end. */
 export function startJob(kind: JobKind, label: string): string {
   seq += 1
   const id = `${kind}-${seq}`
-  jobs = [...jobs, { id, kind, label, pct: null, since: Date.now() }]
-  emit()
+  store.set([...store.get(), { id, kind, label, pct: null, since: Date.now() }])
   return id
 }
 
 export function updateJob(id: string, pct: number | null): void {
   let changed = false
-  jobs = jobs.map((j) => {
+  const next = store.get().map((j) => {
     if (j.id !== id || j.pct === pct || leaving.has(j.id)) return j
     changed = true
     return { ...j, pct }
   })
-  if (changed) emit()
+  if (changed) store.set(next)
 }
 
 function remove(id: string): void {
   leaving.delete(id)
+  const jobs = store.get()
   const next = jobs.filter((j) => j.id !== id)
   if (next.length === jobs.length) return
-  jobs = next
-  emit()
+  store.set(next)
 }
 
 export function endJob(id: string): void {
+  const jobs = store.get()
   const job = jobs.find((j) => j.id === id)
   if (!job || leaving.has(id)) return
   const shown = Date.now() - job.since
   if (shown >= MIN_SHOW_MS) return remove(id)
   // Too quick to have been seen: hold it at done for the rest of the minimum.
-  jobs = jobs.map((j) => (j.id === id ? { ...j, pct: 100, done: true } : j))
-  emit()
+  store.set(jobs.map((j) => (j.id === id ? { ...j, pct: 100, done: true } : j)))
   leaving.set(
     id,
     setTimeout(() => remove(id), MIN_SHOW_MS - shown)
   )
 }
 
-export const listJobs = (): readonly Job[] => jobs
+export const listJobs = store.get
 
 /** Test seam: forget every job. */
 export function resetJobs(): void {
   for (const t of leaving.values()) clearTimeout(t)
   leaving.clear()
-  jobs = []
-  emit()
+  store.set([])
 }
 
 /**
@@ -123,11 +116,4 @@ export function chipSummary(
   return { label: head.label, pct: head.pct, more: list.length - 1 }
 }
 
-const subscribe = (l: () => void): (() => void) => {
-  listeners.add(l)
-  return () => listeners.delete(l)
-}
-
-export function useJobs(): readonly Job[] {
-  return useSyncExternalStore(subscribe, listJobs, listJobs)
-}
+export const useJobs = store.use

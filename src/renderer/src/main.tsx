@@ -1,6 +1,7 @@
 import './lib/windowPreferences'
 import { startDiag } from 'prism-term-core/renderer/lib/diag'
 import { watchSweepOverlay } from './hooks/sweepOverlayState'
+import { readStored } from './lib/storage'
 
 // THE PAGE'S HALF OF THE DIAGNOSTICS LOG (#322): long frames, errors, the
 // heartbeat main watches, and the crumbs the app says. First thing in the
@@ -16,12 +17,9 @@ watchSweepOverlay()
 document.getElementById('boot-minimize')?.addEventListener('click', () => window.prism.minimize())
 document.getElementById('boot-maximize')?.addEventListener('click', () => window.prism.toggleMaximize())
 document.getElementById('boot-close')?.addEventListener('click', () => window.prism.close())
-try {
-  if (localStorage.getItem('prism.mode') === 'light')
-    document.documentElement.dataset.bootMode = 'light'
-} catch {
-  // A blocked preference store must not prevent the window from opening.
-}
+// theme.ts keeps `prism.mode`; it is read raw here so this entry stays small.
+// A blocked preference store reads as unset and must not stop the window opening.
+if (readStored('prism.mode') === 'light') document.documentElement.dataset.bootMode = 'light'
 
 // Give the browser a paint opportunity before evaluating the heavier app chunk.
 requestAnimationFrame(() => {

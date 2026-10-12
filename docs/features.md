@@ -80,7 +80,13 @@ changing a feature: each entry records what the owner decided, why, and what hol
   zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). The zoom baseline is rebased
   (2026-08-12): 1.9 pdf.js units is the default and the pill calls it 100%. Markdown renders formatted
   (react-markdown, sanitized inline HTML, remote badges).
-  **LINKS GO SOMEWHERE** (2026-08-31, `lib/pdfLinks.ts`, pure and tested), and the
+  **MARKDOWN IS ONE LIST** (2026-10-12, structure cleanup): `.md`, `.markdown`, `.mdown`, `.mkd`,
+  `.mkdn`, in `src/shared/fileKind.ts` (`isMarkdown`), read by the viewers, the archive panel,
+  the phone and main's image grants alike. Before, the viewers knew two and main's grants seven,
+  one of them `.mk`, which is a Makefile. Not `.mk` and not `.mdx` (JSX inside): both stay plain
+  text. The three new ones are registered by the installer too; `fileAssoc.test.ts` holds the
+  parity and `fileKind.test.ts` the list.
+  **LINKS GO SOMEWHERE** (2026-08-31, `lib/pdf/pdfLinks.ts`, pure and tested), and the
   allowlist is the feature. pdf.js has already thrown the ACTION NAME away by the time the
   display side sees an annotation: a /URI, a /Launch at an executable, a /GoToR and a
   recognised /JavaScript window.open all arrive as the same `data.url` string. So the rule
@@ -106,7 +112,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
   comments in prism"): the strict JSON grammar made every // line plain text under a squiggle.
   `.jsonc`, `tsconfig(.*).json`, `jsconfig(.*).json`, `.eslintrc(.json)`, `.babelrc(.json)`,
   `(.)devcontainer.json`, `wrangler/turbo/biome/deno.json` and every `.json` in a `.vscode`
-  folder go to `lib/jsoncMode.ts` (a tokenizer with the JSON grammar's own tags, comment tags,
+  folder go to `lib/code/jsoncMode.ts` (a tokenizer with the JSON grammar's own tags, comment tags,
   brace folding) and `codeLint.jsoncErrors` (comments and trailing commas blanked to spaces,
   offsets kept, then `JSON.parse`), so a missing comma is still underlined. `.json5` colours the
   same with no linter (bare keys and single quotes). Plain `.json` stays strict. `jsonc` e2e.
@@ -396,9 +402,9 @@ changing a feature: each entry records what the owner decided, why, and what hol
   takes no focus, so Up/Down and PageUp/PageDown keep paging the folder while you browse from
   the sidebar. Click into the document (or Tab to it) and it owns them: the pdf flips pages,
   the page scrolls, the caret moves. Escape hands them back without closing the window.
-  Documents mark their scroller `data-doc-scroller`; App's `docFocused()` is the single test,
-  and there is deliberately no kind-based DOC set any more. A window-level key listener in a
-  viewer (PdfView's page keys, CodeView's Ctrl+S/Ctrl+F) must check focus itself.
+  Documents mark their scroller `data-doc-scroller`; `docFocused()` in `hooks/useAppKeys.ts` is
+  the single test, and there is deliberately no kind-based DOC set any more. A window-level key
+  listener in a viewer (PdfView's page keys, CodeView's Ctrl+S/Ctrl+F) must check focus itself.
 - **Search has operators** (2026-08-28, `shared/searchQuery.ts`, pure and
   tested): every word must match, in any order (`holiday 2024` finds
   "2024-06 holiday", which one substring never could), `"two words"` is a
@@ -610,7 +616,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
   total in `--p-accent-solid` on a faint track, "N free of M" in `formatBytes`. **THREE DRIVE
   STYLES** (owner, 2026-10-06, of the mockups in `research/prism/2026-10-06-drive-rows`: "option A,
   D and E as options in settings, with A being default"): Settings > Explorer > Layout > Drive
-  style (`drive-style`, `prism.sidebar.driveStyle`, `lib/driveStylePrefs.ts`), Tiles (A, DEFAULT:
+  style (`drive-style`, `prism.sidebar.driveStyle`, `lib/prefs/driveStylePrefs.ts`), Tiles (A, DEFAULT:
   a tile, glyph in a chip, % on the name line, a pill bar), Ring (D: two lines, a donut with the %)
   and Gauge (E: 20 steps, free left, total right). `DriveRow.tsx` + `drive-rows.css`, measures in
   em of the row text so they follow Explorer row size. From 90% used (`nearlyFull`) the mark is
@@ -791,16 +797,16 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **THE DRAG LABEL HANGS OFF THE POINTER'S BOTTOM RIGHT, ATTACHED** (#310; owner, 2026-10-07: "when
   you pick up an item with left click drag the label is to its bottom left but also not attached to
   the cursor ... it should be attached and it should be from the bottom right"). The label is an
-  IN-PAGE element (`lib/internalFileDrag.ts`, which cancels the native drag so Ctrl+Tab still works),
+  IN-PAGE element (`lib/drag/internalFileDrag.ts`, which cancels the native drag so Ctrl+Tab still works),
   not a drag image, so it is placed in CSS px from the pointer and the display scale never enters.
-  It sat its whole width LEFT of the pointer and 12 px below. `lib/dragBadgePlace.ts` puts its
+  It sat its whole width LEFT of the pointer and 12 px below. `lib/drag/dragBadgePlace.ts` puts its
   top-left corner 8 px right of and below the tip (File Explorer's way: the pointer never covers the
   name), flipping to the other side only where the window edge leaves no room. One rule for every
   drag the hook carries: tree, Explorer list, several items, places. The `dragLabel` e2e measures it
   mid-drag at 100%, 150% and 225% (`--force-device-scale-factor`). **WHAT HANGS THERE IS THE ROW**
   (#327; owner, 2026-10-07: "when i pick up an item i wanna pick up the row, essentially not just a
   label, so i want the icon and so on"; then, asked: the row as it looks SELECTED, only its icon and
-  name; several items show only the row pressed on, with a count). `lib/dragRow.ts` builds it from the
+  name; several items show only the row pressed on, with a count). `lib/drag/dragRow.ts` builds it from the
   source row's own DOM and computed style: the icon beside the name (never the tree's chevron), the
   row's height, side padding, gap and font, the `--p-sel-line` edge, and the tint composited on the
   SOURCE row's own ground (the first opaque one up from it: the list's, the sidebar's), so it matches
@@ -853,7 +859,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
   Then: "put the option closer to the top of appearance, and call it dynamic ... have dynamic be
   the default". It was the FIRST row of Settings > Style; since the grouped cards (#292, the
   owner's approved v1) it is in Appearance > Window, after Show title bar
-  (`lib/tabWidthPrefs.ts`, `prism.window.tabWidth`, the same key and words as Prism Terminal's):
+  (`lib/tabs/tabWidthPrefs.ts`, `prism.window.tabWidth`, the same key and words as Prism Terminal's):
   **Dynamic** (the DEFAULT, by the owner's word, so the strip fixed since 2026-09-21 goes back to
   dynamic with this update: each tab as wide as its name, capped at 14rem) or **Fixed** (every tab
   114px). The `tabs` scenario measures the default, picks Fixed, and puts Dynamic back.
@@ -1506,7 +1512,8 @@ changing a feature: each entry records what the owner decided, why, and what hol
   tab the phone is on, and that row filled in the hover grey; the panel comes in from its
   edge over a scrim that fades, rounded on the side that faces the folder. The current
   root left the header because the ticked row already says it. `FolderGlyph` moved to
-  its own file so the drawer and the explorer share one silhouette.
+  its own file so the drawer and the explorer share one silhouette (since 2026-10-12 it is
+  `FolderFill` in `components/icons/Icon.tsx`, the tree's own).
   **AND THE COG'S MENU IS A BOTTOM SHEET** (same change; owner: "the settings cog in
   videos on mobile is a bit flaky and small"). The desktop's popover is 230px of 30px rows
   at 12.5px hanging off the cog in the bottom corner, under a thumb. On the phone the SAME
@@ -1862,7 +1869,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
   loader reading mammoth's files one by one, and the first sanitise 0.4 to 1.1 s loading
   the rehype tree (`seeThrough`); conversion and sanitising run on a document worker
   thread now (`docWorker.ts`, `docClient.ts`, gone after a minute idle), and
-  `docClient.test.ts` fails if `index.ts` reaches a converter. After: `doc:html` still
+  `docClient.test.ts` fails if `index.ts` or an `ipc/` handler reaches a converter. After: `doc:html` still
   takes 2.1 s on a cold run, on the worker, and the same eight scenarios ran twice with
   no `main-lag` of 150 ms or more. NOT PRISM'S, left as they are: the terminal core's
   dictation engine starts its server with `spawn` on main (239 ms, `addressField`; the fix
@@ -1984,7 +1991,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
   look at every level: no dimming, no colour change past 100%, because the bar
   and the number already say how loud it is. It MOUNTS and UNMOUNTS, like the
   transport, for the same fullscreen-compositing reason. Level and mute
-  belong to the TAB for the session (`lib/tabVolume`): the same level follows
+  belong to the TAB for the session (`lib/tabs/tabVolume`): the same level follows
   you across the files you open in that tab, a new tab starts at 100%, a
   closed tab forgets, and nothing is persisted - the old single localStorage
   number was shared by every file in every window and came back tomorrow. Past 100% the ELEMENT cannot help - `HTMLMediaElement.volume`
@@ -2071,12 +2078,12 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **MUTE, VOLUME AND SPEED CARRY TO THE NEXT FILE** (#207; owner, 2026-09-23: "if the user
   mutes audio or sets speed to be 0.5 and then clicks a new video, those settings should be
   kept ... maybe the user wants to just look at videos without audio, or dissect videos in
-  half speed"). Speed joined the tab's session level (`tabRate` in `lib/tabVolume`): the
+  half speed"). Speed joined the tab's session level (`tabRate` in `lib/tabs/tabVolume`): the
   player is keyed by KIND, so a photo or a track between two films remounted it at 1x. Same
   scope as the level: this tab, this session, never on disk.
 - **THE PREVIEW PANE SLIDES ON ITS TOGGLE** (#207; owner, 2026-09-23: "the same way you made
   an animation for the sidebar in explorer, do the same for the preview window").
-  `lib/usePreviewSlide` runs it in phases, because the pane's grid column exists only while
+  `hooks/usePreviewSlide` runs it in phases, because the pane's grid column exists only while
   it is open: an opening lays the column out at 0px once the file is on screen and widens it
   a frame later; a closing keeps the pane laid out (`out`) while it narrows. The list's
   column, the viewer App lays over the slot and its action bar tween together
@@ -2185,7 +2192,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
   wider then this as a default size and the left and right sidebar should be shrunk a bit on
   default size, just a bit though like 10-15%"). The first window is 1240 x 756 (Explorer's
   height, wider than its 933). The panels' unsaved widths in
-  `src/renderer/src/lib/useExplorerWidths.ts` are the ones the owner then settled on, read from
+  `src/renderer/src/hooks/useExplorerWidths.ts` are the ones the owner then settled on, read from
   the saved state of that window ("almost perfect, i extended the sidebar on the left
   slightly, so my ui now if its capturable is perfcect"): places 190 (was 210; 145 on a narrow window, was 160),
   the preview 26% of the row (322 of 1240; was 40%), capped at 630 instead of 720. A width the

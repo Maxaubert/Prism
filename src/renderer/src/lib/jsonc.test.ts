@@ -2,8 +2,8 @@ import { ensureSyntaxTree, foldable } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import { classHighlighter, highlightTree } from '@lezer/highlight'
 import { describe, expect, it } from 'vitest'
-import { langFor } from './codeLang'
-import { blankJsonc, jsoncErrors, lintFor, jsoncLinter, syntaxLinter, jsonLinter } from './codeLint'
+import { langFor } from './code/codeLang'
+import { blankJsonc, jsoncErrors, lintFor, jsoncLinter, syntaxLinter, jsonLinter } from './code/codeLint'
 
 // #312 (owner, 2026-10-07: "comments in jsonc arent read as comments in
 // prism"): every // line in a wrangler.jsonc was plain text under a squiggle.

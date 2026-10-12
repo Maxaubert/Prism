@@ -6,17 +6,12 @@ import {
   droppedPaths,
   setDrag,
   type DragPayload
-} from '../../lib/dragDrop'
+} from '../../lib/drag/dragDrop'
+import { isInside } from '@shared/path'
 
-const pathKey = (path: string): string =>
-  path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
 const insideSource = (directory: string, payload: DragPayload | null): boolean =>
   payload?.kind === 'files' &&
-  payload.paths.some((source) => {
-    const from = pathKey(source)
-    const to = pathKey(directory)
-    return from === to || to.startsWith(from + '\\')
-  })
+  payload.paths.some((source) => isInside(source, directory, { orEqual: true }))
 
 /** Folder rows, list backgrounds and locations share the same file operation. */
 export function useFolderDrop(onDropInto?: (directory: string, payload: DragPayload) => void) {

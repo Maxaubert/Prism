@@ -20,7 +20,7 @@ import {
   setTabTerm,
   tabLabels,
   travelBrowse
-} from './tabs'
+} from './tabs/tabs'
 import type { OpenPayload, ViewerFile } from '@shared/types'
 
 const root = 'C:\\Projects\\Prism'

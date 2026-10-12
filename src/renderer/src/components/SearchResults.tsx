@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type JSX, type MouseEvent } from 'react'
 import type { SearchHit } from '@shared/types'
-import type { TREE_SIZES } from '../lib/treePrefs'
-import { FolderIcon, iconColour, KindIcon } from './TreeRows'
+import { extOf } from '@shared/path'
+import type { TREE_SIZES } from '../lib/prefs/treePrefs'
+import { FolderIcon, iconColour, KindIcon } from './icons/FileIcons'
 import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
-
-/** A hit carries a name, not an extension; the icon's chip wants one. */
-const extOf = (name: string): string => /\.[^.]*$/.exec(name)?.[0] ?? ''
 
 // What the sidebar shows while its search box holds a query: a flat list of
 // every match under the session root, subfolders included - files the tree

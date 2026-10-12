@@ -28,6 +28,7 @@
  */
 import { promises as fsp } from 'fs'
 import { dirname } from 'path'
+import { writeAtomic } from './latestWrite'
 
 export interface Memory {
   /** Seconds into the file. */
@@ -202,7 +203,12 @@ export class Positions {
         await this.loaded
         this.marks = prunePositions(this.marks)
         await fsp.mkdir(dirname(this.file), { recursive: true }).catch(() => undefined)
-        await fsp.writeFile(this.file, JSON.stringify(Object.fromEntries(this.marks)))
+        // A tmp file swapped in by a rename, so a crash mid-write leaves the
+        // last whole file rather than half of a new one. Saves run one at a
+        // time (`writing`), so one tmp name is enough.
+        await writeAtomic(this.file, JSON.stringify(Object.fromEntries(this.marks)), {
+          tmp: `${this.file}.tmp`
+        })
       })
       .catch(() => undefined)
     return this.writing

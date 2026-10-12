@@ -5,7 +5,7 @@ import { SettingRow } from 'prism-term-core/renderer/settings/layout/SettingRow'
 import { SettingsSection } from 'prism-term-core/renderer/settings/layout/SettingsSection'
 import appIcon from '../../assets/icon.png'
 import { appOpt } from './appOptions'
-import { iconPath } from './icons'
+import { iconPath } from '../icons/settingsIcons'
 
 const DISPLAY_FONT = '"Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif'
 
