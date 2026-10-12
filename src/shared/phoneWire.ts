@@ -113,8 +113,3 @@ export interface PairAnswer {
 export interface DocAnswer {
   html: string
 }
-
-/** Any refusal: the PC's own one-line reason. */
-export interface PhoneRefusal {
-  error: string
-}
