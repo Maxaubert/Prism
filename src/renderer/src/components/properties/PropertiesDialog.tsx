@@ -52,7 +52,7 @@ export function PropertiesDialog({
       label={drive ? `Properties of ${path}` : `Properties of ${name}`}
       focusKey={path}
       onCancel={onClose}
-      attrs={{ 'data-props-window': 'true' }}
+      attrs={{ 'data-props-window': '' }}
       // A tall body (a film with many tracks) scrolls inside the box rather
       // than past the window's edge.
       className={`${DIALOG_BOX} max-h-full overflow-y-auto text-[12.5px] text-[var(--p-text)]`}

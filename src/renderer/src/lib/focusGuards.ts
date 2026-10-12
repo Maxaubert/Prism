@@ -44,10 +44,6 @@ export function inOverlay(el: Element | null | undefined): boolean {
   return !!el?.closest(OVERLAY)
 }
 
-export function inEditorOrTerminal(el: Element | null | undefined): boolean {
-  return !!el?.closest(EDITOR)
-}
-
 export function inNavSurface(el: Element | null | undefined): boolean {
   return !!el?.closest(NAV_SURFACE)
 }
