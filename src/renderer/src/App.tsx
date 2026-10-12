@@ -1014,9 +1014,7 @@ export default function App(): JSX.Element {
       return !on
     })
   }, [slidePanel])
-  const [placesVisible, setPlacesVisible] = useState(
-    placesPref.get
-  )
+  const [placesVisible, setPlacesVisible] = useState(placesPref.get)
   // The pencil: markdown's raw source, the one text kind with a rendered form
   // to toggle away from. Leaving the file leaves the editor; a save bumps
   // docVersion so the rendered view re-reads what was written.
