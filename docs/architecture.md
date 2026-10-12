@@ -253,7 +253,8 @@ Filesmith's conventions.
     the pure stack); leaving the window and the update install `lib/useWindowClose.ts`;
     fullscreen and its fade `lib/useFullscreenVeil.ts`; the window's keys `lib/useAppKeys.ts`;
     the dock, the shells' roots and the tab's terminal view `lib/useTerminal.ts`; several shells
-    per tab and the split's panes `lib/useTermPanes.ts`; the session's tab and shell ids
+    per tab and the split's panes `lib/useTermPanes.ts`; the tabs (new, close, re-root, recent,
+    pick, reorder) `lib/useTabOps.ts`; the session's tab and shell ids
     `lib/sessionIds.ts`.
   - which viewer a file kind gets, and the lazy viewer chunks: `components/ViewerSwitch.tsx`, with
     a mode per host (`full` App's stage, `phone`, `member` an archive panel's preview). The host
