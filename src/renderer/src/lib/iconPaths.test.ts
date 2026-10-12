@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { contrast } from './colour'
 import { isProse } from './codeLang'
 import {
   ICON_COLOURS,
@@ -127,17 +128,6 @@ describe('the generated icon tables', () => {
     // It is a REGRESSION floor: the numbers were measured when the owner picked
     // the colours, and a later pick that drops below them is the icon quietly
     // becoming unreadable.
-    const lum = (hex: string): number => {
-      const c = [1, 3, 5]
-        .map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
-        .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
-      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
-    }
-    const ratio = (a: string, b: string): number => {
-      const x = lum(a)
-      const y = lum(b)
-      return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
-    }
     for (const k of Object.keys(ICON_COLOURS) as Array<keyof typeof ICON_COLOURS>) {
       const c = ICON_COLOURS[k]
       // The glyph is PICKED now rather than derived from the page, so nothing
@@ -145,8 +135,8 @@ describe('the generated icon tables', () => {
       // than 3 because the lowest pick in the set is `slides` at 2.19:1 - white
       // on the same orange that every scripting language wears BLACK on at
       // 9.59:1.
-      expect(ratio(c.mark, c.page), `${k} mark`).toBeGreaterThan(2)
-      expect(ratio(c.text, c.band), `${k} text`).toBeGreaterThan(10)
+      expect(contrast(c.mark, c.page), `${k} mark`).toBeGreaterThan(2)
+      expect(contrast(c.text, c.band), `${k} text`).toBeGreaterThan(10)
     }
   })
 

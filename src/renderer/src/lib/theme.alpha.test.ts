@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { contrast, mix } from './colour'
 import { alphaOf, composite, opaque, parseColour } from 'prism-term-core/renderer/lib/colour'
 import {
   acrylicLevel,
@@ -8,7 +9,6 @@ import {
   folderIconOf,
   isStylesOwn,
   levelFor,
-  mix,
   paintedAlpha,
   primaryValue,
   PRIMARY_ALPHA_MAX,
@@ -29,18 +29,6 @@ import {
 // follows Primary's until moved (2); a text-bearing fill under glass is
 // flattened so its label keeps 4.5:1 (5).
 
-const lum = (hex: string): number => {
-  const n = parseInt(hex.slice(1, 7), 16)
-  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
-    const c = v / 255
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-  })
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-const contrast = (a: string, b: string): number => {
-  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
-  return (hi + 0.05) / (lo + 0.05)
-}
 const byte = (a: number): number => Math.round(a * 255)
 const aurora = STYLES.find((s) => s.id === 'aurora')!
 const glassy: Style = { ...aurora, material: 'acrylic', glass: 0.55 }

@@ -4,6 +4,8 @@
 // returns the per-frame draw function, which closes over that state. That keeps
 // every style's state privately typed instead of sharing an untyped bag.
 
+import { hexToRgb } from '../colour'
+
 export interface AudioFrame {
   /** Frequency magnitudes, 0-255. */
   freq: Uint8Array
@@ -135,13 +137,6 @@ export function adaptive(peaks: Float32Array, i: number, v: number, o: VizOpts):
   const rel = v / Math.max(peaks[i], 0.045)
   const gate = clamp(v * 7, 0, 1)
   return clamp(rel * gate, 0, 1.05) * o.sensitivity * 0.82
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const s = hex.replace('#', '')
-  const full = s.length === 3 ? s.split('').map((c) => c + c).join('') : s
-  const n = parseInt(full, 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
 
 /** Sample a palette at t (0-1). Single-colour palettes (the solid themes) just

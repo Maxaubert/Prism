@@ -211,6 +211,9 @@ Filesmith's conventions.
     `src/main/latestWrite.ts`, beside `latestWriter`. Every state file goes through them.
   - userData paths: `src/main/paths.ts` (`userPaths.tabs()`, `.converted()`, `.comics()`, ...).
   - a small newest-N cache: `src/main/lru.ts` (`createLru(max)`; `get` touches, `peek` does not).
+  - colour maths on hex: `src/renderer/src/lib/colour.ts` (`hexToRgb` reads the first six digits,
+    `rgbToHex`, `mix`, `luminance`, `contrast`); tests import it, never a copy. Computed CSS colours
+    are `cssColour.ts`, the stored accent alpha `accentAlpha.ts`.
 
 ## Reuse from Filesmith (becomes `prism-core`)
 
