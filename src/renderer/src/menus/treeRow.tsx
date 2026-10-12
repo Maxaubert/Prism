@@ -4,7 +4,7 @@ import type { MenuItem } from '../components/ContextMenu'
 import { FileMenuIcon } from '../components/FileMenuIcon'
 import { fileAppMenu } from './fileAppMenu'
 import { lastSplitDir, type SplitDir } from '../lib/panes'
-import { parentDir } from '../lib/fileTree'
+import { baseName, parentDir } from '@shared/path'
 import { formatBytes } from '../lib/format'
 
 /**
@@ -76,7 +76,7 @@ export function treeDeadSpaceMenu(ctx: TreeDeadSpaceMenuContext): MenuItem[] {
     {
       label: 'Properties',
       icon: <FileMenuIcon name="properties" />,
-      onPick: () => ctx.showProperties({ path: root, name: root.split(/[\\/]/).filter(Boolean).pop() ?? root, isFolder: true })
+      onPick: () => ctx.showProperties({ path: root, name: baseName(root), isFolder: true })
     }
   ]
 }

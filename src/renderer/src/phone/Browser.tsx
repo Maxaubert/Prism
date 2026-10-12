@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
 import type { DirListing, SearchHit, ViewerFile } from '@shared/types'
+import { extOf } from '@shared/path'
 import { crumbs, fileFromHit, parentOf, samePath, stepFile } from './browse'
 import { formatBytes } from '../lib/format'
 import { narrowHits } from './narrow'
@@ -676,9 +677,6 @@ function Drawer({
     </div>
   )
 }
-
-/** A hit carries a name, not an extension; the chip wants one. */
-const extOf = (name: string): string => /\.[^.]*$/.exec(name)?.[0] ?? ''
 
 /** The sidebar's own folder silhouette (TreeRows.FolderIcon), inlined rather
  *  than imported: TreeRows carries the whole tree, its drag and its selection

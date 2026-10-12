@@ -1,12 +1,9 @@
 import type { Tab } from './tabs'
+import { baseName, isInside } from '@shared/path'
 
 export type FileMove = { from: string; to: string }
 
-const within = (path: string, parent: string): boolean => {
-  const a = path.toLowerCase().replaceAll('/', '\\')
-  const b = parent.toLowerCase().replaceAll('/', '\\').replace(/\\+$/, '')
-  return a === b || a.startsWith(b + '\\')
-}
+const within = (path: string, parent: string): boolean => isInside(parent, path, { orEqual: true })
 
 export function movedPath(path: string, moves: readonly FileMove[]): string {
   const move = moves.find((entry) => within(path, entry.from))
@@ -61,7 +58,7 @@ export function restoreMoveViews(
       const path = remap(file.path)
       return path === file.path
         ? file
-        : { ...file, path, name: path.split(/[\\/]/).pop() ?? file.name }
+        : { ...file, path, name: baseName(path) }
     })
     const panes = mapChanged(originalPanes, (pane) => {
       const path = pane.term ? pane.path : remap(pane.path)

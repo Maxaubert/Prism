@@ -6,6 +6,8 @@
 // Pure on purpose: the stack is bookkeeping, App owns the effects. Every entry
 // carries what an inverse needs, so undo never has to guess.
 
+import { baseName } from '@shared/path'
+
 export type UndoEntry =
   /** Files and folders that landed somewhere new: undo moves each back. */
   | { kind: 'move'; items: Array<{ from: string; to: string }>; replaced?: string[] }
@@ -74,8 +76,6 @@ export function redone(state: UndoState): { state: UndoState; entry: UndoEntry }
   if (!entry) return null
   return { entry, state: { past: [...state.past, entry].slice(-CAP), future: rest } }
 }
-
-const baseName = (p: string): string => /[^\\/]*$/.exec(p)?.[0] ?? p
 
 /** What the action was, for the message that says it was undone. */
 export function describe(entry: UndoEntry): string {

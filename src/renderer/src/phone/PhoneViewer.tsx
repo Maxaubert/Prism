@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
+import { isMarkdown } from '@shared/fileKind'
 import { ImageView } from '../components/ImageView'
 import { VideoView } from '../components/VideoView'
 import { AudioView } from '../components/AudioView'
@@ -31,9 +32,6 @@ const ComicView = lazy(() =>
   import('../components/ComicView').then((m) => ({ default: m.ComicView }))
 )
 
-/** App's own rule: markdown is a document until the pencil says otherwise,
- *  and on the phone there is no pencil. */
-const isMarkdown = (name: string): boolean => /\.(md|markdown)$/i.test(name)
 const noop = (): void => {}
 const nothingPending = (): undefined => undefined
 
@@ -465,6 +463,8 @@ export function PhoneViewer({
       // Read-only, structurally: the editor is told so and keeps no buffer,
       // so `onBuffer` and `getPending` are what App would pass for a file
       // with nothing unsaved. There is no writeText on the phone anyway.
+      // App's own rule: markdown is a document until the pencil says
+      // otherwise, and on the phone there is no pencil.
       view = isMarkdown(file.name) ? (
         <Suspense fallback={<ViewerLoading />}>
           <MarkdownView key={file.path} path={file.path} onOpenLocal={onOpenLocal} />

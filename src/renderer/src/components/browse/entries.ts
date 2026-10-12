@@ -1,11 +1,10 @@
 import type { DirListing } from '@shared/types'
 import { matchesQuery, parseQuery } from '@shared/searchQuery'
+import { naturalCompare } from '@shared/path'
 import { sortFiles } from '../../lib/sortPrefs'
 import { browseParent } from '../../lib/browse'
 import type { BrowseEntry, BrowseSort } from './types'
 import type { FolderSizes } from '../../lib/folderSize'
-
-const names = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
 /** Every file and folder has its date (#271 sends them after the names). */
 export function datesKnown(listing: DirListing | null): boolean {
@@ -48,7 +47,7 @@ export function browseEntries(
         .map((file) => ({ path: file.path, name: file.name, isFolder: false, file, mtimeMs: file.mtimeMs }))
     ]
     return rows.sort(
-      (a, b) => flip * ((a.mtimeMs ?? 0) - (b.mtimeMs ?? 0)) || names.compare(a.name, b.name)
+      (a, b) => flip * ((a.mtimeMs ?? 0) - (b.mtimeMs ?? 0)) || naturalCompare(a.name, b.name)
     )
   }
   const direction = sort.key === 'name' && sort.direction === 'desc' ? -1 : 1
@@ -62,13 +61,13 @@ export function browseEntries(
     if (foldersByDate) {
       const by = (a.mtimeMs ?? 0) - (b.mtimeMs ?? 0)
       if (by) return (sort.direction === 'desc' ? -1 : 1) * by
-      return names.compare(a.name, b.name)
+      return naturalCompare(a.name, b.name)
     }
     if (sort.key === 'path')
       return (
         (sort.direction === 'asc' ? 1 : -1) *
-        (names.compare(browseParent(a.path) ?? a.path, browseParent(b.path) ?? b.path) ||
-          names.compare(a.name, b.name))
+        (naturalCompare(browseParent(a.path) ?? a.path, browseParent(b.path) ?? b.path) ||
+          naturalCompare(a.name, b.name))
       )
     if (sort.key === 'size') {
       const left = sizes[a.path]?.bytes
@@ -79,7 +78,7 @@ export function browseEntries(
       if (left !== undefined && right !== undefined && left !== right)
         return (sort.direction === 'asc' ? 1 : -1) * (left - right)
     }
-    return direction * names.compare(a.name, b.name)
+    return direction * naturalCompare(a.name, b.name)
   })
   const files =
     sort.key === 'path'
@@ -88,8 +87,8 @@ export function browseEntries(
           .sort(
             (a, b) =>
               (sort.direction === 'asc' ? 1 : -1) *
-              (names.compare(browseParent(a.path) ?? a.path, browseParent(b.path) ?? b.path) ||
-                names.compare(a.name, b.name))
+              (naturalCompare(browseParent(a.path) ?? a.path, browseParent(b.path) ?? b.path) ||
+                naturalCompare(a.name, b.name))
           )
       : sortFiles(listing.files.filter(matches), sort.key, sort.direction)
   return [

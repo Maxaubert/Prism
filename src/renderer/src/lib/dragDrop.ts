@@ -4,6 +4,7 @@
 // so a drop target can tell "this came from Prism" before it inspects us.
 // Files arriving from EXPLORER carry no payload - they show up as
 // dataTransfer.files instead, which is how the two are told apart.
+import { samePath } from '@shared/path'
 
 export const DRAG_MIME = 'application/prism-drag'
 
@@ -46,7 +47,5 @@ export function dragPayload(dt: DataTransfer | null): DragPayload | null {
 /** A carried row is never its own destination or hover highlight. */
 export function dragIncludesPath(dt: DataTransfer | null, path: string): boolean {
   const payload = dragPayload(dt)
-  const key = (value: string): string =>
-    value.replaceAll('/', '\\').replace(/\\+$/, '').toLowerCase()
-  return payload?.kind === 'files' && payload.paths.some((source) => key(source) === key(path))
+  return payload?.kind === 'files' && payload.paths.some((source) => samePath(source, path))
 }

@@ -1,5 +1,6 @@
 import { useState, type DragEvent, type JSX } from 'react'
 import { fileKind } from '@shared/fileKind'
+import { baseName, extOf } from '@shared/path'
 import { FolderIcon, KindIcon } from '../TreeRows'
 import { ContextMenu } from '../ContextMenu'
 import { placesMenu } from '../../menus/places'
@@ -54,9 +55,6 @@ type PinSection = 'Quick access' | 'Pinned'
 function isPinDrag(event: DragEvent): boolean {
   return event.dataTransfer.types.includes(QUICK_ACCESS_PIN_MIME)
 }
-
-const lastName = (path: string): string =>
-  /[^\\/]*$/.exec(path.replace(/[\\/]+$/, ''))?.[0] || path
 
 /**
  * THE PLACES PANEL (#296; owner, 2026-10-06, of the themes mockup: "i really
@@ -210,11 +208,11 @@ export function BrowsePlaces({
       >
         <h2>{section}</h2>
         {list.map((pin, index) => {
-          const ext = /\.[^.\\/]+$/.exec(pin.path)?.[0].toLowerCase() ?? ''
+          const ext = extOf(pin.path)
           const destination = pin.isFolder ? folderDrop(pin.path) : undefined
           const known = knownOf(pin)
           // Home reads as the user's own folder, as the mockup has it.
-          const label = known === 'home' ? lastName(pin.path) : pin.label
+          const label = known === 'home' ? baseName(pin.path) : pin.label
           return (
             <button
               key={pin.path}

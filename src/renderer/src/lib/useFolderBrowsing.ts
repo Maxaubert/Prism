@@ -24,6 +24,7 @@ import {
   type TabState
 } from './tabs'
 import { fileKind } from '@shared/fileKind'
+import { baseName, extOf } from '@shared/path'
 import { applyDetails } from './listingMerge'
 import { downloadsPath, isDownloads, viewSort } from './downloadsView'
 import { browseLocation, browseParent } from './browse'
@@ -34,8 +35,6 @@ import { createDirectoryRequests, directoryKey, visitedDirectories } from './vis
 import { usePendingHint, type ListPending } from './usePendingHint'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import type { DirListing } from '@shared/types'
-
-const extOf = (name: string): string => /\.[^.]*$/.exec(name.toLowerCase())?.[0] ?? ''
 
 function pauseTab(tabId: string): void {
   for (const region of document.querySelectorAll<HTMLElement>('[data-player-tab]')) {
@@ -137,7 +136,7 @@ export function useFolderBrowsing(
     const key = container.toLowerCase()
     const wrong = tried.current.has(key)
     tried.current.add(key)
-    setArchiveAsk({ tabId, container, name: container.split(/[\\/]/).pop() ?? container, wrong, retry })
+    setArchiveAsk({ tabId, container, name: baseName(container), wrong, retry })
   }, [])
   const [locations, setLocations] = useState<BrowseShortcut[]>([])
   const [revision, setRevision] = useState(0)

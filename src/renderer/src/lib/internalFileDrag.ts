@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { baseName } from '@shared/path'
 import { dragBadgePlace } from './dragBadgePlace'
 import { buildDragRow } from './dragRow'
 import { DRAG_MIME, getDrag, setDrag } from './dragDrop'
@@ -153,7 +154,7 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       // name in the selected look, with the count of everything carried.
       const { root: badge, effect } = buildDragRow(
         event.target,
-        paths[0]?.split(/[\\/]/).pop() || 'Item',
+        (paths[0] && baseName(paths[0])) || 'Item',
         paths.length
       )
       // THE ARROW STAYS (#320; owner, 2026-10-07: "when you left click drag an

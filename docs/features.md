@@ -80,6 +80,12 @@ changing a feature: each entry records what the owner decided, why, and what hol
   zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). The zoom baseline is rebased
   (2026-08-12): 1.9 pdf.js units is the default and the pill calls it 100%. Markdown renders formatted
   (react-markdown, sanitized inline HTML, remote badges).
+  **MARKDOWN IS ONE LIST** (2026-10-12, structure cleanup): `.md`, `.markdown`, `.mdown`, `.mkd`,
+  `.mkdn`, in `src/shared/fileKind.ts` (`isMarkdown`), read by the viewers, the archive panel,
+  the phone and main's image grants alike. Before, the viewers knew two and main's grants seven,
+  one of them `.mk`, which is a Makefile. Not `.mk` and not `.mdx` (JSX inside): both stay plain
+  text. The three new ones are registered by the installer too; `fileAssoc.test.ts` holds the
+  parity and `fileKind.test.ts` the list.
   **LINKS GO SOMEWHERE** (2026-08-31, `lib/pdfLinks.ts`, pure and tested), and the
   allowlist is the feature. pdf.js has already thrown the ACTION NAME away by the time the
   display side sees an annotation: a /URI, a /Launch at an executable, a /GoToR and a

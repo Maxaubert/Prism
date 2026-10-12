@@ -6,7 +6,8 @@ import { formatBytes, formatWhen, savedPercent } from '../lib/format'
 import { typeLabel } from '../lib/typeLabel'
 import { loadTransportBg, loadTransportStyle } from '../lib/transport'
 import { useSysIcon } from '../lib/sysIcon'
-import { fileKind } from '@shared/fileKind'
+import { fileKind, isMarkdown } from '@shared/fileKind'
+import { extOf, naturalCompare, parentDir } from '@shared/path'
 import { ContextMenu } from './ContextMenu'
 import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
 import { Dialog } from './Dialog'
@@ -57,10 +58,6 @@ const COL_TYPE = 'hidden w-[140px] shrink-0 truncate md:block'
 const COL_SIZE = 'w-[86px] shrink-0 text-right tabular-nums'
 const COL_PACKED = 'hidden w-[128px] shrink-0 text-right tabular-nums xl:block'
 const COL_WHEN = 'hidden w-[150px] shrink-0 text-right tabular-nums lg:block'
-
-const isMarkdown = (name: string): boolean => /\.(md|markdown)$/i.test(name)
-const extOf = (name: string): string => /\.[^.]*$/.exec(name.toLowerCase())?.[0] ?? ''
-const parentOf = (p: string): string => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 
 /** The extracted member, shown with the same viewers the folder uses. */
 function MemberView({
@@ -178,9 +175,6 @@ function LockBadge(): JSX.Element {
 }
 
 /** Keyed by path, so switching zip to zip starts the inner state fresh. */
-/** One collator, hoisted: a fresh one per comparison is the 23ms-vs-0.5ms
- *  lesson dirList.ts already paid for. */
-const collator = new Intl.Collator(undefined, { numeric: true })
 
 export function ArchiveView({
   file,
@@ -371,8 +365,8 @@ function ArchiveInner({
   const rows = useMemo((): Entry[] => {
     if (!entries || entries === 'error' || entries === 'locked') return []
     return entries
-      .filter((e) => parentOf(e.path) === cwd)
-      .sort((a, b) => (a.dir === b.dir ? collator.compare(a.name, b.name) : a.dir ? -1 : 1))
+      .filter((e) => parentDir(e.path) === cwd)
+      .sort((a, b) => (a.dir === b.dir ? naturalCompare(a.name, b.name) : a.dir ? -1 : 1))
   }, [entries, cwd])
   // The label on the box: what the WHOLE archive holds, plus its size on disk.
   const totals = useMemo(() => {
@@ -434,7 +428,7 @@ function ArchiveInner({
     [file.path, withPassword]
   )
   /** The archive's own folder: where "Extract here" lands a member. */
-  const besideArchive = file.path.replace(/[\\/][^\\/]*$/, '')
+  const besideArchive = parentDir(file.path)
   /** Members OUT to a real folder (2026-09-03, owner: "Extract here" and
    *  "Extract to..." on a member row, file or folder alike). `here` lands
    *  beside the archive, inside the root; otherwise main's dialog picks,
@@ -519,7 +513,7 @@ function ArchiveInner({
         const el = document.activeElement
         if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return
         e.preventDefault()
-        setCwd(parentOf(cwd))
+        setCwd(parentDir(cwd))
       }
     }
     window.addEventListener('keydown', onKey, true)

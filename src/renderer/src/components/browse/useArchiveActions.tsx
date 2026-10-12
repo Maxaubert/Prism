@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import type { ArchiveMeta, ViewerFile } from '@shared/types'
 import { memberOf } from '@shared/archivePlace'
+import { baseName, parentDir } from '@shared/path'
 import { archiveMenuRows, type ArchiveRow, type ArchiveRowId } from '../../menus/archiveMenus'
 import { archivePassword, rememberArchivePassword } from '../../lib/archivePass'
 import { copyFilePaths } from '../../lib/fileClipboard'
@@ -35,9 +36,6 @@ const ICONS: Record<ArchiveRowId, FileMenuIconName> = {
 /** adm-zip's write cap (`MAX_ARCHIVE_BYTES` in main's archive.ts): past it
  *  main refuses every write to a zip. */
 const ZIP_WRITE_MAX = 600 * 1024 * 1024
-
-const dirOf = (p: string): string => p.replace(/[\\/][^\\/]*$/, '')
-const nameOf = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
 
 export interface ArchiveActionDeps {
   navigate: (path: string) => void
@@ -144,7 +142,7 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
     (meta: ArchiveMeta, paths: string[], here: boolean, folders: ReadonlySet<string>): void => {
       const list = inners(meta, paths)
       if (!list.length) return
-      const name = nameOf(paths[0])
+      const name = baseName(paths[0])
       // A single folder of a zip on disk: staged beside it and renamed into
       // place, never merged into a folder already there (#166's route).
       if (here && !meta.nested && list.length === 1 && folders.has(paths[0])) {
@@ -155,7 +153,7 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
       }
       withPassword(meta.container, name, (pw) =>
         (here
-          ? window.prism.archiveExtractTo(meta.container, list, dirOf(meta.outer), pw, true)
+          ? window.prism.archiveExtractTo(meta.container, list, parentDir(meta.outer), pw, true)
           : window.prism.archiveExtractMembersTo(meta.container, list, pw)
         ).then((r) => {
           if (r.ok && here) flashDone()
@@ -220,7 +218,7 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
   const remove = useCallback((paths: string[], meta: ArchiveMeta): void => {
     if (meta.readOnly) return
     const list = inners(meta, paths)
-    if (list.length) setConfirm({ meta, inners: list, names: paths.map(nameOf) })
+    if (list.length) setConfirm({ meta, inners: list, names: paths.map(baseName) })
   }, [])
 
   const addInto = useCallback(

@@ -1,11 +1,7 @@
 import type { BrowseLocation, SavedBrowse } from '@shared/browse'
+import { baseName, samePath } from '@shared/path'
 
 const MAX_HISTORY = 100
-
-/** Windows folder identity, including equivalent slash and trailing-slash forms. */
-function folderKey(path: string): string {
-  return path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
-}
 
 export function newBrowse(path: string, surface: SavedBrowse['surface'] = 'folder'): SavedBrowse {
   return {
@@ -53,7 +49,7 @@ export function updateBrowseLocation(
 function arrivalMark(path: string, shown: string | null | undefined, from?: string): string | null {
   const here = (p: string | null | undefined): boolean => {
     const parent = p ? browseParent(p) : null
-    return !!parent && folderKey(parent) === folderKey(path)
+    return !!parent && samePath(parent, path)
   }
   if (here(shown)) return shown!
   return from && here(from) ? from : null
@@ -78,12 +74,12 @@ export function navigateBrowseState(
   path: string,
   shown?: string | null
 ): SavedBrowse {
-  const same = folderKey(browse.path) === folderKey(path)
+  const same = samePath(browse.path, path)
   if (same && !isSearch(browseLocation(browse))) return { ...browse, surface: 'folder' }
   // Revisiting a place restores its order and scroll even by a breadcrumb or
   // shortcut; never its selection (arrivalMark) and never a search it held:
   // the scroll of a result list is not the folder's.
-  const visits = browse.history.filter((entry) => folderKey(entry.path) === folderKey(path))
+  const visits = browse.history.filter((entry) => samePath(entry.path, path))
   const plain = visits.findLast((entry) => !isSearch(entry))
   const previous = plain ?? visits.at(-1)
   const selected = arrivalMark(path, shown, same ? undefined : browse.path)
@@ -116,7 +112,7 @@ export function searchBrowseState(
     if (!isSearch(here))
       return here.query === query ? browse : updateBrowseLocation(browse, { query })
     const before = browse.history[browse.cursor - 1]
-    if (before && !isSearch(before) && folderKey(before.path) === folderKey(here.path))
+    if (before && !isSearch(before) && samePath(before.path, here.path))
       return travelBrowseState(browse, -1, shown)
     return updateBrowseLocation(browse, { query: '', scrollTop: 0 })
   }
@@ -156,12 +152,7 @@ export function browseCrumbs(path: string): BrowseCrumb[] {
   let at: string | null = path
   while (at) {
     const parent = browseParent(at)
-    const name = parent
-      ? at
-          .replace(/[\\/]+$/, '')
-          .split(/[\\/]/)
-          .pop()!
-      : at
+    const name = parent ? baseName(at) : at
     crumbs.unshift({ name, path: at })
     at = parent
   }

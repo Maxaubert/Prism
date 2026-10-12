@@ -1,4 +1,5 @@
 import type { MediaProps, TextProps } from '@shared/props'
+import { parentDir } from '@shared/path'
 import { formatWhen } from './format'
 
 /**
@@ -152,9 +153,10 @@ export function shortHash(hex: string): string {
   return hex.length > 29 ? `${hex.slice(0, 16)}…${hex.slice(-12)}` : hex
 }
 
-/** The folder a path sits in: the header's dim line. */
-export function parentOf(path: string): string {
-  const parent = path.replace(/[\\/][^\\/]*$/, '')
+/** The folder a path sits in: the header's dim line. A drive root keeps its
+ *  separator ("C:\"), which `parentDir` leaves off. */
+export function headerParent(path: string): string {
+  const parent = parentDir(path)
   return /^[a-z]:$/i.test(parent) ? `${parent}\\` : parent
 }
 

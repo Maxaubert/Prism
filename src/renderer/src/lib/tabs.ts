@@ -1,6 +1,7 @@
 import type { DirListing, OpenPayload, ViewerFile } from '@shared/types'
 import type { BrowseLocation, SavedBrowse } from '@shared/browse'
 import type { PinnedPane } from './panes'
+import { isInside, parentDir, trimSep } from '@shared/path'
 import {
   navigateBrowseState,
   newBrowse,
@@ -94,15 +95,12 @@ export function restoredTree(root: string, open: readonly string[] = [], file?: 
  *  the file itself. Case-insensitive, because Windows paths are. */
 export function ancestorsWithin(root: string, file: string): string[] {
   const out: string[] = []
-  const norm = (s: string): string => s.replace(/[\\/]+$/, '')
-  const r = norm(root)
-  let at = norm(file)
+  const r = trimSep(root)
+  let at = trimSep(file)
   // Walk up from the file, stopping at the root: a path outside it yields
   // nothing rather than climbing to the drive.
   for (let guard = 0; guard < 64; guard += 1) {
-    const cut = Math.max(at.lastIndexOf('\\'), at.lastIndexOf('/'))
-    if (cut < 0) break
-    at = at.slice(0, cut)
+    at = parentDir(at)
     if (!at || at.length < r.length) break
     out.push(at)
     if (at.toLowerCase() === r.toLowerCase()) break
@@ -115,11 +113,7 @@ export const sameRoot = (a: string, b: string): boolean => a.toLowerCase() === b
 
 /** Is `p` somewhere inside `root`? Case-insensitive, and a trailing separator
  *  on the root is not a difference. */
-export const underRoot = (root: string, p: string): boolean => {
-  const r = root.toLowerCase().replace(/[\\/]+$/, '')
-  const q = p.toLowerCase()
-  return q.startsWith(r + '\\') || q.startsWith(r + '/')
-}
+export const underRoot = (root: string, p: string): boolean => isInside(root, p)
 
 /** A tab from a payload main just built. */
 export function newTab(p: OpenPayload, id: string): Tab {
@@ -580,7 +574,7 @@ function baseOf(p: string): string {
 }
 
 /** The parent folder's name, for disambiguating a collision. */
-function parentOf(p: string): string {
+function parentName(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean)
   return parts.length > 1 ? parts[parts.length - 2] : ''
 }
@@ -627,7 +621,7 @@ export function tabLabels(tabs: readonly Tab[]): string[] {
     const b = bases[i]
     if (!b) return paths[i]
     if ((rootsByBase.get(b)?.size ?? 0) < 2) return b
-    const parent = parentOf(paths[i])
+    const parent = parentName(paths[i])
     return parent ? `${b} — ${parent}` : b
   })
 }
