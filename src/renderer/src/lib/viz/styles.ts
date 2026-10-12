@@ -2,10 +2,10 @@
 // exploration in docs/visualizer-lab. Each is a factory that allocates its own
 // buffers and returns a draw function closing over them.
 
+import { clamp } from '../clamp'
 import {
   bandRanges,
   bandValue,
-  clamp,
   makeBands,
   bandColor,
   rgba,

@@ -1,5 +1,6 @@
 import { useEffect, useRef, type JSX } from 'react'
-import { clamp, type AudioFrame, type DrawFn, type VizOpts, type VizTheme } from '../lib/viz/core'
+import type { AudioFrame, DrawFn, VizOpts, VizTheme } from '../lib/viz/core'
+import { clamp } from '../lib/clamp'
 import { styleById } from '../lib/viz/styles'
 import { analyzeDrops } from '../lib/viz/drops'
 import { getAudioContext, mediaGraph } from '../lib/audio'

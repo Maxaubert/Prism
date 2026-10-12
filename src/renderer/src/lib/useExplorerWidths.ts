@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPref } from './prefs/createPref'
+import { clamp } from './clamp'
 
 export type ExplorerSection = 'places' | 'preview'
 type Widths = Record<ExplorerSection, number | null>
@@ -21,8 +22,8 @@ const widthsPref = createPref<Widths>({
 })
 const loadWidths = widthsPref.get
 
-const clamp = (value: number, min: number, max: number): number =>
-  Math.round(Math.max(min, Math.min(max, value)))
+/** Whole pixels within the bounds. */
+const clampPx = (value: number, min: number, max: number): number => Math.round(clamp(value, min, max))
 
 /** Keep preferred widths through window resizing; only deliberate adjustments are saved. */
 export function useExplorerWidths(placesVisible: boolean, previewVisible: boolean) {
@@ -49,11 +50,11 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
   // column collapses to.
   // Unsaved widths are the ones the owner settled on, measured from their window (2026-10-11,
   // after "shrink them just a bit"); docs/features.md, the window-size entry.
-  const placesOwn = clamp(preferred.places ?? (available <= 760 ? 145 : 190), minimum, placesMax)
+  const placesOwn = clampPx(preferred.places ?? (available <= 760 ? 145 : 190), minimum, placesMax)
   const placesWidth = placesVisible ? placesOwn : 0
   const previewMax = Math.max(previewMin, available - placesWidth - listMin)
   const previewWidth = previewVisible
-    ? clamp(preferred.preview ?? Math.min(630, available * 0.26), previewMin, previewMax)
+    ? clampPx(preferred.preview ?? Math.min(630, available * 0.26), previewMin, previewMax)
     : 0
   const bounds: Record<ExplorerSection, ExplorerWidthBounds> = {
     places: { min: minimum, max: placesMax, value: placesWidth },
@@ -85,7 +86,7 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
   const live = (section: ExplorerSection, value: number): void => {
     const root = workspace.current
     if (!root) return
-    const width = clamp(value, bounds[section].min, bounds[section].max)
+    const width = clampPx(value, bounds[section].min, bounds[section].max)
     const places = section === 'places' ? (placesVisible ? width : 0) : placesWidth
     const preview = section === 'preview' ? (previewVisible ? width : 0) : previewWidth
     const browser = root.querySelector('.folder-browser')
@@ -119,7 +120,7 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
     setPreferred((current) => {
       const next = {
         ...current,
-        [section]: value === null ? null : clamp(value, bounds[section].min, bounds[section].max)
+        [section]: value === null ? null : clampPx(value, bounds[section].min, bounds[section].max)
       }
       widthsPref.set(next)
       return next

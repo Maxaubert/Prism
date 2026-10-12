@@ -24,6 +24,8 @@ import {
   searchPanelOpen
 } from '@codemirror/search'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { LoadingState } from './LoadingState'
+import { StageNotice } from './StageNotice'
 import { codeMenu } from '../menus/viewers/code'
 import { lintKeymap } from '@codemirror/lint'
 import { isProse, langFor } from '../lib/codeLang'
@@ -663,9 +665,7 @@ export function CodeView({
         />
       )}
       {!ready && (
-        <div className="delayed-loader absolute inset-0 grid place-items-center">
-          <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
-        </div>
+        <LoadingState className="absolute inset-0" />
       )}
 
       {/* Quiet until there is something to say: the pill appears when the buffer
@@ -681,13 +681,13 @@ export function CodeView({
         </div>
       )}
       {unreadable && (
-        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-[var(--p-bg)]/92 p-8 text-center">
+        <StageNotice className="pointer-events-none z-10 bg-[var(--p-bg)]/92">
           <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">
             {unreadable === 'too-large'
               ? 'This file is too large to open in the editor (over 64MB). Nothing has been changed on disk.'
               : 'This file could not be read. Nothing has been changed on disk.'}
           </div>
-        </div>
+        </StageNotice>
       )}
       {/* Where the caret is. Only while the editor has FOCUS, so a file you
           are reading from the sidebar stays chrome-free - the same rule that

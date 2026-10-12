@@ -13,6 +13,7 @@ import type { TransportStyle } from '../lib/transport'
 import { useViz } from '../lib/vizStore'
 import { wasPlaying, whenIntended } from '../lib/playState'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { StageNotice } from './StageNotice'
 import { videoMenu } from '../menus/viewers/video'
 import { videoHasFrame } from '../lib/copyImage'
 import type { AudioTrackOffer } from '@shared/types'
@@ -472,9 +473,9 @@ export function VideoView({
         </div>
       )}
       {playable.error && (
-        <div className="absolute inset-0 z-40 grid place-items-center bg-[var(--p-bg)]/92 p-8 text-center text-sm text-[var(--p-text-soft)]">
+        <StageNotice className="z-40 bg-[var(--p-bg)]/92 text-sm text-[var(--p-text-soft)]">
           This video could not be converted ({playable.error}).
-        </div>
+        </StageNotice>
       )}
       {(silent || noPicture) && (
         <div
@@ -593,9 +594,7 @@ export function VideoView({
       </video>
 
       {c.error && (
-        <div className="absolute inset-0 grid place-items-center bg-[var(--p-bg)]/90 p-8 text-center text-sm text-[var(--p-text-soft)]">
-          {c.error}
-        </div>
+        <StageNotice className="bg-[var(--p-bg)]/90 text-sm text-[var(--p-text-soft)]">{c.error}</StageNotice>
       )}
 
       {/* The auto-hiding control overlay. MOUNTED and UNMOUNTED rather than

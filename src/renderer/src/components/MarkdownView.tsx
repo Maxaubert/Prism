@@ -4,6 +4,7 @@ import { parentDir } from '@shared/path'
 import { markdownMenu } from '../menus/viewers/markdown'
 import { touchesFile } from '../lib/fileReload'
 import { DocFind } from './DocFind'
+import { LoadingState } from './LoadingState'
 import { useFindShortcut } from '../lib/useFindShortcut'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 
@@ -321,9 +322,7 @@ export function MarkdownView({
         className="h-full w-full overflow-y-auto outline-none select-text"
       >
         {text === null ? (
-          <div className="delayed-loader grid h-full place-items-center">
-            <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
-          </div>
+          <LoadingState className="h-full" />
         ) : (
           <div className="p-md mx-auto max-w-[780px] px-6 py-10">
             <ReactMarkdown

@@ -16,6 +16,7 @@ import { ImageView } from './ImageView'
 import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
 import { KindIcon, iconColour } from './TreeRows'
+import { Spinner } from './LoadingState'
 import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
@@ -1219,7 +1220,7 @@ function ArchiveInner({
       {opening && !member && (
         <div className="absolute inset-0 z-20 grid place-items-center bg-[var(--p-bg)]/70">
           <div className="flex items-center gap-3 rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-4 py-3 text-[13px] text-[var(--p-text)]">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
+            <Spinner small />
             <span className="min-w-0 truncate">Opening {opening}...</span>
           </div>
         </div>

@@ -6,6 +6,7 @@ import { VideoView } from '../components/VideoView'
 import { AudioView } from '../components/AudioView'
 import { ArchiveView } from '../components/ArchiveView'
 import { UnsupportedView } from '../components/UnsupportedView'
+import { LoadingState } from '../components/LoadingState'
 import { DEFAULT_TRANSPORT_BG, DEFAULT_TRANSPORT_STYLE } from '../lib/transport'
 import {
   enterFullscreen,
@@ -39,9 +40,7 @@ const nothingPending = (): undefined => undefined
  *  the wait is long enough to notice, the same as App's. */
 function ViewerLoading(): JSX.Element {
   return (
-    <div className="delayed-loader grid h-full w-full place-items-center">
-      <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
-    </div>
+    <LoadingState className="h-full w-full" />
   )
 }
 

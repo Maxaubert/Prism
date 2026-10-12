@@ -225,6 +225,13 @@ Filesmith's conventions.
     (`isTypingTarget`, `isFormField`, `isTextBox`, and the `FIELD` / `EDITOR` / `OVERLAY` /
     `NAV_SURFACE` selectors a key handler joins). The lists are pinned by `focusGuards.test.ts`.
   - a document viewer's Ctrl+F (who owns it in split view): `src/renderer/src/lib/useFindShortcut.ts`.
+  - the spinner and a viewer still loading: `components/LoadingState.tsx` (`Spinner`, `LoadingState`).
+  - a line over the whole stage (an error, a score being synthesised): `components/StageNotice.tsx`.
+  - a popover's way out (press outside, blur, Escape): `src/renderer/src/lib/useDismiss.ts`.
+  - the modal shell (scrim, box, Escape, focus on the primary button): `components/Modal.tsx`;
+    `Dialog` and `PropertiesDialog` wrap it. The look stays in `dialogLook.ts` (with
+    `DIALOG_EMPHASIS`, the name inside a question), which `ExtractWindow` shares.
+  - `clamp`: `src/renderer/src/lib/clamp.ts`.
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

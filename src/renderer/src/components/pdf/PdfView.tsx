@@ -8,7 +8,9 @@ import { PdfPage } from './PdfPage'
 import { type PdfLink } from '../../lib/pdfLinks'
 import { baseZoom, zoomPercent } from '../../lib/pdfZoom'
 import { PdfFindBar } from './PdfFindBar'
+import { LoadingState } from '../LoadingState'
 import { EDITOR, NAV_SURFACE, OVERLAY, isFormField } from '../../lib/focusGuards'
+import { clamp } from '../../lib/clamp'
 import '../../assets/pdf.css'
 
 // Prism's own PDF viewer: pdf.js pages in a continuous scroll, the app's chrome
@@ -47,7 +49,6 @@ const PAD_X = 48
 const PAD_Y = 24
 // US Letter, until page 1 announces the document's real size.
 const FALLBACK_DIMS = { w: 612, h: 792 }
-const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
 
 type FitMode = 'fit-page' | 'fit-width' | 'manual'
 
@@ -820,9 +821,7 @@ export function PdfView({
         style={{ scrollbarGutter: 'stable' }}
       >
         {!doc ? (
-          <div className="delayed-loader grid h-full place-items-center">
-            <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
-          </div>
+          <LoadingState className="h-full" />
         ) : (
           <div
             className="flex min-h-full w-max min-w-full flex-col items-center"
