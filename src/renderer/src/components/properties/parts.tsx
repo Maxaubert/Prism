@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { clipboardText } from '../../lib/clipboardText'
 import { dialogButton } from '../dialogLook'
 import { CheckGlyph, CopyGlyph } from '../icons/propertyGlyphs'
+import { hiddenTitle } from '../../lib/hiddenTitle'
 
 // The Properties window's pieces, shared by every kind (owner, 2026-10-12;
 // the approved mockup `research/prism/mockups/2026-10-12-properties/final`):
@@ -46,7 +47,7 @@ export function Header({
 
 export function Title({ text, className = '' }: { text: string; className?: string }): JSX.Element {
   return (
-    <h2 className={`truncate text-[14.5px] font-semibold text-[var(--p-text)] ${className}`} title={text}>
+    <h2 className={`truncate text-[14.5px] font-semibold text-[var(--p-text)] ${className}`} {...hiddenTitle(text)}>
       {text}
     </h2>
   )
@@ -54,7 +55,7 @@ export function Title({ text, className = '' }: { text: string; className?: stri
 
 export function Sub({ text }: { text: string }): JSX.Element {
   return (
-    <div className="mt-0.5 select-text truncate tabular-nums text-[var(--p-dim)]" title={text}>
+    <div className="mt-0.5 select-text truncate tabular-nums text-[var(--p-dim)]" {...hiddenTitle(text)}>
       {text}
     </div>
   )

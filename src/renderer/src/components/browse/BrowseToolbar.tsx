@@ -8,6 +8,7 @@ import { useFolderDrop } from './useFolderDrop'
 import { KindIcon } from '../icons/FileIcons'
 import { browsableArchive } from '@shared/archivePlace'
 import './archive.css'
+import { hiddenTitle, isClipped } from '../../lib/hiddenTitle'
 
 const crumbKey = (p: string): string => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
 
@@ -157,7 +158,13 @@ export function BrowseToolbar(props: Props): JSX.Element {
         <nav
           className="browse-path browse-field"
           aria-label="Folder path"
-          title={props.directory}
+          data-path={props.directory}
+          // The path on the pointer only while the crumbs are cut off.
+          onMouseEnter={(event) => {
+            const crumbs = event.currentTarget.querySelector<HTMLElement>('.browse-crumbs')
+            if (crumbs && isClipped(crumbs)) event.currentTarget.title = props.directory
+            else event.currentTarget.removeAttribute('title')
+          }}
           onClick={(event) => {
             if (!(event.target as HTMLElement).closest('button')) begin()
           }}
@@ -209,7 +216,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
             {props.fileName && (
               <span className="browse-crumb">
                 <BrowseIcon name="chevron" />
-                <span className="browse-file-crumb" aria-current="page" title={props.fileName}>
+                <span className="browse-file-crumb" aria-current="page" {...hiddenTitle(props.fileName)}>
                   {props.fileName}
                 </span>
               </span>

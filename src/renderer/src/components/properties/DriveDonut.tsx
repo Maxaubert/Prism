@@ -11,6 +11,7 @@ import {
 import { OverlayScrollbar } from '../browse/OverlayScrollbar'
 import '../browse/browse.css'
 import './donut.css'
+import { hiddenTitle } from '../../lib/hiddenTitle'
 
 /** The ring (spec: 150px, 20px ring) and the gap between two slices. */
 const SIZE = 150
@@ -137,7 +138,7 @@ export function DriveDonut(props: {
                     onPointerLeave={() => setHot((h) => (h?.from === 'row' ? null : h))}
                     onClick={() => onOpenFolder(s.path)}
                   >
-                    <span className="donut-name" title={s.name}>
+                    <span className="donut-name" {...hiddenTitle(s.name)}>
                       <i className="donut-dot" style={{ background: s.color }} />
                       {s.name}
                     </span>
