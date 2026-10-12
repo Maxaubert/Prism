@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
 import type { TextProps } from '@shared/props'
-import { langFor } from '../../lib/codeLang'
+import { langFor } from '../../lib/code/codeLang'
 import { formatBytes } from '../../lib/format'
 import { langColour } from '../../lib/langColour'
 import { count, encodingLabel, eolLabel, headerParent, textCounts, whenLabel } from '../../lib/propsFormat'

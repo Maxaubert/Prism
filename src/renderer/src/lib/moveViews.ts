@@ -1,4 +1,4 @@
-import type { Tab } from './tabs'
+import type { Tab } from './tabs/tabs'
 import { baseName, isInside } from '@shared/path'
 
 export type FileMove = { from: string; to: string }

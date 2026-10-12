@@ -1,6 +1,6 @@
 import { useId, type JSX } from 'react'
 import type { FileKind } from '@shared/types'
-import { ROW_ICON } from '../../lib/treePrefs'
+import { ROW_ICON } from '../../lib/prefs/treePrefs'
 import {
   ACCENT_LED,
   ICON_COLOURS,

@@ -6,7 +6,7 @@ import {
   rectToPercent,
   type PdfLink,
   type RawAnnot
-} from '../../lib/pdfLinks'
+} from '../../lib/pdf/pdfLinks'
 
 // One PDF page: the canvas raster and the transparent text layer over it. Only
 // mounted while the page is near the viewport (the parent virtualizes); the

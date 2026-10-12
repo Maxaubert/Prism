@@ -4,14 +4,14 @@ import { baseName, extOf } from '@shared/path'
 import { FolderIcon, KindIcon } from '../icons/FileIcons'
 import { ContextMenu } from '../ContextMenu'
 import { placesMenu } from '../../menus/places'
-import { setDrag } from '../../lib/dragDrop'
+import { setDrag } from '../../lib/drag/dragDrop'
 import {
   QUICK_ACCESS_PIN_MIME,
   sameQuickAccessPath,
   type QuickAccessPin
 } from '../../lib/quickAccess'
-import { useDriveStyle } from '../../lib/driveStylePrefs'
-import { useDriveUsage } from '../../lib/useDriveUsage'
+import { useDriveStyle } from '../../lib/prefs/driveStylePrefs'
+import { useDriveUsage } from '../../hooks/useDriveUsage'
 import { driveName, nearlyFull } from '../../lib/driveUsage'
 import { DriveBody } from './DriveRow'
 import { PlaceIcon } from '../icons/PlaceIcon'

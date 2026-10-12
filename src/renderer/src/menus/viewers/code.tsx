@@ -4,7 +4,7 @@
  * an archive). Two variants: the editable one, and a reader's (#106).
  */
 import type { MenuItem } from '../../components/ContextMenu'
-import type { WrapPref } from '../../lib/codePrefs'
+import type { WrapPref } from '../../lib/code/codePrefs'
 import { fileVerbs } from '../fileVerbs'
 import { tickIf } from '../../components/icons/menuGlyphs'
 

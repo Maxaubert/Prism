@@ -14,7 +14,7 @@ import './index.css'
 // change its look mid-playback, and driving that through Settings would put the
 // settings panel over the very thing being shown. Two setters, no more.
 if (window.prism.demo) {
-  void Promise.all([import('./lib/theme'), import('./lib/vizStore')]).then(([theme, viz]) => {
+  void Promise.all([import('./lib/theme'), import('./lib/viz/vizStore')]).then(([theme, viz]) => {
     ;(window as unknown as { prismDemo: unknown }).prismDemo = {
       setStyle: theme.setStyle,
       // A visualizer is a PRESET, not a shape: each one carries its own height,

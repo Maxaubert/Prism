@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
-import { useMediaControls } from '../lib/useMediaControls'
+import { useMediaControls } from '../hooks/useMediaControls'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { audioMenu } from '../menus/viewers/audio'
-import { usePlayerPrefs } from '../lib/playerPrefs'
+import { usePlayerPrefs } from '../lib/prefs/playerPrefs'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
 import { Visualizer } from './Visualizer'
 import { VolumeReadout } from './VolumeReadout'
 import { StageNotice } from './StageNotice'
-import { useWaveform } from '../lib/useWaveform'
+import { useWaveform } from '../hooks/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { resolveVizTheme } from '../lib/theme'
-import { useViz, WIDTHS } from '../lib/vizStore'
-import { useDecodedSource } from '../lib/useDecodedSource'
+import { useViz, WIDTHS } from '../lib/viz/vizStore'
+import { useDecodedSource } from '../hooks/useDecodedSource'
 import { wasPlaying, whenIntended } from '../lib/playState'
-import { useBackgroundPause } from '../lib/useBackgroundPause'
+import { useBackgroundPause } from '../hooks/useBackgroundPause'
 
 // The audio player: the chosen visualizer fills the window. Style, colour, and
 // framing all come from the shared vizStore (set in the app Settings window). The
@@ -77,7 +77,7 @@ export function AudioView({
   /** Mounted but not on screen: another tab is in front. The track plays on,
    *  with no controls, no keyboard and no visualizer - see lib/mediaDeck. */
   background?: boolean
-  /** Whose volume this is: the tab's, for the session (lib/tabVolume). */
+  /** Whose volume this is: the tab's, for the session (lib/tabs/tabs/tabVolume). */
   volumeKey?: string
   /** The phone's hls.js hook (2026-09-06, #105), as on VideoView: when given,
    *  the element is rendered WITHOUT src (the decoded-source swap included,

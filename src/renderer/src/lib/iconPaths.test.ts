@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { contrast } from './colour'
-import { isProse } from './codeLang'
+import { isProse } from './code/codeLang'
 import {
   ICON_COLOURS,
   ICON_PATHS,

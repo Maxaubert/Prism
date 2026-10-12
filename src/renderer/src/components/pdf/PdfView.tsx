@@ -3,10 +3,10 @@ import { openDocAt, rememberDocPos, saveDocPos } from '../../lib/docPosition'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { IconFull } from '../icons/transport'
-import { findMatches, stepMatch, type Match, type PageText } from '../../lib/pdfSearch'
+import { findMatches, stepMatch, type Match, type PageText } from '../../lib/pdf/pdfSearch'
 import { PdfPage } from './PdfPage'
-import { type PdfLink } from '../../lib/pdfLinks'
-import { baseZoom, zoomPercent } from '../../lib/pdfZoom'
+import { type PdfLink } from '../../lib/pdf/pdfLinks'
+import { baseZoom, zoomPercent } from '../../lib/pdf/pdfZoom'
 import { PdfFindBar } from './PdfFindBar'
 import { LoadingState } from '../LoadingState'
 import { EDITOR, NAV_SURFACE, OVERLAY, isFormField } from '../../lib/focusGuards'
@@ -37,7 +37,7 @@ const sideData = (dir: string): string => {
 const MIN_SCALE = 0.25
 const MAX_SCALE = 5
 const STEP = 1.18
-// What the pill calls 100% is now DERIVED PER DOCUMENT, in lib/pdfZoom.ts:
+// What the pill calls 100% is now DERIVED PER DOCUMENT, in lib/pdf/pdfZoom.ts:
 // pdf.js units are relative to the page's own size, so a flat 1.9 meant "1.9x
 // whatever this document happens to measure" and an artbook with 1800pt pages
 // opened three times the width of a letter one (2026-08-31). 100% is a fixed

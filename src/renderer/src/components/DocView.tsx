@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import { ContextMenu } from './ContextMenu'
 import { docMenu } from '../menus/viewers/doc'
 import { DocFind } from './DocFind'
-import { useFindShortcut } from '../lib/useFindShortcut'
+import { useFindShortcut } from '../hooks/useFindShortcut'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 
 /** How far the reader must move before the position is written to disk. */

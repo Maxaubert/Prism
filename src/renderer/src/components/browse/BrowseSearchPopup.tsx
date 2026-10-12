@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type JSX } from 'r
 import { createPortal } from 'react-dom'
 import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
 import { hitFolder, stepActive } from '@shared/searchSuggest'
-import { useSearchSuggestions, type Suggestion } from '../../lib/useSearchSuggestions'
+import { useSearchSuggestions, type Suggestion } from '../../hooks/useSearchSuggestions'
 import { BrowseIcon } from '../icons/BrowseIcon'
 import './search-popup.css'
 

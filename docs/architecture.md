@@ -97,7 +97,7 @@ Filesmith's conventions.
   shell's (termHost's `ownsKey` no longer claims it). `noCommandHelp` in the e2e proves all three.
 - **REMEMBER TABS IS A SETTING** (2026-09-22, owner: "Prism should also have the option to not
   remember tabs"). Settings > Explorer > Reopen tabs at start, on by default (how Prism always started), key
-  `prism.tabs.remember` (`lib/tabRestorePrefs.ts`). Off, a COLD start opens only the Explorer tab
+  `prism.tabs.remember` (`lib/tabs/tabRestorePrefs.ts`). Off, a COLD start opens only the Explorer tab
   and whatever Prism was opened with: main reads the key from the window preferences store in
   `restoreWhenListening`, once per process (`coldRestoreDone`), so a reload of the window keeps its
   tabs. The tabs are still SAVED while it is off, so switching it back on loses nothing. Agent
@@ -173,7 +173,7 @@ Filesmith's conventions.
   but actually implement it. And remember that when the sidebar goes on the right, the preview menu
   and button to open it would have to go on the left"; then, the same day, after testing one shared
   row: "No, it should be two settings, one on the project tab and one on the explorer tab").
-  Explorer > Layout opens with `explorer-side` (key `prism.explorer.side`, `lib/explorerSidePrefs.ts`,
+  Explorer > Layout opens with `explorer-side` (key `prism.explorer.side`, `lib/prefs/explorerSidePrefs.ts`,
   default Left): the Explorer tab's places panel, and nothing else. Project settings keeps
   `tree-side` (key `prism.tree.side`, unchanged): the project tree, and nothing else. Neither moves
   the other; App reads the Explorer's for an Explorer tab and the tree's for a project tab
@@ -199,6 +199,11 @@ Filesmith's conventions.
     associations), folder navigation, settings, and packaging.
 - **Filesmith and Prism never depend on each other at runtime.** They only share `prism-core`,
   which each bundles at build time. A user with Filesmith does not need Prism, and vice versa.
+- **Renderer folders** (structure cleanup, 2026-10-12): every React hook (`use*.ts`) lives in
+  `src/renderer/src/hooks/`, never in `lib/`. `lib/` groups by feature: `code/` (language,
+  lint, prefs, theme, jsonc), `pdf/`, `drag/`, `tabs/` (the tab model, crumbs, restore, volume,
+  width), `prefs/` (`createPref` and the small pref stores), `viz/` (with `vizStore`),
+  `themes/`. What belongs to no group stays flat in `lib/`.
 - **Single homes** (structure cleanup, 2026-10-12): one module per shared job. Use it, never a
   local copy.
   - localStorage read that never throws: `src/renderer/src/lib/storage.ts` (`readStored`).
@@ -224,10 +229,10 @@ Filesmith's conventions.
   - "is the user typing, or is the key somebody else's": `src/renderer/src/lib/focusGuards.ts`
     (`isTypingTarget`, `isFormField`, `isTextBox`, and the `FIELD` / `EDITOR` / `OVERLAY` /
     `NAV_SURFACE` selectors a key handler joins). The lists are pinned by `focusGuards.test.ts`.
-  - a document viewer's Ctrl+F (who owns it in split view): `src/renderer/src/lib/useFindShortcut.ts`.
+  - a document viewer's Ctrl+F (who owns it in split view): `src/renderer/src/hooks/useFindShortcut.ts`.
   - the spinner and a viewer still loading: `components/LoadingState.tsx` (`Spinner`, `LoadingState`).
   - a line over the whole stage (an error, a score being synthesised): `components/StageNotice.tsx`.
-  - a popover's way out (press outside, blur, Escape): `src/renderer/src/lib/useDismiss.ts`.
+  - a popover's way out (press outside, blur, Escape): `src/renderer/src/hooks/useDismiss.ts`.
   - the modal shell (scrim, box, Escape, focus on the primary button): `components/Modal.tsx`;
     `Dialog` and `PropertiesDialog` wrap it. The look stays in `dialogLook.ts` (with
     `DIALOG_EMPHASIS`, the name inside a question), which `ExtractWindow` shares.
@@ -240,7 +245,7 @@ Filesmith's conventions.
   - renaming in place (the tree, an archive's member rows): `components/RenameField.tsx`; in a
     dialog (the Explorer, a zip member there, an archive's own Rename): `browse/BrowseRename.tsx`.
     The stem selection is `lib/selectStem.ts`.
-  - pasting files into a folder (Explorer and tree), with every line it says: `lib/useFilePaste.ts`
+  - pasting files into a folder (Explorer and tree), with every line it says: `hooks/useFilePaste.ts`
     (`useFilePaste`, `PASTE_MESSAGES`, `pasteMessage`).
   - the unsaved-changes question (closing, installing, closing a tab, re-rooting a tab):
     `dialogs/UnsavedDialog.tsx`; App's `saveAllThen` and `discardTabBuffers` answer it.
@@ -248,13 +253,13 @@ Filesmith's conventions.
     beside each; App's `Ask` union and `AskDialogs`). Index: `docs/dialogs.md`.
   - App's parts by job (structure cleanup, stage 11): the title bar `components/titlebar/`
     (`TopBar`, `TitleButtons`); the stage's views `components/stage/` (`Viewer`, `PinnedPaneView`,
-    `EmptyState`); the file operations and undo/redo over them `lib/useFileOps.ts`, with the
+    `EmptyState`); the file operations and undo/redo over them `hooks/useFileOps.ts`, with the
     inverse of each undo entry in `lib/undoApply.ts` (`undoEntry`, `redoEntry`; `undo.ts` stays
-    the pure stack); leaving the window and the update install `lib/useWindowClose.ts`;
-    fullscreen and its fade `lib/useFullscreenVeil.ts`; the window's keys `lib/useAppKeys.ts`;
-    the dock, the shells' roots and the tab's terminal view `lib/useTerminal.ts`; several shells
-    per tab and the split's panes `lib/useTermPanes.ts`; the tabs (new, close, re-root, recent,
-    pick, reorder) `lib/useTabOps.ts`; the session's tab and shell ids
+    the pure stack); leaving the window and the update install `hooks/useWindowClose.ts`;
+    fullscreen and its fade `hooks/useFullscreenVeil.ts`; the window's keys `hooks/useAppKeys.ts`;
+    the dock, the shells' roots and the tab's terminal view `hooks/useTerminal.ts`; several shells
+    per tab and the split's panes `hooks/useTermPanes.ts`; the tabs (new, close, re-root, recent,
+    pick, reorder) `hooks/useTabOps.ts`; the session's tab and shell ids
     `lib/sessionIds.ts`.
   - the project tree's parts (Sidebar.tsx): `components/sidebar/` (`usePanelResize` the width,
     `useTreeKeys` a key on a row, `useTreeDrop` drag and drop, `useTreeClipboard` Ctrl+C/X/V,

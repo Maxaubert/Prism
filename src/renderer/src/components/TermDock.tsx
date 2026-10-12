@@ -1,7 +1,7 @@
 import { DictationPill } from 'prism-term-core/renderer/components/DictationPill'
 import { lazy, Suspense, useCallback, useRef, useState, type JSX } from 'react'
 import { clampTermSize, dockAxis, type DockEdge } from '../lib/termDock'
-import { dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
+import { dragPayload, droppedPaths, setDrag } from '../lib/drag/dragDrop'
 import { quotePaths } from 'prism-term-core/renderer/lib/termPaste'
 import { shellOfShellId } from 'prism-term-core/shared/help/shells'
 import { ContextMenu } from './ContextMenu'

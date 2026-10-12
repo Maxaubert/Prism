@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { SWITCH_KNOB_ON, SWITCH_ON } from 'prism-term-core/renderer/settings/fields'
-import type { MediaControls } from '../lib/useMediaControls'
-import { setPlayerPref, usePlayerPrefs } from '../lib/playerPrefs'
-import { useDismiss } from '../lib/useDismiss'
-import type { SubTrackInfo } from '../lib/useSubtitles'
+import type { MediaControls } from '../hooks/useMediaControls'
+import { setPlayerPref, usePlayerPrefs } from '../lib/prefs/playerPrefs'
+import { useDismiss } from '../hooks/useDismiss'
+import type { SubTrackInfo } from '../hooks/useSubtitles'
 import { Gear, Icon } from './icons/Icon'
 
 // The cog at the right of both transports, where the speed button used to be.

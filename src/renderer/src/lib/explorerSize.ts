@@ -1,5 +1,5 @@
 import { createPref } from './prefs/createPref'
-import { TREE_SIZES, rowLook } from './treePrefs'
+import { TREE_SIZES, rowLook } from './prefs/treePrefs'
 
 // HOW BIG THE EXPLORER'S ROWS ARE (owner, 2026-10-03: "let there be size
 // options for explorer in the appearance menu, let the current be medium the

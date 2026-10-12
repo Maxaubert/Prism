@@ -2,9 +2,9 @@ import type { CSSProperties, JSX } from 'react'
 import { SaveButton, Segmented, Select, Switch } from 'prism-term-core/renderer/settings/fields'
 import { SettingRow, SUB_INK } from 'prism-term-core/renderer/settings/layout/SettingRow'
 import { SettingsSection } from 'prism-term-core/renderer/settings/layout/SettingsSection'
-import { setTabWidth, useTabWidth } from '../../lib/tabWidthPrefs'
-import { setTitleBarMode, useTitleBarMode } from '../../lib/titleBarPrefs'
-import { setTreeSize, TREE_SIZES, useTreeSize, type TreeSize } from '../../lib/treePrefs'
+import { setTabWidth, useTabWidth } from '../../lib/tabs/tabWidthPrefs'
+import { setTitleBarMode, useTitleBarMode } from '../../lib/prefs/titleBarPrefs'
+import { setTreeSize, TREE_SIZES, useTreeSize, type TreeSize } from '../../lib/prefs/treePrefs'
 import {
   FONTS,
   isEdited,

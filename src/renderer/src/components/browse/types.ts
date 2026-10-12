@@ -1,10 +1,10 @@
 import type { MouseEvent, ReactNode } from 'react'
 import type { ArchiveMeta, DirListing, ViewerFile } from '@shared/types'
 import type { QuickAccessPin } from '../../lib/quickAccess'
-import type { DragPayload } from '../../lib/dragDrop'
+import type { DragPayload } from '../../lib/drag/dragDrop'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { BrowseDriveUsage, BrowseSearchResult, BrowseShortcut, BrowseSort } from '@shared/browse'
-import type { ListPending } from '../../lib/usePendingHint'
+import type { ListPending } from '../../hooks/usePendingHint'
 
 export interface BrowsePlace {
   path: string

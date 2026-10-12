@@ -5,7 +5,7 @@ import { markdownMenu } from '../menus/viewers/markdown'
 import { touchesFile } from '../lib/fileReload'
 import { DocFind } from './DocFind'
 import { LoadingState } from './LoadingState'
-import { useFindShortcut } from '../lib/useFindShortcut'
+import { useFindShortcut } from '../hooks/useFindShortcut'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 
 /** How far the reader must move before the position is written to disk. */
