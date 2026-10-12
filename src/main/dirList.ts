@@ -106,10 +106,6 @@ async function mapLimit<T, R>(
 /** How many stats may be in flight at once. Measured, see listDir. */
 const STAT_LIMIT = 16
 
-// Hoisted, and worth 23ms of every click (2026-08-31). `localeCompare` builds
-// a fresh collator on EVERY comparison, so sorting 5000 names paid for 5000
-// of them: 23.3ms sorting System32 against 0.5ms with one collator reused.
-
 /**
  * Searches are SUPERSEDED, not stacked (2026-08-31).
  *

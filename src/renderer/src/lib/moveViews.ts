@@ -56,9 +56,7 @@ export function restoreMoveViews(
     const remap = (path: string): string => movedPath(path, moves)
     const files = mapChanged(tab.files, (file) => {
       const path = remap(file.path)
-      return path === file.path
-        ? file
-        : { ...file, path, name: baseName(path) }
+      return path === file.path ? file : { ...file, path, name: baseName(path) }
     })
     const panes = mapChanged(originalPanes, (pane) => {
       const path = pane.term ? pane.path : remap(pane.path)

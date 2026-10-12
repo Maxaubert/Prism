@@ -148,7 +148,6 @@ function hostile(path: string): boolean {
   return !p || p.startsWith('/') || /^[a-z]:/i.test(p) || p.split('/').some((s) => s === '..') || p.includes('\0')
 }
 
-
 /** The container a path is inside, by a synchronous stat (the restore's
  *  check, #300): a stat of the candidates only, never a read of the zip.
  *  Kept for the tab restore (tabs.ts), which answers synchronously at

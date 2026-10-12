@@ -175,7 +175,6 @@ function LockBadge(): JSX.Element {
 }
 
 /** Keyed by path, so switching zip to zip starts the inner state fresh. */
-
 export function ArchiveView({
   file,
   onUndoable,
