@@ -96,7 +96,7 @@ export function VideoView({
    *  plays on (that is the whole point), but it owns no keyboard, shows no
    *  controls and opens no menus - see lib/mediaDeck. */
   background?: boolean
-  /** Whose volume this is: the tab's, for the session (lib/tabs/tabs/tabVolume). */
+  /** Whose volume this is: the tab's, for the session (lib/tabs/tabVolume). */
   volumeKey?: string
   /** Fullscreen paints the stage BLACK, whatever the theme says (2026-08-28):
    *  a film fills the screen and the letterbox is part of the picture, so a

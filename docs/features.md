@@ -1991,7 +1991,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
   look at every level: no dimming, no colour change past 100%, because the bar
   and the number already say how loud it is. It MOUNTS and UNMOUNTS, like the
   transport, for the same fullscreen-compositing reason. Level and mute
-  belong to the TAB for the session (`lib/tabs/tabs/tabVolume`): the same level follows
+  belong to the TAB for the session (`lib/tabs/tabVolume`): the same level follows
   you across the files you open in that tab, a new tab starts at 100%, a
   closed tab forgets, and nothing is persisted - the old single localStorage
   number was shared by every file in every window and came back tomorrow. Past 100% the ELEMENT cannot help - `HTMLMediaElement.volume`
@@ -2078,7 +2078,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **MUTE, VOLUME AND SPEED CARRY TO THE NEXT FILE** (#207; owner, 2026-09-23: "if the user
   mutes audio or sets speed to be 0.5 and then clicks a new video, those settings should be
   kept ... maybe the user wants to just look at videos without audio, or dissect videos in
-  half speed"). Speed joined the tab's session level (`tabRate` in `lib/tabs/tabs/tabVolume`): the
+  half speed"). Speed joined the tab's session level (`tabRate` in `lib/tabs/tabVolume`): the
   player is keyed by KIND, so a photo or a track between two films remounted it at 1x. Same
   scope as the level: this tab, this session, never on disk.
 - **THE PREVIEW PANE SLIDES ON ITS TOGGLE** (#207; owner, 2026-09-23: "the same way you made

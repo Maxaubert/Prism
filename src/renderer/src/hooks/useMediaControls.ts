@@ -76,7 +76,7 @@ interface Options {
    *  watching the value, so nothing has to set state inside an effect. */
   onVolume?: () => void
   errorMsg?: string
-  /** Whose volume this is: the tab, for this session (see lib/tabs/tabs/tabVolume). The
+  /** Whose volume this is: the tab, for this session (see lib/tabs/tabVolume). The
    *  same level follows you across the files you open in that tab, and a new
    *  tab starts at 100%. Omit and the player simply starts at 100%. */
   volumeKey?: string
