@@ -7879,7 +7879,6 @@ async function marqueeScenario(fixtures) {
     marked = await treeMarked()
     ok(['a2.txt', 'a3.txt', 'a4.txt'].every((n) => marked.includes(n)) && marked.length === 3, `a click then a sweep below it marks all three (${marked})`)
     const seam = await win.evaluate((p) => {
-      const row = document.querySelector(`aside [data-row="${CSS.escape(p)}"] [role="treeitem"], aside [data-row="${CSS.escape(p)}"] > *`)
       const el = document.querySelector(`aside [data-row="${CSS.escape(p)}"]`)
       const styled = [el, ...(el?.querySelectorAll('*') ?? [])].find((x) => x instanceof HTMLElement && x.style.borderBottomLeftRadius !== '')
       return styled ? styled.style.borderBottomLeftRadius : 'none'

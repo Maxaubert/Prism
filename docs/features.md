@@ -1796,6 +1796,15 @@ changing a feature: each entry records what the owner decided, why, and what hol
   when nothing is playing; the visualizer's frame loop stops once a paused
   picture has settled; and a cross-volume move copies with `fs/promises`
   rather than `cpSync`, which blocked every window for as long as it took.
+  **THE MAIN PROCESS NEVER WAITS ON THE DISK** (owner, 2026-10-12, after the tabs.json freeze:
+  "ok yes plan then go ahead"; plan `docs/superpowers/plans/2026-10-12-main-never-waits-plan.md`).
+  163 synchronous calls in `src/main` were traced to their triggers: the 137 that ran while the
+  user works (opening, listing, search, moves, renames, archives, media, subtitles, documents,
+  window state, preferences, the listings index) are async now; window preferences and the
+  listings index answer their `sendSync` from memory and write off main. What stays synchronous
+  is startup, quit, worker code, a `sendSync` answer, the root wall's `canonical()` and adm-zip
+  (whole-archive reads and writes; moving zip edits to a worker is the follow-up), each with a
+  `// sync-ok: <reason>`. `src/main/syncCalls.test.ts` fails `npm test` on any unmarked one.
   **THE TAB STRIP IS SAVED OFF MAIN** (owner, 2026-10-12: the app "stalled for like 5 seconds",
   first after an unpin, then on entering Downloads). A CPU profile of the owner's main process
   put every sample of a 3954 ms freeze in `writeFileSync` under `writeTabs`: the tab strip's
