@@ -7,7 +7,7 @@ import { typeLabel } from '../lib/typeLabel'
 import { loadTransportBg, loadTransportStyle } from '../lib/transport'
 import { useSysIcon } from '../lib/sysIcon'
 import { fileKind, isMarkdown } from '@shared/fileKind'
-import { extOf, naturalCompare, parentDir } from '@shared/path'
+import { baseName, extOf, naturalCompare, parentDir } from '@shared/path'
 import { ContextMenu } from './ContextMenu'
 import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
 import { Dialog } from './Dialog'
@@ -21,6 +21,7 @@ import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
 import { archivePassword, rememberArchivePassword } from '../lib/archivePass'
+import { useArchiveOps } from './archive/useArchiveOps'
 import type { UndoEntry } from '../lib/undo'
 import { isTypingTarget } from '../lib/focusGuards'
 
@@ -50,7 +51,6 @@ type Entry = {
   mtime?: number
   encrypted?: boolean
 }
-type Fail = 'password' | 'aes' | 'failed'
 
 // The columns, Explorer-shaped. The widths live in one place because the
 // header row and every member row have to agree to the pixel, and the narrow
@@ -277,17 +277,9 @@ function ArchiveInner({
     null
   )
   const [editing, setEditing] = useState<string | null>(null)
-  const [confirmDel, setConfirmDel] = useState<Entry | null>(null)
-  const [confirmDelMany, setConfirmDelMany] = useState<string[] | null>(null)
   // Drag and drop (#70). dropTarget is a folder path, or '' for the panel
   // itself (meaning "this folder you are looking at").
   const [dropTarget, setDropTarget] = useState<string | null>(null)
-  const [addClash, setAddClash] = useState<{
-    paths: string[]
-    dest: string
-    names: string[]
-    fromPrism: boolean
-  } | null>(null)
   // The selection (2026-08-22): click selects, shift ranges, ctrl toggles,
   // double click opens. No drag-to-select; dragging a row moves it.
   const [sel, setSel] = useState<Selection>(emptySelection)
@@ -302,7 +294,6 @@ function ArchiveInner({
     setCwdRaw(p)
     setSel(emptySelection)
   }, [])
-  const [oops, setOops] = useState<string | null>(null)
   /**
    * Just finished, for about two seconds.
    *
@@ -332,13 +323,6 @@ function ArchiveInner({
   const [renamingSelf, setRenamingSelf] = useState(false)
   /** The drag-select band, in the panel box's own coordinates. */
   const [band, setBand] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
-  // The password lives in lib/archivePass, one per archive, so the SIDEBAR can
-  // use it too when a member is dragged out to a folder (#70).
-  const [askPass, setAskPass] = useState<{
-    run: (pw: string) => void
-    name: string
-    wrong: boolean
-  } | null>(null)
   const sysIcon = useSysIcon(file.path)
 
   const load = useCallback(
@@ -361,6 +345,20 @@ function ArchiveInner({
     [file.path]
   )
   useEffect(() => load(), [load, refreshKey])
+  // The password, the taken name on the way in, the permanent delete and the
+  // message box: the verbs' questions, shared with a zip in the Explorer.
+  // The password lives in lib/archivePass, one per archive, so the SIDEBAR
+  // can use it too when a member is dragged out to a folder (#70).
+  const ops = useArchiveOps({ refresh: () => load(), noteUndo: onUndoable })
+  const {
+    withPassword: runWithPass,
+    extract: extractOut,
+    rename: renameIn,
+    askDelete,
+    addInto: addIn,
+    moveInside,
+    say: setOops
+  } = ops
 
   // The rows of the CURRENT folder only: folders first, names ordered.
   const rows = useMemo((): Entry[] => {
@@ -381,41 +379,10 @@ function ArchiveInner({
   }, [entries, file.size])
   const crumbs = cwd ? cwd.split('/') : []
 
-  /** Run a member action; when it reports 'password', ask and retry with the
-   *  answer. 'aes' and 'failed' land in the message box. */
-  const withPassword = useCallback(
-    (entry: Entry, run: (pw: string | undefined) => Promise<Fail | 'ok'>): void => {
-      const attempt = (pw: string | undefined, wrong: boolean): void => {
-        void run(pw).then((r) => {
-          if (r === 'ok') return
-          if (r === 'password')
-            setAskPass({
-              name: entry.name,
-              wrong,
-              run: (answer) => {
-                setAskPass(null)
-                rememberArchivePassword(file.path, answer)
-                attempt(answer, true)
-              }
-            })
-          else if (r === 'aes')
-            // Prism ships its own 7-Zip, so reaching this now means the
-            // bundled copy is missing rather than that the machine lacks one.
-            setOops(
-              `"${entry.name}" is AES-encrypted, and the 7-Zip that opens those is missing from this install.`
-            )
-          else setOops(`Couldn't read "${entry.name}" from the archive.`)
-        })
-      }
-      attempt(archivePassword(file.path), false)
-    },
-    [file.path]
-  )
-
   const view = useCallback(
     (entry: Entry): void => {
       setOpening(entry.name)
-      withPassword(entry, (pw) =>
+      runWithPass(file.path, entry.name, (pw) =>
         window.prism.archiveExtract(file.path, entry.path, pw).then((r) => {
           setOpening(null)
           if (r.ok) {
@@ -426,36 +393,24 @@ function ArchiveInner({
         })
       )
     },
-    [file.path, withPassword]
+    [file.path, runWithPass]
   )
   /** The archive's own folder: where "Extract here" lands a member. */
   const besideArchive = parentDir(file.path)
   /** Members OUT to a real folder (2026-09-03, owner: "Extract here" and
    *  "Extract to..." on a member row, file or folder alike). `here` lands
    *  beside the archive, inside the root; otherwise main's dialog picks,
-   *  which is the consent that lets it write anywhere.
-   *
-   *  The extraction window is main's (2026-09-19, #166): it opens when the
-   *  work starts, and a failure is ITS error to show, so nothing but a
-   *  password is left for this to react to. That one it still asks for,
-   *  which is why the call says `asksPassword`: the window then closes
-   *  quietly on a wrong password instead of putting an error up underneath
-   *  the question. */
+   *  which is the consent that lets it write anywhere. The extraction
+   *  window and the password question are useArchiveOps' (#166). */
   const extractMembers = useCallback(
-    (entry: Entry, entries: string[], here: boolean): void => {
-      withPassword(entry, (pw) =>
-        (here
-          ? window.prism.archiveExtractTo(file.path, entries, besideArchive, pw, true)
-          : window.prism.archiveExtractMembersTo(file.path, entries, pw)
-        ).then((r) => (!r.ok && r.reason === 'password' ? 'password' : 'ok'))
-      )
-    },
-    [file.path, besideArchive, withPassword]
+    (entry: Entry, entries: string[], here: boolean): void =>
+      extractOut(file.path, entries, entry.name, here ? besideArchive : null),
+    [file.path, besideArchive, extractOut]
   )
 
   const copyOut = useCallback(
     (entry: Entry): void =>
-      withPassword(entry, (pw) =>
+      runWithPass(file.path, entry.name, (pw) =>
         window.prism.archiveExtract(file.path, entry.path, pw).then((r) => {
           if (r.ok) {
             void copyFilePaths([r.path])
@@ -464,37 +419,25 @@ function ArchiveInner({
           return r.reason
         })
       ),
-    [file.path, withPassword]
+    [file.path, runWithPass]
   )
   const submitRename = useCallback(
     (entry: Entry, name: string): void => {
       setEditing(null)
-      if (!name || name === entry.name) return
-      withPassword(entry, (pw) =>
-        window.prism.archiveRename(file.path, entry.path, name, pw).then((r) => {
-          if (r === 'ok') {
-            load()
-            return 'ok'
-          }
-          if (r === 'failed') {
-            setOops(`Couldn't rename to "${name}". The name may be taken or invalid.`)
-            return 'ok' // already messaged; don't double up
-          }
-          return r as Fail
-        })
-      )
+      renameIn(file.path, entry.path, entry.name, name)
     },
-    [file.path, load, withPassword]
+    [file.path, renameIn]
   )
-  const doDelete = useCallback(
-    (entry: Entry): void => {
-      setConfirmDel(null)
-      void window.prism.archiveDelete(file.path, entry.path).then((ok) => {
-        if (ok) load()
-        else setOops(`Couldn't delete "${entry.name}".`)
-      })
-    },
-    [file.path, load]
+  /** Asks before deleting one member. */
+  const setConfirmDel = useCallback(
+    (entry: Entry): void => askDelete(file.path, [entry.path], [entry.name]),
+    [file.path, askDelete]
+  )
+  /** Asks before deleting several; the marks go with them. */
+  const setConfirmDelMany = useCallback(
+    (paths: string[]): void =>
+      askDelete(file.path, paths, paths.map(baseName), () => setSel(emptySelection)),
+    [file.path, askDelete]
   )
 
   // Escape closes the member preview; Backspace climbs out of a folder.
@@ -510,7 +453,7 @@ function ArchiveInner({
         if (memberBox.current?.querySelector('[data-owns-escape]')) return
         e.stopPropagation()
         setMember(null)
-      } else if (!member && e.key === 'Backspace' && cwd && !editing && !askPass && !confirmDel) {
+      } else if (!member && e.key === 'Backspace' && cwd && !editing && !ops.open) {
         const el = document.activeElement
         if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return
         e.preventDefault()
@@ -519,7 +462,7 @@ function ArchiveInner({
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [member, cwd, editing, askPass, confirmDel, setCwd])
+  }, [member, cwd, editing, ops.open, setCwd])
 
   const order = useMemo(() => rows.map((r) => r.path), [rows])
   const onRowClick = useCallback(
@@ -547,7 +490,7 @@ function ArchiveInner({
           )
       })()
     },
-    [file.path, rows]
+    [file.path, rows, setOops]
   )
   /**
    * Copy a FOLDER out as a folder.
@@ -576,7 +519,7 @@ function ArchiveInner({
           )
       })
     },
-    [file.path]
+    [file.path, setOops]
   )
   /** One folder from inside the archive, out beside the archive itself.
    *  The window, its progress and its error are all main's (#166). */
@@ -587,21 +530,6 @@ function ArchiveInner({
       })
     },
     [file.path]
-  )
-  const deleteMany = useCallback(
-    (paths: string[]): void => {
-      setConfirmDelMany(null)
-      void (async () => {
-        let failed = 0
-        for (const p of paths) {
-          if (!(await window.prism.archiveDelete(file.path, p))) failed += 1
-        }
-        setSel(emptySelection)
-        load()
-        if (failed) setOops(`${failed} of ${paths.length} couldn't be deleted from the archive.`)
-      })()
-    },
-    [file.path, load]
   )
 
   /** How many entries a folder holds, all the way down: what the Size column
@@ -744,54 +672,15 @@ function ArchiveInner({
     },
     [file.path]
   )
-  const addInto = useCallback(
-    (paths: string[], dest: string, keepBoth = false, fromPrism = false): void => {
-      void window.prism.archiveAdd(file.path, paths, dest, keepBoth).then(async (r) => {
-        setAddClash(null)
-        if (r === 'encrypted') {
-          setOops("Prism can't add to a password-protected archive.")
-          return
-        }
-        if (r === 'failed') {
-          setOops("Those couldn't be added to the archive.")
-          return
-        }
-        if (r.clashes.length) {
-          setAddClash({ paths, dest, names: r.clashes, fromPrism })
-          return
-        }
-        // Dragging OUT of the sidebar is a MOVE, not a copy (owner, 2026-08-22):
-        // once the members are safely inside, the originals go to the Recycle
-        // Bin - recoverable, and Ctrl+Z takes back both halves at once. Files
-        // dragged from EXPLORER are left alone: they live outside the root, so
-        // they were never Prism's to remove.
-        if (fromPrism && r.added.length) {
-          const originals: string[] = []
-          for (const a of r.added) {
-            if (await window.prism.trashFile(a.src)) originals.push(a.src)
-          }
-          onUndoable?.({
-            kind: 'archive-in',
-            zip: file.path,
-            dest,
-            entries: r.added.map((a) => a.entry),
-            originals
-          })
-        }
-        load()
-      })
-    },
-    [file.path, load, onUndoable]
-  )
   /** Add real files to the folder you are looking at. zip only: the 7-Zip
    *  containers are read-only, and their button is not offered. */
   const addFiles = useCallback((): void => {
     setBusy('add')
     void window.prism.pickFiles().then((paths) => {
       setBusy(null)
-      if (paths.length) addInto(paths, cwd, false, false)
+      if (paths.length) addIn(file.path, paths, cwd, false)
     })
-  }, [addInto, cwd])
+  }, [addIn, file.path, cwd])
 
   /** A drop landed inside the archive: members rearrange, real files come in. */
   const onDropInArchive = useCallback(
@@ -799,30 +688,18 @@ function ArchiveInner({
       setDropTarget(null)
       const payload = dragPayload(e.dataTransfer)
       setDrag(null)
-      if (payload?.kind === 'members') {
-        if (payload.archive.toLowerCase() !== file.path.toLowerCase()) {
-          setOops('That came from another archive. Extract it first, then add it here.')
-          return
-        }
-        void window.prism.archiveMoveMembers(file.path, payload.entries, destFolder).then((r) => {
-          if (r === 'ok') {
-            setSel(emptySelection)
-            load()
-          } else
-            setOops(
-              r === 'encrypted'
-                ? "Prism can't rearrange a password-protected archive."
-                : "Those couldn't be moved inside the archive. A name may be taken."
-            )
-        })
-        return
-      }
+      if (payload?.kind === 'members')
+        return moveInside(
+          file.path,
+          { from: payload.archive, entries: payload.entries, dest: destFolder },
+          () => setSel(emptySelection)
+        )
       // From the sidebar, or straight from Explorer.
       const fromPrism = payload?.kind === 'files'
       const paths = fromPrism ? payload.paths : droppedPaths(e.dataTransfer)
-      if (paths.length) addInto(paths, destFolder, false, fromPrism)
+      if (paths.length) addIn(file.path, paths, destFolder, fromPrism)
     },
-    [addInto, file.path, load]
+    [addIn, moveInside, file.path]
   )
   /** Everything a drop target needs, folder rows and the panel alike. */
   const dropProps = (dest: string): Record<string, unknown> => ({
@@ -1348,55 +1225,7 @@ function ArchiveInner({
           onClose={() => setMenu(null)}
         />
       )}
-      {addClash && (
-        <Dialog
-          title={
-            addClash.names.length > 1
-              ? `${addClash.names.length} names are already in the archive`
-              : `"${addClash.names[0]}" is already in the archive`
-          }
-          body="Keep both adds them beside what is there. Nothing has been written yet."
-          onCancel={() => setAddClash(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setAddClash(null) },
-            {
-              label: 'Keep both',
-              primary: true,
-              onPick: () => addInto(addClash.paths, addClash.dest, true, addClash.fromPrism)
-            }
-          ]}
-        />
-      )}
-      {confirmDelMany && (
-        <Dialog
-          title={`Delete ${confirmDelMany.length} members from the archive?`}
-          body="This is permanent: a zip has no Recycle Bin to take them back from."
-          onCancel={() => setConfirmDelMany(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setConfirmDelMany(null), primary: true },
-            { label: 'Delete', danger: true, onPick: () => deleteMany(confirmDelMany) }
-          ]}
-        />
-      )}
-      {askPass && (
-        <PasswordDialog
-          name={askPass.name}
-          wrong={askPass.wrong}
-          onSubmit={askPass.run}
-          onCancel={() => setAskPass(null)}
-        />
-      )}
-      {confirmDel && (
-        <Dialog
-          title={`Delete "${confirmDel.name}" from the archive?`}
-          body="This is permanent: a zip has no Recycle Bin to take it back from."
-          onCancel={() => setConfirmDel(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setConfirmDel(null), primary: true },
-            { label: 'Delete', danger: true, onPick: () => doDelete(confirmDel) }
-          ]}
-        />
-      )}
+      {ops.dialogs}
       {renamingSelf && (
         <RenameArchiveDialog
           name={file.name}
@@ -1408,14 +1237,6 @@ function ArchiveInner({
         />
       )}
 
-      {oops && (
-        <Dialog
-          title="Archive"
-          body={oops}
-          onCancel={() => setOops(null)}
-          choices={[{ label: 'OK', onPick: () => setOops(null), primary: true }]}
-        />
-      )}
     </div>
   )
 }
