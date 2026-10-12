@@ -265,6 +265,13 @@ Filesmith's conventions.
     `HLS_MIME`).
   - the bundled programs: `src/main/bundledTools.ts` (`ffmpegTools()`, `sevenExe()`,
     `fluidTools()`), never `findFfmpeg(app.isPackaged, ...)` spelled out.
+  - what several parts of main share about the app right now (the window, unsaved text, a
+    working agent, the close answer, an install or quit under way): `src/main/appState.ts`
+    (`appState`, and `E2E`). Read and written in place, never copied out.
+  - main's concerns out of index.ts: `windowChrome.ts` (window state, material, borderless
+    fullscreen, DWM border, `raise`, the window:* messages), `tabsSession.ts` (restore, save,
+    flush the strip), `updateFlow.ts` (the offer and update:*), `dialogs.ts` (parented native
+    dialogs, `pickFolder`, `pickFiles`), `phone/index.ts` (`startPhoneService`, pos:*).
 
 ## Reuse from Filesmith (becomes `prism-core`)
 
