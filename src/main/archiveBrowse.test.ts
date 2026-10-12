@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { containerSync, createArchiveBrowse, createNewestFirst } from './archiveBrowse'
+import { container, containerSync, createArchiveBrowse, createNewestFirst } from './archiveBrowse'
 import { MemberTemp } from './memberTemp'
 
 let box: string
@@ -45,6 +45,11 @@ describe('places inside archives, main (#300)', () => {
     expect(containerSync(join(box, 'plain'))).toBeNull()
     mkdirSync(join(box, 'folder.zip', 'x'), { recursive: true })
     expect(containerSync(join(box, 'folder.zip', 'x'))).toBeNull()
+    // The async twin answers the same, for every one of those.
+    expect(await container(join(zip, 'Wind', 'src'))).toBe(zip)
+    expect(await container(join(box, 'plain'))).toBeNull()
+    expect(await container(join(box, 'folder.zip', 'x'))).toBeNull()
+    expect(await container('relative/a.zip/x')).toBeNull()
     expect(await browse().resolve(join(box, 'folder.zip', 'x'))).toBeUndefined()
   })
 

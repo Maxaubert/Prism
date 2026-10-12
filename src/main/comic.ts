@@ -1,6 +1,5 @@
 import { createHash } from 'crypto'
-import { mkdir, readdir, rm, rename, stat, utimes, writeFile } from 'fs/promises'
-import { existsSync } from 'fs'
+import { access, mkdir, readdir, rm, rename, stat, utimes, writeFile } from 'fs/promises'
 import { join, relative } from 'path'
 import { comicPages } from '@shared/comicPages'
 import { extractAllSeven } from './sevenZip'
@@ -120,8 +119,14 @@ export async function openComic(
   }
   const dir = join(root, cacheName(file, st.mtimeMs, st.size))
   const marker = join(dir, MARKER)
+  // Asked with fs/promises (owner, 2026-10-12, main never waits on the disk).
+  const unpacked = (): Promise<boolean> =>
+    access(marker).then(
+      () => true,
+      () => false
+    )
 
-  if (!existsSync(marker)) {
+  if (!(await unpacked())) {
     // Into a partial directory, renamed on success: an interrupted unpack
     // must not be found later and read as a short comic.
     const partial = `${dir}.part`
@@ -137,7 +142,7 @@ export async function openComic(
     await rename(partial, dir).catch(async () => {
       await rm(partial, { recursive: true, force: true }).catch(() => {})
     })
-    if (!existsSync(marker)) return { error: 'failed' }
+    if (!(await unpacked())) return { error: 'failed' }
   } else {
     // Touch, so eviction reads genuinely cold books and not this one.
     const now = new Date()

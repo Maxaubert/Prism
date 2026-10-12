@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -36,6 +36,21 @@ describe('the member temp folder (#300)', () => {
     const two = await temp.ensure(container, 'docs/a.txt', writer('x', calls))
     expect(two.ok && two.path).toBe(one.path)
     expect(calls.n).toBe(1)
+  })
+
+  it('asks at once share one unpack, and a file gone from disk is unpacked again', async () => {
+    const calls = { n: 0 }
+    const [x, y] = await Promise.all([
+      temp.ensure(container, 'docs/a.txt', writer('x', calls)),
+      temp.ensure(container, 'docs/a.txt', writer('x', calls))
+    ])
+    expect(calls.n).toBe(1)
+    expect(x.ok && y.ok && x.path === y.path).toBe(true)
+    if (!x.ok) return
+    rmSync(x.path)
+    const again = await temp.ensure(container, 'docs/a.txt', writer('x', calls))
+    expect(again.ok && existsSync(again.path)).toBe(true)
+    expect(calls.n).toBe(2)
   })
 
   it('two members of one name never collide', async () => {

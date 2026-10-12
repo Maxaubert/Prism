@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import type { DirChange } from '@shared/types'
 import { browseDirectory, browseWatch } from './browse'
 import { releaseDesktop, resetDesktopAccess } from './desktopAccess'
+import { browseWatcherOf, closeBrowseWatch, setBrowseWatch } from './browseWatch'
 
 let box: string
 beforeEach(() => {
@@ -25,10 +26,10 @@ it('watches only an explicitly selected owned folder and releases the old watche
   const emit = (change: DirChange): void => {
     changes.push(change)
   }
-  expect(browseWatch('owner', first, emit)).toBe(false)
+  expect(await browseWatch('owner', first, emit)).toBe(false)
   await browseDirectory('owner', first)
-  expect(browseWatch('another-tab', first, emit)).toBe(false)
-  expect(browseWatch('owner', first, emit)).toBe(true)
+  expect(await browseWatch('another-tab', first, emit)).toBe(false)
+  expect(await browseWatch('owner', first, emit)).toBe(true)
   writeFileSync(join(first, '.env'), 'new=hidden')
   await expect.poll(() => changes.length).toBeGreaterThan(0)
   expect(changes[0]).toEqual({ root: first, dirs: [first] })
@@ -42,13 +43,62 @@ it('watches only an explicitly selected owned folder and releases the old watche
   await expect.poll(() => changes.length).toBeGreaterThan(0)
   expect(changes.every((change) => change.root === first)).toBe(true)
 
-  expect(browseWatch('owner', second, emit)).toBe(true)
+  expect(await browseWatch('owner', second, emit)).toBe(true)
   changes.length = 0
   writeFileSync(join(first, '.env'), 'new=old-folder')
   writeFileSync(join(second, 'unsupported.exe'), 'watched')
   await expect.poll(() => changes.length).toBeGreaterThan(0)
   expect(changes.every((change) => change.root === second)).toBe(true)
   releaseDesktop('owner')
-  expect(browseWatch('owner', second, emit)).toBe(false)
-  expect(browseWatch('owner', null, emit)).toBe(true)
+  expect(await browseWatch('owner', second, emit)).toBe(false)
+  expect(await browseWatch('owner', null, emit)).toBe(true)
+})
+
+it('a newer watch ask wins over an older one still waiting on its archive check', async () => {
+  const first = join(box, 'first')
+  const second = join(box, 'second')
+  mkdirSync(first)
+  mkdirSync(second)
+  const zip = join(first, 'pack.zip')
+  writeFileSync(zip, 'not really a zip; only its being a file is asked')
+  await browseDirectory('owner', first)
+  await browseDirectory('owner', second)
+  const changes: DirChange[] = []
+  const emit = (change: DirChange): void => {
+    changes.push(change)
+  }
+  const older = browseWatch('owner', join(zip, 'inner'), emit)
+  const newer = browseWatch('owner', second, emit)
+  expect(await newer).toBe(true)
+  expect(await older).toBe(true)
+  writeFileSync(zip, 'changed')
+  writeFileSync(join(second, 'new.txt'), 'watched')
+  await expect.poll(() => changes.length).toBeGreaterThan(0)
+  expect(changes.every((change) => change.root === second)).toBe(true)
+  expect(await browseWatch('owner', null, emit)).toBe(true)
+})
+
+it('a watch still waiting on its native path stands down for a newer ask or a close (2026-10-12)', async () => {
+  const first = join(box, 'first')
+  const second = join(box, 'second')
+  mkdirSync(first)
+  mkdirSync(second)
+  const changes: DirChange[] = []
+  const emit = (change: DirChange): void => {
+    changes.push(change)
+  }
+  const closed = setBrowseWatch('t', first, emit)
+  closeBrowseWatch('t')
+  expect(await closed).toBe(true)
+  expect(browseWatcherOf('t')).toBeUndefined()
+
+  const older = setBrowseWatch('t', first, emit)
+  const newer = setBrowseWatch('t', second, emit)
+  expect(await older).toBe(true)
+  expect(await newer).toBe(true)
+  writeFileSync(join(first, 'a.txt'), 'unwatched')
+  writeFileSync(join(second, 'b.txt'), 'watched')
+  await expect.poll(() => changes.length).toBeGreaterThan(0)
+  expect(changes.every((change) => change.root === second)).toBe(true)
+  closeBrowseWatch('t')
 })

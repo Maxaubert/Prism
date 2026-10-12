@@ -145,12 +145,34 @@ const collator = new Intl.Collator(undefined, { numeric: true })
 const byName = (a: { name: string }, b: { name: string }): number => collator.compare(a.name, b.name)
 
 /** The container a path is inside, by a synchronous stat (the restore's
- *  check, #300): a stat of the candidates only, never a read of the zip. */
+ *  check, #300): a stat of the candidates only, never a read of the zip.
+ *  Kept for the tab restore (tabs.ts), which answers synchronously at
+ *  startup; everything that runs while the user works asks `container`. */
 export function containerSync(path: string): string | null {
   if (typeof path !== 'string' || !isAbsolute(path)) return null
   for (const candidate of containerCandidates(path)) {
     try {
+      // sync-ok: tab restore at startup (tabs.ts parseTabs); live callers use `container`
       const s = statSync(candidate)
+      if (s.isFile()) return candidate
+      if (!s.isDirectory()) return null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+/**
+ * `containerSync`, without the wait (owner, 2026-10-12, main never waits on
+ * the disk): the same candidates stat'd in the same order, each awaited, so
+ * the answer is the same. Every navigation asks it.
+ */
+export async function container(path: string): Promise<string | null> {
+  if (typeof path !== 'string' || !isAbsolute(path)) return null
+  for (const candidate of containerCandidates(path)) {
+    try {
+      const s = await stat(candidate)
       if (s.isFile()) return candidate
       if (!s.isDirectory()) return null
     } catch {
@@ -256,19 +278,7 @@ export function createArchiveBrowse(deps: ArchiveBrowseDeps) {
     { enterLast = true, password }: { enterLast?: boolean; password?: string } = {}
   ): Promise<Resolved | undefined> {
     if (typeof path !== 'string' || !isAbsolute(path) || path.length > 4096) return undefined
-    let outer: string | null = null
-    for (const candidate of containerCandidates(path)) {
-      try {
-        const s = await stat(candidate)
-        if (s.isFile()) {
-          outer = candidate
-          break
-        }
-        if (!s.isDirectory()) return undefined
-      } catch {
-        return undefined
-      }
-    }
+    const outer = await container(path)
     if (!outer) return undefined
     const rest = innerOf(outer, path) ?? ''
     let real = outer

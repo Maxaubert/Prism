@@ -1,6 +1,9 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { findJpeg, isRaw, rawExtensions } from './rawPreview'
-import { fluidDirs, isMidi, midiArgs, renderName } from './midi'
+import { findJpeg, isRaw, rawExtensions, rawPreview } from './rawPreview'
+import { findFluid, fluidDirs, isMidi, midiArgs, renderName, resetFluid } from './midi'
 
 /** A JPEG-shaped run of `size` bytes: SOI, filler, EOI. */
 function jpeg(size: number, fill = 0x41): Buffer {
@@ -79,5 +82,35 @@ describe('MIDI', () => {
   it('looks in resources when packaged, and vendor when not', () => {
     expect(fluidDirs(true, 'C:\\app\\resources', 'C:\\app')[0]).toBe('C:\\app\\resources\\bin')
     expect(fluidDirs(false, '', 'C:\\repo\\out\\main')).toContain('C:\\repo\\vendor\\fluidsynth')
+  })
+})
+
+describe('read without blocking', () => {
+  it('takes the embedded preview out of a raw file on disk', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-raw-'))
+    const p = join(dir, 'shot.cr2')
+    const pic = jpeg(64 * 1024)
+    writeFileSync(p, Buffer.concat([Buffer.alloc(512, 1), pic, Buffer.alloc(512, 2)]))
+    expect((await rawPreview(p, 1)).equals(pic)).toBe(true)
+  })
+
+  it('rejects a raw file that is not there', async () => {
+    await expect(rawPreview(join(tmpdir(), 'prism-no-such.cr2'), 1)).rejects.toThrow()
+  })
+
+  it('finds the synthesiser only when both halves are there, once', async () => {
+    const res = mkdtempSync(join(tmpdir(), 'prism-fluid-'))
+    const bin = join(res, 'bin')
+    mkdirSync(bin)
+    writeFileSync(join(bin, 'fluidsynth.exe'), '')
+    const app = join(res, 'app')
+    resetFluid()
+    expect(await findFluid(true, res, app)).toBeNull()
+    resetFluid()
+    writeFileSync(join(bin, 'soundfont.sf3'), '')
+    const one = findFluid(true, res, app)
+    expect(findFluid(true, res, app)).toBe(one) // callers share one search
+    expect(await one).toEqual({ exe: join(bin, 'fluidsynth.exe'), soundfont: join(bin, 'soundfont.sf3') })
+    resetFluid()
   })
 })

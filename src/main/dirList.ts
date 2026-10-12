@@ -25,6 +25,7 @@ const isWin = process.platform === 'win32'
 function canonical(p: string): string {
   let r: string
   try {
+    // sync-ok: the root wall's canonical path check; its guards answer inline, by design
     r = realpathSync.native ? realpathSync.native(p) : realpathSync(p)
   } catch {
     r = resolve(p)

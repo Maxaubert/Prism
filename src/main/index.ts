@@ -16,16 +16,20 @@ import {
   session
 } from 'electron'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { createReadStream, existsSync, readFileSync } from 'fs'
 import {
-  createReadStream,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  statSync,
-  writeFileSync
-} from 'fs'
-import { copyFile, open as openFile, readdir, readFile, rm, stat, statfs, writeFile } from 'fs/promises'
+  access,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  open as openFile,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  statfs,
+  writeFile
+} from 'fs/promises'
 import { homedir, networkInterfaces, tmpdir } from 'os'
 import { execFile, spawn } from 'child_process'
 import { copyWindowsFiles, readWindowsFiles } from './fileClipboard'
@@ -37,7 +41,7 @@ import {
   setCornersRounded
 } from './dwmHelper'
 import { Readable } from 'stream'
-import { pathsFromArgv } from './argv'
+import { pathsFromArgv, pathsFromArgvAsync } from './argv'
 import { createWinEShortcut } from './winEShortcut'
 import { restoredWindow, type WindowState } from './windowSize'
 import { createWinERequests, winERequest } from './winERequests'
@@ -62,8 +66,8 @@ import {
 import { browseDirectory, browseLocations, browseWatch, type BrowseRead } from './browse'
 import { driveUsage, withUsedShare } from './driveUsage'
 import { MemberTemp, cleanDeadRuns, pidAlive } from './memberTemp'
-import { containerSync, createArchiveBrowse } from './archiveBrowse'
-import { placeOf } from '@shared/archivePlace'
+import { container, createArchiveBrowse } from './archiveBrowse'
+import { containerCandidates, placeOf } from '@shared/archivePlace'
 import { weekStart } from './weekStart'
 import { createListingCache } from './listingCache'
 import { createExplorerListings } from './explorerListing'
@@ -93,6 +97,7 @@ import { qrSvg } from './phone/qr'
 import { forget as forgetPhone } from './phone/pairing'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs, restoredFileIndex, tabsWriter, type SavedTabs } from './tabs'
+import { latestWriter } from './latestWrite'
 import { CODEX_RESUME, claudeSessionsAsync } from 'prism-term-core/main/agentResume'
 import { registerTermIpc } from 'prism-term-core/main/ipc'
 import { registerDictationIpc } from 'prism-term-core/main/dictationIpc'
@@ -140,7 +145,7 @@ import { sanitizeDoc } from './docSanitize'
 import { encodeText, shapeOf, type TextShape } from './textFile'
 import { readTail, startTail, stopAllTails, stopTail } from './fileTail'
 import { openComic, type ComicOpen } from './comic'
-import { binIfEmpty, makeFolder, renameFile, uniqueName } from './fileOps'
+import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
 import {
@@ -164,11 +169,11 @@ import {
   wantsPreview
 } from 'prism-term-core/main/updatePreview'
 import { crashBudget } from './crashBudget'
-import { appendCrashLog, crashLine } from './crashLog'
+import { appendCrashLog, crashLine, crashLogSettled } from './crashLog'
 import { guardWindow, pageGone } from './windowGuard'
 import pkg from '../../package.json'
 import { fileKind } from '@shared/fileKind'
-import type { BrowseDirectory } from '@shared/browse'
+import type { BrowseDirectory, BrowseSearchResult } from '@shared/browse'
 import type {
   ArchiveListing,
   DirListing,
@@ -662,6 +667,18 @@ async function serveMedia(request: Request): Promise<Response> {
   })
 }
 
+/** `existsSync`'s answer without holding main on the disk (owner, 2026-10-12, the 3.9 s
+ *  tabs.json freeze: main never waits on the disk while the user works). Any error is "no",
+ *  as with `existsSync`. */
+async function exists(p: string): Promise<boolean> {
+  try {
+    await access(p)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
  * Build the open payload for a path: the folder's viewable siblings, the index
  * of the opened file (so the renderer can arrow through them), and the root.
@@ -672,7 +689,7 @@ async function serveMedia(request: Request): Promise<Response> {
  * decides from `root` whether that lands in an existing tab or a new one.
  */
 async function buildPayload(p: string, root?: string): Promise<OpenPayload | null> {
-  if (!existsSync(p)) return null
+  if (!(await exists(p))) return null
   const dir = dirname(p)
   if (root === undefined) addRoot(dir)
   const here = root ?? dir
@@ -689,7 +706,7 @@ async function buildPayload(p: string, root?: string): Promise<OpenPayload | nul
  *  show still opens - you get its tree and an empty viewer, which is a usable
  *  place to browse from rather than a refusal. */
 async function folderPayload(dir: string): Promise<OpenPayload | null> {
-  if (!existsSync(dir)) return null
+  if (!(await exists(dir))) return null
   addRoot(dir)
   const files = (await listDir(dir)).files
   return { files, index: files.length ? 0 : -1, root: dir }
@@ -815,6 +832,8 @@ const preferencesReady = new Promise<void>((resolve) => {
 })
 const winERequests = createWinERequests((id) => mainWindow?.webContents.send('win-e:open', id))
 let pendingOpen: Array<{ path: string; dir: boolean }> = []
+/** Second-instance handoffs, read one after another so they keep arrival order. */
+let handoffs: Promise<void> = Promise.resolve()
 let startupRestored = false
 /** Subtitle files the user chose in the dialog: reading those is allowed
  *  wherever they live, because choosing them in main's own dialog is the
@@ -867,7 +886,7 @@ async function explorerRestoreListing(
 ): Promise<BrowseDirectory | null> {
   const shown = t.browse?.path && t.browse.path !== t.root ? t.browse.path : null
   for (const path of shown ? [shown, t.root] : [t.root]) {
-    const cached = explorerListings.cached(path)
+    const cached = await explorerListings.cachedAsync(path)
     if (cached) return cached
     // THE SHOWN FOLDER GETS A TIME LIMIT, THE ROOT DOES NOT (review of #271).
     // Reading `browse.path` is new: the old restore read only the root. A
@@ -1070,7 +1089,7 @@ function flushTabs(): void {
     clearTimeout(tabsTimer)
     tabsTimer = null
   }
-  if (tabsPending) tabsFile.flushSync(tabsPending)
+  if (tabsPending) tabsFile.flushSync(tabsPending) // sync-ok: window close, which may be the quit; the last strip must be down
 }
 
 /**
@@ -1097,6 +1116,7 @@ const WINDOW_STATE = (): string => join(app.getPath('userData'), 'window-state.j
 function readWindowState(): WindowState {
   let saved: unknown = null
   try {
+    // sync-ok: startup, the size is needed before the BrowserWindow is built
     saved = JSON.parse(readFileSync(WINDOW_STATE(), 'utf8'))
   } catch {
     /* no file yet, or one written by something else */
@@ -1109,7 +1129,10 @@ function readWindowState(): WindowState {
 }
 
 /** Save on a delay: a drag fires this continuously, and the disk does not need
- *  to hear about every pixel of it. */
+ *  to hear about every pixel of it. The write is the tab strip's kind (owner,
+ *  2026-10-12, the 3.9 s tabs.json freeze): off main, swapped in whole, newest
+ *  last. */
+const windowStateFile = latestWriter(WINDOW_STATE)
 function watchWindowState(win: BrowserWindow): void {
   let timer: NodeJS.Timeout | null = null
   const save = (): void => {
@@ -1120,11 +1143,7 @@ function watchWindowState(win: BrowserWindow): void {
       // when the window is restored.
       const b = win.getNormalBounds()
       const state: SavedWindow = { ...b, maximised: win.isMaximized() }
-      try {
-        writeFileSync(WINDOW_STATE(), JSON.stringify(state))
-      } catch {
-        /* a viewer that cannot write its window size is still a viewer */
-      }
+      void windowStateFile.write(JSON.stringify(state))
     }, 400)
   }
   // Listed one by one: BrowserWindow's overloads are per event name, so a loop
@@ -1471,7 +1490,7 @@ function logWindow(
   event: string,
   fields: Record<string, string | number | boolean | undefined>
 ): void {
-  appendCrashLog(crashLogFile(), crashLine(new Date(), event, fields))
+  void appendCrashLog(crashLogFile(), crashLine(new Date(), event, fields))
   // AND IN THE DIAGNOSTICS LOG (#322): a hang or the watchdog belongs on the
   // same timeline as the stalls and crumbs before it, where `npm run diag`
   // reads it; what the core already writes is not written twice
@@ -1517,8 +1536,12 @@ function giveUpWindow(): void {
       `Prism's window stopped working several times in a row, so Prism has closed. Open it again to carry on. Details are in ${crashLogFile()}.`
     )
   appQuitting = true
-  for (const w of BrowserWindow.getAllWindows()) w.destroy()
-  app.quit()
+  // The crash log is written off main now (2026-10-12): the last lines land
+  // before the windows go, since the last window going quits the app.
+  void crashLogSettled().finally(() => {
+    for (const w of BrowserWindow.getAllWindows()) w.destroy()
+    app.quit()
+  })
 }
 
 /**
@@ -1554,6 +1577,7 @@ function sweepOverlayFor(win: BrowserWindow): void {
   if (win.isDestroyed()) return
   if (!sweepOverlay) {
     sweepOverlay = initSweepOverlay({
+      // sync-ok: once, after the first window has painted; loading a native addon is synchronous anyway
       load: () => loadSweepAddon(sweepDirs(app.isPackaged, process.resourcesPath, app.getAppPath()), existsSync),
       e2e: E2E,
       argv: process.argv,
@@ -1631,7 +1655,7 @@ function createWindow(): void {
   // log's last lines (those just before a hang at shutdown) are written here.
   win.on('session-end', () => {
     diag?.log.write('main', 'session-end', {})
-    diag?.log.flushSync()
+    diag?.log.flushSync() // sync-ok: shutdown, the process may be killed right after session-end
   })
   let shown = false
   const showWindow = (): void => {
@@ -1803,7 +1827,8 @@ function createWindow(): void {
       const sendHome = async (): Promise<void> => {
         const id = `explorer-home-${Date.now()}`
         const homePath = app.getPath('home')
-        const home = explorerListings.cached(homePath) ?? (await browseDirectory(id, homePath, 'names'))
+        const home =
+          (await explorerListings.cachedAsync(homePath)) ?? (await browseDirectory(id, homePath, 'names'))
         if (stale()) return
         if (home) {
           grantDesktopDirectory(id, home.path)
@@ -1840,6 +1865,12 @@ function createWindow(): void {
       .finally(() => {
         if (stale()) return
         startupRestored = true
+        // A handoff's paths are stat'ed awaited (2026-10-12), so one can land
+        // in the queue just after the drain above ended: it opens now.
+        if (pendingOpen.length)
+          void (async () => {
+            while (pendingOpen.length && !stale()) await sendOpen(pendingOpen.shift()!)
+          })()
         // A genuinely empty or failed restore may show the ordinary empty state.
         // Until this signal, no tabs means the initial folders are still loading.
         if (!event.sender.isDestroyed()) event.sender.send('open:restored')
@@ -1891,6 +1922,7 @@ if (!app.requestSingleInstanceLock()) {
   // E2E only (review of #322): the harness ends a scenario with `app.exit`,
   // which skips will-quit, so it writes main's queue first and the run's
   // Stalls table sees a scenario's last moments.
+  // sync-ok: e2e only, the harness calls it just before app.exit
   if (E2E) Object.assign(globalThis, { __e2eDiagFlush: () => diag?.log.flushSync() })
   markExplorerWindow(app.getPath('userData'), false)
   app.on('second-instance', (_e, argv) => {
@@ -1899,7 +1931,7 @@ if (!app.requestSingleInstanceLock()) {
       if (installingUpdate) return
       void Promise.all([app.whenReady(), preferencesReady])
         .then(() => {
-          launchExplorerWindow({
+          return launchExplorerWindow({
             owner: preferencesOwner,
             id: shortcutRequest,
             executable: process.execPath,
@@ -1918,37 +1950,52 @@ if (!app.requestSingleInstanceLock()) {
     // when nothing is on offer: a preview never replaces a real update, nor one
     // that is part way through its install.
     if (wantsPreview(argv) && !pendingUpdate) offerUpdate(previewUpdate(pkg.version))
-    const paths = pathsFromArgv(argv)
     // A launch that lands while this process is on its way out (#265, review)
     // must not make a window the quit or the installer then takes away with
     // its file. An install starts the new Prism itself; an ordinary quit
     // starts a fresh one with what was handed over, once this one has gone.
     if (installingUpdate) return
     if (appQuitting) {
-      if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
+      // sync-ok: quit, the relaunch must be decided before this process exits
+      if (pathsFromArgv(argv).length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
       return
     }
     // A new page restores and drains `pendingOpen` itself once it listens.
     if (ensureLivePage()) startupRestored = false
-    if (!startupRestored) pendingOpen.push(...paths)
+    // The handoff is the case the foreground lock bites hardest: Prism has
+    // been sitting in the background for an hour, and the file it is handed
+    // must arrive in a window that is actually in front of you. Raised FIRST,
+    // before the paths are even read, so the foreground-lock fix runs the
+    // instant the handoff arrives.
     if (mainWindow) {
-      // The handoff is the case the foreground lock bites hardest: Prism has
-      // been sitting in the background for an hour, and the file it is handed
-      // must arrive in a window that is actually in front of you.
       if (E2E) mainWindow.show()
       else raise(mainWindow)
-      // Raised FIRST and unawaited, so the foreground-lock fix still runs the
-      // instant the handoff arrives. The opens are sequential for the same
-      // reason as the launch drain above: order is what folds them into one
-      // tab and leaves the last-named file in front.
-      if (startupRestored)
-        void (async () => {
-          for (const p of paths) await sendOpen(p)
-        })()
     }
+    // The paths are stat'ed awaited (owner, 2026-10-12: main never waits on
+    // the disk), one handoff after another so they keep arrival order. The
+    // opens are sequential for the same reason as the launch drain above:
+    // order is what folds them into one tab and leaves the last-named file in
+    // front.
+    handoffs = handoffs
+      .then(async () => {
+        const paths = await pathsFromArgvAsync(argv)
+        if (installingUpdate) return
+        if (appQuitting) {
+          if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
+          return
+        }
+        if (!startupRestored) pendingOpen.push(...paths)
+        else if (mainWindow)
+          void (async () => {
+            for (const p of paths) await sendOpen(p)
+          })()
+      })
+      .catch(() => {
+        /* a handoff that cannot be read opens nothing */
+      })
   })
 
-  pendingOpen = pathsFromArgv(process.argv)
+  pendingOpen = pathsFromArgv(process.argv) // sync-ok: startup, before the first window
   const shortcutRequest = winERequest(process.argv)
   if (shortcutRequest) winERequests.enqueue(shortcutRequest)
 
@@ -1960,7 +2007,8 @@ if (!app.requestSingleInstanceLock()) {
       event.preventDefault()
       if (!stoppingIndexer) {
         stoppingIndexer = true
-        void indexer.dispose().finally(() => {
+        // The crash log is written off main (2026-10-12): its last lines land first.
+        void Promise.all([indexer.dispose(), crashLogSettled()]).finally(() => {
           indexerStopped = true
           app.quit()
         })
@@ -2044,6 +2092,10 @@ if (!app.requestSingleInstanceLock()) {
     })
     app.once('will-quit', stopPreferencesWatch)
     app.once('will-quit', () => listingCache.flush())
+    // Preferences are written off main while the app runs (2026-10-12): what is
+    // still waiting goes down synchronously here, or a value set just before
+    // quit is lost.
+    app.once('will-quit', () => windowPreferences.flush())
     // The member temp folder (#300): this run's at quit, every dead run's once
     // the first answer is in (never on the startup path, #189).
     // On the process's own exit, which `app.exit` reaches and will-quit does not.
@@ -2242,7 +2294,7 @@ if (!app.requestSingleInstanceLock()) {
       // The tabs a phone may switch to: main's own open set, read on the ask
       // rather than pushed, since a tab closes without telling the phone.
       openRoots,
-      subsFor: (p: string) => sidecarsFor(p).map((t) => ({ path: t.path, label: t.label })),
+      subsFor: async (p: string) => (await sidecarsFor(p)).map((t) => ({ path: t.path, label: t.label })),
       readSubs: (p: string) =>
         readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg),
       probe: probeCached,
@@ -2495,7 +2547,7 @@ if (!app.requestSingleInstanceLock()) {
       // Open the browser where the tab already is: changing a tab's folder
       // almost always means a sibling or a child of the one it is on, and
       // starting at Documents made every one of those a walk.
-      const at = typeof from === 'string' && existsSync(from) ? from : undefined
+      const at = typeof from === 'string' && (await exists(from)) ? from : undefined
       const r = await openDialog({
         properties: ['openDirectory'],
         ...(at ? { defaultPath: at } : {})
@@ -2592,19 +2644,29 @@ if (!app.requestSingleInstanceLock()) {
     // folder the two apps share for models, and the GPU question, answered by
     // Electron's own adapter list. Nothing starts until the user switches
     // dictation on and presses the key.
+    const whisperDirs = process.env.PRISM_WHISPER_DIR
+      ? [process.env.PRISM_WHISPER_DIR]
+      : ffmpegDirs(app.isPackaged, process.resourcesPath, app.getAppPath()).map((d) =>
+          // ffmpeg's own lookup, one folder over: resources/bin -> bin/whisper,
+          // vendor/ffmpeg -> vendor/whisper.
+          app.isPackaged ? join(d, 'whisper') : join(dirname(d), 'whisper')
+        )
+    // The core asks synchronously (`cpuEngineDir(): string | null`), so the
+    // engine is found once, here, off main, and the answer kept (2026-10-12):
+    // the installer puts it there and nothing moves it while Prism runs.
+    let whisperDir: string | null | undefined
+    void (async () => {
+      for (const d of whisperDirs) if (await exists(join(d, 'whisper-server.exe'))) return d
+      return null
+    })().then((d) => (whisperDir = d))
     stopDictation = registerDictationIpc({
       ipcMain,
       send: (ch, ...a) => mainWindow?.webContents.send(ch, ...a),
-      cpuEngineDir: () => {
-        const dirs = process.env.PRISM_WHISPER_DIR
-          ? [process.env.PRISM_WHISPER_DIR]
-          : ffmpegDirs(app.isPackaged, process.resourcesPath, app.getAppPath()).map((d) =>
-              // ffmpeg's own lookup, one folder over: resources/bin -> bin/whisper,
-              // vendor/ffmpeg -> vendor/whisper.
-              app.isPackaged ? join(d, 'whisper') : join(dirname(d), 'whisper')
-            )
-        return dirs.find((d) => existsSync(join(d, 'whisper-server.exe'))) ?? null
-      },
+      cpuEngineDir: () =>
+        whisperDir !== undefined
+          ? whisperDir
+          : // sync-ok: only if dictation starts before the probe above has answered; the core's interface is synchronous
+            (whisperDirs.find((d) => existsSync(join(d, 'whisper-server.exe'))) ?? null),
       sharedRoot:
         process.env.PRISM_DICTATION_ROOT ??
         join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'PrismDictation'),
@@ -2667,12 +2729,48 @@ if (!app.requestSingleInstanceLock()) {
       return explorerListings.prefetch(path)
     })
     ipcMain.handle('listing-cache:clear', () => listingCache.clear())
+    /**
+     * The archive check before a search is an awaited stat now (2026-10-12),
+     * and two of them can finish out of order: the older search would then
+     * start last and cancel the newer one, and a cancel that came during the
+     * wait would find nothing to cancel. So the newest per slot is the only
+     * one that goes on, a cancel still reaches one that is waiting, and a path
+     * with no archive in it (nearly all) is not awaited at all.
+     */
+    const searchWaiting = new Map<string, string>()
+    const searchContainer = async (
+      slot: string,
+      requestId: string,
+      path: string,
+      query: string
+    ): Promise<string | null | 'gone'> => {
+      if (typeof path !== 'string' || typeof query !== 'string' || !containerCandidates(path).length) {
+        searchWaiting.delete(slot)
+        return null
+      }
+      searchWaiting.set(slot, requestId)
+      const found = await container(path)
+      if (searchWaiting.get(slot) !== requestId) return 'gone'
+      searchWaiting.delete(slot)
+      return found
+    }
+    const searchGone = (path: string): BrowseSearchResult => ({
+      path,
+      listing: { folders: [], files: [] },
+      scanned: 0,
+      unreadable: 0,
+      skippedLinks: 0,
+      truncated: false,
+      cancelled: true
+    })
     ipcMain.handle(
       'browse:search',
       async (event, tabId: string, path: string, query: string, requestId: string, window?: unknown) => {
         // Inside an archive (#300): the whole archive below the folder, from
         // memory, one answer.
-        if (typeof path === 'string' && typeof query === 'string' && containerSync(path)) {
+        const outer = await searchContainer(tabId, requestId, path, query)
+        if (outer === 'gone') return searchGone(path)
+        if (outer) {
           const inside = await archives.search(path, query)
           if (inside) return inside
         }
@@ -2682,15 +2780,18 @@ if (!app.requestSingleInstanceLock()) {
         return result
       }
     )
-    ipcMain.on('browse:search-cancel', (_e, tabId: string, requestId: string) =>
+    ipcMain.on('browse:search-cancel', (_e, tabId: string, requestId: string) => {
+      if (searchWaiting.get(tabId) === requestId) searchWaiting.delete(tabId)
       cancelBrowseSearch(tabId, requestId)
-    )
+    })
     // The search popup's suggestions (#267): the same search and index as the
     // list's, in a slot of their own, with no progress (one answer each).
     ipcMain.handle(
       'browse:suggest',
       async (_e, tabId: string, path: string, query: string, requestId: string) => {
-        if (typeof path === 'string' && typeof query === 'string' && containerSync(path)) {
+        const outer = await searchContainer(suggestSlot(tabId), requestId, path, query)
+        if (outer === 'gone') return searchGone(path)
+        if (outer) {
           const inside = await archives.search(path, query, 200)
           if (inside) return inside
         }
@@ -2698,9 +2799,11 @@ if (!app.requestSingleInstanceLock()) {
       }
     )
     ipcMain.on('browse:suggest-cancel', (_e, tabId: string, requestId: string) => {
+      if (typeof tabId === 'string' && searchWaiting.get(suggestSlot(tabId)) === requestId)
+        searchWaiting.delete(suggestSlot(tabId))
       if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId), requestId)
     })
-    ipcMain.handle('browse:watch', (_e, tabId: string, path: string | null) => {
+    ipcMain.handle('browse:watch', async (_e, tabId: string, path: string | null) => {
       // The watcher's set-up is timed (#322): it runs in main's thread, and a
       // network folder can make it slow. One per folder shown, so a quick one
       // is Detailed logging's only. The time includes the ownership guard,
@@ -2708,7 +2811,7 @@ if (!app.requestSingleInstanceLock()) {
       // already on that folder set nothing up and writes nothing.
       const before = typeof tabId === 'string' ? browseWatcherOf(tabId) : undefined
       const t0 = performance.now()
-      const ok = browseWatch(tabId, path, folderChanged)
+      const ok = await browseWatch(tabId, path, folderChanged)
       const setUp = typeof tabId === 'string' && browseWatcherOf(tabId) !== before
       if (path !== null && (setUp || !ok)) {
         const ms = Math.round(performance.now() - t0)
@@ -2812,7 +2915,7 @@ if (!app.requestSingleInstanceLock()) {
         // A MEMBER of an archive (#300): the members beside it are the arrows'
         // list, read from the container's listing. The container must be one
         // this tab may read, as a file there would be.
-        const outer = typeof p === 'string' ? containerSync(p) : null
+        const outer = typeof p === 'string' ? await container(p) : null
         if (outer && outer !== resolve(p)) {
           if (!validDesktopRoot(root, outer) && !insideDesktop(outer)) return null
           const near = await archives.siblings(p)
@@ -2824,7 +2927,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('dir:list', async (_e, root: string, p: string): Promise<DirListing | null> => {
       // The project tree inside an archive (#300): a zip node expands like a
       // folder, and its folders do, from the container's own listing.
-      const outer = typeof p === 'string' ? containerSync(p) : null
+      const outer = typeof p === 'string' ? await container(p) : null
       if (outer) {
         if (!validDesktopRoot(root, outer)) return null
         const r = await archives.resolve(p)
@@ -2926,7 +3029,7 @@ if (!app.requestSingleInstanceLock()) {
       // media wall would otherwise refuse. Main grants exactly the files
       // this document names, having read it (see docImages.ts).
       if ('text' in r && isMarkdownPath(p))
-        for (const img of documentImages(p, r.text)) servable.add(img)
+        for (const img of await documentImages(p, r.text)) servable.add(img)
       return r
     })
     // The editor's save. Text files only, in place, inside the root: this is
@@ -2948,7 +3051,7 @@ if (!app.requestSingleInstanceLock()) {
       if (!insideDesktop(p)) return { ok: false, reason: 'refused' }
       if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text')
         return { ok: false, reason: 'refused' }
-      if (!existsSync(dirname(p))) return { ok: false, reason: 'gone' }
+      if (!(await exists(dirname(p)))) return { ok: false, reason: 'gone' }
       try {
         // Back in the shape it came in. CodeMirror rejoins its document with
         // a bare newline whatever it read, so without this one fixed typo in
@@ -2991,13 +3094,13 @@ if (!app.requestSingleInstanceLock()) {
     // Created and Opened are the Properties window's (owner, 2026-10-12).
     ipcMain.handle(
       'file:stat',
-      (
+      async (
         _e,
         p: string
-      ): { size: number; mtimeMs: number; birthtimeMs: number; atimeMs: number; isFolder: boolean } | null => {
+      ): Promise<{ size: number; mtimeMs: number; birthtimeMs: number; atimeMs: number; isFolder: boolean } | null> => {
         if (!insideDesktop(p)) return null
         try {
-          const st = statSync(p)
+          const st = await stat(p)
           return {
             size: st.size,
             mtimeMs: st.mtimeMs,
@@ -3132,9 +3235,9 @@ if (!app.requestSingleInstanceLock()) {
 
     // Sidecar tracks for a video (same name, same folder or Subs/), and their
     // text as WebVTT. Same wall as everything else: inside the root only.
-    ipcMain.handle('subs:for', (_e, p: string): SubTrack[] => {
+    ipcMain.handle('subs:for', async (_e, p: string): Promise<SubTrack[]> => {
       if (!insideDesktop(p)) return []
-      const tracks = sidecarsFor(p)
+      const tracks = await sidecarsFor(p)
       extendDesktopDirectories(
         dirname(p),
         tracks.map((track) => dirname(track.path))
@@ -3153,7 +3256,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('subs:pick', async (_e, near?: string): Promise<SubTrack | null> => {
       const r = await openDialog({
         properties: ['openFile'],
-        ...(typeof near === 'string' && existsSync(dirname(near))
+        ...(typeof near === 'string' && (await exists(dirname(near)))
           ? { defaultPath: dirname(near) }
           : {}),
         filters: [{ name: 'Subtitles', extensions: ['srt', 'vtt', 'ass', 'ssa'] }]
@@ -3186,7 +3289,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('media:peaks', async (_e, p: string): Promise<number[] | null> => {
       if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
       // Known already: no ffprobe, no ffmpeg, no wait.
-      const known = cachedPeaks(p)
+      const known = await cachedPeaks(p)
       if (known) return known
       const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!tools) return null
@@ -3204,7 +3307,7 @@ if (!app.requestSingleInstanceLock()) {
       // a 23MB soundfont takes a moment, and an <audio> pointed at the .mid
       // meanwhile would flash "can't be played".
       if (isMidi(p)) {
-        const fluid = findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
+        const fluid = await findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
         return { ffmpeg: !!fluid, needed: true, synth: true, codec: 'midi' }
       }
       if (!findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())) return none
@@ -3251,7 +3354,7 @@ if (!app.requestSingleInstanceLock()) {
     // the player shows that it is working rather than an error.
     ipcMain.handle('audio:synth', async (_e, p: string): Promise<string | null> => {
       if (typeof p !== 'string' || (!insideDesktop(p) && !extracted(p))) return null
-      const fluid = findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
+      const fluid = await findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!fluid || !isMidi(p)) return null
       try {
         const wav = await renderMidi(fluid, p, join(app.getPath('userData'), 'converted'))
@@ -3293,7 +3396,7 @@ if (!app.requestSingleInstanceLock()) {
         const plan = planConversion(info, extname(p))
         if (!plan.needed) return { error: 'nothing to convert' }
         try {
-          const handle = convertVideo(
+          const handle = await convertVideo(
             tools.ffmpeg,
             p,
             convertDir(),
@@ -3540,7 +3643,7 @@ if (!app.requestSingleInstanceLock()) {
         const paths: string[] = []
         for (const s of src) {
           try {
-            const target = join(destDir, uniqueName(destDir, basename(s)))
+            const target = join(destDir, await uniqueNameAsync(destDir, basename(s)))
             if (moving) {
               try {
                 await fs.rename(s, target)
@@ -3681,9 +3784,9 @@ if (!app.requestSingleInstanceLock()) {
     )
     ipcMain.handle(
       'archive:add',
-      (_e, zip: string, srcPaths: string[], destFolder: string, keepBoth?: boolean) => {
+      async (_e, zip: string, srcPaths: string[], destFolder: string, keepBoth?: boolean) => {
         if (!archiveOk(zip) || !Array.isArray(srcPaths) || !srcPaths.every(movable)) return 'failed'
-        if (archiveTooLarge(statSync(zip).size)) return 'failed'
+        if (archiveTooLarge((await stat(zip)).size)) return 'failed'
         return addToArchive(
           zip,
           srcPaths,
@@ -3694,9 +3797,9 @@ if (!app.requestSingleInstanceLock()) {
     )
     ipcMain.handle(
       'archive:move-members',
-      (_e, zip: string, entries: string[], destFolder: string) => {
+      async (_e, zip: string, entries: string[], destFolder: string) => {
         if (!archiveOk(zip) || !Array.isArray(entries)) return 'failed'
-        if (archiveTooLarge(statSync(zip).size)) return 'failed'
+        if (archiveTooLarge((await stat(zip)).size)) return 'failed'
         return moveMembers(zip, entries, typeof destFolder === 'string' ? destFolder : '')
       }
     )
@@ -3792,7 +3895,7 @@ if (!app.requestSingleInstanceLock()) {
       try {
         // A .7z/.rar/.iso is not a zip: adm-zip cannot read one, so dragging a
         // member out of one always failed (2026-08-28).
-        const exe = seven(zip)
+        const exe = await seven(zip)
         const out = exe
           ? await extractSevenTo(exe, zip, entries, destDir, pw, watching(job))
           : await extractTo(zip, entries, destDir, pw || undefined, watching(job))
@@ -3861,13 +3964,13 @@ if (!app.requestSingleInstanceLock()) {
      * so it can be opened where editing can start.
      */
     ipcMain.handle('archive:member-out', async (_e, path: string) => {
-      const outer = typeof path === 'string' ? containerSync(path) : null
+      const outer = typeof path === 'string' ? await container(path) : null
       if (!outer || !insideDesktop(outer)) return { ok: false }
       const r = await archives.resolve(path, { enterLast: false })
       if (!r?.ok || !r.place.entry || r.place.entry.dir) return { ok: false }
       const dest = dirname(r.place.outer)
       const name = r.place.entry.name || basename(r.place.entry.path)
-      const landing = join(dest, existsSync(join(dest, name)) ? uniqueName(dest, name) : name)
+      const landing = join(dest, (await exists(join(dest, name))) ? await uniqueNameAsync(dest, name) : name)
       const out = await membersOut(
         r.place.real,
         [r.place.entry.path],
@@ -3875,7 +3978,7 @@ if (!app.requestSingleInstanceLock()) {
         archivePasswords.get(r.place.real) ?? '',
         false
       )
-      return out.ok ? { ok: true, path: existsSync(landing) ? landing : null } : { ok: false }
+      return out.ok ? { ok: true, path: (await exists(landing)) ? landing : null } : { ok: false }
     })
 
     /* ----- the archive verbs (#68): zip only, through src/main/archive.ts ----- */
@@ -3959,14 +4062,15 @@ if (!app.requestSingleInstanceLock()) {
      * not zip's, and 7-Zip streams. A 1.9GB zip used to list (by reading 1.9GB
      * into main) and then answer "failed" to every extract, which is the worst
      * of both. Now it lists cheaply and extracts fine, and simply has no write
-     * verbs, exactly like a .7z.
+     * verbs, exactly like a .7z. The size is an awaited stat (2026-10-12):
+     * every archive verb asks this first, and main never waits on the disk.
      */
-    const seven = (p: string): string | null => {
+    const seven = async (p: string): Promise<string | null> => {
       const exe = (): string | null =>
         bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (isSevenArchive(extname(p))) return exe()
       try {
-        return archiveTooLarge(statSync(p).size) ? exe() : null
+        return archiveTooLarge((await stat(p)).size) ? exe() : null
       } catch {
         return null // gone between the listing and now
       }
@@ -3993,7 +4097,7 @@ if (!app.requestSingleInstanceLock()) {
         const kids = await fs.readdir(wrapper, { withFileTypes: true })
         if (kids.length !== 1 || !kids[0].isDirectory()) return wrapper
         let out = join(parent, kids[0].name)
-        for (let n = 2; existsSync(out) && n < 100; n += 1)
+        for (let n = 2; (await exists(out)) && n < 100; n += 1)
           out = join(parent, `${kids[0].name} (${n})`)
         await fs.rename(join(wrapper, kids[0].name), out)
         await fs.rmdir(wrapper).catch(() => {})
@@ -4013,7 +4117,7 @@ if (!app.requestSingleInstanceLock()) {
       | { ok: false; reason: 'password' | 'aes' | 'failed' | 'cancelled'; message?: string }
     > {
       const pw = archivePasswords.get(p) ?? ''
-      const exe = seven(p)
+      const exe = await seven(p)
       if (exe) {
         // 7-Zip's own percentage, forwarded to the window: a 2GB archive takes
         // minutes, and a window that says nothing for minutes is
@@ -4040,16 +4144,16 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     /** A folder to extract into, named after the archive, never overwriting. */
-    function landingDir(p: string, parent: string): string {
+    async function landingDir(p: string, parent: string): Promise<string> {
       const stem = basename(p).replace(/\.[^.]+$/, '') || 'extracted'
       let dest = join(parent, stem)
-      for (let n = 2; existsSync(dest) && n < 100; n += 1) dest = join(parent, `${stem} (${n})`)
+      for (let n = 2; (await exists(dest)) && n < 100; n += 1) dest = join(parent, `${stem} (${n})`)
       return dest
     }
 
     ipcMain.handle('archive:stat', async (_e, p: string): Promise<ArchiveStat | null> => {
       if (!archiveOk(p)) return null
-      const exe = seven(p)
+      const exe = await seven(p)
       if (!exe) return archiveStat(p)
       const listed = await listSeven(exe, p, archivePasswords.get(p) ?? '')
       if (!listed.ok) return null
@@ -4073,7 +4177,7 @@ if (!app.requestSingleInstanceLock()) {
      *  route its own root and kind. */
     const listArchiveWalled = async (p: string, password?: string): Promise<ArchiveListing> => {
       try {
-        const exe = seven(p)
+        const exe = await seven(p)
         if (!exe) {
           const entries = listArchive(p)
           return entries ? { ok: true, entries } : { ok: false, reason: 'failed' }
@@ -4095,7 +4199,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'archive:member',
       async (_e, path: string, password?: string, force?: boolean) => {
-        const outer = typeof path === 'string' ? containerSync(path) : null
+        const outer = typeof path === 'string' ? await container(path) : null
         if (!outer || !insideDesktop(outer)) return { ok: false, reason: 'failed' }
         const out = await archives.member(
           path,
@@ -4113,7 +4217,7 @@ if (!app.requestSingleInstanceLock()) {
     )
     /** What the archive card shows (#300): totals and the top of the tree. */
     ipcMain.handle('archive:summary', async (_e, path: string) => {
-      const outer = typeof path === 'string' ? containerSync(path) : null
+      const outer = typeof path === 'string' ? await container(path) : null
       if (!outer || !insideDesktop(outer)) return { ok: false, reason: 'failed' }
       return archives.summary(path)
     })
@@ -4142,11 +4246,11 @@ if (!app.requestSingleInstanceLock()) {
       password?: string
     ): Promise<ExtractResult> => {
       try {
-        const exe = seven(p)
+        const exe = await seven(p)
         // The cap is ADM-ZIP's - it reads the whole container into memory.
         // 7-Zip streams, so a 3GB .7z is fine and used to be refused here
         // by a check that ran before the branch (2026-08-28).
-        if (!exe && archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
+        if (!exe && archiveTooLarge((await stat(p)).size)) return { ok: false, reason: 'failed' }
         if (exe) {
           const pw = password ?? ''
           const s7 = await extractSeven(exe, p, entry, pw)
@@ -4209,12 +4313,12 @@ if (!app.requestSingleInstanceLock()) {
           if (r.canceled || !r.filePaths.length) return { ok: false, reason: 'cancelled' }
           parent = r.filePaths[0]
         }
-        const dest = landingDir(p, parent)
+        const dest = await landingDir(p, parent)
         // The landing folder is what a Cancel removes WHOLE, so it has to be
         // one this job made. `landingDir` gives up after "name (99)", and
         // extracting into a folder that was already there would make the
         // clean-up a delete of somebody's files.
-        if (existsSync(dest)) return refused(p, parent)
+        if (await exists(dest)) return refused(p, parent)
         // Opened AFTER the dialog: the window is for the work, not for the
         // question. It names the folder that was chosen, which is where the
         // result lands whether or not the one-folder rule unwraps it.
@@ -4222,7 +4326,7 @@ if (!app.requestSingleInstanceLock()) {
         if (!job) return BUSY
         const made = new Made()
         try {
-          mkdirSync(dest, { recursive: true })
+          await mkdir(dest, { recursive: true })
           made.tree(dest)
           const out = await extractWhole(p, dest, job)
           if (!out.ok) {
@@ -4310,13 +4414,13 @@ if (!app.requestSingleInstanceLock()) {
            * still stages in temp: nothing renames it anywhere.
            */
           const dir = here
-            ? mkdtempSync(join(dirname(p), '.prism-extract-'))
-            : mkdtempSync(join(tmpdir(), 'prism-arcdir-'))
+            ? await mkdtemp(join(dirname(p), '.prism-extract-'))
+            : await mkdtemp(join(tmpdir(), 'prism-arcdir-'))
           // The staging folder is this call's own, whole: it is what a
           // Cancel removes, and nothing else is.
           if (here) made.tree(dir)
           const pw = archivePasswords.get(p) ?? ''
-          const exe = seven(p)
+          const exe = await seven(p)
           let out1 = join(dir, name)
           if (exe) {
             // ONE 7-Zip call for the whole subtree. The member-at-a-time
@@ -4371,7 +4475,7 @@ if (!app.requestSingleInstanceLock()) {
               return fail(out.reason)
             }
           }
-          if (!existsSync(out1)) {
+          if (!(await exists(out1))) {
             await made.undo()
             return fail('failed')
           }
@@ -4385,7 +4489,7 @@ if (!app.requestSingleInstanceLock()) {
           // else's folder - the same rule extract-all follows.
           const parent = dirname(p)
           let out2 = join(parent, name)
-          for (let n = 2; existsSync(out2) && n < 100; n += 1) out2 = join(parent, `${name} (${n})`)
+          for (let n = 2; (await exists(out2)) && n < 100; n += 1) out2 = join(parent, `${name} (${n})`)
           const fs = await import('fs/promises')
           try {
             await fs.rename(out1, out2)
@@ -4412,9 +4516,9 @@ if (!app.requestSingleInstanceLock()) {
       'archive:rename',
       async (_e, p: string, entry: string, name: string, password?: string): Promise<string> => {
         if (!archiveOk(p) || typeof entry !== 'string' || typeof name !== 'string') return 'failed'
-        if (seven(p)) return 'failed' // read-only format; the panel offers no verbs
+        if (await seven(p)) return 'failed' // read-only format; the panel offers no verbs
         try {
-          if (archiveTooLarge(statSync(p).size)) return 'failed'
+          if (archiveTooLarge((await stat(p)).size)) return 'failed'
           return await renameMember(
             p,
             entry,
@@ -4426,11 +4530,11 @@ if (!app.requestSingleInstanceLock()) {
         }
       }
     )
-    ipcMain.handle('archive:delete', (_e, p: string, entry: string): boolean => {
+    ipcMain.handle('archive:delete', async (_e, p: string, entry: string): Promise<boolean> => {
       if (!archiveOk(p) || typeof entry !== 'string') return false
-      if (seven(p)) return false
+      if (await seven(p)) return false
       try {
-        return !archiveTooLarge(statSync(p).size) && deleteMember(p, entry)
+        return !archiveTooLarge((await stat(p)).size) && deleteMember(p, entry)
       } catch {
         return false
       }
@@ -4440,11 +4544,11 @@ if (!app.requestSingleInstanceLock()) {
       ownWrite(p)
       if (!insideDesktop(p)) return null
       try {
-        if (!statSync(p).isFile()) return null // folders are a different feature
+        if (!(await stat(p)).isFile()) return null // folders are a different feature
         const dir = dirname(p)
         // basename, not a slice: dirname keeps its trailing separator at a
         // drive root, and slicing past it ate the name's first character.
-        const copy = join(dir, uniqueName(dir, basename(p)))
+        const copy = join(dir, await uniqueNameAsync(dir, basename(p)))
         await copyFile(p, copy)
         await written(copy)
         return copy
@@ -4460,7 +4564,7 @@ if (!app.requestSingleInstanceLock()) {
     // folder had, put through the same validation as any rename.
     ipcMain.handle('file:newFolder', async (_e, dir: string, name?: string): Promise<string | null> => {
       if (typeof dir !== 'string' || !dir || (name !== undefined && typeof name !== 'string')) return null
-      if (containerSync(dir) || !insideDesktop(dir)) return null
+      if ((await container(dir)) || !insideDesktop(dir)) return null
       ownWrite(join(dir, 'New folder'))
       const made = await makeFolder(dir, name)
       await written(made ?? dir)
@@ -4470,7 +4574,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'file:binIfEmpty',
       async (_e, p: string): Promise<'binned' | 'not-empty' | 'missing' | 'failed'> => {
-        if (typeof p !== 'string' || containerSync(p) || !editable(p)) return 'failed'
+        if (typeof p !== 'string' || (await container(p)) || !editable(p)) return 'failed'
         ownWrite(p)
         try {
           return await binIfEmpty(p, (t) => shell.trashItem(t))

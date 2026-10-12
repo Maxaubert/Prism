@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { pathsFromArgv } from './argv'
+import { pathsFromArgv, pathsFromArgvAsync } from './argv'
 
 /**
  * What the command line asked for.
@@ -67,5 +67,33 @@ describe('reading the command line', () => {
 
   it('answers nothing for a bare launch', () => {
     expect(pathsFromArgv(['prism.exe'], [])).toEqual([])
+  })
+})
+
+describe('reading a handoff off the main thread (2026-10-12)', () => {
+  it('gives the same answer as the startup reader', async () => {
+    const own = join(dir, 'index.js')
+    writeFileSync(own, 'x')
+    const cases: Array<[string[], string[]]> = [
+      [['prism.exe', a, b], []],
+      [['electron.exe', '--user-data-dir=C:\\x', '--e2e', own, a], [own]],
+      [['prism.exe', sub], []],
+      [['prism.exe', join(dir, 'nope.jpg'), a], []],
+      [['prism.exe', a, a], []],
+      [['prism.exe'], []]
+    ]
+    for (const [argv, ignore] of cases) {
+      expect(await pathsFromArgvAsync(argv, ignore)).toEqual(pathsFromArgv(argv, ignore))
+    }
+  })
+
+  it('stops at the cap', async () => {
+    const many = Array.from({ length: 40 }, (_, i) => {
+      const p = join(dir, `m${i}.jpg`)
+      writeFileSync(p, 'x')
+      return p
+    })
+    expect(await pathsFromArgvAsync(['prism.exe', ...many], [])).toHaveLength(32)
+    expect(pathsFromArgv(['prism.exe', ...many], [])).toHaveLength(32)
   })
 })

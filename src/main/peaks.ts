@@ -1,6 +1,6 @@
 import { spawn } from 'child_process'
 import { holders } from './holders'
-import { statSync } from 'fs'
+import { stat } from 'fs/promises'
 
 /**
  * The waveform transport's amplitude envelope, computed HERE rather than in the
@@ -80,9 +80,11 @@ export function normalise(peaks: readonly number[]): number[] {
 const cache = new Map<string, number[]>()
 const MAX_CACHED = 40
 
-function key(file: string): string {
+/** Async (owner, 2026-10-12, main never waits on the disk): this ran on every
+ *  audio or video opened, twice on a miss. */
+async function key(file: string): Promise<string> {
   try {
-    const st = statSync(file)
+    const st = await stat(file)
     return `${file}|${st.mtimeMs}|${st.size}`
   } catch {
     return file
@@ -95,11 +97,11 @@ function key(file: string): string {
  * `duration` decides the bucket width; without it the stream would have to be
  * held to know how long it was, which is the whole thing this avoids.
  */
-export function loadPeaks(ffmpeg: string, file: string, duration: number): Promise<number[] | null> {
-  const k = key(file)
+export async function loadPeaks(ffmpeg: string, file: string, duration: number): Promise<number[] | null> {
+  const k = await key(file)
   const hit = cache.get(k)
-  if (hit) return Promise.resolve(hit)
-  if (!Number.isFinite(duration) || duration <= 0) return Promise.resolve(null)
+  if (hit) return hit
+  if (!Number.isFinite(duration) || duration <= 0) return null
 
   return new Promise((resolve) => {
     const acc = {
@@ -130,9 +132,11 @@ export function loadPeaks(ffmpeg: string, file: string, duration: number): Promi
   })
 }
 
-/** The answer if it is already known, without spawning or probing anything. */
-export function cachedPeaks(file: string): number[] | null {
-  return cache.get(key(file)) ?? null
+/** The answer if it is already known, without spawning or probing anything
+ *  (one stat, for the key). A Promise: a caller must await it, since the
+ *  Promise itself is always truthy. */
+export async function cachedPeaks(file: string): Promise<number[] | null> {
+  return cache.get(await key(file)) ?? null
 }
 
 export function clearPeaksCache(): void {
