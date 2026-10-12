@@ -151,6 +151,7 @@ import { JobChip } from './components/JobChip'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { Icon } from './components/icons/Icon'
 import { disposeSession, nextTabId, nextTermId } from './lib/sessionIds'
+import { hiddenTitle } from './lib/hiddenTitle'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
 // or dialog), routes by kind to a viewer, and pages through the folder. Video,
@@ -2273,11 +2274,9 @@ export default function App(): JSX.Element {
                   Browse files
                 </button>
                 <span
-                  title={
-                    termView === 'full' && active.term
-                      ? termFolder(active.term.id)
-                      : active.browse.path
-                  }
+                  {...hiddenTitle(
+                    termView === 'full' && active.term ? termFolder(active.term.id) : active.browse.path
+                  )}
                 >
                   {termView === 'full' && active.term
                     ? termFolder(active.term.id)
