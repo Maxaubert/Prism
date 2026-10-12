@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef, type JSX, type MouseEvent, type ReactNode } from 'react'
 import { Glyph } from './Glyph'
+import { hiddenTitle } from '../../lib/hiddenTitle'
 
 // ONE SETTING, AS A ROW OF A SECTION'S PANEL (2026-10-05, the grouped cards
 // redesign): an icon tile, the label with ONE line of subtext under it, and
@@ -47,12 +48,14 @@ export function IconTile({ icon }: { icon: string }): JSX.Element {
   )
 }
 
-/** The subtext: one line, truncated, the whole text on its tooltip. */
+/** The subtext: one line, truncated, the whole text on its tooltip only when
+ *  the ellipsis cut it. */
 export function Subtext({ id, text, warn }: { id?: string; text: string; warn?: boolean }): JSX.Element {
   return (
     <div
       id={id}
-      title={text}
+      data-subtext
+      {...hiddenTitle(text)}
       className={`mt-0.5 truncate text-[11.5px] leading-[1.35] ${warn ? WARN_INK : SUB_INK}`}
     >
       {warn && (

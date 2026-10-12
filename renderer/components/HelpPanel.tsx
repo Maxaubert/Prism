@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { Modal } from './Modal'
+import { hiddenTitle } from '../lib/hiddenTitle'
 import {
   ALL_HELP,
   HELP_CATEGORIES,
@@ -193,7 +194,6 @@ function Row({
       <span
         data-help-task
         className="flex min-w-0 items-center gap-1.5 truncate text-[12.5px] text-[var(--p-text)]"
-        title={row.name}
       >
         {row.entry.danger && (
           // The warning is now a MARK, not a paragraph: the sentence is still
@@ -209,7 +209,9 @@ function Row({
             <span className="sr-only">Careful. {row.entry.danger}</span>
           </span>
         )}
-        <span className="truncate">{row.name}</span>
+        <span className="truncate" {...hiddenTitle(row.name)}>
+          {row.name}
+        </span>
       </span>
       {keys ? (
         // A key to press is drawn as key caps and has no copy button: the
@@ -230,7 +232,7 @@ function Row({
           data-help-command
           className="min-w-0 select-text truncate text-[12.5px] text-[var(--p-text-soft)]"
           style={{ fontFamily: mono }}
-          title={row.command}
+          {...hiddenTitle(row.command)}
         >
           {row.command}
         </code>

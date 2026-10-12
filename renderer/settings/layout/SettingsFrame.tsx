@@ -12,6 +12,7 @@ import { Glyph } from './Glyph'
 import { IconTile, RULE, SUB_INK, Subtext } from './SettingRow'
 import { PANEL_RADIUS } from './SettingsSection'
 import { flashPref } from './flash'
+import { hiddenTitle } from '../../lib/hiddenTitle'
 import { searchSettings, type SettingsIndexEntry } from './search'
 
 // THE SETTINGS FRAME, for both apps (2026-10-05, the grouped cards redesign;
@@ -193,7 +194,8 @@ export function SettingsFrame({
         }}
         aria-current={on ? 'page' : undefined}
         aria-label={p.label}
-        title={p.label}
+        // The name on hover only while the rail is folded to its icons.
+        {...hiddenTitle(p.label)}
         className={`flex h-9 w-full shrink-0 items-center gap-[11px] rounded-md px-2.5 text-left text-[13px] transition-colors focus-visible:outline-none ${n.nav} ${
           on
             ? 'bg-[var(--p-hover-hi)] font-semibold text-[var(--p-text)]'
