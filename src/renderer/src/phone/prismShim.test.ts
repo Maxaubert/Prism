@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { askPlay, installShim, type PlayAnswer } from './prismShim'
 import { writeToken } from './api'
+import { aliasWindow } from '../testing/host'
 
-// The unit tests run under node, where `window` does not exist; in a browser
-// it IS globalThis, which is where the shim installs itself.
-if (typeof window === 'undefined')
-  Object.defineProperty(globalThis, 'window', { value: globalThis })
+aliasWindow()
 
 // What the device plays is a `<video>` question, and node has no `<video>`.
 vi.mock('./canPlay', () => ({ canCsv: () => 'h264,aac,mp4', nativeHls: () => false }))

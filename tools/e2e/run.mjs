@@ -31,6 +31,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir, tmpdir } from 'node:os'
 import { BIG, buildBigFixtures, buildFixtures, FFMPEG, OTHER_ROOT } from './fixtures.mjs'
+import { cachedDownload as fetchOnce } from '../lib/pinnedDownload.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
@@ -46,13 +47,35 @@ const SHOTS = join(ROOT, '.e2e', 'shots')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let failures = 0
 
+/** An Explorer tab as tabs.json stores it, on `path` under `root`, with
+ *  `history` walked to its end. */
+function explorerTab(id, root, path = root, pinned = true, { preview = false, open = [], history = [path] } = {}) {
+  return {
+    id,
+    role: 'explorer',
+    ...(pinned ? { pinned: true } : {}),
+    root,
+    browse: {
+      path,
+      history: history.map((p) => ({ path: p, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } })),
+      cursor: history.length - 1,
+      surface: 'folder',
+      preview
+    },
+    panes: [],
+    open
+  }
+}
+
+/** Seed a profile's saved tab strip before its launch. */
+function writeTabs(tabs, profile = PROFILE) {
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(join(profile, 'tabs.json'), JSON.stringify(tabs))
+}
+
 function seedExplorerTab(projectFile) {
   const directory = join(ROOT, '.e2e', 'fixtures')
-  const explorer = {
-    id: 'fixture-explorer', role: 'explorer', pinned: true, root: directory,
-    browse: { path: directory, history: [{ path: directory, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } }], cursor: 0, surface: 'folder', preview: true },
-    panes: [], open: [directory]
-  }
+  const explorer = explorerTab('fixture-explorer', directory, directory, true, { preview: true, open: [directory] })
   // A FILE FROM OUTSIDE OPENS IN THE EXPLORER TAB now (2026-09-22), so a
   // launch that means "this file, in a project on its folder" - which is what
   // almost every scenario is written against - is seeded as that project,
@@ -60,7 +83,7 @@ function seedExplorerTab(projectFile) {
   const project = projectFile
     ? [{ id: 'fixture-project', role: 'project', root: dirname(projectFile), file: projectFile, panes: [] }]
     : []
-  writeFileSync(join(PROFILE, 'tabs.json'), JSON.stringify({ active: project.length, tabs: [explorer, ...project] }))
+  writeTabs({ active: project.length, tabs: [explorer, ...project] })
 }
 
 /** A path that is a file on disk: those open as a seeded project. */
@@ -96,6 +119,12 @@ async function launchTestApp(options) {
   }
   return app
 }
+/** Start the app on `profile` with the e2e switch, `args` after it and `env`
+ *  over this process's own: every launch in the suite goes through here. */
+function startApp({ profile = PROFILE, args = [], env = {} } = {}) {
+  return launchTestApp({ args: [MAIN, `--user-data-dir=${profile}`, '--e2e', ...args], env: { ...process.env, ...env } })
+}
+
 const ok = (cond, name) => {
   if (cond) console.log(`  pass  ${name}`)
   else {
@@ -110,17 +139,9 @@ const ok = (cond, name) => {
 async function seedProfile() {
   // Seed before the first renderer loads, so the bundled index never scans
   // the developer's home while this disposable profile is being initialized.
-  const preferences = join(PROFILE, 'window-preferences')
-  const directory = join(ROOT, '.e2e', 'fixtures')
-  mkdirSync(preferences, { recursive: true })
-  for (const [key, value] of Object.entries({
-    'prism.newtab.mode': 'folder',
-    'prism.newtab.folder': directory
-  })) {
-    writeFileSync(join(preferences, createHash('sha256').update(key).digest('hex') + '.json'), JSON.stringify({ key, value }))
-  }
+  seedPreferences(PROFILE, { 'prism.newtab.mode': 'folder', 'prism.newtab.folder': join(ROOT, '.e2e', 'fixtures') })
   seedExplorerTab()
-  const app = await launchTestApp({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'] })
+  const app = await startApp()
   const win = await app.firstWindow()
   await offscreen(app)
   await win.evaluate((kv) => {
@@ -153,6 +174,25 @@ async function offscreen(app) {
   await app.evaluate(park)
 }
 
+/** One PowerShell command's output: the reaper and every process count ask
+ *  through it. */
+const powershell = (command) =>
+  execFileSync('powershell.exe', ['-NoProfile', '-Command', command], { encoding: 'utf8', windowsHide: true })
+
+/** How many `name` processes whose `field` is `-like` the pattern are alive;
+ *  -1 when PowerShell cannot say. */
+function processCount(name, like, field = 'CommandLine') {
+  try {
+    return (
+      Number(
+        powershell(`(Get-CimInstance Win32_Process -Filter "Name='${name}'" | Where-Object { $_.${field} -like '${like}' } | Measure-Object).Count`).trim()
+      ) || 0
+    )
+  } catch {
+    return -1
+  }
+}
+
 /**
  * Launch Prism on a file, in the seeded profile, and wait until that file is
  * really the one on screen. Prism is single-instance: if the previous
@@ -173,16 +213,10 @@ async function offscreen(app) {
  */
 function reapStrays() {
   try {
-    const out = execFileSync(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-Command',
-        `Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | ` +
-          `Where-Object { $_.CommandLine -like '*${PROFILE_NAME}*' } | ` +
-          'ForEach-Object { $_.ProcessId }'
-      ],
-      { encoding: 'utf8', windowsHide: true }
+    const out = powershell(
+      `Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | ` +
+        `Where-Object { $_.CommandLine -like '*${PROFILE_NAME}*' } | ` +
+        'ForEach-Object { $_.ProcessId }'
     )
     const pids = out.split(/\s+/).filter(Boolean)
     for (const pid of pids) {
@@ -202,24 +236,9 @@ function reapStrays() {
  *  of them is not a lock being held, whatever the error says - which is the
  *  difference between waiting longer and looking somewhere else. */
 function electronCount() {
-  try {
-    // OURS, not every electron on the machine: on a dev box the answer was
-    // always "some are alive", which told nobody anything (2026-08-28).
-    const out = execFileSync(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-Command',
-        `Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | ` +
-          `Where-Object { $_.CommandLine -like '*${PROFILE_NAME}*' } | Measure-Object | ` +
-          '%{ $_.Count }'
-      ],
-      { encoding: 'utf8', windowsHide: true }
-    )
-    return Number(out.trim()) || 0
-  } catch {
-    return -1
-  }
+  // OURS, not every electron on the machine: on a dev box the answer was
+  // always "some are alive", which told nobody anything (2026-08-28).
+  return processCount('electron.exe', `*${PROFILE_NAME}*`)
 }
 
 async function launch(file, keepTabs = false) {
@@ -283,11 +302,25 @@ const HAS_CLAUDE = (() => {
   }
 })()
 
-/** Extra environment for the NEXT launches; a scenario sets it and clears it. */
+/** Extra environment for the NEXT launches; a scenario sets it and clears it,
+ *  or hands it to `launchWith` for one launch. */
 let EXTRA_ENV = {}
+/** The walk, not the search index: a launch whose index root is empty. */
+const NO_INDEX = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
 /** Extra command-line switches for the NEXT launches, the same way (#168:
  *  `--preview-update` is a switch, and it has to be there at launch). */
 let EXTRA_ARGS = []
+
+/** `launch` with `env` added for this one launch, cleared again even when it
+ *  throws. */
+async function launchWith(env, file, keepTabs = false) {
+  EXTRA_ENV = env
+  try {
+    return await launch(file, keepTabs)
+  } finally {
+    EXTRA_ENV = {}
+  }
+}
 
 async function launchOnce(file, keepTabs = false) {
   // Every scenario but the tab one expects a single-root world. The profile is
@@ -297,10 +330,7 @@ async function launchOnce(file, keepTabs = false) {
   // surviving a restart is the thing it is checking.
   const seeded = !keepTabs && isFileOnDisk(file)
   if (!keepTabs) seedExplorerTab(seeded ? file : undefined)
-  const app = await launchTestApp({
-    args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', ...EXTRA_ARGS, ...(seeded ? [] : [file])],
-    env: { ...process.env, ...EXTRA_ENV }
-  })
+  const app = await startApp({ args: [...EXTRA_ARGS, ...(seeded ? [] : [file])], env: EXTRA_ENV })
   const win = await app.firstWindow()
   await win.waitForLoadState('domcontentloaded')
   await offscreen(app)
@@ -1241,18 +1271,7 @@ const JFK = {
   sha256: '59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e'
 }
 const CATALOG = join(ROOT, 'node_modules/prism-term-core/shared/dictationCatalog.ts')
-const sha256Of = (file) => createHash('sha256').update(readFileSync(file)).digest('hex')
-async function cachedDownload(name, url, sha256) {
-  mkdirSync(E2E_CACHE, { recursive: true })
-  const file = join(E2E_CACHE, name)
-  if (existsSync(file) && sha256Of(file) === sha256) return file
-  console.log(`  (fetching ${name} into .e2e/cache, once)`)
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`${name}: download failed (${res.status})`)
-  writeFileSync(file, Buffer.from(await res.arrayBuffer()))
-  if (sha256Of(file) !== sha256) throw new Error(`${name}: SHA-256 mismatch`)
-  return file
-}
+const cachedDownload = (name, url, sha256) => fetchOnce(E2E_CACHE, name, url, sha256)
 /** One catalog entry, read out of the core's own file: the e2e fetches exactly
  *  what the app would. */
 function catalogItem(id) {
@@ -1269,24 +1288,7 @@ function catalogItem(id) {
 /** Speech servers started out of THIS checkout's engine folder, and no others:
  *  the owner's own dictation tool runs a whisper-server of its own. */
 function ourSpeechServers() {
-  try {
-    const out = execFileSync(
-      'powershell.exe',
-      ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "Name='whisper-server.exe'" | Where-Object { $_.ExecutablePath -like '*\\vendor\\whisper\\*' } | Measure-Object).Count`],
-      { encoding: 'utf8', windowsHide: true }
-    )
-    return Number(out.trim()) || 0
-  } catch {
-    return -1
-  }
-}
-const waitUntil = async (fn, ms = 20000) => {
-  const end = Date.now() + ms
-  for (;;) {
-    const v = await fn()
-    if (v || Date.now() > end) return v
-    await sleep(150)
-  }
+  return processCount('whisper-server.exe', '*\\vendor\\whisper\\*', 'ExecutablePath')
 }
 
 /**
@@ -1356,18 +1358,18 @@ async function dictationScenario(fixtures) {
     const topBefore = await rowsTop()
 
     await win.keyboard.down('AltRight')
-    ok(await waitUntil(async () => (await pill().getAttribute('data-dictation-pill').catch(() => null)) === 'listening', 8000), 'over a terminal, holding Right Alt opens the pill: Listening')
+    ok(await until(async () => (await pill().getAttribute('data-dictation-pill').catch(() => null)) === 'listening', 8000), 'over a terminal, holding Right Alt opens the pill: Listening')
     ok((await win.locator('[data-dictation-mark]').count()) === 1, 'and the tab wears the mic mark')
     ok((await rowsTop()) === topBefore, 'the pill does not move the terminal')
-    const live = await waitUntil(async () => ((await win.locator('[data-dictation-live]').textContent().catch(() => '')) ?? '').trim(), 15000)
+    const live = await until(async () => ((await win.locator('[data-dictation-live]').textContent().catch(() => '')) ?? '').trim(), 15000)
     ok(!!live, `live text appears while still listening ("${live}")`)
     await sleep(4000)
     await win.screenshot({ path: join(SHOTS, 'dictation-listening.png') })
     await sleep(5000)
     await win.keyboard.up('AltRight')
-    const heard = await waitUntil(async () => /ask not what your country/i.test((await text()).replace(/\s+/g, ' ')), 30000)
+    const heard = await until(async () => /ask not what your country/i.test((await text()).replace(/\s+/g, ' ')), 30000)
     ok(heard, 'the spoken sentence arrives on the prompt line')
-    ok(await waitUntil(async () => (await pill().count()) === 0, 5000), 'and the pill goes away')
+    ok(await until(async () => (await pill().count()) === 0, 5000), 'and the pill goes away')
     // NO ENTER: had one gone through, PowerShell would have run the sentence
     // and answered that its first word is not a command. Counting prompts on
     // screen was the old test, and a long sentence that wraps scrolls the
@@ -1392,7 +1394,7 @@ async function dictationScenario(fixtures) {
     EXTRA_ENV = {}
     await app?.close()
   }
-  ok(await waitUntil(() => ourSpeechServers() === 0, 8000), 'and no speech server outlives the app')
+  ok(await until(() => ourSpeechServers() === 0, 8000), 'and no speech server outlives the app')
 }
 
 /** THE DICTATION PAGE IS THE CORE'S (#162): the same option list Prism Terminal
@@ -1438,7 +1440,7 @@ async function dictationPageScenario(fixtures) {
     ok(((await win.locator('[data-dictation-item="gpu-pack"] [data-gpu-toggle]').textContent()) ?? '').trim() === 'Disable', 'the GPU engine, installed, offers Disable')
     await win.screenshot({ path: join(SHOTS, 'dictation-models.png') })
     await win.locator('[data-dictation-item="gpu-pack"] [data-gpu-toggle]').click()
-    ok(await waitUntil(async () => !existsSync(pack), 8000), 'and Disable takes it off the disk')
+    ok(await until(async () => !existsSync(pack), 8000), 'and Disable takes it off the disk')
   } finally {
     EXTRA_ENV = {}
     await app?.close()
@@ -3078,22 +3080,7 @@ async function extractWindowScenario(fixtures) {
 /** Our own 7-Zip children: the ones working on the big box, not every 7z on
  *  the machine. */
 function sevenZipsOnTheBox() {
-  try {
-    const out = execFileSync(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-Command',
-        `Get-CimInstance Win32_Process -Filter "Name='7z.exe'" | ` +
-          `Where-Object { $_.CommandLine -like '*e2e*big*box*' } | Measure-Object | ` +
-          '%{ $_.Count }'
-      ],
-      { encoding: 'utf8', windowsHide: true }
-    )
-    return Number(out.trim()) || 0
-  } catch {
-    return -1
-  }
+  return processCount('7z.exe', '*e2e*big*box*')
 }
 
 /** Poll until `fn()` is truthy. A condition, never a sleep-then-look. */
@@ -4756,11 +4743,7 @@ async function neverWindowlessScenario(fixtures) {
   }
   const start = async (env = {}) => {
     seedExplorerTab(readme)
-    const app = await launchTestApp({
-      args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'],
-      env: { ...process.env, ...env }
-    })
-    return app
+    return startApp({ env })
   }
 
   // 1-3: a page that dies is reloaded; the third death in two minutes gets a
@@ -4880,10 +4863,7 @@ async function openInExplorerScenario(fixtures) {
   const selectedRow = () =>
     win.evaluate(() => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')
   const visible = (sel) => win.evaluate((s) => !!document.querySelector(s)?.getClientRects().length, sel)
-  const waitFor = async (fn, ms = 10000) => {
-    for (const end = Date.now() + ms; Date.now() < end; await sleep(150)) if (await fn()) return true
-    return false
-  }
+  const waitFor = (fn) => until(fn, 10000)
   try {
     ok((await projects()) === 1, 'the launch file is a project, the Explorer behind it')
     const before = await projects()
@@ -6333,7 +6313,7 @@ async function agentTitleScenario(fixtures) {
       { timeout: 45000 }
     )
     ok(
-      await waitUntil(() => win.evaluate(() => window.__agentSaid > 0), 45000),
+      await until(() => win.evaluate(() => window.__agentSaid > 0), 45000),
       'the process poll has had its first look at the shell'
     )
     await win.locator('.xterm').click()
@@ -6342,7 +6322,7 @@ async function agentTitleScenario(fixtures) {
     // Claude's birth title is idle; a spinner BEFORE any idle would be the
     // agent starting, which is present and not working.
     await say('2733', 'Claude Code') // ✳
-    const present = await waitUntil(async () => (await attr('data-agent-present')) !== null, 10000)
+    const present = await until(async () => (await attr('data-agent-present')) !== null, 10000)
     ok(present && (await state()) === null, 'the idle birth title marks the agent present and nothing else')
 
     const t1 = await say('25D0', 'Claude Code') // ◐
@@ -9585,7 +9565,7 @@ async function markTintScenario(fixtures) {
   mkdirSync(dir, { recursive: true })
   for (const n of ['m1.txt', 'm2.txt', 'm3.txt', 'm4.txt', 'm5.txt', 'm6.txt']) writeFileSync(join(dir, n), `tint ${n}\n`)
   const { app, win } = await launch(join(dir, 'm1.txt'))
-  let styleBefore
+  const kept = styleKeeper()
   let draftBefore = null
   const alphaOf = (c) => {
     const n = (c.match(/[\d.]+/g) ?? []).map(Number)
@@ -9628,7 +9608,7 @@ async function markTintScenario(fixtures) {
   }
   try {
     draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
-    styleBefore = await switchStyle(win, 'aurora')
+    await kept.set(win, 'aurora')
     await sleep(400)
 
     /* ---------- the tree ---------- */
@@ -9704,11 +9684,7 @@ async function markTintScenario(fixtures) {
     await sleep(400)
 
     /* ---------- the Settings rail, accent alpha below 1 ---------- */
-    await win.evaluate((d) => {
-      const v = { ...JSON.parse(d ?? '{}'), accentAlpha: 0.4 }
-      localStorage.setItem('prism.style.draft', JSON.stringify(v))
-      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
-    }, draftBefore)
+    await setPref(win, 'prism.style.draft', JSON.stringify({ ...JSON.parse(draftBefore ?? '{}'), accentAlpha: 0.4 }))
     await sleep(300)
     ok(alphaOf(await token('--p-sel-bg')) < 1, `the accent's alpha is down: its fills are see-through (${await token('--p-sel-bg')})`)
     // THE CHOSEN SETTINGS PAGE IS A GREY FILL (#292; owner, 2026-10-05: no
@@ -9732,11 +9708,7 @@ async function markTintScenario(fixtures) {
     // THE SELECTION IS ITS OWN COLOUR (owner, 2026-10-03: "the settings accent
     // colour for the tab should be separated from the explorer accent colour").
     // A green Selection at 22% tints the marks; the rail keeps the accent.
-    await win.evaluate((d) => {
-      const v = { ...JSON.parse(d ?? '{}'), accentAlpha: 0.4, selection: '#2ecc7138' }
-      localStorage.setItem('prism.style.draft', JSON.stringify(v))
-      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
-    }, draftBefore)
+    await setPref(win, 'prism.style.draft', JSON.stringify({ ...JSON.parse(draftBefore ?? '{}'), accentAlpha: 0.4, selection: '#2ecc7138' }))
     await sleep(300)
     const green = await explorerLook()
     ok(green !== null && /^rgba\(46, 204, 113, 0\.2\d*\)$/.test(green.bg), `a picked Selection is the marked row's tint (${green?.bg})`)
@@ -9768,14 +9740,8 @@ async function markTintScenario(fixtures) {
     const railAfter = await rail.evaluate((el) => getComputedStyle(el).backgroundColor)
     ok(railAfter === railBg, `the Settings rail keeps its grey (${railAfter}, was ${railBg})`)
   } finally {
-    await win
-      .evaluate((d) => {
-        if (d === null) localStorage.removeItem('prism.style.draft')
-        else localStorage.setItem('prism.style.draft', d)
-        window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
-      }, draftBefore)
-      .catch(() => {})
-    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await setPref(win, 'prism.style.draft', draftBefore).catch(() => {})
+    await kept.restore(win)
     await app.close().catch(() => {})
   }
 
@@ -9809,7 +9775,7 @@ async function markTintScenario(fixtures) {
     ok((arc.joined.match(/inset/g) ?? []).length === 3, `two marked neighbours in a zip are one block (${arc.joined})`)
     await z.win.screenshot({ path: join(SHOTS, 'marktint-archive-dark.png') })
   } finally {
-    if (styleBefore !== undefined) await switchStyle(z.win, styleBefore).catch(() => {})
+    await kept.restore(z.win)
     await z.app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
@@ -10060,7 +10026,7 @@ async function rightClickSelectScenario(fixtures) {
     await until(async () => !(await menuOpen()), 3000)
     await away()
   }
-  let styleBefore
+  const kept = styleKeeper()
   try {
     // 0. THE PROJECT TREE: a right-clicked row wears the selection tint while
     // its menu is open, not the grey.
@@ -10119,8 +10085,7 @@ async function rightClickSelectScenario(fixtures) {
     const subPath = join(dir, 'sub')
 
     for (const style of ['aurora', 'paper']) {
-      const was = await switchStyle(win, style)
-      if (styleBefore === undefined) styleBefore = was
+      await kept.set(win, style)
       await sleep(500)
       const tint = await cssColour(win, 'var(--p-sel-tint)')
 
@@ -10309,7 +10274,7 @@ async function rightClickSelectScenario(fixtures) {
       await goByAddress(dir, 'a.txt')
     }
   } finally {
-    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await kept.restore(win)
     await win.evaluate(() => localStorage.removeItem('prism.sidebar.driveStyle')).catch(() => {})
     await app.close().catch(() => {})
   }
@@ -10362,7 +10327,7 @@ async function sidebarPlacesScenario(fixtures) {
   const section = async (label) => (await sections()).find((s) => s.label === label)
   const pinRow = (section, name) =>
     places.locator(`section[aria-label="${section}"] .quick-access-pin[data-quick-access-path$="\\\\${name}" i]`)
-  let styleBefore
+  const kept = styleKeeper()
   try {
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
@@ -10506,8 +10471,7 @@ async function sidebarPlacesScenario(fixtures) {
     // Tiles chip is the mockup's 2.4 times it.
     await pinRow('Pinned', 'pinme').click()
     for (const style of ['aurora', 'paper', 'default']) {
-      const was = await switchStyle(win, style)
-      if (styleBefore === undefined) styleBefore = was
+      await kept.set(win, style)
       await sleep(500)
       for (const size of ['Small', 'Medium', 'Large']) {
         await pickStyleSegment(win, 'explorer-size', size)
@@ -10562,7 +10526,7 @@ async function sidebarPlacesScenario(fixtures) {
     await win
       .evaluate(() => localStorage.removeItem('prism.quickAccess'))
       .catch(() => {})
-    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await kept.restore(win)
     await win.evaluate(() => localStorage.removeItem('prism.explorer.size')).catch(() => {})
     await win.evaluate(() => localStorage.removeItem('prism.sidebar.driveStyle')).catch(() => {})
     await app.close().catch(() => {})
@@ -10571,9 +10535,7 @@ async function sidebarPlacesScenario(fixtures) {
   // 8. FROM 90% USED, THE WARNING. C: at 95% used (the e2e-only override in
   // main), each style: the warned row, its fill in --p-warn and its number in
   // --p-warn-ink, the Gauge at 19 of 20.
-  EXTRA_ENV = { PRISM_E2E_DRIVE_USED: '0.95' }
-  const second = await launch(join(dir, 'one.txt'))
-  EXTRA_ENV = {}
+  const second = await launchWith({ PRISM_E2E_DRIVE_USED: '0.95' }, join(dir, 'one.txt'))
   const w2 = second.win
   let style2
   try {
@@ -10623,7 +10585,7 @@ async function sidebarGroundScenario(fixtures) {
   mkdirSync(join(dir, 'inner'), { recursive: true })
   writeFileSync(join(dir, 'one.txt'), 'one\n')
   const { app, win } = await launch(join(dir, 'one.txt'))
-  let styleBefore
+  const kept = styleKeeper()
   const explorer = async () => {
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await win.waitForSelector('.folder-browser .browse-places', { timeout: 10000 })
@@ -10637,8 +10599,7 @@ async function sidebarGroundScenario(fixtures) {
     await explorer()
     // 1. THE HEADING: "Colours", whatever the theme.
     for (const style of ['new-void', 'paper']) {
-      const was = await switchStyle(win, style)
-      if (styleBefore === undefined) styleBefore = was
+      await kept.set(win, style)
       await settingsPage(win, 'appearance')
       const heading = win.locator('[data-settings-section="style-colours"] h3')
       await heading.waitFor({ timeout: 10000 })
@@ -10705,7 +10666,7 @@ async function sidebarGroundScenario(fixtures) {
       await sleep(300)
     }
   } finally {
-    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await kept.restore(win)
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
@@ -11063,10 +11024,7 @@ async function downloadsDateScenario(fixtures) {
   const dl = join(fixtures, 'dl-date')
   rmSync(dl, { recursive: true, force: true })
   mkdirSync(dl, { recursive: true })
-  EXTRA_ENV = {
-    PRISM_E2E_DOWNLOADS: dl,
-    PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index')
-  }
+  const env = { PRISM_E2E_DOWNLOADS: dl, ...NO_INDEX }
   // Launched on a file elsewhere: the Explorer has to go to Downloads itself.
   const elsewhere = join(fixtures, 'dl-date-other')
   rmSync(elsewhere, { recursive: true, force: true })
@@ -11074,8 +11032,7 @@ async function downloadsDateScenario(fixtures) {
   writeFileSync(join(elsewhere, 'a-file.txt'), 'x\n')
   // Older than the file: by date alone it would come second.
   utimesSync(join(elsewhere, 'zz-folder'), new Date(2020, 0, 1), new Date(2020, 0, 1))
-  const { app, win } = await launch(join(elsewhere, 'a-file.txt'))
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith(env, join(elsewhere, 'a-file.txt'))
   const list = '[data-testid="browse-list"]'
   try {
     // THE CALENDAR, from the app's own first day of the week.
@@ -11287,9 +11244,7 @@ async function columnHeadersScenario(fixtures) {
   writeFileSync(join(dir, 'b-small.txt'), 'x\n')
   writeFileSync(join(dir, 'a-big.txt'), 'y'.repeat(4000))
   writeFileSync(join(dir, 'c-mid.txt'), 'z'.repeat(400))
-  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
-  const { app, win } = await launch(join(dir, 'b-small.txt'))
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'b-small.txt'))
   const intoFolder = async () => {
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
@@ -11587,9 +11542,7 @@ async function toolbarIconsScenario(fixtures) {
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
   for (const n of ['one.txt', 'two.txt', 'three.md']) writeFileSync(join(dir, n), `icons ${n}\n`)
-  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
-  const { app, win } = await launch(join(dir, 'one.txt'))
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'one.txt'))
   let before
   const current = () => win.evaluate(() => document.querySelector('.folder-browser nav.browse-path button[aria-current]')?.textContent ?? '')
   const preview = win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Preview pane"]')
@@ -12081,9 +12034,7 @@ async function searchNavScenario(fixtures) {
   writeFileSync(join(dir, 'alpha', 'inside.txt'), 'i\n')
   writeFileSync(join(dir, 'beta', 'alpha-deep.txt'), 'd\n')
   // The walk, not the index: see searchPopupScenario.
-  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
-  const { app, win } = await launch(join(dir, 'other.txt'))
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'other.txt'))
   const popup = win.locator('[data-testid="browse-search-popup"]')
   const field = popup.locator('input[role="combobox"]')
   const list = win.locator('[data-testid="browse-list"]')
@@ -12182,9 +12133,7 @@ async function searchPopupScenario(fixtures) {
   // as the popup's; a later run found them in 270 ms. A root it may not index
   // sends main's search to its bounded walk, which is the same search the
   // popup and the list share, and answers the same way every run.
-  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
-  const { app, win } = await launch(join(dir, 'notes.txt'))
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
   const popup = win.locator('[data-testid="browse-search-popup"]')
   const field = popup.locator('input[role="combobox"]')
   const options = popup.locator('[role="option"]:not([data-show-more])')
@@ -12626,13 +12575,7 @@ async function accentOpacityScenario(fixtures) {
     ok(!/rgba/.test(await readSel()), `and the selection is solid again (${await readSel()})`)
     await win.keyboard.press('Control+w')
   } finally {
-    await win
-      .evaluate((d) => {
-        if (d === null) localStorage.removeItem('prism.style.draft')
-        else localStorage.setItem('prism.style.draft', d)
-        window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
-      }, draftBefore)
-      .catch(() => {})
+    await setPref(win, 'prism.style.draft', draftBefore).catch(() => {})
     await app.close()
   }
 }
@@ -14700,19 +14643,42 @@ const updateCalls = (app) => app.evaluate(() => globalThis.__prismUpdateCalls())
  *  leaves the terminal theme and the accent schemes alone (`apply(false)`),
  *  which a click on a Settings card does not, and the profile is shared with
  *  every scenario after this one. Returns what to hand back to restore. */
+/** Set (or, with null, remove) one localStorage key in the page and tell its
+ *  listeners, as another window's write would. Returns what it was. */
+function setPref(win, key, value) {
+  return win.evaluate(
+    ([k, v]) => {
+      const before = localStorage.getItem(k)
+      if (v === null) localStorage.removeItem(k)
+      else localStorage.setItem(k, v)
+      window.dispatchEvent(new StorageEvent('storage', { key: k, storageArea: localStorage }))
+      return before
+    },
+    [key, value]
+  )
+}
+
 async function switchStyle(win, style) {
   // ONE THEME, NO MODE (#298): each theme is dark or light by itself, and
   // `prism.mode` is only the boot screen's mirror of what is painted.
-  return win.evaluate(
-    (s) => {
-      const before = localStorage.getItem('prism.style')
-      if (s === null) localStorage.removeItem('prism.style')
-      else localStorage.setItem('prism.style', s)
-      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style', storageArea: localStorage }))
-      return before
+  return setPref(win, 'prism.style', style)
+}
+
+/** A scenario's theme switches, the first original remembered: `restore`
+ *  puts it back (a null original is removed again), and does nothing when the
+ *  theme was never switched. */
+function styleKeeper() {
+  let before
+  return {
+    async set(win, style) {
+      const was = await switchStyle(win, style)
+      if (before === undefined) before = was
+      return was
     },
-    style
-  )
+    async restore(win) {
+      if (before !== undefined) await switchStyle(win, before).catch(() => {})
+    }
+  }
 }
 
 /**
@@ -14746,7 +14712,7 @@ async function updateWindowScenario(fixtures) {
     EXTRA_ARGS = []
   }
   const { app, win } = launched
-  let styleBefore
+  const kept = styleKeeper()
   try {
     await win.waitForSelector('.p-md h1', { timeout: 15000 })
     const current = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
@@ -14879,10 +14845,8 @@ async function updateWindowScenario(fixtures) {
     // line. The query's own PowerShell names it too, so it leaves itself out.
     const installers = () => {
       try {
-        return execFileSync(
-          'powershell.exe',
-          ['-NoProfile', '-Command', "@(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*prism-update-*' }).Count"],
-          { encoding: 'utf8', windowsHide: true }
+        return powershell(
+          "@(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*prism-update-*' }).Count"
         ).trim()
       } catch {
         return 'unknown'
@@ -15076,7 +15040,7 @@ async function updateWindowScenario(fixtures) {
     ok(installers() === installersBefore, `no installer process was spawned (${installersBefore} before, ${installers()} after)`)
 
     // The same, in a light style.
-    styleBefore = await switchStyle(win, 'paper')
+    await kept.set(win, 'paper')
     ok(await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light')), 'in a light style (Paper)')
     const widthLight = await chip.evaluate((el) => el.getBoundingClientRect().width)
     ok(Math.abs(widthLight - width0) < 0.01, `the chip is the same width (${widthLight.toFixed(3)}px)`)
@@ -15138,7 +15102,7 @@ async function updateWindowScenario(fixtures) {
     ok(after.checks === 0 && after.installs === 0, `still nothing asked of the network or the installer (${after.checks} checks, ${after.installs} installs)`)
   } finally {
     // The profile is shared: the next scenario must get the style it expects.
-    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await kept.restore(win)
     await app.close().catch(() => {})
   }
 }
@@ -15516,17 +15480,11 @@ const probeOf = (win) =>
 
 /** One launch on `profile` with the probe in, tabs seeded when given. */
 async function launchProbed({ tabs, env = {}, profile = PROFILE } = {}) {
-  if (tabs) {
-    mkdirSync(profile, { recursive: true })
-    writeFileSync(join(profile, 'tabs.json'), JSON.stringify(tabs))
-  }
+  if (tabs) writeTabs(tabs, profile)
   let last
   for (let attempt = 0; attempt < 8; attempt++) {
     try {
-      const app = await launchTestApp({
-        args: [MAIN, `--user-data-dir=${profile}`, '--e2e'],
-        env: { ...process.env, PRISM_E2E_EARLY_PROBE: join(ROOT, 'tools', 'e2e', 'earlyProbe.js'), ...env }
-      })
+      const app = await startApp({ profile, env: { PRISM_E2E_EARLY_PROBE: join(ROOT, 'tools', 'e2e', 'earlyProbe.js'), ...env } })
       const win = await app.firstWindow()
       await win.waitForLoadState('domcontentloaded')
       await win.evaluate(installLoadingProbe)
@@ -15540,22 +15498,6 @@ async function launchProbed({ tabs, env = {}, profile = PROFILE } = {}) {
   }
   throw last
 }
-
-const explorerTab = (id, root, path = root, pinned = true) => ({
-  id,
-  role: 'explorer',
-  ...(pinned ? { pinned: true } : {}),
-  root,
-  browse: {
-    path,
-    history: [{ path, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } }],
-    cursor: 0,
-    surface: 'folder',
-    preview: false
-  },
-  panes: [],
-  open: []
-})
 
 /** The folder the Explorer list is showing, by its accessible name. */
 const shownDir = (win) =>
@@ -16118,7 +16060,7 @@ async function settingsLookScenario(fixtures) {
   EXTRA_ENV = { PRISM_DICTATION_ROOT: root, PRISM_E2E_NVIDIA: '0' }
   let app
   let win
-  let styleBefore
+  const kept = styleKeeper()
   // The window's size is SAVED in the shared profile: the scenarios after
   // this one must start at the size they always did.
   let sizeBefore = null
@@ -16128,7 +16070,7 @@ async function settingsLookScenario(fixtures) {
     const setSize = (w, h) => app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), [w, h])
     await setSize(1600, 1000)
     await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
-    styleBefore = await switchStyle(win, 'aurora')
+    await kept.set(win, 'aurora')
     await settingsPage(win, 'appearance')
     ok((await win.locator('[data-settings-tab="appearance"]').getAttribute('aria-current')) === 'page', 'Settings opens on Appearance')
     const rail = await win.evaluate(() => [...document.querySelectorAll('[data-settings-tab]')].map((b) => b.getAttribute('data-settings-tab')))
@@ -16254,7 +16196,7 @@ async function settingsLookScenario(fixtures) {
     ok(await until(async () => (await settingsLookOf(win)).rail >= 200, 3000, 50), 'and back')
   } finally {
     EXTRA_ENV = {}
-    if (styleBefore !== undefined && win) await switchStyle(win, styleBefore).catch(() => {})
+    if (win) await kept.restore(win)
     await win?.evaluate(() => localStorage.removeItem('prism.tree.size')).catch(() => {})
     if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
     await app?.close().catch(() => {})
@@ -16325,7 +16267,7 @@ const monotonic = (hs, dir) => hs.every((h, i) => i === 0 || (dir > 0 ? h >= hs[
 async function themeWallScenario(fixtures) {
   console.log('theme wall')
   const { app, win } = await launch(join(fixtures, 'README.md'))
-  let styleBefore
+  const kept = styleKeeper()
   let draftBefore
   const blurbs = Object.fromEntries(
     JSON.parse(readFileSync(join(ROOT, 'src', 'renderer', 'src', 'lib', 'themes', 'catalogue.json'), 'utf8')).map((t) => [
@@ -16347,7 +16289,7 @@ async function themeWallScenario(fixtures) {
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 1000))
     draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
     await setDraft(null)
-    styleBefore = await switchStyle(win, 'aurora')
+    await kept.set(win, 'aurora')
     const row = await gotoPref(win, 'style-theme')
     const head = (await row.textContent()) ?? ''
     ok(head.includes('Themes') && head.includes('Choose your look.'), `the Themes card opens on its header row (${head.trim()})`)
@@ -16555,7 +16497,7 @@ async function themeWallScenario(fixtures) {
   } finally {
     await win.emulateMedia({ reducedMotion: 'no-preference' }).catch(() => {})
     await setDraft(draftBefore ?? null).catch(() => {})
-    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await kept.restore(win)
     await app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
     await app.close().catch(() => {})
   }
@@ -16570,13 +16512,12 @@ async function themeWallScenario(fixtures) {
 async function themeLooksScenario(fixtures) {
   console.log('theme looks')
   const { app, win } = await launch(join(fixtures, 'code', 'main.py'))
-  let styleBefore
+  const kept = styleKeeper()
   const catalogue = JSON.parse(readFileSync(join(ROOT, 'src', 'renderer', 'src', 'lib', 'themes', 'catalogue.json'), 'utf8'))
   try {
     await win.waitForSelector('.cm-content', { timeout: 10000 })
     for (const id of ['aurora', 'jade', 'crimson', 'chalk', 'midnight-hc', 'daylight-hc', 'orchid']) {
-      const r = await switchStyle(win, id)
-      if (styleBefore === undefined) styleBefore = r
+      await kept.set(win, id)
       await sleep(350)
       const t = catalogue.find((x) => x.id === id)
       const code = await win.evaluate(() => {
@@ -16594,7 +16535,7 @@ async function themeLooksScenario(fixtures) {
       await win.screenshot({ path: join(SHOTS, `theme-explorer-${id}.png`) })
     }
   } finally {
-    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await kept.restore(win)
     await app.close().catch(() => {})
   }
 }
@@ -16982,7 +16923,7 @@ async function seeThroughScenario(fixtures) {
     writeFileSync(join(dir, 'tone.wav'), wav)
   }
   const { app, win } = await launch(join(dir, 'notes.md'))
-  let styleBefore
+  const kept = styleKeeper()
   /** The coats under a box (`coatsUnder`, above). */
   const coatsOf = (sel, at) => coatsUnder(win, sel, at)
   const groundAlpha = () => groundAlphaOf(win)
@@ -16999,7 +16940,7 @@ async function seeThroughScenario(fixtures) {
   }
   try {
     await win.waitForSelector('[data-testid="browse-list"], [role="treeitem"]', { timeout: 15000 })
-    styleBefore = await switchStyle(win, 'glacier')
+    await kept.set(win, 'glacier')
     ok(await until(async () => (await groundAlpha()) < 1, 6000, 50), 'Glacier is a see-through style')
     const want = await groundAlpha()
     await win.mouse.move(2, 400)
@@ -17069,7 +17010,7 @@ async function seeThroughScenario(fixtures) {
     await win.screenshot({ path: join(SHOTS, 'see-through-one-row.png') })
     await setTitleBar(win, 'shown')
   } finally {
-    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await kept.restore(win)
     await app.close().catch(() => {})
   }
 }
@@ -17128,9 +17069,7 @@ const zipRows = (win) =>
 async function zipFolderScenario(fixtures) {
   console.log('zips are folders (#300)')
   const { dir, zipPath } = await zipWorld(fixtures, 'zipfolder')
-  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
-  const { app, win } = await launch(join(dir, 'notes.txt'))
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
   const consoleErrors = []
   win.on('console', (m) => {
     if (m.type() === 'error') consoleErrors.push(m.text())
@@ -17258,9 +17197,7 @@ async function previewClearsScenario(fixtures) {
   mkdirSync(join(dir, 'sub'), { recursive: true })
   writeFileSync(join(dir, 'sub', 'a.txt'), 'inside the sub folder\n')
   writeFileSync(join(dir, 'sub', 'b.txt'), 'the second file\n')
-  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
-  const { app, win } = await launch(join(dir, 'notes.txt'))
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
   const pane = () =>
     win.evaluate(() => {
       const box = document.querySelector('[data-browse-preview]')
@@ -17353,9 +17290,7 @@ async function previewClearsScenario(fixtures) {
 async function zipPreviewBackScenario(fixtures) {
   console.log('out of a zip, its preview comes back (#334)')
   const { dir } = await zipWorld(fixtures, 'zippreviewback')
-  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
-  const { app, win } = await launch(join(dir, 'notes.txt'))
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
   const pane = () =>
     win.evaluate(() => {
       const box = document.querySelector('[data-browse-preview]')
@@ -17619,7 +17554,7 @@ async function explorerSideScenario(fixtures) {
   writeFileSync(join(dir, 'other.txt'), 'other\n')
   let { app, win } = await launch(join(dir, 'notes.txt'))
   let widthsBefore = null
-  let styleBefore
+  const kept = styleKeeper()
   const browser = '[data-testid="folder-browser"]'
   const boxes = () =>
     win.evaluate((b) => {
@@ -17748,8 +17683,7 @@ async function explorerSideScenario(fixtures) {
     ok(right.previewGrip?.r === right.pane.r && left.previewGrip?.x === left.pane.x, `the preview grip too (${say(left.previewGrip)} / ${say(right.previewGrip)})`)
     ok(right.status.x === right.work.x && right.status.r === right.places.x, `the status line runs under the preview and the list (${say(right.status)})`)
     for (const [scheme, style] of [['dark', 'new-void'], ['light', 'paper']]) {
-      const was = await switchStyle(win, style)
-      if (styleBefore === undefined) styleBefore = was
+      await kept.set(win, style)
       await win.mouse.move(400, 300)
       await sleep(700)
       await win.screenshot({ path: join(SHOTS, `explorer-side-right-${scheme}.png`) })
@@ -17911,7 +17845,7 @@ async function explorerSideScenario(fixtures) {
         else localStorage.setItem('prism.explorer.widths', w)
       }, widthsBefore)
       .catch(() => {})
-    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
+    await kept.restore(win)
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
@@ -17954,9 +17888,7 @@ async function zipMenusScenario(fixtures) {
   writeFileSync(join(src, 'inside', 'note.txt'), 'in a 7z\n')
   execFileSync(seven, ['a', '-t7z', join(dir, 'locked.7z'), join(src, '*')], { windowsHide: true, stdio: 'ignore' })
   rmSync(src, { recursive: true, force: true })
-  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
-  const { app, win } = await launch(join(dir, 'notes.txt'))
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
   try {
     await explorerAt(win, dir)
     const outside = await rowMenu(win, 'Wind-0.2.2.zip')
@@ -18016,9 +17948,7 @@ async function zipWritesScenario(fixtures) {
   const addMe = join(dir, 'add-me.txt')
   writeFileSync(addMe, 'added from outside\n')
   writeFileSync(join(dir, 'carry-me.txt'), 'dragged in\n')
-  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index'), PRISM_E2E_PICK_FILES: addMe }
-  const { app, win } = await launch(join(dir, 'notes.txt'))
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith({ ...NO_INDEX, PRISM_E2E_PICK_FILES: addMe }, join(dir, 'notes.txt'))
   try {
     await explorerAt(win, dir)
     await zipGo(win, `${zipPath}\\Wind`, async () => (await zipRows(win)).some((p) => p.endsWith('package.json')))
@@ -18150,21 +18080,12 @@ async function zipRestoreScenario(fixtures) {
   console.log('a tab inside a zip comes back (#300)')
   const { dir, zipPath } = await zipWorld(fixtures, 'ziprestore')
   const inside = `${zipPath}\\Wind\\src`
-  const seed = (path, history) => {
-    const explorer = {
-      id: 'fixture-explorer', role: 'explorer', pinned: true, root: dir,
-      browse: { path, history: history.map((p) => ({ path: p, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } })), cursor: history.length - 1, surface: 'folder', preview: true },
-      panes: [], open: [dir]
-    }
-    writeFileSync(join(PROFILE, 'tabs.json'), JSON.stringify({ active: 0, tabs: [explorer] }))
-  }
+  const seed = (path, history) =>
+    writeTabs({ active: 0, tabs: [explorerTab('fixture-explorer', dir, path, true, { preview: true, open: [dir], history })] })
   let app
   try {
     seed(inside, [dir, zipPath, inside])
-    ;({ app } = await (async () => {
-      const a = await launchTestApp({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'], env: { ...process.env, PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') } })
-      return { app: a }
-    })())
+    app = await startApp({ env: NO_INDEX })
     let win = await app.firstWindow()
     await offscreen(app)
     ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('\\main')), 15000), 'the tab came back inside the zip')
@@ -18177,7 +18098,7 @@ async function zipRestoreScenario(fixtures) {
     await app.close()
     await sleep(900)
     // Second launch: the first frame paints from the cache.
-    app = await launchTestApp({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'], env: { ...process.env, PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') } })
+    app = await startApp({ env: NO_INDEX })
     win = await app.firstWindow()
     await offscreen(app)
     ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('\\main')), 15000), 'and again on the next launch')
@@ -18185,7 +18106,7 @@ async function zipRestoreScenario(fixtures) {
     await sleep(900)
     // The zip deleted: the tab falls back to its folder.
     rmSync(zipPath, { force: true })
-    app = await launchTestApp({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'], env: { ...process.env, PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') } })
+    app = await startApp({ env: NO_INDEX })
     win = await app.firstWindow()
     await offscreen(app)
     ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('notes.txt')), 15000), `with the zip gone, the tab falls back to its folder (${await zipWhere(win)})`)
@@ -18209,9 +18130,7 @@ async function zipLockedScenario(fixtures) {
   writeFileSync(join(dir, 'broken.zip'), Buffer.concat([Buffer.from('PK\u0003\u0004'), Buffer.alloc(64, 7)]))
   writeFileSync(join(dir, 'notes.txt'), 'beside\n')
   const before = new Set(readdirSync(tmpdir()).filter((n) => n.startsWith('prism-zip-')))
-  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
-  const { app, win } = await launch(join(dir, 'notes.txt'))
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
   let runDir
   try {
     await explorerAt(win, dir)
@@ -18342,9 +18261,7 @@ async function propertiesWindowScenario(fixtures) {
 
   // The drive's donut sizes its folders from the search index; this machine's
   // own Everything has C: indexed already, which a fresh e2e index has not.
-  EXTRA_ENV = { PRISM_E2E_EXISTING_INDEX: '1' }
-  const { app, win } = await launch(notes)
-  EXTRA_ENV = {}
+  const { app, win } = await launchWith({ PRISM_E2E_EXISTING_INDEX: '1' }, notes)
   try {
     await explorerAt(win, dir)
 
@@ -18660,7 +18577,7 @@ async function explorerDiagScenario(fixtures) {
   mkdirSync(join(dir, 'inner'), { recursive: true })
   for (let i = 0; i < 6; i++) writeFileSync(join(dir, `file-${i}.txt`), 'x'.repeat(i + 1))
   rmSync(DIAG_DIR, { recursive: true, force: true })
-  EXTRA_ENV = { PRISM_E2E_INDEX_ROOT: join(tmpdir(), 'prism-e2e-no-index') }
+  EXTRA_ENV = NO_INDEX
   let app
   let win
   let verboseOn = false

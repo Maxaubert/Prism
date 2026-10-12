@@ -7,21 +7,17 @@ import {
   type ArchivePanelMenuContext,
   type ArchiveRowMenuContext
 } from './archivePanel'
+import { aliasWindow, clearHost, setHost } from '../../testing/host'
 
-// The unit tests run under node, where `window` does not exist; in a browser
-// it IS globalThis, which is what the phone shim leans on too.
-if (typeof window === 'undefined')
-  Object.defineProperty(globalThis, 'window', { value: globalThis })
+aliasWindow()
 
 beforeEach(() => {
-  ;(globalThis as unknown as { prism: unknown }).prism = {
+  setHost({
     capabilities: { write: true, clipboard: true, explorer: true, drag: true },
     showInExplorer: vi.fn()
-  }
+  })
 })
-afterEach(() => {
-  delete (globalThis as unknown as { prism?: unknown }).prism
-})
+afterEach(clearHost)
 
 const ALL = { clipboard: true, write: true, explorer: true }
 const NONE = { clipboard: false, write: false, explorer: false }

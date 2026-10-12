@@ -1,22 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createElement, type JSX } from 'react'
 import { plusButtonMenu, tabContextMenu } from './tabStrip'
+import { aliasWindow, clearHost, setHost } from '../testing/host'
 
-// The unit tests run under node, where `window` does not exist; in a browser
-// it IS globalThis (see fileVerbs.test.ts).
-if (typeof window === 'undefined')
-  Object.defineProperty(globalThis, 'window', { value: globalThis })
+aliasWindow()
 
-afterEach(() => {
-  delete (globalThis as unknown as { prism?: unknown }).prism
-})
+afterEach(clearHost)
 
 const labels = (items: Array<{ label: string }>): string[] => items.map((i) => i.label)
 
 describe('tabContextMenu', () => {
   it('a folder tab: the folder rows, then close, last', () => {
     const showInExplorer = vi.fn()
-    ;(globalThis as unknown as { prism: unknown }).prism = { showInExplorer }
+    setHost({ showInExplorer })
     const items = tabContextMenu({ root: 'C:\\a', pinned: false, onClose: vi.fn() })
     expect(labels(items)).toEqual(['Copy folder path', 'Show folder in File Explorer', 'Close tab'])
     items[1].onPick?.()

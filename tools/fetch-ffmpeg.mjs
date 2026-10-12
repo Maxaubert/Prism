@@ -12,13 +12,11 @@
 //
 // The binaries are NOT committed: this script is what a fresh clone (and CI)
 // runs before packaging. Re-running is free once vendor/ffmpeg is populated.
-import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import AdmZip from 'adm-zip'
+import { mkdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { pinnedDownload, stampHolds, unzipFlat, writeStamp } from './lib/pinnedDownload.mjs'
+import { ROOT } from './lib/repo.mjs'
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(ROOT, 'vendor', 'ffmpeg')
 
 // PIN AN END-OF-MONTH BUILD, NEVER A DAILY (2026-09-19, #158). BtbN deletes its
@@ -46,54 +44,31 @@ const WANTED = [
   'LICENSE.txt'
 ]
 
-const stamp = join(OUT, '.source')
-if (existsSync(join(OUT, 'ffmpeg.exe')) && existsSync(stamp) && readFileSync(stamp, 'utf8').trim() === SHA256) {
+if (stampHolds(OUT, 'ffmpeg.exe', SHA256)) {
   console.log('ffmpeg: vendor/ffmpeg already holds ' + ASSET)
   process.exit(0)
 }
 
-console.log('ffmpeg: downloading ' + ASSET + ' (67 MB)')
-const res = await fetch(URL)
-if (!res.ok) {
-  console.error(`ffmpeg: download failed (${res.status} ${res.statusText})\n  ${URL}`)
+const buf = await pinnedDownload('ffmpeg', URL, SHA256, {
+  what: ASSET + ' (67 MB)',
   // A 404 here is almost never a broken machine: BtbN's autobuild releases
   // are ROTATED, and a tag that existed when this was pinned is deleted a few
   // weeks later (measured: the 2026-08-23 build was gone by 2026-09-08, and
   // took a release build down with it). The pin is deliberate, so the fix is
   // to re-pin rather than to follow `latest` and lose the checksum.
-  if (res.status === 404)
-    console.error(
-      'ffmpeg: that build has been rotated away upstream. Re-pin TAG, ASSET and SHA256 above from\n' +
+  hint: (status) =>
+    status === 404
+      ? 'ffmpeg: that build has been rotated away upstream. Re-pin TAG, ASSET and SHA256 above from\n' +
         '  https://github.com/BtbN/FFmpeg-Builds/releases (the win64-lgpl-shared zip of the same 9.0 line),\n' +
         '  and from an END-OF-MONTH tag: the dailies are deleted after about 12 days, the monthlies are kept.'
-    )
-  process.exit(1)
-}
-const buf = Buffer.from(await res.arrayBuffer())
-
-const got = createHash('sha256').update(buf).digest('hex')
-if (got !== SHA256) {
-  console.error(`ffmpeg: SHA-256 mismatch, refusing to unpack\n  expected ${SHA256}\n  got      ${got}`)
-  process.exit(1)
-}
+      : undefined
+})
 
 rmSync(OUT, { recursive: true, force: true })
 mkdirSync(OUT, { recursive: true })
-
-const zip = new AdmZip(buf)
 // Every entry sits under one top-level folder named after the build.
-const entries = zip.getEntries()
-let taken = 0
-for (const want of WANTED) {
-  const hit = entries.find((e) => e.entryName.endsWith('/' + want))
-  if (!hit) {
-    console.error('ffmpeg: ' + want + ' is missing from the archive')
-    process.exit(1)
-  }
-  // Flattened: bin/x.dll and LICENSE.txt all land beside each other, which is
-  // what electron-builder copies to resources/bin and what the resolver expects.
-  writeFileSync(join(OUT, want.split('/').pop()), hit.getData())
-  taken++
-}
-writeFileSync(stamp, SHA256 + '\n')
+// Flattened: bin/x.dll and LICENSE.txt all land beside each other, which is
+// what electron-builder copies to resources/bin and what the resolver expects.
+const taken = await unzipFlat('ffmpeg', buf, WANTED, OUT)
+writeStamp(OUT, SHA256)
 console.log(`ffmpeg: unpacked ${taken} files into vendor/ffmpeg`)
