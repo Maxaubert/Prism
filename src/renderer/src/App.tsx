@@ -91,7 +91,7 @@ import { browseParent } from './lib/browse'
 import { terminalRestoreOrder } from './lib/terminalRestore'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
-import { BrowseIcon } from './components/browse/BrowseIcon'
+import { BrowseIcon } from './components/icons/BrowseIcon'
 import { ExplorerResize } from './components/browse/ExplorerResize'
 import { useExplorerWidths } from './lib/useExplorerWidths'
 import { usePreviewSlide } from './lib/usePreviewSlide'
@@ -182,6 +182,7 @@ import {
   type UndoEntry,
   type UndoState
 } from './lib/undo'
+import { Gear, Icon } from './components/icons/Icon'
 
 // Tab ids only have to be unique within a session and stable while a tab lives:
 // they are React keys and the handle every tab action names, never anything
@@ -425,28 +426,7 @@ function TitleButtons({
             aria-label="Settings"
             aria-pressed={settingsOpen}
           >
-            <svg
-              viewBox="0 0 24 24"
-              width={15}
-              height={15}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              aria-hidden
-              data-toggle-glyph={settingsOpen ? 'on' : 'off'}
-            >
-              {/* Open, the gear is SOLID with its hub cut out (evenodd). */}
-              {settingsOpen ? (
-                <path
-                  fill="currentColor"
-                  fillRule="evenodd"
-                  d="M15.2 12a3.2 3.2 0 1 0-6.4 0 3.2 3.2 0 1 0 6.4 0ZM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
-                />
-              ) : (
-                <circle cx="12" cy="12" r="3.2" />
-              )}
-              {!settingsOpen && <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />}
-            </svg>
+            <Gear size={15} solid={settingsOpen} data-toggle-glyph={settingsOpen ? 'on' : 'off'} />
           </button>
         )}
         {!setup && (
@@ -707,18 +687,7 @@ function PinnedPaneView({
         title="Remove from split view"
         aria-label={`Remove ${name} from split view`}
       >
-        <svg
-          viewBox="0 0 24 24"
-          width={11}
-          height={11}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          aria-hidden
-        >
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
+        <Icon name="close" size={11} weight="2.2" join={false} />
       </button>
     </div>
   )
@@ -4478,18 +4447,7 @@ export default function App(): JSX.Element {
                       title="Remove from split view"
                       aria-label="Remove the open file from split view"
                     >
-                      <svg
-                        viewBox="0 0 24 24"
-                        width={11}
-                        height={11}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                        aria-hidden
-                      >
-                        <path d="M6 6l12 12M18 6L6 18" />
-                      </svg>
+                      <Icon name="close" size={11} weight="2.2" join={false} />
                     </button>
                   </div>
                   {pins.map((pn, i) => (
@@ -4542,18 +4500,7 @@ export default function App(): JSX.Element {
                 title="Remove from split view"
                 aria-label="Remove the file from the split"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  width={11}
-                  height={11}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  aria-hidden
-                >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
+                <Icon name="close" size={11} weight="2.2" join={false} />
               </button>
             )}
           </div>

@@ -6,7 +6,7 @@
  */
 import type { MenuItem } from '../components/ContextMenu'
 import type { SplitDir } from '../lib/panes'
-import { tickIf } from './fileVerbs'
+import { tickIf } from '../components/icons/menuGlyphs'
 
 /** The four places a split pane can sit, as a submenu (owner, 2026-09-03:
  *  "a tree structure ... so we don't bloat the options"). Shared by the

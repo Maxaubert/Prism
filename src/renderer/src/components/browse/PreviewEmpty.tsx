@@ -1,4 +1,6 @@
 import type { JSX } from 'react'
+import { Icon } from '../icons/Icon'
+import { PATHS } from '../icons/paths'
 
 /**
  * THE PREVIEW PANE WITH NOTHING IN IT (#300 review; owner, 2026-10-06, of a zip
@@ -14,21 +16,10 @@ export function PreviewEmpty(): JSX.Element {
       data-preview-empty
       className="flex h-full w-full flex-col items-center justify-center gap-2.5 px-6 text-center"
     >
-      <svg
-        viewBox="0 0 24 24"
-        width={28}
-        height={28}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-        className="text-[var(--p-dim2)] opacity-60"
-      >
-        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-        <path d="M14 3v5h5" />
-      </svg>
+      <Icon size={28} weight="1.5" className="text-[var(--p-dim2)] opacity-60">
+        <path d={PATHS.page} />
+        <path d={PATHS.pageFold} />
+      </Icon>
       <div className="text-xs text-[var(--p-dim)]">Select a file to preview</div>
     </div>
   )

@@ -2,10 +2,10 @@ import { useCallback, useLayoutEffect, useRef, useState, type JSX, type ReactNod
 import { browseCrumbs, browseParent } from '../../lib/browse'
 import { addressBarMenu } from '../../menus/addressBar'
 import { ContextMenu } from '../ContextMenu'
-import { BrowseIcon } from './BrowseIcon'
+import { BrowseIcon } from '../icons/BrowseIcon'
 import type { FolderBrowserProps } from './types'
 import { useFolderDrop } from './useFolderDrop'
-import { KindIcon } from '../TreeRows'
+import { KindIcon } from '../icons/FileIcons'
 import { browsableArchive } from '@shared/archivePlace'
 import './archive.css'
 

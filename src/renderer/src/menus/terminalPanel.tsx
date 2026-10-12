@@ -1,6 +1,6 @@
 import type { MenuItem } from '../components/ContextMenu'
 import type { DockEdge } from '../lib/termDock'
-import { tickIf } from './fileVerbs'
+import { tickIf } from '../components/icons/menuGlyphs'
 
 /**
  * THE TERMINAL PANEL'S MENU: what the user right-clicks inside a tab's

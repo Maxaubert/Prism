@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import { recentLabels } from 'prism-term-core/renderer/lib/recentRoots'
 import type { MenuItem } from '../components/ContextMenu'
+import { FolderFill } from '../components/icons/Icon'
 
 /**
  * THE TAB STRIP'S TWO MENUS (`components/TabStrip.tsx`): a tab's own menu,
@@ -48,18 +49,7 @@ export function tabContextMenu(ctx: TabMenuContext): MenuItem[] {
 }
 
 /** The tree's folder, at menu size: the + menu lists PLACES. */
-const folderGlyph = (): JSX.Element => (
-  <svg
-    viewBox="0 0 24 24"
-    width={13}
-    height={13}
-    fill="var(--p-tree-folder)"
-    className="shrink-0"
-    aria-hidden
-  >
-    <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
-  </svg>
-)
+const folderGlyph = (): JSX.Element => <FolderFill size={13} />
 
 export interface PlusMenuContext {
   /** What the + menu lists, read when it opened: pins first, then the

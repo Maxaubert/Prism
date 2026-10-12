@@ -12,7 +12,7 @@ import { setExplorerSide, useExplorerSide, type ExplorerSide } from '../../lib/e
 import { TREE_SIDES } from '../../lib/treePrefs'
 import { visitedDirectories } from '../../lib/visitedDirectories'
 import { APP_SECTIONS, appOpt } from './appOptions'
-import { iconPath } from './icons'
+import { iconPath } from '../icons/settingsIcons'
 import { WinEShortcutRow } from './WinEShortcutRow'
 
 // EXPLORER (2026-10-05, the grouped cards redesign): what was General, the

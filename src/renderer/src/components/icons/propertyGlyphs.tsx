@@ -1,4 +1,6 @@
 import type { JSX, ReactNode } from 'react'
+import { Icon } from './Icon'
+import { PATHS } from './paths'
 
 // The Properties window's own glyphs, drawn in the approved mockup's stroke
 // family (2026-10-12, `research/prism/mockups/2026-10-12-properties/final`):
@@ -14,20 +16,9 @@ function Glyph({
   children: ReactNode
 }): JSX.Element {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={width}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      className="block shrink-0"
-    >
+    <Icon size={size} weight={width} className="block shrink-0">
       {children}
-    </svg>
+    </Icon>
   )
 }
 
@@ -52,7 +43,7 @@ export function FolderGlyph(): JSX.Element {
 export function FileGlyph(): JSX.Element {
   return (
     <Glyph size={22}>
-      <path d="M6 3h8l4 4v14H6z" />
+      <path d={PATHS.sheet} />
       <path d="M14 3v4h4" />
     </Glyph>
   )
@@ -61,7 +52,7 @@ export function FileGlyph(): JSX.Element {
 export function CodeGlyph(): JSX.Element {
   return (
     <Glyph size={22}>
-      <path d="M6 3h8l4 4v14H6z" />
+      <path d={PATHS.sheet} />
       <path d="M10 12l-2 2 2 2M14 12l2 2-2 2" />
     </Glyph>
   )
@@ -79,7 +70,7 @@ export function CopyGlyph(): JSX.Element {
 export function CheckGlyph(): JSX.Element {
   return (
     <Glyph size={14} width={2}>
-      <path d="M5 12.5l4.5 4.5L19 7" />
+      <path d={PATHS.tick} />
     </Glyph>
   )
 }

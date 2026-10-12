@@ -4,8 +4,9 @@
  */
 import type { Dispatch, SetStateAction } from 'react'
 import type { MenuItem } from '../../components/ContextMenu'
-import { FileMenuIcon } from '../../components/FileMenuIcon'
-import { fileVerbs, tickIf } from '../fileVerbs'
+import { FileMenuIcon } from '../../components/icons/FileMenuIcon'
+import { fileVerbs } from '../fileVerbs'
+import { tickIf } from '../../components/icons/menuGlyphs'
 import { saveSlideSeconds, SLIDE_SECONDS, type SlideSeconds } from '../../lib/slideshow'
 
 export interface ImageMenuContext {

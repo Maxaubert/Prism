@@ -1,4 +1,5 @@
 import { useId, type JSX } from 'react'
+import { PATHS } from './paths'
 
 /** What a tab holds, as its icon says it (#308). */
 export type TabKind = 'explorer' | 'project' | 'settings'
@@ -7,7 +8,7 @@ export type TabKind = 'explorer' | 'project' | 'settings'
    research/prism/2026-10-06-new-themes/toolbar-options.html). Lines on the
    tabs you are not on, solid on the one you are: a second cue next to the
    accent rule along the top. */
-const FOLDER = 'M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z'
+const FOLDER = PATHS.folderRound
 const FOLDER_SOLID =
   'M2.5 6.5A1.5 1.5 0 0 1 4 5h5.2l2 2H20a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 19H4a1.5 1.5 0 0 1-1.5-1.5z'
 const CODE = 'M8.5 7L3.5 12l5 5M15.5 7l5 5-5 5M13.5 4.5l-3 15'

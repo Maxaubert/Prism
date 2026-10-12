@@ -6,7 +6,7 @@ import { langColour } from '../../lib/langColour'
 import { count, encodingLabel, eolLabel, headerParent, textCounts, whenLabel } from '../../lib/propsFormat'
 import type { BodyProps } from './bodyProps'
 import { ChecksumRow } from './ChecksumRow'
-import { CodeGlyph, FileGlyph } from './glyphs'
+import { CodeGlyph, FileGlyph } from '../icons/propertyGlyphs'
 import { Facts, Footer, Header, Reading, type Fact } from './parts'
 import { useLoaded } from './useLoaded'
 

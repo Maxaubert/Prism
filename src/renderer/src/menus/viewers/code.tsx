@@ -5,7 +5,8 @@
  */
 import type { MenuItem } from '../../components/ContextMenu'
 import type { WrapPref } from '../../lib/codePrefs'
-import { fileVerbs, tickIf } from '../fileVerbs'
+import { fileVerbs } from '../fileVerbs'
+import { tickIf } from '../../components/icons/menuGlyphs'
 
 export interface CodeMenuContext {
   path: string

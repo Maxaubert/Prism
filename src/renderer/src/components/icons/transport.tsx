@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- static glyph elements, not components */
 import type { JSX, ReactNode } from 'react'
+import { PATHS } from './paths'
 
 // Shared transport glyphs, so the video and audio players draw the same controls.
 // Part of the interchangeable-chrome set (see ROADMAP "Customization & theming").
@@ -25,14 +26,14 @@ export const IconPause = (
 )
 export const IconVol = (
   <Svg>
-    <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+    <path d={PATHS.speaker} />
     <path d="M16 8.5a4 4 0 0 1 0 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     <path d="M18.5 6a7 7 0 0 1 0 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
   </Svg>
 )
 export const IconMute = (
   <Svg>
-    <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+    <path d={PATHS.speaker} />
     <path d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
   </Svg>
 )

@@ -5,7 +5,7 @@ import { SettingsSection } from 'prism-term-core/renderer/settings/layout/Settin
 import { setNewTabShow, useNewTabShow, type NewTabShow } from '../../lib/newTabPrefs'
 import { setTreeSide, TREE_SIDES, useTreeSide, type TreeSide } from '../../lib/treePrefs'
 import { APP_SECTIONS, appOpt } from './appOptions'
-import { iconPath } from './icons'
+import { iconPath } from '../icons/settingsIcons'
 
 // PROJECT SETTINGS (#296; owner, 2026-10-06: "project specific settings
 // should be in a tab called project settings not in explorer"). The rows only

@@ -43,7 +43,7 @@ File Explorer may move under a "More" flyout or go.
 
 | File | What | Used by |
 |---|---|---|
-| `menus/fileVerbs.tsx` | `fileVerbs` (Show in File Explorer, Copy path; capability-gated for the phone), `stepVerbs` (Next/Previous), `tickIf` | Explorer row, places, image, audio, markdown, doc, code |
+| `menus/fileVerbs.tsx` | `fileVerbs` (Show in File Explorer, Copy path; capability-gated for the phone), `stepVerbs` (Next/Previous). The row glyphs `menuIcon` and `tickIf` are `components/icons/menuGlyphs.tsx` | Explorer row, places, image, audio, markdown, doc, code |
 | `menus/fileAppMenu.tsx` | the "Open in" flyout (Default app, the apps, Choose another app) | Explorer file row, tree file row |
 | `menus/archiveMenus.ts` | pure row lists for a zip: `outside`, `folder`, `file`, `many`, `empty` | wired to actions and icons by `components/browse/useArchiveActions.tsx`, for the Explorer list and the project tree |
 

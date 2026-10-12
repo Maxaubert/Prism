@@ -4,7 +4,8 @@
  */
 import type { MenuItem } from '../../components/ContextMenu'
 import { RATES } from '../../lib/useMediaControls'
-import { fileVerbs, stepVerbs, tickIf } from '../fileVerbs'
+import { fileVerbs, stepVerbs } from '../fileVerbs'
+import { tickIf } from '../../components/icons/menuGlyphs'
 
 export interface AudioMenuContext {
   path: string

@@ -22,7 +22,7 @@ import {
   type Style
 } from '../../lib/theme'
 import { APP_SECTIONS, appOpt } from './appOptions'
-import { iconPath } from './icons'
+import { iconPath } from '../icons/settingsIcons'
 import { StyleColoursSection } from './StyleColours'
 import { ThemeWall } from './ThemeWall'
 

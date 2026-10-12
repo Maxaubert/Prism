@@ -1,8 +1,8 @@
 import type { JSX } from 'react'
 import type { ArchiveMeta } from '@shared/types'
 import { formatBytes } from '../../lib/format'
-import { KindIcon } from '../TreeRows'
-import { FileMenuIcon } from '../FileMenuIcon'
+import { KindIcon } from '../icons/FileIcons'
+import { FileMenuIcon } from '../icons/FileMenuIcon'
 
 /**
  * THE STRIP INSIDE AN ARCHIVE (#300, mockup 03): one 40 px line above the

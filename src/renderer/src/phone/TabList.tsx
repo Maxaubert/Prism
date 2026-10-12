@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import type { PhoneTab } from '@shared/types'
-import { FolderGlyph } from './FolderGlyph'
+import { FolderFill, Icon } from '../components/icons/Icon'
 import { ROW_CLASS } from './rows'
 import { listTabs } from './tabs'
 
@@ -72,7 +72,7 @@ export function TabList({ onPick }: { onPick: (root: string) => Promise<void> })
               data-phone-tab-row
               aria-current={t.current ? 'true' : undefined}
             >
-              <FolderGlyph size={26} />
+              <FolderFill size={26} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{t.name}</span>
                 {/* The path, because two open folders can share a name and
@@ -80,21 +80,14 @@ export function TabList({ onPick }: { onPick: (root: string) => Promise<void> })
                 <span className="block truncate text-[13px] text-[var(--p-text-soft)]">{t.root}</span>
               </span>
               {t.current && (
-                <svg
-                  viewBox="0 0 24 24"
-                  width={22}
-                  height={22}
-                  fill="none"
+                <Icon
+                  name="tickWide"
+                  size={22}
+                  weight="2.4"
                   stroke="var(--color-accent-hi)"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
                   className="shrink-0"
-                  aria-hidden
                   data-phone-tab-tick
-                >
-                  <path d="M4.5 12.5l5 5 10-11" />
-                </svg>
+                />
               )}
             </button>
           </li>
