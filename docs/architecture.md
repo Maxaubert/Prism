@@ -199,6 +199,9 @@ Filesmith's conventions.
     associations), folder navigation, settings, and packaging.
 - **Filesmith and Prism never depend on each other at runtime.** They only share `prism-core`,
   which each bundles at build time. A user with Filesmith does not need Prism, and vice versa.
+- **Single homes** (structure cleanup, 2026-10-12): one module per shared job. Use it, never a
+  local copy.
+  - localStorage read that never throws: `src/renderer/src/lib/storage.ts` (`readStored`).
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

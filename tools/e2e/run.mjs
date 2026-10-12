@@ -10060,7 +10060,7 @@ async function rightClickSelectScenario(fixtures) {
     await until(async () => !(await menuOpen()), 3000)
     await away()
   }
-  let styleBefore = null
+  let styleBefore
   try {
     // 0. THE PROJECT TREE: a right-clicked row wears the selection tint while
     // its menu is open, not the grey.
@@ -10118,9 +10118,9 @@ async function rightClickSelectScenario(fixtures) {
       )
     const subPath = join(dir, 'sub')
 
-    for (const [style, mode] of [['aurora', 'dark'], ['paper', 'light']]) {
-      const was = await switchStyle(win, style, mode)
-      styleBefore ??= was
+    for (const style of ['aurora', 'paper']) {
+      const was = await switchStyle(win, style)
+      if (styleBefore === undefined) styleBefore = was
       await sleep(500)
       const tint = await cssColour(win, 'var(--p-sel-tint)')
 
@@ -10309,7 +10309,7 @@ async function rightClickSelectScenario(fixtures) {
       await goByAddress(dir, 'a.txt')
     }
   } finally {
-    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
     await win.evaluate(() => localStorage.removeItem('prism.sidebar.driveStyle')).catch(() => {})
     await app.close().catch(() => {})
   }
@@ -10362,7 +10362,7 @@ async function sidebarPlacesScenario(fixtures) {
   const section = async (label) => (await sections()).find((s) => s.label === label)
   const pinRow = (section, name) =>
     places.locator(`section[aria-label="${section}"] .quick-access-pin[data-quick-access-path$="\\\\${name}" i]`)
-  let styleBefore = null
+  let styleBefore
   try {
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
@@ -10505,9 +10505,9 @@ async function sidebarPlacesScenario(fixtures) {
     // A drive follows the Explorer size: its text is the rows' text and the
     // Tiles chip is the mockup's 2.4 times it.
     await pinRow('Pinned', 'pinme').click()
-    for (const [style, mode] of [['aurora', 'dark'], ['paper', 'light'], ['default', 'dark']]) {
-      const was = await switchStyle(win, style, mode)
-      styleBefore ??= was
+    for (const style of ['aurora', 'paper', 'default']) {
+      const was = await switchStyle(win, style)
+      if (styleBefore === undefined) styleBefore = was
       await sleep(500)
       for (const size of ['Small', 'Medium', 'Large']) {
         await pickStyleSegment(win, 'explorer-size', size)
@@ -10534,8 +10534,8 @@ async function sidebarPlacesScenario(fixtures) {
     // Each drive style on a dark and a light style, at Medium, for the side by
     // side with the mockup's A, D and E. The drive rows only: the panel's
     // This PC section, clipped.
-    for (const [style, mode] of [['aurora', 'dark'], ['paper', 'light']]) {
-      await switchStyle(win, style, mode)
+    for (const style of ['aurora', 'paper']) {
+      await switchStyle(win, style)
       await sleep(400)
       for (const id of ['tiles', 'ring', 'gauge']) {
         await pickStyleSegment(win, 'drive-style', DRIVE_STYLE_NAMES[id])
@@ -10562,7 +10562,7 @@ async function sidebarPlacesScenario(fixtures) {
     await win
       .evaluate(() => localStorage.removeItem('prism.quickAccess'))
       .catch(() => {})
-    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
     await win.evaluate(() => localStorage.removeItem('prism.explorer.size')).catch(() => {})
     await win.evaluate(() => localStorage.removeItem('prism.sidebar.driveStyle')).catch(() => {})
     await app.close().catch(() => {})
@@ -10575,9 +10575,9 @@ async function sidebarPlacesScenario(fixtures) {
   const second = await launch(join(dir, 'one.txt'))
   EXTRA_ENV = {}
   const w2 = second.win
-  let style2 = null
+  let style2
   try {
-    style2 = await switchStyle(w2, 'aurora', 'dark')
+    style2 = await switchStyle(w2, 'aurora')
     await w2.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await w2.waitForSelector('.folder-browser .browse-places section[aria-label="This PC"]', { timeout: 15000 })
     const sysRoot = `${(process.env.SystemDrive || 'C:').toUpperCase()}\\`
@@ -10597,7 +10597,7 @@ async function sidebarPlacesScenario(fixtures) {
       await w2.screenshot({ path: join(SHOTS, `sidebar-drives-${id}-warn.png`), clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 640) } })
     }
   } finally {
-    if (style2) await switchStyle(w2, style2[0], style2[1]).catch(() => {})
+    if (style2 !== undefined) await switchStyle(w2, style2).catch(() => {})
     await w2.evaluate(() => localStorage.removeItem('prism.sidebar.driveStyle')).catch(() => {})
     await second.app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
@@ -16982,7 +16982,7 @@ async function seeThroughScenario(fixtures) {
     writeFileSync(join(dir, 'tone.wav'), wav)
   }
   const { app, win } = await launch(join(dir, 'notes.md'))
-  let styleBefore = null
+  let styleBefore
   /** The coats under a box (`coatsUnder`, above). */
   const coatsOf = (sel, at) => coatsUnder(win, sel, at)
   const groundAlpha = () => groundAlphaOf(win)
@@ -17069,14 +17069,7 @@ async function seeThroughScenario(fixtures) {
     await win.screenshot({ path: join(SHOTS, 'see-through-one-row.png') })
     await setTitleBar(win, 'shown')
   } finally {
-    if (styleBefore)
-      await win
-        .evaluate((b) => {
-          const put = (k, v) => (v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v))
-          put('prism.style', b[0])
-          put('prism.mode', b[1])
-        }, styleBefore)
-        .catch(() => {})
+    if (styleBefore !== undefined) await switchStyle(win, styleBefore).catch(() => {})
     await app.close().catch(() => {})
   }
 }

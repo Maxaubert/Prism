@@ -2,7 +2,10 @@ import { resolve } from 'path'
 import type { ZipOp, ZipOps, ZipReply, ZipRequest } from './zipOps'
 
 // main's side of the zip worker (owner, 2026-10-12, "zip editing off the main
-// process"). Only TYPES come from zipOps.ts, so adm-zip never loads on main.
+// process"). Only TYPES come from zipOps.ts, so this file brings none of the
+// worker's edits onto main. adm-zip itself DOES load on main, through
+// archive.ts: the reads that parse a Buffer already read with fs/promises
+// (the Explorer's listing, a member unpacked, an extraction out) run there.
 //
 // - ONE FILE, ONE WRITER: edits of one archive run one at a time, in the
 //   order they were asked for, and a read waits for the edits asked for

@@ -202,7 +202,17 @@ export class Positions {
         await this.loaded
         this.marks = prunePositions(this.marks)
         await fsp.mkdir(dirname(this.file), { recursive: true }).catch(() => undefined)
-        await fsp.writeFile(this.file, JSON.stringify(Object.fromEntries(this.marks)))
+        // A tmp file swapped in by a rename, so a crash mid-write leaves the
+        // last whole file rather than half of a new one. Saves run one at a
+        // time (`writing`), so one tmp name is enough.
+        const tmp = `${this.file}.tmp`
+        try {
+          await fsp.writeFile(tmp, JSON.stringify(Object.fromEntries(this.marks)))
+          await fsp.rename(tmp, this.file)
+        } catch (err) {
+          await fsp.rm(tmp, { force: true }).catch(() => undefined)
+          throw err
+        }
       })
       .catch(() => undefined)
     return this.writing
