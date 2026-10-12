@@ -18,7 +18,6 @@ import { extOf, naturalCompare } from './path'
  * one - it is a page if Prism would call it an image.
  */
 
-
 /** Paths that are in the container but are not part of the book. */
 function noise(path: string): boolean {
   const p = path.replace(/\\/g, '/')
@@ -31,7 +30,6 @@ function noise(path: string): boolean {
   const name = segments[segments.length - 1]?.toLowerCase() ?? ''
   return name === 'thumbs.db' || name === 'desktop.ini'
 }
-
 
 export interface ComicMember {
   path: string
