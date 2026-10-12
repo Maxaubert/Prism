@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
-import { ColourField } from './ColourPicker'
+import { useEffect, useRef, useState, type JSX } from 'react'
+import { LAYER } from '../components/layers'
 
 // THE SETTINGS FIELDS, shared by both hosts (#15). The owner's rule: the two
 // apps' terminal settings are the same settings, "the setting names, types, how
@@ -38,52 +38,6 @@ export function Switch({
       />
     </button>
   )
-}
-
-/** "#abc", "abc", "#aabbcc" → "#aabbcc"; anything else → null. */
-export function parseHexInput(raw: string): string | null {
-  const hex = '#' + raw.trim().replace(/^#/, '')
-  const full = /^#[0-9a-f]{3}$/i.test(hex)
-    ? '#' +
-      hex
-        .slice(1)
-        .split('')
-        .map((c) => c + c)
-        .join('')
-    : hex
-  return /^#[0-9a-f]{6}$/i.test(full) ? full.toLowerCase() : null
-}
-
-/**
- * What a hex field's blur or Enter commits: only a DRAFT the user typed, and
- * only when it names another colour (code review 2026-09-24, #26). Committing
- * the value on every blur turned a row that follows the theme into a colour of
- * your own just by tabbing through it: Reset appeared, Save changes lit, and
- * the next theme pick asked about changes nobody made.
- */
-export function hexCommit(draft: string | null, value: string): string | null {
-  if (draft === null) return null
-  const full = parseHexInput(draft)
-  return full && full !== parseHexInput(value) ? full : null
-}
-
-/** The compact colour control, with no alpha: the core's ColourField
- *  (`ColourPicker.tsx`, #112) with its alpha bar off and a typed alpha dropped,
- *  for a caller not yet moved to alpha. Every place a colour is chosen carries
- *  the code field: a picker without one strands anyone pasting a code. */
-export function HexSwatch({
-  label,
-  value,
-  onChange,
-  onRevert
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  /** Escape after the picker wrote: put the row's prior state back. */
-  onRevert?: () => void
-}): JSX.Element {
-  return <ColourField label={label} value={value} onChange={onChange} onRevert={onRevert} alpha={false} />
 }
 
 /** Two or three exclusive choices as one control rather than a row of buttons. */
@@ -139,68 +93,6 @@ export function SaveButton({ dirty, onClick, title }: { dirty: boolean; onClick:
     >
       Save changes
     </button>
-  )
-}
-
-/** The section head: title, one line under it, and the save button in the
- *  top-right corner. */
-export function ThemeHead({ sub, save }: { sub: string; save: ReactNode }): JSX.Element {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <div className="text-[12.5px] font-semibold text-[var(--p-text)]">Theme</div>
-        <p className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">{sub}</p>
-      </div>
-      {save}
-    </div>
-  )
-}
-
-// Both pages are plain lists: one row per setting, name + one line of
-// explanation on the left, its control on the right, hairline between. No
-// panels: the pages are short enough that grouping them would be ceremony.
-
-// A list of preference rows, hairline above and below each one. Full width: the
-// control sits at the right edge of the page, where the eye already is.
-export const ROWS = 'border-t border-[color:var(--p-line)]'
-
-/** One setting: copy on the left, control on the right. The hint is one line -
- *  it truncates rather than wraps, because a setting that needs a paragraph
- *  needs a better name instead. `off` dims the whole row: a control that
- *  cannot be used should not look like one that can. */
-export function Pref({
-  id,
-  label,
-  hint,
-  off,
-  children
-}: {
-  id: string
-  label: string
-  hint?: string
-  off?: boolean
-  children: ReactNode
-}): JSX.Element {
-  return (
-    <div
-      data-pref={id}
-      aria-disabled={off || undefined}
-      className={`flex items-center justify-between gap-8 border-b border-[color:var(--p-line)] py-2.5 ${
-        off ? 'opacity-50' : ''
-      }`}
-    >
-      <div className="min-w-0">
-        <label htmlFor={id} className="block text-[12.5px] font-semibold text-[var(--p-text)]">
-          {label}
-        </label>
-        {hint && (
-          <p className="mt-0.5 truncate text-[11.5px] text-[var(--p-dim)]" title={hint}>
-            {hint}
-          </p>
-        )}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
   )
 }
 
@@ -266,7 +158,7 @@ export function Select({
         <div
           role="listbox"
           aria-labelledby={id}
-          className="absolute right-0 z-40 mt-1 max-h-[300px] min-w-full overflow-y-auto rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-0.5 shadow-[0_10px_28px_rgba(0,0,0,.5)]"
+          className={`absolute right-0 ${LAYER.pop} mt-1 max-h-[300px] min-w-full overflow-y-auto rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-0.5 shadow-[0_10px_28px_rgba(0,0,0,.5)]`}
         >
           {options.map((o) => {
             const on = o.id === value

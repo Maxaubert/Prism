@@ -1,3 +1,4 @@
+import { baseName, parentName } from '../../shared/folderNames'
 // The folders Prism has been opened in, most recent first (2026-08-23). The
 // tab strip's `+` offers the last few on a right-click, so reopening a project
 // does not mean walking a chooser to it again.
@@ -19,8 +20,6 @@ export function withRoot(list: readonly string[], path: string): string[] {
   return [p, ...list.filter((x) => !same(x, p))].slice(0, CAP)
 }
 
-/** The last segment of a path, whichever separator it uses. */
-const baseName = (p: string): string => /[^\\/]*$/.exec(p.replace(/[\\/]+$/, ''))?.[0] ?? p
 
 /**
  * What to call each folder in the menu. Two folders can share a name
@@ -37,7 +36,7 @@ export function recentLabels(paths: readonly string[]): Array<{ path: string; la
   return paths.map((p) => {
     const name = baseName(p)
     if ((counts.get(name.toLowerCase()) ?? 0) < 2) return { path: p, label: name }
-    const parent = baseName(p.replace(/[\\/][^\\/]*$/, ''))
+    const parent = parentName(p)
     return { path: p, label: parent ? `${name}  ·  ${parent}` : name }
   })
 }

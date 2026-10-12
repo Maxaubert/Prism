@@ -1,3 +1,4 @@
+import type { AgentKind } from '../../shared/types'
 /**
  * WHEN A RESUMING TAB SHOWS ITS TERMINAL (#106; spec
  * docs/superpowers/specs/2026-09-30-launch-skeleton-design.md). A tab coming
@@ -16,10 +17,8 @@
  * a key (the user sees what they type), an exit or a failed spawn; or at a
  * ceiling, whatever is there. Pure: the panel feeds it and keeps the clock.
  */
-export type ResumeAgent = 'claude' | 'codex'
-
 export interface RevealState {
-  agent: ResumeAgent
+  agent: AgentKind
   startedAt: number
   /** The shell's words are gone: the clear has been written. */
   cleared: boolean
@@ -36,11 +35,11 @@ export const CEILING_MS = 12_000
 /** The clear written to xterm alone: screen, scrollback, home. */
 export const CLEAR = '\x1b[2J\x1b[3J\x1b[H'
 
-export function agentOfResume(resume: string): ResumeAgent {
+export function agentOfResume(resume: string): AgentKind {
   return resume.startsWith('codex') ? 'codex' : 'claude'
 }
 
-export const startReveal = (agent: ResumeAgent, now: number): RevealState => ({
+export const startReveal = (agent: AgentKind, now: number): RevealState => ({
   agent,
   startedAt: now,
   cleared: false,
@@ -54,7 +53,7 @@ const TITLE = /\x1b\](?:0|2);([^\x07\x1b]*)(?:\x07|\x1b\\)/g
 
 /** Does this title name the agent's program itself (`claude`, `claude.exe`,
  *  a full path to either)? Not a command line that merely mentions it. */
-export function namesAgent(title: string, agent: ResumeAgent): boolean {
+export function namesAgent(title: string, agent: AgentKind): boolean {
   const t = title.trim().toLowerCase()
   // A bare name is the program; a PATH is the program only when it ends in
   // the exe, since a shell's title can be a folder, and the owner's own

@@ -9,9 +9,9 @@ import {
 } from '../../lib/termLook'
 import { resolveTermTheme } from '../../lib/termTheme'
 import { normalizeColor } from '../../lib/termAnsi'
+import { DEFAULT_GROUND } from '../../../shared/ground'
 
-// What a theme card and the editor read off a theme, once for both layouts
-// of the theme wall (the legacy section and the grouped cards one).
+// What a theme card and the editor read off a theme.
 
 export const ANSI_KEYS = [
   'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
@@ -71,7 +71,7 @@ export function paletteOf(id: string): Pick<CustomTermTheme, 'bg' | 'fg' | 'curs
     if (typeof v === 'string') ansi[k] = v
   }
   return {
-    bg: normalizeColor(t.background, '#0b0b0f'),
+    bg: normalizeColor(t.background, DEFAULT_GROUND),
     fg: normalizeColor(t.foreground, '#e7e7ee'),
     cursor: normalizeColor(t.cursor, '#5b5bd6'),
     ansi

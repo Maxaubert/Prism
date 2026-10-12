@@ -1,12 +1,13 @@
 import { ICON_RAINBOW } from './markColours'
 import { contrastRatio, luminance, mixHex } from './termAnsi'
+import { LIGHT_GROUND, ON_DARK_INK } from '../../shared/ground'
 
 /** Under this, the theme's text on a fill is gone and the name flips. */
 export const NAME_FLIP = 2
 
 /** Dark or light, MEASURED off the ground (regression rule 15), with the
- *  chrome's own threshold (`chromeTokens`: light above 0.4). */
-export const groundIsDark = (ground: string): boolean => luminance(ground) <= 0.4
+ *  one threshold (`LIGHT_GROUND`). */
+export const groundIsDark = (ground: string): boolean => luminance(ground) <= LIGHT_GROUND
 
 /**
  * THE NAME ON A FULL TAB (#143; owner, 2026-10-10: "Every tab name in Full
@@ -19,7 +20,7 @@ export const groundIsDark = (ground: string): boolean => luminance(ground) <= 0.
  */
 export function nameInk(fill: string, text: string, darkGround: boolean): string {
   if (contrastRatio(text, fill) >= NAME_FLIP) return text
-  return darkGround ? '#0b0b0b' : '#ffffff'
+  return darkGround ? ON_DARK_INK : '#ffffff'
 }
 
 /** Every colour that can sit under a name on the flowing rainbow: the seven
@@ -39,6 +40,6 @@ const worstOnRainbow = (ink: string): number => Math.min(...RAINBOW_SAMPLES.map(
 export function rainbowInk(text: string, darkGround: boolean): string {
   const keep = worstOnRainbow(text)
   if (keep >= NAME_FLIP) return text
-  const opposite = darkGround ? '#0b0b0b' : '#ffffff'
+  const opposite = darkGround ? ON_DARK_INK : '#ffffff'
   return worstOnRainbow(opposite) > keep ? opposite : text
 }

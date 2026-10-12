@@ -1,6 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react'
 import { onDictationLevel } from '../lib/dictation'
 import { useDictationView } from '../lib/useDictation'
+import { LAYER } from './layers'
 
 /**
  * What dictation is doing, over the terminal it is dictating into (#13).
@@ -64,7 +65,7 @@ export function DictationPill({ sessionId }: { sessionId: string | null }): JSX.
       data-dictation-pill={view.phase}
       role="status"
       aria-live="polite"
-      className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-6"
+      className={`pointer-events-none absolute inset-x-0 bottom-4 ${LAYER.panel} flex justify-center px-6`}
     >
       <div className="flex max-w-[min(680px,100%)] items-center gap-2.5 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-1.5 pl-3 pr-4 shadow-[0_6px_24px_rgba(0,0,0,0.35)]">
         {listening ? (

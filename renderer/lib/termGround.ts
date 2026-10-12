@@ -1,5 +1,6 @@
 import { ensureContrast, normalizeColor } from './termAnsi'
 import type { TermTheme } from './termTheme'
+import { DEFAULT_GROUND } from '../../shared/ground'
 
 const ANSI_KEYS = [
   'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
@@ -25,7 +26,7 @@ const MARK_FLOOR = 3
  */
 export function onGround(theme: TermTheme, ground: string | null | undefined): TermTheme {
   if (!ground) return theme
-  const own = normalizeColor(theme.background, '#0b0b0f').slice(0, 7).toLowerCase()
+  const own = normalizeColor(theme.background, DEFAULT_GROUND).slice(0, 7).toLowerCase()
   const bg = normalizeColor(ground, own).slice(0, 7).toLowerCase()
   if (bg === own) return theme
   const ownCursor = normalizeColor(theme.cursor, '#5b5bd6').slice(0, 7)

@@ -35,26 +35,8 @@ import { parseAgentSignal } from '../lib/agentHookSignal'
 import { resolveTermTheme, watchTermTheme } from '../lib/termTheme'
 import { onGround } from '../lib/termGround'
 import { xtermTheme, type XtermTheme } from '../lib/termXterm'
-import {
-  THEME_REPORTS_OFF,
-  bellGate,
-  colourQueryReplies,
-  decrqmReply,
-  dsrThemeReply,
-  groundMode,
-  modeParams,
-  nudgeWidths,
-  NUDGE_AFTER_MS,
-  NUDGE_HOLD_MS,
-  noteThemeMode,
-  themePush,
-  themeReports,
-  xtversionAsked,
-  xtversionReply,
-  type GroundMode
-} from '../lib/termReplies'
-import { TERM_CORE_VERSION, XTERM_VERSION } from '../../shared/termVersion'
-import { OSC52_MAX, parseOsc52 } from '../lib/termOsc52'
+import { bellGate, groundMode, type GroundMode } from '../lib/termReplies'
+import { attachReplies } from './termReplyHandlers'
 import { followsHostStyle, paintsGround, termApi, termHost } from '../host'
 import { findLinks, linkColor } from '../lib/termLinks'
 import { announceCopied, copyText } from '../lib/copyNotice'
@@ -74,8 +56,8 @@ import {
   releaseCaretHold,
   type CaretPos
 } from '../lib/termCaretHold'
-import { cellFrom, cellText, type CellInfo } from '../lib/termCells'
-import { bufferRowCells, isWebLink, osc8Target, Osc8Spans, parseOsc8, spanText, type SpanAnchor } from '../lib/termOsc8'
+import { bufferRowCells, cellFrom, charAtCell, logicalLine, type LogicalLine } from '../lib/termCells'
+import { isWebLink, osc8Target, Osc8Spans, parseOsc8, spanText, type SpanAnchor } from '../lib/termOsc8'
 import {
   onTermLookChange,
   termBaseFontPx,
@@ -92,6 +74,7 @@ import {
   suppressActivity,
   takeResume
 } from '../lib/termActivity'
+import { termKeyAction } from '../lib/termKeys'
 import '@xterm/xterm/css/xterm.css'
 
 // The terminal surface. This module is a lazy chunk (xterm is ~350KB the
@@ -177,7 +160,7 @@ function fitKeepingCursorLine(term: Terminal, fit: FitAddon): void {
   }
   const oldCols = term.cols
   const y = b.baseY + b.cursorY
-  const { first, last, index, text: whole, textEnd } = logicalLine(term, y)
+  const { first, last, index, text: whole, textEnd } = lineAt(term, y)
   // Everything up to the last printed cell, and where the cursor is, both in
   // CELLS (#20): the cursor goes back by cells, never by string length.
   const text = whole.slice(0, index[textEnd])
@@ -249,7 +232,7 @@ function attachClickCaret(
       const col = Math.max(0, Math.min(term.cols, Math.round((e.clientX - r.left) / cellW)))
       const row = Math.floor((e.clientY - r.top) / cellH)
       const y = b.baseY + b.cursorY
-      const { first, last, widths, text, textEnd, index } = logicalLine(term, y)
+      const { first, last, widths, text, textEnd, index } = lineAt(term, y)
       const clicked = b.viewportY + row
       let textBelow = false
       for (let i = last + 1; i < b.length && !textBelow; i += 1)
@@ -299,42 +282,15 @@ function attachClickCaret(
  *  by `attachClickCaret` for the selection delete as well. */
 const hiddenCursor = new Map<string, boolean>()
 
-/** The LOGICAL line holding buffer row `y`: its first and last rows across
- *  wraps, every cell's width, the joined text, and the cell just past the
- *  last printed one. */
-function logicalLine(term: Terminal, y: number): {
-  first: number
-  last: number
-  widths: number[]
-  text: string
-  /** Cell -> where its text starts in `text` (termCells). */
-  index: number[]
-  textEnd: number
-} {
-  const b = term.buffer.active
-  let first = y
-  while (first > 0 && b.getLine(first)?.isWrapped) first -= 1
-  let last = y
-  while (last + 1 < b.length && b.getLine(last + 1)?.isWrapped) last += 1
-  const cells: CellInfo[] = []
-  for (let i = first; i <= last; i += 1) {
-    const line = b.getLine(i)
-    for (let x = 0; x < term.cols; x += 1) {
-      const cell = line?.getCell(x)
-      cells.push({ chars: cell?.getChars() ?? '', width: cell?.getWidth() ?? 1 })
-    }
-  }
-  const { text, index, textEnd } = cellText(cells)
-  return { first, last, widths: cells.map((c) => c.width), text, index, textEnd }
-}
+/** The logical line holding buffer row `y` (termCells, rule 11). */
+const lineAt = (term: Terminal, y: number): LogicalLine => logicalLine(term.buffer.active, term.cols, y)
 
 /** The web address SHOWN over an OSC 8 link's cells (xterm's range: 1-based,
  *  one row, the end cell included), read across the whole logical line so a
  *  shown address that wraps still counts. */
 function shownLinkOver(term: Terminal, range: IBufferRange): string | null {
-  const line = logicalLine(term, range.start.y - 1)
-  const charOf = (p: { x: number; y: number }): number =>
-    line.index[Math.min(Math.max(0, (p.y - 1 - line.first) * term.cols + p.x - 1), line.index.length - 1)]
+  const line = lineAt(term, range.start.y - 1)
+  const charOf = (p: { x: number; y: number }): number => charAtCell(line, term.cols, p.y - 1, p.x - 1)
   const from = charOf(range.start)
   const to = charOf(range.end)
   const hit = findLinks(line.text).find((l) => l.start <= to && l.end > from)
@@ -352,7 +308,7 @@ function deleteSelection(term: Terminal, id: string): boolean {
   if (!range) return false
   const b = term.buffer.active
   const y = b.baseY + b.cursorY
-  const line = logicalLine(term, y)
+  const line = lineAt(term, y)
   let textBelow = false
   for (let i = line.last + 1; i < b.length && !textBelow; i += 1)
     if ((b.getLine(i)?.translateToString(true) ?? '').length) textBelow = true
@@ -448,9 +404,8 @@ export function termContextAt(
   const row = Math.floor((clientY - r.top) / (r.height / term.rows))
   if (col < 0 || col >= term.cols || row < 0 || row >= term.rows) return { selection, link: null, path: null }
   const y = term.buffer.active.viewportY + row
-  const line = logicalLine(term, y)
-  const target = (y - line.first) * term.cols + col
-  const at = line.index[Math.min(target, line.index.length - 1)]
+  const line = lineAt(term, y)
+  const at = charAtCell(line, term.cols, y, col)
   // An OSC 8 label ("PR #165") is a link though its text is not (#169); where
   // a left click goes (`osc8Target`) is what the menu copies and opens.
   const shown = linkAt(line.text, at)
@@ -654,6 +609,33 @@ export function onTermFindResults(
   return () => d.dispose()
 }
 
+/**
+ * ONE LISTENER PER CHANNEL, ROUTED BY SESSION (audit 2026-10-12). Each session
+ * added its own listener to data, agent and exit, every one of them filtering
+ * every message, so ten tabs meant ten callbacks for each chunk of output.
+ * Subscribed on the first session and kept: the bridge outlives every tab.
+ */
+interface SessionRoute {
+  data: (data: string) => void
+  agent: (present: boolean, kind: Parameters<Parameters<ReturnType<typeof termApi>['onTermAgent']>[0]>[2]) => void
+  exit: () => void
+}
+const routes = new Map<string, SessionRoute>()
+let routed = false
+function routeSession(id: string, r: SessionRoute): () => void {
+  if (!routed) {
+    routed = true
+    const api = termApi()
+    api.onTermData((forId, data) => routes.get(forId)?.data(data))
+    api.onTermAgent((forId, present, kind) => routes.get(forId)?.agent(present, kind))
+    api.onTermExit((forId) => routes.get(forId)?.exit())
+  }
+  routes.set(id, r)
+  return () => {
+    if (routes.get(id) === r) routes.delete(id)
+  }
+}
+
 function createSession(id: string, root: string, shellId: string | undefined): Session {
   // The quoting a pasted path gets (#5): the shell this session runs.
   const pathShell: PathShell = shellOfShellId(shellId)
@@ -734,7 +716,7 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   term.registerLinkProvider({
     provideLinks: (y, done) => {
       if (!termApi().termPathKinds) return done(undefined)
-      const line = logicalLine(term, y - 1)
+      const line = lineAt(term, y - 1)
       const out = []
       for (const c of pathCandidates(line.text)) {
         const hit = knownPath(cwdNow, c.path)
@@ -830,12 +812,10 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   // first moment (set where the resume is taken, below); the title, the poll
   // and the prompt move it (`agentArm`).
   let arm = armAtStart(null)
-  // Whether the program in front asked for theme reports (?2031h, below).
-  let reports = THEME_REPORTS_OFF
   const moveArm = (s: ArmStep): void => {
     arm = s.arm
     // The agent that asked for theme reports has gone with them.
-    if (s.gone) reports = THEME_REPORTS_OFF
+    if (s.gone) replies.forget()
     if (s.recheck) termApi().termAgentAgain?.(id)
   }
   term.parser.registerOscHandler(9, (data) => {
@@ -932,114 +912,26 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     osc8Drop()
     osc8.clear()
   })
-  // THE PROGRAM IS TOLD THE GROUND IT REALLY SITS ON (#168, #172; rule
-  // replies-only-when-asked). MEASURED (Claude Code 2.1.296): xterm answered
-  // `ESC]11;?` as rgb:0000/0000/0000, read off the clear canvas the panel
-  // paints behind (rule 14), so Claude's "auto" theme was dark on Fawn too.
-  // Claude writes ?2031h without a DECRQM probe, and on a pushed ?997;2n asks
-  // OSC 11 again and turns light. Every reply goes through term.input(.., false):
-  // onData, in stream order with xterm's own replies (a DA1 right after stays
-  // after), and starting with ESC so `looksTyped` never counts it as typing.
-  // Anything these do not answer returns false and stays xterm's.
-  const reply =(r: string): void => term.input(r, false)
-  const modeNow = (): GroundMode => groundMode(groundedTheme().background)
-  const colourQuery = (ident: 10 | 11) => (data: string): boolean => {
-    const theme = groundedTheme()
-    const replies = colourQueryReplies(ident, data, { fg: theme.foreground, bg: theme.background })
-    if (!replies) return false
-    replies.forEach(reply)
-    // An answered ground tells the program the mode: no push for it later.
-    if (ident === 11 || replies.length > 1) reports = noteThemeMode(reports, groundMode(theme.background))
-    return true
-  }
-  term.parser.registerOscHandler(10, colourQuery(10))
-  term.parser.registerOscHandler(11, colourQuery(11))
-  // ?2031h / ?2031l, followed from the stream. False: xterm still applies
-  // whatever other modes ride the same sequence.
-  const trackReports = (on: boolean) => (params: (number | number[])[]): boolean => {
-    if (modeParams(params).includes(2031)) reports = themeReports(reports, on, modeNow())
-    return false
-  }
-  term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, trackReports(true))
-  term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, trackReports(false))
-  // RIS (ESC c) resets every mode, this one too. False: xterm still resets.
-  term.parser.registerEscHandler({ final: 'c' }, () => {
-    reports = THEME_REPORTS_OFF
-    return false
+  // WHAT A PROGRAM ASKS THE TERMINAL ABOUT ITSELF (#168, #171, #172, #176):
+  // its colours, light or dark, its version, a clipboard write. One piece
+  // (termReplyHandlers, rule replies-only-when-asked).
+  const replies = attachReplies(term, {
+    ground: groundedTheme,
+    el,
+    nudge: (cols) => {
+      const s = sessions.get(id)
+      if (!s) return null
+      suppressActivity(id)
+      term.resize(cols, term.rows)
+      termApi().termResize(id, cols, term.rows)
+      return () => {
+        if (sessions.get(id) === s) refitSession(id, s)
+      }
+    },
+    copy: (text) => termApi().writeClipboardFromTerm?.(text),
+    copied: announceCopied
   })
-  // CSI ? 996 n: "which are you now?" xterm keeps every other DSR.
-  term.parser.registerCsiHandler({ prefix: '?', final: 'n' }, (params) => {
-    const p = modeParams(params)
-    if (p.length !== 1 || p[0] !== 996) return false
-    const mode = modeNow()
-    reply(dsrThemeReply(mode))
-    reports = noteThemeMode(reports, mode)
-    return true
-  })
-  // DECRQM for 2031, which xterm 6.0 does not know (it would say 0, "not
-  // recognised"); every other mode stays xterm's to report.
-  term.parser.registerCsiHandler({ prefix: '?', intermediates: '$', final: 'p' }, (params) => {
-    const p = modeParams(params)
-    if (p.length !== 1 || p[0] !== 2031) return false
-    reply(decrqmReply(2031, reports.on))
-    return true
-  })
-  // The redraw nudge after a push (termReplies.ts says why): one column less,
-  // then a refit back, through the panel's own resize path so xterm and the pty
-  // agree. Several switches in a row give one nudge. The theme is switched in
-  // Settings, so the program's tab is usually HIDDEN then (no size): the nudge
-  // waits until the tab is shown again, since showing it refits to the same
-  // size, which tells the program nothing.
-  let nudge: number | undefined
-  const nudgeWhenShown = (): void => {
-    const s = sessions.get(id)
-    if (!s) return
-    if (!el.clientWidth || !el.clientHeight) {
-      nudge = window.setTimeout(nudgeWhenShown, NUDGE_AFTER_MS)
-      return
-    }
-    const w = nudgeWidths(term.cols)
-    if (!w) return
-    suppressActivity(id)
-    term.resize(w[0], term.rows)
-    termApi().termResize(id, w[0], term.rows)
-    nudge = window.setTimeout(() => {
-      if (sessions.get(id) === s) refitSession(id, s)
-    }, NUDGE_HOLD_MS)
-  }
-  const tellTheme = (mode: GroundMode): void => {
-    const r = themePush(reports, mode)
-    reports = r.state
-    if (!r.send) return
-    reply(r.send)
-    window.clearTimeout(nudge)
-    nudge = window.setTimeout(nudgeWhenShown, NUDGE_AFTER_MS)
-  }
-  // XTVERSION, `CSI > q` / `CSI > 0 q` (#171; termReplies.ts has the
-  // measurement): xterm 6.0.0 has no handler, and without a reply Claude never
-  // turns on synchronized output. Any other parameter stays xterm's.
-  term.parser.registerCsiHandler({ prefix: '>', final: 'q' }, (params) => {
-    if (!xtversionAsked(modeParams(params))) return false
-    reply(xtversionReply(TERM_CORE_VERSION, XTERM_VERSION))
-    return true
-  })
-  // OSC 52, WRITE-ONLY (#176; termOsc52.ts says why). Every OSC 52 is handled
-  // (true), written or refused, so none is drawn as stray text; a READ is
-  // swallowed and NEVER answered. A copy goes through main (a background tab
-  // or an unfocused window still copies) and raises the Copied badge only when
-  // it landed, so a program's copy is never silent.
-  term.parser.registerOscHandler(52, (data) => {
-    const p = parseOsc52(data, OSC52_MAX)
-    if (p?.kind === 'write') {
-      void termApi()
-        .writeClipboardFromTerm?.(p.text)
-        .then((ok) => {
-          if (ok) announceCopied()
-        })
-        .catch(() => undefined)
-    }
-    return true
-  })
+  const tellTheme = replies.tellTheme
   // THE BELL (#177): at most one a second per tab reaches the host (a `cat` of
   // a binary rings hundreds of times), which flashes the taskbar while the
   // window is unfocused (spec decision 1). Never a sound.
@@ -1125,16 +1017,13 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     // A path this session asked about turned out to exist: paint the lines
     // that asked (#167; it used to be every line of every tab).
     onPathsFound(id, () => links.revisit()),
-    termApi().onTermAgent((forId, present, kind) => {
-      if (forId === id) moveArm(armOnPoll(arm, present, kind))
+    routeSession(id, {
+      agent: (present, kind) => moveArm(armOnPoll(arm, present, kind)),
+      data: writeOutput,
+      // The shell ended: whatever it said must be seen.
+      exit: finishReveal
     }),
-    termApi().onTermData((forId, data) => {
-      if (forId === id) writeOutput(data)
-    }),
-    // The shell ended: whatever it said must be seen.
-    termApi().onTermExit((forId) => {
-      if (forId === id) finishReveal()
-    }),
+    replies.dispose,
     finishReveal,
     // A menu reaches this session's paste through lib/termBus while it is
     // alive; dropping the entry is part of disposing the session.
@@ -1144,90 +1033,62 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     // disposeTermSession, so nothing is subscribed here.
   ]
 
-  // Ctrl+C and Ctrl+V are matched by the PHYSICAL key as well as the letter
-  // (code review 2026-09-24, #6): on a Russian or Greek layout the C key's
-  // `key` is not 'c', xterm still maps it to ^C, and a copy over a selection
-  // interrupted the agent instead. Windows Terminal matches the key the same way.
-  const isKey = (e: KeyboardEvent, letter: 'c' | 'v'): boolean =>
-    e.key.toLowerCase() === letter || e.code === `Key${letter.toUpperCase()}`
+  // WHAT A KEY DOES is termKeys' (its rules in order, with their tests);
+  // here it is acted on. Returning false keeps xterm from the key.
   term.attachCustomKeyEventHandler((e) => {
-    if (e.type !== 'keydown') return true
-    // Ctrl+C over a SELECTION copies it, the way Windows Terminal does; with
-    // nothing selected it stays the interrupt every shell expects.
-    if (
-      isKey(e, 'c') &&
-      e.ctrlKey &&
-      !e.shiftKey &&
-      !e.altKey &&
-      term.hasSelection()
-    ) {
-      void copyText(term.getSelection()) // and the "Copied" badge, once it landed
-      term.clearSelection()
-      return false
-    }
-    // Backspace or Delete over a selection on the line being edited deletes
-    // it (owner, 2026-09-23); anywhere else the key is the shell's as ever.
-    if (
-      (e.key === 'Backspace' || e.key === 'Delete') &&
-      !e.ctrlKey &&
-      !e.shiftKey &&
-      !e.altKey &&
-      !e.metaKey &&
-      term.hasSelection() &&
-      deleteSelection(term, id)
-    ) {
-      e.preventDefault()
-      return false
-    }
-    // THE HOST'S CHORDS (core/renderer/host). Which keys belong to the app
-    // even over a focused shell is the one thing the two apps disagree about
-    // (Prism closes a tab on Ctrl+W and toggles the panel on Ctrl+`; Prism
-    // Terminal leaves Ctrl+W to the shell as delete-word), so the host says.
-    // Returning false keeps xterm from ALSO feeding the bytes to the pty: left
-    // to xterm, Ctrl+` became a NUL, which counted as the user typing.
-    if (termHost().ownsKey(e)) return false
-    if (e.key === 'Enter' && e.shiftKey && arm.here) {
-      // Newline-without-submit, in the bytes the agent reads as one
-      // (`newlineKey`, measured #175: Ctrl+J for Claude, `\` + Enter
-      // otherwise). This is what /terminal-setup exists to configure; here it
-      // simply works. ONLY where an agent runs (code review 2026-09-24, #21):
-      // at a plain prompt `\` then Enter RAN the line with a backslash on its
-      // end, a command nobody wrote. There Shift+Enter is Enter, as xterm sends it.
-      markTouched(id) // input like any other: its repaint is echo, not work
-      termApi().termInput(id, newlineKey(arm.kind))
-      // Returning false only stops xterm's keydown; the browser still fires a
-      // keypress for Enter and xterm sent a CR on it, so Claude got Ctrl+J
-      // THEN Enter and submitted (MEASURED, e2e imagePaste 2026-10-11:
-      // "IN C 0a" then "IN C 0d"). preventDefault cancels that keypress.
-      e.preventDefault()
-      return false
-    }
-    // ONE CTRL+V IS ONE PASTE (owner, 2026-09-22: "when I copy text and paste
-    // it pastes twice"). Returning false only tells XTERM to leave the key
-    // alone; it does not cancel the BROWSER's own action for Ctrl+V, which is
-    // a native paste event into xterm's textarea - and xterm pastes on that
-    // event too. So every paste arrived twice, once from here and once from
-    // there. preventDefault cancels the native one; this handler is the paste,
-    // since it is the one that knows about images (Claude Code reads those
-    // itself when it gets its image-paste keystroke) and bracketed framing.
-    if (isKey(e, 'v') && e.ctrlKey && !e.shiftKey && !e.altKey) {
-      e.preventDefault()
-      pasteHere()
-      return false
-    }
-    if (isKey(e, 'v') && e.ctrlKey && e.shiftKey && !e.altKey) {
-      e.preventDefault()
-      // The escape hatch: plain text paste even when an image rides along.
-      const clip = termApi().readClipboard()
-      // Sanitised like every paste (#1): no ESC can end the bracketed paste.
-      const text = sanitizePaste(clip.text)
-      if (text) {
-        markTouched(id)
-        term.paste(text)
+    const action = termKeyAction(e, {
+      hasSelection: term.hasSelection(),
+      deleteSelection: () => deleteSelection(term, id),
+      hostOwns: (k) => termHost().ownsKey(k as KeyboardEvent),
+      agentHere: arm.here
+    })
+    switch (action) {
+      case 'xterm':
+        return true
+      case 'copy':
+        void copyText(term.getSelection()) // and the "Copied" badge, once it landed
+        term.clearSelection()
+        return false
+      case 'deleted':
+        e.preventDefault()
+        return false
+      case 'host':
+        return false
+      case 'newline':
+        // Newline-without-submit, in the bytes the agent reads as one
+        // (`newlineKey`, measured #175: Ctrl+J for Claude, `\` + Enter
+        // otherwise). This is what /terminal-setup exists to configure; here
+        // it simply works.
+        markTouched(id) // input like any other: its repaint is echo, not work
+        termApi().termInput(id, newlineKey(arm.kind))
+        // Returning false only stops xterm's keydown; the browser still fires a
+        // keypress for Enter and xterm sent a CR on it, so Claude got Ctrl+J
+        // THEN Enter and submitted (MEASURED, e2e imagePaste 2026-10-11:
+        // "IN C 0a" then "IN C 0d"). preventDefault cancels that keypress.
+        e.preventDefault()
+        return false
+      case 'paste':
+        // ONE CTRL+V IS ONE PASTE (owner, 2026-09-22: "when I copy text and
+        // paste it pastes twice"). Returning false only tells XTERM to leave
+        // the key alone; it does not cancel the BROWSER's own action for
+        // Ctrl+V, a native paste event into xterm's textarea, which xterm
+        // pastes on too. preventDefault cancels the native one; this is the
+        // paste, since it is the one that knows about images (Claude Code
+        // reads those itself on its image-paste keystroke) and bracketed framing.
+        e.preventDefault()
+        pasteHere()
+        return false
+      case 'paste-plain': {
+        e.preventDefault()
+        // Sanitised like every paste (#1): no ESC can end the bracketed paste.
+        const text = sanitizePaste(termApi().readClipboard().text)
+        if (text) {
+          markTouched(id)
+          term.paste(text)
+        }
+        return false
       }
-      return false
     }
-    return true
   })
 
   const oscLink = (line: number, x: number): string | null => {

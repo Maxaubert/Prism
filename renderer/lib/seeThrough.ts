@@ -1,5 +1,6 @@
 import { opaque } from './colour'
 import { luminance } from './termAnsi'
+import { LIGHT_GROUND } from '../../shared/ground'
 
 /**
  * THE SEE-THROUGH WINDOW'S DEFAULT (#156; owner, 2026-10-10: "add support for
@@ -30,5 +31,5 @@ export const SEE_THROUGH_MAX = 0xf2 / 255
  * `data-mode`), never read off a theme's name. Unparseable reads as dark.
  */
 export function seeThroughAlpha(ground: string): number {
-  return luminance(opaque(ground)) > 0.4 ? SEE_THROUGH_ALPHA.light : SEE_THROUGH_ALPHA.dark
+  return luminance(opaque(ground)) > LIGHT_GROUND ? SEE_THROUGH_ALPHA.light : SEE_THROUGH_ALPHA.dark
 }

@@ -9,12 +9,13 @@ import {
   type AgentIndicator
 } from '../host'
 import { liveThemeId } from './termThemeRetired'
-import { alphaOf, opaque, parseColour, toStored, withAlpha } from './colour'
+import { alphaOf, canonicalStored, opaque, parseColour, toStored, withAlpha } from './colour'
 import { seeThroughAlpha } from './seeThrough'
 // A CYCLE, and a safe one: termTheme imports this module too, and neither reads
 // the other at module load (only inside functions, at call time), so either may
 // be evaluated first.
 import { resolveTermTheme } from './termTheme'
+import { readPref, writePref } from './prefStore'
 
 export type { AgentIndicator }
 
@@ -32,6 +33,17 @@ export const FONT_PCTS = [50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160,
 
 let listeners: Array<() => void> = []
 const notify = (): void => listeners.forEach((l) => l())
+
+/** A switch, on unless switched off ('0'), read and written defensively
+ *  (prefStore) and announced on this module's listeners: the five agent
+ *  switches below were each the same two functions (audit 2026-10-12). */
+const onSwitch = (key: string): [() => boolean, (on: boolean) => void] => [
+  () => readPref(key) !== '0',
+  (on) => {
+    writePref(key, on ? '1' : '0')
+    notify()
+  }
+]
 
 /** Names a preset (or 'custom'). 'prism' is the default. Inside Prism the
  *  default was 'style', follow the app style; there is no app style here, so a
@@ -186,20 +198,8 @@ const QUESTION_ON_KEY = 'prism.term.agentQuestionOn'
  * a tab that needs you says so. Switches, not theme settings, so a theme
  * never turns them on or off.
  */
-export function agentDoneOn(): boolean {
-  return localStorage.getItem(DONE_ON_KEY) !== '0'
-}
-export function setAgentDoneOn(on: boolean): void {
-  localStorage.setItem(DONE_ON_KEY, on ? '1' : '0')
-  notify()
-}
-export function agentQuestionOn(): boolean {
-  return localStorage.getItem(QUESTION_ON_KEY) !== '0'
-}
-export function setAgentQuestionOn(on: boolean): void {
-  localStorage.setItem(QUESTION_ON_KEY, on ? '1' : '0')
-  notify()
-}
+export const [agentDoneOn, setAgentDoneOn] = onSwitch(DONE_ON_KEY)
+export const [agentQuestionOn, setAgentQuestionOn] = onSwitch(QUESTION_ON_KEY)
 
 const RAINBOW_KEY = 'prism.term.agentRainbow'
 
@@ -209,13 +209,7 @@ const RAINBOW_KEY = 'prism.term.agentRainbow'
  * colour, still. Not a theme setting: a theme pick never touches it. Drawn
  * only where the host's strip draws it (`tabMarks.rainbow`).
  */
-export function agentRainbow(): boolean {
-  return localStorage.getItem(RAINBOW_KEY) !== '0'
-}
-export function setAgentRainbow(on: boolean): void {
-  localStorage.setItem(RAINBOW_KEY, on ? '1' : '0')
-  notify()
-}
+export const [agentRainbow, setAgentRainbow] = onSwitch(RAINBOW_KEY)
 
 const FAILED_ON_KEY = 'prism.term.agentFailedOn'
 const HOOKS_KEY = 'prism.term.agentHooks'
@@ -225,32 +219,17 @@ const HOOKS_KEY = 'prism.term.agentHooks'
  * overload), told by Claude Code's own hook. A switch beside the other two,
  * on by default for their reason.
  */
-export function agentFailedOn(): boolean {
-  return localStorage.getItem(FAILED_ON_KEY) !== '0'
-}
-export function setAgentFailedOn(on: boolean): void {
-  localStorage.setItem(FAILED_ON_KEY, on ? '1' : '0')
-  notify()
-}
+export const [agentFailedOn, setAgentFailedOn] = onSwitch(FAILED_ON_KEY)
 
 /**
  * "EXACT STATUS FROM CLAUDE CODE" (#131; owner, 2026-10-05: on by default,
  * with a switch). On, a NEW shell is handed the bundled plugin; off, it is
  * not, and no plugin loads. A running shell keeps what it started with.
  */
-export function agentHooksOn(): boolean {
-  return localStorage.getItem(HOOKS_KEY) !== '0'
-}
-export function setAgentHooksOn(on: boolean): void {
-  localStorage.setItem(HOOKS_KEY, on ? '1' : '0')
-  notify()
-}
-/** Six digits, or eight with an alpha (#112): every reader takes both. */
-const HEX = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i
-
-/** A stored agent colour: the canonical form of a 6 or 8 digit hex, or null. */
-const agentHex = (v: string | null | undefined): string | null =>
-  v && HEX.test(v) ? toStored(parseColour(v)!) : null
+export const [agentHooksOn, setAgentHooksOn] = onSwitch(HOOKS_KEY)
+/** A stored agent colour: six digits, or eight with an alpha (#112), in its
+ *  canonical form, or null. */
+const agentHex = canonicalStored
 
 /** Write a choice, or forget it: anything but a 6 or 8 digit hex gives the
  *  choice back to the theme. */
@@ -267,38 +246,50 @@ function writeChoice(key: string, hex: string | null | undefined): void {
  * What the theme gives when nothing is chosen is lib/agentColors' business;
  * this file only remembers whether the user has an opinion.
  */
-export function agentColorChoice(): string {
-  return agentHex(localStorage.getItem(AGENT_COLOR_KEY)) ?? hostDefaults().agentColor
+export type AgentColourState = 'working' | 'finished' | 'question'
+
+/**
+ * THE THREE MARK COLOURS, ONE TABLE (audit 2026-10-12: each had its own key,
+ * getter, setter, hook, reset line and settings row, written three times).
+ * Where it is stored, what is in force with no choice (the host's default, or
+ * '' for the theme's own), and its field in a saved Custom setup.
+ */
+export const AGENT_COLOUR_STATES: ReadonlyArray<{
+  state: AgentColourState
+  key: string
+  fallback: () => string
+  custom: 'indicatorColor' | 'doneColor' | 'questionColor'
+}> = [
+  { state: 'working', key: AGENT_COLOR_KEY, fallback: () => hostDefaults().agentColor, custom: 'indicatorColor' },
+  // An agent that stopped working on a BACKGROUND tab wears it until visited.
+  { state: 'finished', key: AGENT_DONE_KEY, fallback: () => hostDefaults().agentDoneColor, custom: 'doneColor' },
+  // '' = the default blue, moved to the ground's floor by lib/agentColors.
+  { state: 'question', key: AGENT_QUESTION_KEY, fallback: () => '', custom: 'questionColor' }
+]
+const colourRow = (state: AgentColourState): (typeof AGENT_COLOUR_STATES)[number] =>
+  AGENT_COLOUR_STATES.find((c) => c.state === state)!
+
+/** The colour chosen for a mark, or its default. */
+export function agentColourChoice(state: AgentColourState): string {
+  const c = colourRow(state)
+  return agentHex(localStorage.getItem(c.key)) ?? c.fallback()
 }
 
 /** A hex picks a colour; '' gives the choice back to the theme. */
-export function setAgentColor(hex: string): void {
-  writeChoice(AGENT_COLOR_KEY, hex)
+export function setAgentColour(state: AgentColourState, hex: string): void {
+  writeChoice(colourRow(state).key, hex)
   notify()
 }
 
-/** The question colour's choice ('' = the default blue, moved to the ground's
- *  floor by lib/agentColors), like the other two. */
-export function agentQuestionColorChoice(): string {
-  return agentHex(localStorage.getItem(AGENT_QUESTION_KEY)) ?? ''
-}
-export function setAgentQuestionColor(hex: string): void {
-  writeChoice(AGENT_QUESTION_KEY, hex)
-  notify()
-}
+/** The named forms, kept for every caller in both apps. */
+export const agentColorChoice = (): string => agentColourChoice('working')
+export const setAgentColor = (hex: string): void => setAgentColour('working', hex)
+export const agentDoneColorChoice = (): string => agentColourChoice('finished')
+export const setAgentDoneColor = (hex: string): void => setAgentColour('finished', hex)
+export const agentQuestionColorChoice = (): string => agentColourChoice('question')
+export const setAgentQuestionColor = (hex: string): void => setAgentColour('question', hex)
 
-/** The finished-while-away colour's choice: an agent that stopped working on
- *  a BACKGROUND tab wears it until the tab is visited. */
-export function agentDoneColorChoice(): string {
-  return agentHex(localStorage.getItem(AGENT_DONE_KEY)) ?? hostDefaults().agentDoneColor
-}
-
-export function setAgentDoneColor(hex: string): void {
-  writeChoice(AGENT_DONE_KEY, hex)
-  notify()
-}
-
-const CUSTOM_KEY = 'prism.term.custom'
+export const CUSTOM_KEY = 'prism.term.custom'
 
 export interface CustomTermTheme {
   /** Every colour is the stored form: `#rrggbb`, or `#rrggbbaa` with an
@@ -349,9 +340,7 @@ export function termExtraDefaults(): {
  *  the theme is the whole setup, not just the palette. */
 export function resetTermExtras(): void {
   localStorage.removeItem(AGENT_IND_KEY)
-  localStorage.removeItem(AGENT_COLOR_KEY)
-  localStorage.removeItem(AGENT_DONE_KEY)
-  localStorage.removeItem(AGENT_QUESTION_KEY)
+  for (const c of AGENT_COLOUR_STATES) localStorage.removeItem(c.key)
   localStorage.removeItem(ACRYLIC_KEY)
   notify()
 }
@@ -367,9 +356,7 @@ export function applyCustomExtras(t: CustomTermTheme | null): void {
   // A saved setup that followed the theme goes back to following it.
   // Validated as every other writer is: a colour that is not one follows the
   // theme rather than landing in storage unchecked (#112).
-  writeChoice(AGENT_COLOR_KEY, t.indicatorColor)
-  writeChoice(AGENT_DONE_KEY, t.doneColor)
-  writeChoice(AGENT_QUESTION_KEY, t.questionColor)
+  for (const c of AGENT_COLOUR_STATES) writeChoice(c.key, t[c.custom])
   if (t.acrylic !== undefined) localStorage.setItem(ACRYLIC_KEY, t.acrylic ? '1' : '0')
   // No opacity (#114): a saved see-through is the alpha of the saved `bg`.
   notify()
@@ -539,15 +526,12 @@ function subGround(cb: () => void): () => void {
 export function useAgentIndicator(): AgentIndicator {
   return useSyncExternalStore(sub, agentIndicator)
 }
-export function useAgentColorChoice(): string {
-  return useSyncExternalStore(sub, agentColorChoice)
+export function useAgentColourChoice(state: AgentColourState): string {
+  return useSyncExternalStore(sub, () => agentColourChoice(state))
 }
-export function useAgentDoneColorChoice(): string {
-  return useSyncExternalStore(sub, agentDoneColorChoice)
-}
-export function useAgentQuestionColorChoice(): string {
-  return useSyncExternalStore(sub, agentQuestionColorChoice)
-}
+export const useAgentColorChoice = (): string => useAgentColourChoice('working')
+export const useAgentDoneColorChoice = (): string => useAgentColourChoice('finished')
+export const useAgentQuestionColorChoice = (): string => useAgentColourChoice('question')
 export function useAgentDoneOn(): boolean {
   return useSyncExternalStore(sub, agentDoneOn)
 }

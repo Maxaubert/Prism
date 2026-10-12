@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ICON_RAINBOW } from './markColours'
 import { markPalette } from './markPalette'
 import { contrastRatio, mixHex } from './termAnsi'
+import { ON_DARK_INK } from '../../shared/ground'
 
 // Volt as the r4 mockup computed it.
 const VOLT = { working: '#d8ff26', finished: '#22c55e', question: '#3b82f6', failed: '#ff3b5c' }
@@ -24,7 +25,7 @@ describe('the marks palette (#143)', () => {
   })
 
   it('names Volt\'s Full inks by the owner\'s rule: working and the rainbow flip', () => {
-    expect(volt().ink).toEqual({ working: '#0b0b0b', done: '#0b0b0b', question: TEXT, failed: TEXT })
+    expect(volt().ink).toEqual({ working: ON_DARK_INK, done: ON_DARK_INK, question: TEXT, failed: TEXT })
     // With the rainbow off, finished is the green fill, where the text holds.
     expect(volt(false).ink.done).toBe(TEXT)
   })
@@ -52,7 +53,7 @@ describe('the marks palette (#143)', () => {
   // NAME'S ink; Prompt's edge sits in the ground-coloured gap, where black
   // would vanish on a dark theme, so it keeps the shade (variant 2A).
   it('draws Classic\'s run on a working fill in the name\'s ink', () => {
-    expect(volt().overlay.run).toBe('#0b0b0b')
+    expect(volt().overlay.run).toBe(ON_DARK_INK)
     expect(volt().overlay.run).toBe(volt().ink.working)
     expect(paper().overlay.run).toBe(PAPER_TEXT)
   })

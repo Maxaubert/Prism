@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
 import { onCopied } from '../lib/copyNotice'
+import { LAYER } from './layers'
 
 /** How long the badge stays before it fades. */
 export const COPIED_BADGE_MS = 1200
@@ -43,7 +44,7 @@ export default function CopiedBadge(): JSX.Element | null {
     <div
       data-copied-badge={phase === 'shown' ? 'shown' : 'hidden'}
       role="status"
-      className={`pointer-events-none fixed bottom-6 left-1/2 z-[300] -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-control)] px-3.5 py-1.5 text-[12px] font-semibold text-[var(--p-text)] transition-opacity duration-200 ease-out ${
+      className={`pointer-events-none fixed bottom-6 left-1/2 ${LAYER.toast} -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-control)] px-3.5 py-1.5 text-[12px] font-semibold text-[var(--p-text)] transition-opacity duration-200 ease-out ${
         phase === 'shown' ? 'opacity-100' : 'opacity-0'
       }`}
     >

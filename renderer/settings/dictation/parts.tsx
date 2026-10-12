@@ -28,7 +28,7 @@ export function HotkeyField({
 }: {
   value: Hotkey
   disabled: boolean
-  /** The Reset button's class: the legacy page's, or the grouped rows' own. */
+  /** The Reset button's class, when the row wants its own. */
   look?: string
 }): JSX.Element {
   const [listening, setListening] = useState(false)
@@ -116,7 +116,7 @@ export function MicField({
   /** Say a problem elsewhere (the grouped cards row's subtext) instead of
    *  beside the control. */
   onProblem?: (problem: string | null) => void
-  /** The Test button's class: the legacy page's, or the grouped rows' own. */
+  /** The Test button's class, when the row wants its own. */
   look?: string
   /** Draw the meter's empty track while not testing, so the row does not
    *  change shape when a test starts. */

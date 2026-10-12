@@ -8,7 +8,7 @@ import type {
   TranscribeRequest,
   TranscribeResult
 } from '../shared/dictationTypes'
-import type { IpcRendererLike } from './api'
+import { subscribe, type IpcRendererLike } from './api'
 
 /**
  * The preload half of DICTATION's bridge (#13), for both hosts. Separate from
@@ -43,13 +43,7 @@ export function createDictationApi(ipc: IpcRendererLike): DictationApi {
     dictationDownload: (id) => ipc.invoke(DCH.download, id) as Promise<DownloadResult>,
     dictationCancel: (id) => ipc.send(DCH.cancel, id),
     dictationRemove: (id) => ipc.invoke(DCH.remove, id) as Promise<void>,
-    onDictationProgress: (cb) => {
-      const listener = (_e: unknown, p: DownloadProgress): void => cb(p)
-      ipc.on(DCH.progress, listener)
-      return () => {
-        ipc.removeListener(DCH.progress, listener)
-      }
-    },
+    onDictationProgress: (cb) => subscribe(ipc, DCH.progress, (p: DownloadProgress) => cb(p)),
     dictationTranscribe: (req) => ipc.invoke(DCH.transcribe, req) as Promise<TranscribeResult>,
     dictationStop: () => ipc.send(DCH.stop),
     dictationWarm: (req) => ipc.send(DCH.warm, req),

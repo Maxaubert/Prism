@@ -61,3 +61,59 @@ export function cellFrom(row: number, col: number, back: number, cols: number): 
   }
   return { row: r, col: Math.max(0, c) }
 }
+
+/** What these readers need of xterm's buffer: no xterm import, so they test
+ *  on plain objects. */
+export interface CellLike {
+  getChars(): string
+  getWidth(): number
+}
+export interface LineLike {
+  isWrapped: boolean
+  getCell(x: number): CellLike | undefined
+}
+export interface BufferLike {
+  length: number
+  getLine(y: number): LineLike | undefined
+}
+
+/** A buffer row's cells (audit 2026-10-12: moved here from termOsc8, so every
+ *  read of a row into cells is this module's). */
+export function bufferRowCells(line: Pick<LineLike, 'getCell'> | undefined, cols: number): CellInfo[] | undefined {
+  if (!line) return undefined
+  const out: CellInfo[] = []
+  for (let x = 0; x < cols; x += 1) {
+    const cell = line.getCell(x)
+    out.push({ chars: cell?.getChars() ?? '', width: cell?.getWidth() ?? 1 })
+  }
+  return out
+}
+
+export interface LogicalLine extends CellText {
+  /** Its first and last buffer rows, across wraps. */
+  first: number
+  last: number
+  /** Every cell's width. */
+  widths: number[]
+}
+
+/** The LOGICAL line holding buffer row `y`: its first and last rows across
+ *  wraps, every cell's width, the joined text, its index and the cell just
+ *  past the last printed one. Moved here from TerminalPanel (audit
+ *  2026-10-12). */
+export function logicalLine(b: BufferLike, cols: number, y: number): LogicalLine {
+  let first = y
+  while (first > 0 && b.getLine(first)?.isWrapped) first -= 1
+  let last = y
+  while (last + 1 < b.length && b.getLine(last + 1)?.isWrapped) last += 1
+  const cells: CellInfo[] = []
+  for (let i = first; i <= last; i += 1) cells.push(...(bufferRowCells(b.getLine(i), cols) ?? []))
+  const { text, index, textEnd } = cellText(cells)
+  return { first, last, widths: cells.map((c) => c.width), text, index, textEnd }
+}
+
+/** Where the cell at buffer row `row`, column `col` starts in the line's
+ *  TEXT, clamped to the line: the one conversion from a cell to a character. */
+export function charAtCell(line: LogicalLine, cols: number, row: number, col: number): number {
+  return line.index[Math.min(Math.max(0, (row - line.first) * cols + col), line.index.length - 1)]
+}

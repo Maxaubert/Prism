@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import type { UpdateInfo, UpdatePhase } from '../../shared/updateTypes'
+import { LAYER } from './layers'
 
 /**
  * The update chip: a pill in the title bar, there only while there is something
@@ -93,7 +94,7 @@ export default function UpdateChip({
           // The flat surface, not --p-title: that one carries the window's
           // alpha on an acrylic theme, and a line hung over the tab strip must
           // not be read through.
-          className="absolute right-0 top-[calc(100%+8px)] z-40 whitespace-nowrap rounded-md border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2.5 py-1.5 text-[11.5px] text-[var(--p-text-soft)] shadow-[0_10px_30px_rgba(0,0,0,.45)]"
+          className={`absolute right-0 top-[calc(100%+8px)] ${LAYER.pop} whitespace-nowrap rounded-md border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2.5 py-1.5 text-[11.5px] text-[var(--p-text-soft)] shadow-[0_10px_30px_rgba(0,0,0,.45)]`}
         >
           {notice}
         </div>

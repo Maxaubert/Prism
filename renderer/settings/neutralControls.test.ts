@@ -29,7 +29,7 @@ describe('settings controls', () => {
     expect(SWITCH_KNOB_ON).toBe('bg-[var(--p-switch-knob,var(--p-on-accent))]')
     // Off stays the grey track and the white knob.
     const src = readFileSync(resolve(__dirname, 'fields.tsx'), 'utf8')
-    const sw = src.slice(src.indexOf('export function Switch'), src.indexOf('export function parseHexInput'))
+    const sw = src.slice(src.indexOf('export function Switch'), src.indexOf('export function Segmented'))
     expect(sw).toMatch(/on \? SWITCH_ON : 'bg-\[var\(--p-track\)\]'/)
     expect(sw).toMatch(/on \? SWITCH_KNOB_ON : 'bg-white'/)
   })
@@ -54,7 +54,7 @@ describe('settings controls', () => {
 
   it('the save button still does', () => {
     const src = readFileSync(resolve(__dirname, 'fields.tsx'), 'utf8')
-    const save = src.slice(src.indexOf('export function SaveButton'), src.indexOf('export function ThemeHead'))
+    const save = src.slice(src.indexOf('export function SaveButton'), src.indexOf('export function Select'))
     expect(save).toMatch(/bg-\[var\(--p-accent\)\]/)
   })
 

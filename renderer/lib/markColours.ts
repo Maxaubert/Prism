@@ -1,5 +1,5 @@
 import { composite } from './colour'
-import { contrastRatio, mixHex } from './termAnsi'
+import { contrastRatio, mixHex, towardRoom } from './termAnsi'
 
 /**
  * THE RAINBOW FINISH (#143; owner, 2026-10-10: "keep the like that border that
@@ -26,7 +26,7 @@ export function floorMark(c: string, grounds: readonly string[], floor = 3): str
   if (!grounds.length || worstOn(c, grounds) >= floor) return c
   // Judged on the darkest ground for a light-or-dark answer that holds for all.
   const dark = grounds.reduce((a, g) => (contrastRatio('#ffffff', g) < contrastRatio('#ffffff', a) ? a : g), grounds[0])
-  const to = contrastRatio('#ffffff', dark) >= contrastRatio('#000000', dark) ? '#ffffff' : '#000000'
+  const to = towardRoom(dark)
   let best = c
   let bestScore = worstOn(c, grounds)
   for (let i = 1; i <= 50; i += 1) {

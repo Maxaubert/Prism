@@ -10,8 +10,19 @@ export interface ShellDef {
   args: string[]
 }
 
-/** The agents whose conversation can be resumed at the next launch. */
-export type AgentKind = 'claude' | 'codex'
+/** The agents whose conversation can be resumed at the next launch, each by
+ *  its own flag: `claude --resume <id>` and `codex resume --last`. THE ONE LIST
+ *  (audit 2026-10-12: three inline unions, a second alias and three
+ *  hand-written checks named them, so a third resumable agent would have been
+ *  dropped from saved tabs without a word). */
+export const RESUMABLE_AGENTS = ['claude', 'codex'] as const
+
+export type AgentKind = (typeof RESUMABLE_AGENTS)[number]
+
+/** Can this agent's conversation come back at the next launch? */
+export function isResumable(kind: unknown): kind is AgentKind {
+  return (RESUMABLE_AGENTS as readonly unknown[]).includes(kind)
+}
 
 /** What the process poll can find in a shell. 'other' agents (aider, gemini)
  *  light the indicator but have nothing to come back to. */

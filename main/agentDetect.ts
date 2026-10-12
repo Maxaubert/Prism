@@ -1,3 +1,4 @@
+import type { DetectedAgent } from '../shared/types'
 // Is an AI agent (Claude Code, codex, and kin) running under a shell? The tab
 // dots are agent-scoped: a plain terminal never shows one. Detection walks the
 // process tree under each pty's shell and matches command lines against the
@@ -39,7 +40,7 @@ const CODEX_RE = /(?:^"?|[\\/])codex(\.exe|\.cmd|\.ps1)?(["\s]|$)|@openai[\\/]co
 export function treeAgentKind(
   rows: ProcRow[],
   rootPid: number
-): 'claude' | 'codex' | 'other' | null {
+): DetectedAgent | null {
   const kids = new Map<number, ProcRow[]>()
   for (const r of rows) {
     const list = kids.get(r.ppid) ?? []
@@ -48,7 +49,7 @@ export function treeAgentKind(
   }
   const queue = [rootPid]
   const seen = new Set<number>()
-  let kind: 'claude' | 'codex' | 'other' | null = null
+  let kind: DetectedAgent | null = null
   while (queue.length) {
     const pid = queue.shift() as number
     if (seen.has(pid)) continue

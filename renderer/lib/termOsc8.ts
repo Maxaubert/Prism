@@ -1,5 +1,5 @@
-import type { IBufferLine } from '@xterm/xterm'
-import { cellText, type CellInfo } from './termCells'
+import { bufferRowCells, cellText, type CellInfo } from './termCells'
+import { isWebUrl } from '../../shared/webUrl'
 
 /**
  * OSC 8 HYPERLINKS (#169): a program prints a label and says, in-band, which
@@ -28,7 +28,7 @@ export function parseOsc8(data: string): { uri: string } | null {
 }
 
 /** The only links the app opens (main and the preload check again). */
-export const isWebLink = (uri: string): boolean => /^https?:\/\//i.test(uri)
+export const isWebLink = (uri: string): boolean => isWebUrl(uri)
 
 const hostOf = (url: string): string | null => {
   try {
@@ -168,16 +168,8 @@ export function spanTextRange(row: readonly CellInfo[], from: number, to: number
   return { start: at(from), end: at(to) }
 }
 
-/** A buffer row's cells, for the cell arithmetic above. */
-export function bufferRowCells(line: IBufferLine | undefined, cols: number): CellInfo[] | undefined {
-  if (!line) return undefined
-  const out: CellInfo[] = []
-  for (let x = 0; x < cols; x += 1) {
-    const cell = line.getCell(x)
-    out.push({ chars: cell?.getChars() ?? '', width: cell?.getWidth() ?? 1 })
-  }
-  return out
-}
+/** A buffer row's cells: termCells' (rule 11), kept importable from here. */
+export { bufferRowCells }
 
 /** What the span's cells hold now, or null when a row of it is gone. */
 export function spanText(

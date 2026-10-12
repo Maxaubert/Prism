@@ -19,8 +19,7 @@ export const RULE =
  * The colour field keeps its own focus look (the picker is unchanged).
  *
  * THE DROPDOWN'S MENU BLURS WHAT IS BEHIND IT AND CASTS NO SHADOW (owner's
- * popup rule, 2026-09-22), here and not in `Select` itself, so the legacy
- * rows (kept until Prism moves) look exactly as they did.
+ * popup rule, 2026-09-22), here, on the row.
  */
 export const ROW_SCOPE =
   'has-[:focus-visible]:bg-[var(--p-hover)] ' +

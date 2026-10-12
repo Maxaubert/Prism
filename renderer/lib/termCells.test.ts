@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { findLinks } from './termLinks'
-import { cellFrom, cellText, type CellInfo } from './termCells'
+import { cellFrom, cellText, charAtCell, logicalLine, type CellInfo } from './termCells'
 
 /** Cells for a string, the way xterm lays it out: a wide character is two. */
 function cells(parts: Array<string | [string, 2]>, pad = 0): CellInfo[] {
@@ -53,5 +53,37 @@ describe('cellFrom', () => {
   })
   it('never walks above the first row', () => {
     expect(cellFrom(0, 1, 5, 10)).toEqual({ row: 0, col: 0 })
+  })
+})
+
+// The buffer readers moved here from TerminalPanel (audit 2026-10-12), on
+// plain objects: a line of `cols` cells, wrapped onto the next row.
+describe('logicalLine and charAtCell', () => {
+  const row = (text: string, wrapped: boolean) => ({
+    isWrapped: wrapped,
+    getCell: (x: number) => {
+      const ch = x < text.length ? text[x] : ''
+      return { getChars: () => ch, getWidth: () => 1 }
+    }
+  })
+  const buf = (rows: Array<[string, boolean]>) => ({
+    length: rows.length,
+    getLine: (y: number) => (rows[y] ? row(rows[y][0], rows[y][1]) : undefined)
+  })
+  it('joins a wrapped line from any of its rows', () => {
+    const b = buf([['$ ls', false], ['abcd', false], ['efgh', true], ['ij', true], ['next', false]])
+    for (const y of [1, 2, 3]) {
+      const l = logicalLine(b, 4, y)
+      expect([l.first, l.last]).toEqual([1, 3])
+      expect(l.text).toBe('abcdefghij  ')
+      expect(l.textEnd).toBe(10)
+    }
+  })
+  it('turns a cell into its place in the text, clamped to the line', () => {
+    const b = buf([['abcd', false], ['ef', true]])
+    const l = logicalLine(b, 4, 0)
+    expect(charAtCell(l, 4, 1, 1)).toBe(5)
+    expect(charAtCell(l, 4, 0, -3)).toBe(0)
+    expect(charAtCell(l, 4, 9, 9)).toBe(l.text.length)
   })
 })

@@ -87,7 +87,7 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    the same bar: `shared/help/` (the catalogue, six files of curated entries; its
    pure offline search; `catalogue.test.ts`, the gate for content),
    `renderer/lib/helpPrefs.ts`, `renderer/components/HelpPanel.tsx` and
-   `renderer/settings/Help.tsx` + `helpOptions.ts`. A host wires it with:
+   `renderer/settings/sections/HelpSection.tsx` + `helpOptions.ts`. A host wires it with:
    `helpEnabled()` / `useHelpEnabled()` to decide whether its way in exists at
    all (on by default; off means no button and no key); ONE `<HelpPanel>` at its
    root, lazy-loaded since it brings the catalogue with it, handed `shell`
@@ -96,8 +96,8 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    goes through main because `navigator.clipboard` refuses an unfocused
    document), `onPickShell` and `onClose`; its key in `ownsKey`, tested against
    `helpEnabled()`, so xterm yields it exactly when the host takes it (Prism
-   Terminal uses a bare F1); and `<HelpSetting opensWith="...">` on its settings
-   page, which says what that host's way in is. As with the update window, a
+   Terminal uses a bare F1); and `<HelpSection>` on its settings
+   page. As with the update window, a
    host that raises a question of its own while the popup is up must PUT IT
    AWAY first and must not open it over one: they are the same layer. The same
    goes for a chord that puts something ELSE in front while it is up (another
@@ -193,13 +193,14 @@ fourth, under the same bar. Spec and plan:
   a dropdown's menu in a row blurs what is behind it and casts no shadow.
 - No new token: panels are `color-mix()` of `--p-text`, edges `--p-line`,
   corners `max(4px, --p-radius + 3px)`.
-- **Kept for the transition, removed in PR 3:** `Pref`, `ThemeHead`, `ROWS`,
+- **The old layouts are gone** (audit 2026-10-12, after checking Prism's pinned
+  core imports none of them): `Pref`, `ThemeHead`, `ROWS`,
   `TerminalAppearanceSettings`, `AgentIndicatorSetting`, `AttentionSettings`,
-  `ShellSetting`, `HelpSetting` and `DictationSettings` stay exported and draw
-  exactly as before, until Prism no longer imports them. They are built on the
-  same extracted pieces (`theme/ThemeWall.tsx`, `theme/useTermSetup.ts`,
-  `dictation/useDictationState.ts`, `dictation/parts.tsx`), so every rule has
-  one copy and, for a few days, two layouts.
+  `ShellSetting`, `HelpSetting`, `DictationSettings`, and the colour fields'
+  `parseHexInput` / `hexCommit` / `HexSwatch` (`colourCommit` and `ColourField`
+  replaced them). The pieces they shared (`theme/ThemeWall.tsx`,
+  `theme/useTermSetup.ts`, `dictation/useDictationState.ts`,
+  `dictation/parts.tsx`) are the sections' own now.
 
 **THE DIAGNOSTICS LOG (#140, 2026-10-07)** is the fifth: both apps catch their
 stalls and errors the same way. `main/diagnostics.ts` `startDiagnostics` wires
@@ -334,6 +335,26 @@ and tested before the core's half merges. The core's lint and unit tests run
 only here; Prism's gate on it is its compiler, its unit suite and that e2e.
 **Keep Prism's gate runner-safe:** nothing in those scenarios may assume one
 particular machine.
+
+## One copy of each rule (2026-10-12, core 0.34.0)
+
+An audit for duplicated code (`Documents\Claude\research\prism-terminal\2026-10-12-duplication-audit.md`)
+moved every rule both apps had written twice into one place here. A host uses these and never
+re-types what they decide:
+
+- `components/Modal.tsx`: every dialog's frame (scrim, Escape, a plain Tab kept inside, `no-drag`,
+  focus back on close). A test holds that no other file declares `aria-modal`.
+- `components/layers.ts`: `LAYER`, the overlay z-order, bottom to top.
+- `lib/prefStore.ts`: `enumPref`, `boolPref`, `readPref`, `writePref`; a blocked store loses the
+  choice, never the app. Keys stay byte for byte.
+- `lib/termCells.ts`: also `logicalLine`, `bufferRowCells`, `charAtCell` (rule 11).
+- `lib/termKeys.ts`: what a key over a shell does, in order. `components/termReplyHandlers.ts`: what
+  a program asks the terminal about itself.
+- `lib/oklab.ts`, `colour.ts`'s `canonicalStored` and `clamp`, `termAnsi.ts`'s `towardRoom`.
+- `shared/ground.ts` (`DEFAULT_GROUND`, `LIGHT_GROUND`, `ON_DARK_INK`), `shared/psQuote.ts`,
+  `shared/webUrl.ts` (`isWebUrl`), `shared/folderNames.ts`, `shared/types.ts`'s `RESUMABLE_AGENTS`
+  and `isResumable`, `main/atomicWrite.ts`, `preload/api.ts`'s `subscribe`.
+- `lib/termLook.ts`'s `AGENT_COLOUR_STATES`: the three mark colours as one table.
 
 ## Status (2026-09-19)
 

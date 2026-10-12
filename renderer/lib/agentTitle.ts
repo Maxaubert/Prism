@@ -1,3 +1,4 @@
+import type { AgentKind } from '../../shared/types'
 /**
  * What an agent says about itself through the terminal TITLE (2026-09-04).
  *
@@ -39,12 +40,12 @@ export type AgentTitleState = 'working' | 'idle' | 'starting' | 'question'
  */
 const CODEX_ASKS = /^\[\s*[!.]\s*\]\s*Action Required\b/
 export interface AgentTitle {
-  kind: 'claude' | 'codex'
+  kind: AgentKind
   state: AgentTitleState
 }
 
 interface Seen {
-  kind: 'claude' | 'codex'
+  kind: AgentKind
   /** The text after the spinner, whose bare form is the idle title. */
   name: string
   /** Idle seen at least once: spinners before it are the startup. */
@@ -59,7 +60,7 @@ const seen = new Map<string, Seen>()
  * Required". A bare folder name (Codex at rest) needs the memory and is null.
  * A braille spinner alone is weak proof of Codex: see `titleArmsAgent`.
  */
-export function titleAgent(title: string): 'claude' | 'codex' | null {
+export function titleAgent(title: string): AgentKind | null {
   const t = title.trim()
   const first = [...t][0]
   if (!first) return null
@@ -76,7 +77,7 @@ export function titleAgent(title: string): 'claude' | 'codex' | null {
  * poll, never having seen an agent there, would never take back: the line run
  * with a backslash on its end (code review 2026-09-24, #21).
  */
-export function titleArmsAgent(title: string): 'claude' | 'codex' | null {
+export function titleArmsAgent(title: string): AgentKind | null {
   const named = titleAgent(title)
   return named === 'codex' && !CODEX_ASKS.test(title.trim()) ? null : named
 }

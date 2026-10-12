@@ -46,6 +46,10 @@ export interface DictationIpcDeps {
 /** The largest WAV worth accepting: 5 minutes of 16 kHz PCM16 mono, and a margin. */
 const MAX_WAV_BYTES = 5 * 60 * 16000 * 2 + 1024 * 1024
 
+/** A language code as the engine takes it: two to four lower-case letters,
+ *  for a pass and a warm-up alike. */
+const validLanguage = (l: unknown): l is string => typeof l === 'string' && /^[a-z]{2,4}$/.test(l)
+
 export function registerDictationIpc(deps: DictationIpcDeps): () => void {
   const { ipcMain } = deps
   const store = deps.store ?? createDictationStore({ root: deps.sharedRoot, catalog: CATALOG })
@@ -108,8 +112,7 @@ export function registerDictationIpc(deps: DictationIpcDeps): () => void {
       r.wav.byteLength < 44 ||
       r.wav.byteLength > MAX_WAV_BYTES ||
       typeof r.modelId !== 'string' ||
-      typeof r.language !== 'string' ||
-      !/^[a-z]{2,4}$/.test(r.language)
+      !validLanguage(r.language)
     )
       return { ok: false, reason: 'engine-failed', detail: 'bad request' }
     return engine.transcribe({ wav: r.wav, modelId: r.modelId, language: r.language, final: r.final === true })
@@ -120,7 +123,7 @@ export function registerDictationIpc(deps: DictationIpcDeps): () => void {
   // checks as a pass; nothing is warmed for a model that is not installed.
   ipcMain.on(DCH.warm, (_e: unknown, req: unknown) => {
     const r = req as { modelId?: unknown; language?: unknown } | null
-    if (!r || typeof r.modelId !== 'string' || typeof r.language !== 'string' || !/^[a-z]{2,4}$/.test(r.language)) return
+    if (!r || typeof r.modelId !== 'string' || !validLanguage(r.language)) return
     if (!store.modelPath(r.modelId)) return
     void engine.warm({ modelId: r.modelId, language: r.language })
   })

@@ -1,4 +1,4 @@
-import { contrastRatio, mixHex } from './termAnsi'
+import { contrastRatio, mixHex, towardRoom } from './termAnsi'
 
 // ONE COLOUR, WITH ALPHA, FOR EVERY COLOUR SETTING IN BOTH APPS (#112; owner,
 // 2026-10-03: "the colour pickers should be the same for both apps, i need an
@@ -34,7 +34,7 @@ export interface Hsla {
 }
 export type ColourFormat = 'hex' | 'rgba' | 'hsla'
 
-const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
+export const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
 const byte = (n: number): string => Math.round(clamp(n, 0, 255)).toString(16).padStart(2, '0')
 
 /* ---------- parse ---------- */
@@ -121,6 +121,13 @@ export function parseColour(text: string): Rgba | null {
 export function toStored(c: Rgba): string {
   const a = Math.round(clamp(c.a, 0, 1) * 255)
   return `#${byte(c.r)}${byte(c.g)}${byte(c.b)}${a === 255 ? '' : byte(a)}`
+}
+
+/** A STORED colour read back: the stored form of a 6 or 8 digit hex, or null
+ *  for anything else (the choice goes back to the theme). The one reader both
+ *  apps' colour settings use (audit 2026-10-12: two identical copies). */
+export function canonicalStored(v: string | null | undefined): string | null {
+  return v && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(v) ? toStored(parseColour(v)!) : null
 }
 
 /** Alpha as text, at most two decimals, no trailing zeros. */
@@ -255,7 +262,7 @@ export function composite(c: string, ground: string): string {
  */
 function towardsFloor(colour: string, ground: string, floor: number): string {
   if (contrastRatio(colour, ground) >= floor) return colour
-  const to = contrastRatio('#ffffff', ground) >= contrastRatio('#000000', ground) ? '#ffffff' : '#000000'
+  const to = towardRoom(ground)
   if (contrastRatio(to, ground) < floor) return to
   let lo = 0
   let hi = 1
@@ -353,7 +360,7 @@ export function fitAlpha(c: Rgba, { alpha = true, alphaMin = 0, alphaMax = 1 }: 
 const squash = (s: string): string => s.toLowerCase().replace(/\s+/g, '')
 
 /**
- * What a code field's blur or Enter commits (generalising `hexCommit`, #26
+ * What a code field's blur or Enter commits (generalising the old hex rule, #26
  * and #71): only a DRAFT the user typed that parses AND names another colour,
  * alpha included, in the stored form. "Another colour" is judged on
  * `toStored` of both, never the strings; and a draft that reads exactly as the

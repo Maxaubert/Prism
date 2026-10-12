@@ -7,6 +7,7 @@
 // This is exactly where generic terminals break image paste.
 
 import type { DetectedAgent } from '../../shared/types'
+import { psQuote } from '../../shared/psQuote'
 
 export interface ClipboardState {
   image: boolean
@@ -52,7 +53,7 @@ export function sanitizePaste(text: string): string {
 export function quotePath(p: string, shell?: PathShell): string {
   if (!shell || shell === 'cmd') return `"${p}"`
   if (shell === 'bash') return `'${p.replace(/'/g, `'\\''`)}'`
-  return `'${p.replace(/['‘’‚‛]/g, '$&$&')}'`
+  return psQuote(p)
 }
 
 /** Quote each path and join with spaces: what a prompt (or claude) wants. */

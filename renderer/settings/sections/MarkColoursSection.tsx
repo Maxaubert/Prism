@@ -1,12 +1,5 @@
 import type { JSX } from 'react'
-import {
-  setAgentColor,
-  setAgentDoneColor,
-  setAgentQuestionColor,
-  useAgentColorChoice,
-  useAgentDoneColorChoice,
-  useAgentQuestionColorChoice
-} from '../../lib/termLook'
+import { setAgentColour, useAgentColourChoice, type AgentColourState } from '../../lib/termLook'
 import { useAgentColors } from '../../lib/agentColors'
 import { ColourField } from '../ColourPicker'
 import { RESET_LINK, SaveButton } from '../fields'
@@ -24,44 +17,34 @@ const OWN = 'Your own colour.'
  * Q3): both save the whole setup as Custom and light together.
  */
 export function MarkColoursSection(): JSX.Element {
-  const agentCol = useAgentColorChoice()
-  const doneCol = useAgentDoneColorChoice()
-  const questionCol = useAgentQuestionColorChoice()
-  const inForce = useAgentColors()
   const { dirty, save } = useTermSetup()
-  const working = opt('agent-color')
-  const finished = opt('agent-done-color')
-  const question = opt('agent-question-color')
   return (
     <SettingsSection
       id="colours"
       title={sectionTitle('colours')}
       action={<SaveButton dirty={dirty} onClick={save} title={saveSetupTitle()} />}
     >
-      <SettingRow id="agent-color" icon={working.icon} label={working.label} sub={agentCol ? OWN : working.sub}>
-        {agentCol && (
-          <button data-follow-theme="working" onClick={() => setAgentColor('')} className={RESET_LINK}>
-            Reset
-          </button>
-        )}
-        <ColourField label={working.label} value={inForce.working} onChange={setAgentColor} onRevert={() => setAgentColor(agentCol)} />
-      </SettingRow>
-      <SettingRow id="agent-done-color" icon={finished.icon} label={finished.label} sub={doneCol ? OWN : finished.sub}>
-        {doneCol && (
-          <button data-follow-theme="finished" onClick={() => setAgentDoneColor('')} className={RESET_LINK}>
-            Reset
-          </button>
-        )}
-        <ColourField label={finished.label} value={inForce.finished} onChange={setAgentDoneColor} onRevert={() => setAgentDoneColor(doneCol)} />
-      </SettingRow>
-      <SettingRow id="agent-question-color" icon={question.icon} label={question.label} sub={questionCol ? OWN : question.sub}>
-        {questionCol && (
-          <button data-follow-theme="question" onClick={() => setAgentQuestionColor('')} className={RESET_LINK}>
-            Reset
-          </button>
-        )}
-        <ColourField label={question.label} value={inForce.question} onChange={setAgentQuestionColor} onRevert={() => setAgentQuestionColor(questionCol)} />
-      </SettingRow>
+      <AgentColourRow id="agent-color" state="working" />
+      <AgentColourRow id="agent-done-color" state="finished" />
+      <AgentColourRow id="agent-question-color" state="question" />
     </SettingsSection>
+  )
+}
+
+/** One mark's colour: the colour in force, and Reset while one is picked. */
+function AgentColourRow({ id, state }: { id: string; state: AgentColourState }): JSX.Element {
+  const chosen = useAgentColourChoice(state)
+  const inForce = useAgentColors()[state]
+  const o = opt(id)
+  const set = (hex: string): void => setAgentColour(state, hex)
+  return (
+    <SettingRow id={id} icon={o.icon} label={o.label} sub={chosen ? OWN : o.sub}>
+      {chosen && (
+        <button data-follow-theme={state} onClick={() => set('')} className={RESET_LINK}>
+          Reset
+        </button>
+      )}
+      <ColourField label={o.label} value={inForce} onChange={set} onRevert={() => set(chosen)} />
+    </SettingRow>
   )
 }

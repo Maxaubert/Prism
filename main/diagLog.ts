@@ -1,4 +1,5 @@
-import { appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs'
+import { appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'fs'
+import { writeAtomic } from './atomicWrite'
 import { open } from 'fs/promises'
 import { dirname, join } from 'path'
 import { performance } from 'perf_hooks'
@@ -285,7 +286,7 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
       verbose = on
       try {
         mkdirSync(dirname(stateFile), { recursive: true })
-        writeFileSync(stateFile, JSON.stringify({ verbose }))
+        writeAtomic(stateFile, JSON.stringify({ verbose }))
       } catch (err) {
         fail(err)
       }

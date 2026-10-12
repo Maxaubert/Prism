@@ -33,7 +33,10 @@ const sections = files
 /** Every row id a shared section renders: `<Pref id="x"`, `<SettingRow id="x"`
  *  and `data-pref="x"`. */
 const rendered = new Set(
-  [...sections.matchAll(/<(?:Pref|SettingRow)\s+id="([a-z-]+)"|data-pref="([a-z-]+)"/g)].map((m) => m[1] ?? m[2])
+  // AgentColourRow: the three mark colours' one row (MarkColoursSection).
+  [...sections.matchAll(/<(?:Pref|SettingRow|AgentColourRow)\s+id="([a-z-]+)"|data-pref="([a-z-]+)"/g)].map(
+    (m) => m[1] ?? m[2]
+  )
 )
 
 // The marks' own rows (#143) are drawn right after the Finished switch.
@@ -140,7 +143,9 @@ describe('the grouped cards fields of the lists (2026-10-05)', () => {
       .filter((f) => f.includes(`${join('settings', 'sections')}`) && f.endsWith('.tsx'))
       .map((f) => readFileSync(f, 'utf8'))
       .join('\n')
-    const drawn = [...grouped.matchAll(/<SettingRow\s+id="([a-z-]+)"|data-pref="([a-z-]+)"/g)].map((m) => m[1] ?? m[2])
+    const drawn = [...grouped.matchAll(/<(?:SettingRow|AgentColourRow)\s+id="([a-z-]+)"|data-pref="([a-z-]+)"/g)].map(
+      (m) => m[1] ?? m[2]
+    )
     for (const s of Object.keys(SETTINGS_SECTIONS)) {
       const ids = ALL.filter((o) => o.section === s).map((o) => o.id)
       expect(drawn.filter((id) => ids.includes(id)), s).toEqual(ids)

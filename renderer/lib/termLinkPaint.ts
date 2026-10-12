@@ -3,9 +3,8 @@ import { crumb } from './diag'
 import { rowsToReink } from './linkInkRows'
 import { sliceRows, type RowPlan } from './linkScanPlan'
 import { findLinks } from './termLinks'
-import { cellText } from './termCells'
+import { bufferRowCells, cellText } from './termCells'
 import {
-  bufferRowCells,
   piecesOverlap,
   spanRows,
   spanText,

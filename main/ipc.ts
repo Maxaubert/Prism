@@ -5,6 +5,7 @@ import { pollAgentAgain, pollAgentsNow, pollAgentsSoon, startAgentPoll } from '.
 import { detectShells } from './shells'
 import { cdTerm, killTerm, prewarmShell, resizeTerm, spawnTerm, writeTerm, type ClaudePluginEnv } from './terminal'
 import { openTermPath, pathKinds, PATHS_MAX, type PathOpeners } from './termPathOpen'
+import { isWebUrl } from '../shared/webUrl'
 
 /**
  * The main half of the terminal's bridge, for both hosts.
@@ -171,30 +172,27 @@ export function registerTermIpc(deps: TermIpcDeps): () => void {
   // command in the catalogue is a few hundred characters, so anything near the
   // cap is not a command, and it is REFUSED rather than trimmed, since a
   // trimmed command is a different command.
-  ipcMain.handle(CH.clipboardWrite, (_e: unknown, text: unknown) => {
-    if (typeof text !== 'string' || text.length === 0 || text.length > CLIPBOARD_WRITE_MAX) return false
-    try {
-      deps.clipboard.writeText(text)
-      return true
-    } catch {
-      return false
+  // Both write channels refuse rather than trim: a trimmed text is a
+  // different text. Only the cap differs.
+  const writeCapped =
+    (max: number) =>
+    (_e: unknown, text: unknown): boolean => {
+      if (typeof text !== 'string' || text.length === 0 || text.length > max) return false
+      try {
+        deps.clipboard.writeText(text)
+        return true
+      } catch {
+        return false
+      }
     }
-  })
+  ipcMain.handle(CH.clipboardWrite, writeCapped(CLIPBOARD_WRITE_MAX))
 
   // A PROGRAM'S COPY, OSC 52 (#176). Not clipboard:write, whose 4000 cap is
   // right for a command and wrong for an answer Claude's /copy puts there.
   // Checked again here (the page is never trusted with a limit), refused, not
   // trimmed, over OSC52_MAX. Through main so a background tab or an unfocused
   // window still copies. There is no read channel: OSC 52 is write-only.
-  ipcMain.handle(CH.clipboardTerm, (_e: unknown, text: unknown) => {
-    if (typeof text !== 'string' || text.length === 0 || text.length > OSC52_MAX) return false
-    try {
-      deps.clipboard.writeText(text)
-      return true
-    } catch {
-      return false
-    }
-  })
+  ipcMain.handle(CH.clipboardTerm, writeCapped(OSC52_MAX))
 
   // The bell (#177). The page already let at most one a second per tab
   // through; what it means is the host's (`attention`), silence without one.
@@ -202,7 +200,7 @@ export function registerTermIpc(deps: TermIpcDeps): () => void {
 
   // A link clicked in the terminal. The page is never trusted with a scheme.
   ipcMain.on(CH.openExternal, (_e: unknown, url: unknown) => {
-    if (typeof url === 'string' && /^https?:\/\//i.test(url)) deps.openExternal(url)
+    if (isWebUrl(url)) deps.openExternal(url)
   })
 
   // PATHS (#99). The page asks which texts on screen name a file or a folder;

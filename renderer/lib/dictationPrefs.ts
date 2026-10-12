@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { DEFAULT_HOTKEY, usableHotkey, type DictMode, type Hotkey } from './dictationKey'
+import { readPref, writePref } from './prefStore'
 
 /**
  * Dictation's settings (#13). VALUES ARE PER APP: each app has its own
@@ -31,19 +32,9 @@ const sub = (l: () => void): (() => void) => {
   }
 }
 
-const read = (key: string): string | null => {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
+const read = readPref
 const write = (key: string, value: string): void => {
-  try {
-    localStorage.setItem(key, value)
-  } catch {
-    /* a full or blocked store loses the setting, not the app */
-  }
+  writePref(key, value)
   notify()
 }
 

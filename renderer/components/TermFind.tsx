@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { clearTermFind, findInTerm, onTermFindResults } from './TerminalPanel'
+import { LAYER } from './layers'
 
 /**
  * Find in the terminal's scrollback (Ctrl+F, Ctrl+Shift+F everywhere; 2026-08-31, Ctrl+F since 2026-09-23).
@@ -56,7 +57,7 @@ export default function TermFind({
     <div
       data-term-find
       data-owns-escape
-      className="absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1"
+      className={`absolute right-3 top-3 ${LAYER.panel} flex items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1`}
     >
       <input
         ref={input}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { followsHostStyle, hostDefaults, hostOwnsWindowAcrylic } from '../../host'
 import {
   applyCustomExtras,
@@ -11,19 +11,23 @@ import {
   withGroundAlpha,
   type CustomTermTheme
 } from '../../lib/termLook'
-import { resolveCustomTheme, resolveTermTheme, watchTermTheme, TERM_PRESETS } from '../../lib/termTheme'
+import {
+  resolveCustomTheme,
+  resolveTermTheme,
+  watchTermTheme,
+  TERM_PRESETS
+} from '../../lib/termTheme'
 import { orderTermThemes } from '../../lib/themeOrder'
 import type { AlphaRange } from '../../lib/colour'
 import { SEE_THROUGH_MAX } from '../../lib/seeThrough'
 import { ColourField } from '../ColourPicker'
 import ThemeSwitchAsk from '../../components/ThemeSwitchAsk'
+import { Modal } from '../../components/Modal'
 import { ANSI_KEYS, cardAnsi, paletteOf, pickPreset, presetLook } from './palette'
 import { saveAsCustom, useNoAcrylic, useTermSetup } from './useTermSetup'
 
-// THE THEME WALL, once for both layouts of the theme section (2026-10-05):
-// the cards, Show all, the switch question and the colour editor. Extracted
-// from TerminalAppearance.tsx unchanged; the legacy section and the grouped
-// cards one both draw this.
+// THE THEME WALL (2026-10-05): the cards, Show all, the switch question and
+// the colour editor, drawn by the theme section.
 
 /** A theme as a miniature terminal: prompt, coloured ls output, cursor. The
  *  point is the SYNTAX colours - a swatch row says nothing about how a real
@@ -76,14 +80,20 @@ export function TermThemeCard({
             <span style={{ color: fg }}>:</span>
             <span style={{ color: ansi.blue }}>~/app</span>
             <span style={{ color: ansi.red }}>$</span> ls
-            <span className="ml-[1px] inline-block h-[11px] w-[6px] translate-y-[2px]" style={{ background: cursor }} />
+            <span
+              className="ml-[1px] inline-block h-[11px] w-[6px] translate-y-[2px]"
+              style={{ background: cursor }}
+            />
           </div>
           <div>
-            <span style={{ color: ansi.blue }}>src</span>  <span style={{ color: ansi.blue }}>docs</span>{'  '}
+            <span style={{ color: ansi.blue }}>src</span>{' '}
+            <span style={{ color: ansi.blue }}>docs</span>
+            {'  '}
             <span style={{ color: ansi.green }}>run.sh</span>
           </div>
           <div>
-            <span style={{ color: ansi.yellow }}>notes.md</span>  <span style={{ color: ansi.cyan }}>a.link</span>
+            <span style={{ color: ansi.yellow }}>notes.md</span>{' '}
+            <span style={{ color: ansi.cyan }}>a.link</span>
           </div>
           <div style={{ color: fg }}>12 files</div>
         </div>
@@ -95,7 +105,9 @@ export function TermThemeCard({
             or not. */}
         <div
           className={`flex h-8 items-center justify-between border-t px-2.5 text-[11.5px] font-semibold ${
-            on ? 'border-[color:var(--p-accent-hi)]/40 text-[var(--p-accent-hi)]' : 'border-[color:var(--p-line)] text-[var(--p-text)]'
+            on
+              ? 'border-[color:var(--p-accent-hi)]/40 text-[var(--p-accent-hi)]'
+              : 'border-[color:var(--p-line)] text-[var(--p-text)]'
           }`}
         >
           <span>{name}</span>
@@ -111,7 +123,17 @@ export function TermThemeCard({
           aria-label={`Edit ${name}`}
           onClick={onEdit}
         >
-          <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            width={11}
+            height={11}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
             <path d="M15 5l4 4L8 20H4v-4z" />
           </svg>
         </button>
@@ -138,46 +160,10 @@ function TermThemeEditor({
   const [draft, setDraft] = useState<CustomTermTheme>(seed)
   // A MODAL THAT HOLDS THE KEYBOARD (code review 2026-09-24, #28). Opened from
   // the pencil by keyboard, the focus stayed behind the backdrop: Escape did
-  // nothing (it was heard only inside) and Tab walked the cards under it, where
-  // Enter picked a theme beneath the open editor. So the first field takes the
-  // focus, Escape is heard from the window as ThemeSwitchAsk hears it, Tab
-  // stays inside, and the focus goes back to where it came from on close.
-  const panel = useRef<HTMLDivElement>(null)
-  const cancel = useRef(onCancel)
-  useEffect(() => {
-    cancel.current = onCancel
-  })
-  useEffect(() => {
-    const back = document.activeElement as HTMLElement | null
-    panel.current?.querySelector<HTMLElement>('input, button')?.focus()
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return
-      // An Escape aimed at a colour picker inside the editor is the picker's
-      // (#112): this listener is native and on the window, so it hears the key
-      // before the picker does, and would close the editor behind it.
-      if ((e.target as Element | null)?.closest?.('[data-colour-popover]')) return
-      e.preventDefault()
-      e.stopPropagation()
-      cancel.current()
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      back?.focus?.()
-    }
-  }, [])
-  const trapTab = (e: ReactKeyboardEvent): void => {
-    if (e.key !== 'Tab' || e.ctrlKey || e.altKey || e.metaKey) return
-    if ((e.target as Element | null)?.closest?.('[data-colour-popover]')) return
-    const all = [...(panel.current?.querySelectorAll<HTMLElement>('input, button, [tabindex="0"]') ?? [])].filter(
-      (el) => !el.hasAttribute('disabled')
-    )
-    if (!all.length) return
-    const i = all.indexOf(document.activeElement as HTMLElement)
-    const next = e.shiftKey ? (i <= 0 ? all.length - 1 : i - 1) : i === -1 || i === all.length - 1 ? 0 : i + 1
-    e.preventDefault()
-    all[next].focus()
-  }
+  // nothing and Tab walked the cards under it, where Enter picked a theme
+  // beneath the open editor. The core's Modal holds it: the first field takes
+  // the focus, Escape (not one aimed at a colour picker inside, #112) and a
+  // press outside cancel, Tab stays inside, the focus goes back on close.
   const set = (k: string, v: string | undefined): void =>
     setDraft((d) =>
       k === 'bg' || k === 'fg' || k === 'cursor' || k === 'selection'
@@ -196,7 +182,10 @@ function TermThemeEditor({
     value: string,
     more: AlphaRange & { alphaDisabled?: boolean; onRevert?: () => void } = {}
   ): JSX.Element => (
-    <div key={key} className="flex items-center justify-between gap-2 text-[11px] text-[var(--p-dim)]">
+    <div
+      key={key}
+      className="flex items-center justify-between gap-2 text-[11px] text-[var(--p-dim)]"
+    >
       <span className="w-[86px] truncate">{label}</span>
       <ColourField label={label} value={value} onChange={(v) => set(key, v)} {...more} />
     </div>
@@ -213,61 +202,53 @@ function TermThemeEditor({
   const drawn = useMemo(() => resolveCustomTheme(draft), [draft])
   return (
     // A popup, not an inline section: below the card grid the editor sat out
-    // of view. data-owns-escape keeps App's window Escape away; the backdrop
-    // and Escape both cancel.
-    <div
-      data-theme-editor
-      data-owns-escape
-      className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-[3px]"
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) onCancel()
-      }}
-      onKeyDown={trapTab}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Edit terminal colours"
+    // of view.
+    <Modal
+      onCancel={onCancel}
+      label="Edit terminal colours"
+      focus="input, button"
+      scrimAttrs={{ 'data-theme-editor': true }}
+      boxClassName="max-h-[85vh] overflow-y-auto p-5"
     >
-      <div ref={panel} className="max-h-[85vh] overflow-y-auto rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] p-5 shadow-[0_18px_48px_rgba(0,0,0,.55)]">
-        <div className="mb-3 text-[13px] font-bold text-[var(--p-text)]">Edit colours</div>
-        <div className="flex flex-wrap items-start gap-6">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
-            {well('Background', 'bg', draft.bg, bgAlpha)}
-            {well('Foreground', 'fg', draft.fg)}
-            {well('Cursor', 'cursor', draft.cursor)}
-            {well('Selection', 'selection', chosenSelection ?? drawn.selectionBackground, {
-              alphaMax: 254 / 255,
-              onRevert: () => set('selection', chosenSelection)
-            })}
-            {ANSI_KEYS.map((k) => well(k, k, draft.ansi[k] ?? '#888888'))}
-          </div>
-          <TermThemeCard
-            id="custom-preview"
-            name="Custom"
-            on
-            bg={drawn.background}
-            fg={drawn.foreground}
-            cursor={drawn.cursor}
-            ansi={cardAnsi(drawn as unknown as Record<string, string>)}
-            onPick={() => {}}
-          />
+      <div className="mb-3 text-[13px] font-bold text-[var(--p-text)]">Edit colours</div>
+      <div className="flex flex-wrap items-start gap-6">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+          {well('Background', 'bg', draft.bg, bgAlpha)}
+          {well('Foreground', 'fg', draft.fg)}
+          {well('Cursor', 'cursor', draft.cursor)}
+          {well('Selection', 'selection', chosenSelection ?? drawn.selectionBackground, {
+            alphaMax: 254 / 255,
+            onRevert: () => set('selection', chosenSelection)
+          })}
+          {ANSI_KEYS.map((k) => well(k, k, draft.ansi[k] ?? '#888888'))}
         </div>
-        <div className="mt-4 flex gap-2">
-          <button
-            data-save-custom
-            className="h-8 rounded-lg bg-[var(--p-accent)] px-4 text-[12px] font-semibold text-[var(--p-on-accent)] hover:brightness-110"
-            onClick={() => onSave(draft)}
-          >
-            Save as Custom
-          </button>
-          <button
-            className="h-8 rounded-lg border border-[color:var(--p-line)] px-4 text-[12px] font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-divider)]"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-        </div>
+        <TermThemeCard
+          id="custom-preview"
+          name="Custom"
+          on
+          bg={drawn.background}
+          fg={drawn.foreground}
+          cursor={drawn.cursor}
+          ansi={cardAnsi(drawn as unknown as Record<string, string>)}
+          onPick={() => {}}
+        />
       </div>
-    </div>
+      <div className="mt-4 flex gap-2">
+        <button
+          data-save-custom
+          className="h-8 rounded-lg bg-[var(--p-accent)] px-4 text-[12px] font-semibold text-[var(--p-on-accent)] hover:brightness-110"
+          onClick={() => onSave(draft)}
+        >
+          Save as Custom
+        </button>
+        <button
+          className="h-8 rounded-lg border border-[color:var(--p-line)] px-4 text-[12px] font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-divider)]"
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -314,7 +295,9 @@ export function ThemeWall({
   const customDrawn = useMemo(() => (custom ? resolveCustomTheme(custom) : null), [custom])
   // What the HOST's style looks like right now, for its card; re-read when the
   // style repaints :root. Only a host WITH styles has one (Prism).
-  const [styleTheme, setStyleTheme] = useState(() => resolveTermTheme(followsHostStyle() ? 'style' : termThemeId()))
+  const [styleTheme, setStyleTheme] = useState(() =>
+    resolveTermTheme(followsHostStyle() ? 'style' : termThemeId())
+  )
   useEffect(() => (followsHostStyle() ? watchTermTheme(setStyleTheme) : undefined), [])
   // CUSTOM LEADS THE WALL, then THE HOST'S OWN DEFAULT (owner, 2026-09-22: "it
   // should be first in the list"; then 2026-09-23: "custom should come before
@@ -381,7 +364,8 @@ export function ThemeWall({
   const [wallHeight, setWallHeight] = useState(TWO_ROWS)
   const allThemes = wallHeight !== TWO_ROWS
   const themeWall = useRef<HTMLDivElement>(null)
-  const toggleWall = (): void => setWallHeight(allThemes ? TWO_ROWS : (themeWall.current?.scrollHeight ?? 2400))
+  const toggleWall = (): void =>
+    setWallHeight(allThemes ? TWO_ROWS : (themeWall.current?.scrollHeight ?? 2400))
   return (
     <>
       <div
@@ -446,12 +430,27 @@ export function ThemeWall({
         <button
           data-theme-wall-toggle
           aria-expanded={allThemes}
-          aria-label={allThemes ? 'Show fewer themes' : `Show all ${TERM_PRESETS.length + (custom ? 1 : 0)} themes`}
+          aria-label={
+            allThemes
+              ? 'Show fewer themes'
+              : `Show all ${TERM_PRESETS.length + (custom ? 1 : 0)} themes`
+          }
           title={allThemes ? 'Show fewer' : 'Show all themes'}
           className="grid h-7 w-10 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
           onClick={toggleWall}
         >
-          <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${allThemes ? 'rotate-180' : ''}`} aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            width={15}
+            height={15}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`transition-transform ${allThemes ? 'rotate-180' : ''}`}
+            aria-hidden
+          >
             <path d="M6 9l6 6 6-6" />
           </svg>
         </button>

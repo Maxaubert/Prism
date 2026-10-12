@@ -66,9 +66,7 @@ describe("the core's own settings", () => {
     expect(problems).toEqual([])
   })
 
-  // THE WORD LIMIT IS FOR THE NEW FILES ONLY: the lists, `layout/`,
-  // `sections/` and the catalogue's notes, never the legacy components kept
-  // for the transition, whose hints run longer.
+  // THE WORD LIMIT: the lists, `layout/`, `sections/` and the catalogue's notes.
   it('keep every new label plain and every new subtext to eight words', () => {
     const fresh = source.filter((f) => {
       const r = relative(dir, f).replace(/\\/g, '/')

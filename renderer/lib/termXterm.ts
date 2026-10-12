@@ -1,6 +1,7 @@
 import { parseColour, toStored } from './colour'
 import { normalizeColor } from './termAnsi'
 import type { TermTheme } from './termTheme'
+import { DEFAULT_GROUND } from '../../shared/ground'
 
 export type XtermTheme = TermTheme & {
   cursorAccent?: string
@@ -49,7 +50,7 @@ export function xtermTheme(base: TermTheme, how: { paintsGround: boolean; clearG
   }
   if (how.paintsGround) {
     // Flattened first: a custom theme may hold #rgb, #rrggbbaa or an rgba().
-    theme = { ...theme, background: '#00000000', cursorAccent: normalizeColor(base.background, '#0b0b0f') }
+    theme = { ...theme, background: '#00000000', cursorAccent: normalizeColor(base.background, DEFAULT_GROUND) }
   } else if (how.clearGround) theme = { ...theme, background: '#00000000' }
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(theme)) {

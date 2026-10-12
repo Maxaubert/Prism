@@ -6,29 +6,16 @@
  * white. Computed off each ground, never typed, so a new theme files itself.
  */
 import { normalizeColor } from './termAnsi'
-
-/** sRGB channel (0..1) to linear light. */
-function linear(c: number): number {
-  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-}
+import { toLab } from './oklab'
 
 /**
  * OKLab lightness L (0 black .. 1 white, perceptual: "the black or white
- * scale") and chroma C (how coloured) of a colour; Bjorn Ottosson's matrices.
+ * scale") and chroma C (how coloured) of a colour, in the one OKLab (oklab.ts).
  * Perceptual on purpose: WCAG luminance puts a saturated blue far darker than
  * it looks, which would file it among the blacks.
  */
 export function oklch(colour: string): { L: number; C: number } {
-  const hex = normalizeColor(colour, '#000000')
-  const r = linear(parseInt(hex.slice(1, 3), 16) / 255)
-  const g = linear(parseInt(hex.slice(3, 5), 16) / 255)
-  const b = linear(parseInt(hex.slice(5, 7), 16) / 255)
-  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
-  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
-  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
-  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s
-  const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s
-  const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s
+  const [L, A, B] = toLab(normalizeColor(colour, '#000000'))
   return { L, C: Math.hypot(A, B) }
 }
 

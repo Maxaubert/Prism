@@ -1,5 +1,6 @@
 import { opaque } from './colour'
 import { luminance } from './termAnsi'
+import { DEFAULT_GROUND, LIGHT_GROUND } from '../../shared/ground'
 
 // WHAT THE TERMINAL ANSWERS A PROGRAM THAT ASKS (#168, #172, #171). Pure: the panel
 // registers the parser handlers and writes these through `term.input(reply,
@@ -52,14 +53,14 @@ export function colourQueryReplies(
 }
 
 /**
- * Light or dark, MEASURED from the ground: luminance over 0.4 is light. The
- * SAME measurement the window chrome makes (`src/renderer/src/lib/chromeTheme.ts`,
- * `chromeTokens`'s `mode`; rule 15, never read off a name). The core cannot
- * import the host's file, so `chromeTheme.test.ts` pins that the two agree on
- * every preset: a program must never be told light under a dark title bar.
+ * Light or dark, MEASURED from the ground: luminance over LIGHT_GROUND is
+ * light, the SAME number the window chrome decides with (`chromeTokens`'s
+ * `mode`; rule 15, never read off a name), so a program is never told light
+ * under a dark title bar. `chromeTheme.test.ts` still pins the two on every
+ * preset.
  */
 export function groundMode(bg: string): GroundMode {
-  return luminance(opaque(bg, '#0b0b0f')) > 0.4 ? 'light' : 'dark'
+  return luminance(opaque(bg, DEFAULT_GROUND)) > LIGHT_GROUND ? 'light' : 'dark'
 }
 
 /** The answer to `CSI ? 996 n`, and the report mode 2031 pushes. */

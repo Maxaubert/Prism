@@ -3,6 +3,7 @@ import { liveThemeId } from './termThemeRetired'
 import { customTermTheme, type CustomTermTheme } from './termLook'
 import { composite, legibleOn, opaque, parseColour } from './colour'
 import { followsHostStyle, hostDefaults } from '../host'
+import { DEFAULT_GROUND } from '../../shared/ground'
 
 // The terminal owns its colours. Inside Prism it could also WEAR THE APP STYLE
 // (read --p-bg / --p-text / --p-accent-hi off :root); Prism Terminal has no app
@@ -27,7 +28,7 @@ export interface TermTheme extends Partial<Ansi16> {
 /** Pure: style surfaces in, xterm theme out. Fallbacks are the default dark,
  *  for the moment before the style has painted. */
 export function buildTermTheme(bg: string, text: string, accent: string, flatBg?: string): TermTheme {
-  const b = bg.trim() || '#0b0b0f'
+  const b = bg.trim() || DEFAULT_GROUND
   const t = text.trim() || '#d7dae1'
   const a = accent.trim() || '#5b5bd6'
   // The ANSI sixteen are DERIVED from the base, not assumed: edit a style's
@@ -40,7 +41,7 @@ export function buildTermTheme(bg: string, text: string, accent: string, flatBg?
     foreground: t,
     cursor: a,
     selectionBackground: `${a}55`,
-    ...deriveAnsi(normalizeColor(flatBg?.trim() || b, '#101215'), t)
+    ...deriveAnsi(normalizeColor(flatBg?.trim() || b, DEFAULT_GROUND), t)
   }
 }
 
@@ -122,7 +123,7 @@ export const TERM_PRESETS: TermPreset[] = [
     ansi: { black: '#646464', red: '#ff615a', green: '#b1e969', yellow: '#ebd99c', blue: '#5da9f6', magenta: '#e86aff', cyan: '#82fff7', white: '#dedacf', brightBlack: '#6b6b6b', brightRed: '#f58c80', brightGreen: '#ddf88f', brightYellow: '#eee5b2', brightBlue: '#a5c7ff', brightMagenta: '#ddaaff', brightCyan: '#b7fff9', brightWhite: '#ffffff' }
   },
   // Prism's own dark look: what the terminal wore by default inside Prism.
-  { id: 'prism', name: 'Prism', bg: '#0b0b0f', fg: '#e7e7ee', cursor: '#7c7cf0', accent: '#5b5bd6' },
+  { id: 'prism', name: 'Prism', bg: DEFAULT_GROUND, fg: '#e7e7ee', cursor: '#7c7cf0', accent: '#5b5bd6' },
   // THE APP ICON'S TWO THEMES (owner, 2026-09-21: "two themes that match the
   // app icon colour scheme, one with orange and black, and one with orange and
   // dark grey"). The icon is orange #ec9448 over a charcoal and dark-grey
@@ -349,7 +350,7 @@ export function presetAccent(themeId: string): string | undefined {
  * drew a 30% foreground the terminal floors to 4.5:1).
  */
 export function resolveCustomTheme(c: CustomTermTheme, ground?: string | null): TermTheme {
-  const own = opaque(c.bg, '#0b0b0f')
+  const own = opaque(c.bg, DEFAULT_GROUND)
   const g = ground && parseColour(ground) ? opaque(ground) : own
   const cursor = legibleOn(c.cursor, g, 3)
   const ansi: Record<string, string> = {}
