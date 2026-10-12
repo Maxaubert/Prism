@@ -29,7 +29,8 @@ import { Dialog } from './Dialog'
 import { JobChip } from './JobChip'
 import { endJob, startJob, updateJob } from '../lib/jobs'
 import { createPref } from '../lib/prefs/createPref'
-import { copyFilePaths, fileCutPaths, clearFileCut, useFileCut, fileClipboardReady } from '../lib/fileClipboard'
+import { copyFilePaths, useFileCut } from '../lib/fileClipboard'
+import { PASTE_MESSAGES, useFilePaste, type PasteResult } from '../lib/useFilePaste'
 import { intendToPlay } from '../lib/playState'
 import { PropertiesDialog } from './properties/PropertiesDialog'
 import { TreeWindow } from './TreeRows'
@@ -1089,45 +1090,31 @@ export function Sidebar({
   // run at once, and the chip shows the oldest with a count of the rest.
   useEffect(() => window.prism.onPasteProgress((m) => updateJob(m.jobId, m.pct)), [])
 
-  const runPaste = useCallback(
-    async (dest: string): Promise<void> => {
-      await fileClipboardReady()
-      const cutPaths = fileCutPaths()
-      const job = startJob('paste', cutPaths.length ? 'Moving' : 'Copying')
-      void window.prism.pasteInto(dest, cutPaths.length ? cutPaths : undefined, job).then((r) => {
-        endJob(job)
-        if (r.empty) return setPasteNote('There are no files on the clipboard.')
-        if (r.refused) return setPasteNote('That folder is outside this tab.')
-        if (!r.pasted) return setPasteNote('Nothing could be pasted here.')
-        if (r.failed) setPasteNote('Pasted ' + r.pasted + ', but ' + r.failed + ' could not be copied.')
-        if (r.moved) {
-          clearFileCut(cutPaths)
-        }
-        // The pasted files become the selection, Explorer's way - now, and
-        // again after the watcher's refresh clears every mark (droppedOn).
-        if (r.paths.length) {
-          setDroppedOn(r.paths)
-          setSel({ anchor: r.paths[0], items: new Set(r.paths) })
-          setCursor(r.paths[0])
-          requestAnimationFrame(() => showRow(r.paths[0]))
-          // And it OPENS (owner, 2026-09-03): highlighted but still showing
-          // the old film read as the paste having gone somewhere else. A
-          // pasted folder is not a thing to view, so files only.
-          const first = r.paths[0]
-          void window.prism.statFile(first).then((st) => {
-            if (st && !st.isFolder) onOpenFile(first)
-          })
-        }
-        void load(dest, true)
-      }, () => {
-        // A paste main could not run still ends its job: the chip never
-        // spins on for a paste that is over.
-        endJob(job)
-        setPasteNote('The files could not be pasted. Try again.')
-      })
+  /** After main's answer (useFilePaste has said anything worth saying, and
+   *  ends the job even when the call is rejected). */
+  const onPasted = useCallback(
+    (r: PasteResult, dest: string): void => {
+      if (!r.pasted) return
+      // The pasted files become the selection, Explorer's way - now, and
+      // again after the watcher's refresh clears every mark (droppedOn).
+      if (r.paths.length) {
+        setDroppedOn(r.paths)
+        setSel({ anchor: r.paths[0], items: new Set(r.paths) })
+        setCursor(r.paths[0])
+        requestAnimationFrame(() => showRow(r.paths[0]))
+        // And it OPENS (owner, 2026-09-03): highlighted but still showing
+        // the old film read as the paste having gone somewhere else. A
+        // pasted folder is not a thing to view, so files only.
+        const first = r.paths[0]
+        void window.prism.statFile(first).then((st) => {
+          if (st && !st.isFolder) onOpenFile(first)
+        })
+      }
+      void load(dest, true)
     },
     [load, onOpenFile, showRow]
   )
+  const runPaste = useFilePaste(onPasted, setPasteNote, PASTE_MESSAGES.refusedTab)
 
   /**
    * THE MARKS DECIDE WHAT A DELETE KEY BINS (review of #330), the Explorer
@@ -1928,9 +1915,6 @@ export function Sidebar({
           x={placeMenu.x}
           y={placeMenu.y}
           onClose={() => setPlaceMenu(null)}
-          // The builder only hangs these handlers on its rows' onPick; nothing
-          // is called while rendering, which is what this rule fears.
-          // eslint-disable-next-line react-hooks/refs
           items={treeDeadSpaceMenu({
             root,
             paste: runPaste,
