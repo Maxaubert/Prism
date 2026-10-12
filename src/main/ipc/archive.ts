@@ -341,10 +341,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     p: string,
     into: string,
     job: ExtractJob
-  ): Promise<
-    | { ok: true }
-    | { ok: false; reason: 'password' | 'aes' | 'failed' | 'cancelled'; message?: string }
-  > {
+  ): Promise<{ ok: true } | { ok: false; reason: ExtractFail | 'cancelled'; message?: string }> {
     const pw = archivePasswords.get(p) ?? ''
     const exe = await seven(p)
     if (exe) {
