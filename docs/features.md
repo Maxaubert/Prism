@@ -402,9 +402,9 @@ changing a feature: each entry records what the owner decided, why, and what hol
   takes no focus, so Up/Down and PageUp/PageDown keep paging the folder while you browse from
   the sidebar. Click into the document (or Tab to it) and it owns them: the pdf flips pages,
   the page scrolls, the caret moves. Escape hands them back without closing the window.
-  Documents mark their scroller `data-doc-scroller`; App's `docFocused()` is the single test,
-  and there is deliberately no kind-based DOC set any more. A window-level key listener in a
-  viewer (PdfView's page keys, CodeView's Ctrl+S/Ctrl+F) must check focus itself.
+  Documents mark their scroller `data-doc-scroller`; `docFocused()` in `lib/useAppKeys.ts` is
+  the single test, and there is deliberately no kind-based DOC set any more. A window-level key
+  listener in a viewer (PdfView's page keys, CodeView's Ctrl+S/Ctrl+F) must check focus itself.
 - **Search has operators** (2026-08-28, `shared/searchQuery.ts`, pure and
   tested): every word must match, in any order (`holiday 2024` finds
   "2024-06 holiday", which one substring never could), `"two words"` is a
