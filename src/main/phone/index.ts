@@ -1,4 +1,5 @@
 import { app, ipcMain } from 'electron'
+import { CALL, PUSH } from '@shared/channels'
 import { readFile } from 'fs/promises'
 import { networkInterfaces } from 'os'
 import { isRoot } from '../dirList'
@@ -62,7 +63,7 @@ export function startPhoneService(opts: {
   }
   let phone: PhoneServer | null = null
   let phoneError = ''
-  const phoneChanged = (): void => sendToPage('phone:changed')
+  const phoneChanged = (): void => sendToPage(PUSH.phoneChanged)
   const rootIsOpen = (root: string): boolean => openRoots().some((r) => isRoot(r, root))
   const startPhone = async (): Promise<void> => {
     if (phone) return
@@ -124,8 +125,8 @@ export function startPhoneService(opts: {
     return state
   }
   const rootArg = (root: unknown): string | null => (typeof root === 'string' ? root : null)
-  ipcMain.handle('phone:get', (_e, root: unknown) => phoneState(rootArg(root)))
-  ipcMain.handle('phone:set-on', async (_e, on: unknown, root: unknown) => {
+  ipcMain.handle(CALL.phoneGet, (_e, root: unknown) => phoneState(rootArg(root)))
+  ipcMain.handle(CALL.phoneSetOn, async (_e, on: unknown, root: unknown) => {
     await phoneReady
     phoneStore.on = on === true
     savePhone()
@@ -133,13 +134,13 @@ export function startPhoneService(opts: {
     else await stopPhone()
     return phoneState(rootArg(root))
   })
-  ipcMain.handle('phone:code', async (_e, root: unknown) => {
+  ipcMain.handle(CALL.phoneCode, async (_e, root: unknown) => {
     await phoneReady
     const r = rootArg(root)
     if (phone && r && rootIsOpen(r)) phone.issue(r)
     return phoneState(r)
   })
-  ipcMain.handle('phone:forget', async (_e, token: unknown, root: unknown) => {
+  ipcMain.handle(CALL.phoneForget, async (_e, token: unknown, root: unknown) => {
     await phoneReady
     if (typeof token === 'string' && forgetPhone(phoneStore.pairing, token)) {
       // Its grants go with it (#106): a forgotten phone keeps nothing.
@@ -160,8 +161,8 @@ export function startPhoneService(opts: {
 /** Where you had got to in each film (#118): one store, by file path, that the
  *  window reaches over IPC and the phone over /api/pos. */
 export function registerPositionsIpc(positions: Positions): void {
-  ipcMain.handle('pos:get', (_e, path: string) => positions.get(String(path)))
-  ipcMain.on('pos:set', (_e, path: string, patch: unknown) => {
+  ipcMain.handle(CALL.posGet, (_e, path: string) => positions.get(String(path)))
+  ipcMain.on(CALL.posSet, (_e, path: string, patch: unknown) => {
     if (patch && typeof patch === 'object') positions.set(String(path), patch as FileMemoryPatch)
   })
 }

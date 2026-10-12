@@ -1,6 +1,7 @@
 import { mkdir, readdir, rename, stat } from 'fs/promises'
 import { dirname, extname, join } from 'path'
 import type { OnClash, RenameResult } from '@shared/types'
+import type { BinIfEmptyResult } from '@shared/ipcTypes'
 import { exists } from './fsUtil'
 
 // Renaming files. Deliberately free of electron imports so it can be unit-tested;
@@ -126,7 +127,7 @@ export async function makeFolder(dir: string, name = 'New folder'): Promise<stri
 export async function binIfEmpty(
   path: string,
   trash: (p: string) => Promise<void>
-): Promise<'binned' | 'not-empty' | 'missing' | 'failed'> {
+): Promise<BinIfEmptyResult> {
   try {
     if (!(await stat(path)).isDirectory()) return 'failed'
   } catch {

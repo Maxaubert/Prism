@@ -47,13 +47,6 @@ export interface SweepState {
   native: boolean
 }
 
-export const SWEEP_CHANNELS = {
-  begin: 'sweep-overlay:begin',
-  update: 'sweep-overlay:update',
-  end: 'sweep-overlay:end',
-  state: 'sweep-overlay:state'
-} as const
-
 /** Far beyond any window, near enough that physical pixels stay in an int. */
 const MAX_COORD = 100_000
 const MIN_DPR = 0.25

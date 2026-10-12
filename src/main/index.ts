@@ -1,4 +1,5 @@
 import { startLagProfiler } from './lagProfiler'
+import { CALL, PUSH } from '@shared/channels'
 import {
   app,
   protocol,
@@ -414,7 +415,7 @@ let preferencesLoaded!: () => void
 const preferencesReady = new Promise<void>((resolve) => {
   preferencesLoaded = resolve
 })
-const winERequests = createWinERequests((id) => sendToPage('win-e:open', id))
+const winERequests = createWinERequests((id) => sendToPage(PUSH.winEOpen, id))
 let pendingOpen: Array<{ path: string; dir: boolean }> = []
 /** Second-instance handoffs, read one after another so they keep arrival order. */
 let handoffs: Promise<void> = Promise.resolve()
@@ -436,14 +437,14 @@ async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
   // its place behind the restore.
   if (!target.dir) {
     const explorerFile: OpenPayload = { explorerFile: target.path, files: [], index: -1, root: dirname(target.path) }
-    sendToPage('open:file', explorerFile)
+    sendToPage(PUSH.openFile, explorerFile)
     return
   }
   // A FOLDER roots there and tells the renderer so, which is what lets the
   // "New projects show" setting decide whether that lands on the first file, a
   // terminal, or nothing.
   const built = await folderPayload(target.path)
-  if (built && appState.mainWindow) appState.mainWindow.webContents.send('open:file', { ...built, folder: true as const })
+  if (built && appState.mainWindow) appState.mainWindow.webContents.send(PUSH.openFile, { ...built, folder: true as const })
 }
 
 /** The phone switch, its port and the paired phones (#104). */
@@ -506,7 +507,7 @@ function folderChanged(change: { root: string; dirs: string[] }): void {
     .catch(() => {})
     .finally(() => {
       if (appState.mainWindow && !appState.mainWindow.isDestroyed())
-        appState.mainWindow.webContents.send('dir:changed', change)
+        appState.mainWindow.webContents.send(PUSH.dirChanged, change)
     })
 }
 
@@ -837,7 +838,7 @@ function createWindow(): void {
    * needs both, so main - which does know - says so.
    */
   const sayState = (): void =>
-    appState.mainWindow?.webContents.send('window:state', {
+    appState.mainWindow?.webContents.send(PUSH.windowState, {
       minimised: appState.mainWindow.isMinimized(),
       focused: appState.mainWindow.isFocused()
     })
@@ -851,11 +852,11 @@ function createWindow(): void {
   appState.mainWindow.on('blur', sayState)
 
   appState.mainWindow.on('enter-full-screen', () => {
-    sendToPage('window:fullscreen', true)
+    sendToPage(PUSH.windowFullscreen, true)
     applyMaterial(true)
   })
   appState.mainWindow.on('leave-full-screen', () => {
-    sendToPage('window:fullscreen', false)
+    sendToPage(PUSH.windowFullscreen, false)
     applyMaterial(false)
   })
   /**
@@ -910,7 +911,7 @@ function createWindow(): void {
   const restoreWhenListening = (event: Electron.IpcMainEvent): void => {
     if (!isMainSender(event.sender)) return
     if (restoreStarted) {
-      if (startupRestored) event.sender.send('open:restored')
+      if (startupRestored) event.sender.send(PUSH.openRestored)
       return
     }
     restoreStarted = true
@@ -937,7 +938,7 @@ function createWindow(): void {
       const strained = windowBudget.strained(Date.now())
       if (strained && !skip && !extraWindowOwner) logWindow('restore', { tabs: 'skipped', reason: 'repeated-deaths' })
       const send = (payload: OpenPayload): void => {
-        if (!stale()) sendToPage('open:file', payload)
+        if (!stale()) sendToPage(PUSH.openFile, payload)
       }
       // The home Explorer first when no pinned one was saved (#271): it is
       // the tab the window opens on, and a names-only read is 1 to 3 ms.
@@ -991,11 +992,11 @@ function createWindow(): void {
           })()
         // A genuinely empty or failed restore may show the ordinary empty state.
         // Until this signal, no tabs means the initial folders are still loading.
-        if (!event.sender.isDestroyed()) event.sender.send('open:restored')
+        if (!event.sender.isDestroyed()) event.sender.send(PUSH.openRestored)
       })
   }
-  ipcMain.on('open:listen', restoreWhenListening)
-  appState.mainWindow.once('closed', () => ipcMain.removeListener('open:listen', restoreWhenListening))
+  ipcMain.on(CALL.openListen, restoreWhenListening)
+  appState.mainWindow.once('closed', () => ipcMain.removeListener(CALL.openListen, restoreWhenListening))
 }
 
 /**
@@ -1273,7 +1274,7 @@ if (!app.requestSingleInstanceLock()) {
     const stopPreferencesWatch = windowPreferences.watch((snapshot) => {
       rememberFolders(snapshot.values)
       if (appState.mainWindow && !appState.mainWindow.isDestroyed())
-        appState.mainWindow.webContents.send('window-preferences:changed', snapshot)
+        appState.mainWindow.webContents.send(PUSH.windowPreferencesChanged, snapshot)
     })
     app.once('will-quit', stopPreferencesWatch)
     app.once('will-quit', () => listingCache.flush())

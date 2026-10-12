@@ -1,4 +1,5 @@
 import { shell, screen, BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import { CALL, PUSH } from '@shared/channels'
 import { readFileSync } from 'fs'
 import { borderColourForWindow, hwndOf, setBorder, setCornersRounded } from './dwmHelper'
 import { restoredWindow, type WindowState } from './windowSize'
@@ -77,7 +78,7 @@ export function watchWindowState(win: BrowserWindow, flushTabs: () => void): voi
   win.on('close', (e) => {
     if ((!appState.editorDirty && !appState.agentBusy) || appState.closeConfirmed) return
     e.preventDefault()
-    win.webContents.send('app:ask-close')
+    win.webContents.send(PUSH.appAskClose)
     // A minimised or background window can't show its own dialog usefully.
     if (win.isMinimized()) win.restore()
     if (!E2E) win.focus()
@@ -243,8 +244,8 @@ export function applyDwmBorder(): void {
  * #265, would add a second listener), in the order index.ts always had them.
  */
 export function registerWindowIpc(): void {
-  ipcMain.on('window:minimize', () => appState.mainWindow?.minimize())
-  ipcMain.on('window:toggle-maximize', () =>
+  ipcMain.on(CALL.windowMinimize, () => appState.mainWindow?.minimize())
+  ipcMain.on(CALL.windowToggleMaximize, () =>
     appState.mainWindow?.isMaximized()
       ? appState.mainWindow.unmaximize()
       : appState.mainWindow?.maximize()
@@ -253,13 +254,13 @@ export function registerWindowIpc(): void {
   // current, so the common (clean) path closes with no round trip; only a
   // dirty buffer costs a question. `force` is the renderer saying the user
   // already answered it.
-  ipcMain.on('editor:dirty', (_e, d: boolean) => {
+  ipcMain.on(CALL.editorDirty, (_e, d: boolean) => {
     appState.editorDirty = !!d
   })
-  ipcMain.on('window:agent-busy', (_e, busy: boolean) => {
+  ipcMain.on(CALL.windowAgentBusy, (_e, busy: boolean) => {
     appState.agentBusy = busy === true
   })
-  ipcMain.on('window:close', (_e, force?: boolean) => {
+  ipcMain.on(CALL.windowClose, (_e, force?: boolean) => {
     if (force) appState.closeConfirmed = true
     appState.mainWindow?.close()
   })
@@ -378,7 +379,7 @@ export function registerWindowIpc(): void {
     if (shroudSafety) clearTimeout(shroudSafety)
     shroudSafety = setTimeout(shroudLift, 2500)
   }
-  ipcMain.on('window:fs-shroud', (_e, up: boolean) => (up ? shroudRaise() : shroudLift()))
+  ipcMain.on(CALL.windowFsShroud, (_e, up: boolean) => (up ? shroudRaise() : shroudLift()))
   /**
    * SQUARE CORNERS WHILE FULLSCREEN (2026-09-03). Windows 11 rounds every
    * top-level window, and a borderless cover is still just a window - the
@@ -399,7 +400,7 @@ export function registerWindowIpc(): void {
       /* rounded corners are cosmetic; the swap must not fail over them */
     }
   }
-  ipcMain.on('window:set-fullscreen', (_e, on: boolean) => {
+  ipcMain.on(CALL.windowSetFullscreen, (_e, on: boolean) => {
     const win = appState.mainWindow
     if (!win || !!on === isFs()) return
     try {
@@ -432,7 +433,7 @@ export function registerWindowIpc(): void {
       preFsBounds = on ? preFsBounds : null
     }
     applyMaterial(isFs())
-    win.webContents.send('window:fullscreen', isFs())
+    win.webContents.send(PUSH.windowFullscreen, isFs())
   })
   // Windows 11 composites acrylic and mica behind the window; CSS can't, since
   // backdrop-filter only sees the app's own pixels. The window background has
@@ -440,7 +441,7 @@ export function registerWindowIpc(): void {
   // Windows does not let an app take file associations on its own, and that is
   // the right way round: this opens the list with Prism in it and the choice
   // stays the user's.
-  ipcMain.on('app:default-apps', () => {
+  ipcMain.on(CALL.appDefaultApps, () => {
     // Windows 11 takes a deep link straight to Prism's own page in Default
     // apps, where each file type is one click. The app cannot set them
     // itself: the choice lives in a signed UserChoice key precisely so that
@@ -453,11 +454,11 @@ export function registerWindowIpc(): void {
   // material comes back only once the far side has been painted and lifted.
   // Registered once here, not per window: a rebuilt window (#265) would add
   // a second listener.
-  ipcMain.on('window:fs-transition', (_e, active: boolean) => {
+  ipcMain.on(CALL.windowFsTransition, (_e, active: boolean) => {
     fsTransition = !!active
     applyMaterial(!!appState.mainWindow?.isFullScreen())
   })
-  ipcMain.on('window:material', (_e, material: string, mode?: string) => {
+  ipcMain.on(CALL.windowMaterial, (_e, material: string, mode?: string) => {
     if (!appState.mainWindow) return
     const light = mode === 'light'
     wantedMaterial = { material, light }

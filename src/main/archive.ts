@@ -21,6 +21,7 @@ import {
 } from './zipShared'
 import { exists } from './fsUtil'
 import { ZIP_WRITE_MAX } from '@shared/archiveLimits'
+import type { ArchiveEncryption, ArchiveMoveResult } from '@shared/ipcTypes'
 
 export { setSevenExe, sevenZipExe, validMemberName } from './zipShared'
 export type { AddResult, ArchiveEntry, ArchiveStat, MemberFail } from './zipShared'
@@ -118,7 +119,7 @@ export function moveMembers(
   zipPath: string,
   entryPaths: readonly string[],
   destFolder: string
-): Promise<'ok' | 'encrypted' | 'failed'> {
+): Promise<ArchiveMoveResult> {
   return zip().edit('moveMembers', zipPath, [...entryPaths], destFolder)
 }
 
@@ -137,10 +138,10 @@ export const editsSettled = (zipPath: string): Promise<void> =>
  */
 export function listZipData(data: Buffer): {
   entries: ArchiveEntry[]
-  encryption: 'none' | 'zipcrypto' | 'aes'
+  encryption: ArchiveEncryption
 } {
   const zip = new AdmZip(data)
-  let encryption: 'none' | 'zipcrypto' | 'aes' = 'none'
+  let encryption: ArchiveEncryption = 'none'
   for (const e of zip.getEntries()) {
     if (e.isDirectory) continue
     if (e.header.method === AES_METHOD) encryption = 'aes'

@@ -2,6 +2,7 @@ import AdmZip from 'adm-zip'
 import { mkdtemp, readFile, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, join, relative, resolve } from 'path'
+import type { ArchiveMoveResult } from '@shared/ipcTypes'
 import {
   AES_METHOD,
   failOf,
@@ -265,7 +266,7 @@ export function moveMembers(
   zipPath: string,
   entryPaths: readonly string[],
   destFolder: string
-): 'ok' | 'encrypted' | 'failed' {
+): ArchiveMoveResult {
   try {
     // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
     const zip = new AdmZip(zipPath)

@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import { readdir, readFile, stat } from 'fs/promises'
 import { basename, dirname, extname, join } from 'path'
+import type { SubtitleTrack } from '@shared/ipcTypes'
 
 // Sidecar subtitles, the convention every player follows: "Episode.mkv" is
 // subtitled by "Episode.srt" / "Episode.en.srt" / "Episode.vtt" in the same
@@ -9,11 +10,7 @@ import { basename, dirname, extname, join } from 'path'
 // converted rather than parsed. Embedded (in-container) tracks need a demuxer
 // and are deliberately not attempted.
 
-export interface SubTrack {
-  path: string
-  /** What the menu shows: a language name when the suffix gives one. */
-  label: string
-}
+export type SubTrack = SubtitleTrack
 
 const SUB_EXTS = new Set(['.srt', '.vtt', '.ass', '.ssa'])
 // SubStation Alpha carries positioning, fonts and colours that WebVTT has no

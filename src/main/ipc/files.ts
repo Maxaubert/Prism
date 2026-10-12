@@ -1,4 +1,13 @@
 import { app, shell, ipcMain } from 'electron'
+import { CALL, PUSH } from '@shared/channels'
+import type {
+  ArchiveAddResult,
+  ArchiveMoveResult,
+  BinIfEmptyResult,
+  MoveOnClash,
+  MoveResult,
+  PasteResult
+} from '@shared/ipcTypes'
 import { basename, dirname, extname, join, resolve, sep } from 'path'
 import { copyFile, stat, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
@@ -33,7 +42,7 @@ export function registerSaveCopyIpc(ctx: MainCtx): void {
    * source, so a HEIC or a camera RAW saves as easily as a PNG.
    */
   ipcMain.handle(
-    'image:save-copy',
+    CALL.imageSaveCopy,
     async (
       _e,
       bytes: ArrayBuffer,
@@ -70,7 +79,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
   // rooted in would pull the ground out from under the window.
   // The guard is the wall's `editable` (pathWall.ts).
   ipcMain.handle(
-    'file:rename',
+    CALL.fileRename,
     async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> => {
       ownWrite(p)
       if (!editable(p))
@@ -83,7 +92,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
       return r
     }
   )
-  ipcMain.handle('file:trash', async (_e, p: string): Promise<boolean> => {
+  ipcMain.handle(CALL.fileTrash, async (_e, p: string): Promise<boolean> => {
     ownWrite(p)
     if (!editable(p)) return false
     try {
@@ -107,7 +116,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
    * the real size, so the editor can say what it is showing - and it never
    * pretends to be the file, so nothing can save it back.
    */
-  ipcMain.handle('file:tailBytes', async (_e, p: string, max: number) => {
+  ipcMain.handle(CALL.fileTailBytes, async (_e, p: string, max: number) => {
     if (!readable(p)) return null
     const want = Math.min(Math.max(64 * 1024, Number(max) || 0), TEXT_MAX_BYTES)
     return readTail(p, want)
@@ -115,17 +124,17 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
   /** Follow a file that is still being written: new bytes arrive on
    *  `file:appended` until `tail:stop`. One watch per path. */
-  ipcMain.handle('tail:start', async (_e, p: string, from: number) => {
+  ipcMain.handle(CALL.tailStart, async (_e, p: string, from: number) => {
     if (!readable(p)) return false
     return startTail(p, Number(from) || 0, (e) =>
-      sendToPage('file:appended', e)
+      sendToPage(PUSH.fileAppended, e)
     )
   })
-  ipcMain.handle('tail:stop', (_e, p: string) => {
+  ipcMain.handle(CALL.tailStop, (_e, p: string) => {
     if (typeof p === 'string') stopTail(p)
   })
 
-  ipcMain.handle('file:text', async (_e, p: string): Promise<TextRead> => {
+  ipcMain.handle(CALL.fileText, async (_e, p: string): Promise<TextRead> => {
     // Extracted archive members live in temp, outside every root; each one
     // was granted individually when archive:extract wrote it.
     if (!readable(p)) return { error: 'unreadable' }
@@ -152,7 +161,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
    * unchanged. Extracted archive members stay unwritable: reads honour
    * `extractedPaths`, writes never do.
    */
-  ipcMain.handle('file:write', async (_e, p: string, text: string): Promise<WriteResult> => {
+  ipcMain.handle(CALL.fileWrite, async (_e, p: string, text: string): Promise<WriteResult> => {
     ownWrite(p)
     if (!insideDesktop(p)) return { ok: false, reason: 'refused' }
     if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text')
@@ -187,22 +196,22 @@ export function registerShellIpc(ctx: MainCtx): void {
   const { ownWrite, readable, shellVerbSetting, written } = ctx
   // "Open file" / "Open as project" in File Explorer's own context menu
   // (HKCU only).
-  ipcMain.handle('shell:verb-status', () => shellVerbSetting.status())
-  ipcMain.handle('shell:verb-set', (_e, on: unknown): Promise<boolean> | false =>
+  ipcMain.handle(CALL.shellVerbStatus, () => shellVerbSetting.status())
+  ipcMain.handle(CALL.shellVerbSet, (_e, on: unknown): Promise<boolean> | false =>
     typeof on === 'boolean' ? shellVerbSetting.set(on) : false
   )
 
   /* ----- context-menu verbs ----- */
 
-  ipcMain.on('file:show-in-explorer', (_e, p: string) => {
+  ipcMain.on(CALL.fileShowInExplorer, (_e, p: string) => {
     if (insideDesktop(p)) shell.showItemInFolder(p)
   })
-  ipcMain.on('file:open-default', (_e, p: string) => {
+  ipcMain.on(CALL.fileOpenDefault, (_e, p: string) => {
     if (insideDesktop(p)) void shell.openPath(p)
   })
   // The Windows "how do you want to open this?" chooser, which also reaches
   // the store apps the submenu can't launch.
-  ipcMain.on('file:open-chooser', (_e, p: string) => {
+  ipcMain.on(CALL.fileOpenChooser, (_e, p: string) => {
     if (!insideDesktop(p)) return
     spawn('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', p], {
       detached: true,
@@ -220,7 +229,7 @@ export function registerShellIpc(ctx: MainCtx): void {
     const hit = openWithCache.get(ext)
     return hit && Date.now() - hit.at < OPEN_WITH_TTL ? hit.list : null
   }
-  ipcMain.handle('apps:for', async (_e, p: string): Promise<OpenWithApp[]> => {
+  ipcMain.handle(CALL.appsFor, async (_e, p: string): Promise<OpenWithApp[]> => {
     if (!insideDesktop(p)) return []
     const ext = extname(p).toLowerCase()
     if (!ext) return []
@@ -240,7 +249,7 @@ export function registerShellIpc(ctx: MainCtx): void {
       }))
     )
   })
-  ipcMain.handle('file:open-with', (_e, p: string, exe: string): boolean => {
+  ipcMain.handle(CALL.fileOpenWith, (_e, p: string, exe: string): boolean => {
     if (!insideDesktop(p)) return false
     // The expired list still answers a launch: the menu the user is clicking
     // was built from it moments ago.
@@ -258,7 +267,7 @@ export function registerShellIpc(ctx: MainCtx): void {
   // pastes it). Electron's clipboard has no CF_HDROP; PowerShell does.
   // One path or a multi-selection's worth: every one must pass the wall
   // (roots, or an individually granted extracted member) or nothing copies.
-  ipcMain.handle('file:copy-clip', (_e, p: string | string[], cut = false): Promise<boolean> => {
+  ipcMain.handle(CALL.fileCopyClip, (_e, p: string | string[], cut = false): Promise<boolean> => {
     const list = Array.isArray(p) ? p : [p]
     if (!list.length || list.some((x) => !readable(x))) return Promise.resolve(false)
     return copyWindowsFiles(list, cut === true)
@@ -267,7 +276,7 @@ export function registerShellIpc(ctx: MainCtx): void {
   // The address bar's "Copy address" (2026-09-22): the folder as a file
   // drop AND its path as text, Explorer's own pair. Walled like the copy
   // above; the folder is the only thing put on the clipboard.
-  ipcMain.handle('file:copy-address', (_e, p: string): Promise<boolean> => {
+  ipcMain.handle(CALL.fileCopyAddress, (_e, p: string): Promise<boolean> => {
     if (typeof p !== 'string' || !insideDesktop(p)) return Promise.resolve(false)
     return copyWindowsFiles([p], false, p)
   })
@@ -299,7 +308,7 @@ export function registerShellIpc(ctx: MainCtx): void {
    *  row that would do nothing is never drawn (2026-09-02). The same
    *  PowerShell route the paste itself uses - Electron's clipboard API
    *  exposes one path and Windows puts a multi-file copy on as CF_HDROP. */
-  ipcMain.handle('clipboard:has-files', async () => (await clipboardFiles()).length > 0)
+  ipcMain.handle(CALL.clipboardHasFiles, async () => (await clipboardFiles()).length > 0)
 
   /** Every file under a path, with sizes, for the progress arithmetic. */
   async function walkSizes(p: string): Promise<number> {
@@ -347,7 +356,7 @@ export function registerShellIpc(ctx: MainCtx): void {
    * copies the same paths that Prism previously marked as cut. Older file
    * clipboards without this format retain the matching renderer mark fallback.
    */
-  ipcMain.handle('file:paste-into', async (_e, destDir: string, cut?: string[], jobId?: string) => {
+  ipcMain.handle(CALL.filePasteInto, async (_e, destDir: string, cut?: string[], jobId?: string): Promise<PasteResult> => {
     if (typeof destDir !== 'string' || !insideDesktop(destDir)) {
       return { pasted: 0, failed: 0, refused: true, paths: [] }
     }
@@ -373,7 +382,7 @@ export function registerShellIpc(ctx: MainCtx): void {
       const now = Date.now()
       if (of > 0 && now - lastSent > 120) {
         lastSent = now
-        sendToPage('paste:progress', {
+        sendToPage(PUSH.pasteProgress, {
           jobId: typeof jobId === 'string' ? jobId : '',
           pct: Math.min(100, (done / of) * 100)
         })
@@ -416,7 +425,7 @@ export function registerShellIpc(ctx: MainCtx): void {
   // association (WinRAR, 7-Zip, Explorer's zip folder...). One fetch per
   // extension; the tree shows it for archives (#68, revised 2026-08-22).
   const extIconCache = new Map<string, string | null>()
-  ipcMain.handle('icon:for-ext', async (_e, p: string): Promise<string | null> => {
+  ipcMain.handle(CALL.iconForExt, async (_e, p: string): Promise<string | null> => {
     if (typeof p !== 'string' || !insideDesktop(p)) return null
     const ext = extname(p).toLowerCase()
     if (!ext) return null
@@ -437,7 +446,7 @@ export function registerShellIpc(ctx: MainCtx): void {
   // rather than InvokeVerb, because the Restore verb's NAME is localised
   // and the namespace move is not. Best effort: an item the user has since
   // emptied simply is not there any more.
-  ipcMain.handle('file:restore', async (_e, paths: string[]): Promise<boolean> => {
+  ipcMain.handle(CALL.fileRestore, async (_e, paths: string[]): Promise<boolean> => {
     ownWrite(...(Array.isArray(paths) ? paths : []))
     if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideDesktop(p)))
       return Promise.resolve(false)
@@ -483,8 +492,13 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
   // and binning a root are already refused; this is the same rule.
   // The guard is the wall's `movable` (pathWall.ts).
   ipcMain.handle(
-    'file:move',
-    async (_e, paths: string[], destDir: string, onClash: 'ask' | 'keep-both' | 'replace') => {
+    CALL.fileMove,
+    async (
+      _e,
+      paths: string[],
+      destDir: string,
+      onClash: MoveOnClash
+    ): Promise<MoveResult> => {
       // Both ends: a move empties one folder and fills another.
       ownWrite(destDir + sep + 'x', ...(Array.isArray(paths) ? paths : []))
       /**
@@ -527,8 +541,14 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
     }
   )
   ipcMain.handle(
-    'archive:add',
-    async (_e, zip: string, srcPaths: string[], destFolder: string, keepBoth?: boolean) => {
+    CALL.archiveAdd,
+    async (
+      _e,
+      zip: string,
+      srcPaths: string[],
+      destFolder: string,
+      keepBoth?: boolean
+    ): Promise<ArchiveAddResult> => {
       if (!archiveOk(zip) || !Array.isArray(srcPaths) || !srcPaths.every(movable)) return 'failed'
       if (archiveTooLarge((await stat(zip)).size)) return 'failed'
       // A worker that died mid-job answers like any other failure.
@@ -541,8 +561,8 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
     }
   )
   ipcMain.handle(
-    'archive:move-members',
-    async (_e, zip: string, entries: string[], destFolder: string) => {
+    CALL.archiveMoveMembers,
+    async (_e, zip: string, entries: string[], destFolder: string): Promise<ArchiveMoveResult> => {
       if (!archiveOk(zip) || !Array.isArray(entries)) return 'failed'
       if (archiveTooLarge((await stat(zip)).size)) return 'failed'
       return moveMembers(zip, entries, typeof destFolder === 'string' ? destFolder : '').catch(
@@ -555,7 +575,7 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
 /** Duplicate, New folder, and undoing a new folder. */
 export function registerNewFilesIpc(ctx: MainCtx): void {
   const { editable, ownWrite, written } = ctx
-  ipcMain.handle('file:duplicate', async (_e, p: string): Promise<string | null> => {
+  ipcMain.handle(CALL.fileDuplicate, async (_e, p: string): Promise<string | null> => {
     ownWrite(p)
     if (!insideDesktop(p)) return null
     try {
@@ -578,7 +598,7 @@ export function registerNewFilesIpc(ctx: MainCtx): void {
   // "New folder (2)"...). `name` is only a redo's: the name the undone
   // folder had, put through the same validation as any rename.
   ipcMain.handle(
-    'file:newFolder',
+    CALL.fileNewFolder,
     async (_e, dir: string, name?: string): Promise<string | null> => {
       if (typeof dir !== 'string' || !dir || (name !== undefined && typeof name !== 'string'))
         return null
@@ -591,8 +611,8 @@ export function registerNewFilesIpc(ctx: MainCtx): void {
   )
   // Undoing it: the Recycle Bin, and only while the folder is still empty.
   ipcMain.handle(
-    'file:binIfEmpty',
-    async (_e, p: string): Promise<'binned' | 'not-empty' | 'missing' | 'failed'> => {
+    CALL.fileBinIfEmpty,
+    async (_e, p: string): Promise<BinIfEmptyResult> => {
       if (typeof p !== 'string' || (await container(p)) || !editable(p)) return 'failed'
       ownWrite(p)
       try {

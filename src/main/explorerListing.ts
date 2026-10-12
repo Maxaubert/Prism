@@ -1,4 +1,5 @@
 import { stat } from 'fs/promises'
+import { PUSH } from '@shared/channels'
 import { isAbsolute, resolve } from 'path'
 import type { BrowseDirectory } from '@shared/browse'
 import type { BrowseDetails, DirListing, ViewerFile } from '@shared/types'
@@ -44,7 +45,7 @@ export function withDetails(listing: DirListing, details: ReadonlyMap<string, Fi
 export interface ExplorerListingDeps {
   cache: ListingCache
   /** To the main window's page. */
-  send: (channel: 'browse:details', payload: BrowseDetails) => void
+  send: (channel: typeof PUSH.browseDetails, payload: BrowseDetails) => void
   /** Local fixed drive: what the read ahead may touch. */
   localFixed: (path: string) => boolean
   /** E2E only: hold every names read this long (`PRISM_E2E_LIST_DELAY`). */
@@ -99,7 +100,7 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
         [...read.listing.folders, ...read.listing.files].map((f) => f.path),
         (files, done) => {
           for (const f of files) known.set(f.path, f)
-          send('browse:details', { path: read.path, files, done })
+          send(PUSH.browseDetails, { path: read.path, files, done })
         },
         { live }
       ).then((finished) => {

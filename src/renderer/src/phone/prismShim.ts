@@ -17,56 +17,45 @@ import type { PrismApi } from '../../../preload/index'
 import type {
   ArchiveListing,
   DirListing,
-  FileKind,
   FileMemory,
-  FileMemoryPatch,
   MediaProbe,
   SearchResult,
   TextRead
 } from '@shared/types'
-import { apiUrl, getJson, mediaUrl } from './api'
+import type { MemberExtractResult } from '@shared/extraction'
+import type {
+  ComicOpenResult,
+  ConvertResult,
+  HostCapabilities,
+  SubtitleTrack
+} from '@shared/ipcTypes'
+import {
+  ROUTE,
+  routePath,
+  type DocAnswer,
+  type PhoneStat,
+  type PlayAnswer,
+  type PosAnswer
+} from '@shared/phoneWire'
+import { apiUrl, getJson, getOr, mediaUrl, postFireAndForget } from './api'
 import { canCsv } from './canPlay'
+
+/** What `/api/play` answers (#105) and the tracks it lists (#120) are the
+ *  wire's (`@shared/phoneWire`); `audioOnly` is what tells the shim which
+ *  reused hook the playlist belongs to (see `probeMedia` below). */
+export type { PlayAnswer, PlayTrack } from '@shared/phoneWire'
 
 export const capabilities = {
   write: false,
   clipboard: false,
   explorer: false,
   drag: false
-} as const
+} as const satisfies HostCapabilities
 
 /** `capabilities` IS on PrismApi (#106); it is named here so the shim
- *  cannot be built without one. */
+ *  cannot be built without one. Every other member is typed by PrismApi
+ *  itself, so the shim cannot drift from the desktop's answers. */
 type Shim = Partial<PrismApi> & { capabilities: typeof capabilities }
-
-/**
- * What `/api/play` answers (#105): direct is the `/m/` url the viewers
- * already build for themselves, hls is a playlist url Prism serves from a
- * live transcode, none is a reason. `audioOnly` is what tells the shim
- * which reused hook the playlist belongs to (see `probeMedia` below).
- */
-/** A track the PC's probe found, as `/api/play` lists them (#120). */
-export interface PlayTrack {
-  index: number
-  codec: string
-  channels: number
-  language: string
-  title: string
-}
-
-export type PlayAnswer =
-  | { mode: 'direct'; url: string; fps: number | null; duration: number }
-  | {
-      mode: 'hls'
-      url: string
-      copyVideo: boolean
-      audioOnly: boolean
-      fps: number | null
-      duration: number
-      /** Every audio track the file holds, and which one this stream carries. */
-      tracks?: PlayTrack[]
-      audio?: number | null
-    }
-  | { mode: 'none'; reason: string }
 
 /**
  * A playlist url names a JOB on the PC, and the PC reaps a job nobody has
@@ -87,7 +76,7 @@ export function askPlay(path: string, audio: number | null = null): Promise<Play
   const key = audio === null ? path : `${path}#${audio}`
   const held = plays.get(key)
   if (held && now - held.at < PLAY_TTL_MS) return held.answer
-  const answer = getJson<PlayAnswer>('/api/play', {
+  const answer = getJson<PlayAnswer>(routePath(ROUTE.play), {
     path,
     can: canCsv(),
     ...(audio === null ? {} : { audio: String(audio) })
@@ -120,8 +109,7 @@ const implemented: Shim = {
   mediaUrl,
   demo: false,
   forceSetup: false,
-  listDir: (_root: string, path: string): Promise<DirListing | null> =>
-    getJson<DirListing>('/api/dir', { path }).catch(() => null),
+  listDir: (_root, path) => getOr<DirListing, null>(routePath(ROUTE.dir), { path }, null),
   /**
    * The sidebar's search, named the same so the field is the desktop's own
    * call (Task 2). The ROOT is dropped on purpose: the phone's is the one it
@@ -129,8 +117,8 @@ const implemented: Shim = {
    * it could ask to have searched. A refused or failed ask reads as no hits,
    * which is what the field already draws while nothing matches.
    */
-  searchTree: (_root: string, query: string): Promise<SearchResult> =>
-    getJson<SearchResult>('/api/search', { q: query }).catch(() => ({ hits: [], truncated: false })),
+  searchTree: (_root, query) =>
+    getOr<SearchResult>(routePath(ROUTE.search), { q: query }, { hits: [], truncated: false }),
   /**
    * The read-only document routes (#106). Each answers in the shape its IPC
    * does, so the viewers are not told the difference, and a refused or
@@ -138,73 +126,47 @@ const implemented: Shim = {
    * cannot read is `unreadable`, a document that would not convert is null,
    * an archive that would not list is `failed`.
    */
-  readText: (path: string): Promise<TextRead> =>
-    getJson<TextRead>('/api/text', { path }).catch((): TextRead => ({ error: 'unreadable' })),
-  docHtml: (path: string): Promise<string | null> =>
-    getJson<{ html: string }>('/api/doc', { path })
+  readText: (path) => getOr<TextRead>(routePath(ROUTE.text), { path }, { error: 'unreadable' }),
+  docHtml: (path) =>
+    getJson<DocAnswer>(routePath(ROUTE.doc), { path })
       .then((r) => r.html)
       .catch(() => null),
-  comicOpen: (
-    path: string,
-    password = ''
-  ): Promise<{ pages: string[] } | { error: 'password' | 'failed' | 'empty' }> =>
-    getJson<{ pages: string[] } | { error: 'password' | 'failed' | 'empty' }>('/api/comic', {
-      path,
-      pw: password
-    }).catch(() => ({ error: 'failed' as const })),
-  archiveList: (path: string, password?: string): Promise<ArchiveListing> =>
-    getJson<ArchiveListing>('/api/archive', withPw({ path }, password)).catch(
-      (): ArchiveListing => ({ ok: false, reason: 'failed' })
+  comicOpen: (path, password = '') =>
+    getOr<ComicOpenResult>(routePath(ROUTE.comic), { path, pw: password }, { error: 'failed' }),
+  archiveList: (path, password) =>
+    getOr<ArchiveListing>(routePath(ROUTE.archive), withPw({ path }, password), {
+      ok: false,
+      reason: 'failed'
+    }),
+  archiveExtract: (path, entry, password) =>
+    getOr<MemberExtractResult>(
+      routePath(ROUTE.archiveExtract),
+      withPw({ path, entry }, password),
+      { ok: false, reason: 'failed' }
     ),
-  archiveExtract: (
-    path: string,
-    entry: string,
-    password?: string
-  ): Promise<
-    { ok: true; path: string; kind: FileKind } | { ok: false; reason: 'password' | 'aes' | 'failed' }
-  > =>
-    getJson<{ ok: true; path: string; kind: FileKind } | { ok: false; reason: 'password' | 'aes' | 'failed' }>(
-      '/api/archive/extract',
-      withPw({ path, entry }, password)
-    ).catch(() => ({ ok: false as const, reason: 'failed' as const })),
   // The panel asks this for one thing, whether the container can be written,
   // and on the phone no container can: every archive reads as the 7z kind.
   // The counts are the Properties popup's, which the phone does not have.
   archiveStat: () =>
     Promise.resolve({ files: 0, folders: 0, uncompressed: 0, encryption: 'none' as const, readOnly: true }),
-  statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
-    getJson<{ size: number; mtimeMs: number; isFolder: boolean }>('/api/stat', { path }).catch(() => null),
+  statFile: (path) => getOr<PhoneStat, null>(routePath(ROUTE.stat), { path }, null),
   // The PC's own position store (#118), the one thing a phone WRITES: a
   // number per film, into main's store and never the filesystem. A film left
   // at minute 40 on the PC opens at minute 40 here, and the other way round.
-  positionGet: (path: string): Promise<number | null> =>
-    getJson<{ t: number | null }>('/api/pos', { path })
+  positionGet: (path) =>
+    getJson<PosAnswer>(routePath(ROUTE.pos), { path })
       .then((r) => r.t)
       .catch(() => null),
-  positionSet: (path: string, t: number | null): void => {
-    void fetch(apiUrl('/api/pos', { path }), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ t }),
-      keepalive: true
-    }).catch(() => undefined)
-  },
+  positionSet: (path, t) => postFireAndForget(routePath(ROUTE.pos), { t }, { path }),
   // ...and the choices beside the place (#124): the same route, a patch.
-  memoryGet: (path: string): Promise<FileMemory | null> =>
-    getJson<FileMemory & { t: number | null }>('/api/pos', { path })
-      .then((r) => {
+  memoryGet: (path) =>
+    getJson<PosAnswer>(routePath(ROUTE.pos), { path })
+      .then((r): FileMemory => {
         const { t, ...rest } = r
         return t === null ? rest : { ...rest, t }
       })
       .catch(() => null),
-  memorySet: (path: string, patch: FileMemoryPatch): void => {
-    void fetch(apiUrl('/api/pos', { path }), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(patch),
-      keepalive: true
-    }).catch(() => undefined)
-  },
+  memorySet: (path, patch) => postFireAndForget(routePath(ROUTE.pos), patch, { path }),
   // A file too big to hand over whole has no tail on the phone, and nothing
   // is followed: the editor shows its "too large" note and leaves it there.
   tailBytes: () => Promise.resolve(null),
@@ -240,17 +202,21 @@ const implemented: Shim = {
       convert: { reason: 'container', quick: a.copyVideo }
     }
   },
-  convertVideo: async (path: string): Promise<{ url?: string; error?: string }> => {
+  convertVideo: async (path): Promise<ConvertResult> => {
     const a = await askPlayChosen(path).catch((e: Error): PlayAnswer => ({ mode: 'none', reason: e.message }))
     if (a.mode === 'hls') return { url: a.url }
     return { error: a.mode === 'none' && a.reason ? a.reason : 'Prism could not prepare this file' }
   },
   audioBlind: () => Promise.resolve(null),
-  subsFor: (path: string) =>
-    getJson<Array<{ path: string; label: string }>>('/api/subs', { path }).catch(() => []),
-  readSubs: async (path: string): Promise<string | null> => {
-    const r = await fetch(apiUrl('/api/subs/read', { path }))
-    return r.ok ? r.text() : null
+  subsFor: (path) => getOr<SubtitleTrack[]>(routePath(ROUTE.subs), { path }, []),
+  // A refused or failed fetch is "no subtitles", like every other read here.
+  readSubs: async (path) => {
+    try {
+      const r = await fetch(apiUrl(routePath(ROUTE.subsRead), { path }))
+      return r.ok ? await r.text() : null
+    } catch {
+      return null
+    }
   },
   pickSubtitle: () => Promise.resolve(null),
   // A phone "conversion" is a live transcode on the PC with nothing to

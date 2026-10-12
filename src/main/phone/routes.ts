@@ -5,6 +5,8 @@
  * refuses on its own, because it becomes a file under the renderer dir.
  */
 
+import { PHONE_API, PHONE_HLS, PHONE_MEDIA, PHONE_PAIR } from '@shared/phoneWire'
+
 export type Route =
   | { kind: 'static'; file: string }
   | { kind: 'pair' }
@@ -52,18 +54,18 @@ export function parseRoute(url: string): Route {
   }
   const p = u.pathname
   if (p === '/' || p === '/index.html' || p === '/phone.html') return { kind: 'static', file: '' }
-  if (p === '/pair') return { kind: 'pair' }
-  if (p.startsWith('/api/')) return { kind: 'api', name: p.slice(5), query: u.searchParams }
-  if (p.startsWith('/m/')) {
+  if (p === PHONE_PAIR) return { kind: 'pair' }
+  if (p.startsWith(PHONE_API)) return { kind: 'api', name: p.slice(PHONE_API.length), query: u.searchParams }
+  if (p.startsWith(PHONE_MEDIA)) {
     let path: string
     try {
-      path = decodeURIComponent(p.slice(3))
+      path = decodeURIComponent(p.slice(PHONE_MEDIA.length))
     } catch {
       return NONE
     }
     return { kind: 'media', path, query: u.searchParams }
   }
-  if (p.startsWith('/hls/')) {
+  if (p.startsWith(PHONE_HLS)) {
     const m = HLS.exec(p)
     if (!m) return NONE
     return { kind: 'hls', job: m[1], file: m[2], query: u.searchParams }
