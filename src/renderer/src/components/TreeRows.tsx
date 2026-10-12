@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type JSX, type RefObject } from 'react'
 import type { FileKind, ViewerFile } from '@shared/types'
 import { parentDir } from '@shared/path'
+import { RenameField } from './RenameField'
 import { treeWindow, type PaintRow } from '../lib/treePaint'
 import { ROW_GAP, ROW_ICON, ROW_PAD_X, type TREE_SIZES } from '../lib/treePrefs'
 import { ALONE, markedLook } from '../lib/markedLook'
@@ -408,38 +409,12 @@ function RenameRow({
   onSubmit: (v: string) => void
   onCancel: () => void
 }): JSX.Element {
-  const input = useRef<HTMLInputElement>(null)
-  const [value, setValue] = useState(name)
-  const done = useRef(false)
-
-  useEffect(() => {
-    const el = input.current
-    if (!el) return
-    el.focus()
-    const dot = name.lastIndexOf('.')
-    el.setSelectionRange(0, dot > 0 ? dot : name.length)
-  }, [name])
-
-  const finish = (commit: boolean): void => {
-    if (done.current) return // blur fires after Enter; only the first one counts
-    done.current = true
-    if (commit && value.trim() && value !== name) onSubmit(value.trim())
-    else onCancel()
-  }
-
   return (
     <div className="flex items-center" style={{ height: size.row, paddingLeft: pad + 19 }}>
-      <input
-        ref={input}
-        value={value}
-        spellCheck={false}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={() => finish(true)}
-        onKeyDown={(e) => {
-          e.stopPropagation() // the app's arrow-key paging must not see this
-          if (e.key === 'Enter') finish(true)
-          else if (e.key === 'Escape') finish(false)
-        }}
+      <RenameField
+        name={name}
+        onSubmit={onSubmit}
+        onCancel={onCancel}
         className="w-full rounded border border-[var(--p-accent-hi)] bg-[var(--p-bg)] px-1.5 py-0.5 text-[var(--p-text)] outline-none"
         style={{ fontSize: size.font }}
       />
