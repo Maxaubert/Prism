@@ -247,8 +247,6 @@ function seenStyle(s: Style): Style {
   return { ...s, text }
 }
 
-
-
 /**
  * Ink or paper on `bg`. White is the default and only loses when black is
  * clearly better: on mid-tones the two land within a few percent of each other,
