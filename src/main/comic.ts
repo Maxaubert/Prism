@@ -155,8 +155,3 @@ export async function openComic(
   if (!pages.length) return { error: 'empty' }
   return { dir, pages: pages.map((p) => join(dir, ...p.split('/'))) }
 }
-
-/** Everything Prism unpacked, gone. For a "clear cache" and for tests. */
-export async function clearComics(root: string): Promise<void> {
-  await rm(root, { recursive: true, force: true }).catch(() => {})
-}

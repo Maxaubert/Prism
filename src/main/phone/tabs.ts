@@ -10,7 +10,7 @@ import type { PhoneTab } from '@shared/types'
 /**
  * The folder name to show for a root. A DRIVE ROOT has no basename, so it
  * keeps its whole path, which is the rule the tab strip already follows
- * (`renderer/lib/tabs.ts`). Nothing disambiguates two folders of the same
+ * (`renderer/lib/tabs/tabs.ts`). Nothing disambiguates two folders of the same
  * name here, where the strip adds the parent: the phone's list carries the
  * full path under the name, and the strip has no room for one.
  */

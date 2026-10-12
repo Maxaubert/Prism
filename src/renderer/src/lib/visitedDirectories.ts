@@ -1,9 +1,10 @@
 import type { BrowseDirectory } from '@shared/browse'
 import type { BrowseDetails } from '@shared/types'
 import { applyDetails, carryDetails } from './listingMerge'
+import { pathKey } from '@shared/path'
 
-export const directoryKey = (path: string): string =>
-  path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+/** A folder's identity, however it was spelled: the shared `pathKey`. */
+export const directoryKey = pathKey
 
 /**
  * Display-only snapshots. Every revisit still revalidates through main.

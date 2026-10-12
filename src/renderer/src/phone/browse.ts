@@ -5,13 +5,11 @@
  * as it is in main: nothing walks above it.
  */
 import type { SearchHit, ViewerFile } from '@shared/types'
-
-const trim = (p: string): string => p.replace(/[\\/]+$/, '')
-const same = (a: string, b: string): boolean => trim(a).toLowerCase() === trim(b).toLowerCase()
+import { baseName, isInside, samePath, trimSep } from '@shared/path'
 
 /** One folder, however the two were spelled: case and a trailing separator do
  *  not make two folders, on Windows or in the wall main keeps. */
-export const samePath = same
+export { samePath }
 
 /**
  * True when `p` is the root or sits under it - the renderer's reading of the
@@ -21,22 +19,19 @@ export const samePath = same
  * `startsWith`: "C:\roots" is not inside "C:\r".
  */
 export function insideRoot(root: string, p: string): boolean {
-  if (!root || !p) return false
-  const r = trim(root).toLowerCase()
-  const t = trim(p).toLowerCase()
-  return t === r || t.startsWith(`${r}\\`)
+  return isInside(root, p, { orEqual: true })
 }
 
 /** The folder above `dir`, or null at the root. Returns `root` itself, as
  *  spelled, when the parent IS the root, so the caller's state stays equal to
  *  what it was given. */
 export function parentOf(root: string, dir: string): string | null {
-  if (same(dir, root)) return null
-  const d = trim(dir)
+  if (samePath(dir, root)) return null
+  const d = trimSep(dir)
   const i = d.lastIndexOf('\\')
   if (i <= 0) return null
   const up = d.slice(0, i)
-  return same(up, root) ? root : up
+  return samePath(up, root) ? root : up
 }
 
 /** The path from the root folder's own name down to `dir`, one crumb each. */
@@ -44,8 +39,8 @@ export function crumbs(root: string, dir: string): Array<{ name: string; path: s
   const out: Array<{ name: string; path: string }> = []
   let at: string | null = dir
   while (at) {
-    const t = trim(at)
-    out.unshift({ name: t.slice(t.lastIndexOf('\\') + 1) || t, path: t })
+    const t = trimSep(at)
+    out.unshift({ name: baseName(t), path: t })
     at = parentOf(root, at)
   }
   return out

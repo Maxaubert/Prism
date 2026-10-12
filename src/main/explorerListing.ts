@@ -1,4 +1,5 @@
 import { stat } from 'fs/promises'
+import { PUSH } from '@shared/channels'
 import { isAbsolute, resolve } from 'path'
 import type { BrowseDirectory } from '@shared/browse'
 import type { BrowseDetails, DirListing, ViewerFile } from '@shared/types'
@@ -7,6 +8,7 @@ import { desktopClosed } from './desktopAccess'
 import { listNames, statDetails, type FileDetail } from './dirList'
 import type { ListingCache } from './listingCache'
 import { createPrefetchQueue } from './listingPrefetch'
+import { sleep } from './fsUtil'
 
 /**
  * THE EXPLORER'S LISTINGS, NEVER A LOADING SCREEN (#271; owner, 2026-10-04:
@@ -43,7 +45,7 @@ export function withDetails(listing: DirListing, details: ReadonlyMap<string, Fi
 export interface ExplorerListingDeps {
   cache: ListingCache
   /** To the main window's page. */
-  send: (channel: 'browse:details', payload: BrowseDetails) => void
+  send: (channel: typeof PUSH.browseDetails, payload: BrowseDetails) => void
   /** Local fixed drive: what the read ahead may touch. */
   localFixed: (path: string) => boolean
   /** E2E only: hold every names read this long (`PRISM_E2E_LIST_DELAY`). */
@@ -80,8 +82,6 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
   const timer = setTimeout(() => settle(), settleMs)
   timer.unref?.()
 
-  const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
-
   /** Stat the files of a names-first answer in the background and stream the
    *  answers to the page; the finished listing goes to the cache. */
   const details = (tabId: string, read: BrowseRead): void => {
@@ -100,7 +100,7 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
         [...read.listing.folders, ...read.listing.files].map((f) => f.path),
         (files, done) => {
           for (const f of files) known.set(f.path, f)
-          send('browse:details', { path: read.path, files, done })
+          send(PUSH.browseDetails, { path: read.path, files, done })
         },
         { live }
       ).then((finished) => {

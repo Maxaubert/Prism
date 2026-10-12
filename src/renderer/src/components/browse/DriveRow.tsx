@@ -11,8 +11,8 @@ import {
   usedPercent,
   usedWidth
 } from '../../lib/driveUsage'
-import type { DriveStyle } from '../../lib/driveStylePrefs'
-import { PlaceIcon } from './PlaceIcon'
+import type { DriveStyle } from '../../lib/prefs/driveStylePrefs'
+import { PlaceIcon } from '../icons/PlaceIcon'
 
 /** The Gauge's steps and the Ring's radius in its 24 unit box. */
 const GAUGE_STEPS = 20

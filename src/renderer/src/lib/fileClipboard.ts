@@ -1,15 +1,13 @@
-import { useSyncExternalStore } from 'react'
+import { createStore } from './store'
 
 let cutPaths: string[] = []
-let cutSet: ReadonlySet<string> = new Set()
-const listeners = new Set<() => void>()
+const cutSet = createStore<ReadonlySet<string>>(new Set())
 let revision = 0
 let pending: Promise<boolean> = Promise.resolve(false)
 
 function mark(paths: string[]): void {
   cutPaths = paths
-  cutSet = new Set(paths.map((path) => path.toLowerCase()))
-  listeners.forEach((listener) => listener())
+  cutSet.set(new Set(paths.map((path) => path.toLowerCase())))
 }
 
 /** A shared cut mark follows files between Explorer and project tabs. Main reads
@@ -34,12 +32,4 @@ export function clearFileCut(paths: string[]): void {
   }
 }
 
-export function useFileCut(): ReadonlySet<string> {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    () => cutSet
-  )
-}
+export const useFileCut = cutSet.use

@@ -36,7 +36,7 @@ function findFfmpeg() {
   if (spawnSync('ffmpeg', ['-version'], { windowsHide: true }).status === 0) return 'ffmpeg'
   const roots = [
     join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WinGet', 'Packages'),
-    'C:\ffmpeg\bin',
+    'C:\\ffmpeg\\bin',
     join(process.env.ProgramFiles ?? '', 'ffmpeg', 'bin')
   ]
   for (const root of roots) {

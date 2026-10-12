@@ -5,7 +5,7 @@ import { DICTATION_OPTIONS } from 'prism-term-core/renderer/settings/dictationOp
 import { DIAGNOSTICS_OPTIONS } from 'prism-term-core/renderer/settings/diagnosticsOptions'
 import { TERMINAL_OPTIONS } from 'prism-term-core/renderer/settings/options'
 import { APP_OPTIONS, APP_SECTIONS } from './appOptions'
-import { isIconName } from './icons'
+import { isIconName } from '../icons/settingsIcons'
 import { ROW_ORDER, SETTINGS_PAGES, settingsIndex } from './settingsIndex'
 
 // Prism's command help is Prism Terminal's alone (owner, 2026-09-22), so the

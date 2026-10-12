@@ -6,10 +6,10 @@ import { SettingsSection } from 'prism-term-core/renderer/settings/layout/Settin
 import type { VizTheme } from '../../lib/viz/core'
 import { ACCENT_THEME_ID } from '../../lib/viz/styles'
 import { resolveVizTheme } from '../../lib/theme'
-import { visibleThemes } from '../../lib/vizStore'
+import { visibleThemes } from '../../lib/viz/vizStore'
 import { APP_SECTIONS, appOpt } from './appOptions'
 import { BlockLabel } from './cards'
-import { iconPath } from './icons'
+import { iconPath } from '../icons/settingsIcons'
 
 // A COLOUR SCHEME AND ITS THREE EFFECTS, one section, worn by the visualizer
 // and by the progress bar with their own values (2026-10-05: Media's two

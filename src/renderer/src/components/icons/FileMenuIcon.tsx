@@ -1,0 +1,42 @@
+import type { JSX } from 'react'
+import { Icon } from './Icon'
+import { PATHS } from './paths'
+
+const paths = {
+  open: PATHS.openOut,
+  project: 'M3 7h6l2 3h10v10H3zM14 3h7v7M21 3l-7 7',
+  'new-tab': 'M4 6h10v12H4zM14 6h6v12h-6M17 9v6M14 12h6',
+  split: 'M4 5h16v14H4zM13 5v14',
+  cut: 'M9.2 4.5L14.5 12m0 0l4.3 6M14.5 12l4.3-6M14.5 12l-4.3 6M6 6.2a1.8 1.8 0 1 0 .01 0M6 17.8a1.8 1.8 0 1 0 .01 0',
+  copy: 'M8 8h12v12H8zM16 8V4H4v12h4',
+  rotate: 'M20 9a8 8 0 1 0 0 6M20 3v6h-6',
+  image: 'M3 4h18v16H3zM3 16l6-6 4 4 3-3 5 5M15 8h.01',
+  save: 'M4 3h13l4 4v14H3V3h1M7 3v7h10V3M7 21v-7h10v7',
+  slideshow: 'M3 4h18v13H3zM12 17v4M8 21h8M10 7l5 3.5-5 3.5z',
+  stop: 'M5 5h14v14H5z',
+  paste: 'M9 3.5h6v3H9zM7 5H4.5v15.5h15V5H17',
+  rename: PATHS.pencil,
+  delete: 'M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13',
+  duplicate: 'M8 8h12v12H8zM16 8V4H4v12h4M14 11v6M11 14h6',
+  folder: PATHS.folderFill,
+  path: 'M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2',
+  properties: 'M12 8.2v.01M12 11v5M3.8 12a8.2 8.2 0 1 0 16.4 0 8.2 8.2 0 0 0-16.4 0z',
+  terminal: PATHS.prompt,
+  pin: PATHS.pin,
+  unpin: 'M15 3l6 6-3 1-4 4M10 14l-6 6M3 3l18 18M9 8l4-4',
+  up: PATHS.arrowUp,
+  down: 'm6 14 6 6 6-6M12 20V4',
+  'open-with': PATHS.openOut,
+  'default-app': 'M12 3l8 5-8 5-8-5 8-5zM4 13l8 5 8-5',
+  // The archive rows (#300): a tray with an arrow down into it, the
+  // mockup's own glyph, and a tray with a plus for adding.
+  extract: 'M12 4v10M8 10l4 4 4-4M4 15v4h16v-4',
+  'add-files': 'M12 5v9M7.5 9.5H16.5M4 15v4h16v-4'
+}
+
+export type FileMenuIconName = keyof typeof paths
+
+/** Shared action glyphs for file and viewer menus. */
+export function FileMenuIcon({ name }: { name: FileMenuIconName }): JSX.Element {
+  return <Icon d={paths[name]} size={13} className="shrink-0 opacity-80" data-file-menu-icon={name} />
+}

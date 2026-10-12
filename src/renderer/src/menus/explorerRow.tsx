@@ -7,7 +7,7 @@
  */
 import type { OpenWithApp, ViewerFile } from '@shared/types'
 import type { MenuItem } from '../components/ContextMenu'
-import { FileMenuIcon } from '../components/FileMenuIcon'
+import { FileMenuIcon } from '../components/icons/FileMenuIcon'
 import type { BrowseEntry } from '../components/browse/types'
 import { browseParent } from '../lib/browse'
 import type { QuickAccessPin } from '../lib/quickAccess'

@@ -126,12 +126,12 @@ selection and keyboard rules. The folder list is not a new editing, thumbnail or
 
 ## State and lifecycle
 
-`src/renderer/src/lib/tabs.ts` retains project root, shell slots, file list and pinned panes.
+`src/renderer/src/lib/tabs/tabs.ts` retains project root, shell slots, file list and pinned panes.
 Explorer/project roles and the single pinned Explorer persist with the tab. Existing saved tabs
 retain their project behavior; opening a new Explorer does not create a phone root.
 `lib/browse.ts` manages the independent browsing location and up to 100 history entries. Each entry
 keeps selection, scroll, search query and sort. The surface and preview toggle are saved separately.
-`lib/useFolderBrowsing.ts` coordinates directory requests, stale-result protection and media pause.
+`hooks/useFolderBrowsing.ts` coordinates directory requests, stale-result protection and media pause.
 
 The root identifies the project/session and phone share; it does not follow casual navigation.
 Existing viewer lifecycles are reused so preview does not create another player or decoder.
@@ -190,8 +190,8 @@ checks in the PR. A hands-on branch build must use a separate profile and must n
 installed Prism or close active user terminals. This document makes no installation claim.
 
 Package the follow-up trial with `npm run package -- --config.directories.output=dist/folder-size-trial`.
-Then `tools/preview-branch.ps1` opens `dist/folder-size-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/folder-size-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Then open `dist/folder-size-trial/win-unpacked/Prism.exe --preview --user-data-dir=<repo>\.e2e\folder-size-profile`
+(a separate profile). The `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.

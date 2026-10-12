@@ -1,25 +1,27 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
-import { useMediaControls } from '../lib/useMediaControls'
-import { usePlayerPrefs } from '../lib/playerPrefs'
-import { useSubtitles } from '../lib/useSubtitles'
-import { useSidecarAudio } from '../lib/useSidecarAudio'
-import { usePlayableVideo } from '../lib/usePlayableVideo'
+import { useMediaControls } from '../hooks/useMediaControls'
+import { usePlayerPrefs } from '../lib/prefs/playerPrefs'
+import { useSubtitles } from '../hooks/useSubtitles'
+import { useSidecarAudio } from '../hooks/useSidecarAudio'
+import { usePlayableVideo } from '../hooks/usePlayableVideo'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
 import { VolumeReadout } from './VolumeReadout'
-import { IconFull } from './icons'
-import { useWaveform } from '../lib/useWaveform'
+import { IconFull } from './icons/transport'
+import { useWaveform } from '../hooks/useWaveform'
 import type { TransportStyle } from '../lib/transport'
-import { useViz } from '../lib/vizStore'
+import { useViz } from '../lib/viz/vizStore'
 import { wasPlaying, whenIntended } from '../lib/playState'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { StageNotice } from './StageNotice'
 import { videoMenu } from '../menus/viewers/video'
 import { videoHasFrame } from '../lib/copyImage'
 import type { AudioTrackOffer } from '@shared/types'
 import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
-import { useBackgroundPause } from '../lib/useBackgroundPause'
+import { useBackgroundPause } from '../hooks/useBackgroundPause'
 import { resolveVizTheme } from '../lib/theme'
 import { tapVerb } from '../lib/tapChrome'
+import { Icon } from './icons/Icon'
 
 /** What a track is called in the picker: its own name if it has one, then the
  *  language, then what it actually is - "English - AC-3 5.1". A file that says
@@ -94,7 +96,7 @@ export function VideoView({
    *  plays on (that is the whole point), but it owns no keyboard, shows no
    *  controls and opens no menus - see lib/mediaDeck. */
   background?: boolean
-  /** Whose volume this is: the tab's, for the session (lib/tabVolume). */
+  /** Whose volume this is: the tab's, for the session (lib/tabs/tabVolume). */
   volumeKey?: string
   /** Fullscreen paints the stage BLACK, whatever the theme says (2026-08-28):
    *  a film fills the screen and the letterbox is part of the picture, so a
@@ -472,9 +474,9 @@ export function VideoView({
         </div>
       )}
       {playable.error && (
-        <div className="absolute inset-0 z-40 grid place-items-center bg-[var(--p-bg)]/92 p-8 text-center text-sm text-[var(--p-text-soft)]">
+        <StageNotice className="z-40 bg-[var(--p-bg)]/92 text-sm text-[var(--p-text-soft)]">
           This video could not be converted ({playable.error}).
-        </div>
+        </StageNotice>
       )}
       {(silent || noPicture) && (
         <div
@@ -513,18 +515,7 @@ export function VideoView({
             aria-label="Dismiss"
             title="Dismiss"
           >
-            <svg
-              viewBox="0 0 24 24"
-              width={11}
-              height={11}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-              aria-hidden
-            >
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
+            <Icon name="close" size={11} weight="2.4" join={false} />
           </button>
         </div>
       )}
@@ -593,13 +584,11 @@ export function VideoView({
       </video>
 
       {c.error && (
-        <div className="absolute inset-0 grid place-items-center bg-[var(--p-bg)]/90 p-8 text-center text-sm text-[var(--p-text-soft)]">
-          {c.error}
-        </div>
+        <StageNotice className="bg-[var(--p-bg)]/90 text-sm text-[var(--p-text-soft)]">{c.error}</StageNotice>
       )}
 
       {/* The auto-hiding control overlay. MOUNTED and UNMOUNTED rather than
-          faded in place: see prism-chrome-in in index.css - a layer that goes
+          faded in place: see p-chrome-in in index.css - a layer that goes
           to opacity 0 inside a fullscreen element and comes back is composited
           once and never repainted, so the controls were painted at the right
           place and never appeared. */}
@@ -625,7 +614,7 @@ export function VideoView({
           // z-10 and a layer of its own, so nothing can order the picture over
           // the top of it.
           style={{
-            animation: 'prism-chrome-in 180ms ease-out',
+            animation: 'p-chrome-in 180ms ease-out',
             ...(bandPct > 0
               ? { background: `color-mix(in srgb, var(--p-title) ${bandPct}%, transparent)` }
               : {}),

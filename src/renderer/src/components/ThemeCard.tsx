@@ -5,6 +5,7 @@ import { FrostBackdrop } from './FrostBackdrop'
 import { miniLook } from '../lib/themes/miniLook'
 import { StyleMini } from './StyleMini'
 import { CARD_BOX, CARD_BOX_HI, CARD_TEXT, cardCheck } from '../lib/themes/cardBox'
+import { PATHS } from './icons/paths'
 
 /**
  * ONE THEME ON THE WALL, CARD STYLE B (owner, 2026-10-06, of three in the
@@ -22,7 +23,7 @@ import { CARD_BOX, CARD_BOX_HI, CARD_TEXT, cardCheck } from '../lib/themes/cardB
  * round the preview, and the grey frame goes a step lighter.
  */
 
-const CHECK = 'M5 13l4 4L19 7'
+const CHECK = PATHS.check
 
 export interface ThemeCardProps {
   st: Style

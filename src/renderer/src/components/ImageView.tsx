@@ -8,14 +8,17 @@ import {
   type ReactNode,
   type WheelEvent
 } from 'react'
-import { IconFull } from './icons'
+import { IconFull } from './icons/transport'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
 import { chromeClass, useAutoHideChrome, type ChromeActivityClock } from '../lib/autoHideChrome'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { LoadingState } from './LoadingState'
 import { imageMenu } from '../menus/viewers/image'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
+import { isTypingTarget } from '../lib/focusGuards'
+import { clamp } from '../lib/clamp'
 
 // Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
 // measured at 2.3s of hard freeze for a 384 MP PNG, during which nothing paints
@@ -36,7 +39,6 @@ const MIN_EDGE = 64
 // so zoom/pan/rotation reset on navigation with no extra bookkeeping.
 
 const MAX_ZOOM = 40
-const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
 
 export function ImageView({
   url,
@@ -420,7 +422,7 @@ export function ImageView({
       // under someone searching for "r0ma" (2026-08-28).
       const el = e.target as HTMLElement | null
       if (e.defaultPrevented) return
-      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
+      if (isTypingTarget(el)) return
       switch (e.key) {
         case '+':
         case '=': zoomCentered(1.18); break
@@ -508,9 +510,7 @@ export function ImageView({
               class keeps it invisible for the first ~260ms (CSS, so it survives a
               main-thread stall from a huge decode) and fades it in after that. */}
           {!loaded && (
-            <div className="delayed-loader pointer-events-none absolute inset-0 grid place-items-center">
-              <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
-            </div>
+            <LoadingState className="pointer-events-none absolute inset-0" />
           )}
           {/* Fit the stage in both directions (same reason as the video): max-w/max-h
               cap at intrinsic size, which left images smaller than the window sitting

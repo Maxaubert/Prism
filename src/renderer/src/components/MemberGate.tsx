@@ -4,7 +4,7 @@ import type { MemberAnswer } from '@shared/archivePlace'
 import { formatBytes } from '../lib/format'
 import { intendToPlay, wasPlaying } from '../lib/playState'
 import { ROW_BUTTON } from 'prism-term-core/renderer/settings/fields'
-import { PasswordDialog } from './PasswordDialog'
+import { PasswordDialog } from '../dialogs/PasswordDialog'
 
 /**
  * THE MEMBER GATE (#300). A file inside a zip is a place in the Explorer now,

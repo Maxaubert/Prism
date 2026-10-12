@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'fs'
+import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { createDocClient, type WorkerLike } from './docClient'
 
@@ -93,9 +93,15 @@ describe('the document client', () => {
 })
 
 describe('main never loads a converter', () => {
-  it('index.ts reaches documents only through the client', () => {
-    const src = readFileSync(join(__dirname, 'index.ts'), 'utf8')
-    expect(src).not.toMatch(/from '\.\/docSanitize'/)
+  it('index.ts and the ipc/ handlers reach documents only through the client', () => {
+    const ipc = join(__dirname, 'ipc')
+    const src = [
+      readFileSync(join(__dirname, 'index.ts'), 'utf8'),
+      ...readdirSync(ipc)
+        .filter((f) => f.endsWith('.ts'))
+        .map((f) => readFileSync(join(ipc, f), 'utf8'))
+    ].join('\n')
+    expect(src).not.toMatch(/from '\.\.?\/docSanitize'/)
     expect(src).not.toMatch(/\bconvertDoc\b/)
     expect(src).not.toMatch(/import\(['"](mammoth|xlsx|unified|rehype-[a-z]+)['"]\)/)
     expect(src).toMatch(/createDocClient\(\)/)

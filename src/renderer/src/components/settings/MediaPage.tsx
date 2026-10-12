@@ -17,12 +17,12 @@ import {
   useViz,
   type Preset,
   type VizState
-} from '../../lib/vizStore'
+} from '../../lib/viz/vizStore'
 import { VizPreview } from '../VizPreview'
 import { APP_SECTIONS, appOpt, type MediaView } from './appOptions'
 import { BlockLabel, CARD_GRID, Tile, TileFooter } from './cards'
 import { ColourSection } from './ColourSchemes'
-import { iconPath } from './icons'
+import { iconPath } from '../icons/settingsIcons'
 import { TransportMini } from './TransportMini'
 
 // MEDIA (2026-10-05, the grouped cards redesign): the Visualizer and the

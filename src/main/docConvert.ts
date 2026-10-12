@@ -37,8 +37,6 @@ export function docKind(ext: string): DocKind | null {
   return KINDS[ext.toLowerCase()] ?? null
 }
 
-export const docExtensions = (): string[] => Object.keys(KINDS)
-
 /** Escape text for dropping into HTML. */
 export function esc(s: string): string {
   return s

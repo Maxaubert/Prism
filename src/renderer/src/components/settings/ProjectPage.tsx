@@ -2,10 +2,10 @@ import type { JSX } from 'react'
 import { Segmented, Select } from 'prism-term-core/renderer/settings/fields'
 import { SettingRow } from 'prism-term-core/renderer/settings/layout/SettingRow'
 import { SettingsSection } from 'prism-term-core/renderer/settings/layout/SettingsSection'
-import { setNewTabShow, useNewTabShow, type NewTabShow } from '../../lib/newTabPrefs'
-import { setTreeSide, TREE_SIDES, useTreeSide, type TreeSide } from '../../lib/treePrefs'
+import { setNewTabShow, useNewTabShow, type NewTabShow } from '../../lib/prefs/newTabPrefs'
+import { setTreeSide, TREE_SIDES, useTreeSide, type TreeSide } from '../../lib/prefs/treePrefs'
 import { APP_SECTIONS, appOpt } from './appOptions'
-import { iconPath } from './icons'
+import { iconPath } from '../icons/settingsIcons'
 
 // PROJECT SETTINGS (#296; owner, 2026-10-06: "project specific settings
 // should be in a tab called project settings not in explorer"). The rows only

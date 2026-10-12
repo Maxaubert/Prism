@@ -1,5 +1,5 @@
-import { access } from 'fs/promises'
 import { dirname, extname, isAbsolute, resolve } from 'path'
+import { exists } from './fsUtil'
 
 /**
  * The pictures a document asks for (2026-08-28).
@@ -34,12 +34,6 @@ const MAX_GRANTS = 200
 
 const MD_IMAGE = /!\[[^\]]*\]\(\s*<?([^)>\s]+)/g
 const HTML_IMAGE = /<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi
-
-const exists = (p: string): Promise<boolean> =>
-  access(p).then(
-    () => true,
-    () => false
-  )
 
 /**
  * Everything the text points at that is a local image file which exists.
@@ -94,8 +88,4 @@ function imageCandidates(docPath: string, text: string): string[] {
     }
   }
   return out
-}
-
-export function isMarkdownPath(p: string): boolean {
-  return /\.(md|markdown|mdx|mkd|mdown|mkdn|mk)$/i.test(p)
 }

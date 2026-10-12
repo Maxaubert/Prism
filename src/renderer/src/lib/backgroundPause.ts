@@ -10,10 +10,9 @@
  * whole point of having stopped it.
  */
 
-export interface WindowState {
-  minimised: boolean
-  focused: boolean
-}
+import type { WindowState } from '@shared/ipcTypes'
+
+export type { WindowState }
 
 export function isAway(s: WindowState): boolean {
   return s.minimised || !s.focused

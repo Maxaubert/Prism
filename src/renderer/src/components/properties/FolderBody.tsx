@@ -3,7 +3,7 @@ import { useFolderSizes } from '../../hooks/useFolderSizes'
 import { folderSizeCoverage, folderSizeLabel, folderSizePartial } from '../../lib/folderSize'
 import { count, dateFacts } from '../../lib/propsFormat'
 import type { BodyProps } from './bodyProps'
-import { FolderGlyph } from './glyphs'
+import { FolderGlyph } from '../icons/propertyGlyphs'
 import { CopyButton, Facts, Footer, Header, type Fact } from './parts'
 import { useLoaded } from './useLoaded'
 

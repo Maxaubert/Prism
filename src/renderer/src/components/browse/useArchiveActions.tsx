@@ -1,22 +1,22 @@
 import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import type { ArchiveMeta, ViewerFile } from '@shared/types'
 import { memberOf } from '@shared/archivePlace'
+import { baseName, parentDir } from '@shared/path'
 import { archiveMenuRows, type ArchiveRow, type ArchiveRowId } from '../../menus/archiveMenus'
-import { archivePassword, rememberArchivePassword } from '../../lib/archivePass'
+import { archivePassword } from '../../lib/archivePass'
 import { copyFilePaths } from '../../lib/fileClipboard'
 import { clipboardText } from '../../lib/clipboardText'
-import type { DragPayload } from '../../lib/dragDrop'
+import type { DragPayload } from '../../lib/drag/dragDrop'
 import { formatBytes, formatWhen, savedPercent } from '../../lib/format'
 import type { UndoEntry } from '../../lib/undo'
 import type { MenuItem } from '../ContextMenu'
-import { Dialog } from '../Dialog'
-import { FileMenuIcon, type FileMenuIconName } from '../FileMenuIcon'
-import { PasswordDialog } from '../PasswordDialog'
+import { ArchiveFactsDialog } from '../../dialogs/ArchiveFactsDialog'
+import { FileMenuIcon, type FileMenuIconName } from '../icons/FileMenuIcon'
+import { ZIP_WRITE_MAX } from '@shared/archiveLimits'
+import { ARCHIVE_COPY } from '../archive/archiveOps'
+import { useArchiveOps } from '../archive/useArchiveOps'
 import { BrowseRename } from './BrowseRename'
 import type { BrowseEntry } from './types'
-
-
-type Fail = 'password' | 'aes' | 'failed'
 
 const ICONS: Record<ArchiveRowId, FileMenuIconName> = {
   open: 'open',
@@ -31,13 +31,6 @@ const ICONS: Record<ArchiveRowId, FileMenuIconName> = {
   show: 'folder',
   properties: 'properties'
 }
-
-/** adm-zip's write cap (`MAX_ARCHIVE_BYTES` in main's archive.ts): past it
- *  main refuses every write to a zip. */
-const ZIP_WRITE_MAX = 600 * 1024 * 1024
-
-const dirOf = (p: string): string => p.replace(/[\\/][^\\/]*$/, '')
-const nameOf = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
 
 export interface ArchiveActionDeps {
   navigate: (path: string) => void
@@ -87,16 +80,11 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
   useLayoutEffect(() => {
     latest.current = deps
   })
-  const [oops, setOops] = useState<string | null>(null)
-  const [askPass, setAskPass] = useState<{ name: string; wrong: boolean; run: (pw: string) => void } | null>(null)
-  const [confirm, setConfirm] = useState<{ meta: ArchiveMeta; inners: string[]; names: string[] } | null>(null)
-  const [clash, setClash] = useState<{
-    meta: ArchiveMeta
-    paths: string[]
-    dest: string
-    names: string[]
-    fromPrism: boolean
-  } | null>(null)
+  const ops = useArchiveOps({
+    refresh: () => latest.current.refresh(),
+    noteUndo: (entry) => latest.current.noteUndo(entry)
+  })
+  const { extract: extractMembers, addInto, askDelete, moveInside, rename: renameMember, say: setOops } = ops
   const [renaming, setRenaming] = useState<{ meta: ArchiveMeta; inner: string; name: string } | null>(null)
   const [facts, setFacts] = useState<{ name: string; lines: Array<[string, string]> } | null>(null)
   const [done, setDone] = useState(false)
@@ -107,35 +95,6 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
     doneTimer.current = setTimeout(() => setDone(false), 2000)
   }
 
-  /** Run with the remembered password; on 'password' ask, and again when it
-   *  was wrong. */
-  const withPassword = useCallback(
-    (container: string, name: string, run: (pw: string | undefined) => Promise<Fail | 'ok'>): void => {
-      const attempt = (pw: string | undefined, wrong: boolean): void => {
-        void run(pw).then((r) => {
-          if (r === 'ok') {
-            if (pw) rememberArchivePassword(container, pw)
-            return
-          }
-          if (r === 'password')
-            setAskPass({
-              name,
-              wrong,
-              run: (answer) => {
-                setAskPass(null)
-                attempt(answer, true)
-              }
-            })
-          else if (r === 'aes')
-            setOops(`"${name}" is AES-encrypted, and the 7-Zip that opens those is missing from this install.`)
-          else setOops(`Couldn't read "${name}" from the archive.`)
-        })
-      }
-      attempt(archivePassword(container), false)
-    },
-    []
-  )
-
   const inners = (meta: ArchiveMeta, paths: string[]): string[] =>
     paths.map((p) => memberOf(meta, p)).filter((p): p is string => !!p)
 
@@ -144,7 +103,7 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
     (meta: ArchiveMeta, paths: string[], here: boolean, folders: ReadonlySet<string>): void => {
       const list = inners(meta, paths)
       if (!list.length) return
-      const name = nameOf(paths[0])
+      const name = baseName(paths[0])
       // A single folder of a zip on disk: staged beside it and renamed into
       // place, never merged into a folder already there (#166's route).
       if (here && !meta.nested && list.length === 1 && folders.has(paths[0])) {
@@ -153,17 +112,10 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
         })
         return
       }
-      withPassword(meta.container, name, (pw) =>
-        (here
-          ? window.prism.archiveExtractTo(meta.container, list, dirOf(meta.outer), pw, true)
-          : window.prism.archiveExtractMembersTo(meta.container, list, pw)
-        ).then((r) => {
-          if (r.ok && here) flashDone()
-          return !r.ok && r.reason === 'password' ? 'password' : 'ok'
-        })
-      )
+      if (here) extractMembers(meta.container, list, name, parentDir(meta.outer), flashDone)
+      else extractMembers(meta.container, list, name, null)
     },
-    [withPassword]
+    [extractMembers]
   )
 
   /** The whole archive: the strip's pair. A nested one is a temp copy, so its
@@ -206,7 +158,7 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
           )
       })()
     },
-    []
+    [setOops]
   )
 
   const rename = useCallback((entry: BrowseEntry, meta: ArchiveMeta): void => {
@@ -217,43 +169,21 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
     setRenaming({ meta, inner, name: entry.name })
   }, [])
 
-  const remove = useCallback((paths: string[], meta: ArchiveMeta): void => {
-    if (meta.readOnly) return
-    const list = inners(meta, paths)
-    if (list.length) setConfirm({ meta, inners: list, names: paths.map(nameOf) })
-  }, [])
-
-  const addInto = useCallback(
-    (meta: ArchiveMeta, paths: string[], dest: string, keepBoth: boolean, fromPrism: boolean): void => {
-      void window.prism.archiveAdd(meta.container, paths, dest, keepBoth).then(async (r) => {
-        setClash(null)
-        if (r === 'encrypted') return setOops("Prism can't add to a password-protected archive.")
-        if (r === 'failed') return setOops("Those couldn't be added to the archive.")
-        if (r.clashes.length) return setClash({ meta, paths, dest, names: r.clashes, fromPrism })
-        // A drag of Prism's own rows is a MOVE (owner, 2026-08-22): once the
-        // members are safely in, the originals go to the Recycle Bin, and
-        // Ctrl+Z takes both halves back. Files from Windows are left alone.
-        if (fromPrism && r.added.length) {
-          const originals: string[] = []
-          for (const a of r.added) if (await window.prism.trashFile(a.src)) originals.push(a.src)
-          latest.current.noteUndo({
-            kind: 'archive-in',
-            zip: meta.container,
-            dest,
-            entries: r.added.map((a) => a.entry),
-            originals
-          })
-        }
-        latest.current.refresh()
-      })
+  const remove = useCallback(
+    (paths: string[], meta: ArchiveMeta): void => {
+      if (meta.readOnly) return
+      // The names are the members that go, so the question and its failure
+      // line count the same list the delete runs over.
+      const list = inners(meta, paths)
+      askDelete(meta.container, list, list.map(baseName))
     },
-    []
+    [askDelete]
   )
 
   const addFiles = useCallback(
     (meta: ArchiveMeta, dest: string): void => {
       void window.prism.pickFiles().then((paths) => {
-        if (paths.length) addInto(meta, paths, dest, false, false)
+        if (paths.length) addInto(meta.container, paths, dest, false)
       })
     },
     [addInto]
@@ -263,24 +193,17 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
     (dest: string, payload: DragPayload, meta: ArchiveMeta): void => {
       const inner = memberOf(meta, dest) ?? ''
       if (payload.kind === 'members') {
-        if (payload.archive.toLowerCase() !== meta.container.toLowerCase())
-          return setOops('That came from another archive. Extract it first, then add it here.')
-        if (meta.readOnly) return setOops("This archive can't be changed. Extract it to make changes.")
-        void window.prism.archiveMoveMembers(meta.container, payload.entries, inner).then((r) => {
-          if (r === 'ok') latest.current.refresh()
-          else
-            setOops(
-              r === 'encrypted'
-                ? "Prism can't rearrange a password-protected archive."
-                : "Those couldn't be moved inside the archive. A name may be taken."
-            )
+        return moveInside(meta.container, {
+          from: payload.archive,
+          entries: payload.entries,
+          dest: inner,
+          readOnly: meta.readOnly
         })
-        return
       }
-      if (meta.readOnly) return setOops("This archive can't be changed. Extract it to make changes.")
-      addInto(meta, payload.paths, inner, false, !payload.external)
+      if (meta.readOnly) return setOops(ARCHIVE_COPY.readOnly)
+      addInto(meta.container, payload.paths, inner, !payload.external)
     },
-    [addInto]
+    [addInto, moveInside, setOops]
   )
 
   const memberFacts = (entry: BrowseEntry, meta: ArchiveMeta): void => {
@@ -337,8 +260,8 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
                 return void window.prism.pickFiles().then((paths) => {
                   if (!paths.length) return
                   void window.prism.archiveAdd(path, paths, '', true).then((r) => {
-                    if (r === 'encrypted') setOops("Prism can't add to a password-protected archive.")
-                    else if (r === 'failed') setOops("Those couldn't be added to the archive.")
+                    if (r === 'encrypted') setOops(ARCHIVE_COPY.addEncrypted)
+                    else if (r === 'failed') setOops(ARCHIVE_COPY.addFailed)
                     else latest.current.refresh()
                   })
                 })
@@ -432,66 +355,12 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
         })
       )
     },
-    [addFiles, copy, extract, extractWhole, remove, rename]
+    [addFiles, copy, extract, extractWhole, remove, rename, setOops]
   )
 
   const dialogs = (
     <>
-      {askPass && (
-        <PasswordDialog
-          name={askPass.name}
-          wrong={askPass.wrong}
-          onSubmit={askPass.run}
-          onCancel={() => setAskPass(null)}
-        />
-      )}
-      {confirm && (
-        <Dialog
-          title={
-            confirm.inners.length > 1
-              ? `Delete ${confirm.inners.length} items from the archive?`
-              : `Delete "${confirm.names[0]}" from the archive?`
-          }
-          body="This is permanent: a zip has no Recycle Bin to take it back from."
-          onCancel={() => setConfirm(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setConfirm(null), primary: true },
-            {
-              label: 'Delete',
-              danger: true,
-              onPick: () => {
-                const { meta, inners: list } = confirm
-                setConfirm(null)
-                void (async () => {
-                  let failed = 0
-                  for (const p of list) if (!(await window.prism.archiveDelete(meta.container, p))) failed += 1
-                  latest.current.refresh()
-                  if (failed) setOops(`${failed} of ${list.length} couldn't be deleted from the archive.`)
-                })()
-              }
-            }
-          ]}
-        />
-      )}
-      {clash && (
-        <Dialog
-          title={
-            clash.names.length > 1
-              ? `${clash.names.length} names are already in the archive`
-              : `"${clash.names[0]}" is already in the archive`
-          }
-          body="Keep both adds them beside what is there. Nothing has been written yet."
-          onCancel={() => setClash(null)}
-          choices={[
-            { label: 'Cancel', onPick: () => setClash(null) },
-            {
-              label: 'Keep both',
-              primary: true,
-              onPick: () => addInto(clash.meta, clash.paths, clash.dest, true, clash.fromPrism)
-            }
-          ]}
-        />
-      )}
+      {ops.dialogs}
       {renaming && (
         <BrowseRename
           name={renaming.name}
@@ -499,47 +368,12 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
           onSave={(name) => {
             const { meta, inner } = renaming
             setRenaming(null)
-            if (!name || name === renaming.name) return
-            withPassword(meta.container, renaming.name, (pw) =>
-              window.prism.archiveRename(meta.container, inner, name, pw).then((r) => {
-                if (r === 'ok') {
-                  latest.current.refresh()
-                  return 'ok'
-                }
-                if (r === 'failed') {
-                  setOops(`Couldn't rename to "${name}". The name may be taken or invalid.`)
-                  return 'ok'
-                }
-                return r
-              })
-            )
+            renameMember(meta.container, inner, renaming.name, name)
           }}
         />
       )}
       {facts && (
-        <Dialog
-          title={facts.name}
-          body={
-            <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-1">
-              {facts.lines.map(([k, v]) => (
-                <div key={k} className="contents">
-                  <dt className="text-[var(--p-dim)]">{k}</dt>
-                  <dd>{v}</dd>
-                </div>
-              ))}
-            </dl>
-          }
-          onCancel={() => setFacts(null)}
-          choices={[{ label: 'OK', primary: true, onPick: () => setFacts(null) }]}
-        />
-      )}
-      {oops && (
-        <Dialog
-          title="Archive"
-          body={oops}
-          onCancel={() => setOops(null)}
-          choices={[{ label: 'OK', primary: true, onPick: () => setOops(null) }]}
-        />
+        <ArchiveFactsDialog name={facts.name} lines={facts.lines} onClose={() => setFacts(null)} />
       )}
     </>
   )

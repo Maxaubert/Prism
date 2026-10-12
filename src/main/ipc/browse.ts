@@ -1,0 +1,333 @@
+import { app, ipcMain } from 'electron'
+import { CALL, PUSH } from '@shared/channels'
+import { dirname, resolve } from 'path'
+import { listDir, searchFiles } from '../dirList'
+import {
+  extendDesktopDirectories,
+  insideDesktop,
+  insideDesktopAll,
+  releaseDesktop,
+  validDesktopRoot
+} from '../desktopAccess'
+import { browseLocations, browseWatch } from '../browse'
+import { driveUsage, withUsedShare } from '../driveUsage'
+import { container } from '../archiveBrowse'
+import { containerCandidates } from '@shared/archivePlace'
+import { weekStart } from '../weekStart'
+import {
+  browseSearch,
+  browseSuggest,
+  cancelBrowseSearch,
+  normalizeSearchWindow,
+  suggestSlot
+} from '../browseSearch'
+import { browseWatcherOf } from '../browseWatch'
+import { mainCrumb } from '../diagCrumb'
+import type { BrowseSearchResult } from '@shared/browse'
+import type { DirListing, OpenPayload } from '@shared/types'
+import { E2E, isMainSender } from '../appState'
+import type { MainCtx } from './context'
+
+/** The Explorer: listings, the cache, search and suggestions, watches, drives, folder sizes. */
+export function registerBrowseIpc(ctx: MainCtx): void {
+  const {
+    SLOW_SCAN_MS,
+    SLOW_SETUP_MS,
+    archives,
+    explorerListings,
+    folderChanged,
+    folderSizes,
+    listingCache,
+    warmIndexer
+  } = ctx
+  // The renderer owns the tab list; main persists it. The root wall is NOT
+  // rebuilt from this snapshot: a report races payloads still in flight, and
+  // replacing the set once tore out a root main had just registered for a
+  // file the renderer had not seen yet - whose listDir was then refused and
+  // cached as unreadable. Additions stay main's (the payload builders);
+  // removals arrive explicitly below, and a snapshot cannot remove what it
+  // never knew about.
+  const warmFolderSizes = (paths: string[]): void => {
+    void folderSizes.prefetchIndexed(insideDesktopAll(paths)).catch(() => {})
+  }
+  // NAMES FIRST (#271): the reply is the folder's names, and the sizes and
+  // dates follow as `browse:details`. The indexer warm-up and the folder
+  // sizes go AFTER the reply leaves (setImmediate): the size warm-up's
+  // realpath checks, two per subfolder, used to run before it.
+  ipcMain.handle(
+    CALL.browseDirectory,
+    async (_e, tabId: string, path: string, options?: { details?: boolean }) => {
+      const directory = await explorerListings.browse(tabId, path, options?.details !== false)
+      if (directory && !directory.listing.unreadable) {
+        const folders = directory.listing.folders.map((folder) => folder.path)
+        setImmediate(() => {
+          void warmIndexer(directory.path)
+          warmFolderSizes(folders)
+        })
+      }
+      return directory
+    }
+  )
+  // The page's synchronous look at the cache (#271): a folder it has never
+  // seen this session paints from disk in the same frame as the click.
+  ipcMain.on(CALL.browseCached, (event, path: unknown) => {
+    event.returnValue =
+      isMainSender(event.sender) && typeof path === 'string'
+        ? explorerListings.cached(path)
+        : null
+  })
+  ipcMain.handle(CALL.browsePrefetch, (_e, path: unknown, pin?: unknown) => {
+    if (typeof path !== 'string') return null
+    if (pin === true) listingCache.pin([path])
+    return explorerListings.prefetch(path)
+  })
+  ipcMain.handle(CALL.listingCacheClear, () => listingCache.clear())
+  /**
+   * The archive check before a search is an awaited stat now (2026-10-12),
+   * and two of them can finish out of order: the older search would then
+   * start last and cancel the newer one, and a cancel that came during the
+   * wait would find nothing to cancel. So the newest per slot is the only
+   * one that goes on, a cancel still reaches one that is waiting, and a path
+   * with no archive in it (nearly all) is not awaited at all.
+   */
+  const searchWaiting = new Map<string, string>()
+  const searchContainer = async (
+    slot: string,
+    requestId: string,
+    path: string,
+    query: string
+  ): Promise<string | null | 'gone'> => {
+    if (
+      typeof path !== 'string' ||
+      typeof query !== 'string' ||
+      !containerCandidates(path).length
+    ) {
+      searchWaiting.delete(slot)
+      return null
+    }
+    searchWaiting.set(slot, requestId)
+    const found = await container(path)
+    if (searchWaiting.get(slot) !== requestId) return 'gone'
+    searchWaiting.delete(slot)
+    return found
+  }
+  const searchGone = (path: string): BrowseSearchResult => ({
+    path,
+    listing: { folders: [], files: [] },
+    scanned: 0,
+    unreadable: 0,
+    skippedLinks: 0,
+    truncated: false,
+    cancelled: true
+  })
+  ipcMain.handle(
+    CALL.browseSearch,
+    async (
+      event,
+      tabId: string,
+      path: string,
+      query: string,
+      requestId: string,
+      window?: unknown
+    ) => {
+      // Inside an archive (#300): the whole archive below the folder, from
+      // memory, one answer.
+      const outer = await searchContainer(tabId, requestId, path, query)
+      if (outer === 'gone') return searchGone(path)
+      if (outer) {
+        const inside = await archives.search(path, query)
+        if (inside) return inside
+      }
+      const result = await browseSearch(
+        tabId,
+        path,
+        query,
+        requestId,
+        (progress) => {
+          if (!event.sender.isDestroyed()) event.sender.send(PUSH.browseSearchProgress, progress)
+        },
+        {},
+        normalizeSearchWindow(window)
+      )
+      return result
+    }
+  )
+  ipcMain.on(CALL.browseSearchCancel, (_e, tabId: string, requestId: string) => {
+    if (searchWaiting.get(tabId) === requestId) searchWaiting.delete(tabId)
+    cancelBrowseSearch(tabId, requestId)
+  })
+  // The search popup's suggestions (#267): the same search and index as the
+  // list's, in a slot of their own, with no progress (one answer each).
+  ipcMain.handle(
+    CALL.browseSuggest,
+    async (_e, tabId: string, path: string, query: string, requestId: string) => {
+      const outer = await searchContainer(suggestSlot(tabId), requestId, path, query)
+      if (outer === 'gone') return searchGone(path)
+      if (outer) {
+        const inside = await archives.search(path, query, 200)
+        if (inside) return inside
+      }
+      return browseSuggest(tabId, path, query, requestId)
+    }
+  )
+  ipcMain.on(CALL.browseSuggestCancel, (_e, tabId: string, requestId: string) => {
+    if (typeof tabId === 'string' && searchWaiting.get(suggestSlot(tabId)) === requestId)
+      searchWaiting.delete(suggestSlot(tabId))
+    if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId), requestId)
+  })
+  ipcMain.handle(CALL.browseWatch, async (_e, tabId: string, path: string | null) => {
+    // The watcher's set-up is timed (#322): it runs in main's thread, and a
+    // network folder can make it slow. One per folder shown, so a quick one
+    // is Detailed logging's only. The time includes the ownership guard,
+    // which times itself (`guard-slow`); a call that found the watch
+    // already on that folder set nothing up and writes nothing.
+    const before = typeof tabId === 'string' ? browseWatcherOf(tabId) : undefined
+    const t0 = performance.now()
+    const ok = await browseWatch(tabId, path, folderChanged)
+    const setUp = typeof tabId === 'string' && browseWatcherOf(tabId) !== before
+    if (path !== null && (setUp || !ok)) {
+      const ms = Math.round(performance.now() - t0)
+      mainCrumb('watch', { path, ms, ok }, { often: ms < SLOW_SETUP_MS })
+    }
+    return ok
+  })
+  ipcMain.handle(CALL.browseLocations, () => browseLocations((key) => app.getPath(key)))
+  ipcMain.handle(CALL.browseDrives, async (_e, paths: unknown) =>
+    E2E
+      ? withUsedShare(await driveUsage(paths), process.env.PRISM_E2E_DRIVE_USED)
+      : driveUsage(paths)
+  )
+  // Downloads' date groups count weeks from the user's first day (#285).
+  ipcMain.handle(CALL.systemWeekStart, () => weekStart())
+  ipcMain.handle(CALL.folderSizesCached, async (_event, paths: unknown) => {
+    if (!Array.isArray(paths) || paths.length > 10000) return {}
+    // One timed guard call per list (#322): this is where suspect 1 runs.
+    const authorized = insideDesktopAll(paths)
+    const cached = await folderSizes.readCached(authorized)
+    const still = new Set(insideDesktopAll(Object.keys(cached)))
+    return Object.fromEntries(Object.entries(cached).filter(([path]) => still.has(path)))
+  })
+  ipcMain.handle(CALL.folderSizesRefresh, async (_event, path: unknown) => {
+    if (typeof path !== 'string' || !insideDesktop(path)) return
+    await folderSizes.invalidate([path])
+  })
+  const folderSizeRequests = new Map<number, Map<string, AbortController>>()
+  ipcMain.handle(CALL.folderSize, async (event, path: string, requestId: string) => {
+    if (
+      typeof path !== 'string' ||
+      !insideDesktop(path) ||
+      typeof requestId !== 'string' ||
+      !requestId ||
+      requestId.length > 200 ||
+      event.sender.isDestroyed()
+    )
+      return null
+    const senderId = event.sender.id
+    let requests = folderSizeRequests.get(senderId)
+    if (!requests) {
+      requests = new Map()
+      folderSizeRequests.set(senderId, requests)
+      event.sender.once('destroyed', () => {
+        for (const controller of folderSizeRequests.get(senderId)?.values() ?? [])
+          controller.abort()
+        folderSizeRequests.delete(senderId)
+      })
+    }
+    requests.get(requestId)?.abort()
+    if (!requests.has(requestId) && requests.size >= 64) return null
+    const controller = new AbortController()
+    requests.set(requestId, controller)
+    const t0 = performance.now()
+    try {
+      const result = await folderSizes.get(path, controller.signal, (result) => {
+        if (!controller.signal.aborted && !event.sender.isDestroyed() && insideDesktop(path))
+          event.sender.send(PUSH.folderSizeProgress, { requestId, result })
+      })
+      return insideDesktop(path) && !controller.signal.aborted ? result : null
+    } finally {
+      if (requests.get(requestId) === controller) requests.delete(requestId)
+      // A size scan finished (#322). Every visible folder row asks, two at a
+      // time, and most answer from the cache at once, so only a real scan
+      // (half a second or more) is said at the quiet level.
+      const ms = Math.round(performance.now() - t0)
+      mainCrumb(
+        'folder-size',
+        { path, ms, ...(controller.signal.aborted ? { cancelled: true } : {}) },
+        { often: ms < SLOW_SCAN_MS }
+      )
+    }
+  })
+  ipcMain.on(CALL.folderSizeCancel, (event, requestId: string) => {
+    if (typeof requestId === 'string')
+      folderSizeRequests.get(event.sender.id)?.get(requestId)?.abort()
+  })
+  ipcMain.on(CALL.browseRelease, (_e, tabId: string) => {
+    cancelBrowseSearch(tabId)
+    if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId))
+    releaseDesktop(tabId)
+  })
+}
+
+/** The project tree: a click inside a tab, a folder's listing, the sidebar's search. */
+export function registerTreeIpc(ctx: MainCtx): void {
+  const { archives, buildPayload } = ctx
+  // The three navigation handlers take the root they act in, because they are
+  // per-tab operations and the renderer always knows which tab asked. Both the
+  // root and the path have to hold up: naming a root you never opened gets you
+  // nothing, and neither does a path from a DIFFERENT open root.
+  //
+  // A click in the sidebar tree. It leaves the root alone: the tree you
+  // clicked from stays the tree you're in.
+  ipcMain.handle(
+    CALL.openWithin,
+    async (_e, root: string, p: string): Promise<OpenPayload | null> => {
+      // A MEMBER of an archive (#300): the members beside it are the arrows'
+      // list, read from the container's listing. The container must be one
+      // this tab may read, as a file there would be.
+      const outer = typeof p === 'string' ? await container(p) : null
+      if (outer && outer !== resolve(p)) {
+        if (!validDesktopRoot(root, outer) && !insideDesktop(outer)) return null
+        const near = await archives.siblings(p)
+        return near ? { files: near.files, index: near.index, root } : null
+      }
+      return validDesktopRoot(root, p) ? await buildPayload(p, root) : null
+    }
+  )
+  ipcMain.handle(CALL.dirList, async (_e, root: string, p: string): Promise<DirListing | null> => {
+    // The project tree inside an archive (#300): a zip node expands like a
+    // folder, and its folders do, from the container's own listing.
+    const outer = typeof p === 'string' ? await container(p) : null
+    if (outer) {
+      if (!validDesktopRoot(root, outer)) return null
+      const r = await archives.resolve(p)
+      if (!r) return null
+      if (!r.ok)
+        return {
+          folders: [],
+          files: [],
+          unreadable: true,
+          archiveError: {
+            reason: r.reason,
+            container: r.container,
+            message: archives.failText(r.reason)
+          }
+        }
+      if (r.place.entry && !r.place.entry.dir) return null
+      return archives.listing(r.place, 'tree')
+    }
+    if (!validDesktopRoot(root, p)) return null
+    const listing = await listDir(p)
+    if (!listing.unreadable) extendDesktopDirectories(root, [p])
+    return listing
+  })
+  // The sidebar's search: that tab's whole root, bounded, never outside it.
+  ipcMain.handle(CALL.searchFiles, async (_e, root: string, query: string) => {
+    if (!validDesktopRoot(root, root)) return { hits: [], truncated: false }
+    const result = await searchFiles(root, query)
+    extendDesktopDirectories(
+      root,
+      result.hits.map((hit) => dirname(hit.path))
+    )
+    return result
+  })
+}

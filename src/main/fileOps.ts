@@ -1,6 +1,8 @@
-import { access, mkdir, readdir, rename, stat } from 'fs/promises'
+import { mkdir, readdir, rename, stat } from 'fs/promises'
 import { dirname, extname, join } from 'path'
 import type { OnClash, RenameResult } from '@shared/types'
+import type { BinIfEmptyResult } from '@shared/ipcTypes'
+import { exists } from './fsUtil'
 
 // Renaming files. Deliberately free of electron imports so it can be unit-tested;
 // the one thing it can't do alone is bin a file, which main passes in as `trash`.
@@ -25,13 +27,6 @@ export function nameError(name: string): string | null {
 
 /** Two paths that differ only in capitalisation are the same file on Windows. */
 const sameFile = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
-
-/** existsSync's answer without the wait: anything that cannot be reached is absent. */
-const exists = (p: string): Promise<boolean> =>
-  access(p).then(
-    () => true,
-    () => false
-  )
 
 /**
  * "photo.jpg" -> "photo (2).jpg", counting up until the folder has no such file.
@@ -132,7 +127,7 @@ export async function makeFolder(dir: string, name = 'New folder'): Promise<stri
 export async function binIfEmpty(
   path: string,
   trash: (p: string) => Promise<void>
-): Promise<'binned' | 'not-empty' | 'missing' | 'failed'> {
+): Promise<BinIfEmptyResult> {
   try {
     if (!(await stat(path)).isDirectory()) return 'failed'
   } catch {

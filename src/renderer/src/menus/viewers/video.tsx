@@ -11,7 +11,7 @@ import type { JSX } from 'react'
 import type { AudioTrackOffer } from '@shared/types'
 import type { MenuItem } from '../../components/ContextMenu'
 import { pngFromVideo } from '../../lib/copyImage'
-import type { Subtitles } from '../../lib/useSubtitles'
+import type { Subtitles } from '../../hooks/useSubtitles'
 import { VIDEO_FITS, type VideoFit } from '../../lib/videoFit'
 
 export interface VideoMenuContext {

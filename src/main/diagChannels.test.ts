@@ -1,16 +1,32 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DCH } from 'prism-term-core/shared/channels'
+import { CALL } from '@shared/channels'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
 
 // A renamed channel must not leave a stale long-wait entry behind (#322): the
 // new name would be timed again and the old one would excuse nothing.
 describe('the long-wait channels', () => {
-  const main = readFileSync(join(__dirname, 'index.ts'), 'utf8')
-  // The core registers dictation's channels itself (`registerDictationIpc`).
-  const registered = new Set([
-    ...[...main.matchAll(/ipcMain\.(?:handle|on)\(\s*'([^']+)'/g)].map((m) => m[1]),
+  // Every main source, not only index.ts: since the structure cleanup
+  // (2026-10-12) the handlers live in ipc/, windowChrome.ts, phone/ and others.
+  const sources = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory()
+        ? sources(join(dir, e.name))
+        : e.name.endsWith('.ts') && !e.name.endsWith('.test.ts')
+          ? [join(dir, e.name)]
+          : []
+    )
+  const main = sources(__dirname)
+    .map((f) => readFileSync(f, 'utf8'))
+    .join('\n')
+  // Main registers each through the shared table (`CALL.x`, 2026-10-12); the
+  // core registers dictation's channels itself (`registerDictationIpc`).
+  const registered = new Set<string>([
+    ...[...main.matchAll(/ipcMain\.(?:handle|on)\(\s*CALL\.(\w+)/g)].map(
+      (m) => CALL[m[1] as keyof typeof CALL]
+    ),
     ...Object.values(DCH)
   ])
 

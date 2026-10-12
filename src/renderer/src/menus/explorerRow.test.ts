@@ -1,25 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BrowseEntry } from '../components/browse/types'
 import { explorerRowMenu, type ExplorerRowMenuContext } from './explorerRow'
+import { aliasWindow, clearHost, fakeClipboard, setHost } from '../testing/host'
 
-// The unit tests run under node, where `window` does not exist; in a browser
-// it IS globalThis (see fileVerbs.test.ts).
-if (typeof window === 'undefined')
-  Object.defineProperty(globalThis, 'window', { value: globalThis })
+aliasWindow()
 
 beforeEach(() => {
-  ;(globalThis as unknown as { prism: unknown }).prism = {
+  setHost({
     capabilities: { write: true, clipboard: true, explorer: true, drag: true },
     showInExplorer: vi.fn()
-  }
-  Object.defineProperty(globalThis, 'navigator', {
-    value: { clipboard: { writeText: vi.fn(() => Promise.resolve()) } },
-    configurable: true
   })
+  fakeClipboard()
 })
-afterEach(() => {
-  delete (globalThis as unknown as { prism?: unknown }).prism
-})
+afterEach(clearHost)
 
 const file: BrowseEntry = { path: 'C:\\a\\b.txt', name: 'b.txt', isFolder: false }
 const folder: BrowseEntry = { path: 'C:\\a\\c', name: 'c', isFolder: true }

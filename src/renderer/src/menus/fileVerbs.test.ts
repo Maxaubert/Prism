@@ -1,17 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fileVerbs } from './fileVerbs'
+import { aliasWindow, clearHost, fakeClipboard, setHost } from '../testing/host'
 
-// The unit tests run under node, where `window` does not exist; in a browser
-// it IS globalThis, which is what the phone shim leans on too.
-if (typeof window === 'undefined')
-  Object.defineProperty(globalThis, 'window', { value: globalThis })
+aliasWindow()
 
 const install = (explorer: boolean): { showInExplorer: ReturnType<typeof vi.fn> } => {
   const showInExplorer = vi.fn()
-  ;(globalThis as unknown as { prism: unknown }).prism = {
+  setHost({
     capabilities: { write: explorer, clipboard: explorer, explorer, drag: explorer },
     showInExplorer
-  }
+  })
   return { showInExplorer }
 }
 
@@ -23,16 +21,11 @@ const install = (explorer: boolean): { showInExplorer: ReturnType<typeof vi.fn> 
 let writeText: ReturnType<typeof vi.fn>
 beforeEach(() => {
   writeText = vi.fn(() => Promise.resolve())
-  Object.defineProperty(globalThis, 'navigator', {
-    value: { clipboard: { writeText } },
-    configurable: true
-  })
+  fakeClipboard(writeText)
 })
 
 describe('fileVerbs', () => {
-  afterEach(() => {
-    delete (globalThis as unknown as { prism?: unknown }).prism
-  })
+  afterEach(clearHost)
   it('offers Explorer and the path on the desktop', () => {
     const { showInExplorer } = install(true)
     const verbs = fileVerbs('C:\\a\\b.txt')

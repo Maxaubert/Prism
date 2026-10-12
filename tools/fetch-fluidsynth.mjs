@@ -10,13 +10,11 @@
 //                soundfont MuseScore ships, pinned by commit
 //
 // Both are verified by SHA-256 and neither is committed.
-import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import AdmZip from 'adm-zip'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { pinnedDownload, stampHolds, unzipFlat, writeStamp } from './lib/pinnedDownload.mjs'
+import { ROOT } from './lib/repo.mjs'
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(ROOT, 'vendor', 'fluidsynth')
 
 const FS_URL = 'https://github.com/FluidSynth/fluidsynth/releases/download/v2.6.0/fluidsynth-v2.6.0-win10-x64-cpp11.zip'
@@ -35,29 +33,13 @@ const FS_LIC_SHA = '20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d355
 const SF_LIC_URL = `https://raw.githubusercontent.com/musescore/MuseScore/${SF_COMMIT}/share/sound/FluidR3Mono_License.md`
 const SF_LIC_SHA = 'cf1889febeafd2b0a20c2c82359245524fc7dba29ded336cc3b51e0bcfdc8b84'
 
-const stamp = join(OUT, '.source')
 const want = FS_SHA + ' ' + SF_SHA + ' ' + FS_LIC_SHA
-if (existsSync(join(OUT, 'fluidsynth.exe')) && existsSync(stamp) && readFileSync(stamp, 'utf8').trim() === want) {
+if (stampHolds(OUT, 'fluidsynth.exe', want)) {
   console.log('fluidsynth: vendor/fluidsynth is already current')
   process.exit(0)
 }
 
-async function get(url, sha, what) {
-  console.log(`fluidsynth: downloading ${what}`)
-  const res = await fetch(url)
-  if (!res.ok) {
-    console.error(`fluidsynth: ${what} failed (${res.status} ${res.statusText})\n  ${url}`)
-    process.exit(1)
-  }
-  const buf = Buffer.from(await res.arrayBuffer())
-  const got = createHash('sha256').update(buf).digest('hex')
-  if (got !== sha) {
-    console.error(`fluidsynth: SHA-256 mismatch for ${what}\n  expected ${sha}\n  got      ${got}`)
-    process.exit(1)
-  }
-  return buf
-}
-
+const get = (url, sha, what) => pinnedDownload('fluidsynth', url, sha, { what })
 const zipBuf = await get(FS_URL, FS_SHA, 'FluidSynth 2.6.0 (3 MB)')
 const sf = await get(SF_URL, SF_SHA, 'the FluidR3Mono soundfont (24 MB)')
 const fsLic = await get(FS_LIC_URL, FS_LIC_SHA, "FluidSynth's licence")
@@ -66,18 +48,9 @@ const sfLic = await get(SF_LIC_URL, SF_LIC_SHA, "the soundfont's licence")
 rmSync(OUT, { recursive: true, force: true })
 mkdirSync(OUT, { recursive: true })
 
-const zip = new AdmZip(zipBuf)
-const entries = zip.getEntries()
-for (const wanted of FS_WANTED) {
-  const hit = entries.find((e) => e.entryName.endsWith('/' + wanted))
-  if (!hit) {
-    console.error('fluidsynth: ' + wanted + ' is missing from the release')
-    process.exit(1)
-  }
-  writeFileSync(join(OUT, wanted.split('/').pop()), hit.getData())
-}
+await unzipFlat('fluidsynth', zipBuf, FS_WANTED, OUT)
 writeFileSync(join(OUT, 'soundfont.sf3'), sf)
 writeFileSync(join(OUT, 'LICENSE-fluidsynth.txt'), fsLic)
 writeFileSync(join(OUT, 'LICENSE-soundfont.md'), sfLic)
-writeFileSync(stamp, want + '\n')
+writeStamp(OUT, want)
 console.log('fluidsynth: unpacked the synthesiser and its soundfont into vendor/fluidsynth')

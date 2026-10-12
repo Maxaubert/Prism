@@ -10,8 +10,7 @@
  * lies. The key and its values are `codePrefs`'s own; this only decides
  * whether the phone has a say.
  */
-
-const WRAP_KEY = 'prism.code.wrap'
+import { WRAP_KEY } from '../lib/code/codePrefs'
 
 /** The value to write, or null when the phone has already chosen. Anything
  *  but on/off is what `codePrefs` reads as `auto`, which is no choice. */

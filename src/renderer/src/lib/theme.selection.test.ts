@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { contrast } from './colour'
 import { alphaOf, composite } from 'prism-term-core/renderer/lib/colour'
 import { derive, sideGround, TINT_ALPHA, TINT_MIN, selectionTintAlpha, type Style } from './theme'
 import { DERIVED_STYLES } from './themes/testStyles'
@@ -11,18 +12,6 @@ import { DERIVED_STYLES } from './themes/testStyles'
 // grouped cards redesign (#292; owner, 2026-10-05: no accent on the chosen
 // rail item), which made it a grey fill, so `--p-sel-solid` went with it.
 
-const lum = (hex: string): number => {
-  const n = parseInt(hex.slice(1, 7), 16)
-  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
-    const c = v / 255
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-  })
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-const contrast = (a: string, b: string): number => {
-  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
-  return (hi + 0.05) / (lo + 0.05)
-}
 const ALPHAS = [0.1, 0.35, 0.6, 0.85, 1]
 const at = (s: Style, a: number): Record<string, string> => derive({ ...s, accentAlpha: a })
 

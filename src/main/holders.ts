@@ -17,7 +17,8 @@
  * over its inputs: a child is anything with `kill` and a `close` event, so
  * the tests need no ffmpeg.
  */
-import { resolve, sep } from 'path'
+import { resolve } from 'path'
+import { isInside } from '@shared/path'
 
 export interface Held {
   kill(): unknown
@@ -27,13 +28,10 @@ export interface Held {
   killed?: boolean
 }
 
-const lower = (p: string): string => resolve(p).toLowerCase()
-
-/** Is `file` the path `p` itself or somewhere inside it? */
+/** Is `file` the path `p` itself or somewhere inside it? Both resolved
+ *  first, so `..` cannot walk a path out and back in. */
 export function under(file: string, p: string): boolean {
-  const f = lower(file)
-  const q = lower(p)
-  return f === q || f.startsWith(q.endsWith(sep) ? q : q + sep)
+  return isInside(resolve(p), resolve(file), { orEqual: true })
 }
 
 export class Holders {

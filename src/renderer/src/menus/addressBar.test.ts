@@ -1,19 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { addressBarMenu } from './addressBar'
+import { aliasWindow, clearHost, setHost } from '../testing/host'
 
-// The unit tests run under node, where `window` does not exist; in a browser
-// it IS globalThis (see fileVerbs.test.ts).
-if (typeof window === 'undefined')
-  Object.defineProperty(globalThis, 'window', { value: globalThis })
+aliasWindow()
 
-afterEach(() => {
-  delete (globalThis as unknown as { prism?: unknown }).prism
-})
+afterEach(clearHost)
 
 describe('addressBarMenu', () => {
   it('offers the folder and its path as text, then editing', () => {
     const copyAddress = vi.fn(() => Promise.resolve(true))
-    ;(globalThis as unknown as { prism: unknown }).prism = { copyAddress }
+    setHost({ copyAddress })
     const onEdit = vi.fn()
     const items = addressBarMenu({ path: 'C:\\a', onEdit })
     expect(items.map((i) => i.label)).toEqual([

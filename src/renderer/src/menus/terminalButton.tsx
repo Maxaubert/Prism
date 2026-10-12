@@ -1,7 +1,7 @@
 import type { MenuItem } from '../components/ContextMenu'
-import { FileMenuIcon } from '../components/FileMenuIcon'
-import { tickIf } from './fileVerbs'
-import { menuIcon } from './treeRow'
+import { FileMenuIcon } from '../components/icons/FileMenuIcon'
+import { menuIcon, tickIf } from '../components/icons/menuGlyphs'
+import { PATHS } from '../components/icons/paths'
 
 /**
  * THE TERMINAL BUTTON'S MENU: what the sidebar footer's Terminal button shows
@@ -83,7 +83,7 @@ export function terminalButtonMenu(ctx: TerminalButtonMenuContext): MenuItem[] {
       ? [
           {
             label: 'Close terminal',
-            icon: menuIcon('M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5'),
+            icon: menuIcon(PATHS.bin),
             children: terms.map((t) => ({ label: t.label, onPick: () => ctx.closeTermId(t.id) }))
           }
         ]
@@ -91,7 +91,7 @@ export function terminalButtonMenu(ctx: TerminalButtonMenuContext): MenuItem[] {
         ? [
             {
               label: 'Close terminal',
-              icon: menuIcon('M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5'),
+              icon: menuIcon(PATHS.bin),
               onPick: ctx.closeTerm
             }
           ]

@@ -4,6 +4,9 @@
 // returns the per-frame draw function, which closes over that state. That keeps
 // every style's state privately typed instead of sharing an untyped bag.
 
+import { hexToRgb } from '../colour'
+import { clamp } from '../clamp'
+
 export interface AudioFrame {
   /** Frequency magnitudes, 0-255. */
   freq: Uint8Array
@@ -87,10 +90,6 @@ export const BRAND_PALETTE = ['#5b5bd6', '#9a6cff', '#ff9a8b']
 const BINS = 1024 // analyser.frequencyBinCount at fftSize 2048
 const NYQUIST = 22050
 
-export function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v
-}
-
 /** Log-spaced bin ranges. Music energy bunches at the bottom, so linear bins
  *  leave the top of the spectrum permanently dead. */
 export function bandRanges(count: number, fMin = 30, fMax = 12000): Array<[number, number]> {
@@ -135,13 +134,6 @@ export function adaptive(peaks: Float32Array, i: number, v: number, o: VizOpts):
   const rel = v / Math.max(peaks[i], 0.045)
   const gate = clamp(v * 7, 0, 1)
   return clamp(rel * gate, 0, 1.05) * o.sensitivity * 0.82
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const s = hex.replace('#', '')
-  const full = s.length === 3 ? s.split('').map((c) => c + c).join('') : s
-  const n = parseInt(full, 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
 
 /** Sample a palette at t (0-1). Single-colour palettes (the solid themes) just
@@ -286,25 +278,6 @@ export function makeBands(
         const abs = Math.pow(raw, 1.55) * (1 + frac * 1.3) * o.sensitivity * 1.18
         const norm = adaptive(peaks, i, raw, o)
         const target = clamp(abs * 0.85 + norm * 0.15, 0, 1.35) * dyn
-        values[i] += (target - values[i]) * rate
-      }
-    }
-  }
-}
-
-/** Same, but using absolute perceptual shaping rather than per-band gain. Better
- *  when you want an honest spectrum shape (loud bass really is bigger). */
-export function makeShapedBands(
-  n: number,
-  fMax = 16000
-): { values: Float32Array; update: (d: AudioFrame, o: VizOpts, rate?: number) => void } {
-  const ranges = bandRanges(n, 30, fMax)
-  const values = new Float32Array(n)
-  return {
-    values,
-    update(d, o, rate = 0.18) {
-      for (let i = 0; i < n; i++) {
-        const target = shape(bandValue(d.freq, ranges[i]), i, n, o)
         values[i] += (target - values[i]) * rate
       }
     }

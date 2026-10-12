@@ -1,4 +1,5 @@
 import type { WindowPreferenceChange, WindowPreferencesSnapshot } from '@shared/windowPreferences'
+import { CALL, PUSH, SWEEP_CHANNELS } from '@shared/channels'
 import type {
   BrowseDirectory,
   BrowseDriveUsage,
@@ -14,18 +15,45 @@ import { createTermApi } from 'prism-term-core/preload/api'
 import { createDictationApi } from 'prism-term-core/preload/dictationApi'
 import { createDiagApi } from 'prism-term-core/preload/diagApi'
 import type { UpdateInfo } from 'prism-term-core/shared/updateTypes'
-import type { ExtractEvent } from '@shared/extraction'
-import { SWEEP_CHANNELS, type SweepBegin, type SweepEnd, type SweepState, type SweepUpdate } from '@shared/sweepOverlay'
+import type {
+  ArchiveRenameResult,
+  ExtractAllResult,
+  ExtractDirResult,
+  ExtractEvent,
+  ExtractPickedResult,
+  ExtractToResult,
+  MemberExtractResult
+} from '@shared/extraction'
+import type { SweepBegin, SweepEnd, SweepState, SweepUpdate } from '@shared/sweepOverlay'
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import type { DriveDetails, MediaProps, TextProps } from '@shared/props'
 import type {
+  ArchiveAddResult,
+  ArchiveMoveResult,
+  ArchiveStat,
+  BinIfEmptyResult,
+  ComicOpenResult,
+  ConvertProgress,
+  ConvertResult,
+  FileStat,
+  FolderSizeProgress,
+  HashProgress,
+  HostCapabilities,
+  MoveOnClash,
+  MoveResult,
+  PasteProgress,
+  PasteResult,
+  PhotoInfo,
+  SubtitleTrack,
+  WindowState
+} from '@shared/ipcTypes'
+import type {
   ArchiveListing,
   BrowseDetails,
   DirChange,
   DirListing,
-  FileKind,
   OnClash,
   OpenPayload,
   OpenWithApp,
@@ -42,7 +70,32 @@ import type {
 } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
-// `mediaUrl` + the open payload, nothing app-specific.
+// `mediaUrl` + the open payload, nothing app-specific. Every channel is named
+// through `@shared/channels` and every answer typed from `@shared/ipcTypes`
+// (or its feature file), so main and this file cannot drift apart.
+
+type PushChannel = (typeof PUSH)[keyof typeof PUSH]
+type CallChannel = (typeof CALL)[keyof typeof CALL]
+
+/** The page's side of a PUSH channel: hand it a callback, get back the off.
+ *  The event is dropped; the callback gets the payload alone. */
+function subscribe<T = void>(channel: PushChannel): (cb: (payload: T) => void) => () => void {
+  return (cb) => {
+    const listener = (_: unknown, payload: T): void => cb(payload)
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.removeListener(channel, listener)
+  }
+}
+
+/** A synchronous ask (`sendSync`) that answers `fallback` when main cannot
+ *  answer at all, rather than throwing into the page. */
+function syncOr<T>(channel: CallChannel, fallback: T, ...args: unknown[]): T {
+  try {
+    return ipcRenderer.sendSync(channel, ...args)
+  } catch {
+    return fallback
+  }
+}
 
 const api = {
   /** A folder's names now, its sizes and dates after as `onBrowseDetails`
@@ -53,27 +106,18 @@ const api = {
     path: string,
     options?: { details?: boolean }
   ): Promise<BrowseDirectory | null> =>
-    ipcRenderer.invoke('browse:directory', tabId, path, options),
+    ipcRenderer.invoke(CALL.browseDirectory, tabId, path, options),
   /** The listing cache's copy of a folder, synchronously, or null (#271). */
-  browseCached: (path: string): BrowseDirectory | null => {
-    try {
-      return ipcRenderer.sendSync('browse:cached', path) ?? null
-    } catch {
-      return null
-    }
-  },
+  browseCached: (path: string): BrowseDirectory | null =>
+    syncOr<BrowseDirectory | null>(CALL.browseCached, null, path) ?? null,
   /** Read a folder ahead of the click (#271); `pin` keeps it in the cache. */
   browsePrefetch: (path: string, pin = false): Promise<BrowseDirectory | null> =>
-    ipcRenderer.invoke('browse:prefetch', path, pin),
-  onBrowseDetails: (cb: (details: BrowseDetails) => void): (() => void) => {
-    const listener = (_: unknown, details: BrowseDetails): void => cb(details)
-    ipcRenderer.on('browse:details', listener)
-    return () => ipcRenderer.removeListener('browse:details', listener)
-  },
+    ipcRenderer.invoke(CALL.browsePrefetch, path, pin),
+  onBrowseDetails: subscribe<BrowseDetails>(PUSH.browseDetails),
   /** The user's first day of the week, 0 Sunday ... 6 Saturday (#285). */
-  weekStart: (): Promise<number> => ipcRenderer.invoke('system:week-start'),
+  weekStart: (): Promise<number> => ipcRenderer.invoke(CALL.systemWeekStart),
   /** Settings > General > Remember folders: delete what was kept. */
-  clearListingCache: (): Promise<boolean> => ipcRenderer.invoke('listing-cache:clear'),
+  clearListingCache: (): Promise<boolean> => ipcRenderer.invoke(CALL.listingCacheClear),
   browseSearch: (
     tabId: string,
     path: string,
@@ -81,29 +125,25 @@ const api = {
     requestId: string,
     window?: BrowseSearchWindowRequest
   ): Promise<BrowseSearchResult> =>
-    ipcRenderer.invoke('browse:search', tabId, path, query, requestId, window),
+    ipcRenderer.invoke(CALL.browseSearch, tabId, path, query, requestId, window),
   browseSearchCancel: (tabId: string, requestId: string): void =>
-    ipcRenderer.send('browse:search-cancel', tabId, requestId),
+    ipcRenderer.send(CALL.browseSearchCancel, tabId, requestId),
   browseSuggest: (
     tabId: string,
     path: string,
     query: string,
     requestId: string
   ): Promise<BrowseSearchResult> =>
-    ipcRenderer.invoke('browse:suggest', tabId, path, query, requestId),
+    ipcRenderer.invoke(CALL.browseSuggest, tabId, path, query, requestId),
   browseSuggestCancel: (tabId: string, requestId: string): void =>
-    ipcRenderer.send('browse:suggest-cancel', tabId, requestId),
-  onBrowseSearchProgress: (cb: (progress: BrowseSearchProgress) => void): (() => void) => {
-    const listener = (_: unknown, progress: BrowseSearchProgress): void => cb(progress)
-    ipcRenderer.on('browse:search-progress', listener)
-    return () => ipcRenderer.removeListener('browse:search-progress', listener)
-  },
+    ipcRenderer.send(CALL.browseSuggestCancel, tabId, requestId),
+  onBrowseSearchProgress: subscribe<BrowseSearchProgress>(PUSH.browseSearchProgress),
   browseWatch: (tabId: string, path: string | null): Promise<boolean> =>
-    ipcRenderer.invoke('browse:watch', tabId, path),
-  browseLocations: (): Promise<BrowseShortcut[]> => ipcRenderer.invoke('browse:locations'),
+    ipcRenderer.invoke(CALL.browseWatch, tabId, path),
+  browseLocations: (): Promise<BrowseShortcut[]> => ipcRenderer.invoke(CALL.browseLocations),
   browseDrives: (paths: string[]): Promise<BrowseDriveUsage[]> =>
-    ipcRenderer.invoke('browse:drives', paths),
-  browseRelease: (tabId: string): void => ipcRenderer.send('browse:release', tabId),
+    ipcRenderer.invoke(CALL.browseDrives, paths),
+  browseRelease: (tabId: string): void => ipcRenderer.send(CALL.browseRelease, tabId),
   /**
    * What this host can do (#106). The viewers serve two hosts, the desktop
    * app and the phone page, and the phone's bridge (`phone/prismShim.ts`)
@@ -115,31 +155,26 @@ const api = {
    * in File Explorer, and the hex view a file handed over by Windows lands
    * in), `drag` is dragging out to other windows. The desktop has all four.
    */
-  capabilities: { write: true, clipboard: true, explorer: true, drag: true } as {
-    write: boolean
-    clipboard: boolean
-    explorer: boolean
-    drag: boolean
-  },
+  capabilities: { write: true, clipboard: true, explorer: true, drag: true } as HostCapabilities,
   /** fsmedia:// URL for a local path, so <img>/<video>/<audio>/<embed> can load it. */
   mediaUrl: (path: string): string => `fsmedia://local/${encodeURIComponent(path)}`,
 
   /** Open the file dialog; resolves with the folder payload or null if cancelled. */
-  openDialog: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:dialog'),
+  openDialog: (): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openDialog),
   /** Build a payload for a dropped/known path (drag-and-drop). */
-  openPath: (path: string): Promise<OpenPayload | null> => ipcRenderer.invoke('open:path', path),
+  openPath: (path: string): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openPath, path),
   /** Choose a FOLDER to root in. The only way to name a root deliberately;
    *  every other route infers it from the file that arrived. */
   openFolder: (from?: string): Promise<OpenPayload | null> =>
-    ipcRenderer.invoke('open:folder', from),
+    ipcRenderer.invoke(CALL.openFolder, from),
   /** A new tab rooted at the user's own folder. No dialog: the + is instant. */
-  openHome: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:home'),
+  openHome: (): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openHome),
   /** A new tab rooted at a remembered folder (the Settings choice). */
-  openRoot: (dir: string): Promise<OpenPayload | null> => ipcRenderer.invoke('open:root', dir),
+  openRoot: (dir: string): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openRoot, dir),
   /** Choose a folder without opening it: the Settings picker. */
-  pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-folder'),
+  pickFolder: (): Promise<string | null> => ipcRenderer.invoke(CALL.dialogPickFolder),
   /** Choose real files: the archive panel's "Add files". Empty when cancelled. */
-  pickFiles: (): Promise<string[]> => ipcRenderer.invoke('dialog:pick-files'),
+  pickFiles: (): Promise<string[]> => ipcRenderer.invoke(CALL.dialogPickFiles),
   /** Report the tab strip, for persistence only. The root wall is never
    *  rebuilt from a snapshot (it raced payloads in flight); see dropRoot. */
   tabsChanged: (
@@ -159,141 +194,103 @@ const api = {
       open?: string[]
     }>,
     active: number
-  ): void => ipcRenderer.send('tabs:changed', { tabs, active }),
+  ): void => ipcRenderer.send(CALL.tabsChanged, { tabs, active }),
   /** A root no longer held by any tab. The one way the wall shrinks. */
-  dropRoot: (root: string): void => ipcRenderer.send('roots:drop', root),
+  dropRoot: (root: string): void => ipcRenderer.send(CALL.rootsDrop, root),
   /** Where you had got to in a film, kept ONCE on the PC by file path
    *  (#118): the phone reads and writes the same store over /api/pos, so a
    *  film left at minute 40 here opens at minute 40 there. Seconds, or null. */
   positionGet: (path: string): Promise<number | null> =>
-    ipcRenderer.invoke('pos:get', path).then((m: FileMemory | null) => m?.t ?? null),
-  positionSet: (path: string, t: number | null): void => ipcRenderer.send('pos:set', path, { t }),
+    ipcRenderer.invoke(CALL.posGet, path).then((m: FileMemory | null) => m?.t ?? null),
+  positionSet: (path: string, t: number | null): void => ipcRenderer.send(CALL.posSet, path, { t }),
   /** The whole of what the PC remembers about a file (#124): the place, and
    *  the audio track, subtitle track and aspect ratio picked for it. A patch
    *  merges; null clears a field. */
-  memoryGet: (path: string): Promise<FileMemory | null> => ipcRenderer.invoke('pos:get', path),
+  memoryGet: (path: string): Promise<FileMemory | null> => ipcRenderer.invoke(CALL.posGet, path),
   memorySet: (path: string, patch: FileMemoryPatch): void =>
-    ipcRenderer.send('pos:set', path, patch),
+    ipcRenderer.send(CALL.posSet, path, patch),
   // Prism on your phone (#104): the More > Phone dialog's state and verbs.
   // Every verb answers with the whole state for `root` (the current tab), so
   // the dialog never has to guess what a click did.
   /** The dialog's state: switch, port, addresses, phones, and a code for `root`. */
-  phoneGet: (root: string | null): Promise<PhoneState> => ipcRenderer.invoke('phone:get', root),
+  phoneGet: (root: string | null): Promise<PhoneState> => ipcRenderer.invoke(CALL.phoneGet, root),
   /** Turn the server on or off. The answer says what the server IS. */
   phoneSetOn: (on: boolean, root: string | null): Promise<PhoneState> =>
-    ipcRenderer.invoke('phone:set-on', on, root),
+    ipcRenderer.invoke(CALL.phoneSetOn, on, root),
   /** A fresh code for `root`, replacing the one it had. */
-  phoneCode: (root: string): Promise<PhoneState> => ipcRenderer.invoke('phone:code', root),
+  phoneCode: (root: string): Promise<PhoneState> => ipcRenderer.invoke(CALL.phoneCode, root),
   /** Forget a paired phone by token. */
   phoneForget: (token: string, root: string | null): Promise<PhoneState> =>
-    ipcRenderer.invoke('phone:forget', token, root),
+    ipcRenderer.invoke(CALL.phoneForget, token, root),
   /** Pairing, watchers or the switch changed: re-read with phoneGet. */
-  onPhoneChanged: (cb: () => void): (() => void) => {
-    const listener = (): void => cb()
-    ipcRenderer.on('phone:changed', listener)
-    return () => ipcRenderer.removeListener('phone:changed', listener)
-  },
+  onPhoneChanged: subscribe(PUSH.phoneChanged),
   // The three navigation calls name the root they act in. They are per-tab
   // operations, the caller always knows which tab is asking, and main refuses a
   // root that is not open as well as a path from a different one.
   /** Open a file the sidebar tree lists. Inside `root` only, and it leaves the
    *  root alone (unlike openPath, which opens a root of its own). */
   openWithin: (root: string, path: string): Promise<OpenPayload | null> =>
-    ipcRenderer.invoke('open:within', root, path),
+    ipcRenderer.invoke(CALL.openWithin, root, path),
   /** Children of a folder for the sidebar tree; null if outside `root`. */
   listDir: (root: string, path: string): Promise<DirListing | null> =>
-    ipcRenderer.invoke('dir:list', root, path),
+    ipcRenderer.invoke(CALL.dirList, root, path),
   /** Name search under `root`: bounded, breadth-first, capped. */
   searchTree: (root: string, query: string): Promise<SearchResult> =>
-    ipcRenderer.invoke('search:files', root, query),
+    ipcRenderer.invoke(CALL.searchFiles, root, query),
   /** Rename a file in place. `onClash` decides what a taken name does: 'ask'
    *  reports the clash back so the user can choose. */
   renameFile: (path: string, name: string, onClash: OnClash): Promise<RenameResult> =>
-    ipcRenderer.invoke('file:rename', path, name, onClash),
+    ipcRenderer.invoke(CALL.fileRename, path, name, onClash),
   /** Send a file to the Recycle Bin. */
-  trashFile: (path: string): Promise<boolean> => ipcRenderer.invoke('file:trash', path),
+  trashFile: (path: string): Promise<boolean> => ipcRenderer.invoke(CALL.fileTrash, path),
   /** Read a small text file (for the text/code/markdown viewer). */
-  readText: (path: string): Promise<TextRead> => ipcRenderer.invoke('file:text', path),
+  readText: (path: string): Promise<TextRead> => ipcRenderer.invoke(CALL.fileText, path),
   /** The LAST `max` bytes of a file, for one too big for readText. Read-only
    *  by construction: it answers where it starts and how big the file really
    *  is, and never claims to be the file. */
   tailBytes: (path: string, max: number): Promise<TailRead | null> =>
-    ipcRenderer.invoke('file:tailBytes', path, max),
+    ipcRenderer.invoke(CALL.fileTailBytes, path, max),
   /** Follow a file that is still being written, from `from` bytes in. New
    *  text arrives through onFileAppended until stopTail. */
   startTail: (path: string, from: number): Promise<boolean> =>
-    ipcRenderer.invoke('tail:start', path, from),
-  stopTail: (path: string): Promise<void> => ipcRenderer.invoke('tail:stop', path),
+    ipcRenderer.invoke(CALL.tailStart, path, from),
+  stopTail: (path: string): Promise<void> => ipcRenderer.invoke(CALL.tailStop, path),
   /** Save the editor's text over the file. Text kinds only, inside the root.
    *  Answers with a reason, so a failed save can say why rather than only
    *  that it failed. */
   writeText: (path: string, text: string): Promise<WriteResult> =>
-    ipcRenderer.invoke('file:write', path, text),
+    ipcRenderer.invoke(CALL.fileWrite, path, text),
 
   /** What the camera wrote into a photo: camera, lens, exposure, when, GPS.
    *  Read in main from the file itself, so it works for HEIC and camera RAW,
    *  whose decoded copies carry no metadata at all. */
-  photoInfo: (
-    path: string
-  ): Promise<{
-    camera?: string
-    lens?: string
-    exposure?: string
-    taken?: string
-    colour?: string
-    gps?: { lat: number; lon: number }
-    dimensions?: string
-  }> => ipcRenderer.invoke('image:photo-info', path),
+  photoInfo: (path: string): Promise<PhotoInfo> => ipcRenderer.invoke(CALL.imagePhotoInfo, path),
   /** Paste whatever files are on the clipboard into a folder. The sources may
    *  be anywhere (you copied them in Explorer); the destination must be inside
    *  a root. Nothing is ever written over: a taken name becomes "name (2)". */
-  pasteInto: (
-    dir: string,
-    cut?: string[],
-    jobId?: string
-  ): Promise<{
-    pasted: number
-    failed: number
-    refused?: boolean
-    empty?: boolean
-    /** What actually landed, new names and all, so the tree can select it. */
-    paths: string[]
-    /** The paste was a MOVE: `cut` still matched the clipboard. */
-    moved?: boolean
-  }> => ipcRenderer.invoke('file:paste-into', dir, cut, jobId),
+  pasteInto: (dir: string, cut?: string[], jobId?: string): Promise<PasteResult> =>
+    ipcRenderer.invoke(CALL.filePasteInto, dir, cut, jobId),
   /** Byte progress of a running paste, 0-100, tagged with the job it belongs
    *  to since several can run at once. Only pastes big enough to measure
    *  ever report. */
-  onPasteProgress: (cb: (m: { jobId: string; pct: number }) => void): (() => void) => {
-    const listener = (_e: unknown, m: { jobId: string; pct: number }): void => cb(m)
-    ipcRenderer.on('paste:progress', listener)
-    return () => ipcRenderer.removeListener('paste:progress', listener)
-  },
+  onPasteProgress: subscribe<PasteProgress>(PUSH.pasteProgress),
   /** Whether a Paste row is worth drawing at all. */
-  clipboardHasFiles: (): Promise<boolean> => ipcRenderer.invoke('clipboard:has-files'),
+  clipboardHasFiles: (): Promise<boolean> => ipcRenderer.invoke(CALL.clipboardHasFiles),
   /** Size, dates and folder-ness for the Properties window. Created and
    *  Opened are optional: the phone's stat does not carry them. */
-  statFile: (
-    path: string
-  ): Promise<{
-    size: number
-    mtimeMs: number
-    birthtimeMs?: number
-    atimeMs?: number
-    isFolder: boolean
-  } | null> => ipcRenderer.invoke('file:stat', path),
+  statFile: (path: string): Promise<FileStat | null> => ipcRenderer.invoke(CALL.fileStat, path),
   /** The Properties window's facts beyond the stat (owner, 2026-10-12). A
    *  film's or a song's picture, tracks and tags; null without ffprobe. */
-  propsMedia: (path: string): Promise<MediaProps | null> => ipcRenderer.invoke('props:media', path),
+  propsMedia: (path: string): Promise<MediaProps | null> => ipcRenderer.invoke(CALL.propsMedia, path),
   /** One JPEG of the file as a `data:` URL: a frame 10% into a film, or a
    *  song's own cover. null when it has neither. */
-  propsPicture: (path: string): Promise<string | null> => ipcRenderer.invoke('props:picture', path),
+  propsPicture: (path: string): Promise<string | null> => ipcRenderer.invoke(CALL.propsPicture, path),
   /** A text file's encoding, BOM and line endings, from its first 64 KB. */
-  propsText: (path: string): Promise<TextProps | null> => ipcRenderer.invoke('props:text', path),
+  propsText: (path: string): Promise<TextProps | null> => ipcRenderer.invoke(CALL.propsText, path),
   /** A drive root's (`C:\`) model, connection, space and top-level folders. */
-  driveDetails: (root: string): Promise<DriveDetails | null> => ipcRenderer.invoke('drive:details', root),
+  driveDetails: (root: string): Promise<DriveDetails | null> => ipcRenderer.invoke(CALL.driveDetails, root),
   /** Windows' own Disk Cleanup for that drive. */
-  driveCleanup: (root: string): Promise<boolean> => ipcRenderer.invoke('drive:cleanup', root),
+  driveCleanup: (root: string): Promise<boolean> => ipcRenderer.invoke(CALL.driveCleanup, root),
   /** A file's SHA-256, streamed in main. `done` is the hex, or null when it
    *  could not be read or was stopped; `cancel` stops it. */
   hashFile: (
@@ -301,92 +298,79 @@ const api = {
     onProgress: (done: number, total: number) => void
   ): { done: Promise<string | null>; cancel: () => void } => {
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-    const listener = (_e: unknown, m: { id: string; done: number; total: number }): void => {
+    const listener = (_e: unknown, m: HashProgress): void => {
       if (m.id === id) onProgress(m.done, m.total)
     }
-    ipcRenderer.on('file:hash-progress', listener)
-    const done = (ipcRenderer.invoke('file:hash', path, id) as Promise<string | null>)
+    ipcRenderer.on(PUSH.fileHashProgress, listener)
+    const done = (ipcRenderer.invoke(CALL.fileHash, path, id) as Promise<string | null>)
       .catch(() => null)
-      .finally(() => ipcRenderer.removeListener('file:hash-progress', listener))
-    return { done, cancel: () => ipcRenderer.send('file:hash-cancel', id) }
+      .finally(() => ipcRenderer.removeListener(PUSH.fileHashProgress, listener))
+    return { done, cancel: () => ipcRenderer.send(CALL.fileHashCancel, id) }
   },
   folderSize: (path: string, requestId: string): Promise<FolderSizeResult | null> =>
-    ipcRenderer.invoke('folder:size', path, requestId),
+    ipcRenderer.invoke(CALL.folderSize, path, requestId),
   folderSizesCached: (paths: string[]): Promise<Record<string, FolderSizeResult>> =>
-    ipcRenderer.invoke('folder:sizes-cached', paths),
+    ipcRenderer.invoke(CALL.folderSizesCached, paths),
   refreshFolderSizes: (path: string): Promise<void> =>
-    ipcRenderer.invoke('folder:sizes-refresh', path),
-  onFolderSizeProgress: (
-    cb: (progress: { requestId: string; result: FolderSizeResult }) => void
-  ): (() => void) => {
-    const listener = (
-      _: unknown,
-      progress: { requestId: string; result: FolderSizeResult }
-    ): void => cb(progress)
-    ipcRenderer.on('folder:size-progress', listener)
-    return () => ipcRenderer.removeListener('folder:size-progress', listener)
-  },
-  cancelFolderSize: (requestId: string): void => ipcRenderer.send('folder:size-cancel', requestId),
+    ipcRenderer.invoke(CALL.folderSizesRefresh, path),
+  onFolderSizeProgress: subscribe<FolderSizeProgress>(PUSH.folderSizeProgress),
+  cancelFolderSize: (requestId: string): void => ipcRenderer.send(CALL.folderSizeCancel, requestId),
   /** Sidecar subtitle tracks for a video (same name beside it, or in Subs/). */
-  subsFor: (path: string): Promise<Array<{ path: string; label: string }>> =>
-    ipcRenderer.invoke('subs:for', path),
+  subsFor: (path: string): Promise<SubtitleTrack[]> =>
+    ipcRenderer.invoke(CALL.subsFor, path),
   /** Choose a subtitle file by hand, for the tracks name-matching cannot find.
    *  null when the dialog was cancelled. */
-  pickSubtitle: (near?: string): Promise<{ path: string; label: string } | null> =>
-    ipcRenderer.invoke('subs:pick', near),
+  pickSubtitle: (near?: string): Promise<SubtitleTrack | null> =>
+    ipcRenderer.invoke(CALL.subsPick, near),
   /** One track's text as WebVTT (SRT converted), for a <track> blob. */
-  readSubs: (path: string): Promise<string | null> => ipcRenderer.invoke('subs:read', path),
+  readSubs: (path: string): Promise<string | null> => ipcRenderer.invoke(CALL.subsRead, path),
 
   /** The waveform transport's amplitude envelope, computed by ffmpeg in main
    *  and streamed there: the renderer never holds the file. null when the
    *  file has no audio, or no ffmpeg was found. */
-  mediaPeaks: (path: string): Promise<number[] | null> => ipcRenderer.invoke('media:peaks', path),
+  mediaPeaks: (path: string): Promise<number[] | null> => ipcRenderer.invoke(CALL.mediaPeaks, path),
   /** Does this file's audio need Prism's own decoder (AC-3, DTS, TrueHD and
    *  friends, none of which Chromium can play), and where is it served. */
-  probeMedia: (path: string): Promise<MediaProbe> => ipcRenderer.invoke('media:probe', path),
+  probeMedia: (path: string): Promise<MediaProbe> => ipcRenderer.invoke(CALL.mediaProbe, path),
   /** Are Prism's entries ("Open file", "Open as project") in File Explorer's
    *  context menu right now? */
-  shellVerbStatus: (): Promise<boolean> => ipcRenderer.invoke('shell:verb-status'),
+  shellVerbStatus: (): Promise<boolean> => ipcRenderer.invoke(CALL.shellVerbStatus),
   /** Add or remove it. Per-user, no elevation; false means Windows refused. */
-  setShellVerb: (on: boolean): Promise<boolean> => ipcRenderer.invoke('shell:verb-set', on),
+  setShellVerb: (on: boolean): Promise<boolean> => ipcRenderer.invoke(CALL.shellVerbSet, on),
   /** Synthesise a MIDI score and get back a url that plays. Slow the first
    *  time (a soundfont has to load), instant afterwards. */
-  synthMidi: (path: string): Promise<string | null> => ipcRenderer.invoke('audio:synth', path),
+  synthMidi: (path: string): Promise<string | null> => ipcRenderer.invoke(CALL.audioSynth, path),
   /** An office or ebook document as sanitised HTML, ready to render.
    *  null when the file is not one, or could not be read. */
-  docHtml: (path: string): Promise<string | null> => ipcRenderer.invoke('doc:html', path),
+  docHtml: (path: string): Promise<string | null> => ipcRenderer.invoke(CALL.docHtml, path),
   /** Convert a video Chromium cannot show, and get back a url that plays.
    *  Resolves when the copy is ready; progress arrives on onConvertProgress. */
-  convertVideo: (path: string): Promise<{ url?: string; error?: string }> =>
-    ipcRenderer.invoke('video:convert', path),
+  convertVideo: (path: string): Promise<ConvertResult> =>
+    ipcRenderer.invoke(CALL.videoConvert, path),
   /** Stop converting a file nobody is looking at any more. */
-  cancelConvert: (path: string): void => ipcRenderer.send('video:cancel', path),
-  onConvertProgress: (fn: (m: { path: string; pct: number }) => void): (() => void) => {
-    const h = (_e: unknown, m: { path: string; pct: number }): void => fn(m)
-    ipcRenderer.on('video:progress', h)
-    return () => ipcRenderer.removeListener('video:progress', h)
-  },
+  cancelConvert: (path: string): void => ipcRenderer.send(CALL.videoCancel, path),
+  onConvertProgress: subscribe<ConvertProgress>(PUSH.videoProgress),
   /** The same stream without a probe: for when the player itself noticed the
    *  audio never decoded, and can name the duration off the element. */
   audioBlind: (path: string, duration: number): Promise<string | null> =>
-    ipcRenderer.invoke('audio:blind', path, duration),
+    ipcRenderer.invoke(CALL.audioBlind, path, duration),
 
   /* ----- context-menu verbs ----- */
 
   /** Reveal (and select) the file or folder in File Explorer. */
-  showInExplorer: (path: string): void => ipcRenderer.send('file:show-in-explorer', path),
+  showInExplorer: (path: string): void => ipcRenderer.send(CALL.fileShowInExplorer, path),
   /** Hand the file to whatever Windows has as its default app. */
-  openInDefault: (path: string): void => ipcRenderer.send('file:open-default', path),
+  openInDefault: (path: string): void => ipcRenderer.send(CALL.fileOpenDefault, path),
   /** The Windows "how do you want to open this?" chooser. */
-  openWithChooser: (path: string): void => ipcRenderer.send('file:open-chooser', path),
+  openWithChooser: (path: string): void => ipcRenderer.send(CALL.fileOpenChooser, path),
   /** Apps Windows registers for this file's extension, MRU first, with icons. */
-  appsFor: (path: string): Promise<OpenWithApp[]> => ipcRenderer.invoke('apps:for', path),
+  appsFor: (path: string): Promise<OpenWithApp[]> => ipcRenderer.invoke(CALL.appsFor, path),
   /** Launch one of the apps `appsFor` listed (by its id). */
   openWith: (path: string, appId: string): Promise<boolean> =>
-    ipcRenderer.invoke('file:open-with', path, appId),
+    ipcRenderer.invoke(CALL.fileOpenWith, path, appId),
   /** Put the real file on the clipboard, so Ctrl+V in Explorer pastes it. */
   copyFileToClipboard: (path: string): Promise<boolean> =>
-    ipcRenderer.invoke('file:copy-clip', path),
+    ipcRenderer.invoke(CALL.fileCopyClip, path),
   /**
    * The PICTURE on the clipboard, not the file (2026-08-30).
    *
@@ -413,63 +397,45 @@ const api = {
     bytes: ArrayBuffer,
     suggested: string,
     format: 'png' | 'jpeg'
-  ): Promise<string | null> => ipcRenderer.invoke('image:save-copy', bytes, suggested, format),
+  ): Promise<string | null> => ipcRenderer.invoke(CALL.imageSaveCopy, bytes, suggested, format),
   /** A multi-selection's copy: every file lands on the clipboard together. */
   copyFilesToClipboard: (paths: string[], cut = false): Promise<boolean> =>
-    ipcRenderer.invoke('file:copy-clip', paths, cut),
+    ipcRenderer.invoke(CALL.fileCopyClip, paths, cut),
   /** The address bar's "Copy address": the folder, with its path as text. */
-  copyAddress: (path: string): Promise<boolean> => ipcRenderer.invoke('file:copy-address', path),
+  copyAddress: (path: string): Promise<boolean> => ipcRenderer.invoke(CALL.fileCopyAddress, path),
   /** Copy the file next to itself as "name (2).ext"; resolves with the new path. */
   duplicateFile: (path: string): Promise<string | null> =>
-    ipcRenderer.invoke('file:duplicate', path),
+    ipcRenderer.invoke(CALL.fileDuplicate, path),
   /** Ctrl+Shift+N (#330): "New folder" (or "(2)" and on) in `dir`; the path
    *  made, or null. `name` is a redo's: the undone folder's own name. */
   newFolder: (dir: string, name?: string): Promise<string | null> =>
-    ipcRenderer.invoke('file:newFolder', dir, name),
+    ipcRenderer.invoke(CALL.fileNewFolder, dir, name),
   /** Undoing a new folder: the Recycle Bin, only while it is still empty. */
-  binIfEmpty: (path: string): Promise<'binned' | 'not-empty' | 'missing' | 'failed'> =>
-    ipcRenderer.invoke('file:binIfEmpty', path),
+  binIfEmpty: (path: string): Promise<BinIfEmptyResult> =>
+    ipcRenderer.invoke(CALL.fileBinIfEmpty, path),
 
   /* ----- drag and drop (#70) ----- */
 
   /** Undo a delete: ask Windows for these paths back out of the Recycle Bin. */
-  restoreFromBin: (paths: string[]): Promise<boolean> => ipcRenderer.invoke('file:restore', paths),
+  restoreFromBin: (paths: string[]): Promise<boolean> => ipcRenderer.invoke(CALL.fileRestore, paths),
   /** Move files and folders into another folder. 'ask' reports clashes and
    *  moves nothing, so the user answers before anything happens. */
-  moveEntries: (
-    paths: string[],
-    destDir: string,
-    onClash: 'ask' | 'keep-both' | 'replace'
-  ): Promise<{
-    moved: Array<{ from: string; to: string }>
-    clashes: Array<{ path: string; name: string }>
-    failed: string[]
-    /** The ones among `failed` that something holds open (#127): Prism lets
-     *  go of its own hold and tries these again. */
-    busy: string[]
-    /** What 'replace' binned, so undo can bring it back. */
-    replaced: string[]
-    /** True when the ROOT WALL refused, which is a different message. */
-    refused?: boolean
-  }> => ipcRenderer.invoke('file:move', paths, destDir, onClash),
+  moveEntries: (paths: string[], destDir: string, onClash: MoveOnClash): Promise<MoveResult> =>
+    ipcRenderer.invoke(CALL.fileMove, paths, destDir, onClash),
   /** Put real files and folders INTO a zip, under a folder ('' is the root). */
   archiveAdd: (
     zip: string,
     srcPaths: string[],
     destFolder: string,
     keepBoth?: boolean
-  ): Promise<
-    | { added: Array<{ src: string; entry: string }>; clashes: string[]; failed: string[] }
-    | 'encrypted'
-    | 'failed'
-  > => ipcRenderer.invoke('archive:add', zip, srcPaths, destFolder, keepBoth),
+  ): Promise<ArchiveAddResult> => ipcRenderer.invoke(CALL.archiveAdd, zip, srcPaths, destFolder, keepBoth),
   /** Move members to another folder inside the same zip. */
   archiveMoveMembers: (
     zip: string,
     entries: string[],
     destFolder: string
-  ): Promise<'ok' | 'encrypted' | 'failed'> =>
-    ipcRenderer.invoke('archive:move-members', zip, entries, destFolder),
+  ): Promise<ArchiveMoveResult> =>
+    ipcRenderer.invoke(CALL.archiveMoveMembers, zip, entries, destFolder),
   /** Extract members OUT to a real folder, keeping the shape under a folder.
    *  The extraction window (#166) is main's to open; `asksPassword` says this
    *  caller will ask for a password and try again, so a `password` ending
@@ -481,14 +447,8 @@ const api = {
     destDir: string,
     password?: string,
     asksPassword = false
-  ): Promise<
-    | { ok: true; written: number }
-    | {
-        ok: false
-        reason: 'password' | 'aes' | 'failed' | 'cancelled' | 'busy'
-        message?: string
-      }
-  > => ipcRenderer.invoke('archive:extract-to', zip, entries, destDir, password, asksPassword),
+  ): Promise<ExtractToResult> =>
+    ipcRenderer.invoke(CALL.archiveExtractTo, zip, entries, destDir, password, asksPassword),
 
   /** Members out to a folder the user picks in main's dialog (the consent
    *  that lets it write outside every root). 'cancelled' is the dialog. */
@@ -496,38 +456,24 @@ const api = {
     zip: string,
     entries: string[],
     password?: string
-  ): Promise<
-    | { ok: true; dest: string; written: number }
-    | {
-        ok: false
-        reason: 'cancelled' | 'password' | 'aes' | 'failed' | 'busy'
-        message?: string
-      }
-  > => ipcRenderer.invoke('archive:extract-members-picked', zip, entries, password),
+  ): Promise<ExtractPickedResult> =>
+    ipcRenderer.invoke(CALL.archiveExtractMembersPicked, zip, entries, password),
 
   /** The system's own icon for this file's type (the user's association),
    *  as a data URL; null when Windows has none to give. */
-  iconForExt: (path: string): Promise<string | null> => ipcRenderer.invoke('icon:for-ext', path),
+  iconForExt: (path: string): Promise<string | null> => ipcRenderer.invoke(CALL.iconForExt, path),
 
   /* ----- archives (zip): list, view, rename, delete members ----- */
 
   /** What an archive holds, for the Properties dialog. */
-  archiveStat: (
-    path: string
-  ): Promise<{
-    files: number
-    folders: number
-    uncompressed: number
-    encryption: 'none' | 'zipcrypto' | 'aes'
-    /** 7z, rar, tar and the rest: listed and extracted, never written. */
-    readOnly?: boolean
-  } | null> => ipcRenderer.invoke('archive:stat', path),
+  archiveStat: (path: string): Promise<ArchiveStat | null> =>
+    ipcRenderer.invoke(CALL.archiveStat, path),
   /** Every entry in the archive (folders derived when the zip omits them).
    *  Answers with a REASON rather than null (2026-08-30): a 7z or rar written
    *  with encrypted file names cannot be listed without the password, and a
    *  bare null read as "corrupt archive" with nowhere to type one. */
   archiveList: (path: string, password?: string): Promise<ArchiveListing> =>
-    ipcRenderer.invoke('archive:list', path, password),
+    ipcRenderer.invoke(CALL.archiveList, path, password),
   /** Extract the whole archive into a folder named after it. `here` skips the
    *  dialog and lands beside the archive; otherwise main asks where. An
    *  archive whose whole content is one folder hands that folder up rather
@@ -535,14 +481,7 @@ const api = {
   archiveExtractAll: (
     path: string,
     here = false
-  ): Promise<
-    | { ok: true; dest: string }
-    | {
-        ok: false
-        reason: 'cancelled' | 'password' | 'aes' | 'failed' | 'busy'
-        message?: string
-      }
-  > => ipcRenderer.invoke('archive:extract-all', path, here),
+  ): Promise<ExtractAllResult> => ipcRenderer.invoke(CALL.archiveExtractAll, path, here),
   /** A FOLDER inside the archive, extracted whole to a temp copy, shape
    *  intact - so copying a folder gives you the folder and not a flat pile
    *  of the files that were in it. */
@@ -550,68 +489,52 @@ const api = {
     path: string,
     entry: string,
     here = false
-  ): Promise<
-    | { ok: true; path: string }
-    | {
-        ok: false
-        reason: 'password' | 'aes' | 'failed' | 'cancelled' | 'busy'
-        message?: string
-      }
-  > => ipcRenderer.invoke('archive:extract-dir', path, entry, here),
+  ): Promise<ExtractDirResult> => ipcRenderer.invoke(CALL.archiveExtractDir, path, entry, here),
   /** Extract one member to temp for viewing. 'password' means one is needed
    *  or the given one is wrong; 'aes' encryption cannot be opened at all. */
   archiveExtract: (
     path: string,
     entry: string,
     password?: string
-  ): Promise<
-    | { ok: true; path: string; kind: FileKind }
-    | { ok: false; reason: 'password' | 'aes' | 'failed' }
-  > => ipcRenderer.invoke('archive:extract', path, entry, password),
+  ): Promise<MemberExtractResult> => ipcRenderer.invoke(CALL.archiveExtract, path, entry, password),
   /** Rename one member in place (same folder). A taken name refuses. */
   archiveRename: (
     path: string,
     entry: string,
     name: string,
     password?: string
-  ): Promise<'ok' | 'password' | 'aes' | 'failed'> =>
-    ipcRenderer.invoke('archive:rename', path, entry, name, password),
+  ): Promise<ArchiveRenameResult> =>
+    ipcRenderer.invoke(CALL.archiveRename, path, entry, name, password),
   /** A member of a place inside an archive, unpacked for a viewer (#300).
    *  `force` is an explicit Open, past the automatic-preview limit. */
   archiveMember: (path: string, password?: string, force?: boolean): Promise<MemberAnswer> =>
-    ipcRenderer.invoke('archive:member', path, password, force),
+    ipcRenderer.invoke(CALL.archiveMember, path, password, force),
   /** The archive card: totals and the top of the tree (#300). */
   archiveSummary: (path: string): Promise<ArchiveSummary> =>
-    ipcRenderer.invoke('archive:summary', path),
+    ipcRenderer.invoke(CALL.archiveSummary, path),
   /** A member out beside its archive, the read-only note's Extract here
    *  (#300): the extracted copy's path, to open where editing can start. */
   archiveMemberOut: (path: string): Promise<{ ok: boolean; path?: string | null }> =>
-    ipcRenderer.invoke('archive:member-out', path),
+    ipcRenderer.invoke(CALL.archiveMemberOut, path),
   /** A password typed for a container a listing asked about (#300). */
   archiveRememberPassword: (container: string, password: string): Promise<boolean> =>
-    ipcRenderer.invoke('archive:remember-password', container, password),
+    ipcRenderer.invoke(CALL.archiveRememberPassword, container, password),
   /** Remove one member. Permanent - no recycle bin inside a zip. */
   archiveDelete: (path: string, entry: string): Promise<boolean> =>
-    ipcRenderer.invoke('archive:delete', path, entry),
+    ipcRenderer.invoke(CALL.archiveDelete, path, entry),
   /** Absolute path of a dropped File (Electron removed File.path). */
   getDroppedPath: (file: File): string => webUtils.getPathForFile(file),
 
   /** Minimised / focused, from main: the page cannot see either for itself. */
-  onWindowState: (cb: (s: { minimised: boolean; focused: boolean }) => void): (() => void) => {
-    const listener = (_: unknown, s: { minimised: boolean; focused: boolean }): void => cb(s)
-    ipcRenderer.on('window:state', listener)
-    return () => ipcRenderer.removeListener('window:state', listener)
-  },
+  onWindowState: subscribe<WindowState>(PUSH.windowState),
   /** Fired when main opens a file (launch arg, drag, or a forwarded second instance). */
   onOpenFile: (cb: (p: OpenPayload) => void, onRestored?: () => void): (() => void) => {
-    const listener = (_: unknown, p: OpenPayload): void => cb(p)
-    const restored = (): void => onRestored?.()
-    ipcRenderer.on('open:file', listener)
-    ipcRenderer.on('open:restored', restored)
-    ipcRenderer.send('open:listen')
+    const offFile = subscribe<OpenPayload>(PUSH.openFile)(cb)
+    const offRestored = subscribe(PUSH.openRestored)(() => onRestored?.())
+    ipcRenderer.send(CALL.openListen)
     return () => {
-      ipcRenderer.removeListener('open:file', listener)
-      ipcRenderer.removeListener('open:restored', restored)
+      offFile()
+      offRestored()
     }
   },
   /**
@@ -621,11 +544,7 @@ const api = {
    * actually changed. Coalesced and filtered in main; Prism's own writes are
    * muted, since the renderer refreshes after those itself.
    */
-  onDirChanged: (cb: (m: DirChange) => void): (() => void) => {
-    const listener = (_: unknown, m: DirChange): void => cb(m)
-    ipcRenderer.on('dir:changed', listener)
-    return () => ipcRenderer.removeListener('dir:changed', listener)
-  },
+  onDirChanged: subscribe<DirChange>(PUSH.dirChanged),
   /**
    * THE EXTRACTION WINDOW'S ONE CHANNEL (2026-09-19, #166): an extraction
    * started, how far it has got, how it ended. Every route that writes
@@ -634,21 +553,13 @@ const api = {
    * `onArchiveProgress`, which only the 7-Zip path of two of the five routes
    * ever fed.
    */
-  onExtractEvent: (cb: (e: ExtractEvent) => void): (() => void) => {
-    const listener = (_: unknown, e: ExtractEvent): void => cb(e)
-    ipcRenderer.on('extract:event', listener)
-    return () => ipcRenderer.removeListener('extract:event', listener)
-  },
+  onExtractEvent: subscribe<ExtractEvent>(PUSH.extractEvent),
   /** The window's Cancel. Resolves once main has stopped the work, waited
    *  for the process to be gone and removed what was half written; false
    *  when the job had already finished. */
-  extractCancel: (id: string): Promise<boolean> => ipcRenderer.invoke('extract:cancel', id),
+  extractCancel: (id: string): Promise<boolean> => ipcRenderer.invoke(CALL.extractCancel, id),
   /** A followed file grew (or was truncated, which is `reset`). */
-  onFileAppended: (cb: (e: TailEvent) => void): (() => void) => {
-    const listener = (_: unknown, e: TailEvent): void => cb(e)
-    ipcRenderer.on('file:appended', listener)
-    return () => ipcRenderer.removeListener('file:appended', listener)
-  },
+  onFileAppended: subscribe<TailEvent>(PUSH.fileAppended),
 
   /**
    * Open a comic book: unpack it once (cached) and answer its pages in
@@ -658,8 +569,8 @@ const api = {
   comicOpen: (
     path: string,
     password?: string
-  ): Promise<{ pages: string[] } | { error: 'password' | 'failed' | 'empty' }> =>
-    ipcRenderer.invoke('comic:open', path, password),
+  ): Promise<ComicOpenResult> =>
+    ipcRenderer.invoke(CALL.comicOpen, path, password),
 
   /* ----- the terminal ----- */
 
@@ -676,24 +587,20 @@ const api = {
   ...createDiagApi(ipcRenderer),
 
   // frameless window controls
-  minimize: (): void => ipcRenderer.send('window:minimize'),
-  toggleMaximize: (): void => ipcRenderer.send('window:toggle-maximize'),
+  minimize: (): void => ipcRenderer.send(CALL.windowMinimize),
+  toggleMaximize: (): void => ipcRenderer.send(CALL.windowToggleMaximize),
   /** `force` means the unsaved-changes question has already been answered. */
-  close: (force = false): void => ipcRenderer.send('window:close', force),
+  close: (force = false): void => ipcRenderer.send(CALL.windowClose, force),
   /** Keep main in step with the editor, so closing can ask before it discards. */
-  setDirty: (dirty: boolean): void => ipcRenderer.send('editor:dirty', dirty),
+  setDirty: (dirty: boolean): void => ipcRenderer.send(CALL.editorDirty, dirty),
   /** An agent is mid-answer in some shell: main holds the window's close
    *  until the renderer has asked, as it does for unsaved text. */
-  setAgentBusy: (busy: boolean): void => ipcRenderer.send('window:agent-busy', busy),
+  setAgentBusy: (busy: boolean): void => ipcRenderer.send(CALL.windowAgentBusy, busy),
   /** Something is playing: hold the screen awake until told otherwise. */
-  setAwake: (on: boolean): void => ipcRenderer.send('power:awake', on),
+  setAwake: (on: boolean): void => ipcRenderer.send(CALL.powerAwake, on),
   /** Main blocked a close (unsaved text, or a working agent): ask. */
-  onAskClose: (cb: () => void): (() => void) => {
-    const listener = (): void => cb()
-    ipcRenderer.on('app:ask-close', listener)
-    return () => ipcRenderer.removeListener('app:ask-close', listener)
-  },
-  setFullscreen: (on: boolean): void => ipcRenderer.send('window:set-fullscreen', on),
+  onAskClose: subscribe(PUSH.appAskClose),
+  setFullscreen: (on: boolean): void => ipcRenderer.send(CALL.windowSetFullscreen, on),
   /* ----- the update check ----- */
   // These three are the core's UpdateBridge (prism-term-core's useUpdateFlow),
   // spelled the same in Prism Terminal's preload: the chip and its window are
@@ -701,54 +608,41 @@ const api = {
   /** A newer release exists, with its notes (mock: true for a preview:
    *  `--preview-update`, or any unpackaged build outside the e2e). */
   onUpdate: (cb: (info: UpdateInfo) => void): (() => void) => {
-    const listener = (_: unknown, info: UpdateInfo): void => cb(info)
-    ipcRenderer.on('update:available', listener)
+    const off = subscribe<UpdateInfo>(PUSH.updateAvailable)(cb)
     // Ask main to replay an offer that arrived before this renderer loaded.
-    ipcRenderer.send('update:announce')
-    return () => ipcRenderer.removeListener('update:available', listener)
+    ipcRenderer.send(CALL.updateAnnounce)
+    return off
   },
   /** Download percentage while an update installs. */
-  onUpdateProgress: (cb: (pct: number) => void): (() => void) => {
-    const listener = (_: unknown, pct: number): void => cb(pct)
-    ipcRenderer.on('update:progress', listener)
-    return () => ipcRenderer.removeListener('update:progress', listener)
-  },
+  onUpdateProgress: subscribe<number>(PUSH.updateProgress),
   /** Download the named installer and hand off to it; the app quits under it.
    *  False when nothing was installed, which is always the case for a preview. */
-  installUpdate: (url: string): Promise<boolean> => ipcRenderer.invoke('update:install', url),
+  installUpdate: (url: string): Promise<boolean> => ipcRenderer.invoke(CALL.updateInstall, url),
   /** Stop the download `installUpdate` is running; it then resolves false. */
-  cancelUpdate: (): void => ipcRenderer.send('update:cancel'),
+  cancelUpdate: (): void => ipcRenderer.send(CALL.updateCancel),
   /** The running app's version (package.json's), for the update window's
    *  "You have" line. */
-  appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  appVersion: (): Promise<string> => ipcRenderer.invoke(CALL.appVersion),
   /** E2E only (#322): main registers the channel under --e2e alone, so
    *  anywhere else this rejects. */
-  e2eSlowIpc: (): Promise<boolean> => ipcRenderer.invoke('e2e:slow-ipc'),
+  e2eSlowIpc: (): Promise<boolean> => ipcRenderer.invoke(CALL.e2eSlowIpc),
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
-  openDefaultApps: (): void => ipcRenderer.send('app:default-apps'),
-  windowPreferencesLoad: (): WindowPreferencesSnapshot | null => {
-    try { return ipcRenderer.sendSync('window-preferences:load') } catch { return null }
-  },
-  windowPreferencesSeed: (values: Record<string, string>): WindowPreferencesSnapshot | null => {
-    try { return ipcRenderer.sendSync('window-preferences:seed', values) } catch { return null }
-  },
-  windowPreferencesSet: (change: WindowPreferenceChange): boolean => {
-    try { return ipcRenderer.sendSync('window-preferences:set', change) === true } catch { return false }
-  },
-  onWindowPreferencesChanged: (cb: (snapshot: WindowPreferencesSnapshot) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, snapshot: WindowPreferencesSnapshot): void => cb(snapshot)
-    ipcRenderer.on('window-preferences:changed', listener)
-    return () => ipcRenderer.removeListener('window-preferences:changed', listener)
-  },
-  winEShortcutStatus: (): Promise<WinEShortcutStatus> => ipcRenderer.invoke('win-e:status'),
-  setWinEShortcut: (enabled: boolean): Promise<WinEShortcutStatus> => ipcRenderer.invoke('win-e:set', enabled),
+  openDefaultApps: (): void => ipcRenderer.send(CALL.appDefaultApps),
+  windowPreferencesLoad: (): WindowPreferencesSnapshot | null =>
+    syncOr<WindowPreferencesSnapshot | null>(CALL.windowPreferencesLoad, null),
+  windowPreferencesSeed: (values: Record<string, string>): WindowPreferencesSnapshot | null =>
+    syncOr<WindowPreferencesSnapshot | null>(CALL.windowPreferencesSeed, null, values),
+  windowPreferencesSet: (change: WindowPreferenceChange): boolean =>
+    syncOr<unknown>(CALL.windowPreferencesSet, false, change) === true,
+  onWindowPreferencesChanged: subscribe<WindowPreferencesSnapshot>(PUSH.windowPreferencesChanged),
+  winEShortcutStatus: (): Promise<WinEShortcutStatus> => ipcRenderer.invoke(CALL.winEStatus),
+  setWinEShortcut: (enabled: boolean): Promise<WinEShortcutStatus> => ipcRenderer.invoke(CALL.winESet, enabled),
   onWinEOpen: (cb: (requestId: string) => void): (() => void) => {
-    const listener = (_: unknown, id: string): void => cb(id)
-    ipcRenderer.on('win-e:open', listener)
-    ipcRenderer.send('win-e:listen')
-    return () => ipcRenderer.removeListener('win-e:open', listener)
+    const off = subscribe<string>(PUSH.winEOpen)(cb)
+    ipcRenderer.send(CALL.winEListen)
+    return off
   },
-  winEReady: (requestId: string): void => ipcRenderer.send('win-e:ready', requestId),
+  winEReady: (requestId: string): void => ipcRenderer.send(CALL.winEReady, requestId),
   /** True when setup asked for the first-run guide, whatever this machine has
    *  already seen. */
   forceSetup: process.argv.includes('--prism-setup'),
@@ -759,20 +653,16 @@ const api = {
   /** Ask Windows for a translucent window material ('acrylic', 'mica', 'none'),
    *  in the given mode: DWM tints its own blur, so it has to be told. */
   setWindowMaterial: (material: string, mode: string): void =>
-    ipcRenderer.send('window:material', material, mode),
+    ipcRenderer.send(CALL.windowMaterial, material, mode),
   /** A fullscreen transition is starting or has finished. While one is in
    *  flight the window is held OPAQUE: a translucent window has nothing behind
    *  it, so the frame where it has resized but not repainted shows the desktop. */
-  setFsTransition: (active: boolean): void => ipcRenderer.send('window:fs-transition', active),
+  setFsTransition: (active: boolean): void => ipcRenderer.send(CALL.windowFsTransition, active),
   /** Raise or fade out the display-covering black shroud. The in-window veil
    *  cannot touch the taskbar or the desktop around the window; the shroud
    *  fades them on the same clock. */
-  setFsShroud: (up: boolean): void => ipcRenderer.send('window:fs-shroud', up),
-  onFullscreen: (cb: (on: boolean) => void): (() => void) => {
-    const listener = (_: unknown, on: boolean): void => cb(on)
-    ipcRenderer.on('window:fullscreen', listener)
-    return () => ipcRenderer.removeListener('window:fullscreen', listener)
-  },
+  setFsShroud: (up: boolean): void => ipcRenderer.send(CALL.windowFsShroud, up),
+  onFullscreen: subscribe<boolean>(PUSH.windowFullscreen),
   /** THE NATIVE SWEEP BOX (#338): the page hands main the box's anchor, clip
    *  and colours at a sweep's start and when the list moves under it (never
    *  per pointer move), and hears whether the box is drawn natively. */
@@ -780,11 +670,7 @@ const api = {
     begin: (m: SweepBegin): void => ipcRenderer.send(SWEEP_CHANNELS.begin, m),
     update: (m: SweepUpdate): void => ipcRenderer.send(SWEEP_CHANNELS.update, m),
     end: (m: SweepEnd): void => ipcRenderer.send(SWEEP_CHANNELS.end, m),
-    onState: (cb: (s: SweepState) => void): (() => void) => {
-      const listener = (_: unknown, s: SweepState): void => cb(s)
-      ipcRenderer.on(SWEEP_CHANNELS.state, listener)
-      return () => ipcRenderer.removeListener(SWEEP_CHANNELS.state, listener)
-    }
+    onState: subscribe<SweepState>(SWEEP_CHANNELS.state)
   }
 }
 

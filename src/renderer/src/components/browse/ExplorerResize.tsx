@@ -1,5 +1,5 @@
 import { useRef, useState, type JSX } from 'react'
-import type { ExplorerSection, ExplorerWidthBounds } from '../../lib/useExplorerWidths'
+import type { ExplorerSection, ExplorerWidthBounds } from '../../hooks/useExplorerWidths'
 
 export function ExplorerResize({
   section,

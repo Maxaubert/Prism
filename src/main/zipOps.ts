@@ -2,6 +2,7 @@ import AdmZip from 'adm-zip'
 import { mkdtemp, readFile, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, join, relative, resolve } from 'path'
+import type { ArchiveMoveResult } from '@shared/ipcTypes'
 import {
   AES_METHOD,
   failOf,
@@ -265,7 +266,7 @@ export function moveMembers(
   zipPath: string,
   entryPaths: readonly string[],
   destFolder: string
-): 'ok' | 'encrypted' | 'failed' {
+): ArchiveMoveResult {
   try {
     // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
     const zip = new AdmZip(zipPath)
@@ -310,7 +311,7 @@ export function moveMembers(
 
 /** Every job the worker runs, by name. main posts the name and the arguments;
  *  the types travel to the client (zipClient.ts) as `import type` only, so
- *  adm-zip is never loaded on main. */
+ *  none of these whole-archive jobs is loaded on main. */
 export const ZIP_OPS = {
   listArchive,
   extractMember,

@@ -1,25 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MenuItem } from '../../components/ContextMenu'
 import { codeMenu, type CodeMenuContext } from './code'
+import { aliasWindow, clearHost, fakeClipboard, setHost } from '../../testing/host'
 
-// The unit tests run under node, where `window` does not exist; in a browser
-// it IS globalThis, which is what the phone shim leans on too.
-if (typeof window === 'undefined')
-  Object.defineProperty(globalThis, 'window', { value: globalThis })
+aliasWindow()
 
 beforeEach(() => {
-  ;(globalThis as unknown as { prism: unknown }).prism = {
+  setHost({
     capabilities: { write: true, clipboard: true, explorer: true, drag: true },
     showInExplorer: vi.fn()
-  }
-  Object.defineProperty(globalThis, 'navigator', {
-    value: { clipboard: { writeText: vi.fn(() => Promise.resolve()) } },
-    configurable: true
   })
+  fakeClipboard()
 })
-afterEach(() => {
-  delete (globalThis as unknown as { prism?: unknown }).prism
-})
+afterEach(clearHost)
 
 const ctx = (over: Partial<CodeMenuContext> = {}): CodeMenuContext => ({
   path: 'C:\\src\\a.ts',

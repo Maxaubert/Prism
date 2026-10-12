@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'child_process'
 import { stat } from 'fs/promises'
 import type { MediaProps } from '@shared/props'
+import { createLru } from './lru'
 
 /**
  * WHAT A FILM OR A SONG HOLDS, for the Properties window (owner, 2026-10-12;
@@ -316,7 +317,7 @@ const PICTURE_MAX = 8 << 20
 // The window asks for the facts and the picture of the same file at once:
 // one probe answers both, keyed by the file's size and time so an edited
 // file is asked again.
-const probes = new Map<string, Promise<string | null>>()
+const probes = createLru<string, Promise<string | null>>(8)
 
 async function probeJson(ffprobe: string, file: string): Promise<string | null> {
   let key: string
@@ -326,7 +327,7 @@ async function probeJson(ffprobe: string, file: string): Promise<string | null> 
   } catch {
     return null
   }
-  const known = probes.get(key)
+  const known = probes.peek(key)
   if (known) return known
   const run = new Promise<string | null>((resolve) => {
     execFile(
@@ -337,7 +338,6 @@ async function probeJson(ffprobe: string, file: string): Promise<string | null> 
     )
   })
   probes.set(key, run)
-  if (probes.size > 8) probes.delete(probes.keys().next().value!)
   void run.then((json) => {
     if (json === null) probes.delete(key)
   })

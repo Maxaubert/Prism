@@ -97,7 +97,7 @@ Filesmith's conventions.
   shell's (termHost's `ownsKey` no longer claims it). `noCommandHelp` in the e2e proves all three.
 - **REMEMBER TABS IS A SETTING** (2026-09-22, owner: "Prism should also have the option to not
   remember tabs"). Settings > Explorer > Reopen tabs at start, on by default (how Prism always started), key
-  `prism.tabs.remember` (`lib/tabRestorePrefs.ts`). Off, a COLD start opens only the Explorer tab
+  `prism.tabs.remember` (`lib/tabs/tabRestorePrefs.ts`). Off, a COLD start opens only the Explorer tab
   and whatever Prism was opened with: main reads the key from the window preferences store in
   `restoreWhenListening`, once per process (`coldRestoreDone`), so a reload of the window keeps its
   tabs. The tabs are still SAVED while it is off, so switching it back on loses nothing. Agent
@@ -146,8 +146,8 @@ Filesmith's conventions.
   part is `components/settings/`: the pages, `appOptions.ts` (a CLOSED list of Prism's own rows,
   their subtexts and storage keys, the keys a snapshot in `appOptions.test.ts`: none changed),
   `settingsIndex.ts` (page order and what Find a setting indexes: the core's rows drawn here, no
-  command help, the GPU row only with an NVIDIA card) and `icons.ts` (Prism's own row icons beside
-  the core's). Every row carries `data-pref`; live state (Win+E's status, the Explorer menu
+  command help, the GPU row only with an NVIDIA card); Prism's own row icons beside the core's are
+  `components/icons/settingsIcons.ts`. Every row carries `data-pref`; live state (Win+E's status, the Explorer menu
   check, the band opacity, a chosen folder) is the row's SUBTEXT. The chosen rail page is a GREY
   fill (`--p-hover-hi`), never the accent. Settings' Escape yields while Find a setting holds text
   (`[data-settings-find][data-owns-escape]`), and App gives Settings its plain keys (Up and Down
@@ -173,7 +173,7 @@ Filesmith's conventions.
   but actually implement it. And remember that when the sidebar goes on the right, the preview menu
   and button to open it would have to go on the left"; then, the same day, after testing one shared
   row: "No, it should be two settings, one on the project tab and one on the explorer tab").
-  Explorer > Layout opens with `explorer-side` (key `prism.explorer.side`, `lib/explorerSidePrefs.ts`,
+  Explorer > Layout opens with `explorer-side` (key `prism.explorer.side`, `lib/prefs/explorerSidePrefs.ts`,
   default Left): the Explorer tab's places panel, and nothing else. Project settings keeps
   `tree-side` (key `prism.tree.side`, unchanged): the project tree, and nothing else. Neither moves
   the other; App reads the Explorer's for an Explorer tab and the tree's for a project tab
@@ -199,6 +199,132 @@ Filesmith's conventions.
     associations), folder navigation, settings, and packaging.
 - **Filesmith and Prism never depend on each other at runtime.** They only share `prism-core`,
   which each bundles at build time. A user with Filesmith does not need Prism, and vice versa.
+- **Renderer folders** (structure cleanup, 2026-10-12): every React hook (`use*.ts`) lives in
+  `src/renderer/src/hooks/`, never in `lib/`. `lib/` groups by feature: `code/` (language,
+  lint, prefs, theme, jsonc), `pdf/`, `drag/`, `tabs/` (the tab model, crumbs, restore, volume,
+  width), `prefs/` (`createPref` and the small pref stores), `viz/` (with `vizStore`),
+  `themes/`. What belongs to no group stays flat in `lib/`.
+- **Single homes** (structure cleanup, 2026-10-12): one module per shared job. Use it, never a
+  local copy.
+  - localStorage read that never throws: `src/renderer/src/lib/storage.ts` (`readStored`).
+  - paths: `src/shared/path.ts` (`baseName`, `parentDir`, `extOf`, `trimSep`, `pathKey`,
+    `samePath`, `isInside`, and the one natural-order collator `naturalCompare` / `byName`).
+    Pure strings, so the phone uses it too; not the root wall (that stays canonical, in main).
+  - which files are markdown: `isMarkdown` in `src/shared/fileKind.ts`.
+  - main's small fs answers: `src/main/fsUtil.ts` (`exists`, `sleep`, `isBusyError`).
+  - a file written whole or not at all: `writeAtomic` / `writeAtomicSync` (quit only) in
+    `src/main/latestWrite.ts`, beside `latestWriter`. Every state file goes through them.
+  - userData paths: `src/main/paths.ts` (`userPaths.tabs()`, `.converted()`, `.comics()`, ...).
+  - a small newest-N cache: `src/main/lru.ts` (`createLru(max)`; `get` touches, `peek` does not).
+  - colour maths on hex: `src/renderer/src/lib/colour.ts` (`hexToRgb` reads the first six digits,
+    `rgbToHex`, `mix`, `luminance`, `contrast`); tests import it, never a copy. Computed CSS colours
+    are `cssColour.ts`, the stored accent alpha `accentAlpha.ts`.
+  - a saved setting: `src/renderer/src/lib/prefs/createPref.ts` (`createPref({ key, parse, fallback })`
+    gives `get` / `set` / `use` / `subscribe`; storage that refuses never throws). Every `prism.*`
+    key and whether it travels between windows: `src/shared/prefKeys.ts`; the window sync's local
+    keys derive from it, and `prefKeys.test.ts` pins the strings. A new key goes there first.
+    `theme.ts` and `vizStore.ts` keep their own stores.
+  - a module value components follow: `src/renderer/src/lib/store.ts` (`createStore`; jobs,
+    extraction, the cut mark).
+  - "is the user typing, or is the key somebody else's": `src/renderer/src/lib/focusGuards.ts`
+    (`isTypingTarget`, `isFormField`, `isTextBox`, and the `FIELD` / `EDITOR` / `OVERLAY` /
+    `NAV_SURFACE` selectors a key handler joins). The lists are pinned by `focusGuards.test.ts`.
+  - a document viewer's Ctrl+F (who owns it in split view): `src/renderer/src/hooks/useFindShortcut.ts`.
+  - the spinner and a viewer still loading: `components/LoadingState.tsx` (`Spinner`, `LoadingState`).
+  - a line over the whole stage (an error, a score being synthesised): `components/StageNotice.tsx`.
+  - a popover's way out (press outside, blur, Escape): `src/renderer/src/hooks/useDismiss.ts`.
+  - the modal shell (scrim, box, Escape, focus on the primary button): `components/Modal.tsx`;
+    `Dialog` and `PropertiesDialog` wrap it. The look stays in `dialogLook.ts` (with
+    `DIALOG_EMPHASIS`, the name inside a question), which `ExtractWindow` shares.
+  - `clamp`: `src/renderer/src/lib/clamp.ts`.
+  - the archive verbs (password retry, add with Keep both and the move's binning, extract,
+    rename, the permanent delete) and every line they say: `components/archive/archiveOps.ts`,
+    with their questions in `useArchiveOps.tsx`. The member panel (ArchiveView) and a zip in
+    the Explorer or tree (`useArchiveActions`) both use it. adm-zip's write cap is
+    `src/shared/archiveLimits.ts` (`ZIP_WRITE_MAX`), read by main and the renderer.
+  - renaming in place (the tree, an archive's member rows): `components/RenameField.tsx`; in a
+    dialog (the Explorer, a zip member there, an archive's own Rename): `browse/BrowseRename.tsx`.
+    The stem selection is `lib/selectStem.ts`.
+  - pasting files into a folder (Explorer and tree), with every line it says: `hooks/useFilePaste.ts`
+    (`useFilePaste`, `PASTE_MESSAGES`, `pasteMessage`).
+  - the unsaved-changes question (closing, installing, closing a tab, re-rooting a tab):
+    `dialogs/UnsavedDialog.tsx`; App's `saveAllThen` and `discardTabBuffers` answer it.
+  - every question and notice dialog: `src/renderer/src/dialogs/` (one file per dialog, a test
+    beside each; App's `Ask` union and `AskDialogs`). Index: `docs/dialogs.md`.
+  - App's parts by job (structure cleanup, stage 11): the title bar `components/titlebar/`
+    (`TopBar`, `TitleButtons`); the stage's views `components/stage/` (`Viewer`, `PinnedPaneView`,
+    `EmptyState`); the file operations and undo/redo over them `hooks/useFileOps.ts`, with the
+    inverse of each undo entry in `lib/undoApply.ts` (`undoEntry`, `redoEntry`; `undo.ts` stays
+    the pure stack); leaving the window and the update install `hooks/useWindowClose.ts`;
+    fullscreen and its fade `hooks/useFullscreenVeil.ts`; the window's keys `hooks/useAppKeys.ts`;
+    the dock, the shells' roots and the tab's terminal view `hooks/useTerminal.ts`; several shells
+    per tab and the split's panes `hooks/useTermPanes.ts`; the tabs (new, close, re-root, recent,
+    pick, reorder) `hooks/useTabOps.ts`; the session's tab and shell ids
+    `lib/sessionIds.ts`.
+  - the project tree's parts (Sidebar.tsx): `components/sidebar/` (`usePanelResize` the width,
+    `useTreeKeys` a key on a row, `useTreeDrop` drag and drop, `useTreeClipboard` Ctrl+C/X/V,
+    paste and the delete keys; `types.ts` the menu and job shapes).
+  - the archive panel's parts (ArchiveView.tsx): `components/archive/` (`useArchiveListing` the
+    members and the reload, `useBandSelect` the drag-select band, `entry.ts` the row shape and
+    columns, `MemberView`, `LockBadge`, `RenameInput`, `ArcVerb`; the verbs stay
+    `archiveOps.ts` / `useArchiveOps.tsx`).
+  - which viewer a file kind gets, and the lazy viewer chunks: `components/ViewerSwitch.tsx`, with
+    a mode per host (`full` App's stage, `phone`, `member` an archive panel's preview). The host
+    passes what an archive is (App's card, the phone's panel, a nested panel).
+  - icons: `components/icons/`. A line glyph is `<Icon name | d size weight>` (`Icon.tsx`, with
+    `FolderFill` and `Gear`) over `paths.ts` (`PATHS`, every drawing used twice, stated once;
+    `paths.test.ts` fails on a path string written out a second time). The families keep their
+    modules there: `FileMenuIcon`, `BrowseIcon`, `PlaceIcon`, `TabKindIcon`, `propertyGlyphs`,
+    `settingsIcons`, `transport`, `menuGlyphs` (`menuIcon`, `tickIf`), and `FileIcons`
+    (`KindIcon`, `FolderIcon`, `iconColour`). The generated file-kind art stays `lib/iconPaths.ts`.
+  - the root wall: `src/main/pathWall.ts` (`createPathWall`; `readable`, `editable`, `movable`,
+    `archiveOk`, `archiveReadOk`, `comicOk`, `insideWall`, `mediaAllowed`, and the grants main
+    makes itself). Every handler asks it; `pathWall.test.ts` pins each guard. Never loosen one.
+  - a worker main talks to (lazy start, pending map, a minute idle then killed, a dead one fails
+    what it held): `src/main/workerClient.ts` (`createWorkerPool`). The HEIC decoder
+    (`heicClient.ts`), the zip worker (`zipClient.ts`) and the document worker (`docClient.ts`)
+    sit on it.
+  - fsmedia://: `src/main/mediaProtocol.ts` (`createMediaServer`, Range answers, walled by
+    `mediaAllowed`). Content types: `src/main/mime.ts` (`mediaMime`, the phone page's `assetMime`,
+    `HLS_MIME`).
+  - the bundled programs: `src/main/bundledTools.ts` (`ffmpegTools()`, `sevenExe()`,
+    `fluidTools()`), never `findFfmpeg(app.isPackaged, ...)` spelled out.
+  - what several parts of main share about the app right now (the window, unsaved text, a
+    working agent, the close answer, an install or quit under way): `src/main/appState.ts`
+    (`appState`, and `E2E`). Read and written in place, never copied out.
+  - main's concerns out of index.ts: `windowChrome.ts` (window state, material, borderless
+    fullscreen, DWM border, `raise`, the window:* messages), `tabsSession.ts` (restore, save,
+    flush the strip), `updateFlow.ts` (the offer and update:*), `dialogs.ts` (parented native
+    dialogs, `pickFolder`, `pickFiles`), `phone/index.ts` (`startPhoneService`, pos:*).
+  - the IPC handlers, by area: `src/main/ipc/` (`window`, `open`, `files`, `terminal`, `browse`,
+    `props`, `media`, `archive`). Each is a `registerXIpc(ctx)` that index.ts's whenReady calls
+    in the order the handlers were always registered; `ctx` (`MainCtx`) is index.ts's shared
+    state and helpers, `ready` (`ReadyCtx`) what whenReady makes. A new handler goes in its
+    area's file, never back into index.ts. Push to the page with `sendToPage`, check a sender
+    with `isMainSender` (`appState.ts`).
+  - IPC channel names: `src/shared/channels.ts` (`PUSH` main to page, `CALL` page to main,
+    `SWEEP_CHANNELS`). Main and the preload never spell a channel as a string;
+    `channels.test.ts` fails on a bare one and on an entry one side lacks. The terminal's,
+    dictation's and diagnostics' channels stay the core's.
+  - what the bridge answers: `src/shared/ipcTypes.ts` (`FileStat`, `PhotoInfo`, `SubtitleTrack`,
+    paste, move and archive results, progress payloads, `HostCapabilities`); the extraction
+    results (`ExtractFailure` and the per-route answers) in `src/shared/extraction.ts`. Main
+    returns them, the preload promises them, the phone shim answers them.
+  - the preload's listener and sync-ask shapes: `subscribe<T>(PUSH.x)` and `syncOr(CALL.x,
+    fallback)` in `src/preload/index.ts`.
+  - the phone's wire: `src/shared/phoneWire.ts` (`ROUTE` names, the `/pair` `/api/` `/m/` `/hls/`
+    prefixes, `PlayAnswer`, `Me`, the stat, pos and tab answers). The page's fetch helpers are
+    `phone/api.ts` (`getJson`, `getOr`, `postJson`, `postFireAndForget`).
+  - build scripts: `tools/lib/pinnedDownload.mjs` (every SHA-256-pinned fetch, its `.source`
+    stamp and flat unzip, and the e2e's `.e2e/cache`), `tools/lib/csc.mjs` (the C# helpers),
+    `tools/lib/msvc.mjs` (vswhere, vcvars64, dumpbin), `tools/lib/repo.mjs` (`ROOT`,
+    `windowsOnly`). The pins stay in each `tools/fetch-*.mjs`, where the CI cache key reads them.
+  - e2e harness, inside `tools/e2e/run.mjs`: `until` (the one poll), `startApp` (every launch),
+    `launchWith(env, file)` (env for one launch), `explorerTab`/`writeTabs` (tab seeds),
+    `seedPreferences`, `powershell`/`processCount`, `setPref`/`styleKeeper` (theme and pref
+    save-restore).
+  - unit-test stand-ins: `src/renderer/src/testing/host.ts` (`aliasWindow`, `setHost`/`clearHost`,
+    `capabilityHost`, `fakeClipboard`).
 
 ## Reuse from Filesmith (becomes `prism-core`)
 

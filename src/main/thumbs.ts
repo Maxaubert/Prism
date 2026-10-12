@@ -21,6 +21,7 @@ import { spawn } from 'child_process'
 import { createHash } from 'crypto'
 import { promises as fsp } from 'fs'
 import { join } from 'path'
+import { exists } from './fsUtil'
 
 export const THUMB_WIDTH = 320
 /** A frame this far into a video: past the black leader most films open on. */
@@ -187,14 +188,5 @@ export class Thumbs {
     } catch {
       /* a cache that cannot be tidied is still a cache */
     }
-  }
-}
-
-async function exists(p: string): Promise<boolean> {
-  try {
-    await fsp.access(p)
-    return true
-  } catch {
-    return false
   }
 }

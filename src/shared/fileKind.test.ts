@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fileKind, isViewable } from './fileKind'
+import { fileKind, isMarkdown, isViewable } from './fileKind'
 
 describe('fileKind', () => {
   it('keeps the kinds it already knew', () => {
@@ -61,5 +61,26 @@ describe('isViewable', () => {
     expect(isViewable('.dll')).toBe(false)
     expect(isViewable('', 'Dockerfile')).toBe(true)
     expect(isViewable('', 'Dockerfile.bak')).toBe(false)
+  })
+})
+
+describe('isMarkdown', () => {
+  it('is the one list: md, markdown, mdown, mkd, mkdn', () => {
+    for (const name of ['a.md', 'a.markdown', 'a.mdown', 'a.mkd', 'a.mkdn', 'C:\\docs\\README.MD']) {
+      expect(isMarkdown(name), name).toBe(true)
+      expect(fileKind(name.slice(name.lastIndexOf('.')).toLowerCase()), name).toBe('text')
+    }
+  })
+
+  it('leaves a Makefile include and MDX as plain text', () => {
+    expect(isMarkdown('rules.mk')).toBe(false)
+    expect(isMarkdown('page.mdx')).toBe(false)
+    expect(fileKind('.mk')).toBe('text')
+    expect(fileKind('.mdx')).toBe('text')
+  })
+
+  it('reads the name, not a folder that looks like one', () => {
+    expect(isMarkdown('C:\\notes.md\\photo.jpg')).toBe(false)
+    expect(isMarkdown('notes')).toBe(false)
   })
 })

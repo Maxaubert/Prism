@@ -15,16 +15,13 @@
 // - Then it is loaded in plain Node: selfTest() runs box.h's cases and must
 //   come back empty, and probe() must answer.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import { dumpbinPath } from './lib/msvc.mjs'
+import { ROOT as root, windowsOnly } from './lib/repo.mjs'
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-if (process.platform !== 'win32') {
-  console.log('Sweep addon: Windows-only build skipped')
-  process.exit(0)
-}
+windowsOnly('Sweep addon: Windows-only build skipped')
 const require = createRequire(import.meta.url)
 const src = join(root, 'native', 'sweep')
 const built = join(src, 'build', 'Release', 'prism_sweep.node')
@@ -61,23 +58,7 @@ mkdirSync(outDir, { recursive: true })
 copyFileSync(built, out)
 
 // 3. What it imports: system DLLs only.
-function findDumpbin() {
-  const vswhere = join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft Visual Studio', 'Installer', 'vswhere.exe')
-  if (!existsSync(vswhere)) return null
-  const vs = spawnSync(vswhere, ['-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationPath'], {
-    encoding: 'utf8',
-    windowsHide: true
-  }).stdout.trim().split(/\r?\n/)[0]
-  if (!vs) return null
-  const msvc = join(vs, 'VC', 'Tools', 'MSVC')
-  if (!existsSync(msvc)) return null
-  for (const v of readdirSync(msvc).sort().reverse()) {
-    const exe = join(msvc, v, 'bin', 'Hostx64', 'x64', 'dumpbin.exe')
-    if (existsSync(exe)) return exe
-  }
-  return null
-}
-const dumpbin = findDumpbin()
+const dumpbin = dumpbinPath()
 if (!dumpbin) fail('dumpbin.exe not found (Visual Studio C++ build tools)')
 const deps = execFileSync(dumpbin, ['/nologo', '/dependents', out], { encoding: 'utf8', windowsHide: true })
   .split(/\r?\n/)

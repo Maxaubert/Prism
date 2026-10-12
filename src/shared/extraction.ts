@@ -18,10 +18,35 @@
  * being a question and became work.
  */
 
+import type { FileKind } from './types'
+
 /** Why an extraction did not happen. `busy` never reaches the window: it is
  *  main refusing a second job while one is up, which the modal makes
  *  unreachable from the UI. */
 export type ExtractFail = 'password' | 'aes' | 'failed'
+
+/** Every way an extraction OUT to a folder can end without its files: the
+ *  `ExtractFail` reasons, the window's Cancel (or the folder dialog's), and
+ *  `busy`, a second extraction while one is up. `message` is 7-Zip's line. */
+export type ExtractFailure = {
+  ok: false
+  reason: ExtractFail | 'cancelled' | 'busy'
+  message?: string
+}
+/** Members out to a folder the caller named (`archive:extract-to`). */
+export type ExtractToResult = { ok: true; written: number } | ExtractFailure
+/** Members out to a folder main's dialog asked for. */
+export type ExtractPickedResult = { ok: true; dest: string; written: number } | ExtractFailure
+/** The whole archive into a folder named after it. */
+export type ExtractAllResult = { ok: true; dest: string } | ExtractFailure
+/** A folder inside the archive, extracted whole. */
+export type ExtractDirResult = { ok: true; path: string } | ExtractFailure
+/** One member to temp for viewing: its copy and the kind Prism shows it as. */
+export type MemberExtractResult =
+  | { ok: true; path: string; kind: FileKind }
+  | { ok: false; reason: ExtractFail }
+/** One member renamed in place. */
+export type ArchiveRenameResult = 'ok' | ExtractFail
 
 export type ExtractEvent =
   | {

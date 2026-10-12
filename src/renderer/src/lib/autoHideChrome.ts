@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { FIELD, OVERLAY } from './focusGuards'
 
 /** How long the chrome stays up after the last thing that happened. */
 export const CHROME_IDLE = 2600
@@ -153,12 +154,7 @@ export function useAutoHideChrome(
       const target = event.target as HTMLElement | null
       if (!element || element.closest('[inert]') || !element.getClientRects().length) return
       if (target !== document.body && !element.contains(target)) return
-      if (
-        target?.closest(
-          'input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="menu"],[role="dialog"]'
-        )
-      )
-        return
+      if (target?.closest(`${FIELD},${OVERLAY}`)) return
       if (keyWakes.current(event)) wake()
     }
     // pointermove rather than mousemove: Chromium fires `mousemove` on a layout

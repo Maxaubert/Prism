@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'crypto'
-import { mkdirSync, readFileSync, readdirSync, renameSync, watch, writeFileSync } from 'fs'
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'fs/promises'
+import { mkdirSync, readFileSync, readdirSync, watch, writeFileSync } from 'fs'
+import { mkdir, readFile, readdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import {
   validWindowPreferenceKey,
   type WindowPreferencesSnapshot
 } from '../shared/windowPreferences'
+import { writeAtomic, writeAtomicSync } from './latestWrite'
 
 /**
  * One atomic file per key: concurrent windows cannot overwrite unrelated settings.
@@ -152,7 +153,6 @@ export function createWindowPreferences(
       for (let next = pending.get(key); next; next = pending.get(key)) {
         const flushedAt = flushes
         const text = JSON.stringify({ key, value: next.value })
-        const tmp = join(root, `${randomUUID()}.tmp`)
         try {
           await mkdir(root, { recursive: true })
           if (next.seed) {
@@ -166,13 +166,13 @@ export function createWindowPreferences(
               continue
             }
           } else {
-            await writeFile(tmp, text)
-            if (flushedAt === flushes) await rename(tmp, file(key))
+            await writeAtomic(file(key), text, {
+              tmp: join(root, `${randomUUID()}.tmp`),
+              keep: () => flushedAt === flushes
+            })
           }
         } catch {
           /* Unwritten: memory keeps it for this run; the disk wins at the next read. */
-        } finally {
-          await rm(tmp, { force: true }).catch(() => {})
         }
         if (pending.get(key) === next) pending.delete(key)
       }
@@ -244,11 +244,7 @@ export function createWindowPreferences(
           mkdirSync(root, { recursive: true }) // sync-ok: quit flush
           const text = JSON.stringify({ key, value: next.value })
           if (next.seed) writeFileSync(file(key), text, { flag: 'wx' }) // sync-ok: quit flush
-          else {
-            const tmp = join(root, `${randomUUID()}.tmp`)
-            writeFileSync(tmp, text) // sync-ok: quit flush
-            renameSync(tmp, file(key)) // sync-ok: quit flush
-          }
+          else writeAtomicSync(file(key), text, join(root, `${randomUUID()}.tmp`)) // sync-ok: quit flush
         } catch {
           /* an existing file wins over a seed; anything else is lost with the run */
         }
