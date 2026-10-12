@@ -40,14 +40,13 @@ export function CloseAgentDialog({
         agent.forMs === null ? (
           <>
             <span className={DIALOG_EMPHASIS}>{AGENT_NAMES[agent.kind]}</span> is running in{' '}
-            <span className={DIALOG_EMPHASIS}>{label}</span>. Closing the tab kills the
-            shell, and the session with it.
+            <span className={DIALOG_EMPHASIS}>{label}</span>. Closing the tab kills the shell, and
+            the session with it.
           </>
         ) : (
           <>
-            <span className={DIALOG_EMPHASIS}>{AGENT_NAMES[agent.kind]}</span> has been
-            working for {humanFor(agent.forMs)} in{' '}
-            <span className={DIALOG_EMPHASIS}>{label}</span>
+            <span className={DIALOG_EMPHASIS}>{AGENT_NAMES[agent.kind]}</span> has been working for{' '}
+            {humanFor(agent.forMs)} in <span className={DIALOG_EMPHASIS}>{label}</span>
             {whole &&
               others > 0 &&
               `, and ${others} other ${others === 1 ? 'shell is' : 'shells are'} working too`}
@@ -62,7 +61,12 @@ export function CloseAgentDialog({
       choices={[
         { label: 'Cancel', onPick: onCancel },
         {
-          label: target === 'install' ? 'Install and restart' : target === 'window' ? 'Close window' : 'Close tab',
+          label:
+            target === 'install'
+              ? 'Install and restart'
+              : target === 'window'
+                ? 'Close window'
+                : 'Close tab',
           primary: true,
           onPick: onClose
         }

@@ -246,6 +246,12 @@ Filesmith's conventions.
     `dialogs/UnsavedDialog.tsx`; App's `saveAllThen` and `discardTabBuffers` answer it.
   - every question and notice dialog: `src/renderer/src/dialogs/` (one file per dialog, a test
     beside each; App's `Ask` union and `AskDialogs`). Index: `docs/dialogs.md`.
+  - App's parts by job (structure cleanup, stage 11): the title bar `components/titlebar/`
+    (`TopBar`, `TitleButtons`); the stage's views `components/stage/` (`Viewer`, `PinnedPaneView`,
+    `EmptyState`); the file operations and undo/redo over them `lib/useFileOps.ts`, with the
+    inverse of each undo entry in `lib/undoApply.ts` (`undoEntry`, `redoEntry`; `undo.ts` stays
+    the pure stack); leaving the window and the update install `lib/useWindowClose.ts`;
+    fullscreen and its fade `lib/useFullscreenVeil.ts`.
   - which viewer a file kind gets, and the lazy viewer chunks: `components/ViewerSwitch.tsx`, with
     a mode per host (`full` App's stage, `phone`, `member` an archive panel's preview). The host
     passes what an archive is (App's card, the phone's panel, a nested panel).

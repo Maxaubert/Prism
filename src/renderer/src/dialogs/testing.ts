@@ -16,7 +16,10 @@ export interface DialogSpec {
 
 export const plain = (node: ReactNode): string =>
   isValidElement(node)
-    ? renderToStaticMarkup(node as ReactElement).replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&#x27;/g, "'")
+    ? renderToStaticMarkup(node as ReactElement)
+        .replace(/<[^>]+>/g, '')
+        .replace(/&quot;/g, '"')
+        .replace(/&#x27;/g, "'")
     : String(node ?? '')
 
 export function specOf(el: ReactElement): DialogSpec {

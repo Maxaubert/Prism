@@ -53,7 +53,9 @@ export function AskDialogs({
   if (!ask || OVER.has(ask.kind) !== (layer === 'over')) return null
   switch (ask.kind) {
     case 'delete':
-      return <DeleteDialog name={ask.name} onCancel={a.dismiss} onDelete={() => a.runDelete(ask.path)} />
+      return (
+        <DeleteDialog name={ask.name} onCancel={a.dismiss} onDelete={() => a.runDelete(ask.path)} />
+      )
     case 'delete-many':
       return (
         <DeleteManyDialog
@@ -102,7 +104,9 @@ export function AskDialogs({
     case 'close-window-agent':
       return (
         <CloseAgentDialog
-          target={ask.kind === 'close-tab-confirm' ? 'tab' : ask.then === 'install' ? 'install' : 'window'}
+          target={
+            ask.kind === 'close-tab-confirm' ? 'tab' : ask.then === 'install' ? 'install' : 'window'
+          }
           label={ask.label}
           agent={ask.agent}
           others={ask.kind === 'close-window-agent' ? ask.others : 0}
