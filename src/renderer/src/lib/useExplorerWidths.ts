@@ -56,7 +56,63 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
     places: { min: minimum, max: placesMax, value: placesWidth },
     preview: { min: previewMin, max: previewMax, value: previewWidth }
   }
+  /**
+   * A DRAG PAINTS, IT DOES NOT RENDER (owner, 2026-10-12: "very choppy, very
+   * laggy" dragging either panel's edge). Every move used to set state here,
+   * which re-rendered the whole App and wrote localStorage, 42 to 54 times in
+   * a half-second drag (the `panelDrag` e2e). Nor may a move change the width
+   * VARIABLES: they sit on the workspace, and an inherited custom property
+   * changed there restyles every element under it with all of Prism's theme
+   * variables, 62 to 68 ms a frame on the owner's window (MEASURED, a trace of
+   * their own drags: 4.8 s of style recalculation in 7.8 s of dragging). A move
+   * writes plain pixel values, which nothing inherits, onto the few boxes that
+   * show the widths: the Explorer's grid, the preview pane, the viewer's places
+   * and the two grips. `resize`, on release, keeps the width and hands those
+   * boxes back to the variables.
+   */
+  // What each painted box had inline before, so the release gives it back.
+  const painted = useRef(new Map<HTMLElement, Map<string, string>>())
+  const paint = (element: Element | null | undefined, property: string, value: string): void => {
+    if (!(element instanceof HTMLElement)) return
+    let before = painted.current.get(element)
+    if (!before) painted.current.set(element, (before = new Map()))
+    if (!before.has(property)) before.set(property, element.style.getPropertyValue(property))
+    element.style.setProperty(property, value)
+  }
+  const live = (section: ExplorerSection, value: number): void => {
+    const root = workspace.current
+    if (!root) return
+    const width = clamp(value, bounds[section].min, bounds[section].max)
+    const places = section === 'places' ? (placesVisible ? width : 0) : placesWidth
+    const preview = section === 'preview' ? (previewVisible ? width : 0) : previewWidth
+    const browser = root.querySelector('.folder-browser')
+    if (browser) {
+      const right = browser.getAttribute('data-side') === 'right'
+      const open = browser.hasAttribute('data-preview')
+      paint(
+        browser,
+        'grid-template-columns',
+        right
+          ? `${open ? preview : 0}px minmax(0, 1fr) ${places}px`
+          : `${places}px minmax(0, 1fr)${open ? ` ${preview}px` : ''}`
+      )
+    }
+    const placesGrip = root.querySelector('.explorer-resize-places')
+    paint(placesGrip, placesGrip?.classList.contains('is-right') ? 'right' : 'left', `${places}px`)
+    const previewGrip = root.querySelector('.explorer-resize-preview')
+    paint(previewGrip, previewGrip?.classList.contains('is-left') ? 'left' : 'right', `${preview}px`)
+    paint(root.querySelector('[data-browse-preview]'), 'width', `${preview}px`)
+    paint(root.querySelector('.browse-viewer-places'), 'flex-basis', `${places}px`)
+  }
+  const unpaint = (): void => {
+    for (const [element, before] of painted.current)
+      for (const [property, value] of before)
+        if (value) element.style.setProperty(property, value)
+        else element.style.removeProperty(property)
+    painted.current.clear()
+  }
   const resize = (section: ExplorerSection, value: number | null): void => {
+    unpaint()
     setPreferred((current) => {
       const next = {
         ...current,
@@ -69,6 +125,7 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
   return {
     workspace,
     bounds,
+    live,
     resize,
     style: {
       '--explorer-places-width': `${placesWidth}px`,

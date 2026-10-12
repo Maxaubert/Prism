@@ -2,7 +2,7 @@ import type { JSX } from 'react'
 import type { BrowseDriveUsage } from '@shared/browse'
 import type { DriveDetails } from '@shared/props'
 import { driveName } from '../../lib/driveUsage'
-import { formatBytes } from '../../lib/format'
+import { donutBytes } from '../../lib/donut'
 import { DriveDonut } from './DriveDonut'
 import { DriveGlyph } from './glyphs'
 import { Facts, Footer, FooterButton, Header, type Fact } from './parts'
@@ -16,7 +16,9 @@ function connectionOf(details: DriveDetails): string {
 /**
  * A DRIVE (owner, 2026-10-12, round 2 layout 1): the drive's own model under
  * its name, the donut of its top-level folders, the facts, and the one
- * footer with more than Close: Windows' Disk Cleanup on the left, Open.
+ * footer with more than Close: Windows' Disk Cleanup on the left. No Open:
+ * a Properties window says what a thing is, it never opens it (owner, same
+ * day: "remove the open button. that should never be in properties").
  * Until main answers (and on the phone, where it never does) the places
  * panel's own numbers stand in, so the window is never empty.
  */
@@ -61,7 +63,7 @@ export function DriveBody({
             ]
           : []),
         ...(details.fs ? [{ label: 'File system', value: details.fs }] : []),
-        ...(details.total ? [{ label: 'Capacity', value: formatBytes(details.total) }] : [])
+        ...(details.total ? [{ label: 'Capacity', value: donutBytes(details.total) }] : [])
       ]
     : []
 
@@ -79,7 +81,6 @@ export function DriveBody({
       <Footer
         onClose={onClose}
         left={<FooterButton quiet label="Disk Cleanup" onClick={() => void window.prism.driveCleanup(drive.path)} />}
-        extra={onOpenFolder && <FooterButton label="Open" onClick={() => onOpenFolder(drive.path)} />}
       />
     </div>
   )
