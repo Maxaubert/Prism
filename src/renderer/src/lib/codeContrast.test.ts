@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { contrast } from './colour'
 import { describe, expect, it } from 'vitest'
 import { opaque } from 'prism-term-core/renderer/lib/colour'
 import { LEGACY_CODE, STYLES, variablesFor } from './theme'
@@ -11,19 +12,6 @@ import { RETIRED_STYLES } from './themes/retired'
 // this reads the tokens each style paints, not a stylesheet. AA body text is
 // 4.5:1; code is body text.
 const AA = 4.5
-
-const channel = (c: number): number => {
-  const s = c / 255
-  return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
-}
-const luminance = (hex: string): number => {
-  const n = Number.parseInt(hex.slice(1, 7), 16)
-  return 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255)
-}
-const contrast = (a: string, b: string): number => {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
-  return (hi + 0.05) / (lo + 0.05)
-}
 
 /** Every `--p-code-*` the highlighter and the editor read, from their source. */
 const used = [

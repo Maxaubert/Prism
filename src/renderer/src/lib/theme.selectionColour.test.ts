@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { contrast } from './colour'
 import { alphaOf, composite, opaque, withAlpha } from 'prism-term-core/renderer/lib/colour'
 import {
   DEFAULT_STYLE,
@@ -21,19 +22,6 @@ import { DERIVED_STYLES } from './themes/testStyles'
 // colour ... called something like selected item colour"). A Style row of its
 // own whose colour and alpha are the marked-file tint; unset, the accent's
 // tint exactly as it was, so nobody's window moves until they pick.
-
-const lum = (hex: string): number => {
-  const n = parseInt(hex.slice(1, 7), 16)
-  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
-    const c = v / 255
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-  })
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-const contrast = (a: string, b: string): number => {
-  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
-  return (hi + 0.05) / (lo + 0.05)
-}
 
 /** The tint as the code before the Selection row derived it, verbatim. */
 function before(s: Style): { tint: string; line: string } {

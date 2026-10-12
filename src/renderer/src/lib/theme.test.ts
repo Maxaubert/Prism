@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { contrast, mix } from './colour'
 import {
   archiveIconOf,
   derive,
@@ -7,7 +8,6 @@ import {
   fileIconOf,
   ICON_SCHEME_SHOWN,
   iconSchemeOf,
-  mix,
   paletteOf,
   resolveVizTheme,
   setOverride,
@@ -24,25 +24,6 @@ import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
 // Every shipped style has to be readable, in both modes. These are the numbers
 // that caught grey-on-white: a fixed dimming fraction reads fine on a dark panel
 // and washes out on a light one.
-
-const hex2rgb = (h: string): number[] => {
-  const s = h.replace('#', '')
-  const n = parseInt(s.length === 3 ? s.split('').map((c) => c + c).join('') : s, 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-function luminance(hex: string): number {
-  const [r, g, b] = hex2rgb(hex).map((v) => {
-    const c = v / 255
-    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-  })
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-function contrast(a: string, b: string): number {
-  const l1 = luminance(a)
-  const l2 = luminance(b)
-  const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1]
-  return (hi + 0.05) / (lo + 0.05)
-}
 
 describe.each(STYLES.map((s) => [s.name, s] as const))('%s', (_name, style) => {
   const t = derive(style)
