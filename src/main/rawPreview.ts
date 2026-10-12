@@ -1,5 +1,6 @@
 import { open } from 'fs/promises'
 import { extname } from 'path'
+import { createLru } from './lru'
 
 /**
  * Camera raw files, shown as the preview the camera itself embedded.
@@ -72,8 +73,7 @@ function findEoi(buf: Buffer, from: number): number {
   return -1
 }
 
-const cache = new Map<string, Buffer>()
-const CACHE_MAX = 4
+const cache = createLru<string, Buffer>(4)
 
 /** The embedded preview of a raw file, as JPEG bytes. Throws if there is none.
  *
@@ -82,12 +82,8 @@ const CACHE_MAX = 4
  *  disk took, which on a card reader or a network share is not a moment. */
 export async function rawPreview(path: string, mtimeMs: number): Promise<Buffer> {
   const key = `${path}|${mtimeMs}`
-  const hit = cache.get(key)
-  if (hit) {
-    cache.delete(key)
-    cache.set(key, hit) // LRU touch
-    return hit
-  }
+  const hit = cache.get(key) // a hit is a use: the newest again
+  if (hit) return hit
   // The size from the open handle, not a statSync first (owner, 2026-10-12,
   // main never waits on the disk). A missing file still throws, at the open.
   const fd = await open(path, 'r')
@@ -102,9 +98,5 @@ export async function rawPreview(path: string, mtimeMs: number): Promise<Buffer>
   const jpeg = findJpeg(buf)
   if (!jpeg) throw new Error('no embedded preview in this raw file')
   cache.set(key, jpeg)
-  if (cache.size > CACHE_MAX) {
-    const oldest = cache.keys().next().value
-    if (oldest) cache.delete(oldest)
-  }
   return jpeg
 }

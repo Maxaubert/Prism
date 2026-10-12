@@ -23,6 +23,7 @@
 import { spawn as nodeSpawn, type ChildProcess } from 'child_process'
 import { promises as fsp } from 'fs'
 import { join } from 'path'
+import { sleep } from '../fsUtil'
 import type { PlayPlan } from './decide'
 import {
   hlsArgs,
@@ -108,8 +109,6 @@ interface Job extends StartArgs {
   stderr: string
   failed: string | null
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 export class HlsJobs {
   private readonly jobs = new Map<string, Job>()

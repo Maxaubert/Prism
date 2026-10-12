@@ -1,5 +1,49 @@
-import { writeFileSync } from 'fs'
+import { randomUUID } from 'crypto'
+import { renameSync, rmSync, writeFileSync } from 'fs'
 import { rename, rm, writeFile } from 'fs/promises'
+
+/**
+ * One file written whole or not at all: the text goes to a tmp file beside it
+ * (or at `tmp`) that a rename swaps in, so a crash mid-write leaves the old
+ * file whole. Every state file goes through here or `latestWriter` (structure
+ * cleanup, 2026-10-12).
+ *
+ * `keep` is asked after the write, before the rename: a caller whose write went
+ * stale meanwhile (a Clear, a quit flush, a newer value) answers false and the
+ * tmp file is dropped instead. The tmp file never outlives the call. Resolves
+ * true when the file was swapped in; a failure throws, for the caller to judge.
+ */
+export async function writeAtomic(
+  target: string,
+  text: string,
+  opts: { tmp?: string; keep?: () => boolean } = {}
+): Promise<boolean> {
+  const tmp = opts.tmp ?? `${target}.${randomUUID()}.tmp`
+  try {
+    await writeFile(tmp, text, 'utf8')
+    if (opts.keep && !opts.keep()) return false
+    await rename(tmp, target)
+    return true
+  } finally {
+    await rm(tmp, { force: true }).catch(() => {})
+  }
+}
+
+/** `writeAtomic` for the quit flush, where the process is going and nothing is
+ *  left to wait for. Throws on a failure, for the caller to judge. */
+// sync-ok: quit flush only, every caller marks its own call
+export function writeAtomicSync(target: string, text: string, tmp = `${target}.${randomUUID()}.tmp`): void {
+  try {
+    writeFileSync(tmp, text, 'utf8') // sync-ok: quit flush
+    renameSync(tmp, target) // sync-ok: quit flush
+  } finally {
+    try {
+      rmSync(tmp, { force: true }) // sync-ok: quit flush
+    } catch {
+      /* a stray tmp file is harmless */
+    }
+  }
+}
 
 /**
  * A small file kept as its NEWEST version, written off the main thread (owner,
@@ -11,8 +55,9 @@ import { rename, rm, writeFile } from 'fs/promises'
  * always lands last: two writes racing their renames could otherwise leave the
  * older one on disk. Each write goes to a tmp file and is swapped in with a
  * rename, so a crash mid-write leaves the old file whole. `flushSync` is the
- * quit path: it writes at once, drops anything waiting, and a write already in
- * flight drops its rename. A failed write is quiet: a viewer that cannot save
+ * quit path: it writes at once (through its own tmp file, so it is atomic
+ * too), drops anything waiting, and a write already in flight drops its
+ * rename. A failed write is quiet: a viewer that cannot save
  * its tab strip or window size is still a viewer.
  */
 export function latestWriter(path: () => string): {
@@ -32,16 +77,12 @@ export function latestWriter(path: () => string): {
         const text = pending
         pending = null
         const seen = flushes
-        let tmp: string | null = null
         try {
           const target = path()
-          tmp = `${target}.tmp`
-          await writeFile(tmp, text)
           // A quit flush landed while this was writing: it is newer, keep it.
-          if (seen !== flushes) await rm(tmp, { force: true })
-          else await rename(tmp, target)
+          await writeAtomic(target, text, { tmp: `${target}.tmp`, keep: () => seen === flushes })
         } catch {
-          if (tmp) await rm(tmp, { force: true }).catch(() => {})
+          /* a failed write is quiet */
         }
       }
     } finally {
@@ -60,7 +101,7 @@ export function latestWriter(path: () => string): {
       flushes += 1
       pending = null
       try {
-        writeFileSync(path(), text) // sync-ok: quit flush, the last state must be down before exit
+        writeAtomicSync(path(), text) // sync-ok: quit flush, the last state must be down before exit
       } catch {
         /* a viewer that cannot write its state is still a viewer */
       }

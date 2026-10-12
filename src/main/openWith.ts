@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
-import { access } from 'fs/promises'
 import { basename } from 'path'
+import { exists } from './fsUtil'
 
 // "Open in ..." candidates for a file extension, read from the registry the way
 // Explorer builds its Open With list: the user's own MRU (FileExts), the
@@ -129,14 +129,6 @@ async function friendlyName(appKey: string, exe: string): Promise<string> {
   if (friendly && !friendly.startsWith('@')) return friendly
   return stemName(exe)
 }
-
-/** Is the exe there? Asked off the main thread: the "Open in" submenu probes
- *  every registered app (owner, 2026-10-12, main never waits on the disk). */
-const exists = (p: string): Promise<boolean> =>
-  access(p).then(
-    () => true,
-    () => false
-  )
 
 async function candidateFromCommand(cmd: string): Promise<AppCandidate | null> {
   const args = splitCommandLine(expandEnv(cmd))

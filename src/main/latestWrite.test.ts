@@ -1,8 +1,8 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { latestWriter } from './latestWrite'
+import { latestWriter, writeAtomic, writeAtomicSync } from './latestWrite'
 
 let dir = ''
 beforeEach(() => {
@@ -41,5 +41,43 @@ describe('latestWriter', () => {
     const w = latestWriter(() => join(dir, 'missing', 'state.json'))
     await expect(w.write('x')).resolves.toBeUndefined()
     expect(() => w.flushSync('x')).not.toThrow()
+  })
+})
+
+describe('writeAtomic', () => {
+  it('swaps the new text in and leaves no tmp file', async () => {
+    const file = join(dir, 'state.json')
+    writeFileSync(file, 'old')
+    await expect(writeAtomic(file, 'new')).resolves.toBe(true)
+    expect(readFileSync(file, 'utf8')).toBe('new')
+    expect(readdirSync(dir)).toEqual(['state.json'])
+  })
+
+  it('a stale write (keep says no) leaves the old file and no tmp', async () => {
+    const file = join(dir, 'state.json')
+    writeFileSync(file, 'old')
+    await expect(writeAtomic(file, 'new', { keep: () => false })).resolves.toBe(false)
+    expect(readFileSync(file, 'utf8')).toBe('old')
+    expect(readdirSync(dir)).toEqual(['state.json'])
+  })
+
+  it('writes through the tmp path it is given', async () => {
+    const file = join(dir, 'state.json')
+    await writeAtomic(file, 'x', { tmp: join(dir, 'mine.tmp') })
+    expect(readFileSync(file, 'utf8')).toBe('x')
+    expect(readdirSync(dir)).toEqual(['state.json'])
+  })
+
+  it('throws when the folder is missing, for the caller to judge', async () => {
+    await expect(writeAtomic(join(dir, 'missing', 'state.json'), 'x')).rejects.toThrow()
+    expect(() => writeAtomicSync(join(dir, 'missing', 'state.json'), 'x')).toThrow()
+  })
+
+  it('the sync form swaps in too, with no tmp left', () => {
+    const file = join(dir, 'state.json')
+    writeFileSync(file, 'old')
+    writeAtomicSync(file, 'quit')
+    expect(readFileSync(file, 'utf8')).toBe('quit')
+    expect(readdirSync(dir)).toEqual(['state.json'])
   })
 })

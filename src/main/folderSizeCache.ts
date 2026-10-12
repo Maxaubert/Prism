@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from 'crypto'
-import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, rm, stat } from 'fs/promises'
 import { dirname, isAbsolute, join, resolve, sep } from 'path'
 import type { FolderSizeResult } from '@shared/folderSize'
 import { folderSize } from './folderSize'
+import { writeAtomic } from './latestWrite'
 
 type IndexedSizes = (
   paths: readonly string[],
@@ -207,13 +208,7 @@ export class FolderSizeCache {
 
   private async atomicWrite(path: string, value: string): Promise<void> {
     await mkdir(dirname(path), { recursive: true })
-    const temporary = `${path}.${randomUUID()}.tmp`
-    try {
-      await writeFile(temporary, value, 'utf8')
-      await rename(temporary, path)
-    } finally {
-      await rm(temporary, { force: true }).catch(() => {})
-    }
+    await writeAtomic(path, value)
   }
 
   private async safeRoot(path: string): Promise<boolean> {

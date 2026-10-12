@@ -19,7 +19,6 @@ import {
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { createReadStream, existsSync, readFileSync } from 'fs'
 import {
-  access,
   copyFile,
   mkdir,
   mkdtemp,
@@ -98,7 +97,8 @@ import { qrSvg } from './phone/qr'
 import { forget as forgetPhone } from './phone/pairing'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs, restoredFileIndex, tabsWriter, type SavedTabs } from './tabs'
-import { latestWriter } from './latestWrite'
+import { latestWriter, writeAtomic } from './latestWrite'
+import { userPaths } from './paths'
 import { CODEX_RESUME, claudeSessionsAsync } from 'prism-term-core/main/agentResume'
 import { registerTermIpc } from 'prism-term-core/main/ipc'
 import { registerDictationIpc } from 'prism-term-core/main/dictationIpc'
@@ -190,6 +190,8 @@ import type {
   WriteResult,
   FileMemoryPatch
 } from '@shared/types'
+import { exists } from './fsUtil'
+import { createLru } from './lru'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -390,8 +392,7 @@ const mimeFor = (p: string): string => MIME[extname(p).toLowerCase()] ?? 'applic
 // small cache keeps us from re-decoding on every request (preloads + the renderer
 // image cache both hit this). Keyed by path + mtime so an edited file re-decodes.
 const HEIC_EXTS = new Set(['.heic', '.heif'])
-const heicCache = new Map<string, Buffer>()
-const HEIC_CACHE_MAX = 6
+const heicCache = createLru<string, Buffer>(6)
 
 // The decode itself happens in a utility process (see heicWorker.ts). Measured: a
 // 3MB iPhone HEIC takes ~2s, and doing that inline froze the entire window, since
@@ -440,12 +441,8 @@ function heicKeepWarm(): void {
 
 async function heicToJpeg(filePath: string, mtimeMs: number): Promise<Buffer> {
   const key = `${filePath}|${mtimeMs}`
-  const hit = heicCache.get(key)
-  if (hit) {
-    heicCache.delete(key)
-    heicCache.set(key, hit) // LRU touch
-    return hit
-  }
+  const hit = heicCache.get(key) // a hit is a use: the newest again
+  if (hit) return hit
   const id = ++heicSeq
   let buf: Buffer
   try {
@@ -459,10 +456,6 @@ async function heicToJpeg(filePath: string, mtimeMs: number): Promise<Buffer> {
     heicKeepWarm()
   }
   heicCache.set(key, buf)
-  if (heicCache.size > HEIC_CACHE_MAX) {
-    const oldest = heicCache.keys().next().value
-    if (oldest) heicCache.delete(oldest)
-  }
   return buf
 }
 
@@ -670,18 +663,6 @@ async function serveMedia(request: Request): Promise<Response> {
   })
 }
 
-/** `existsSync`'s answer without holding main on the disk (owner, 2026-10-12, the 3.9 s
- *  tabs.json freeze: main never waits on the disk while the user works). Any error is "no",
- *  as with `existsSync`. */
-async function exists(p: string): Promise<boolean> {
-  try {
-    await access(p)
-    return true
-  } catch {
-    return false
-  }
-}
-
 /**
  * Build the open payload for a path: the folder's viewable siblings, the index
  * of the opened file (so the renderer can arrow through them), and the root.
@@ -730,8 +711,8 @@ function offerUpdate(info: UpdateInfo): void {
   pendingUpdate = info
   mainWindow?.webContents.send('update:available', info)
 }
-const extraWindowOwner = explorerWindowOwner(app.getPath('userData'), process.argv)
-const preferencesOwner = extraWindowOwner ?? app.getPath('userData')
+const extraWindowOwner = explorerWindowOwner(userPaths.root(), process.argv)
+const preferencesOwner = extraWindowOwner ?? userPaths.root()
 const windowPreferences = createWindowPreferences(preferencesOwner, !!extraWindowOwner)
 /** The first restore of this process has happened ("Remember tabs" applies to it alone). */
 let coldRestoreDone = false
@@ -872,9 +853,9 @@ async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
   if (built && mainWindow) mainWindow.webContents.send('open:file', { ...built, folder: true as const })
 }
 
-const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
+const TABS_STATE = userPaths.tabs
 /** The phone switch, its port and the paired phones (#104). */
-const PHONE_STATE = (): string => join(app.getPath('userData'), 'phone.json')
+const PHONE_STATE = userPaths.phone
 
 /**
  * An Explorer tab's payload, from the listing cache when it has the folder
@@ -1114,7 +1095,7 @@ interface SavedWindow extends WindowState {
   maximised?: boolean
 }
 
-const WINDOW_STATE = (): string => join(app.getPath('userData'), 'window-state.json')
+const WINDOW_STATE = userPaths.windowState
 
 function readWindowState(): WindowState {
   let saved: unknown = null
@@ -1379,7 +1360,7 @@ initDwmHelper(app.isPackaged, process.resourcesPath, app.getAppPath())
 // Set once rather than on first use: the media wall consults it, and a wall
 // whose rule appears part way through a session is a rule nobody can reason
 // about.
-comicsDir = join(app.getPath('userData'), 'comics')
+comicsDir = userPaths.comics()
 
 // All windows share the explicit shell-menu preference. Preview windows report
 // the installed registration without automatically repointing it at a trial.
@@ -1492,7 +1473,7 @@ let diag: Diagnostics | null = null
 const SLOW_SETUP_MS = 50
 /** A folder size scan this long is said at the quiet level (#322). */
 const SLOW_SCAN_MS = 500
-const crashLogFile = (): string => join(app.getPath('userData'), 'window-crashes.log')
+const crashLogFile = userPaths.windowCrashes
 function logWindow(
   event: string,
   fields: Record<string, string | number | boolean | undefined>
@@ -1914,7 +1895,7 @@ if (!app.requestSingleInstanceLock()) {
    * own log there and never shares the owner's file.
    */
   diag = startDiagnostics({
-    diagLogDir: join(app.getPath('userData'), 'logs'),
+    diagLogDir: userPaths.logs(),
     ipcMain,
     process,
     app,
@@ -1934,7 +1915,7 @@ if (!app.requestSingleInstanceLock()) {
   // Stalls table sees a scenario's last moments.
   // sync-ok: e2e only, the harness calls it just before app.exit
   if (E2E) Object.assign(globalThis, { __e2eDiagFlush: () => diag?.log.flushSync() })
-  markExplorerWindow(app.getPath('userData'), false)
+  markExplorerWindow(userPaths.root(), false)
   app.on('second-instance', (_e, argv) => {
     const shortcutRequest = winERequest(argv)
     if (shortcutRequest) {
@@ -2025,7 +2006,7 @@ if (!app.requestSingleInstanceLock()) {
       }
       return
     }
-    markExplorerWindow(app.getPath('userData'), true)
+    markExplorerWindow(userPaths.root(), true)
     stopDictation()
     killAll()
     killSidecars()
@@ -2184,7 +2165,9 @@ if (!app.requestSingleInstanceLock()) {
     const savePhone = (): void => {
       const text = serializeStore(phoneStore)
       phoneWrite = phoneWrite
-        .then(() => writeFile(PHONE_STATE(), text))
+        .then(async () => {
+          await writeAtomic(PHONE_STATE(), text)
+        })
         .catch(() => {
           /* a failed write loses the pairing, not the session */
         })
@@ -2220,13 +2203,13 @@ if (!app.requestSingleInstanceLock()) {
     // The phone's HLS jobs (#105): one ffmpeg per phone and file, under
     // userData. Made once, and the directory is wiped at startup: segments
     // of a previous run belong to jobs nothing remembers.
-    const HLS_DIR = join(app.getPath('userData'), 'phone', 'hls')
+    const HLS_DIR = userPaths.hls()
     // The phone diagnostics log (2026-09-12): one timeline for the server's
     // asks and restarts and the phone player's own stalls, beside the jobs.
-    const phoneLog = new PhoneLog(join(app.getPath('userData'), 'phone', 'phone.log'))
+    const phoneLog = new PhoneLog(userPaths.phoneLog())
     // Where you had got to in each film (#118): one store, by file path,
     // that the window reaches over IPC and the phone over /api/pos.
-    const positions = new Positions(join(app.getPath('userData'), 'positions.json'))
+    const positions = new Positions(userPaths.positions())
     ipcMain.handle('pos:get', (_e, path: string) => positions.get(String(path)))
     ipcMain.on('pos:set', (_e, path: string, patch: unknown) => {
       if (patch && typeof patch === 'object') positions.set(String(path), patch as FileMemoryPatch)
@@ -2236,7 +2219,7 @@ if (!app.requestSingleInstanceLock()) {
     // The phone grid's pictures (#135), made once and cached under userData.
     // Its ffmpegs register with the holders (#133), so a move of the file wins.
     const thumbs = hlsTools
-      ? new Thumbs(hlsTools.ffmpeg, join(app.getPath('userData'), 'thumbs'), (c, f) =>
+      ? new Thumbs(hlsTools.ffmpeg, userPaths.thumbs(), (c, f) =>
           holders.add(c, f)
         )
       : null
@@ -3368,7 +3351,7 @@ if (!app.requestSingleInstanceLock()) {
       const fluid = await findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!fluid || !isMidi(p)) return null
       try {
-        const wav = await renderMidi(fluid, p, join(app.getPath('userData'), 'converted'))
+        const wav = await renderMidi(fluid, p, userPaths.converted())
         extractedPaths.add(wav)
         servable.add(wav)
         return `${MEDIA_SCHEME}://local/${encodeURIComponent(wav)}`
@@ -3390,7 +3373,7 @@ if (!app.requestSingleInstanceLock()) {
     // Video Chromium cannot show: convert it once, then play the copy. The
     // renderer waits on this and shows progress; a file already converted
     // comes back immediately.
-    const convertDir = (): string => join(app.getPath('userData'), 'converted')
+    const convertDir = userPaths.converted
     /** Source file -> the copy being written for it and how many viewers are
      *  waiting. Two tabs can hold the same film (each tab keeps its own live
      *  player), and they share ONE conversion: the first to walk away must not
@@ -4045,7 +4028,7 @@ if (!app.requestSingleInstanceLock()) {
       p: string,
       password: string
     ): Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }> => {
-      comicsDir = join(app.getPath('userData'), 'comics')
+      comicsDir = userPaths.comics()
       const pw = password || (archivePasswords.get(p) ?? '')
       const exe = bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!exe) return { error: 'failed' as const }

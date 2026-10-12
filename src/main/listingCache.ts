@@ -1,10 +1,11 @@
-import { createHash, randomUUID } from 'crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'fs/promises'
+import { createHash } from 'crypto'
+import { mkdirSync, readFileSync } from 'fs'
+import { mkdir, readFile, readdir, rm } from 'fs/promises'
 import { extname, join } from 'path'
 import { fileKind } from '@shared/fileKind'
 import { pathKey } from '@shared/path'
 import type { ArchiveMeta, DirListing, ViewerFile } from '@shared/types'
+import { writeAtomic, writeAtomicSync } from './latestWrite'
 
 /**
  * THE LISTING CACHE ON DISK (#271; owner, 2026-10-04: no loading screen "not
@@ -298,9 +299,7 @@ export function createListingCache(options: ListingCacheOptions) {
     if (readOnly || !enabled) return
     try {
       mkdirSync(directory, { recursive: true }) // sync-ok: quit flush
-      const tmp = `${indexPath}.${randomUUID()}.tmp`
-      writeFileSync(tmp, indexText(), 'utf8') // sync-ok: quit flush
-      renameSync(tmp, indexPath) // sync-ok: quit flush
+      writeAtomicSync(indexPath, indexText()) // sync-ok: quit flush
     } catch {
       /* a cache that cannot be written is a cache that is not there */
     }
@@ -318,18 +317,15 @@ export function createListingCache(options: ListingCacheOptions) {
         if (readOnly || !enabled) break
         const mine = epoch
         const flushedAt = flushes
-        const tmp = `${indexPath}.${randomUUID()}.tmp`
         try {
           await mkdir(directory, { recursive: true })
           if (mine !== epoch) continue
           // The index as it is NOW, not as it was when the timer was set.
-          await writeFile(tmp, indexText(), 'utf8')
-          if (mine !== epoch || flushedAt !== flushes || !enabled) continue
-          await rename(tmp, indexPath)
+          await writeAtomic(indexPath, indexText(), {
+            keep: () => mine === epoch && flushedAt === flushes && enabled
+          })
         } catch {
           /* a cache that cannot be written is a cache that is not there */
-        } finally {
-          await rm(tmp, { force: true }).catch(() => {})
         }
       }
     })()
@@ -502,7 +498,6 @@ export function createListingCache(options: ListingCacheOptions) {
       if (index.has(key)) {
         const mine = epoch
         const target = fileOf(key)
-        const tmp = `${target}.${randomUUID()}.tmp`
         pendingWrites += 1
         writing.add(key)
         void (async () => {
@@ -511,13 +506,10 @@ export function createListingCache(options: ListingCacheOptions) {
             if (mine !== epoch) return
             await mkdir(directory, { recursive: true })
             if (mine !== epoch) return
-            await writeFile(tmp, text, 'utf8')
-            if (mine !== epoch || !index.has(key)) return
-            await rename(tmp, target)
+            await writeAtomic(target, text, { keep: () => mine === epoch && index.has(key) })
           } catch {
             index.delete(key)
           } finally {
-            await rm(tmp, { force: true }).catch(() => {})
             pendingWrites -= 1
             writing.delete(key)
           }
