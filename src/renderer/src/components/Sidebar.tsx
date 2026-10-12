@@ -5,13 +5,11 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type JSX,
   type MouseEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent
 } from 'react'
-import type { ArchiveMeta, OpenWithApp, ViewerFile } from '@shared/types'
+import type { ArchiveMeta, ViewerFile } from '@shared/types'
 import type { MenuItem } from './ContextMenu'
 import type { BrowseEntry } from './browse/types'
 import type { TreeState } from '../lib/tabs'
@@ -19,18 +17,19 @@ import { fileKind } from '@shared/fileKind'
 import type { SplitDir } from '../lib/panes'
 import { ancestorChain, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
 import { baseName, extOf, isInside, parentDir } from '@shared/path'
-import { memberOf } from '@shared/archivePlace'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
 import { treeDeadSpaceMenu, treeMarkedMenu, treeRowMenu } from '../menus/treeRow'
 import { terminalButtonMenu } from '../menus/terminalButton'
 import { NoticeDialog } from '../dialogs/NoticeDialog'
+import { DEFAULT_W, MAX_W, MIN_W, usePanelResize } from './sidebar/usePanelResize'
+import { useTreeKeys } from './sidebar/useTreeKeys'
+import { useTreeDrop } from './sidebar/useTreeDrop'
+import { useTreeClipboard } from './sidebar/useTreeClipboard'
+import type { ArcJob, Menu } from './sidebar/types'
 import { JobChip } from './JobChip'
-import { endJob, startJob, updateJob } from '../lib/jobs'
-import { createPref } from '../lib/prefs/createPref'
-import { copyFilePaths, useFileCut } from '../lib/fileClipboard'
-import { PASTE_MESSAGES, useFilePaste, type PasteResult } from '../lib/useFilePaste'
+import { endJob, startJob } from '../lib/jobs'
 import { intendToPlay } from '../lib/playState'
 import { PropertiesDialog } from './properties/PropertiesDialog'
 import { TreeWindow } from './TreeRows'
@@ -40,14 +39,11 @@ import { PeekPinButton } from './PanelToggle'
 import type { PeekPhase } from '../lib/useSidebarPeek'
 import { SortMenu } from './SortMenu'
 import { TreeProvider } from '../lib/treeContext'
-import { clickSelect, emptySelection, rangeSelect, type Selection } from '../lib/selection'
-import { isJumpKey, listKey, stepTo, typeJump, typedRun } from '../lib/listKeys'
-import { nearerEscape } from '../lib/nearerEscape'
-import { clipboardText } from '../lib/clipboardText'
+import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { nearestRow, onRowOwnPart, rowsInBox, sweepBase, sweepSelect } from '../lib/marquee'
 import { useSweep } from '../hooks/useSweep'
-import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
-import { EDITOR, FIELD, OVERLAY, inField, isTypingTarget } from '../lib/focusGuards'
+import { setDrag, type DragPayload } from '../lib/dragDrop'
+import { inField, isTypingTarget } from '../lib/focusGuards'
 import { Icon } from './icons/Icon'
 import { PATHS } from './icons/paths'
 
@@ -55,67 +51,9 @@ import { PATHS } from './icons/paths'
 // first time a folder is opened and are cached after that; main refuses anything
 // outside the root, so there is no way up and no ".." row.
 
-// Panel width: dragged from the edge, remembered, and bounded so it can't be
-// squeezed into uselessness or grow to swallow the media.
-const MIN_W = 170
-const MAX_W = 520
-const DEFAULT_W = 260
-
 /** How many folders the gap-filler asks for at once. */
 const LOAD_AT_ONCE = 6
 
-const clampWidth = (n: number): number => Math.round(Math.min(MAX_W, Math.max(MIN_W, n)))
-
-const widthPref = createPref<number>({
-  key: 'prism.sidebar.width',
-  read: 'always',
-  parse: (raw) => {
-    const v = Number(raw)
-    return Number.isFinite(v) && v > 0 ? clampWidth(v) : DEFAULT_W
-  },
-  fallback: DEFAULT_W
-})
-const loadWidth = widthPref.get
-
-
-interface Menu {
-  x: number
-  y: number
-  path: string
-  name: string
-  isFolder: boolean
-  /** Bytes on disk, for the Properties row's hint. Folders carry none. */
-  size?: number
-  /** "Open in" candidates: undefined for folders, null while they load. */
-  apps?: OpenWithApp[] | null
-  /** Set when the right-click landed inside a multi-selection: every selected
-   *  path, and the menu acts on all of them. */
-  multi?: string[]
-  /** The archive verbs, for a row that is one: undefined when the row is not an
-   *  archive, null while the stat is in flight. `write` is false for a 7z, a
-   *  rar and anything else read-only, and for a zip past adm-zip's ceiling -
-   *  which is why it is asked rather than inferred from the extension. */
-  arc?: { write: boolean } | null
-  /** Whether the clipboard holds files, so a Paste row is worth drawing.
-   *  Undefined while the answer is in flight - the row appears when it lands
-   *  rather than being drawn disabled, because a verb that cannot work is
-   *  noise. */
-  canPaste?: boolean
-}
-
-/** An extraction started from a tree row, and what to say about it.
- *
- *  The archive PANEL has a progress track and a button that can say
- *  "Extracting…"; a context menu has neither, and it closes the moment the verb
- *  is picked. A 2GB archive takes minutes, and minutes of nothing is
- *  indistinguishable from a hang - the same lesson the panel's own progress
- *  reporting was written for - so the job gets a dialog of its own. */
-interface ArcJob {
-  path: string
-  name: string
-  pct: number | null
-  error?: string
-}
 
 /** What the search box can do, taught where you look for it: a placeholder
  *  cannot hold five lines and a help panel in a viewer's sidebar would be
@@ -311,9 +249,6 @@ export function Sidebar({
   // this handle stable, which the loading effect below depends on.
   const setState = onTree
   const [revealed, setRevealed] = useState<string | null>(null)
-  const [width, setWidth] = useState(loadWidth)
-  const [dragging, setDragging] = useState(false)
-  const [pointerResize, setPointerResize] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [arcJob, setArcJob] = useState<ArcJob | null>(null)
@@ -611,47 +546,19 @@ export function Sidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the bump alone; re-running per cache change would loop
   }, [refreshKey])
 
-  /* ---------- resizing ---------- */
+  /* ---------- resizing (sidebar/usePanelResize) ---------- */
 
-  const resize = useCallback((next: number) => {
-    const w = clampWidth(next)
-    setWidth(w)
-    widthPref.set(w)
-  }, [])
-
-  const onHandleDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.currentTarget.focus()
-    e.currentTarget.setPointerCapture(e.pointerId)
-    setPointerResize(true)
-    setDragging(true)
-  }, [])
-
-  const onHandleMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragging || !panel.current) return
-      const box = panel.current.getBoundingClientRect()
-      resize(right ? box.right - e.clientX : e.clientX - box.left)
-    },
-    [dragging, resize, right]
-  )
-
-  const onHandleUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.releasePointerCapture(e.pointerId)
-    setDragging(false)
-  }, [])
-
-  const onHandleKey = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      setPointerResize(false)
-      const wider = right ? 'ArrowLeft' : 'ArrowRight'
-      if (e.key === wider) resize(width + 16)
-      else if (e.key === (right ? 'ArrowRight' : 'ArrowLeft')) resize(width - 16)
-      else return
-      e.preventDefault()
-    },
-    [resize, width, right]
-  )
+  const {
+    width,
+    dragging,
+    onHandleDown,
+    onHandleMove,
+    onHandleUp,
+    resize,
+    onHandleKey,
+    setPointerResize,
+    pointerResize
+  } = usePanelResize({ panel, right })
 
   /* ---------- row actions ---------- */
 
@@ -1044,170 +951,48 @@ export function Sidebar({
     [order, sel]
   )
 
-  /* Drag and drop (#70): rows are cargo, folder rows are destinations. */
-  const [dropTarget, setDropTarget] = useState<string | null>(null)
-  /** The row under a drag, for the drop line (#126): a file row, or 'end'
-   *  for the space beneath the list, which means the root. */
-  const [dropRow, setDropRow] = useState<string | null>(null)
-  const hoverDrop = useCallback((dir: string | null, row: string | null = null): void => {
-    setDropTarget(dir)
-    setDropRow(dir === null ? null : row)
-  }, [])
-  const treeChildren = state.children
-  const onRowDragStart = useCallback(
-    (e: DragEvent, path: string): void => {
-      // Dragging a row that is part of a multi-selection takes all of it.
-      const items = selRef.current.items
-      const paths = items.has(path) && items.size > 1 ? [...items] : [path]
-      // Rows INSIDE an archive are its members (review of #300): carried as
-      // files they reached file:move as paths that are not on disk, and every
-      // drop failed. As members, a real folder extracts them and the same zip
-      // moves them, the Explorer's own drag.
-      const meta = treeChildren[parentDir(path)]?.archive
-      const entries = meta ? paths.map((p) => memberOf(meta, p)).filter((p): p is string => !!p) : []
-      if (meta && entries.length) {
-        setDrag({ kind: 'members', archive: meta.container, entries })
-        e.dataTransfer.setData(DRAG_MIME, 'members')
-        e.dataTransfer.effectAllowed = 'copyMove'
-        return
-      }
-      setDrag({ kind: 'files', paths })
-      e.dataTransfer.setData(DRAG_MIME, 'files')
-      e.dataTransfer.effectAllowed = 'move'
-    },
-    [treeChildren]
-  )
-  /** CUT is a mark, not a different clipboard (2026-09-03): the paths go on
-   *  the clipboard exactly as Copy puts them, and the mark makes the NEXT
-   *  paste a move - checked in main against what the clipboard then holds, so
-   *  a copy taken elsewhere in between quietly downgrades it to a copy.
-   *  Explorer interop is one-way: files cut here paste as copies there. */
-  const cutSet = useFileCut()
-  const copyMark = useCallback((paths: string[], cut: boolean): void => {
-    if (!paths.length) return
-    void copyFilePaths(paths, cut)
-  }, [])
+  const {
+    dropAt,
+    hoverDrop,
+    onDropOn,
+    dropDirAt,
+    onRowDragStart,
+    dropTarget,
+    dropRow
+  } = useTreeDrop({
+    state,
+    selRef,
+    scroller,
+    root,
+    setDroppedOn,
+    setSel,
+    setCursor,
+    onDropInto
+  })
 
-  // Byte progress lands on the job it was tagged with: several pastes can
-  // run at once, and the chip shows the oldest with a count of the rest.
-  useEffect(() => window.prism.onPasteProgress((m) => updateJob(m.jobId, m.pct)), [])
-
-  /** After main's answer (useFilePaste has said anything worth saying, and
-   *  ends the job even when the call is rejected). */
-  const onPasted = useCallback(
-    (r: PasteResult, dest: string): void => {
-      if (!r.pasted) return
-      // The pasted files become the selection, Explorer's way - now, and
-      // again after the watcher's refresh clears every mark (droppedOn).
-      if (r.paths.length) {
-        setDroppedOn(r.paths)
-        setSel({ anchor: r.paths[0], items: new Set(r.paths) })
-        setCursor(r.paths[0])
-        requestAnimationFrame(() => showRow(r.paths[0]))
-        // And it OPENS (owner, 2026-09-03): highlighted but still showing
-        // the old film read as the paste having gone somewhere else. A
-        // pasted folder is not a thing to view, so files only.
-        const first = r.paths[0]
-        void window.prism.statFile(first).then((st) => {
-          if (st && !st.isFolder) onOpenFile(first)
-        })
-      }
-      void load(dest, true)
-    },
-    [load, onOpenFile, showRow]
-  )
-  const runPaste = useFilePaste(onPasted, setPasteNote, PASTE_MESSAGES.refusedTab)
-
-  /**
-   * THE MARKS DECIDE WHAT A DELETE KEY BINS (review of #330), the Explorer
-   * list's rule. A row the cursor sits on but the marks do not light (Ctrl+
-   * Up/Down took the keyboard away from them, or Escape cleared them) is not
-   * what Delete, Ctrl+D or Shift+Delete take: they take the marks, or nothing
-   * when there are none. True when this answered the key. A lit cursor row
-   * keeps the old rule (the row, or the whole selection it is in).
-   */
-  const binMarks = useCallback(
-    (path: string): boolean => {
-    const lower = path.toLowerCase()
-    const items = [...selRef.current.items]
-    const marked = items.some((p) => p.toLowerCase() === lower)
-    const apart = !!apartAt && apartAt.toLowerCase() === lower
-    if (marked || !apart) return false
-    // Inside an archive the members are the archive menu's; nothing here.
-    if (items.some((p) => state.children[parentDir(p)]?.archive)) return true
-    if (items.length > 1) onDeleteMany(items)
-    else if (items.length === 1) {
-      const only = items[0]
-      const isFolder = paintRef.current.some(
-        (r) => r.kind === 'folder' && r.path.toLowerCase() === only.toLowerCase()
-      )
-      onDelete(only, baseName(only), isFolder)
-    }
-    return true
-    },
-    [apartAt, state.children, onDelete, onDeleteMany]
-  )
-
-  /** Ctrl+C / Ctrl+X / Ctrl+V in the tree (2026-09-03, owner). Behind the same
-   *  surface guard as Ctrl+A: the last press was in the panel, and nothing
-   *  else - search box, rename field, editor, terminal - holds the keyboard,
-   *  so every one of those keeps its own clipboard untouched. */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.altKey || e.metaKey) return
-      const a = document.activeElement as HTMLElement | null
-      // The typing guard: anything that owns its own keys keeps them - the
-      // search box, a rename field, the editor, the shell, a dialog. A FOCUSED
-      // VIDEO is not typing (2026-09-03, owner): clicking a film hands the
-      // element the keyboard, and Delete then reached nothing at all.
-      const typing =
-        !!a &&
-        a !== document.body &&
-        a.dataset.row === undefined &&
-        (a.matches(FIELD) || !!a.closest(`${EDITOR},${OVERLAY}`))
-      if (e.key === 'Delete' && !e.ctrlKey) {
-        // Delete on the cursor row from anywhere in the panel's reach. The
-        // row button handles its own when it is focused; this is for when
-        // the viewer took the focus with it. Shift+Delete is Delete (owner,
-        // #330: never permanent).
-        if (!hasFocus.current || typing || a?.dataset.row !== undefined) return
-        const cur = at
-        if (!cur) return
-        e.preventDefault()
-        if (binMarks(cur)) return
-        const items = selRef.current.items
-        if (items.size > 1 && items.has(cur)) return onDeleteMany([...items])
-        const isFolder = paintRef.current.some(
-          (r) => r.kind === 'folder' && r.path.toLowerCase() === cur.toLowerCase()
-        )
-        return onDelete(cur, baseName(cur), isFolder)
-      }
-      if (!e.ctrlKey || e.shiftKey) return
-      const k = e.key.toLowerCase()
-      if (k !== 'c' && k !== 'x' && k !== 'v') return
-      if (!hasFocus.current || typing) return
-      if (k === 'v') {
-        e.preventDefault()
-        // EXPLORER'S RULE (owner, 2026-09-03): Ctrl+V pastes into the folder
-        // that CONTAINS the highlighted row, never into the highlighted
-        // folder itself - "Cloud" highlighted under Documents pastes into
-        // Documents; a file inside Cloud pastes into Cloud. The keyboard
-        // should not care what kind of row the cursor is on. The row MENU's
-        // Paste on a folder still means "into this folder": that verb is
-        // explicit. Clamped to the root, which is the floor of the tree.
-        const cur = at
-        const parent = cur ? parentDir(cur) : root
-        runPaste(parent.toLowerCase().startsWith(root.toLowerCase()) ? parent : root)
-        return
-      }
-      const targets = selRef.current.items.size ? [...selRef.current.items] : at ? [at] : []
-      if (!targets.length) return
-      e.preventDefault()
-      copyMark(targets, k === 'x')
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [at, root, copyMark, runPaste, onDelete, onDeleteMany, binMarks])
+  const {
+    binMarks,
+    cutSet,
+    runPaste,
+    copyMark
+  } = useTreeClipboard({
+    setDroppedOn,
+    setSel,
+    setCursor,
+    showRow,
+    onOpenFile,
+    load,
+    setPasteNote,
+    selRef,
+    apartAt,
+    state,
+    onDeleteMany,
+    paintRef,
+    onDelete,
+    hasFocus,
+    at,
+    root
+  })
 
   /**
    * Extract a whole archive from its TREE ROW.
@@ -1258,57 +1043,6 @@ export function Sidebar({
       })
     })
   }, [])
-
-  /** The landing dir for a point in the panel: the row whose strip spans
-   *  that height (rows annotate their own with data-dropdir), else the root. */
-  const dropAt = (clientY: number): { dir: string; row: string | null } => {
-    const rows = scroller.current?.querySelectorAll<HTMLElement>('[data-dropdir]')
-    if (rows)
-      for (const el of rows) {
-        const r = el.getBoundingClientRect()
-        if (clientY >= r.top && clientY < r.bottom)
-          return { dir: el.dataset.dropdir ?? root, row: el.dataset.row ?? null }
-      }
-    // Beneath every row: the root, and the line goes under the last row.
-    return { dir: root, row: 'end' }
-  }
-  const dropDirAt = (clientY: number): string => dropAt(clientY).dir
-
-  const onDropOn = useCallback(
-    (e: DragEvent, folderPath: string): void => {
-      setDropTarget(null)
-      setDropRow(null)
-      const payload = dragPayload(e.dataTransfer)
-      setDrag(null)
-      // The DROPPED FILES become the marked rows (2026-09-03, owner -
-      // Explorer's way; it narrows the 2026-08-31 folder-mark rule). What you
-      // dragged has left where it was; where it ARRIVED is what you are now
-      // looking at. Best effort on the names: a keep-both rename lands under
-      // another name and simply goes unmarked.
-      const mark = (paths: string[]): void => {
-        const to = paths.length ? paths.map((q) => folderPath + '\\' + baseName(q)) : [folderPath]
-        setDroppedOn(to)
-        setSel({ anchor: to[0], items: new Set(to) })
-        setCursor(to[0])
-      }
-      if (payload) {
-        mark(payload.kind === 'files' ? payload.paths : [])
-        onDropInto(folderPath, payload)
-      } else {
-        // Nothing of ours: Explorer, then. Its files are outside the root, so
-        // main will refuse them - App says so rather than failing silently.
-        const outside = droppedPaths(e.dataTransfer)
-        if (outside.length) {
-          mark(outside)
-          // `external`: dropped on a zip node these are ADDED and left where
-          // they are (review of #300); without it the archive drop took them
-          // for Prism's own rows and sent the originals to the Recycle Bin.
-          onDropInto(folderPath, { kind: 'files', paths: outside, external: true })
-        }
-      }
-    },
-    [onDropInto]
-  )
 
   /**
    * KEEP THE KEYBOARD WHEN A ROW GOES AWAY (2026-09-01).
@@ -1419,141 +1153,33 @@ export function Sidebar({
     onNav(step)
     return () => onNav(null)
   }, [onNav, step])
-
-  /**
-   * THE COMMON KEYS IN THE TREE (#330; owner, 2026-10-07: "add common hotkeys
-   * to the explorer and project"), the Explorer list's set (lib/listKeys).
-   * Reached only with the focus inside the panel and past its typing guard.
-   * Marking is QUIET (#263): Shift and Ctrl with the arrows move the cursor
-   * and the marks and never open or play what they land on, which is why App
-   * leaves those chords to the tree. True when the key was taken; a taken key
-   * is claimed, so the player's window-wide keys (Ctrl+Space, Shift+Home,
-   * Alt+Left) and the PDF's F3 stand aside.
-   */
-  const typedTree = useRef({ text: '', at: 0 })
-  const rowOf = (path: string | null): (typeof rows)[number] | undefined =>
-    path ? rows.find((r) => r.path.toLowerCase() === path.toLowerCase()) : undefined
-  const onTreeKey = (e: ReactKeyboardEvent<HTMLElement>): boolean => {
-    const k = listKey(e)
-    const searching = !!query.trim()
-    if (!k) {
-      // TYPE TO JUMP (owner: "add it like the Explorer's"): a letter is taken
-      // only when it matches a row on screen; otherwise it still reaches the
-      // viewer (a film's k, j, l and m, a picture's f). Letters only: a digit
-      // is the player's seek and . and , its frame step, and a jump OPENS.
-      if (searching || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return false
-      if (!isJumpKey(e.key)) return false
-      const run = typedRun(typedTree.current, e.key, performance.now())
-      typedTree.current = run
-      const i = typeJump(
-        rows.map((r) => r.name),
-        at ? order.findIndex((p) => p.toLowerCase() === at.toLowerCase()) : -1,
-        run.text
-      )
-      if (i < 0) return false
-      land(rows[i])
-      return true
-    }
-    // Ctrl+A is the window listener's above (it predates this), and plain
-    // Back/Forward have no history here: Alt+Left and Alt+Right do nothing,
-    // but are still claimed, so a film behind the tree does not seek.
-    if (k === 'select-all') return false
-    if (k === 'back' || k === 'forward') return true
-    if (k === 'search') {
-      panel.current?.querySelector<HTMLInputElement>('input')?.focus()
-      return true
-    }
-    if (k === 'clear') {
-      if (!sel.items.size) return false
-      // A peek, the PDF's find bar, a menu: Escape is theirs to close first.
-      if (e.key === 'Escape' && nearerEscape()) return false
-      setSel(emptySelection)
-      // Nothing lit, the cursor's row included: it keeps the focus only.
-      setApartAt(at)
-      return true
-    }
-    // The rest act on the tree's own rows; while a search has replaced them
-    // they are claimed and do nothing.
-    if (searching) return true
-    const cur = rowOf(at)
-    const move = /^(extend|focus)-(up|down|home|end)$/.exec(k)
-    if (move) {
-      const from = cur ? rows.indexOf(cur) : -1
-      const to = stepTo(rows.length, from, move[2] as 'up' | 'down' | 'home' | 'end')
-      if (to === null) return true
-      const row = rows[to]
-      setCursor(row.path)
-      setApartAt(move[1] === 'focus' ? row.path : null)
-      if (move[1] === 'extend') setSel((s) => rangeSelect(order, { anchor: s.anchor ?? at, items: s.items }, row.path))
-      requestAnimationFrame(() => showRow(row.path, { focus: true }))
-      return true
-    }
-    if (k === 'toggle-mark') {
-      if (cur) {
-        setSel((s) => clickSelect(order, s, cur.path, { ctrl: true }))
-        // In or out, the row is lit by the marks alone from now on.
-        setApartAt(cur.path)
-      }
-      return true
-    }
-    if (k === 'parent') {
-      // Alt+Up: the row of the folder this one is in, as Backspace does for a
-      // row that is not an open folder. The root has no row of its own.
-      const up = cur ? rowOf(parentDir(cur.path)) : undefined
-      if (up) land(up)
-      return true
-    }
-    if (k === 'copy-paths') {
-      const paths = sel.items.size ? order.filter((p) => sel.items.has(p)) : cur ? [cur.path] : []
-      if (paths.length) void clipboardText(paths.join('\n'))
-      return true
-    }
-    if (!cur) return true
-    // Inside an archive the rows are its members: nothing here makes, bins or
-    // describes them (the archive's own menu does).
-    const member = !!memberMeta(cur.path)
-    if (k === 'open-new-tab') {
-      if (cur.isFolder && !member && fileKind(extOf(cur.name), cur.name) !== 'archive') onOpenNewTab(cur.path)
-      return true
-    }
-    if (member) return true
-    if (k === 'properties') {
-      const file = state.children[parentDir(cur.path)]?.files.find(
-        (f) => f.path.toLowerCase() === cur.path.toLowerCase()
-      )
-      setProps({ path: cur.path, name: cur.name, isFolder: cur.isFolder, size: file?.size })
-      return true
-    }
-    if (k === 'bin') {
-      // Ctrl+D and Shift+Delete are Delete, to the Recycle Bin (owner: Shift+
-      // Delete is not a permanent delete in Prism).
-      if (binMarks(cur.path)) return true
-      const items = selRef.current.items
-      if (items.size > 1 && items.has(cur.path)) onDeleteMany([...items])
-      else onDelete(cur.path, cur.name, cur.isFolder)
-      return true
-    }
-    if (k === 'new-folder') {
-      // In the folder row the cursor is on, or beside the file it is on.
-      const dir = cur.isFolder ? cur.path : parentDir(cur.path)
-      const dirName = baseName(dir)
-      if (fileKind(extOf(dirName), dirName) === 'archive' || !dir.toLowerCase().startsWith(root.toLowerCase()))
-        return true
-      void onNewFolder(dir).then((made) => {
-        if (!made) return
-        if (dir.toLowerCase() !== root.toLowerCase())
-          setState((s) => ({ ...s, expanded: new Set([...s.expanded, dir]) }))
-        void load(dir, true).then(() => {
-          setCursor(made)
-          setSel({ anchor: made, items: new Set([made]) })
-          setEditing(made)
-          requestAnimationFrame(() => showRow(made))
-        })
-      })
-      return true
-    }
-    return false
-  }
+  // What a key on a tree row does (sidebar/useTreeKeys).
+  const { onTreeKey } = useTreeKeys({
+    rows,
+    query,
+    at,
+    order,
+    land,
+    panel,
+    sel,
+    setSel,
+    setApartAt,
+    setCursor,
+    showRow,
+    memberMeta,
+    onOpenNewTab,
+    state,
+    setProps,
+    binMarks,
+    selRef,
+    onDeleteMany,
+    onDelete,
+    root,
+    onNewFolder,
+    setState,
+    load,
+    setEditing
+  })
 
   const rootListing = state.children[root]
   const overlay = !open && !!peek
@@ -1931,7 +1557,6 @@ export function Sidebar({
       {pasteNote && (
         <NoticeDialog title="Paste" message={pasteNote} button="Close" onClose={() => setPasteNote(null)} />
       )}
-
 
 
       {menu && archive && memberMeta(menu.path) && (
