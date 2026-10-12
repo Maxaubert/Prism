@@ -3,6 +3,7 @@ import { cp, mkdir, readdir, rename, rm, rmdir, stat } from 'fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { isInside, pathKey } from '@shared/path'
 import { uniqueNameAsync } from './fileOps'
+import { exists, isBusyError } from './fsUtil'
 
 // Moving files and folders between real folders - the "move" verb docs/features.md
 // reserved, decided 2026-08-22 and reachable only by dragging. Deliberately
@@ -26,22 +27,6 @@ export type MoveResult = {
 }
 
 const lower = (p: string): string => pathKey(resolve(p))
-
-/** Is anything at `p`? Asked off the main thread (owner, 2026-10-12, the 3.9 s
- *  tabs.json freeze: a drag of hundreds of files was hundreds of blocking
- *  probes). Anything that cannot be reached is absent, as existsSync said. */
-const exists = (p: string): Promise<boolean> =>
-  stat(p).then(
-    () => true,
-    () => false
-  )
-
-/** Windows' "another process has this open" (MEASURED 2026-09-13: EBUSY
- *  from a Node read stream on the file, and from ffmpeg reading it). */
-const isBusy = (e: unknown): boolean => {
-  const code = (e as NodeJS.ErrnoException)?.code
-  return code === 'EBUSY' || code === 'EPERM'
-}
 
 /** True when `dest` is `src` itself or lives inside it: moving a folder into
  *  its own subtree would eat it, and the OS error for it is inscrutable. */
@@ -139,7 +124,7 @@ async function mergeInto(
       out.moved.push({ from, to })
     } catch (e) {
       out.failed.push(from)
-      if (isBusy(e)) out.busy.push(from)
+      if (isBusyError(e)) out.busy.push(from)
     }
   }
   // Empty now, unless something above failed - in which case it stays, with
@@ -232,7 +217,7 @@ export async function moveEntries(
       out.moved.push({ from: p, to: target })
     } catch (e) {
       out.failed.push(p)
-      if (isBusy(e)) out.busy.push(p)
+      if (isBusyError(e)) out.busy.push(p)
     }
   }
   return out

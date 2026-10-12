@@ -4,6 +4,7 @@ import { access, mkdir, readFile, readdir, unlink, writeFile } from 'fs/promises
 import { join, resolve } from 'path'
 import { isInside } from '@shared/path'
 import { createConnection, createServer, type Server } from 'net'
+import { sleep } from './fsUtil'
 
 export interface IndexerOptions {
   binaryDirectory: string
@@ -69,7 +70,6 @@ const defaults: RuntimeDependencies = {
   pid: process.pid
 }
 
-const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
 const key = (path: string): string =>
   resolve(path)
     .replace(/[\\/]+$/, '')
@@ -181,7 +181,7 @@ export function createIndexerRuntime(
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error
         if (Date.now() > deadline) throw new Error('Indexer lifecycle busy', { cause: error })
-        await pause(40)
+        await sleep(40)
       }
     }
     try {
@@ -212,7 +212,7 @@ export function createIndexerRuntime(
     const deadline = Date.now() + 4000
     while (await running()) {
       if (Date.now() > deadline) throw new Error('Indexer still shutting down')
-      await pause(50)
+      await sleep(50)
     }
     await unlink(processFile).catch(() => {})
   }
@@ -292,7 +292,7 @@ export function createIndexerRuntime(
           const deadline = Date.now() + 3000
           while (!(await running())) {
             if (disposed || Date.now() > deadline) throw new Error('Indexer not ready')
-            await pause(75)
+            await sleep(75)
           }
         }
         knownRoots = roots

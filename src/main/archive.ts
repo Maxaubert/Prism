@@ -7,7 +7,6 @@ import { uniqueNameAsync } from './fileOps'
 import { createZipClient, type ZipClient, type ZipProc } from './zipClient'
 import {
   AES_METHOD,
-  exists,
   failOf,
   listZip,
   norm,
@@ -20,6 +19,7 @@ import {
   type MemberFail,
   type ZipEntryLike
 } from './zipShared'
+import { exists } from './fsUtil'
 
 export { setSevenExe, sevenZipExe, validMemberName } from './zipShared'
 export type { AddResult, ArchiveEntry, ArchiveStat, MemberFail } from './zipShared'

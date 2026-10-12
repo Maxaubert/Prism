@@ -1,9 +1,10 @@
 import AdmZip from 'adm-zip'
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
-import { access, mkdtemp } from 'fs/promises'
+import { mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, join } from 'path'
+import { exists } from './fsUtil'
 
 // What the zip worker (zipOps.ts) and main's own zip code (archive.ts) share
 // (owner, 2026-10-12, zip work off the main process): the types, the member
@@ -57,14 +58,6 @@ export type ZipEntryLike = {
   getData: (pass?: string) => Buffer
   getCompressedData: () => Buffer
 }
-
-/** existsSync's answer without the wait (owner, 2026-10-12, main never waits
- *  on the disk). */
-export const exists = (p: string): Promise<boolean> =>
-  access(p).then(
-    () => true,
-    () => false
-  )
 
 export const failOf = (e: ZipEntryLike, hasPassword: boolean): MemberFail => {
   if (e.header.method === AES_METHOD) return 'aes'

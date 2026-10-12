@@ -7,6 +7,7 @@ import { desktopClosed } from './desktopAccess'
 import { listNames, statDetails, type FileDetail } from './dirList'
 import type { ListingCache } from './listingCache'
 import { createPrefetchQueue } from './listingPrefetch'
+import { sleep } from './fsUtil'
 
 /**
  * THE EXPLORER'S LISTINGS, NEVER A LOADING SCREEN (#271; owner, 2026-10-04:
@@ -79,8 +80,6 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
   })
   const timer = setTimeout(() => settle(), settleMs)
   timer.unref?.()
-
-  const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
 
   /** Stat the files of a names-first answer in the background and stream the
    *  answers to the page; the finished listing goes to the cache. */

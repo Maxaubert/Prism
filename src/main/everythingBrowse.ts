@@ -5,8 +5,9 @@ import { dirname, resolve, sep } from 'path'
 import { managedIndexerRuntime, type IndexerEndpoint } from './indexerRuntime'
 import { findRunningEverything } from './existingEverything'
 import type { BrowseSearchWindowRequest } from '@shared/browse'
+import { createLru } from './lru'
 
-const indexedRoots = new Map<string, number>()
+const indexedRoots = createLru<string, number>(64)
 // ES 1.1.0.38 uses UINT64_MAX to disable a count cap inherited from es.ini.
 const ES_UNLIMITED_COUNT = '18446744073709551615'
 export function clearEverythingBrowseCache(): void {
@@ -258,7 +259,7 @@ async function searchEndpoint(
     const prefix = directory.endsWith(sep) ? directory : directory + sep
     const underRoot = (entry: IndexedEntry): boolean =>
       resolve(entry.filename).toLowerCase().startsWith(prefix)
-    const covered = (indexedRoots.get(key) ?? 0) > Date.now() || rows.some(underRoot)
+    const covered = (indexedRoots.peek(key) ?? 0) > Date.now() || rows.some(underRoot)
     // A running Everything service need not index removable or network drives.
     // Probe coverage once per location instead of mistaking that for no matches.
     if (!covered) {
@@ -274,9 +275,7 @@ async function searchEndpoint(
       ])
       if (!probe.some(underRoot)) return null
     }
-    indexedRoots.delete(key)
     indexedRoots.set(key, Date.now() + 30000)
-    if (indexedRoots.size > 64) indexedRoots.delete(indexedRoots.keys().next().value!)
     return rows
   } catch {
     return null

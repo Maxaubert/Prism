@@ -68,19 +68,12 @@ export function sevenFailReason(raw: string): 'password' | 'failed' {
   return wanted.test(raw) ? 'password' : 'failed'
 }
 import { existsSync } from 'fs'
-import { access, cp, mkdtemp, rename, rm } from 'fs/promises'
+import { cp, mkdtemp, rename, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ArchiveEntry, MemberFail } from './archive'
 import { uniqueNameAsync } from './fileOps'
-
-/** existsSync's answer without the wait (owner, 2026-10-12, main never waits
- *  on the disk): arrowing through a 7z or rar member asks this every time. */
-const exists = (p: string): Promise<boolean> =>
-  access(p).then(
-    () => true,
-    () => false
-  )
+import { exists } from './fsUtil'
 
 /**
  * Archives that are not zip: 7z, rar, tar, gz, bz2, xz, iso, cab.

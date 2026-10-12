@@ -1,6 +1,7 @@
 import { spawn } from 'child_process'
 import { holders } from './holders'
 import { stat } from 'fs/promises'
+import { createLru } from './lru'
 
 /**
  * The waveform transport's amplitude envelope, computed HERE rather than in the
@@ -77,8 +78,8 @@ export function normalise(peaks: readonly number[]): number[] {
 }
 
 /** Keyed by path + mtime + size: the same file answers instantly next time. */
-const cache = new Map<string, number[]>()
-const MAX_CACHED = 40
+// Oldest first, never touched on a hit: this is a viewer, not a library.
+const cache = createLru<string, number[]>(40)
 
 /** Async (owner, 2026-10-12, main never waits on the disk): this ran on every
  *  audio or video opened, twice on a miss. */
@@ -99,7 +100,7 @@ async function key(file: string): Promise<string> {
  */
 export async function loadPeaks(ffmpeg: string, file: string, duration: number): Promise<number[] | null> {
   const k = await key(file)
-  const hit = cache.get(k)
+  const hit = cache.peek(k)
   if (hit) return hit
   if (!Number.isFinite(duration) || duration <= 0) return null
 
@@ -123,8 +124,6 @@ export async function loadPeaks(ffmpeg: string, file: string, duration: number):
       if (!any) return resolve(null)
       const out = normalise(acc.peaks)
       cache.set(k, out)
-      // Oldest first: this is a viewer, not a library.
-      if (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value as string)
       resolve(out)
     }
     proc.on('error', () => resolve(null))
@@ -136,5 +135,5 @@ export async function loadPeaks(ffmpeg: string, file: string, duration: number):
  *  (one stat, for the key). A Promise: a caller must await it, since the
  *  Promise itself is always truthy. */
 export async function cachedPeaks(file: string): Promise<number[] | null> {
-  return cache.get(await key(file)) ?? null
+  return cache.peek(await key(file)) ?? null
 }

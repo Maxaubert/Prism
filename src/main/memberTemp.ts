@@ -1,7 +1,8 @@
 import { createHash } from 'crypto'
 import { rmSync } from 'fs'
-import { access, mkdir, readdir, rm, stat, statfs } from 'fs/promises'
+import { mkdir, readdir, rm, stat, statfs } from 'fs/promises'
 import { basename, isAbsolute, join, relative, resolve } from 'path'
+import { exists } from './fsUtil'
 
 /**
  * THE MEMBER TEMP FOLDER (#300). A file inside a zip is a place in the
@@ -42,14 +43,6 @@ export interface MemberSlot {
   /** Where the file will be (or is), named as the member is. */
   file: string
 }
-
-/** existsSync's answer without the wait (owner, 2026-10-12, main never waits
- *  on the disk): this is asked on every click and arrow through a zip. */
-const exists = (p: string): Promise<boolean> =>
-  access(p).then(
-    () => true,
-    () => false
-  )
 
 interface Held {
   file: string

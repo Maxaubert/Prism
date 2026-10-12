@@ -28,6 +28,7 @@
  */
 import { promises as fsp } from 'fs'
 import { dirname } from 'path'
+import { writeAtomic } from './latestWrite'
 
 export interface Memory {
   /** Seconds into the file. */
@@ -205,14 +206,9 @@ export class Positions {
         // A tmp file swapped in by a rename, so a crash mid-write leaves the
         // last whole file rather than half of a new one. Saves run one at a
         // time (`writing`), so one tmp name is enough.
-        const tmp = `${this.file}.tmp`
-        try {
-          await fsp.writeFile(tmp, JSON.stringify(Object.fromEntries(this.marks)))
-          await fsp.rename(tmp, this.file)
-        } catch (err) {
-          await fsp.rm(tmp, { force: true }).catch(() => undefined)
-          throw err
-        }
+        await writeAtomic(this.file, JSON.stringify(Object.fromEntries(this.marks)), {
+          tmp: `${this.file}.tmp`
+        })
       })
       .catch(() => undefined)
     return this.writing

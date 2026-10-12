@@ -206,6 +206,11 @@ Filesmith's conventions.
     `samePath`, `isInside`, and the one natural-order collator `naturalCompare` / `byName`).
     Pure strings, so the phone uses it too; not the root wall (that stays canonical, in main).
   - which files are markdown: `isMarkdown` in `src/shared/fileKind.ts`.
+  - main's small fs answers: `src/main/fsUtil.ts` (`exists`, `sleep`, `isBusyError`).
+  - a file written whole or not at all: `writeAtomic` / `writeAtomicSync` (quit only) in
+    `src/main/latestWrite.ts`, beside `latestWriter`. Every state file goes through them.
+  - userData paths: `src/main/paths.ts` (`userPaths.tabs()`, `.converted()`, `.comics()`, ...).
+  - a small newest-N cache: `src/main/lru.ts` (`createLru(max)`; `get` touches, `peek` does not).
 
 ## Reuse from Filesmith (becomes `prism-core`)
 
