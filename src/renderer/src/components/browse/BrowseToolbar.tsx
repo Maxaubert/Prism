@@ -158,6 +158,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
         <nav
           className="browse-path browse-field"
           aria-label="Folder path"
+          data-path={props.directory}
           // The path on the pointer only while the crumbs are cut off.
           onMouseEnter={(event) => {
             const crumbs = event.currentTarget.querySelector<HTMLElement>('.browse-crumbs')
