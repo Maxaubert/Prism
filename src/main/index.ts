@@ -9,7 +9,6 @@ import {
   ipcMain,
   dialog,
   crashReporter,
-  nativeTheme,
   utilityProcess,
   Menu,
   powerMonitor,
@@ -17,37 +16,30 @@ import {
   session
 } from 'electron'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync } from 'fs'
 import {
   copyFile,
   mkdir,
   mkdtemp,
   open as openFile,
   readdir,
-  readFile,
   rm,
   stat,
   statfs,
   writeFile
 } from 'fs/promises'
-import { homedir, networkInterfaces, tmpdir } from 'os'
+import { homedir, tmpdir } from 'os'
 import { execFile, spawn } from 'child_process'
 import { copyWindowsFiles, readWindowsFiles } from './fileClipboard'
 import {
-  borderColourForWindow,
-  hwndOf,
-  initDwmHelper,
-  setBorder,
-  setCornersRounded
+  initDwmHelper
 } from './dwmHelper'
 import { pathsFromArgv, pathsFromArgvAsync } from './argv'
 import { createWinEShortcut } from './winEShortcut'
-import { restoredWindow, type WindowState } from './windowSize'
 import { createWinERequests, winERequest } from './winERequests'
 import {
   cleanExplorerWindows,
   explorerWindowOwner,
-  hasOtherExplorerWindows,
   launchExplorerWindow,
   markExplorerWindow
 } from './explorerWindow'
@@ -83,22 +75,15 @@ import { FolderSizeCache } from './folderSizeCache'
 import { getIndexedFolderSizes } from './everythingBrowse'
 import { initializeIndexerRuntime, indexerInstance } from './indexerRuntime'
 import { findRunningEverything } from './existingEverything'
-import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
+import { type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
 import { Positions } from './positions'
 import { holders } from './holders'
 import { Thumbs } from './thumbs'
-import { parseStore, serializeStore, type PhoneStore } from './phone/store'
-import { lanAddresses } from './phone/lan'
-import { pairLink } from './phone/routes'
-import { qrSvg } from './phone/qr'
-import { forget as forgetPhone } from './phone/pairing'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
-import { readTabs, restoredFileIndex, tabsWriter, type SavedTabs } from './tabs'
-import { latestWriter, writeAtomic } from './latestWrite'
+import { readTabs, type SavedTabs } from './tabs'
 import { userPaths } from './paths'
-import { CODEX_RESUME, claudeSessionsAsync } from 'prism-term-core/main/agentResume'
 import { registerTermIpc } from 'prism-term-core/main/ipc'
 import { registerDictationIpc } from 'prism-term-core/main/dictationIpc'
 import { detectShells } from 'prism-term-core/main/shells'
@@ -160,10 +145,8 @@ import {
   type ArchiveStat
 } from './archive'
 import { insideSelf, moveEntries } from './moveOps'
-import { installUpdate, updateCalls, watchForUpdates, type UpdateInfo } from './update'
 import {
   previewUpdate,
-  runPreviewInstall,
   wantsPreview
 } from 'prism-term-core/main/updatePreview'
 import { crashBudget } from './crashBudget'
@@ -172,7 +155,7 @@ import { guardWindow, pageGone } from './windowGuard'
 import pkg from '../../package.json'
 import { fileKind, isMarkdown } from '@shared/fileKind'
 import { samePath } from '@shared/path'
-import type { BrowseDirectory, BrowseSearchResult } from '@shared/browse'
+import type { BrowseSearchResult } from '@shared/browse'
 import type {
   ArchiveListing,
   DirListing,
@@ -180,17 +163,33 @@ import type {
   OpenPayload,
   OpenWithApp,
   MediaProbe,
-  PhoneState,
   RenameResult,
   TextRead,
-  WriteResult,
-  FileMemoryPatch
+  WriteResult
 } from '@shared/types'
 import { exists } from './fsUtil'
+import { E2E, appState } from './appState'
 import { createPathWall } from './pathWall'
 import { MEDIA_SCHEME, createMediaServer } from './mediaProtocol'
 import { heicToJpeg } from './heicClient'
 import { ffmpegTools, fluidTools, sevenExe } from './bundledTools'
+import { createTabsSession } from './tabsSession'
+import { offerUpdate, startUpdates, updateOffered } from './updateFlow'
+import { openDialog, pickFiles, pickFolder, saveDialog } from './dialogs'
+import {
+  registerPositionsIpc,
+  startPhoneService,
+  type PhoneHooks,
+  type PhoneServerDeps
+} from './phone'
+import {
+  applyDwmBorder,
+  applyMaterial,
+  raise,
+  readWindowState,
+  registerWindowIpc,
+  watchWindowState
+} from './windowChrome'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -336,21 +335,6 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-
-/** Native dialogs are OWNED by the window (2026-08-28). Unparented, Windows
- *  makes them modeless: a click on Prism buries the picker, and in fullscreen
- *  it never shows at all, which reads as the app hanging. Before there is a
- *  window there is nothing to own them, so those keep the old shape. */
-function openDialog(opts: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
-  return mainWindow ? dialog.showOpenDialog(mainWindow, opts) : dialog.showOpenDialog(opts)
-}
-
-/** The same, for saving. Parented for the same reason: an unparented dialog is
- *  modeless, and a fullscreen picker never shows at all. */
-function saveDialog(opts: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue> {
-  return mainWindow ? dialog.showSaveDialog(mainWindow, opts) : dialog.showSaveDialog(opts)
-}
-
 /**
  * Build the open payload for a path: the folder's viewable siblings, the index
  * of the opened file (so the renderer can arrow through them), and the root.
@@ -384,21 +368,6 @@ async function folderPayload(dir: string): Promise<OpenPayload | null> {
   return { files, index: files.length ? 0 : -1, root: dir }
 }
 
-let mainWindow: BrowserWindow | null = null
-let installingUpdate = false
-/** The newest update offer (#168), remembered so a page that loads after it
- *  was made still hears about it (`update:announce`), and so `update:install`
- *  can tell a preview from a release by what main ITSELF offered, never by what
- *  the page sent. Up here, beside the lifecycle, because a SECOND launch can
- *  ask for the preview too (`Prism.exe --preview-update` while Prism is
- *  resident, which is the likely way the flag gets used). */
-let pendingUpdate: UpdateInfo | null = null
-/** The install that is running, if one is: what `update:cancel` aborts. */
-let updateRun: AbortController | null = null
-function offerUpdate(info: UpdateInfo): void {
-  pendingUpdate = info
-  mainWindow?.webContents.send('update:available', info)
-}
 const extraWindowOwner = explorerWindowOwner(userPaths.root(), process.argv)
 const preferencesOwner = extraWindowOwner ?? userPaths.root()
 const windowPreferences = createWindowPreferences(preferencesOwner, !!extraWindowOwner)
@@ -487,7 +456,7 @@ async function archiveRead(tabId: string, path: string, hops = 0): Promise<Brows
 const explorerListings = createExplorerListings({
   cache: listingCache,
   send: (channel, payload) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+    if (appState.mainWindow && !appState.mainWindow.isDestroyed()) appState.mainWindow.webContents.send(channel, payload)
   },
   localFixed: isLocalFixed,
   archive: archiveRead,
@@ -496,13 +465,20 @@ const explorerListings = createExplorerListings({
   delayMs: process.argv.includes('--e2e') ? Number(process.env.PRISM_E2E_LIST_DELAY) || 0 : 0,
   detailsDelayMs: process.argv.includes('--e2e') ? Number(process.env.PRISM_E2E_DETAILS_DELAY) || 0 : 0
 })
+/** The tab strip across launches (tabsSession.ts). */
+const { restoreTabs, saveTabs, flushTabs } = createTabsSession({
+  cachedListing: (path) => explorerListings.cachedAsync(path),
+  archiveRead: (tabId, path) => archiveRead(tabId, path),
+  buildPayload: (p, root) => buildPayload(p, root),
+  folderPayload: (dir) => folderPayload(dir)
+})
 // E2E only: a first run's home folder is a fixture, never the machine's own.
 if (process.argv.includes('--e2e') && process.env.PRISM_E2E_HOME) app.setPath('home', process.env.PRISM_E2E_HOME)
 let preferencesLoaded!: () => void
 const preferencesReady = new Promise<void>((resolve) => {
   preferencesLoaded = resolve
 })
-const winERequests = createWinERequests((id) => mainWindow?.webContents.send('win-e:open', id))
+const winERequests = createWinERequests((id) => appState.mainWindow?.webContents.send('win-e:open', id))
 let pendingOpen: Array<{ path: string; dir: boolean }> = []
 /** Second-instance handoffs, read one after another so they keep arrival order. */
 let handoffs: Promise<void> = Promise.resolve()
@@ -512,15 +488,8 @@ let startupRestored = false
  *  consent the root wall exists to ask for. */
 const pickedSubs = new Set<string>()
 
-/** The renderer's editor holds unsaved text. Mirrored here so `close` can ask. */
-let editorDirty = false
 /** Kills dictation's children (the speech server, the media helper). */
 let stopDictation: () => void = () => {}
-/** Mirrored from the renderer: an agent is MID-ANSWER in some shell. Holds the
- *  window exactly as unsaved text does (prism-term-core's close rule, #154). */
-let agentBusy = false
-/** The user has answered the "unsaved changes" question: let the close through. */
-let closeConfirmed = false
 
 async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
   // A FILE from outside goes to the Explorer tab (owner, 2026-09-22: "that file
@@ -531,420 +500,17 @@ async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
   // its place behind the restore.
   if (!target.dir) {
     const explorerFile: OpenPayload = { explorerFile: target.path, files: [], index: -1, root: dirname(target.path) }
-    mainWindow?.webContents.send('open:file', explorerFile)
+    appState.mainWindow?.webContents.send('open:file', explorerFile)
     return
   }
   // A FOLDER roots there and tells the renderer so, which is what lets the
   // "New projects show" setting decide whether that lands on the first file, a
   // terminal, or nothing.
   const built = await folderPayload(target.path)
-  if (built && mainWindow) mainWindow.webContents.send('open:file', { ...built, folder: true as const })
+  if (built && appState.mainWindow) appState.mainWindow.webContents.send('open:file', { ...built, folder: true as const })
 }
 
-const TABS_STATE = userPaths.tabs
 /** The phone switch, its port and the paired phones (#104). */
-const PHONE_STATE = userPaths.phone
-
-/**
- * An Explorer tab's payload, from the listing cache when it has the folder
- * and from a names-only read (1 to 3 ms) when it does not (#271). The folder
- * is the one the tab was SHOWING (`browse.path`), not its root: the root's
- * listing was read here before and thrown away, and the page then read the
- * folder it actually shows a second time.
- */
-async function explorerRestoreListing(
-  tabId: string,
-  t: { root: string; browse?: { path: string } }
-): Promise<BrowseDirectory | null> {
-  const shown = t.browse?.path && t.browse.path !== t.root ? t.browse.path : null
-  for (const path of shown ? [shown, t.root] : [t.root]) {
-    const cached = await explorerListings.cachedAsync(path)
-    if (cached) return cached
-    // THE SHOWN FOLDER GETS A TIME LIMIT, THE ROOT DOES NOT (review of #271).
-    // Reading `browse.path` is new: the old restore read only the root. A
-    // share that has gone offline answers a stat only at the SMB timeout,
-    // tens of seconds, and the cache never holds a network folder, so that
-    // read is live. Past the limit the root stands in, as it did before, and
-    // the page reads the shown folder itself. The root keeps its old,
-    // unlimited read: a tab whose root cannot be read is not restored.
-    // A tab left inside a zip comes back there (#300).
-    const reading = archiveRead(tabId, path).then((inside) =>
-      inside !== undefined ? inside : browseDirectory(tabId, path, 'names')
-    )
-    const read =
-      path === shown
-        ? await Promise.race([reading, new Promise<null>((done) => setTimeout(() => done(null), SHOWN_FOLDER_LIMIT_MS))])
-        : await reading
-    if (read && !read.listing.unreadable) return { path: read.path, listing: read.listing }
-  }
-  return null
-}
-
-/** How long the restore waits for the folder an Explorer tab was showing
- *  before it falls back to the root. A names read is 1 to 3 ms warm; a cold
- *  local disk after a reboot is tens of ms. */
-const SHOWN_FOLDER_LIMIT_MS = 750
-/** How long the other tabs wait for the Explorer tabs before they go too. The
- *  Explorer goes first so it has the disk to itself, but a tab that is slow
- *  (an offline root, a Claude transcript lookup) must hold only itself. */
-const EXPLORER_WAVE_LIMIT_MS = 500
-
-/**
- * Restore last session's strip: register each surviving root so the wall
- * accepts it, then hand the renderer the payloads to rebuild the tabs from.
- *
- * EXPLORER TABS FIRST, EVERYTHING ELSE AS IT IS READY (#271). The first
- * Explorer rows used to wait on every saved tab in turn: each project's
- * folder read and each Claude transcript lookup. Now the Explorer payloads
- * go first, each carrying its cached or names-only listing, and the project
- * tabs follow in parallel, each sent when it is ready. `restoreOrder` is the
- * saved position, and the page puts each tab there, so the strip comes back
- * in SAVED order however the payloads arrive. Returns whether a pinned
- * Explorer tab was sent.
- */
-async function restoreTabs(send: (payload: OpenPayload) => void): Promise<boolean> {
-  const saved = readTabs(TABS_STATE())
-  const ids = saved.tabs.map((t, i) => t.id ?? `restored-${i}-${Date.now()}`)
-  for (const [i, t] of saved.tabs.entries()) {
-    // The SAVED root, not the file's folder: navigating into a subfolder and
-    // reopening there used to leave the tab rooted at the subfolder, because
-    // the payload was rebuilt from the file alone and root followed it. The
-    // wall has to be registered here, since buildPayload only does that when
-    // it is inventing the root itself.
-    const restoreTabId = ids[i]
-    if (t.role !== 'explorer') addRoot(t.root)
-    else grantDesktopDirectory(restoreTabId, t.root)
-    for (const pane of t.panes ?? [])
-      if (pane.termSlot === undefined) grantDesktopDirectory(restoreTabId, dirname(pane.path))
-    if (t.file) grantDesktopDirectory(restoreTabId, dirname(t.file))
-    if (t.cwd) grantDesktopDirectory(restoreTabId, t.cwd)
-    for (const path of t.open ?? []) grantDesktopDirectory(restoreTabId, path)
-    for (const location of t.browse?.history ?? [])
-      grantDesktopDirectory(restoreTabId, location.path)
-    if (t.browse) grantDesktopDirectory(restoreTabId, t.browse.path)
-  }
-  // Two tabs on the SAME root can each hold their own claude conversation;
-  // they take the folder's sessions newest-first, one each, never the same
-  // one twice. (Which conversation belonged to which tab is unknowable after
-  // the fact - newest-first in strip order is the honest guess.) Decided
-  // here, in strip order, so the lookups can then run in parallel. One lookup
-  // per folder, shared by its tabs.
-  const slot = new Map<number, { cwd: string; n: number }>()
-  const perCwd = new Map<string, number>()
-  for (const [i, t] of saved.tabs.entries()) {
-    if (!t.agent || !t.term || t.agent === 'codex') continue
-    // THE FOLDER THE SHELL WAS IN, not the tab's root (2026-09-09): "Open
-    // terminal here" and a cd inside the root both move the shell without
-    // moving the tab, and claude records its conversation under the cwd it
-    // was launched in. Looking the resume up by root therefore handed a
-    // subfolder's tab the ROOT's newest conversation - a resume of the
-    // wrong session, which is worse than none - and the shell came back in
-    // the wrong folder to boot. `cwd` is already checked to be the root or
-    // inside it, so this narrows the lookup and never widens it.
-    const cwd = t.cwd ?? t.root
-    const key = cwd.toLowerCase()
-    const n = perCwd.get(key) ?? 0
-    perCwd.set(key, n + 1)
-    slot.set(i, { cwd, n })
-  }
-  const sessions = new Map<string, Promise<string[]>>()
-  // OFF MAIN'S THREAD (2026-09-22, the "soft lock on first launch"): a folder
-  // claude has worked in holds thousands of transcripts, and the synchronous
-  // walk stat'ed every one while the window stood still.
-  const sessionsOf = (cwd: string): Promise<string[]> => {
-    const key = cwd.toLowerCase()
-    let found = sessions.get(key)
-    if (!found) sessions.set(key, (found = claudeSessionsAsync(cwd).catch(() => [])))
-    return found
-  }
-  // Every lookup starts NOW (review of #271), so an Explorer tab that hosted
-  // claude overlaps its transcript scan with its listing read.
-  for (const s of slot.values()) void sessionsOf(s.cwd)
-  const finish = async (i: number, payload: OpenPayload, listing?: BrowseDirectory): Promise<OpenPayload> => {
-    const t = saved.tabs[i]
-    // A claude session resumes by ID - a session claude itself recorded for
-    // this folder. No session on disk means no resume at all: never a bare
-    // `--continue` guessing at a conversation. Codex needs no lookup at all:
-    // `codex resume --last` continues the most recent session FOR THIS
-    // FOLDER (its picker filters by cwd), so the marker is enough and the
-    // shell starts in the tab's root anyway.
-    let resume: string | null = null
-    if (t.agent === 'codex' && t.term) resume = CODEX_RESUME
-    else {
-      const s = slot.get(i)
-      if (s) resume = (await sessionsOf(s.cwd))[s.n] ?? null
-    }
-    // SAVED order, exactly: the old active-goes-last splice scrambled the
-    // strip. The active one carries a flag instead and the renderer brings
-    // it to the front without moving it.
-    return {
-      ...payload,
-      index: restoredFileIndex(t, payload.index),
-      restore: true,
-      restoreTabId: ids[i],
-      restoreOrder: i,
-      role: t.role,
-      pinned: t.pinned,
-      ...(t.browse ? { browse: t.browse } : {}),
-      ...(t.panes ? { panes: t.panes } : {}),
-      ...(i === saved.active ? { restoreActive: true } : {}),
-      ...(t.term ? { term: t.term } : {}),
-      ...(t.term && t.cwd ? { termCwd: t.cwd } : {}),
-      ...(t.terms && t.terms > 1 ? { terms: t.terms } : {}),
-      ...(t.open?.length ? { open: t.open } : {}),
-      ...(resume ? { agentResume: resume } : {}),
-      ...(listing ? { listing } : {})
-    }
-  }
-  let pinnedSent = false
-  // Wave one: the Explorer tabs, from the cache or a names-only read.
-  const explorers = saved.tabs.flatMap((t, i) => (t.role === 'explorer' && !t.file ? [i] : []))
-  const waveOne = Promise.allSettled(
-    explorers.map(async (i) => {
-      const t = saved.tabs[i]
-      const listing = await explorerRestoreListing(ids[i], t)
-      if (!listing) return
-      const files = listing.path.toLowerCase() === resolve(t.root).toLowerCase() ? listing.listing.files : []
-      const payload = await finish(i, { root: t.root, files, index: -1 }, listing)
-      if (payload.pinned) pinnedSent = true
-      send(payload)
-    })
-  )
-  // Wave two: everything else, each sent when it is ready, once the Explorer
-  // tabs have gone or EXPLORER_WAVE_LIMIT_MS has passed, whichever is first.
-  let limit: NodeJS.Timeout | undefined
-  await Promise.race([
-    waveOne,
-    new Promise<void>((done) => {
-      limit = setTimeout(done, EXPLORER_WAVE_LIMIT_MS)
-    })
-  ])
-  clearTimeout(limit)
-  const rest = saved.tabs.flatMap((_t, i) => (explorers.includes(i) ? [] : [i]))
-  const waveTwo = Promise.allSettled(
-    rest.map(async (i) => {
-      const t = saved.tabs[i]
-      const payload = t.file
-        ? await buildPayload(t.file, t.root)
-        : t.role === 'explorer'
-          ? null
-          : await folderPayload(t.root)
-      if (!payload) return
-      const done = await finish(i, payload)
-      if (done.role === 'explorer' && done.pinned) pinnedSent = true
-      send(done)
-    })
-  )
-  await Promise.all([waveOne, waveTwo])
-  return pinnedSent
-}
-
-/** Save on a delay, as the window state does: switching tabs with the arrow
- *  keys fires this continuously and the disk need not hear about each one. */
-let tabsTimer: NodeJS.Timeout | null = null
-let tabsPending: SavedTabs | null = null
-const tabsFile = tabsWriter(TABS_STATE)
-function saveTabs(state: SavedTabs): void {
-  tabsPending = state
-  if (tabsTimer) clearTimeout(tabsTimer)
-  tabsTimer = setTimeout(() => {
-    tabsTimer = null
-    if (tabsPending) void tabsFile.write(tabsPending)
-  }, 400)
-}
-
-/** Close flushes the debounce: a report still in its 400ms window (an agent
- *  flag lands up to 2.5s after claude appears) must not die with the app -
- *  a lost last write is a Claude session that never resumes. */
-function flushTabs(): void {
-  if (tabsTimer) {
-    clearTimeout(tabsTimer)
-    tabsTimer = null
-  }
-  if (tabsPending) tabsFile.flushSync(tabsPending) // sync-ok: window close, which may be the quit; the last strip must be down
-}
-
-/**
- * Where the window was last time.
- *
- * Every launch opened at 1180x780 wherever Windows felt like putting it, so
- * anyone who wanted it bigger resized it again on every single file they opened.
- * The state is one small file in userData: size, position, and whether it was
- * maximised. What comes back is decided in windowSize.ts: File Explorer's size
- * until the user drags it, and never maximised (owner, 2026-10-11).
- *
- * It is checked against the displays actually attached before it is used. A
- * window remembered on a second monitor that is no longer there would otherwise
- * open somewhere nobody can reach it.
- */
-/** What is saved: the un-maximised bounds, and whether it was maximised (written, never
- *  restored since 2026-10-11; see windowSize.ts). */
-interface SavedWindow extends WindowState {
-  maximised?: boolean
-}
-
-const WINDOW_STATE = userPaths.windowState
-
-function readWindowState(): WindowState {
-  let saved: unknown = null
-  try {
-    // sync-ok: startup, the size is needed before the BrowserWindow is built
-    saved = JSON.parse(readFileSync(WINDOW_STATE(), 'utf8'))
-  } catch {
-    /* no file yet, or one written by something else */
-  }
-  return restoredWindow(
-    saved,
-    screen.getAllDisplays(),
-    screen.getPrimaryDisplay().workArea
-  )
-}
-
-/** Save on a delay: a drag fires this continuously, and the disk does not need
- *  to hear about every pixel of it. The write is the tab strip's kind (owner,
- *  2026-10-12, the 3.9 s tabs.json freeze): off main, swapped in whole, newest
- *  last. */
-const windowStateFile = latestWriter(WINDOW_STATE)
-function watchWindowState(win: BrowserWindow): void {
-  let timer: NodeJS.Timeout | null = null
-  const save = (): void => {
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(() => {
-      if (win.isDestroyed() || win.isMinimized()) return
-      // getNormalBounds is the un-maximised size, which is what should come back
-      // when the window is restored.
-      const b = win.getNormalBounds()
-      const state: SavedWindow = { ...b, maximised: win.isMaximized() }
-      void windowStateFile.write(JSON.stringify(state))
-    }, 400)
-  }
-  // Listed one by one: BrowserWindow's overloads are per event name, so a loop
-  // over a union of them has no single signature to match.
-  win.on('resize', save)
-  win.on('move', save)
-  win.on('maximize', save)
-  win.on('unmaximize', save)
-  win.on('close', save)
-  win.on('close', flushTabs)
-  // Every route out of the window ends here: the title bar's X, Alt+F4, the
-  // taskbar, Escape. Unsaved text stops all of them until the user answers,
-  // and so does an agent that is mid-answer: the renderer knows which of the
-  // two it is, and asks about the text first.
-  win.on('close', (e) => {
-    if ((!editorDirty && !agentBusy) || closeConfirmed) return
-    e.preventDefault()
-    win.webContents.send('app:ask-close')
-    // A minimised or background window can't show its own dialog usefully.
-    if (win.isMinimized()) win.restore()
-    if (!E2E) win.focus()
-  })
-}
-
-/**
- * The window's translucency, and why fullscreen takes it away (2026-08-25).
- *
- * An acrylic or mica style makes the WINDOW transparent - DWM composites the
- * material behind it, which CSS cannot do - and a transparent window is not
- * a normal window to present video into. Measured here: a few seconds into
- * fullscreen playback the transport stopped reaching the screen while the DOM
- * insisted it was painted, which is what a picture presented outside the
- * page's own layer looks like.
- *
- * Fullscreen has nothing behind it to show through anyway, so the window goes
- * opaque for the duration and the style comes back on the way out.
- */
-let wantedMaterial: { material: string; light?: boolean } = { material: 'none' }
-
-/**
- * A fullscreen transition is in flight, so hold the window OPAQUE (2026-09-02).
- *
- * THE ONE-FRAME FLASH. A translucent style sets the window background to
- * `#00000000` - genuinely transparent, because DWM composites the material
- * behind it - and `applyMaterial(true)` only made it opaque on
- * `enter-full-screen`, which fires once the resize is already under way. For a
- * single frame the window has grown but the page has not painted the new area,
- * and with nothing behind it that gap is the DESKTOP. Caught on video and
- * measured: one frame in sixteen of black, a 15px border of flat #ababab going
- * in and a blue-grey strip coming out - two different colours because it was
- * two different bits of wallpaper.
- *
- * The renderer already fades to black for 150ms before it calls
- * requestFullscreen, so it says so first and main goes opaque inside that fade,
- * where nothing can be seen changing. It stays opaque until the fade on the far
- * side has lifted.
- */
-let fsTransition = false
-/**
- * BORDERLESS FULLSCREEN (2026-09-02), and why the OS one is not used.
- *
- * Windows animates a real fullscreen change, and for ONE FRAME it composites
- * the window at its OLD bounds - so the desktop and the taskbar show in the
- * gap, which is the white frame. Read off the owner's recording: in a video
- * where the taskbar is hidden for all 563 frames it is VISIBLE on exactly one,
- * and that one is the flash. Nothing of ours can paint it, because the gap is
- * outside the window.
- *
- * So the OS is never asked. The window is simply moved to cover the display and
- * put above the taskbar - no `setFullScreen`, no `requestFullscreen`, no
- * animation to have a stale frame in. Covering the display FIRST and then also
- * going fullscreen was tried and is worse than either: it improved the flash
- * and broke the viewer, because two resizes land on top of one another.
- *
- * What is given up: `document.fullscreenElement`, and with it the `:fullscreen`
- * CSS hook and Chromium's native Escape. App owns Escape already and tracks the
- * state from this IPC, so both are covered.
- */
-let preFsBounds: Electron.Rectangle | null = null
-/** MAXIMIZED IS A STATE, NOT A SIZE (2026-09-03). `setBounds` on a maximized
- *  window is ignored by Windows - verified by sending F11 to one: the window
- *  answered `IsZoomed: true` with its bottom still at the work area's edge,
- *  taskbar showing, which is exactly "it's more like window maximized" as the
- *  owner put it. So the state is dropped before the bounds are set, and put
- *  back on the way out instead of restoring a rectangle. */
-let preFsMaximized = false
-const isFs = (): boolean => !!preFsBounds
-
-function applyMaterial(fullscreen: boolean): void {
-  // Borderless counts: there is nothing behind a window covering the screen.
-  fullscreen = fullscreen || !!preFsBounds
-  if (!mainWindow) return
-  const { material, light } = wantedMaterial
-  const solid = light ? '#f7f7f9' : '#111318'
-  try {
-    if (fullscreen || fsTransition || material === 'none') {
-      mainWindow.setBackgroundColor(solid)
-      mainWindow.setBackgroundMaterial('none')
-    } else {
-      mainWindow.setBackgroundColor('#00000000')
-      mainWindow.setBackgroundMaterial(material as 'acrylic' | 'mica' | 'tabbed')
-    }
-  } catch {
-    /* older Windows: the solid background stands */
-  }
-  // Chromium rewrites DWM window attributes when the backdrop changes, which
-  // silently restores the 1px border this app strips (measured: the strip at
-  // ready-to-show read back as default once the theme handshake had run). So
-  // Remove it immediately as well as after the rewrite. Waiting for the
-  // debounce alone leaves a visible edge during the fullscreen fade.
-  applyDwmBorder()
-  if (borderStrip) clearTimeout(borderStrip)
-  borderStrip = setTimeout(() => {
-    borderStrip = null
-    applyDwmBorder()
-  }, 80)
-}
-let borderStrip: NodeJS.Timeout | null = null
-
-/**
- * The e2e's window never takes the foreground (2026-08-28).
- *
- * Electron has no headless mode, so the suite parks a real window offscreen -
- * but every launch still ACTIVATED it, and a suite that launches thirty times
- * yanked the caret out of whatever the machine's owner was typing. Playwright
- * drives the page over CDP, which needs no OS focus at all, so in this mode
- * the window is created unfocusable and shown inactive.
- */
-const E2E = process.argv.includes('--e2e')
 
 /**
  * A WEB LINK LEAVES THE APP HERE, AND NEVER UNDER --e2e (#222; owner,
@@ -1003,8 +569,8 @@ function folderChanged(change: { root: string; dirs: string[] }): void {
     .invalidate(directories)
     .catch(() => {})
     .finally(() => {
-      if (mainWindow && !mainWindow.isDestroyed())
-        mainWindow.webContents.send('dir:changed', change)
+      if (appState.mainWindow && !appState.mainWindow.isDestroyed())
+        appState.mainWindow.webContents.send('dir:changed', change)
     })
 }
 
@@ -1087,65 +653,6 @@ function keepAwake(on: boolean): void {
 }
 
 /**
- * Bring the window genuinely forward (2026-08-28).
- *
- * `show()` and `focus()` ask, and Windows' foreground lock is allowed to
- * refuse: a process that did not have the foreground gets its window drawn
- * but not activated, and then the user's FIRST CLICK is spent activating it
- * instead of pressing what it landed on. That is what "I clicked the tab and
- * nothing happened, then a second later it worked" is.
- *
- * The brief always-on-top is the documented way past the lock, and it is
- * dropped in the same breath, so the window does not stay above others.
- */
-function raise(win: BrowserWindow): void {
-  if (win.isMinimized()) win.restore()
-  win.show()
-  if (E2E) return
-  const wasOnTop = win.isAlwaysOnTop()
-  win.setAlwaysOnTop(true)
-  win.focus()
-  win.setAlwaysOnTop(wasOnTop)
-}
-
-/**
- * THE DWM BORDER FOLLOWS THE WINDOW'S STATE (2026-09-03, owner). Windows 11
- * draws a 1px border on every framed window; with the title bar hidden it
- * lies as a hairline across the top. RESTORED, the owner wants it - a floating
- * window reads better with an edge. MAXIMIZED or FULLSCREEN it is a hairline
- * across the top of the screen and goes (dwmapi attribute 34, COLOR_NONE).
- * Purely cosmetic, so a failure costs nothing but the hairline. Chromium
- * rewrites DWM attributes when the backdrop changes, so applyDwmBorder also
- * rides behind every material application.
- *
- * QUIETER THAN DWM'S OWN (owner, same day: "a bit too thick"). The border is
- * always one physical pixel; what reads as thickness is contrast, so it is
- * drawn in a colour a step off the window's own ground rather than in DWM's
- * default grey. And it lands the moment the state changes, through the
- * persistent helper in dwmHelper.ts - a fresh PowerShell per change paid a
- * two-second compile, which is why the edge used to arrive two seconds after
- * the window did.
- */
-function applyDwmBorder(): void {
-  const win = mainWindow
-  if (!win) return
-  try {
-    const hwnd = hwndOf(win.getNativeWindowHandle())
-    setBorder(
-      hwnd,
-      borderColourForWindow({
-        maximized: win.isMaximized(),
-        fullscreen: isFs(),
-        transitioning: fsTransition,
-        light: !!wantedMaterial.light
-      })
-    )
-  } catch {
-    /* cosmetic */
-  }
-}
-
-/**
  * THE PAGE COMES BACK, AND THE WINDOW IS NEVER LEFT UNSHOWN (#265; owner,
  * 2026-10-03: "prism suddenly stopped opening, not sure why, but that should
  * never happen"). The rules are in windowGuard.ts and crashBudget.ts; this is
@@ -1174,8 +681,7 @@ function logWindow(
   // `neverWindowless` e2e name that file.
   diagWindowEvent(event, fields)
 }
-let appQuitting = false
-app.on('before-quit', () => (appQuitting = true))
+app.on('before-quit', () => (appState.appQuitting = true))
 /** E2E only: a dead page stays dead, as the bug left it, so the watchdog and
  *  the second launch can be proved as the nets they are. */
 const holdRecovery = E2E && process.env.PRISM_E2E_HOLD_RECOVERY === '1'
@@ -1196,7 +702,7 @@ let pageGen = 0
  *  built FIRST: destroying the only window first would read as the last
  *  window closing, and the app would quit. */
 function recreateWindow(): void {
-  const old = mainWindow
+  const old = appState.mainWindow
   createWindow()
   if (old && !old.isDestroyed()) old.destroy()
 }
@@ -1211,7 +717,7 @@ function giveUpWindow(): void {
       'Prism',
       `Prism's window stopped working several times in a row, so Prism has closed. Open it again to carry on. Details are in ${crashLogFile()}.`
     )
-  appQuitting = true
+  appState.appQuitting = true
   // The crash log is written off main now (2026-10-12): the last lines land
   // before the windows go, since the last window going quits the app.
   void crashLogSettled().finally(() => {
@@ -1229,15 +735,15 @@ function giveUpWindow(): void {
  */
 function ensureLivePage(): boolean {
   if (!app.isReady()) return false // whenReady makes the window and drains the queue
-  if (appQuitting || installingUpdate) return false // a window now would only be taken away
-  if (!mainWindow || mainWindow.isDestroyed()) {
+  if (appState.appQuitting || appState.installingUpdate) return false // a window now would only be taken away
+  if (!appState.mainWindow || appState.mainWindow.isDestroyed()) {
     logWindow('handoff', { window: 'none', action: 'create' })
     createWindow()
     return true
   }
-  if (pageGone(mainWindow)) {
+  if (pageGone(appState.mainWindow)) {
     logWindow('handoff', { window: 'dead', action: 'reload' })
-    mainWindow.webContents.reload()
+    appState.mainWindow.webContents.reload()
     return true
   }
   return false
@@ -1321,7 +827,7 @@ function createWindow(): void {
       ]
     }
   })
-  mainWindow = win
+  appState.mainWindow = win
   pageGen++
   // The diagnostics log's watch (#322): this window's hang events, and its
   // frame for the page's stack when the heartbeat stops. A rebuilt window
@@ -1338,15 +844,15 @@ function createWindow(): void {
     if (shown) return
     shown = true
     // Never reopened maximised (owner, 2026-10-11): see windowSize.ts.
-    if (E2E) mainWindow?.showInactive()
-    else if (mainWindow) raise(mainWindow)
+    if (E2E) appState.mainWindow?.showInactive()
+    else if (appState.mainWindow) raise(appState.mainWindow)
     // No helper to warm (#189): the border program is compiled at build time
     // and started per change with no pipe, so this costs milliseconds and the
     // first frame no longer waits ~900 ms behind a PowerShell's stdin pipe.
     applyDwmBorder()
   }
-  mainWindow.once('ready-to-show', showWindow)
-  mainWindow.webContents.once('dom-ready', showWindow)
+  appState.mainWindow.once('ready-to-show', showWindow)
+  appState.mainWindow.webContents.once('dom-ready', showWindow)
   // The native sweep box's target (#338), once this window has painted.
   win.webContents.once('did-finish-load', () => setTimeout(() => sweepOverlayFor(win), SWEEP_OVERLAY_DELAY_MS))
   guardWindow(win, {
@@ -1362,11 +868,11 @@ function createWindow(): void {
     // would be a second, unseen Claude answering on the same session with no
     // close question guarding it. Warm spares go with them.
     stateLost: () => {
-      editorDirty = false
-      agentBusy = false
+      appState.editorDirty = false
+      appState.agentBusy = false
       killAll()
     },
-    quitting: () => appQuitting,
+    quitting: () => appState.appQuitting,
     held: () => holdRecovery
   })
   // E2E only: the page dies as it commits, before anything has shown the
@@ -1377,13 +883,13 @@ function createWindow(): void {
   }
   // The border follows maximize state; fullscreen changes call applyDwmBorder
   // themselves on the way out, and applyMaterial's debounce covers the rest.
-  mainWindow.on('maximize', applyDwmBorder)
-  mainWindow.on('unmaximize', applyDwmBorder)
-  watchWindowState(mainWindow)
+  appState.mainWindow.on('maximize', applyDwmBorder)
+  appState.mainWindow.on('unmaximize', applyDwmBorder)
+  watchWindowState(appState.mainWindow, flushTabs)
   // Only THIS window's close clears it: a rebuilt window replaces the old one
   // before the old one is destroyed (#265).
   win.on('closed', () => {
-    if (mainWindow === win) mainWindow = null
+    if (appState.mainWindow === win) appState.mainWindow = null
   })
   /**
    * Minimised, and focused, told to the page (2026-08-26).
@@ -1395,25 +901,25 @@ function createWindow(): void {
    * needs both, so main - which does know - says so.
    */
   const sayState = (): void =>
-    mainWindow?.webContents.send('window:state', {
-      minimised: mainWindow.isMinimized(),
-      focused: mainWindow.isFocused()
+    appState.mainWindow?.webContents.send('window:state', {
+      minimised: appState.mainWindow.isMinimized(),
+      focused: appState.mainWindow.isFocused()
     })
   // Listed one by one: BrowserWindow's overloads are per event name, so a loop
   // over a union of them has no single signature to match.
-  mainWindow.on('minimize', sayState)
-  mainWindow.on('restore', sayState)
-  mainWindow.on('show', sayState)
-  mainWindow.on('hide', sayState)
-  mainWindow.on('focus', sayState)
-  mainWindow.on('blur', sayState)
+  appState.mainWindow.on('minimize', sayState)
+  appState.mainWindow.on('restore', sayState)
+  appState.mainWindow.on('show', sayState)
+  appState.mainWindow.on('hide', sayState)
+  appState.mainWindow.on('focus', sayState)
+  appState.mainWindow.on('blur', sayState)
 
-  mainWindow.on('enter-full-screen', () => {
-    mainWindow?.webContents.send('window:fullscreen', true)
+  appState.mainWindow.on('enter-full-screen', () => {
+    appState.mainWindow?.webContents.send('window:fullscreen', true)
     applyMaterial(true)
   })
-  mainWindow.on('leave-full-screen', () => {
-    mainWindow?.webContents.send('window:fullscreen', false)
+  appState.mainWindow.on('leave-full-screen', () => {
+    appState.mainWindow?.webContents.send('window:fullscreen', false)
     applyMaterial(false)
   })
   /**
@@ -1427,13 +933,13 @@ function createWindow(): void {
    * not a reason to trust it. Same test as the `shell:external` handler, and
    * for the same reason.
    */
-  mainWindow.webContents.setWindowOpenHandler((d) => {
+  appState.mainWindow.webContents.setWindowOpenHandler((d) => {
     if (/^https?:\/\//i.test(d.url)) openLink(d.url)
     return { action: 'deny' }
   })
   // A page cannot navigate the window away from the app either: the renderer
   // is Prism's own UI and nothing in it is a browser.
-  mainWindow.webContents.on('will-navigate', (e, url) => {
+  appState.mainWindow.webContents.on('will-navigate', (e, url) => {
     const dev = process.env['ELECTRON_RENDERER_URL']
     if (dev && url.startsWith(dev)) return
     if (url.startsWith('file://')) return
@@ -1442,22 +948,22 @@ function createWindow(): void {
   })
 
   let restoreStarted = false
-  mainWindow.webContents.on('did-start-loading', () => {
+  appState.mainWindow.webContents.on('did-start-loading', () => {
     restoreStarted = false
     startupRestored = false
     winERequests.reload()
   })
   // The page itself, not a frame inside it: a document preview's iframe
   // loading is no reason to abandon a restore.
-  mainWindow.webContents.on('did-start-navigation', (details) => {
+  appState.mainWindow.webContents.on('did-start-navigation', (details) => {
     if (details.isMainFrame && !details.isSameDocument) pageGen++
   })
   // A shortcut press needs an immediate window even on a cold renderer load.
   // Its solid background is followed by the lightweight opening screen.
   if (winERequest(process.argv)) showWindow()
   const devUrl = process.env['ELECTRON_RENDERER_URL']
-  if (devUrl) void mainWindow.loadURL(devUrl)
-  else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  if (devUrl) void appState.mainWindow.loadURL(devUrl)
+  else void appState.mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
 
   // Rebuild last session's strip, then deliver whatever the app was launched
   // with. Order matters: the launch file goes through the same arriving-file
@@ -1466,7 +972,7 @@ function createWindow(): void {
   // The lightweight loading shell can finish its document before App loads.
   // Start restore only once the renderer is actually listening for its files.
   const restoreWhenListening = (event: Electron.IpcMainEvent): void => {
-    if (event.sender !== mainWindow?.webContents) return
+    if (event.sender !== appState.mainWindow?.webContents) return
     if (restoreStarted) {
       if (startupRestored) event.sender.send('open:restored')
       return
@@ -1495,11 +1001,11 @@ function createWindow(): void {
       const strained = windowBudget.strained(Date.now())
       if (strained && !skip && !extraWindowOwner) logWindow('restore', { tabs: 'skipped', reason: 'repeated-deaths' })
       const send = (payload: OpenPayload): void => {
-        if (!stale()) mainWindow?.webContents.send('open:file', payload)
+        if (!stale()) appState.mainWindow?.webContents.send('open:file', payload)
       }
       // The home Explorer first when no pinned one was saved (#271): it is
       // the tab the window opens on, and a names-only read is 1 to 3 ms.
-      const saved = extraWindowOwner || skip || strained ? null : readTabs(TABS_STATE())
+      const saved = extraWindowOwner || skip || strained ? null : readTabs(userPaths.tabs())
       const sendHome = async (): Promise<void> => {
         const id = `explorer-home-${Date.now()}`
         const homePath = app.getPath('home')
@@ -1553,7 +1059,7 @@ function createWindow(): void {
       })
   }
   ipcMain.on('open:listen', restoreWhenListening)
-  mainWindow.once('closed', () => ipcMain.removeListener('open:listen', restoreWhenListening))
+  appState.mainWindow.once('closed', () => ipcMain.removeListener('open:listen', restoreWhenListening))
 }
 
 // Single instance: a second launch (opening another file) forwards its path to
@@ -1607,7 +1113,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', (_e, argv) => {
     const shortcutRequest = winERequest(argv)
     if (shortcutRequest) {
-      if (installingUpdate) return
+      if (appState.installingUpdate) return
       void Promise.all([app.whenReady(), preferencesReady])
         .then(() => {
           return launchExplorerWindow({
@@ -1628,13 +1134,13 @@ if (!app.requestSingleInstanceLock()) {
     // resident, so it usually is) ends here, not at the launch branch. Only
     // when nothing is on offer: a preview never replaces a real update, nor one
     // that is part way through its install.
-    if (wantsPreview(argv) && !pendingUpdate) offerUpdate(previewUpdate(pkg.version))
+    if (wantsPreview(argv) && !updateOffered()) offerUpdate(previewUpdate(pkg.version))
     // A launch that lands while this process is on its way out (#265, review)
     // must not make a window the quit or the installer then takes away with
     // its file. An install starts the new Prism itself; an ordinary quit
     // starts a fresh one with what was handed over, once this one has gone.
-    if (installingUpdate) return
-    if (appQuitting) {
+    if (appState.installingUpdate) return
+    if (appState.appQuitting) {
       // sync-ok: quit, the relaunch must be decided before this process exits
       if (pathsFromArgv(argv).length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
       return
@@ -1646,9 +1152,9 @@ if (!app.requestSingleInstanceLock()) {
     // must arrive in a window that is actually in front of you. Raised FIRST,
     // before the paths are even read, so the foreground-lock fix runs the
     // instant the handoff arrives.
-    if (mainWindow) {
-      if (E2E) mainWindow.show()
-      else raise(mainWindow)
+    if (appState.mainWindow) {
+      if (E2E) appState.mainWindow.show()
+      else raise(appState.mainWindow)
     }
     // The paths are stat'ed awaited (owner, 2026-10-12: main never waits on
     // the disk), one handoff after another so they keep arrival order. The
@@ -1658,13 +1164,13 @@ if (!app.requestSingleInstanceLock()) {
     handoffs = handoffs
       .then(async () => {
         const paths = await pathsFromArgvAsync(argv)
-        if (installingUpdate) return
-        if (appQuitting) {
+        if (appState.installingUpdate) return
+        if (appState.appQuitting) {
           if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
           return
         }
         if (!startupRestored) pendingOpen.push(...paths)
-        else if (mainWindow)
+        else if (appState.mainWindow)
           void (async () => {
             for (const p of paths) await sendOpen(p)
           })()
@@ -1766,8 +1272,8 @@ if (!app.requestSingleInstanceLock()) {
     }
     const stopPreferencesWatch = windowPreferences.watch((snapshot) => {
       rememberFolders(snapshot.values)
-      if (mainWindow && !mainWindow.isDestroyed())
-        mainWindow.webContents.send('window-preferences:changed', snapshot)
+      if (appState.mainWindow && !appState.mainWindow.isDestroyed())
+        appState.mainWindow.webContents.send('window-preferences:changed', snapshot)
     })
     app.once('will-quit', stopPreferencesWatch)
     app.once('will-quit', () => listingCache.flush())
@@ -1783,12 +1289,12 @@ if (!app.requestSingleInstanceLock()) {
       setTimeout(() => void cleanDeadRuns(memberTemp.root, pidAlive, memberTemp.dir), 5000)
     )
     ipcMain.on('window-preferences:load', (event) => {
-      event.returnValue = event.sender === mainWindow?.webContents ? windowPreferences.load() : null
-      if (event.sender === mainWindow?.webContents && extraWindowOwner) preferencesLoaded()
+      event.returnValue = event.sender === appState.mainWindow?.webContents ? windowPreferences.load() : null
+      if (event.sender === appState.mainWindow?.webContents && extraWindowOwner) preferencesLoaded()
     })
     ipcMain.on('window-preferences:seed', (event, values: unknown) => {
       event.returnValue = null
-      if (event.sender !== mainWindow?.webContents) return
+      if (event.sender !== appState.mainWindow?.webContents) return
       try {
         event.returnValue = windowPreferences.seed(values)
       } catch {
@@ -1798,7 +1304,7 @@ if (!app.requestSingleInstanceLock()) {
       }
     })
     ipcMain.on('window-preferences:set', (event, change: unknown) => {
-      event.returnValue = event.sender === mainWindow?.webContents && windowPreferences.set(change)
+      event.returnValue = event.sender === appState.mainWindow?.webContents && windowPreferences.set(change)
       // The switch takes effect now, not when the folder watch gets round to it.
       const c = change as { key?: unknown; value?: unknown } | null
       if (event.returnValue && c?.key === REMEMBER_FOLDERS_KEY)
@@ -1811,19 +1317,19 @@ if (!app.requestSingleInstanceLock()) {
       supported: process.platform === 'win32' && app.isPackaged && !E2E
     })
     ipcMain.handle('win-e:status', (event) => {
-      if (event.sender !== mainWindow?.webContents) throw new Error('Unknown window')
+      if (event.sender !== appState.mainWindow?.webContents) throw new Error('Unknown window')
       return winE.status()
     })
     ipcMain.handle('win-e:set', (event, enabled: unknown) => {
-      if (event.sender !== mainWindow?.webContents || typeof enabled !== 'boolean')
+      if (event.sender !== appState.mainWindow?.webContents || typeof enabled !== 'boolean')
         throw new Error('Invalid shortcut request')
       return winE.set(enabled)
     })
     ipcMain.on('win-e:listen', (event) => {
-      if (event.sender === mainWindow?.webContents) winERequests.listen()
+      if (event.sender === appState.mainWindow?.webContents) winERequests.listen()
     })
     ipcMain.on('win-e:ready', (event, id: unknown) => {
-      if (event.sender === mainWindow?.webContents && typeof id === 'string') winERequests.ready(id)
+      if (event.sender === appState.mainWindow?.webContents && typeof id === 'string') winERequests.ready(id)
     })
     if (!extraWindowOwner) void winE.resume()
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
@@ -1835,35 +1341,6 @@ if (!app.requestSingleInstanceLock()) {
         appPath: app.getAppPath()
       })
     )
-
-    /**
-     * PRISM ON YOUR PHONE (2026-09-06, #104). The server lives for as long as
-     * the switch is on; the switch, the port it settled on and the paired
-     * phones persist in phone.json. Every change the dialog could care about
-     * is pushed as `phone:changed`, and the dialog re-reads with `phone:get`,
-     * which is what keeps the two from drifting: the switch reflects what the
-     * server IS, not what was clicked.
-     *
-     * Nothing here is synchronous: the file is read once with fs/promises
-     * (the handlers wait on that read), and every write goes through one
-     * chained async writer so two pairings a moment apart cannot interleave.
-     */
-    let phoneStore: PhoneStore = parseStore('')
-    let phoneWrite: Promise<void> = Promise.resolve()
-    const savePhone = (): void => {
-      const text = serializeStore(phoneStore)
-      phoneWrite = phoneWrite
-        .then(async () => {
-          await writeAtomic(PHONE_STATE(), text)
-        })
-        .catch(() => {
-          /* a failed write loses the pairing, not the session */
-        })
-    }
-    let phone: PhoneServer | null = null
-    let phoneError = ''
-    const phoneChanged = (): void => mainWindow?.webContents.send('phone:changed')
-    const rootIsOpen = (root: string): boolean => openRoots().some((r) => isRoot(r, root))
 
     // One probe per file, kept for as long as the file has not changed: the
     // audio player, the video player, the no-picture note and the phone's
@@ -1898,10 +1375,7 @@ if (!app.requestSingleInstanceLock()) {
     // Where you had got to in each film (#118): one store, by file path,
     // that the window reaches over IPC and the phone over /api/pos.
     const positions = new Positions(userPaths.positions())
-    ipcMain.handle('pos:get', (_e, path: string) => positions.get(String(path)))
-    ipcMain.on('pos:set', (_e, path: string, patch: unknown) => {
-      if (patch && typeof patch === 'object') positions.set(String(path), patch as FileMemoryPatch)
-    })
+    registerPositionsIpc(positions)
     const logPhone = (line: string): void => phoneLog.line(line)
     const hlsTools = ffmpegTools()
     // The phone grid's pictures (#135), made once and cached under userData.
@@ -1962,7 +1436,7 @@ if (!app.requestSingleInstanceLock()) {
       }
     }
 
-    const phoneDeps = (): ConstructorParameters<typeof PhoneServer>[0] => ({
+    const phoneDeps = (hooks: PhoneHooks): PhoneServerDeps => ({
       rendererDir: RENDERER_DIR,
       devUrl: !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined,
       media: serveMedia,
@@ -1972,7 +1446,7 @@ if (!app.requestSingleInstanceLock()) {
       search: (root: string, query: string) => searchFiles(root, query),
       validRoot,
       isRoot,
-      rootOpen: rootIsOpen,
+      rootOpen: hooks.rootOpen,
       // The tabs a phone may switch to: main's own open set, read on the ask
       // rather than pushed, since a tab closes without telling the phone.
       openRoots,
@@ -2001,10 +1475,7 @@ if (!app.requestSingleInstanceLock()) {
       // with the phone's root instead): a .txt is never handed to 7-Zip.
       isArchive: (p) => fileKind(extname(p)) === 'archive',
       isComic: (p) => fileKind(extname(p)) === 'comic',
-      onChange: () => {
-        savePhone()
-        phoneChanged()
-      },
+      onChange: hooks.onChange,
       log: logPhone,
       positions: {
         get: (p) => positions.get(p),
@@ -2018,197 +1489,9 @@ if (!app.requestSingleInstanceLock()) {
       // A throwaway e2e build must never raise the firewall prompt.
       loopbackOnly: E2E
     })
-    const startPhone = async (): Promise<void> => {
-      if (phone) return
-      const s = new PhoneServer(phoneDeps(), phoneStore.pairing)
-      try {
-        phoneStore.port = await s.start(phoneStore.port ?? DEFAULT_PORT)
-        phone = s
-        phoneError = ''
-      } catch (err) {
-        phoneError = `Could not open a port: ${String((err as Error)?.message ?? err)}`
-        phoneStore.on = false
-      }
-      savePhone()
-      phoneChanged()
-    }
-    const stopPhone = async (): Promise<void> => {
-      const s = phone
-      phone = null
-      if (s) await s.stop()
-      phoneChanged()
-    }
-    // Read once; the switch that was on comes back on. The handlers wait on
-    // this so a dialog opened in the first moments sees the file, not the
-    // empty default.
-    const phoneReady: Promise<void> = readFile(PHONE_STATE(), 'utf8')
-      .catch(() => '')
-      .then((raw) => {
-        phoneStore = parseStore(raw)
-        if (phoneStore.on) void startPhone()
-      })
-    const phoneState = async (root: string | null): Promise<PhoneState> => {
-      await phoneReady
-      const state: PhoneState = {
-        on: !!phone,
-        port: phone?.port ?? null,
-        addresses: E2E ? ['127.0.0.1'] : lanAddresses(networkInterfaces()),
-        phones: phoneStore.pairing.phones.map((p) => ({ ...p })),
-        watching: phone?.watching() ?? [],
-        error: phoneError || undefined
-      }
-      // A code is for a root a tab holds: a phone paired to a closed folder
-      // would only ever see the "scan again" screen.
-      if (phone && root && rootIsOpen(root) && state.addresses[0]) {
-        const now = Date.now()
-        const live = phoneStore.pairing.codes.find((c) => c.root === root && c.expires > now)
-        const { code, expires } = live ?? phone.issue(root)
-        const link = pairLink(state.addresses[0], phone.port ?? DEFAULT_PORT, code)
-        state.code = { code, link, svg: await qrSvg(link), expires }
-      }
-      return state
-    }
-    const rootArg = (root: unknown): string | null => (typeof root === 'string' ? root : null)
-    ipcMain.handle('phone:get', (_e, root: unknown) => phoneState(rootArg(root)))
-    ipcMain.handle('phone:set-on', async (_e, on: unknown, root: unknown) => {
-      await phoneReady
-      phoneStore.on = on === true
-      savePhone()
-      if (phoneStore.on) await startPhone()
-      else await stopPhone()
-      return phoneState(rootArg(root))
-    })
-    ipcMain.handle('phone:code', async (_e, root: unknown) => {
-      await phoneReady
-      const r = rootArg(root)
-      if (phone && r && rootIsOpen(r)) phone.issue(r)
-      return phoneState(r)
-    })
-    ipcMain.handle('phone:forget', async (_e, token: unknown, root: unknown) => {
-      await phoneReady
-      if (typeof token === 'string' && forgetPhone(phoneStore.pairing, token)) {
-        // Its grants go with it (#106): a forgotten phone keeps nothing.
-        phone?.dropGrants(token)
-        savePhone()
-        phoneChanged()
-      }
-      return phoneState(rootArg(root))
-    })
-    app.on('will-quit', () => {
-      void phone?.stop()
-      // The server's stop kills them too; this covers jobs left by a server
-      // that was already off, and an ffmpeg with no app is an orphan.
-      void hlsJobs?.stopAll()
-    })
+    startPhoneService({ deps: phoneDeps, hlsJobs })
 
-    // The update check: watch GitHub Releases, remember the newest offer so a
-    // renderer that loads after the tick still hears about it (`offerUpdate`
-    // and `pendingUpdate` are up beside the lifecycle).
-    //
-    // A PREVIEW (#168; owner, 2026-09-19: "I would want to see how the Update
-    // banner looks in both apps, so if you could enable it and make like a fake
-    // update"): `--preview-update`, in the INSTALLED app as well, announces the
-    // core's fake offer at once and the real watcher is never started, so the
-    // network is never touched. An unpackaged build previews without being
-    // asked, which is what the inert mock chip used to be for. Under --e2e
-    // NEITHER happens unless the flag is there: the suite must never ask
-    // GitHub, and its title bar is measured with no chip in it (until this
-    // change the mock was there in every scenario, asserted by none).
-    if (wantsPreview(process.argv) || (!app.isPackaged && !E2E))
-      offerUpdate(previewUpdate(pkg.version))
-    else if (!E2E) watchForUpdates(offerUpdate)
-    // The e2e's updateGuard: a REAL-shaped offer (not a mock, so Install goes
-    // through the unsaved-text and working-agent questions) whose url
-    // `installUpdate` refuses before it sends anything, because it is not one
-    // of this repo's release assets. That is what lets the guard and the
-    // failure line be driven with no network and no installer. The notes are
-    // the scenario's to choose: it hands over a hostile body, to prove in the
-    // real page that none of it is rendered.
-    else if (process.env.PRISM_E2E_UPDATE_OFFER)
-      offerUpdate({
-        version: '99.0.0',
-        url: process.env.PRISM_E2E_UPDATE_OFFER,
-        notes: process.env.PRISM_E2E_UPDATE_NOTES ?? ''
-      })
-    ipcMain.on('update:announce', (e) => {
-      if (pendingUpdate) e.sender.send('update:available', pendingUpdate)
-    })
-    // Installing quits the app so NSIS can replace it. A dirty buffer VETOES
-    // that quit (the close flow below), so without asking first the installer
-    // would run over a live exe while a save dialog waited (2026-08-28). The
-    // renderer answers Cancel / Discard / Save all before the download starts.
-    ipcMain.handle('update:install', async (_e, url: string) => {
-      // WHAT IS ON OFFER decides, never what the page sent (#168): while the
-      // offer is a preview there is nothing this handler will download,
-      // whatever url it is handed. The fake runs the chip's progress and
-      // answers false, "nothing was installed", which is true. No fetch, no
-      // file, no installer, no quit, and the close question is NOT
-      // pre-answered: `closeConfirmed` and `installingUpdate` stay as they are.
-      if (pendingUpdate?.mock) {
-        // Cancellable like the real one (#178): a preview is where most people
-        // will ever press the window's Cancel.
-        if (updateRun) return false
-        const fake = new AbortController()
-        updateRun = fake
-        try {
-          return await runPreviewInstall(
-            (pct) => mainWindow?.webContents.send('update:progress', pct),
-            { cancelled: () => fake.signal.aborted }
-          )
-        } finally {
-          updateRun = null
-        }
-      }
-      if (typeof url !== 'string') return false
-      // Unsaved text VETOES the quit this ends in (win.on('close') below), so
-      // installing over it would run NSIS against a live exe while a dialog
-      // waited (2026-08-28). The renderer settles the question first and this
-      // refuses until it has; then the quit is pre-answered, like any other
-      // route the user has already agreed to.
-      if (editorDirty) return false
-      const canInstall = async (): Promise<boolean> => {
-        if (!(await hasOtherExplorerWindows(preferencesOwner))) return !editorDirty
-        if (mainWindow)
-          await dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            message: 'Close the other Prism windows before installing the update.',
-            detail: 'This keeps their open files and terminals safe.',
-            buttons: ['OK']
-          })
-        return false
-      }
-      if (installingUpdate || !(await canInstall())) return false
-      installingUpdate = true
-      closeConfirmed = true
-      const run = new AbortController()
-      updateRun = run
-      const ok = await installUpdate(
-        url,
-        (pct) => mainWindow?.webContents.send('update:progress', pct),
-        canInstall,
-        run.signal
-      ).finally(() => {
-        updateRun = null
-      })
-      // A download that FAILED must not leave the close question pre-answered
-      // for the rest of the session: the next Alt+F4 over unsaved text would
-      // close over the top of it without asking.
-      if (!ok) {
-        closeConfirmed = false
-        installingUpdate = false
-      }
-      return ok
-    })
-    // The update window's Cancel (#178). It names nothing: there is one
-    // download at most, and the page has no say in which.
-    ipcMain.on('update:cancel', () => updateRun?.abort())
-    // The e2e's updateWindow reads this (through `app.evaluate`, as it reaches
-    // the indexer) after a whole preview, fake install included: release
-    // checks sent and installs attempted. Both must still be 0.
-    if (E2E)
-      (
-        globalThis as typeof globalThis & { __prismUpdateCalls?: typeof updateCalls }
-      ).__prismUpdateCalls = updateCalls
+    startUpdates(preferencesOwner)
     // package.json's, not app.getVersion(): the e2e and dev launch electron at
     // a script, and there that one answers with ELECTRON's own version (SEEN:
     // the old mock chip read "Update 43.2.0" in the e2e's own screenshots), so
@@ -2250,18 +1533,8 @@ if (!app.requestSingleInstanceLock()) {
       folderPayload(dir)
     )
     // Choose a folder WITHOUT opening it - the Settings picker.
-    ipcMain.handle('dialog:pick-folder', async (): Promise<string | null> => {
-      const r = await openDialog({ properties: ['openDirectory'] })
-      return r.canceled || !r.filePaths.length ? null : r.filePaths[0]
-    })
-    /** Several real files at once: the archive panel's "Add files" verb. */
-    ipcMain.handle('dialog:pick-files', async (): Promise<string[]> => {
-      // E2E only (#300): Add files here is driven without a native dialog.
-      if (E2E && process.env.PRISM_E2E_PICK_FILES)
-        return process.env.PRISM_E2E_PICK_FILES.split('|').filter(Boolean)
-      const r = await openDialog({ properties: ['openFile', 'multiSelections'] })
-      return r.canceled ? [] : r.filePaths
-    })
+    ipcMain.handle('dialog:pick-folder', () => pickFolder())
+    ipcMain.handle('dialog:pick-files', () => pickFiles())
     ipcMain.handle('open:path', (_e, p: string): Promise<OpenPayload | null> => buildPayload(p))
 
     /**
@@ -2313,7 +1586,7 @@ if (!app.requestSingleInstanceLock()) {
     // The guard is the wall's `insideWall` (pathWall.ts).
     registerTermIpc({
       ipcMain,
-      send: (ch, ...a) => mainWindow?.webContents.send(ch, ...a),
+      send: (ch, ...a) => appState.mainWindow?.webContents.send(ch, ...a),
       clipboard,
       openExternal: openLink,
       spawnDir: async (dir) => (insideWall(dir) ? dir : null),
@@ -2343,7 +1616,7 @@ if (!app.requestSingleInstanceLock()) {
     })().then((d) => (whisperDir = d))
     stopDictation = registerDictationIpc({
       ipcMain,
-      send: (ch, ...a) => mainWindow?.webContents.send(ch, ...a),
+      send: (ch, ...a) => appState.mainWindow?.webContents.send(ch, ...a),
       cpuEngineDir: () =>
         whisperDir !== undefined
           ? whisperDir
@@ -2401,7 +1674,7 @@ if (!app.requestSingleInstanceLock()) {
     // seen this session paints from disk in the same frame as the click.
     ipcMain.on('browse:cached', (event, path: unknown) => {
       event.returnValue =
-        event.sender === mainWindow?.webContents && typeof path === 'string'
+        event.sender === appState.mainWindow?.webContents && typeof path === 'string'
           ? explorerListings.cached(path)
           : null
     })
@@ -2693,7 +1966,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('tail:start', async (_e, p: string, from: number) => {
       if (!readable(p)) return false
       return startTail(p, Number(from) || 0, (e) =>
-        mainWindow?.webContents.send('file:appended', e)
+        appState.mainWindow?.webContents.send('file:appended', e)
       )
     })
     ipcMain.handle('tail:stop', (_e, p: string) => {
@@ -3312,7 +2585,7 @@ if (!app.requestSingleInstanceLock()) {
           const now = Date.now()
           if (of > 0 && now - lastSent > 120) {
             lastSent = now
-            mainWindow?.webContents.send('paste:progress', {
+            appState.mainWindow?.webContents.send('paste:progress', {
               jobId: typeof jobId === 'string' ? jobId : '',
               pct: Math.min(100, (done / of) * 100)
             })
@@ -3520,7 +2793,7 @@ if (!app.requestSingleInstanceLock()) {
           ...(t0 !== undefined ? { ms: Math.round(performance.now() - t0) } : {})
         })
       }
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('extract:event', e)
+      if (appState.mainWindow && !appState.mainWindow.isDestroyed()) appState.mainWindow.webContents.send('extract:event', e)
     })
     ipcMain.handle('extract:cancel', (_e, id: string) =>
       typeof id === 'string' ? extractJobs.cancel(id) : false
@@ -4236,233 +3509,8 @@ if (!app.requestSingleInstanceLock()) {
         }
       }
     )
-    ipcMain.on('window:minimize', () => mainWindow?.minimize())
-    ipcMain.on('window:toggle-maximize', () =>
-      mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow?.maximize()
-    )
-    // Closing with unsaved text asks first. The renderer keeps `editorDirty`
-    // current, so the common (clean) path closes with no round trip; only a
-    // dirty buffer costs a question. `force` is the renderer saying the user
-    // already answered it.
-    ipcMain.on('editor:dirty', (_e, d: boolean) => {
-      editorDirty = !!d
-    })
-    ipcMain.on('window:agent-busy', (_e, busy: boolean) => {
-      agentBusy = busy === true
-    })
-    ipcMain.on('window:close', (_e, force?: boolean) => {
-      if (force) closeConfirmed = true
-      mainWindow?.close()
-    })
-    /**
-     * BORDERLESS FULLSCREEN, NO TOPMOST (2026-09-03, third design).
-     *
-     * Real OS fullscreen is VISIBLY ANIMATED by DWM and the tail of that
-     * animation escapes any in-window veil - the owner saw the white frame on
-     * both ways with it. Borderless WITH always-on-top looked perfect going
-     * in but lost the taskbar war: Windows strips WS_EX_TOPMOST from a window
-     * it takes for fullscreen (measured: the bit held 0.3-3s, then dropped
-     * while Electron still said true) and the taskbar redrew over the picture.
-     *
-     * The answer is what borderless-windowed games do: NOTHING. A foreground
-     * window covering its monitor trips the shell's own fullscreen detection
-     * (SHQueryUserNotificationState flips to QUNS_BUSY the moment the cover
-     * lands - measured, overhang and all) and the shell puts the taskbar
-     * beneath it. It was the TOPMOST bit that kept that path from engaging.
-     * setResizable(false) does NOT shrink the frame overhang (measured, the
-     * rect stays ~6px proud) - it is here so the screen's edges are not live
-     * resize handles while the picture is up.
-     *
-     * The way OUT: win.maximize() from the covering bounds runs DWM's
-     * maximize animation, which paints a default frame - the owner's exit
-     * flash. Setting the work-area bounds first makes that animation
-     * degenerate: same rect to same rect, nothing to draw.
-     */
-    /**
-     * THE SHROUD FADES (2026-09-03, after the owner's recording). The
-     * in-window veil cannot touch the taskbar or the desktop around a
-     * windowed app, so however well the window fades, the SURROUNDINGS
-     * snapped: the taskbar cut to black on the way in and popped back a
-     * frame early on the way out - both visible in the recording. The shroud
-     * is a plain black window over the whole display, and it FADES on the
-     * same clock as the veil: raised when the renderer says a transition has
-     * begun (fs-transition true, which fires before anything moves), black
-     * before the swap arrives, and faded out when the renderer starts
-     * lifting. The window transform happens under it; the taskbar now fades
-     * with everything else. Its brief always-on-top is safe - the strip
-     * Windows applies to topmost fullscreen-sized windows took 300ms-3s to
-     * land, measured, and the shroud lives under a second. A 2.5s watchdog
-     * lifts it no matter what, because a stuck black screen is the one
-     * failure worse than any flash.
-     */
-    let fsShroud: BrowserWindow | null = null
-    let shroudAnim: NodeJS.Timeout | null = null
-    let shroudSafety: NodeJS.Timeout | null = null
-    const shroudTo = (target: number, ms: number, done?: () => void): void => {
-      const w = fsShroud
-      if (!w || w.isDestroyed()) return
-      if (shroudAnim) clearInterval(shroudAnim)
-      const from = w.getOpacity()
-      const t0 = Date.now()
-      shroudAnim = setInterval(() => {
-        const k = Math.min(1, (Date.now() - t0) / ms)
-        try {
-          if (!w.isDestroyed()) w.setOpacity(from + (target - from) * k)
-        } catch {
-          /* gone is gone */
-        }
-        if (k >= 1 && shroudAnim) {
-          clearInterval(shroudAnim)
-          shroudAnim = null
-          done?.()
-        }
-      }, 16)
-    }
-    const shroudLift = (): void => {
-      if (shroudSafety) clearTimeout(shroudSafety)
-      shroudSafety = null
-      shroudTo(0, 280, () => {
-        try {
-          fsShroud?.hide()
-        } catch {
-          /* gone is gone */
-        }
-      })
-    }
-    const shroudRaise = (): void => {
-      if (E2E) return // it would cover the REAL display while the suite runs parked
-      const win = mainWindow
-      if (!win) return
-      try {
-        if (!fsShroud || fsShroud.isDestroyed()) {
-          fsShroud = new BrowserWindow({
-            show: false,
-            frame: false,
-            // Keep Electron's default thick frame. Disabling it on this
-            // opacity-animated cover switches Chromium to software compositing
-            // and stalls hardware-decoded HEVC. Strip the visible edge via DWM.
-            roundedCorners: false,
-            backgroundColor: '#000000',
-            skipTaskbar: true,
-            focusable: false,
-            resizable: false,
-            movable: false,
-            minimizable: false,
-            maximizable: false,
-            hasShadow: false
-          })
-          fsShroud.setIgnoreMouseEvents(true)
-          fsShroud.setMenu(null)
-        }
-        const shroud = fsShroud
-        // The fading cover is itself a native window. Its frame must never
-        // outline the display while the main window changes maximize state.
-        setBorder(hwndOf(shroud.getNativeWindowHandle()), 'none')
-        if (!shroud.isVisible()) shroud.setOpacity(0)
-        shroud.setBounds(screen.getDisplayMatching(win.getBounds()).bounds)
-        shroud.setAlwaysOnTop(true, 'screen-saver')
-        shroud.showInactive()
-        shroudTo(1, 150)
-      } catch {
-        return // a failed shroud only costs the cover, not the swap
-      }
-      if (shroudSafety) clearTimeout(shroudSafety)
-      shroudSafety = setTimeout(shroudLift, 2500)
-    }
-    ipcMain.on('window:fs-shroud', (_e, up: boolean) => (up ? shroudRaise() : shroudLift()))
-    /**
-     * SQUARE CORNERS WHILE FULLSCREEN (2026-09-03). Windows 11 rounds every
-     * top-level window, and a borderless cover is still just a window - the
-     * corner cut-outs showed the desktop as grey arcs (the owner's own
-     * screenshot). Electron 43 exposes rounding only as a constructor option
-     * and only for frameless windows, so the DWM attribute is set directly:
-     * corner preference (33), DONOTROUND going in, DEFAULT coming back,
-     * through the persistent helper in dwmHelper.ts so it lands in
-     * milliseconds under the shroud. The 1px DWM BORDER is not handled here:
-     * it follows the window's state - see applyDwmBorder.
-     */
-    const setCorners = (rounded: boolean): void => {
-      const win = mainWindow
-      if (!win) return
-      try {
-        setCornersRounded(hwndOf(win.getNativeWindowHandle()), rounded)
-      } catch {
-        /* rounded corners are cosmetic; the swap must not fail over them */
-      }
-    }
-    ipcMain.on('window:set-fullscreen', (_e, on: boolean) => {
-      const win = mainWindow
-      if (!win || !!on === isFs()) return
-      try {
-        if (on) {
-          preFsBounds = win.getBounds()
-          preFsMaximized = win.isMaximized()
-          const disp = screen.getDisplayMatching(preFsBounds)
-          if (preFsMaximized) win.unmaximize()
-          win.setResizable(false)
-          win.setBounds(disp.bounds)
-          setCorners(false)
-        } else {
-          const back = preFsBounds
-          preFsBounds = null
-          const disp = screen.getDisplayMatching(back ?? win.getBounds())
-          win.setResizable(true)
-          setCorners(true)
-          if (preFsMaximized) {
-            win.setBounds(disp.workArea)
-            win.maximize()
-          } else if (back) {
-            win.setBounds(back)
-          }
-          preFsMaximized = false
-          // The edge comes back WITH the window, not on the material
-          // debounce behind it (owner: it used to arrive seconds late).
-          applyDwmBorder()
-        }
-      } catch {
-        preFsBounds = on ? preFsBounds : null
-      }
-      applyMaterial(isFs())
-      win.webContents.send('window:fullscreen', isFs())
-    })
-    // Windows 11 composites acrylic and mica behind the window; CSS can't, since
-    // backdrop-filter only sees the app's own pixels. The window background has
-    // to go transparent for the material to show through.
-    // Windows does not let an app take file associations on its own, and that is
-    // the right way round: this opens the list with Prism in it and the choice
-    // stays the user's.
-    ipcMain.on('app:default-apps', () => {
-      // Windows 11 takes a deep link straight to Prism's own page in Default
-      // apps, where each file type is one click. The app cannot set them
-      // itself: the choice lives in a signed UserChoice key precisely so that
-      // no installer can help itself to it. Older builds ignore the query and
-      // land on the list, which is still the right list.
-      // Never under --e2e (#222): a test run must not open Windows Settings.
-      if (!E2E) void shell.openExternal('ms-settings:defaultapps?registeredAppUser=Prism')
-    })
-    // The renderer's fade brackets the whole swap: opaque on the way in, and the
-    // material comes back only once the far side has been painted and lifted.
-    // Registered once here, not per window: a rebuilt window (#265) would add
-    // a second listener.
-    ipcMain.on('window:fs-transition', (_e, active: boolean) => {
-      fsTransition = !!active
-      applyMaterial(!!mainWindow?.isFullScreen())
-    })
-    ipcMain.on('window:material', (_e, material: string, mode?: string) => {
-      if (!mainWindow) return
-      const light = mode === 'light'
-      wantedMaterial = { material, light }
-      try {
-        // DWM decides whether its blur is a light or a dark frost from the
-        // window's immersive theme, which Electron drives off nativeTheme. Told
-        // nothing, a light acrylic style gets a dark frost under white surfaces.
-        nativeTheme.themeSource = light ? 'light' : 'dark'
-        // Fullscreen keeps the window opaque whatever the style asks for.
-        applyMaterial(mainWindow.isFullScreen())
-      } catch {
-        /* older Windows, or an unsupported value: the solid background stands */
-      }
-    })
+
+    registerWindowIpc()
 
     createWindow()
     void shellVerbSetting.status()
