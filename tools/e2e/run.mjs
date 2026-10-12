@@ -1637,7 +1637,8 @@ async function contextMenuScenario(fixtures) {
     await win.waitForSelector('dd', { timeout: 8000 })
     const dlg = (await win.textContent('[role="dialog"]')) ?? ''
     ok(/Words/.test(dlg) && /Lines/.test(dlg), 'text properties show lines and words')
-    ok(/Text document \(MD\)/.test(dlg), 'kind row names the format')
+    // The text body names the language since 2026-10-12 (the Properties window, per kind).
+    ok(/Language\s*Markdown/.test(dlg), 'the language row names the format (Markdown)')
     await win.screenshot({ path: join(SHOTS, 'properties.png') })
     // Escape closes the dialog, not the window (the dialog owns the key).
     await win.keyboard.press('Escape')
@@ -18238,7 +18239,9 @@ async function propertiesWindowScenario(fixtures) {
     ok((await win.locator('[data-props-window] button:has-text("Disk Cleanup")').count()) === 1, 'drive: a Disk Cleanup button')
     ok(await closeProps(win), 'drive: Close closes')
   } finally {
-    await app.close()
+    await app.close().catch(() => {})
+    // Its files must not outlive it: phoneDocs counts the fixtures' .py files.
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
