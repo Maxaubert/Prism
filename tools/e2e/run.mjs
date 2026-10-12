@@ -17144,7 +17144,7 @@ async function zipFolderScenario(fixtures) {
     await until(async () => (await zipRows(win)).some((p) => p.endsWith('\\main')), 10000)
     await zipRow(win, 'src\\main').dblclick()
     await until(async () => (await zipRows(win)).some((p) => p.endsWith('caret.ts')), 10000)
-    const where = async () => (await win.locator('.browse-path').getAttribute('title')) ?? ''
+    const where = async () => (await win.locator('.browse-path').getAttribute('data-path')) ?? ''
     ok((await where()).endsWith('Wind-0.2.2.zip\\Wind\\src\\main'), `one path through the zip (${await where()})`)
     await win.locator('[data-testid="browse-list"]').focus()
     await win.keyboard.press('Alt+ArrowLeft')
@@ -17247,7 +17247,7 @@ async function previewClearsScenario(fixtures) {
         })()
       }
     })
-  const where = async () => (await win.locator('.browse-path').getAttribute('title')) ?? ''
+  const where = async () => (await win.locator('.browse-path').getAttribute('data-path')) ?? ''
   try {
     await explorerAt(win, dir)
     // The zip selected: its card in the pane.
@@ -17334,7 +17334,7 @@ async function zipPreviewBackScenario(fixtures) {
         text: copy?.textContent ?? ''
       }
     })
-  const where = async () => (await win.locator('.browse-path').getAttribute('title')) ?? ''
+  const where = async () => (await win.locator('.browse-path').getAttribute('data-path')) ?? ''
   const inside = () => until(async () => (await win.locator('[data-archive-strip]').count()) === 1, 10000)
   const cleared = () => until(async () => (await pane()).empty, 5000)
   const zipBack = async (how) => {
@@ -17896,7 +17896,7 @@ async function rowMenu(win, suffix) {
   return labels
 }
 /** The address the Explorer shows. */
-const zipWhere = async (win) => (await win.locator('.browse-path').getAttribute('title')) ?? ''
+const zipWhere = async (win) => (await win.locator('.browse-path').getAttribute('data-path')) ?? ''
 async function zipGo(win, path, until_) {
   await win.locator('[data-testid="browse-edit-path"]').click()
   await win.locator('.browse-path-form input').fill(path)
