@@ -7,6 +7,34 @@ type FolderSizeApi = Pick<
   'folderSize' | 'folderSizesCached' | 'onFolderSizeProgress' | 'cancelFolderSize'
 >
 
+// THE LAST SIZE SEEN, FOR THE WHOLE SESSION (owner, 2026-10-13: "fix some
+// cache for the sizes so i dont see this calculating all the time"). A listing
+// refresh, a revisit or a finished navigation builds a new viewport; it starts
+// from what earlier ones learned and refreshes in place, so a folder measured
+// once never reads "Calculating…" again.
+const remembered = new Map<string, FolderSizeResult>()
+const REMEMBERED_MAX = 5000
+
+function remember(path: string, result: FolderSizeResult): void {
+  remembered.delete(path)
+  remembered.set(path, result)
+  if (remembered.size > REMEMBERED_MAX) remembered.delete(remembered.keys().next().value!)
+}
+
+export function rememberedFolderSizes(paths: readonly string[]): FolderSizes {
+  const sizes: FolderSizes = {}
+  for (const path of paths) {
+    const size = remembered.get(path)
+    if (size) sizes[path] = size
+  }
+  return sizes
+}
+
+/** Tests only. */
+export function forgetFolderSizes(): void {
+  remembered.clear()
+}
+
 /** A viewport owns requests, while completed values survive scrolling. Kept
  * separate from React so asynchronous cancellation and batching are testable. */
 export function createVisibleFolderSizes(
@@ -24,6 +52,9 @@ export function createVisibleFolderSizes(
   let timer: ReturnType<typeof setTimeout> | undefined
 
   const update = (path: string, result: FolderSizeResult | null): void => {
+    // A failed answer never hides a size already known.
+    if (result === null && remembered.has(path)) return
+    if (result) remember(path, result)
     known[path] = result
     dirty[path] = result
     if (timer !== undefined) return
@@ -108,7 +139,11 @@ export function useFolderSizes(
   enabled = true,
   visiblePaths: string[] = paths
 ): FolderSizes {
-  const scanKey = useMemo(() => ({ paths, enabled }), [paths, enabled])
+  // Keyed by the folders, not the array: every refreshed listing hands in a
+  // new array, and a new key used to cancel every request and start over.
+  const pathsKey = paths.join('\n')
+  const stablePaths = useMemo(() => (pathsKey ? pathsKey.split('\n') : []), [pathsKey])
+  const scanKey = useMemo(() => ({ paths: stablePaths, enabled }), [stablePaths, enabled])
   const controller = useRef<ReturnType<typeof createVisibleFolderSizes> | null>(null)
   const [state, setState] = useState<{ key: typeof scanKey; sizes: FolderSizes }>(() => ({
     key: scanKey,
@@ -116,7 +151,7 @@ export function useFolderSizes(
   }))
   useEffect(() => {
     if (!enabled) return
-    const requests = createVisibleFolderSizes(paths, window.prism, (updates) => {
+    const requests = createVisibleFolderSizes(stablePaths, window.prism, (updates) => {
       setState((previous) => ({
         key: scanKey,
         sizes: { ...(previous.key === scanKey ? previous.sizes : {}), ...updates }
@@ -127,9 +162,10 @@ export function useFolderSizes(
       requests.dispose()
       if (controller.current === requests) controller.current = null
     }
-  }, [paths, enabled, scanKey])
+  }, [stablePaths, enabled, scanKey])
   useEffect(() => {
     controller.current?.setVisible(visiblePaths)
   }, [visiblePaths, scanKey])
-  return state.key === scanKey && enabled ? state.sizes : {}
+  const seeded = useMemo(() => rememberedFolderSizes(stablePaths), [stablePaths])
+  return { ...seeded, ...(state.key === scanKey && enabled ? state.sizes : {}) }
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FolderSizeResult } from '@shared/folderSize'
-import { createVisibleFolderSizes } from './useFolderSizes'
+import { createVisibleFolderSizes, forgetFolderSizes, rememberedFolderSizes } from './useFolderSizes'
 
 const size = (bytes: number): FolderSizeResult => ({
   bytes,
@@ -49,6 +49,7 @@ function fixture(paths: string[]) {
 
 beforeEach(() => {
   vi.useFakeTimers()
+  forgetFolderSizes()
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -153,5 +154,31 @@ describe('visible folder size requests', () => {
     expect(test.publish).not.toHaveBeenCalled()
     expect(test.api.cancelFolderSize).toHaveBeenCalledExactlyOnceWith(test.requests[0].id)
     expect(test.unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('remembers what a viewport learned for the next one over the same folders', async () => {
+    // A listing refresh builds a new viewport (owner, 2026-10-13: "fix some
+    // cache for the sizes so i dont see this calculating all the time").
+    const first = fixture(['a', 'b'])
+    first.controller.setVisible(['a', 'b'])
+    first.requests[0].resolve(size(7))
+    await vi.runAllTimersAsync()
+    first.progress(first.requests[1].id, 9)
+    await vi.runAllTimersAsync()
+    first.controller.dispose()
+    expect(rememberedFolderSizes(['a', 'b', 'c'])).toEqual({ a: size(7), b: size(9) })
+  })
+
+  it('never remembers a failed answer over a known size', async () => {
+    const first = fixture(['a'])
+    first.controller.setVisible(['a'])
+    first.requests[0].resolve(size(7))
+    await vi.runAllTimersAsync()
+    first.controller.dispose()
+    const second = fixture(['a'])
+    second.controller.setVisible(['a'])
+    second.requests[0].resolve(null)
+    await vi.runAllTimersAsync()
+    expect(rememberedFolderSizes(['a'])).toEqual({ a: size(7) })
   })
 })
