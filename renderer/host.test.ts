@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { configureTermCore, resetTermCore, termHost, type TermApi, type TermHostConfig } from './host'
-import { agentColorChoice, agentIndicator, paintsAlpha, saveCustomTermTheme, setTermAcrylic, setTermThemeId, termAcrylic, termExtraDefaults, termGroundAlpha, termThemeId, withGroundAlpha } from './lib/termLook'
+import { agentColorChoice, agentIndicator, applyCustomExtras, paintsAlpha, resetTermExtras, saveCustomTermTheme, SEE_THROUGH_TOP, setTermAcrylic, setTermSeeThrough, setTermThemeId, termAcrylic, termExtraDefaults, termGroundAlpha, termSeeThrough, termThemeId, withGroundAlpha } from './lib/termLook'
 import { CH } from '../shared/channels'
 
 // The seam is what lets ONE terminal serve two apps. These tests are the two
@@ -81,85 +81,66 @@ describe('the channel table', () => {
   })
 })
 
-// #114: the Background's alpha is the window's see-through where the terminal
-// owns the window's acrylic. Save as Custom carries the alpha IN FORCE onto
-// Custom.bg (a picked Background's first, else the Custom's own), and only
-// there: in Prism the style owns the glass and a palette stays as it is.
-describe('the ground alpha a saved setup carries', () => {
+// THE SEE-THROUGH SLIDER (owner, 2026-10-13: "make it a slider only with it
+// being at 0 by default"): where the terminal owns the window acrylic, the
+// window's see-through is the slider's level, never a colour's alpha, and
+// Custom saves the ground opaque beside it. In Prism the style owns the glass:
+// the switch, and a palette left as it is.
+describe('the see-through slider', () => {
   afterEach(() => resetTermCore())
   beforeEach(() => localStorage.clear())
-  const palette = { bg: '#202020', fg: '#eeeeee', cursor: '#ff0000', ansi: {} }
+  const palette = { bg: '#20202080', fg: '#eeeeee', cursor: '#ff0000', ansi: {} }
 
-  it('a preset carries no alpha, and a picked see-through background carries its own', () => {
-    let picked: string | null = null
-    configureTermCore({ ...PRISM_TERMINAL, terminalGround: () => picked })
-    setTermThemeId('dracula')
-    expect(withGroundAlpha(palette).bg).toBe('#202020')
-    picked = '#33333399'
-    expect(termGroundAlpha()).toBeCloseTo(0x99 / 255)
-    expect(withGroundAlpha(palette).bg).toBe('#20202099')
+  it('0 by default: the window solid and the material off', () => {
+    configureTermCore(PRISM_TERMINAL)
+    expect(termSeeThrough()).toBe(0)
+    expect(termAcrylic()).toBe(false)
+    expect(termGroundAlpha()).toBe(1)
   })
-  it('a Custom carries its own background alpha, unless a picked one is in force', () => {
-    let picked: string | null = null
-    configureTermCore({ ...PRISM_TERMINAL, terminalGround: () => picked })
+  it('a level paints the ground at 1 - level/100 and turns the material on', () => {
+    configureTermCore(PRISM_TERMINAL)
+    setTermSeeThrough(40)
+    expect(termAcrylic()).toBe(true)
+    expect(termGroundAlpha()).toBeCloseTo(0.6)
+    setTermSeeThrough(0)
+    expect(termAcrylic()).toBe(false)
+  })
+  it('read clamped to 0-70, the 30% floor; nonsense reads 0', () => {
+    configureTermCore(PRISM_TERMINAL)
+    setTermSeeThrough(95)
+    expect(termSeeThrough()).toBe(SEE_THROUGH_TOP)
+    expect(termGroundAlpha()).toBeCloseTo(0.3)
+    localStorage.setItem('prism.term.seeThrough', 'glass')
+    expect(termSeeThrough()).toBe(0)
+  })
+  it('a colour alpha is no see-through any more: a picked or Custom alpha paints nothing', () => {
+    configureTermCore({ ...PRISM_TERMINAL, terminalGround: () => '#33333399' })
     saveCustomTermTheme({ ...palette, bg: '#11111180' })
     setTermThemeId('custom')
-    expect(withGroundAlpha(palette).bg).toBe('#20202080')
-    picked = '#123456cc'
-    expect(withGroundAlpha(palette).bg).toBe('#202020cc')
-    picked = '#123456'
-    expect(withGroundAlpha({ ...palette, bg: '#20202080' }).bg).toBe('#202020')
+    expect(termGroundAlpha()).toBe(1)
   })
-  it('in Prism, where the style owns the glass, the palette is left alone', () => {
+  it('Custom saves the ground opaque', () => {
+    configureTermCore(PRISM_TERMINAL)
+    expect(withGroundAlpha(palette).bg).toBe('#202020')
+  })
+  it('a theme pick puts its own level back, 0; a Custom brings back its saved level', () => {
+    configureTermCore(PRISM_TERMINAL)
+    setTermSeeThrough(30)
+    resetTermExtras()
+    expect(termSeeThrough()).toBe(0)
+    applyCustomExtras({ ...palette, seeThrough: 25 })
+    expect(termSeeThrough()).toBe(25)
+    applyCustomExtras({ ...palette })
+    expect(termSeeThrough()).toBe(0)
+  })
+  it('in Prism, where the style owns the glass, the palette is left alone and the switch stays', () => {
     configureTermCore(PRISM)
     saveCustomTermTheme({ ...palette, bg: '#11111180' })
     setTermThemeId('custom')
     expect(withGroundAlpha(palette)).toEqual(palette)
-  })
-})
-
-// #156: the switch alone makes the window see-through where the terminal owns
-// the window acrylic, as Prism's "See-through window" does. An opaque ground
-// in force paints Prism's default, measured light or dark; a ground that
-// carries its own alpha keeps it.
-describe('the see-through window (#156)', () => {
-  afterEach(() => resetTermCore())
-  beforeEach(() => localStorage.clear())
-
-  it('switch on over a preset: the default, by the ground light or dark', () => {
-    configureTermCore(PRISM_TERMINAL)
-    setTermThemeId('dracula')
-    expect(termGroundAlpha()).toBe(1)
-    setTermAcrylic(true)
-    expect(termGroundAlpha()).toBe(0xb9 / 255)
-    setTermThemeId('paper')
-    setTermAcrylic(true)
-    expect(termGroundAlpha()).toBe(0xd1 / 255)
-  })
-  it('an opaque picked Background is measured, not the theme under it', () => {
-    let picked: string | null = '#ffffff'
-    configureTermCore({ ...PRISM_TERMINAL, terminalGround: () => picked })
-    setTermThemeId('dracula')
-    setTermAcrylic(true)
-    expect(termGroundAlpha()).toBe(0xd1 / 255)
-    // A picked alpha wins over the default: the Alpha slider still tunes it.
-    picked = '#ffffff99'
-    expect(termGroundAlpha()).toBe(0x99 / 255)
-  })
-  it('an opaque Custom paints the default; one with an alpha keeps it', () => {
-    configureTermCore(PRISM_TERMINAL)
-    saveCustomTermTheme({ bg: '#111111', fg: '#eeeeee', cursor: '#ff0000', ansi: {} })
-    setTermThemeId('custom')
-    setTermAcrylic(true)
-    expect(termGroundAlpha()).toBe(0xb9 / 255)
-    saveCustomTermTheme({ bg: '#11111180', fg: '#eeeeee', cursor: '#ff0000', ansi: {} })
-    expect(termGroundAlpha()).toBe(0x80 / 255)
-  })
-  it('Save as Custom carries the default, so a saved setup stays see-through', () => {
-    configureTermCore(PRISM_TERMINAL)
-    setTermThemeId('dracula')
-    setTermAcrylic(true)
-    expect(withGroundAlpha({ bg: '#1e1f29' }).bg).toBe('#1e1f29b9')
+    expect(termAcrylic()).toBe(true)
+    setTermAcrylic(false)
+    expect(termAcrylic()).toBe(false)
   })
   it('in Prism, where the style owns the glass, nothing changes', () => {
     configureTermCore(PRISM)
@@ -167,7 +148,7 @@ describe('the see-through window (#156)', () => {
     setTermAcrylic(true)
     expect(termGroundAlpha()).toBe(1)
   })
-  it('paintsAlpha: the one rule the window and the dirty check share', () => {
+  it('paintsAlpha: the old rule, which the move to the slider reads', () => {
     expect(paintsAlpha(1, '#000000', false)).toBe(1)
     expect(paintsAlpha(1, '#000000', true)).toBe(0xb9 / 255)
     expect(paintsAlpha(1, '#ffffff', true)).toBe(0xd1 / 255)

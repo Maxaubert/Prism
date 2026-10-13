@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FONT_PCTS, agentColorChoice, agentDoneColorChoice, agentQuestionColorChoice, setAgentDoneColor, setAgentQuestionColor, termGroundAlpha, applyCustomExtras, resetTermExtras, agentIndicator, customTermTheme, setAgentColor, saveCustomTermTheme, setAgentIndicator, setTermAcrylic, setTermFontPct, setTermThemeId, termAcrylic, termBaseFontPx, termExtraDefaults, termFontPct, legacyTermOpacity, termThemeId } from './termLook'
+import { FONT_PCTS, agentColorChoice, agentDoneColorChoice, agentQuestionColorChoice, setAgentDoneColor, setAgentQuestionColor, termGroundAlpha, applyCustomExtras, resetTermExtras, agentIndicator, customTermTheme, setAgentColor, saveCustomTermTheme, setAgentIndicator, setTermAcrylic, setTermFontPct, setTermSeeThrough, setTermThemeId, termAcrylic, termBaseFontPx, termExtraDefaults, termFontPct, legacyTermOpacity, termThemeId } from './termLook'
 import * as termLook from './termLook'
 import { configureTermCore, resetTermCore, type TermHostConfig } from '../host'
 
@@ -175,19 +175,16 @@ describe('colours with alpha', () => {
     setTermThemeId('custom')
     expect(termGroundAlpha()).toBeCloseTo(0x80 / 255)
   })
-  it("termGroundAlpha is floored at 30% where it is the window's see-through, as the slider was", () => {
+  it("where the terminal owns the window acrylic, the ground alpha is the slider's, never the colour's (2026-10-13)", () => {
     saveCustomTermTheme({ bg: '#12121205', fg: '#eeeeee', cursor: '#ff0000', ansi: {} })
     setTermThemeId('custom')
     // No host, or a host whose style owns the glass: read as stored.
     expect(termGroundAlpha()).toBeCloseTo(0x05 / 255)
     configureTermCore({ acrylic: { kind: 'window', supported: async () => true } } as unknown as TermHostConfig)
     try {
-      expect(termGroundAlpha()).toBe(0x4d / 255)
-      // The floor is the byte 30% gives, so a picker's lowest value is unchanged.
-      saveCustomTermTheme({ bg: '#1212124d', fg: '#eeeeee', cursor: '#ff0000', ansi: {} })
-      expect(termGroundAlpha()).toBe(0x4d / 255)
-      saveCustomTermTheme({ bg: '#12121299', fg: '#eeeeee', cursor: '#ff0000', ansi: {} })
-      expect(termGroundAlpha()).toBe(0x99 / 255)
+      expect(termGroundAlpha()).toBe(1)
+      setTermSeeThrough(70)
+      expect(termGroundAlpha()).toBeCloseTo(0.3)
     } finally {
       resetTermCore()
     }

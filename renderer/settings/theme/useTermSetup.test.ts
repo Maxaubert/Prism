@@ -3,15 +3,17 @@ import { configureTermCore, resetTermCore, type TermHostConfig } from '../../hos
 import {
   customTermTheme,
   saveCustomTermTheme,
-  setTermAcrylic,
+  setTermSeeThrough,
   setTermThemeId,
   withGroundAlpha
 } from '../../lib/termLook'
 import { paletteOf } from './palette'
 import { saveTermSetup, termSetupState } from './useTermSetup'
 
-// Review of #156: Save changes judges, and saves, what the window paints, so a
-// picked opaque Background does not light it by its lightness.
+// The see-through slider is part of the theme (owner, 2026-10-13: "Like
+// Prism: an edit"): a moved slider lights Save changes, a save keeps it with
+// Custom, and the ground is saved opaque. A picked Background's lightness or
+// alpha says nothing about it.
 
 let picked: string | null = null
 const PRISM_TERMINAL: TermHostConfig = {
@@ -25,7 +27,7 @@ const PRISM_TERMINAL: TermHostConfig = {
   terminalGround: () => picked
 }
 
-describe('the setup Save changes judges (#156 review)', () => {
+describe('the see-through level in Save changes', () => {
   beforeEach(() => {
     localStorage.clear()
     picked = null
@@ -33,40 +35,39 @@ describe('the setup Save changes judges (#156 review)', () => {
   })
   afterEach(() => resetTermCore())
 
-  it('an opaque picked Background does not light Save changes, light or dark', () => {
-    saveCustomTermTheme({ bg: '#111111', fg: '#eeeeee', cursor: '#ff0000', ansi: {}, acrylic: true })
-    setTermThemeId('custom')
-    setTermAcrylic(true)
+  it('a preset at 0 is clean; a moved slider is a change to save', () => {
+    setTermThemeId('dracula')
     expect(termSetupState().dirty).toBe(false)
+    setTermSeeThrough(35)
+    expect(termSetupState().dirty).toBe(true)
+    setTermSeeThrough(0)
+    expect(termSetupState().dirty).toBe(false)
+  })
+
+  it('a picked Background never lights it, opaque or not', () => {
+    setTermThemeId('dracula')
     picked = '#ffffff'
     expect(termSetupState().dirty).toBe(false)
-    picked = '#000000'
-    expect(termSetupState().dirty).toBe(false)
-    // A see-through pick still does.
     picked = '#ffffff99'
+    expect(termSetupState().dirty).toBe(false)
+  })
+
+  it('a save keeps the level with Custom, on an opaque ground, and is clean afterwards', () => {
+    setTermThemeId('dracula')
+    setTermSeeThrough(35)
+    saveTermSetup()
+    const c = customTermTheme()
+    expect(c?.seeThrough).toBe(35)
+    expect(c?.bg).toHaveLength(7)
+    expect(c && 'acrylic' in c).toBe(false)
+    expect(termSetupState().dirty).toBe(false)
+    // A Custom at its own level is clean; moved off it, a change again.
+    setTermSeeThrough(20)
     expect(termSetupState().dirty).toBe(true)
   })
 
-  it('a save under an opaque light pick is clean afterwards', () => {
-    saveCustomTermTheme({ bg: '#111111', fg: '#eeeeee', cursor: '#ff0000', ansi: {}, acrylic: true })
-    setTermThemeId('custom')
-    setTermAcrylic(true)
-    picked = '#ffffff'
-    saveTermSetup()
-    // The level the window painted (white's d1), not the Custom's own b9:
-    // saving b9 left Save changes lit after every save.
-    expect(customTermTheme()?.bg).toBe('#111111d1')
-    expect(termSetupState().dirty).toBe(false)
-  })
-
-  it('editing a light preset that is not the active theme opens at its own level', () => {
-    // Every preset card has an edit button: with no pick, the window's ground
-    // is the ACTIVE (dark) theme's, which says nothing about this palette.
-    setTermThemeId('prism')
-    setTermAcrylic(true)
-    expect(withGroundAlpha(paletteOf('catppuccin-latte')).bg.slice(-2)).toBe('d1')
-    // Under an opaque pick the pick is what paints, for any palette.
-    picked = '#111111'
-    expect(withGroundAlpha(paletteOf('catppuccin-latte')).bg.slice(-2)).toBe('b9')
+  it('the editor opens on an opaque ground', () => {
+    saveCustomTermTheme({ bg: '#11111180', fg: '#eeeeee', cursor: '#ff0000', ansi: {} })
+    expect(withGroundAlpha(paletteOf('custom')).bg).toBe('#111111')
   })
 })

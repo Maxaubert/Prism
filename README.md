@@ -151,6 +151,15 @@ share. The switch is read as stored (`termAcrylic`): the rule that held High
 Contrast solid went with the theme (owner, 2026-10-11). The
 row is named by `acrylicLabel()` ("See-through window" there, the list's label
 in Prism) and drawn right under the wall, before `afterTheme`.
+Since 0.36.0 (owner, 2026-10-13) that row is a SLIDER where `acrylic.kind` is
+'window': `termSeeThrough`/`setTermSeeThrough`/`useTermSeeThrough`, 0 to
+`SEE_THROUGH_TOP` (70), `termAcrylic()` is `level > 0` and `termGroundAlpha()`
+is `1 - level/100`, never a colour's alpha. The level is a theme extra (reset
+on a pick, saved as `CustomTermTheme.seeThrough`, applied with Custom); the
+Background pickers carry no alpha and `withGroundAlpha` saves the ground
+opaque. `paintsAlpha` and `LEGACY_ACRYLIC_KEY`/`SEE_THROUGH_STORE_KEY` are for
+the host's one-time move. Where it is 'style' (Prism) nothing changed: the
+switch, `setTermAcrylic`. The settings field is `Slider` in `fields.tsx`.
 Since 0.31.0 (#157) the wall orders the presets after its leading cards with
 `orderTermThemes` (`lib/themeOrder.ts`): neutral grounds first, then coloured,
 each black to white by OKLab L; neutral is chroma below `NEUTRAL_CHROMA`.

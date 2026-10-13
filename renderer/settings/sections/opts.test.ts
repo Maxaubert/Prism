@@ -34,7 +34,7 @@ describe('the acrylic row, per host (#156)', () => {
   it("Prism Terminal: Prism's own name and words", () => {
     configureTermCore(WINDOW)
     expect(acrylicLabel()).toBe('See-through window')
-    expect(acrylicSub()).toBe('The desktop shows behind every surface.')
+    expect(acrylicSub()).toBe('How much of the desktop shows behind every surface.')
   })
   it('Prism: the terminal row keeps its name and words', () => {
     configureTermCore(STYLE)
@@ -44,7 +44,7 @@ describe('the acrylic row, per host (#156)', () => {
   it('Find a setting words the row as the page does', () => {
     configureTermCore(WINDOW)
     const row = coreSettingsIndex({ pageOf: () => 'appearance', nvidia: false }).find((e) => e.id === 'term-acrylic')
-    expect(row).toMatchObject({ label: 'See-through window', sub: 'The desktop shows behind every surface.' })
+    expect(row).toMatchObject({ label: 'See-through window', sub: 'How much of the desktop shows behind every surface.' })
     // "see through" still finds it by its keywords in Prism's wording too.
     expect(row?.keywords).toContain('see through')
   })

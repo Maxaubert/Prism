@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import { followsHostStyle, hostDefaults, hostOwnsWindowAcrylic } from '../../host'
+import { followsHostStyle, hostDefaults } from '../../host'
 import {
   applyCustomExtras,
   customTermTheme,
@@ -8,7 +8,6 @@ import {
   termThemeId,
   themeDraft,
   useCustomTermTheme,
-  useTermAcrylic,
   useTermThemeId,
   useThemeDraft,
   withGroundAlpha,
@@ -22,12 +21,11 @@ import {
 } from '../../lib/termTheme'
 import { orderTermThemes } from '../../lib/themeOrder'
 import type { AlphaRange } from '../../lib/colour'
-import { SEE_THROUGH_MAX } from '../../lib/seeThrough'
 import { ColourField } from '../ColourPicker'
 import ThemeSwitchAsk from '../../components/ThemeSwitchAsk'
 import { Modal } from '../../components/Modal'
 import { ANSI_KEYS, cardAnsi, paletteOf, pickPreset, presetLook } from './palette'
-import { saveAsCustom, useNoAcrylic, useTermSetup } from './useTermSetup'
+import { saveAsCustom, useTermSetup } from './useTermSetup'
 
 // THE THEME WALL (2026-10-05): the cards, Show all, the switch question and
 // the colour editor, drawn by the theme section.
@@ -290,7 +288,6 @@ export function ThemeWall({
   className?: string
 }): JSX.Element {
   const themeId = useTermThemeId()
-  const acrylicOn = useTermAcrylic()
   const custom = useCustomTermTheme()
   const setup = useTermSetup()
   const dirty = setup.dirty || extraDirty
@@ -298,8 +295,6 @@ export function ThemeWall({
     setup.save()
     onSaved?.()
   }
-  const noAcrylic = useNoAcrylic()
-  const windowAcrylic = hostOwnsWindowAcrylic()
   // The Custom card draws what the terminal draws (#113 review), not the raw
   // alphas; resolved once per saved Custom, which the store already caches.
   const customDrawn = useMemo(() => (custom ? resolveCustomTheme(custom) : null), [custom])
@@ -470,18 +465,10 @@ export function ThemeWall({
       {editing && (
         <TermThemeEditor
           draft={editing}
-          // Opaque is the switch's off (#156): under it the Alpha stops at 95%,
-          // so the field and the window always agree. Only while the Alpha is
-          // live: an inert one must not clip an opaque ground it cannot move.
-          bgAlpha={
-            windowAcrylic
-              ? {
-                  alphaMin: 0.3,
-                  alphaMax: acrylicOn && !noAcrylic ? SEE_THROUGH_MAX : 1,
-                  alphaDisabled: !acrylicOn || noAcrylic
-                }
-              : { alpha: false }
-          }
+          // No Alpha on the Background in either app: here the see-through
+          // is the slider's (owner, 2026-10-13: "slider only"), in Prism the
+          // style's glass.
+          bgAlpha={{ alpha: false }}
           onSave={(t) => {
             // The Custom slot is the WHOLE setup (code review 2026-09-24,
             // #8): saved as a bare palette, the agent colours and

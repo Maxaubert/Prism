@@ -9,12 +9,8 @@ import {
   type AgentIndicator
 } from '../host'
 import { liveThemeId } from './termThemeRetired'
-import { alphaOf, canonicalStored, opaque, parseColour, toStored, withAlpha } from './colour'
+import { alphaOf, canonicalStored, opaque, parseColour, toStored } from './colour'
 import { seeThroughAlpha } from './seeThrough'
-// A CYCLE, and a safe one: termTheme imports this module too, and neither reads
-// the other at module load (only inside functions, at call time), so either may
-// be evaluated first.
-import { resolveTermTheme } from './termTheme'
 import { readPref, writePref } from './prefStore'
 
 export type { AgentIndicator }
@@ -125,14 +121,49 @@ const OPACITY_KEY = 'prism.term.opacity'
 /** Whether the window is acrylic: the theme's background is painted at the
  *  ground's alpha (`termGroundAlpha`) and the desktop shows through. Inside
  *  Prism this belonged to the follow-style terminal alone and was on by
- *  default; here it works with any theme and is OFF until asked for. */
+ *  default; there it is still the switch. Where the terminal owns the window
+ *  acrylic it is the see-through slider above 0 (`termSeeThrough`). */
 export function termAcrylic(): boolean {
+  if (hostOwnsWindowAcrylic()) return termSeeThrough() > 0
   const v = localStorage.getItem(ACRYLIC_KEY)
   // Never touched: the host's default (on in Prism, off in Prism Terminal).
   return v === null ? hostDefaults().acrylic : v === '1'
 }
+/** Prism's switch (`acrylic.kind: 'style'`). */
 export function setTermAcrylic(on: boolean): void {
   localStorage.setItem(ACRYLIC_KEY, on ? '1' : '0')
+  notify()
+}
+/** The switch's old key, for the host's one-time move to the slider. */
+export const LEGACY_ACRYLIC_KEY = ACRYLIC_KEY
+
+/**
+ * THE SEE-THROUGH SLIDER (owner, 2026-10-13: "can you add a see through
+ * slider, now its just a toggle make it a slider only with it being at 0 by
+ * default"), where the terminal owns the window acrylic (Prism Terminal). How
+ * much of the desktop shows through, in percent: the window's ground is
+ * painted at alpha 1 - level/100. 0 is the material off and a solid window;
+ * the top is 70, the 30% alpha floor the Opacity slider and the Background's
+ * alpha had. It is the ONLY see-through control there ("slider only": the
+ * Background pickers carry no alpha), and PART OF THE THEME, as Prism's own
+ * see-through is ("prism has it built into themes ... Like Prism: an edit"):
+ * a theme extra, so moving it lights Save changes, a theme pick puts the
+ * theme's own back (a preset's is 0) and Custom keeps it.
+ * Stored as written, read clamped; never stored reads as 0 (the host's
+ * migration writes it once before the first paint).
+ */
+export const SEE_THROUGH_TOP = 70
+const SEE_THROUGH_KEY = 'prism.term.seeThrough'
+export const SEE_THROUGH_STORE_KEY = SEE_THROUGH_KEY
+export function seeThroughLevel(raw: unknown): number {
+  const n = raw === null || raw === undefined || raw === '' ? NaN : Number(raw)
+  return Number.isFinite(n) ? Math.min(SEE_THROUGH_TOP, Math.max(0, Math.round(n))) : 0
+}
+export function termSeeThrough(): number {
+  return seeThroughLevel(localStorage.getItem(SEE_THROUGH_KEY))
+}
+export function setTermSeeThrough(level: number): void {
+  localStorage.setItem(SEE_THROUGH_KEY, String(seeThroughLevel(level)))
   notify()
 }
 /**
@@ -316,6 +347,9 @@ export interface CustomTermTheme {
   doneColor?: string
   questionColor?: string
   acrylic?: boolean
+  /** The see-through slider's level, where the terminal owns the window
+   *  acrylic (2026-10-13); the ground is saved opaque there. */
+  seeThrough?: number
 }
 
 /** What every theme-bound non-colour setting is out of the box. Picking any
@@ -327,6 +361,7 @@ export function termExtraDefaults(): {
   doneColor: string
   questionColor: string
   acrylic: boolean
+  seeThrough: number
 } {
   const d = hostDefaults()
   return {
@@ -335,7 +370,9 @@ export function termExtraDefaults(): {
     indicatorColor: d.agentColor,
     doneColor: d.agentDoneColor,
     questionColor: '',
-    acrylic: d.acrylic
+    acrylic: d.acrylic,
+    // Every theme's own see-through is none (owner: "at 0 by default").
+    seeThrough: 0
   }
 }
 
@@ -345,6 +382,9 @@ export function resetTermExtras(): void {
   localStorage.removeItem(AGENT_IND_KEY)
   for (const c of AGENT_COLOUR_STATES) localStorage.removeItem(c.key)
   localStorage.removeItem(ACRYLIC_KEY)
+  // Written, not removed: a stored level is also the sign the host's one-time
+  // move from the switch has run.
+  if (hostOwnsWindowAcrylic()) localStorage.setItem(SEE_THROUGH_KEY, '0')
   notify()
 }
 
@@ -360,8 +400,10 @@ export function applyCustomExtras(t: CustomTermTheme | null): void {
   // Validated as every other writer is: a colour that is not one follows the
   // theme rather than landing in storage unchecked (#112).
   for (const c of AGENT_COLOUR_STATES) writeChoice(c.key, t[c.custom])
-  if (t.acrylic !== undefined) localStorage.setItem(ACRYLIC_KEY, t.acrylic ? '1' : '0')
-  // No opacity (#114): a saved see-through is the alpha of the saved `bg`.
+  // The see-through the save captured: the slider's level where the terminal
+  // owns the window acrylic (a save without one is none), else the switch.
+  if (hostOwnsWindowAcrylic()) localStorage.setItem(SEE_THROUGH_KEY, String(seeThroughLevel(t.seeThrough ?? 0)))
+  else if (t.acrylic !== undefined) localStorage.setItem(ACRYLIC_KEY, t.acrylic ? '1' : '0')
   notify()
 }
 
@@ -422,21 +464,19 @@ function stored(c: unknown): string | null {
  * the default see-through (#156, `paintsAlpha`): a preset is no longer 1.
  */
 export function termGroundAlpha(): number {
-  const a = rawGroundAlpha()
-  if (!hostOwnsWindowAcrylic()) return a
-  // The ground is only looked up when the default can apply: resolving a
-  // theme on every read of an alpha that needs none would be waste.
-  const on = termAcrylic()
-  return paintsAlpha(a, on && isOpaque(a) ? groundInForce() : '#000000', on)
+  // Where it is the window's see-through, it is the slider's (2026-10-13),
+  // never read off a colour: the pickers carry no alpha there any more.
+  if (hostOwnsWindowAcrylic()) return 1 - termSeeThrough() / 100
+  return rawGroundAlpha()
 }
 /** The lowest window see-through: Opacity 30's byte, round(0.3 * 255). */
 export const GROUND_ALPHA_MIN = 0x4d / 255
 
 /**
- * THE ONE RULE for what a ground paints where the terminal owns the window
- * acrylic (#156), shared by the window (`termGroundAlpha`) and Save changes'
- * dirty check (`useTermSetup`), so the two can never disagree about a saved
- * setup. With the switch on, an OPAQUE ground paints the default see-through
+ * THE OLD RULE, kept for the host's one-time move to the see-through slider
+ * (2026-10-13), which turns what the window painted into a level. It was the
+ * rule for what a ground painted where the terminal owns the window acrylic
+ * (#156), shared by the window and Save changes' dirty check. With the switch on, an OPAQUE ground paints the default see-through
  * (Prism's levels, by the ground light or dark): on means see-through by
  * itself, as Prism's switch does, where before #156 a preset stayed solid and
  * the switch looked broken. A ground that carries an alpha keeps it, floored
@@ -449,12 +489,6 @@ export function paintsAlpha(raw: number, ground: string, acrylicOn: boolean): nu
 /** Opaque BY THE BYTE: an alpha that stores as ff is opaque. */
 const isOpaque = (a: number): boolean => Math.round(a * 255) >= 255
 
-/** The ground in force, opaque, in the order the window paints it: the
- *  host's picked one, else the theme's own (a Custom's `bg` included). */
-function groundInForce(): string {
-  return opaque(hostGround() ?? resolveTermTheme(termThemeId()).background)
-}
-
 function rawGroundAlpha(): number {
   const picked = hostGround()
   if (picked) return alphaOf(picked)
@@ -466,28 +500,14 @@ function rawGroundAlpha(): number {
 }
 
 /**
- * A palette with the ground alpha IN FORCE on its background (#114), where
- * that alpha is the window's see-through: what Save as Custom saves and what
- * the colour editor opens on, so a see-through window stays see-through
- * through a save (the Opacity slider was carried in the setup the same way).
- * Where the host's style owns the glass (Prism), the palette as it is.
- *
- * It is the alpha the WINDOW paints (`termGroundAlpha`), the default measured
- * from the picked Background where one is in force: what the user saw is what
- * is saved, and what Save changes' dirty check reads back. Measuring from the
- * palette's own ground instead (review of #156) saved a dark Custom under an
- * opaque white pick at b9 while the window and the check stayed at d1, so
- * Save changes stayed lit after every save.
- *
- * Without a pick the ground is the PALETTE's own, not the active theme's:
- * every preset card has an edit button, and a light preset edited under a
- * dark active theme opened, and saved, at the dark level (review of the fix
- * above). For the active theme the two are the same ground.
+ * A palette as Custom saves it and the colour editor opens it (#114): where
+ * the terminal owns the window acrylic the ground is OPAQUE, the see-through
+ * being the slider's level, saved beside it (2026-10-13). Where the host's
+ * style owns the glass (Prism), the palette as it is.
  */
 export function withGroundAlpha<T extends { bg: string }>(palette: T): T {
   if (!hostOwnsWindowAcrylic()) return palette
-  const ground = opaque(hostGround() ?? palette.bg)
-  return { ...palette, bg: withAlpha(palette.bg, paintsAlpha(rawGroundAlpha(), ground, termAcrylic())) }
+  return { ...palette, bg: opaque(palette.bg) }
 }
 
 /**
@@ -538,6 +558,9 @@ export function useTermFontId(): string {
 }
 export function useTermAcrylic(): boolean {
   return useSyncExternalStore(sub, termAcrylic)
+}
+export function useTermSeeThrough(): number {
+  return useSyncExternalStore(sub, termSeeThrough)
 }
 /** The ground's alpha, re-read when the look OR the host's window colours
  *  change (a picked background is the host's, not this store's). */

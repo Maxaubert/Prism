@@ -40,6 +40,61 @@ export function Switch({
   )
 }
 
+/**
+ * A LEVEL ON A TRACK (2026-10-13, the see-through slider). A native range, so
+ * the pointer, the arrow and Page keys and the screen reader are the
+ * browser's own, worn in the switch's colours: up to the thumb the ON
+ * switch's accent fill, past it the grey track, the thumb the switch's white
+ * knob. Larger than the switch's knob, for a pointer that has to land on it
+ * zoomed in. The value is said beside it, in words where 0 means off.
+ */
+export function Slider({
+  value,
+  min = 0,
+  max,
+  onChange,
+  label,
+  format,
+  disabled
+}: {
+  value: number
+  min?: number
+  max: number
+  onChange: (v: number) => void
+  label: string
+  format: (v: number) => string
+  disabled?: boolean
+}): JSX.Element {
+  const pct = max === min ? 0 : ((value - min) / (max - min)) * 100
+  return (
+    <span className="flex shrink-0 items-center gap-3">
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        aria-label={label}
+        aria-valuetext={format(value)}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.currentTarget.value))}
+        className={SLIDER}
+        style={{ background: `linear-gradient(to right, var(--p-sel-bg) ${pct}%, var(--p-track) ${pct}%)` }}
+      />
+      <span
+        data-slider-value=""
+        className={`w-[38px] text-right text-[12px] font-semibold tabular-nums ${disabled ? 'text-[var(--p-dim)]' : 'text-[var(--p-text)]'}`}
+      >
+        {format(value)}
+      </span>
+    </span>
+  )
+}
+const SLIDER =
+  'h-[6px] w-[168px] cursor-pointer appearance-none rounded-full outline-none disabled:cursor-default disabled:opacity-50 ' +
+  '[&::-webkit-slider-thumb]:h-[18px] [&::-webkit-slider-thumb]:w-[18px] [&::-webkit-slider-thumb]:appearance-none ' +
+  '[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_1px_3px_rgba(0,0,0,0.45)]'
+
 /** Two or three exclusive choices as one control rather than a row of buttons. */
 export function Segmented<T extends string>({
   value,

@@ -54,4 +54,4 @@ export const saveSetupTitle = (): string => `Saves the theme, agent colours and 
 /** The acrylic row's subtext, by what acrylic means in this host: the
  *  window's own material, or the app style's let through the terminal. */
 export const acrylicSub = (): string =>
-  !hostOwnsWindowAcrylic() ? 'The desktop shows through the terminal.' : 'The desktop shows behind every surface.'
+  !hostOwnsWindowAcrylic() ? 'The desktop shows through the terminal.' : 'How much of the desktop shows behind every surface.'

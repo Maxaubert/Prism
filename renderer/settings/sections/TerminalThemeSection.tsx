@@ -1,6 +1,13 @@
 import type { JSX, ReactNode } from 'react'
-import { setTermAcrylic, useTermAcrylic } from '../../lib/termLook'
-import { SaveButton, Switch } from '../fields'
+import { hostOwnsWindowAcrylic } from '../../host'
+import {
+  SEE_THROUGH_TOP,
+  setTermAcrylic,
+  setTermSeeThrough,
+  useTermAcrylic,
+  useTermSeeThrough
+} from '../../lib/termLook'
+import { SaveButton, Slider, Switch } from '../fields'
 import { SettingBlock } from '../layout/SettingBlock'
 import { SettingRow } from '../layout/SettingRow'
 import { SettingsSection } from '../layout/SettingsSection'
@@ -33,6 +40,8 @@ export function TerminalThemeSection({
   onSaved?: () => void
 } = {}): JSX.Element {
   const acrylicOn = useTermAcrylic()
+  const level = useTermSeeThrough()
+  const windowGlass = hostOwnsWindowAcrylic()
   const setup = useTermSetup()
   const dirty = setup.dirty || extraDirty
   const save = (): void => {
@@ -52,16 +61,29 @@ export function TerminalThemeSection({
         <ThemeWall onThemePicked={onThemePicked} extraDirty={extraDirty} onSaved={onSaved} />
       </SettingBlock>
       {/* The material does not exist before Windows 11, so there the row says
-          why instead of offering a switch that would do nothing. */}
+          why instead of offering a control that would do nothing. Where the
+          terminal owns the window acrylic it is the see-through SLIDER
+          (owner, 2026-10-13), 0 being off; in Prism the switch it was. */}
       <SettingRow
         id="term-acrylic"
         icon={acrylic.icon}
         label={label}
         sub={noAcrylic ? 'Needs Windows 11.' : acrylicSub()}
         off={noAcrylic}
-        tap
+        tap={!windowGlass}
       >
-        <Switch on={acrylicOn && !noAcrylic} onChange={setTermAcrylic} label={label} disabled={noAcrylic} />
+        {windowGlass ? (
+          <Slider
+            value={noAcrylic ? 0 : level}
+            max={SEE_THROUGH_TOP}
+            onChange={setTermSeeThrough}
+            label={label}
+            format={(v) => (v === 0 ? 'Off' : `${v}%`)}
+            disabled={noAcrylic}
+          />
+        ) : (
+          <Switch on={acrylicOn && !noAcrylic} onChange={setTermAcrylic} label={label} disabled={noAcrylic} />
+        )}
       </SettingRow>
       {afterTheme}
     </SettingsSection>
