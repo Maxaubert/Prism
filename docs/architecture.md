@@ -28,7 +28,7 @@ Filesmith's conventions.
   opacity slider (the style owns the glass), and Prism's own chords. Everything else is the same
   by owner decision (2026-09-19): the indicator is MINIMAL by default and its colours follow the
   accent, the panel paints the ground (so the dock paints nothing behind it), and a theme pick
-  never resets Minimal / Full nor does a saved theme carry it. The panel, find, `termLook`,
+  never resets Bar / Full nor does a saved theme carry it. The panel, find, `termLook`,
   `termTheme`, the agent poll, the resume lookup, the bridge to main (`createTermApi` in the
   preload, `registerTermIpc` in main, which takes Prism's WALL as three small answers), the
   indicator's rules (`useAgentIndicator`, which was lifted out of this App), its colours
