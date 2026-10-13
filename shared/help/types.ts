@@ -16,8 +16,11 @@
  */
 
 /** Which command language an entry is written in. 'any' is the same text in
- *  every shell (git, the agents' own CLIs, winget). */
-export type HelpShell = 'powershell' | 'cmd' | 'bash' | 'any'
+ *  every shell (git, the agents' own CLIs, npm). 'windows' is the same text in
+ *  PowerShell and Command Prompt and does NOT work in Bash (winget, wsl.exe,
+ *  where.exe): a WSL tab never shows it (owner, 2026-10-13: a Bash list made
+ *  "mostly" of things that "dont work in wsl" teaches nobody Linux). */
+export type HelpShell = 'powershell' | 'cmd' | 'bash' | 'any' | 'windows'
 
 export type HelpCategory =
   | 'files' // find, list, copy, move, delete, read, search inside
@@ -30,6 +33,7 @@ export type HelpCategory =
   | 'git'
   | 'shell' // history, aliases, variables, the prompt, help itself
   | 'agents' // Claude Code and Codex
+  | 'wsl' // Linux on Windows, run from the Windows side
 
 export interface HelpEntry {
   /** Stable, unique, kebab-case, prefixed by its shell: 'ps-biggest-files'. */
@@ -57,6 +61,10 @@ export interface HelpEntry {
     label: string
     command: string
     keywords?: ReadonlyArray<string>
+    /** Only in these shells: a row that is one shell's own spelling inside an
+     *  entry the others share ("type FILE" is for cmd and PowerShell, not
+     *  Bash). Absent: in every shell the entry is shown in. */
+    shells?: ReadonlyArray<'powershell' | 'cmd' | 'bash'>
   }>
   /** What each placeholder stands for, when the command has any. */
   placeholders?: Readonly<Record<string, string>>

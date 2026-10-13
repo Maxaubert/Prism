@@ -10,7 +10,22 @@ import type { HelpShell } from './types'
 
 /** The shells somebody can be IN. 'any' is not one of them: it marks an entry
  *  that reads the same in all three, and is never a chip. */
-export type HelpShellChoice = Exclude<HelpShell, 'any'>
+export type HelpShellChoice = Exclude<HelpShell, 'any' | 'windows'>
+
+/** Whether an entry written for `entryShell` is shown to someone in `shell`:
+ *  its own, every 'any' one, and a 'windows' one outside Bash. The one rule
+ *  the panel, the search and `helpFor` all read. */
+export function shownIn(entryShell: HelpShell, shell: HelpShellChoice): boolean {
+  return entryShell === shell || entryShell === 'any' || (entryShell === 'windows' && shell !== 'bash')
+}
+
+/** The variants of an entry that are shown in `shell`. */
+export function variantsIn<V extends { shells?: ReadonlyArray<HelpShellChoice> }>(
+  variants: ReadonlyArray<V> | undefined,
+  shell: HelpShellChoice
+): V[] {
+  return (variants ?? []).filter((v) => !v.shells || v.shells.includes(shell))
+}
 
 export const HELP_SHELLS: ReadonlyArray<{ id: HelpShellChoice; name: string }> = [
   { id: 'powershell', name: 'PowerShell' },

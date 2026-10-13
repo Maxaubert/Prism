@@ -9,6 +9,7 @@ import {
   helpFor,
   isKeyPress,
   shellOfShellId,
+  variantsIn,
   type HelpShellChoice
 } from './index'
 import { searchHelp } from './search'
@@ -163,14 +164,17 @@ describe('the help catalogue', () => {
     expect(ALL_HELP.filter((e) => !/^[a-z][a-z0-9]*(-[a-z0-9]+)+$/.test(e.id)).map((e) => e.id)).toEqual([])
   })
 
-  it('prefixes an id by its shell, and an any-shell id by its tool', () => {
+  it('prefixes an id by its shell, and an any-shell or Windows id by its tool', () => {
     const anyPrefix: Partial<Record<HelpEntry['category'], RegExp>> = {
       git: /^git-/,
       agents: /^(claude|codex)-/,
-      packages: /^pkg-/
+      packages: /^pkg-/,
+      wsl: /^wsl-/
     }
     const wrong = ALL_HELP.filter((e) =>
-      e.shell === 'any' ? !anyPrefix[e.category]?.test(e.id) : !e.id.startsWith(HELP_ID_PREFIXES[e.shell])
+      e.shell === 'any' || e.shell === 'windows'
+        ? !anyPrefix[e.category]?.test(e.id)
+        : !e.id.startsWith(HELP_ID_PREFIXES[e.shell])
     )
     expect(wrong.map((e) => `${e.id} (${e.shell}/${e.category})`)).toEqual([])
   })
@@ -333,14 +337,38 @@ describe('the shells', () => {
     expect(shellOfShellId(null)).toBe('powershell')
   })
 
-  it('offers each shell its own entries and every any-shell one, and no other shell', () => {
+  it('offers each shell its own entries, every any-shell one, and the Windows ones outside Bash', () => {
     for (const s of HELP_SHELLS) {
       const list = helpFor(s.id)
       expect(list.length).toBeGreaterThan(100)
-      expect(list.every((e) => e.shell === s.id || e.shell === 'any')).toBe(true)
+      expect(list.every((e) => e.shell === s.id || e.shell === 'any' || (e.shell === 'windows' && s.id !== 'bash'))).toBe(true)
+      expect(list.some((e) => e.shell === 'windows')).toBe(s.id !== 'bash')
       expect(list.filter((e) => e.category === 'git').length).toBeGreaterThan(30)
       expect(list.filter((e) => e.category === 'agents').length).toBeGreaterThan(30)
     }
+  })
+
+  // A WSL TAB IS FOR LEARNING LINUX (owner, 2026-10-13: if the shared rows
+  // "mostly consist of things that dont work in wsl, its better that we have"
+  // Bash its own, "even though we duplicate stuff"). No row a Bash reader is
+  // shown from a SHARED entry may be a Windows-only command: winget, a .exe,
+  // PowerShell's $env: or irm, a Windows path (a backslash next to a name;
+  // Claude's lone \ new-line key is not one), a .ps1 or .bat. Bash's own
+  // entries may name explorer.exe or C:\ on purpose (the WSL seams).
+  it('shows a Bash reader no Windows-only command from a shared entry', () => {
+    const WINDOWS_ONLY = /\bwinget\b|\.exe\b|\$env:|\birm\b|\w\\|\\\w|\.ps1\b|\.bat\b/i
+    const bad: string[] = []
+    for (const e of helpFor('bash').filter((x) => x.shell !== 'bash')) {
+      const rows = [e.command, ...variantsIn(e.variants, 'bash').map((v) => v.command)]
+      for (const c of rows) if (WINDOWS_ONLY.test(c)) bad.push(`${e.id}: ${c}`)
+    }
+    expect(bad).toEqual([])
+  })
+  it('shows a Bash reader python3, never a bare python that Ubuntu does not have', () => {
+    const bad = helpFor('bash').flatMap((e) =>
+      [e.command, ...variantsIn(e.variants, 'bash').map((v) => v.command)].filter((c) => /(^|\s)python\s/.test(c)).map((c) => `${e.id}: ${c}`)
+    )
+    expect(bad).toEqual([])
   })
 })
 
@@ -373,7 +401,10 @@ const QUESTIONS: Readonly<Record<HelpShellChoice, ReadonlyArray<[string, string[
     ['newest files', ['ps-recent-files', 'ps-list-files']],
     ['search for a word in all files', ['ps-search-in-files']],
     ['direcotry size', ['ps-folder-size']],
-    ['close a frozen program', ['ps-stop-process']]
+    ['close a frozen program', ['ps-stop-process']],
+    ['install wsl', ['wsl-install']],
+    ['wsl is stuck', ['wsl-shutdown']],
+    ['install claude code', ['ps-install-claude']]
   ],
   cmd: [
     ['list files', ['cmd-list-files']],
@@ -393,7 +424,9 @@ const QUESTIONS: Readonly<Record<HelpShellChoice, ReadonlyArray<[string, string[
     ['how do i see whats in this folder', ['cmd-list-files']],
     ['show me the files here', ['cmd-list-files']],
     ['newest files', ['cmd-list-files']],
-    ['copy output to clipboard', ['cmd-pipe']]
+    ['copy output to clipboard', ['cmd-pipe']],
+    ['install codex', ['cmd-install-codex']],
+    ['delete a linux distro', ['wsl-unregister']]
   ],
   bash: [
     ['how do I find big files', ['sh-biggest-files']],
@@ -412,7 +445,10 @@ const QUESTIONS: Readonly<Record<HelpShellChoice, ReadonlyArray<[string, string[
     ['what files are here', ['sh-list-files']],
     ['how do i exit vim', ['sh-edit-file']],
     ['where are my windows files', ['sh-windows-drives']],
-    ['script says bad interpreter ^M', ['sh-line-endings']]
+    ['script says bad interpreter ^M', ['sh-line-endings']],
+    ['install claude code', ['sh-install-claude']],
+    ['python virtual environment', ['sh-python-venv']],
+    ['pip install', ['sh-pip-install']]
   ]
 }
 

@@ -4,8 +4,9 @@ import { CMD_HELP } from './cmd'
 import { GIT_HELP } from './git'
 import { PACKAGES_HELP } from './packages'
 import { POWERSHELL_HELP } from './powershell'
+import { WSL_HELP } from './wsl'
 import type { HelpCategory, HelpEntry } from './types'
-import type { HelpShellChoice } from './shells'
+import { shownIn, type HelpShellChoice } from './shells'
 
 /**
  * THE HELP CATALOGUE, WHOLE (#12). Six files, one list: a file per command
@@ -26,7 +27,8 @@ export const ALL_HELP: readonly HelpEntry[] = [
   ...BASH_HELP,
   ...GIT_HELP,
   ...AGENTS_HELP,
-  ...PACKAGES_HELP
+  ...PACKAGES_HELP,
+  ...WSL_HELP
 ]
 
 /** The id prefix an entry of each shell wears, held by the catalogue test.
@@ -52,13 +54,14 @@ export const HELP_CATEGORIES: ReadonlyArray<{ id: HelpCategory; name: string }> 
   { id: 'git', name: 'Git' },
   { id: 'agents', name: 'Claude Code and Codex' },
   { id: 'packages', name: 'Installing things' },
+  { id: 'wsl', name: 'WSL (Linux on Windows)' },
   { id: 'shell', name: 'The shell itself' }
 ]
 
 /** What one shell's reader is offered: its own entries and every 'any' one,
  *  in catalogue order. */
 export function helpFor(shell: HelpShellChoice): HelpEntry[] {
-  return ALL_HELP.filter((e) => e.shell === shell || e.shell === 'any')
+  return ALL_HELP.filter((e) => shownIn(e.shell, shell))
 }
 
 /**
@@ -72,5 +75,5 @@ export function isKeyPress(command: string): boolean {
   return /^(?:(?:Ctrl|Alt|Shift|Win)\+)*(?:[A-Z]|Esc|Tab|Enter|Space|Backspace|F\d{1,2})$/.test(command)
 }
 
-export { HELP_SHELLS, shellOfShellId, type HelpShellChoice } from './shells'
+export { HELP_SHELLS, shellOfShellId, shownIn, variantsIn, type HelpShellChoice } from './shells'
 export type { HelpCategory, HelpEntry, HelpShell } from './types'

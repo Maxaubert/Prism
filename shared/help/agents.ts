@@ -159,7 +159,8 @@ export const AGENTS_HELP: readonly HelpEntry[] = [
       {
         label: 'Pipe a file to Claude in cmd',
         command: 'type FILE | claude -p "PROMPT"',
-        keywords: ['type command', 'cmd.exe', 'command prompt', 'no cat on windows', 'dos']
+        keywords: ['type command', 'cmd.exe', 'command prompt', 'no cat on windows', 'dos'],
+        shells: ['cmd']
       },
       {
         label: 'Summarise recent commits with Claude',

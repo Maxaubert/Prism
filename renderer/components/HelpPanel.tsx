@@ -6,6 +6,8 @@ import {
   HELP_CATEGORIES,
   HELP_SHELLS,
   isKeyPress,
+  shownIn,
+  variantsIn,
   type HelpEntry,
   type HelpShellChoice
 } from '../../shared/help/index'
@@ -86,17 +88,16 @@ function rowsFor(shell: HelpShellChoice, query: string): HelpRow[] {
       ? searchHelp(ALL_HELP, query, { shell, limit: MAX_RESULTS }).map((h) => h.entry)
       : // Browsing: by category, in the panel's own order, catalogue order within.
         HELP_CATEGORIES.flatMap((c) => {
-          const mine = ALL_HELP.filter((e) => e.shell === shell || e.shell === 'any')
+          const mine = ALL_HELP.filter((e) => shownIn(e.shell, shell))
           return mine.filter((e) => e.category === c.id)
         })
   return entries.flatMap((entry) => [
     { entry, n: 0, name: entry.task, command: entry.command },
-    ...(entry.variants ?? []).map((v, i) => ({
-      entry,
-      n: i + 1,
-      name: v.label,
-      command: v.command
-    }))
+    // Only the rows of this shell. `n` counts every variant, so a copy
+    // button names the same row whichever shell it is drawn in.
+    ...(entry.variants ?? []).flatMap((v, i) =>
+      variantsIn([v], shell).length ? [{ entry, n: i + 1, name: v.label, command: v.command }] : []
+    )
   ])
 }
 

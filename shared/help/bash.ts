@@ -1908,6 +1908,171 @@ export const BASH_HELP: readonly HelpEntry[] = [
       'The program is uninstalled, and purge deletes its configuration as well. Read the list apt shows before answering y.'
   },
 
+  // Python, Ubuntu's way (2026-10-13): python3, never python, which a stock
+  // Ubuntu does not have, and a venv first, since Ubuntu's own Python refuses
+  // pip installs outside one (PEP 668, "externally-managed-environment"). The
+  // Windows spellings are the 'windows' entries in packages.ts.
+  {
+    id: 'sh-python-venv',
+    shell: 'bash',
+    category: 'packages',
+    task: 'Create and activate a Python virtual environment',
+    summary:
+      "A venv is a private set of Python packages for ONE project, kept in a .venv folder. Ubuntu's own Python refuses pip installs outside one, so make one per project and activate it in every new tab: the prompt shows (.venv) while it is on.",
+    command: 'python3 -m venv .venv',
+    variants: [
+      {
+        label: 'Activate the venv',
+        command: 'source .venv/bin/activate',
+        keywords: ['source activate', 'bin/activate', 'turn the venv on', 'prompt shows .venv', 'every new tab']
+      },
+      {
+        label: 'Install the Python venv module',
+        command: 'sudo apt install -y python3-venv',
+        keywords: ['ensurepip is not available', 'no module named venv', 'venv missing', 'python3-venv', 'apt']
+      },
+      {
+        label: 'Deactivate the venv',
+        command: 'deactivate',
+        keywords: ['turn it off', 'leave the environment', 'exit venv', 'back to system python']
+      }
+    ],
+    keywords: [
+      'venv',
+      'virtual environment',
+      'virtualenv',
+      'activate',
+      'isolated python',
+      'externally-managed-environment',
+      'externally managed',
+      'python environment',
+      'pip installs in the wrong place',
+      'no module named',
+      'deactivate',
+      'python3'
+    ]
+  },
+  {
+    id: 'sh-pip-install',
+    shell: 'bash',
+    category: 'packages',
+    task: 'Install a Python package (pip)',
+    summary:
+      'Installs into the active virtual environment: activate one first, since Ubuntu refuses pip installs into its own Python. Spelling it python3 -m pip makes sure the pip belongs to the Python you are running.',
+    command: 'python3 -m pip install PACKAGE',
+    variants: [
+      {
+        label: 'Install an exact Python package version',
+        command: 'python3 -m pip install PACKAGE==VERSION',
+        keywords: ['pin a version', 'double equals', 'downgrade', 'older release', 'specific release']
+      },
+      {
+        label: 'Upgrade a package you already have',
+        command: 'python3 -m pip install --upgrade PACKAGE',
+        keywords: ['pip -u', 'newer version', 'update a library', 'bring it up to date']
+      },
+      {
+        label: 'Uninstall a Python package',
+        command: 'python3 -m pip uninstall PACKAGE',
+        keywords: ['remove a library', 'delete a package', 'pip remove', 'clean up the venv']
+      }
+    ],
+    placeholders: { PACKAGE: 'The package name on pypi.org, such as requests', VERSION: 'A version number, such as 2.32.0' },
+    keywords: [
+      'pip install',
+      'install a python library',
+      'modulenotfounderror',
+      'no module named',
+      'importerror',
+      'pip3',
+      'pypi',
+      'python package',
+      'externally-managed-environment',
+      'pip is not found'
+    ]
+  },
+  {
+    id: 'sh-pip-requirements',
+    shell: 'bash',
+    category: 'packages',
+    task: 'Install everything in requirements.txt (pip)',
+    summary:
+      'Python projects list what they need in requirements.txt. After cloning one: create and activate a venv, then run this.',
+    command: 'python3 -m pip install -r requirements.txt',
+    keywords: [
+      'requirements.txt',
+      'install requirements',
+      'install dependencies python',
+      'after cloning',
+      'set up a python project',
+      'pip -r',
+      'project dependencies',
+      'pyproject'
+    ]
+  },
+  {
+    id: 'sh-pip-freeze',
+    shell: 'bash',
+    category: 'packages',
+    task: 'Save the installed packages to requirements.txt',
+    summary:
+      'Writes every package in the active environment, with its exact version, to requirements.txt, so someone else (or you, later) can recreate it. Do it inside the venv.',
+    command: 'python3 -m pip freeze > requirements.txt',
+    variants: [
+      {
+        label: 'Print the package list without writing a file',
+        command: 'python3 -m pip freeze',
+        keywords: ['pip freeze', 'see the versions', 'without overwriting requirements.txt', 'check before saving']
+      }
+    ],
+    keywords: [
+      'freeze',
+      'pip freeze',
+      'export dependencies',
+      'create requirements.txt',
+      'lock versions',
+      'save packages',
+      'pin versions',
+      'share my environment'
+    ],
+    danger: 'An existing requirements.txt in this folder is overwritten.'
+  },
+  {
+    id: 'sh-pip-list',
+    shell: 'bash',
+    category: 'packages',
+    task: 'See which Python packages are installed (pip)',
+    summary: 'Lists the packages in the active environment with their versions.',
+    command: 'python3 -m pip list',
+    variants: [
+      {
+        label: 'List Python packages with an update available',
+        command: 'python3 -m pip list --outdated',
+        keywords: ['out of date', 'newer versions', 'check for upgrades', 'what needs updating']
+      },
+      {
+        label: "Show a package's version, location and dependencies",
+        command: 'python3 -m pip show PACKAGE',
+        keywords: ['pip show', 'where is it installed', 'required-by', 'site-packages']
+      },
+      {
+        label: 'Which Python and pip this shell uses',
+        command: 'python3 -m pip --version',
+        keywords: ['pip version', 'wrong interpreter', 'am i in the venv', 'python3 vs python']
+      }
+    ],
+    placeholders: { PACKAGE: 'The package name' },
+    keywords: [
+      'pip list',
+      'installed python packages',
+      'which version of a library',
+      'is it installed',
+      'outdated python packages',
+      'pip show',
+      'which python',
+      'python version'
+    ]
+  },
   // ------------------------------------------------------------------ shell
   {
     id: 'sh-clear',
@@ -2231,5 +2396,51 @@ export const BASH_HELP: readonly HelpEntry[] = [
       'leave wsl',
       'end session'
     ]
+  },
+  // INSTALLING THE AGENTS, this shell's way (2026-10-13), from the vendors'
+  // own pages: code.claude.com/docs/en/setup and github.com/openai/codex.
+  {
+    id: 'sh-install-claude',
+    shell: 'bash',
+    category: 'agents',
+    task: 'Install Claude Code',
+    summary:
+      'The native installer, the recommended way: it keeps Claude Code up to date by itself. In WSL, install inside the WSL tab, not from Windows. When it finishes, open a new tab and check claude --version.',
+    command: 'curl -fsSL https://claude.ai/install.sh | bash',
+    variants: [
+      {
+        label: 'Install Claude Code with npm',
+        command: 'npm install -g @anthropic-ai/claude-code',
+        keywords: ['node', 'npm global', 'node 22', 'anthropic-ai/claude-code']
+      },
+      {
+        label: 'Check Claude Code is installed',
+        command: 'claude --version',
+        keywords: ['did it work', 'which version', 'claude not found', 'verify install']
+      }
+    ],
+    keywords: ['install claude', 'get claude code', 'set up claude', 'claude code installer', 'download claude', 'anthropic cli', 'wsl', 'linux']
+  },
+  {
+    id: 'sh-install-codex',
+    shell: 'bash',
+    category: 'agents',
+    task: 'Install Codex',
+    summary:
+      "OpenAI's standalone installer for the Codex CLI. In WSL, install inside the WSL tab, not from Windows. When it finishes, open a new tab and check codex --version.",
+    command: 'curl -fsSL https://chatgpt.com/codex/install.sh | sh',
+    variants: [
+      {
+        label: 'Install Codex with npm',
+        command: 'npm install -g @openai/codex',
+        keywords: ['node', 'npm global', 'openai/codex', 'npm i -g']
+      },
+      {
+        label: 'Check Codex is installed',
+        command: 'codex --version',
+        keywords: ['did it work', 'which version', 'codex not found', 'verify install']
+      }
+    ],
+    keywords: ['install codex', 'get codex', 'set up codex', 'codex installer', 'openai cli', 'download codex', 'wsl', 'linux']
   }
 ]

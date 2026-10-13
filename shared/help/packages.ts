@@ -43,7 +43,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
   // ---- winget: programs for Windows itself ----
   {
     id: 'pkg-winget-search',
-    shell: 'any',
+    shell: 'windows',
     category: 'packages',
     task: 'Find a program to install (winget)',
     summary:
@@ -72,7 +72,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
   },
   {
     id: 'pkg-winget-install',
-    shell: 'any',
+    shell: 'windows',
     category: 'packages',
     task: 'Install a program (winget)',
     summary:
@@ -111,7 +111,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
   },
   {
     id: 'pkg-winget-upgrade',
-    shell: 'any',
+    shell: 'windows',
     category: 'packages',
     task: 'Update all installed programs (winget)',
     summary:
@@ -144,7 +144,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
   },
   {
     id: 'pkg-winget-list',
-    shell: 'any',
+    shell: 'windows',
     category: 'packages',
     task: 'See which programs are installed (winget)',
     summary: 'Lists installed programs with their versions, including ones that were not installed through winget.',
@@ -170,7 +170,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
   },
   {
     id: 'pkg-winget-uninstall',
-    shell: 'any',
+    shell: 'windows',
     category: 'packages',
     task: 'Uninstall a program (winget)',
     summary: "Removes an installed program, running its own uninstaller. Take the exact Id from winget list.",
@@ -502,7 +502,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
   // ---- Python: venv and pip ----
   {
     id: 'pkg-venv',
-    shell: 'any',
+    shell: 'windows',
     category: 'packages',
     task: 'Create and activate a Python virtual environment',
     summary:
@@ -512,22 +512,14 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
       {
         label: 'Activate the venv in PowerShell',
         command: '.\\.venv\\Scripts\\Activate.ps1',
-        keywords: ['activate.ps1', 'pwsh', 'running scripts is disabled', 'execution policy', 'prompt shows .venv', 'windows']
-      },
-      {
-        label: 'Activate the venv on Linux or WSL',
-        command: 'source .venv/bin/activate',
-        keywords: ['bash', 'ubuntu', 'python3 -m venv', 'source activate', 'bin/activate', 'wsl', 'macos']
+        keywords: ['activate.ps1', 'pwsh', 'running scripts is disabled', 'execution policy', 'prompt shows .venv', 'windows'],
+        shells: ['powershell']
       },
       {
         label: 'Activate the venv in cmd',
         command: '.venv\\Scripts\\activate.bat',
-        keywords: ['command prompt', 'activate.bat', 'batch file', 'dos prompt', 'cmd.exe']
-      },
-      {
-        label: 'Activate the venv in Git Bash',
-        command: 'source .venv/Scripts/activate',
-        keywords: ['mingw', 'msys', 'bash on windows', 'scripts/activate', 'no bin folder on windows', 'git for windows']
+        keywords: ['command prompt', 'activate.bat', 'batch file', 'dos prompt', 'cmd.exe'],
+        shells: ['cmd']
       },
       {
         label: 'Deactivate the venv, in any shell',
@@ -552,11 +544,11 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
   },
   {
     id: 'pkg-pip-install',
-    shell: 'any',
+    shell: 'windows',
     category: 'packages',
     task: 'Install a Python package (pip)',
     summary:
-      'Installs into the active virtual environment (activate one first). Spelling it python -m pip makes sure the pip belongs to the Python you are actually running. On Ubuntu the command is python3.',
+      'Installs into the active virtual environment (activate one first). Spelling it python -m pip makes sure the pip belongs to the Python you are actually running.',
     command: 'python -m pip install PACKAGE',
     variants: [
       {
@@ -591,7 +583,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
   },
   {
     id: 'pkg-pip-requirements',
-    shell: 'any',
+    shell: 'windows',
     category: 'packages',
     task: 'Install everything in requirements.txt (pip)',
     summary:
@@ -610,7 +602,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
   },
   {
     id: 'pkg-pip-freeze',
-    shell: 'any',
+    shell: 'windows',
     category: 'packages',
     task: 'Save the installed packages to requirements.txt',
     summary:
@@ -637,7 +629,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
   },
   {
     id: 'pkg-pip-list',
-    shell: 'any',
+    shell: 'windows',
     category: 'packages',
     task: 'See which Python packages are installed (pip)',
     summary: 'Lists the packages in the active environment with their versions.',
@@ -675,7 +667,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
   // ---- The one everybody hits ----
   {
     id: 'pkg-command-not-found',
-    shell: 'any',
+    shell: 'windows',
     category: 'packages',
     task: 'Fix "command not found" after installing',
     summary:
@@ -683,15 +675,11 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
     command: 'where.exe NAME',
     variants: [
       {
-        label: 'Find where a command lives, in bash',
-        command: 'which NAME',
-        keywords: ['which', 'bash', 'wsl', 'git bash', 'command location', 'linux equivalent of where']
-      },
-      {
         label: 'Reload PATH in this tab (PowerShell)',
         command:
           '$env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")',
-        keywords: ['refreshenv', 'without restarting the terminal', 'env:path', 'pick up a new install', 'machine and user path', 'just installed']
+        keywords: ['refreshenv', 'without restarting the terminal', 'env:path', 'pick up a new install', 'machine and user path', 'just installed'],
+        shells: ['powershell']
       }
     ],
     placeholders: { NAME: 'The command that is not found, such as node or claude' },

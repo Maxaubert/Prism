@@ -1495,5 +1495,52 @@ export const CMD_HELP: readonly HelpEntry[] = [
       'custom command',
       'nickname'
     ]
+  },
+  // INSTALLING THE AGENTS, this shell's way (2026-10-13), from the vendors'
+  // own pages: code.claude.com/docs/en/setup and github.com/openai/codex.
+  {
+    id: 'cmd-install-claude',
+    shell: 'cmd',
+    category: 'agents',
+    task: 'Install Claude Code',
+    summary:
+      'The native installer, the recommended way: it keeps Claude Code up to date by itself. No need to run it as administrator. When it finishes, open a new tab and check claude --version.',
+    command: 'curl -fsSL https://claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd',
+    variants: [
+      {
+        label: 'Install Claude Code with npm',
+        command: 'npm install -g @anthropic-ai/claude-code',
+        keywords: ['node', 'npm global', 'node 22', 'anthropic-ai/claude-code']
+      },
+      {
+        label: 'Check Claude Code is installed',
+        command: 'claude --version',
+        keywords: ['did it work', 'which version', 'claude not found', 'verify install']
+      }
+    ],
+    keywords: ['install claude', 'get claude code', 'set up claude', 'claude code installer', 'download claude', 'anthropic cli', 'command prompt', 'windows'],
+    danger: 'Writes install.cmd into this folder, over one of yours if it is there, and deletes it once it has run.'
+  },
+  {
+    id: 'cmd-install-codex',
+    shell: 'cmd',
+    category: 'agents',
+    task: 'Install Codex',
+    summary:
+      "OpenAI's standalone installer for the Codex CLI. No need to run it as administrator. When it finishes, open a new tab and check codex --version.",
+    command: 'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"',
+    variants: [
+      {
+        label: 'Install Codex with npm',
+        command: 'npm install -g @openai/codex',
+        keywords: ['node', 'npm global', 'openai/codex', 'npm i -g']
+      },
+      {
+        label: 'Check Codex is installed',
+        command: 'codex --version',
+        keywords: ['did it work', 'which version', 'codex not found', 'verify install']
+      }
+    ],
+    keywords: ['install codex', 'get codex', 'set up codex', 'codex installer', 'openai cli', 'download codex', 'command prompt', 'windows']
   }
 ]

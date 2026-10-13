@@ -34,9 +34,11 @@
  * where an entry sits in the catalogue.
  */
 import type { HelpCategory, HelpEntry, HelpShell } from './types'
+import { shownIn } from './shells'
 
 export interface HelpSearchOptions {
-  /** Keep entries written for this shell AND those written for 'any'. */
+  /** Keep the entries shown in this shell (`shownIn`); 'any' or 'windows'
+   *  keeps the entries written for exactly that. */
   shell?: HelpShell
   category?: HelpCategory
   /** At most this many results. Anything that is not a positive number is no limit. */
@@ -629,7 +631,8 @@ export function searchHelp(
   const wanted = (entry: HelpEntry | undefined | null): entry is HelpEntry =>
     entry != null &&
     typeof entry === 'object' &&
-    (shell === undefined || entry.shell === shell || entry.shell === 'any') &&
+    (shell === undefined ||
+      (shell === 'any' || shell === 'windows' ? entry.shell === shell : shownIn(entry.shell, shell))) &&
     (category === undefined || entry.category === category)
 
   const text = typeof query === 'string' ? query.slice(0, MAX_QUERY_CHARS) : ''
