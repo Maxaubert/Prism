@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { returnsFocus } from './Modal'
 
 // EVERY DIALOG IS THE MODAL (audit 2026-10-12): six dialogs each wrote their
 // own scrim, Escape and Tab handling and had drifted (the close question let
@@ -25,5 +26,15 @@ describe('dialogs', () => {
     expect(src).toContain("e.key === 'Tab' && !e.ctrlKey")
     expect(src).toContain("e.key === 'Escape'")
     expect(src).toContain('className={`no-drag fixed inset-0')
+  })
+  it('gives the focus back on close only when nothing else has taken it', () => {
+    const body = {}
+    const chip = { isConnected: true }
+    expect(returnsFocus(chip, body, body)).toBe(true)
+    expect(returnsFocus(chip, null, body)).toBe(true)
+    // The close question opened over the update window and holds the focus.
+    expect(returnsFocus(chip, { isConnected: true }, body)).toBe(false)
+    expect(returnsFocus({ isConnected: false }, body, body)).toBe(false)
+    expect(returnsFocus(body as { isConnected: boolean }, body, body)).toBe(false)
   })
 })

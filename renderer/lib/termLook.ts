@@ -301,6 +301,9 @@ export interface CustomTermTheme {
    *  as it always was (`<cursor>55`). */
   selection?: string
   ansi: Record<string, string>
+  /** The window chrome's accent, the theme's it was made from (owner,
+   *  2026-10-12). Absent in older saves: the chrome takes the palette's blue. */
+  accent?: string
   /** The rest of the terminal setup, captured by "Save changes": the look is
    *  more than the palette. All optional - older saves carry colours only.
    *  `font` and `fontPct` are READ NO MORE (owner, 2026-09-28: the font and its
@@ -383,9 +386,12 @@ export function customTermTheme(): CustomTermTheme | null {
         if (ok) ansi[k] = ok
       }
     const selection = stored(v.selection)
+    const accent = stored(v.accent)
     const out: CustomTermTheme = { ...v, bg, fg, cursor: stored(v.cursor) ?? fg, ansi }
     if (selection) out.selection = selection
     else delete out.selection
+    if (accent) out.accent = accent
+    else delete out.accent
     return out
   } catch {
     return null
@@ -484,6 +490,25 @@ export function withGroundAlpha<T extends { bg: string }>(palette: T): T {
   return { ...palette, bg: withAlpha(palette.bg, paintsAlpha(rawGroundAlpha(), ground, termAcrylic())) }
 }
 
+/**
+ * THE COLOUR EDITOR'S DRAFT (owner, 2026-10-12: "let me pick a colour there
+ * and have it apply instantly so that I can ctrl tab to see how it actually
+ * looks, and when I go back to settings that popup should still be open").
+ * While it is set the editor is open and the theme in force IS the draft
+ * (`resolveTermTheme`), so every pick repaints every terminal and the chrome.
+ * It lives here, not in the editor, so the Settings tab can unmount under a
+ * tab switch and find the editor open, as it was, when it mounts again. In
+ * memory only: Save keeps it as Custom, Cancel drops it, a restart forgets it.
+ */
+let draft: CustomTermTheme | null = null
+export function themeDraft(): CustomTermTheme | null {
+  return draft
+}
+export function setThemeDraft(next: CustomTermTheme | null): void {
+  draft = next
+  notify()
+}
+
 export function saveCustomTermTheme(theme: CustomTermTheme): void {
   localStorage.setItem(CUSTOM_KEY, JSON.stringify(theme))
   notify()
@@ -497,6 +522,10 @@ export function onTermLookChange(cb: () => void): () => void {
 }
 
 const sub = onTermLookChange
+
+export function useThemeDraft(): CustomTermTheme | null {
+  return useSyncExternalStore(sub, themeDraft)
+}
 
 export function useTermThemeId(): string {
   return useSyncExternalStore(sub, termThemeId)

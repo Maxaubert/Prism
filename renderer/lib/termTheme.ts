@@ -1,6 +1,6 @@
 import { deriveAnsi, legiblePalette, normalizeColor, type Ansi16 } from './termAnsi'
 import { liveThemeId } from './termThemeRetired'
-import { customTermTheme, type CustomTermTheme } from './termLook'
+import { customTermTheme, termThemeId, themeDraft, type CustomTermTheme } from './termLook'
 import { composite, legibleOn, opaque, parseColour } from './colour'
 import { followsHostStyle, hostDefaults } from '../host'
 import { DEFAULT_GROUND } from '../../shared/ground'
@@ -335,10 +335,15 @@ export const TERM_PRESETS: TermPreset[] = [
 /** What an unknown id, and the legacy 'style', resolve to. */
 export const DEFAULT_TERM_THEME = 'prism'
 
-/** The theme the settings say, resolved: a preset by id, else the 'prism'
- *  preset (unknown ids, and the 'style' an imported Prism save may carry). */
-/** The chrome accent a preset asks for, if it asks. */
+/** The chrome accent a theme asks for, if it asks: a preset's own, the one a
+ *  Custom was saved with, or the colour editor's draft while it is open on
+ *  the theme in force. A Custom saved before it carried one asks for none,
+ *  and the chrome takes the palette's blue (owner, 2026-10-12: PT Default,
+ *  its cursor edited and saved, "changed the accent colour to blue"). */
 export function presetAccent(themeId: string): string | undefined {
+  const draft = themeDraft()
+  if (draft && themeId === termThemeId()) return draft.accent
+  if (themeId === 'custom') return customTermTheme()?.accent
   return TERM_PRESETS.find((x) => x.id === liveThemeId(themeId))?.accent
 }
 
@@ -379,6 +384,18 @@ export function resolveCustomTheme(c: CustomTermTheme, ground?: string | null): 
  * sixteen are floored by `legiblePalette` as before, on the composites.
  */
 export function resolveTermTheme(themeId: string, ground?: string | null): TermTheme {
+  // THE COLOUR EDITOR'S DRAFT IS WORN (owner, 2026-10-12: "have it apply
+  // instantly so that I can ctrl tab to see how it actually looks"): while it
+  // is open, the theme in force is what it holds, for the terminal and the
+  // chrome alike. Only the theme in force: a card for any other is its own.
+  const draft = themeDraft()
+  if (draft && themeId === termThemeId()) return resolveCustomTheme(draft, ground)
+  return resolveSavedTheme(themeId, ground)
+}
+
+/** A theme as saved, never the editor's draft: a preset's card and the palette
+ *  the editor opens with read this, so neither ever shows (or caches) a draft. */
+export function resolveSavedTheme(themeId: string, ground?: string | null): TermTheme {
   // The host's own style, where it has one to follow.
   if (themeId === 'style' && followsHostStyle()) return readTermTheme()
   if (themeId === 'custom') {

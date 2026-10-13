@@ -4,10 +4,13 @@ import {
   applyCustomExtras,
   customTermTheme,
   setTermThemeId,
+  setThemeDraft,
   termThemeId,
+  themeDraft,
   useCustomTermTheme,
   useTermAcrylic,
   useTermThemeId,
+  useThemeDraft,
   withGroundAlpha,
   type CustomTermTheme
 } from '../../lib/termLook'
@@ -143,21 +146,28 @@ export function TermThemeCard({
 }
 
 /** The Tabby-style editor: every colour of a theme, individually, with the
- *  live preview beside them. Save lands in the single Custom slot. */
+ *  live preview beside them. Save lands in the single Custom slot. The draft
+ *  is the store's (`themeDraft`), worn by the whole window while it is open,
+ *  so a pick shows everywhere at once (owner, 2026-10-12). */
 function TermThemeEditor({
-  seed,
+  draft,
   bgAlpha,
   onSave,
   onCancel
 }: {
-  seed: CustomTermTheme
+  draft: CustomTermTheme
   /** What the Background's alpha may be: the window's see-through where the
    *  terminal owns the window acrylic, nothing where the style does (#114). */
   bgAlpha: AlphaRange & { alphaDisabled?: boolean }
   onSave: (t: CustomTermTheme) => void
   onCancel: () => void
 }): JSX.Element {
-  const [draft, setDraft] = useState<CustomTermTheme>(seed)
+  // Read at call time, not from this render: two picks in one frame (a
+  // picker's Escape writing its opening value back) must not drop the first.
+  const setDraft = (f: (d: CustomTermTheme) => CustomTermTheme): void => {
+    const now = themeDraft()
+    if (now) setThemeDraft(f(now))
+  }
   // A MODAL THAT HOLDS THE KEYBOARD (code review 2026-09-24, #28). Opened from
   // the pencil by keyboard, the focus stayed behind the backdrop: Escape did
   // nothing and Tab walked the cards under it, where Enter picked a theme
@@ -313,8 +323,10 @@ export function ThemeWall({
     [defaultPreset]
   )
   // The editor popup, seeded from the SELECTED theme. Presets never change -
-  // editing always lands in the Custom slot.
-  const [editing, setEditing] = useState<CustomTermTheme | null>(null)
+  // editing always lands in the Custom slot. Open while the store holds a
+  // draft: a Settings tab that unmounts under a tab switch finds it open again.
+  const editing = useThemeDraft()
+  const setEditing = setThemeDraft
   // A THEME PICK, Custom included. It lands at once when nothing is unsaved;
   // with Save changes lit it asks first (ThemeSwitchAsk), since landing puts
   // the agent colours and acrylic back to the theme's own. Once
@@ -457,7 +469,7 @@ export function ThemeWall({
       </div>
       {editing && (
         <TermThemeEditor
-          seed={editing}
+          draft={editing}
           // Opaque is the switch's off (#156): under it the Alpha stops at 95%,
           // so the field and the window always agree. Only while the Alpha is
           // live: an inert one must not clip an opaque ground it cannot move.

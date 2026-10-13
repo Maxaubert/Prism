@@ -100,6 +100,22 @@ function Chip({ colour, className = '' }: { colour: Rgba; className?: string }):
   )
 }
 
+/**
+ * THE PICKER LEFT OPEN COMES BACK (owner, 2026-10-13: "is it possible to have
+ * this color picker open while switching tabs back and forth, not to stay on
+ * screen on another tab, but be there when you go back to settings, same for
+ * the other color pickers"). Settings unmounts when another tab is in front,
+ * and the picker with it; which one was open, and the colour it opened with,
+ * live here, so the field that mounts again with the same key opens it again,
+ * showing the colour in force, Escape still putting back the one it opened
+ * with. A close the user makes (a press outside, Escape) forgets it. Keyed by
+ * the field's label and whether it is in the theme editor, the two places a
+ * label could repeat.
+ */
+let keptPicker: { key: string; opened: string } | null = null
+const pickerKey = (swatch: HTMLElement | null, label: string): string =>
+  `${swatch?.closest('[data-theme-editor]') ? 'editor' : 'page'}:${label}`
+
 /** The row control: the code field and the swatch that opens the picker. */
 export function ColourField({
   label,
@@ -134,6 +150,13 @@ export function ColourField({
   const swatch = useRef<HTMLButtonElement>(null)
   // What the popover opened with, and the revert in force at that moment.
   const [open, setOpen] = useState<{ value: string; revert?: () => void; anchor: HTMLElement } | null>(null)
+  // Mounted again with the picker that was left open: open it again.
+  useLayoutEffect(() => {
+    const el = swatch.current
+    if (el && keptPicker && keptPicker.key === pickerKey(el, label))
+      setOpen({ value: keptPicker.opened, revert: onRevert, anchor: el })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   return (
     <span className="flex items-center gap-1.5">
       <input
@@ -166,7 +189,9 @@ export function ColourField({
         title="Pick a colour"
         onClick={(e) => {
           const anchor = e.currentTarget
-          setOpen((o) => (o ? null : { value: shown ? toStored(shown) : value, revert: onRevert, anchor }))
+          const opened = shown ? toStored(shown) : value
+          keptPicker = open ? null : { key: pickerKey(anchor, label), opened }
+          setOpen((o) => (o ? null : { value: opened, revert: onRevert, anchor }))
         }}
         className={`block h-6 w-9 shrink-0 overflow-hidden rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] ${FOCUS}`}
       >
@@ -177,6 +202,7 @@ export function ColourField({
           label={label}
           anchor={open.anchor}
           opened={open.value}
+          now={shown ? toStored(shown) : value}
           onChange={onChange}
           onRevert={open.revert}
           alpha={alpha}
@@ -185,6 +211,7 @@ export function ColourField({
           snapAlpha={snapAlpha}
           alphaDisabled={alphaDisabled}
           onClose={(focusSwatch) => {
+            keptPicker = null
             setOpen(null)
             if (focusSwatch) swatch.current?.focus()
           }}
@@ -214,6 +241,7 @@ export function ColourPopover({
   label,
   anchor,
   opened,
+  now: nowStored,
   onChange,
   onRevert,
   alpha = true,
@@ -225,8 +253,11 @@ export function ColourPopover({
 }: AlphaRange & {
   label: string
   anchor: HTMLElement
-  /** The stored colour the popover opened with. */
+  /** The stored colour the popover opened with: what Escape puts back. */
   opened: string
+  /** The colour in force, when it is not that one: a picker opened again
+   *  after a tab switch shows where it was left. */
+  now?: string
   onChange: (stored: string) => void
   onRevert?: () => void
   snapAlpha?: (a: number) => number
@@ -236,9 +267,10 @@ export function ColourPopover({
 }): JSX.Element {
   const range: AlphaRange = { alpha, alphaMin, alphaMax }
   const start = fitAlpha(parseColour(opened) ?? BLACK, range)
+  const shownFirst = fitAlpha(parseColour(nowStored ?? opened) ?? start, range)
   // The picker holds HSV, not the stored colour: a grey has no hue, and a hue
   // dragged to while the colour is grey must not be lost on the next frame.
-  const [hsv, setHsv] = useState<Hsva>(() => rgbToHsv(start))
+  const [hsv, setHsv] = useState<Hsva>(() => rgbToHsv(shownFirst))
   const [, setDropper] = useState(0)
   const fmt = useColourFormat()
   const root = useRef<HTMLDivElement>(null)
@@ -249,8 +281,9 @@ export function ColourPopover({
   useEffect(() => {
     latest.current = { onChange, onClose }
   })
-  const wrote = useRef(false)
-  const lastSent = useRef(toStored(start))
+  // Opened again after a pick: Escape still has something to put back.
+  const wrote = useRef(toStored(shownFirst) !== toStored(start))
+  const lastSent = useRef(toStored(shownFirst))
   const pending = useRef<string | null>(null)
   const frame = useRef<number | null>(null)
   const send = (stored: string): void => {

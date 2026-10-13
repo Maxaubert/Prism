@@ -7,7 +7,7 @@ import {
   termExtraDefaults,
   type CustomTermTheme
 } from '../../lib/termLook'
-import { resolveTermTheme } from '../../lib/termTheme'
+import { presetAccent, resolveSavedTheme } from '../../lib/termTheme'
 import { normalizeColor } from '../../lib/termAnsi'
 import { DEFAULT_GROUND } from '../../../shared/ground'
 
@@ -37,17 +37,17 @@ export const cardAnsi = (a: Record<string, string | undefined>): CardAnsi => ({
  * same forty resolves on every change to any setting on the page. Custom and
  * Follow style are live, and are never read through this.
  */
-const presetLooks = new Map<string, ReturnType<typeof resolveTermTheme>>()
-export function presetLook(id: string): ReturnType<typeof resolveTermTheme> {
+const presetLooks = new Map<string, ReturnType<typeof resolveSavedTheme>>()
+export function presetLook(id: string): ReturnType<typeof resolveSavedTheme> {
   let look = presetLooks.get(id)
-  if (!look) presetLooks.set(id, (look = resolveTermTheme(id)))
+  if (!look) presetLooks.set(id, (look = resolveSavedTheme(id)))
   return look
 }
 
 /** The selected theme's palette as the editor and the Custom slot hold it.
  *  Normalised: a theme may publish rgba() or #rrggbbaa, and a colour input
  *  handed either silently renders black. */
-export function paletteOf(id: string): Pick<CustomTermTheme, 'bg' | 'fg' | 'cursor' | 'ansi' | 'selection'> {
+export function paletteOf(id: string): Pick<CustomTermTheme, 'bg' | 'fg' | 'cursor' | 'ansi' | 'selection' | 'accent'> {
   // THE EDITOR EDITS WHAT IS STORED (#112). A Custom is handed over raw, its
   // alphas and chosen selection included: resolved, it would be the floored
   // composites, and Save changes would turn every see-through colour into an
@@ -55,26 +55,31 @@ export function paletteOf(id: string): Pick<CustomTermTheme, 'bg' | 'fg' | 'curs
   // e2e holds the follow-style Background to six digits).
   const raw = id === 'custom' ? customTermTheme() : null
   if (raw) {
-    const out: Pick<CustomTermTheme, 'bg' | 'fg' | 'cursor' | 'ansi' | 'selection'> = {
+    const out: Pick<CustomTermTheme, 'bg' | 'fg' | 'cursor' | 'ansi' | 'selection' | 'accent'> = {
       bg: raw.bg,
       fg: raw.fg,
       cursor: raw.cursor,
       ansi: { ...raw.ansi }
     }
     if (raw.selection) out.selection = raw.selection
+    if (raw.accent) out.accent = raw.accent
     return out
   }
-  const t = resolveTermTheme(id)
+  const t = resolveSavedTheme(id)
   const ansi: Record<string, string> = {}
   for (const k of ANSI_KEYS) {
     const v = t[k]
     if (typeof v === 'string') ansi[k] = v
   }
+  // The theme's chrome accent goes along: without it a Custom made from a
+  // preset painted the window in the palette's blue (owner, 2026-10-12).
+  const accent = presetAccent(id)
   return {
     bg: normalizeColor(t.background, DEFAULT_GROUND),
     fg: normalizeColor(t.foreground, '#e7e7ee'),
     cursor: normalizeColor(t.cursor, '#5b5bd6'),
-    ansi
+    ansi,
+    ...(accent ? { accent } : {})
   }
 }
 
