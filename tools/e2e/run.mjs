@@ -11474,9 +11474,9 @@ async function columnHeadersScenario(fixtures) {
 /**
  * A PRESSED TOGGLE FILLS ITS GLYPH, NEVER THE ACCENT (owner, 2026-10-12: "instead
  * of having ui buttons turn blue or accent colored when theyre active have them
- * be filled in like the preview button"). The panel toggle, Settings and the
- * terminal button wear the same grey pressed as not, and their drawing says
- * which (`data-toggle-glyph`). Fails on main, where each turned the accent.
+ * be filled in like the preview button"). The panel toggle and the terminal
+ * button wear the same grey pressed as not, and their drawing says which
+ * (`data-toggle-glyph`). Settings keeps its line gear (owner, 2026-10-13).
  */
 async function pressedTogglesScenario(fixtures) {
   console.log('pressed toggles')
@@ -11530,9 +11530,94 @@ async function pressedTogglesScenario(fixtures) {
     await sleep(700)
     await check('[data-panel-toggle]', 'panel toggle')
     await check('aside [aria-label="Terminal"]', 'terminal button')
-    await check('button[aria-label="Settings"][aria-pressed]', 'Settings')
+    // The gear is the exception (owner, 2026-10-13: "the settings icon when
+    // filled looks very ugly ... better if its just not filled"): lines open
+    // or shut, and still never the accent.
+    {
+      const sel = 'button[aria-label="Settings"][aria-pressed]'
+      await rest()
+      const a = await read(sel)
+      await win.click(sel)
+      await sleep(600)
+      await rest()
+      const b = await read(sel)
+      ok(!!a && !!b && a.pressed !== b.pressed, `Settings: a click flips aria-pressed (${a?.pressed} -> ${b?.pressed})`)
+      const solid = await win.evaluate(
+        (sel) => !!document.querySelector(sel)?.querySelector('path[fill="currentColor"]'),
+        sel
+      )
+      ok(!solid, 'Settings: the gear stays lines while Settings is open')
+      ok(b?.color === a?.color && b?.color !== b?.accent, `Settings: the same grey, never the accent (${b?.color})`)
+      await win.click(sel)
+      await sleep(600)
+    }
   } finally {
     await app.close()
+  }
+}
+
+/**
+ * A FOLDER'S SIZE, ONCE KNOWN, STAYS ON SCREEN (owner, 2026-10-13: "fix some
+ * cache for the sizes so i dont see this calculating all the time"). A listing
+ * refresh (a file lands in the folder) and a revisit (into a subfolder and
+ * Back) show the size already learned while it refreshes, never "Calculating…".
+ * Fails on main, where each new listing started every size over.
+ */
+async function sizesKeptScenario(fixtures) {
+  console.log('sizes kept')
+  const dir = join(fixtures, 'keepsizes')
+  rmSync(dir, { recursive: true, force: true })
+  for (const sub of ['alpha', 'beta']) {
+    mkdirSync(join(dir, sub), { recursive: true })
+    writeFileSync(join(dir, sub, 'inside.bin'), Buffer.alloc(sub === 'alpha' ? 4096 : 9000))
+  }
+  writeFileSync(join(dir, 'z.txt'), 'sizes\n')
+  const { app, win } = await launch(join(dir, 'z.txt'))
+  const cells = () =>
+    win.evaluate(() =>
+      ['alpha', 'beta'].map(
+        (n) =>
+          document
+            .querySelector(`[data-testid="browse-list"] .browse-row[data-browse-path$="${n}"] .browse-column-size`)
+            ?.textContent.trim() ?? null
+      )
+    )
+  const known = async () => (await cells()).every((c) => !!c && !c.startsWith('Calculating'))
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if (!(await win.locator('[data-testid="browse-list"] [data-browse-path$="alpha"]').count()))
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="keepsizes"]').dblclick()
+    ok(await until(known, 20000), `both folder sizes arrive (${JSON.stringify(await cells())})`)
+    // Watch every frame from here on for a cell that falls back.
+    await win.evaluate(() => {
+      window.__sizeFellBack = []
+      const look = () => {
+        for (const c of document.querySelectorAll('[data-testid="browse-list"] .browse-row .browse-column-size'))
+          if (c.textContent.startsWith('Calculating')) window.__sizeFellBack.push(c.closest('.browse-row')?.dataset.browsePath)
+        window.__sizeWatch = requestAnimationFrame(look)
+      }
+      look()
+    })
+    for (let i = 0; i < 3; i++) {
+      writeFileSync(join(dir, `new-${i}.txt`), `refresh ${i}\n`)
+      await until(async () => (await win.locator(`[data-testid="browse-list"] [data-browse-path$="new-${i}.txt"]`).count()) === 1, 10000)
+      await sleep(400)
+    }
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="alpha"]').dblclick()
+    await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$="inside.bin"]').count()) === 1, 10000)
+    await win.keyboard.press('Alt+ArrowLeft')
+    await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$="beta"]').count()) === 1, 10000)
+    await sleep(1200)
+    const fell = await win.evaluate(() => {
+      cancelAnimationFrame(window.__sizeWatch)
+      return [...new Set(window.__sizeFellBack.filter(Boolean))]
+    })
+    ok(fell.length === 0, `a known size never reads "Calculating…" again (${JSON.stringify(fell)})`)
+    ok(await known(), `and both are still shown (${JSON.stringify(await cells())})`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -18886,6 +18971,7 @@ await run(addressFieldScenario)
 await run(toolbarIconsScenario)
 await run(pressedTogglesScenario)
 await run(quietTooltipsScenario)
+await run(sizesKeptScenario)
 await run(explorerVerbsScenario)
 await run(propertiesWindowScenario)
 await run(searchPopupScenario)
