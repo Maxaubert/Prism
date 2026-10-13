@@ -658,7 +658,7 @@ exports[`resolveTermTheme, opaque, as it was > every preset 1`] = `
     "yellow": "#d1a54b",
   },
   "pt-default": {
-    "background": "#121212",
+    "background": "#171717",
     "black": "#646464",
     "blue": "#5da9f6",
     "brightBlack": "#6b6b6b",

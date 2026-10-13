@@ -22,14 +22,16 @@ import { opt, sectionTitle } from './opts'
 const INDICATOR_SUB: Record<AgentIndicator, string> = {
   off: 'No mark while an agent works.',
   minimal: 'A line under the tab while it works.',
-  ring: 'One small mark by the name, in its ink.',
+  ring: 'One small mark at the end of the tab, in its ink.',
   full: 'Tabs you are not on fill with colour.'
 }
 /** Full's subtext in a host that draws its OWN filled tab (Prism, no
  *  `tabMarks`): what it has always said there. */
 const LEGACY_FULL_SUB = 'The whole tab fills while it works.'
 
-const INDICATOR_NAME: Record<AgentIndicator, string> = { off: 'Off', minimal: 'Minimal', ring: 'Ring', full: 'Full' }
+// "Bar" since 2026-10-12 (owner: "agent indicator is only ring or bar"); the
+// stored value stays `minimal`, so nobody's choice moves.
+const INDICATOR_NAME: Record<AgentIndicator, string> = { off: 'Off', minimal: 'Bar', ring: 'Ring', full: 'Full' }
 
 /**
  * HOW A TAB MARKS ITS AGENT (2026-10-05, the grouped cards redesign): off, a

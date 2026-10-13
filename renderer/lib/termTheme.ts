@@ -110,13 +110,14 @@ export const TERM_PRESETS: TermPreset[] = [
 
   // PT DEFAULT is the owner's own palette (2026-09-22, saved as Custom and handed
   // over: "let this be the default theme ... for prism terminal"): Wombat's
-  // colours on a darker #121212, the two blacks lifted so they read, and the
+  // colours on a darker #121212 (#171717 since 2026-10-13, owner: "make this
+  // the prism default bg color"), the two blacks lifted so they read, and the
   // app icon's orange as the accent. Prism Terminal's default; a preset like
   // any other everywhere else.
   {
     id: 'pt-default',
     name: 'PT Default',
-    bg: '#121212',
+    bg: '#171717',
     fg: '#dedacf',
     cursor: '#bbbbbb',
     accent: '#fe8f34',
