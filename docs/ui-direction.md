@@ -117,10 +117,12 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   folder-coloured glyph only Explorer tabs had. The `toolbarIcons` e2e holds both.
   **EVERY PRESSED TOGGLE WORKS THE SAME WAY** (owner, 2026-10-12: "instead of having ui buttons turn
   blue or accent colored when theyre active have them be filled in like the preview button ... fill or
-  change either is fine"). The panel toggle, Edit, Settings, the terminal button and the PDF's fit
-  width keep their grey pressed and fill their drawing (`data-toggle-glyph="on"`): the panel's left
-  column solid, a solid pencil, a solid gear, the prompt and the arrows cut out of a solid tile. The
-  `pressedToggles` e2e holds the panel toggle, Settings and the terminal button.
+  change either is fine"). The panel toggle, Edit, the terminal button and the PDF's fit width keep
+  their grey pressed and fill their drawing (`data-toggle-glyph="on"`): the panel's left column
+  solid, a solid pencil, the prompt and the arrows cut out of a solid tile. Settings is the exception:
+  its gear stays lines open or shut (owner, 2026-10-13: "the settings icon when filled looks very ugly
+  ... better if its just not filled"). The `pressedToggles` e2e holds the panel toggle, the terminal
+  button and the line gear.
 - **A TOOLTIP NEVER REPEATS WHAT IS DRAWN** (owner, 2026-10-12: "remove tooltips that basically
   duplicate the text already said, like in settings ... a tooltip saying the exact same thing as
   the setting"). A name, path or line drawn whole has no tooltip; one the width cut off gets its

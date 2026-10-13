@@ -1735,6 +1735,14 @@ changing a feature: each entry records what the owner decided, why, and what hol
   most 500 ms: nothing slow (an offline share, a transcript scan) holds more than its own tab. The
   `noLoadingEver`, `coldLaunchCached`, `coldLaunchNoCache`, `newFolder2000`, `slowFolderHint`,
   `tabSwitchInstant` and `rememberFolders` e2e hold it; cold disk after a reboot is hands-on.
+- **A FOLDER'S SIZE, ONCE KNOWN, STAYS ON SCREEN** (2026-10-13; owner: "fix some cache for the
+  sizes so i dont see this calculating all the time"). Main already saved every size on disk
+  (`folderSizeCache.ts`), but the Explorer threw away what it knew whenever a listing refreshed: a
+  new folder array was a new key, every request was cancelled and every row went back to
+  "Calculating…" (Documents was asked 137 times in a day, 127 cancelled). `useFolderSizes` now keys
+  on the folders themselves and keeps the last size of every folder for the session (5,000 at
+  most); a new viewport starts from those and refreshes in place, and a failed answer never hides a
+  known size. "Calculating…" is only a folder never measured. The `sizesKept` e2e holds it.
 - **NOTHING ON THE STARTUP PATH HOLDS A STDIN PIPE** (2026-09-22, #189; owner: "it currently
   takes about 2 seconds to load. what could be done to make it about instant"). MEASURED: 1,188 ms
   from process start to a visible window, 369 ms after this fix (usable 1,303 -> 477 ms); an empty

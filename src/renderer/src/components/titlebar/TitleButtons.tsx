@@ -97,7 +97,9 @@ export function TitleButtons({
             aria-label="Settings"
             aria-pressed={settingsOpen}
           >
-            <Gear size={15} solid={settingsOpen} data-toggle-glyph={settingsOpen ? 'on' : 'off'} />
+            {/* Lines open or shut: the filled gear looked like a blob at this
+                size (owner, 2026-10-13: "better if its just not filled"). */}
+            <Gear size={15} />
           </button>
         )}
         {!setup && (
