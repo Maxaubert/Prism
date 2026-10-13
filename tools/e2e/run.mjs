@@ -999,11 +999,11 @@ async function termOptionsScenario(fixtures) {
       shownWindowOnly.length === 0,
       `and no row the core keeps for a window-acrylic host (${windowOnly.length ? windowOnly.join(', ') : 'none listed'}; shown: ${JSON.stringify(shownWindowOnly)})`
     )
-    // Untouched, the indicator is MINIMAL and its colours follow the accent.
+    // Untouched, the indicator is BAR (core 0.35.0 renamed Minimal) and its colours follow the accent.
     ok(
       (await win.evaluate(() => localStorage.getItem('prism.term.agentIndicator'))) === null &&
-        (await win.locator('[data-pref="agent-indicator"] [aria-pressed="true"], [data-pref="agent-indicator"] [aria-checked="true"]').first().textContent().catch(() => '') ?? '').includes('Minimal'),
-      'an untouched indicator reads Minimal'
+        (await win.locator('[data-pref="agent-indicator"] [aria-pressed="true"], [data-pref="agent-indicator"] [aria-checked="true"]').first().textContent().catch(() => '') ?? '').includes('Bar'),
+      'an untouched indicator reads Bar'
     )
     // The close question is one rule and no setting, on every page.
     let closeRows = 0
