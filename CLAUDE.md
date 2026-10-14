@@ -109,7 +109,8 @@ tools without an explicit decision (rules in `docs/ui-direction.md`).
   navigation with arrow keys, search with operators, rename / delete / move, right-click on
   every surface.
 - A terminal per tab (from `prism-term-core`), with local dictation (Right Alt).
-- Prism on your phone: a LAN page that browses and plays what the PC has open.
+- Prism on your phone: a LAN page that browses the whole PC like the Explorer and plays what it
+  finds (read-only, paired, the user's own network).
 - Resident single-instance app, update chip, Win+E replacement, opt-in file associations.
 - 18 themes on one wall, one colour picker with alpha (see `docs/ui-direction.md`).
 - **Out of scope (v1):** playlists / library / collections, editing, casting, streaming URLs,
