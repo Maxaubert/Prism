@@ -1,4 +1,8 @@
 import { execFile } from 'child_process'
+import { fakeCopyFiles, fakeFiles } from './e2eClipboard'
+
+/** Under --e2e the file drop list is the in-memory one (#356), never the system's. */
+const E2E = process.argv.includes('--e2e')
 
 // One persistent Windows data object lets the receiving app choose files or
 // pixels. Separate clipboard writes would erase the preceding representation.
@@ -46,6 +50,10 @@ try {
 
 /** Paths are data over stdin, never interpolated into PowerShell source. */
 export function copyWindowsFiles(paths: string[], cut: boolean, text?: string): Promise<boolean> {
+  if (E2E) {
+    fakeCopyFiles(paths, cut, text)
+    return Promise.resolve(true)
+  }
   return new Promise((done) => {
     const child = execFile(
       'powershell.exe',
@@ -65,6 +73,10 @@ interface WindowsFileClipboard {
 
 /** Native copy/cut metadata takes precedence over Prism's legacy cut mark. */
 export function readWindowsFiles(): Promise<WindowsFileClipboard> {
+  if (E2E) {
+    const f = fakeFiles()
+    return Promise.resolve({ paths: f?.paths ?? [], cut: f ? f.cut : null })
+  }
   return new Promise((done) => {
     execFile(
       'powershell.exe',

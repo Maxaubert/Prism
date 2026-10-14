@@ -3,6 +3,7 @@
 // (theme.ts paints at import time) must find a host already there.
 import './termHost'
 import './lib/windowPreferences'
+import './lib/e2eClipboard'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import Tooltips from 'prism-term-core/renderer/components/Tooltips'
