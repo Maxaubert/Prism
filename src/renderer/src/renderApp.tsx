@@ -5,6 +5,7 @@ import './termHost'
 import './lib/windowPreferences'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import Tooltips from 'prism-term-core/renderer/components/Tooltips'
 import App from './App'
 import { ExtractWindow } from './components/ExtractWindow'
 import { installExtractionGuard } from './lib/extractionGuard'
@@ -49,5 +50,8 @@ createRoot(document.getElementById('root')!).render(
         and no panel, and App has nothing to tell it. It draws on `body`
         through a portal, because `#root` goes inert while it is up. */}
     <ExtractWindow />
+    {/* Every `title` in the app, drawn by the core centred under its item
+        instead of by Windows at the pointer (owner, 2026-10-13). Once, here. */}
+    <Tooltips />
   </StrictMode>
 )

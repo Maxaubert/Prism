@@ -132,3 +132,10 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   key, a full path beside a short name, a line the code shortened, like the extraction window's).
   The settings rows, the rail and the help rows follow the same rule in prism-term-core 0.34.1
   (`hiddenTitle`). The `quietTooltips` e2e holds the tree's both ways.
+- **A TOOLTIP SITS BY ITS ITEM** (owner, 2026-10-13: "when i hover over settings ... they dont
+  appear under it centered, they appear from bottom right of that item ... just as a general rule
+  for icons and so on"). Windows draws a `title` at the pointer; prism-term-core 0.39.0's
+  `<Tooltips />`, mounted once in `renderApp.tsx`, draws every title itself instead: centred under
+  the item, above it when there is no room, inside the window, after Windows' own 450 ms. Elements
+  keep plain `title`s; while hovered the title sits in `data-tip-title`. An ancestor's
+  `data-tip-side` puts tips beside the item (unused in Prism so far). The `placedTips` e2e holds it.
