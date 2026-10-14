@@ -185,6 +185,7 @@ export const CALL = {
   appDefaultApps: 'app:default-apps',
 
   e2eSlowIpc: 'e2e:slow-ipc',
+  e2eClipboard: 'e2e:clipboard',
 
   windowPreferencesLoad: 'window-preferences:load',
   windowPreferencesSeed: 'window-preferences:seed',

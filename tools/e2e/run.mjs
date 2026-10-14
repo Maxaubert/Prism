@@ -366,6 +366,20 @@ async function launchOnce(file, keepTabs = false) {
  * requests read the token afresh each time, so the new phone was moved there
  * (2026-10-14).
  */
+/** The OWNER'S clipboard text, read from outside the app (#356). Only ever
+ *  read: the e2e has its own clipboard and must leave this one alone. */
+function realClipboardText() {
+  try {
+    return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 10000
+    })
+  } catch {
+    return ''
+  }
+}
+
 async function openPhoneWindow(app, url) {
   const appeared = app.waitForEvent('window', { timeout: 15000 })
   await app.evaluate(({ BrowserWindow }, target) => {
@@ -6387,8 +6401,8 @@ async function agentTitleScenario(fixtures) {
 async function termMenuCopyScenario(fixtures) {
   console.log('terminal menu copy')
   const { app, win } = await launch(join(fixtures, 'code', 'bad.json'))
+  // The app's in-memory clipboard under --e2e (#356): nothing to put back.
   const clip = () => app.evaluate(({ clipboard }) => clipboard.readText())
-  const held = await clip()
   const box = (needle, offset) =>
     win.evaluate(
       ([n, off]) => {
@@ -6502,7 +6516,6 @@ async function termMenuCopyScenario(fixtures) {
     ok(!!typed && (await text()).includes(`'${dropped}'`), `a dropped path is single-quoted for PowerShell (${(await text()).slice(-120)})`)
     await win.keyboard.press('Escape')
   } finally {
-    await app.evaluate(({ clipboard }, t) => clipboard.writeText(t), held).catch(() => {})
     await app.close().catch(() => {})
   }
 }
@@ -9060,7 +9073,8 @@ async function hotkeysScenario(fixtures) {
   kilo.writeZip(join(dir, 'kilo.zip'))
   const top = readdirSync(dir).length
   const { app, win } = await launch(join(dir, 'alpha.txt'))
-  const held = await app.evaluate(({ clipboard }) => clipboard.readText()).catch(() => '')
+  // The app's clipboard is main's in-memory one under --e2e (#356): what is
+  // read here is what the app wrote, and the owner's clipboard is never it.
   const clip = () => app.evaluate(({ clipboard }) => clipboard.readText())
   const base = (p) => /[^\\]*$/.exec(p ?? '')?.[0] ?? ''
   const playing = () =>
@@ -9146,6 +9160,9 @@ async function hotkeysScenario(fixtures) {
         treeClip.every((p) => p.toLowerCase().startsWith(dir.toLowerCase() + '\\')),
       `tree: Ctrl+Shift+C copies the full paths, one per line (${treeClip.join(' | ')})`
     )
+    // #356: the copy went to the app's clipboard, not the owner's. Read-only:
+    // the real clipboard is looked at, never written.
+    ok(!realClipboardText().toLowerCase().includes(dir.toLowerCase()), "and the owner's own clipboard never receives them (#356)")
     await win.keyboard.press('Escape')
     await sleep(200)
 
@@ -9551,7 +9568,6 @@ async function hotkeysScenario(fixtures) {
     ok(!existsSync(join(dir, 'New folder')) && new AdmZip(join(dir, 'kilo.zip')).getEntries().length === 1, 'zip: no folder was made and the member is still there')
   } finally {
     await win.evaluate(() => document.querySelectorAll('video,audio').forEach((v) => v.pause())).catch(() => {})
-    await app.evaluate(({ clipboard }, t) => clipboard.writeText(t), held).catch(() => {})
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }

@@ -43,6 +43,16 @@ extension and they have none.
 one folder and removes it after (94 folders a run leaked before; 40,809 had built up, and with Temp
 open in the tree they were the 47,816-row stall of #235). A new test may mkdtemp freely.
 
+**THE E2E NEVER TOUCHES THE OWNER'S CLIPBOARD** (#356, 2026-10-14): a screenshot taken during a
+run pasted as fixture paths. Under `--e2e` every clipboard the app has is one in memory
+(`src/main/e2eClipboard.ts`): Electron's `clipboard` in main is patched in place (so the core's
+terminal paste and the harness's `app.evaluate(({ clipboard }) => ...)` share it), the file drop
+list skips PowerShell, and the page's `navigator.clipboard` and the preload's image copy reach it
+over `e2e:clipboard` (`renderer/src/lib/e2eClipboard.ts`). A scenario reads the app's clipboard
+and never puts the owner's back. Not covered: a NATIVE copy (`document.execCommand('copy')`, the
+code viewer's Copy row), which no scenario presses; one that does must stub it first. The
+`hotkeys` scenario reads the real clipboard (read-only) and fails if fixture paths reached it.
+
 **THE E2E STAYS HEADLESS** (owner, 2026-10-03, after a windowed suite flashed the screen and
 was deleted): whatever is added to the e2e is added to `tools/e2e/run.mjs` and keeps its nature,
 parked offscreen and never taking the focus.

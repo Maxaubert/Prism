@@ -13,9 +13,12 @@ import {
   Menu,
   powerMonitor,
   powerSaveBlocker,
-  session
+  session,
+  clipboard,
+  nativeImage
 } from 'electron'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { answerE2eClipboard, installFakeClipboard } from './e2eClipboard'
 import { existsSync } from 'fs'
 import {
   rm,
@@ -179,6 +182,13 @@ if (process.argv.includes('--e2e') && process.env.PRISM_E2E_MIC) {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream')
   app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
   app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.PRISM_E2E_MIC)
+}
+
+// THE E2E NEVER TOUCHES THE REAL CLIPBOARD (#356): every clipboard the app
+// has is one in memory under --e2e (e2eClipboard.ts).
+if (process.argv.includes('--e2e')) {
+  installFakeClipboard(clipboard as unknown as Record<string, unknown>, (png) => nativeImage.createFromBuffer(png))
+  ipcMain.handle(CALL.e2eClipboard, answerE2eClipboard)
 }
 
 // THE E2E'S DOWNLOADS IS A FIXTURE (#285): the `downloadsDate` scenario needs a
@@ -763,7 +773,10 @@ function createWindow(): void {
       // than an IPC message, so it is there before the first render.
       additionalArguments: [
         ...(process.argv.includes('--setup') ? ['--prism-setup'] : []),
-        ...(process.argv.includes('--demo') ? ['--prism-demo'] : [])
+        ...(process.argv.includes('--demo') ? ['--prism-demo'] : []),
+        // The page's clipboard is main's in-memory one under --e2e (#356);
+        // the preload learns it here, since the renderer's argv is its own.
+        ...(E2E ? ['--prism-e2e'] : [])
       ]
     }
   })
