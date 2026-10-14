@@ -13466,6 +13466,22 @@ async function dragScenario(fixtures) {
         void v.play().catch(() => {})
       })
       await win.waitForFunction(() => (document.querySelector('video')?.currentTime ?? 0) > 0.6, null, { timeout: 10000 })
+      // Where the film STARTS in its new place, caught at its first 'playing'
+      // (2026-10-14): read later, a film that restarted from 0 has already
+      // played past 0.3 s and the check could not tell it from one that
+      // carried on.
+      await win.evaluate(() => {
+        window.__movedFirstPlay = null
+        document.addEventListener(
+          'playing',
+          (e) => {
+            const v = e.target
+            if (window.__movedFirstPlay === null && /into/i.test(decodeURIComponent(v.currentSrc || '')))
+              window.__movedFirstPlay = v.currentTime
+          },
+          true
+        )
+      })
       const before = await win.evaluate(() => document.querySelector('video')?.currentTime ?? 0)
       await win
         .locator('[role="treeitem"]:has-text("watching.mp4")')
@@ -13490,7 +13506,11 @@ async function dragScenario(fixtures) {
       })
       ok(existsSync(join(box, 'into', 'watching.mp4')) && !existsSync(film), 'the film you are watching really moved into the folder')
       ok(followed, `and the viewer followed it there, playing (${after.src.split(/[\\/]/).slice(-2).join('/')})`)
-      ok(after.t >= before - 0.5, `at the second it was at (was ${before.toFixed(2)}, now ${after.t.toFixed(2)})`)
+      const firstPlay = await win.evaluate(() => window.__movedFirstPlay)
+      ok(
+        typeof firstPlay === 'number' && firstPlay >= before - 0.5,
+        `at the second it was at, from its first frame there (was ${before.toFixed(2)}, started at ${typeof firstPlay === 'number' ? firstPlay.toFixed(2) : firstPlay}, now ${after.t.toFixed(2)})`
+      )
       ok(!/could not be moved/.test((await win.locator('body').textContent()) ?? ''), 'and nothing complained')
     } finally {
       await app.close()
@@ -16597,13 +16617,18 @@ async function themeWallScenario(fixtures) {
     await setDraft(null)
 
     // Holding Right across all 18 repaints at key-repeat speed: no frame
-    // over 50ms (spec 10). MEASURED AS THE PAGE'S OWN WORK (2026-10-14): a
-    // long-animation-frame entry is a frame the renderer's main thread spent
-    // 50 ms or more on (script, style, layout, paint), which is what a slow
-    // repaint is. The gap between two rAF callbacks also counts the time the
-    // OS did not schedule a parked, invisible window at all, and that failed
-    // this check at random (56 to 104 ms with the main thread idle). The
-    // gaps are still printed, as the diagnosis.
+    // over 50ms (spec 10). WHILE HELD, and MEASURED AS THE PAGE'S OWN WORK
+    // (2026-10-14, the flake found):
+    //  - The window's glass waits for the arrows to rest (theme.ts,
+    //    MATERIAL_SETTLE_MS = 160, #298) because that switch IS a frame of
+    //    about 50 ms. This check used to keep counting 200 ms past the last
+    //    press, so that deliberate after-the-hold frame fell inside it and
+    //    failed it at random (49 to 56 ms after the last card). Only frames
+    //    that start before the last press plus 120 ms are the hold's.
+    //  - A long-animation-frame entry is a frame the renderer's main thread
+    //    spent 50 ms or more on (script, style, layout, paint). The gap
+    //    between two rAF callbacks also counts the OS not scheduling a parked,
+    //    invisible window; the gaps are still printed, as the diagnosis.
     await win.locator('[data-theme-card="new-void"]').focus()
     await win.keyboard.press('Home')
     await win.evaluate(() => {
@@ -16643,10 +16668,12 @@ async function themeWallScenario(fixtures) {
     const gaps = frames
       .filter((f) => f[1] >= 34)
       .map(([t, d]) => `${Math.round(d)}ms after ${after(t)}`)
-    const busy = loaf.filter(([t]) => t >= start).map(([t, d]) => `${Math.round(d)}ms after ${after(t)}`)
+    const held = (presses.at(-1)?.[0] ?? 0) + 120
+    const busy = loaf.filter(([t]) => t >= start && t < held).map(([t, d]) => `${Math.round(d)}ms after ${after(t)}`)
+    const settled = loaf.filter(([t]) => t >= held).map(([, d]) => `${Math.round(d)}ms`)
     ok(
       busy.length === 0,
-      `holding Right across all 18: no frame where the page worked 50ms or more (${busy.join(', ') || 'none'}; frame gaps: ${gaps.join(', ') || 'none over 34ms'})`
+      `holding Right across all 18: no frame where the page worked 50ms or more (${busy.join(', ') || 'none'}; after the arrows rest, the glass: ${settled.join(', ') || 'none'}; frame gaps: ${gaps.join(', ') || 'none over 34ms'})`
     )
     ok((await focused()) === 'pearl', `and ends on Pearl (${await focused()})`)
     await win.keyboard.press('Escape')
