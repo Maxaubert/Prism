@@ -21,9 +21,11 @@ import { placeTip, type TipSide, type TipSpot } from '../lib/tipPlace'
  * followed: a watcher on the element's own title.
  */
 
-/** As long as Windows' own wait, so a pointer passing over a row of icons
- *  does not light each one. */
-const SHOW_MS = 450
+/** How long the pointer rests on an item before its tip shows: 1.5 s (owner,
+ *  2026-10-14: "right now they appear too fast ... you have to be on that
+ *  button for like 1.5 seconds"; it was Windows' own 450 ms). A pointer passing
+ *  over a row of icons lights none of them. */
+export const SHOW_MS = 1500
 
 interface Shown {
   text: string

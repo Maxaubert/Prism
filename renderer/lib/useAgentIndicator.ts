@@ -84,6 +84,10 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
       window.removeEventListener('blur', off)
     }
   }, [])
+  const looking = useRef({ activeId, focused })
+  useEffect(() => {
+    looking.current = { activeId, focused }
+  }, [activeId, focused])
   /**
    * COMING BACK IS A LOOK TOO (owner, 2026-10-14: "i sent a message with this
    * tab in focus, changed window, it completed i came back, and that mark was
@@ -101,7 +105,10 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     const MOVE_LOOK_MS = 1000
     let last = 0
     const onMove = (): void => {
-      if (document.hasFocus()) return
+      // The window's focus as this hook hears it (focus and blur), not
+      // document.hasFocus(): under Playwright that is always true (MEASURED in
+      // the parked e2e window), and the two must agree.
+      if (looking.current.focused) return
       const now = Date.now()
       movedAt.current = now
       // A look every half second at most: a moving pointer fires constantly.
@@ -112,10 +119,6 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     window.addEventListener('pointermove', onMove, { passive: true })
     return () => window.removeEventListener('pointermove', onMove)
   }, [])
-  const looking = useRef({ activeId, focused })
-  useEffect(() => {
-    looking.current = { activeId, focused }
-  }, [activeId, focused])
   const lookedAt = (id: string): boolean => looking.current.focused && looking.current.activeId === id
   /** The last title state of each titled session, so output can be checked
    *  for a question only while its agent is idle. */
