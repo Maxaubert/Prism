@@ -10,7 +10,7 @@
  *     all read and write the same fake;
  *   - the file drop list (`fileClipboard.ts`), which is otherwise PowerShell;
  *   - the page's `navigator.clipboard` and the preload's image copy, which
- *     reach this over `e2e:clipboard` (see `renderer/src/lib/e2eClipboard.ts`).
+ *     reach this over `CALL.e2eClipboard` (see `renderer/src/lib/e2eClipboard.ts`).
  * Like the real one, a write REPLACES what was there.
  */
 export interface FakeClip {
@@ -127,20 +127,11 @@ export function resetFakeClipboard(): void {
   reset()
 }
 
-/**
- * Under --e2e only: patch main's clipboard and answer the page's and the
- * preload's clipboard over `e2e:clipboard`, so all of them share the fake.
- */
-export function registerE2eClipboard(deps: {
-  clipboard: object
-  image: (png: Buffer) => NativeImageLike
-  handle: (channel: string, fn: (e: unknown, ...a: unknown[]) => unknown) => void
-}): void {
-  installFakeClipboard(deps.clipboard as Record<string, unknown>, deps.image)
-  deps.handle('e2e:clipboard', (_e, verb, value) => {
-    if (verb === 'readText') return fakeText()
-    if (verb === 'writeText') return void fakeWriteText(String(value ?? ''))
-    if (verb === 'writeImage') return void fakeWriteImage(Buffer.from(value as ArrayBuffer))
-    return undefined
-  })
+/** Under --e2e only: the page's and the preload's clipboard calls, answered
+ *  from the fake (`ipcMain.handle(CALL.e2eClipboard, answerE2eClipboard)`). */
+export function answerE2eClipboard(_e: unknown, verb: unknown, value: unknown): string | undefined {
+  if (verb === 'readText') return fakeText()
+  if (verb === 'writeText') return void fakeWriteText(String(value ?? ''))
+  if (verb === 'writeImage') return void fakeWriteImage(Buffer.from(value as ArrayBuffer))
+  return undefined
 }

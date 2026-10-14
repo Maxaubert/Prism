@@ -18,7 +18,7 @@ import {
   nativeImage
 } from 'electron'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
-import { registerE2eClipboard } from './e2eClipboard'
+import { answerE2eClipboard, installFakeClipboard } from './e2eClipboard'
 import { existsSync } from 'fs'
 import {
   rm,
@@ -186,12 +186,10 @@ if (process.argv.includes('--e2e') && process.env.PRISM_E2E_MIC) {
 
 // THE E2E NEVER TOUCHES THE REAL CLIPBOARD (#356): every clipboard the app
 // has is one in memory under --e2e (e2eClipboard.ts).
-if (process.argv.includes('--e2e'))
-  registerE2eClipboard({
-    clipboard,
-    image: (png) => nativeImage.createFromBuffer(png),
-    handle: (channel, fn) => ipcMain.handle(channel, fn)
-  })
+if (process.argv.includes('--e2e')) {
+  installFakeClipboard(clipboard as unknown as Record<string, unknown>, (png) => nativeImage.createFromBuffer(png))
+  ipcMain.handle(CALL.e2eClipboard, answerE2eClipboard)
+}
 
 // THE E2E'S DOWNLOADS IS A FIXTURE (#285): the `downloadsDate` scenario needs a
 // Downloads it can fill with dated files, and must never touch the real one.

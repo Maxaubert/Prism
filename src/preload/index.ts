@@ -394,7 +394,7 @@ const api = {
     if (img.isEmpty()) return false
     // Under --e2e the clipboard is main's in-memory one (#356).
     if (E2E_RUN) {
-      void ipcRenderer.invoke('e2e:clipboard', 'writeImage', png)
+      void ipcRenderer.invoke(CALL.e2eClipboard, 'writeImage', png)
       return true
     }
     clipboard.clear()
@@ -643,8 +643,8 @@ const api = {
    *  a test run never touches the owner's. Absent outside --e2e. */
   e2eClipboard: E2E_RUN
     ? {
-        readText: (): Promise<string> => ipcRenderer.invoke('e2e:clipboard', 'readText'),
-        writeText: (text: string): Promise<void> => ipcRenderer.invoke('e2e:clipboard', 'writeText', text)
+        readText: (): Promise<string> => ipcRenderer.invoke(CALL.e2eClipboard, 'readText'),
+        writeText: (text: string): Promise<void> => ipcRenderer.invoke(CALL.e2eClipboard, 'writeText', text)
       }
     : undefined,
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
