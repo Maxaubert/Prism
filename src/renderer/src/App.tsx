@@ -1429,6 +1429,11 @@ export default function App(): JSX.Element {
     [browsing.locations]
   )
   const quickAccess = useQuickAccess(quickAccessDefaults)
+  // The phone's drawer lists the same pinned folders (2026-10-14); main keeps
+  // what was last sent and never reads this window's storage itself.
+  useEffect(() => {
+    window.prism.phonePins(quickAccess.filter((p) => p.isFolder).map((p) => ({ name: p.label, path: p.path })))
+  }, [quickAccess])
   const pinQuickAccessPaths = useCallback(
     async (paths: string[], beforePath?: string) => {
       if (!active) return
@@ -2751,9 +2756,16 @@ export default function App(): JSX.Element {
       )}
       {phoneOpen && (
         <PhoneDialog
-          // The Settings tab owns no root; the dialog then says to open a
-          // folder rather than offering a code for nowhere.
-          root={active && active.kind !== 'settings' ? active.root : null}
+          // Where a newly paired phone starts (2026-10-14): the folder the
+          // Explorer is showing, a project's own folder, or This PC (null)
+          // with Settings in front.
+          start={
+            !active || active.kind === 'settings'
+              ? null
+              : active.role === 'explorer'
+                ? active.browse.path || null
+                : active.root
+          }
           onClose={() => setPhoneOpen(false)}
         />
       )}

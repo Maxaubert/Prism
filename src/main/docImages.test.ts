@@ -36,6 +36,16 @@ describe('what a document is allowed to show', () => {
     ])
   })
 
+  it("reads a <picture>'s srcset, every candidate, before its width", async () => {
+    const html =
+      '<picture><source srcset="../assets/logo.png 1x, ./here.png 2x" type="image/avif"><img src="../assets/a%20b.png"></picture>'
+    expect(await documentImages(doc(), html)).toEqual([
+      join(assets, 'a b.png'),
+      join(assets, 'logo.png'),
+      join(docs, 'here.png')
+    ])
+  })
+
   it('decodes a percent-escaped name', async () => {
     expect(await documentImages(doc(), '![](../assets/a%20b.png)')).toEqual([join(assets, 'a b.png')])
   })

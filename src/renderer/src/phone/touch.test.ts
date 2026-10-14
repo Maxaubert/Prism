@@ -37,10 +37,9 @@ const owners: Record<string, string> = {
   'data-menu-knob': 'src/renderer/src/components/PlayerMenu.tsx',
   'data-menu-slider': 'src/renderer/src/components/PlayerMenu.tsx',
   'data-on': 'src/renderer/src/components/PlayerMenu.tsx',
-  // The tab drawer's own motion (Browser.tsx applies the keyframes inline;
+  // The places drawer's own motion (Browser.tsx applies the keyframes inline;
   // the sheet marker is only named here for the sizing of its rows).
-  'data-phone-sheet': 'src/renderer/src/phone/Browser.tsx',
-  'data-phone-tab-row': 'src/renderer/src/phone/TabList.tsx'
+  'data-phone-sheet': 'src/renderer/src/phone/Browser.tsx'
 }
 
 describe('the phone sizes itself from one stylesheet', () => {

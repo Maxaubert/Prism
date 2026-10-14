@@ -6,7 +6,8 @@
  * error on the other rather than a 404 on a phone.
  */
 import type { FileStat } from './ipcTypes'
-import type { FileMemory, PhoneTab } from './types'
+import type { FileMemory } from './types'
+import type { BrowseDriveUsage } from './browse'
 
 /** Pairing: a code and a name, POSTed. Needs no token. */
 export const PHONE_PAIR = '/pair'
@@ -21,8 +22,7 @@ export const PHONE_HLS = '/hls/'
 export const ROUTE = {
   play: 'play',
   me: 'me',
-  tabs: 'tabs',
-  tab: 'tab',
+  places: 'places',
   pos: 'pos',
   diag: 'diag',
   search: 'search',
@@ -76,14 +76,12 @@ export type PlayAnswer =
     }
   | { mode: 'none'; reason: string }
 
-/** `/api/me`. `name` is this PHONE's, as the PC lists it; `folder` is the
- *  name of the TAB it is on, which main spells so the header and the tab
- *  list agree. */
+/** `/api/me`. `name` is this PHONE's, as the PC lists it; `here` is the
+ *  folder it was last in, null for This PC (2026-10-14: the phone is in a
+ *  folder anywhere on the PC, not on a tab). */
 export interface Me {
-  root: string
-  open: boolean
   name: string
-  folder: string
+  here: string | null
 }
 
 /** `/api/stat`: what `file:stat` answers, without the dates the phone has no use for. */
@@ -92,21 +90,28 @@ export type PhoneStat = Pick<FileStat, 'size' | 'mtimeMs' | 'isFolder'>
 /** `/api/pos` read: what the PC remembers about the file, `t` always present. */
 export type PosAnswer = Omit<FileMemory, 't'> & { t: number | null }
 
-/** `/api/tabs`: the folders the PC has open right now. */
-export interface TabsAnswer {
-  tabs: PhoneTab[]
-}
-
-/** `/api/tab`: the root the phone moved to, in the PC's own spelling. */
-export interface TabMoved {
-  root: string
+/** A Quick access place: a Known Folder or one of the user's own pins. */
+export interface PhonePlace {
   name: string
+  path: string
+  /** Which Known Folder it is; absent for a pin. */
+  known?: string
 }
 
-/** `/pair`: the phone's token and the root it is on. */
+/** A drive on This PC, with what the Explorer's drive rows show (label,
+ *  kind, size and free space, each absent when Windows did not say). */
+export type PhoneDrive = { name: string } & BrowseDriveUsage
+
+/** `/api/places`: the drawer and the This PC page, the Explorer's places. */
+export interface PlacesAnswer {
+  quick: PhonePlace[]
+  drives: PhoneDrive[]
+}
+
+/** `/pair`: the phone's token and the folder it starts in (null: This PC). */
 export interface PairAnswer {
   token: string
-  root: string
+  here: string | null
 }
 
 /** `/api/doc`: an office or ebook document as sanitised HTML. */

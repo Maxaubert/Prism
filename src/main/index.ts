@@ -34,13 +34,16 @@ import {
   markExplorerWindow
 } from './explorerWindow'
 import { createWindowPreferences } from './windowPreferences'
-import { isRoot, isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
-import { addRoot, isAnyRoot, onRootsChanged, openRoots, validRoot } from './roots'
+import { isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
+import { addRoot, isAnyRoot, onRootsChanged } from './roots'
 import {
   grantDesktopDirectory,
   insideDesktop
 } from './desktopAccess'
-import { browseDirectory, type BrowseRead } from './browse'
+import { browseDirectory, browseLocations, type BrowseRead } from './browse'
+import { driveUsage, withUsedShare } from './driveUsage'
+import { phoneListed, phoneMay, phoneRelease } from './phone/phoneAccess'
+import { phonePlaces } from './phone/places'
 import { MemberTemp, cleanDeadRuns, pidAlive } from './memberTemp'
 import { createArchiveBrowse } from './archiveBrowse'
 import { placeOf } from '@shared/archivePlace'
@@ -1403,14 +1406,18 @@ if (!app.requestSingleInstanceLock()) {
       media: serveMedia,
       listDir,
       // The very function `search:files` answers the sidebar with, so the
-      // phone's field and the PC's box find the same files by the same rules.
-      search: (root: string, query: string) => searchFiles(root, query),
-      validRoot,
-      isRoot,
-      rootOpen: hooks.rootOpen,
-      // The tabs a phone may switch to: main's own open set, read on the ask
-      // rather than pushed, since a tab closes without telling the phone.
-      openRoots,
+      // phone's field and the PC's box find the same files by the same rules,
+      // over the folder the phone is in (2026-10-14).
+      search: (dir: string, query: string) => searchFiles(dir, query),
+      // The desktop Explorer's rule, one owner per phone (phoneAccess.ts).
+      access: { listed: phoneListed, may: phoneMay, release: phoneRelease },
+      places: () =>
+        phonePlaces(
+          () => browseLocations((key) => app.getPath(key)),
+          hooks.pins(),
+          async (paths) =>
+            E2E ? withUsedShare(await driveUsage(paths), process.env.PRISM_E2E_DRIVE_USED) : driveUsage(paths)
+        ),
       subsFor: async (p: string) => (await sidecarsFor(p)).map((t) => ({ path: t.path, label: t.label })),
       readSubs: (p: string) =>
         readAsVtt(p, ffmpegTools()?.ffmpeg),

@@ -34,6 +34,26 @@ const MAX_GRANTS = 200
 
 const MD_IMAGE = /!\[[^\]]*\]\(\s*<?([^)>\s]+)/g
 const HTML_IMAGE = /<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi
+/** A `<picture>`'s `<source srcset>` (and an `<img srcset>`): one URL per
+ *  comma-separated candidate, before its width or density (2026-10-14: the
+ *  README's AVIF sat in a `<source>`, and only the phone's old root wall had
+ *  served it). */
+const SRCSET = /<(?:source|img)\b[^>]*?\bsrcset\s*=\s*["']([^"']+)["']/gi
+
+/** Every reference the text makes, in its order: a srcset gives one per
+ *  candidate. */
+function references(text: string): string[] {
+  const out: string[] = []
+  for (const re of [MD_IMAGE, HTML_IMAGE, SRCSET]) {
+    re.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      if (re === SRCSET) for (const c of m[1].split(',')) out.push(c.trim().split(/\s+/)[0] ?? '')
+      else out.push(m[1])
+    }
+  }
+  return out
+}
 
 /**
  * Everything the text points at that is a local image file which exists.
@@ -59,11 +79,9 @@ function imageCandidates(docPath: string, text: string): string[] {
   const dir = dirname(docPath)
   const out: string[] = []
   const seen = new Set<string>()
-  for (const re of [MD_IMAGE, HTML_IMAGE]) {
-    re.lastIndex = 0
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) {
-      const raw = m[1].trim()
+  {
+    for (const ref of references(text)) {
+      const raw = ref.trim()
       // Anything with a scheme is somebody else's problem: http(s) is blocked
       // by the page's own CSP, data: carries its bytes with it, and fsmedia://
       // is already walled by the rule this exists to soften.

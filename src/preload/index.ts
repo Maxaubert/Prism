@@ -210,18 +210,22 @@ const api = {
   memorySet: (path: string, patch: FileMemoryPatch): void =>
     ipcRenderer.send(CALL.posSet, path, patch),
   // Prism on your phone (#104): the More > Phone dialog's state and verbs.
-  // Every verb answers with the whole state for `root` (the current tab), so
-  // the dialog never has to guess what a click did.
-  /** The dialog's state: switch, port, addresses, phones, and a code for `root`. */
-  phoneGet: (root: string | null): Promise<PhoneState> => ipcRenderer.invoke(CALL.phoneGet, root),
+  // Every verb answers with the whole state, with a code that starts a phone
+  // at `start` (the folder in front, null for This PC), so the dialog never
+  // has to guess what a click did.
+  /** The dialog's state: switch, port, addresses, phones, and a code for `start`. */
+  phoneGet: (start: string | null): Promise<PhoneState> => ipcRenderer.invoke(CALL.phoneGet, start),
   /** Turn the server on or off. The answer says what the server IS. */
-  phoneSetOn: (on: boolean, root: string | null): Promise<PhoneState> =>
-    ipcRenderer.invoke(CALL.phoneSetOn, on, root),
-  /** A fresh code for `root`, replacing the one it had. */
-  phoneCode: (root: string): Promise<PhoneState> => ipcRenderer.invoke(CALL.phoneCode, root),
+  phoneSetOn: (on: boolean, start: string | null): Promise<PhoneState> =>
+    ipcRenderer.invoke(CALL.phoneSetOn, on, start),
+  /** A fresh code for `start`, replacing the one it had. */
+  phoneCode: (start: string | null): Promise<PhoneState> => ipcRenderer.invoke(CALL.phoneCode, start),
   /** Forget a paired phone by token. */
-  phoneForget: (token: string, root: string | null): Promise<PhoneState> =>
-    ipcRenderer.invoke(CALL.phoneForget, token, root),
+  phoneForget: (token: string, start: string | null): Promise<PhoneState> =>
+    ipcRenderer.invoke(CALL.phoneForget, token, start),
+  /** The Quick access pins, for the phone's drawer (2026-10-14). */
+  phonePins: (pins: ReadonlyArray<{ name: string; path: string }>): void =>
+    ipcRenderer.send(CALL.phonePins, pins),
   /** Pairing, watchers or the switch changed: re-read with phoneGet. */
   onPhoneChanged: subscribe(PUSH.phoneChanged),
   // The three navigation calls name the root they act in. They are per-tab

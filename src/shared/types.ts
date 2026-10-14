@@ -364,25 +364,14 @@ export interface TailEvent {
 }
 
 /** A phone paired to this PC (2026-09-06, #104): its token, the name it gave,
- *  and the ROOT it was paired to, which is the tab the QR was shown from. */
+ *  and the folder it was last in, null for This PC (2026-10-14: a phone is in
+ *  a folder anywhere on the PC, not on a tab). */
 export interface PhoneInfo {
   token: string
   name: string
-  root: string
+  here: string | null
   paired: number
   seen: number
-}
-
-/**
- * One tab a phone may switch to (2026-09-08, #107): a root the PC has open
- * RIGHT NOW, the folder name to show for it, and whether it is the one this
- * phone is on. The list is whatever the PC holds, read fresh; it is not a
- * thing anybody curates.
- */
-export interface PhoneTab {
-  root: string
-  name: string
-  current: boolean
 }
 
 /** What the More > Phone dialog shows: main's answer to `phone:get`. */
@@ -393,7 +382,7 @@ export interface PhoneState {
   phones: PhoneInfo[]
   /** Phones that fetched something in the last 30 seconds, by token. */
   watching: string[]
-  /** The current tab's pairing: link and QR (SVG) for it, when the server is up. */
+  /** A pairing code for the folder in front (or This PC): link and QR (SVG), when the server is up. */
   code?: { code: string; link: string; svg: string; expires: number }
   error?: string
 }

@@ -1,21 +1,24 @@
 /**
  * Pairing a phone (2026-09-06, #104). The QR carries a six-character code,
- * single-use and two minutes long; the phone trades it for a token it keeps,
- * and the token remembers the ROOT it was paired to (the tab the code was
- * shown from). Pure: the server owns the clock and the randomness.
+ * single-use and two minutes long; the phone trades it for a token it keeps.
+ * The code carries the folder the PC was showing (`start`, null for This
+ * PC), which is where a phone STARTS; after that the token remembers the
+ * folder it was last in (`here`, 2026-10-14). Pure: the server owns the clock
+ * and the randomness.
  */
 import { randomBytes } from 'crypto'
 
 export interface Phone {
   token: string
   name: string
-  root: string
+  /** The folder it was last in; null is This PC. */
+  here: string | null
   paired: number
   seen: number
 }
 
 export interface PairState {
-  codes: Array<{ code: string; root: string; expires: number }>
+  codes: Array<{ code: string; start: string | null; expires: number }>
   phones: Phone[]
 }
 
@@ -39,16 +42,17 @@ export function emptyState(): PairState {
   return { codes: [], phones: [] }
 }
 
-/** A new code for `root`, replacing any older code for the same root. */
+/** A new code that starts a phone at `start`, replacing any older code for
+ *  the same folder. */
 export function issueCode(
   s: PairState,
-  root: string,
+  start: string | null,
   now: number,
   rnd: () => string = randomCode
 ): string {
-  s.codes = s.codes.filter((c) => c.root !== root && c.expires > now)
+  s.codes = s.codes.filter((c) => c.start !== start && c.expires > now)
   const code = rnd()
-  s.codes.push({ code, root, expires: now + CODE_TTL_MS })
+  s.codes.push({ code, start, expires: now + CODE_TTL_MS })
   return code
 }
 
@@ -68,7 +72,7 @@ export function redeem(
   const phone: Phone = {
     token: rnd(),
     name: name.slice(0, 80) || 'Phone',
-    root: hit.root,
+    here: hit.start,
     paired: now,
     seen: now
   }
@@ -101,16 +105,16 @@ export function parseState(raw: string): PairState {
   try {
     const j = JSON.parse(raw) as { phones?: unknown }
     if (!j || typeof j !== 'object' || !Array.isArray(j.phones)) return emptyState()
-    const phones = j.phones.filter(
-      (p): p is Phone =>
-        !!p &&
-        typeof p === 'object' &&
-        typeof (p as Phone).token === 'string' &&
-        typeof (p as Phone).name === 'string' &&
-        typeof (p as Phone).root === 'string' &&
-        typeof (p as Phone).paired === 'number' &&
-        typeof (p as Phone).seen === 'number'
-    )
+    // A store from before 2026-10-14 names the TAB a phone was on as `root`:
+    // that folder is where it was, so it becomes `here`.
+    const phones = j.phones.flatMap((raw): Phone[] => {
+      if (!raw || typeof raw !== 'object') return []
+      const p = raw as Partial<Phone> & { root?: unknown }
+      if (typeof p.token !== 'string' || typeof p.name !== 'string') return []
+      if (typeof p.paired !== 'number' || typeof p.seen !== 'number') return []
+      const here = typeof p.here === 'string' ? p.here : typeof p.root === 'string' ? p.root : null
+      return [{ token: p.token, name: p.name, here, paired: p.paired, seen: p.seen }]
+    })
     return { codes: [], phones }
   } catch {
     return emptyState()

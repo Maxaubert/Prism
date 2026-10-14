@@ -21,11 +21,11 @@ describe('pairing', () => {
     expect(s.codes).toHaveLength(1)
   })
 
-  it('redeems once, within its two minutes, and remembers the root', () => {
+  it('redeems once, within its two minutes, and starts the phone in its folder', () => {
     const s = emptyState()
     issueCode(s, 'C:\\films', 1000, fixed('ABCDEF'))
     const phone = redeem(s, 'abcdef', 'iPhone', 2000, fixed('tok1'))
-    expect(phone).toEqual({ token: 'tok1', name: 'iPhone', root: 'C:\\films', paired: 2000, seen: 2000 })
+    expect(phone).toEqual({ token: 'tok1', name: 'iPhone', here: 'C:\\films', paired: 2000, seen: 2000 })
     expect(redeem(s, 'ABCDEF', 'again', 2001)).toBeNull()
     expect(s.codes).toHaveLength(0)
   })
@@ -36,7 +36,13 @@ describe('pairing', () => {
     expect(redeem(s, code, 'x', 1000 + CODE_TTL_MS + 1)).toBeNull()
   })
 
-  it('a fresh code for the same root replaces the old one', () => {
+  it('a code for This PC starts the phone with no folder', () => {
+    const s = emptyState()
+    issueCode(s, null, 1000, fixed('CCCCCC'))
+    expect(redeem(s, 'CCCCCC', 'Pixel', 1001, fixed('t'))?.here).toBeNull()
+  })
+
+  it('a fresh code for the same folder replaces the old one', () => {
     const s = emptyState()
     issueCode(s, 'C:\\films', 1000, fixed('AAAAAA'))
     issueCode(s, 'C:\\films', 1500, fixed('BBBBBB'))
@@ -65,6 +71,10 @@ describe('pairing', () => {
     expect(back.phones).toEqual(s.phones)
     expect(back.codes).toEqual([]) // codes are never persisted
     expect(parseState('soup')).toEqual(emptyState())
+    // Before 2026-10-14 a phone was on a TAB, written as `root`: where it was.
+    expect(
+      parseState('{"phones":[{"token":"t","name":"n","root":"C:\\\\a","paired":1,"seen":2}]}').phones
+    ).toEqual([{ token: 't', name: 'n', here: 'C:\\a', paired: 1, seen: 2 }])
     expect(parseState('{"phones":"no"}')).toEqual(emptyState())
   })
 })

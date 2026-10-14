@@ -100,6 +100,20 @@ function anyGrantDirectlyHolds(target: Asked): boolean {
   return false
 }
 
+/** ONE owner's grants only: `path` is a folder it visited, or a direct entry
+ *  of one (both sides resolved, so a junction out of a visited folder is
+ *  refused). The phone's wall (2026-10-14), where each phone is its own owner
+ *  and another owner's visits must not count. */
+export function ownsDirectly(tabId: string, path: string): boolean {
+  return timed('ownsDirectly', 1, () => {
+    const grants = directories.get(tabId)
+    if (!grants || !path) return false
+    const target = asked(path)
+    for (const dir of grants.values()) if (directlyWithin(dir, target)) return true
+    return false
+  })
+}
+
 export function insideDesktop(path: string): boolean {
   return timed('insideDesktop', 1, () => inside(path))
 }

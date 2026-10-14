@@ -1214,7 +1214,8 @@ changing a feature: each entry records what the owner decided, why, and what hol
   `src/main/phone/` serves a phone-sized page on the LAN, and the phone browses a folder
   the PC has open and plays what it can play natively. WHICH folder is the phone's own to
   choose since 2026-09-08 (the tab-switching decision below, which reversed the design's
-  first one): the code it scanned decides only where it STARTS. PLAIN HTTP, deliberately: a
+  first one), and since 2026-10-14 it is ANY folder on the PC, like the Explorer (the entry
+  below says what that widened): the code it scanned decides only where it STARTS. PLAIN HTTP, deliberately: a
   self-signed certificate is a warning page on every phone and a trust prompt nobody can act
   on, and the bytes never leave the user's own network. The DIALOG says so, and says BEFORE the switch
   goes on that Windows will ask about the firewall, because a per-user installer cannot add
@@ -1469,7 +1470,37 @@ changing a feature: each entry records what the owner decided, why, and what hol
   matters, which is that the simplest possible answer to "where does this play" is "here".
   What survives is the one-screen explorer, the player, the search, the fullscreen routes and
   every fix that landed beside them.
-- **THE PHONE SEES THE OPEN TABS AND SWITCHES BETWEEN THEM** (owner, 2026-09-08, from the
+- **THE PHONE BROWSES THE WHOLE PC, LIKE THE EXPLORER** (owner, 2026-10-14: "i wanna change up
+  how remote works so its basically just on the explorer, meaning youre not tied down to a
+  specific project"; asked, they chose "the whole PC, like Explorer", a drawer of "Explorer's
+  places", and "where it left off"). SUPERSEDES "THE PHONE SEES THE OPEN TABS" below. The phone
+  is no longer on a tab: it is in a FOLDER anywhere on the PC. The crumb row starts at This PC
+  (`THIS_PC`, '' in `phone/browse.ts`), which is the places page; the hamburger opens the same
+  places as a drawer titled Places (`phone/Places.tsx`): Quick access (the Known Folders, then
+  the user's own Quick access pins, which the window reports over `phone:pins`) and This PC
+  with each drive, its label and a bar of how full it is. Search is the folder you are in and
+  everything below it. A folder that has gone says so and offers Up and This PC. A code can be
+  made from ANY tab, the Explorer included, and carries only where a NEW phone starts (the
+  folder in front, or This PC with Settings in front); after that the PC remembers each
+  phone's folder (`Phone.here`, saved at most every 2 s) and a fresh visit lands there,
+  whatever the PC does. The dialog says before the switch goes on that a paired phone can open
+  every folder this Windows user can, and only view.
+  THE WALL WIDENS, said plainly because a widening nobody wrote down is one nobody can weigh:
+  from the folders open as tabs to every LOCAL folder this Windows user can read, which is
+  what the desktop Explorer already reaches. It is the Explorer's own rule, per phone
+  (`phone/phoneAccess.ts` on `desktopAccess.ts`, one owner `phone:<token>` each): listing a
+  folder grants it, and a file is readable only DIRECTLY inside a folder that phone listed (or
+  one of its own answers granted it, as before). Main's media wall agrees because it is the
+  same map, so `/m/` needed no hole of its own. What did NOT change: pairing is the gate,
+  plain HTTP on the user's own network (loopback under `--e2e`), read-only (a film's position
+  is the one write), and every HLS ask re-checks the wall. A UNC share and a device path are
+  refused for a phone even where the desktop takes them. A forgotten phone's owner is released
+  for good. `docImages.ts` learned `<source srcset>` in the same change: the README's AVIF had
+  only ever been served by the old root wall. Held by `phoneAccess.test.ts`, the server tests
+  and the `phoneExplorer` e2e (pair from the folder in front, the drawer's places and drives,
+  This PC with no Up, a drive lists, a folder no tab holds lists and opens its file, a file in
+  a never-listed folder is 403, the PC remembers where the phone is, a reload lands in place).
+- **THE PHONE SEES THE OPEN TABS AND SWITCHES BETWEEN THEM** (superseded 2026-10-14, above; owner, 2026-09-08, from the
   same session: "i should be able to switch tabs without scanning a new qr code. i should be
   able to see the available tabs and switch"; #107). This REVERSES the design's own first
   decision - that a phone sees ONE tab's folder, the tab the QR was shown from, and reaches

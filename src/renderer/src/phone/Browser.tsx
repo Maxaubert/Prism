@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
 import type { DirListing, SearchHit, ViewerFile } from '@shared/types'
 import { extOf } from '@shared/path'
-import { crumbs, fileFromHit, parentOf, samePath, stepFile } from './browse'
+import { THIS_PC, crumbs, fileFromHit, parentOf, samePath, stepFile } from './browse'
 import { formatBytes } from '../lib/format'
 import { narrowHits } from './narrow'
 import { PhoneViewer } from './PhoneViewer'
@@ -9,7 +9,7 @@ import { placeUrl, readPlace } from './place'
 import { ROW_CLASS } from './rows'
 import { thumbUrl } from './api'
 import { readView, writeView, type PhoneView } from './view'
-import { TabList } from './TabList'
+import { Places } from './Places'
 import { FolderFill, Icon } from '../components/icons/Icon'
 
 /** The debounce the sidebar's own search box waits, so a phone typing at the
@@ -44,9 +44,15 @@ const RETRIES = 3
  * PC" target, and then removed root and branch. The phone plays what it
  * opens, and that is the whole shape of it.
  *
+ * THE WHOLE PC, LIKE THE EXPLORER (2026-10-14, owner: "basically just on the
+ * explorer, meaning youre not tied down to a specific project"). There is no
+ * root: the crumbs start at This PC, which is the places page (`Places`), and
+ * the hamburger opens the same places as a drawer. Where the phone is comes
+ * from the PC (`here`) on a fresh visit and from the URL on a reload.
+ *
  * AND IT SEARCHES (2026-09-07, owner ask). The magnifier opens a field over
  * the crumb row, and while it holds a query the results ARE the list: the
- * whole root, subfolders included, which is the only way to reach a file
+ * folder you are in, subfolders included, which is the only way to reach a file
  * more than a tap or two down on a phone that browses one level at a time.
  * The GRAMMAR IS THE DESKTOP'S - every word in any order, "a phrase", globs,
  * `ext:` and `-exclusions` - because the field calls `searchTree`, which the
@@ -55,21 +61,17 @@ const RETRIES = 3
  * could teach it differently.
  */
 export function Browser({
-  root,
-  onSwitch
+  here
 }: {
-  root: string
-  /** Move this phone to another of the PC's open tabs. Rejects with the PC's
-   *  own reason when it does not hold that folder any more. */
-  onSwitch: (root: string) => Promise<void>
+  /** Where the PC says this phone left off; null is This PC. */
+  here: string | null
 }): JSX.Element {
   // WHERE THIS PHONE LEFT OFF (2026-09-08, owner: "when i refresh a page it
   // should reload me on that file"). Read ONCE, on mount: the URL is written
   // from this component's own state from here on, so reading it again would
-  // be reading back what it had just said. `./place` has already checked it
-  // against the root, so a place from another tab is the root by the time it
-  // arrives here.
-  const [start] = useState(() => readPlace(window.location.search, root))
+  // be reading back what it had just said. A URL with no place in it is
+  // where the PC says the phone was (`here`).
+  const [start] = useState(() => readPlace(window.location.search, here))
   const [dir, setDir] = useState(start.dir)
   // Tagged with the folder it answers for, so walking into another folder
   // shows "Loading..." rather than the old rows, and an answer that arrives
@@ -92,8 +94,8 @@ export function Browser({
     setView(v)
     writeView(v)
   }
-  /** Whether the tab list is showing over the folder. */
-  const [tabsOpen, setTabsOpen] = useState(false)
+  /** Whether the places drawer is showing over the folder. */
+  const [placesOpen, setPlacesOpen] = useState(false)
   const [query, setQuery] = useState('')
   // Keyed by the query it answers, exactly as the sidebar's panel keys its
   // own, so a slow walk never draws under a newer search.
@@ -117,14 +119,16 @@ export function Browser({
   }
 
   useEffect(() => {
+    // This PC is the places page, which reads its own answer.
+    if (dir === THIS_PC) return
     let live = true
-    void window.prism.listDir(root, dir).then((l) => {
+    void window.prism.listDir(dir, dir).then((l) => {
       if (live) setLoaded({ dir, listing: l })
     })
     return () => {
       live = false
     }
-  }, [root, dir])
+  }, [dir])
 
   // The place, written as it changes (see ./place). A phone reloads for
   // reasons nobody chose - a background tab dropped, the Wi-Fi gone, the
@@ -135,8 +139,8 @@ export function Browser({
     // folder, and a reload in that moment would lose the very file it is on
     // its way back to.
     if (want) return
-    window.history.replaceState(null, '', placeUrl(root, { dir, file: open?.path ?? null }))
-  }, [root, dir, open, want])
+    window.history.replaceState(null, '', placeUrl({ dir, file: open?.path ?? null }))
+  }, [dir, open, want])
 
   // An emptied field leaves the last answer where it is rather than clearing
   // it: what is DRAWN is keyed by the query, so an old answer is already
@@ -148,7 +152,8 @@ export function Browser({
     let tries = 0
     let t: ReturnType<typeof setTimeout>
     const ask = (): void => {
-      void window.prism.searchTree(root, query).then((r) => {
+      // The folder you are in, and everything below it.
+      void window.prism.searchTree(dir, query).then((r) => {
         if (!alive) return
         // A SUPERSEDED walk is not an answer (2026-09-08): main stops a
         // cancelled walk where it stands and answers with no hits, which is
@@ -171,10 +176,11 @@ export function Browser({
       alive = false
       clearTimeout(t)
     }
-  }, [root, query])
+  }, [dir, query])
 
   const listing = loaded?.dir === dir ? loaded.listing : undefined
-  const error = listing === null ? 'Prism could not read this folder' : null
+  /** The folder could not be listed: deleted, renamed, a drive pulled. */
+  const gone = listing === null
 
   // THE FILE THE URL NAMED opens as soon as its folder has listed, and it is
   // resolved from that listing rather than from a route of its own: the
@@ -203,7 +209,7 @@ export function Browser({
     [answer, found, query]
   )
   // What next/previous page while a file is open: the list it was opened
-  // FROM. A hit lives anywhere under the root, so paging the folder's own
+  // FROM. A hit lives anywhere under the folder, so paging the folder's own
   // files would step to something you were not looking at, and for a hit
   // from another folder it would step to nothing at all.
   const files = useMemo(
@@ -220,19 +226,21 @@ export function Browser({
   // A markdown's link to a local file opens it if THIS folder lists it, and
   // is otherwise ignored (#106): the phone browses one level at a time and
   // has no tree to walk to a file elsewhere, and the server would refuse a
-  // path outside the root regardless. Case-insensitive, as Windows paths are.
+  // file in a folder this phone never listed regardless. Case-insensitive, as Windows paths are.
   const openLocal = (p: string): void => {
     const want = p.toLowerCase()
     const hit = (listing?.files ?? []).find((f) => f.path.toLowerCase() === want)
     if (hit) pick(hit)
   }
 
-  /** A folder, whether it came from the listing or from a hit: walking there
-   *  is what the tap means, so the search closes and the folder is the view. */
+  /** A folder, whether it came from the listing, a hit or a place: walking
+   *  there is what the tap means, so the search and the drawer close and the
+   *  folder is the view. */
   const walkTo = (p: string): void => {
     setDir(p)
     setQuery('')
     setSearching(false)
+    setPlacesOpen(false)
   }
 
   if (open) {
@@ -248,8 +256,9 @@ export function Browser({
     )
   }
 
-  const up = parentOf(root, dir)
-  const trail = crumbs(root, dir)
+  const up = parentOf(dir)
+  const trail = crumbs(dir)
+  const atPc = dir === THIS_PC
   return (
     <div
       className="flex min-h-dvh flex-col bg-[var(--p-bg)] text-[var(--p-text)]"
@@ -299,20 +308,18 @@ export function Browser({
             </>
           ) : (
             <>
-              {/* THE WAY OUT OF THIS FOLDER ALTOGETHER (2026-09-09, owner).
-                  The tabs used to name themselves on a row of their own above
-                  the crumbs, which spent a whole row of a phone screen saying
-                  something the first crumb already says. A hamburger is what a
-                  phone means by "everything else is over here", it is present
-                  in every directory, and it is absent while a file is open
+              {/* THE WAY OUT OF THIS FOLDER ALTOGETHER (2026-09-09, owner;
+                  the places since 2026-10-14). A hamburger is what a phone
+                  means by "everything else is over here", it is present in
+                  every directory, and it is absent while a file is open
                   because that screen is the file's. */}
               <button
                 className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded active:bg-[var(--p-hover)]"
-                onClick={() => setTabsOpen(true)}
+                onClick={() => setPlacesOpen(true)}
                 aria-haspopup="dialog"
-                aria-expanded={tabsOpen}
-                aria-label="Open tabs"
-                data-phone-tab
+                aria-expanded={placesOpen}
+                aria-label="Places"
+                data-phone-places-open
               >
                 <HamburgerIcon />
               </button>
@@ -332,7 +339,7 @@ export function Browser({
                 {trail.map((c, i) => {
                   const last = i === trail.length - 1
                   return (
-                    <span key={c.path} className="flex shrink-0 items-center gap-1">
+                    <span key={c.path || 'pc'} className="flex shrink-0 items-center gap-1">
                       {/* A separator BETWEEN names, so there is none after the
                           last one (2026-09-08, owner). The desktop archive
                           panel keeps its trailing chevron on purpose
@@ -367,7 +374,9 @@ export function Browser({
               </nav>
               {/* LIST OR GRID (#135, owner): a TOGGLE (#143, owner) - one
                   segmented pill, the active half filled in the accent - and
-                  the choice remembered on this phone. */}
+                  the choice remembered on this phone. A folder's; This PC is
+                  a list of places, and searching it would be the whole PC. */}
+              {!atPc && (
               <span
                 className="my-auto flex h-9 shrink-0 items-stretch rounded-lg bg-[var(--p-hover)] p-0.5"
                 role="group"
@@ -389,14 +398,17 @@ export function Browser({
                   </button>
                 ))}
               </span>
-              <button
-                className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
-                aria-label="Search"
-                onClick={() => setSearching(true)}
-                data-phone-search-open
-              >
-                <MagnifierIcon />
-              </button>
+              )}
+              {!atPc && (
+                <button
+                  className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
+                  aria-label="Search"
+                  onClick={() => setSearching(true)}
+                  data-phone-search-open
+                >
+                  <MagnifierIcon />
+                </button>
+              )}
             </>
           )}
           {/* A search is still running. It sits on the header's own bottom edge
@@ -418,14 +430,14 @@ export function Browser({
           )}
         </div>
       </header>
-      {tabsOpen && (
-        <Drawer title="Open tabs" subtitle="Folders open in Prism on the PC" onClose={() => setTabsOpen(false)}>
-          {/* The drawer closes on a pick that WORKED; a refused one leaves it
-              open with the reason and a list that has been read again. */}
-          <TabList onPick={(r) => onSwitch(r).then(() => setTabsOpen(false))} />
+      {placesOpen && (
+        <Drawer title="Places" onClose={() => setPlacesOpen(false)}>
+          <Places asPage={false} onPick={walkTo} />
         </Drawer>
       )}
-      {query ? (
+      {atPc ? (
+        <Places asPage onPick={walkTo} />
+      ) : query ? (
         <Results
           hits={rows}
           // The count belongs to the ANSWER: "more than 200 matches" under a
@@ -437,10 +449,26 @@ export function Browser({
         />
       ) : (
         <>
-          {error && (
-            <p className="p-4 text-red-400" data-phone-error>
-              {error}
-            </p>
+          {/* NEVER A DEAD END (2026-10-14): a folder that has gone - deleted,
+              renamed, a drive pulled - says so and offers the way out. */}
+          {gone && (
+            <div className="flex flex-col gap-3 p-4" data-phone-error>
+              <p className="text-red-400">This folder is not there any more.</p>
+              <div className="flex gap-2">
+                {up !== null && up !== THIS_PC && (
+                  <button className="rounded border border-[color:var(--p-line)] px-4 py-2" onClick={() => walkTo(up)}>
+                    Up
+                  </button>
+                )}
+                <button
+                  className="rounded border border-[color:var(--p-line)] px-4 py-2"
+                  onClick={() => walkTo(THIS_PC)}
+                  data-phone-gone-pc
+                >
+                  This PC
+                </button>
+              </div>
+            </div>
           )}
           {listing === undefined && <p className="p-4 opacity-70">Loading...</p>}
           {listing && view === 'grid' && (
@@ -715,8 +743,6 @@ function ExtChip({ ext }: { ext: string }): JSX.Element {
   )
 }
 
-/** Two folders one behind the other: what the PC has open, which is what a
- *  tab is here. */
 /** Three lines. Every phone means the same thing by them, which is the point:
  *  it needs no label to be understood, and the drawer behind it is titled. */
 function HamburgerIcon(): JSX.Element {

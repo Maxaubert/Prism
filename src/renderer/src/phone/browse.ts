@@ -1,48 +1,54 @@
 /**
  * The phone browser's arithmetic (2026-09-06, #104), pure: where "up" goes,
  * what the crumb row says, and which file is next. Paths are Windows paths
- * handed over by the PC, compared without case, and the root is a wall here
- * as it is in main: nothing walks above it.
+ * handed over by the PC, compared without case.
+ *
+ * SINCE 2026-10-14 THERE IS NO ROOT: the phone browses the whole PC like the
+ * Explorer, and the top of every path is THIS PC, spelled '' (`THIS_PC`),
+ * which is the places page. A drive's top goes up to it, and nothing goes up
+ * from it.
  */
 import type { SearchHit, ViewerFile } from '@shared/types'
-import { baseName, isInside, samePath, trimSep } from '@shared/path'
+import { baseName, samePath, trimSep } from '@shared/path'
 
 /** One folder, however the two were spelled: case and a trailing separator do
  *  not make two folders, on Windows or in the wall main keeps. */
 export { samePath }
 
-/**
- * True when `p` is the root or sits under it - the renderer's reading of the
- * check main makes on every phone route (`isInsideRoot`), for the one thing
- * the page decides for itself: whether a place it has been handed belongs to
- * the root it is on. The separator matters and is why this is not a
- * `startsWith`: "C:\roots" is not inside "C:\r".
- */
-export function insideRoot(root: string, p: string): boolean {
-  return isInside(root, p, { orEqual: true })
+/** The places page: Quick access and the drives. */
+export const THIS_PC = ''
+
+/** A local absolute path, the only kind the PC lists for a phone: what a URL
+ *  handed back is checked against before it is believed. */
+export function isLocalPath(p: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(p)
 }
 
-/** The folder above `dir`, or null at the root. Returns `root` itself, as
- *  spelled, when the parent IS the root, so the caller's state stays equal to
- *  what it was given. */
-export function parentOf(root: string, dir: string): string | null {
-  if (samePath(dir, root)) return null
+/** A drive's top, "C:\" however it was spelled. */
+function isDriveTop(p: string): boolean {
+  return /^[A-Za-z]:$/.test(trimSep(p))
+}
+
+/** The folder above `dir`: a drive's top goes to This PC, This PC has none. */
+export function parentOf(dir: string): string | null {
+  if (dir === THIS_PC) return null
+  if (isDriveTop(dir)) return THIS_PC
   const d = trimSep(dir)
   const i = d.lastIndexOf('\\')
-  if (i <= 0) return null
+  if (i <= 0) return THIS_PC
   const up = d.slice(0, i)
-  return samePath(up, root) ? root : up
+  return isDriveTop(up) ? `${up}\\` : up
 }
 
-/** The path from the root folder's own name down to `dir`, one crumb each. */
-export function crumbs(root: string, dir: string): Array<{ name: string; path: string }> {
+/** This PC, then the drive, then each folder down to `dir`, one crumb each. */
+export function crumbs(dir: string): Array<{ name: string; path: string }> {
   const out: Array<{ name: string; path: string }> = []
   let at: string | null = dir
-  while (at) {
-    const t = trimSep(at)
-    out.unshift({ name: baseName(t), path: t })
-    at = parentOf(root, at)
+  while (at !== null && at !== THIS_PC) {
+    out.unshift(isDriveTop(at) ? { name: trimSep(at), path: `${trimSep(at)}\\` } : { name: baseName(at), path: trimSep(at) })
+    at = parentOf(at)
   }
+  out.unshift({ name: 'This PC', path: THIS_PC })
   return out
 }
 

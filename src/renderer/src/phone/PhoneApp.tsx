@@ -3,8 +3,6 @@ import { PHONE_PAIR, ROUTE, routePath, type Me, type PairAnswer } from '@shared/
 import { codeFromLocation, getJson, PhoneError, readToken, writeToken } from './api'
 import { Pairing } from './Pairing'
 import { Browser } from './Browser'
-import { TabList } from './TabList'
-import { switchTab } from './tabs'
 
 /** The phone's own name, as the PC lists it: the device out of the UA's
  *  parenthesis ("iPhone", "iPad", "Linux; Android 14; Pixel 8"). */
@@ -14,18 +12,19 @@ function deviceName(): string {
 }
 
 /**
- * The phone shell (2026-09-06, #104). Three states: no token (pair), a
- * token whose root is no longer open (pick another tab), and a root to
- * browse. A 401 anywhere drops the token: the PC forgot this phone, and
- * SCANNING AGAIN is that phone's screen alone now (2026-09-08). A tab that
- * merely CLOSED is not a dead end any more: the PC has other folders open
- * and the phone can move to one of them without a code (owner).
+ * The phone shell (2026-09-06, #104). Two states: no token (pair), and the
+ * PC to browse. A 401 anywhere drops the token: the PC forgot this phone, and
+ * SCANNING AGAIN is that phone's screen alone (2026-09-08). Since 2026-10-14
+ * the phone is not on a tab: it browses the whole PC like the Explorer, and
+ * `/api/me` says only where it left off.
  */
 export function PhoneApp(): JSX.Element {
   const [me, setMe] = useState<Me | null>(null)
   const [token, setToken] = useState<string | null>(readToken())
   const [error, setError] = useState<string | null>(null)
   const [initialCode] = useState(() => codeFromLocation(window.location.search))
+  /** How many times this page has paired: a re-scan starts a fresh browser. */
+  const [pairs, setPairs] = useState(0)
 
   // Both are promise chains rather than async bodies, and that is not style:
   // the React hooks rule reads a setState anywhere inside a function an
@@ -45,28 +44,13 @@ export function PhoneApp(): JSX.Element {
     )
   }, [])
 
-  /**
-   * Move to another of the PC's open tabs, which is what a re-scan used to be
-   * the only way to do. The reason a refusal carries is left to reject so the
-   * LIST can show it beside the rows it has just re-read: a folder that has
-   * closed is a list that has moved on, not a message on its own.
-   */
-  const switchTo = useCallback(
-    (root: string): Promise<void> =>
-      switchTab(root).then(() => {
-        setError(null)
-        return load()
-      }),
-    [load]
-  )
-
   const pair = useCallback(
     (code: string): Promise<void> =>
       fetch(PHONE_PAIR, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         // The current token rides along: an already-paired phone scanning
-        // a code from another tab MOVES to that root and keeps its token.
+        // another code MOVES to that code's folder and keeps its token.
         body: JSON.stringify({ code, name: deviceName(), token: readToken() ?? undefined })
       }).then(
         async (r) => {
@@ -81,6 +65,7 @@ export function PhoneApp(): JSX.Element {
           writeToken(j.token)
           setToken(j.token)
           window.history.replaceState(null, '', '/') // the code has been spent
+          setPairs((n) => n + 1)
           await load()
         },
         () => setError('Could not reach Prism. Is the phone on the same Wi-Fi?')
@@ -104,23 +89,7 @@ export function PhoneApp(): JSX.Element {
         {error ?? 'Connecting...'}
       </div>
     )
-  if (!me.open)
-    return (
-      <div className="flex min-h-dvh flex-col gap-3 p-6" data-phone-closed>
-        <p>That folder is no longer open in Prism.</p>
-        <p className="opacity-70">Pick one of the folders it does have open:</p>
-        {/* The list, not a scan-again screen: the phone is still paired and
-            the PC still has folders open, so a code buys nothing here. */}
-        <TabList onPick={switchTo} />
-        <button
-          className="self-start rounded border border-[color:var(--p-line)] px-4 py-1"
-          onClick={() => void load()}
-        >
-          Try again
-        </button>
-      </div>
-    )
-  // Keyed by the ROOT: moving to another tab starts in that folder with
-  // nothing open, rather than in a folder the new root does not contain.
-  return <Browser key={me.root} root={me.root} onSwitch={switchTo} />
+  // Keyed by the phone's PAIRING moment rather than its folder: a re-scan
+  // starts where its code points, a walk does not remount anything.
+  return <Browser key={pairs} here={me.here} />
 }

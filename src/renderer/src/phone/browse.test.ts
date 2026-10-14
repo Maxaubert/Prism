@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { crumbs, fileFromHit, insideRoot, parentOf, samePath, stepFile } from './browse'
+import { crumbs, fileFromHit, isLocalPath, parentOf, samePath, stepFile } from './browse'
 
 const f = (name: string) => ({
   path: `C:\\r\\${name}`,
@@ -11,34 +11,33 @@ const f = (name: string) => ({
 })
 
 describe('browse', () => {
-  it('walks up to the root and no further', () => {
-    expect(parentOf('C:\\r', 'C:\\r\\a\\b')).toBe('C:\\r\\a')
-    expect(parentOf('C:\\r', 'C:\\r\\a')).toBe('C:\\r')
-    expect(parentOf('C:\\r', 'C:\\r')).toBeNull()
-    expect(parentOf('C:\\r\\', 'C:\\r\\a')).toBe('C:\\r\\')
+  it('walks up a folder at a time, a drive top to This PC, and no further', () => {
+    expect(parentOf('C:\\r\\a\\b')).toBe('C:\\r\\a')
+    expect(parentOf('C:\\r\\a\\')).toBe('C:\\r')
+    expect(parentOf('C:\\r')).toBe('C:\\')
+    expect(parentOf('C:\\')).toBe('')
+    expect(parentOf('c:')).toBe('')
+    expect(parentOf('')).toBeNull()
   })
-  it('never climbs above the root, whatever the case of the path', () => {
-    expect(parentOf('c:\\R', 'C:\\r\\a')).toBe('c:\\R')
-    expect(parentOf('C:\\r', 'C:\\r\\')).toBeNull()
-  })
-  it('crumbs from the root folder name down', () => {
-    expect(crumbs('C:\\films\\r', 'C:\\films\\r\\a\\b')).toEqual([
-      { name: 'r', path: 'C:\\films\\r' },
-      { name: 'a', path: 'C:\\films\\r\\a' },
-      { name: 'b', path: 'C:\\films\\r\\a\\b' }
+  it('crumbs from This PC through the drive down', () => {
+    expect(crumbs('C:\\films\\r')).toEqual([
+      { name: 'This PC', path: '' },
+      { name: 'C:', path: 'C:\\' },
+      { name: 'films', path: 'C:\\films' },
+      { name: 'r', path: 'C:\\films\\r' }
     ])
-    expect(crumbs('C:\\films\\r', 'C:\\films\\r')).toEqual([{ name: 'r', path: 'C:\\films\\r' }])
+    expect(crumbs('D:\\')).toEqual([
+      { name: 'This PC', path: '' },
+      { name: 'D:', path: 'D:\\' }
+    ])
+    expect(crumbs('')).toEqual([{ name: 'This PC', path: '' }])
   })
-  it('names a drive root by its letter', () => {
-    expect(crumbs('D:\\', 'D:\\')).toEqual([{ name: 'D:', path: 'D:' }])
-  })
-  it('holds a path inside the root, and a near miss outside it', () => {
-    expect(insideRoot('C:\\r', 'C:\\r')).toBe(true)
-    expect(insideRoot('C:\\r\\', 'c:\\R\\a\\b.mkv')).toBe(true)
-    expect(insideRoot('C:\\r', 'C:\\roots\\a')).toBe(false)
-    expect(insideRoot('C:\\r', 'D:\\r\\a')).toBe(false)
-    expect(insideRoot('', 'C:\\r')).toBe(false)
-    expect(insideRoot('C:\\r', '')).toBe(false)
+  it('believes only a local drive path', () => {
+    expect(isLocalPath('C:\\r')).toBe(true)
+    expect(isLocalPath('d:/r')).toBe(true)
+    expect(isLocalPath('\\\\nas\\r')).toBe(false)
+    expect(isLocalPath('r\\a')).toBe(false)
+    expect(isLocalPath('')).toBe(false)
   })
   it('calls two spellings of one folder the same folder', () => {
     expect(samePath('C:\\r', 'c:\\R\\')).toBe(true)

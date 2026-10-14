@@ -75,6 +75,7 @@ export const CALL = {
   phoneSetOn: 'phone:set-on',
   phoneCode: 'phone:code',
   phoneForget: 'phone:forget',
+  phonePins: 'phone:pins',
 
   dirList: 'dir:list',
 

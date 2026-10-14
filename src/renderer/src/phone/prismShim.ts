@@ -117,8 +117,10 @@ const implemented: Shim = {
    * it could ask to have searched. A refused or failed ask reads as no hits,
    * which is what the field already draws while nothing matches.
    */
-  searchTree: (_root, query) =>
-    getOr<SearchResult>(routePath(ROUTE.search), { q: query }, { hits: [], truncated: false }),
+  // The folder the phone is in and everything below it (2026-10-14): the
+  // browser hands that folder where the desktop hands a root.
+  searchTree: (dir, query) =>
+    getOr<SearchResult>(routePath(ROUTE.search), { dir, q: query }, { hits: [], truncated: false }),
   /**
    * The read-only document routes (#106). Each answers in the shape its IPC
    * does, so the viewers are not told the difference, and a refused or
