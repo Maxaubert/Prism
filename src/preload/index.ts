@@ -12,8 +12,9 @@ import type {
 } from '@shared/browse'
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 
-/** Started by the e2e harness (#356: its clipboard is main's fake). */
-const E2E_RUN = process.argv.includes('--e2e')
+/** Started by the e2e harness (#356: its clipboard is main's fake). Main
+ *  passes --prism-e2e through additionalArguments: the renderer has its own argv. */
+const E2E_RUN = process.argv.includes('--prism-e2e')
 import { createTermApi } from 'prism-term-core/preload/api'
 import { createDictationApi } from 'prism-term-core/preload/dictationApi'
 import { createDiagApi } from 'prism-term-core/preload/diagApi'

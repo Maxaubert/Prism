@@ -775,7 +775,10 @@ function createWindow(): void {
       // than an IPC message, so it is there before the first render.
       additionalArguments: [
         ...(process.argv.includes('--setup') ? ['--prism-setup'] : []),
-        ...(process.argv.includes('--demo') ? ['--prism-demo'] : [])
+        ...(process.argv.includes('--demo') ? ['--prism-demo'] : []),
+        // The page's clipboard is main's in-memory one under --e2e (#356);
+        // the preload learns it here, since the renderer's argv is its own.
+        ...(E2E ? ['--prism-e2e'] : [])
       ]
     }
   })
