@@ -109,9 +109,10 @@ describe('the phone shim', () => {
       const hits = [{ path: 'C:\\r\\a.mp4', name: 'a.mp4', kind: 'video', dir: 'films' }]
       const f = answer('/api/search', { hits, truncated: false })
       await expect(window.prism.searchTree('C:\\r', 'a mp4')).resolves.toEqual({ hits, truncated: false })
-      // The ROOT is the server's own, not the renderer's: the phone names a
-      // query and nothing else.
+      // The folder the phone is IN (2026-10-14), which the server checks is
+      // one this phone listed.
       expect(asked(f).searchParams.get('q')).toBe('a mp4')
+      expect(asked(f).searchParams.get('dir')).toBe('C:\\r')
       expect(asked(f).searchParams.get('path')).toBeNull()
       expect(asked(f).searchParams.get('t')).toBe('tok')
       answer('/api/search', { error: 'no' }, 403)

@@ -27,7 +27,7 @@ import {
   utimesSync,
   writeFileSync
 } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir, tmpdir } from 'node:os'
 import { BIG, buildBigFixtures, buildFixtures, FFMPEG, OTHER_ROOT } from './fixtures.mjs'
@@ -13617,6 +13617,7 @@ async function dragScenario(fixtures) {
  */
 async function pairPhone(win) {
   // A hovered tab's title sits in data-tip-title (the core's <Tooltips />).
+  // The folder in front is where the phone starts (2026-10-14).
   const state = await win.evaluate(() =>
     window.prism.phoneSetOn(
       true,
@@ -13629,8 +13630,12 @@ async function pairPhone(win) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ code: state.code?.code ?? '', name: 'e2e phone' })
   })
-  const { token, root } = r.status === 200 ? await r.json() : { token: '', root: '' }
-  return { base, token, root, state, status: r.status }
+  const { token, here } = r.status === 200 ? await r.json() : { token: '', here: '' }
+  // What the page does first: list where it starts, which is what lets it
+  // read the files there (the Explorer's own rule, phoneAccess.ts).
+  if (token && here)
+    await fetch(`${base}/api/dir?path=${encodeURIComponent(here)}`, { headers: { authorization: `Bearer ${token}` } })
+  return { base, token, root: here ?? '', state, status: r.status }
 }
 
 async function phoneScenario(fixtures) {
@@ -13648,17 +13653,19 @@ async function phoneScenario(fixtures) {
     )
     ok(!!state.code && state.code.svg.startsWith('<svg'), 'the QR renders as SVG')
     ok(status === 200, 'pairing succeeds')
-    ok(root.toLowerCase() === fixtures.toLowerCase(), 'the phone is paired to the tab root')
+    ok(root.toLowerCase() === fixtures.toLowerCase(), 'the phone starts in the folder the PC is showing')
     ok((await fetch(`${base}/api/me`)).status === 401, 'no token, no answer')
     const auth = { authorization: `Bearer ${token}` }
     const dir = await (
       await fetch(`${base}/api/dir?path=${encodeURIComponent(fixtures)}`, { headers: auth })
     ).json()
     ok(dir.files.some((f) => f.name === 'one.png'), 'the listing carries the fixture')
-    const outside = await fetch(`${base}/api/dir?path=${encodeURIComponent('C:\\Windows')}`, {
-      headers: auth
-    })
-    ok(outside.status === 403, 'a path outside the root is refused')
+    // THE WALL IS THE EXPLORER'S (2026-10-14): a file in a folder this phone
+    // never listed is refused, and a share is never listed.
+    const unlisted = await fetch(`${base}/m/${encodeURIComponent('C:\\Windows\\win.ini')}?t=${token}`)
+    ok(unlisted.status === 403, 'a file in a folder the phone never listed is refused')
+    const share = await fetch(`${base}/api/dir?path=${encodeURIComponent('\\\\localhost\\c$')}`, { headers: auth })
+    ok(share.status === 403, 'a network share is refused')
     const ranged = await fetch(
       `${base}/m/${encodeURIComponent(join(fixtures, 'ep1.mp4'))}?t=${token}`,
       { headers: { range: 'bytes=0-99' } }
@@ -14399,15 +14406,17 @@ async function phoneDocsScenario(fixtures) {
     )
     await page.screenshot({ path: join(SHOTS, 'phone-archive.png') })
 
-    // Search (2026-09-07). The whole root from wherever you are standing, so
-    // this runs from the zips folder deliberately: the route names no path
-    // and the phone's own root is what is walked. `ext:py` is the proof that
+    // Search (2026-09-07). The folder you are in and everything below it
+    // (2026-10-14: there is no root any more), so this walks back to the top
+    // of the fixtures first, by its crumb. `ext:py` is the proof that
     // the GRAMMAR IS THE DESKTOP'S - no substring over a name answers it, and
     // the phone implements none of it: the field asks the PC, which answers
     // with the very `searchFiles` the sidebar's box gets. `buried.py` is why
     // it is worth having at all: three folders down, which a page that
     // browses one level at a time never reaches by tapping.
     await page.click('[aria-label="Back to the folder"]')
+    await page.locator('[data-phone-crumb]', { hasText: basename(fixtures) }).last().click()
+    await page.waitForSelector('[data-phone-crumb][aria-current="location"]', { timeout: 10000 })
     await page.click('[data-phone-search-open]')
     await page.fill('[data-phone-search]', 'ext:py')
     await page.waitForSelector('[data-phone-hit]', { timeout: 10000 })
@@ -14537,14 +14546,13 @@ async function phoneDocsScenario(fixtures) {
  * #107, all four from one hands-on session). Each is something only a live PC
  * can answer, which is why they are here rather than in a unit test.
  *
- * THE TABS THE PC HAS OPEN ("i should be able to switch tabs without scanning
- * a new qr code. i should be able to see the available tabs and switch"). The
- * app is launched with a SECOND ROOT open, the way the tab scenario opens one,
- * because a list of one proves nothing about a list and a switch needs
- * somewhere to go. What is asserted after the pick is not the header's text
- * but what the LISTING answers: the phone is on the other root and the first
- * root's files are not there, which is the widened wall doing exactly the one
- * thing it widened to do.
+ * THE WHOLE PC, LIKE THE EXPLORER (2026-10-14, owner: "basically just on the
+ * explorer, meaning youre not tied down to a specific project"). The phone
+ * starts in the folder the PC is showing; the drawer is the Explorer's places
+ * (Quick access and This PC's drives); the top crumb is This PC, which is the
+ * places page and has no Up; a drive lists; and a folder NO TAB HOLDS lists
+ * and opens its file, which is the widened wall doing exactly the one thing
+ * it widened to do. A file in a folder the phone never listed stays refused.
  *
  * A RELOAD COMES BACK WHERE YOU WERE ("if im in a subfolder and reload i
  * should be there, or a movie i should be on the movie"). Both halves, since
@@ -14558,24 +14566,18 @@ async function phoneDocsScenario(fixtures) {
  *
  * AND A FILE ROW SAYS HOW BIG IT IS, in the desktop's own units.
  */
-async function phoneTabsScenario(fixtures) {
-  console.log('phone: the open tabs, a reload, the crumb row and a size')
+async function phoneExplorerScenario(fixtures) {
+  console.log('phone: the whole PC like the Explorer, a reload, the crumb row and a size')
   const { app, win } = await launch(join(fixtures, 'one.png'))
   let page = null
   try {
-    // A SECOND ROOT, handed over from outside the way the tab scenario opens
-    // one: a genuine sibling folder, since a subfolder of an open root is no
-    // longer a second root at all.
-    await handoff(OTHER_ROOT)
-    const tabs = win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]')
-    ok((await tabs.count()) === 2, 'the PC has two roots open')
-    // Back to the fixtures tab before pairing: the code is issued for the tab
-    // that is CURRENT, so this is what decides which root the phone starts on.
-    await tabs.first().click()
-    await sleep(400)
     const { base, token, root, status } = await pairPhone(win)
     ok(status === 200, 'the phone pairs')
-    ok(root.toLowerCase() === fixtures.toLowerCase(), 'with the tab that was current')
+    ok(root.toLowerCase() === fixtures.toLowerCase(), 'it starts in the folder the PC is showing')
+    const auth = { authorization: `Bearer ${token}` }
+    // Refused BEFORE the phone has listed it, like any folder it never opened.
+    const otherFile = `${base}/m/${encodeURIComponent(join(OTHER_ROOT, 'bad.json'))}?t=${token}`
+    ok((await fetch(otherFile)).status === 403, 'a file in a folder the phone never listed is refused')
 
     page = await openPhoneWindow(app, `${base}/`)
     page.on('pageerror', (e) => console.warn('  phone page error:', e.message))
@@ -14583,97 +14585,62 @@ async function phoneTabsScenario(fixtures) {
     await page.reload()
     await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
 
-    // The list is READ FRESH every time it is opened, so it is opened rather
-    // than assumed: a tab closes on the PC without telling the phone.
-    await page.click('[data-phone-tab]')
-    await page.waitForSelector('[data-phone-sheet]', { timeout: 5000 })
-    const rows = page.locator('[data-phone-tab-row]')
-    await page.waitForFunction(
-      () => document.querySelectorAll('[data-phone-tab-row]').length === 2,
-      null,
-      { timeout: 10000 }
-    )
-    const rowText = await rows.allTextContents()
-    ok(rowText.length === 2, `the list names both open roots (${rowText.length})`)
-    ok(
-      rowText.some((t) => /fixtures/i.test(t)) && rowText.some((t) => /other/i.test(t)),
-      `and names them: ${rowText.map((t) => t.trim()).join(' | ')}`
-    )
-    const ticked = page.locator('[data-phone-tab-row][aria-current="true"]')
-    ok((await ticked.count()) === 1, 'with exactly one of them ticked')
-    ok(
-      /fixtures/i.test((await ticked.first().textContent()) ?? ''),
-      'and it is the root the phone paired to'
-    )
-    // Picked by index off the text, not by a selector carrying a Windows path:
-    // a backslash in a `:has-text()` is one more thing to escape wrongly.
-    const otherIdx = rowText.findIndex((t) => /other/i.test(t))
-    await rows.nth(otherIdx).click()
-    await page.waitForSelector('[data-phone-sheet]', { state: 'detached', timeout: 10000 })
-    await page.waitForSelector('[data-phone-file]:has-text("bad.json")', { timeout: 10000 })
-    ok(true, 'picking the other tab lists the other root')
-    ok(
-      (await page.locator('[data-phone-file]:has-text("README.md")').count()) === 0,
-      'and the first root is not what the listing answers any more'
-    )
-    // The hamburger names nothing (2026-09-09): the tab it moved to is proved
-    // by the drawer's own tick, and by the crumb row, whose first name IS the
-    // root the phone is on.
-    ok(
-      /other/i.test((await page.textContent('[aria-label="Folder"]')) ?? ''),
-      'the crumb row names the tab it moved to'
-    )
-    await page.click('[data-phone-tab]')
-    await page.waitForSelector('[data-phone-sheet]', { timeout: 5000 })
-    ok(
-      /other/i.test(
-        (await page.textContent('[data-phone-tab-row][aria-current="true"]')) ?? ''
-      ),
-      'and the drawer ticks it'
-    )
-    // THE DRAWER'S ROWS (#145): a folder glyph, the name over its path, and
-    // a DRAWN tick on the current one, at the explorer's own row height.
-    const drawerRow = await page.evaluate(() => {
-      const row = document.querySelector('[data-phone-tab-row][aria-current="true"]')
-      if (!row) return null
+    // THE DRAWER IS THE EXPLORER'S PLACES, read fresh every time it opens.
+    await page.click('[data-phone-places-open]')
+    await page.waitForSelector('[data-phone-sheet] [data-phone-drive]', { timeout: 10000 })
+    const drawer = await page.evaluate(() => {
+      const sheet = document.querySelector('[data-phone-sheet]')
+      const first = sheet?.querySelector('[data-phone-drive]')
       return {
-        h: row.getBoundingClientRect().height,
-        tick: !!row.querySelector('[data-phone-tab-tick]'),
-        glyphs: row.querySelectorAll('svg').length
+        title: sheet?.getAttribute('aria-label') ?? '',
+        quick: [...(sheet?.querySelectorAll('[data-phone-place]') ?? [])].map((e) => (e.textContent ?? '').trim()),
+        drives: [...(sheet?.querySelectorAll('[data-phone-drive]') ?? [])].map((e) => e.getAttribute('data-phone-drive')),
+        h: first?.getBoundingClientRect().height ?? 0
       }
     })
-    ok(!!drawerRow && drawerRow.h >= 56, `a drawer row is a row (${drawerRow?.h}px)`)
-    ok(drawerRow?.tick === true && drawerRow?.glyphs === 2, 'the current tab carries a folder and a drawn tick')
+    ok(drawer.title === 'Places', `the drawer is titled Places (${drawer.title})`)
+    ok(
+      ['Downloads', 'Documents', 'Pictures'].every((n) => drawer.quick.includes(n)),
+      `it lists Quick access (${drawer.quick.join(', ')})`
+    )
+    ok(drawer.drives.some((d) => /^c:\\$/i.test(d ?? '')), `and This PC's drives (${drawer.drives.join(', ')})`)
+    ok(drawer.h >= 56, `a drive row is a row (${drawer.h}px)`)
     await sleep(300) // past the slide-in, so the shot is the drawer and not its entrance
     await page.screenshot({ path: join(SHOTS, 'phone-drawer.png') })
     // The scrim is the drawer's own dismissal: a tap beside it puts it away.
-    // BESIDE the panel, which is where a thumb lands: the scrim spans the
-    // screen and the drawer sits on its left, so its centre is covered.
     await page.click('[data-phone-drawer-scrim]', { position: { x: 360, y: 400 } })
     await page.waitForSelector('[data-phone-sheet]', { state: 'detached', timeout: 5000 })
     ok(true, 'a tap on the ground beside the drawer closes it')
-    await page.screenshot({ path: join(SHOTS, 'phone-tabs.png') })
 
-    // And back, without a code anywhere in it.
-    await page.click('[data-phone-tab]')
-    await page.waitForSelector('[data-phone-sheet]', { timeout: 5000 })
-    // Each drawer opening fetches its rows afresh. Reading before that answer
-    // arrives gives [], and nth(-1) silently picks the current last tab.
-    await page.waitForFunction(() => document.querySelectorAll('[data-phone-tab-row]').length === 2, null, { timeout: 10000 })
-    const back = await page.locator('[data-phone-tab-row]').allTextContents()
-    const fixtureIndex = back.findIndex((t) => /fixtures/i.test(t))
-    if (fixtureIndex < 0) throw new Error(`Fixture root is absent from the phone drawer: ${back.join(' | ')}`)
-    await page
-      .locator('[data-phone-tab-row]')
-      .nth(fixtureIndex)
-      .click()
-    await page.waitForSelector('[data-phone-file]:has-text("README.md")', { timeout: 10000 })
-    ok(true, 'and back again, with no code scanned either way')
+    // THIS PC is the top crumb, and the places page: no Up, no search.
+    await page.locator('[data-phone-crumb]').first().click()
+    await page.waitForSelector('[data-phone-places] [data-phone-drive]', { timeout: 10000 })
+    ok((await page.locator('[aria-label="Up"]').count()) === 0, 'This PC has no Up arrow to press at all')
+    ok((await page.locator('[data-phone-search-open]').count()) === 0, 'and no search over the whole PC')
+    const atPc = await (await fetch(`${base}/api/me`, { headers: auth })).json()
+    ok(atPc.here === null, `showing This PC makes it where the phone is (${atPc.here})`)
+    await page.screenshot({ path: join(SHOTS, 'phone-this-pc.png') })
+    // A drive lists like any folder.
+    await page.locator('[data-phone-places] [data-phone-drive]').first().click()
+    await page.waitForSelector('[data-phone-folder]', { timeout: 15000 })
+    ok(true, 'a drive lists its folders')
 
+    // A FOLDER NO TAB HOLDS, reached by its place: it lists and its file opens.
+    await page.goto(`${base}/?at=${encodeURIComponent(OTHER_ROOT)}`)
+    await page.waitForSelector('[data-phone-file]:has-text("bad.json")', { timeout: 10000 })
+    ok((await fetch(otherFile)).status === 200, 'once listed, its file is served')
+    await page.click('[data-phone-file]:has-text("bad.json")')
+    await page.waitForSelector('[data-phone-viewer]', { timeout: 15000 })
+    ok(true, 'and opens on the phone')
+    const there = await (await fetch(`${base}/api/me`, { headers: auth })).json()
     ok(
-      (await page.locator('[aria-label="Up"]').count()) === 0,
-      'at the root there is no Up arrow to press at all'
+      (there.here ?? '').toLowerCase() === OTHER_ROOT.toLowerCase(),
+      `the PC remembers the phone is there (${there.here})`
     )
+
+    // Back to the fixtures for the depth checks.
+    await page.goto(`${base}/?at=${encodeURIComponent(fixtures)}`)
+    await page.waitForSelector('[data-phone-file]:has-text("README.md")', { timeout: 10000 })
 
     // Two levels down, which is the depth that makes the chevron count worth
     // taking: at one level "one fewer" and "none at all" are the same number.
@@ -14698,8 +14665,10 @@ async function phoneTabsScenario(fixtures) {
           chevrons: chevrons.length
         }
       })
+    // This PC, the drive, every folder down to the fixtures, then docs and media.
+    const depth = fixtures.split(/[\\/]/).filter(Boolean).length + 3
     const crumbs = await trail()
-    ok(crumbs.levels === 3, `the crumb row has a level per folder (${crumbs.levels})`)
+    ok(crumbs.levels === depth, `the crumb row has a level per folder from This PC (${crumbs.levels} of ${depth})`)
     ok(
       crumbs.chevrons === crumbs.levels - 1,
       `and one fewer chevron than levels (${crumbs.chevrons} for ${crumbs.levels})`
@@ -14723,7 +14692,7 @@ async function phoneTabsScenario(fixtures) {
     await page.waitForSelector('[data-phone-file]:has-text("prism.webp")', { timeout: 15000 })
     const afterReload = await trail()
     ok(
-      afterReload.levels === 3,
+      afterReload.levels === depth,
       `a reload comes back to the folder it was in (${afterReload.levels} levels)`
     )
 
@@ -19029,7 +18998,7 @@ await run(searchNavScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
 await run(phoneDocsScenario)
-await run(phoneTabsScenario)
+await run(phoneExplorerScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(treeVerbsScenario)

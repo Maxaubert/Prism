@@ -21,7 +21,7 @@ describe('phone store', () => {
 
   it('never writes the codes', () => {
     const s = parseStore('{"on":false,"port":null,"phones":[]}')
-    s.pairing.codes.push({ code: 'ABCDEF', root: 'C:\\a', expires: 1 })
+    s.pairing.codes.push({ code: 'ABCDEF', start: 'C:\\a', expires: 1 })
     expect(serializeStore(s)).not.toContain('ABCDEF')
     expect(JSON.parse(serializeStore(s))).toEqual({ on: false, port: null, phones: [] })
   })
