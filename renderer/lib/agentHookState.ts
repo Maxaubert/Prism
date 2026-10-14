@@ -19,6 +19,16 @@ import type { AgentSignal } from './agentHookSignal'
  *   the key and repeats about every 960 ms. So a spinner after a question, or
  *   after an Esc's stop, is Working. Not the answer key: Enter on "2. No" is the
  *   same key as Enter on "1. Yes", and after a No or an Esc the title stays idle.
+ * - WORK THAT GOES ON AFTER A STOP (#149). Background subagents keep running
+ *   when the main turn's Stop fires, and Finished went up under them. The hook
+ *   cannot say it (a subagent's hooks write the same signal), but the title
+ *   does (MEASURED, case G2, Claude Code 2.1.296): after a lone Stop the idle
+ *   star follows in 18 to 84 ms; with subagents still at work the spinner
+ *   carries on, and the star comes only when the last of them ends. So a Stop
+ *   while the title spins is `ending`, decided by the next title: the star is
+ *   the finish, another spinner frame is `background` work, still Working,
+ *   finished by the star that ends it. No title in 1.5 s (`settle`, longer than
+ *   the spinner's 960 ms frame) finishes it as before.
  * - Whether an agent is there at all stays the process poll's.
  *
  * Finished and Failed are RAISED only on a tab nobody is looking at; the hook
@@ -26,7 +36,7 @@ import type { AgentSignal } from './agentHookSignal'
  * Question outranks Failed, which outranks Finished (the strip draws one).
  */
 
-export type HookPhase = 'working' | 'question' | 'done' | 'failed' | 'stopped'
+export type HookPhase = 'working' | 'question' | 'done' | 'failed' | 'stopped' | 'ending' | 'background'
 export type AttentionMark = 'finished' | 'question' | 'failed'
 
 export interface HookSession {
@@ -43,12 +53,18 @@ export interface HookOutcome extends HookSession {
   clear: AttentionMark[]
 }
 
-export type HookEvent = AgentSignal | { state: 'idle-title' } | { state: 'working-title' }
+export type HookEvent = AgentSignal | { state: 'idle-title' } | { state: 'working-title' } | { state: 'settle' }
+
+/** How long a Stop with the spinner still up waits for the next title before
+ *  it is a plain finish: past one spinner frame (about 960 ms, MEASURED). */
+export const STOP_SETTLE_MS = 1500
 
 /** What the screen showed when the step was taken (`screenDecides` says when it is read). */
 export interface HookSeen {
   /** Claude's question or permission box is on screen (`looksLikeQuestion`). */
-  questionOnScreen: boolean
+  questionOnScreen?: boolean
+  /** The session's title last said working (a spinner), when a Stop arrives. */
+  titleWorking?: boolean
 }
 
 /** What one event does, or null when it changes nothing. */
@@ -65,24 +81,37 @@ export function hookStep(prev: HookSession | undefined, ev: HookEvent, seen?: Ho
     if (ev.state === 'done') return { phase: 'question', working: false, raise: ['finished'], clear: [] }
     return null
   }
+  const finish: HookOutcome = { phase: 'done', working: false, raise: ['finished'], clear: ['question', 'failed'] }
   switch (ev.state) {
     case 'working-title':
-      // Not after a Stop or a failure: a new turn always says UserPromptSubmit
-      // first, and a last spinner frame racing a Stop must not relight it.
+      // After a Stop with the spinner up, another frame is work still going
+      // on: background subagents (#149).
+      if (prev?.phase === 'ending') return { phase: 'background', working: true, raise: [], clear: [] }
+      // Not after a finish or a failure: a new turn always says
+      // UserPromptSubmit first, and a stray frame must not relight it.
       if (prev?.phase !== 'question' && prev?.phase !== 'stopped') return null
       return { phase: 'working', working: true, raise: [], clear: ['question'] }
     case 'idle-title':
-      // Only an interrupt is the title's to say; after a question, a finish or
-      // a failure the idle title is just the agent at rest.
+      // The star after a Stop, or after the background work it left: the turn
+      // is over now (#149).
+      if (prev?.phase === 'ending' || prev?.phase === 'background') return finish
+      // Otherwise only an interrupt is the title's to say; after a question, a
+      // finish or a failure the idle title is just the agent at rest.
       if (prev?.phase !== 'working') return null
       return { phase: 'stopped', working: false, raise: [], clear: [] }
+    case 'settle':
+      // No title came after the Stop: a plain finish, as before #149.
+      return prev?.phase === 'ending' ? finish : null
     case 'working':
       // A new prompt, a tool call, a subagent: whatever was waiting is over.
       return { phase: 'working', working: true, raise: [], clear: ['question', 'failed', 'finished'] }
     case 'question':
       return { phase: 'question', working: false, raise: ['question'], clear: ['failed'] }
     case 'done':
-      return { phase: 'done', working: false, raise: ['finished'], clear: ['question', 'failed'] }
+      // The spinner still up: the next title decides (#149). Working holds
+      // meanwhile, so a lone Stop's ring does not blink off and on.
+      if (seen?.titleWorking) return { phase: 'ending', working: true, raise: [], clear: ['question', 'failed'] }
+      return finish
     case 'failed': {
       // Two hooks answer one failure (the kind's own and the catch-all), in
       // either order: a kind once said is kept.

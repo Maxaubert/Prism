@@ -5,7 +5,7 @@ import { forgetAgentTitle, readAgentTitle } from './agentTitle'
 import { noteWorking } from './agentClock'
 import { onAgentSignal, onTermKey, onTitle, readScreenTail } from './termBus'
 import { answersQuestion, looksLikeQuestion, questionAnswered } from './agentQuestion'
-import { hookStep, raisedWhileSeen, screenDecides, type AttentionMark, type HookEvent, type HookSession } from './agentHookState'
+import { hookStep, raisedWhileSeen, screenDecides, STOP_SETTLE_MS, type AttentionMark, type HookEvent, type HookSession } from './agentHookState'
 import { termApi } from '../host'
 import { forgetAgentDiag, logAgentHook, logAgentMarks, logAgentTitle, noteWhy } from './agentDiag'
 
@@ -151,6 +151,15 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
   /** The re-read calls the current `applyHook`, which is declared below it. */
   const applyHookRef = useRef<(id: string, ev: HookEvent) => void>(() => {})
 
+  /** A Stop that came with the spinner up waits this long for a title (#149):
+   *  one timer per session, gone with the step that ends the wait. */
+  const settleTimers = useRef(new Map<string, number>())
+  const stopSettle = useCallback((id: string): void => {
+    const t = settleTimers.current.get(id)
+    if (t !== undefined) clearTimeout(t)
+    settleTimers.current.delete(id)
+  }, [])
+
   /** One hook signal, or a title, for a hooked session: the rules are
    *  `agentHookState`'s; this only carries them out. A mark is raised only on
    *  a tab nobody is looking at, as every mark is. */
@@ -158,7 +167,12 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     const prev = hooked.current.get(id)
     // The screen is read only when the box decides the step: a question pending.
     const boxUp = screenDecides(prev, ev) && looksLikeQuestion(readScreenTail(id))
-    const o = hookStep(prev, ev, boxUp ? { questionOnScreen: true } : undefined)
+    // A Stop is told the title's last word: a spinner still up may be
+    // background subagents at work (#149).
+    const o = hookStep(prev, ev, {
+      ...(boxUp ? { questionOnScreen: true } : {}),
+      ...(ev.state === 'done' ? { titleWorking: titleState.current.get(id) === 'working' } : {})
+    })
     if (!o) {
       if (boxUp && ev.state === 'working-title' && !titleRecheck.current.has(id)) {
         titleRecheck.current.set(
@@ -172,13 +186,28 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
       return
     }
     hooked.current.set(id, { phase: o.phase, kind: o.kind })
+    stopSettle(id)
+    if (o.phase === 'ending')
+      settleTimers.current.set(
+        id,
+        window.setTimeout(() => {
+          settleTimers.current.delete(id)
+          applyHookRef.current(id, { state: 'settle' })
+        }, STOP_SETTLE_MS)
+      )
     // The rule that fired, for the diagnostics log (#152).
     const said =
-      ev.state === 'idle-title'
-        ? 'idle title after work (an Esc)'
-        : ev.state === 'working-title'
-          ? `spinner after ${prev?.phase ?? 'nothing'}`
-          : `hook ${ev.state}`
+      ev.state === 'settle'
+        ? 'no title after a Stop'
+        : ev.state === 'idle-title'
+          ? prev?.phase === 'ending' || prev?.phase === 'background'
+            ? `idle title after a Stop${prev.phase === 'background' ? ' and background work' : ''}`
+            : 'idle title after work (an Esc)'
+          : ev.state === 'working-title'
+            ? `spinner after ${prev?.phase ?? 'nothing'}`
+            : ev.state === 'done' && o.phase === 'ending'
+              ? 'hook done, spinner still up'
+              : `hook ${ev.state}`
     noteWhy(id, `${said}${boxUp ? ', box on screen' : ''}${lookedAt(id) ? ', tab in front' : ''}`)
     if (o.phase === 'failed' && o.kind) failedKinds.current.set(id, o.kind)
     else if (o.phase === 'failed' || o.clear.includes('failed')) failedKinds.current.delete(id)
@@ -198,7 +227,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
       if (prev.has(id) === o.working) return prev
       return o.working ? new Set(prev).add(id) : without(prev, id)
     })
-  }, [stopAnswerCheck, stopTitleRecheck])
+  }, [stopAnswerCheck, stopTitleRecheck, stopSettle])
   useEffect(() => {
     applyHookRef.current = applyHook
   }, [applyHook])
@@ -224,6 +253,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
           forgetAgentTitle(id)
           stopFallback(id)
           stopTitleRecheck(id)
+          stopSettle(id)
           setWorkingIds((prev) => without(prev, id))
           // Nobody is left to answer a question (#144).
           setQuestionIds((prev) => without(prev, id))
@@ -251,7 +281,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
           return next
         })
       }),
-    [stopFallback, stopTitleRecheck]
+    [stopFallback, stopTitleRecheck, stopSettle]
   )
 
   useEffect(
@@ -512,7 +542,8 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     questionTimers.current.delete(id)
     stopAnswerCheck(id)
     stopTitleRecheck(id)
-  }, [stopFallback, stopAnswerCheck, stopTitleRecheck])
+    stopSettle(id)
+  }, [stopFallback, stopAnswerCheck, stopTitleRecheck, stopSettle])
 
   return { agentIds, workingIds, doneIds, questionIds, failedIds, failedKinds, agentKinds, forget }
 }

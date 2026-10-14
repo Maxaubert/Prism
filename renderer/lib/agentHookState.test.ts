@@ -150,3 +150,35 @@ describe('hookStep, the box on screen', () => {
     expect(hookStep(asked, { state: 'done' })?.clear).toContain('question')
   })
 })
+// A STOP WITH THE SPINNER UP WAITS FOR THE NEXT TITLE (#149). MEASURED, case
+// G2: after a lone Stop the idle star follows in 18 to 84 ms; with background
+// subagents still at work the spinner carries on until the last one ends.
+describe('hookStep, a Stop with the spinner up', () => {
+  const spinning = { titleWorking: true }
+  const ending = (): HookSession => ({ phase: 'ending' })
+  it('is not a finish yet: still Working, and the next title decides', () => {
+    expect(hookStep({ phase: 'working' }, { state: 'done' }, spinning)).toEqual({
+      phase: 'ending',
+      working: true,
+      raise: [],
+      clear: ['question', 'failed']
+    })
+  })
+  it('the star next is the finish', () => {
+    expect(hookStep(ending(), { state: 'idle-title' })).toMatchObject({ phase: 'done', working: false, raise: ['finished'] })
+  })
+  it('another spinner frame is background work: Working, no finish, until the star ends it', () => {
+    const bg = hookStep(ending(), { state: 'working-title' })
+    expect(bg).toEqual({ phase: 'background', working: true, raise: [], clear: [] })
+    expect(hookStep({ phase: 'background' }, { state: 'working-title' })).toBeNull()
+    expect(hookStep({ phase: 'background' }, { state: 'idle-title' })).toMatchObject({ phase: 'done', raise: ['finished'] })
+  })
+  it('no title at all in time: settles as a plain finish, and settling does nothing anywhere else', () => {
+    expect(hookStep(ending(), { state: 'settle' })).toMatchObject({ phase: 'done', raise: ['finished'] })
+    for (const phase of ['working', 'question', 'done', 'background'] as const)
+      expect(hookStep({ phase }, { state: 'settle' })).toBeNull()
+  })
+  it('with the star already up, a Stop finishes at once, as before', () => {
+    expect(hookStep({ phase: 'working' }, { state: 'done' }, { titleWorking: false })?.raise).toEqual(['finished'])
+  })
+})
