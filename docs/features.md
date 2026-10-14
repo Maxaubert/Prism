@@ -1500,6 +1500,13 @@ changing a feature: each entry records what the owner decided, why, and what hol
   and the `phoneExplorer` e2e (pair from the folder in front, the drawer's places and drives,
   This PC with no Up, a drive lists, a folder no tab holds lists and opens its file, a file in
   a never-listed folder is 403, the PC remembers where the phone is, a reload lands in place).
+  **THE REVIEW THAT FOLLOWED** (2026-10-14, report in
+  `research/prism/2026-10-14-phone-access-review.md`): a search term starting with `/` or `-`
+  reached es.exe as a switch (one writes a file), so such a term is now passed quoted
+  (`everythingQuery.ts`); `/m/` answers carry a sandboxing CSP, so an SVG or HTML file on the PC
+  never runs as the phone page; the server answers the user's own network only (`localNetwork`
+  in `phone/lan.ts`: loopback, private, link-local, 100.64/10, IPv6 ULA); markdown links open
+  with `noopener`. Mapped drives stay reachable, as decided.
 - **THE PHONE SEES THE OPEN TABS AND SWITCHES BETWEEN THEM** (superseded 2026-10-14, above; owner, 2026-09-08, from the
   same session: "i should be able to switch tabs without scanning a new qr code. i should be
   able to see the available tabs and switch"; #107). This REVERSES the design's own first
