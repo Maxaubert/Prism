@@ -337,6 +337,13 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
       setCur(m.currentTime)
       // Persist position for long media, throttled; clear it near the end so the
       // file restarts next time instead of resuming at ~100%.
+      // NOT BEFORE THE ELEMENT KNOWS THE FILE (2026-10-14): the element is
+      // reused across files, and loading a new src resets it to 0 with a
+      // timeupdate, under the NEW file's key, before durationchange has
+      // resumed it. That 0 overwrote the place being carried over, and a film
+      // moved while playing (the `drag` e2e), or one arrowed back to,
+      // sometimes started again from the beginning.
+      if (m.readyState < HTMLMediaElement.HAVE_METADATA) return
       if (resumeKey) rememberTime(resumeKey, m.currentTime)
       if (resumePath && Math.abs(m.currentTime - lastSavedRef.current) >= RESUME_SAVE_STEP) {
         lastSavedRef.current = m.currentTime
