@@ -219,7 +219,10 @@ export function MarkdownView({
     const href = a.getAttribute('href') ?? ''
     e.preventDefault()
     if (isExternal(href)) {
-      window.open(href) // main's window-open handler routes this to the browser
+      // Main's window-open handler routes this to the browser. On the phone it
+      // is a real tab, so it gets no handle back to this page (review,
+      // 2026-10-14: an opened site could otherwise redirect the Prism tab).
+      window.open(href, '_blank', 'noopener,noreferrer')
     } else if (isAnchor(href)) {
       followAnchor(href.slice(1))
     } else {

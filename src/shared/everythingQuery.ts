@@ -18,6 +18,12 @@ export function everythingArgs(terms: readonly Term[]): string[] {
   return terms.map((t) => {
     const not = t.negated ? '!' : ''
     if (t.kind === 'ext') return `${not}ext:${t.value}`
+    // A TERM IS NEVER A SWITCH (review, 2026-10-14). es.exe reads an argument
+    // that starts with '-' or '/' as one of its own options, and one of them
+    // writes the results to a file: a search for "/export-csv C:\x.csv" from
+    // the phone wrote that file. Quoted, it reaches Everything as search text.
+    // (A negated term starts with '!', which is text already.)
+    if (!not && /^[-/]/.test(t.value)) return `"${t.value}"`
     if (t.kind === 'glob') return `${not}${t.value}`
     // A phrase with a space has to reach Everything IN quotes, or the space
     // splits it into two ANDed words.

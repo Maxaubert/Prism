@@ -5,6 +5,11 @@ import { parseQuery } from './searchQuery'
 describe('Prism search terms in Everything syntax', () => {
   it('words stay words, and are ANDed by being separate arguments', () => {
     expect(everythingArgs(parseQuery('holiday 2024'))).toEqual(['holiday', '2024'])
+    // Never a switch (review, 2026-10-14): es.exe reads '-x' and '/x' as its
+    // own options, and /export-csv wrote a file from a phone's search.
+    expect(everythingArgs(parseQuery('/export-csv c:\\x.csv'))).toEqual(['"/export-csv"', 'c:\\x.csv'])
+    expect(everythingArgs(parseQuery('/n*'))).toEqual(['"/n*"'])
+    expect(everythingArgs(parseQuery('!/x'))).toEqual(['!/x'])
   })
 
   it('a phrase reaches es.exe in quotes, so the space does not split it', () => {

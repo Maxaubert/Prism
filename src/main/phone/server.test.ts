@@ -353,6 +353,9 @@ describe('PhoneServer', () => {
     expect(vtt).toBe('WEBVTT\n')
     const m = await fetch(url(`/m/${encodeURIComponent(join(dir, 'clip.mp4'))}?t=${token}`))
     expect(m.status).toBe(200)
+    // A file is never a page on the phone's origin (review, 2026-10-14).
+    expect(m.headers.get('content-security-policy')).toMatch(/^sandbox;/)
+    expect(m.headers.get('x-content-type-options')).toBe('nosniff')
     expect(await m.text()).toBe('abcd')
     const r = await fetch(url(`/m/${encodeURIComponent(join(dir, 'clip.mp4'))}?t=${token}`), {
       headers: { range: 'bytes=1-2' }
