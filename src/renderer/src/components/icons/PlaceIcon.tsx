@@ -24,6 +24,7 @@ const paths: Record<PlaceIconName, string> = {
   usb: 'M9.5 3h5v5h-5zM7.5 8h9v11a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2zM11 5.5h.01M13 5.5h.01'
 }
 
-export function PlaceIcon({ name }: { name: PlaceIconName }): JSX.Element {
-  return <Icon d={paths[name]} size={16} className="browse-place-icon" data-place-icon={name} />
+/** `size` is the phone's (2026-10-14): its places rows are thumb-sized. */
+export function PlaceIcon({ name, size = 16 }: { name: PlaceIconName; size?: number }): JSX.Element {
+  return <Icon d={paths[name]} size={size} className="browse-place-icon" data-place-icon={name} />
 }

@@ -5,44 +5,45 @@ import { Dialog } from './Dialog'
 
 /**
  * More > Phone (2026-09-06, #104, Tools > Phone until #272): the one home of "Prism on your phone".
- * The switch, the QR and address for the CURRENT tab, the paired phones,
- * and who is watching. Everything it shows is main's answer to `phoneGet`,
+ * The switch, the QR and address, the paired phones and who is watching.
+ * Since 2026-10-14 a phone browses the whole PC like the Explorer; the code
+ * only says where it STARTS (the folder in front, or This PC). Everything it shows is main's answer to `phoneGet`,
  * re-read on every `phone:changed`, so the switch reflects what the server
  * IS rather than what was clicked.
  */
 export function PhoneDialog({
-  root,
+  start,
   onClose
 }: {
-  /** The active tab's folder, or null when no folder tab is in front. */
-  root: string | null
+  /** The folder in front, where a newly paired phone starts; null is This PC. */
+  start: string | null
   onClose: () => void
 }): JSX.Element {
   const [state, setState] = useState<PhoneState | null>(null)
   const [busy, setBusy] = useState(false)
   const refresh = useCallback((): void => {
-    void window.prism.phoneGet(root).then(setState)
-  }, [root])
+    void window.prism.phoneGet(start).then(setState)
+  }, [start])
   useEffect(() => {
     refresh()
     return window.prism.onPhoneChanged(refresh)
   }, [refresh])
   // The code has two minutes; ask for a new one when it runs out.
   useEffect(() => {
-    if (!state?.code || !root) return
+    if (!state?.code) return
     const left = state.code.expires - Date.now()
     const t = window.setTimeout(
-      () => void window.prism.phoneCode(root).then(setState),
+      () => void window.prism.phoneCode(start).then(setState),
       Math.max(0, left)
     )
     return () => window.clearTimeout(t)
-  }, [state?.code, root])
+  }, [state?.code, start])
 
   const toggle = async (): Promise<void> => {
     if (!state || busy) return
     setBusy(true)
     try {
-      setState(await window.prism.phoneSetOn(!state.on, root))
+      setState(await window.prism.phoneSetOn(!state.on, start))
     } finally {
       setBusy(false)
     }
@@ -53,7 +54,7 @@ export function PhoneDialog({
   ) : (
     <div className="flex flex-col gap-3" data-phone-dialog>
       <label className="flex items-center justify-between gap-3 text-[var(--p-text)]">
-        <span>Serve this PC&apos;s open folders to phones on this network</span>
+        <span>Let paired phones browse this PC on this network</span>
         {/* The core's switch, like every other in the app (#318): one look,
             the style's accent with the ink chosen for it when on. */}
         <Switch on={state.on} onChange={() => void toggle()} label="Phone server" disabled={busy} />
@@ -61,6 +62,14 @@ export function PhoneDialog({
       {/* Said BEFORE the switch goes on: a per-user installer cannot add the
           firewall rule, and a declined prompt is a phone that cannot connect
           and no error anywhere. */}
+      {/* The reach, said before the switch goes on (2026-10-14): a phone is
+          not walled to a tab any more. */}
+      {!state.on && !state.error && (
+        <p data-phone-reach>
+          A paired phone can open every folder this Windows user can, and only view: it cannot
+          change, move or delete anything.
+        </p>
+      )}
       {!state.on && !state.error && (
         <p>
           Windows will ask whether Prism may accept connections the first time. Allow it on
@@ -69,7 +78,7 @@ export function PhoneDialog({
         </p>
       )}
       {state.error && <p className="text-[#d97b84]">{state.error}</p>}
-      {state.on && root && state.code && (
+      {state.on && state.code && (
         <div className="flex gap-4">
           {/* The SVG is main's own: `qrcode` rendering a link main built from
               the address, the port and the code. Nothing a phone sent. */}
@@ -103,7 +112,6 @@ export function PhoneDialog({
           </div>
         </div>
       )}
-      {state.on && !root && <p>Open a folder in a tab to pair a phone to it.</p>}
       <div className="flex flex-col gap-1">
         <span className="font-medium text-[var(--p-text)]">Paired phones</span>
         {state.phones.length === 0 && <span>None yet.</span>}
@@ -111,13 +119,14 @@ export function PhoneDialog({
           <div key={p.token} className="flex items-center justify-between gap-3" data-phone-row>
             <span className="min-w-0 truncate">
               <span className="text-[var(--p-text)]">{p.name}</span>{' '}
+              <span data-phone-here>in {p.here ?? 'This PC'},</span>{' '}
               {state.watching.includes(p.token)
                 ? 'watching now'
                 : `seen ${new Date(p.seen).toLocaleString()}`}
             </span>
             <button
               className="shrink-0 rounded px-2 py-0.5 text-[var(--p-text-soft)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-              onClick={() => void window.prism.phoneForget(p.token, root).then(setState)}
+              onClick={() => void window.prism.phoneForget(p.token, start).then(setState)}
             >
               Forget
             </button>

@@ -2,8 +2,8 @@ import { app, ipcMain } from 'electron'
 import { CALL, PUSH } from '@shared/channels'
 import { readFile } from 'fs/promises'
 import { networkInterfaces } from 'os'
-import { isRoot } from '../dirList'
-import { openRoots } from '../roots'
+import { localPath } from './phoneAccess'
+import { parsePins, type PhonePin } from './places'
 import { DEFAULT_PORT, PhoneServer } from './server'
 import type { HlsJobs } from './jobs'
 import type { Positions } from '../positions'
@@ -25,10 +25,11 @@ import { E2E, sendToPage } from '../appState'
  * owns those bodies; this file hands it the two hooks only it knows.
  */
 export interface PhoneHooks {
-  /** A pairing or a phone's root changed: save, and tell the dialog. */
+  /** A pairing or a phone's folder changed: save, and tell the dialog. */
   onChange: () => void
-  /** Is this root one a tab holds right now. */
-  rootOpen: (root: string) => boolean
+  /** The user's own Quick access pins, as the window last reported them
+   *  (`phone:pins`): the phone's drawer lists them after the Known Folders. */
+  pins: () => readonly PhonePin[]
 }
 
 export type PhoneServerDeps = ConstructorParameters<typeof PhoneServer>[0]
@@ -64,7 +65,12 @@ export function startPhoneService(opts: {
   let phone: PhoneServer | null = null
   let phoneError = ''
   const phoneChanged = (): void => sendToPage(PUSH.phoneChanged)
-  const rootIsOpen = (root: string): boolean => openRoots().some((r) => isRoot(r, root))
+  let pins: PhonePin[] = []
+  // The window's Quick access pins (2026-10-14): fire-and-forget, kept here
+  // for the drawer. Main never reads the renderer's storage itself.
+  ipcMain.on(CALL.phonePins, (_e, raw: unknown) => {
+    pins = parsePins(raw)
+  })
   const startPhone = async (): Promise<void> => {
     if (phone) return
     const s = new PhoneServer(
@@ -73,7 +79,7 @@ export function startPhoneService(opts: {
           savePhone()
           phoneChanged()
         },
-        rootOpen: rootIsOpen
+        pins: () => pins
       }),
       phoneStore.pairing
     )
@@ -103,7 +109,7 @@ export function startPhoneService(opts: {
       phoneStore = parseStore(raw)
       if (phoneStore.on) void startPhone()
     })
-  const phoneState = async (root: string | null): Promise<PhoneState> => {
+  const phoneState = async (start: string | null): Promise<PhoneState> => {
     await phoneReady
     const state: PhoneState = {
       on: !!phone,
@@ -113,34 +119,35 @@ export function startPhoneService(opts: {
       watching: phone?.watching() ?? [],
       error: phoneError || undefined
     }
-    // A code is for a root a tab holds: a phone paired to a closed folder
-    // would only ever see the "scan again" screen.
-    if (phone && root && rootIsOpen(root) && state.addresses[0]) {
+    // A code from ANY tab (2026-10-14): it carries the folder that tab is
+    // showing as the phone's first stop, or nothing (This PC).
+    if (phone && state.addresses[0]) {
       const now = Date.now()
-      const live = phoneStore.pairing.codes.find((c) => c.root === root && c.expires > now)
-      const { code, expires } = live ?? phone.issue(root)
+      const live = phoneStore.pairing.codes.find((c) => c.start === start && c.expires > now)
+      const { code, expires } = live ?? phone.issue(start)
       const link = pairLink(state.addresses[0], phone.port ?? DEFAULT_PORT, code)
       state.code = { code, link, svg: await qrSvg(link), expires }
     }
     return state
   }
-  const rootArg = (root: unknown): string | null => (typeof root === 'string' ? root : null)
-  ipcMain.handle(CALL.phoneGet, (_e, root: unknown) => phoneState(rootArg(root)))
-  ipcMain.handle(CALL.phoneSetOn, async (_e, on: unknown, root: unknown) => {
+  /** The folder in front, when it is a local one; anything else is This PC. */
+  const startArg = (start: unknown): string | null => (localPath(start) ? start : null)
+  ipcMain.handle(CALL.phoneGet, (_e, start: unknown) => phoneState(startArg(start)))
+  ipcMain.handle(CALL.phoneSetOn, async (_e, on: unknown, start: unknown) => {
     await phoneReady
     phoneStore.on = on === true
     savePhone()
     if (phoneStore.on) await startPhone()
     else await stopPhone()
-    return phoneState(rootArg(root))
+    return phoneState(startArg(start))
   })
-  ipcMain.handle(CALL.phoneCode, async (_e, root: unknown) => {
+  ipcMain.handle(CALL.phoneCode, async (_e, start: unknown) => {
     await phoneReady
-    const r = rootArg(root)
-    if (phone && r && rootIsOpen(r)) phone.issue(r)
-    return phoneState(r)
+    const at = startArg(start)
+    phone?.issue(at)
+    return phoneState(at)
   })
-  ipcMain.handle(CALL.phoneForget, async (_e, token: unknown, root: unknown) => {
+  ipcMain.handle(CALL.phoneForget, async (_e, token: unknown, start: unknown) => {
     await phoneReady
     if (typeof token === 'string' && forgetPhone(phoneStore.pairing, token)) {
       // Its grants go with it (#106): a forgotten phone keeps nothing.
@@ -148,7 +155,7 @@ export function startPhoneService(opts: {
       savePhone()
       phoneChanged()
     }
-    return phoneState(rootArg(root))
+    return phoneState(startArg(start))
   })
   app.on('will-quit', () => {
     void phone?.stop()
