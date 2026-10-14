@@ -46,11 +46,6 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     command: 'Get-ChildItem',
     variants: [
       {
-        label: 'List a different folder',
-        command: 'Get-ChildItem FOLDER',
-        keywords: ['ls path', 'dir another directory', 'contents of', 'browse a folder']
-      },
-      {
         label: 'Sort the listing by date, newest first',
         command: 'Get-ChildItem | Sort-Object LastWriteTime -Descending',
         keywords: ['ls -t', 'most recently changed', 'lastwritetime', 'what changed last']
@@ -76,10 +71,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
         keywords: ['ls *.json', 'dir *.txt', 'by extension', 'filter file type', 'wildcard']
       }
     ],
-    placeholders: {
-      FOLDER: 'The folder to look in',
-      EXTENSION: 'A file ending, such as txt or json'
-    },
+    placeholders: { EXTENSION: 'A file ending, such as txt or json' },
     keywords: [
       'ls',
       'dir',
@@ -88,7 +80,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       'list everything',
       'list files',
       'show files',
-      'see files',
+      'list another folder',
       'files here',
       'what files are here',
       'whats in this folder',
@@ -145,11 +137,6 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
         label: 'Read a file a page at a time',
         command: 'Get-Content FILE | Out-Host -Paging',
         keywords: ['less', 'more', 'pager', 'space for the next screen', 'scroll through slowly']
-      },
-      {
-        label: 'Open a file in Notepad',
-        command: 'notepad FILE',
-        keywords: ['text editor', 'edit txt', 'gui editor', 'open in a window']
       }
     ],
     placeholders: { FILE: 'The file to read' },
@@ -173,7 +160,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     category: 'files',
     task: 'See the first lines of a file',
     summary: 'Prints only the top of a file, which is what you want for a big log or a CSV header.',
-    command: 'Get-Content FILE -TotalCount 20',
+    command: 'Get-Content -TotalCount 20 FILE',
     variants: [
       {
         label: 'Read a range of lines from a file',
@@ -182,11 +169,11 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Keep the first rows of any output',
-        command: 'COMMAND | Select-Object -First 10',
+        command: 'Get-Process | Select-Object -First 10',
         keywords: ['| head', 'limit results', 'first 10 results', 'shorten a long list']
       }
     ],
-    placeholders: { FILE: 'The file to read', COMMAND: 'Any command that prints a list' },
+    placeholders: { FILE: 'The file to read' },
     keywords: [
       'head',
       'head -n',
@@ -204,15 +191,15 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     category: 'files',
     task: 'See the last lines of a file',
     summary: 'Prints only the end of a file, where a log keeps its newest entries.',
-    command: 'Get-Content FILE -Tail 20',
+    command: 'Get-Content -Tail 20 FILE',
     variants: [
       {
         label: 'Keep the last rows of any output',
-        command: 'COMMAND | Select-Object -Last 10',
+        command: 'Get-ChildItem | Select-Object -Last 10',
         keywords: ['| tail', 'end of a long list', 'final results', 'bottom of the output']
       }
     ],
-    placeholders: { FILE: 'The file to read', COMMAND: 'Any command that prints a list' },
+    placeholders: { FILE: 'The file to read' },
     keywords: [
       'tail',
       'tail -n',
@@ -230,7 +217,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Watch a log file as it grows',
     summary:
       'Prints the last lines and then keeps printing new ones as they are written. Press Ctrl+C to stop watching.',
-    command: 'Get-Content FILE -Tail 20 -Wait',
+    command: 'Get-Content -Tail 20 -Wait FILE',
     variants: [
       {
         label: 'Follow a log, filtered to one word',
@@ -257,7 +244,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Make a new empty file',
     summary:
       'Creates an empty file and refuses if one of that name already exists, so it can never wipe anything.',
-    command: 'New-Item FILE -ItemType File',
+    command: 'New-Item -ItemType File FILE',
     variants: [
       {
         label: 'Update a file timestamp to now',
@@ -375,7 +362,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     variants: [
       {
         label: 'Preview a delete without deleting',
-        command: 'Remove-Item FILE -WhatIf',
+        command: 'Remove-Item -WhatIf FILE',
         keywords: ['-whatif', 'dry run', 'simulate', 'rm -i', 'is it safe', 'what would go']
       },
       {
@@ -542,7 +529,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Search for exact text, not a pattern',
-        command: "Get-ChildItem -Recurse -File | Select-String 'TEXT' -SimpleMatch",
+        command: "Get-ChildItem -Recurse -File | Select-String -SimpleMatch 'TEXT'",
         keywords: [
           '-simplematch',
           'literal string',
@@ -611,20 +598,23 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Unzip an archive',
     summary:
       'Unpacks a .zip into a folder, making the folder if needed. It stops if a file is already there, unless you add -Force.',
-    command: 'Expand-Archive NAME.zip -DestinationPath FOLDER',
+    command: 'Expand-Archive NAME -DestinationPath FOLDER',
     variants: [
       {
         label: 'List what is inside an archive',
-        command: 'tar -tf NAME.zip',
+        command: 'tar -tf NAME',
         keywords: ['tar -tf', 'peek in a zip', 'contents without extracting', 'what is in it']
       },
       {
         label: 'Unpack a .tar.gz or .tgz here',
-        command: 'tar -xzf NAME.tar.gz',
+        command: 'tar -xzf NAME',
         keywords: ['tar -xzf', 'untar', 'gunzip', 'open a tarball', 'linux archive']
       }
     ],
-    placeholders: { NAME: 'The archive to unpack', FOLDER: 'Where the contents should go' },
+    placeholders: {
+      NAME: 'The archive to unpack, such as photos.zip',
+      FOLDER: 'Where the contents should go'
+    },
     keywords: [
       'unzip',
       'extract',
@@ -649,12 +639,12 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     variants: [
       {
         label: 'Get the MD5 hash of a file',
-        command: 'Get-FileHash FILE -Algorithm MD5',
+        command: 'Get-FileHash -Algorithm MD5 FILE',
         keywords: ['md5sum', 'certutil md5', 'compare checksums', 'older download pages']
       },
       {
         label: 'Get the SHA-1 hash of a file',
-        command: 'Get-FileHash FILE -Algorithm SHA1',
+        command: 'Get-FileHash -Algorithm SHA1 FILE',
         keywords: ['sha1sum', 'shasum -a 1', 'git style hash', 'verify a signature']
       }
     ],
@@ -684,7 +674,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       {
         label: 'Open a file in Notepad',
         command: 'notepad FILE',
-        keywords: ['text editor', 'edit a txt', 'quick edit', 'gui editor']
+        keywords: ['text editor', 'edit a txt', 'quick edit', 'gui editor', 'open in a window']
       },
       {
         label: 'Open a file in VS Code',
@@ -945,16 +935,16 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Delete a folder and everything in it',
     summary:
       'Removes the folder with all its files and subfolders. Run the -WhatIf variant first to read the list of what would go.',
-    command: 'Remove-Item FOLDER -Recurse',
+    command: 'Remove-Item -Recurse FOLDER',
     variants: [
       {
         label: 'Preview a folder delete, without deleting',
-        command: 'Remove-Item FOLDER -Recurse -WhatIf',
+        command: 'Remove-Item -Recurse -WhatIf FOLDER',
         keywords: ['-whatif', 'dry run', 'simulate rm -rf', 'what would go', 'is it safe']
       },
       {
         label: 'Delete a folder including read-only files',
-        command: 'Remove-Item FOLDER -Recurse -Force',
+        command: 'Remove-Item -Recurse -Force FOLDER',
         keywords: ['rm -rf', '-force', 'node_modules', '.git', 'access denied', 'it will not go']
       }
     ],
@@ -1047,7 +1037,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Tree of another folder, in plain ASCII',
-        command: 'tree FOLDER /F /A',
+        command: 'tree /F /A FOLDER',
         keywords: ['tree /a', 'paste friendly', 'no box characters', 'share the layout']
       },
       {
@@ -1142,23 +1132,20 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: "Filter a command's output down to matching lines",
     summary:
       'Filters what a command prints down to the lines containing the text. Out-String -Stream is what makes it work for PowerShell commands as well as for programs such as npm or git.',
-    command: "COMMAND | Out-String -Stream | Select-String 'TEXT'",
+    command: "Get-Process | Out-String -Stream | Select-String 'TEXT'",
     variants: [
       {
         label: 'Hide the lines that mention a word',
-        command: "COMMAND | Out-String -Stream | Select-String 'TEXT' -NotMatch",
+        command: "Get-Service | Out-String -Stream | Select-String -NotMatch 'TEXT'",
         keywords: ['grep -v', 'exclude', 'notmatch', 'remove noise', 'everything except']
       },
       {
         label: 'Filter output, upper and lower case exactly',
-        command: "COMMAND | Out-String -Stream | Select-String 'TEXT' -CaseSensitive",
+        command: "Get-ChildItem | Out-String -Stream | Select-String -CaseSensitive 'TEXT'",
         keywords: ['case sensitive', '-casesensitive', 'match capitals', 'exact letters']
       }
     ],
-    placeholders: {
-      COMMAND: 'The command whose output you want to filter',
-      TEXT: 'The text to keep'
-    },
+    placeholders: { TEXT: 'The text to keep' },
     keywords: [
       '| grep',
       'grep -v',
@@ -1231,11 +1218,11 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Count the rows any command prints',
-        command: '(COMMAND | Measure-Object).Count',
+        command: '(Get-Process | Measure-Object).Count',
         keywords: ['| wc -l', 'how many results', 'number of items', 'size of a list']
       }
     ],
-    placeholders: { FILE: 'The file to count', COMMAND: 'Any command that prints a list' },
+    placeholders: { FILE: 'The file to count' },
     keywords: [
       'wc',
       'wc -l',
@@ -1350,7 +1337,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Show only some columns of a result',
     summary:
       'PowerShell commands return rows with named properties, so you pick columns by name rather than cutting text apart.',
-    command: 'COMMAND | Select-Object PROPERTY_ONE, PROPERTY_TWO',
+    command: 'Get-ChildItem | Select-Object Name, PROPERTY',
     variants: [
       {
         label: 'Show the name and ID of each process',
@@ -1359,20 +1346,16 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Find out which properties a result has',
-        command: 'COMMAND | Get-Member -MemberType Property',
+        command: 'Get-ChildItem | Get-Member -MemberType Property',
         keywords: ['get-member', 'what fields exist', 'column names', 'inspect an object']
       },
       {
         label: 'Take the bare values of one column',
-        command: 'COMMAND | Select-Object -ExpandProperty PROPERTY_ONE',
+        command: 'Get-ChildItem | Select-Object -ExpandProperty PROPERTY',
         keywords: ['expandproperty', 'awk print $1', 'strings not objects', 'plain values']
       }
     ],
-    placeholders: {
-      COMMAND: 'Any PowerShell command',
-      PROPERTY_ONE: 'A column name, such as Name',
-      PROPERTY_TWO: 'Another column name'
-    },
+    placeholders: { PROPERTY: 'A column name, such as Length or FullName' },
     keywords: [
       'awk',
       'cut',
@@ -1392,11 +1375,8 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Sort a result and keep the top ten',
     summary:
       'Orders the rows of any PowerShell result by one column, largest first, and keeps the first ten.',
-    command: 'COMMAND | Sort-Object PROPERTY -Descending | Select-Object -First 10',
-    placeholders: {
-      COMMAND: 'Any PowerShell command',
-      PROPERTY: 'The column to sort by, such as Length or CPU'
-    },
+    command: 'Get-ChildItem | Sort-Object PROPERTY -Descending | Select-Object -First 10',
+    placeholders: { PROPERTY: 'The column to sort by, such as Length or LastWriteTime' },
     keywords: [
       'sort',
       'sort -r',
@@ -1416,7 +1396,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Keep only the rows that meet a condition',
     summary:
       'Filters a PowerShell result by one of its columns. Swap -like for -eq (equals), -gt (greater than), -lt (less than) or -match (regular expression).',
-    command: "COMMAND | Where-Object PROPERTY -like '*TEXT*'",
+    command: "Get-ChildItem | Where-Object PROPERTY -like '*TEXT*'",
     variants: [
       {
         label: 'Keep only the rows over 10 MB',
@@ -1431,16 +1411,14 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       {
         label: 'Filter on two conditions at once',
         command:
-          "COMMAND | Where-Object { $_.PROPERTY -like '*TEXT*' -and $_.OTHER_PROPERTY -gt NUMBER }",
+          "Get-ChildItem | Where-Object { $_.Name -like '*TEXT*' -and $_.Length -gt NUMBER }",
         keywords: ['-and', '-or', 'compound test', 'name and size together', 'both must be true']
       }
     ],
     placeholders: {
-      COMMAND: 'Any PowerShell command',
       PROPERTY: 'The column to test, such as Name',
       TEXT: 'What the column should contain',
-      OTHER_PROPERTY: 'A second column',
-      NUMBER: 'A number to compare with'
+      NUMBER: 'A size to compare with, such as 1MB'
     },
     keywords: [
       'where',
@@ -1462,20 +1440,19 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Stop output being cut off with three dots',
     summary:
       'A table that does not fit is shortened with three dots. Showing each row as a list gives every value its full width.',
-    command: 'COMMAND | Format-List',
+    command: 'Get-ChildItem | Format-List',
     variants: [
       {
         label: 'Show every property, not the usual few',
-        command: 'COMMAND | Format-List *',
+        command: 'Get-Process -Id $PID | Format-List *',
         keywords: ['format-list *', 'all the fields', 'hidden columns', 'full object']
       },
       {
         label: 'Keep the table but wrap long values',
-        command: 'COMMAND | Format-Table -AutoSize -Wrap',
+        command: 'Get-Service | Format-Table -AutoSize -Wrap',
         keywords: ['format-table -wrap', 'autosize', 'columns too narrow', 'squeezed text']
       }
     ],
-    placeholders: { COMMAND: 'The command whose output is being shortened' },
     keywords: [
       'truncated',
       'cut off',
@@ -1497,15 +1474,14 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Read long output a page at a time',
     summary:
       'Pauses after each screenful: Space shows the next page, Enter the next line, Q stops.',
-    command: 'COMMAND | Out-Host -Paging',
+    command: 'Get-Command | Out-Host -Paging',
     variants: [
       {
         label: 'Page any program output with more',
-        command: 'COMMAND | more',
+        command: 'ipconfig /all | more',
         keywords: ['| more', 'pipe to a pager', 'works for exe output', 'classic way']
       }
     ],
-    placeholders: { COMMAND: 'The command with a lot of output' },
     keywords: [
       'less',
       'more',
@@ -1533,7 +1509,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Turn any result into JSON',
-        command: 'COMMAND | ConvertTo-Json -Depth 5',
+        command: 'Get-ChildItem | Select-Object Name, Length | ConvertTo-Json',
         keywords: ['convertto-json', 'serialise', 'export for another tool', 'machine readable']
       },
       {
@@ -1544,8 +1520,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     ],
     placeholders: {
       FILE: 'The file name without its ending',
-      KEY: 'The property to read, such as version or scripts.build',
-      COMMAND: 'Any PowerShell command'
+      KEY: 'The property to read, such as version or scripts.build'
     },
     keywords: [
       'jq',
@@ -1686,7 +1661,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     variants: [
       {
         label: 'Preview what a stop would close',
-        command: 'Stop-Process -Name NAME -WhatIf',
+        command: 'Stop-Process -WhatIf -Name NAME',
         keywords: ['-whatif', 'dry run', 'which ones would go', 'check before killing']
       },
       {
@@ -1696,7 +1671,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Force a stubborn process to stop',
-        command: 'Stop-Process -Id PROCESS_ID -Force',
+        command: 'Stop-Process -Force -Id PROCESS_ID',
         keywords: ['kill -9', '-force', 'will not close', 'refuses to die', 'not responding']
       },
       {
@@ -1829,7 +1804,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     variants: [
       {
         label: 'Start a hidden background job',
-        command: '$job = Start-Job { COMMAND }',
+        command: '$job = Start-Job { Test-Connection 1.1.1.1 -Count 20 }',
         keywords: ['start-job', 'nohup', 'no window', 'run while i carry on']
       },
       {
@@ -1849,14 +1824,13 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Send a command to the background with &',
-        command: 'COMMAND &',
+        command: 'npm run dev &',
         keywords: ['&', 'ampersand', 'bash habit', 'powershell 7 only', 'detach']
       }
     ],
     placeholders: {
       PROGRAM: 'The program to start, such as npm',
-      ARGUMENTS: 'What you would type after it, such as run dev',
-      COMMAND: 'The whole command to run'
+      ARGUMENTS: 'What you would type after it, such as run dev'
     },
     keywords: [
       '&',
@@ -1881,7 +1855,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Check whether a site or machine answers',
     summary:
       'Sends four pings and shows how long each reply took. No replies means it is down, blocked or unreachable.',
-    command: 'Test-Connection HOST -Count 4',
+    command: 'Test-Connection -Count 4 HOST',
     variants: [
       {
         label: 'Is my internet working at all?',
@@ -2081,12 +2055,12 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     variants: [
       {
         label: 'Look up an MX, TXT or CNAME record',
-        command: 'Resolve-DnsName HOST -Type TXT',
+        command: 'Resolve-DnsName -Type TXT HOST',
         keywords: ['dig txt', 'spf record', 'mail server', 'domain verification', 'record type']
       },
       {
         label: 'Ask a particular DNS server',
-        command: 'Resolve-DnsName HOST -Server 1.1.1.1',
+        command: 'Resolve-DnsName -Server 1.1.1.1 HOST',
         keywords: ['dig @1.1.1.1', 'cloudflare resolver', 'bypass my router', 'propagation check']
       },
       {
@@ -2181,7 +2155,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     variants: [
       {
         label: 'Trace a route with Test-NetConnection',
-        command: 'Test-NetConnection HOST -TraceRoute',
+        command: 'Test-NetConnection -TraceRoute HOST',
         keywords: ['tnc -traceroute', 'hops', 'cmdlet version', 'network path']
       }
     ],
@@ -2542,7 +2516,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'List every copy on PATH, first one wins',
-        command: 'Get-Command NAME -All',
+        command: 'Get-Command -All NAME',
         keywords: ['which -a', 'duplicate installs', 'wrong version runs', 'shadowed', 'conflict']
       },
       {
@@ -2820,28 +2794,25 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Get help and examples for a command',
     summary:
       'Prints worked examples for a PowerShell command. Until the help files have been downloaded the local text is thin, so the -Online variant, which opens the documentation page, is often the better read.',
-    command: 'Get-Help NAME -Examples',
+    command: 'Get-Help -Examples NAME',
     variants: [
       {
         label: 'Open the documentation in a browser',
-        command: 'Get-Help NAME -Online',
+        command: 'Get-Help -Online NAME',
         keywords: ['-online', 'microsoft learn', 'web docs', 'proper manual']
       },
       {
         label: 'Read the whole help in the terminal',
-        command: 'Get-Help NAME -Full',
+        command: 'Get-Help -Full NAME',
         keywords: ['man', '-full', 'every parameter', 'complete reference']
       },
       {
         label: 'Ask an ordinary program for its help',
-        command: 'PROGRAM --help',
+        command: 'git --help',
         keywords: ['--help', '-h', '/?', 'usage', 'git help', 'npm help']
       }
     ],
-    placeholders: {
-      NAME: 'A PowerShell command, such as Get-ChildItem',
-      PROGRAM: 'A program, such as git or npm'
-    },
+    placeholders: { NAME: 'A PowerShell command, such as Get-ChildItem' },
     keywords: [
       'man',
       'help',
@@ -2989,12 +2960,12 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Trust one script you downloaded',
-        command: 'Unblock-File SCRIPT.ps1',
+        command: 'Unblock-File SCRIPT',
         keywords: ['unblock-file', 'mark of the web', 'downloaded and blocked', 'zone identifier']
       },
       {
         label: 'Run one script without changing anything',
-        command: 'powershell -ExecutionPolicy Bypass -File SCRIPT.ps1',
+        command: 'powershell -ExecutionPolicy Bypass -File SCRIPT',
         keywords: ['-executionpolicy bypass', 'one off', 'run a ps1 once', 'powershell -file']
       },
       {
@@ -3003,7 +2974,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
         keywords: ['npm.cmd', 'npm.ps1 cannot be loaded', 'pnpm blocked', 'workaround', 'yarn']
       }
     ],
-    placeholders: { SCRIPT: 'The script file name without its .ps1 ending' },
+    placeholders: { SCRIPT: 'The script file, such as install.ps1' },
     keywords: [
       'running scripts is disabled',
       'execution policy',
@@ -3066,28 +3037,24 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Run one command after another',
     summary:
       'A semicolon runs the second command whatever happened to the first. The && that tutorials use only exists in PowerShell 7: in 5.1 it is an error, so use the if ($?) variant there.',
-    command: 'COMMAND_ONE; COMMAND_TWO',
+    command: 'Get-Location; Get-ChildItem',
     variants: [
       {
         label: 'Run the second only if the first worked',
-        command: 'COMMAND_ONE; if ($?) { COMMAND_TWO }',
+        command: 'git fetch; if ($?) { git status }',
         keywords: ['&& in 5.1', 'if ($?)', 'on success', 'works in windows powershell']
       },
       {
         label: 'Chain with && (PowerShell 7 only)',
-        command: 'COMMAND_ONE && COMMAND_TWO',
+        command: 'npm run build && npm start',
         keywords: ['&&', 'and then', 'bash style', 'npm install && npm run dev', 'on success']
       },
       {
         label: 'Chain with || (PowerShell 7 only)',
-        command: 'COMMAND_ONE || COMMAND_TWO',
+        command: "npm run build || Write-Host 'The build failed'",
         keywords: ['||', 'on failure', 'fallback', 'or else', 'if it fails do this']
       }
     ],
-    placeholders: {
-      COMMAND_ONE: 'The command to run first',
-      COMMAND_TWO: 'The command to run after it'
-    },
     keywords: [
       '&&',
       '||',
@@ -3108,33 +3075,30 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: "Save a command's output to a file",
     summary:
       'Writes what the command prints into a file instead of the screen. Windows PowerShell 5.1 writes UTF-16 here, which some tools cannot read, so the command names UTF-8.',
-    command: 'COMMAND | Out-File FILE -Encoding utf8',
+    command: 'Get-ChildItem | Out-File -Encoding utf8 FILE',
     variants: [
       {
         label: 'Append output to the end of a file',
-        command: 'COMMAND | Out-File FILE -Encoding utf8 -Append',
+        command: 'Get-ChildItem | Out-File -Encoding utf8 -Append FILE',
         keywords: ['>>', 'keep what is there', 'add to a log', 'without overwriting']
       },
       {
         label: 'Show output on screen and save it',
-        command: 'COMMAND | Tee-Object FILE',
+        command: 'npm run build | Tee-Object FILE',
         keywords: ['tee', 'both at once', 'watch and record', 'save a build log']
       },
       {
         label: 'Save errors and warnings as well',
-        command: 'COMMAND *> FILE',
+        command: 'npm run build *> FILE',
         keywords: ['2>&1', 'stderr', 'every stream', 'red text missing from the file']
       },
       {
         label: 'Throw the output away entirely',
-        command: 'COMMAND *> $null',
+        command: 'git fetch *> $null',
         keywords: ['/dev/null', '$null', 'nul', 'silence it', 'no output', 'quiet']
       }
     ],
-    placeholders: {
-      COMMAND: 'The command whose output you want',
-      FILE: 'The file to write, such as output.txt'
-    },
+    placeholders: { FILE: 'The file to write, such as output.txt' },
     keywords: [
       '>',
       '>>',
@@ -3158,7 +3122,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: "Copy a command's output to the clipboard",
     summary:
       'Puts what the command prints on the clipboard, ready to paste into a chat, an issue or an agent.',
-    command: 'COMMAND | Set-Clipboard',
+    command: 'git status | Set-Clipboard',
     variants: [
       {
         label: 'Copy a whole file to the clipboard',
@@ -3181,10 +3145,7 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
         ]
       }
     ],
-    placeholders: {
-      COMMAND: 'The command whose output you want',
-      FILE: 'The file to copy or write'
-    },
+    placeholders: { FILE: 'The file to copy or write' },
     keywords: [
       'pbcopy',
       'pbpaste',
@@ -3208,11 +3169,11 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
     task: 'Time how long a command takes',
     summary:
       'Runs the command and prints how long it took. The output of the command itself is hidden unless you use the variant.',
-    command: 'Measure-Command { COMMAND }',
+    command: 'Measure-Command { npm run build }',
     variants: [
       {
         label: 'Time a command and show its output',
-        command: 'Measure-Command { COMMAND | Out-Default }',
+        command: 'Measure-Command { npm run build | Out-Default }',
         keywords: [
           'out-default',
           'measure-command hides the output',
@@ -3222,11 +3183,10 @@ export const POWERSHELL_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Show only the seconds taken',
-        command: '(Measure-Command { COMMAND }).TotalSeconds',
+        command: '(Measure-Command { npm run build }).TotalSeconds',
         keywords: ['totalseconds', 'one number', 'benchmark', 'elapsed', 'how slow']
       }
     ],
-    placeholders: { COMMAND: 'The command to time' },
     keywords: [
       'time',
       'time npm run build',

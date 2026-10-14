@@ -260,9 +260,8 @@ export const WSL_HELP: readonly HelpEntry[] = [
     category: 'wsl',
     task: 'Open your Linux files in File Explorer',
     summary:
-      'Opens the distro\'s own files in File Explorer, where Windows programs can read and copy them. Its home folder is under home, then your Linux user name.',
-    command: 'explorer.exe \\\\wsl.localhost\\DISTRO',
-    placeholders: { DISTRO: 'The distro name as wsl -l -v shows it, such as Ubuntu' },
+      'Opens the Linux files in File Explorer, one folder per distro, where Windows programs can read and copy them. A distro\'s home folder is under home, then your Linux user name.',
+    command: 'explorer.exe \\\\wsl.localhost',
     keywords: [
       'linux files in explorer',
       'browse wsl files',

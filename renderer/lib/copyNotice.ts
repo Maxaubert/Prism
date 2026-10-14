@@ -28,10 +28,19 @@ export function announceCopied(): void {
  * the command help's popup can be when the document has no focus.
  */
 export async function copyText(text: string): Promise<boolean> {
-  const ok = await navigator.clipboard.writeText(text).then(
+  const ok = await copyTextQuietly(text)
+  if (ok) announceCopied()
+  return ok
+}
+
+/**
+ * The same write with no badge, for a copy that says so where it happened:
+ * command help's row turns its copy icon into a check (owner, 2026-10-13), and
+ * a badge as well would say one success twice.
+ */
+export async function copyTextQuietly(text: string): Promise<boolean> {
+  return navigator.clipboard.writeText(text).then(
     () => true,
     () => termApi().writeClipboard?.(text).catch(() => false) ?? false
   )
-  if (ok) announceCopied()
-  return ok
 }

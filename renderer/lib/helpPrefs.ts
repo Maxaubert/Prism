@@ -17,7 +17,9 @@ import { readPref, writePref } from './prefStore'
 const K = {
   enabled: 'prism.help.enabled',
   shell: 'prism.help.shell',
-  width: 'prism.help.width'
+  // A new key for the side panel (#199): the popup's width, centred and
+  // growing both ways, is no width for a sheet on the right.
+  width: 'prism.help.panelWidth'
 } as const
 
 export const HELP_KEYS = K
@@ -56,14 +58,16 @@ export const useHelpEnabled = (): boolean => useSyncExternalStore(sub, helpEnabl
 export const onHelpPrefs = sub
 
 /**
- * HOW WIDE THE POPUP IS (owner, 2026-09-20: "you also need to be able to
+ * HOW WIDE THE PANEL IS (owner, 2026-09-20: "you also need to be able to
  * adjust the width of this since some text can be seen" - a row is one line
  * and truncates, so a name or a command that does not fit is read by making
  * the window wider). Stored in CSS pixels, clamped on the way in AND on the
  * way out: a number saved on a 4K screen must not leave the popup wider than
  * a laptop's window when it is read back there.
  */
-export const HELP_WIDTH = { min: 560, max: 1400, default: 760 } as const
+// The side panel (#199): 620 is the mockup the owner settled on; it never
+// takes more than the terminal can spare (the panel's max-width does that).
+export const HELP_WIDTH = { min: 420, max: 1100, default: 620 } as const
 
 export const clampHelpWidth = (n: number): number =>
   Number.isFinite(n) && n > 0

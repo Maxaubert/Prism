@@ -89,23 +89,28 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    `renderer/lib/helpPrefs.ts`, `renderer/components/HelpPanel.tsx` and
    `renderer/settings/sections/HelpSection.tsx` + `helpOptions.ts`. A host wires it with:
    `helpEnabled()` / `useHelpEnabled()` to decide whether its way in exists at
-   all (on by default; off means no button and no key); ONE `<HelpPanel>` at its
-   root, lazy-loaded since it brings the catalogue with it, handed `shell`
+   all (on by default; off means no button and no key); ONE `<HelpPanel>`, a
+   side panel since 0.38.0 (#199), mounted INSIDE the terminal's column (it is
+   absolutely placed on its right, under the title bar) from its first opening
+   on and handed `open`, so it slides out as well as in; lazy-loaded since it
+   brings the catalogue with it, handed `shell`
    (`shellOfShellId` of the shell in front, from the light `shared/help/shells.ts`),
    `monoFont` (`termFontStack()`), `onCopy` (the bridge's `writeClipboard`, which
    goes through main because `navigator.clipboard` refuses an unfocused
-   document), `onPickShell` and `onClose`; its key in `ownsKey`, tested against
+   document; Prism Terminal passes `copyTextQuietly`, since the row's check says
+   it), `onPickShell` and `onClose`; its key in `ownsKey`, tested against
    `helpEnabled()`, so xterm yields it exactly when the host takes it (Prism
    Terminal uses a bare F1); and `<HelpSection>` on its settings
    page. As with the update window, a
-   host that raises a question of its own while the popup is up must PUT IT
-   AWAY first and must not open it over one: they are the same layer. The same
-   goes for a chord that puts something ELSE in front while it is up (another
-   tab, a new tab, a find bar): a terminal takes the focus as it attaches, and a
-   popup left over a focused shell has its questions typed into that shell. Two rules
+   host that raises a question of its own while the panel is out must PUT IT
+   AWAY first and must not open it over one. It is NOT a dialog: it may stay
+   out across a tab switch (the shell beside it gets the keyboard); a find bar,
+   which sits where it does, puts it away. Two rules
    travel with it. **It never inserts and never runs**: the component has no
    session id and no bridge, only `onCopy`, and a host must not give it more.
-   **Copy is exact**: the text on screen, placeholders included, never trimmed.
+   **Copy is exact**: the text on screen, which since 0.38.0 drops a TRAILING
+   placeholder (`blankless`: `Set-Location ` for `Set-Location FOLDER`) and
+   keeps every other one.
 3. **A difference between the apps is DECLARED, never forked.** Every place the
    two legitimately differ is a field of `TermHostConfig` in
    [`renderer/host.ts`](renderer/host.ts): the default each untouched setting

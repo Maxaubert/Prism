@@ -130,20 +130,13 @@ export const CMD_HELP: readonly HelpEntry[] = [
     summary:
       'Creates a folder, and any folders missing on the way to it, in one go. md is the same command.',
     command: 'mkdir NAME',
-    variants: [
-      {
-        label: 'Make nested folders in one go',
-        command: 'mkdir PARENT\\CHILD\\GRANDCHILD',
-        keywords: ['mkdir -p', 'nested directories', 'create whole path', 'subfolders at once', 'deep folder']
-      }
-    ],
     placeholders: {
-      NAME: 'The new folder, in quotes if it has spaces',
-      PARENT: 'The outer folder',
-      CHILD: 'A folder inside it',
-      GRANDCHILD: 'A folder inside that'
+      NAME: 'The new folder, in quotes if it has spaces; a path like one\\two\\three makes every level'
     },
     keywords: [
+      'mkdir -p',
+      'create whole path',
+      'subfolders at once',
       'mkdir',
       'md',
       'create folder',
@@ -241,8 +234,8 @@ export const CMD_HELP: readonly HelpEntry[] = [
     category: 'files',
     task: 'Find the biggest files in a folder',
     summary:
-      'Walks this folder and everything under it and prints each file over a size you choose, in bytes, with its full path. 104857600 is 100 MB. It reads every file entry, so a big drive takes a while.',
-    command: 'forfiles /s /c "cmd /c if @isdir==FALSE if @fsize GEQ BYTES echo @fsize @path"',
+      'Walks this folder and everything under it and prints each file over 100 MB (104857600 bytes) with its full path; change the number for another size. It reads every file entry, so a big drive takes a while.',
+    command: 'forfiles /s /c "cmd /c if @isdir==FALSE if @fsize GEQ 104857600 echo @fsize @path"',
     variants: [
       {
         label: 'Sort by size, files only, biggest first',
@@ -255,7 +248,6 @@ export const CMD_HELP: readonly HelpEntry[] = [
         keywords: ['huge files', 'gigabyte', '1073741824', 'space hogs', 'forfiles']
       }
     ],
-    placeholders: { BYTES: 'The smallest size to report, in bytes: 104857600 is 100 MB' },
     keywords: [
       'big files',
       'largest files',
@@ -276,11 +268,11 @@ export const CMD_HELP: readonly HelpEntry[] = [
     task: 'Unzip a file, or make a zip',
     summary:
       'Windows 10 and 11 ship tar, which reads and writes zip files as well as tar ones. Extracting puts the contents in the current folder and writes over files of the same name.',
-    command: 'tar -xf ARCHIVE.zip',
+    command: 'tar -xf ZIP',
     variants: [
       {
         label: 'Extract into another folder that must exist',
-        command: 'tar -xf ARCHIVE.zip -C FOLDER',
+        command: 'tar -xf ZIP -C FOLDER',
         keywords: [
           'unzip to path',
           'tar -c flag',
@@ -291,7 +283,7 @@ export const CMD_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'See what is inside without extracting',
-        command: 'tar -tf ARCHIVE.zip',
+        command: 'tar -tf ZIP',
         keywords: ['list zip contents', 'peek in archive', 'tar -tf', 'preview files', 'unzip -l']
       },
       {
@@ -301,7 +293,8 @@ export const CMD_HELP: readonly HelpEntry[] = [
       }
     ],
     placeholders: {
-      ARCHIVE: 'The zip file name without its .zip ending',
+      ZIP: 'The zip file, for example photos.zip',
+      ARCHIVE: 'The name for the new zip, without its .zip ending',
       FOLDER: 'The folder to extract into, or to pack'
     },
     keywords: [
@@ -334,7 +327,7 @@ export const CMD_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Open another folder in File Explorer',
-        command: 'start "" "FOLDER"',
+        command: 'explorer "FOLDER"',
         keywords: ['browse a path', 'open directory window', 'show folder', 'gui', 'reveal in explorer']
       }
     ],
@@ -740,19 +733,17 @@ export const CMD_HELP: readonly HelpEntry[] = [
     shell: 'cmd',
     category: 'text',
     task: 'Keep only the output lines that match',
-    summary: 'Pipes a command into findstr so a long list is cut down to the lines you care about.',
-    command: 'COMMAND | findstr /i "TEXT"',
+    summary:
+      'Pipes a command into findstr so a long list is cut down to the lines you care about. Put any command in place of ipconfig /all.',
+    command: 'ipconfig /all | findstr /i "TEXT"',
     variants: [
       {
         label: 'Hide the output lines that match',
-        command: 'COMMAND | findstr /i /v "TEXT"',
+        command: 'ipconfig /all | findstr /i /v "TEXT"',
         keywords: ['findstr /v', 'grep -v', 'exclude', 'invert', 'leave out noise']
       }
     ],
-    placeholders: {
-      COMMAND: 'Any command that prints a lot, for example tasklist',
-      TEXT: 'The word to keep'
-    },
+    placeholders: { TEXT: 'The word to match, for example DNS' },
     keywords: [
       'filter output',
       'grep',
@@ -859,7 +850,10 @@ export const CMD_HELP: readonly HelpEntry[] = [
       'frozen',
       'not responding',
       'kill node',
-      'pkill'
+      'pkill',
+      'force quit',
+      'stuck process',
+      'wont stop'
     ],
     danger:
       'The program is stopped at once, without the chance to save. Unsaved work in it is lost.'
@@ -907,18 +901,8 @@ export const CMD_HELP: readonly HelpEntry[] = [
     category: 'processes',
     task: 'Stop a command that is still running',
     summary:
-      'Not a command but a key: hold Ctrl and press C in the terminal. A batch file then asks "Terminate batch job (Y/N)?", to which the answer is Y. With text selected, Ctrl+C copies instead, so click once to clear the selection first.',
+      'Not a command but a key: hold Ctrl and press C in the terminal. A batch file then asks "Terminate batch job (Y/N)?", to which the answer is Y. With text selected, Ctrl+C copies instead, so click once to clear the selection first. If it ignores Ctrl+C, see Force a program to stop.',
     command: 'Ctrl+C',
-    variants: [
-      {
-        label: 'Kill a command that ignores Ctrl+C',
-        command: 'taskkill /im NAME.exe /f',
-        keywords: ['taskkill /f', 'wont stop', 'force quit', 'stuck process', 'from another window']
-      }
-    ],
-    placeholders: { NAME: 'The program that will not stop, for example node' },
-    danger:
-      'The taskkill variant stops every copy of that program at once, without the chance to save.',
     keywords: [
       'cancel',
       'stop',
@@ -1045,11 +1029,6 @@ export const CMD_HELP: readonly HelpEntry[] = [
     command: 'set',
     variants: [
       {
-        label: 'List variables starting with some letters',
-        command: 'set NAME',
-        keywords: ['set path', 'prefix', 'partial name', 'find a variable', 'narrow the list']
-      },
-      {
         label: 'Print the value of one variable',
         command: 'echo %NAME%',
         keywords: ['echo %path%', 'percent signs', '$env:', 'read a variable', 'is my api key set']
@@ -1065,7 +1044,10 @@ export const CMD_HELP: readonly HelpEntry[] = [
       '$env:',
       'is my api key set',
       'echo variable',
-      'get-childitem env:'
+      'get-childitem env:',
+      'set path',
+      'find a variable',
+      'variables starting with'
     ]
   },
   {
@@ -1296,8 +1278,8 @@ export const CMD_HELP: readonly HelpEntry[] = [
     category: 'shell',
     task: 'Get help on a command',
     summary:
-      'Nearly every Command Prompt command explains itself when given /?. help on its own lists the built-in ones.',
-    command: 'COMMAND /?',
+      'Nearly every Command Prompt command explains itself when given /?: put yours in place of dir. help on its own lists the built-in ones.',
+    command: 'dir /?',
     variants: [
       {
         label: 'List every built-in command',
@@ -1306,11 +1288,10 @@ export const CMD_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Page through a long help page',
-        command: 'COMMAND /? | more',
+        command: 'robocopy /? | more',
         keywords: ['/? | more', 'pager', 'scrolled past', 'too much output', 'read the switches']
       }
     ],
-    placeholders: { COMMAND: 'The command to read about, for example robocopy' },
     keywords: [
       'help',
       'man',
@@ -1363,26 +1344,26 @@ export const CMD_HELP: readonly HelpEntry[] = [
     category: 'shell',
     task: 'Save command output to a file',
     summary:
-      'A single > writes a fresh file each time; a double >> adds to the end of what is there.',
-    command: 'COMMAND > FILE',
+      'Works after any command, dir is only the example. A single > writes a fresh file each time; a double >> adds to the end of what is there.',
+    command: 'dir > FILE',
     variants: [
       {
         label: 'Append to the end of a file',
-        command: 'COMMAND >> FILE',
+        command: 'dir >> FILE',
         keywords: ['>>', 'append output', 'add to a log', 'do not overwrite', 'keep what is there']
       },
       {
         label: 'Save error messages to the file too',
-        command: 'COMMAND > FILE 2>&1',
+        command: 'npm run build > FILE 2>&1',
         keywords: ['2>&1', 'stderr', 'capture errors', 'both streams', 'full log']
       },
       {
         label: 'Throw the error messages away',
-        command: 'COMMAND 2>nul',
+        command: 'where node 2>nul',
         keywords: ['2>nul', '/dev/null', 'hide errors', 'silence stderr', 'suppress warnings']
       }
     ],
-    placeholders: { COMMAND: 'Any command', FILE: 'The file to write, for example output.txt' },
+    placeholders: { FILE: 'The file to write, for example output.txt' },
     keywords: [
       'redirect',
       'redirection',
@@ -1405,20 +1386,19 @@ export const CMD_HELP: readonly HelpEntry[] = [
     task: 'Send the output of one command into another',
     summary:
       'The bar hands what the first command prints to the second. more pages it, sort orders it, clip puts it on the clipboard.',
-    command: 'COMMAND | more',
+    command: 'tree /f | more',
     variants: [
       {
         label: 'Copy the output to the clipboard',
-        command: 'COMMAND | clip',
+        command: 'dir /b | clip',
         keywords: ['clip', 'pbcopy', 'set-clipboard', 'paste it elsewhere', 'ctrl v']
       },
       {
         label: 'Sort the output lines',
-        command: 'COMMAND | sort',
+        command: 'tasklist | sort',
         keywords: ['sort', 'alphabetical', 'a to z', 'order results']
       }
     ],
-    placeholders: { COMMAND: 'Any command' },
     keywords: [
       'pipe',
       'pipeline',
@@ -1440,20 +1420,19 @@ export const CMD_HELP: readonly HelpEntry[] = [
     task: 'Run several commands on one line',
     summary:
       '&& runs the second command only if the first one worked, which is nearly always what you want.',
-    command: 'FIRST && SECOND',
+    command: 'where node && node --version',
     variants: [
       {
         label: 'Run the second command whatever happens',
-        command: 'FIRST & SECOND',
+        command: 'echo one & echo two',
         keywords: ['single ampersand', '&', 'always runs', 'semicolon in bash', 'ignore failure']
       },
       {
         label: 'Run the second only if the first failed',
-        command: 'FIRST || SECOND',
+        command: 'where node || echo node is not installed',
         keywords: ['||', 'or operator', 'on failure', 'fallback', 'error handling']
       }
     ],
-    placeholders: { FIRST: 'The first command', SECOND: 'The command to run after it' },
     keywords: [
       'chain commands',
       'multiple commands',
@@ -1472,8 +1451,8 @@ export const CMD_HELP: readonly HelpEntry[] = [
     category: 'shell',
     task: 'Make a short name for a long command',
     summary:
-      'A doskey macro. $* passes along whatever you type after the short name. It lasts until this window closes.',
-    command: 'doskey SHORT=COMMAND $*',
+      'A doskey macro: here ll runs dir /a. $* passes along whatever you type after the short name. It lasts until this window closes.',
+    command: 'doskey ll=dir /a $*',
     variants: [
       {
         label: 'List the macros I have made',
@@ -1481,10 +1460,6 @@ export const CMD_HELP: readonly HelpEntry[] = [
         keywords: ['doskey /macros', 'show aliases', 'get-alias', 'my shortcuts', 'what did i define']
       }
     ],
-    placeholders: {
-      SHORT: 'The name to type, for example ll',
-      COMMAND: 'What it should run, for example dir /a'
-    },
     keywords: [
       'alias',
       'doskey',

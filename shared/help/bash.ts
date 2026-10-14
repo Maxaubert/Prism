@@ -64,7 +64,7 @@ export const BASH_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Go to a folder whose name has spaces',
-        command: 'cd "FOLDER"',
+        command: 'cd "/mnt/c/Program Files"',
         keywords: [
           'spaces in path',
           'quoting',
@@ -679,20 +679,20 @@ export const BASH_HELP: readonly HelpEntry[] = [
     task: 'Run a script that says "Permission denied"',
     summary:
       'A script has to be marked executable before ./ will run it. Do that once, then start it with ./ in front: Linux does not look in the current folder for commands by itself.',
-    command: 'chmod +x SCRIPT.sh',
+    command: 'chmod +x SCRIPT',
     variants: [
       {
         label: 'Run the script with ./ in front',
-        command: './SCRIPT.sh',
+        command: './SCRIPT',
         keywords: ['./script.sh', 'dot slash', 'execute', 'command not found', 'not on path']
       },
       {
         label: 'Run a script without marking it executable',
-        command: 'bash SCRIPT.sh',
+        command: 'bash SCRIPT',
         keywords: ['bash script.sh', 'sh script.sh', 'no chmod', 'one off', 'interpreter']
       }
     ],
-    placeholders: { SCRIPT: 'The name of the script file' },
+    placeholders: { SCRIPT: 'The script file, for example build.sh' },
     keywords: [
       'chmod',
       'chmod +x',
@@ -795,20 +795,20 @@ export const BASH_HELP: readonly HelpEntry[] = [
     task: 'Unpack a .tar.gz archive',
     summary:
       'x extracts, f names the file, and modern tar works out the compression (.gz, .bz2, .xz) by itself.',
-    command: 'tar -xf FILE.tar.gz',
+    command: 'tar -xf FILE',
     variants: [
       {
         label: 'Unpack into another folder',
-        command: 'tar -xf FILE.tar.gz -C FOLDER',
+        command: 'tar -xf FILE -C FOLDER',
         keywords: ['tar -c', 'destination', 'extract to', 'target directory', 'somewhere else']
       },
       {
         label: 'List what is inside the archive',
-        command: 'tar -tf FILE.tar.gz',
+        command: 'tar -tf FILE',
         keywords: ['tar -tf', 'contents', 'peek', 'without extracting', 'preview']
       }
     ],
-    placeholders: { FILE: 'The archive, without its ending', FOLDER: 'Where to unpack it' },
+    placeholders: { FILE: 'The archive, for example site.tar.gz', FOLDER: 'Where to unpack it' },
     keywords: [
       'tar',
       'untar',
@@ -851,11 +851,11 @@ export const BASH_HELP: readonly HelpEntry[] = [
     task: 'Unzip a .zip file',
     summary:
       'Unpacks into the folder named after -d, making it if needed. A stock Ubuntu has neither unzip nor zip: sudo apt install unzip zip.',
-    command: 'unzip FILE.zip -d FOLDER',
+    command: 'unzip FILE -d FOLDER',
     variants: [
       {
         label: 'List what is inside the zip',
-        command: 'unzip -l FILE.zip',
+        command: 'unzip -l FILE',
         keywords: ['unzip -l', 'contents', 'peek', 'without extracting', 'preview']
       },
       {
@@ -865,7 +865,7 @@ export const BASH_HELP: readonly HelpEntry[] = [
       }
     ],
     placeholders: {
-      FILE: 'The zip, without its ending',
+      FILE: 'The zip file, for example site.zip',
       FOLDER: 'Where to unpack, or what to pack',
       NAME: 'What to call the new zip'
     },
@@ -889,21 +889,21 @@ export const BASH_HELP: readonly HelpEntry[] = [
     task: 'Find text inside files',
     summary:
       '-r searches this folder and every subfolder, -n shows the line number and -i ignores upper and lower case.',
-    command: 'grep -rni "TEXT" .',
+    command: 'grep -rni "TEXT"',
     variants: [
       {
         label: 'List only the file names that match',
-        command: 'grep -rli "TEXT" .',
+        command: 'grep -rli "TEXT"',
         keywords: ['grep -l', 'which files', 'no lines', 'just the paths', 'files containing']
       },
       {
         label: 'Search one type of file only',
-        command: 'grep -rni --include="*.EXT" "TEXT" .',
+        command: 'grep -rni --include="*.EXT" "TEXT"',
         keywords: ['--include', 'by extension', 'only ts files', 'glob filter', 'limit the search']
       },
       {
         label: 'Search but skip node_modules',
-        command: 'grep -rni --exclude-dir=node_modules "TEXT" .',
+        command: 'grep -rni --exclude-dir=node_modules "TEXT"',
         keywords: ['--exclude-dir', 'ignore a folder', 'vendor', '.git', 'too many results']
       }
     ],
@@ -927,18 +927,15 @@ export const BASH_HELP: readonly HelpEntry[] = [
     category: 'text',
     task: 'Keep only the output lines that match',
     summary: 'Pipes a command into grep so a long list is cut down to the lines you care about.',
-    command: 'COMMAND | grep -i "TEXT"',
+    command: 'ls -la | grep -i "TEXT"',
     variants: [
       {
         label: 'Hide the output lines that match',
-        command: 'COMMAND | grep -iv "TEXT"',
+        command: 'ls -la | grep -iv "TEXT"',
         keywords: ['grep -v', 'invert', 'exclude', 'filter out', 'everything except']
       }
     ],
-    placeholders: {
-      COMMAND: 'Any command that prints a lot, for example ps aux',
-      TEXT: 'The word to keep'
-    },
+    placeholders: { TEXT: 'The word to keep' },
     keywords: [
       'filter output',
       'grep',
@@ -1082,7 +1079,7 @@ export const BASH_HELP: readonly HelpEntry[] = [
     task: 'Pick out one column of output',
     summary:
       'awk splits each line on spaces and $2 is the second piece. For comma-separated text use cut.',
-    command: "COMMAND | awk '{print $2}'",
+    command: "ps aux | awk '{print $2}'",
     variants: [
       {
         label: 'Pick a column from comma-separated text',
@@ -1090,10 +1087,7 @@ export const BASH_HELP: readonly HelpEntry[] = [
         keywords: ['cut -d', 'csv field', 'delimiter', 'second field', 'split on a comma']
       }
     ],
-    placeholders: {
-      COMMAND: 'Any command that prints columns, for example ps aux',
-      FILE: 'A CSV file'
-    },
+    placeholders: { FILE: 'A CSV file' },
     keywords: [
       'awk',
       'cut',
@@ -1268,7 +1262,7 @@ export const BASH_HELP: readonly HelpEntry[] = [
     task: 'Run something in the background',
     summary:
       'An & at the end starts the command and hands the prompt straight back. jobs lists what this shell has running, and fg brings one to the front again.',
-    command: 'COMMAND &',
+    command: 'npm run dev &',
     variants: [
       {
         label: 'List the background jobs of this shell',
@@ -1287,11 +1281,10 @@ export const BASH_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Keep a command running after the terminal closes',
-        command: 'nohup COMMAND > output.log 2>&1 &',
+        command: 'nohup npm run dev > output.log 2>&1 &',
         keywords: ['nohup', 'disown', 'survive logout', 'detach', 'ssh disconnect', 'long job']
       }
     ],
-    placeholders: { COMMAND: 'The command to run, for example npm run dev' },
     danger: 'The nohup variant replaces output.log if a file of that name is already there.',
     keywords: [
       'background',
@@ -1629,11 +1622,6 @@ export const BASH_HELP: readonly HelpEntry[] = [
         command: 'echo \'export NAME="VALUE"\' >> ~/.bashrc',
         keywords: ['bashrc', 'permanent', 'every new shell', 'survives a restart', 'startup file']
       },
-      {
-        label: 'Reload ~/.bashrc in this shell',
-        command: 'source ~/.bashrc',
-        keywords: ['source', 'dot command', 'apply now', 'without reopening', 'refresh config']
-      }
     ],
     placeholders: {
       NAME: 'The variable name, for example ANTHROPIC_API_KEY',
@@ -2154,7 +2142,7 @@ export const BASH_HELP: readonly HelpEntry[] = [
     variants: [
       {
         label: "Show a command's short help",
-        command: 'COMMAND --help',
+        command: 'tar --help',
         keywords: ['--help', '-h', 'usage', 'options', 'flags', 'quick reference']
       },
       {
@@ -2198,7 +2186,15 @@ export const BASH_HELP: readonly HelpEntry[] = [
       {
         label: 'Apply ~/.bashrc changes to this shell',
         command: 'source ~/.bashrc',
-        keywords: ['source', 'dot command', 'reload', 'without reopening', 'take effect now']
+        keywords: [
+          'source',
+          'dot command',
+          'reload',
+          'without reopening',
+          'take effect now',
+          'apply now',
+          'refresh config'
+        ]
       }
     ],
     keywords: [
@@ -2222,7 +2218,7 @@ export const BASH_HELP: readonly HelpEntry[] = [
     task: 'Make a short name for a long command',
     summary:
       'Lasts until this shell closes; the second variant saves it for every new one. No spaces around the =.',
-    command: "alias SHORT='COMMAND'",
+    command: "alias gs='git status'",
     variants: [
       {
         label: 'List the aliases already set',
@@ -2231,7 +2227,7 @@ export const BASH_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Save an alias in ~/.bashrc',
-        command: 'echo "alias SHORT=\'COMMAND\'" >> ~/.bashrc',
+        command: 'echo "alias gs=\'git status\'" >> ~/.bashrc',
         keywords: ['bashrc', 'permanent', 'every new shell', 'survives a restart', 'for good']
       },
       {
@@ -2240,10 +2236,7 @@ export const BASH_HELP: readonly HelpEntry[] = [
         keywords: ['unalias', 'delete a shortcut', 'undo', 'get rid of it', 'stop overriding']
       }
     ],
-    placeholders: {
-      SHORT: 'The name to type, for example gs',
-      COMMAND: 'What it should run, for example git status'
-    },
+    placeholders: { SHORT: 'The alias to remove, for example gs' },
     keywords: [
       'alias',
       'shortcut command',
@@ -2263,30 +2256,30 @@ export const BASH_HELP: readonly HelpEntry[] = [
     task: "Save a command's output to a file",
     summary:
       'A single > writes a fresh file each time; a double >> adds to the end of what is there.',
-    command: 'COMMAND > FILE',
+    command: 'npm run build > FILE',
     variants: [
       {
         label: 'Append to the end of a file',
-        command: 'COMMAND >> FILE',
+        command: 'npm run build >> FILE',
         keywords: ['>>', 'double arrow', 'add to it', 'do not overwrite', 'keep what is there']
       },
       {
         label: 'Save error messages as well',
-        command: 'COMMAND > FILE 2>&1',
-        keywords: ['2>&1', 'stderr', 'capture errors', 'both streams', 'full log']
+        command: 'npm run build &> FILE',
+        keywords: ['2>&1', '&>', 'stderr', 'capture errors', 'both streams', 'full log']
       },
       {
         label: 'Throw error messages away',
-        command: 'COMMAND 2>/dev/null',
+        command: 'npm run build 2>/dev/null',
         keywords: ['2>/dev/null', 'silence', 'hide stderr', 'suppress', 'quiet']
       },
       {
         label: 'Show on screen and save to a file',
-        command: 'COMMAND | tee FILE',
+        command: 'npm run build | tee FILE',
         keywords: ['tee', 'both at once', 'log and watch', 'split the output', 'copy to a file']
       }
     ],
-    placeholders: { COMMAND: 'Any command', FILE: 'The file to write, for example output.txt' },
+    placeholders: { FILE: 'The file to write, for example output.txt' },
     keywords: [
       'redirect',
       'redirection',
@@ -2311,23 +2304,20 @@ export const BASH_HELP: readonly HelpEntry[] = [
     task: 'Send the output of one command into another',
     summary:
       'The bar hands what the first command prints to the second. less pages it (Q to leave); clip.exe puts it on the Windows clipboard.',
-    command: 'COMMAND | less',
+    command: 'ps aux | less',
     variants: [
       {
         label: 'Copy the output to the Windows clipboard',
-        command: 'COMMAND | clip.exe',
+        command: 'pwd | clip.exe',
         keywords: ['clip.exe', 'paste', 'pbcopy', 'xclip', 'ctrl v', 'send to windows']
       },
       {
         label: 'Use each output line as an argument',
-        command: 'COMMAND | xargs OTHER',
+        command: 'find . -name "*.log" | xargs OTHER',
         keywords: ['xargs', 'for each', 'batch', 'apply to every one', 'feed into']
       }
     ],
-    placeholders: {
-      COMMAND: 'Any command',
-      OTHER: 'The command that should receive the lines, for example ls -l'
-    },
+    placeholders: { OTHER: 'The command that should receive the lines, for example ls -l' },
     keywords: [
       'pipe',
       'pipeline',
@@ -2350,20 +2340,20 @@ export const BASH_HELP: readonly HelpEntry[] = [
     task: 'Run several commands on one line',
     summary:
       '&& runs the second command only if the first one worked, which is nearly always what you want.',
-    command: 'FIRST && SECOND',
+    command: 'npm install && SECOND',
     variants: [
       {
         label: 'Run the second command whatever happens',
-        command: 'FIRST ; SECOND',
+        command: 'npm test ; SECOND',
         keywords: ['semicolon', 'always', 'regardless', 'separate them', 'ignore failure']
       },
       {
         label: 'Run the second only if the first fails',
-        command: 'FIRST || SECOND',
+        command: 'npm test || SECOND',
         keywords: ['||', 'or operator', 'on failure', 'fallback', 'else']
       }
     ],
-    placeholders: { FIRST: 'The first command', SECOND: 'The command to run after it' },
+    placeholders: { SECOND: 'The command to run after it, for example npm run dev' },
     keywords: [
       'chain commands',
       'multiple commands',

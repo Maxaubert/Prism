@@ -77,21 +77,21 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
     task: 'Install a program (winget)',
     summary:
       'Downloads and installs a program by its exact Id. Windows may show its usual permission prompt. Open a NEW terminal tab afterwards, or the shell will not find the new command.',
-    command: 'winget install --id PACKAGE_ID -e',
+    command: 'winget install -e --id PACKAGE_ID',
     variants: [
       {
         label: 'Install Git',
-        command: 'winget install --id Git.Git -e',
+        command: 'winget install -e --id Git.Git',
         keywords: ['git for windows', 'git bash', 'version control', 'git is not recognized', 'clone a repo', 'source control']
       },
       {
         label: 'Install Node.js LTS, which brings npm',
-        command: 'winget install --id OpenJS.NodeJS.LTS -e',
+        command: 'winget install -e --id OpenJS.NodeJS.LTS',
         keywords: ['nodejs', 'node', 'javascript runtime', 'get npm', 'npm is not recognized', 'long term support', 'nvm']
       },
       {
         label: 'Install PowerShell 7',
-        command: 'winget install --id Microsoft.PowerShell -e',
+        command: 'winget install -e --id Microsoft.PowerShell',
         keywords: ['pwsh', 'powershell core', 'newer powershell', 'upgrade from 5.1', 'cross platform shell', 'modern shell']
       }
     ],
@@ -125,7 +125,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Update one program by Id',
-        command: 'winget upgrade --id PACKAGE_ID -e',
+        command: 'winget upgrade -e --id PACKAGE_ID',
         keywords: ['upgrade a single app', 'just one program', 'newer version of one thing', 'targeted update', 'brew upgrade formula']
       }
     ],
@@ -152,7 +152,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
     variants: [
       {
         label: 'Search the installed programs by name',
-        command: 'winget list NAME',
+        command: 'winget list --name NAME',
         keywords: ['do i have it', 'is this app installed', 'which version', 'filter the list', 'find an installed program', 'add remove programs']
       }
     ],
@@ -174,7 +174,7 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
     category: 'packages',
     task: 'Uninstall a program (winget)',
     summary: "Removes an installed program, running its own uninstaller. Take the exact Id from winget list.",
-    command: 'winget uninstall --id PACKAGE_ID -e',
+    command: 'winget uninstall -e --id PACKAGE_ID',
     placeholders: { PACKAGE_ID: 'The Id from winget list' },
     keywords: [
       'uninstall',
@@ -412,11 +412,6 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
     command: 'npm update',
     variants: [
       {
-        label: 'Update one package only',
-        command: 'npm update PACKAGE',
-        keywords: ['single dependency', 'targeted upgrade', 'bump one library', 'leave the rest alone', 'one at a time']
-      },
-      {
         label: 'Move one package to the latest major version',
         command: 'npm install PACKAGE@latest',
         keywords: ['breaking change', 'major upgrade', 'newest release', 'jump versions', 'ignore the semver range', 'package@latest']
@@ -431,7 +426,9 @@ export const PACKAGES_HELP: readonly HelpEntry[] = [
       'npm upgrade',
       'yarn upgrade',
       'security update',
-      'npm audit'
+      'npm audit',
+      'update one package',
+      'bump one library'
     ]
   },
   {

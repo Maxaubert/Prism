@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import { Modal } from './Modal'
 import { hiddenTitle } from '../lib/hiddenTitle'
 import {
   ALL_HELP,
   HELP_CATEGORIES,
   HELP_SHELLS,
+  blankless,
   isKeyPress,
   shownIn,
   variantsIn,
@@ -15,11 +15,15 @@ import { searchHelp } from '../../shared/help/search'
 import { clampHelpWidth, HELP_WIDTH, setHelpWidth, useHelpWidth } from '../lib/helpPrefs'
 
 /**
- * THE COMMAND HELP POPUP (#12). Owner, 2026-09-19: "an easy to use panel where
- * you can find shell commands to use the shell more effectively... searchable...
- * metadata on each command so a natural-language search finds it", and on
- * 2026-09-20: "a pop up with copy icons for easy copying". One copy, for both
- * apps.
+ * COMMAND HELP (#12), A SIDE PANEL SINCE #199. Owner, 2026-09-19: "an easy to
+ * use panel where you can find shell commands to use the shell more
+ * effectively... searchable... metadata on each command so a natural-language
+ * search finds it", and on 2026-09-20: "a pop up with copy icons for easy
+ * copying". Then 2026-10-13 (#199): "instead of being a pop-up window ... a
+ * sidebar that animates from the side ... and overlays over the terminal, like
+ * not the whole terminal", the way Copilot Studio and Power Automate open a
+ * pane. The mockups are `docs/research/2026-10-13-help-panel/`; the owner
+ * settled on the sheet with two columns (A2). One copy, for both apps.
  *
  * IT SHOWS, AND IT COPIES ON REQUEST. NOTHING ELSE. Owner, 2026-09-19: "picking
  * a command in the help panel does NOT insert it into the shell". So this file
@@ -31,46 +35,50 @@ import { clampHelpWidth, HELP_WIDTH, setHelpWidth, useHelpWidth } from '../lib/h
  * decision; it would be a fifth exception to "the app never types into your
  * shell", and the first one that carries Enter in spirit.
  *
- * WHAT IS COPIED IS THE EXACT TEXT ON SCREEN, placeholders and all. A command
- * with FOLDER in it fails loudly when pasted unedited, which is the right
- * failure; a panel that guessed the folder would fail quietly.
+ * WHAT IS COPIED IS THE TEXT ON SCREEN. A blank at the END of a command is not
+ * drawn (owner, 2026-10-13: "dont say folder the user understand"): the row
+ * reads `Set-Location ` and the copy ends in that space, so the paste is ready
+ * for the folder. A blank in the MIDDLE is still drawn, since leaving it out
+ * would make another command (`blankless`).
+ *
+ * NOT A DIALOG: the terminal stays where it is, readable and usable beside the
+ * panel, and the panel stays open across a click into the shell. It is drawn
+ * by the host inside the terminal's region, under the title bar.
  *
  * Props only, like the update window: no bridge, no store, no host. The
- * clipboard is handed in because each host has its own way to it (and
- * `navigator.clipboard` refuses when the document has no focus). The catalogue
- * is curated text that ships with the app, so unlike the release notes there
- * is nothing here off the network; it is still printed as text nodes only.
- *
- * It sits on the OPAQUE surface token for the reason the update window does:
- * `--p-bg` carries the window's alpha on an acrylic theme, and nobody can read
- * a command through the desktop.
+ * clipboard is handed in because each host has its own way to it. It sits on
+ * the OPAQUE surface token (`--p-side-flat`): `--p-bg` carries the window's
+ * alpha under See-through, and nobody can read a command through the desktop.
  */
 
 /** How many entries are drawn at first, and how many more each time the end
  *  of the list comes into view. The catalogue is a few hundred entries with
- *  several command boxes each: all at once is some ten thousand nodes built
- *  before the first frame, for a list nobody has scrolled yet. */
+ *  several rows each: all at once is thousands of nodes built before the first
+ *  frame, for a list nobody has scrolled yet. */
 const FIRST_PAGE = 40
 const NEXT_PAGE = 60
 /** A search answers with at most this many. Past the first dozen nobody is
  *  reading; they are retyping. */
 const MAX_RESULTS = 50
-/** How long a copy button says so. */
-const COPIED_MS = 1500
+/** How long a row's copy button wears its check. */
+const COPIED_MS = 1400
+/** The slide (owner, 2026-10-13: "it has to have animation"): in on a long
+ *  exponential ease-out; out quicker, on a curve that MOVES AT ONCE (owner,
+ *  2026-10-13: the close "hitches before the closing animation starts"). An
+ *  ease-in sat still for its first frames, and the rows fading as it began
+ *  read as the hitch, so the rows now stay put until the panel is out. */
+const IN_MS = 460
+const OUT_MS = 220
+const OUT_EASE = 'cubic-bezier(0.4,0,0.6,1)'
 
 const CATEGORY_NAME = new Map(HELP_CATEGORIES.map((c) => [c.id, c.name]))
 
 /**
- * ONE COMMAND IS ONE ROW (#12, owner 2026-09-20: "this has too much text, it
- * just needs the header and the command. no sub text and no highlighted ones.
- * just a simple, minimalist but still elegant and beautiful searchable table").
- * An entry used to be a block: a title, a sentence of summary, its command in a
- * bordered box, then a labelled box per variant and a list of placeholders. Two
- * entries filled the popup. So the entry is FLATTENED here: its own row is
- * named by its task, and each variant becomes a row of its own named by the
- * variant's label ("Copy it to the clipboard"), which is what that label always
- * was. Nothing is hidden from SEARCH by this: `searchHelp` still reads the
- * summary, the keywords and the placeholders off the entry.
+ * ONE COMMAND IS ONE ROW (#12, owner 2026-09-20: "it just needs the header and
+ * the command"). An entry is FLATTENED: its own row is named by its task, and
+ * each variant is a row of its own named by its label. Nothing is hidden from
+ * SEARCH by this: `searchHelp` still reads the summary, the keywords and the
+ * placeholders off the entry.
  */
 export interface HelpRow {
   entry: HelpEntry
@@ -78,6 +86,7 @@ export interface HelpRow {
   n: number
   /** The left column. */
   name: string
+  /** What is shown and copied (`blankless`). */
   command: string
 }
 
@@ -91,17 +100,22 @@ function rowsFor(shell: HelpShellChoice, query: string): HelpRow[] {
           const mine = ALL_HELP.filter((e) => shownIn(e.shell, shell))
           return mine.filter((e) => e.category === c.id)
         })
-  return entries.flatMap((entry) => [
-    { entry, n: 0, name: entry.task, command: entry.command },
-    // Only the rows of this shell. `n` counts every variant, so a copy
-    // button names the same row whichever shell it is drawn in.
-    ...(entry.variants ?? []).flatMap((v, i) =>
-      variantsIn([v], shell).length ? [{ entry, n: i + 1, name: v.label, command: v.command }] : []
-    )
-  ])
+  return entries.flatMap((entry) => {
+    const names = Object.keys(entry.placeholders ?? {})
+    return [
+      { entry, n: 0, name: entry.task, command: blankless(entry.command, names) },
+      // Only the rows of this shell. `n` counts every variant, so a copy
+      // button names the same row whichever shell it is drawn in.
+      ...(entry.variants ?? []).flatMap((v, i) =>
+        variantsIn([v], shell).length
+          ? [{ entry, n: i + 1, name: v.label, command: blankless(v.command, names) }]
+          : []
+      )
+    ]
+  })
 }
 
-const CopyIcon = (): JSX.Element => (
+const CopyIcon = ({ shown }: { shown: boolean }): JSX.Element => (
   <svg
     viewBox="0 0 24 24"
     width={15}
@@ -112,53 +126,59 @@ const CopyIcon = (): JSX.Element => (
     strokeLinecap="round"
     strokeLinejoin="round"
     aria-hidden
+    className={`col-start-1 row-start-1 transition-[transform,opacity] duration-200 ease-out ${shown ? '' : 'rotate-[-12deg] scale-[.55] opacity-0'}`}
   >
     <rect x="9" y="9" width="11" height="11" rx="2" />
     <path d="M5 15V6a2 2 0 0 1 2-2h9" />
   </svg>
 )
 
-const DangerIcon = (): JSX.Element => (
+/** The check a copied row's button turns into: it draws itself. */
+const CheckIcon = ({ shown }: { shown: boolean }): JSX.Element => (
   <svg
     viewBox="0 0 24 24"
-    width={13}
-    height={13}
+    width={17}
+    height={17}
     fill="none"
-    stroke="#e0a100"
-    strokeWidth="2"
+    stroke="currentColor"
+    strokeWidth="2.4"
     strokeLinecap="round"
     strokeLinejoin="round"
-    className="shrink-0"
     aria-hidden
+    data-help-check={shown || undefined}
+    className={`col-start-1 row-start-1 transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${shown ? '' : 'scale-[.6] opacity-0'}`}
   >
-    <path d="M12 3.5l9.5 16.5h-19z" />
-    <path d="M12 10v4.5M12 17.5v.01" />
+    <path
+      d="M5 12.5l4.5 4.5L19 7.5"
+      strokeDasharray={22}
+      strokeDashoffset={shown ? 0 : 22}
+      style={{ transition: 'stroke-dashoffset 340ms cubic-bezier(0.16,1,0.3,1) 60ms' }}
+    />
   </svg>
 )
 
-/** The row's columns, shared by the header and every row, so the two line up
- *  with one number to change. */
-const COLUMNS = 'grid grid-cols-[minmax(9rem,1fr)_minmax(0,1.5fr)_2.25rem] items-center gap-3'
-
 /**
- * ONE ROW: what it does, the command, a copy button. Zebra-striped the way
- * Prism's own file rows are (owner, 2026-09-20: "make the rows alternate in
- * colour kind of like Prism Explorer"), and the stripe is mixed against the
- * TEXT colour rather than being a fixed grey, so it holds on a light theme, on
- * void, and on anything somebody builds later. The FIRST row is the plain
- * ground and the second is the stripe, which is Prism's own pick.
- *
- * The command is ONE LINE and truncates: a table whose rows are different
- * heights is a list, not a table. Nothing is lost by it, since the copy takes
- * the whole text and the title shows it.
+ * ONE ROW, TWO COLUMNS (owner, 2026-10-13, A2 of the mockups): what you want
+ * on the left, wrapping to two lines at most; the command on the right in a
+ * quiet recessed block of the terminal's own face, its copy button inside the
+ * block. The WHOLE ROW copies (owner: "the whole row should be clickable to
+ * copy not just the icon"). Square corners and a stripe on every other row
+ * (owner: "have the rows alternate like before"), the stripe a step up from
+ * the panel, a hover a step more and the keyboard's row most, so the three
+ * never read as the same grey (owner: "the alternation colour cant be the same
+ * as the highlight colour"). No warning badge (owner: "remove warning labels
+ * and similar tags"): the entry's danger sentence is still the screen
+ * reader's and the pointer's.
  */
 function Row({
   row,
   index,
   active,
   striped,
+  copied,
   failed,
   mono,
+  open,
   onCopy,
   onPoint
 }: {
@@ -166,13 +186,20 @@ function Row({
   index: number
   active: boolean
   striped: boolean
+  copied: boolean
   failed: boolean
   mono: string
+  open: boolean
   onCopy: (key: string, command: string) => void
   onPoint: () => void
 }): JSX.Element {
   const key = `${row.entry.id}#${row.n}`
   const keys = isKeyPress(row.command)
+  const fill = active
+    ? 'bg-[color-mix(in_srgb,var(--p-text)_13%,transparent)]'
+    : striped
+      ? 'bg-[color-mix(in_srgb,var(--p-text)_4%,transparent)] hover:bg-[color-mix(in_srgb,var(--p-text)_9%,transparent)]'
+      : 'hover:bg-[color-mix(in_srgb,var(--p-text)_9%,transparent)]'
   return (
     <div
       id={`help-entry-${row.entry.id}-${row.n}`}
@@ -184,38 +211,35 @@ function Row({
       data-help-active={active || undefined}
       data-help-row
       onMouseDown={onPoint}
-      className={`${COLUMNS} h-[34px] px-4 ${
-        active
-          ? 'bg-[color-mix(in_srgb,var(--p-accent)_20%,transparent)]'
-          : striped
-            ? 'bg-[color-mix(in_srgb,var(--p-text)_3.5%,transparent)]'
-            : ''
-      }`}
+      onClick={() => {
+        // A drag that selected part of the command is a selection, not a
+        // click: it copies nothing (owner, 2026-10-13: "just clicking there
+        // still copies but you can drag to select").
+        if (keys || (window.getSelection()?.toString() ?? '') !== '') return
+        onCopy(key, row.command)
+      }}
+      // The rows rise in after the panel lands, a few at a time.
+      // Rising in, a few at a time; going out, they stay as they are and are
+      // reset only once the panel is out of sight, ready for the next rise.
+      style={
+        open
+          ? { transitionDelay: `${Math.min(index, 12) * 18 + 120}ms` }
+          : { transitionDuration: '0ms', transitionDelay: `${OUT_MS}ms` }
+      }
+      className={`group grid min-h-[36px] grid-cols-[minmax(0,.85fr)_minmax(0,1.25fr)] items-center gap-3.5 px-4 py-[3px] transition-[background-color,opacity,transform] duration-300 ease-out motion-reduce:transition-none ${
+        keys ? 'cursor-default' : 'cursor-pointer'
+      } ${open ? '' : 'translate-y-1.5 opacity-0'} ${fill}`}
     >
       <span
         data-help-task
-        className="flex min-w-0 items-center gap-1.5 truncate text-[12.5px] text-[var(--p-text)]"
+        className="line-clamp-2 min-w-0 select-none text-[12.5px] leading-[1.3] text-[var(--p-text)]"
+        {...hiddenTitle(row.name)}
       >
-        {row.entry.danger && (
-          // The warning is now a MARK, not a paragraph: the sentence is still
-          // here for the pointer and for a screen reader, which is what the
-          // e2e reads. A row that deletes things must not look like one that
-          // lists them.
-          <span
-            data-help-danger
-            title={`Careful. ${row.entry.danger}`}
-            className="flex items-center"
-          >
-            <DangerIcon />
-            <span className="sr-only">Careful. {row.entry.danger}</span>
-          </span>
-        )}
-        <span className="truncate" {...hiddenTitle(row.name)}>
-          {row.name}
-        </span>
+        {row.name}
+        {row.entry.danger && <span className="sr-only">. Careful. {row.entry.danger}</span>}
       </span>
       {keys ? (
-        // A key to press is drawn as key caps and has no copy button: the
+        // A key to press is drawn as key caps and copies nothing: the
         // characters "Ctrl+C" on a clipboard help nobody.
         <span data-help-keys className="flex min-w-0 items-center gap-1">
           {row.command.split('+').map((k, i) => (
@@ -229,50 +253,68 @@ function Row({
           ))}
         </span>
       ) : (
-        <code
-          data-help-command
-          className="min-w-0 select-text truncate text-[12.5px] text-[var(--p-text-soft)]"
-          style={{ fontFamily: mono }}
-          {...hiddenTitle(row.command)}
-        >
-          {row.command}
-        </code>
-      )}
-      {keys ? (
-        <span aria-hidden />
-      ) : (
-        <button
-          type="button"
-          data-help-copy={key}
-          onClick={(e) => {
-            e.stopPropagation()
-            onCopy(key, row.command)
-          }}
-          title={failed ? 'Could not copy' : 'Copy'}
-          aria-label={`Copy: ${row.command}`}
-          className={`grid h-7 w-7 place-items-center justify-self-end rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)] ${
-            failed
-              ? 'text-[#e0a100]'
-              : 'text-[var(--p-icon)] hover:bg-[var(--p-hover-hi)] hover:text-[var(--p-text)]'
+        <span
+          // A quiet well (owner: "the fields stand out too much"): a shade
+          // darker than the panel, fainter still on a light theme, where the
+          // same black reads as a grey slab.
+          className={`flex min-w-0 items-center gap-1.5 rounded-[6px] border bg-[color-mix(in_srgb,black_16%,transparent)] py-px pl-2.5 pr-px transition-colors [[data-mode=light]_&]:bg-[color-mix(in_srgb,black_4%,transparent)] ${
+            active ? 'border-[color:var(--p-line)]' : 'border-transparent group-hover:border-[color:var(--p-line)]'
           }`}
         >
-          {/* A copy that WORKED is said once, by the app's "Copied" badge at the
-              bottom of the window (owner, 2026-09-23), not here as well; only a
-              copy that failed is marked on its row. */}
-          <CopyIcon />
-        </button>
+          {/* The command is text to select (owner, 2026-10-13): the text
+              cursor over it, and the selection in the accent. */}
+          <code
+            data-help-command
+            className="min-w-0 flex-1 cursor-text select-text truncate text-[12.5px] leading-[1.5] text-[var(--p-text)] selection:bg-[color-mix(in_srgb,var(--p-accent)_45%,transparent)] selection:text-[var(--p-text)]"
+            style={{ fontFamily: mono }}
+            {...hiddenTitle(row.command)}
+          >
+            {row.command}
+          </code>
+          <button
+            type="button"
+            data-help-copy={key}
+            data-help-copied={copied || undefined}
+            onClick={(e) => {
+              e.stopPropagation()
+              onCopy(key, row.command)
+            }}
+            title={failed ? 'Could not copy' : copied ? 'Copied' : 'Copy'}
+            aria-label={`Copy: ${row.command}`}
+            className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)] ${
+              failed
+                ? 'text-[#e0a100]'
+                : copied
+                  ? 'bg-[color-mix(in_srgb,#8fd47a_16%,transparent)] text-[#8fd47a]'
+                  : 'text-[var(--p-icon)] hover:bg-[var(--p-hover-hi)] hover:text-[var(--p-text)]'
+            }`}
+          >
+            {/* THE COPY ICON TURNS INTO A CHECK (owner, 2026-10-13: "when you
+                click the copy key, that copy icon should turn into a
+                checkmark"): said here, on the row, in place of the app's
+                "Copied" badge, so a success is said once. */}
+            <span className="grid">
+              <CopyIcon shown={!copied} />
+              <CheckIcon shown={copied} />
+            </span>
+          </button>
+        </span>
       )}
     </div>
   )
 }
 
 export default function HelpPanel({
+  open,
   shell,
   monoFont,
   onCopy,
   onPickShell,
   onClose
 }: {
+  /** In or out. The host keeps the panel mounted once it has been opened, so
+   *  it can slide out as well as in. */
+  open: boolean
   /** The command language of the shell in front; which chip starts selected. */
   shell: HelpShellChoice
   /** The terminal's own font stack: a command is shown in the face it will be
@@ -284,71 +326,37 @@ export default function HelpPanel({
   onPickShell?: (shell: HelpShellChoice) => void
   onClose: () => void
 }): JSX.Element {
-  const box = useRef<HTMLDivElement>(null)
-  // HOW WIDE IT IS, and it is DRAGGED rather than typed (owner, 2026-09-20:
-  // "you also need to be able to adjust the width of this since some text can
-  // be seen"). A row is one line and truncates, so the width is the only way
-  // to read a long command in place. Remembered per app; see helpPrefs.
+  const box = useRef<HTMLElement>(null)
+  // HOW WIDE IT IS, DRAGGED by its left edge (owner, 2026-09-20: "you also
+  // need to be able to adjust the width of this since some text can be seen").
+  // The edge draws nothing (owner, 2026-10-13, of the grip line: "remove it");
+  // the pointer turns to the resize arrow over it. Remembered per app.
   const width = useHelpWidth()
   const drag = useRef<{ x: number; from: number } | null>(null)
-  const [dragging, setDragging] = useState(false)
   const onGrab = (e: React.PointerEvent<HTMLDivElement>): void => {
     e.preventDefault()
     e.stopPropagation()
     drag.current = { x: e.clientX, from: box.current?.getBoundingClientRect().width ?? width }
-    setDragging(true)
     e.currentTarget.setPointerCapture(e.pointerId)
   }
   const onDrag = (e: React.PointerEvent<HTMLDivElement>): void => {
     const d = drag.current
     if (!d) return
-    // The popup is CENTRED, so it grows from both edges at once: one pixel of
-    // pointer is two of width, or the edge runs away from the pointer.
-    const side = e.currentTarget.dataset.helpGrip === 'left' ? -1 : 1
-    setHelpWidth(d.from + (e.clientX - d.x) * 2 * side)
+    // Anchored at the right, so the left edge follows the pointer one to one.
+    setHelpWidth(d.from + (d.x - e.clientX))
   }
   const onDrop = (e: React.PointerEvent<HTMLDivElement>): void => {
     drag.current = null
-    setDragging(false)
-    if (e.currentTarget.hasPointerCapture(e.pointerId))
-      e.currentTarget.releasePointerCapture(e.pointerId)
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
   }
-  /** The keyboard's way to the same thing, on a focused grip. */
-  const onGripKey = (e: React.KeyboardEvent<HTMLDivElement>, side: number): void => {
+  /** The keyboard's way to the same thing, on a focused edge. */
+  const onGripKey = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
     e.preventDefault()
     e.stopPropagation()
-    const step = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 80 : 20) * side
+    const step = (e.key === 'ArrowLeft' ? 1 : -1) * (e.shiftKey ? 80 : 20)
     setHelpWidth((box.current?.getBoundingClientRect().width ?? width) + step)
   }
-  const grip = (side: 'left' | 'right'): JSX.Element => (
-    <div
-      data-help-grip={side}
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Popup width"
-      aria-valuenow={width}
-      aria-valuemin={HELP_WIDTH.min}
-      aria-valuemax={HELP_WIDTH.max}
-      tabIndex={0}
-      onPointerDown={onGrab}
-      onPointerMove={onDrag}
-      onPointerUp={onDrop}
-      onPointerCancel={onDrop}
-      onKeyDown={(e) => onGripKey(e, side === 'left' ? -1 : 1)}
-      // A hit area wider than the line it draws: a 1px target is a target
-      // nobody hits. The line itself only shows while it is being used or
-      // pointed at, so a popup at rest has no furniture on it.
-      // INSIDE the box: it has overflow-hidden, and a grip hanging over the
-      // edge is clipped to nothing - the pointer then finds no target at all
-      // (measured: the drag moved the width by 0).
-      className={`absolute inset-y-0 ${side === 'left' ? 'left-0' : 'right-0'} z-10 w-2 cursor-ew-resize focus-visible:outline-none`}
-    >
-      <div
-        className={`mx-auto h-full w-px transition-opacity ${dragging ? 'bg-[var(--p-accent-hi)] opacity-100' : 'bg-[var(--p-divider)] opacity-0 hover:opacity-100'}`}
-      />
-    </div>
-  )
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const sentinel = useRef<HTMLDivElement>(null)
@@ -356,11 +364,11 @@ export default function HelpPanel({
   const [chip, setChip] = useState<HelpShellChoice>(shell)
   const [active, setActive] = useState(0)
   /**
-   * NOTHING IS MARKED UNTIL SOMEBODY POINTS AT IT or walks the list (owner,
-   * 2026-09-20: "no highlighted ones"). The first row used to open already
-   * filled, which on a table of two hundred quiet rows reads as a selection
-   * nobody made. The cursor still EXISTS from the first row, so one Down marks
-   * it and Enter copies it; it is only not drawn before then.
+   * NOTHING IS MARKED UNTIL THE KEYBOARD WALKS THE LIST (owner, 2026-09-20: "no
+   * highlighted ones", and 2026-10-13 of a row marked from the start: "why is
+   * this row always highlighted"). The cursor still EXISTS from the first row,
+   * so one Down marks it and Enter copies it; the pointer moving over the list
+   * takes the mark away again, so only the row under it is lit.
    */
   const [marked, setMarked] = useState(false)
   const [limit, setLimit] = useState(FIRST_PAGE)
@@ -368,6 +376,26 @@ export default function HelpPanel({
   /** What a screen reader is told. Its own state, since two copies of the same
    *  command must both be announced and an unchanged string is not. */
   const [said, setSaid] = useState('')
+
+  // Each opening starts on the shell in front, at the top, with an empty
+  // question, as the popup did when it was mounted afresh: what was asked
+  // before is somebody else's moment.
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
+    if (open) {
+      setChip(shell)
+      setQuery('')
+      setActive(0)
+      setMarked(false)
+    }
+  }
+  useEffect(() => {
+    if (!open) return
+    // After the first frame of the slide, so the field is there to focus.
+    const t = setTimeout(() => input.current?.focus({ preventScroll: true }), 60)
+    return () => clearTimeout(t)
+  }, [open])
 
   const rows = useMemo(() => rowsFor(chip, query), [chip, query])
   const searching = query.trim() !== ''
@@ -391,11 +419,10 @@ export default function HelpPanel({
       .catch(() => false)
       .then((ok) => {
         setCopied({ key, ok })
-        // Success is the badge's to say (it has its own live region).
-        setSaid(ok ? '' : 'Could not copy to the clipboard')
+        setSaid(ok ? `Copied ${command}` : 'Could not copy to the clipboard')
       })
   }
-  // The answer leaves by itself. Keyed on the OBJECT, so copying the same box
+  // The check leaves by itself. Keyed on the OBJECT, so copying the same row
   // twice restarts the clock instead of inheriting what is left of the first.
   useEffect(() => {
     if (!copied) return
@@ -426,36 +453,23 @@ export default function HelpPanel({
   // lands on the wrong row.
   const moved = useRef(false)
 
-  // THE KEY LISTENER IS REGISTERED ONCE and reads the latest of everything from
-  // a ref, for the reason the update window's is (MEASURED there): keyed on
-  // its callbacks, the effect is torn down and put back on every render, and
-  // a keydown that lands between the two is heard by nobody.
-  const live = useRef({ rows, active, marked, copy, onClose })
-  useEffect(() => {
-    live.current = { rows, active, marked, copy, onClose }
-  })
-
-  // The frame (scrim, Escape, Tab kept inside, a press outside, the focus
-  // going back to the shell it came from on close) is the core's Modal; the
-  // list's own keys are read here.
-  const onKey = (e: KeyboardEvent): void => {
-    const { rows: r, active: a } = live.current
+  const onKey = (e: React.KeyboardEvent): void => {
     // Chords are the host's (new tab, close tab, Settings...): they keep
-    // working over the popup, and none of them is read here.
+    // working over the panel, and none of them is read here.
     if (e.ctrlKey || e.altKey || e.metaKey) return
-    if (
-      e.key === 'ArrowDown' ||
-      e.key === 'ArrowUp' ||
-      e.key === 'PageDown' ||
-      e.key === 'PageUp'
-    ) {
-      if (!r.length) return
-      const step =
-        e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : e.key === 'PageDown' ? 5 : -5
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
+      return
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'PageDown' || e.key === 'PageUp') {
+      if (!rows.length) return
+      const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : e.key === 'PageDown' ? 5 : -5
       // The first press MARKS where the cursor already is rather than
       // stepping off it: with nothing drawn, "move down" from nowhere means
       // the top of the list.
-      const next = live.current.marked ? Math.max(0, Math.min(r.length - 1, a + step)) : a
+      const next = marked ? Math.max(0, Math.min(rows.length - 1, active + step)) : active
       setMarked(true)
       e.preventDefault()
       e.stopPropagation()
@@ -466,25 +480,22 @@ export default function HelpPanel({
       return
     }
     if (e.key === 'Enter') {
-      // On a button, Enter is that button's own press (a chip, a variant's
-      // copy, Close). Anywhere else it copies the highlighted entry.
+      // On a button, Enter is that button's own press (a chip, a row's copy,
+      // Close). Anywhere else it copies the highlighted entry.
       if ((e.target as HTMLElement | null)?.closest('button')) return
       e.preventDefault()
       e.stopPropagation()
-      const row = r[a]
+      const row = rows[active]
       if (!row) return
       if (isKeyPress(row.command)) setSaid(`${row.command} is a key to press, not text to copy`)
-      else live.current.copy(`${row.entry.id}#${row.n}`, row.command)
-      return
+      else copy(`${row.entry.id}#${row.n}`, row.command)
     }
   }
 
   useEffect(() => {
     if (!moved.current) return
     moved.current = false
-    list.current
-      ?.querySelector(`[data-help-index="${active}"]`)
-      ?.scrollIntoView({ block: 'nearest' })
+    list.current?.querySelector(`[data-help-index="${active}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [active, limit])
 
   const drawn = rows.slice(0, limit)
@@ -492,153 +503,148 @@ export default function HelpPanel({
     marked && rows[active] ? `help-entry-${rows[active].entry.id}-${rows[active].n}` : undefined
 
   return (
-    <Modal
-      shadow={false}
-      onCancel={onClose}
-      label="Command help"
-      focus="input"
-      scrim="bg-black/35 backdrop-blur-[6px]"
-      scrimAttrs={{ 'data-help-scrim': true }}
-      boxAttrs={{ 'data-help-panel': true }}
-      boxRef={box}
+    <aside
+      ref={box}
+      data-help-panel
+      data-help-open={open || undefined}
+      aria-label="Command help"
+      aria-hidden={!open}
+      // Out, it takes no keys and no clicks, and is not read.
+      inert={!open}
       onKeyDown={onKey}
-      boxStyle={{ width: clampHelpWidth(width) }}
-      boxClassName="relative flex h-[min(82vh,680px)] max-w-full flex-col overflow-hidden"
+      style={{
+        width: clampHelpWidth(width),
+        transform: open ? 'none' : 'translateX(104%)',
+        visibility: open ? 'visible' : 'hidden',
+        transition: open
+          ? `transform ${IN_MS}ms cubic-bezier(0.16,1,0.3,1), visibility 0s`
+          : `transform ${OUT_MS}ms ${OUT_EASE}, visibility 0s ${OUT_MS}ms`
+      }}
+      className="no-drag absolute inset-y-0 right-0 z-30 flex max-w-[calc(100%-120px)] flex-col border-l border-[color:var(--p-divider)] bg-[var(--p-side-flat)] text-[var(--p-text)] shadow-[-18px_0_40px_-18px_rgba(0,0,0,.65)] motion-reduce:!transition-none"
     >
-      {grip('left')}
-      {grip('right')}
-      {/* The question. */}
-      <div className="flex shrink-0 items-center gap-2.5 border-b border-[color:var(--p-line)] px-4 py-3">
-        <svg
-          viewBox="0 0 24 24"
-          width={16}
-          height={16}
-          fill="none"
-          stroke="var(--p-dim)"
-          strokeWidth="2"
-          strokeLinecap="round"
-          className="shrink-0"
-          aria-hidden
-        >
-          <circle cx="11" cy="11" r="6.5" />
-          <path d="M16 16l4.5 4.5" />
-        </svg>
-        <input
-          ref={input}
-          data-help-search
-          type="text"
-          role="combobox"
-          aria-expanded="true"
-          aria-controls="help-results"
-          aria-activedescendant={activeId}
-          aria-label="Search commands. Up and Down move through the results, Enter copies the highlighted command."
-          autoComplete="off"
-          spellCheck={false}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          // It teaches by example: what to type is the first thing a
-          // newcomer does not know.
-          placeholder="Try: find big files, what is using port 3000, undo last commit"
-          className="min-w-0 flex-1 bg-transparent text-[14px] text-[var(--p-text)] placeholder:text-[var(--p-dim2)] focus:outline-none"
-        />
-        <button
-          type="button"
-          data-help-close
-          onClick={onClose}
-          title="Close (Esc)"
-          aria-label="Close"
-          className="grid h-7 w-7 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover-hi)] hover:text-[var(--p-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)]"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width={13}
-            height={13}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            aria-hidden
-          >
-            <path d="M7 7l10 10M17 7L7 17" />
-          </svg>
-        </button>
-      </div>
-
-      {/* Which shell. Git, the agents and the package managers read the same
-            in all three, so they are in every list and are not a chip. */}
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-[color:var(--p-line)] px-4 py-2">
-        <div role="group" aria-label="Shell" className="flex items-center gap-1.5">
-          {HELP_SHELLS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              data-help-shell={s.id}
-              aria-pressed={chip === s.id}
-              onClick={() => {
-                setChip(s.id)
-                onPickShell?.(s.id)
-                input.current?.focus()
-              }}
-              className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)] ${
-                chip === s.id
-                  ? 'border-transparent bg-[var(--p-accent)] text-[var(--p-on-accent)]'
-                  : 'border-[color:var(--p-line)] text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
-              }`}
-            >
-              {s.name}
-            </button>
-          ))}
-        </div>
-        <span className="min-w-0 flex-1" />
-        <span data-help-count role="status" className="shrink-0 text-[11.5px] text-[var(--p-dim)]">
-          {searching
-            ? rows.length === 0
-              ? 'No results'
-              : `${rows.length}${rows.length === MAX_RESULTS ? '+' : ''} ${rows.length === 1 ? 'result' : 'results'}`
-            : `${rows.length} commands`}
-        </span>
-      </div>
-
-      {/* The columns, named once. A table's header is what makes two ragged
-            columns read as two columns. */}
+      {/* The left edge resizes. It draws nothing (owner: "remove it"). */}
       <div
-        data-help-header
-        aria-hidden
-        className={`${COLUMNS} shrink-0 border-b border-[color:var(--p-line)] px-4 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--p-dim)]`}
-      >
-        <span>What you want</span>
-        <span>Command</span>
-        <span />
+        data-help-grip="left"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Panel width"
+        aria-valuenow={width}
+        aria-valuemin={HELP_WIDTH.min}
+        aria-valuemax={HELP_WIDTH.max}
+        tabIndex={0}
+        onPointerDown={onGrab}
+        onPointerMove={onDrag}
+        onPointerUp={onDrop}
+        onPointerCancel={onDrop}
+        onKeyDown={onGripKey}
+        className="absolute inset-y-0 -left-1 z-20 w-2 cursor-ew-resize focus-visible:outline-none"
+      />
+
+      <div className="flex shrink-0 flex-col gap-2.5 px-4 pb-2.5 pt-3.5">
+        <div className="flex items-center gap-2">
+          <h2 className="flex-1 select-none text-[14.5px] font-semibold text-[var(--p-text)]">Command help</h2>
+          <button
+            type="button"
+            data-help-close
+            onClick={onClose}
+            title="Close (Esc)"
+            aria-label="Close"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover-hi)] hover:text-[var(--p-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)]"
+          >
+            <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+              <path d="M7 7l10 10M17 7L7 17" />
+            </svg>
+          </button>
+        </div>
+        {/* The question. */}
+        <label className="flex h-9 items-center gap-2.5 rounded-[8px] border border-[color:var(--p-line)] bg-[color-mix(in_srgb,black_14%,transparent)] px-3 [[data-mode=light]_&]:bg-[color-mix(in_srgb,black_3%,transparent)] transition-[border-color,box-shadow] focus-within:border-[color:var(--p-accent-hi)] focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--p-accent)_16%,transparent)]">
+          <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="var(--p-dim)" strokeWidth="2" strokeLinecap="round" className="shrink-0" aria-hidden>
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="M16 16l4.5 4.5" />
+          </svg>
+          <input
+            ref={input}
+            data-help-search
+            type="text"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="help-results"
+            aria-activedescendant={activeId}
+            aria-label="Search commands. Up and Down move through the results, Enter copies the highlighted command."
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            // It teaches by example: what to type is the first thing a
+            // newcomer does not know.
+            placeholder="Try: find big files, what is using port 3000"
+            className="min-w-0 flex-1 bg-transparent text-[13.5px] text-[var(--p-text)] caret-[var(--p-accent)] placeholder:text-[var(--p-dim2)] focus:outline-none"
+          />
+        </label>
+        {/* Which shell. Git, the agents and the package managers read the same
+            in all three, so they are in every list and are not a chip. */}
+        <div className="flex items-center gap-1.5">
+          <div role="group" aria-label="Shell" className="flex items-center gap-1.5">
+            {HELP_SHELLS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                data-help-shell={s.id}
+                aria-pressed={chip === s.id}
+                onClick={() => {
+                  setChip(s.id)
+                  onPickShell?.(s.id)
+                  input.current?.focus()
+                }}
+                className={`select-none rounded-full border px-2.5 py-1 text-[12px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)] ${
+                  chip === s.id
+                    ? 'border-transparent bg-[var(--p-accent)] text-[var(--p-on-accent)]'
+                    : 'border-[color:var(--p-line)] text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
+                }`}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
+          <span className="min-w-0 flex-1" />
+          <span data-help-count role="status" className="shrink-0 select-none text-[11.5px] tabular-nums text-[var(--p-dim)]">
+            {searching
+              ? rows.length === 0
+                ? 'No results'
+                : `${rows.length}${rows.length === MAX_RESULTS ? '+' : ''} ${rows.length === 1 ? 'result' : 'results'}`
+              : `${rows.length} commands`}
+          </span>
+        </div>
       </div>
 
-      {/* The answers. The list scrolls, the popup does not. */}
+      {/* The answers. The list scrolls, the panel does not. */}
       <div
         ref={list}
         id="help-results"
         data-help-list
         role="listbox"
         aria-label={searching ? 'Results' : 'All commands'}
-        className="p-scroll min-h-0 flex-1 overflow-y-auto"
+        onMouseMove={() => {
+          if (marked) setMarked(false)
+        }}
+        className="p-scroll min-h-0 flex-1 overflow-y-auto pb-2"
       >
         {rows.length === 0 && (
-          <p
-            data-help-empty
-            className="px-5 py-8 text-center text-[12.5px] leading-relaxed text-[var(--p-dim)]"
-          >
-            Nothing matches. Say it another way (what you want to DO, such as "delete a folder"), or
-            try another shell.
+          <p data-help-empty className="px-5 py-8 text-center text-[12.5px] leading-relaxed text-[var(--p-dim)]">
+            Nothing matches. Say it another way (what you want to DO, such as "delete a folder"), or try another
+            shell.
           </p>
         )}
         {drawn.map((row, i) => {
-          const header =
-            !searching && (i === 0 || drawn[i - 1].entry.category !== row.entry.category)
+          const header = !searching && (i === 0 || drawn[i - 1].entry.category !== row.entry.category)
           const key = `${row.entry.id}#${row.n}`
           return (
             <div key={key}>
               {header && (
+                // Headings are not text to select (owner, 2026-10-13).
                 <h3
                   data-help-category={row.entry.category}
-                  className="sticky top-0 z-10 border-b border-[color:var(--p-line)] bg-[var(--p-side-flat)] px-4 pb-1.5 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--p-dim)]"
+                  className="sticky top-0 z-10 cursor-default select-none bg-[var(--p-side-flat)] px-4 pb-1.5 pt-3.5 text-[11.5px] font-semibold text-[var(--p-dim)]"
                 >
                   {CATEGORY_NAME.get(row.entry.category) ?? row.entry.category}
                 </h3>
@@ -650,30 +656,22 @@ export default function HelpPanel({
                 // The stripe follows the drawn order, so it never restarts
                 // under a category heading: the eye reads one ruled table.
                 striped={i % 2 === 1}
+                copied={copied?.key === key && copied.ok}
                 failed={copied?.key === key && !copied.ok}
                 mono={monoFont}
+                open={open}
                 onCopy={copy}
-                onPoint={() => {
-                  setActive(i)
-                  setMarked(true)
-                }}
+                onPoint={() => setActive(i)}
               />
             </div>
           )
         })}
-        {drawn.length < rows.length && (
-          <div ref={sentinel} data-help-more className="h-8" aria-hidden />
-        )}
+        {drawn.length < rows.length && <div ref={sentinel} data-help-more className="h-8" aria-hidden />}
       </div>
 
-      {/* The keys, and nothing else. The sentence that used to sit here -
-            "Nothing is typed or run for you: copy a command, then paste it
-            yourself" - was REMOVED (owner, 2026-09-20: "remove this line").
-            The rule it stated has not changed and is still enforced where it
-            matters: this component cannot reach a shell at all, and the e2e
-            reads the terminal's text before and after everything it does. */}
-      <div className="flex shrink-0 items-center justify-end gap-3 border-t border-[color:var(--p-line)] px-4 py-2 text-[11.5px] text-[var(--p-dim)]">
-        <span className="hidden shrink-0 items-center gap-1.5 sm:flex" aria-hidden>
+      {/* The keys, and nothing else. */}
+      <div className="flex shrink-0 select-none items-center justify-end gap-3 border-t border-[color:var(--p-line)] px-4 py-2 text-[11.5px] text-[var(--p-dim)]">
+        <span className="flex shrink-0 items-center gap-1.5" aria-hidden>
           <Key>Up</Key>
           <Key>Down</Key>
           <span>move</span>
@@ -683,11 +681,11 @@ export default function HelpPanel({
           <span>close</span>
         </span>
       </div>
-      {/* What a screen reader hears: the visible "Copied" is decoration. */}
+      {/* What a screen reader hears: the check on the row is for the eye. */}
       <span data-help-said role="status" aria-live="polite" className="sr-only">
         {said}
       </span>
-    </Modal>
+    </aside>
   )
 }
 

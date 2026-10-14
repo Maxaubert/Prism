@@ -34,17 +34,12 @@ export const AGENTS_HELP: readonly HelpEntry[] = [
     command: 'claude',
     variants: [
       {
-        label: 'Start Claude with a first request typed',
-        command: 'claude "PROMPT"',
-        keywords: ['initial prompt', 'prompt on launch', 'give it a task straight away', 'one liner', 'command line prompt']
-      },
-      {
         label: 'Start Claude on a particular model',
         command: 'claude --model MODEL',
         keywords: ['--model', 'opus', 'sonnet', 'haiku', 'model alias', 'choose the model at launch']
       }
     ],
-    placeholders: { PROMPT: 'What you want done, in plain words', MODEL: 'A model alias or full model name' },
+    placeholders: { MODEL: 'A model alias or full model name' },
     keywords: [
       'claude',
       'claude code',
@@ -55,7 +50,9 @@ export const AGENTS_HELP: readonly HelpEntry[] = [
       'anthropic',
       'ai assistant',
       'coding agent',
-      'new session'
+      'new session',
+      'initial prompt',
+      'give it a task straight away'
     ]
   },
   {
@@ -129,7 +126,7 @@ export const AGENTS_HELP: readonly HelpEntry[] = [
     variants: [
       {
         label: 'Print the answer as JSON',
-        command: 'claude -p "PROMPT" --output-format json',
+        command: 'claude -p --output-format json "PROMPT"',
         keywords: ['--output-format', 'machine readable', 'parse the output', 'for a script', 'jq', 'structured output']
       }
     ],
@@ -747,11 +744,6 @@ export const AGENTS_HELP: readonly HelpEntry[] = [
     command: 'codex',
     variants: [
       {
-        label: 'Start Codex with a first request typed',
-        command: 'codex "PROMPT"',
-        keywords: ['initial prompt', 'give it a task straight away', 'one liner', 'command line prompt']
-      },
-      {
         label: 'Start Codex on a particular model',
         command: 'codex -m MODEL',
         keywords: ['-m flag', 'gpt-5', 'choose the model', 'model name', 'set it at launch']
@@ -776,7 +768,9 @@ export const AGENTS_HELP: readonly HelpEntry[] = [
       'gpt',
       'coding agent',
       'run the agent',
-      'do you trust this folder'
+      'do you trust this folder',
+      'initial prompt',
+      'give it a task straight away'
     ]
   },
   {

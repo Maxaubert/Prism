@@ -11,7 +11,7 @@
  * and variant below was run in a throwaway repository with a throwaway bare
  * remote and its own GIT_CONFIG_GLOBAL, the destructive ones included, since
  * nothing in that folder mattered. The quoting-sensitive ones (-S "TEXT",
- * --grep="TEXT", main...HEAD, -m "MESSAGE") were run again under PowerShell
+ * --grep "TEXT", main...HEAD, -m "MESSAGE") were run again under PowerShell
  * 7.6 and Windows PowerShell 5.1. `git merge --continue` and `git cherry-pick`
  * were not exercised to completion; they are long-standing git and are listed
  * on that strength.
@@ -78,17 +78,11 @@ export const GIT_HELP: readonly HelpEntry[] = [
         keywords: ['cached', 'index', 'what will be committed', 'review before committing', 'about to commit']
       },
       {
-        label: 'Diff one file',
-        command: 'git diff FILE',
-        keywords: ['single path', 'changes in this file', 'per-file', 'just one', 'what did i do here']
-      },
-      {
         label: 'Summary of files and line counts',
         command: 'git diff --stat',
         keywords: ['--stat', 'diffstat', 'how many lines changed', 'insertions deletions', 'overview']
       }
     ],
-    placeholders: { FILE: 'The path of the file to look at' },
     keywords: [
       'diff',
       'what did i change',
@@ -99,7 +93,9 @@ export const GIT_HELP: readonly HelpEntry[] = [
       'staged changes',
       'cached',
       'review my edits',
-      'how do i get out of the diff'
+      'how do i get out of the diff',
+      'diff one file',
+      'changes in this file'
     ]
   },
   {
@@ -118,16 +114,11 @@ export const GIT_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'Commits by one author',
-        command: 'git log --author="NAME" --oneline',
+        command: 'git log --oneline --author "NAME"',
         keywords: ['--author', 'filter by person', 'my commits', 'who committed what', 'by email']
-      },
-      {
-        label: 'Commits whose message mentions a word',
-        command: 'git log --grep="TEXT" --oneline',
-        keywords: ['search the log', 'find a commit by subject', 'keyword', 'ticket number', 'message contains']
       }
     ],
-    placeholders: { NAME: "Part of the author's name or email", TEXT: 'A word from the commit message' },
+    placeholders: { NAME: "Part of the author's name or email" },
     keywords: [
       'history',
       'log',
@@ -157,7 +148,7 @@ export const GIT_HELP: readonly HelpEntry[] = [
       },
       {
         label: 'List the files a commit touched',
-        command: 'git show COMMIT --stat',
+        command: 'git show --stat COMMIT',
         keywords: ['--stat', 'which files changed', 'file list', 'overview of a commit', 'no diff']
       }
     ],
@@ -237,12 +228,12 @@ export const GIT_HELP: readonly HelpEntry[] = [
     task: 'Find the commit that added or removed text',
     summary:
       'Searches the whole history for commits where the number of times TEXT appears changed, which is how you find where a function or a setting came from or went.',
-    command: 'git log -S "TEXT" --oneline',
+    command: 'git log --oneline -S "TEXT"',
     variants: [
       {
         label: 'Search commit messages for a word',
-        command: 'git log --grep="TEXT" --oneline',
-        keywords: ['subject line', 'find the commit that mentions', 'ticket number', 'by description', 'message search']
+        command: 'git log --oneline --grep "TEXT"',
+        keywords: ['subject line', 'find the commit that mentions', 'ticket number', 'by description', 'message search', 'search the log', 'message contains']
       }
     ],
     placeholders: { TEXT: 'The exact text to look for' },
@@ -301,15 +292,9 @@ export const GIT_HELP: readonly HelpEntry[] = [
     task: 'See which commits you have not pushed yet',
     summary: 'Lists commits that exist on your machine and on no remote, so you know what a push would send.',
     command: 'git log --branches --not --remotes --oneline',
-    variants: [
-      {
-        label: 'Count of unpushed commits, ahead of origin',
-        command: 'git status -sb',
-        keywords: ['-sb', 'short branch status', 'how many to push', 'ahead n', 'tracking line']
-      }
-    ],
     keywords: [
       'unpushed',
+      'how many to push',
       'not pushed',
       'ahead of origin',
       'local commits',
@@ -978,14 +963,9 @@ export const GIT_HELP: readonly HelpEntry[] = [
     category: 'git',
     task: 'Download (clone) a repository',
     summary:
-      'Copies a repository from GitHub or elsewhere, with its full history, into a new folder under the one you are in.',
+      'Copies a repository from GitHub or elsewhere, with its full history, into a new folder under the one you are in. Type a folder name after the address to choose what the new folder is called.',
     command: 'git clone URL',
     variants: [
-      {
-        label: 'Clone into a folder you name',
-        command: 'git clone URL FOLDER',
-        keywords: ['target directory', 'second argument', 'rename on download', 'custom path', 'not the repo name']
-      },
       {
         label: 'Shallow clone, latest snapshot only',
         command: 'git clone --depth 1 URL',
@@ -993,8 +973,7 @@ export const GIT_HELP: readonly HelpEntry[] = [
       }
     ],
     placeholders: {
-      URL: 'The address from the green Code button, such as https://github.com/OWNER/REPO.git',
-      FOLDER: 'The folder to create'
+      URL: 'The address from the green Code button, such as https://github.com/OWNER/REPO.git'
     },
     keywords: [
       'clone',
@@ -1004,7 +983,9 @@ export const GIT_HELP: readonly HelpEntry[] = [
       'checkout a project',
       'shallow clone',
       'download a project',
-      'repository url'
+      'repository url',
+      'target directory',
+      'clone into a folder'
     ]
   },
   {
