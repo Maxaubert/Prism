@@ -25,7 +25,7 @@ export default defineConfig({
     ]
   },
   test: {
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'tools/lib/**/*.test.mjs'],
     environment: 'node',
     // The renderer's stores read localStorage at import time; the setup gives
     // them one so their pure logic can be tested without a browser.
