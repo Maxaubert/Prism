@@ -59,6 +59,7 @@ import { diagLines } from './diag'
 import { memoryPatch } from './memory'
 import { parseRoute, tokenOf, type Route } from './routes'
 import { localPath } from './phoneAccess'
+import { localNetwork } from './lan'
 import { HLS_MIME, assetMime } from '../mime'
 
 export const DEFAULT_PORT = 47320
@@ -323,6 +324,9 @@ export class PhoneServer {
    */
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
+      // The user's own network only (lan.ts): a forwarded port or a public
+      // IPv6 address must not put pairing on the internet.
+      if (!localNetwork(req.socket.remoteAddress)) return void json(res, 403, { error: 'not on this network' })
       const route = parseRoute(req.url ?? '/')
       if (route.kind === 'none') return void json(res, 404, { error: 'not found' })
       if (route.kind === 'static') return await this.serveStatic(route.file, req, res)
@@ -681,6 +685,14 @@ export class PhoneServer {
     r.headers.forEach((v, k) => {
       if (k.toLowerCase() !== 'access-control-allow-origin') out[k] = v
     })
+    // A FILE IS NEVER A PAGE ON THIS ORIGIN (review, 2026-10-14). The phone
+    // page lives here and keeps its token in this origin's storage, so an SVG
+    // or HTML file on the PC opened by its /m/ address would run its script
+    // as the page and could read the whole PC with that token. Sandboxed, a
+    // document served here runs nothing and is its own null origin; an
+    // <img>, <video> or <audio> embedding it is unaffected.
+    out['content-security-policy'] = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
+    out['x-content-type-options'] = 'nosniff'
     res.writeHead(r.status, out)
     if (!r.body) return void res.end()
     const node = Readable.fromWeb(r.body as never)
