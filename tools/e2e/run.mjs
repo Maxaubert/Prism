@@ -11637,7 +11637,9 @@ async function quietTooltipsScenario(fixtures) {
     const label = win.locator(`[data-row="${path.replace(/\\/g, '\\\\')}"] span.truncate`).first()
     await label.hover()
     await sleep(150)
-    return { tip: await label.getAttribute('title'), text: ((await label.textContent()) ?? '').trim() }
+    // The core's <Tooltips /> moves a hovered title to data-tip-title.
+    const tip = await label.evaluate((el) => el.getAttribute('title') ?? el.getAttribute('data-tip-title'))
+    return { tip, text: ((await label.textContent()) ?? '').trim() }
   }
   try {
     await win.waitForSelector('[data-row]', { timeout: 45000 })
@@ -11646,6 +11648,52 @@ async function quietTooltipsScenario(fixtures) {
     ok(short.tip === null, `a tree name drawn whole has no tooltip (${short.tip})`)
     const cut = await tipOf(join(dir, long))
     ok(cut.tip === long, `a tree name the panel cut off gives its whole name (${cut.tip})`)
+  } finally {
+    await app.close()
+  }
+}
+
+// A TOOLTIP SITS BY ITS ITEM (owner, 2026-10-13: "when i hover over settings
+// ... they dont appear under it centered, they appear from bottom right of
+// that item"). The core's <Tooltips /> draws every title itself: centred under
+// the item, and Windows is left none to draw at the pointer.
+async function placedTipsScenario(fixtures) {
+  console.log('placed tips')
+  const dir = join(fixtures, 'placedtips')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'one.txt'), 'tips\n')
+  const { app, win } = await launch(join(dir, 'one.txt'))
+  try {
+    const gear = win.locator('button[aria-label="Settings"]').first()
+    await gear.waitFor({ timeout: 45000 })
+    await sleep(500)
+    const box = await gear.boundingBox()
+    // Off to one side of the button, so a tip at the pointer would show it.
+    await win.mouse.move(box.x + box.width - 2, box.y + box.height - 2)
+    await until(async () => (await win.locator('[role="tooltip"][data-tip]').count()) === 1, 5000)
+    await sleep(150)
+    const read = await win.evaluate(() => {
+      const b = document.querySelector('button[aria-label="Settings"]')
+      const t = document.querySelector('[role="tooltip"][data-tip]')
+      const br = b.getBoundingClientRect()
+      const tr = t.getBoundingClientRect()
+      return {
+        text: t.innerText.trim(),
+        title: b.getAttribute('title'),
+        dx: Math.abs(tr.left + tr.width / 2 - (br.left + br.width / 2)),
+        below: tr.top - br.bottom,
+        inside: tr.left >= 0 && tr.right <= innerWidth
+      }
+    })
+    ok(read.text === 'Settings', `hovering Settings draws its tip (${read.text})`)
+    ok(read.title === null, `and Windows has no title left to draw (${read.title})`)
+    ok(read.inside, 'the tip is inside the window')
+    ok(read.dx <= 1 || !read.inside, `centred on the button (off by ${read.dx.toFixed(1)}px)`)
+    ok(read.below >= 0 && read.below <= 16, `just under it (${read.below.toFixed(1)}px)`)
+    await win.mouse.move(5, 400)
+    await until(async () => (await win.locator('[role="tooltip"][data-tip]').count()) === 0, 3000)
+    ok((await gear.getAttribute('title')) === 'Settings', 'the title is back once the pointer leaves')
   } finally {
     await app.close()
   }
@@ -13568,10 +13616,11 @@ async function dragScenario(fixtures) {
  * reported, the pairing response status, and what the phone was handed.
  */
 async function pairPhone(win) {
+  // A hovered tab's title sits in data-tip-title (the core's <Tooltips />).
   const state = await win.evaluate(() =>
     window.prism.phoneSetOn(
       true,
-      document.querySelector('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')?.getAttribute('title') ?? null
+      ((t) => t?.getAttribute('title') ?? t?.dataset.tipTitle)(document.querySelector('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')) ?? null
     )
   )
   const base = `http://127.0.0.1:${state.port}`
@@ -13644,7 +13693,7 @@ async function phoneScenario(fixtures) {
     // A second code for the same tab: the first was spent above.
     const again = await win.evaluate(() =>
       window.prism.phoneCode(
-        document.querySelector('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')?.getAttribute('title') ?? ''
+        ((t) => t?.getAttribute('title') ?? t?.dataset.tipTitle)(document.querySelector('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')) ?? ''
       )
     )
     ok(!!again.code && again.code.code !== state.code.code, 'a fresh code replaces the spent one')
@@ -13962,7 +14011,7 @@ async function phoneHlsScenario(fixtures) {
     // confirm that a stream exists.
     const again = await win.evaluate(() =>
       window.prism.phoneCode(
-        document.querySelector('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')?.getAttribute('title') ?? ''
+        ((t) => t?.getAttribute('title') ?? t?.dataset.tipTitle)(document.querySelector('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')) ?? ''
       )
     )
     const other = await fetch(`${base}/pair`, {
@@ -18971,6 +19020,7 @@ await run(addressFieldScenario)
 await run(toolbarIconsScenario)
 await run(pressedTogglesScenario)
 await run(quietTooltipsScenario)
+await run(placedTipsScenario)
 await run(sizesKeptScenario)
 await run(explorerVerbsScenario)
 await run(propertiesWindowScenario)
