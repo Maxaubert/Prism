@@ -189,6 +189,16 @@ describe('a file something holds open', () => {
       holder.kill()
       await new Promise((r) => holder.once('exit', r))
     }
+    // Let go means the HANDLE is gone, not that the process said it exited:
+    // waited for by the same write-open that proved the lock (#173).
+    for (let i = 0; i < 250; i++) {
+      try {
+        closeSync(openSync(film, 'r+'))
+        break
+      } catch {
+        await new Promise((r) => setTimeout(r, 40))
+      }
+    }
     const again = await moveEntries([film], join(dir, 'into'), 'ask', trash)
     expect(again.busy).toEqual([])
     expect(again.moved).toEqual([{ from: film, to: join(dir, 'into', 'film.bin') }])

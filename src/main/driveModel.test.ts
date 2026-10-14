@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { powershellInWorker } from './driveUsage'
 import {
   createDriveModels,
   MODEL_COMMAND,
@@ -93,7 +94,18 @@ describe('createDriveModels', () => {
 })
 
 describe.runIf(process.platform === 'win32')('driveModel', () => {
-  it('reads the system drive through the worker', async () => {
+  // The worker, a real PowerShell and the parser, end to end, with a command
+  // that answers at once. The Storage cmdlets themselves are the MACHINE's:
+  // on a cold GitHub runner Get-PhysicalDisk alone passed the 10 s the app
+  // allows (2026-10-14, ci of #382), which is the app's timeout doing its
+  // job, not a fault in this code. So the live read below runs here only.
+  it('runs its command in the worker and parses the answer', async () => {
+    const answer = "'C|Disk|Model|NVMe|SSD|NTFS|Windows'"
+    const facts = await createDriveModels({ run: () => powershellInWorker(answer), now: Date.now })('C:\\')
+    expect(facts).toEqual({ model: 'Disk', bus: 'NVMe', media: 'SSD', fs: 'NTFS', label: 'Windows' })
+  }, 30_000)
+
+  it.skipIf(!!process.env.CI)('reads the system drive through the worker (this machine)', async () => {
     const system = `${(process.env.SystemDrive ?? 'C:').toUpperCase()}\\`
     const facts = await createDriveModels()(system)
     expect(facts.fs).toBe('NTFS')

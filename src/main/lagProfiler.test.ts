@@ -77,7 +77,22 @@ function fakeLog(dir: string): DiagLog & { lines: Record<string, unknown>[] } {
   return { ...NULL_DIAG_LOG, dir, lines, write: (_src, k, f) => void lines.push({ k, ...f }) }
 }
 
-const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 50))
+/** Wait for what the profiler writes and prunes off the main thread, not a
+ *  fixed time: a 50 ms sleep read a profile still being written, "Unexpected
+ *  end of JSON input", on a loaded CI runner (2026-10-12). */
+async function until(ok: () => boolean, ms = 5000): Promise<void> {
+  const end = Date.now() + ms
+  while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 20))
+}
+/** The file holds a whole JSON document. */
+function written(path: string): boolean {
+  try {
+    JSON.parse(readFileSync(path, 'utf8'))
+    return true
+  } catch {
+    return false
+  }
+}
 
 describe('startLagProfiler', () => {
   it('does nothing at all while off', () => {
@@ -108,7 +123,10 @@ describe('startLagProfiler', () => {
     log.write('main', 'main-lag', { ms: 400 })
     t = 4000
     log.write('main', 'main-lag', { ms: 2500 })
-    await settle()
+    const kept = ['lag-2000-01-01T00-00-02-000Z.cpuprofile', 'lag-2026-10-12T09-30-01-123Z.cpuprofile']
+    await until(
+      () => readdirSync(dir).sort().join() === kept.join() && written(join(dir, kept[1]))
+    )
     p.stop()
     expect(log.lines[0]).toEqual({ k: 'main-lag', ms: 400 })
     expect(log.lines[1]).toEqual({
@@ -138,10 +156,16 @@ describe('startLagProfiler', () => {
     // Main blocked 5000 to 6000; the rotation ran at 6000, the detector at 6010.
     t = 6000
     p.rotate()
-    await settle()
+    // The rotation keeps its window in a promise callback (the fake session
+    // answers at once): drained by the next macrotask, whatever the load.
+    await new Promise((r) => setImmediate(r))
     t = 6010
     log.write('main', 'main-lag', { ms: 1000 })
-    await settle()
+    await until(
+      () =>
+        written(join(dir, 'lag-2026-10-12T09-30-01-123Z.cpuprofile')) &&
+        written(join(dir, 'lag-2026-10-12T09-30-01-123Z-prev.cpuprofile'))
+    )
     p.stop()
     const read = (n: string): unknown => JSON.parse(readFileSync(join(dir, n), 'utf8'))
     // Window 1 (0 to 6000) holds the lag; window 2 (6000 to 6010) only its tail.
