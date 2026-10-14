@@ -358,6 +358,14 @@ async function launchOnce(file, keepTabs = false) {
  * desktop, no taskbar entry) rather than hidden, for the same reason: a
  * hidden window stops answering clicks. Playwright drives it over CDP.
  */
+/**
+ * The phone's window, parked like every other. Scenarios that hand the page a
+ * token open it on `/pair` (a bare 405, no page) and then go to `/`: opened on
+ * the page itself, it boots with the token a PREVIOUS scenario's phone left in
+ * this origin's storage and starts browsing that phone's folder, and those
+ * requests read the token afresh each time, so the new phone was moved there
+ * (2026-10-14).
+ */
 async function openPhoneWindow(app, url) {
   const appeared = app.waitForEvent('window', { timeout: 15000 })
   await app.evaluate(({ BrowserWindow }, target) => {
@@ -13615,14 +13623,19 @@ async function dragScenario(fixtures) {
  * IS its root (TabStrip's role="tab"). Returns the server's state as
  * reported, the pairing response status, and what the phone was handed.
  */
-async function pairPhone(win) {
-  // A hovered tab's title sits in data-tip-title (the core's <Tooltips />).
-  // The folder in front is where the phone starts (2026-10-14).
-  const state = await win.evaluate(() =>
-    window.prism.phoneSetOn(
-      true,
-      ((t) => t?.getAttribute('title') ?? t?.dataset.tipTitle)(document.querySelector('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')) ?? null
-    )
+async function pairPhone(win, start) {
+  // Where the phone starts (2026-10-14): `start` when the scenario names it,
+  // else the selected tab's folder. A hovered tab's title sits in
+  // data-tip-title (the core's <Tooltips />).
+  const state = await win.evaluate(
+    (at) =>
+      window.prism.phoneSetOn(
+        true,
+        at ??
+          ((t) => t?.getAttribute('title') ?? t?.dataset.tipTitle)(document.querySelector('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')) ??
+          null
+      ),
+    start ?? null
   )
   const base = `http://127.0.0.1:${state.port}`
   const r = await fetch(`${base}/pair`, {
@@ -14048,9 +14061,9 @@ async function phoneHlsScenario(fixtures) {
     // Playback through hls.js in the app's Chromium, which has no native
     // HLS. The page is handed Node's token, so it is the same phone and the
     // same job as above.
-    page = await openPhoneWindow(app, `${base}/`)
+    page = await openPhoneWindow(app, `${base}/pair`)
     await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
-    await page.reload()
+    await page.goto(`${base}/`)
     // The tab is rooted at the film's own folder, so the file is on the
     // first screen.
     await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
@@ -14236,9 +14249,10 @@ async function phoneDocsScenario(fixtures) {
   const { app, win } = await launch(join(fixtures, 'README.md'))
   let page = null
   try {
-    const { base, token, status } = await pairPhone(win)
+    // Named: a tab a previous scenario left restored can be the one in front.
+    const { base, token, status } = await pairPhone(win, fixtures)
     ok(status === 200, 'the phone pairs')
-    page = await openPhoneWindow(app, `${base}/`)
+    page = await openPhoneWindow(app, `${base}/pair`)
     // The phone page's own errors, printed as they happen: a viewer that
     // fails to mount over the wire otherwise reads as a bare timeout.
     page.on('pageerror', (e) => console.warn('  phone page error:', e.message))
@@ -14251,7 +14265,7 @@ async function phoneDocsScenario(fixtures) {
     // a touch pointer. Set before the reload so the page is laid out for it.
     const cdp = await app.context().newCDPSession(page)
     await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 })
-    await page.reload()
+    await page.goto(`${base}/`)
     await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
     const coarse = await page.evaluate(() => matchMedia('(pointer: coarse)').matches)
     ok(coarse, 'the emulated phone reports a coarse pointer')
@@ -14579,10 +14593,10 @@ async function phoneExplorerScenario(fixtures) {
     const otherFile = `${base}/m/${encodeURIComponent(join(OTHER_ROOT, 'bad.json'))}?t=${token}`
     ok((await fetch(otherFile)).status === 403, 'a file in a folder the phone never listed is refused')
 
-    page = await openPhoneWindow(app, `${base}/`)
+    page = await openPhoneWindow(app, `${base}/pair`)
     page.on('pageerror', (e) => console.warn('  phone page error:', e.message))
     await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
-    await page.reload()
+    await page.goto(`${base}/`)
     await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
 
     // THE DRAWER IS THE EXPLORER'S PLACES, read fresh every time it opens.
