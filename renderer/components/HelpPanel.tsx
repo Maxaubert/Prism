@@ -170,6 +170,9 @@ const CheckIcon = ({ shown }: { shown: boolean }): JSX.Element => (
  * and similar tags"): the entry's danger sentence is still the screen
  * reader's and the pointer's.
  */
+/** How far a press may travel and still be a click, not a drag. */
+const DRAG_PX = 4
+
 function Row({
   row,
   index,
@@ -195,6 +198,8 @@ function Row({
 }): JSX.Element {
   const key = `${row.entry.id}#${row.n}`
   const keys = isKeyPress(row.command)
+  // Where this row's press began, to tell a click from a drag.
+  const down = useRef<{ x: number; y: number } | null>(null)
   const fill = active
     ? 'bg-[color-mix(in_srgb,var(--p-text)_13%,transparent)]'
     : striped
@@ -210,12 +215,21 @@ function Row({
       data-help-index={index}
       data-help-active={active || undefined}
       data-help-row
-      onMouseDown={onPoint}
-      onClick={() => {
-        // A drag that selected part of the command is a selection, not a
-        // click: it copies nothing (owner, 2026-10-13: "just clicking there
-        // still copies but you can drag to select").
-        if (keys || (window.getSelection()?.toString() ?? '') !== '') return
+      onMouseDown={(e) => {
+        down.current = { x: e.clientX, y: e.clientY }
+        onPoint()
+      }}
+      onClick={(e) => {
+        // A DRAG IS A SELECTION, NOT A CLICK: it copies nothing (owner,
+        // 2026-10-13: "you can drag to select"), as when it starts in the
+        // command and ends on the row's name. Judged by THIS press moving,
+        // never by a selection being there: one left over from selecting a
+        // command blocked every later click on every row (owner, 2026-10-14:
+        // "clicking here doesnt copy anymore").
+        const d = down.current
+        down.current = null
+        if (keys || (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > DRAG_PX)) return
+        window.getSelection()?.removeAllRanges()
         onCopy(key, row.command)
       }}
       // The rows rise in after the panel lands, a few at a time.
@@ -254,10 +268,16 @@ function Row({
         </span>
       ) : (
         <span
+          data-help-well
+          // INSIDE THE WELL A CLICK IS FOR SELECTING, NOT COPYING (owner,
+          // 2026-10-14: "if i click inside the box with the command i have to
+          // click the copy icon ... im probably trying to select the text"):
+          // the rest of the row copies; here only the copy button does.
+          onClick={(e) => e.stopPropagation()}
           // A quiet well (owner: "the fields stand out too much"): a shade
           // darker than the panel, fainter still on a light theme, where the
           // same black reads as a grey slab.
-          className={`flex min-w-0 items-center gap-1.5 rounded-[6px] border bg-[color-mix(in_srgb,black_16%,transparent)] py-px pl-2.5 pr-px transition-colors [[data-mode=light]_&]:bg-[color-mix(in_srgb,black_4%,transparent)] ${
+          className={`flex min-w-0 cursor-text items-center gap-1.5 rounded-[6px] border bg-[color-mix(in_srgb,black_16%,transparent)] py-px pl-2.5 pr-px transition-colors [[data-mode=light]_&]:bg-[color-mix(in_srgb,black_4%,transparent)] ${
             active ? 'border-[color:var(--p-line)]' : 'border-transparent group-hover:border-[color:var(--p-line)]'
           }`}
         >
