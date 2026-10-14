@@ -84,6 +84,34 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
       window.removeEventListener('blur', off)
     }
   }, [])
+  /**
+   * COMING BACK IS A LOOK TOO (owner, 2026-10-14: "i sent a message with this
+   * tab in focus, changed window, it completed i came back, and that mark was
+   * there. it shouldnt have been there since thats the selected tab ... the
+   * badge should disappear"). A finish while the window is behind another app
+   * still raises Finished, and the taskbar badge counts it; the pointer MOVING
+   * over the window is the owner back, and takes the tab in front's mark down
+   * with the badge, before any click gives the window focus. A pointer merely
+   * resting over it while typing elsewhere is not: only movement counts, and
+   * only for that moment (`MOVE_LOOK_MS`).
+   */
+  const [moved, setMoved] = useState(0)
+  const movedAt = useRef(0)
+  useEffect(() => {
+    const MOVE_LOOK_MS = 1000
+    let last = 0
+    const onMove = (): void => {
+      if (document.hasFocus()) return
+      const now = Date.now()
+      movedAt.current = now
+      // A look every half second at most: a moving pointer fires constantly.
+      if (now - last < MOVE_LOOK_MS / 2) return
+      last = now
+      setMoved((n) => n + 1)
+    }
+    window.addEventListener('pointermove', onMove, { passive: true })
+    return () => window.removeEventListener('pointermove', onMove)
+  }, [])
   const looking = useRef({ activeId, focused })
   useEffect(() => {
     looking.current = { activeId, focused }
@@ -469,7 +497,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     noteWorking(workingIds)
     const was = prevWorking.current
     prevWorking.current = workingIds
-    const seeing = (id: string): boolean => focused && id === activeId
+    const seeing = (id: string): boolean => id === activeId && (focused || Date.now() - movedAt.current < 1000)
     /** Why a mark comes down here, for the log (#152). */
     const cleared = (id: string): string =>
       workingIds.has(id) ? 'working again' : seeing(id) ? 'tab looked at' : 'agent gone'
@@ -517,7 +545,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
         }
       return next
     })
-  }, [workingIds, activeId, agentIds, focused])
+  }, [workingIds, activeId, agentIds, focused, moved])
 
   // STABLE: a host subscribes to the pty's exit ONCE and calls this from there.
   const forget = useCallback((id: string): void => {
