@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DirListing } from '@shared/types'
 import {
   cacheKey,
-  createListingCache,
+  createListingCache as makeListingCache,
   decodeListing,
   encodeListing,
   evictionOrder,
@@ -13,10 +13,23 @@ import {
 } from './listingCache'
 
 let box: string
+/** Every cache a test made, waited for before its folder goes: a test that
+ *  ended with a write in flight had the folder removed under it (EBUSY on
+ *  the CI runner, 2026-10-14). */
+let made: ReturnType<typeof makeListingCache>[] = []
+const createListingCache = (...a: Parameters<typeof makeListingCache>): ReturnType<typeof makeListingCache> => {
+  const cache = makeListingCache(...a)
+  made.push(cache)
+  return cache
+}
 beforeEach(() => {
   box = mkdtempSync(join(tmpdir(), 'prism-listing-cache-'))
+  made = []
 })
-afterEach(() => rmSync(box, { recursive: true, force: true }))
+afterEach(async () => {
+  await Promise.all(made.map((c) => c.idle()))
+  rmSync(box, { recursive: true, force: true })
+})
 
 function listing(dir: string, folders: number, files: number): DirListing {
   return {

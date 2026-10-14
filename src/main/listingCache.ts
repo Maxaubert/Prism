@@ -283,6 +283,8 @@ export function createListingCache(options: ListingCacheOptions) {
   /** Listing writes in flight, which the start-up sweep leaves alone. */
   let pendingWrites = 0
   const writing = new Set<string>()
+  /** Those writes themselves, so `idle()` can wait for them. */
+  const inflight = new Set<Promise<void>>()
   /** A Clear's delete in flight: writes wait for it, so it cannot take them. */
   let clearing: Promise<boolean> | null = null
   /** The index write in flight, and whether a newer index waits behind it. */
@@ -500,7 +502,7 @@ export function createListingCache(options: ListingCacheOptions) {
         const target = fileOf(key)
         pendingWrites += 1
         writing.add(key)
-        void (async () => {
+        const job = (async () => {
           try {
             if (clearing) await clearing
             if (mine !== epoch) return
@@ -514,6 +516,8 @@ export function createListingCache(options: ListingCacheOptions) {
             writing.delete(key)
           }
         })()
+        inflight.add(job)
+        void job.finally(() => inflight.delete(job))
       }
       scheduleIndex()
     },
@@ -571,11 +575,20 @@ export function createListingCache(options: ListingCacheOptions) {
       flushes += 1
       writeIndexSync() // sync-ok: quit flush
     },
-    /** For tests: a Clear and the index write in flight have finished. */
+    /** For tests: every write has landed - a Clear, the listing writes, and
+     *  the index (a debounced one is written now). A test that ends with a
+     *  write in flight had its folder removed under it: EBUSY on the CI
+     *  runner (2026-10-14). */
     async idle(): Promise<void> {
-      while (clearing || indexWrite) {
+      if (indexTimer) {
+        clearTimeout(indexTimer)
+        indexTimer = null
+        void writeIndex()
+      }
+      while (clearing || indexWrite || inflight.size) {
         if (clearing) await clearing
         if (indexWrite) await indexWrite
+        if (inflight.size) await Promise.all([...inflight])
       }
     },
     /** For tests and the e2e: what is held. */

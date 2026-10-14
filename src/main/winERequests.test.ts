@@ -97,8 +97,15 @@ describe.runIf(process.platform === 'win32')('the held pipe (#350)', () => {
     const reads = lines.filter((l) => l.startsWith('read '))
     const text = reads.map((l) => Buffer.from(l.split(' ')[2], 'base64').toString()).join('')
     const closedAt = Number(lines.find((l) => l.startsWith('closed '))?.split(' ')[1] ?? NaN)
+    // ONE connection carried both lines (the helper accepts one), so the
+    // socket was held through the wait; the old one closed after "started".
     expect(text).toBe(`${token} started\n${token}\n`)
-    // Held through the wait: the old socket closed within milliseconds.
-    expect(closedAt).toBeGreaterThanOrEqual(400)
+    // And it closed only AFTER the ready line, read in the helper's own
+    // order. Not a wall-clock floor: the helper's clock starts when the
+    // connection is accepted, which on a slow runner was most of the 500 ms
+    // after the announce (117 ms measured, ci 2026-10-13), not the wait.
+    const lastReadAt = Math.max(...reads.map((l) => Number(l.split(' ')[1])))
+    expect(closedAt).toBeGreaterThanOrEqual(lastReadAt)
+    expect(reads.length).toBeGreaterThanOrEqual(1)
   }, 20_000)
 })
