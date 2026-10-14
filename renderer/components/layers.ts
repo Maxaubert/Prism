@@ -10,6 +10,7 @@
  * - picker: the colour picker opened outside any dialog, just under a dialog.
  * - modal: a dialog (Modal), over everything the app draws.
  * - toast: the "Copied" badge, which must show even over a dialog.
+ * - tip: a tooltip (Tooltips), over everything: it names what the pointer is on.
  */
 export const LAYER = {
   panel: 'z-30',
@@ -17,5 +18,6 @@ export const LAYER = {
   menu: 'z-[45]',
   picker: 'z-[49]',
   modal: 'z-50',
-  toast: 'z-[300]'
+  toast: 'z-[300]',
+  tip: 'z-[310]'
 } as const
