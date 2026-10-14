@@ -13,9 +13,12 @@ import {
   Menu,
   powerMonitor,
   powerSaveBlocker,
-  session
+  session,
+  clipboard,
+  nativeImage
 } from 'electron'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { registerE2eClipboard } from './e2eClipboard'
 import { existsSync } from 'fs'
 import {
   rm,
@@ -180,6 +183,15 @@ if (process.argv.includes('--e2e') && process.env.PRISM_E2E_MIC) {
   app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
   app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.PRISM_E2E_MIC)
 }
+
+// THE E2E NEVER TOUCHES THE REAL CLIPBOARD (#356): every clipboard the app
+// has is one in memory under --e2e (e2eClipboard.ts).
+if (process.argv.includes('--e2e'))
+  registerE2eClipboard({
+    clipboard,
+    image: (png) => nativeImage.createFromBuffer(png),
+    handle: (channel, fn) => ipcMain.handle(channel, fn)
+  })
 
 // THE E2E'S DOWNLOADS IS A FIXTURE (#285): the `downloadsDate` scenario needs a
 // Downloads it can fill with dated files, and must never touch the real one.

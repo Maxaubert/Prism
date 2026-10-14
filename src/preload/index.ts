@@ -11,6 +11,9 @@ import type {
   SavedPane
 } from '@shared/browse'
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
+
+/** Started by the e2e harness (#356: its clipboard is main's fake). */
+const E2E_RUN = process.argv.includes('--e2e')
 import { createTermApi } from 'prism-term-core/preload/api'
 import { createDictationApi } from 'prism-term-core/preload/dictationApi'
 import { createDiagApi } from 'prism-term-core/preload/diagApi'
@@ -388,6 +391,11 @@ const api = {
   copyImageToClipboard: (png: ArrayBuffer): boolean => {
     const img = nativeImage.createFromBuffer(Buffer.from(png))
     if (img.isEmpty()) return false
+    // Under --e2e the clipboard is main's in-memory one (#356).
+    if (E2E_RUN) {
+      void ipcRenderer.invoke('e2e:clipboard', 'writeImage', png)
+      return true
+    }
     clipboard.clear()
     clipboard.writeImage(img)
     return true
@@ -630,6 +638,14 @@ const api = {
   /** E2E only (#322): main registers the channel under --e2e alone, so
    *  anywhere else this rejects. */
   e2eSlowIpc: (): Promise<boolean> => ipcRenderer.invoke(CALL.e2eSlowIpc),
+  /** E2E only (#356): the page's clipboard, routed to main's in-memory one so
+   *  a test run never touches the owner's. Absent outside --e2e. */
+  e2eClipboard: E2E_RUN
+    ? {
+        readText: (): Promise<string> => ipcRenderer.invoke('e2e:clipboard', 'readText'),
+        writeText: (text: string): Promise<void> => ipcRenderer.invoke('e2e:clipboard', 'writeText', text)
+      }
+    : undefined,
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
   openDefaultApps: (): void => ipcRenderer.send(CALL.appDefaultApps),
   windowPreferencesLoad: (): WindowPreferencesSnapshot | null =>
