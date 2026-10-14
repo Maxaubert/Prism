@@ -29,6 +29,10 @@ asarUnpack:
 # Electron unchanged (proved by the Task-1 smoke probe). Left on, the default
 # @electron/rebuild insists on recompiling from source and dies in node-gyp.
 npmRebuild: false
+# The packed app is checked before the installer is made (2026-10-14): every
+# package `dependencies` reaches must be in app.asar, or the build fails naming
+# it. A junctioned node_modules once packed 60 of 246 and the app could not start.
+afterPack: tools/check-packed.mjs
 extraResources:
   - from: vendor/everything
     to: everything

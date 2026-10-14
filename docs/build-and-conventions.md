@@ -79,6 +79,13 @@ never the shipped app: packaging and installing is what proves the installer sti
 the associations still register, and that the resident app actually launches.
 `npm run package`, then install `dist/Prism-Setup-x64-<version>.exe` silently with `/S`
 (per-user, no elevation), closing any running Prism first. Report the installed version.
+**A PACKAGE NEEDS A REAL node_modules** (2026-10-13/14): electron-builder run in a worktree whose
+`node_modules` is a junction packed only the direct dependencies (60 of 246) and 0.106.8 could not
+start ("Cannot find module 'dijkstrajs'"). The build now checks itself: `tools/check-packed.mjs`
+is electron-builder's `afterPack` and fails the package, here and in the release workflow, naming
+every package `dependencies` reaches that is not in `app.asar` (by name: the packer flattens
+nested copies). `node tools/check-packed.mjs <dir with resources\app.asar>` checks any build,
+the installed one included. A package worktree gets `robocopy <main>\node_modules ... /E /SL /XJ`.
 
 **THE E2E IS THE PR GATE AND NOTHING ELSE; AN INSTALL RUNS NONE** (owner, 2026-09-02, and again
 2026-10-03 after installs that ran suites first: "no e2e, just install, e2e only before pr, as part
