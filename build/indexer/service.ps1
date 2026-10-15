@@ -123,6 +123,12 @@ if ($Action -eq 'Install') {
     if (!$existing) { throw 'Everything did not register the private Prism service.' }
     if ($existing.State -ne 'Running') { Start-Service -Name $existing.Name }
   }
+  # A CRASHED SERVICE RESTARTS ITSELF (2026-10-15). It had no recovery actions:
+  # one crash (exit 1067) left it down, and Prism fell back to crawling whole
+  # drives on every start. Restart after 5 s, 30 s and 60 s; the count resets
+  # after a day.
+  & "$env:SystemRoot\System32\sc.exe" failure $existing.Name reset= 86400 actions= restart/5000/restart/30000/restart/60000 | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Could not set the private Prism service to restart after a failure.' }
 } else {
   if ($existing) {
     Stop-Service -Name $existing.Name -ErrorAction Stop

@@ -77,6 +77,11 @@ const key = (path: string): string =>
 const contains = (parent: string, child: string): boolean =>
   isInside(resolve(parent), resolve(child), { orEqual: true })
 
+/** `C:\`, `d:` and the like: a whole drive, never a folder index (2026-10-15). */
+export function isDriveRoot(path: string): boolean {
+  return /^[a-z]:[\\/]?$/i.test(path.trim())
+}
+
 /** Stable per owner profile; extra Explorer windows share it, previews do not. */
 export function indexerInstance(storageDirectory: string): string {
   return 'Prism-' + createHash('sha256').update(key(storageDirectory)).digest('hex').slice(0, 16)
@@ -101,6 +106,14 @@ export function indexerConfig(roots: readonly string[], servicePipe?: string): s
     app_data: 0,
     run_as_admin: 0,
     run_in_background: 1,
+    // A FOLDER CRAWL NEVER STARVES THE DISK (2026-10-15). Without the NTFS
+    // service (it had crashed and stayed down) this engine crawls whole drives,
+    // and at Everything's default (off, measured in the owner's 1.5a ini) that
+    // crawl ran at normal priority and stalled C: machine-wide for five minutes
+    // after a Prism start. Windows' background mode gives those threads very
+    // low disk and CPU priority.
+    folder_update_thread_mode_background: 1,
+    monitor_thread_mode_background: 1,
     show_tray_icon: 0,
     check_for_updates_on_startup: 0,
     show_indexing_progress: 0,
@@ -261,7 +274,20 @@ export function createIndexerRuntime(
               .filter((s) => /^[a-z]:\\$/i.test(s))
           }
         }
-        const roots = mergeIndexRoots(previous, [...volumes, ...requested])
+        // NEVER A FOLDER CRAWL OF A WHOLE DRIVE (2026-10-15, owner: "never crawl
+        // drives"). With the NTFS service down, a drive root used to become a
+        // folder index: Everything then crawled C:, D: and X: on every start,
+        // and on this machine every file it opened leaked a kernel file handle
+        // in a filter driver (measured by the Stutter-Diagnostics session:
+        // System's handles rose with the crawl and stopped with it; only a
+        // reboot frees them). A drive is the service's or nobody's. A folder
+        // under it may still be folder-indexed; a search of a drive the index
+        // does not cover reads the folders live instead (`knownRoots`).
+        const folderRoots = mergeIndexRoots(
+          [],
+          [...previous, ...requested].filter((path) => !isDriveRoot(path))
+        ).filter((path) => !volumes.some((volume) => contains(volume, path)))
+        const roots = mergeIndexRoots([], [...volumes, ...folderRoots])
         const changed = JSON.stringify(saved) !== JSON.stringify(roots)
         let alive = await running()
         if (alive && changed) {
@@ -270,15 +296,9 @@ export function createIndexerRuntime(
         }
         if (!alive) {
           await writeFile(rootFile, JSON.stringify(roots))
-          // Do not folder-scan NTFS drives already covered by the fast service.
-          // UNC paths and non-NTFS volumes still get persistent folder indexes.
-          await writeFile(
-            config,
-            indexerConfig(
-              roots.filter((path) => !volumes.some((volume) => contains(volume, path))),
-              pipe
-            )
-          )
+          // Folder indexes only for what the service does not cover, and never
+          // a whole drive (above).
+          await writeFile(config, indexerConfig(folderRoots, pipe))
           const pid = await deps.start(engine, [
             '-instance',
             instance,

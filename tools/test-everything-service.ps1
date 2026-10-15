@@ -19,6 +19,9 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Service installation failed.' }
   $service = @(Get-CimInstance Win32_Service | Where-Object { $_.PathName -like ('"' + $plan.executable + '"*') })
   if ($service.Count -ne 1 -or $service[0].State -ne 'Running') { throw 'Private service is not running.' }
+  # A crash restarts it (2026-10-15).
+  $recovery = (& "$env:SystemRoot\System32\sc.exe" qfailure $service[0].Name) -join ' '
+  if ($recovery -notmatch 'RESTART') { throw "Private service has no restart-on-failure action: $recovery" }
   # Idempotent setup must not create a second service or change its owner.
   & powershell.exe -NoProfile -NonInteractive -File $helper -Action Install -InstallDirectory $testRoot -NoElevation
   if ($LASTEXITCODE -ne 0) { throw 'Repeated service setup failed.' }
