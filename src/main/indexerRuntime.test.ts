@@ -5,6 +5,7 @@ import { tmpdir } from 'os'
 import {
   createIndexerRuntime,
   indexerConfig,
+  isDriveRoot,
   indexerInstance,
   mergeIndexRoots
 } from './indexerRuntime'
@@ -304,5 +305,38 @@ describe('private bundled indexer', () => {
     await runtime.ensureReady('D:\\Other')
     expect(deps.start).toHaveBeenCalledTimes(1)
     await runtime.dispose()
+  })
+
+  it('never folder-crawls a whole drive when the service is down (2026-10-15)', async () => {
+    const { options, deps } = await setup()
+    // What the machine had: drive roots saved while the service was up.
+    await mkdir(options.storageDirectory)
+    await writeFile(
+      join(options.storageDirectory, 'roots.json'),
+      JSON.stringify(['C:\\', 'X:\\', 'd:\\'])
+    )
+    const serviceAvailable = vi.fn(async () => false)
+    const runtime = createIndexerRuntime(
+      { ...options, allowService: true, serviceInstance: 'Prism-install123' },
+      { ...deps, serviceAvailable }
+    )
+    expect(await runtime.ensureReady('C:\\Projects\\app')).toEqual(runtime.endpoint)
+    const ini = await readFile(join(options.storageDirectory, 'Everything.ini'), 'utf8')
+    const folders = /^folders=(.*)$/m.exec(ini)?.[1]?.trim()
+    expect(folders).toBe('"C:\\\\Projects\\\\app"')
+    expect(ini).toContain('folder_update_thread_mode_background=1')
+    // A drive is not covered, so its search reads folders live.
+    expect(await runtime.queryEndpoint('C:\\')).toBeNull()
+    expect(await runtime.queryEndpoint('C:\\Projects\\app\\src')).toEqual(runtime.endpoint)
+    expect(
+      JSON.parse(await readFile(join(options.storageDirectory, 'roots.json'), 'utf8'))
+    ).toEqual(['C:\\Projects\\app'])
+    await runtime.dispose()
+  })
+
+  it('names a whole drive in every spelling, and nothing else', () => {
+    for (const drive of ['C:\\', 'c:', 'D:/', ' X:\\ ']) expect(isDriveRoot(drive)).toBe(true)
+    for (const path of ['C:\\Users', '\\\\server\\share', 'CD:\\', 'relative'])
+      expect(isDriveRoot(path)).toBe(false)
   })
 })

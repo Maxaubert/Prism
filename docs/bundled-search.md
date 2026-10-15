@@ -61,3 +61,15 @@ folder-update and monitor threads in Windows' background mode
 off by default: 0 in the owner's own Everything 1.5a settings), so a crawl takes very low disk and CPU priority.
 A service that is already down gets the restart rule at the next install,
 which then asks for administrator approval once.
+
+**Never a crawl of a whole drive** (owner, 2026-10-15: "never crawl drives"). The
+Stutter-Diagnostics session measured why the crawl mattered beyond the slowdown:
+on this machine every file the crawl opened leaked a kernel file handle in a
+filter driver (System's handles rose with the crawl and stopped with it; only a
+reboot frees them). So a drive root is never a folder index, service or no
+service: a drive is the NTFS service's or nobody's. Folders below a drive (a
+project) may still be folder-indexed, in background mode. A search of a drive the
+index does not cover reads the folders live (`knownRoots` no longer claims it).
+Saved roots from before are cleaned on the next start. Held by
+`indexerRuntime.test.ts` ("never folder-crawls a whole drive when the service is
+down").
