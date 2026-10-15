@@ -28,6 +28,8 @@ export function PhoneDialog({
     refresh()
     return window.prism.onPhoneChanged(refresh)
   }, [refresh])
+  // Closing the dialog ends every code it showed (2026-10-15).
+  useEffect(() => () => window.prism.phoneCodeDrop(), [])
   // The code has two minutes; ask for a new one when it runs out.
   useEffect(() => {
     if (!state?.code) return

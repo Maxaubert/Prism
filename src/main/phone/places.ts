@@ -30,7 +30,12 @@ export async function phonePlaces(
   const used = await usage(drives.map((d) => d.path)).catch(() => [] as BrowseDriveUsage[])
   return {
     quick,
-    drives: drives.map((d) => ({ name: d.name, ...(used.find((u) => key(u.path) === key(d.path)) ?? {}), path: d.path }))
+    // A mapped network drive is not listed (2026-10-15): the phone may not
+    // open it (`phoneOnThisPc`), so the drawer does not offer it.
+    drives: drives.flatMap((d) => {
+      const u = used.find((x) => key(x.path) === key(d.path))
+      return u?.kind === 'network' ? [] : [{ name: d.name, ...(u ?? {}), path: d.path }]
+    })
   }
 }
 

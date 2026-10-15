@@ -1506,7 +1506,17 @@ changing a feature: each entry records what the owner decided, why, and what hol
   (`everythingQuery.ts`); `/m/` answers carry a sandboxing CSP, so an SVG or HTML file on the PC
   never runs as the phone page; the server answers the user's own network only (`localNetwork`
   in `phone/lan.ts`: loopback, private, link-local, 100.64/10, IPv6 ULA); markdown links open
-  with `noopener`. Mapped drives stay reachable, as decided.
+  with `noopener`. **ITS LEFTOVERS, CLOSED** (owner, 2026-10-15: "we can do the phone security
+  thing"): nothing on another computer. A mapped network drive and a folder that links to a share
+  are spelled like local paths, so `phoneOnThisPc` asks where the path REALLY is (the OS's final
+  path, which is the share: measured with a drive mapped to `\\localhost\C$`) before a folder is
+  listed and before every read and media answer, and the drawer leaves network drives out. A
+  pairing code dies when the dialog closes (`phone:code-drop`), where it used to stay redeemable
+  for the rest of its two minutes. The token still travels in clear text, because the server is
+  plain HTTP; only HTTPS closes that, and a phone browser warns on a self-signed certificate, so
+  it is the owner's decision, not made. Held by `phoneAccess.test.ts`, `places.test.ts`, the
+  server test "never lists or reads a folder that is really on another computer" and the
+  `phone` e2e ("a code is refused once the dialog closed").
 - **THE PHONE SEES THE OPEN TABS AND SWITCHES BETWEEN THEM** (superseded 2026-10-14, above; owner, 2026-09-08, from the
   same session: "i should be able to switch tabs without scanning a new qr code. i should be
   able to see the available tabs and switch"; #107). This REVERSES the design's own first

@@ -4,7 +4,7 @@ import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { insideDesktop, resetDesktopAccess } from '../desktopAccess'
 import { resetRoots } from '../roots'
-import { localPath, phoneListed, phoneMay, phoneRelease } from './phoneAccess'
+import { localPath, phoneListed, phoneMay, phoneOnThisPc, phoneRelease } from './phoneAccess'
 
 let dir: string
 beforeEach(() => {
@@ -55,5 +55,20 @@ describe('what a paired phone may read (2026-10-14)', () => {
     expect(phoneMay('t', join(dir, 'films', 'a.mp4'))).toBe(false)
     phoneListed('t', join(dir, 'films'))
     expect(phoneMay('t', join(dir, 'films', 'a.mp4'))).toBe(false)
+  })
+})
+
+describe('nothing on another computer (2026-10-15)', () => {
+  it('a mapped drive or a link to a share resolves to the share, and is refused', async () => {
+    expect(await phoneOnThisPc('Z:\\films', async () => '\\\\server\\share\\films')).toBe(false)
+    expect(await phoneOnThisPc('C:\\link', async () => '\\\\localhost\\C$\\films')).toBe(false)
+  })
+  it('a local folder, a subst drive and a junction to a local folder are on this PC', async () => {
+    expect(await phoneOnThisPc('S:\\films', async () => 'C:\\films')).toBe(true)
+    expect(await phoneOnThisPc(dir)).toBe(true)
+  })
+  it('a path that cannot be resolved, or is not spelled locally, is not', async () => {
+    expect(await phoneOnThisPc(join(dir, 'gone'))).toBe(false)
+    expect(await phoneOnThisPc('\\\\server\\share', async (p) => p)).toBe(false)
   })
 })
