@@ -147,6 +147,13 @@ export function startPhoneService(opts: {
     phone?.issue(at)
     return phoneState(at)
   })
+  // A CODE DIES WITH THE DIALOG (security review 2026-10-14; owner,
+  // 2026-10-15). It used to stay redeemable for the rest of its two minutes
+  // after the QR was gone, with nothing on the PC to say a phone had paired.
+  // Codes are never saved, so emptying the list is the whole of it.
+  ipcMain.on(CALL.phoneCodeDrop, () => {
+    phoneStore.pairing.codes.length = 0
+  })
   ipcMain.handle(CALL.phoneForget, async (_e, token: unknown, start: unknown) => {
     await phoneReady
     if (typeof token === 'string' && forgetPhone(phoneStore.pairing, token)) {

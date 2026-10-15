@@ -86,6 +86,9 @@ export interface PhoneAccess {
   may: (token: string, p: string) => boolean
   /** A forgotten phone keeps nothing. */
   release: (token: string) => void
+  /** Really on this PC: never a mapped network drive or a link to a share
+   *  (`phoneOnThisPc`). Asked before a folder is listed and before any read. */
+  local: (p: string) => Promise<boolean>
 }
 export interface PhoneDeps {
   /** Where the built phone bundle lives (`out/renderer`). */
@@ -344,7 +347,8 @@ export class PhoneServer {
       if (route.kind === 'media') {
         // A file in a folder this phone listed, or one its own answers granted it.
         const allowed =
-          this.deps.access.may(phone.token, route.path) || this.grants.has(phone.token, route.path)
+          this.grants.has(phone.token, route.path) ||
+          (this.deps.access.may(phone.token, route.path) && (await this.deps.access.local(route.path)))
         if (!allowed) return void json(res, 403, { error: 'outside the folder' })
         return await this.serveMedia(route.path, req, res)
       }
@@ -432,15 +436,16 @@ export class PhoneServer {
     // What this phone may name: a folder it listed or a direct entry of one.
     // A GRANT counts too: a member extracted out of an archive lives in temp,
     // and reading it is exactly what the phone asked for.
-    const inside = (): boolean =>
-      (localPath(path) && this.deps.access.may(token, path)) || this.grants.has(token, path)
+    const inside = async (): Promise<boolean> =>
+      this.grants.has(token, path) ||
+      (localPath(path) && this.deps.access.may(token, path) && (await this.deps.access.local(path)))
     switch (name) {
       // Direct or HLS, per file and per DEVICE: the phone reports what it
       // plays in `can` and `decide` is a lookup against it. The wall is
       // here, once: a job is only ever opened on a path that passed it, and
       // the job id is what the /hls routes are keyed by afterwards.
       case ROUTE.play: {
-        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         const info = await this.deps.probe(path)
         const plan = decide(info, extname(path), parseCan(q.get('can')))
         if (plan.mode === 'direct') {
@@ -519,7 +524,7 @@ export class PhoneServer {
       // left at minute 40 on the PC opens at minute 40 on the phone, and the
       // place the phone reaches is what the PC opens at next.
       case ROUTE.pos: {
-        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         if (req.method === 'POST') {
           let body: unknown
           try {
@@ -567,7 +572,8 @@ export class PhoneServer {
       // ANY local folder (2026-10-14): what the Explorer can open, the phone
       // can list. Listing it is what grants it, and it is where the phone is.
       case ROUTE.dir: {
-        if (!localPath(path)) return void json(res, 403, { error: 'not a folder on this PC' })
+        if (!localPath(path) || !(await this.deps.access.local(path)))
+          return void json(res, 403, { error: 'not a folder on this PC' })
         const listing = await this.deps.listDir(path)
         if (!listing.unreadable) this.deps.access.listed(token, path)
         this.setHere(phone, path)
@@ -580,13 +586,13 @@ export class PhoneServer {
       // phone for a day since a key changes with the file, and 404 for a
       // file with no picture in it, which the tile draws as its icon.
       case ROUTE.thumb: {
-        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         const jpg = await this.deps.thumb(path)
         if (!jpg) return void json(res, 404, { error: 'no thumbnail' })
         return await this.sendFile(jpg, 'image/jpeg', res, 'private, max-age=86400')
       }
       case ROUTE.stat: {
-        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         try {
           const st = await fsp.stat(path)
           return void json(res, 200, {
@@ -599,11 +605,11 @@ export class PhoneServer {
         }
       }
       case ROUTE.subs: {
-        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         return void json(res, 200, await this.deps.subsFor(path))
       }
       case ROUTE.subsRead: {
-        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         const vtt = await this.deps.readSubs(path)
         if (vtt === null) return void json(res, 404, { error: 'no subtitles' })
         res.writeHead(200, {
@@ -617,7 +623,7 @@ export class PhoneServer {
       // (they may sit in a folder it never listed, as `docImages.ts` explains), and to
       // main's own wall in the same breath, since `/m/` passes through both.
       case ROUTE.text: {
-        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         const r = await this.deps.readText(path)
         if ('text' in r && this.deps.isMarkdown(path)) {
           const imgs = await this.deps.docImages(path, r.text)
@@ -629,7 +635,7 @@ export class PhoneServer {
       // An office or ebook document as the sanitised HTML the PC's DocView
       // renders; 404 with a reason when main could not convert it.
       case ROUTE.doc: {
-        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         const html = await this.deps.docHtml(path)
         if (html === null)
           return void json(res, 404, { error: 'Prism could not convert this document' })
@@ -643,7 +649,7 @@ export class PhoneServer {
       // The kind gate is the IPC's (`comicOk`) and so is the failure shape:
       // a phone asking to open a .txt as a comic gets the same `failed`.
       case ROUTE.comic: {
-        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         if (!this.deps.isComic(path)) return void json(res, 200, { error: 'failed' })
         const got = await this.deps.comicOpen(path, q.get('pw') ?? '')
         if ('error' in got) return void json(res, 200, got)
@@ -656,12 +662,12 @@ export class PhoneServer {
       // own temp file, already in main's `extractedPaths`; the grant here is
       // the one that lets THIS phone fetch it.
       case ROUTE.archive: {
-        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         if (!this.deps.isArchive(path)) return void json(res, 200, { ok: false, reason: 'failed' })
         return void json(res, 200, await this.deps.archiveList(path, q.get('pw') || undefined))
       }
       case ROUTE.archiveExtract: {
-        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         const entry = q.get('entry')
         if (!entry) return void json(res, 400, { error: 'no entry' })
         if (!this.deps.isArchive(path)) return void json(res, 200, { ok: false, reason: 'failed' })

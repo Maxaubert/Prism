@@ -27,6 +27,11 @@ describe("the phone's places (2026-10-14)", () => {
     ])
   })
 
+  it('a mapped network drive is not offered (2026-10-15)', async () => {
+    const got = await phonePlaces(locations, [], async () => [{ path: 'D:\\', label: 'share', kind: 'network' }])
+    expect(got.drives.map((d) => d.path)).toEqual(['C:\\'])
+  })
+
   it('a drive whose usage failed is still a drive', async () => {
     const got = await phonePlaces(locations, [], async () => {
       throw new Error('powershell')
