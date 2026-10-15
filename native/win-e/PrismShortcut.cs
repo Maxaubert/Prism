@@ -53,6 +53,7 @@ internal static class Program
                 return 0;
             }
             if (args.Length == 4 && args[0] == "--folder") return FolderOpen.Run(args[1], args[2], args[3], FolderOpen.Explorer);
+            if (args.Length > 0 && args[0].StartsWith("--folders-")) return Folders(args, FolderRegistration.Real());
             if (args.Length != 3) throw new ArgumentException("Expected --enable, --disable, --status or --watch followed by the Prism executable and profile paths.");
             owner = new Owner(args[1], args[2], RunKey);
             switch (args[0])
@@ -75,6 +76,33 @@ internal static class Program
             Print(owner, error.Message);
             return 1;
         }
+    }
+
+    // `--folders-enable|--folders-status <exe> <profile>`, `--folders-disable`: one JSON line,
+    // `on` (Prism is the folder handler) and `current` (pointing at this exe and profile).
+    internal static int Folders(string[] args, FolderRegistration folders)
+    {
+        string error = null;
+        bool known = args.Length == 3 && Path.IsPathRooted(args[1]) && Path.IsPathRooted(args[2]);
+        try
+        {
+            if (args.Length == 1 && args[0] == "--folders-disable")
+                using (var gate = new ConfigurationLock()) folders.Disable();
+            else if (known && args[0] == "--folders-enable")
+                using (var gate = new ConfigurationLock()) folders.Enable(args[1], args[2]);
+            else if (!(known && args[0] == "--folders-status"))
+                throw new ArgumentException("Expected --folders-enable, --folders-status or --folders-disable.");
+        }
+        catch (Exception failure) { error = failure.Message; }
+        bool on = false, current = false;
+        try
+        {
+            on = folders.IsOn;
+            current = known && folders.IsCurrent(args[1], args[2]);
+        }
+        catch (Exception statusError) { if (error == null) error = statusError.Message; }
+        Console.WriteLine(new JavaScriptSerializer().Serialize(new { on = on, current = current, error = error }));
+        return error == null ? 0 : 1;
     }
 
     private static void Print(Owner owner, string error)
@@ -406,6 +434,122 @@ internal static class FolderOpen
             catch (Exception) { return 1; }
         }
         return 0;
+    }
+}
+
+// Prism as Windows' folder handler (#393): the default verb of Directory and Drive, per user.
+// NEVER `Folder`: that class is Control Panel, This PC and every other shell namespace too.
+// `ProgrammaticAccessOnly` keeps the verb out of the menu AND out of File Explorer's own
+// double-click, which stays in File Explorer (owner, 2026-10-15); ShellExecute with no verb
+// (Run, cmd, other apps) still reaches it (measured the same day).
+//
+// What was the default before is kept on the verb's key, so turning it off puts back exactly
+// that, another file manager included. Nothing lives only in memory.
+internal sealed class FolderRegistration
+{
+    internal const string Verb = "PrismBrowse";
+    internal static readonly string[] Classes = { "Directory", "Drive" };
+    private readonly string root, copyDir;
+    internal FolderRegistration(string classesRoot, string copyDirectory) { root = classesRoot; copyDir = copyDirectory; }
+    internal static FolderRegistration Real()
+    {
+        return new FolderRegistration(@"Software\Classes",
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PrismFolders"));
+    }
+    internal string Launcher { get { return Path.Combine(copyDir, "PrismShortcut.exe"); } }
+    internal string Command(string exe, string profile)
+    {
+        return Program.Quote(Launcher) + " --folder " + Program.Quote(Path.GetFullPath(exe)) + " "
+            + Program.Quote(Path.GetFullPath(profile)) + " \"%1\"";
+    }
+    private string ShellKey(string cls) { return root + "\\" + cls + "\\shell"; }
+
+    internal bool IsOn
+    {
+        get
+        {
+            foreach (string cls in Classes)
+                using (var shell = Registry.CurrentUser.OpenSubKey(ShellKey(cls)))
+                    if (shell == null || !(Verb.Equals(shell.GetValue(null) as string))) return false;
+            return true;
+        }
+    }
+    internal bool IsCurrent(string exe, string profile)
+    {
+        if (!IsOn || !File.Exists(Launcher) || new FileInfo(Launcher).Length != new FileInfo(Program.Self).Length) return false;
+        foreach (string cls in Classes)
+            using (var command = Registry.CurrentUser.OpenSubKey(ShellKey(cls) + "\\" + Verb + "\\command"))
+                if (command == null || !(Command(exe, profile).Equals(command.GetValue(null) as string))) return false;
+        return true;
+    }
+
+    internal void Enable(string exe, string profile)
+    {
+        if (!File.Exists(exe)) throw new IOException("Prism is missing.");
+        CopySelf();
+        foreach (string cls in Classes)
+        {
+            using (var shell = Registry.CurrentUser.CreateSubKey(ShellKey(cls)))
+            using (var verb = shell.CreateSubKey(Verb))
+            {
+                object previous = shell.GetValue(null, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+                // Re-enabling (an upgrade's repair) must not record ITSELF as what came before.
+                if (!Verb.Equals(previous as string))
+                {
+                    if (previous is string) verb.SetValue("PreviousDefault", previous, RegistryValueKind.String);
+                    else verb.DeleteValue("PreviousDefault", false);
+                }
+                verb.SetValue("ProgrammaticAccessOnly", "", RegistryValueKind.String);
+                using (var command = verb.CreateSubKey("command"))
+                    command.SetValue(null, Command(exe, profile), RegistryValueKind.String);
+                // The default goes last: a half-written verb is never the one Windows runs.
+                shell.SetValue(null, Verb, RegistryValueKind.String);
+            }
+        }
+    }
+
+    internal void Disable()
+    {
+        foreach (string cls in Classes)
+        {
+            using (var shell = Registry.CurrentUser.OpenSubKey(ShellKey(cls), true))
+            {
+                if (shell == null) continue;
+                if (Verb.Equals(shell.GetValue(null) as string))
+                {
+                    string previous = null;
+                    using (var verb = shell.OpenSubKey(Verb)) if (verb != null) previous = verb.GetValue("PreviousDefault") as string;
+                    if (previous != null) shell.SetValue(null, previous, RegistryValueKind.String);
+                    else shell.DeleteValue("", false);
+                }
+                // Another app's default is left alone; only Prism's own key goes.
+                shell.DeleteSubKeyTree(Verb, false);
+            }
+        }
+        // A request in flight may still be running the copy; it is removed next time.
+        try { if (File.Exists(Launcher)) File.Delete(Launcher); } catch (Exception) { }
+    }
+
+    // The copy outside the install folder. A running copy cannot be overwritten but can be
+    // renamed, so an old one steps aside first.
+    private void CopySelf()
+    {
+        Directory.CreateDirectory(copyDir);
+        foreach (string stale in Directory.GetFiles(copyDir, "PrismShortcut.exe.old-*"))
+            try { File.Delete(stale); } catch (Exception) { /* still running: next time */ }
+        if (File.Exists(Launcher) && Bytes.Same(File.ReadAllBytes(Launcher), File.ReadAllBytes(Program.Self))) return;
+        if (File.Exists(Launcher)) File.Move(Launcher, Launcher + ".old-" + Guid.NewGuid().ToString("N"));
+        File.Copy(Program.Self, Launcher);
+    }
+}
+
+internal static class Bytes
+{
+    internal static bool Same(byte[] a, byte[] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+        return true;
     }
 }
 
@@ -859,6 +1003,8 @@ internal static class SelfTests
             string nowhere = Path.Combine(directory, "no such folder");
             FolderOpen.Run(executable, Path.Combine(directory, "profile"), nowhere, opened.Add);
             Check(opened.Count == 1 && opened[0] == nowhere, "a path that is not a folder goes to File Explorer untouched");
+            File.WriteAllText(executable, "fixture");
+            FolderSelfTests(key + @"\Classes", Path.Combine(directory, "copy"), executable, Path.Combine(directory, "profile"));
             Console.WriteLine(assertions + " native assertions passed. No real keyboard hook or Explorer launch was performed.");
             return 0;
         }
@@ -868,6 +1014,55 @@ internal static class SelfTests
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }
+    private static string Default(string root, string cls)
+    {
+        using (var shell = Registry.CurrentUser.OpenSubKey(root + "\\" + cls + "\\shell"))
+            return shell == null ? null : shell.GetValue(null) as string;
+    }
+
+    private static bool HasVerb(string root, string cls)
+    {
+        using (var verb = Registry.CurrentUser.OpenSubKey(root + "\\" + cls + "\\shell\\" + FolderRegistration.Verb)) return verb != null;
+    }
+
+    private static void FolderSelfTests(string root, string copy, string executable, string profile)
+    {
+        string realDirectory = Default(@"Software\Classes", "Directory"), realDrive = Default(@"Software\Classes", "Drive");
+        var folders = new FolderRegistration(root, copy);
+        Check(!folders.IsOn && !folders.IsCurrent(executable, profile), "folders start off");
+        folders.Enable(executable, profile);
+        Check(folders.IsOn && folders.IsCurrent(executable, profile) && File.Exists(folders.Launcher),
+            "on: Directory and Drive default to Prism, the launcher is copied out");
+        using (var verb = Registry.CurrentUser.OpenSubKey(root + @"\Directory\shell\" + FolderRegistration.Verb))
+            Check(verb.GetValue("ProgrammaticAccessOnly") is string && verb.GetValue("PreviousDefault") == null,
+                "the verb stays out of the menu and remembers there was no default");
+        string[] command = Program.SplitCommand(folders.Command(executable, profile).Replace("%1", "C:\\x"));
+        Check(command.Length == 5 && command[1] == "--folder" && command[2] == executable && command[4] == "C:\\x",
+            "the command hands the launcher Prism, the profile and the folder");
+        Check(!folders.IsCurrent(Path.Combine(Path.GetDirectoryName(executable), "Other.exe"), profile),
+            "another Prism is not current");
+        folders.Disable();
+        Check(!folders.IsOn && Default(root, "Directory") == null && Default(root, "Drive") == null
+            && !HasVerb(root, "Directory") && !File.Exists(folders.Launcher),
+            "off removes the default, the verb and the launcher");
+        using (var shell = Registry.CurrentUser.CreateSubKey(root + @"\Directory\shell")) shell.SetValue(null, "OpusVerb");
+        folders.Enable(executable, profile);
+        folders.Enable(executable, profile);
+        folders.Disable();
+        Check(Default(root, "Directory") == "OpusVerb" && Default(root, "Drive") == null,
+            "off puts back another file manager's default, even after a repeated on");
+        folders.Enable(executable, profile);
+        using (var shell = Registry.CurrentUser.CreateSubKey(root + @"\Drive\shell")) shell.SetValue(null, "LaterApp");
+        folders.Disable();
+        Check(Default(root, "Drive") == "LaterApp" && !HasVerb(root, "Drive") && Default(root, "Directory") == "OpusVerb",
+            "a default another app took since is never touched");
+        bool refused = false;
+        try { folders.Enable(Path.Combine(copy, "missing", "Prism.exe"), profile); } catch (IOException) { refused = true; }
+        Check(refused && !folders.IsOn, "a missing Prism is never registered");
+        Check(Default(@"Software\Classes", "Directory") == realDirectory && Default(@"Software\Classes", "Drive") == realDrive,
+            "the real folder handler remains unchanged");
+    }
+
     /** Lines suffixed to the token ("" is the ready line), `pause` ms before the last. */
     private static bool PipeScript(string[] lines, int timeout, int patience, int pause)
     {
