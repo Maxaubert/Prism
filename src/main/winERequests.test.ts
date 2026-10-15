@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'crypto'
 import { spawn } from 'child_process'
-import { acknowledgeWinE, announceWinE, createWinERequests, winERequest } from './winERequests'
+import { acknowledgeWinE, announceWinE, browseRequest, createWinERequests, winERequest } from './winERequests'
 
 const id = 'a1234567-1234-4567-89ab-123456789abc'
 afterEach(() => vi.useRealTimers())
@@ -10,6 +10,15 @@ describe('Win+E launch handoff', () => {
     expect(winERequest(['app', `--win-e=${id}`])).toBe(id)
     expect(winERequest(['app', '--win-e=\\remote\\pipe\\foo'])).toBeNull()
     expect(winERequest(['app', '--win-e', id])).toBeNull()
+  })
+  it('a folder-verb request carries only an absolute Windows folder (#393)', () => {
+    expect(browseRequest(['app', `--win-e=${id}`, '--browse=C:\\Users\\a b'])).toBe('C:\\Users\\a b')
+    expect(browseRequest(['app', '--browse=D:\\'])).toBe('D:\\')
+    expect(browseRequest(['app', '--browse=\\\\server\\share\\x'])).toBe('\\\\server\\share\\x')
+    expect(browseRequest(['app', '--browse=relative\\x'])).toBeNull()
+    expect(browseRequest(['app', '--browse=::{20D04FE0-3AEA-1069-A2D8-08002B30309D}'])).toBeNull()
+    expect(browseRequest(['app', '--browse=C:'])).toBeNull()
+    expect(browseRequest(['app', `--win-e=${id}`])).toBeNull()
   })
   it('waits for both session restoration and renderer subscription before dispatch/ack', () => {
     const dispatch = vi.fn(),

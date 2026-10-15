@@ -66,6 +66,17 @@ describe('independent Explorer windows', () => {
     ])
     expect(explorerWindowOwner(first.profile, first.args)).toBe(owner)
   })
+  it('a folder-verb request hands its folder to the new window (#393)', () => {
+    const { args } = explorerWindowArgs({
+      owner: profile(),
+      id,
+      packaged: true,
+      appPath: '',
+      argv: [],
+      browse: 'C:\\a folder\\'
+    })
+    expect(args.slice(1, 4)).toEqual([`--explorer-window=${id}`, `--win-e=${id}`, '--browse=C:\\a folder\\'])
+  })
   it('does not interpret normal profiles or path traversal as managed windows', () => {
     const owner = profile()
     expect(explorerWindowOwner(owner, [`--explorer-window=${id}`])).toBeNull()

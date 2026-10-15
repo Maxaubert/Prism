@@ -51,3 +51,10 @@ fixtures. They never install a real
 keyboard hook, change the real Run value, or launch File Explorer. Actual Win-key
 masking, hook removal after a crash, sign-in and installer lifecycle still require
 hands-on verification on a disposable Windows session before release.
+
+`--folder <Prism.exe> <profile> <path>` (#393) is Windows' default verb for folders when
+"Open folders from other apps" is on: it runs from a copy outside the install folder
+(`%LOCALAPPDATA%\PrismFolders`), starts Prism with `--win-e=<UUID> --browse=<path>` over the same
+handshake, and opens File Explorer on anything short of the acknowledgement. `--folders-enable`,
+`--folders-status <exe> <profile>` and `--folders-disable` own that registration (Directory and
+Drive, `ProgrammaticAccessOnly`, the replaced default kept as `PreviousDefault`); never `Folder`.

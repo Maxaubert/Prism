@@ -194,6 +194,8 @@ export const CALL = {
   winEStatus: 'win-e:status',
   winESet: 'win-e:set',
   winEListen: 'win-e:listen',
+  foldersStatus: 'folders:status',
+  foldersSet: 'folders:set',
   winEReady: 'win-e:ready',
 
   sweepOverlayBegin: 'sweep-overlay:begin',

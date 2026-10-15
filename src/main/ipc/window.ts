@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron'
 import { CALL } from '@shared/channels'
 import { join } from 'path'
 import { createWinEShortcut } from '../winEShortcut'
+import { createFolderHandler } from '../folderHandler'
 import { dropRoot } from '../roots'
 import { REMEMBER_FOLDERS_KEY } from '@shared/listingPrefs'
 import { type SavedTabs } from '../tabs'
@@ -64,6 +65,24 @@ export function registerWinEIpc(ctx: MainCtx): void {
       winERequests.ready(id)
   })
   if (!extraWindowOwner) void winE.resume()
+  // Open folders in Prism (#393): the same helper, a copy of it outside the
+  // install folder answering Windows' folder verb.
+  const folders = createFolderHandler({
+    helper: join(process.resourcesPath, 'win-e', 'PrismShortcut.exe'),
+    executable: process.execPath,
+    profile: preferencesOwner,
+    supported: process.platform === 'win32' && app.isPackaged && !E2E,
+    marker: join(preferencesOwner, 'folders-on')
+  })
+  ipcMain.handle(CALL.foldersStatus, (event) => {
+    if (!isMainSender(event.sender)) throw new Error('Unknown window')
+    return folders.status()
+  })
+  ipcMain.handle(CALL.foldersSet, (event, on: unknown) => {
+    if (!isMainSender(event.sender) || typeof on !== 'boolean') throw new Error('Invalid folder request')
+    return folders.set(on)
+  })
+  if (!extraWindowOwner) void folders.repair()
 }
 
 /** What the renderer reports for the session: the tab strip, playing media, a dropped root. */

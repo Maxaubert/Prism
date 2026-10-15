@@ -30,4 +30,5 @@
 ; Registering the file types has nothing to do with the pages, and the
 ; uninstaller needs the other half of it.
 !include "installer\win-e.nsh"
+!include "installer\folders.nsh"
 !include "installer\assoc.nsh"

@@ -7,6 +7,18 @@ export function winERequest(argv: readonly string[]): string | null {
 }
 
 /**
+ * The folder a Win+E request carries (#393). Windows' folder verb runs the
+ * helper's `--folder`, which starts Prism with `--win-e=<id> --browse=<path>`:
+ * the same handshake as Win+E, landing on that folder instead of Home. Only an
+ * absolute Windows path; anything else is no folder, and Win+E's own place.
+ */
+export function browseRequest(argv: readonly string[]): string | null {
+  const value = argv.find((arg) => arg.startsWith('--browse='))?.slice('--browse='.length)
+  if (!value || value.length > 32767 || value.includes('\0')) return null
+  return /^(?:[a-z]:\\|\\\\[^\\]+\\[^\\]+)/i.test(value) ? value : null
+}
+
+/**
  * The pipe to the helper, held open from the moment main has the request to
  * the moment the folder browser is on screen (2026-09-22, owner: after a boot
  * Win+E opened File Explorer until Prism had been run once). A cold start after

@@ -21,6 +21,8 @@ export function explorerWindowArgs(options: {
   packaged: boolean
   appPath: string
   argv: readonly string[]
+  /** The folder a folder-verb request opens (#393); none for a plain Win+E. */
+  browse?: string | null
 }): { profile: string; args: string[] } {
   if (!UUID.test(options.id)) throw new Error('Invalid Explorer window request')
   const profile = join(resolve(options.owner), WINDOWS, options.id)
@@ -31,6 +33,7 @@ export function explorerWindowArgs(options: {
       `--user-data-dir=${profile}`,
       `--explorer-window=${options.id}`,
       `--win-e=${options.id}`,
+      ...(options.browse ? [`--browse=${options.browse}`] : []),
       ...options.argv.filter((arg) => arg === '--e2e' || arg === '--preview'),
       ...(options.argv.includes('--e2e')
         ? ['--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1']
