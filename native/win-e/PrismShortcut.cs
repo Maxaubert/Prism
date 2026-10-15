@@ -52,6 +52,7 @@ internal static class Program
                 Print(owner, null);
                 return 0;
             }
+            if (args.Length == 4 && args[0] == "--folder") return FolderOpen.Run(args[1], args[2], args[3], FolderOpen.Explorer);
             if (args.Length != 3) throw new ArgumentException("Expected --enable, --disable, --status or --watch followed by the Prism executable and profile paths.");
             owner = new Owner(args[1], args[2], RunKey);
             switch (args[0])
@@ -354,6 +355,60 @@ internal static class Launcher
     }
 }
 
+// OPEN FOLDERS IN PRISM (#393): Windows' default verb for Directory and Drive runs
+// `--folder <Prism.exe> <profile> "%1"`. This copy lives OUTSIDE Prism's install folder, so a
+// Prism deleted by hand, a crash or a hung start still opens the folder: anything short of
+// Prism's acknowledgement opens it in File Explorer. `explorer.exe <path>` takes no shell
+// verb (measured 2026-10-15), so the fallback never comes back here.
+internal static class FolderOpen
+{
+    internal static void Explorer(string path)
+    {
+        Native.StartDetached(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"), Program.Quote(path), true);
+    }
+
+    // A drive's %1 is `C:\`, and the quoted `"C:\"` reaches argv as `C:"`: CommandLineToArgvW
+    // reads `\"` as a literal quote. A path never contains a quote, so a trailing one was
+    // that backslash.
+    internal static string Normalize(string path)
+    {
+        return path.EndsWith("\"") ? path.Substring(0, path.Length - 1) + "\\" : path;
+    }
+
+    internal static int Run(string executable, string profile, string raw, Action<string> fallback)
+    {
+        string path = Normalize(raw);
+        bool acknowledged = false;
+        string reason = "not-a-folder";
+        var clock = Stopwatch.StartNew();
+        try
+        {
+            if (Path.IsPathRooted(path) && Directory.Exists(path))
+            {
+                var owner = new Owner(executable, profile, Program.RunKey);
+                Log.Start(owner.Profile);
+                reason = "prism-missing";
+                if (owner.TargetExists)
+                    acknowledged = Launcher.LaunchAndWait(delegate(string token)
+                    {
+                        Native.StartDetached(owner.Exe, Program.Quote("--user-data-dir=" + owner.Profile) + " "
+                            + Program.Quote("--win-e=" + token) + " " + Program.Quote("--browse=" + path), true);
+                    }, 8000, 45000, out reason);
+            }
+        }
+        catch (Exception) { reason = "failed"; }
+        Log.Write("folder request " + (acknowledged ? "acknowledged" : "fell back to File Explorer (" + reason + ")")
+            + " after " + clock.ElapsedMilliseconds + " ms");
+        Log.Stop();
+        if (!acknowledged)
+        {
+            try { fallback(path); }
+            catch (Exception) { return 1; }
+        }
+        return 0;
+    }
+}
+
 internal sealed class ShortcutPresses
 {
     private bool captured;
@@ -553,12 +608,13 @@ internal static class Log
 {
     private const long Cap = 256 * 1024;
     private static BlockingCollection<string> lines;
+    private static Thread writer;
     internal static void Start(string profile)
     {
         if (lines != null) return;
         string file = Path.Combine(profile, "logs", "win-e.log");
         lines = new BlockingCollection<string>(256);
-        var writer = new Thread(delegate()
+        writer = new Thread(delegate()
         {
             foreach (string line in lines.GetConsumingEnumerable())
             {
@@ -580,10 +636,17 @@ internal static class Log
         writer.IsBackground = true;
         writer.Start();
     }
+    /** A one-shot process (`--folder`) exits right after its request: let the lines land. */
+    internal static void Stop()
+    {
+        if (lines == null) return;
+        lines.CompleteAdding();
+        writer.Join(1000);
+    }
     internal static void Write(string message)
     {
         var queue = lines;
-        if (queue != null)
+        if (queue != null && !queue.IsAddingCompleted)
             queue.TryAdd(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " pid " + Process.GetCurrentProcess().Id + " " + message);
     }
 }
@@ -783,6 +846,19 @@ internal static class SelfTests
                 Check(child.ExitCode == 0 && stdout.Contains("child started") && childClock.ElapsedMilliseconds < 1500,
                     "detached watcher does not keep CLI stdout pipes open (" + childClock.ElapsedMilliseconds + " ms)");
             }
+            Check(FolderOpen.Normalize("C:\"") == "C:\\" && FolderOpen.Normalize("C:\\x y") == "C:\\x y",
+                "a drive root's swallowed backslash is put back");
+            Check(Program.SplitCommand("h.exe " + Program.Quote("--browse=C:\\"))[1] == "--browse=C:\\",
+                "a drive root survives the handoff to Prism");
+            var opened = new List<string>();
+            string missingPrism = Path.Combine(directory, "gone", "Prism.exe");
+            Check(FolderOpen.Run(missingPrism, Path.Combine(directory, "profile"), directory + "\"", opened.Add) == 0
+                && opened.Count == 1 && opened[0] == directory + "\\",
+                "a missing Prism opens the folder in File Explorer");
+            opened.Clear();
+            string nowhere = Path.Combine(directory, "no such folder");
+            FolderOpen.Run(executable, Path.Combine(directory, "profile"), nowhere, opened.Add);
+            Check(opened.Count == 1 && opened[0] == nowhere, "a path that is not a folder goes to File Explorer untouched");
             Console.WriteLine(assertions + " native assertions passed. No real keyboard hook or Explorer launch was performed.");
             return 0;
         }
