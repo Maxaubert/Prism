@@ -6901,6 +6901,17 @@ async function terminalScenario(fixtures) {
     // clipboard the ^V key is forwarded for the TUI to read, and nothing gets
     // text-pasted. (Exact before/after equality is too strict now that
     // PSReadLine actively redraws the input line.)
+    // THE SHELL MUST NEVER READ THE REAL CLIPBOARD (2026-10-15). The forwarded
+    // ^V reaches PSReadLine, whose own Ctrl+V pastes from the WINDOWS clipboard,
+    // which the e2e fake (#356) is not: the owner's copied text was pasted into
+    // this shell and run as a command line (an apostrophe in it left PowerShell
+    // waiting for the closing quote, so `exit` below never ran). The shell's
+    // Ctrl+V is made a no-op first; what is under test is that the app forwards
+    // the key and pastes no text itself.
+    await win.locator('.xterm').click()
+    await win.keyboard.type('Set-PSReadLineKeyHandler -Chord Ctrl+v -ScriptBlock {}')
+    await win.keyboard.press('Enter')
+    await sleep(600)
     const countPaste = async () =>
       (((await win.locator('.xterm').textContent()) ?? '').match(/paste-marker/g) ?? []).length
     const beforeN = await countPaste()
@@ -6945,12 +6956,19 @@ async function terminalScenario(fixtures) {
     ok(nowN <= beforeN, 'an image on the clipboard pastes no text (the ^V key is forwarded)')
     await win.keyboard.type('echo still-alive')
     await win.keyboard.press('Enter')
-    await win.waitForFunction(
-      () => (document.querySelector('.xterm')?.textContent ?? '').includes('still-alive'),
-      null,
-      { timeout: 10000 }
-    )
-    ok(true, 'and the shell is untroubled by it')
+    // The OUTPUT line, alone: a stray paste ahead of the echo would change it.
+    const alive = await win
+      .waitForFunction(
+        () =>
+          [...document.querySelectorAll('.xterm-rows > div')].some(
+            (row) => (row.textContent ?? '').trim() === 'still-alive'
+          ),
+        null,
+        { timeout: 10000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    ok(alive, 'and the shell is untroubled by it (nothing was pasted ahead of the echo)')
 
     // The title bar belongs to what is ON SCREEN: over a full terminal the
     // markdown pencil has nothing to edit, so it goes with the file name.
