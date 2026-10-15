@@ -61,6 +61,7 @@ export interface TermPreloadApi {
    * reading, since a sandboxed preload has no clipboard module.
    */
   readClipboard(): ClipboardRead
+  readClipboardAsync(): Promise<ClipboardRead>
   /**
    * Put TEXT on the clipboard (#12, the help panel's copy buttons). Through
    * main rather than `navigator.clipboard`: that one refuses unless the
@@ -120,6 +121,7 @@ export function createTermApi(ipc: IpcRendererLike): TermPreloadApi {
     termAgentAgain: (id) => ipc.send(CH.agentAgain, id),
     onTermExit: (cb) => on(CH.exit, cb),
     readClipboard: () => ipc.sendSync(CH.clipboardRead) as ClipboardRead,
+    readClipboardAsync: () => ipc.invoke(CH.clipboardReadAsync) as Promise<ClipboardRead>,
     writeClipboard: (text) => ipc.invoke(CH.clipboardWrite, text) as Promise<boolean>,
     writeClipboardFromTerm: (text) => ipc.invoke(CH.clipboardTerm, text) as Promise<boolean>,
     termBell: (id) => ipc.send(CH.bell, id),

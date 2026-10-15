@@ -18,6 +18,7 @@ export const CH = {
   agentAgain: 'term:agent-again',
   exit: 'term:exit',
   clipboardRead: 'clipboard:read',
+  clipboardReadAsync: 'clipboard:read-async',
   clipboardWrite: 'clipboard:write',
   /** A program's OSC 52 copy (#176): its own channel and its own cap. */
   clipboardTerm: 'clipboard:term-write',

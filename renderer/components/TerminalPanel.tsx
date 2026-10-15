@@ -37,7 +37,7 @@ import { onGround } from '../lib/termGround'
 import { xtermTheme, type XtermTheme } from '../lib/termXterm'
 import { bellGate, groundMode, type GroundMode } from '../lib/termReplies'
 import { attachReplies } from './termReplyHandlers'
-import { followsHostStyle, paintsGround, termApi, termHost } from '../host'
+import { followsHostStyle, paintsGround, termApi, termHost, type ClipboardRead } from '../host'
 import { findLinks, linkColor } from '../lib/termLinks'
 import { announceCopied, copyText } from '../lib/copyNotice'
 import { arrowKeys, caretClickAllowed, caretDelta, type ClickGate } from '../lib/termClickCaret'
@@ -1000,7 +1000,17 @@ function createSession(id: string, root: string, shellId: string | undefined): S
    * growing a second, wrong copy of it.
    */
   const pasteHere = (): void => {
-    const decision = decidePaste(termApi().readClipboard(), pathShell)
+    // Read without the page waiting on main where the bridge can (2026-10-15:
+    // a Ctrl+V while main was stalled by a starved disk froze the page 6 to
+    // 8 s, MEASURED, page stacks in onKey). The key handler still returns at
+    // once; the paste lands when the read does.
+    const api = termApi()
+    if (api.readClipboardAsync) void api.readClipboardAsync().then(pasteFrom, () => {})
+    else pasteFrom(api.readClipboard())
+  }
+  const pasteFrom = (read: ClipboardRead): void => {
+    if (!sessions.has(id)) return
+    const decision = decidePaste(read, pathShell)
     if (decision.kind === 'key') {
       markTouched(id)
       // The AGENT's image-paste key, Alt+V to Claude on Windows (#170).
@@ -1083,11 +1093,15 @@ function createSession(id: string, root: string, shellId: string | undefined): S
       case 'paste-plain': {
         e.preventDefault()
         // Sanitised like every paste (#1): no ESC can end the bracketed paste.
-        const text = sanitizePaste(termApi().readClipboard().text)
-        if (text) {
+        const plain = (read: ClipboardRead): void => {
+          const text = sanitizePaste(read.text)
+          if (!text || !sessions.has(id)) return
           markTouched(id)
           term.paste(text)
         }
+        const api = termApi()
+        if (api.readClipboardAsync) void api.readClipboardAsync().then(plain, () => {})
+        else plain(api.readClipboard())
         return false
       }
     }

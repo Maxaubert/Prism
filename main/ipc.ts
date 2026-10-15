@@ -145,9 +145,9 @@ export function registerTermIpc(deps: TermIpcDeps): () => void {
     if (typeof id === 'string' && typeof path === 'string' && deps.mayCd(path)) cdTerm(id, path)
   })
 
-  // Synchronous, because the key handler that asks has to be. Copied FILES
-  // arrive as a FileNameW buffer: a NUL-separated UTF-16 list.
-  ipcMain.on(CH.clipboardRead, (e: { returnValue: unknown }) => {
+  // What is on the clipboard. Copied FILES arrive as a FileNameW buffer: a
+  // NUL-separated UTF-16 list.
+  const readClip = (): { image: boolean; text: string; files: string[] } => {
     try {
       const formats = deps.clipboard.availableFormats()
       const files = formats.includes('FileNameW')
@@ -158,15 +158,18 @@ export function registerTermIpc(deps: TermIpcDeps): () => void {
             .split('\0')
             .filter(Boolean)
         : []
-      e.returnValue = {
-        image: formats.some((f) => f.startsWith('image/')),
-        text: deps.clipboard.readText(),
-        files
-      }
+      return { image: formats.some((f) => f.startsWith('image/')), text: deps.clipboard.readText(), files }
     } catch {
-      e.returnValue = { image: false, text: '', files: [] }
+      return { image: false, text: '', files: [] }
     }
+  }
+  // Synchronous, for a host bridge whose page has no async read.
+  ipcMain.on(CH.clipboardRead, (e: { returnValue: unknown }) => {
+    e.returnValue = readClip()
   })
+  // The paste's own read (2026-10-15): the page does not wait on main for it,
+  // so a main stalled by a starved disk no longer freezes the page too.
+  ipcMain.handle(CH.clipboardReadAsync, () => readClip())
 
   // The help panel's copy buttons (#12). Text only, and bounded: the longest
   // command in the catalogue is a few hundred characters, so anything near the

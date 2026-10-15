@@ -48,6 +48,10 @@ export interface TermApi {
   termAgentAgain?(id: string): void
   onTermExit(cb: (id: string) => void): () => void
   readClipboard(): ClipboardRead
+  /** The same, without the page waiting on main (2026-10-15: a paste in a
+   *  stalled main froze the page with it, 6 to 8 s MEASURED). Optional so an
+   *  older host bridge still builds; the paste then reads synchronously. */
+  readClipboardAsync?(): Promise<ClipboardRead>
   /** Text onto the clipboard through main, for when the page itself is refused
    *  (no focus). Both hosts' bridges carry it (`createTermApi`); optional so a
    *  host that has none still builds, and `copyText` then reports a failure. */
