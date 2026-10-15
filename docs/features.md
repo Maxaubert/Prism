@@ -2740,6 +2740,28 @@ changing a feature: each entry records what the owner decided, why, and what hol
   `!ifmacrodef` found nothing: every ProgID, every OpenWithProgids entry and the Explorer verb
   survived an uninstall. The macro lives in `assoc.nsh` now and a parity test asserts both that
   and that every key `shellVerb.ts` writes is one the uninstaller deletes.
+- **Open folders from other apps** (#393; owner, 2026-10-15, asked through Prism Terminal: path
+  links clicked there opened folders in File Explorer, and Prism Terminal must not know Prism
+  exists). OFF by default, in Settings > Explorer > Windows. On, Prism is Windows' default verb
+  for `Directory` and `Drive` (HKCU, `PrismBrowse`), so a folder ANY app opens with the shell's
+  default verb (Run, cmd `start`, `shell:` links, shortcuts, Prism Terminal after its core change)
+  opens a Prism Explorer, the Win+E way: the same handshake, landing on that folder instead of
+  Home. Files are untouched. MEASURED the same day with a logging stand-in (spec:
+  `docs/superpowers/specs/2026-10-15-folder-handler-design.md`): never the `Folder` class, which
+  is Control Panel too; Electron's `shell.openPath`/`openExternal` take NO shell verb, so no
+  registry entry catches them, which is why Prism Terminal opens folders through the default verb
+  now. File Explorer's own double-click STAYS in File Explorer (owner's choice): the verb is
+  `ProgrammaticAccessOnly`, which also keeps it out of the menu. THE VERB RUNS A COPY OF THE WIN+E
+  HELPER OUTSIDE THE INSTALL FOLDER (`%LOCALAPPDATA%\PrismFolders`), `--folder`: anything short of
+  Prism's acknowledgement (Prism missing, crashed, hung, a path that is not a folder) opens the
+  folder in File Explorer, so turning Prism into the folder handler can never leave folders
+  unopenable. The helper owns the registry (reg.exe prints an unset default as localised text):
+  the default it replaced is kept as `PreviousDefault` on Prism's key and put back exactly on
+  off, another file manager included; a default some other app took since is never touched. The
+  one fact stored in userData is the YES (`folders-on`), for the startup repair. The uninstaller
+  undoes it in NSIS (`build/installer/folders.nsh`), and keeps it across an upgrade. Held by the
+  helper's self-tests (`npm run test:win-e`), `folderHandler.test.ts`, `browseRequest` in
+  `winERequests.test.ts`, and the e2e `folderOpen`.
 - **Opt-in file associations**: register Prism as the handler for chosen types, from Settings.
   Never hijack defaults silently. The installer offers EVERY viewable type
   (`build/installer/assoc.nsh`); the app itself just opens Windows' Default apps page, so that
