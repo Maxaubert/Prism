@@ -60,6 +60,9 @@ describe('private bundled indexer', () => {
     expect(ini).toContain('auto_include_fixed_volumes=0')
     expect(ini).toContain('http_server_enabled=0')
     expect(ini).toContain('folder_monitor_changes=1,1')
+    // A crawl runs in Windows' background mode (2026-10-15).
+    expect(ini).toContain('folder_update_thread_mode_background=1')
+    expect(ini).toContain('monitor_thread_mode_background=1')
   })
 
   it('coalesces nested roots without confusing sibling prefixes', () => {

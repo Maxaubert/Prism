@@ -101,6 +101,14 @@ export function indexerConfig(roots: readonly string[], servicePipe?: string): s
     app_data: 0,
     run_as_admin: 0,
     run_in_background: 1,
+    // A FOLDER CRAWL NEVER STARVES THE DISK (2026-10-15). Without the NTFS
+    // service (it had crashed and stayed down) this engine crawls whole drives,
+    // and at Everything's default (off, measured in the owner's 1.5a ini) that
+    // crawl ran at normal priority and stalled C: machine-wide for five minutes
+    // after a Prism start. Windows' background mode gives those threads very
+    // low disk and CPU priority.
+    folder_update_thread_mode_background: 1,
+    monitor_thread_mode_background: 1,
     show_tray_icon: 0,
     check_for_updates_on_startup: 0,
     show_indexing_progress: 0,

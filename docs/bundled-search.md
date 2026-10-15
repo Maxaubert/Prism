@@ -48,3 +48,16 @@ The optional Explorer test `a ready existing index` exercises an already-running
 local index read-only when `PRISM_E2E_EXISTING_INDEX=1`; it verifies visible search
 latency and that no private scan starts. Other tests keep private indexing bounded
 to fixture roots. The default suite never depends on the developer's index.
+
+**A crashed service, and the crawl it leaves (2026-10-15).** The private service
+crashed once (exit 1067) and, with no recovery actions, stayed down. Prism then
+fell back to folder-crawling whole drives on every start, at normal priority, and
+starved C: machine-wide for about five minutes after a restart (measured by the
+Prism Terminal session's diagnostics). Since then `service.ps1` sets the service
+to restart itself after a failure (5 s, 30 s, 60 s; the count resets daily, and
+the `bundled-indexer` CI job checks it), and the engine's own config runs its
+folder-update and monitor threads in Windows' background mode
+(`folder_update_thread_mode_background=1`, `monitor_thread_mode_background=1`;
+off by default: 0 in the owner's own Everything 1.5a settings), so a crawl takes very low disk and CPU priority.
+A service that is already down gets the restart rule at the next install,
+which then asks for administrator approval once.
