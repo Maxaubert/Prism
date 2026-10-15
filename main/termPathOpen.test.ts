@@ -1,8 +1,9 @@
+import { EventEmitter } from 'events'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it, vi } from 'vitest'
-import { isRunnable, openTermPath, pathKinds, resolveTermPath } from './termPathOpen'
+import { isRunnable, openFolderDefault, openTermPath, pathKinds, resolveTermPath } from './termPathOpen'
 
 const tree = (): string => {
   const root = mkdtempSync(join(tmpdir(), 'pt-paths-'))
@@ -69,5 +70,59 @@ describe('isRunnable', () => {
     for (const f of ['a.exe', 'b.BAT', 'c.ps1', 'd.lnk', 'e.msi', 'f.js', 'g.vbs', 'h.py', 'i.url', 'j.reg'])
       expect(isRunnable(f)).toBe(true)
     for (const f of ['a.pdf', 'b.md', 'c.png', 'd.txt', 'e.docx', 'f.ts', 'g.json', 'README']) expect(isRunnable(f)).toBe(false)
+  })
+})
+
+describe('a folder goes to the folder handler Windows has (Prism #393)', () => {
+  it('a folder uses openFolder when the host has one; a file never does', async () => {
+    const root = tree()
+    const o = { openPath: vi.fn(), revealPath: vi.fn(), openFolder: vi.fn() }
+    expect(await openTermPath(root, 'docs', 'open', o)).toBe('opened')
+    expect(o.openFolder).toHaveBeenCalledWith(join(root, 'docs'))
+    expect(await openTermPath(root, 'docs/sign-off/rapport.pdf', 'open', o)).toBe('opened')
+    expect(o.openPath).toHaveBeenCalledWith(join(root, 'docs', 'sign-off', 'rapport.pdf'))
+    expect(await openTermPath(root, 'run.bat', 'open', o)).toBe('revealed')
+    expect(await openTermPath(root, 'docs', 'reveal', o)).toBe('revealed')
+    expect(o.openFolder).toHaveBeenCalledTimes(1)
+  })
+
+  const fake = (behave: (child: EventEmitter) => void) => {
+    const calls: Array<{ file: string; args: string[]; env: Record<string, string> }> = []
+    const run = ((file: string, args: string[], options: { env: Record<string, string> }) => {
+      calls.push({ file, args, env: options.env })
+      const child = new EventEmitter()
+      queueMicrotask(() => behave(child))
+      return child
+    }) as unknown as Parameters<typeof openFolderDefault>[2]
+    return { calls, run }
+  }
+
+  it('asks Windows for its default verb with the path in the environment, never the command line', async () => {
+    const odd = 'C:\\a & b\\100% [x] $(y)'
+    const { calls, run } = fake((child) => child.emit('exit', 0))
+    const fallback = vi.fn()
+    openFolderDefault(odd, fallback, run)
+    await new Promise((done) => setTimeout(done, 0))
+    expect(calls[0].file).toBe('powershell.exe')
+    expect(calls[0].args.join(' ')).not.toContain(odd)
+    expect(calls[0].env.PT_OPEN_FOLDER).toBe(odd)
+    expect(fallback).not.toHaveBeenCalled()
+  })
+
+  it('anything short of a clean exit falls back, once', async () => {
+    for (const behave of [
+      (child: EventEmitter) => child.emit('exit', 1),
+      (child: EventEmitter) => {
+        child.emit('error', new Error('no powershell'))
+        child.emit('exit', -4058)
+      }
+    ]) {
+      const { run } = fake(behave)
+      const fallback = vi.fn()
+      openFolderDefault('C:\\x', fallback, run)
+      await new Promise((done) => setTimeout(done, 0))
+      expect(fallback).toHaveBeenCalledTimes(1)
+      expect(fallback).toHaveBeenCalledWith('C:\\x')
+    }
   })
 })

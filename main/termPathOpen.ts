@@ -1,3 +1,4 @@
+import { spawn } from 'child_process'
 import { stat } from 'fs/promises'
 import { homedir } from 'os'
 import { extname, isAbsolute, resolve, win32 } from 'path'
@@ -9,7 +10,8 @@ import { extname, isAbsolute, resolve, win32 } from 'path'
  * it exists, and what opening it means. The page is never trusted with a path
  * to open: it hands over the TEXT again, and main resolves and checks it anew.
  *
- * What a click does. A folder opens in Explorer. A file opens in the app
+ * What a click does. A folder opens in the app Windows gives folders (File
+ * Explorer, unless the user picked another; see `openFolderDefault`). A file opens in the app
  * Windows gives it, EXCEPT anything Windows would RUN (an .exe, a script, a
  * shortcut, an installer): that is shown selected in Explorer instead. Clicking
  * text in a terminal must never start a program.
@@ -84,8 +86,11 @@ export async function pathKinds(cwd: string, texts: string[]): Promise<Array<Pat
 }
 
 export interface PathOpeners {
-  /** The app Windows gives it (a folder: Explorer). */
+  /** The app Windows gives it. */
   openPath(abs: string): void
+  /** A folder, through Windows' default verb for folders (`openFolderDefault`).
+   *  Absent: `openPath`. */
+  openFolder?(abs: string): void
   /** Explorer, with it selected. */
   revealPath(abs: string): void
 }
@@ -104,6 +109,49 @@ export async function openTermPath(
     openers.revealPath(hit.abs)
     return 'revealed'
   }
-  openers.openPath(hit.abs)
+  if (hit.kind === 'dir' && openers.openFolder) openers.openFolder(hit.abs)
+  else openers.openPath(hit.abs)
   return 'opened'
+}
+
+/**
+ * A FOLDER OPENS IN WHATEVER THE USER PICKED FOR FOLDERS (Prism #393; owner,
+ * 2026-10-15). Electron's `shell.openPath` and `shell.openExternal` open a
+ * folder WITHOUT any shell verb (measured: a default verb registered on
+ * Directory, Drive or Folder, and overrides of their `open` and `explore`
+ * verbs, were never run), so a folder handler the user chose never got it and
+ * File Explorer always did. ShellExecute with NO verb is the route Windows
+ * gives that choice; PowerShell's Start-Process is that call, and the path
+ * travels in the environment, never on a command line a shell would parse.
+ * This names no app: with nothing picked it is File Explorer, as before.
+ * Anything short of a clean exit hands the folder to `fallback`.
+ */
+export function openFolderDefault(
+  abs: string,
+  fallback: (abs: string) => void,
+  run: typeof spawn = spawn
+): void {
+  let fell = false
+  const fall = (): void => {
+    if (fell) return
+    fell = true
+    fallback(abs)
+  }
+  try {
+    const child = run(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', 'Start-Process -FilePath $env:PT_OPEN_FOLDER'],
+      {
+        env: { ...process.env, PT_OPEN_FOLDER: abs },
+        windowsHide: true,
+        stdio: 'ignore'
+      }
+    )
+    child.on('error', fall)
+    child.on('exit', (code) => {
+      if (code !== 0) fall()
+    })
+  } catch {
+    fall()
+  }
 }
