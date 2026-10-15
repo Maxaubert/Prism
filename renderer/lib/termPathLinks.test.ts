@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { configureTermCore, resetTermCore, type TermApi, type TermHostConfig } from '../host'
-import { findPath, linkRanges, onPathsFound, parentDir, pathCandidates, resetPathCache, takeAsked } from './termPathLinks'
+import { findPath, holdsCwd, linkRanges, onPathsFound, parentDir, pathCandidates, resetPathCache, takeAsked } from './termPathLinks'
 
 const paths = (text: string): string[] => pathCandidates(text).map((p) => p.path)
 
@@ -184,5 +184,55 @@ describe('a relative path is tried in the folders the tab showed', () => {
     expect(findPath('A', REPO, 'notes.md')?.base).toBe(`${MISC}\\dto\\b\\out`)
     const bases = ask.mock.calls.filter(([, t]) => t.includes('notes.md')).map(([c]) => c)
     expect(bases).toEqual([REPO, `${MISC}\\dto\\b\\out`])
+  })
+})
+
+// Owner, 2026-10-15: Claude Code's status line prints the tab's folder as
+// `Github-loftspace/Stutter-Diagnostics`, which a shown folder above it found.
+describe('the folder the tab is in is never a link found from a shown folder', () => {
+  const ROOT = 'C:\\c'
+  const CWD = 'C:\\c\\Github-loftspace\\Stutter'
+  const dirs = new Set([ROOT, `${ROOT}\\Github-loftspace`, CWD, `${ROOT}\\Github`])
+  const files = new Set([`${CWD}\\src\\a.ts`])
+  const join = (base: string, t: string): string => (/^[A-Za-z]:/.test(t) ? t : `${base}\\${t.replace(/\//g, '\\')}`)
+  const ask = vi.fn(async (cwd: string, texts: string[]) =>
+    texts.map((t) => {
+      const abs = join(cwd, t)
+      return dirs.has(abs) ? { kind: 'dir' as const, abs } : files.has(abs) ? { kind: 'file' as const, abs } : null
+    })
+  )
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 4; i += 1) await vi.advanceTimersByTimeAsync(50)
+  }
+  beforeEach(() => {
+    vi.useFakeTimers()
+    configureTermCore({ api: { termPathKinds: ask } as unknown as TermApi } as TermHostConfig)
+  })
+  afterEach(() => {
+    resetPathCache()
+    resetTermCore()
+    vi.useRealTimers()
+  })
+
+  it('holdsCwd: the folder itself and those above it, either slash, any case', () => {
+    expect(holdsCwd('C:\\c\\Github-loftspace\\Stutter', CWD)).toBe(true)
+    expect(holdsCwd('c:/C/github-loftspace', CWD)).toBe(true)
+    expect(holdsCwd('C:\\c\\Github', CWD)).toBe(false)
+    expect(holdsCwd('C:\\c\\Github-loftspace\\Stutter\\src', CWD)).toBe(false)
+  })
+
+  it('the status line stays plain', async () => {
+    const full = `see ${CWD}\\src\\a.ts`
+    linkRanges(full, CWD, 'A')
+    await settle()
+    linkRanges(full, CWD, 'A')
+    await settle()
+    const status = 'Github-loftspace/Stutter (Sonnet 5.5)'
+    for (let i = 0; i < 3; i += 1) {
+      linkRanges(status, CWD, 'A')
+      await settle()
+    }
+    expect(linkRanges(status, CWD, 'A')).toEqual([])
+    expect(findPath('A', CWD, 'Github-loftspace/Stutter')).toBe(null)
   })
 })

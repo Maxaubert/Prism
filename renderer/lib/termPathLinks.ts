@@ -69,6 +69,20 @@ const anchors = new Map<string, string[]>()
 const isRelative = (p: string): boolean => !/^(?:[A-Za-z]:|[\\/]|~)/.test(p)
 const hasSeparator = (p: string): boolean => /[\\/]/.test(p)
 
+/**
+ * Whether `dir` is `cwd` or a folder above it. Such a folder found from a shown
+ * folder is the one the shell is already in, said another way: Claude Code's
+ * status line prints the tab's folder as `Github-loftspace/Stutter-Diagnostics`
+ * on every redraw, and it lit up as a link (owner, 2026-10-15: "has become a
+ * link i dont want that"). The prompt is left alone for the same reason.
+ */
+export function holdsCwd(dir: string, cwd: string): boolean {
+  const norm = (p: string): string => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+  const d = norm(dir)
+  const c = norm(cwd)
+  return c === d || c.startsWith(d + '\\')
+}
+
 /** The folder above `dir`, or null at a drive's root. */
 export function parentDir(dir: string): string | null {
   const d = dir.replace(/[\\/]+$/, '')
@@ -130,7 +144,7 @@ export function findPath(
   let unknown = false
   for (const base of anchorBases(owner, cwd, path)) {
     const b = knownPath(base, path)
-    if (b) return { hit: b, base }
+    if (b && !(b.kind === 'dir' && holdsCwd(b.abs, cwd))) return { hit: b, base }
     if (b === undefined) {
       unknown = true
       need(base)
