@@ -45,7 +45,7 @@ import {
 } from './desktopAccess'
 import { browseDirectory, browseLocations, type BrowseRead } from './browse'
 import { driveUsage, withUsedShare } from './driveUsage'
-import { phoneListed, phoneMay, phoneRelease } from './phone/phoneAccess'
+import { phoneListed, phoneMay, phoneOnThisPc, phoneRelease } from './phone/phoneAccess'
 import { phonePlaces } from './phone/places'
 import { MemberTemp, cleanDeadRuns, pidAlive } from './memberTemp'
 import { createArchiveBrowse } from './archiveBrowse'
@@ -1430,7 +1430,7 @@ if (!app.requestSingleInstanceLock()) {
       // over the folder the phone is in (2026-10-14).
       search: (dir: string, query: string) => searchFiles(dir, query),
       // The desktop Explorer's rule, one owner per phone (phoneAccess.ts).
-      access: { listed: phoneListed, may: phoneMay, release: phoneRelease },
+      access: { listed: phoneListed, may: phoneMay, release: phoneRelease, local: (p) => phoneOnThisPc(p) },
       places: () =>
         phonePlaces(
           () => browseLocations((key) => app.getPath(key)),

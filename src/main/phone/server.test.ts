@@ -141,7 +141,9 @@ beforeEach(async () => {
       release: (token) => {
         listed.delete(token)
         released.push(token)
-      }
+      },
+      // A folder called "on-a-share" stands for a mapped network drive.
+      local: async (p) => !/on-a-share/i.test(p)
     },
     places: async () => ({
       quick: [{ name: 'Downloads', path: 'C:\\Users\\max\\Downloads', known: 'downloads' }],
@@ -329,6 +331,20 @@ describe('PhoneServer', () => {
     expect((await fetch(url(`/api/dir?path=${encodeURIComponent(dir)}`))).status).toBe(401)
     expect((await fetch(url(`/m/${encodeURIComponent(join(dir, 'clip.mp4'))}`))).status).toBe(401)
     expect((await fetch(url('/api/me'), { headers: { authorization: 'Bearer nope' } })).status).toBe(401)
+  })
+
+  it('never lists or reads a folder that is really on another computer (2026-10-15)', async () => {
+    const token = await pair()
+    const auth = { authorization: `Bearer ${token}` }
+    const share = join(dir, 'on-a-share')
+    mkdirSync(share, { recursive: true })
+    writeFileSync(join(share, 'x.mp4'), 'x')
+    expect((await fetch(url(`/api/dir?path=${encodeURIComponent(share)}`), { headers: auth })).status).toBe(403)
+    // Even granted some other way, a read is refused.
+    listed.get(token)?.add(share.toLowerCase())
+    const file = join(share, 'x.mp4')
+    expect((await fetch(url(`/api/stat?path=${encodeURIComponent(file)}`), { headers: auth })).status).toBe(403)
+    expect((await fetch(url(`/m/${encodeURIComponent(file)}?t=${token}`))).status).toBe(403)
   })
 
   it('answers me, dir, subs and media for a paired phone', async () => {

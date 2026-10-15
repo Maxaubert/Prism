@@ -13719,6 +13719,19 @@ async function phoneScenario(fixtures) {
       !!state.code && /^[A-Z2-9]{6}$/.test(state.code.code),
       'a six-character code is issued for the tab'
     )
+    // A CODE DIES WITH THE DIALOG (2026-10-15): closing it drops every code
+    // it showed, so a code read off the screen cannot pair a phone later.
+    {
+      const shown = await win.evaluate(() => window.prism.phoneGet(null))
+      await win.evaluate(() => window.prism.phoneCodeDrop())
+      await sleep(200)
+      const late = await fetch(`${base}/pair`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: shown.code?.code ?? '', name: 'too late' })
+      })
+      ok(!!shown.code && late.status !== 200, `a code is refused once the dialog closed (${late.status})`)
+    }
     ok(!!state.code && state.code.svg.startsWith('<svg'), 'the QR renders as SVG')
     ok(status === 200, 'pairing succeeds')
     ok(root.toLowerCase() === fixtures.toLowerCase(), 'the phone starts in the folder the PC is showing')
