@@ -48,7 +48,7 @@ import {
   type SelectionGate
 } from '../lib/termSelectionEdit'
 import { attachLinkPaint, type LinkPainter } from '../lib/termLinkPaint'
-import { knownPath, linkRanges, onPathsFound, pathCandidates, takeAsked, type PathHit } from '../lib/termPathLinks'
+import { findPath, linkRanges, onPathsFound, pathCandidates, takeAsked, type PathHit } from '../lib/termPathLinks'
 import {
   initialCaretHold,
   onCaretKey,
@@ -364,14 +364,16 @@ setScreenTail((id, rows) => {
 export interface TermPathAt extends PathHit {
   /** As written on screen, which is what main resolves again on a click. */
   text: string
+  /** The folder it was found from: the shell's, or one the tab showed. */
+  base: string
 }
 
 /** The path, known to exist, that covers character `at` of `text`. */
-function pathAt(text: string, at: number, cwd: string): TermPathAt | null {
+function pathAt(text: string, at: number, cwd: string, owner: string): TermPathAt | null {
   for (const c of pathCandidates(text)) {
     if (at < c.start || at >= c.end) continue
-    const hit = knownPath(cwd, c.path)
-    return hit ? { ...hit, text: c.path } : null
+    const f = findPath(owner, cwd, c.path)
+    return f ? { ...f.hit, text: c.path, base: f.base } : null
   }
   return null
 }
@@ -385,7 +387,7 @@ export function openTermPath(id: string, target: TermPathAt, mode: 'open' | 'rev
   const s = sessions.get(id)
   if (!s) return
   if (termHost().openPath?.({ abs: target.abs, kind: target.kind, mode })) return
-  termApi().termOpenPath?.(s.cwd(), target.text, mode)
+  termApi().termOpenPath?.(target.base, target.text, mode)
 }
 
 export function termContextAt(
@@ -411,7 +413,7 @@ export function termContextAt(
   const shown = linkAt(line.text, at)
   const osc = s.oscLink(y, col)
   const link = osc ? osc8Target(osc, shown) : shown
-  return { selection, link, path: link ? null : pathAt(line.text, at, s.cwd()) }
+  return { selection, link, path: link ? null : pathAt(line.text, at, s.cwd(), id) }
 }
 
 /** Refit a session and tell the pty its new geometry. */
@@ -719,12 +721,12 @@ function createSession(id: string, root: string, shellId: string | undefined): S
       const line = lineAt(term, y - 1)
       const out = []
       for (const c of pathCandidates(line.text)) {
-        const hit = knownPath(cwdNow, c.path)
-        if (!hit) continue
+        const f = findPath(id, cwdNow, c.path)
+        if (!f) continue
         const from = line.index.indexOf(c.start)
         const to = line.index.indexOf(c.end) - 1
         if (from < 0 || to < from) continue
-        const target: TermPathAt = { ...hit, text: c.path }
+        const target: TermPathAt = { ...f.hit, text: c.path, base: f.base }
         out.push({
           range: {
             start: { x: (from % term.cols) + 1, y: line.first + Math.floor(from / term.cols) + 1 },

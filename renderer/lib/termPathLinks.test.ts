@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { configureTermCore, resetTermCore, type TermApi, type TermHostConfig } from '../host'
-import { linkRanges, onPathsFound, pathCandidates, resetPathCache, takeAsked } from './termPathLinks'
+import { findPath, linkRanges, onPathsFound, parentDir, pathCandidates, resetPathCache, takeAsked } from './termPathLinks'
 
 const paths = (text: string): string[] => pathCandidates(text).map((p) => p.path)
 
@@ -114,5 +114,75 @@ describe('who hears that a path exists (#167)', () => {
     await vi.advanceTimersByTimeAsync(40) // in flight now
     linkRanges('again a.txt', 'C:\\w', 'A')
     expect(takeAsked('A')).toBe(true)
+  })
+})
+
+// Owner, 2026-10-15: Claude printed `dto-motion\a\out\a.mp4` in a tab whose
+// folder was a repo, meaning a file under zz-Misc it had shown in full before.
+describe('a relative path is tried in the folders the tab showed', () => {
+  const REPO = 'C:\\c\\Github\\Repo'
+  const MISC = 'C:\\c\\zz-Misc'
+  /** The files that exist, by full path. */
+  const files = new Set([`${MISC}\\dto\\b\\out\\b.mp4`, `${MISC}\\dto\\a\\out\\a.mp4`, `${MISC}\\dto\\b\\out\\notes.md`])
+  const join = (base: string, t: string): string => (/^[A-Za-z]:/.test(t) ? t : `${base}\\${t}`)
+  const ask = vi.fn(async (cwd: string, texts: string[]) =>
+    texts.map((t) => (files.has(join(cwd, t)) ? { kind: 'file' as const, abs: join(cwd, t) } : null))
+  )
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 4; i += 1) await vi.advanceTimersByTimeAsync(50)
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    ask.mockClear()
+    configureTermCore({ api: { termPathKinds: ask } as unknown as TermApi } as TermHostConfig)
+  })
+  afterEach(() => {
+    resetPathCache()
+    resetTermCore()
+    vi.useRealTimers()
+  })
+
+  it('parentDir climbs and stops at the drive', () => {
+    expect(parentDir('C:\\a\\b\\')).toBe('C:\\a')
+    expect(parentDir('C:\\a')).toBe(null)
+    expect(parentDir('x')).toBe(null)
+  })
+
+  it('names nothing until a full path shows the folder, then lights up from three folders above it', async () => {
+    const rel = 'see dto\\a\\out\\a.mp4 now'
+    linkRanges(rel, REPO, 'A')
+    await settle()
+    expect(linkRanges(rel, REPO, 'A')).toEqual([])
+    const woke = vi.fn()
+    onPathsFound('A', woke)
+    linkRanges(`at ${MISC}\\dto\\b\\out\\b.mp4.`, REPO, 'A')
+    await settle()
+    linkRanges(`at ${MISC}\\dto\\b\\out\\b.mp4.`, REPO, 'A')
+    await settle()
+    expect(woke).toHaveBeenCalled()
+    linkRanges(rel, REPO, 'A')
+    await settle()
+    expect(linkRanges(rel, REPO, 'A')).toEqual([{ start: 4, end: 19, path: 'dto\\a\\out\\a.mp4' }])
+    // A click resolves it in the folder it was found from.
+    expect(findPath('A', REPO, 'dto\\a\\out\\a.mp4')?.base).toBe(MISC)
+    // Another tab never showed that folder.
+    linkRanges(rel, REPO, 'B')
+    await settle()
+    expect(linkRanges(rel, REPO, 'B')).toEqual([])
+  })
+
+  it('a bare name is tried in the shown folder only, never above it', async () => {
+    const full = `at ${MISC}\\dto\\b\\out\\b.mp4`
+    linkRanges(full, REPO, 'A')
+    await settle()
+    linkRanges(full, REPO, 'A')
+    linkRanges('see notes.md', REPO, 'A')
+    await settle()
+    linkRanges('see notes.md', REPO, 'A')
+    await settle()
+    expect(findPath('A', REPO, 'notes.md')?.base).toBe(`${MISC}\\dto\\b\\out`)
+    const bases = ask.mock.calls.filter(([, t]) => t.includes('notes.md')).map(([c]) => c)
+    expect(bases).toEqual([REPO, `${MISC}\\dto\\b\\out`])
   })
 })

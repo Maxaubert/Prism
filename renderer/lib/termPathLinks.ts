@@ -18,6 +18,12 @@ export interface PathHit {
   abs: string
 }
 
+/** A hit, and the folder it was read from: what main resolves it in again. */
+export interface PathFound {
+  hit: PathHit
+  base: string
+}
+
 const NO_TTL_MS = 15_000
 const MAX_ENTRIES = 5000
 const BATCH_MS = 40
@@ -42,6 +48,96 @@ let timer: ReturnType<typeof setTimeout> | undefined
 const listeners = new Map<string, Set<() => void>>()
 /** Owners whose last `linkRanges` queued (or joined) a question. */
 const asked = new Set<string>()
+
+/**
+ * THE FOLDERS A TAB HAS SHOWN (owner, 2026-10-15: "these links are for some
+ * reason not clickable"). An agent names a file relative to a folder it talked
+ * about, not to the shell's: Claude printed `dto-motion\a\out\a.mp4` in a tab
+ * whose folder was a repo, meaning `...\zz-Misc\dto-motion\...`, a folder its
+ * Bash had worked in. Claude Code puts its Bash back in the project folder
+ * after every command (MEASURED, 2.1.x), so no hook can say where it meant.
+ * What the screen does say: a full path that exists. Its folder, and the
+ * folders above it, are where a relative path that names nothing from the
+ * shell's folder is tried next, newest first. A bare name (`a.mp4`) is tried
+ * in the shown folders only, never above them, where a `README.md` would light
+ * up the wrong file.
+ */
+const ANCHORS_MAX = 4
+const ANCESTORS = 4
+const anchors = new Map<string, string[]>()
+
+const isRelative = (p: string): boolean => !/^(?:[A-Za-z]:|[\\/]|~)/.test(p)
+const hasSeparator = (p: string): boolean => /[\\/]/.test(p)
+
+/** The folder above `dir`, or null at a drive's root. */
+export function parentDir(dir: string): string | null {
+  const d = dir.replace(/[\\/]+$/, '')
+  const i = Math.max(d.lastIndexOf('\\'), d.lastIndexOf('/'))
+  if (i < 0) return null
+  const up = d.slice(0, i)
+  return /^[A-Za-z]:$/.test(up) ? null : up
+}
+
+function learnAnchor(owner: string, hit: PathHit): void {
+  const dir = hit.kind === 'dir' ? hit.abs : parentDir(hit.abs)
+  if (!dir) return
+  const list = anchors.get(owner) ?? []
+  if (list[0] === dir) return
+  const next = [dir, ...list.filter((d) => d !== dir)].slice(0, ANCHORS_MAX)
+  anchors.set(owner, next)
+  // A relative path already painted plain may name something from here: the
+  // tab looks again, once per new folder, after this paint.
+  if (!list.includes(dir)) setTimeout(() => listeners.get(owner)?.forEach((fn) => fn()), 0)
+}
+
+/** Where a relative `path` is tried after `cwd`, in order. */
+export function anchorBases(owner: string, cwd: string, path: string): string[] {
+  const out: string[] = []
+  const climb = hasSeparator(path) ? ANCESTORS : 0
+  for (const a of anchors.get(owner) ?? []) {
+    let d: string | null = a
+    for (let up = 0; d && up <= climb; up += 1, d = parentDir(d)) {
+      if (d.toLowerCase() !== cwd.toLowerCase() && !out.includes(d)) out.push(d)
+    }
+  }
+  return out
+}
+
+/**
+ * What `path` names for `owner`: from `cwd`, else (a relative path only) from
+ * the folders the tab has shown. Undefined while any answer is still unknown,
+ * with the bases that need asking in `ask` when one is passed.
+ */
+export function findPath(
+  owner: string,
+  cwd: string,
+  path: string,
+  ask?: Map<string, string[]>
+): PathFound | null | undefined {
+  const k = knownPath(cwd, path)
+  if (k) return { hit: k, base: cwd }
+  const need = (base: string): void => {
+    if (!ask) return
+    const list = ask.get(base)
+    if (list) list.push(path)
+    else ask.set(base, [path])
+  }
+  if (k === undefined) {
+    need(cwd)
+    return undefined
+  }
+  if (!isRelative(path)) return null
+  let unknown = false
+  for (const base of anchorBases(owner, cwd, path)) {
+    const b = knownPath(base, path)
+    if (b) return { hit: b, base }
+    if (b === undefined) {
+      unknown = true
+      need(base)
+    }
+  }
+  return unknown ? undefined : null
+}
 
 const key = (cwd: string, path: string): string => `${cwd}\n${path}`
 
@@ -142,14 +238,15 @@ export function linkRanges(
   const links = findLinks(text)
   if (!cwd || !termApi().termPathKinds || !/[\\/.]/.test(text)) return links
   const out: Array<{ start: number; end: number }> = [...links]
-  const ask: string[] = []
+  const ask = new Map<string, string[]>()
   for (const c of pathCandidates(text, links)) {
-    const k = knownPath(cwd, c.path)
-    if (k) out.push(c)
-    else if (k === undefined) ask.push(c.path)
+    const f = findPath(owner, cwd, c.path, ask)
+    if (!f) continue
+    out.push(c)
+    if (!isRelative(c.path)) learnAnchor(owner, f.hit)
   }
-  if (ask.length) {
-    request(cwd, ask, owner)
+  if (ask.size) {
+    ask.forEach((list, base) => request(base, list, owner))
     asked.add(owner)
   }
   return out.sort((a, b) => a.start - b.start)
@@ -162,6 +259,7 @@ export function resetPathCache(): void {
   inFlight.clear()
   listeners.clear()
   asked.clear()
+  anchors.clear()
   if (timer !== undefined) clearTimeout(timer)
   timer = undefined
 }
