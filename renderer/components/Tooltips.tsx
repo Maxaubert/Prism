@@ -21,11 +21,11 @@ import { placeTip, type TipSide, type TipSpot } from '../lib/tipPlace'
  * followed: a watcher on the element's own title.
  */
 
-/** How long the pointer rests on an item before its tip shows: 1.5 s (owner,
- *  2026-10-14: "right now they appear too fast ... you have to be on that
- *  button for like 1.5 seconds"; it was Windows' own 450 ms). A pointer passing
- *  over a row of icons lights none of them. */
-export const SHOW_MS = 1500
+/** How long the pointer rests on an item before its tip shows: 1 s (owner,
+ *  2026-10-15: "the tooltips appear a bit too slow make it maybe 1 second";
+ *  1.5 s the day before, "right now they appear too fast"; it was Windows' own
+ *  450 ms). A pointer passing over a row of icons lights none of them. */
+export const SHOW_MS = 1000
 
 interface Shown {
   text: string
@@ -41,6 +41,20 @@ function titled(el: EventTarget | null): HTMLElement | null {
     n = n.parentElement
   }
   return null
+}
+
+/**
+ * The box the tip is placed by: the item's own, or the ancestor it names with
+ * `data-tip-to` (a selector). A tab's title sits on its name, a part of the
+ * tab, and a tip placed by the name sat off the tab: off-centre under the strip's
+ * tab, and in the sidebar over the card's own ring and close (owner,
+ * 2026-10-15: "the tooltip that appears when you hover over a tab that shows
+ * the path is placed oddly").
+ */
+function boxOf(el: HTMLElement): DOMRect {
+  const sel = el.dataset.tipTo
+  const to = sel ? el.closest<HTMLElement>(sel) : null
+  return (to ?? el).getBoundingClientRect()
 }
 
 const sideOf = (el: HTMLElement): TipSide => {
@@ -85,7 +99,7 @@ export default function Tooltips(): JSX.Element | null {
       takeTitle(el)
       const text = el.dataset.tipTitle ?? ''
       if (!text.trim()) return setShown(null)
-      setShown({ text, item: el.getBoundingClientRect(), prefer: sideOf(el) })
+      setShown({ text, item: boxOf(el), prefer: sideOf(el) })
     }
     const onOver = (e: MouseEvent): void => {
       const el = titled(e.target)
