@@ -32,6 +32,7 @@ import type { SweepBegin, SweepEnd, SweepState, SweepUpdate } from '@shared/swee
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
+import type { FolderHandlerStatus } from '@shared/folderHandler'
 import type { DriveDetails, MediaProps, TextProps } from '@shared/props'
 import type {
   ArchiveAddResult,
@@ -658,8 +659,10 @@ const api = {
   onWindowPreferencesChanged: subscribe<WindowPreferencesSnapshot>(PUSH.windowPreferencesChanged),
   winEShortcutStatus: (): Promise<WinEShortcutStatus> => ipcRenderer.invoke(CALL.winEStatus),
   setWinEShortcut: (enabled: boolean): Promise<WinEShortcutStatus> => ipcRenderer.invoke(CALL.winESet, enabled),
-  onWinEOpen: (cb: (requestId: string) => void): (() => void) => {
-    const off = subscribe<string>(PUSH.winEOpen)(cb)
+  folderHandlerStatus: (): Promise<FolderHandlerStatus> => ipcRenderer.invoke(CALL.foldersStatus),
+  setFolderHandler: (on: boolean): Promise<FolderHandlerStatus> => ipcRenderer.invoke(CALL.foldersSet, on),
+  onWinEOpen: (cb: (request: { id: string; path: string | null }) => void): (() => void) => {
+    const off = subscribe<{ id: string; path: string | null }>(PUSH.winEOpen)(cb)
     ipcRenderer.send(CALL.winEListen)
     return off
   },

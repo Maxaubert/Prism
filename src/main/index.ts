@@ -29,7 +29,7 @@ import {
   initDwmHelper
 } from './dwmHelper'
 import { pathsFromArgv, pathsFromArgvAsync } from './argv'
-import { createWinERequests, winERequest } from './winERequests'
+import { browseRequest, createWinERequests, winERequest } from './winERequests'
 import {
   cleanExplorerWindows,
   explorerWindowOwner,
@@ -428,7 +428,11 @@ let preferencesLoaded!: () => void
 const preferencesReady = new Promise<void>((resolve) => {
   preferencesLoaded = resolve
 })
-const winERequests = createWinERequests((id) => sendToPage(PUSH.winEOpen, id))
+/** The folder each Win+E request opens, when it came from the folder verb (#393). */
+const winEBrowse = new Map<string, string>()
+const winERequests = createWinERequests((id) =>
+  sendToPage(PUSH.winEOpen, { id, path: winEBrowse.get(id) ?? null })
+)
 let pendingOpen: Array<{ path: string; dir: boolean }> = []
 /** Second-instance handoffs, read one after another so they keep arrival order. */
 let handoffs: Promise<void> = Promise.resolve()
@@ -1139,7 +1143,8 @@ if (!app.requestSingleInstanceLock()) {
             executable: process.execPath,
             packaged: app.isPackaged,
             appPath: app.getAppPath(),
-            argv: process.argv
+            argv: process.argv,
+            browse: browseRequest(argv)
           })
         })
         .catch(() => {
@@ -1199,6 +1204,8 @@ if (!app.requestSingleInstanceLock()) {
 
   pendingOpen = pathsFromArgv(process.argv) // sync-ok: startup, before the first window
   const shortcutRequest = winERequest(process.argv)
+  const browse = browseRequest(process.argv)
+  if (shortcutRequest && browse) winEBrowse.set(shortcutRequest, browse)
   if (shortcutRequest) winERequests.enqueue(shortcutRequest)
 
   // Every shell dies with the app; a pty with no window is an orphan.

@@ -65,6 +65,7 @@ describe("Prism's own settings rows", () => {
         "remember-tabs=prism.tabs.remember",
         "remember-folders=prism.explorer.rememberFolders",
         "win-e-shortcut=windows",
+        "open-folders=windows",
         "explorer-verb=windows",
         "default-apps=windows",
         "tree-side=prism.tree.side",
