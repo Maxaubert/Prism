@@ -11,7 +11,8 @@
  */
 import { _electron as electron } from 'playwright-core'
 import { execFileSync, spawn } from 'node:child_process'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { createServer } from 'node:net'
 import electronPath from 'electron'
 import {
   appendFileSync,
@@ -6900,6 +6901,17 @@ async function terminalScenario(fixtures) {
     // clipboard the ^V key is forwarded for the TUI to read, and nothing gets
     // text-pasted. (Exact before/after equality is too strict now that
     // PSReadLine actively redraws the input line.)
+    // THE SHELL MUST NEVER READ THE REAL CLIPBOARD (2026-10-15). The forwarded
+    // ^V reaches PSReadLine, whose own Ctrl+V pastes from the WINDOWS clipboard,
+    // which the e2e fake (#356) is not: the owner's copied text was pasted into
+    // this shell and run as a command line (an apostrophe in it left PowerShell
+    // waiting for the closing quote, so `exit` below never ran). The shell's
+    // Ctrl+V is made a no-op first; what is under test is that the app forwards
+    // the key and pastes no text itself.
+    await win.locator('.xterm').click()
+    await win.keyboard.type('Set-PSReadLineKeyHandler -Chord Ctrl+v -ScriptBlock {}')
+    await win.keyboard.press('Enter')
+    await sleep(600)
     const countPaste = async () =>
       (((await win.locator('.xterm').textContent()) ?? '').match(/paste-marker/g) ?? []).length
     const beforeN = await countPaste()
@@ -6944,12 +6956,19 @@ async function terminalScenario(fixtures) {
     ok(nowN <= beforeN, 'an image on the clipboard pastes no text (the ^V key is forwarded)')
     await win.keyboard.type('echo still-alive')
     await win.keyboard.press('Enter')
-    await win.waitForFunction(
-      () => (document.querySelector('.xterm')?.textContent ?? '').includes('still-alive'),
-      null,
-      { timeout: 10000 }
-    )
-    ok(true, 'and the shell is untroubled by it')
+    // The OUTPUT line, alone: a stray paste ahead of the echo would change it.
+    const alive = await win
+      .waitForFunction(
+        () =>
+          [...document.querySelectorAll('.xterm-rows > div')].some(
+            (row) => (row.textContent ?? '').trim() === 'still-alive'
+          ),
+        null,
+        { timeout: 10000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    ok(alive, 'and the shell is untroubled by it (nothing was pasted ahead of the echo)')
 
     // The title bar belongs to what is ON SCREEN: over a full terminal the
     // markdown pencil has nothing to edit, so it goes with the file name.
@@ -18330,6 +18349,60 @@ async function zipRestoreScenario(fixtures) {
 }
 
 /**
+ * OPEN FOLDERS FROM OTHER APPS (#393): Windows' folder verb runs the helper,
+ * which starts Prism with `--win-e=<id> --browse=<folder>`. Prism answers on
+ * the helper's pipe ("started", then the id once the browser shows) and the
+ * Explorer lands on that folder: in the pinned Explorer tab when there is one,
+ * in a new one when the strip is empty. The pipe here is the helper's
+ * stand-in; nothing is registered with Windows.
+ */
+async function folderOpenScenario(fixtures) {
+  console.log('a folder opened from another app lands in the Explorer (#393)')
+  const dir = join(fixtures, 'folderopen', 'a folder & more')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'inside.txt'), 'here\n')
+  const helper = (id) => {
+    const lines = []
+    let text = ''
+    const server = createServer((socket) => {
+      socket.on('data', (chunk) => {
+        text += chunk.toString('utf8')
+        let at
+        while ((at = text.indexOf('\n')) >= 0) {
+          lines.push(text.slice(0, at))
+          text = text.slice(at + 1)
+        }
+      })
+      socket.on('error', () => {})
+    })
+    return new Promise((resolve) => server.listen(`\\\\.\\pipe\\PrismWinE.${id}`, () => resolve({ lines, server })))
+  }
+  for (const [label, tabs] of [
+    ['the pinned Explorer', { active: 0, tabs: [explorerTab('fixture-explorer', fixtures, fixtures, true)] }],
+    ['an empty strip', { active: 0, tabs: [] }]
+  ]) {
+    const id = randomUUID()
+    const { lines, server } = await helper(id)
+    let app
+    try {
+      writeTabs(tabs)
+      app = await startApp({ args: [`--win-e=${id}`, `--browse=${dir}`], env: NO_INDEX })
+      const win = await app.firstWindow()
+      await offscreen(app)
+      ok(
+        await until(async () => (await zipWhere(win).catch(() => '')).toLowerCase() === dir.toLowerCase(), 20000),
+        `${label}: the Explorer shows the folder (${await zipWhere(win).catch(() => '?')})`
+      )
+      ok(await until(async () => lines.includes(id), 15000), `${label}: the helper got started and ready (${lines.map((l) => l.replace(id, '<id>')).join(' / ')})`)
+      ok(lines[0] === `${id} started`, `${label}: "started" came first`)
+    } finally {
+      await app?.close().catch(() => {})
+      server.close()
+    }
+  }
+}
+
+/**
  * LOCKED, DAMAGED AND TEMP (#300): a ZipCrypto member asks once and again on a
  * wrong password; a damaged zip says so and keeps the list where it was;
  * every member opened lands under the run's `prism-members` folder, nothing in
@@ -19080,6 +19153,7 @@ await run(phoneScenario)
 await run(phoneHlsScenario)
 await run(phoneDocsScenario)
 await run(phoneExplorerScenario)
+await run(folderOpenScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(treeVerbsScenario)

@@ -14,6 +14,7 @@ import { visitedDirectories } from '../../lib/visitedDirectories'
 import { APP_SECTIONS, appOpt } from './appOptions'
 import { iconPath } from '../icons/settingsIcons'
 import { WinEShortcutRow } from './WinEShortcutRow'
+import { FolderHandlerRow } from './FolderHandlerRow'
 
 // EXPLORER (2026-10-05, the grouped cards redesign): what was General, the
 // tree and the Explorer's rows, sorted by what they set up: the layout, how
@@ -175,6 +176,7 @@ function WindowsSection(): JSX.Element {
   return (
     <SettingsSection id="windows" title={APP_SECTIONS.windows}>
       <WinEShortcutRow />
+      <FolderHandlerRow />
       <SettingRow id="explorer-verb" {...row('explorer-verb')} sub={verbBusy ? 'Checking with Windows.' : menu.sub} tap>
         <Switch on={verb} onChange={setVerb} label={menu.label} disabled={verbBusy} />
       </SettingRow>
