@@ -38,6 +38,10 @@ describe('extractQuestion', () => {
     expect(extractQuestion(at('run2-08-enter-answer'))).toEqual({ review: true })
   })
 
+  it('reads the last widget frame when a stale one stands above it', () => {
+    expect(extractQuestion([...at('run2-01-question-1'), ...at('run2-02-right')])).toEqual({ text: 'Pick a size?' })
+  })
+
   it('is null without the widget', () => {
     expect(extractQuestion(['PS C:\\> claude', '', 'Some reply text.'])).toBeNull()
     expect(extractQuestion([])).toBeNull()

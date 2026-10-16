@@ -265,7 +265,8 @@ the track), else `--p-on-accent` as before. Prism has not defined it.
 **THE QUESTION FOLLOWER (Sonara #323, core 0.41.0)** tells Sonara, the
 text-to-speech reader for Claude Code, which question of an AskUserQuestion
 the user is on, which Claude Code itself tells no plugin.
-`renderer/questionWidget.ts` reads the question off the visible rows (pure,
+`renderer/questionWidget.ts` reads the question off the screen rows, the last
+tab row being the live widget (pure,
 tested on measured screens), `renderer/questionWatch.ts` watches a session
 after output settles and reports a change once, `term:question` carries it,
 and `main/sonaraLink.ts` posts it to the Sonara on 127.0.0.1 named by its

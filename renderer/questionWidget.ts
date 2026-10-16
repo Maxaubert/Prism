@@ -26,11 +26,12 @@ const HINT = /^\s*Enter to select/
 const REVIEW = /^\s*Review your answers\s*$/
 
 /**
- * The question the widget shows on these screen rows (the visible ones,
- * top to bottom), or null when no question widget is on them.
+ * The question the widget shows on these screen rows (top to bottom), or
+ * null when no question widget is on them. The LAST tab row is the live
+ * widget: a resize can leave a stale frame of it above (Ink redraws).
  */
 export function extractQuestion(rows: readonly string[]): ShownQuestion | null {
-  const tab = rows.findIndex((r) => TAB_ROW.test(r))
+  const tab = rows.findLastIndex((r) => TAB_ROW.test(r))
   if (tab < 0) return null
   const rest = rows.slice(tab + 1)
   if (rest.some((r) => REVIEW.test(r))) return { review: true }
