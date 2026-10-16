@@ -236,3 +236,35 @@ describe('the folder the tab is in is never a link found from a shown folder', (
     expect(findPath('A', CWD, 'Github-loftspace/Stutter')).toBe(null)
   })
 })
+
+// 2026-10-16: every Claude tab in the owner's Stable copy stopped taking keys
+// and scrolls, the page process at 15.9 GB and growing. A tab showing five or
+// more folders taught one that had been pushed out of the four kept on every
+// paint, and each teaching woke the tab to paint again: forever.
+describe('a tab showing many folders settles', () => {
+  afterEach(() => {
+    resetPathCache()
+    resetTermCore()
+    vi.useRealTimers()
+  })
+
+  it('wakes once per folder, then stops, however many folders it shows', async () => {
+    vi.useFakeTimers()
+    const ask = vi.fn(async (_cwd: string, texts: string[]) => texts.map((t) => ({ kind: 'file' as const, abs: t })))
+    configureTermCore({ api: { termPathKinds: ask } as unknown as TermApi } as TermHostConfig)
+    const lines = Array.from({ length: 9 }, (_, n) => `see C:\\d${n}\\f.txt and rel\\x.txt`)
+    let wakes = 0
+    // The painter: a wake repaints every line, as links.revisit() does.
+    onPathsFound('A', () => {
+      wakes += 1
+      if (wakes < 1000) lines.forEach((l) => linkRanges(l, 'C:\\cwd', 'A'))
+    })
+    lines.forEach((l) => linkRanges(l, 'C:\\cwd', 'A'))
+    for (let i = 0; i < 100; i += 1) await vi.advanceTimersByTimeAsync(50)
+    const settled = wakes
+    for (let i = 0; i < 100; i += 1) await vi.advanceTimersByTimeAsync(50)
+    expect(wakes).toBe(settled)
+    // One for the answer, one per folder taught: never more.
+    expect(wakes).toBeLessThanOrEqual(1 + lines.length)
+  })
+})

@@ -65,6 +65,19 @@ const asked = new Set<string>()
 const ANCHORS_MAX = 4
 const ANCESTORS = 4
 const anchors = new Map<string, string[]>()
+/**
+ * The folders each tab has EVER been taught, for the wake below: a folder
+ * wakes its tab once, the first time, never again (2026-10-16, the owner's
+ * Stable copy: every Claude tab stopped taking keys or scrolling, the page
+ * process at 15.9 GB and growing 2.5 MB/s on 1.5 cores of CPU). The wake used
+ * to fire whenever a folder was not in the four kept, and a tab showing five
+ * or more folders pushed one out on every paint, so each repaint taught an
+ * evicted folder again, woke the tab, and repainted: 2,496 repaints in five
+ * seconds in the unit test, forever. Capped, so a tab that shows hundreds of
+ * folders stops waking rather than growing the set without end.
+ */
+const taught = new Map<string, Set<string>>()
+const TAUGHT_MAX = 256
 
 const isRelative = (p: string): boolean => !/^(?:[A-Za-z]:|[\\/]|~)/.test(p)
 const hasSeparator = (p: string): boolean => /[\\/]/.test(p)
@@ -97,11 +110,14 @@ function learnAnchor(owner: string, hit: PathHit): void {
   if (!dir) return
   const list = anchors.get(owner) ?? []
   if (list[0] === dir) return
-  const next = [dir, ...list.filter((d) => d !== dir)].slice(0, ANCHORS_MAX)
-  anchors.set(owner, next)
+  anchors.set(owner, [dir, ...list.filter((d) => d !== dir)].slice(0, ANCHORS_MAX))
   // A relative path already painted plain may name something from here: the
-  // tab looks again, once per new folder, after this paint.
-  if (!list.includes(dir)) setTimeout(() => listeners.get(owner)?.forEach((fn) => fn()), 0)
+  // tab looks again after this paint, ONCE per folder in its life (`taught`).
+  let seen = taught.get(owner)
+  if (!seen) taught.set(owner, (seen = new Set()))
+  if (seen.has(dir) || seen.size >= TAUGHT_MAX) return
+  seen.add(dir)
+  setTimeout(() => listeners.get(owner)?.forEach((fn) => fn()), 0)
 }
 
 /** Where a relative `path` is tried after `cwd`, in order. */
@@ -274,6 +290,7 @@ export function resetPathCache(): void {
   listeners.clear()
   asked.clear()
   anchors.clear()
+  taught.clear()
   if (timer !== undefined) clearTimeout(timer)
   timer = undefined
 }
