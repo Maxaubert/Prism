@@ -22,6 +22,26 @@ export function insideSelf(src: string, dest: string): boolean {
 }
 
 /**
+ * The selected paths that no OTHER selected path contains: a folder and
+ * something inside it can both be selected, and moving the folder already
+ * carries the child. Each path walks up its own ancestors against a set of
+ * keys, O(n x depth). It used to ask every other path in turn, about four
+ * `resolve`s a pair with no await between them: 4.6 s of frozen main for a
+ * 2,000-item drag, minutes at 10k (2026-10-16).
+ */
+export function outermost(paths: readonly string[]): string[] {
+  const keys = new Set(paths.map(lower))
+  return paths.filter((p) => {
+    let k = lower(p)
+    for (let i = k.lastIndexOf('\\'); i > 0; i = k.lastIndexOf('\\')) {
+      k = k.slice(0, i)
+      if (keys.has(k)) return false
+    }
+    return true
+  })
+}
+
+/**
  * One move, rename first: a rename is atomic on the same volume. Only a
  * CROSS-VOLUME move falls back to copy-then-remove. All of it is async: copying
  * a folder from one disk to another with cpSync blocked the whole main process
@@ -140,16 +160,16 @@ export async function moveEntries(
     return { moved: [], clashes: [], failed: [...paths], replaced: [], busy: [] }
   }
   const candidates: string[] = []
-  for (const p of paths) {
-    // A folder and something inside it can both be selected; moving the
-    // folder already carries the child, so the child is not a failure - it
-    // simply has nothing left to do.
-    if (paths.some((q) => lower(q) !== lower(p) && insideSelf(q, p))) continue
+  const destKey = lower(destDir)
+  // A folder and something inside it can both be selected; moving the
+  // folder already carries the child, so the child is not a failure - it
+  // simply has nothing left to do.
+  for (const p of outermost(paths)) {
     // A folder dropped on itself (or into its own subtree), or anything
     // dropped where it already lives: the gesture asks for nothing, so
     // nothing happens - and nothing is reported either. Only a path that has
     // GONE is a failure worth a word.
-    if (insideSelf(p, destDir) || lower(dirname(p)) === lower(destDir)) continue
+    if (insideSelf(p, destDir) || lower(dirname(p)) === destKey) continue
     candidates.push(p)
   }
   // Probed together (a multi-select drag can be hundreds), reported in order.

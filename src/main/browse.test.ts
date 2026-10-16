@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { browseDirectory } from './browse'
+import { browseDirectory, browseLocations } from './browse'
 import {
   grantDesktopDirectory,
   insideDesktop,
@@ -189,4 +189,31 @@ it('preserves terminal pin slots for remapping and refuses nonexistent slots', (
   expect(parseTabs(JSON.stringify(state)).tabs[0].panes).toEqual([
     { id: 'terminal', path: 'term:slot-1', dir: 'left', termSlot: 1 }
   ])
+})
+
+describe('browseLocations', () => {
+  const getPath = (key: string): string => `C:\\Users\\me\\${key}`
+  const dir = { isDirectory: () => true }
+
+  it('a hung drive is left out after its time limit, not waited on (2026-10-16)', async () => {
+    const hung = new Promise<never>(() => {})
+    const probe = (p: string): Promise<{ isDirectory(): boolean }> =>
+      p === 'Z:\\' || p.endsWith('desktop') ? hung : Promise.resolve(dir)
+    const t = Date.now()
+    const places = await browseLocations(getPath, probe, 50)
+    expect(Date.now() - t).toBeLessThan(1000)
+    expect(places.some((p) => p.path === 'Z:\\' || p.known === 'desktop')).toBe(false)
+    expect(places.find((p) => p.known === 'downloads')?.path).toBe('C:\\Users\\me\\downloads')
+  })
+
+  it('gives Home without asking the disk', async () => {
+    const asked: string[] = []
+    const probe = (p: string): Promise<{ isDirectory(): boolean }> => {
+      asked.push(p)
+      return Promise.reject(new Error('ENOENT'))
+    }
+    const places = await browseLocations(getPath, probe, 50)
+    expect(places.map((p) => p.name)).toEqual(['Home'])
+    expect(asked).not.toContain('C:\\Users\\me\\home')
+  })
 })

@@ -3,7 +3,7 @@ import { spawn } from 'child_process'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { insideSelf, moveEntries } from './moveOps'
+import { insideSelf, moveEntries, outermost } from './moveOps'
 
 let root: string
 const trash = vi.fn(async () => {})
@@ -29,6 +29,22 @@ describe('insideSelf', () => {
   it('reads either separator, any case and a trailing separator as one path', () => {
     expect(insideSelf('C:\\A\\', 'c:/a/b')).toBe(true)
     expect(insideSelf('C:\\a', 'C:\\a\\..\\b')).toBe(false)
+  })
+})
+
+describe('outermost', () => {
+  it('drops what another selected path contains, keeps siblings and look-alikes', () => {
+    expect(
+      outermost(['C:\\a', 'c:/A/b', 'C:\\a\\b\\c.txt', 'C:\\ab', 'D:\\x', 'D:\\x\\'])
+    ).toEqual(['C:\\a', 'C:\\ab', 'D:\\x', 'D:\\x\\'])
+    expect(outermost(['C:\\', 'C:\\a'])).toEqual(['C:\\'])
+  })
+
+  it('stays fast on a huge selection (2026-10-16: the pairwise loop froze main)', () => {
+    const paths = Array.from({ length: 20000 }, (_, i) => `C:\\pics\\dump\\IMG_${i}.jpg`)
+    const t = performance.now()
+    expect(outermost(paths)).toHaveLength(20000)
+    expect(performance.now() - t).toBeLessThan(1000)
   })
 })
 

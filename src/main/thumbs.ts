@@ -27,6 +27,10 @@ export const THUMB_WIDTH = 320
 /** A frame this far into a video: past the black leader most films open on. */
 export const VIDEO_SEEK_S = 3
 export const CACHE_MAX_BYTES = 200 * 1024 * 1024
+/** An eviction trims to this, so the next one is a long way off. */
+export const CACHE_TRIM_BYTES = 180 * 1024 * 1024
+/** Stats an eviction scan has in flight at once. */
+const SCAN_AT_ONCE = 16
 const AT_ONCE = 4
 
 export type ThumbKind = 'image' | 'video'
@@ -81,7 +85,38 @@ export function toEvict(
   return out
 }
 
+/**
+ * The cache's size, kept in memory (2026-10-16). Every new thumbnail used to
+ * readdir the cache and stat every JPEG in it (thousands in a warm 200 MB
+ * cache), all at once and up to four scans overlapping, which flooded the
+ * libuv pool a playing film reads through while a phone browsed a new folder.
+ * Now a scan runs once to learn the total, then only when the running total
+ * passes the ceiling, and never two at a time. A thumbnail landing mid-scan
+ * may be missed by that scan's count; the next scan puts it right.
+ */
+export class CacheBudget {
+  private total: number | null = null
+  private scanning = false
+
+  constructor(private readonly max: number) {}
+
+  /** A new entry of `bytes`: true when a scan should start now. */
+  add(bytes: number): boolean {
+    if (this.total !== null) this.total += bytes
+    if (this.scanning || (this.total !== null && this.total <= this.max)) return false
+    this.scanning = true
+    return true
+  }
+
+  /** A scan finished, with what the cache holds now (null: unknown). */
+  settled(total: number | null): void {
+    this.scanning = false
+    this.total = total
+  }
+}
+
 export class Thumbs {
+  private readonly budget = new CacheBudget(CACHE_MAX_BYTES)
   private readonly inFlight = new Map<string, Promise<string | null>>()
   private running = 0
   private readonly queue: Array<() => void> = []
@@ -128,7 +163,8 @@ export class Thumbs {
         return null
       }
       await fsp.rename(tmp, out)
-      void this.evict()
+      const size = await fsp.stat(out).then((s) => s.size).catch(() => 0)
+      if (this.budget.add(size)) void this.evict()
       return out
     } catch {
       return null
@@ -174,19 +210,33 @@ export class Thumbs {
   }
 
   private async evict(): Promise<void> {
+    let total: number | null = null
     try {
-      const names = await fsp.readdir(this.dir)
-      const entries = await Promise.all(
-        names
-          .filter((n) => n.endsWith('.jpg'))
-          .map(async (name) => {
-            const s = await fsp.stat(join(this.dir, name))
-            return { name, size: s.size, mtimeMs: s.mtimeMs }
+      const names = (await fsp.readdir(this.dir)).filter((n) => n.endsWith('.jpg'))
+      const entries: Array<{ name: string; size: number; mtimeMs: number }> = []
+      for (let i = 0; i < names.length; i += SCAN_AT_ONCE) {
+        const batch = await Promise.all(
+          names.slice(i, i + SCAN_AT_ONCE).map(async (name) => {
+            const s = await fsp.stat(join(this.dir, name)).catch(() => null)
+            return s ? { name, size: s.size, mtimeMs: s.mtimeMs } : null
           })
-      )
-      for (const name of toEvict(entries, CACHE_MAX_BYTES)) await fsp.rm(join(this.dir, name), { force: true })
+        )
+        for (const e of batch) if (e) entries.push(e)
+      }
+      let held = entries.reduce((n, e) => n + e.size, 0)
+      if (held > CACHE_MAX_BYTES) {
+        const gone = new Set(toEvict(entries, CACHE_TRIM_BYTES))
+        for (const e of entries) {
+          if (!gone.has(e.name)) continue
+          await fsp.rm(join(this.dir, e.name), { force: true })
+          held -= e.size
+        }
+      }
+      total = held
     } catch {
       /* a cache that cannot be tidied is still a cache */
+    } finally {
+      this.budget.settled(total)
     }
   }
 }

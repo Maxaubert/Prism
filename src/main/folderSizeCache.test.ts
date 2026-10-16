@@ -4,7 +4,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FolderSizeResult } from '@shared/folderSize'
-import { FolderSizeCache } from './folderSizeCache'
+import { existsSync, readdirSync } from 'fs'
+import { FolderSizeCache, outermostKeys } from './folderSizeCache'
 
 vi.mock('fs/promises', async (importOriginal) => ({
   ...(await importOriginal<typeof import('fs/promises')>())
@@ -358,5 +359,57 @@ describe('persistent folder size cache', () => {
     const cache = new FolderSizeCache({ directory, maxEntries: 2 })
     for (const path of paths) await cache.get(path, controller().signal)
     expect((await readdir(directory)).filter((name) => name.endsWith('.json'))).toHaveLength(2)
+  })
+})
+
+describe('the invalidation journal (2026-10-16: re-read per lookup, written per folder)', () => {
+  it('collapses changed folders to the outermost ones', () => {
+    const k = (...parts: string[]): string => join(...parts).toLowerCase()
+    const a = k(box, 'a')
+    expect(outermostKeys([k(a, 'x', 'y'), a, k(a, 'x'), k(box, 'ab'), a]).sort()).toEqual(
+      [a, k(box, 'ab')].sort()
+    )
+    const drive = join(box.slice(0, 3)).toLowerCase()
+    expect(outermostKeys([drive, a])).toEqual([drive])
+  })
+
+  it('writes one marker for a burst inside one changed folder', async () => {
+    const cache = new FolderSizeCache({ directory })
+    const real = await fs.realpath(root)
+    await cache.invalidate([
+      real,
+      ...Array.from({ length: 300 }, (_, i) => join(real, 'node_modules', `pkg-${i}`, 'lib'))
+    ])
+    expect(await readdir(join(directory, 'invalidations'))).toHaveLength(1)
+    expect(await fs.readFile(join(directory, 'generation'), 'utf8').catch(() => '')).toBe('')
+  })
+
+  it('reads the marker files once, not once per lookup', async () => {
+    const cache = new FolderSizeCache({ directory })
+    await cache.get(root, controller().signal)
+    await new FolderSizeCache({ directory }).invalidate([join(box, 'elsewhere')])
+    // A journal changed in the last clock ticks is never kept; let it settle.
+    await new Promise((settle) => setTimeout(settle, 150))
+    await cache.readCached([root])
+    const readFile = vi.spyOn(fs, 'readFile')
+    await cache.readCached([root])
+    await cache.readCached([root])
+    const markerReads = readFile.mock.calls.filter(([path]) => String(path).includes('invalidations'))
+    expect(markerReads).toHaveLength(0)
+  })
+
+  it('answers with a change before its marker is on disk', async () => {
+    const cache = new FolderSizeCache({ directory })
+    await cache.get(root, controller().signal)
+    let early: Promise<Record<string, FolderSizeResult>> | null = null
+    let onDisk: string[] | null = null
+    await cache.invalidate([join(await fs.realpath(root), 'data')], () => {
+      onDisk = existsSync(join(directory, 'invalidations'))
+        ? readdirSync(join(directory, 'invalidations'))
+        : []
+      early = cache.readCached([root])
+    })
+    expect(onDisk).toEqual([])
+    expect((await early!)[root].stale).toBe(true)
   })
 })

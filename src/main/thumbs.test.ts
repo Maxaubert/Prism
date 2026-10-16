@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { THUMB_WIDTH, thumbArgs, thumbKey, toEvict } from './thumbs'
+import { CacheBudget, THUMB_WIDTH, thumbArgs, thumbKey, toEvict } from './thumbs'
+
+describe('CacheBudget (2026-10-16: every thumbnail stat-scanned the whole cache)', () => {
+  it('scans once to learn the total, then only past the ceiling', () => {
+    const b = new CacheBudget(100)
+    expect(b.add(10)).toBe(true) // the total is unknown: learn it
+    b.settled(50)
+    expect(b.add(20)).toBe(false) // 70
+    expect(b.add(30)).toBe(false) // 100, at the ceiling
+    expect(b.add(1)).toBe(true) // 101: over
+  })
+
+  it('never starts a second scan while one runs', () => {
+    const b = new CacheBudget(100)
+    expect(b.add(10)).toBe(true)
+    expect(b.add(10)).toBe(false)
+    expect(b.add(10)).toBe(false)
+    b.settled(90)
+    expect(b.add(5)).toBe(false)
+  })
+
+  it('a scan that failed leaves the total unknown, so the next thumbnail scans again', () => {
+    const b = new CacheBudget(100)
+    expect(b.add(10)).toBe(true)
+    b.settled(null)
+    expect(b.add(10)).toBe(true)
+  })
+})
 
 describe('thumbKey', () => {
   it('is the file, its size and its modified time, case-insensitively, as a jpg name', () => {
