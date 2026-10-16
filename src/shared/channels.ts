@@ -74,6 +74,7 @@ export const CALL = {
   phoneGet: 'phone:get',
   phoneSetOn: 'phone:set-on',
   phoneCode: 'phone:code',
+  phoneAddressSet: 'phone:address-set',
   phoneCodeDrop: 'phone:code-drop',
   phoneForget: 'phone:forget',
   phonePins: 'phone:pins',
