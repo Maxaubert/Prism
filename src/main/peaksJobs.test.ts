@@ -35,6 +35,10 @@ beforeEach(() => {
 })
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 5))
+// A job spawns only after its real stat (the cache key) answers, which can
+// take far longer than a tick on a busy CI runner: wait for the spawn itself.
+const spawned = (n: number): Promise<void> =>
+  vi.waitFor(() => expect(procs).toHaveLength(n), { timeout: 4000, interval: 5 })
 const finish = (p: Fake): void => {
   p.stdout.write(Buffer.from([0, 0x40, 0, 0x20]))
   setTimeout(() => p.emit('close', 0), 1)
@@ -44,13 +48,13 @@ describe('the waveform jobs', () => {
   it('runs one decode at a time, and a cancel stops the running one', async () => {
     const a = loadPeaks('ffmpeg', 'prism-no-such-dir/a.mkv', 60)
     const b = loadPeaks('ffmpeg', 'prism-no-such-dir/b.mkv', 60)
+    await spawned(1)
     await tick()
     expect(procs).toHaveLength(1) // b waits its turn
     cancelPeaks('prism-no-such-dir/a.mkv')
     expect(procs[0].killed).toBe(true)
     expect(await a).toBeNull() // a killed job's half-envelope is never kept
-    await tick()
-    expect(procs).toHaveLength(2)
+    await spawned(2)
     finish(procs[1])
     expect((await b)?.length).toBeGreaterThan(0)
   })
@@ -58,8 +62,7 @@ describe('the waveform jobs', () => {
   it('shares one job between two asks, and keeps it while one still waits', async () => {
     const a1 = loadPeaks('ffmpeg', 'prism-no-such-dir/c.mkv', 60)
     const a2 = loadPeaks('ffmpeg', 'prism-no-such-dir/c.mkv', 60)
-    await tick()
-    expect(procs).toHaveLength(1)
+    await spawned(1)
     cancelPeaks('prism-no-such-dir/c.mkv')
     expect(procs[0].killed).toBe(false) // the other tab still wants it
     finish(procs[0])
@@ -75,8 +78,7 @@ describe('the waveform jobs', () => {
     expect(procs).toHaveLength(0)
     // ...and nothing was left at the head of the queue: the next file decodes.
     const next = loadPeaks('ffmpeg', 'prism-no-such-dir/g.mkv', 60)
-    await tick()
-    expect(procs).toHaveLength(1)
+    await spawned(1)
     finish(procs[0])
     expect((await next)?.length).toBeGreaterThan(0)
   })
@@ -85,7 +87,7 @@ describe('the waveform jobs', () => {
     const first = loadPeaks('ffmpeg', 'prism-no-such-dir/d.mkv', 60)
     const probe = vi.fn(async () => 60)
     const queued = loadPeaks('ffmpeg', 'prism-no-such-dir/e.mkv', probe)
-    await tick()
+    await spawned(1)
     cancelPeaks('prism-no-such-dir/e.mkv')
     finish(procs[0])
     await first
