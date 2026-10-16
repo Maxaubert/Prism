@@ -7,6 +7,7 @@ import { createDiagLog, NULL_DIAG_LOG, setDiagMain, type DiagLog } from './diagL
 import type { IpcMainLike } from './ipc'
 import { timeIpcMain, type IpcMainPatchable } from './ipcTiming'
 import { startStallWatch, type StallWatch } from './stallWatch'
+import { startMemWatch, type MemWatch, type ProcessMetricLike } from './memWatch'
 
 /**
  * THE DIAGNOSTICS LOG, WIRED IN ONE CALL (#140). A host calls this in main
@@ -39,6 +40,9 @@ export interface DiagnosticsDeps {
    *  app is ready, so it is hooked in `watchWindow`. Its `suspend` and
    *  `resume` keep a sleep from being logged as a lag. */
   powerMonitor?: () => EmitterLike
+  /** Electron's `app.getAppMetrics`: each process's memory for the `memory`
+   *  crumb and `mem-high` (2026-10-16). Absent: no memory readings. */
+  appMetrics?: () => ProcessMetricLike[]
 }
 
 /** The slice of a BrowserWindow the watch needs. */
@@ -93,6 +97,8 @@ export function startDiagnostics(deps: DiagnosticsDeps): Diagnostics {
       return typeof stack === 'string' ? stack : null
     }
   })
+  const metrics = deps.appMetrics
+  const mem: MemWatch | null = metrics ? startMemWatch({ log, metrics }) : null
   const unhook = hookCrashes({ log, process: deps.process, app: deps.app })
   registerDiagIpc({ ipcMain: deps.ipcMain, log, watch, openFolder: deps.openFolder })
 
@@ -117,6 +123,7 @@ export function startDiagnostics(deps: DiagnosticsDeps): Diagnostics {
     },
     stop: () => {
       watch.stop()
+      mem?.stop()
       power?.removeListener('suspend', onSuspend)
       power?.removeListener('resume', onResume)
       power = null
