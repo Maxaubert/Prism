@@ -1517,6 +1517,14 @@ changing a feature: each entry records what the owner decided, why, and what hol
   it is the owner's decision, not made. Held by `phoneAccess.test.ts`, `places.test.ts`, the
   server test "never lists or reads a folder that is really on another computer" and the
   `phone` e2e ("a code is refused once the dialog closed").
+  **THE ADDRESS PHONES USE** (#406; owner, 2026-10-16: "so that we can support custom web
+  addresses"): optional, More > Phone. The QR and link carry it, so a phone can reach Prism by
+  a friendly name or over real HTTPS through the user's own reverse proxy, which is what
+  encrypts the token. Only an http(s) origin is kept (`parseAddress`); empty is this PC's
+  address. Through a proxy, every client address the request names must also be on the user's
+  own network (`forwardedLocal`), so an internet-facing proxy cannot carry the internet in.
+  Setup guide: `docs/phone-address.md`. Held by `store.test.ts`, `lan.test.ts`, the server test
+  "refuses a request a proxy forwarded from outside the network" and the `phone` e2e.
 - **THE PHONE SEES THE OPEN TABS AND SWITCHES BETWEEN THEM** (superseded 2026-10-14, above; owner, 2026-09-08, from the
   same session: "i should be able to switch tabs without scanning a new qr code. i should be
   able to see the available tabs and switch"; #107). This REVERSES the design's own first

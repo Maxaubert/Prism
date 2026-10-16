@@ -48,3 +48,38 @@ export function localNetwork(address: string | undefined): boolean {
   }
   return a === '::1' || /^f[cd][0-9a-f]{0,2}:/.test(a) || /^fe[89ab][0-9a-f]?:/.test(a)
 }
+
+/**
+ * THROUGH A PROXY, THE PHONE IS STILL ON THE USER'S OWN NETWORK (#406). With
+ * the address phones use pointing at the user's reverse proxy, every request
+ * comes from the proxy, which `localNetwork` already accepts. A proxy that is
+ * reachable from the internet would then carry the internet in, so every
+ * client address the request names (X-Real-IP, each X-Forwarded-For hop,
+ * `for=` in Forwarded) must be on the user's own network as well. A proxy
+ * appends the real client to a header a client could have started, so a
+ * forged local address in front does not help; anything unreadable is refused.
+ */
+export function forwardedLocal(headers: Record<string, string | string[] | undefined>): boolean {
+  const all = (name: string): string[] => {
+    const v = headers[name]
+    return (Array.isArray(v) ? v : v === undefined ? [] : [v]).flatMap((x) => x.split(','))
+  }
+  const named = [
+    ...all('x-real-ip'),
+    ...all('x-forwarded-for'),
+    ...all('forwarded').flatMap((part) =>
+      part
+        .split(';')
+        .map((kv) => kv.trim())
+        .filter((kv) => /^for=/i.test(kv))
+        .map((kv) => kv.slice(4))
+    )
+  ]
+  return named.every((raw) => {
+    const a = raw.trim().replace(/^"|"$/g, '')
+    // [v6]:port, v4:port, or a bare address.
+    const bracket = /^\[([^\]]+)\](?::\d+)?$/.exec(a)
+    const host = bracket ? bracket[1] : /^[\d.]+:\d+$/.test(a) ? a.replace(/:\d+$/, '') : a
+    return localNetwork(host)
+  })
+}

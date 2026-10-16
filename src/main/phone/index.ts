@@ -7,9 +7,9 @@ import { parsePins, type PhonePin } from './places'
 import { DEFAULT_PORT, PhoneServer } from './server'
 import type { HlsJobs } from './jobs'
 import type { Positions } from '../positions'
-import { parseStore, serializeStore, type PhoneStore } from './store'
+import { parseAddress, parseStore, serializeStore, type PhoneStore } from './store'
 import { lanAddresses } from './lan'
-import { pairLink } from './routes'
+import { pairLink, pairLinkAt } from './routes'
 import { qrSvg } from './qr'
 import { forget as forgetPhone } from './pairing'
 import { writeAtomic } from '../latestWrite'
@@ -117,15 +117,18 @@ export function startPhoneService(opts: {
       addresses: E2E ? ['127.0.0.1'] : lanAddresses(networkInterfaces()),
       phones: phoneStore.pairing.phones.map((p) => ({ ...p })),
       watching: phone?.watching() ?? [],
-      error: phoneError || undefined
+      error: phoneError || undefined,
+      address: phoneStore.address
     }
     // A code from ANY tab (2026-10-14): it carries the folder that tab is
     // showing as the phone's first stop, or nothing (This PC).
-    if (phone && state.addresses[0]) {
+    if (phone && (phoneStore.address || state.addresses[0])) {
       const now = Date.now()
       const live = phoneStore.pairing.codes.find((c) => c.start === start && c.expires > now)
       const { code, expires } = live ?? phone.issue(start)
-      const link = pairLink(state.addresses[0], phone.port ?? DEFAULT_PORT, code)
+      const link = phoneStore.address
+        ? pairLinkAt(phoneStore.address, code)
+        : pairLink(state.addresses[0], phone.port ?? DEFAULT_PORT, code)
       state.code = { code, link, svg: await qrSvg(link), expires }
     }
     return state
@@ -139,6 +142,18 @@ export function startPhoneService(opts: {
     savePhone()
     if (phoneStore.on) await startPhone()
     else await stopPhone()
+    return phoneState(startArg(start))
+  })
+  // The address phones use (#406): empty clears it; anything that is not an
+  // http(s) origin is refused and the old value stays.
+  ipcMain.handle(CALL.phoneAddressSet, async (_e, raw: unknown, start: unknown) => {
+    await phoneReady
+    const empty = typeof raw === 'string' && !raw.trim()
+    const address = parseAddress(raw)
+    if (empty || address) {
+      phoneStore.address = empty ? null : address
+      savePhone()
+    }
     return phoneState(startArg(start))
   })
   ipcMain.handle(CALL.phoneCode, async (_e, start: unknown) => {

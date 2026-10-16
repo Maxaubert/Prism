@@ -80,6 +80,7 @@ export function PhoneDialog({
         </p>
       )}
       {state.error && <p className="text-[#d97b84]">{state.error}</p>}
+      <AddressField key={state.address ?? ''} address={state.address} start={start} onState={setState} />
       {state.on && state.code && (
         <div className="flex gap-4">
           {/* The SVG is main's own: `qrcode` rendering a link main built from
@@ -145,5 +146,73 @@ export function PhoneDialog({
       choices={[{ label: 'Close', onPick: onClose, primary: true }]}
       onCancel={onClose}
     />
+  )
+}
+
+/** What `parseAddress` in main would keep, for telling a refusal from a save. */
+function originOf(text: string): string | null {
+  try {
+    return new URL(text.trim()).origin
+  } catch {
+    return null
+  }
+}
+
+/**
+ * THE ADDRESS PHONES USE (#406; owner, 2026-10-16). Optional: empty means this
+ * PC's own address, as before. Set, the QR and the link use it: a name the
+ * user's network resolves, or HTTPS through the user's own reverse proxy.
+ * Main validates and keeps only an http(s) origin; a refusal leaves the old
+ * value and says so here.
+ */
+function AddressField({
+  address,
+  start,
+  onState
+}: {
+  address: string | null
+  start: string | null
+  onState: (s: PhoneState) => void
+}): JSX.Element {
+  const [text, setText] = useState(address ?? '')
+  const [refused, setRefused] = useState(false)
+  const save = async (): Promise<void> => {
+    const next = await window.prism.phoneAddressSet(text, start)
+    setRefused(!!text.trim() && next.address !== originOf(text))
+    onState(next)
+  }
+  return (
+    <div className="flex flex-col gap-1" data-phone-address>
+      <label className="flex flex-col gap-1">
+        <span className="font-medium text-[var(--p-text)]">Address phones use (optional)</span>
+        <span>
+          A name or HTTPS address from your own network setup, for example a reverse proxy.
+          Leave empty to use this PC's address.
+        </span>
+        <div className="flex gap-2">
+          <input
+            className="min-w-0 flex-1 rounded border border-[color:var(--p-line)] bg-transparent px-2 py-0.5 text-[var(--p-text)]"
+            placeholder="https://prism.example.com"
+            value={text}
+            spellCheck={false}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void save()
+            }}
+          />
+          <button
+            className="shrink-0 rounded border border-[color:var(--p-line)] px-2 py-0.5 text-[var(--p-text-soft)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+            onClick={() => void save()}
+          >
+            Save
+          </button>
+        </div>
+      </label>
+      {refused && (
+        <span className="text-[#d97b84]" role="status">
+          Not an address: use http:// or https:// and a name, with no path.
+        </span>
+      )}
+    </div>
   )
 }

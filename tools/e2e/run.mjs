@@ -13732,6 +13732,17 @@ async function phoneScenario(fixtures) {
       })
       ok(!!shown.code && late.status !== 200, `a code is refused once the dialog closed (${late.status})`)
     }
+    // THE ADDRESS PHONES USE (#406): the QR and the link carry it; anything
+    // that is not an http(s) origin is refused; empty goes back to this PC.
+    {
+      const set = await win.evaluate(() => window.prism.phoneAddressSet('https://prism.example.com/', null))
+      ok(set.address === 'https://prism.example.com', `the address is kept as an origin (${set.address})`)
+      ok(!!set.code?.link.startsWith('https://prism.example.com/?code='), `the link uses it (${set.code?.link})`)
+      const bad = await win.evaluate(() => window.prism.phoneAddressSet('prism.example.com/path', null))
+      ok(bad.address === 'https://prism.example.com', 'a bad address is refused and the old one stays')
+      const cleared = await win.evaluate(() => window.prism.phoneAddressSet('', null))
+      ok(cleared.address === null && !!cleared.code?.link.startsWith('http://127.0.0.1:'), `empty goes back to this PC (${cleared.code?.link})`)
+    }
     ok(!!state.code && state.code.svg.startsWith('<svg'), 'the QR renders as SVG')
     ok(status === 200, 'pairing succeeds')
     ok(root.toLowerCase() === fixtures.toLowerCase(), 'the phone starts in the folder the PC is showing')

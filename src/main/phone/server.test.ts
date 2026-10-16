@@ -347,6 +347,15 @@ describe('PhoneServer', () => {
     expect((await fetch(url(`/m/${encodeURIComponent(file)}?t=${token}`))).status).toBe(403)
   })
 
+  it('refuses a request a proxy forwarded from outside the network (#406)', async () => {
+    const token = await pair()
+    const auth = { authorization: `Bearer ${token}` }
+    const at = url(`/api/dir?path=${encodeURIComponent(dir)}`)
+    expect((await fetch(at, { headers: { ...auth, 'x-forwarded-for': '192.168.1.20' } })).status).toBe(200)
+    expect((await fetch(at, { headers: { ...auth, 'x-forwarded-for': '192.168.1.20, 8.8.8.8' } })).status).toBe(403)
+    expect((await fetch(url('/'), { headers: { 'x-real-ip': '8.8.8.8' } })).status).toBe(403)
+  })
+
   it('answers me, dir, subs and media for a paired phone', async () => {
     const token = await pair()
     const auth = { authorization: `Bearer ${token}` }

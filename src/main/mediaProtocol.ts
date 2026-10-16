@@ -1,6 +1,6 @@
 import { createReadStream } from 'fs'
 import { stat, readFile } from 'fs/promises'
-import { Readable } from 'stream'
+import { Readable } from 'node:stream'
 import type { FfmpegTools } from './ffmpeg'
 import { isHeic } from './heicClient'
 import { decodeImage, needsImageDecode, tiffPages } from './imageDecode'
