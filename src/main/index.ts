@@ -519,13 +519,19 @@ function folderChanged(change: { root: string; dirs: string[] }): void {
       return rel !== '' && (rel.startsWith('..' + sep) || rel === '..' || isAbsolute(rel))
     })
   )
+  // The page hears as soon as the sizes answer with the change, not once every
+  // marker is on disk (2026-10-16); once either way, a failure included.
+  let told = false
+  const tell = (): void => {
+    if (told) return
+    told = true
+    if (appState.mainWindow && !appState.mainWindow.isDestroyed())
+      appState.mainWindow.webContents.send(PUSH.dirChanged, change)
+  }
   void folderSizes
-    .invalidate(directories)
+    .invalidate(directories, tell)
     .catch(() => {})
-    .finally(() => {
-      if (appState.mainWindow && !appState.mainWindow.isDestroyed())
-        appState.mainWindow.webContents.send(PUSH.dirChanged, change)
-    })
+    .finally(tell)
 }
 
 onRootsChanged((root, open) => {

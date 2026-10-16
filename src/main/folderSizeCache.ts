@@ -33,10 +33,35 @@ interface Calculation {
   promise: Promise<FolderSizeResult | null>
 }
 
+interface Marker {
+  path: string
+  id: string
+  at: number
+}
+
 interface InvalidationSnapshot {
   global: string
   globalAt?: number
-  markers: { path: string; id: string; at: number }[]
+  markers: Marker[]
+}
+
+/** Marker files written at once, so a burst never floods libuv's pool. */
+const MARKER_WRITES_AT_ONCE = 8
+
+/** The changed folders no other changed folder contains. A marker matches
+ *  everything inside its folder and every ancestor of it, so a child's marker
+ *  says nothing its changed parent's does not. */
+export function outermostKeys(keys: readonly string[]): string[] {
+  const all = new Set(keys)
+  return [...all].filter((k) => {
+    for (let at = k.lastIndexOf(sep); at > 0; at = k.lastIndexOf(sep, at - 1)) {
+      // A drive root keeps its separator (`c:\`), every other folder drops it.
+      const parent = k.slice(0, at)
+      const root = k.slice(0, at + 1)
+      if (all.has(parent) || (root !== k && all.has(root))) return false
+    }
+    return true
+  })
 }
 
 function key(path: string): string {
@@ -94,6 +119,10 @@ export class FolderSizeCache {
   private pruning: Promise<void> | null = null
   private writesSincePrune = 0
   private readingInvalidations: Promise<InvalidationSnapshot> | null = null
+  /** The journal as last read, and the signature it was read under. */
+  private journal: { signature: string; value: InvalidationSnapshot } | null = null
+  /** This process's markers from the moment they exist until they are on disk. */
+  private readonly pending = new Map<string, Marker>()
   private indexedQueries = 0
   private readonly indexedWaiters = new Set<() => void>()
 
@@ -110,10 +139,49 @@ export class FolderSizeCache {
     )
   }
 
-  private invalidations(): Promise<InvalidationSnapshot> {
+  /**
+   * THE MARKER JOURNAL IS KEPT IN MEMORY (2026-10-16). Every size lookup, each
+   * `generation()` and `indexIsSettling()`, used to readdir the journal and
+   * read and parse every marker in it (64 to 128 files), so a page of size rows
+   * was thousands of small reads. Now two stats (the journal folder and the
+   * global generation file) tell whether anything changed since the last read,
+   * which still sees another Prism process's markers at once. Markers this
+   * process has made but not yet written count from the moment they exist.
+   */
+  private async invalidations(): Promise<InvalidationSnapshot> {
+    const base = await this.journalOnDisk()
+    if (!this.pending.size) return base
+    const ours = [...this.pending.values()]
+    return {
+      ...base,
+      markers: [...base.markers.filter((m) => !this.pending.has(m.path)), ...ours]
+    }
+  }
+
+  private async journalSignature(): Promise<string> {
+    const part = async (path: string): Promise<string> => {
+      try {
+        const s = await stat(path, { bigint: true })
+        return `${s.mtimeNs}:${s.size}`
+      } catch {
+        return '-'
+      }
+    }
+    const [markers, global] = await Promise.all([
+      part(join(this.options.directory, 'invalidations')),
+      part(join(this.options.directory, 'generation'))
+    ])
+    return `${markers}|${global}`
+  }
+
+  private journalOnDisk(): Promise<InvalidationSnapshot> {
     if (this.readingInvalidations) return this.readingInvalidations
     const markerDirectory = join(this.options.directory, 'invalidations')
     const read = (async () => {
+      // Taken BEFORE the read: a marker landing mid-read changes it, so the
+      // next lookup reads again rather than trusting this answer.
+      const signature = await this.journalSignature()
+      if (this.journal?.signature === signature) return this.journal.value
       const names = await readdir(markerDirectory).catch(() => [])
       const markers = await Promise.all(
         names
@@ -145,13 +213,13 @@ export class FolderSizeCache {
       } catch {
         // Older caches used a plain UUID for the overflow generation.
       }
-      return {
+      const value: InvalidationSnapshot = {
         global,
         globalAt,
-        markers: markers.filter(
-          (marker): marker is { path: string; id: string; at: number } => marker !== null
-        )
+        markers: markers.filter((marker): marker is Marker => marker !== null)
       }
+      this.journal = { signature, value }
+      return value
     })().finally(() => {
       if (this.readingInvalidations === read) this.readingInvalidations = null
     })
@@ -287,20 +355,55 @@ export class FolderSizeCache {
 
   /** Invalidate after filesystem mutations, including writes beneath a root.
    * Shared path markers also invalidate ancestors in other Prism processes.
-   * Old snapshots remain available while the next request refreshes them. */
-  async invalidate(paths: readonly string[]): Promise<void> {
-    if (!paths.length) return
+   * Old snapshots remain available while the next request refreshes them.
+   *
+   * `noted` runs once this process already answers with the new markers, and
+   * BEFORE they are written (2026-10-16): the watcher's dirChanged used to wait
+   * for one atomic write per changed folder (node_modules included, all at
+   * once), so during an npm install the tree refreshed late and the writes
+   * flooded the pool a playing film reads through. The changed folders are now
+   * collapsed to the outermost ones and written a few at a time. */
+  async invalidate(paths: readonly string[], noted?: () => void): Promise<void> {
+    if (!paths.length) {
+      noted?.()
+      return
+    }
     const directory = join(this.options.directory, 'invalidations')
-    const normalized = await Promise.all(paths.filter(isAbsolute).map(canonicalKey))
-    await Promise.all(
-      [...new Set(normalized)].map((path) =>
-        this.atomicWrite(
-          join(directory, createHash('sha256').update(path).digest('hex') + '.json'),
-          JSON.stringify({ path, id: randomUUID(), at: this.now() })
-        )
+    const absolute = [...new Set(paths.filter(isAbsolute))]
+    const canonical: string[] = []
+    for (let offset = 0; offset < absolute.length; offset += 16)
+      canonical.push(...(await Promise.all(absolute.slice(offset, offset + 16).map(canonicalKey))))
+    const changed = outermostKeys(canonical)
+    if (changed.length > 128) {
+      // A burst bigger than the journal: one global invalidation says it all.
+      await this.atomicWrite(
+        join(this.options.directory, 'generation'),
+        JSON.stringify({ id: randomUUID(), at: this.now() })
       )
-    )
-    this.readingInvalidations = null
+      this.forgetJournal()
+      noted?.()
+      return
+    }
+    const markers = changed.map((path) => ({ path, id: randomUUID(), at: this.now() }))
+    for (const marker of markers) this.pending.set(marker.path, marker)
+    noted?.()
+    try {
+      for (let offset = 0; offset < markers.length; offset += MARKER_WRITES_AT_ONCE)
+        await Promise.all(
+          markers
+            .slice(offset, offset + MARKER_WRITES_AT_ONCE)
+            .map((marker) =>
+              this.atomicWrite(
+                join(directory, createHash('sha256').update(marker.path).digest('hex') + '.json'),
+                JSON.stringify(marker)
+              )
+            )
+        )
+    } finally {
+      for (const marker of markers)
+        if (this.pending.get(marker.path) === marker) this.pending.delete(marker.path)
+      this.forgetJournal()
+    }
     const names = await readdir(directory).catch(() => [])
     if (names.length > 128) {
       // Rare mutation bursts fall back to one global invalidation before
@@ -321,8 +424,14 @@ export class FolderSizeCache {
       await Promise.all(
         entries.slice(64).map(({ path }) => rm(path, { force: true }).catch(() => {}))
       )
-      this.readingInvalidations = null
+      this.forgetJournal()
     }
+  }
+
+  /** This process's own writes are read back fresh, whatever the stats say. */
+  private forgetJournal(): void {
+    this.readingInvalidations = null
+    this.journal = null
   }
 
   async readCached(paths: readonly string[]): Promise<Record<string, FolderSizeResult>> {
