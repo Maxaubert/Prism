@@ -5,9 +5,10 @@ import { basename, dirname, extname } from 'path'
 import { extendDesktopDirectories, insideDesktop } from '../desktopAccess'
 import { userPaths } from '../paths'
 import { AUDIO_SCHEME } from '../audioSidecar'
-import { FIRST_AUDIO, needsSidecar, probeMedia } from '../ffmpeg'
+import { FIRST_AUDIO, needsSidecar } from '../ffmpeg'
 import { cancelConversion, convertVideo, planConversion } from '../videoConvert'
-import { cachedPeaks, loadPeaks } from '../peaks'
+import { createConvertWaiters } from '../convertWaiters'
+import { cancelPeaks, loadPeaks } from '../peaks'
 import { isMidi, renderMidi } from '../midi'
 import { readAsVtt, sidecarsFor, type SubTrack } from '../subtitles'
 import type { MediaProbe } from '@shared/types'
@@ -76,15 +77,21 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
    */
   ipcMain.handle(CALL.mediaPeaks, async (_e, p: string): Promise<number[] | null> => {
     if (!readable(p)) return null
-    // Known already: no ffprobe, no ffmpeg, no wait.
-    const known = await cachedPeaks(p)
-    if (known) return known
     const tools = ffmpegTools()
-    if (!tools) return null
-    if (!tools.ffprobe) return null
-    const info = await probeMedia(tools.ffprobe, p)
-    if (!info?.audio || !info.duration) return null
-    return loadPeaks(tools.ffmpeg, p, info.duration)
+    if (!tools?.ffprobe) return null
+    // A known answer comes back without probing; otherwise the probe runs
+    // INSIDE the queued job, through the shared cache, so a cancel during it
+    // is not lost and the player's own probe is reused (review, 2026-10-16).
+    return loadPeaks(tools.ffmpeg, p, async () => {
+      const info = await probeCached(p)
+      return info?.audio && info.duration ? info.duration : 0
+    })
+  })
+  // The waveform's viewer moved on: the decode of a whole film behind it is
+  // for nobody (review, 2026-10-16). Counted per ask, so another tab on the
+  // same file keeps its job.
+  ipcMain.on(CALL.mediaPeaksCancel, (_e, p: string) => {
+    if (typeof p === 'string') cancelPeaks(p)
   })
   ipcMain.handle(CALL.mediaProbe, async (_e, p: string): Promise<MediaProbe> => {
     const none: MediaProbe = { ffmpeg: false, needed: false }
@@ -168,21 +175,27 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
   // renderer waits on this and shows progress; a file already converted
   // comes back immediately.
   const convertDir = userPaths.converted
-  /** Source file -> the copy being written for it and how many viewers are
-   *  waiting. Two tabs can hold the same film (each tab keeps its own live
-   *  player), and they share ONE conversion: the first to walk away must not
-   *  cancel it out from under the other (2026-08-28). */
-  const converting = new Map<string, { out: string; viewers: number }>()
+  /** Source file -> the viewers waiting for its copy. Two tabs can hold the
+   *  same film and share ONE conversion (2026-08-28); a viewer now counts
+   *  from the moment it asks, so a cancel during the probe is no longer lost
+   *  (review, 2026-10-16, see convertWaiters.ts). */
+  const converting = createConvertWaiters(cancelConversion)
   ipcMain.handle(
     CALL.videoConvert,
     async (e, p: string): Promise<ConvertResult> => {
       if (!readable(p)) return { error: 'outside the folder' }
       const tools = ffmpegTools()
       if (!tools?.ffprobe) return { error: 'no decoder available' }
-      const info = await probeMedia(tools.ffprobe, p)
-      const plan = planConversion(info, extname(p))
-      if (!plan.needed) return { error: 'nothing to convert' }
+      // Joined BEFORE the first await: the renderer cancels in its effect
+      // cleanup, and arrowing away while main was still probing used to drop
+      // that cancel and leave a whole re-encode running for nobody (review,
+      // 2026-10-16). The probe is the shared one the player already asked.
+      const ask = converting.join(p)
       try {
+        const info = await probeCached(p)
+        const plan = planConversion(info, extname(p))
+        if (!plan.needed) return { error: 'nothing to convert' }
+        if (ask.cancelled) return { error: 'cancelled' }
         const handle = await convertVideo(
           tools.ffmpeg,
           p,
@@ -191,17 +204,15 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
           info?.duration ?? 0,
           (pct) => e.sender.send(PUSH.videoProgress, { path: p, pct })
         )
-        // The renderer knows the FILE it asked about, never the copy's name,
-        // so cancelling has to be answerable from the source (2026-08-28).
-        const seen = converting.get(p)
-        converting.set(p, { out: handle.out, viewers: (seen?.viewers ?? 0) + 1 })
+        if (!converting.started(ask, handle.out)) return { error: 'cancelled' }
         const out = await handle.done
-        converting.delete(p)
         wall.grantExtracted(out) // the copy is ours to serve, wherever it sits
         wall.grantServable(out)
         return { url: `${MEDIA_SCHEME}://local/${encodeURIComponent(out)}` }
       } catch (err) {
         return { error: err instanceof Error ? err.message : 'conversion failed' }
+      } finally {
+        converting.done(ask)
       }
     }
   )
@@ -209,12 +220,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
   // file while a whole film was being re-encoded behind it (2026-08-28).
   ipcMain.on(CALL.videoCancel, (_e, source: string) => {
     if (typeof source !== 'string') return
-    const job = converting.get(source)
-    if (!job) return
-    job.viewers -= 1
-    if (job.viewers > 0) return // somebody else is still waiting for it
-    converting.delete(source)
-    cancelConversion(job.out)
+    converting.cancel(source)
   })
 
   // Office and ebook documents: converted to HTML in main, sanitised there

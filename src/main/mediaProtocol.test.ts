@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { createMediaServer } from './mediaProtocol'
+import { WHOLE_BUFFER_MAX, createMediaServer, madeImageBody } from './mediaProtocol'
 
 // fsmedia:// (stage 9b): the wall answers first, and a Range request is a
 // 206 with exactly the bytes asked for, so media can seek.
@@ -54,5 +54,50 @@ describe('fsmedia://', () => {
     expect(await open.text()).toBe('789')
     const big = await server()(new Request(url(file), { headers: { range: 'bytes=8-999' } }))
     expect(big.headers.get('content-range')).toBe('bytes 8-9/10')
+  })
+})
+
+// A picture main made (decoded TIFF/PSD, raw preview, HEIC) follows the same
+// 8 MB rule as a file on disk (review, 2026-10-16): one huge buffer is one
+// huge IPC message and a renderer stall.
+describe('a picture main made', () => {
+  it('goes back whole when small', () => {
+    const small = Buffer.alloc(1024)
+    expect(madeImageBody(small)).toBe(small)
+  })
+
+  it('streams in chunks above 8 MB, every byte intact', async () => {
+    const big = Buffer.alloc(WHOLE_BUFFER_MAX + 3 * 1024 * 1024 + 7)
+    big[big.length - 1] = 0x5a
+    const body = madeImageBody(big)
+    expect(body).toBeInstanceOf(ReadableStream)
+    const reader = (body as ReadableStream<Uint8Array>).getReader()
+    let chunks = 0
+    let total = 0
+    let last = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks += 1
+      total += value.length
+      expect(value.length).toBeLessThanOrEqual(1024 * 1024)
+      last = value[value.length - 1]
+    }
+    expect(chunks).toBeGreaterThan(8)
+    expect(total).toBe(big.length)
+    expect(last).toBe(0x5a)
+  })
+
+  it('is what the HEIC route answers with', async () => {
+    const heic = join(dir, 'photo.heic')
+    writeFileSync(heic, Buffer.from('x'))
+    const jpeg = Buffer.alloc(WHOLE_BUFFER_MAX + 1)
+    const res = await createMediaServer({
+      allowed: () => true,
+      ffmpeg: () => null,
+      heic: () => Promise.resolve(jpeg)
+    })(new Request(url(heic)))
+    expect(res.headers.get('content-length')).toBe(String(jpeg.length))
+    expect((await res.arrayBuffer()).byteLength).toBe(jpeg.length)
   })
 })

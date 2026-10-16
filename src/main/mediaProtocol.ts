@@ -23,6 +23,33 @@ export interface MediaServerDeps {
   heic: (p: string, mtimeMs: number) => Promise<Buffer>
 }
 
+/** Past this a whole buffer is one IPC message, and tracing a 40 MB image
+ *  showed a 1.2s "Receive mojo message" stall in the renderer (see below). */
+export const WHOLE_BUFFER_MAX = 8 * 1024 * 1024
+const CHUNK = 1024 * 1024
+
+/**
+ * A picture main MADE (a decoded TIFF or PSD, a raw's preview, a HEIC), as a
+ * response body: whole when small, in 1 MB chunks above the 8 MB rule
+ * (review, 2026-10-16). Those used to go back as one buffer of any size, so a
+ * big scan froze the renderer for the second the file's own rule was there to
+ * prevent.
+ */
+export function madeImageBody(buf: Buffer): Buffer | ReadableStream<Uint8Array> {
+  if (buf.length <= WHOLE_BUFFER_MAX) return buf
+  let at = 0
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (at >= buf.length) {
+        controller.close()
+        return
+      }
+      controller.enqueue(buf.subarray(at, Math.min(buf.length, at + CHUNK)))
+      at += CHUNK
+    }
+  })
+}
+
 /**
  * fsmedia:// (stage 9b of the structure cleanup, 2026-10-12, out of index.ts):
  * serve a local file honouring Range requests (206), so media can seek. Camera
@@ -54,7 +81,7 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
     if (isRaw(filePath)) {
       try {
         const jpeg = await rawPreview(filePath, st.mtimeMs)
-        return new Response(jpeg, {
+        return new Response(madeImageBody(jpeg), {
           status: 200,
           headers: {
             'Content-Type': 'image/jpeg',
@@ -78,7 +105,7 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
           // scans and faxes arrive this way constantly, and silence there is
           // how someone misses eleven pages of a document.
           const pages = /\.tiff?$/i.test(filePath) ? await tiffPages(filePath) : 1
-          return new Response(png, {
+          return new Response(madeImageBody(png), {
             status: 200,
             headers: {
               'Content-Type': 'image/png',
@@ -103,7 +130,7 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
     if (isHeic(filePath)) {
       try {
         const jpeg = await deps.heic(filePath, st.mtimeMs)
-        return new Response(jpeg, {
+        return new Response(madeImageBody(jpeg), {
           status: 200,
           headers: {
             'Content-Type': 'image/jpeg',
@@ -125,7 +152,7 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
     // large buffer crosses the process boundary as one IPC message, and tracing a
     // 40 MB image showed a 1.2s "Receive mojo message" stall in the renderer. Bigger
     // files stream, arriving in chunks that never block.
-    if (type.startsWith('image/') && size <= 8 * 1024 * 1024) {
+    if (type.startsWith('image/') && size <= WHOLE_BUFFER_MAX) {
       try {
         const buf = await readFile(filePath)
         return new Response(buf, {

@@ -98,12 +98,108 @@ async function key(file: string): Promise<string> {
  * `duration` decides the bucket width; without it the stream would have to be
  * held to know how long it was, which is the whole thing this avoids.
  */
-export async function loadPeaks(ffmpeg: string, file: string, duration: number): Promise<number[] | null> {
-  const k = await key(file)
-  const hit = cache.peek(k)
-  if (hit) return hit
-  if (!Number.isFinite(duration) || duration <= 0) return null
+/**
+ * One job per file at a time, ONE decode at a time, and a way to stop one
+ * (review, 2026-10-16).
+ *
+ * Every miss used to spawn its own ffmpeg reading the whole file, and nothing
+ * killed it: the renderer's cleanup only set a local flag. Arrowing through
+ * big films with the Wave transport stacked whole-file decodes that fought
+ * playback for the disk. Now a second ask for the same file joins the first,
+ * the decodes queue behind one another, and `cancelPeaks` stops a job once
+ * the last viewer that asked for it has gone.
+ */
+interface PeakRun {
+  file: string
+  waiters: number
+  cancelled: boolean
+  kill: (() => void) | null
+  promise: Promise<number[] | null>
+}
 
+const inflight = new Map<string, PeakRun>()
+let busy = false
+const queue: Array<() => void> = []
+
+function acquire(): Promise<void> {
+  if (!busy) {
+    busy = true
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => queue.push(resolve))
+}
+
+function release(): void {
+  const next = queue.shift()
+  if (next) next()
+  else busy = false
+}
+
+/** A viewer of `file` walked away: its job stops once nobody else waits. */
+export function cancelPeaks(file: string): void {
+  const run = inflight.get(file)
+  if (!run) return
+  run.waiters -= 1
+  if (run.waiters > 0) return
+  run.cancelled = true
+  run.kill?.()
+  inflight.delete(file)
+}
+
+/**
+ * `duration` may be a function, asked only once this job's turn has come and
+ * it has not been cancelled: the caller's probe then waits in the same queue
+ * and a cancel during it is not lost.
+ *
+ * The ask is registered SYNCHRONOUSLY, keyed by path, before the first await
+ * (the stat for the cache key): a cancel that arrives while that stat runs
+ * then finds the job and stops it, where keying by the stat's answer let it
+ * slip past and left a whole-file decode at the head of the one-at-a-time
+ * queue, for nobody.
+ */
+export function loadPeaks(
+  ffmpeg: string,
+  file: string,
+  duration: number | (() => Promise<number>)
+): Promise<number[] | null> {
+  const running = inflight.get(file)
+  if (running) {
+    running.waiters += 1
+    return running.promise
+  }
+  const run: PeakRun = { file, waiters: 1, cancelled: false, kill: null, promise: Promise.resolve(null) }
+  run.promise = (async (): Promise<number[] | null> => {
+    try {
+      const k = await key(file)
+      // A known answer never waits behind another file's decode.
+      const hit = cache.peek(k)
+      if (hit) return hit
+      if (run.cancelled) return null
+      if (typeof duration === 'number' && (!Number.isFinite(duration) || duration <= 0)) return null
+      await acquire()
+      try {
+        if (run.cancelled) return null
+        const secs = typeof duration === 'number' ? duration : await duration()
+        if (run.cancelled || !Number.isFinite(secs) || secs <= 0) return null
+        return await decode(ffmpeg, file, secs, k, run)
+      } finally {
+        release()
+      }
+    } finally {
+      if (inflight.get(file) === run) inflight.delete(file)
+    }
+  })()
+  inflight.set(file, run)
+  return run.promise
+}
+
+function decode(
+  ffmpeg: string,
+  file: string,
+  duration: number,
+  k: string,
+  run: PeakRun
+): Promise<number[] | null> {
   return new Promise((resolve) => {
     const acc = {
       peaks: new Array<number>(BUCKETS).fill(0),
@@ -112,6 +208,7 @@ export async function loadPeaks(ffmpeg: string, file: string, duration: number):
       odd: null as number | null
     }
     const proc = spawn(ffmpeg, peaksArgs(file), { windowsHide: true })
+    run.kill = () => proc.kill()
     holders.add(proc, file) // a move of the file kills this first (#127)
     // A file with no audio, or one ffmpeg cannot open, simply produces nothing.
     let any = false
@@ -121,7 +218,8 @@ export async function loadPeaks(ffmpeg: string, file: string, duration: number):
     })
     proc.stderr.resume()
     const done = (): void => {
-      if (!any) return resolve(null)
+      // A killed job's half-envelope is not the file's: never cached.
+      if (!any || run.cancelled) return resolve(null)
       const out = normalise(acc.peaks)
       cache.set(k, out)
       resolve(out)

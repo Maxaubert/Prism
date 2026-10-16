@@ -77,6 +77,7 @@ import { initSweepOverlay, loadSweepAddon, sweepDirs, type SweepOverlay } from '
 import { documentImages } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { probeMedia, type MediaInfo } from './ffmpeg'
+import { createProbeCache } from './probeCache'
 import {
   cancelAllConversions
 } from './videoConvert'
@@ -1336,24 +1337,16 @@ if (!app.requestSingleInstanceLock()) {
     // audio player, the video player, the no-picture note and the phone's
     // /api/play all ask. Null is "ffprobe could not read it" AND "there is
     // no ffprobe": the callers that tell those apart ask findFfmpeg first.
-    const probeCache = new Map<string, MediaInfo | null>()
-    const probeCached = async (p: string): Promise<MediaInfo | null> => {
-      const tools = ffmpegTools()
-      if (!tools?.ffprobe) return null
-      let key: string
-      try {
-        key = `${p}|${(await stat(p)).mtimeMs}`
-      } catch {
-        return null
-      }
-      let info = probeCache.get(key)
-      if (info === undefined) {
-        info = await probeMedia(tools.ffprobe, p)
-        if (probeCache.size > 40) probeCache.clear()
-        probeCache.set(key, info)
-      }
-      return info
-    }
+    // The in-flight probe is shared too (review, 2026-10-16): see probeCache.ts.
+    const probeShared = createProbeCache(
+      (p) => {
+        const ffprobe = ffmpegTools()?.ffprobe
+        return ffprobe ? probeMedia(ffprobe, p) : Promise.resolve(null)
+      },
+      async (p) => (await stat(p)).mtimeMs
+    )
+    const probeCached = async (p: string): Promise<MediaInfo | null> =>
+      ffmpegTools()?.ffprobe ? probeShared(p) : null
 
     // The phone's HLS jobs (#105): one ffmpeg per phone and file, under
     // userData. Made once, and the directory is wiped at startup: segments

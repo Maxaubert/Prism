@@ -61,7 +61,10 @@ export function imageArgs(file: string): string[] {
   ]
 }
 
-const cache = createLru<string, Buffer>(6)
+/** Six by count, and by SIZE too (review, 2026-10-16): an RGBA PNG of a big
+ *  TIFF scan or PSD runs to tens of MB, and six of them sat pinned in main. */
+const DECODED_CACHE_BYTES = 96 << 20
+const cache = createLru<string, Buffer>(6, { of: (b) => b.length, max: DECODED_CACHE_BYTES })
 
 /** Decode one still to PNG bytes. Keyed by path + mtime, so an edit re-decodes. */
 export async function decodeImage(ffmpeg: string, file: string, mtimeMs: number): Promise<Buffer> {

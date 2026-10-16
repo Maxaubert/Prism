@@ -6,6 +6,10 @@
  *
  * `get` counts as a use and moves the entry to the newest end; `peek` reads
  * without that, for the caches that drop strictly oldest-written first.
+ *
+ * `weight` caps by SIZE as well as by count (review, 2026-10-16): six decoded
+ * TIFF scans as RGBA PNGs were hundreds of MB pinned in main. An entry heavier
+ * than the whole cap is not kept at all.
  */
 export interface Lru<K, V> {
   get(key: K): V | undefined
@@ -17,8 +21,18 @@ export interface Lru<K, V> {
   readonly size: number
 }
 
-export function createLru<K, V>(max: number): Lru<K, V> {
+export function createLru<K, V>(
+  max: number,
+  weight?: { of: (value: V) => number; max: number }
+): Lru<K, V> {
   const map = new Map<K, V>()
+  let total = 0
+  const drop = (key: K): boolean => {
+    if (!map.has(key)) return false
+    if (weight) total -= weight.of(map.get(key) as V)
+    return map.delete(key)
+  }
+  const over = (): boolean => map.size > max || (!!weight && total > weight.max)
   return {
     get(key) {
       if (!map.has(key)) return undefined
@@ -29,12 +43,16 @@ export function createLru<K, V>(max: number): Lru<K, V> {
     },
     peek: (key) => map.get(key),
     set(key, value) {
-      map.delete(key)
+      drop(key)
       map.set(key, value)
-      while (map.size > max) map.delete(map.keys().next().value as K)
+      if (weight) total += weight.of(value)
+      while (map.size > 0 && over()) drop(map.keys().next().value as K)
     },
-    delete: (key) => map.delete(key),
-    clear: () => map.clear(),
+    delete: drop,
+    clear: () => {
+      map.clear()
+      total = 0
+    },
     get size() {
       return map.size
     }

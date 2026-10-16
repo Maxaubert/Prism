@@ -129,6 +129,7 @@ export const CALL = {
   subsRead: 'subs:read',
 
   mediaPeaks: 'media:peaks',
+  mediaPeaksCancel: 'media:peaks-cancel',
   mediaProbe: 'media:probe',
 
   shellVerbStatus: 'shell:verb-status',
