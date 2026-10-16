@@ -986,7 +986,7 @@ function createWindow(): void {
       const pinnedSaved = !!saved?.tabs.some((t) => t.role === 'explorer' && t.pinned)
       if (!pinnedSaved) await sendHome()
       if (stale()) return
-      const pinnedSent = saved ? await restoreTabs(send) : false
+      const pinnedSent = saved ? await restoreTabs(send, saved) : false
       if (stale()) return
       // A saved pinned Explorer whose folder has gone: the home one stands in.
       if (pinnedSaved && !pinnedSent) await sendHome()

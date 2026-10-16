@@ -228,6 +228,22 @@ describe('parseTabs', () => {
   })
 })
 
+describe('the bulk of a strip off this PC (2026-10-16: sync stats waited out the SMB timeout)', () => {
+  it('keeps history and open folders on a share unchecked, and still drops gone local ones', () => {
+    const root = folder('here')
+    const gone = join(box, 'gone')
+    const share = '\\\\prism-test-offline.invalid\\share\\photos'
+    const at = (path: string): object => ({ path, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } })
+    const browse = { path: root, history: [at(share), at(gone), at(root)], cursor: 2, surface: 'folder', preview: false }
+    const parsed = parseTabs(
+      JSON.stringify({ tabs: [{ root, role: 'explorer', browse, open: [join(share, '2026'), join(root, 'gone')] }], active: 0 })
+    )
+    expect(parsed.tabs[0].browse?.history.map((h) => h.path)).toEqual([share, root])
+    expect(parsed.tabs[0].browse?.cursor).toBe(1)
+    expect(parsed.tabs[0].open).toEqual([join(share, '2026')])
+  })
+})
+
 describe('places inside an archive (#300)', () => {
   it('keeps history entries and open tree folders inside a zip that is still there', () => {
     const root = folder('downloads')

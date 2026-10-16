@@ -2,7 +2,7 @@ import { dirname, resolve } from 'path'
 import { addRoot } from './roots'
 import { grantDesktopDirectory } from './desktopAccess'
 import { browseDirectory, type BrowseRead } from './browse'
-import { readTabs, restoredFileIndex, tabsWriter, type SavedTabs } from './tabs'
+import { restoredFileIndex, tabsWriter, type SavedTabs } from './tabs'
 import { userPaths } from './paths'
 import { CODEX_RESUME, claudeSessionsAsync } from 'prism-term-core/main/agentResume'
 import type { BrowseDirectory } from '@shared/browse'
@@ -23,7 +23,7 @@ export interface TabsSessionDeps {
 }
 
 export interface TabsSession {
-  restoreTabs(send: (payload: OpenPayload) => void): Promise<boolean>
+  restoreTabs(send: (payload: OpenPayload) => void, saved: SavedTabs): Promise<boolean>
   saveTabs(state: SavedTabs): void
   flushTabs(): void
 }
@@ -79,6 +79,8 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
   /**
    * Restore last session's strip: register each surviving root so the wall
    * accepts it, then hand the renderer the payloads to rebuild the tabs from.
+   * The strip is the one index.ts already read (2026-10-16): this used to read
+   * and parse it a second time, every sync stat of it twice per page load.
    *
    * EXPLORER TABS FIRST, EVERYTHING ELSE AS IT IS READY (#271). The first
    * Explorer rows used to wait on every saved tab in turn: each project's
@@ -89,8 +91,10 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
    * in SAVED order however the payloads arrive. Returns whether a pinned
    * Explorer tab was sent.
    */
-  async function restoreTabs(send: (payload: OpenPayload) => void): Promise<boolean> {
-    const saved = readTabs(userPaths.tabs())
+  async function restoreTabs(
+    send: (payload: OpenPayload) => void,
+    saved: SavedTabs
+  ): Promise<boolean> {
     const ids = saved.tabs.map((t, i) => t.id ?? `restored-${i}-${Date.now()}`)
     for (const [i, t] of saved.tabs.entries()) {
       // The SAVED root, not the file's folder: navigating into a subfolder and
