@@ -26,6 +26,9 @@ export function useWaveform(path: string, enabled: boolean): number[] {
     )
     return () => {
       cancelled = true
+      // Arrowing on used to leave ffmpeg decoding the whole film behind the
+      // viewer (review, 2026-10-16). An answer already given makes this a no-op.
+      window.prism.cancelPeaks(path)
     }
   }, [path, enabled])
   return enabled && loaded.path === path ? loaded.peaks : []

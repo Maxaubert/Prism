@@ -43,6 +43,26 @@ describe('camera raw', () => {
     expect(findJpeg(file)?.length).toBe(60000)
   })
 
+  it('hands back a COPY, so the cached preview does not pin the scan buffer (2026-10-16)', () => {
+    const file = Buffer.concat([Buffer.alloc(2048, 0x11), jpeg(9000), Buffer.alloc(50000)])
+    const found = findJpeg(file)
+    expect(found?.buffer).not.toBe(file.buffer)
+    expect(found?.buffer.byteLength).toBe(9000)
+    file.fill(0)
+    expect(found?.[0]).toBe(0xff) // untouched by the scan buffer's reuse
+  })
+
+  it('finds the largest run among several, skipping a start with no end', () => {
+    const file = Buffer.concat([
+      jpeg(6000, 0x22),
+      Buffer.alloc(10),
+      jpeg(20000, 0x33),
+      Buffer.from([0xff, 0xd8, 0xff]),
+      Buffer.alloc(9000, 0x5)
+    ])
+    expect(findJpeg(file)?.length).toBe(20000)
+  })
+
   it('ignores a fragment too small to be a picture', () => {
     expect(findJpeg(jpeg(200))).toBeNull()
   })

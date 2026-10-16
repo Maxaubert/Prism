@@ -19,6 +19,7 @@ import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
 import { isTypingTarget } from '../lib/focusGuards'
 import { clamp } from '../lib/clamp'
+import { imageStillLoading } from '../lib/imageLoading'
 
 // Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
 // measured at 2.3s of hard freeze for a 384 MP PNG, during which nothing paints
@@ -114,6 +115,10 @@ export function ImageView({
   const [img, setImg] = useState<LoadedImage | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const huge = !!img && img.width * img.height > CANVAS_PATH_PIXELS
+  /** The huge picture whose bitmap is on the canvas: until it is THIS one,
+   *  the spinner shows (review, 2026-10-16, lib/imageLoading). */
+  const [paintedHuge, setPaintedHuge] = useState<LoadedImage | null>(null)
+  const loading = imageStillLoading(loaded, huge, img, paintedHuge)
 
   /* How big the stage is, measured rather than assumed (2026-08-28).
    *
@@ -250,6 +255,7 @@ export function ImageView({
           bmp.close()
         }
         setLoaded(true)
+        setPaintedHuge(img)
       })
       .catch(() => alive && setFailed(true))
     return () => {
@@ -509,7 +515,7 @@ export function ImageView({
           {/* Buffering spinner. Mounted for the whole load; the `delayed-loader`
               class keeps it invisible for the first ~260ms (CSS, so it survives a
               main-thread stall from a huge decode) and fades it in after that. */}
-          {!loaded && (
+          {loading && (
             <LoadingState className="pointer-events-none absolute inset-0" />
           )}
           {/* Fit the stage in both directions (same reason as the video): max-w/max-h

@@ -45,33 +45,31 @@ const SCAN_BYTES = 40 << 20
  */
 export function findJpeg(buf: Buffer): Buffer | null {
   let best: { start: number; end: number } | null = null
-  let i = 0
-  while (i < buf.length - 1) {
-    // SOI: ff d8 ff
-    if (buf[i] === 0xff && buf[i + 1] === 0xd8 && buf[i + 2] === 0xff) {
-      const end = findEoi(buf, i + 2)
-      if (end > 0) {
-        const size = end - i
-        if (!best || size > best.end - best.start) best = { start: i, end }
-        i = end
-        continue
-      }
-    }
-    i++
+  // buf.indexOf, not a byte-by-byte JS loop (review, 2026-10-16): the loop
+  // cost 40-50 ms of main's one thread per 40 MB scan, every step through a
+  // folder of raws and every neighbour preload. Same markers, native search.
+  let i = buf.indexOf(SOI)
+  while (i >= 0) {
+    const eoi = buf.indexOf(EOI, i + 2)
+    // No end marker after this start means none after any later start either.
+    if (eoi < 0) break
+    const end = eoi + 2
+    if (!best || end - i > best.end - best.start) best = { start: i, end }
+    i = buf.indexOf(SOI, end)
   }
   if (!best) return null
-  const out = buf.subarray(best.start, best.end)
   // A few hundred bytes is a corrupt fragment, not a picture.
-  return out.length > 4096 ? out : null
+  if (best.end - best.start <= 4096) return null
+  // A COPY, not a subarray (review, 2026-10-16): a subarray kept the whole
+  // 25-40 MB scan buffer alive behind every cached preview, four of them.
+  // allocUnsafeSlow: its own memory, exactly this size, never a pool slab.
+  const out = Buffer.allocUnsafeSlow(best.end - best.start)
+  buf.copy(out, 0, best.start, best.end)
+  return out
 }
 
-/** The end-of-image marker that closes the JPEG starting before `from`. */
-function findEoi(buf: Buffer, from: number): number {
-  for (let i = from; i < buf.length - 1; i++) {
-    if (buf[i] === 0xff && buf[i + 1] === 0xd9) return i + 2
-  }
-  return -1
-}
+const SOI = Buffer.from([0xff, 0xd8, 0xff])
+const EOI = Buffer.from([0xff, 0xd9])
 
 const cache = createLru<string, Buffer>(4)
 

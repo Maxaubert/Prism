@@ -3,6 +3,8 @@ import type { AudioFrame, DrawFn, VizOpts, VizTheme } from '../lib/viz/core'
 import { clamp } from '../lib/clamp'
 import { styleById } from '../lib/viz/styles'
 import { analyzeDrops } from '../lib/viz/drops'
+import { watchDrops } from '../lib/viz/dropWatch'
+import { drawLoopRuns, wantsResume } from '../lib/viz/vizGuards'
 import { getAudioContext, mediaGraph } from '../lib/audio'
 import { hexToRgb } from '../lib/colour'
 
@@ -26,10 +28,6 @@ function rgbOf(colour: string): [number, number, number] {
   const m = colour.match(/[\d.]+/g)
   return m ? [Number(m[0]), Number(m[1]), Number(m[2])] : [13, 15, 20]
 }
-
-/** Past this, the drop analysis is skipped: its cost is the file's whole
- *  decoded length in memory, and nobody needs drop rings in an audiobook. */
-const DROPS_MAX_SECONDS = 15 * 60
 
 export function Visualizer({
   media,
@@ -88,31 +86,25 @@ export function Visualizer({
   // costs a multiple of its size in memory - fine for a song, ruinous for an
   // audiobook or a DJ set, and pointless either way: drop rings are a thing
   // that happens in music, not in a four-hour recording.
+  //
+  // Only once the length is KNOWN (review, 2026-10-16): the run at mount saw
+  // a NaN duration, passed the guard and decoded audiobooks whole. See
+  // lib/viz/dropWatch.ts.
   useEffect(() => {
+    dropTimesRef.current = []
     if (!media) return
-    let cancelled = false
-    const run = (): void => {
-      dropTimesRef.current = []
-      if (Number.isFinite(media.duration) && media.duration > DROPS_MAX_SECONDS) return
-      const url = media.currentSrc || media.src
-      if (!url) return
-      void (async () => {
-        try {
-          const resp = await fetch(url)
-          const bytes = await resp.arrayBuffer()
-          const audio = await getAudioContext().decodeAudioData(bytes)
-          if (!cancelled) dropTimesRef.current = analyzeDrops(audio)
-        } catch {
-          /* leave empty - no drop rings for this file */
-        }
-      })()
-    }
-    run()
-    media.addEventListener('loadeddata', run)
-    return () => {
-      cancelled = true
-      media.removeEventListener('loadeddata', run)
-    }
+    return watchDrops(
+      media,
+      async (url, signal) => {
+        const resp = await fetch(url, { signal })
+        const bytes = await resp.arrayBuffer()
+        if (signal.aborted) return []
+        return analyzeDrops(await getAudioContext().decodeAudioData(bytes))
+      },
+      (times) => {
+        dropTimesRef.current = times
+      }
+    )
   }, [media])
 
   // Wire the element into the graph, and keep the context resumed while it plays.
@@ -130,8 +122,11 @@ export function Visualizer({
     analyser.smoothingTimeConstant = 0.6
     graph.gain.connect(analyser)
     analyserRef.current = analyser
+    // Only for a track that is PLAYING (review, 2026-10-16): any click
+    // anywhere used to wake the context idleAudioContext had just put to
+    // sleep, and the audio thread and device stayed up with nothing playing.
     const resume = (): void => {
-      if (ctx.state === 'suspended') void ctx.resume()
+      if (wantsResume(ctx.state, media.paused)) void ctx.resume()
     }
     media.addEventListener('play', resume)
     window.addEventListener('pointerdown', resume)
@@ -151,8 +146,10 @@ export function Visualizer({
     }
   }, [media])
 
-  // Draw loop.
+  // Draw loop. None at all without an element (review, 2026-10-16): a hidden
+  // tab passes null, and its loop used to redraw forever (lib/viz/vizGuards).
   useEffect(() => {
+    if (!drawLoopRuns(media)) return
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
