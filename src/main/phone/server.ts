@@ -26,7 +26,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import { createReadStream, promises as fsp } from 'fs'
 import { basename, dirname, join, extname, normalize } from 'path'
-import { Readable } from 'stream'
+import { Readable } from 'node:stream'
 import type {
   ArchiveListing,
   DirListing,
@@ -59,7 +59,7 @@ import { diagLines } from './diag'
 import { memoryPatch } from './memory'
 import { parseRoute, tokenOf, type Route } from './routes'
 import { localPath } from './phoneAccess'
-import { localNetwork } from './lan'
+import { forwardedLocal, localNetwork } from './lan'
 import { HLS_MIME, assetMime } from '../mime'
 
 export const DEFAULT_PORT = 47320
@@ -329,7 +329,8 @@ export class PhoneServer {
     try {
       // The user's own network only (lan.ts): a forwarded port or a public
       // IPv6 address must not put pairing on the internet.
-      if (!localNetwork(req.socket.remoteAddress)) return void json(res, 403, { error: 'not on this network' })
+      if (!localNetwork(req.socket.remoteAddress) || !forwardedLocal(req.headers))
+        return void json(res, 403, { error: 'not on this network' })
       const route = parseRoute(req.url ?? '/')
       if (route.kind === 'none') return void json(res, 404, { error: 'not found' })
       if (route.kind === 'static') return await this.serveStatic(route.file, req, res)
