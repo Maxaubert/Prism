@@ -66,6 +66,21 @@ describe('the waveform jobs', () => {
     expect(await a2).toBe(await a1)
   })
 
+  it('keeps a cancel that arrives while the cache key is still being read', async () => {
+    const probe = vi.fn(async () => 60)
+    const asked = loadPeaks('ffmpeg', 'prism-no-such-dir/f.mkv', probe)
+    cancelPeaks('prism-no-such-dir/f.mkv') // before the stat has answered
+    expect(await asked).toBeNull()
+    expect(probe).not.toHaveBeenCalled()
+    expect(procs).toHaveLength(0)
+    // ...and nothing was left at the head of the queue: the next file decodes.
+    const next = loadPeaks('ffmpeg', 'prism-no-such-dir/g.mkv', 60)
+    await tick()
+    expect(procs).toHaveLength(1)
+    finish(procs[0])
+    expect((await next)?.length).toBeGreaterThan(0)
+  })
+
   it('never probes or spawns for a job cancelled while it queued', async () => {
     const first = loadPeaks('ffmpeg', 'prism-no-such-dir/d.mkv', 60)
     const probe = vi.fn(async () => 60)

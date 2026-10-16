@@ -16,19 +16,24 @@ export function useWaveform(path: string, enabled: boolean): number[] {
   useEffect(() => {
     if (!enabled || !path) return
     let cancelled = false
+    let settled = false
     window.prism.mediaPeaks(path).then(
       (peaks) => {
+        settled = true
         if (!cancelled && peaks?.length) setLoaded({ path, peaks })
       },
       () => {
+        settled = true
         /* no ffmpeg, or nothing to read: the fallback shape shows */
       }
     )
     return () => {
       cancelled = true
       // Arrowing on used to leave ffmpeg decoding the whole film behind the
-      // viewer (review, 2026-10-16). An answer already given makes this a no-op.
-      window.prism.cancelPeaks(path)
+      // viewer (review, 2026-10-16). Only while this ask is still open: a
+      // cancel for an answer already given would take a waiter off another
+      // tab's job for the same file.
+      if (!settled) window.prism.cancelPeaks(path)
     }
   }, [path, enabled])
   return enabled && loaded.path === path ? loaded.peaks : []
