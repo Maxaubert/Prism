@@ -55,7 +55,10 @@ describe('replaceFile (2026-10-16)', () => {
     const f = join(dir, 'locked.txt')
     writeFileSync(f, 'old')
     fault.code = 'EACCES'
-    fault.when = (p) => p !== f
+    // Only the tmp file fails. Matched by its name, not `p !== f`: replaceFile
+    // writes in place through realpath, which expands an 8.3 TEMP such as the
+    // CI runner's C:\Users\RUNNER~1, so the in-place path need not equal `f`.
+    fault.when = (p) => p.endsWith('.tmp')
     await replaceFile(f, Buffer.from('new'))
     expect(readFileSync(f, 'utf8')).toBe('new')
     expect(readdirSync(dir)).toEqual(['locked.txt'])
