@@ -16,6 +16,7 @@ import {
   searchBrowse,
   travelBrowse,
   setBrowseLocation,
+  setBrowseScroll,
   setBrowseSurface,
   setBrowsePreview,
   isExplorerTab,
@@ -192,7 +193,12 @@ export function useFolderBrowsing(
     path,
     location?.query ?? '',
     folder,
-    refreshKey + revision,
+    // Only an explicit refresh (F5, a file operation) re-runs a search, never
+    // `revision` (review, 2026-10-16): the window's focus and the folder's
+    // watcher bump that, and a new key blanked the results, reset the window
+    // to the top and restarted the walk, every time the user came back to
+    // Prism, and over and over in a folder that kept changing.
+    refreshKey,
     sort,
     location?.selected ?? null
   )
@@ -419,6 +425,24 @@ export function useFolderBrowsing(
       if (id) setState((s) => ({ ...s, tabs: setBrowseLocation(s.tabs, id, patch) }))
     },
     [id, setState]
+  )
+  /** A settled scroll, for the history entry on screen NOW (review,
+   *  2026-10-16): the list calls the one it was given when it scrolled, so a
+   *  position that settles after a navigation still lands where it was made
+   *  (`setBrowseScroll`). Never per scroll event: the list keeps its own. */
+  const at = active?.browse.cursor
+  const atQuery = location?.query
+  const atSort = location?.sort
+  const keepScroll = useCallback(
+    (scrollTop: number) => {
+      if (!id || at === undefined || path === undefined || atQuery === undefined || !atSort) return
+      const place = { cursor: at, path, query: atQuery, sort: atSort }
+      setState((s) => {
+        const tabs = setBrowseScroll(s.tabs, id, place, scrollTop)
+        return tabs === s.tabs ? s : { ...s, tabs }
+      })
+    },
+    [id, at, path, atQuery, atSort, setState]
   )
   /** Start, refine or clear the search: a place in the history (#281). */
   const searchFor = useCallback(
@@ -654,6 +678,7 @@ export function useFolderBrowsing(
     navigate,
     travel,
     patch,
+    keepScroll,
     searchFor,
     showFolder,
     openFile,
