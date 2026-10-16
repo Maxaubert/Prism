@@ -1,4 +1,5 @@
 import { containerSync } from './archiveBrowse'
+import { isLocalFixed } from './driveKinds'
 import { existsSync, readFileSync, statSync } from 'fs'
 import { latestWriter } from './latestWrite'
 import { isAbsolute, resolve } from 'path'
@@ -97,6 +98,17 @@ const isFolder = (p: string): boolean => {
 // sync-ok: startup, the tab restore (once per page load, before the strip shows)
 const isPlace = (p: string): boolean => isFolder(p) || containerSync(p) !== null
 
+/**
+ * The BULK of a strip - up to 100 history entries and 400 open tree folders a
+ * tab - is checked only on this PC's own fixed disks (2026-10-16). Each check
+ * is a synchronous stat at startup, and on an offline share or mapped drive
+ * each one waited out the SMB timeout with main frozen: a tab whose history
+ * had wandered a share held the window for minutes. Anywhere else the entry
+ * is kept unchecked; a place that has gone is found when it is navigated to
+ * or expanded, as one deleted mid-session is.
+ */
+const mayBePlace = (p: string): boolean => !isLocalFixed(p) || isPlace(p)
+
 /** History is a bounded suggestion. Each surviving location keeps its own view. */
 export function parseBrowse(raw: unknown): SavedBrowse | undefined {
   if (!raw || typeof raw !== 'object') return undefined
@@ -112,7 +124,7 @@ export function parseBrowse(raw: unknown): SavedBrowse | undefined {
       typeof location !== 'object' ||
       typeof location.path !== 'string' ||
       !isAbsolute(location.path) ||
-      !isPlace(location.path)
+      !mayBePlace(location.path)
     )
       return
     if (index === value.cursor) cursor = history.length
@@ -271,7 +283,7 @@ export function parseTabs(raw: string): SavedTabs {
             typeof p === 'string' &&
             isAbsolute(p) &&
             (inside(root, p) || !!keptBrowse?.history.some((entry) => inside(entry.path, p))) &&
-            isPlace(p)
+            mayBePlace(p)
         )
       if (folders.length) tab.open = folders
     }

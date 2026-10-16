@@ -71,6 +71,23 @@ interface WindowsFileClipboard {
   cut: boolean | null
 }
 
+/**
+ * Are there files on the clipboard? Asked every time a menu OPENS, to decide
+ * whether to draw Paste. It used to go through `readWindowsFiles` - a
+ * PowerShell with WinForms per right-click, so the Paste row arrived hundreds
+ * of ms late and shifted the menu, and fast clicks stacked processes
+ * (2026-10-16). Presence needs no list: Chromium reports CF_HDROP as
+ * 'text/uri-list' in `availableFormats()` (and the e2e fake does the same).
+ * PowerShell stays for the paste itself, which needs every path.
+ */
+export function hasWindowsFiles(availableFormats: () => string[]): boolean {
+  try {
+    return availableFormats().includes('text/uri-list')
+  } catch {
+    return false
+  }
+}
+
 /** Native copy/cut metadata takes precedence over Prism's legacy cut mark. */
 export function readWindowsFiles(): Promise<WindowsFileClipboard> {
   if (E2E) {

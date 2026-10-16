@@ -1,4 +1,4 @@
-import { app, shell, ipcMain } from 'electron'
+import { app, clipboard, shell, ipcMain } from 'electron'
 import { CALL, PUSH } from '@shared/channels'
 import type {
   ArchiveAddResult,
@@ -11,7 +11,7 @@ import type {
 import { basename, dirname, extname, join, resolve, sep } from 'path'
 import { copyFile, readFile, stat, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
-import { copyWindowsFiles, readWindowsFiles } from '../fileClipboard'
+import { copyWindowsFiles, hasWindowsFiles, readWindowsFiles } from '../fileClipboard'
 import { insideDesktop } from '../desktopAccess'
 import { container } from '../archiveBrowse'
 import { holders } from '../holders'
@@ -296,20 +296,6 @@ export function registerShellIpc(ctx: MainCtx): void {
   })
 
   /**
-   * The files on the clipboard, if any (2026-08-31).
-   *
-   * Through PowerShell, symmetrically with the copy above: Windows puts a
-   * multi-file copy on the clipboard as CF_HDROP, which Electron's own
-   * clipboard API does not expose - `readBuffer('FileNameW')` gives one
-   * path and nothing else. `Get-Clipboard -Format FileDropList` gives the
-   * list, and the copy side is already a PowerShell call for the same
-   * reason.
-   */
-  async function clipboardFiles(): Promise<string[]> {
-    return (await readWindowsFiles()).paths
-  }
-
-  /**
    * Paste whatever is on the clipboard into a folder.
    *
    * The SOURCES may be anywhere - that is the point, you copied them in
@@ -319,10 +305,10 @@ export function registerShellIpc(ctx: MainCtx): void {
    * over what is in it.
    */
   /** Are there files on the clipboard? Asked when a menu OPENS, so a Paste
-   *  row that would do nothing is never drawn (2026-09-02). The same
-   *  PowerShell route the paste itself uses - Electron's clipboard API
-   *  exposes one path and Windows puts a multi-file copy on as CF_HDROP. */
-  ipcMain.handle(CALL.clipboardHasFiles, async () => (await clipboardFiles()).length > 0)
+   *  row that would do nothing is never drawn (2026-09-02). Electron's own
+   *  format list, not PowerShell: a presence check needs no paths, and a
+   *  process per right-click made the row late (2026-10-16). */
+  ipcMain.handle(CALL.clipboardHasFiles, () => hasWindowsFiles(() => clipboard.availableFormats()))
 
   /** Every file under a path, with sizes, for the progress arithmetic. */
   async function walkSizes(p: string): Promise<number> {

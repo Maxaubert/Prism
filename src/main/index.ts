@@ -519,13 +519,19 @@ function folderChanged(change: { root: string; dirs: string[] }): void {
       return rel !== '' && (rel.startsWith('..' + sep) || rel === '..' || isAbsolute(rel))
     })
   )
+  // The page hears as soon as the sizes answer with the change, not once every
+  // marker is on disk (2026-10-16); once either way, a failure included.
+  let told = false
+  const tell = (): void => {
+    if (told) return
+    told = true
+    if (appState.mainWindow && !appState.mainWindow.isDestroyed())
+      appState.mainWindow.webContents.send(PUSH.dirChanged, change)
+  }
   void folderSizes
-    .invalidate(directories)
+    .invalidate(directories, tell)
     .catch(() => {})
-    .finally(() => {
-      if (appState.mainWindow && !appState.mainWindow.isDestroyed())
-        appState.mainWindow.webContents.send(PUSH.dirChanged, change)
-    })
+    .finally(tell)
 }
 
 onRootsChanged((root, open) => {
@@ -986,7 +992,7 @@ function createWindow(): void {
       const pinnedSaved = !!saved?.tabs.some((t) => t.role === 'explorer' && t.pinned)
       if (!pinnedSaved) await sendHome()
       if (stale()) return
-      const pinnedSent = saved ? await restoreTabs(send) : false
+      const pinnedSent = saved ? await restoreTabs(send, saved) : false
       if (stale()) return
       // A saved pinned Explorer whose folder has gone: the home one stands in.
       if (pinnedSaved && !pinnedSent) await sendHome()
@@ -1192,10 +1198,12 @@ if (!app.requestSingleInstanceLock()) {
           return
         }
         if (!startupRestored) pendingOpen.push(...paths)
-        else if (appState.mainWindow)
-          void (async () => {
-            for (const p of paths) await sendOpen(p)
-          })()
+        else if (appState.mainWindow) {
+          // Awaited INSIDE the chain (2026-10-16): fired and forgotten, a
+          // later handoff's opens could overtake this one's, and the wrong tab
+          // ended up in front. One path that fails still lets the rest open.
+          for (const p of paths) await sendOpen(p).catch(() => {})
+        }
       })
       .catch(() => {
         /* a handoff that cannot be read opens nothing */

@@ -86,8 +86,36 @@ export async function browseDirectory(
 
 type CommonPath = 'home' | 'desktop' | 'downloads' | 'documents' | 'pictures' | 'music' | 'videos'
 
+/** How long one place may take to answer before it is left out. */
+const PLACE_STAT_MS = 1500
+
+/** A stat that gives up: a hung mapped or network drive never answers in time. */
+function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((done) => {
+    const timer = setTimeout(() => done(null), ms)
+    work.then(
+      (value) => {
+        clearTimeout(timer)
+        done(value)
+      },
+      () => {
+        clearTimeout(timer)
+        done(null)
+      }
+    )
+  })
+}
+
+/**
+ * The Places list. Each place is probed with its own time limit, and Home is
+ * given without one (2026-10-16): all 26 drive letters were stat'ed with no
+ * limit, so one hung mapped or network drive held Places, and New Tab (which
+ * asks only to find Home), for as long as the SMB timeout.
+ */
 export async function browseLocations(
-  getPath: (key: CommonPath) => string
+  getPath: (key: CommonPath) => string,
+  probe: (path: string) => Promise<{ isDirectory(): boolean }> = (p) => stat(p),
+  ms = PLACE_STAT_MS
 ): Promise<BrowseShortcut[]> {
   const common: Array<[CommonPath, string]> = [
     ['home', 'Home'],
@@ -116,11 +144,10 @@ export async function browseLocations(
   }
   const found = await Promise.all(
     shortcuts.map(async (entry) => {
-      try {
-        return (await stat(entry.path)).isDirectory() ? entry : null
-      } catch {
-        return null
-      }
+      // The user's own folder exists; it is what New Tab waits for.
+      if (entry.known === 'home') return entry
+      const info = await within(probe(entry.path), ms)
+      return info?.isDirectory() ? entry : null
     })
   )
   return found.filter((entry): entry is BrowseShortcut => entry !== null)
