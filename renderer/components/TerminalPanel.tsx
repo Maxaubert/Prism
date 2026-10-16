@@ -48,6 +48,7 @@ import {
   type SelectionGate
 } from '../lib/termSelectionEdit'
 import { attachLinkPaint, type LinkPainter } from '../lib/termLinkPaint'
+import { termFitHeld, whenTermFitReleased } from '../lib/fitHold'
 import { findPath, linkRanges, onPathsFound, pathCandidates, takeAsked, type PathHit } from '../lib/termPathLinks'
 import {
   initialCaretHold,
@@ -1171,10 +1172,22 @@ export default function TerminalPanel({
       // A hidden or zero-sized panel would fit to nonsense; the observer fires
       // again when it has real bounds.
       if (!host.clientWidth || !host.clientHeight) return
+      // ITS ROOM IS ANIMATING (lib/fitHold: the tab sidebar pinned or
+      // unpinned): the terminal keeps its columns, clipped to its box, and
+      // fits once when the slide is over.
+      if (termFitHeld()) {
+        s.el.style.overflow = 'hidden'
+        whenTermFitReleased(afterHold)
+        return
+      }
       // The redraw this resize provokes is us, not the shell working.
       suppressActivity(sessionId)
       fitKeepingCursorLine(s.term, s.fit)
       termApi().termResize(sessionId, s.term.cols, s.term.rows)
+    }
+    const afterHold = (): void => {
+      s.el.style.overflow = ''
+      if (s.el.parentElement === host) refit()
     }
     refit()
     // A SECOND PASS ONCE THE RENDERER HAS RESUMED (#174, xterm.js #6117, open
