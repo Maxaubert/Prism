@@ -229,6 +229,7 @@ const implemented: Shim = {
   onConvertProgress: () => () => {},
   cancelConvert: () => {},
   mediaPeaks: () => Promise.resolve(null),
+  cancelPeaks: () => {},
   // The Properties window's extra facts (2026-10-12) are the PC's: on the
   // phone each answers "not known", and a checksum never starts.
   propsMedia: () => Promise.resolve(null),

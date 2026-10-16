@@ -343,6 +343,8 @@ const api = {
    *  and streamed there: the renderer never holds the file. null when the
    *  file has no audio, or no ffmpeg was found. */
   mediaPeaks: (path: string): Promise<number[] | null> => ipcRenderer.invoke(CALL.mediaPeaks, path),
+  /** The waveform's viewer moved on: stop that decode (2026-10-16). */
+  cancelPeaks: (path: string): void => ipcRenderer.send(CALL.mediaPeaksCancel, path),
   /** Does this file's audio need Prism's own decoder (AC-3, DTS, TrueHD and
    *  friends, none of which Chromium can play), and where is it served. */
   probeMedia: (path: string): Promise<MediaProbe> => ipcRenderer.invoke(CALL.mediaProbe, path),
