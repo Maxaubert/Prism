@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FolderSizeResult } from '@shared/folderSize'
-import { createVisibleFolderSizes, forgetFolderSizes, rememberedFolderSizes } from './useFolderSizes'
+import { createElement, useState } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { createVisibleFolderSizes, forgetFolderSizes, rememberedFolderSizes, useFolderSizes } from './useFolderSizes'
 
 const size = (bytes: number): FolderSizeResult => ({
   bytes,
@@ -180,5 +182,21 @@ describe('visible folder size requests', () => {
     second.requests[0].resolve(null)
     await vi.runAllTimersAsync()
     expect(rememberedFolderSizes(['a'])).toEqual({ a: size(7) })
+  })
+})
+
+describe('useFolderSizes keeps one object across renders (review, 2026-10-16)', () => {
+  it('a render that changes nothing (a scroll) hands back the SAME sizes, so nothing re-sorts', () => {
+    const seen: object[] = []
+    function Probe(): null {
+      // A render-phase update re-runs the component once, with its hooks kept.
+      const [pass, setPass] = useState(0)
+      seen.push(useFolderSizes(['C:\\a', 'C:\\b'], true, ['C:\\a']))
+      if (pass === 0) setPass(1)
+      return null
+    }
+    renderToStaticMarkup(createElement(Probe))
+    expect(seen).toHaveLength(2)
+    expect(seen[1]).toBe(seen[0])
   })
 })
