@@ -48,6 +48,11 @@ interface InvalidationSnapshot {
 /** Marker files written at once, so a burst never floods libuv's pool. */
 const MARKER_WRITES_AT_ONCE = 8
 
+/** A journal changed this recently is read but not kept: a file time moves in
+ *  clock ticks (up to ~16 ms on Windows), so a second write in the same tick
+ *  as the one the signature saw would leave the signature unchanged. */
+const JOURNAL_SETTLE_MS = 100
+
 /** The changed folders no other changed folder contains. A marker matches
  *  everything inside its folder and every ancestor of it, so a child's marker
  *  says nothing its changed parent's does not. */
@@ -123,6 +128,9 @@ export class FolderSizeCache {
   private journal: { signature: string; value: InvalidationSnapshot } | null = null
   /** This process's markers from the moment they exist until they are on disk. */
   private readonly pending = new Map<string, Marker>()
+  /** Bumped whenever this process changes the journal: a read that began
+   *  before then is used once but never kept. */
+  private journalEpoch = 0
   private indexedQueries = 0
   private readonly indexedWaiters = new Set<() => void>()
 
@@ -158,10 +166,13 @@ export class FolderSizeCache {
     }
   }
 
-  private async journalSignature(): Promise<string> {
+  private async journalSignature(): Promise<{ signature: string; settled: boolean }> {
+    const asked = Date.now()
+    let settled = true
     const part = async (path: string): Promise<string> => {
       try {
         const s = await stat(path, { bigint: true })
+        if (asked - Number(s.mtimeNs / 1_000_000n) < JOURNAL_SETTLE_MS) settled = false
         return `${s.mtimeNs}:${s.size}`
       } catch {
         return '-'
@@ -171,7 +182,7 @@ export class FolderSizeCache {
       part(join(this.options.directory, 'invalidations')),
       part(join(this.options.directory, 'generation'))
     ])
-    return `${markers}|${global}`
+    return { signature: `${markers}|${global}`, settled }
   }
 
   private journalOnDisk(): Promise<InvalidationSnapshot> {
@@ -180,7 +191,8 @@ export class FolderSizeCache {
     const read = (async () => {
       // Taken BEFORE the read: a marker landing mid-read changes it, so the
       // next lookup reads again rather than trusting this answer.
-      const signature = await this.journalSignature()
+      const epoch = this.journalEpoch
+      const { signature, settled } = await this.journalSignature()
       if (this.journal?.signature === signature) return this.journal.value
       const names = await readdir(markerDirectory).catch(() => [])
       const markers = await Promise.all(
@@ -218,7 +230,9 @@ export class FolderSizeCache {
         globalAt,
         markers: markers.filter((marker): marker is Marker => marker !== null)
       }
-      this.journal = { signature, value }
+      // Kept only when nothing can have slipped in unseen: no write of ours
+      // since the read began, and no change in the same clock tick.
+      if (settled && epoch === this.journalEpoch) this.journal = { signature, value }
       return value
     })().finally(() => {
       if (this.readingInvalidations === read) this.readingInvalidations = null
@@ -430,6 +444,7 @@ export class FolderSizeCache {
 
   /** This process's own writes are read back fresh, whatever the stats say. */
   private forgetJournal(): void {
+    this.journalEpoch++
     this.readingInvalidations = null
     this.journal = null
   }

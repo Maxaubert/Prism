@@ -388,6 +388,8 @@ describe('the invalidation journal (2026-10-16: re-read per lookup, written per 
     const cache = new FolderSizeCache({ directory })
     await cache.get(root, controller().signal)
     await new FolderSizeCache({ directory }).invalidate([join(box, 'elsewhere')])
+    // A journal changed in the last clock ticks is never kept; let it settle.
+    await new Promise((settle) => setTimeout(settle, 150))
     await cache.readCached([root])
     const readFile = vi.spyOn(fs, 'readFile')
     await cache.readCached([root])
