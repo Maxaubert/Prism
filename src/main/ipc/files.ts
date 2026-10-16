@@ -9,19 +9,21 @@ import type {
   PasteResult
 } from '@shared/ipcTypes'
 import { basename, dirname, extname, join, resolve, sep } from 'path'
-import { copyFile, stat, writeFile } from 'fs/promises'
+import { copyFile, readFile, stat, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { copyWindowsFiles, readWindowsFiles } from '../fileClipboard'
 import { insideDesktop } from '../desktopAccess'
 import { container } from '../archiveBrowse'
 import { holders } from '../holders'
 import { documentImages } from '../docImages'
-import { encodeText } from '../textFile'
+import { encodeText, fallbackShape, moveShapes } from '../textFile'
+import { replaceFile } from '../replaceFile'
 import { readTail, startTail, stopTail } from '../fileTail'
 import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from '../fileOps'
 import { appsForExt, argsFor, type AppCandidate } from '../openWith'
 import { addToArchive, archiveTooLarge, moveMembers } from '../archive'
 import { insideSelf, moveEntries } from '../moveOps'
+import { copyCounted, pastesIntoItself } from '../pasteCopy'
 import { fileKind, isMarkdown } from '@shared/fileKind'
 import { samePath } from '@shared/path'
 import type { OnClash, OpenWithApp, RenameResult, TextRead, WriteResult } from '@shared/types'
@@ -87,8 +89,13 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
       await holders.release([p]) // a rename is refused for the same reason a move is (#127)
       const r = await renameFile(p, name, onClash, (t) => shell.trashItem(t))
       await written(p, r.ok ? r.path : dirname(p))
-      // The file's memory follows it (#124): its place and its choices.
-      if (r.ok) void positions.rename(p, r.path)
+      // The file's memory follows it (#124): its place and its choices. Its
+      // encoding and line endings too (2026-10-16), or a dirty buffer renamed
+      // before its save was written as utf-8 with LF.
+      if (r.ok) {
+        void positions.rename(p, r.path)
+        moveShapes(textShape, p, r.path)
+      }
       return r
     }
   )
@@ -171,11 +178,18 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
       // Back in the shape it came in. CodeMirror rejoins its document with
       // a bare newline whatever it read, so without this one fixed typo in
       // a .bat was 400 changed lines, and a UTF-16 file came back as UTF-8.
-      const shape = textShape.get(p.toLowerCase()) ?? {
-        encoding: 'utf8' as const,
-        eol: 'lf' as const
+      // With no remembered read, the file as it is on disk now (2026-10-16:
+      // the fallback was utf-8 with LF whatever the file held). Capped like
+      // a read: a file too big to open is not sniffed whole either.
+      const remembered = textShape.get(p.toLowerCase())
+      const onDisk = async (): Promise<Buffer | null> => {
+        const st = await stat(p).catch(() => null)
+        return st?.isFile() && st.size <= TEXT_MAX_BYTES ? readFile(p).catch(() => null) : null
       }
-      await writeFile(p, encodeText(text, shape))
+      const shape = remembered ?? fallbackShape(await onDisk())
+      // Whole or not at all (2026-10-16): a truncating write left the file
+      // empty on a full or pulled disk (replaceFile.ts).
+      await replaceFile(p, encodeText(text, shape))
       return { ok: true }
     } catch (e) {
       // EACCES, EROFS, ENOSPC: the cases worth naming rather than leaving
@@ -193,7 +207,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
 /** Explorer's verbs, Open with, the clipboard and paste, file icons, restore. */
 export function registerShellIpc(ctx: MainCtx): void {
-  const { ownWrite, readable, shellVerbSetting, written } = ctx
+  const { ownWrite, readable, shellVerbSetting, textShape, written } = ctx
   // "Open file" / "Open as project" in File Explorer's own context menu
   // (HKCU only).
   ipcMain.handle(CALL.shellVerbStatus, () => shellVerbSetting.status())
@@ -326,30 +340,6 @@ export function registerShellIpc(ctx: MainCtx): void {
     return total
   }
 
-  /** Copy a file or a whole folder, streaming files so the byte count can
-   *  tick. fs.cp gives no progress at all, which for a 4GB ISO is minutes
-   *  of nothing (owner, 2026-09-03). */
-  async function copyCounted(
-    src: string,
-    target: string,
-    tick: (bytes: number) => void
-  ): Promise<void> {
-    const fs = await import('fs/promises')
-    const st = await fs.stat(src)
-    if (st.isDirectory()) {
-      await fs.mkdir(target)
-      for (const e of await fs.readdir(src)) {
-        await copyCounted(join(src, e), join(target, e), tick)
-      }
-      return
-    }
-    const { createReadStream, createWriteStream } = await import('fs')
-    const { pipeline } = await import('stream/promises')
-    const reader = createReadStream(src)
-    reader.on('data', (chunk) => tick(chunk.length))
-    await pipeline(reader, createWriteStream(target, { flags: 'wx' }))
-  }
-
   /**
    * Paste, with PROGRESS and an answer that names what landed (2026-09-03).
    * Windows copy/cut metadata is authoritative, including when another app
@@ -392,6 +382,13 @@ export function registerShellIpc(ctx: MainCtx): void {
     let failed = 0
     const paths: string[] = []
     for (const s of src) {
+      // A folder pasted into itself or below itself is skipped and counted
+      // as failed (2026-10-16): it used to copy its own copy until the path
+      // ran out, and a cut fell through to the same copy (pasteCopy.ts).
+      if (pastesIntoItself(s, destDir)) {
+        failed += 1
+        continue
+      }
       try {
         const target = join(destDir, await uniqueNameAsync(destDir, basename(s)))
         if (moving) {
@@ -408,6 +405,8 @@ export function registerShellIpc(ctx: MainCtx): void {
             void moved
             await fs.rm(s, { recursive: true })
           }
+          // A cut carries the text shape like a drag-move does (2026-10-16).
+          moveShapes(textShape, s, target)
         } else {
           await copyCounted(s, target, tick)
         }
@@ -480,7 +479,7 @@ export function registerShellIpc(ctx: MainCtx): void {
 
 /** Drag and drop: move, add to a zip, move members. */
 export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
-  const { archiveOk, movable, ownWrite, written } = ctx
+  const { archiveOk, movable, ownWrite, textShape, written } = ctx
   const { positions } = ready
   /* ----- drag and drop (#70): move, add to a zip, extract out of one ----- */
 
@@ -535,8 +534,11 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
       const r = await moveEntries(wanted, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
         shell.trashItem(t)
       ).finally(() => written(destDir, ...wanted))
-      // Each file's memory follows it (#124).
-      for (const m of r.moved) void positions.rename(m.from, m.to)
+      // Each file's memory follows it (#124), its text shape too (2026-10-16).
+      for (const m of r.moved) {
+        void positions.rename(m.from, m.to)
+        moveShapes(textShape, m.from, m.to)
+      }
       return r
     }
   )

@@ -1,5 +1,42 @@
 import { describe, expect, it } from 'vitest'
-import { decodeText, detectEol, encodeText, shapeOf, sniffEncoding } from './textFile'
+import {
+  decodeText,
+  detectEol,
+  encodeText,
+  fallbackShape,
+  moveShapes,
+  shapeOf,
+  sniffEncoding
+} from './textFile'
+
+describe('a shape with no remembered read (2026-10-16)', () => {
+  it('takes the file on disk as it is', () => {
+    expect(fallbackShape(utf16le('a\r\nb\r\n'))).toEqual({ encoding: 'utf16le', eol: 'crlf' })
+    expect(fallbackShape(Buffer.from('a\nb\nc\n'))).toEqual({ encoding: 'utf8', eol: 'lf' })
+  })
+
+  it('is CRLF for a file that is not there', () => {
+    expect(fallbackShape(null)).toEqual({ encoding: 'utf8', eol: 'crlf' })
+  })
+})
+
+describe('shapes follow a rename or a move (2026-10-16)', () => {
+  it('re-keys the file itself', () => {
+    const m = new Map([['c:\\d\\run.bat', { encoding: 'utf8' as const, eol: 'crlf' as const }]])
+    moveShapes(m, 'C:\\d\\run.bat', 'C:\\d\\Go.bat')
+    expect([...m.keys()]).toEqual(['c:\\d\\go.bat'])
+  })
+
+  it('re-keys everything under a renamed folder, and nothing beside it', () => {
+    const reg = { encoding: 'utf16le' as const, eol: 'crlf' as const }
+    const m = new Map([
+      ['c:\\d\\keys\\a.reg', reg],
+      ['c:\\d\\keysx\\b.reg', reg]
+    ])
+    moveShapes(m, 'C:\\d\\Keys', 'E:\\Moved\\Keys')
+    expect([...m.keys()].sort()).toEqual(['c:\\d\\keysx\\b.reg', 'e:\\moved\\keys\\a.reg'])
+  })
+})
 
 /**
  * A save must put the file back the way it found it.
