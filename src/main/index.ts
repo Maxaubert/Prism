@@ -1192,10 +1192,12 @@ if (!app.requestSingleInstanceLock()) {
           return
         }
         if (!startupRestored) pendingOpen.push(...paths)
-        else if (appState.mainWindow)
-          void (async () => {
-            for (const p of paths) await sendOpen(p)
-          })()
+        else if (appState.mainWindow) {
+          // Awaited INSIDE the chain (2026-10-16): fired and forgotten, a
+          // later handoff's opens could overtake this one's, and the wrong tab
+          // ended up in front. One path that fails still lets the rest open.
+          for (const p of paths) await sendOpen(p).catch(() => {})
+        }
       })
       .catch(() => {
         /* a handoff that cannot be read opens nothing */
