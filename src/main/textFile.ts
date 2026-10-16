@@ -101,3 +101,34 @@ export function shapeOf(buf: Buffer): { text: string } & TextShape {
   const { text, encoding } = decodeText(buf)
   return { text, encoding, eol: detectEol(text) }
 }
+
+/**
+ * The shape for a save with no remembered read (2026-10-16): what is on disk
+ * now, or for a file that is not there, utf-8 with CRLF, the same choice
+ * `detectEol` makes for an empty file. It used to be utf-8 with LF whatever
+ * the file held, so a CRLF .bat or a UTF-16 .reg written under a path Prism
+ * had never read came back with every line or every byte changed.
+ */
+export function fallbackShape(disk: Buffer | null): TextShape {
+  if (!disk) return { encoding: 'utf8', eol: 'crlf' }
+  const { encoding, eol } = shapeOf(disk)
+  return { encoding, eol }
+}
+
+/**
+ * Carry remembered shapes along with a rename or a move (2026-10-16). The map
+ * is keyed by the lowercased path that was READ, and nothing re-keyed it, while
+ * the renderer moves the unsaved buffer to the new name (`rekeyBuffer`). A
+ * dirty .bat renamed before its save was then written with the fallback. A
+ * folder carries every file under it.
+ */
+export function moveShapes(shapes: Map<string, TextShape>, from: string, to: string): void {
+  const f = from.toLowerCase().replace(/[\\/]+$/, '')
+  const t = to.replace(/[\\/]+$/, '')
+  for (const [k, shape] of [...shapes]) {
+    const under = k.startsWith(f + '\\') || k.startsWith(f + '/')
+    if (k !== f && !under) continue
+    shapes.delete(k)
+    shapes.set((t + k.slice(f.length)).toLowerCase(), shape)
+  }
+}

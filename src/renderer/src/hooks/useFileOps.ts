@@ -26,7 +26,8 @@ import {
   movedPath,
   restoreMoveViews
 } from '../lib/moveViews'
-import { sessionTime, wasPaused, rememberTime, rememberPaused } from '../lib/playState'
+import { sessionTime, wasPaused, wasPlaying, rememberTime, rememberPaused } from '../lib/playState'
+import { movedOn } from '../lib/fileOpsFollow'
 import { type UndoOps, undoEntry, redoEntry } from '../lib/undoApply'
 import type { DragPayload } from '../lib/drag/dragDrop'
 import { archivePassword } from '../lib/archivePass'
@@ -116,17 +117,31 @@ export function useFileOps({
    *  folder moves everything under it, including possibly the open file. */
   const within = (p: string, parent: string): boolean => isInside(parent, p, { orEqual: true })
 
+  /** Show `p` again after a rename or delete. NOT a pick (2026-10-16): it went
+   *  through `openBrowseFile`'s default `play = true`, which is the intent to
+   *  play, so a paused film resumed with sound after an unrelated rename or
+   *  delete in an Explorer tab. Only a caller that knows the file was playing
+   *  passes `play`. */
   const reopen = useCallback(
-    (p: string) => {
+    (p: string, play = false) => {
       if (!active) return
-      if (isExplorerTab(active)) void openBrowseFile(p, active.browse.surface === 'viewer')
+      if (isExplorerTab(active)) void openBrowseFile(p, active.browse.surface === 'viewer', play)
       else void window.prism.openWithin(active.root, p).then((payload) => payload && open(payload))
     },
     [active, open, openBrowseFile]
   )
 
+  /** What is on screen NOW, for the end of a slow rename or delete (2026-10-16):
+   *  `file` from the render that started it is stale by then, and re-opening
+   *  it pulled the viewer back to the old file after the user had arrowed on. */
+  const shown = useRef(file)
+  useLayoutEffect(() => {
+    shown.current = file
+  }, [file])
+
   const runRename = useCallback(
     async (path: string, name: string, onClash: OnClash, track = true): Promise<string | null> => {
+      const cur = file?.path
       const r = await window.prism.renameFile(path, name, onClash)
       if (!r.ok) {
         if (r.reason === 'clash')
@@ -146,9 +161,10 @@ export function useFileOps({
         )
       // Follow whatever is on screen: it may have been the thing renamed, or a
       // file inside the folder that was, in which case its path just moved.
-      const cur = file?.path
-      if (!cur) return r.path
-      if (within(cur, path)) reopen(r.path + cur.slice(path.length))
+      if (!cur || movedOn(cur, shown.current?.path)) return r.path
+      // The renamed file plays on only if it was playing.
+      if (within(cur, path))
+        reopen(r.path + cur.slice(path.length), wasPlaying(window.prism.mediaUrl(cur)))
       else reopen(cur)
       return r.path
     },
@@ -223,6 +239,7 @@ export function useFileOps({
       dropBuffers([path])
       noteUndo({ kind: 'trash', paths: [path] })
       const cur = file?.path
+      if (movedOn(cur, shown.current?.path)) return
       if (!cur || !within(cur, path)) {
         if (cur) reopen(cur)
         return
@@ -266,7 +283,9 @@ export function useFileOps({
         noteUndo({ kind: 'trash', paths: binned })
       }
       const cur = file?.path
-      if (cur && paths.some((p) => within(cur, p))) {
+      if (movedOn(cur, shown.current?.path)) {
+        /* the user is on another file now; leave them there */
+      } else if (cur && paths.some((p) => within(cur, p))) {
         const survivors = view?.files.filter((f) => !paths.some((p) => within(f.path, p))) ?? []
         const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
         if (next) reopen(next.path)

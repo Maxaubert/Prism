@@ -34,6 +34,7 @@ import { prismCodeTheme } from '../lib/code/codeTheme'
 import { setWrapPref, useWrapPref, wrapPref, wrapsFor, type WrapPref } from '../lib/code/codePrefs'
 import { reloadAction, stampChanged, touchesFile, type Stamp } from '../lib/fileReload'
 import { inNavSurface, isFormField } from '../lib/focusGuards'
+import { landSave, saveTarget } from './codeSave'
 
 // Text and code, shown and edited in the same surface. There is no "edit mode"
 // here: a .py or a .txt has no rendered form to toggle away from, so the buffer
@@ -236,6 +237,10 @@ export function CodeView({
             }
             if (!u.docChanged) return
             const disk = saved.current
+            // Mid-switch the editor still shows the previous file while
+            // `pathRef` already names the next: typing there must not be
+            // filed as the next file's buffer (2026-10-16).
+            if (disk && disk.path !== pathRef.current) return
             const now = u.state.doc.toString()
             report(disk !== null && now !== disk.text ? now : null)
           })
@@ -510,26 +515,45 @@ export function CodeView({
     // `saved.current` is null for a file that never loaded, and that is the
     // guard: nothing may be written over a file whose contents we never had.
     // A reader has nothing to write with either, whatever the bridge says.
-    if (readOnly || !v || !saved.current) return false
+    if (readOnly || !v) return false
+    // And only the file the editor is SHOWING, to the path its text came
+    // from (2026-10-16): mid-switch, Ctrl+S wrote the old file over the new
+    // one (codeSave.ts).
+    const target = saveTarget(path, loadedPath, saved.current)
+    if (!target) return false
     const text = v.state.doc.toString()
-    const r = await window.prism.writeText(path, text)
+    const r = await window.prism.writeText(target, text)
     if (!r.ok) {
       // The reason is worth carrying: "read-only" and "the folder is gone"
       // are different problems and the user can act on both.
-      setFailed(r.reason === 'gone' ? 'gone' : r.message || 'failed')
+      if (pathRef.current === target) setFailed(r.reason === 'gone' ? 'gone' : r.message || 'failed')
       return false
     }
-    saved.current = { path, text }
+    // Not over another file's disk text if the user moved on meanwhile.
+    if (pathRef.current === target) saved.current = { path: target, text }
     // Re-stamp: our own write emits a `dir:changed` about a second later
     // (the mute defers it, it does not drop it), and without a fresh stamp
     // that event would read as somebody else having rewritten the file.
-    const at = await window.prism.statFile(path)
-    if (at && !at.isFolder) stamp.current = { path, at: { mtimeMs: at.mtimeMs, size: at.size } }
-    report(null)
-    setFailed(null)
+    const at = await window.prism.statFile(target)
+    // Clean only if it still IS what was written, and only for the file that
+    // was saved (2026-10-16): typing during a slow save stays dirty, and a
+    // file switched to meanwhile keeps its own buffer.
+    const landing = landSave(
+      target,
+      pathRef.current,
+      text,
+      () => view.current?.state.doc.toString() ?? text,
+      () => getPending(target)
+    )
+    if (landing.here) {
+      if (at && !at.isFolder)
+        stamp.current = { path: target, at: { mtimeMs: at.mtimeMs, size: at.size } }
+      report(landing.buffer)
+      setFailed(null)
+    } else if (landing.clear) onBuffer(target, null)
     onSaved()
     return true
-  }, [path, report, onSaved, readOnly])
+  }, [path, loadedPath, report, onSaved, onBuffer, getPending, readOnly])
 
   // The wrap preference is live: changing it in Settings or the menu must
   // reach the editor that is already open, not just the next file.
