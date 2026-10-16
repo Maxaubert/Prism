@@ -75,6 +75,18 @@ describe('agentArm', () => {
     expect(step.gone).toBe(true)
   })
 
+  // MEASURED (Prism full e2e, 2026-10-16, core 0.41.2): a claude that lived
+  // three seconds left its tab marked for good. The title put the mark up,
+  // only the poll takes it back, and since the forced looks are spaced
+  // (#238) the poll had not seen it, so its "no agent" was no news and was
+  // never sent. The title's agent leaving asks the poll for its answer anyway.
+  it("asks the poll again when the title stops naming an agent only the title armed", () => {
+    // Claude's own exit, MEASURED: an empty title, then the shell's.
+    expect(armOnTitle(titled(IDLE), '').recheck).toBe(true)
+    expect(armOnTitle(titled(IDLE), 'C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe').recheck).toBe(true)
+    expect(armOnTitle(titled(IDLE), '◐ Claude Code').recheck).toBe(false)
+  })
+
   it("keeps a title-armed agent through its own titles", () => {
     let s = titled(IDLE)
     for (const t of ['◐ Claude Code', '◓ Claude Code', '✳ Fix the bug']) s = titled(t, s)

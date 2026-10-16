@@ -7,5 +7,5 @@
  * so a core release that bumps `core/package.json` (or xterm) without this
  * fails `npm test` (core/README.md, "Releasing the core").
  */
-export const TERM_CORE_VERSION = '0.41.5'
+export const TERM_CORE_VERSION = '0.41.6'
 export const XTERM_VERSION = '6.0.0'

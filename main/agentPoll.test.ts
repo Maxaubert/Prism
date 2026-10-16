@@ -58,6 +58,23 @@ describe('the agent poll', () => {
     expect(w.sent).toHaveLength(before)
   })
 
+  // Prism full e2e, 2026-10-16: a claude its title vouched for came and went
+  // between two looks, so the poll's answer never changed and was never sent,
+  // and the tab kept its agent mark. Asked again, the poll sends its "no
+  // agent" at the next look, inside the backoff and with nothing printed.
+  it('sends an unchanged "no agent" when asked about an agent it never saw', () => {
+    const w = world()
+    const poll = createAgentPoll(w.send, w.deps)
+    poll()
+    w.set({ ticks: 1, now: 1 })
+    poll()
+    expect(w.sent).toEqual([['t1', false, null]])
+    poll.again('t1')
+    w.set({ now: 2 })
+    poll()
+    expect(w.sent).toEqual([['t1', false, null], ['t1', false, null]])
+  })
+
   it('does not look at all while no shell is alive', () => {
     const w = world()
     w.set({ pids: [] })
