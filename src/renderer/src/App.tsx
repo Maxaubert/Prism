@@ -1275,12 +1275,15 @@ export default function App(): JSX.Element {
   // open file's position among them. Sorting reuses the same file objects, so
   // mapping back to rawIndex keeps working. (A kind filter lived here once,
   // removed 2026-08-20: a forgotten filter read as missing files.)
+  // Keyed on the files, not the tab (review, 2026-10-16): the tab is a new
+  // object on every patch of its browse state, and each one re-sorted them.
   const sort = useSort()
+  const activeFiles = active?.files
   const view = useMemo(() => {
-    if (!active || rawIndex < 0 || !active.files.length) return null
-    const files = sortFiles(active.files, sort.field, sort.dir)
-    return { files, index: Math.max(0, files.indexOf(active.files[rawIndex])) }
-  }, [active, rawIndex, sort])
+    if (!activeFiles || rawIndex < 0 || !activeFiles.length) return null
+    const files = sortFiles(activeFiles, sort.field, sort.dir)
+    return { files, index: Math.max(0, files.indexOf(activeFiles[rawIndex])) }
+  }, [activeFiles, rawIndex, sort])
 
   const go = useCallback(
     (delta: number) => {
@@ -2174,7 +2177,7 @@ export default function App(): JSX.Element {
                 }}
                 onSelect={browsing.select}
                 onOpen={(file) => void browsing.openFile(file)}
-                onScroll={(scrollTop) => browsing.patch({ scrollTop })}
+                onScroll={browsing.keepScroll}
                 onQueryChange={browsing.searchFor}
                 // A header click is a pick made here (#285): Downloads keeps it.
                 onSortChange={(sort) => {

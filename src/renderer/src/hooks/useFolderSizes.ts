@@ -167,5 +167,9 @@ export function useFolderSizes(
     controller.current?.setVisible(visiblePaths)
   }, [visiblePaths, scanKey])
   const seeded = useMemo(() => rememberedFolderSizes(stablePaths), [stablePaths])
-  return { ...seeded, ...(state.key === scanKey && enabled ? state.sizes : {}) }
+  // ONE object until something changes (review, 2026-10-16): a fresh one per
+  // render made every Explorer render, a scroll's included, look like new
+  // sizes, so FolderBrowser re-sorted the whole folder each time.
+  const sizes = state.key === scanKey && enabled ? state.sizes : null
+  return useMemo(() => (sizes ? { ...seeded, ...sizes } : seeded), [seeded, sizes])
 }

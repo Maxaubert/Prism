@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -33,6 +34,7 @@ import { nextSort } from '../../lib/downloadsView'
 import { listKey, stepTo, type ListKey } from '../../lib/listKeys'
 import { nearerEscape } from '../../lib/nearerEscape'
 import { hiddenTitle } from '../../lib/hiddenTitle'
+import { createScrollSettle } from '../../lib/scrollSettle'
 
 const OVERSCAN = 12
 /** The common keys the list answers itself (#330). */
@@ -152,9 +154,58 @@ export function BrowseList(props: Props): JSX.Element {
     observer.observe(node)
     return () => observer.disconnect()
   }, [])
+  /**
+   * THE LIVE SCROLL IS THE LIST'S OWN (review, 2026-10-16). Every native
+   * scroll event used to patch the tab, which re-rendered the whole App,
+   * re-sorted the folder and sent every tab's history to main, per frame.
+   * Now a scroll re-renders this list alone, and the position is handed up
+   * once it settles (lib/scrollSettle.ts) or at once for a key's move. The
+   * tab's `scrollTop` is taken over only when it changes from outside (a
+   * restore, a sort's reset, Back) or the place on screen does; one this list
+   * handed up itself is already where it is (`from`), so the list never
+   * jumps back to a position a frame old.
+   */
+  const placeKey = `${props.directory}\u0000${props.query}\u0000${props.sort.key}${props.sort.direction}`
+  const [liveState, setLive] = useState(() => ({
+    key: placeKey,
+    from: props.scrollTop,
+    top: props.scrollTop,
+    taken: 0
+  }))
+  let live = liveState
+  if (live.key !== placeKey || live.from !== props.scrollTop) {
+    live = { key: placeKey, from: props.scrollTop, top: props.scrollTop, taken: live.taken + 1 }
+    setLive(live)
+  }
+  const [settle] = useState(createScrollSettle)
+  useEffect(() => () => settle.flush(), [settle])
+  const handOwner = useRef(props.onScroll)
   useLayoutEffect(() => {
-    if (scroller.current && !props.loading) scroller.current.scrollTop = props.scrollTop
-  }, [props.directory, props.scrollTop, props.loading])
+    handOwner.current = props.onScroll
+  })
+  /** The list scrolled itself: re-render this list, hand it up when it settles. */
+  const scrolledTo = (top: number): void => {
+    setLive((l) => (l.top === top ? l : { ...l, top }))
+    const up = props.onScroll
+    const key = placeKey
+    settle.scrolled(up, top, (settled) => {
+      setLive((l) => (l.key === key && handOwner.current === up ? { ...l, from: settled } : l))
+      up(settled)
+    })
+  }
+  /** A key moved the list: hand the position up at once. */
+  const handUp = (top: number): void => {
+    settle.cancel()
+    setLive((l) => ({ ...l, top, from: top }))
+    props.onScroll(top)
+  }
+  const liveTop = live.top
+  useLayoutEffect(() => {
+    if (scroller.current && !props.loading) scroller.current.scrollTop = live.top
+    // Only when a position is TAKEN from the tab (or the load ends), never
+    // per scroll: the list is already where it scrolled to.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live.taken, props.loading])
 
   // DOWNLOADS' DATE GROUPS (#285): a divider is a row of the list's own
   // height, so the rows below it simply move down one index; `rowAt` answers
@@ -186,9 +237,9 @@ export function BrowseList(props: Props): JSX.Element {
   const spaceHeight = Math.min(count * rowHeight, 4000000)
   const scale = Math.max(1, (count * rowHeight - height) / Math.max(1, spaceHeight - height))
   const logicalTop =
-    props.scrollTop >= spaceHeight - height - 1
+    liveTop >= spaceHeight - height - 1
       ? Math.max(0, count * rowHeight - height)
-      : props.scrollTop * scale
+      : liveTop * scale
   const loadedSelectedIndex = props.indexedRows
     ? ([...props.indexedRows].find(([, entry]) => entry?.path === props.selectedPath)?.[0] ?? -1)
     : (() => {
@@ -283,7 +334,7 @@ export function BrowseList(props: Props): JSX.Element {
       // measured scroll, not the rendered one, so it holds while the list
       // auto-scrolls under it. Known and accepted: in the compressed scroll
       // (`scale > 1`, about 180k rows and up) the rows are placed from the
-      // RENDERED `props.scrollTop`, a frame later, so while the list
+      // RENDERED `liveTop`, a frame later, so while the list
       // auto-scrolls there the box and the rows can disagree for a frame by
       // the scroll step times `scale - 1`. Below that `logicalTopAt(s) === s`.
       const b = bandBox(band)
@@ -381,8 +432,8 @@ export function BrowseList(props: Props): JSX.Element {
     )
   }, [props.entries, divided, logicalTop, height, onVisibleFolders, indexed, rowHeight])
   const onSelect = props.onSelect
-  const onScroll = props.onScroll
-  const scrollTop = props.scrollTop
+  const onScroll = handUp
+  const scrollTop = liveTop
   useLayoutEffect(() => {
     const pending = pendingFocus.current
     const node = scroller.current
@@ -459,7 +510,7 @@ export function BrowseList(props: Props): JSX.Element {
     if (top < visibleTop) node.scrollTop = top / scale
     else if (index * rowHeight + rowHeight > visibleTop + node.clientHeight)
       node.scrollTop = (index * rowHeight + rowHeight - node.clientHeight) / scale
-    props.onScroll(node.scrollTop)
+    handUp(node.scrollTop)
     const entry = rowAt(index)
     if (!entry) return null
     requestAnimationFrame(() =>
@@ -480,7 +531,7 @@ export function BrowseList(props: Props): JSX.Element {
     if (top < visibleTop) node.scrollTop = top / scale
     else if (index * rowHeight + rowHeight > visibleTop + node.clientHeight)
       node.scrollTop = (index * rowHeight + rowHeight - node.clientHeight) / scale
-    props.onScroll(node.scrollTop)
+    handUp(node.scrollTop)
     const entry = rowAt(index)
     if (entry) {
       pendingFocus.current = null
@@ -706,7 +757,7 @@ export function BrowseList(props: Props): JSX.Element {
             columnScroller.current.scrollLeft !== e.currentTarget.scrollLeft
           )
             columnScroller.current.scrollLeft = e.currentTarget.scrollLeft
-          if (!props.loading) props.onScroll(e.currentTarget.scrollTop)
+          if (!props.loading) scrolledTo(e.currentTarget.scrollTop)
         }}
         // Empty space clears the pick QUIETLY: it is not a request to stop what
         // the preview plays (owner, 2026-10-03: "i should have to click the
@@ -735,7 +786,7 @@ export function BrowseList(props: Props): JSX.Element {
             <div
               className="browse-row-layer"
               style={{
-                transform: `translateY(${props.scrollTop + first * rowHeight - logicalTop}px)`
+                transform: `translateY(${liveTop + first * rowHeight - logicalTop}px)`
               }}
             >
               {rendered.map((entry, offset) => {

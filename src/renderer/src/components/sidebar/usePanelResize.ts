@@ -18,7 +18,28 @@ export const MIN_W = 170
 export const MAX_W = 520
 export const DEFAULT_W = 260
 
-const clampWidth = (n: number): number => Math.round(Math.min(MAX_W, Math.max(MIN_W, n)))
+export const clampWidth = (n: number): number => Math.round(Math.min(MAX_W, Math.max(MIN_W, n)))
+
+/**
+ * A DRAG PAINTS, IT DOES NOT RENDER (review, 2026-10-16; the Explorer grips'
+ * rule, useExplorerWidths). Every pointer move used to set the width state,
+ * re-rendering the whole Sidebar, and write the pref. A move now paints the
+ * clamped width straight onto the panel; the release keeps it, once.
+ */
+export function createPanelDrag(paint: (width: number) => void, commit: (width: number) => void) {
+  let live: number | null = null
+  return {
+    move(width: number): void {
+      live = clampWidth(width)
+      paint(live)
+    },
+    end(): void {
+      const width = live
+      live = null
+      if (width !== null) commit(width)
+    }
+  }
+}
 
 const widthPref = createPref<number>({
   key: 'prism.sidebar.width',
@@ -57,6 +78,18 @@ export function usePanelResize({ panel, right }: PanelResizeDeps): PanelResize {
     setWidth(w)
     widthPref.set(w)
   }, [])
+  // The panel and its body carry the width (Sidebar.tsx); a SHUT panel stays
+  // at zero, as it would have rendered.
+  const [drag] = useState(() =>
+    createPanelDrag((w) => {
+      const box = panel.current
+      if (!box) return
+      if (box.style.width !== '0px') box.style.width = `${w}px`
+      const body = box.firstElementChild
+      if (body instanceof HTMLElement) body.style.width = `${w}px`
+      box.querySelector(':scope > [role="separator"]')?.setAttribute('aria-valuenow', String(w))
+    }, resize)
+  )
 
   const onHandleDown = useCallback((e: PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -70,15 +103,19 @@ export function usePanelResize({ panel, right }: PanelResizeDeps): PanelResize {
     (e: PointerEvent<HTMLDivElement>) => {
       if (!dragging || !panel.current) return
       const box = panel.current.getBoundingClientRect()
-      resize(right ? box.right - e.clientX : e.clientX - box.left)
+      drag.move(right ? box.right - e.clientX : e.clientX - box.left)
     },
-    [dragging, resize, right, panel]
+    [dragging, drag, right, panel]
   )
 
-  const onHandleUp = useCallback((e: PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.releasePointerCapture(e.pointerId)
-    setDragging(false)
-  }, [])
+  const onHandleUp = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+      drag.end()
+      setDragging(false)
+    },
+    [drag]
+  )
 
   const onHandleKey = useCallback(
     (e: KeyboardEvent<HTMLDivElement>) => {

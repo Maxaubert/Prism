@@ -101,6 +101,9 @@ export interface FolderBrowserProps {
    *  the selected path only; the preview and playback are left alone. */
   onSelect: (path: string | null, quiet?: boolean) => void
   onOpen: (file: ViewerFile) => void
+  /** A SETTLED position, never one per scroll event (review, 2026-10-16):
+   *  the list keeps its live scroll itself. Each history entry gets its own
+   *  handler, which a position settling after a navigation is still sent to. */
   onScroll: (top: number) => void
   onQueryChange: (query: string) => void
   onSortChange: (sort: BrowseSort) => void

@@ -283,6 +283,51 @@ export function setBrowseLocation(
   )
 }
 
+/** The history entry a scroll position was made in: its place in the history
+ *  and what it showed there. */
+export interface BrowseScrollAt {
+  cursor: number
+  path: string
+  query: string
+  sort: BrowseLocation['sort']
+}
+
+/**
+ * A SETTLED SCROLL, HANDED UP ONCE (review, 2026-10-16). The list used to
+ * patch the tab on every native scroll event, which re-rendered the whole App
+ * and re-sorted the folder per frame, and sent every tab's history to main.
+ * The list now scrolls on its own and hands the position up when it settles,
+ * which can be after a navigation, so it lands on the entry it was MADE in
+ * (`at`), never on whatever is current. An entry that has since changed what
+ * it shows (a refined search, a new sort) keeps its own position. Nothing to
+ * change answers the same array, so the setState does nothing.
+ */
+export function setBrowseScroll(
+  tabs: Tab[],
+  tabId: string,
+  at: BrowseScrollAt,
+  scrollTop: number
+): Tab[] {
+  const index = tabs.findIndex((tab) => tab.id === tabId)
+  const tab = tabs[index]
+  if (!tab || tab.kind === 'settings') return tabs
+  const entry = tab.browse.history[at.cursor]
+  if (
+    !entry ||
+    entry.scrollTop === scrollTop ||
+    entry.path !== at.path ||
+    entry.query !== at.query ||
+    entry.sort.key !== at.sort.key ||
+    entry.sort.direction !== at.sort.direction
+  )
+    return tabs
+  const history = tab.browse.history.slice()
+  history[at.cursor] = { ...entry, scrollTop }
+  const next = tabs.slice()
+  next[index] = { ...tab, browse: { ...tab.browse, history } }
+  return next
+}
+
 /**
  * The place on screen turned out to be another (#300: a folder gone from
  * inside a zip answers the nearest one still there). The CURRENT history

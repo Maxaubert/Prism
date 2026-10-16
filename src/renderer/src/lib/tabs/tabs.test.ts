@@ -6,6 +6,8 @@ import {
   travelBrowse,
   setBrowsePreview,
   replaceBrowsePath,
+  setBrowseScroll,
+  searchBrowse,
   addExplorerTab,
   addProjectTab,
   ensurePinnedExplorer,
@@ -725,5 +727,37 @@ describe('going into a folder clears the preview (#300 review)', () => {
     const went = navigateBrowse([project], 't1', 'C:\\a\\x.zip')[0]
     expect(went.index).toBe(0)
     expect(went.browse.previewHeld).toBeUndefined()
+  })
+})
+
+describe('setBrowseScroll (review, 2026-10-16)', () => {
+  const start = (): Tab[] => [{ ...tabOf('C:\\a', []), id: 't1', browse: newBrowse('C:\\a') }]
+  const placeOf = (tabs: Tab[]) => {
+    const b = tabs[0].browse
+    const e = b.history[b.cursor]
+    return { cursor: b.cursor, path: e.path, query: e.query, sort: e.sort }
+  }
+
+  it('a position that settles after a navigation lands on the entry it was made in', () => {
+    const tabs = start()
+    const at = placeOf(tabs)
+    const went = navigateBrowse(tabs, 't1', 'C:\\a\\b')
+    const kept = setBrowseScroll(went, 't1', at, 480)
+    expect(kept[0].browse.history[0].scrollTop).toBe(480)
+    expect(kept[0].browse.history[1].scrollTop).toBe(0)
+    // ...so Back finds it there.
+    expect(travelBrowse(kept, 't1', -1)[0].browse.history[0].scrollTop).toBe(480)
+  })
+
+  it('answers the same array when there is nothing to change, so the setState does nothing', () => {
+    const tabs = start()
+    expect(setBrowseScroll(tabs, 't1', placeOf(tabs), 0)).toBe(tabs)
+  })
+
+  it('leaves an entry that has since changed what it shows', () => {
+    const tabs = searchBrowse(start(), 't1', 'cat')
+    const at = placeOf(tabs)
+    const refined = searchBrowse(tabs, 't1', 'cats')
+    expect(setBrowseScroll(refined, 't1', at, 900)).toBe(refined)
   })
 })
