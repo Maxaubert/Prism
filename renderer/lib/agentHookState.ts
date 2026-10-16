@@ -29,6 +29,12 @@ import type { AgentSignal } from './agentHookSignal'
  *   the finish, another spinner frame is `background` work, still Working,
  *   finished by the star that ends it. No title in 1.5 s (`settle`, longer than
  *   the spinner's 960 ms frame) finishes it as before.
+ * - WORK THAT GOES ON AFTER A STOP, ON THE SCREEN (owner, 2026-10-16). A shell
+ *   Claude started in the background, or a workflow it waits on, keeps running
+ *   past the Stop with no title or hook to say so; the screen does
+ *   (`agentBackground`). A Stop, or the settle or star after one, with that on
+ *   screen is `background`, Working; a re-read every few seconds
+ *   (`bg-check`) finishes it once the screen no longer says so.
  * - Whether an agent is there at all stays the process poll's.
  *
  * Finished and Failed are RAISED only on a tab nobody is looking at; the hook
@@ -53,7 +59,15 @@ export interface HookOutcome extends HookSession {
   clear: AttentionMark[]
 }
 
-export type HookEvent = AgentSignal | { state: 'idle-title' } | { state: 'working-title' } | { state: 'settle' }
+export type HookEvent =
+  | AgentSignal
+  | { state: 'idle-title' }
+  | { state: 'working-title' }
+  | { state: 'settle' }
+  | { state: 'bg-check' }
+
+/** How often a session in `background` re-reads its screen (`bg-check`). */
+export const BACKGROUND_CHECK_MS = 3000
 
 /** How long a Stop with the spinner still up waits for the next title before
  *  it is a plain finish: past one spinner frame (about 960 ms, MEASURED). */
@@ -65,6 +79,9 @@ export interface HookSeen {
   questionOnScreen?: boolean
   /** The session's title last said working (a spinner), when a Stop arrives. */
   titleWorking?: boolean
+  /** Claude's screen shows work still running after its turn: a background
+   *  shell or a workflow (`looksLikeBackgroundWork`). */
+  backgroundOnScreen?: boolean
 }
 
 /** What one event does, or null when it changes nothing. */
@@ -82,6 +99,7 @@ export function hookStep(prev: HookSession | undefined, ev: HookEvent, seen?: Ho
     return null
   }
   const finish: HookOutcome = { phase: 'done', working: false, raise: ['finished'], clear: ['question', 'failed'] }
+  const background: HookOutcome = { phase: 'background', working: true, raise: [], clear: ['question', 'failed'] }
   switch (ev.state) {
     case 'working-title':
       // After a Stop with the spinner up, another frame is work still going
@@ -94,14 +112,25 @@ export function hookStep(prev: HookSession | undefined, ev: HookEvent, seen?: Ho
     case 'idle-title':
       // The star after a Stop, or after the background work it left: the turn
       // is over now (#149).
-      if (prev?.phase === 'ending' || prev?.phase === 'background') return finish
+      if (prev?.phase === 'ending' || prev?.phase === 'background') {
+        // The screen still shows a shell or a workflow at work: not over yet.
+        if (seen?.backgroundOnScreen) return prev.phase === 'background' ? null : background
+        return finish
+      }
       // Otherwise only an interrupt is the title's to say; after a question, a
       // finish or a failure the idle title is just the agent at rest.
       if (prev?.phase !== 'working') return null
       return { phase: 'stopped', working: false, raise: [], clear: [] }
     case 'settle':
-      // No title came after the Stop: a plain finish, as before #149.
-      return prev?.phase === 'ending' ? finish : null
+      // No title came after the Stop: a plain finish, as before #149, unless
+      // the screen shows work going on.
+      if (prev?.phase !== 'ending') return null
+      return seen?.backgroundOnScreen ? background : finish
+    case 'bg-check':
+      // Background work's re-read: over once neither the screen nor the
+      // spinner says it is going on.
+      if (prev?.phase !== 'background') return null
+      return seen?.backgroundOnScreen || seen?.titleWorking ? null : finish
     case 'working':
       // A new prompt, a tool call, a subagent: whatever was waiting is over.
       return { phase: 'working', working: true, raise: [], clear: ['question', 'failed', 'finished'] }
@@ -111,6 +140,7 @@ export function hookStep(prev: HookSession | undefined, ev: HookEvent, seen?: Ho
       // The spinner still up: the next title decides (#149). Working holds
       // meanwhile, so a lone Stop's ring does not blink off and on.
       if (seen?.titleWorking) return { phase: 'ending', working: true, raise: [], clear: ['question', 'failed'] }
+      if (seen?.backgroundOnScreen) return background
       return finish
     case 'failed': {
       // Two hooks answer one failure (the kind's own and the catch-all), in

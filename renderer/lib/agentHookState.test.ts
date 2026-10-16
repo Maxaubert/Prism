@@ -182,3 +182,31 @@ describe('hookStep, a Stop with the spinner up', () => {
     expect(hookStep({ phase: 'working' }, { state: 'done' }, { titleWorking: false })?.raise).toEqual(['finished'])
   })
 })
+
+// Owner, 2026-10-16: a session waiting on a workflow, or with a shell started
+// in the background, read as finished. The screen says the work goes on.
+describe('work still running on screen after a Stop', () => {
+  const working: HookSession = { phase: 'working' }
+  const bg = { backgroundOnScreen: true }
+  it('a Stop with background work on screen stays Working, raising nothing', () => {
+    const o = hookStep(working, { state: 'done' }, bg)
+    expect(o).toMatchObject({ phase: 'background', working: true, raise: [] })
+  })
+  it('the settle after a spinning Stop holds it too', () => {
+    expect(hookStep({ phase: 'ending' }, { state: 'settle' }, bg)).toMatchObject({ phase: 'background', working: true })
+    expect(hookStep({ phase: 'ending' }, { state: 'settle' })).toMatchObject({ phase: 'done', raise: ['finished'] })
+  })
+  it('an idle star does not end it while the screen says work goes on', () => {
+    expect(hookStep({ phase: 'background' }, { state: 'idle-title' }, bg)).toBeNull()
+    expect(hookStep({ phase: 'background' }, { state: 'idle-title' })).toMatchObject({ phase: 'done' })
+  })
+  it('the re-read finishes it once the screen lets it go, and only then', () => {
+    expect(hookStep({ phase: 'background' }, { state: 'bg-check' }, bg)).toBeNull()
+    expect(hookStep({ phase: 'background' }, { state: 'bg-check' }, { titleWorking: true })).toBeNull()
+    expect(hookStep({ phase: 'background' }, { state: 'bg-check' })).toMatchObject({ phase: 'done', raise: ['finished'] })
+    expect(hookStep({ phase: 'done' }, { state: 'bg-check' })).toBeNull()
+  })
+  it('a new prompt during it is plain work', () => {
+    expect(hookStep({ phase: 'background' }, { state: 'working' })).toMatchObject({ phase: 'working', working: true })
+  })
+})
