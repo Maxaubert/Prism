@@ -1,5 +1,6 @@
 import type { DetectedAgent, ShellDef } from '../shared/types'
 import type { DictationApi } from '../preload/dictationApi'
+import type { ShownQuestion } from '../shared/questionShown'
 
 /**
  * THE HOST SEAM (2026-09-19, #15).
@@ -46,6 +47,9 @@ export interface TermApi {
    *  Optional like the look: without it a Codex started again between two
    *  looks waits for its title to give its keys back. */
   termAgentAgain?(id: string): void
+  /** The question Claude Code's widget shows in tab `id`, for Sonara
+   *  (#323). Optional: a host bridge without it simply tells no one. */
+  termQuestion?(id: string, shown: ShownQuestion): void
   onTermExit(cb: (id: string) => void): () => void
   readClipboard(): ClipboardRead
   /** The same, without the page waiting on main (2026-10-15: a paste in a

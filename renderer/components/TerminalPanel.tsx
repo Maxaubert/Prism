@@ -77,6 +77,7 @@ import {
   takeResume
 } from '../lib/termActivity'
 import { isKey, termKeyAction } from '../lib/termKeys'
+import { watchQuestions } from '../questionWatch'
 import '@xterm/xterm/css/xterm.css'
 
 // The terminal surface. This module is a lazy chunk (xterm is ~350KB the
@@ -1041,6 +1042,9 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   // The title arms the agent's keys before the poll (#175), and takes back an
   // agent only it vouched for (`agentArm` has the rules).
   term.onTitleChange((t) => moveArm(armOnTitle(arm, t)))
+  // Claude Code's question widget: the question the user moved to is told
+  // to Sonara, the text-to-speech reader, which reads it (Sonara #323).
+  const questions = watchQuestions(term, (shown) => termApi().termQuestion?.(id, shown))
   // "COPIED" FOR A PROGRAM'S OWN SELECTION (lib/appCopyNotice): Claude
   // Code's fullscreen view copies on the mouse's release itself, past the
   // terminal; a selecting press is followed by a look at the clipboard.
@@ -1068,6 +1072,7 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   el.addEventListener('mousedown', copyDown, true)
   window.addEventListener('mouseup', copyUp, true)
   const unsub = [
+    () => questions.dispose(),
     () => {
       el.removeEventListener('mousedown', copyDown, true)
       window.removeEventListener('mouseup', copyUp, true)

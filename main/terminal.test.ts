@@ -34,6 +34,14 @@ describe('OutputBatcher', () => {
 })
 
 describe('ptyEnv', () => {
+  it('names the tab for Sonara and never keeps an inherited one (#323)', () => {
+    expect(ptyEnv({ PRISM_TAB_ID: 'old', Prism_Tab_Id: 'older' }, 'pwsh', undefined, undefined, 'tok-1')).toMatchObject({
+      PRISM_TAB_ID: 'tok-1'
+    })
+    const env = ptyEnv({ PRISM_TAB_ID: 'old' })
+    expect(Object.keys(env).some((k) => k.toUpperCase() === 'PRISM_TAB_ID')).toBe(false)
+  })
+
   it('answers for what the panel can display, not for its launcher', () => {
     const env = ptyEnv({ TERM: 'dumb', COLORTERM: undefined, PATH: 'C:\bin' })
     expect(env.TERM).toBe('xterm-256color')

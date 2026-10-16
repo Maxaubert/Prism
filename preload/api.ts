@@ -1,5 +1,6 @@
 import type { DetectedAgent, ShellDef } from '../shared/types'
 import { CH } from '../shared/channels'
+import type { ShownQuestion } from '../shared/questionShown'
 import { isWebUrl } from '../shared/webUrl'
 
 /**
@@ -50,6 +51,8 @@ export interface TermPreloadApi {
   termAgentLook(): void
   /** Ask the process poll for this session's next answer, changed or not. */
   termAgentAgain(id: string): void
+  /** The question Claude Code's widget shows in tab `id` (Sonara #323). */
+  termQuestion(id: string, shown: ShownQuestion): void
   /** The shell ended by itself (`exit`); a shell main was told to kill says nothing. */
   onTermExit(cb: (id: string) => void): () => void
   /**
@@ -119,6 +122,7 @@ export function createTermApi(ipc: IpcRendererLike): TermPreloadApi {
     onTermAgent: (cb) => on(CH.agent, cb),
     termAgentLook: () => ipc.send(CH.agentLook),
     termAgentAgain: (id) => ipc.send(CH.agentAgain, id),
+    termQuestion: (id, shown) => ipc.send(CH.question, id, shown),
     onTermExit: (cb) => on(CH.exit, cb),
     readClipboard: () => ipc.sendSync(CH.clipboardRead) as ClipboardRead,
     readClipboardAsync: () => ipc.invoke(CH.clipboardReadAsync) as Promise<ClipboardRead>,

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { IPty } from 'node-pty'
 import { cdCommand } from '../shared/termCwd'
 import { detectShells, shellById } from './shells'
@@ -67,6 +68,10 @@ interface Session {
   subs: Array<{ dispose(): void }>
   /** Which shell this is, for the one line Prism may write into it (#99). */
   defId: string
+  /** The shell's `PRISM_TAB_ID` (Sonara #323): Sonara's hook tags the
+   *  Claude session it runs in with it, and the question follower names the
+   *  tab to Sonara by it. One per shell, warm or not. */
+  tabToken: string
 }
 
 /**
@@ -162,7 +167,8 @@ export function ptyEnv(
   from: NodeJS.ProcessEnv,
   shellId?: string,
   plugin?: ClaudePluginEnv,
-  isOurs?: (d: string) => boolean
+  isOurs?: (d: string) => boolean,
+  tabToken?: string
 ): Record<string, string> {
   const env: Record<string, string> = {}
   let prompt: string | undefined
@@ -178,6 +184,11 @@ export function ptyEnv(
   }
   env.TERM = PTY_OPTS.name
   env.COLORTERM = 'truecolor'
+  // The tab, for Sonara (#323): its Claude hook reads PRISM_TAB_ID into the
+  // session's host tab, and the question follower names the tab by it. A
+  // value inherited from a Prism the app was started in is never kept.
+  for (const k of Object.keys(env)) if (k.toUpperCase() === 'PRISM_TAB_ID') delete env[k]
+  if (tabToken) env.PRISM_TAB_ID = tabToken
   // NO FORCE_HYPERLINK (#173 set it; review 2026-10-11 took it out). Claude
   // Code prints OSC 8 links only when told (MEASURED 2.1.296: "label (long
   // url)" without it), but supports-hyperlinks, which it and the vercel CLI
@@ -219,6 +230,11 @@ export function cdTerm(id: string, path: string): boolean {
 
 const sessions = new Map<string, Session>()
 
+/** The `PRISM_TAB_ID` of tab `id`'s shell (Sonara #323), if it has one. */
+export function tabToken(id: string): string | undefined {
+  return sessions.get(id)?.tabToken
+}
+
 /**
  * Warm shells, one per recently-active root (two at most). Opening a terminal
  * used to pay the whole bill at the click - chunk, pty, pwsh startup, the
@@ -236,6 +252,8 @@ interface WarmShell {
   buf: string
   sub: { dispose(): void }
   exited: boolean
+  /** Its `PRISM_TAB_ID`, carried to the tab that adopts it. */
+  tabToken: string
 }
 const warm = new Map<string, WarmShell>()
 const rootKey = (root: string): string => root.toLowerCase()
@@ -328,14 +346,23 @@ export async function prewarmShell(
   try {
     const pty = await import('node-pty')
     const size = desiredSize.get('') ?? { cols: 80, rows: 24 }
+    const tabToken = randomUUID()
     const p = pty.spawn(def.exe, def.args, {
       ...PTY_OPTS,
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: ptyEnv(process.env, def.id, plugin, isOurPlugin)
+      env: ptyEnv(process.env, def.id, plugin, isOurPlugin, tabToken)
     })
-    const w: WarmShell = { pty: p, defId: def.id, plugin: pluginKey(plugin), buf: '', sub: { dispose: () => {} }, exited: false }
+    const w: WarmShell = {
+      pty: p,
+      defId: def.id,
+      plugin: pluginKey(plugin),
+      buf: '',
+      sub: { dispose: () => {} },
+      exited: false,
+      tabToken
+    }
     w.sub = p.onData((d) => {
       // The banner and prompt, kept for replay. Capped: a warm shell should
       // be quiet, and a runaway one is not worth adopting anyway.
@@ -501,7 +528,7 @@ async function spawnPending(
         send('term:exit', id)
       })
     ]
-    sessions.set(id, { pty: w.pty, batcher, subs, defId: w.defId })
+    sessions.set(id, { pty: w.pty, batcher, subs, defId: w.defId, tabToken: w.tabToken })
     shellCrumb('shell-spawn', { id, pid: w.pty.pid, shell: def.id, warm: true })
     const want = desiredSize.get(id)
     if (want) resizeTerm(id, want.cols, want.rows)
@@ -512,12 +539,13 @@ async function spawnPending(
     const pty = await import('node-pty')
     const size = desiredSize.get(id) ?? { cols: 80, rows: 24 }
     const launch = resume ? withResume(def, resume) : def
+    const tabToken = randomUUID()
     const p = pty.spawn(launch.exe, launch.args, {
       ...PTY_OPTS,
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: { ...ptyEnv(process.env, def.id, plugin, isOurPlugin), ...('env' in launch ? launch.env : {}) }
+      env: { ...ptyEnv(process.env, def.id, plugin, isOurPlugin, tabToken), ...('env' in launch ? launch.env : {}) }
     })
     // Closed while node-pty loaded: the tab is gone, so is this shell.
     if (killedWhilePending.has(id)) {
@@ -537,7 +565,7 @@ async function spawnPending(
         send('term:exit', id)
       })
     ]
-    sessions.set(id, { pty: p, batcher, subs, defId: def.id })
+    sessions.set(id, { pty: p, batcher, subs, defId: def.id, tabToken })
     shellCrumb('shell-spawn', { id, pid: p.pid, shell: def.id, cwd: root, resume: !!resume, ms: Math.round(performance.now() - t0) })
     return true
   } catch (err) {

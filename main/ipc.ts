@@ -3,7 +3,9 @@ import { OSC52_MAX } from '../shared/termLimits'
 import { validResume } from './agentResume'
 import { pollAgentAgain, pollAgentsNow, pollAgentsSoon, startAgentPoll } from './agentPoll'
 import { detectShells } from './shells'
-import { cdTerm, killTerm, prewarmShell, resizeTerm, spawnTerm, writeTerm, type ClaudePluginEnv } from './terminal'
+import { cdTerm, killTerm, prewarmShell, resizeTerm, spawnTerm, tabToken, writeTerm, type ClaudePluginEnv } from './terminal'
+import { postQuestionShown } from './sonaraLink'
+import { asShownQuestion } from '../shared/questionShown'
 import { openTermPath, pathKinds, PATHS_MAX, type PathOpeners } from './termPathOpen'
 import { isWebUrl } from '../shared/webUrl'
 
@@ -130,6 +132,14 @@ export function registerTermIpc(deps: TermIpcDeps): () => void {
   // not there yet: this session's next answer is wanted, news or not.
   ipcMain.on(CH.agentAgain, (_e: unknown, id: unknown) => {
     if (typeof id === 'string') pollAgentAgain(id)
+  })
+
+  // Claude Code's question widget changed question in a tab (Sonara #323):
+  // Sonara, if it runs, reads the question the user is on. Quiet on failure.
+  ipcMain.on(CH.question, (_e: unknown, id: unknown, shown: unknown) => {
+    const q = asShownQuestion(shown)
+    const token = typeof id === 'string' ? tabToken(id) : undefined
+    if (q && token) void postQuestionShown(token, q)
   })
 
   ipcMain.on(CH.prewarm, (_e: unknown, cwd: unknown, shellId: unknown, hooks: unknown) => {

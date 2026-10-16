@@ -262,6 +262,18 @@ the rainbow across the whole tab (`rainbowInk` picks its name's ink).
 (`lib/switchKnob.ts`: the theme's black or white, flipped only under 2:1 on
 the track), else `--p-on-accent` as before. Prism has not defined it.
 
+**THE QUESTION FOLLOWER (Sonara #323, core 0.41.0)** tells Sonara, the
+text-to-speech reader for Claude Code, which question of an AskUserQuestion
+the user is on, which Claude Code itself tells no plugin.
+`renderer/questionWidget.ts` reads the question off the visible rows (pure,
+tested on measured screens), `renderer/questionWatch.ts` watches a session
+after output settles and reports a change once, `term:question` carries it,
+and `main/sonaraLink.ts` posts it to the Sonara on 127.0.0.1 named by its
+`runtime.json`, naming the tab by its shell's `PRISM_TAB_ID` (`ptyEnv`, one
+random token per shell, warm or not; Sonara's hook reads the same variable).
+No Sonara: nothing is sent. `termQuestion` is optional on `TermApi`; a host on
+`createTermApi` and `registerTermIpc` (both apps) gets it with nothing to add.
+
 ## Rules for code in here (lint-enforced in Prism Terminal's `eslint.config.js`)
 
 - **Relative imports only.** No `@shared` / `@renderer` / `@core` aliases: a

@@ -26,7 +26,9 @@ export const CH = {
   bell: 'term:bell',
   openExternal: 'shell:open-external',
   pathKinds: 'term:path-kinds',
-  openPath: 'term:open-path'
+  openPath: 'term:open-path',
+  /** The question Claude Code's widget shows in a tab (Sonara #323). */
+  question: 'term:question'
 } as const
 
 /** The diagnostics log's channels (#140). A table of its own, like
