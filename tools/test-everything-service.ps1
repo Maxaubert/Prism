@@ -22,6 +22,12 @@ try {
   # A crash restarts it (2026-10-15).
   $recovery = (& "$env:SystemRoot\System32\sc.exe" qfailure $service[0].Name) -join ' '
   if ($recovery -notmatch 'RESTART') { throw "Private service has no restart-on-failure action: $recovery" }
+  # A running service from before the rule gets it at the next install.
+  & "$env:SystemRoot\System32\sc.exe" failure $service[0].Name reset= 0 actions= none/0 | Out-Null
+  if (((& "$env:SystemRoot\System32\sc.exe" qfailure $service[0].Name) -join ' ') -match 'RESTART') { throw 'Could not clear the restart rule for the test.' }
+  & powershell.exe -NoProfile -NonInteractive -File $helper -Action Install -InstallDirectory $testRoot -NoElevation
+  if ($LASTEXITCODE -ne 0) { throw 'Setup of a running service without the restart rule failed.' }
+  if (((& "$env:SystemRoot\System32\sc.exe" qfailure $service[0].Name) -join ' ') -notmatch 'RESTART') { throw 'A running service without the restart rule did not get it.' }
   # Idempotent setup must not create a second service or change its owner.
   & powershell.exe -NoProfile -NonInteractive -File $helper -Action Install -InstallDirectory $testRoot -NoElevation
   if ($LASTEXITCODE -ne 0) { throw 'Repeated service setup failed.' }

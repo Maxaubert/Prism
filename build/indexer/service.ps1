@@ -74,7 +74,14 @@ if (!$existing) {
   })
   if ($collision.Count) { throw 'The private service name is already used by an unowned service.' }
 }
-if ($Action -eq 'Install' -and $existing -and $existing.State -eq 'Running') { exit 0 }
+# A running service is left alone, without asking for administrator rights,
+# once it also restarts itself after a crash (2026-10-15). A service set up
+# before that rule existed gets it at the next install, with one prompt.
+# Reading the rule needs no elevation.
+function Test-RestartRule($service) {
+  ((& "$env:SystemRoot\System32\sc.exe" qfailure $service.Name) -join ' ') -match 'RESTART'
+}
+if ($Action -eq 'Install' -and $existing -and $existing.State -eq 'Running' -and (Test-RestartRule $existing)) { exit 0 }
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {

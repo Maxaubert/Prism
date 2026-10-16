@@ -59,8 +59,9 @@ the `bundled-indexer` CI job checks it), and the engine's own config runs its
 folder-update and monitor threads in Windows' background mode
 (`folder_update_thread_mode_background=1`, `monitor_thread_mode_background=1`;
 off by default: 0 in the owner's own Everything 1.5a settings), so a crawl takes very low disk and CPU priority.
-A service that is already down gets the restart rule at the next install,
-which then asks for administrator approval once.
+A service without the rule, running or not, gets it at the next install, which
+then asks for administrator approval once; a running service that has it is left
+alone with no prompt.
 
 **Never a crawl of a whole drive** (owner, 2026-10-15: "never crawl drives"). The
 Stutter-Diagnostics session measured why the crawl mattered beyond the slowdown:
