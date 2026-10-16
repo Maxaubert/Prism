@@ -7,6 +7,13 @@ param(
   [switch]$NoElevation
 )
 $ErrorActionPreference = 'Stop'
+# WINDOWS POWERSHELL'S OWN MODULES (2026-10-16). Started from PowerShell 7 (a
+# terminal, or an installer launched from one), this process inherits PS7's
+# PSModulePath, which hides Windows PowerShell's built-in modules: Get-FileHash
+# was "not recognized", the install step failed before it asked for anything,
+# and the service silently never got its restart rule. Use the machine's own
+# module path, which is what Windows PowerShell starts with when nothing set it.
+$env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
 $expectedHash = 'F191F756996A14A11E5445FA7103D302EFD510CF2FBF920E6C0C8ED51D512E36'
 $install = [IO.Path]::GetFullPath($InstallDirectory).TrimEnd('\', '/').ToLowerInvariant()
 if ($install -notmatch '^[a-z]:\\' -or $install.Contains('"')) { throw 'Prism installation must be a local absolute directory.' }

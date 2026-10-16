@@ -74,3 +74,12 @@ index does not cover reads the folders live (`knownRoots` no longer claims it).
 Saved roots from before are cleaned on the next start. Held by
 `indexerRuntime.test.ts` ("never folder-crawls a whole drive when the service is
 down").
+
+**Started from PowerShell 7, the setup step used to fail silently (2026-10-16).**
+An installer launched from a PowerShell 7 session passes PS7's `PSModulePath` on
+to the step's Windows PowerShell, which hides its built-in modules: `Get-FileHash`
+was "not recognized", the step failed before asking for anything, and the
+service never got its restart rule (an install the owner runs from Explorer or
+the update chip was not affected). `service.ps1` now starts from the machine's
+own module path. Reproduced and proved fixed by running the step hidden from
+PowerShell 7 with the rule cleared.
