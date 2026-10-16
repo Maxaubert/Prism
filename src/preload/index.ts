@@ -225,9 +225,6 @@ const api = {
     ipcRenderer.invoke(CALL.phoneSetOn, on, start),
   /** A fresh code for `start`, replacing the one it had. */
   phoneCode: (start: string | null): Promise<PhoneState> => ipcRenderer.invoke(CALL.phoneCode, start),
-  /** The address phones use (#406); an empty string clears it. */
-  phoneAddressSet: (address: string, start: string | null): Promise<PhoneState> =>
-    ipcRenderer.invoke(CALL.phoneAddressSet, address, start),
   /** The dialog closed: no code it showed may still pair a phone. */
   phoneCodeDrop: (): void => ipcRenderer.send(CALL.phoneCodeDrop),
   /** Forget a paired phone by token. */
