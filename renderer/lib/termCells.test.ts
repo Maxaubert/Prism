@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { findLinks } from './termLinks'
-import { cellFrom, cellText, charAtCell, logicalLine, type CellInfo } from './termCells'
+import {
+  bufferRowCells,
+  cellFrom,
+  cellText,
+  charAtCell,
+  logicalLine,
+  type CellInfo,
+  type CellLike
+} from './termCells'
 
 /** Cells for a string, the way xterm lays it out: a wide character is two. */
 function cells(parts: Array<string | [string, 2]>, pad = 0): CellInfo[] {
@@ -85,5 +93,26 @@ describe('logicalLine and charAtCell', () => {
     expect(charAtCell(l, 4, 1, 1)).toBe(5)
     expect(charAtCell(l, 4, 0, -3)).toBe(0)
     expect(charAtCell(l, 4, 9, 9)).toBe(l.text.length)
+  })
+})
+
+describe('reading a row into cells (perf review 2026-10-16)', () => {
+  it('loads every cell into the one scratch cell it is given, copying each out', () => {
+    const text = 'ab'
+    const seen: Array<CellLike | undefined> = []
+    const line = {
+      getCell: (x: number, into?: CellLike): CellLike => {
+        seen.push(into)
+        return { getChars: () => text[x] ?? '', getWidth: () => 1 }
+      }
+    }
+    const scratch: CellLike = { getChars: () => '', getWidth: () => 1 }
+    expect(bufferRowCells(line, 3, scratch)).toEqual([
+      { chars: 'a', width: 1 },
+      { chars: 'b', width: 1 },
+      { chars: '', width: 1 }
+    ])
+    expect(seen).toHaveLength(3)
+    expect(seen.every((c) => c === scratch)).toBe(true)
   })
 })

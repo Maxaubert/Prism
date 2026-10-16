@@ -1,7 +1,7 @@
-import type { IBufferLine, IDecoration, IDisposable, IMarker, Terminal } from '@xterm/xterm'
+import type { IBufferCell, IBufferLine, IDecoration, IDisposable, IMarker, Terminal } from '@xterm/xterm'
 import { crumb } from './diag'
 import { rowsToReink } from './linkInkRows'
-import { sliceRows, type RowPlan } from './linkScanPlan'
+import { sliceRows } from './linkScanPlan'
 import { findLinks } from './termLinks'
 import { bufferRowCells, cellText } from './termCells'
 import {
@@ -48,6 +48,17 @@ import {
  * OSC 8 LINKS ARE PAINTED FROM THE STREAM (#169): the panel notes where each
  * one was printed (`termOsc8.ts`) and hands them over as `opts.spans`; both
  * screens paint them like any link, while their cells hold the same text.
+ *
+ * THE LIVE PASS PAINTS ONLY WHAT CHANGED (perf review 2026-10-16). Every
+ * decoration xterm registers or disposes redraws the WHOLE viewport
+ * (`onDecorationRegistered(() => this._fullRefresh())`, read in xterm.mjs), and
+ * the live pass used to throw away and paint again every link on the live
+ * screen on every pass, 12.5 a second while output flows: a full redraw of the
+ * screen for a spinner row, in every tab. Now each logical line remembers what
+ * it was painted from (its rows' text, its OSC 8 spans, the ink, the folder
+ * paths are read against), and a line that still says the same is left alone.
+ * A tab nobody can see (its element out of the page) is not scanned at all
+ * until it is shown again (`attached`).
  */
 export interface LinkPainter extends IDisposable {
   /** The colour changed (a theme, a custom ground): paint everything again. */
@@ -55,6 +66,9 @@ export interface LinkPainter extends IDisposable {
   /** A path this terminal asked about exists (#167): paint again only the
    *  lines that were waiting for the answer, never the whole buffer. */
   revisit(): void
+  /** The terminal's element is in the page again (a tab shown): catch up on
+   *  what was written while it was away (perf review 2026-10-16). */
+  attached(): void
 }
 
 export interface LinkPaintOptions {
@@ -66,6 +80,10 @@ export interface LinkPaintOptions {
    *  so `find` never sees them; each is painted while its cells still hold
    *  the text it was printed with. */
   spans?: (first: number, last: number) => Osc8Span[]
+  /** What else `find`'s answer depends on (the folder relative paths are read
+   *  against): a live line is painted again when it changes, though its text
+   *  did not. */
+  context?: () => string
 }
 
 interface Painted {
@@ -88,6 +106,15 @@ const SLICE_MS = 8
 const SLOW_PASS_MS = 50
 /** Lines remembered as waiting for a path's answer; the oldest go first. */
 const WAITING_CAP = 500
+/** How long the live pass trusts a line it left alone. A path known NOT to
+ *  exist is asked again after termPathLinks' NO_TTL_MS (15 s), and a line the
+ *  live pass never paints again would never ask: so once in this long every
+ *  live line is painted again, as every pass did before. */
+const KEYS_TTL_MS = 15_000
+/** An incremental pass with more than this many screens of new scrollback
+ *  paints the live screen now and hands the rest to the sliced backlog (perf
+ *  review 2026-10-16: a burst of thousands of lines was one task). */
+const BURST_SCREENS = 2
 
 export function attachLinkPaint(
   term: Terminal,
@@ -105,8 +132,22 @@ export function attachLinkPaint(
   let dead = false
   /** The first row of each painted line whose `find` left a question open. */
   let waiting: IMarker[] = []
-  /** The scrollback a full pass still has to paint, bottom up (#167). */
-  let backlog: { plan: RowPlan; cursor: IMarker; timer?: number } | undefined
+  /** The scrollback still to paint, bottom up (#167), as segments, nearest
+   *  the screen first: a full pass's (down to line 0) and a burst's (down to
+   *  its `floor`, the line it starts on). The cursor and the floor are
+   *  markers, so trimming moves them with the lines. */
+  let backlog: Array<{ cursor: IMarker; floor?: IMarker }> = []
+  let backlogTimer: number | undefined
+  /** What each logical line of the last live pass was painted from, by its
+   *  first row's offset from that pass's `live` line (`finished` remembers
+   *  where that line went since). */
+  let liveKeys = new Map<number, string>()
+  let keysBorn = 0
+  /** Output arrived while the terminal was out of the page. */
+  let stale = false
+  /** The one cell every cell read loads into (perf review 2026-10-16). */
+  let scratch: IBufferCell | undefined
+  const cell0 = (): IBufferCell => (scratch ??= term.buffer.active.getNullCell())
 
   const markerAt = (line: number): IMarker | undefined => {
     const b = term.buffer.active
@@ -114,15 +155,16 @@ export function attachLinkPaint(
   }
 
   const rowCells = (line: number): ReturnType<typeof bufferRowCells> =>
-    bufferRowCells(term.buffer.active.getLine(line), term.cols)
+    bufferRowCells(term.buffer.active.getLine(line), term.cols, cell0())
 
   /** An OSC 8 link stands while its cells hold what was printed there: a
    *  TUI that writes something else over them took the link away. */
   const standing = (s: Osc8Span): boolean => spanText(s, term.cols, rowCells) === s.text
 
-  /** Drop what was painted on lines `first` to `last` (and anything trimmed). */
-  const forgetLines = (first: number, last: number): void => {
-    const keep = (m: IMarker): boolean => !m.isDisposed && (m.line < first || m.line > last)
+  /** Drop what was painted on the lines `gone` says (and anything trimmed),
+   *  in one walk over everything painted. */
+  const forgetWhere = (gone: (line: number) => boolean): void => {
+    const keep = (m: IMarker): boolean => !m.isDisposed && !gone(m.line)
     painted = painted.filter((p) => {
       if (keep(p.marker)) return true
       p.deco.dispose()
@@ -135,6 +177,9 @@ export function attachLinkPaint(
       return false
     })
   }
+
+  /** Drop what was painted on lines `first` to `last` (and anything trimmed). */
+  const forgetLines = (first: number, last: number): void => forgetWhere((l) => l >= first && l <= last)
 
   const forgetFrom = (line: number): void => forgetLines(line, Number.MAX_SAFE_INTEGER)
 
@@ -164,14 +209,26 @@ export function attachLinkPaint(
     painted.push({ marker, deco })
   }
 
-  /** A logical line: the row it starts on and every wrapped row after it. */
-  const paintLogical = (first: number, last: number, ink: string): void => {
+  /** What a logical line's links are painted from: two lines with the same
+   *  key paint the same. Its rows' text (and so their number), the OSC 8
+   *  spans on it, the ink and `find`'s context. */
+  const lineKey = (first: number, last: number, ink: string, context: string): string => {
+    const b = term.buffer.active
+    let key = `${ink}\u0000${context}`
+    for (let r = first; r <= last; r += 1) key += `\u0000${b.getLine(r)?.translateToString(r === last) ?? ''}`
+    const spans = opts.spans?.(first, last)
+    return spans?.length ? `${key}\u0001${JSON.stringify(spans)}` : key
+  }
+
+  /** A logical line: the row it starts on and every wrapped row after it.
+   *  True when `find` left a question open on it. */
+  const paintLogical = (first: number, last: number, ink: string): boolean => {
     const b = term.buffer.active
     const rows: IBufferLine[] = []
     let quick = ''
     for (let r = first; r <= last; r += 1) {
       const line = b.getLine(r)
-      if (!line) return
+      if (!line) return false
       rows.push(line)
       quick += line.translateToString(r === last)
     }
@@ -185,14 +242,15 @@ export function attachLinkPaint(
           taken.push(p)
         }
     }
-    if (!/[\\/.]/.test(quick)) return // no URL and no path can be here
+    if (!/[\\/.]/.test(quick)) return false // no URL and no path can be here
     // Built cell by cell, because a wide character is one character and TWO
     // cells: an index into the string is not a column once a line holds one.
     let text = ''
     const cells: Cell[] = []
+    const into = cell0()
     rows.forEach((line, i) => {
       for (let x = 0; x < line.length; x += 1) {
-        const cell = line.getCell(x)
+        const cell = line.getCell(x, into)
         if (!cell) continue
         const w = cell.getWidth()
         if (w === 0) continue // the second half of a wide character
@@ -202,7 +260,8 @@ export function attachLinkPaint(
       }
     })
     const links = find(text)
-    if (opts.asked?.()) noteWaiting(first)
+    const asked = opts.asked?.() ?? false
+    if (asked) noteWaiting(first)
     for (const link of links) {
       const pieces: RowPiece[] = []
       let from = link.start
@@ -218,6 +277,7 @@ export function attachLinkPaint(
       if (piecesOverlap(pieces, taken)) continue
       for (const p of pieces) paintRow(p.line, p.x, p.width, ink)
     }
+    return asked
   }
 
   /**
@@ -355,55 +415,78 @@ export function attachLinkPaint(
   }
 
   const cancelBacklog = (): void => {
-    if (!backlog) return
-    backlog.plan.cancel()
-    if (backlog.timer !== undefined) window.clearTimeout(backlog.timer)
-    backlog.cursor.dispose()
-    backlog = undefined
+    if (backlogTimer !== undefined) window.clearTimeout(backlogTimer)
+    backlogTimer = undefined
+    for (const seg of backlog) {
+      seg.cursor.dispose()
+      seg.floor?.dispose()
+    }
+    backlog = []
+  }
+
+  /** The segment in front is done: its markers go with it. */
+  const dropSegment = (): void => {
+    const seg = backlog.shift()
+    seg?.cursor.dispose()
+    seg?.floor?.dispose()
+  }
+
+  const backlogSoon = (): void => {
+    if (backlog.length && backlogTimer === undefined) backlogTimer = window.setTimeout(backlogStep, 0)
   }
 
   /**
    * One slice of the backlog: lines from the cursor UP, until SLICE_MS is
    * spent, then the page gets the thread back. The cursor is a marker, so the
    * buffer trimming lines off its top moves it too; once it is trimmed itself,
-   * everything above it is gone and the backlog has nothing left to paint.
+   * everything above it is gone and its segment has nothing left to paint. A
+   * trimmed floor says the same of the lines above it: down to 0.
    */
   const backlogStep = (): void => {
-    const bl = backlog
-    if (!bl) return
-    bl.timer = undefined
+    backlogTimer = undefined
+    const seg = backlog[0]
+    if (!seg) return
     const b = term.buffer.active
-    if (dead || b.type !== 'normal' || bl.cursor.isDisposed) return cancelBacklog()
+    if (dead || b.type !== 'normal') return cancelBacklog()
+    if (seg.cursor.isDisposed) {
+      dropSegment()
+      return backlogSoon()
+    }
+    const from = seg.floor && !seg.floor.isDisposed ? seg.floor.line : 0
     const t0 = performance.now()
     const ink = color()
     // Painted INSIDE the walk, so the slice's clock counts the painting.
-    const rows = bl.plan.next((r) => {
+    const rows = sliceRows(from, seg.cursor.line, SLICE_MS, () => performance.now()).next((r) => {
       // A wrapped row is painted with the line it continues, from that line's
-      // first row, which the walk reaches next. The backlog stops above the
-      // live pass's first line, so no line here runs into painted rows.
+      // first row, which the walk reaches next. A segment stops above the
+      // first line of the live pass that made it, so no line here runs into
+      // painted rows.
       if (!b.getLine(r)?.isWrapped) paintLogical(r, lastRowOf(r, b.length - 1), ink)
-    }, bl.cursor.line)
-    if (!rows) return cancelBacklog()
+    })
+    if (!rows) {
+      dropSegment()
+      return backlogSoon()
+    }
     slow('backlog', t0, rows.length)
     const next = rows[rows.length - 1] - 1
-    bl.cursor.dispose()
-    const cursor = next >= 0 ? markerAt(next) : undefined
-    if (!cursor) {
-      backlog = undefined
-      return
-    }
-    bl.cursor = cursor
-    bl.timer = window.setTimeout(backlogStep, 0)
+    const cursor = next >= from ? markerAt(next) : undefined
+    if (cursor) {
+      seg.cursor.dispose()
+      seg.cursor = cursor
+    } else dropSegment()
+    backlogSoon()
   }
 
-  /** Paint lines `top` and up, after the live screen, a slice at a time. */
-  const startBacklog = (top: number): void => {
-    cancelBacklog()
-    if (top < 0) return
+  /** Paint lines `top` and up (down to `floor`, or to line 0), after the live
+   *  screen, a slice at a time. A burst's segment goes first: it is nearer
+   *  the screen than what an earlier full pass still has left. */
+  const queueBacklog = (top: number, floor?: number): void => {
+    if (top < 0 || (floor !== undefined && top < floor)) return
     const cursor = markerAt(top)
     if (!cursor) return
-    backlog = { plan: sliceRows(0, top, SLICE_MS, () => performance.now()), cursor }
-    backlog.timer = window.setTimeout(backlogStep, 0)
+    const fl = floor !== undefined && floor > 0 ? markerAt(floor) : undefined
+    backlog.unshift({ cursor, floor: fl })
+    backlogSoon()
   }
 
   const unwatchRows = (): void => {
@@ -412,9 +495,18 @@ export function attachLinkPaint(
     inked = new WeakSet()
   }
 
+  const connected = (): boolean => term.element?.isConnected === true
+
   const scan = (): void => {
     timer = undefined
     if (dead) return
+    // OUT OF THE PAGE (a tab not shown): nothing to look at, so nothing is
+    // painted until it is back (perf review 2026-10-16: with 8 working tabs
+    // and one shown, 7/8 of the scanning was for tabs nobody could see).
+    if (!connected()) {
+      stale = true
+      return
+    }
     const b = term.buffer.active
     if (b.type !== 'normal') return
     const live = b.baseY
@@ -428,24 +520,70 @@ export function attachLinkPaint(
     // A pass starts on a whole logical line.
     while (start > 0 && b.getLine(start)?.isWrapped) start -= 1
     const end = Math.min(b.length - 1, live + term.rows - 1)
-    if (full) cancelBacklog()
-    forgetFrom(full ? 0 : start)
     const t0 = performance.now()
+    if (full || t0 - keysBorn > KEYS_TTL_MS) {
+      liveKeys = new Map()
+      keysBorn = t0
+    }
+    if (full) {
+      cancelBacklog()
+      forgetFrom(0)
+    }
+    // A BURST (more than BURST_SCREENS screens of new scrollback since the
+    // last pass: a flood, or a tab shown again after a long time away) is
+    // painted like a full pass's scrollback: the live screen now, the rest
+    // sliced, nearest the screen first.
+    let from = start
+    if (!full && live - start > BURST_SCREENS * term.rows) {
+      from = live
+      while (from > start && b.getLine(from)?.isWrapped) from -= 1
+      if (from > start) {
+        forgetLines(start, from - 1)
+        queueBacklog(from - 1, start)
+      }
+    }
     const ink = color()
-    let first = start
+    const context = opts.context?.() ?? ''
+    // Which logical lines say something other than they did last pass. Line
+    // `done` is the last pass's `live` line, wherever trimming has moved it.
+    const was = liveKeys
+    const keys = new Map<number, string>()
+    const changed: Array<{ first: number; last: number; key: string }> = []
+    let first = from
     while (first <= end) {
       const last = lastRowOf(first, end)
-      paintLogical(first, last, ink)
+      const key = lineKey(first, last, ink, context)
+      if (was.get(first - done) === key) keys.set(first - live, key)
+      else changed.push({ first, last, key })
       first = last + 1
     }
-    slow('live', t0, end - start + 1)
+    if (changed.length) {
+      const gone = new Set<number>()
+      for (const c of changed) for (let r = c.first; r <= c.last; r += 1) gone.add(r)
+      forgetWhere((l) => gone.has(l) || l > end)
+      // A line still waiting for a path's answer is painted again next pass.
+      for (const c of changed) if (!paintLogical(c.first, c.last, ink)) keys.set(c.first - live, c.key)
+    }
+    liveKeys = keys
+    slow('live', t0, end - from + 1)
     finished?.dispose()
     finished = markerAt(live)
-    if (full) startBacklog(start - 1)
+    if (full) queueBacklog(start - 1)
   }
 
   const soon = (): void => {
-    if (timer === undefined && !dead) timer = window.setTimeout(scan, DEBOUNCE_MS)
+    if (dead || timer !== undefined) return
+    if (!connected()) {
+      stale = true
+      return
+    }
+    timer = window.setTimeout(scan, DEBOUNCE_MS)
+  }
+
+  const attached = (): void => {
+    if (!stale) return
+    stale = false
+    soon()
   }
 
   const startOver = (): void => {
@@ -453,6 +591,7 @@ export function attachLinkPaint(
     forgetFrom(0)
     finished?.dispose()
     finished = undefined
+    liveKeys = new Map()
     soon()
     // The alternate screen is inked as it is drawn: draw it all again.
     if (term.buffer.active.type === 'alternate') term.refresh(0, term.rows - 1)
@@ -493,6 +632,8 @@ export function attachLinkPaint(
       paintLogical(first, last, ink)
     }
     slow('revisit', t0, again.length)
+    // A line on the live screen may be one that waited: paint them all again.
+    liveKeys = new Map()
     soon()
   }
 
@@ -512,6 +653,7 @@ export function attachLinkPaint(
   return {
     repaint: startOver,
     revisit,
+    attached,
     dispose: () => {
       dead = true
       unwatchRows()

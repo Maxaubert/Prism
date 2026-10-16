@@ -54,11 +54,20 @@ export function TabMark({
         </span>
       )
     case 'line':
+      // A FLOWING rainbow is an inner layer the line clips, moved by a
+      // transform (perf review 2026-10-16, styles/marks.css): sliding the
+      // line's own background was a paint every frame.
+      if (mark.motion === 'flow')
+        return (
+          <span {...common} className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-[3px] overflow-hidden">
+            <span className={motionClass(mark.motion, 'x')} style={{ background, backgroundSize: '114px 100%' }} />
+          </span>
+        )
       return (
         <span
           {...common}
           className={`pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-[3px] ${motionClass(mark.motion, 'x')}`}
-          style={{ background, ...(mark.motion === 'flow' ? { backgroundSize: '114px 100%' } : {}) }}
+          style={{ background }}
         />
       )
     case 'ring':
@@ -88,19 +97,24 @@ export function TabMark({
           )}
         </span>
       )
-    case 'fill':
+    case 'fill': {
+      // A FLOWING rainbow is an inner layer the fill clips, moved by a
+      // transform (perf review 2026-10-16), as the line's.
+      const flow = mark.motion === 'flow'
       return (
         <span
           {...common}
-          className={`pointer-events-none absolute inset-0 z-0 ${motionClass(mark.motion, 'fill')}`}
-          // The `background` shorthand resets the class's size, so the flowing
-          // rainbow's tile (228 px, two tabs) is said again here.
+          className={`pointer-events-none absolute inset-0 z-0 ${flow ? 'overflow-hidden' : motionClass(mark.motion, 'fill')}`}
           style={{
-            background,
-            ...(mark.motion === 'flow' ? { backgroundSize: '228px 100%' } : {}),
+            ...(flow ? {} : { background }),
             ...(ink ? { ['--mark-ink' as string]: ink } : {})
           }}
         >
+          {/* The `background` shorthand resets the class's size, so the
+              flowing rainbow's tile (228 px, two tabs) is said again here. */}
+          {flow && (
+            <span className={motionClass(mark.motion, 'fill')} style={{ background, backgroundSize: '228px 100%' }} />
+          )}
           {/* Minimal's own run, on top of the fill: the run case's markup. */}
           {mark.overlay === 'run' && overlay && (
             <span data-mark-overlay="run" className="absolute inset-x-0 bottom-0 h-[3px] overflow-hidden">
@@ -109,6 +123,7 @@ export function TabMark({
           )}
         </span>
       )
+    }
     default:
       return null
   }

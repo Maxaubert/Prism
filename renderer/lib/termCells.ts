@@ -70,7 +70,10 @@ export interface CellLike {
 }
 export interface LineLike {
   isWrapped: boolean
-  getCell(x: number): CellLike | undefined
+  /** With `into`, xterm loads the cell into it and returns it, allocating
+   *  nothing (the 2026-10-16 perf review: a fresh cell per read was ~6-12k
+   *  allocations per live link scan per tab, millions per full backlog). */
+  getCell(x: number, into?: CellLike): CellLike | undefined
 }
 export interface BufferLike {
   length: number
@@ -78,12 +81,18 @@ export interface BufferLike {
 }
 
 /** A buffer row's cells (audit 2026-10-12: moved here from termOsc8, so every
- *  read of a row into cells is this module's). */
-export function bufferRowCells(line: Pick<LineLike, 'getCell'> | undefined, cols: number): CellInfo[] | undefined {
+ *  read of a row into cells is this module's). `scratch` (xterm's
+ *  `getNullCell()`) is the one cell every read loads into: each cell's chars
+ *  and width are copied out before the next read overwrites it. */
+export function bufferRowCells(
+  line: Pick<LineLike, 'getCell'> | undefined,
+  cols: number,
+  scratch?: CellLike
+): CellInfo[] | undefined {
   if (!line) return undefined
   const out: CellInfo[] = []
   for (let x = 0; x < cols; x += 1) {
-    const cell = line.getCell(x)
+    const cell = line.getCell(x, scratch)
     out.push({ chars: cell?.getChars() ?? '', width: cell?.getWidth() ?? 1 })
   }
   return out

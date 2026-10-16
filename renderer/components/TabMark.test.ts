@@ -43,6 +43,18 @@ describe('the flat tab mark (#143)', () => {
     expect(html).toContain('data-attention="done"')
   })
 
+  // Perf review 2026-10-16: the rainbow moves as an inner layer the mark
+  // clips, by a transform; the mark itself holds still and wears no colour.
+  it('flows a finished rainbow as an inner layer the mark clips', () => {
+    const line = draw('minimal', 'done')
+    expect(line).toMatch(/data-mark="line"[^>]*class="[^"]*overflow-hidden/)
+    expect(line).toMatch(/<span class="p-mark-flow-x" style="background:#123456;background-size:114px 100%"/)
+    const fill = draw('full', 'done')
+    expect(fill).toMatch(/data-mark="fill"[^>]*class="[^"]*overflow-hidden/)
+    expect(fill).toMatch(/<span class="p-mark-flow-fill" style="background:#123456;background-size:228px 100%"/)
+    for (const html of [line, fill]) expect(html.match(/#123456/g)).toHaveLength(1)
+  })
+
   it('spins a ring for Ring while working', () => {
     const html = draw('ring', 'working')
     expect(html).toContain('data-mark="ring"')
