@@ -101,6 +101,13 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
    */
   const [moved, setMoved] = useState(0)
   const movedAt = useRef(0)
+  // Whether a look by the pointer could take anything down: only a Finished
+  // or Failed mark on the tab in front (perf review 2026-10-16: every move
+  // over the unfocused window re-rendered App twice a second for nothing).
+  const frontMarked = useRef(false)
+  useEffect(() => {
+    frontMarked.current = !!activeId && (doneIds.has(activeId) || failedIds.has(activeId))
+  }, [activeId, doneIds, failedIds])
   useEffect(() => {
     const MOVE_LOOK_MS = 1000
     let last = 0
@@ -111,6 +118,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
       if (looking.current.focused) return
       const now = Date.now()
       movedAt.current = now
+      if (!frontMarked.current) return
       // A look every half second at most: a moving pointer fires constantly.
       if (now - last < MOVE_LOOK_MS / 2) return
       last = now
@@ -156,6 +164,21 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
   const titled = useRef(new Set<string>())
   /** Sessions the process poll has said host an agent. */
   const polled = useRef(new Set<string>())
+  /**
+   * ASK THE POLL TO LOOK, AT MOST ONCE IN 15 S PER TAB (perf review
+   * 2026-10-16). Every title frame and hook signal of an agent the poll has
+   * not reported asked for a look, and a Claude the poll can never see (under
+   * WSL or SSH) kept PowerShell queries running back to back while it worked.
+   * Main also holds forced looks 5 s apart (agentPoll).
+   */
+  const lookAsked = useRef(new Map<string, number>())
+  const askLook = useCallback((id: string): void => {
+    if (polled.current.has(id)) return
+    const now = Date.now()
+    if (now - (lookAsked.current.get(id) ?? Number.NEGATIVE_INFINITY) < 15_000) return
+    lookAsked.current.set(id, now)
+    termApi().termAgentLook?.()
+  }, [])
   /** The one clearing timer per fallback-scored session. */
   const fallbackTimers = useRef(new Map<string, number>())
   const stopFallback = useCallback((id: string): void => {
@@ -389,7 +412,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
         // Present by its title alone: have the poll look now, so it sees the
         // agent while it runs and can say when it leaves (#73). Only the poll
         // ever takes a title's claim back.
-        if (!polled.current.has(id)) termApi().termAgentLook?.()
+        askLook(id)
         if (!titled.current.has(id)) {
           titled.current.add(id)
           outputRuns.current.delete(id)
@@ -424,7 +447,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
           return next
         })
       }),
-    [stopFallback, checkQuestion, applyHook, stopAnswerCheck]
+    [stopFallback, checkQuestion, applyHook, stopAnswerCheck, askLook]
   )
 
   /**
@@ -437,7 +460,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     () =>
       onAgentSignal((id, signal) => {
         logAgentHook(id, signal.state, signal.kind)
-        if (!polled.current.has(id)) termApi().termAgentLook?.()
+        askLook(id)
         if (!hooked.current.has(id)) {
           outputRuns.current.delete(id)
           stopFallback(id)
@@ -449,7 +472,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
         setAgentIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
         applyHook(id, signal)
       }),
-    [stopFallback, applyHook]
+    [stopFallback, applyHook, askLook]
   )
 
   /**
@@ -557,6 +580,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     outputRuns.current.delete(id)
     titled.current.delete(id)
     polled.current.delete(id)
+    lookAsked.current.delete(id)
     agentKinds.current.delete(id)
     forgetAgentTitle(id)
     stopFallback(id)

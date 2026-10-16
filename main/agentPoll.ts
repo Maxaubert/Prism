@@ -3,12 +3,26 @@ import { execFile } from 'child_process'
 import type { DetectedAgent } from '../shared/types'
 import { parseProcLines, treeAgentKind } from './agentDetect'
 import { livePids, ptyOutputTicks } from './terminal'
+import { diagMain } from './diagLog'
 
 /* ------------------------------------------------------------------ *
  * The agent poll's shape. See the poll itself for why it is like this.
  * ------------------------------------------------------------------ */
 export const AGENT_POLL_MIN = 2500
 export const AGENT_POLL_MAX = 20000
+/**
+ * A FORCED LOOK WAITS THIS LONG after the last query started, and a query
+ * that FAILS backs off doubling up to the ceiling below, forced looks
+ * included (perf review 2026-10-16). Before, a title or hook signal forced a
+ * PowerShell + CIM query on every frame of a Claude the poll cannot see
+ * (Claude under WSL or SSH: its process is not in the Windows tree, so the
+ * poll never reports it and the renderer asks again on the next frame), half
+ * to a whole core while it worked; and a query that always fails (WMI broken,
+ * AppLocker, Constrained Language) launched PowerShell every 2.5 s for the
+ * app's whole life.
+ */
+export const AGENT_FORCE_GAP = 5000
+export const AGENT_FAIL_MAX = 60000
 /**
  * "pid ppid" for everything, plus the command line only where a cheap word
  * match hits. The full dump with every command line was megabytes; this is a
@@ -42,13 +56,17 @@ export interface AgentPollDeps {
   ticks: () => number
   query: (done: (stdout: string | null) => void) => void
   now: () => number
+  /** Said once when the query has failed three times in a row: why agent
+   *  marks are missing, for the diagnostics log. */
+  failing?: () => void
 }
 
 const REAL: AgentPollDeps = {
   pids: livePids,
   ticks: ptyOutputTicks,
   query: queryProcesses,
-  now: () => Date.now()
+  now: () => Date.now(),
+  failing: () => diagMain().write('main', 'agent-poll-failing', { note: 'the process query keeps failing: agent marks rely on titles and hooks alone' })
 }
 
 /**
@@ -90,11 +108,20 @@ export function createAgentPoll(send: AgentSend, deps: AgentPollDeps = REAL): Ag
   // started again between two looks. Held until a look STARTS, so a look
   // already in flight, taken before the ask, does not spend it.
   const asked = new Set<string>()
+  /** When the last query started, and the failures in a row since one answered. */
+  let lastStart = Number.NEGATIVE_INFINITY
+  let fails = 0
+  let failNext = 0
   // `force` skips the two waits below, never the answer (#73): a look the
   // renderer asked for sends only what CHANGED, like any other.
-  const poll = (force = false): void => {
+  const poll = (asForced = false): void => {
     const pids = deps.pids()
     if (!pids.length || agentBusy) return
+    const startAt = deps.now()
+    // A failing query backs off for everyone, forced looks too.
+    if (fails && startAt < failNext) return
+    // A forced look inside the gap is an ordinary one: its waits apply.
+    const force = asForced && startAt - lastStart >= AGENT_FORCE_GAP
     const ticks = deps.ticks()
     const quiet = ticks === agentSeenTicks
     const known = pids.every((s) => agentState.has(s.id) && !asked.has(s.id))
@@ -107,6 +134,7 @@ export function createAgentPoll(send: AgentSend, deps: AgentPollDeps = REAL): Ag
     const now = deps.now()
     if (known && now < agentNext && !force) return
     agentBusy = true
+    lastStart = startAt
     const asking = new Set(asked)
     asked.clear()
     deps.query((stdout) => {
@@ -118,8 +146,12 @@ export function createAgentPoll(send: AgentSend, deps: AgentPollDeps = REAL): Ag
       const rows = stdout ? parseProcLines(stdout) : []
       if (!rows.length) {
         asking.forEach((id) => asked.add(id))
+        fails += 1
+        failNext = deps.now() + Math.min(AGENT_FAIL_MAX, AGENT_POLL_MIN * 2 ** fails)
+        if (fails === 3) deps.failing?.()
         return
       }
+      fails = 0
       agentSeenTicks = ticks
       let changed = false
       for (const { id, pid } of deps.pids()) {

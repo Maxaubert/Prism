@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AGENT_POLL_MAX, AGENT_POLL_MIN, createAgentPoll, type AgentPollDeps } from './agentPoll'
+import { AGENT_FAIL_MAX, AGENT_FORCE_GAP, AGENT_POLL_MAX, AGENT_POLL_MIN, createAgentPoll, type AgentPollDeps } from './agentPoll'
 
 /**
  * The poll's three rules, checked without a process list: ask only when a
@@ -47,9 +47,10 @@ describe('the agent poll', () => {
     w.set({ out: '100 1\n200 100 claude\n', now: 1 }) // claude starts, silently, inside the backoff
     poll()
     expect(w.sent).toEqual([['t1', false, null]])
+    w.set({ now: AGENT_FORCE_GAP })
     poll(true)
     expect(w.sent).toEqual([['t1', false, null], ['t1', true, 'claude']])
-    w.set({ out: '100 1\n', now: 2 }) // and quits
+    w.set({ out: '100 1\n', now: 2 * AGENT_FORCE_GAP }) // and quits
     poll(true)
     expect(w.sent.at(-1)).toEqual(['t1', false, null])
     const before = w.sent.length
@@ -140,8 +141,57 @@ describe('the agent poll', () => {
     // Same tick count, but there is still no answer: it asks again.
     w.set({ out: `100 1\n200 100 node ${CLAUDE}\n` })
     poll()
+    // (Inside the failure's backoff it waits; past it, it asks again.)
+    expect(w.asked()).toBe(1)
+    w.set({ now: 2 * AGENT_POLL_MIN })
+    poll()
     expect(w.asked()).toBe(2)
     expect(w.sent).toEqual([['t1', true, 'claude']])
+  })
+
+  // Perf review 2026-10-16: a query that always failed launched PowerShell
+  // every 2.5 s for the app's life, and a Claude the poll cannot see (WSL,
+  // SSH) had every title frame force a new one.
+  it('a failing query backs off, doubling to a minute, forced looks included, and says so once', () => {
+    const w = world()
+    let failing = 0
+    const poll = createAgentPoll(w.send, { ...w.deps, failing: () => (failing += 1) })
+    w.set({ out: null })
+    let t = 0
+    const times: number[] = []
+    for (let i = 0; i < 400; i += 1) {
+      t += 500
+      w.set({ now: t, ticks: i })
+      const before = w.asked()
+      poll(i % 2 === 0)
+      if (w.asked() > before) times.push(t)
+    }
+    const gaps = times.slice(1).map((x, i) => x - times[i])
+    expect(gaps.slice(0, 4)).toEqual([5000, 10000, 20000, 40000])
+    expect(Math.max(...gaps)).toBe(AGENT_FAIL_MAX)
+    expect(failing).toBe(1)
+    // An answer resets it: the next look comes at the usual pace.
+    w.set({ out: '100 1\n', now: t + AGENT_FAIL_MAX })
+    poll()
+    w.set({ now: t + AGENT_FAIL_MAX + AGENT_POLL_MIN, ticks: 999 })
+    const before = w.asked()
+    poll()
+    expect(w.asked()).toBe(before + 1)
+  })
+
+  it('a forced look waits for the gap since the last query, then looks', () => {
+    const w = world()
+    const poll = createAgentPoll(w.send, w.deps)
+    poll()
+    expect(w.asked()).toBe(1)
+    for (let i = 1; i < 10; i += 1) {
+      w.set({ now: i * 400 })
+      poll(true)
+    }
+    expect(w.asked()).toBe(1)
+    w.set({ now: AGENT_FORCE_GAP })
+    poll(true)
+    expect(w.asked()).toBe(2)
   })
 
   it('forgets a session that ended, so its id starts clean', () => {
