@@ -385,6 +385,4 @@ export interface PhoneState {
   /** A pairing code for the folder in front (or This PC): link and QR (SVG), when the server is up. */
   code?: { code: string; link: string; svg: string; expires: number }
   error?: string
-  /** The address phones use (#406), or null for this PC's own address. */
-  address: string | null
 }

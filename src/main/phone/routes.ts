@@ -95,8 +95,3 @@ export function tokenOf(query: URLSearchParams, auth: string | undefined): strin
 export function pairLink(address: string, port: number, code: string): string {
   return `http://${address}:${port}/?code=${code}`
 }
-
-/** The same link through the address phones use (#406): an origin `parseAddress` kept. */
-export function pairLinkAt(origin: string, code: string): string {
-  return `${origin}/?code=${code}`
-}
