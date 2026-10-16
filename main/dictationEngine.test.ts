@@ -375,6 +375,22 @@ describe('warming up', () => {
     expect((await w.engine.warm({ modelId: 'base', language: 'auto' })).ok).toBe(false)
     expect(await w.engine.transcribe(req({ final: false }))).toMatchObject({ ok: false, reason: 'engine-failed' })
   })
+
+  // Perf review 2026-10-16: each partial on a broken engine launched a server.
+  it('after a server would not start, a held key starts no more servers; a final still tries', async () => {
+    const w = world({ cpuFlags: ['--fake-exit'] })
+    expect((await w.engine.warm({ modelId: 'base', language: 'auto' })).ok).toBe(false)
+    expect(w.launched).toHaveLength(1)
+    for (let i = 0; i < 4; i += 1) {
+      const r = await w.engine.transcribe(req({ final: false }))
+      expect(r).toMatchObject({ ok: false, reason: 'engine-failed' })
+      expect(!r.ok && r.detail).toContain('fake: CUDA error')
+    }
+    expect(w.launched).toHaveLength(1)
+    w.set({ cpuFlags: [] })
+    expect((await w.engine.transcribe(req())).ok).toBe(true)
+    expect(w.launched).toHaveLength(2)
+  })
 })
 
 describe('standing down', () => {

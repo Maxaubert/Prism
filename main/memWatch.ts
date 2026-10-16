@@ -7,7 +7,8 @@ import type { DiagLog } from './diagLog'
  * so; it took a live look at the process list to see it). A `memory` crumb
  * every five minutes with each kind of process's private memory, so the next
  * leak shows as a rising line long before it hurts, and the crumbs before a
- * stall say how big the page was. When the page passes 2 GB a `mem-high`
+ * stall say how big the page was. When the page passes 2 GB (main and the
+ * GPU process: see `MEM_HIGH_MAIN_MB`) a `mem-high`
  * problem is written, and again at every doubling (4, 8, 16 GB), never more
  * often: a page that big is a leak, not a busy terminal (the page is a few
  * hundred MB with eight Claude tabs, MEASURED the same night after a restart:
@@ -40,9 +41,17 @@ export const MEM_HIGH_MB = 2048
 /** Electron's process types, as the crumb names them. */
 const KIND: Record<string, 'mainMb' | 'pageMb' | 'gpuMb'> = { Browser: 'mainMb', Tab: 'pageMb', GPU: 'gpuMb' }
 
+/**
+ * MAIN AND THE GPU PROCESS HAVE THEIR OWN ALARM (perf review 2026-10-16): a
+ * leak in either showed only as a rising number in the 5-minute crumbs, which
+ * nobody reads until something hurts. Main at 1 GB (it is a few hundred MB),
+ * the GPU process at 2 GB, each doubling from there like the page's.
+ */
+export const MEM_HIGH_MAIN_MB = 1024
+export const MEM_HIGH_GPU_MB = 2048
+
 export function startMemWatch(deps: MemWatchDeps): MemWatch {
-  const highMb = deps.highMb ?? MEM_HIGH_MB
-  let nextHigh = highMb
+  const next = { pageMb: deps.highMb ?? MEM_HIGH_MB, mainMb: MEM_HIGH_MAIN_MB, gpuMb: MEM_HIGH_GPU_MB }
   const sample = (): void => {
     let list: ProcessMetricLike[]
     try {
@@ -63,9 +72,10 @@ export function startMemWatch(deps: MemWatchDeps): MemWatch {
       otherMb: Math.round(mb.otherMb)
     }
     deps.log.write('main', 'crumb', { a: 'memory', ...out })
-    if (out.pageMb >= nextHigh) {
-      deps.log.write('main', 'mem-high', { ...out, overMb: nextHigh })
-      while (nextHigh <= out.pageMb) nextHigh *= 2
+    for (const k of ['pageMb', 'mainMb', 'gpuMb'] as const) {
+      if (out[k] < next[k]) continue
+      deps.log.write('main', 'mem-high', { ...out, overMb: next[k], proc: k.slice(0, -2) })
+      while (next[k] <= out[k]) next[k] *= 2
     }
   }
   const timer = setInterval(sample, deps.everyMs ?? MEM_EVERY_MS)

@@ -82,6 +82,11 @@ export function takeResume(id: string): string | null {
   return session
 }
 
+/** For tests: how many sessions the birth rule keeps a clock for. */
+export function outputClocks(): number {
+  return lastOut.size
+}
+
 /** A session ended: forget everything about it. */
 export function forgetSession(id: string): void {
   touchedIds.delete(id)
@@ -132,6 +137,10 @@ export function markBorn(id: string, now = Date.now()): void {
  * score), and from then on output counts normally.
  */
 export function startupOutput(id: string, now = Date.now()): boolean {
+  // Output for a session never born here, or forgotten (a tab closed while
+  // its pty still had output on the way): nothing to time, and no entry to
+  // make that nothing would remove (perf review 2026-10-16).
+  if (!born.has(id) && !lastOut.has(id)) return false
   const prev = lastOut.get(id) ?? 0
   lastOut.set(id, now)
   if (!born.has(id)) return false

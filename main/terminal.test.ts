@@ -2,8 +2,44 @@ import { describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { OutputBatcher, pluginKey, ptyEnv, RESUME_ENV, withPluginDir, withResume } from './terminal'
+import { OutputBatcher, pluginKey, pollExitCode, ptyEnv, RESUME_ENV, withPluginDir, withResume } from './terminal'
 import { isOurPlugin, PLUGIN_NAME } from './claudePlugin'
+
+// Perf review 2026-10-16: a kill whose exit never came polled every 20 ms until the quit.
+describe('pollExitCode', () => {
+  it('reads every 20 ms for 5 s, then once a second, says so once, and still hears a late exit', () => {
+    vi.useFakeTimers()
+    try {
+      let reads = 0
+      const exit: { code?: number } = {}
+      const agent = {} as { exitCode?: number }
+      Object.defineProperty(agent, 'exitCode', {
+        get: () => {
+          reads += 1
+          return exit.code
+        }
+      })
+      const done = vi.fn()
+      const stuck = vi.fn()
+      pollExitCode(agent, done, stuck)
+      vi.advanceTimersByTime(5000)
+      expect(reads).toBe(250)
+      expect(stuck).toHaveBeenCalledTimes(1)
+      reads = 0
+      vi.advanceTimersByTime(60_000)
+      expect(reads).toBe(60)
+      expect(stuck).toHaveBeenCalledTimes(1)
+      exit.code = 1
+      vi.advanceTimersByTime(1000)
+      expect(done).toHaveBeenCalledTimes(1)
+      reads = 0
+      vi.advanceTimersByTime(10_000)
+      expect(reads).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
 
 describe('OutputBatcher', () => {
   it('coalesces chunks and flushes once per window', () => {

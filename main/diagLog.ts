@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'fs'
 import { writeAtomic } from './atomicWrite'
-import { open } from 'fs/promises'
+import { open, rename, rm } from 'fs/promises'
 import { dirname, join } from 'path'
 import { performance } from 'perf_hooks'
 import { cleanFields, errorFields } from './diagSummary'
@@ -98,6 +98,9 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
   let dirReady = false
   let dropped = 0
   let rotateAfter = 0
+  let rotating = false
+  /** The flush link queued and not yet started (`flush`). */
+  let pendingLink: Promise<void> | null = null
   /**
    * The batch the async path has taken and not yet seen land. `flushSync`
    * (the quit, a crash) writes it first, ahead of what is queued, so the
@@ -150,11 +153,13 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
     dirReady = true
   }
 
-  /** Rotation, synchronous: it happens once per 2 MB, and renames are fast.
-   *  It never throws: a file held open stays the live one a while longer. */
+  const rotateDue = (incoming: number): boolean =>
+    !rotating && size !== 0 && size + incoming > maxBytes && uptime() >= rotateAfter
+
+  /** Rotation, synchronous: for `flushSync` (the quit) only. It never
+   *  throws: a file held open stays the live one a while longer. */
   const rotateIfFull = (incoming: number): void => {
-    if (size === 0 || size + incoming <= maxBytes) return
-    if (uptime() < rotateAfter) return
+    if (!rotateDue(incoming)) return
     try {
       rmSync(`${file}.${DIAG_KEEP}`, { force: true })
       for (let n = DIAG_KEEP - 1; n >= 1; n -= 1) {
@@ -169,6 +174,31 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
     } catch (err) {
       rotateAfter = uptime() + ROTATE_RETRY_MS
       fail(err)
+    }
+  }
+
+  /**
+   * THE SAME ON THE THREADPOOL, for the running app's flushes (perf review
+   * 2026-10-16): an rmSync and up to five renameSyncs on main, once per 2 MB,
+   * wait for a starved disk like any write. `rotating` keeps the quit's
+   * synchronous one from shuffling the same files at the same time.
+   */
+  const rotateAsync = async (): Promise<void> => {
+    rotating = true
+    try {
+      await rm(`${file}.${DIAG_KEEP}`, { force: true })
+      for (let n = DIAG_KEEP - 1; n >= 1; n -= 1) {
+        await rename(`${file}.${n}`, `${file}.${n + 1}`).catch(() => {
+          /* that one did not exist yet */
+        })
+      }
+      await rename(file, `${file}.1`)
+      size = 0
+    } catch (err) {
+      rotateAfter = uptime() + ROTATE_RETRY_MS
+      fail(err)
+    } finally {
+      rotating = false
     }
   }
 
@@ -198,14 +228,23 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
       clearTimeout(timer)
       timer = null
     }
-    chain = chain.then(async () => {
+    // ONE LINK WAITING AT MOST (perf review 2026-10-16): a flush every 250 ms
+    // behind a write stuck on the disk added a link each time, about 14,000
+    // an hour. The one waiting takes everything queued when it runs, so a
+    // later flush has nothing to add but its wait.
+    if (pendingLink) return pendingLink
+    pendingLink = chain = chain.then(async () => {
+      pendingLink = null
       const text = take()
       if (text === null) return
       const batch = { text, bytes: Buffer.byteLength(text), done: false }
       try {
         ensureDir()
-        rotateIfFull(batch.bytes)
+        // Set before the rotation's awaits, so a quit during it writes this
+        // batch itself (and this path then leaves it).
         inflightBatch = batch
+        if (rotateDue(batch.bytes)) await rotateAsync()
+        if (batch.done) return
         // Opened, then written, and not `appendFile`: the open is a threadpool
         // round trip of its own, and a `flushSync` that lands in it has
         // already written this batch (MEASURED in the unit test: with

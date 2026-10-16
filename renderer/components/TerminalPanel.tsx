@@ -50,7 +50,7 @@ import {
 } from '../lib/termSelectionEdit'
 import { attachLinkPaint, type LinkPainter } from '../lib/termLinkPaint'
 import { termFitHeld, whenTermFitReleased } from '../lib/fitHold'
-import { findPath, linkRanges, onPathsFound, pathCandidates, takeAsked, type PathHit } from '../lib/termPathLinks'
+import { findPath, forgetPathOwner, linkRanges, onPathsFound, pathCandidates, takeAsked, type PathHit } from '../lib/termPathLinks'
 import {
   initialCaretHold,
   onCaretKey,
@@ -556,6 +556,8 @@ export function disposeTermSession(id: string): void {
   s.search.dispose()
   s.term.dispose()
   s.el.remove()
+  // After the painter is gone, so no last paint teaches the tab again.
+  forgetPathOwner(id)
 }
 
 /**
@@ -1066,16 +1068,21 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   const copyDown = (e: MouseEvent): void => {
     if (e.button === 0 && !e.shiftKey) appCopies.down(e.clientX, e.clientY, e.detail)
   }
+  const copyMove = (e: MouseEvent): void => {
+    if (e.buttons & 1) appCopies.move(e.clientX, e.clientY)
+  }
   const copyUp = (e: MouseEvent): void => {
     if (e.button === 0) appCopies.up(e.clientX, e.clientY)
   }
   el.addEventListener('mousedown', copyDown, true)
   window.addEventListener('mouseup', copyUp, true)
+  window.addEventListener('mousemove', copyMove, true)
   const unsub = [
     () => questions.dispose(),
     () => {
       el.removeEventListener('mousedown', copyDown, true)
       window.removeEventListener('mouseup', copyUp, true)
+      window.removeEventListener('mousemove', copyMove, true)
     },
     attachClickCaret(term, el, id, (line, x) => oscLink(line, x) !== null),
     // A path this session asked about turned out to exist: paint the lines

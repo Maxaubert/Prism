@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import { stat } from 'fs/promises'
 import { homedir } from 'os'
 import { extname, isAbsolute, resolve, win32 } from 'path'
+import { PATHS_MAX } from '../shared/termLimits'
 
 /**
  * A PATH CLICKED IN THE TERMINAL (#99; owner, 2026-09-29: "clickable links that
@@ -39,8 +40,9 @@ export function isRunnable(file: string): boolean {
   return RUNNABLE.has(extname(file).slice(1).toLowerCase())
 }
 
-/** The most a page may ask about in one go, and the longest text. */
-export const PATHS_MAX = 300
+/** The most a page may ask about in one go (shared: the page asks in pieces
+ *  of this size, #99 and the 2026-10-16 perf review), and the longest text. */
+export { PATHS_MAX }
 const TEXT_MAX = 1024
 
 /**
@@ -66,21 +68,107 @@ export function resolveTermPath(cwd: string, text: string, home = homedir()): st
   return win32.normalize(resolve(cwd, p))
 }
 
-/** What each text names, in order: a file, a folder, or null. */
-export async function pathKinds(cwd: string, texts: string[]): Promise<Array<PathHit | null>> {
+/**
+ * THE STATS ARE METERED (perf review 2026-10-16). A page batch was up to 300
+ * stats at once, no limit and no clock, on the same four-thread pool that
+ * writes tabs.json and the diag log; a mapped drive (`Z:`) passes the UNC
+ * refusal above and is stat'ed over SMB. Stable's diag log had term:path-kinds
+ * calls of 5 to 9 s, and every save waited behind them. So at most
+ * `STAT_SLOTS` stats are in flight, a slot is held until its stat itself
+ * ends (what it guards is the pool thread, not the answer), and a drive whose
+ * stat takes longer than `SLOW_MS` answers "nothing there" for `SLOW_FOR_MS`
+ * without being asked: a link that lights up a minute late beats a stalled save.
+ */
+const STAT_SLOTS = 3
+const SLOW_MS = 750
+const SLOW_FOR_MS = 60_000
+
+export interface StatGateOptions {
+  stat?: (abs: string) => Promise<{ isDirectory(): boolean; isFile(): boolean }>
+  now?: () => number
+  slots?: number
+  slowMs?: number
+  slowForMs?: number
+}
+
+/** What `abs` is, through the meter: null for nothing, or a drive held slow. */
+export type StatGate = (abs: string) => Promise<PathKind | null>
+
+const kindOf = (s: { isDirectory(): boolean; isFile(): boolean }): PathKind | null =>
+  s.isDirectory() ? 'dir' : s.isFile() ? 'file' : null
+
+export function createStatGate(opts: StatGateOptions = {}): StatGate {
+  const statFn = opts.stat ?? stat
+  const now = opts.now ?? Date.now
+  const slots = opts.slots ?? STAT_SLOTS
+  const slowMs = opts.slowMs ?? SLOW_MS
+  const slowForMs = opts.slowForMs ?? SLOW_FOR_MS
+  let active = 0
+  const waiting: Array<() => void> = []
+  const slowUntil = new Map<string, number>()
+  const isSlow = (drive: string): boolean => {
+    const until = slowUntil.get(drive)
+    if (until === undefined) return false
+    if (now() < until) return true
+    slowUntil.delete(drive)
+    return false
+  }
+  const acquire = (): Promise<void> => {
+    if (active < slots) {
+      active += 1
+      return Promise.resolve()
+    }
+    return new Promise<void>((resolve) =>
+      waiting.push(() => {
+        active += 1
+        resolve()
+      })
+    )
+  }
+  const release = (): void => {
+    active -= 1
+    waiting.shift()?.()
+  }
+  return async (abs) => {
+    const drive = abs.slice(0, 2).toLowerCase()
+    if (isSlow(drive)) return null
+    await acquire()
+    if (isSlow(drive)) {
+      release()
+      return null
+    }
+    const asked = statFn(abs).then(kindOf, () => null)
+    void asked.finally(release)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<'late'>((resolve) => {
+      timer = setTimeout(() => resolve('late'), slowMs)
+    })
+    const got = await Promise.race([asked, late])
+    clearTimeout(timer)
+    if (got === 'late') {
+      slowUntil.set(drive, now() + slowForMs)
+      return null
+    }
+    return got
+  }
+}
+
+const linkGate = createStatGate()
+
+/** One stat, unmetered: a CLICK is one question the user asked, and must not
+ *  wait behind the painter's queue or be refused for a drive held slow. */
+const direct: StatGate = (abs) => stat(abs).then(kindOf, () => null)
+
+/** What each text names, in order: a file, a folder, or null. Through the
+ *  meter by default: this is the painter's question, for every path on screen. */
+export async function pathKinds(cwd: string, texts: string[], gate: StatGate = linkGate): Promise<Array<PathHit | null>> {
   const list = texts.slice(0, PATHS_MAX)
   return Promise.all(
     list.map(async (t) => {
       const abs = resolveTermPath(cwd, t)
       if (!abs) return null
-      try {
-        const s = await stat(abs)
-        if (s.isDirectory()) return { kind: 'dir' as const, abs }
-        if (s.isFile()) return { kind: 'file' as const, abs }
-        return null
-      } catch {
-        return null
-      }
+      const kind = await gate(abs)
+      return kind ? { kind, abs } : null
     })
   )
 }
@@ -103,7 +191,7 @@ export async function openTermPath(
   mode: 'open' | 'reveal',
   openers: PathOpeners
 ): Promise<'opened' | 'revealed' | null> {
-  const [hit] = await pathKinds(cwd, [text])
+  const [hit] = await pathKinds(cwd, [text], direct)
   if (!hit) return null
   if (mode === 'reveal' || (hit.kind === 'file' && isRunnable(hit.abs))) {
     openers.revealPath(hit.abs)

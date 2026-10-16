@@ -360,6 +360,35 @@ describe('the dictation store: a model', () => {
     expect(readdirSync(join(root, 'models'))).toEqual([])
   })
 
+  // Perf review 2026-10-16: a stat on main's thread for every dictation pass.
+  it('believes an installed model for 30 s, a missing one never, and forgets on remove and status', async () => {
+    const root = freshRoot()
+    let t = 1_000_000
+    const store = createDictationStore({ root, catalog: [entry('base', '/good', GOOD)], now: () => t })
+    const file = join(root, 'models', 'base.bin')
+    expect(store.modelPath('base')).toBeNull()
+    // Put there by the other app: seen at once, a "no" is never kept.
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, GOOD)
+    expect(store.modelPath('base')).toBe(file)
+    // Gone behind the store's back: the disk is not asked again for 30 s.
+    rmSync(file)
+    t += 10_000
+    expect(store.modelPath('base')).toBe(file)
+    t += 20_000
+    expect(store.modelPath('base')).toBeNull()
+    // status() and remove() look again at once.
+    writeFileSync(file, GOOD)
+    expect(store.modelPath('base')).toBe(file)
+    rmSync(file)
+    expect(await store.status()).toEqual([{ id: 'base', state: 'absent', received: 0 }])
+    expect(store.modelPath('base')).toBeNull()
+    writeFileSync(file, GOOD)
+    expect(store.modelPath('base')).toBe(file)
+    await store.remove('base')
+    expect(store.modelPath('base')).toBeNull()
+  })
+
   it('refuses a catalog id that could walk out of the folder', () => {
     expect(() => createDictationStore({ root: freshRoot(), catalog: [entry('..\\evil', '/good', GOOD)] })).toThrow()
   })

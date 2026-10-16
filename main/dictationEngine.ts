@@ -157,6 +157,9 @@ type Launch = { ok: true; server: Server } | { ok: false; detail: string }
 type Answer = { ok: true; text: string } | { ok: false; detail: string; died: boolean }
 
 const STOPPED: TranscribeResult = { ok: false, reason: 'engine-failed', detail: 'dictation was stopped' }
+/** How long a server that would not start is not started again for a partial. */
+export const LAUNCH_FAIL_MS = 30_000
+const launchKey = (kind: EngineKind, modelPath: string, language: string): string => `${kind}\n${modelPath}\n${language}`
 
 /** A port nobody is using: listen on 0, read what Windows handed out, let go. */
 function freePort(): Promise<number> {
@@ -271,6 +274,16 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
   /** The last warm-up failed. Partials then go the ordinary way, so the
    *  failure is reported, instead of each one starting another warm-up. */
   let warmFailed = false
+  /**
+   * A server that would not start, and for what (perf review 2026-10-16).
+   * After a failed warm-up every partial went the ordinary way, and with no
+   * server up each one launched another: a held key on a broken engine (an
+   * antivirus-quarantined DLL, a damaged model) spawned a server, and read
+   * the model, every 0.6 to 1 s. A PARTIAL for the same engine, model and
+   * language is answered with the failure for `LAUNCH_FAIL_MS` instead; a
+   * final still tries, and stop() or another model clears it.
+   */
+  let launchFailed: { key: string; until: number; detail: string | undefined } | null = null
 
   /** Queue the silent pass that warms a server for this model and language,
    *  unless one is already on its way or the server up now is warm for it. It
@@ -599,6 +612,9 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
       s = null
     }
     if (!s) {
+      const failed = launchFailed
+      if (!req.final && failed && failed.key === launchKey(want.kind, modelPath, language) && now() < failed.until)
+        return { ok: false, reason: 'engine-failed', detail: failed.detail }
       let started = await launch(want.kind, want.dir, modelPath, language, stopped)
       if (stopped()) return STOPPED
       if (!started.ok && want.kind === 'gpu') {
@@ -611,7 +627,13 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
         started = await launch('cpu', cpuDir, modelPath, language, stopped)
         if (stopped()) return STOPPED
       }
-      if (!started.ok) return { ok: false, reason: 'engine-failed', detail: started.detail }
+      if (!started.ok) {
+        // Keyed by what the NEXT pick will ask for: after a GPU fallback that is the CPU.
+        const kind = want.kind === 'gpu' && gpuFellBack ? 'cpu' : want.kind
+        launchFailed = { key: launchKey(kind, modelPath, language), until: now() + LAUNCH_FAIL_MS, detail: started.detail }
+        return { ok: false, reason: 'engine-failed', detail: started.detail }
+      }
+      launchFailed = null
       s = started.server
     }
     lastKind = s.kind
@@ -708,6 +730,7 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
       epoch += 1
       warming = false
       warmFailed = false
+      launchFailed = null
       if (idleTimer) {
         clearTimeout(idleTimer)
         idleTimer = null

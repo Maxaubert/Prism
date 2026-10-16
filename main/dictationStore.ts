@@ -53,6 +53,9 @@ export const PACK_MARKER = 'prism-installed.json'
  */
 export const STALE_PART_MS = 60_000
 
+/** How long `modelPath` and `gpuEngineDir` believe an installed answer. */
+export const INSTALLED_MEMO_MS = 30_000
+
 /** "at most about 10 times a second": a 2.9 GB model is about 50 000 chunks. */
 const PROGRESS_EVERY_MS = 100
 
@@ -162,6 +165,24 @@ export function createDictationStore(deps: DictationStoreDeps): DictationStore {
     } catch {
       return false
     }
+  }
+
+  /**
+   * A "yes" is believed for `INSTALLED_MEMO_MS` (perf review 2026-10-16): the
+   * engine asks `modelPath` and `gpuEngineDir` on every pass, 0.6 to 1 s apart
+   * while a key is held, and each was a stat or a marker read on main's
+   * thread, which waits like a write does on a starved disk. A "no" is never
+   * kept, so a model the other app (Prism shares the folder) downloads is
+   * seen at once; this store's own download, remove and status() forget it.
+   */
+  const installedUntil = new Map<string, number>()
+  function installed(e: CatalogEntry): boolean {
+    const until = installedUntil.get(e.id)
+    if (until !== undefined && now() < until) return true
+    const ok = installedSync(e)
+    if (ok) installedUntil.set(e.id, now() + INSTALLED_MEMO_MS)
+    else installedUntil.delete(e.id)
+    return ok
   }
 
   /**
@@ -366,6 +387,7 @@ export function createDictationStore(deps: DictationStoreDeps): DictationStore {
     const e = find(id)
     // The contract has no reason for "no such thing"; nothing can be fetched, so network it is.
     if (!e) return Promise.resolve({ ok: false, reason: 'network', detail: `not in the catalog: ${id}` })
+    installedUntil.delete(id)
     const running = flights.get(id)
     if (running) {
       // Cancel and then Retry, quicker than the cancelled flight can tidy up:
@@ -409,8 +431,9 @@ export function createDictationStore(deps: DictationStoreDeps): DictationStore {
       const part = partPath(e)
       const left = await stat(part).catch(() => null)
       if (left && now() - left.mtimeMs > STALE_PART_MS) await gone(part).catch(() => {})
-      const installed = installedSync(e)
-      out.push({ id: e.id, state: installed ? 'installed' : 'absent', received: installed ? e.bytes : 0 })
+      installedUntil.delete(e.id)
+      const here = installed(e)
+      out.push({ id: e.id, state: here ? 'installed' : 'absent', received: here ? e.bytes : 0 })
     }
     return out
   }
@@ -423,24 +446,35 @@ export function createDictationStore(deps: DictationStoreDeps): DictationStore {
       cancel(id)
       await flight.promise
     }
-    await gone(partPath(e))
-    await gone(finalPath(e))
-    if (isPack(e)) {
-      engineDirMemo = null
-      await gone(packDir(e))
-      await sweepPacks(e, null)
+    installedUntil.delete(e.id)
+    try {
+      await gone(partPath(e))
+      await gone(finalPath(e))
+      if (isPack(e)) {
+        engineDirMemo = null
+        await gone(packDir(e))
+        await sweepPacks(e, null)
+      }
+    } finally {
+      // Again once the files are gone: an ask made while they went may have
+      // found them still there.
+      installedUntil.delete(e.id)
     }
   }
 
   function modelPath(id: string): string | null {
     const e = find(id)
-    return e && !isPack(e) && installedSync(e) ? finalPath(e) : null
+    return e && !isPack(e) && installed(e) ? finalPath(e) : null
   }
 
   function gpuEngineDir(): string | null {
     const e = catalog.find(isPack)
-    if (!e || !installedSync(e)) return null
+    if (!e) return null
+    // Believed with the marker: the folder was looked in when the "yes" was.
+    const believed = (installedUntil.get(e.id) ?? 0) > now()
+    if (!installed(e)) return null
     const dir = packDir(e)
+    if (believed && engineDirMemo && engineDirMemo.startsWith(dir)) return engineDirMemo
     if (engineDirMemo && engineDirMemo.startsWith(dir) && existsSync(join(engineDirMemo, SERVER_EXE))) return engineDirMemo
     engineDirMemo = findServer(dir)
     return engineDirMemo

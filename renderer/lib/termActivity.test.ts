@@ -6,10 +6,27 @@ import {
   inputEcho,
   isTouched,
   looksTyped,
+  markBorn,
   markPrompt,
   markTouched,
+  outputClocks,
+  startupOutput,
   suppressActivity
 } from './termActivity'
+
+// Perf review 2026-10-16: output after a tab closed made a clock nothing removed.
+describe('late output for a closed tab', () => {
+  it('leaves nothing behind', () => {
+    const before = outputClocks()
+    markBorn('late')
+    expect(startupOutput('late')).toBe(true)
+    forgetSession('late')
+    expect(outputClocks()).toBe(before)
+    expect(startupOutput('late')).toBe(false)
+    expect(startupOutput('never-born')).toBe(false)
+    expect(outputClocks()).toBe(before)
+  })
+})
 
 beforeEach(() => {
   vi.useFakeTimers()

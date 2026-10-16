@@ -1,6 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { configureTermCore, resetTermCore, type TermApi, type TermHostConfig } from '../host'
-import { findPath, holdsCwd, linkRanges, onPathsFound, parentDir, pathCandidates, resetPathCache, takeAsked } from './termPathLinks'
+import {
+  findPath,
+  forgetPathOwner,
+  holdsCwd,
+  linkRanges,
+  onPathsFound,
+  parentDir,
+  pathCandidates,
+  pathOwnersKept,
+  resetPathCache,
+  takeAsked
+} from './termPathLinks'
 
 const paths = (text: string): string[] => pathCandidates(text).map((p) => p.path)
 
@@ -266,5 +277,67 @@ describe('a tab showing many folders settles', () => {
     expect(wakes).toBe(settled)
     // One for the answer, one per folder taught: never more.
     expect(wakes).toBeLessThanOrEqual(1 + lines.length)
+  })
+})
+
+// Perf review 2026-10-16: main answers the first 300 of a call, and every path
+// past the 300th was cached as "does not exist".
+describe('a long list is asked in pieces main answers whole', () => {
+  afterEach(() => {
+    resetPathCache()
+    resetTermCore()
+    vi.useRealTimers()
+  })
+
+  it('asks 300 at a time, one piece after the other, and the 400th lights up', async () => {
+    vi.useFakeTimers()
+    let flying = 0
+    let most = 0
+    const ask = vi.fn(async (_cwd: string, texts: string[]) => {
+      flying += 1
+      most = Math.max(most, flying)
+      await Promise.resolve()
+      flying -= 1
+      // Main's own cap: it never answers past 300.
+      return texts.slice(0, 300).map((t) => ({ kind: 'file' as const, abs: `C:\\w\\${t}` }))
+    })
+    configureTermCore({ api: { termPathKinds: ask } as unknown as TermApi } as TermHostConfig)
+    const text = Array.from({ length: 650 }, (_, n) => `f${n}.txt`).join(' ')
+    linkRanges(text, 'C:\\w', 'A')
+    for (let i = 0; i < 5; i += 1) await vi.advanceTimersByTimeAsync(50)
+    expect(ask.mock.calls.map((c) => c[1].length)).toEqual([300, 300, 50])
+    expect(most).toBe(1)
+    expect(findPath('A', 'C:\\w', 'f400.txt')?.hit.abs).toBe('C:\\w\\f400.txt')
+  })
+
+  it('a short answer is never read past its end as "missing"', async () => {
+    vi.useFakeTimers()
+    const ask = vi.fn(async () => [{ kind: 'file' as const, abs: 'C:\\w\\a.txt' }])
+    configureTermCore({ api: { termPathKinds: ask } as unknown as TermApi } as TermHostConfig)
+    linkRanges('a.txt b.txt', 'C:\\w', 'A')
+    await vi.advanceTimersByTimeAsync(50)
+    expect(findPath('A', 'C:\\w', 'a.txt')?.hit.kind).toBe('file')
+    expect(findPath('A', 'C:\\w', 'b.txt')).toBeUndefined()
+  })
+})
+
+// Perf review 2026-10-16: a closed tab's anchors and taught folders were kept.
+describe('a closed tab is forgotten', () => {
+  afterEach(() => {
+    resetPathCache()
+    resetTermCore()
+    vi.useRealTimers()
+  })
+
+  it('forgetPathOwner drops what the tab taught and waits on', async () => {
+    vi.useFakeTimers()
+    const ask = vi.fn(async (_cwd: string, texts: string[]) => texts.map((t) => ({ kind: 'file' as const, abs: t })))
+    configureTermCore({ api: { termPathKinds: ask } as unknown as TermApi } as TermHostConfig)
+    linkRanges('see C:\\d\\f.txt', 'C:\\cwd', 'A')
+    await vi.advanceTimersByTimeAsync(50)
+    linkRanges('see C:\\d\\f.txt and rel\\x.txt', 'C:\\cwd', 'A')
+    expect(pathOwnersKept()).toBe(1)
+    forgetPathOwner('A')
+    expect(pathOwnersKept()).toBe(0)
   })
 })

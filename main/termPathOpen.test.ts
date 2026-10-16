@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it, vi } from 'vitest'
-import { isRunnable, openFolderDefault, openTermPath, pathKinds, resolveTermPath } from './termPathOpen'
+import { createStatGate, isRunnable, openFolderDefault, openTermPath, pathKinds, resolveTermPath } from './termPathOpen'
 
 const tree = (): string => {
   const root = mkdtempSync(join(tmpdir(), 'pt-paths-'))
@@ -123,6 +123,64 @@ describe('a folder goes to the folder handler Windows has (Prism #393)', () => {
       await new Promise((done) => setTimeout(done, 0))
       expect(fallback).toHaveBeenCalledTimes(1)
       expect(fallback).toHaveBeenCalledWith('C:\\x')
+    }
+  })
+})
+
+// Perf review 2026-10-16: 300 stats at once on main's fs pool, no clock, and a
+// mapped drive is stat'ed over SMB (diag log: term:path-kinds calls of 5-9 s).
+describe("the painter's stats are metered", () => {
+  const statLike = { isDirectory: () => false, isFile: () => true }
+
+  it('never more than three in flight, however many are asked', async () => {
+    let active = 0
+    let most = 0
+    const release: Array<() => void> = []
+    const gate = createStatGate({
+      stat: () => {
+        active += 1
+        most = Math.max(most, active)
+        return new Promise((resolve) =>
+          release.push(() => {
+            active -= 1
+            resolve(statLike)
+          })
+        )
+      }
+    })
+    const all = pathKinds('C:\\w', Array.from({ length: 40 }, (_, i) => `f${i}.txt`), gate)
+    await new Promise((r) => setTimeout(r, 0))
+    for (let i = 0; i < 100 && (release.length || active); i += 1) {
+      release.shift()?.()
+      await new Promise((r) => setTimeout(r, 0))
+    }
+    const got = await all
+    expect(most).toBe(3)
+    expect(got.every((g) => g?.kind === 'file')).toBe(true)
+  })
+
+  it('a drive whose stat hangs answers nothing at once for a minute, and other drives go on', async () => {
+    vi.useFakeTimers()
+    try {
+      const asked: string[] = []
+      const gate = createStatGate({
+        stat: (abs) => {
+          asked.push(abs)
+          return abs.startsWith('Z:') ? new Promise(() => {}) : Promise.resolve(statLike)
+        }
+      })
+      const first = gate('Z:\\share\\a.txt')
+      await vi.advanceTimersByTimeAsync(750)
+      expect(await first).toBeNull()
+      expect(await gate('Z:\\share\\b.txt')).toBeNull()
+      expect(await gate('C:\\local.txt')).toBe('file')
+      expect(asked).toEqual(['Z:\\share\\a.txt', 'C:\\local.txt'])
+      await vi.advanceTimersByTimeAsync(60_000)
+      void gate('Z:\\share\\c.txt')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(asked).toContain('Z:\\share\\c.txt')
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

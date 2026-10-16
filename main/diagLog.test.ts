@@ -97,6 +97,42 @@ describe('createDiagLog', () => {
     expect(lines(log.file).map((l) => l.a)).toEqual(['after'])
   })
 
+  // Perf review 2026-10-16: rotation was rmSync and renameSync on main.
+  it('rotates on the threadpool: nothing is renamed before the event loop turns', async () => {
+    const dir = join(scratch(), 'logs')
+    const log = make({ dir, maxBytes: 300 })
+    for (let i = 0; i < 4; i += 1) log.write('main', 'crumb', { a: `one-${i}`, pad: 'p'.repeat(40) })
+    await log.flush()
+    log.write('main', 'crumb', { a: 'two', pad: 'p'.repeat(40) })
+    const done = log.flush()
+    // Every microtask the chain could run: a synchronous rotation would be done.
+    for (let i = 0; i < 20; i += 1) await Promise.resolve()
+    expect(existsSync(`${log.file}.1`)).toBe(false)
+    await done
+    expect(existsSync(`${log.file}.1`)).toBe(true)
+    expect(lines(log.file).map((l) => l.a)).toEqual(['two'])
+  })
+
+  // Perf review 2026-10-16: a link per flush behind a stuck write.
+  it('keeps one flush waiting behind a stuck one, not one per call', async () => {
+    const dir = join(scratch(), 'logs')
+    const log = make({ dir })
+    log.write('main', 'crumb', { a: 'first' })
+    const first = log.flush()
+    // The first starts its write, which waits on the threadpool.
+    for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    log.write('main', 'crumb', { a: 'second' })
+    const waiting = log.flush()
+    expect(waiting).not.toBe(first)
+    for (let i = 0; i < 50; i += 1) {
+      log.write('main', 'crumb', { a: `more-${i}` })
+      expect(log.flush()).toBe(waiting)
+    }
+    await first
+    await waiting
+    expect(lines(log.file)).toHaveLength(52)
+  })
+
   it('writes a batch the async path took ahead of the quit lines, never after them or twice', async () => {
     const dir = join(scratch(), 'logs')
     const log = make({ dir })

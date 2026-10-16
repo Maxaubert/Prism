@@ -268,11 +268,44 @@ const rootKey = (root: string): string => root.toLowerCase()
  * So a kill is remembered here and the quit waits (`shellsGone`).
  */
 const dying = new Set<Promise<void>>()
+
+/** How long a kill's exitCode is read every 20 ms before once a second. */
+export const EXIT_POLL_FAST_MS = 5000
+
+/**
+ * Read `agent.exitCode` every 20 ms until it is set, then call `done`. A kill
+ * whose exit never comes (a stuck ConPTY tree) polled at 50 wakeups a second
+ * until the quit (perf review 2026-10-16); after `EXIT_POLL_FAST_MS` it is
+ * read once a second instead and `onStuck` says so once. It is never given
+ * up: the quit still waits on it (rule 6), and an exit that comes late is
+ * still heard. Answers the stop.
+ */
+export function pollExitCode(agent: { exitCode?: number }, done: () => void, onStuck?: () => void): () => void {
+  const started = Date.now()
+  let fast = true
+  let poll: ReturnType<typeof setInterval>
+  const tick = (): void => {
+    if (agent.exitCode !== undefined) {
+      clearInterval(poll)
+      done()
+      return
+    }
+    if (fast && Date.now() - started >= EXIT_POLL_FAST_MS) {
+      fast = false
+      clearInterval(poll)
+      poll = setInterval(tick, 1000)
+      onStuck?.()
+    }
+  }
+  poll = setInterval(tick, 20)
+  return () => clearInterval(poll)
+}
+
 function killPty(p: IPty): void {
   const gone = new Promise<void>((resolve) => {
-    let poll: ReturnType<typeof setInterval> | undefined
+    let stopPoll: (() => void) | undefined
     const done = (): void => {
-      if (poll) clearInterval(poll)
+      stopPoll?.()
       resolve()
     }
     try {
@@ -288,9 +321,7 @@ function killPty(p: IPty): void {
     // node-pty has it; the event stands for everything else.
     const agent = (p as unknown as { _agent?: { exitCode?: number } })._agent
     if (agent && 'exitCode' in agent) {
-      poll = setInterval(() => {
-        if (agent.exitCode !== undefined) done()
-      }, 20)
+      stopPoll = pollExitCode(agent, done, () => shellCrumb('kill-stuck', { pid: p.pid, ms: EXIT_POLL_FAST_MS }))
     }
   })
   dying.add(gone)

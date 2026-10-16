@@ -36,6 +36,8 @@ export interface AppCopyDeps {
 
 export interface AppCopyWatch {
   down(x: number, y: number, clicks: number): void
+  /** The pointer moved with the button down: a drag is read once it is one. */
+  move(x: number, y: number): void
   up(x: number, y: number): void
   /** Ctrl+C reached the program: its copy, while its selection stands. */
   copyKey(): void
@@ -48,7 +50,7 @@ export interface AppCopyWatch {
 
 export function watchAppCopies(deps: AppCopyDeps): AppCopyWatch {
   const wait = deps.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
-  let press: { x: number; y: number; clicks: number; before: Promise<string | null> } | null = null
+  let press: { x: number; y: number; clicks: number; before: Promise<string | null> | null } | null = null
   /** The selection the program holds: the clipboard as it was at its press. */
   let selection: { before: Promise<string | null> } | null = null
   /** Bumped by each press: a look from an older press stops. */
@@ -74,7 +76,20 @@ export function watchAppCopies(deps: AppCopyDeps): AppCopyWatch {
     down: (x, y, clicks) => {
       gen += 1
       selection = null
-      press = deps.programHasMouse() ? { x, y, clicks, before: deps.read() } : null
+      // THE CLIPBOARD IS READ ONLY FOR A PRESS THAT SELECTS (perf review
+      // 2026-10-16): it was read on EVERY press in a mouse-owning program,
+      // the whole text across the bridge and Win32 clipboard calls on main's
+      // thread, for every plain click. A double or triple click is known to
+      // select here; a drag is known once the pointer has moved past
+      // DRAG_PX with the button down (`move`), and is read then, well before
+      // the release the program copies on (a read at the release could lose
+      // the race with a fast copy and miss the badge).
+      press = deps.programHasMouse() ? { x, y, clicks, before: clicks >= 2 ? deps.read() : null } : null
+    },
+    move: (x, y) => {
+      const p = press
+      if (!p || p.before) return
+      if (Math.hypot(x - p.x, y - p.y) >= DRAG_PX) p.before = deps.read()
     },
     up: (x, y) => {
       const p = press
@@ -82,8 +97,9 @@ export function watchAppCopies(deps: AppCopyDeps): AppCopyWatch {
       if (!p) return
       const dragged = Math.hypot(x - p.x, y - p.y) >= DRAG_PX
       if (!dragged && p.clicks < 2) return
-      selection = { before: p.before }
-      look(p.before)
+      const before = p.before ?? deps.read()
+      selection = { before }
+      look(before)
     },
     copyKey: () => {
       const s = selection

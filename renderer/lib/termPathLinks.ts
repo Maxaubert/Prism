@@ -1,3 +1,4 @@
+import { PATHS_MAX } from '../../shared/termLimits'
 import { termApi } from '../host'
 import { findLinks } from './termLinks'
 import { findPaths, type PathCandidate } from './termPaths'
@@ -208,20 +209,45 @@ function flush(): void {
   for (const [cwd, byPath] of batches) {
     const list = [...byPath.keys()]
     list.forEach((p) => inFlight.set(key(cwd, p), byPath.get(p) ?? new Set()))
-    void ask(cwd, list)
-      .then((hits) => {
-        if (cache.size > MAX_ENTRIES) cache.clear()
-        const wake = new Set<string>()
-        const at = Date.now()
-        list.forEach((p, i) => {
-          const hit = hits?.[i] ?? null
-          cache.set(key(cwd, p), { hit, at })
-          if (hit) inFlight.get(key(cwd, p))?.forEach((o) => wake.add(o))
-        })
-        wake.forEach((o) => listeners.get(o)?.forEach((fn) => fn()))
+    void askInPieces(ask, cwd, list)
+  }
+}
+
+/**
+ * IN PIECES OF `PATHS_MAX`, ONE AFTER THE OTHER (perf review 2026-10-16). Main
+ * answers the first 300 of a call and drops the rest, and every path past the
+ * 300th used to be cached here as "does not exist": a `git status` or a
+ * backlog pass with more in one folder left real paths unlit. One piece at a
+ * time also keeps a long list from being one burst of stats on main.
+ */
+async function askInPieces(
+  ask: NonNullable<ReturnType<typeof termApi>['termPathKinds']>,
+  cwd: string,
+  list: string[]
+): Promise<void> {
+  for (let from = 0; from < list.length; from += PATHS_MAX) {
+    const part = list.slice(from, from + PATHS_MAX)
+    try {
+      const hits = await ask(cwd, part)
+      if (cache.size > MAX_ENTRIES) cache.clear()
+      const wake = new Set<string>()
+      const at = Date.now()
+      // An empty answer is main refusing the question (no paths in this
+      // host): every one is a "no", as before. A short one is never read past
+      // its end: what main did not answer is not known to be missing.
+      const refused = !Array.isArray(hits) || hits.length === 0
+      part.forEach((p, i) => {
+        if (!refused && i >= hits.length) return
+        const hit = refused ? null : (hits[i] ?? null)
+        cache.set(key(cwd, p), { hit, at })
+        if (hit) inFlight.get(key(cwd, p))?.forEach((o) => wake.add(o))
       })
-      .catch(() => {})
-      .finally(() => list.forEach((p) => inFlight.delete(key(cwd, p))))
+      wake.forEach((o) => listeners.get(o)?.forEach((fn) => fn()))
+    } catch {
+      /* unanswered: asked again on the next paint */
+    } finally {
+      part.forEach((p) => inFlight.delete(key(cwd, p)))
+    }
   }
 }
 
@@ -280,6 +306,24 @@ export function linkRanges(
     asked.add(owner)
   }
   return out.sort((a, b) => a.start - b.start)
+}
+
+/**
+ * A tab closed: forget what it taught and what it waits on (perf review
+ * 2026-10-16: its anchors, taught folders and asks outlived it, up to ~25 KB
+ * per closed agent tab). The cache is shared by folder and stays.
+ */
+export function forgetPathOwner(owner: string): void {
+  anchors.delete(owner)
+  taught.delete(owner)
+  asked.delete(owner)
+  queued.forEach((byPath) => byPath.forEach((owners) => owners.delete(owner)))
+  inFlight.forEach((owners) => owners.delete(owner))
+}
+
+/** For tests: how many tabs anything here is kept for. */
+export function pathOwnersKept(): number {
+  return new Set([...anchors.keys(), ...taught.keys(), ...asked]).size
 }
 
 /** For tests: forget everything. */

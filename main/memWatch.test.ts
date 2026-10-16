@@ -52,6 +52,30 @@ describe('the memory watch (2026-10-16: a 15.9 GB page nobody saw growing)', () 
     w.stop()
   })
 
+  // Perf review 2026-10-16: a main or GPU leak raised no alarm.
+  it('mem-high for main past 1 GB and the GPU process past 2 GB, each doubling on its own', () => {
+    const { log, lines } = fakeLog()
+    let main = 900
+    let gpu = 1500
+    const w = startMemWatch({ log, metrics: () => [proc('Browser', main), proc('Tab', 300), proc('GPU', gpu)] })
+    const highs = (): Array<[unknown, unknown]> => lines.filter((l) => l.k === 'mem-high').map((l) => [l.f.proc, l.f.overMb])
+    w.sample()
+    expect(highs()).toEqual([])
+    main = 1100
+    w.sample()
+    w.sample()
+    expect(highs()).toEqual([['main', 1024]])
+    gpu = 2100
+    main = 2100
+    w.sample()
+    expect(highs()).toEqual([
+      ['main', 1024],
+      ['main', 2048],
+      ['gpu', 2048]
+    ])
+    w.stop()
+  })
+
   it('the working set where there are no private bytes; a metrics call that throws is skipped', () => {
     const { log, lines } = fakeLog()
     let fail = false
