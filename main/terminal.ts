@@ -134,6 +134,18 @@ const SESSION_MARKERS = new Set([
 const PLUGIN_DIRS = 'CLAUDE_CODE_PLUGIN_DIRS'
 
 /**
+ * THE CATCH-UP REPORT'S FILE (2026-10-16): every shell is told where its own
+ * app keeps the tab-to-session list (`PRISM_SESSIONS_FILE`), so the bundled
+ * catch-up script reads the stable copy's, a dev build's or Prism's and never
+ * another's. An inherited value is always dropped; a host that keeps no list
+ * sets none, and its catch-up skill says so.
+ */
+let sessionsFile: string | null = null
+export function setSessionsFile(path: string | null): void {
+  sessionsFile = path
+}
+
+/**
  * What a host that ships the plugin says about a shell: where its plugin is,
  * and whether the setting is on. A host that ships none (Prism, until it does)
  * passes nothing, and the variable is left exactly as inherited.
@@ -141,11 +153,13 @@ const PLUGIN_DIRS = 'CLAUDE_CODE_PLUGIN_DIRS'
 export interface ClaudePluginEnv {
   dir: string
   on: boolean
+  /** The opt-in orchestrator plugin (2026-10-16), where the host ships it. */
+  orchestrator?: { dir: string; on: boolean }
 }
 
 /** Which warm shell a spawn may adopt: one started with the same answer. */
 export const pluginKey = (p: ClaudePluginEnv | undefined): string =>
-  p ? `${p.on ? 1 : 0}|${p.dir}` : ''
+  p ? `${p.on ? 1 : 0}|${p.dir}|${p.orchestrator?.on ? 1 : 0}` : ''
 
 /**
  * The user's plugin folders, with ours appended when `dir` is given. Any copy
@@ -155,11 +169,12 @@ export const pluginKey = (p: ClaudePluginEnv | undefined): string =>
  */
 export function withPluginDir(
   dirs: string | undefined,
-  dir: string | undefined,
+  dir: string | undefined | Array<string | undefined>,
   isOurs: (d: string) => boolean = () => false
 ): string {
   const list = (dirs ?? '').split(';').filter((d) => d.trim() && !isOurs(d))
-  if (dir && !list.some((d) => d.trim().toLowerCase() === dir.toLowerCase())) list.push(dir)
+  for (const one of Array.isArray(dir) ? dir : [dir])
+    if (one && !list.some((d) => d.trim().toLowerCase() === one.toLowerCase())) list.push(one)
   return list.join(';')
 }
 
@@ -168,7 +183,8 @@ export function ptyEnv(
   shellId?: string,
   plugin?: ClaudePluginEnv,
   isOurs?: (d: string) => boolean,
-  tabToken?: string
+  tabToken?: string,
+  sessionsAt?: string | null
 ): Record<string, string> {
   const env: Record<string, string> = {}
   let prompt: string | undefined
@@ -189,6 +205,8 @@ export function ptyEnv(
   // value inherited from a Prism the app was started in is never kept.
   for (const k of Object.keys(env)) if (k.toUpperCase() === 'PRISM_TAB_ID') delete env[k]
   if (tabToken) env.PRISM_TAB_ID = tabToken
+  for (const k of Object.keys(env)) if (k.toUpperCase() === 'PRISM_SESSIONS_FILE') delete env[k]
+  if (sessionsAt) env.PRISM_SESSIONS_FILE = sessionsAt
   // NO FORCE_HYPERLINK (#173 set it; review 2026-10-11 took it out). Claude
   // Code prints OSC 8 links only when told (MEASURED 2.1.296: "label (long
   // url)" without it), but supports-hyperlinks, which it and the vercel CLI
@@ -204,7 +222,11 @@ export function ptyEnv(
   // Windows names are case-blind: write under the spelling already there.
   const key = Object.keys(env).find((k) => k.toUpperCase() === PLUGIN_DIRS) ?? PLUGIN_DIRS
   if (plugin) {
-    const dirs = withPluginDir(env[key], plugin.on ? plugin.dir : undefined, isOurs)
+    const dirs = withPluginDir(
+      env[key],
+      [plugin.on ? plugin.dir : undefined, plugin.orchestrator?.on ? plugin.orchestrator.dir : undefined],
+      isOurs
+    )
     if (dirs) env[key] = dirs
     else delete env[key]
   }
@@ -383,7 +405,7 @@ export async function prewarmShell(
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: ptyEnv(process.env, def.id, plugin, isOurPlugin, tabToken)
+      env: ptyEnv(process.env, def.id, plugin, isOurPlugin, tabToken, sessionsFile)
     })
     const w: WarmShell = {
       pty: p,
@@ -576,7 +598,7 @@ async function spawnPending(
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: { ...ptyEnv(process.env, def.id, plugin, isOurPlugin, tabToken), ...('env' in launch ? launch.env : {}) }
+      env: { ...ptyEnv(process.env, def.id, plugin, isOurPlugin, tabToken, sessionsFile), ...('env' in launch ? launch.env : {}) }
     })
     // Closed while node-pty loaded: the tab is gone, so is this shell.
     if (killedWhilePending.has(id)) {

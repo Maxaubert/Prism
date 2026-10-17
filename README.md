@@ -48,6 +48,19 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    the page's setting to `termPrewarm`; one that passes no folder changes no
    shell's environment. Its strip draws `failedIds` as a third line, and its
    `themedAgentColors` may name `failed` (else `FAILED_RED`).
+   **The orchestrator** (beta, 2026-10-16): the status plugin's turn hooks
+   (`UserPromptSubmit`, `Stop`) add `session=<Claude session id>` to the signal
+   (`AgentSignal.session`, a lower-case UUID or nothing). A SECOND plugin,
+   `claude-plugin-orchestrator` (the `catch-up` and `orchestrator` skills, the
+   role hook), is opt-in: `orchestratorOn()` (off by default) and
+   `pluginChoice()` go to `termSpawn`/`termPrewarm` as `{ status, orchestrator }`
+   (a plain boolean still means the status plugin), and a host ships the
+   folder and passes it as `orchestratorPluginDir` to `registerTermIpc`. A
+   host that keeps a session list calls `setSessionsFile(path)`
+   (`main/terminal.ts`), and every shell then gets `PRISM_SESSIONS_FILE` (an
+   inherited one is always dropped). Prism Terminal's ledger and the
+   promoted tab are app code (`src/main/sessionLedger.ts`, `sessionsWire.ts`);
+   a host without them passes no folder, and nothing changes there.
    **The bell and OSC 52** (#177, #176) ride the bridge, not `TermHostConfig`.
    A program's OSC 52 copy needs nothing from a host: `createTermApi` and
    `registerTermIpc` carry `clipboard:term-write` (write-only, 1 MB). The bell

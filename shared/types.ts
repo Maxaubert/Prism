@@ -27,3 +27,10 @@ export function isResumable(kind: unknown): kind is AgentKind {
 /** What the process poll can find in a shell. 'other' agents (aider, gemini)
  *  light the indicator but have nothing to come back to. */
 export type DetectedAgent = AgentKind | 'other'
+
+/** Which bundled Claude Code plugins a new shell is given (2026-10-16): the
+ *  status one (#131) and the opt-in orchestrator. */
+export interface PluginChoice {
+  status: boolean
+  orchestrator: boolean
+}

@@ -64,7 +64,7 @@ import { isWebLink, osc8Target, Osc8Spans, parseOsc8, spanText, type SpanAnchor 
 import {
   onTermLookChange,
   termBaseFontPx,
-  agentHooksOn,
+  pluginChoice,
   termAcrylic,
   termFontStack,
   termThemeId
@@ -1216,7 +1216,7 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   // the resume id rides the SPAWN (main builds it into the shell's startup
   // command), so nothing is ever visibly typed.
   // The plugin rides the spawn too (#131), while its setting is on.
-  void termApi().termSpawn(id, root, shellId, resume ?? undefined, agentHooksOn()).then((ok) => {
+  void termApi().termSpawn(id, root, shellId, resume ?? undefined, pluginChoice()).then((ok) => {
     if (!ok && sessions.has(id)) {
       // The resume spinner would go on writing over the error for the tab's
       // whole life (code review 2026-09-24, #24): no pty data will ever stop it.

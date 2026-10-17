@@ -6,7 +6,7 @@
  * below, and each prints a FIXED `terminalSequence`: Claude writes it into its
  * own terminal, so it arrives in the tab's pty as
  *
- *   ESC ] 777 ; prism-agent ; state=<state> [; kind=<kind>] BEL
+ *   ESC ] 777 ; prism-agent ; state=<state> [; kind=<kind>] [; session=<id>] BEL
  *
  * In-band, so there is no listener, no port and no tab id to match: the
  * sequence can only reach the tab whose Claude ran the hook. `claude -p` and
@@ -24,7 +24,14 @@ export interface AgentSignal {
   state: AgentHookState
   /** Why a turn failed (StopFailure's `error`), only with `failed`. */
   kind?: string
+  /** The Claude session the turn belongs to (its transcript's name), from
+   *  UserPromptSubmit and Stop only: the catch-up report (2026-10-16). */
+  session?: string
 }
+
+/** A Claude session id as Claude writes it: a lower-case UUID. Nothing else
+ *  is carried, so the field can only ever name a transcript file. */
+const SESSION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const STATES: ReadonlySet<string> = new Set(['working', 'question', 'done', 'failed'])
 
@@ -53,7 +60,10 @@ export const STOP_FAILURE_KINDS = [
  * about 6 s later, MEASURED). Subagents and compacting are the agent at work.
  */
 export const AGENT_HOOK_EVENTS: ReadonlyArray<{ event: string; matcher: string; args: string }> = [
-  ...['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'SubagentStart', 'PreCompact'].map(
+  // The turn's own two (never a tool's or a subagent's) also name the session:
+  // `+sid` (the catch-up report, 2026-10-16).
+  { event: 'UserPromptSubmit', matcher: '*', args: 'working +sid' },
+  ...['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'SubagentStart', 'PreCompact'].map(
     (event) => ({ event, matcher: '*', args: 'working' })
   ),
   { event: 'PermissionRequest', matcher: '*', args: 'question' },
@@ -63,7 +73,7 @@ export const AGENT_HOOK_EVENTS: ReadonlyArray<{ event: string; matcher: string; 
     matcher,
     args: 'question'
   })),
-  { event: 'Stop', matcher: '*', args: 'done' },
+  { event: 'Stop', matcher: '*', args: 'done +sid' },
   ...STOP_FAILURE_KINDS.map((kind) => ({ event: 'StopFailure', matcher: kind, args: `failed ${kind}` })),
   { event: 'StopFailure', matcher: '*', args: 'failed' }
 ]
@@ -78,6 +88,7 @@ export function parseAgentSignal(data: string): AgentSignal | null {
   if (parts[0] !== PREFIX) return null
   let state: string | undefined
   let kind: string | undefined
+  let session: string | undefined
   for (const part of parts.slice(1)) {
     const eq = part.indexOf('=')
     if (eq <= 0) return null
@@ -85,12 +96,15 @@ export function parseAgentSignal(data: string): AgentSignal | null {
     const value = part.slice(eq + 1)
     if (key === 'state') state = value
     else if (key === 'kind') kind = value
+    else if (key === 'session') session = value
     // An unknown field is a newer plugin's: the state still stands.
   }
   if (!state || !STATES.has(state)) return null
-  if (state !== 'failed') return { state: state as AgentHookState }
-  if (kind === undefined) return { state: 'failed' }
-  return KIND.test(kind) ? { state: 'failed', kind } : null
+  // A session that is not a UUID is dropped; the state still stands.
+  const sid = session !== undefined && SESSION.test(session) ? { session } : {}
+  if (state !== 'failed') return { state: state as AgentHookState, ...sid }
+  if (kind === undefined) return { state: 'failed', ...sid }
+  return KIND.test(kind) ? { state: 'failed', kind, ...sid } : null
 }
 
 /** Plain words for a failure's kind, for the tab's tooltip. */

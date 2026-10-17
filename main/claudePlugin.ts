@@ -10,6 +10,8 @@ import { join } from 'path'
  * this name and adds the one this app ships, if any.
  */
 export const PLUGIN_NAME = 'prism-terminal-status'
+/** The opt-in orchestrator plugin (2026-10-16): its skills and role hook. */
+export const ORCHESTRATOR_PLUGIN_NAME = 'prism-terminal-orchestrator'
 
 const seen = new Map<string, boolean>()
 
@@ -20,7 +22,7 @@ export function isOurPlugin(dir: string): boolean {
   let ours = false
   try {
     const m = JSON.parse(readFileSync(join(dir.trim(), '.claude-plugin', 'plugin.json'), 'utf8')) as { name?: unknown }
-    ours = m.name === PLUGIN_NAME
+    ours = m.name === PLUGIN_NAME || m.name === ORCHESTRATOR_PLUGIN_NAME
   } catch {
     /* not a plugin, or not there: the user's, left alone */
   }

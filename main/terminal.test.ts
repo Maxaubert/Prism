@@ -78,6 +78,28 @@ describe('ptyEnv', () => {
     expect(Object.keys(env).some((k) => k.toUpperCase() === 'PRISM_TAB_ID')).toBe(false)
   })
 
+  // The catch-up report (2026-10-16): a shell names its own app's list, and an
+  // app started from another's tab (Prism from the stable copy) never passes
+  // that one's on.
+  it("names its own app's sessions file and never keeps an inherited one", () => {
+    const from = { PRISM_SESSIONS_FILE: 'C:\\stable\\sessions.json', Prism_Sessions_File: 'x' }
+    expect(ptyEnv(from, 'pwsh', undefined, undefined, 't', 'C:\\pt\\sessions.json')).toMatchObject({
+      PRISM_SESSIONS_FILE: 'C:\\pt\\sessions.json'
+    })
+    const off = ptyEnv(from, 'pwsh', undefined, undefined, 't', null)
+    expect(Object.keys(off).some((k) => k.toUpperCase() === 'PRISM_SESSIONS_FILE')).toBe(false)
+  })
+
+  // The opt-in orchestrator plugin (2026-10-16) rides beside the status one,
+  // only when switched on; the user's own plugin folders are kept.
+  it('adds the orchestrator plugin only when it is switched on', () => {
+    const plugin = (orch: boolean) => ({ dir: 'C:\\pt\\claude-plugin', on: true, orchestrator: { dir: 'C:\\pt\\claude-plugin-orchestrator', on: orch } })
+    const on = ptyEnv({ CLAUDE_CODE_PLUGIN_DIRS: 'C:\\mine' }, 'pwsh', plugin(true))
+    expect(on.CLAUDE_CODE_PLUGIN_DIRS).toBe('C:\\mine;C:\\pt\\claude-plugin;C:\\pt\\claude-plugin-orchestrator')
+    const off = ptyEnv({ CLAUDE_CODE_PLUGIN_DIRS: 'C:\\mine' }, 'pwsh', plugin(false))
+    expect(off.CLAUDE_CODE_PLUGIN_DIRS).toBe('C:\\mine;C:\\pt\\claude-plugin')
+  })
+
   it('answers for what the panel can display, not for its launcher', () => {
     const env = ptyEnv({ TERM: 'dumb', COLORTERM: undefined, PATH: 'C:\bin' })
     expect(env.TERM).toBe('xterm-256color')
