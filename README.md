@@ -38,6 +38,17 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    runs `core/tools/fetch-whisper.mjs <dir>` at build time and ships that folder
    as `resources/bin/whisper`, and grants its own window the `media` permission
    (audio only).
+   **One dictation for every app** (2026-10-17, spec
+   `docs/superpowers/specs/2026-10-17-dictation-all-apps.md`): a Prism Terminal
+   runs it for every app on the PC, over an authenticated local pipe
+   (`main/dictationLink.ts`). Another app joins with `startDictationClient`
+   (`main/dictationClient.ts`): the pipe and key from `linkPipe(linkKey(...))`,
+   its name ("Prism"), and a host giving its tabs, `agentUnder`, `writeTerm`
+   and a paste into its front tab (`pasteIntoFront`). While connected its page
+   turns its own key reading off (`setDictationPageKeys(false)`). The checked
+   typing (`typeChecked`, the rule 2 exception) is the core's, for every app.
+   Optional for a host: `parakeetHost` on `registerDictationIpc` keeps Parakeet
+   loaded (`dictation-host/parakeetHost.ps1`), `idleMs` keeps the engine up.
    **Claude Code's hooks** (#131) are in here too: the plugin itself
    (`claude-plugin/`), the env injection (`main/terminal.ts` `ptyEnv`,
    `main/claudePlugin.ts`), the reader (`renderer/lib/agentHookSignal.ts`,
