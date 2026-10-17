@@ -1357,12 +1357,16 @@ export default function TerminalPanel({
     }
   }, [sessionId])
 
+  // `isolate`: xterm's own layers carry z-indexes up to 11 (its link underline
+  // canvas, decorations, the scrollbar); without a stacking context of their
+  // own they painted OVER the skeleton (z 1) as thin blue lines (owner,
+  // 2026-10-17: "these horizontal thin lines" while the sessions load).
   return (
     <div className="relative h-full w-full min-h-0 min-w-0">
       <div
         ref={box}
         data-term-region
-        className={`h-full w-full min-h-0 min-w-0 p-1 ${paintsGround() ? 'bg-[var(--p-bg)]' : ''}`}
+        className={`isolate h-full w-full min-h-0 min-w-0 p-1 ${paintsGround() ? 'bg-[var(--p-bg)]' : ''}`}
       />
       {(resumingNow || leaving) && <ResumeSkeleton leaving={!resumingNow} />}
     </div>
