@@ -161,7 +161,10 @@ export function findPath(
   let unknown = false
   for (const base of anchorBases(owner, cwd, path)) {
     const b = knownPath(base, path)
-    if (b && !(b.kind === 'dir' && holdsCwd(b.abs, cwd))) return { hit: b, base }
+    // A folder inside the tab's is plain too (owner, 2026-10-17: "the status
+    // line in claude still shows my path as a link"): Claude in a worktree
+    // below the shell's folder prints `worktrees/<name>`. A file stays a link.
+    if (b && !(b.kind === 'dir' && (holdsCwd(b.abs, cwd) || holdsCwd(cwd, b.abs)))) return { hit: b, base }
     if (b === undefined) {
       unknown = true
       need(base)

@@ -246,6 +246,42 @@ describe('the folder the tab is in is never a link found from a shown folder', (
     expect(linkRanges(status, CWD, 'A')).toEqual([])
     expect(findPath('A', CWD, 'Github-loftspace/Stutter')).toBe(null)
   })
+
+  // Owner, 2026-10-17: "the status line in claude still shows my path as a
+  // link". Claude worked in a worktree BELOW the shell's folder, its status
+  // line `worktrees/dictate-anywhere`, found from a shown `.claude` folder.
+  it('the status line stays plain when Claude works in a folder inside the tab', async () => {
+    const wtDirs = new Set([CWD, `${CWD}\\.claude`, `${CWD}\\.claude\\worktrees`, `${CWD}\\.claude\\worktrees\\wt`])
+    const wtFiles = new Set([`${CWD}\\.claude\\notes.md`, `${CWD}\\.claude\\worktrees\\wt\\a.ts`])
+    configureTermCore({
+      api: {
+        termPathKinds: vi.fn(async (cwd: string, texts: string[]) =>
+          texts.map((t) => {
+            const abs = join(cwd, t)
+            return wtDirs.has(abs) ? { kind: 'dir' as const, abs } : wtFiles.has(abs) ? { kind: 'file' as const, abs } : null
+          })
+        )
+      } as unknown as TermApi
+    } as TermHostConfig)
+    const shown = `see ${CWD}\\.claude\\notes.md`
+    linkRanges(shown, CWD, 'A')
+    await settle()
+    linkRanges(shown, CWD, 'A')
+    await settle()
+    const status = 'worktrees/wt (Opus 5.5)'
+    for (let i = 0; i < 3; i += 1) {
+      linkRanges(status, CWD, 'A')
+      await settle()
+    }
+    expect(linkRanges(status, CWD, 'A')).toEqual([])
+    // A FILE there is still a link.
+    const file = 'worktrees/wt/a.ts'
+    for (let i = 0; i < 3; i += 1) {
+      linkRanges(file, CWD, 'A')
+      await settle()
+    }
+    expect(linkRanges(file, CWD, 'A').length).toBe(1)
+  })
 })
 
 // 2026-10-16: every Claude tab in the owner's Stable copy stopped taking keys
