@@ -377,3 +377,53 @@ describe('a closed tab is forgotten', () => {
     expect(pathOwnersKept()).toBe(0)
   })
 })
+
+// Owner, 2026-10-21: a long path Claude printed was not a link. Claude Code
+// breaks its own lines at the window's width, so the rows `C:\...\scrat` and
+// `chpad\...\Flare-win-Setup.exe` each named nothing.
+describe('a path broken by hand at the edge is read across the break', () => {
+  const EXE = 'C:\\t\\scratchpad\\flare-pack\\Flare-win-Setup.exe'
+  const files = new Set([EXE, 'C:\\t\\a.txt'])
+  const ask = vi.fn(async (_cwd: string, texts: string[]) =>
+    texts.map((t) => (files.has(t) ? { kind: 'file' as const, abs: t } : null))
+  )
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 4; i += 1) await vi.advanceTimersByTimeAsync(50)
+  }
+  const ranges = async (text: string, joins: number[]): Promise<Array<{ start: number; end: number }>> => {
+    linkRanges(text, 'C:\\w', 'A', joins)
+    await settle()
+    return linkRanges(text, 'C:\\w', 'A', joins).map(({ start, end }) => ({ start, end }))
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    ask.mockClear()
+    configureTermCore({ api: { termPathKinds: ask } as unknown as TermApi } as TermHostConfig)
+  })
+  afterEach(() => {
+    resetPathCache()
+    resetTermCore()
+    vi.useRealTimers()
+  })
+
+  it('one link over both rows, and neither half alone', async () => {
+    const top = '- Location: C:\\t\\scrat'
+    const text = `${top}chpad\\flare-pack\\Flare-win-Setup.exe`
+    expect(await ranges(text, [top.length])).toEqual([{ start: 12, end: text.length }])
+    // Without the break known, the halves are all there is: no link.
+    resetPathCache()
+    expect(await ranges(text.slice(0, top.length), [])).toEqual([])
+  })
+
+  it('a path that ends at the edge keeps its link when the joined text names nothing', async () => {
+    const top = 'see C:\\t\\a.txt'
+    expect(await ranges(`${top}\\more`, [top.length])).toEqual([{ start: 4, end: top.length }])
+  })
+
+  it('a web link is never carried across the break', () => {
+    const top = 'go https://a.io/x'
+    expect(linkRanges(`${top}/y/z`, 'C:\\w', 'A', [top.length])).toEqual([{ start: 3, end: top.length }])
+    expect(pathCandidates(`${top}/y/z`, undefined, [top.length]).map((c) => c.path)).toEqual(['/y/z'])
+  })
+})

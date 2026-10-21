@@ -51,7 +51,15 @@ import {
 import { attachLinkPaint, type LinkPainter } from '../lib/termLinkPaint'
 import { lookChanged, oncePerFrame, type LookSeen } from '../lib/lookApply'
 import { termFitHeld, whenTermFitReleased } from '../lib/fitHold'
-import { findPath, forgetPathOwner, linkRanges, onPathsFound, pathCandidates, takeAsked, type PathHit } from '../lib/termPathLinks'
+import {
+  forgetPathOwner,
+  linkRanges,
+  onPathsFound,
+  pathCandidates,
+  pathsFound,
+  takeAsked,
+  type PathHit
+} from '../lib/termPathLinks'
 import {
   initialCaretHold,
   onCaretKey,
@@ -293,6 +301,10 @@ const hiddenCursor = new Map<string, boolean>()
 /** The logical line holding buffer row `y` (termCells, rule 11). */
 const lineAt = (term: Terminal, y: number): LogicalLine => logicalLine(term.buffer.active, term.cols, y)
 
+/** The same, across rows a program broke by hand too: where PATHS are read
+ *  (`termCells.byHand`). */
+const pathLineAt = (term: Terminal, y: number): LogicalLine => logicalLine(term.buffer.active, term.cols, y, true)
+
 /** The web address SHOWN over an OSC 8 link's cells (xterm's range: 1-based,
  *  one row, the end cell included), read across the whole logical line so a
  *  shown address that wraps still counts. */
@@ -376,12 +388,10 @@ export interface TermPathAt extends PathHit {
   base: string
 }
 
-/** The path, known to exist, that covers character `at` of `text`. */
-function pathAt(text: string, at: number, cwd: string, owner: string): TermPathAt | null {
-  for (const c of pathCandidates(text)) {
-    if (at < c.start || at >= c.end) continue
-    const f = findPath(owner, cwd, c.path)
-    return f ? { ...f.hit, text: c.path, base: f.base } : null
+/** The path, known to exist, that covers character `at` of `line`. */
+function pathAt(line: LogicalLine, at: number, cwd: string, owner: string): TermPathAt | null {
+  for (const { c, f } of pathsFound(owner, cwd, pathCandidates(line.text, undefined, line.joins))) {
+    if (at >= c.start && at < c.end) return { ...f.hit, text: c.path, base: f.base }
   }
   return null
 }
@@ -421,7 +431,9 @@ export function termContextAt(
   const shown = linkAt(line.text, at)
   const osc = s.oscLink(y, col)
   const link = osc ? osc8Target(osc, shown) : shown
-  return { selection, link, path: link ? null : pathAt(line.text, at, s.cwd(), id) }
+  if (link) return { selection, link, path: null }
+  const paths = pathLineAt(term, y)
+  return { selection, link, path: pathAt(paths, charAtCell(paths, term.cols, y, col), s.cwd(), id) }
 }
 
 /** Refit a session and tell the pty its new geometry. */
@@ -744,7 +756,7 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   // The OSC 8 links this session's programs printed (#169), followed from the
   // stream below; the painter colours them on both screens.
   const osc8 = new Osc8Spans()
-  const links = attachLinkPaint(term, currentLinkColor, (text) => linkRanges(text, cwdNow, id), {
+  const links = attachLinkPaint(term, currentLinkColor, (text, joins) => linkRanges(text, cwdNow, id, joins), {
     asked: () => takeAsked(id),
     context: () => cwdNow,
     spans: (first, last) => osc8.overlapping(first, last, term.buffer.active.type === 'alternate')
@@ -756,11 +768,9 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   term.registerLinkProvider({
     provideLinks: (y, done) => {
       if (!termApi().termPathKinds) return done(undefined)
-      const line = lineAt(term, y - 1)
+      const line = pathLineAt(term, y - 1)
       const out = []
-      for (const c of pathCandidates(line.text)) {
-        const f = findPath(id, cwdNow, c.path)
-        if (!f) continue
+      for (const { c, f } of pathsFound(id, cwdNow, pathCandidates(line.text, undefined, line.joins))) {
         const from = line.index.indexOf(c.start)
         const to = line.index.indexOf(c.end) - 1
         if (from < 0 || to < from) continue

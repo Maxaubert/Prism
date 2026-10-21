@@ -398,7 +398,8 @@ re-types what they decide:
 - `components/layers.ts`: `LAYER`, the overlay z-order, bottom to top.
 - `lib/prefStore.ts`: `enumPref`, `boolPref`, `readPref`, `writePref`; a blocked store loses the
   choice, never the app. Keys stay byte for byte.
-- `lib/termCells.ts`: also `logicalLine`, `bufferRowCells`, `charAtCell` (rule 11).
+- `lib/termCells.ts`: also `logicalLine`, `bufferRowCells`, `charAtCell` (rule 11), and `byHand`: a
+  row a program broke at the edge itself (Claude Code), where PATHS are read across the break.
 - `lib/termKeys.ts`: what a key over a shell does, in order. `components/termReplyHandlers.ts`: what
   a program asks the terminal about itself.
 - `lib/oklab.ts`, `colour.ts`'s `canonicalStored` and `clamp`, `termAnsi.ts`'s `towardRoom`.
