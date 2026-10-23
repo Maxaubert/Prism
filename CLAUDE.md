@@ -34,8 +34,12 @@ library manager, not an editor.
 - **THE E2E IS THE PR GATE AND NOTHING ELSE; AN INSTALL RUNS NONE** (owner, 2026-09-02 and
   2026-10-03): while iterating, the scenarios that cover the change; before a PR is opened or
   pushed, the whole suite. Agents and workflows follow the same split.
-- **Bumping the `prism-term-core` pin has its own gate: `npm run e2e:terminal`**, required green in
-  that PR before the full e2e (see Architecture).
+- **A terminal change has its own gate: `npm run e2e:terminal`**, green in any PR that touches `packages/term-core/`,
+  `termHost.ts` or the terminal wiring, before the full e2e (`terminal-gate.yml` runs it in CI). A terminal bug becomes a
+  failing scenario FIRST, then the fix ([`docs/terminal-rules.md`](docs/terminal-rules.md#ratchet)).
+- **A worktree needs `npm install` after its node_modules is copied** from main, so `node_modules/prism-term-core`
+  links to THIS worktree's `packages/term-core` (`tools/check-core-link.mjs` fails otherwise, see
+  [the trap](docs/terminal-rules.md#worktree-core-link)).
 - **A TEST RUN LEAVES NOTHING IN %TEMP%** (2026-09-28): `vitest.global.ts` points TEMP at one
   folder and removes it after, so a new test may mkdtemp freely.
 - **New file type? Standing step:** if the change adds an extension, it goes in
@@ -108,7 +112,7 @@ tools without an explicit decision (rules in `docs/ui-direction.md`).
 - Explorer tab (folder browser with places and preview), project tabs with a file tree, folder
   navigation with arrow keys, search with operators, rename / delete / move, right-click on
   every surface.
-- A terminal per tab (from `prism-term-core`), with local dictation (Right Alt).
+- A terminal per tab (the core in `packages/term-core`), with local dictation (Right Alt).
 - Prism on your phone: a LAN page that browses the whole PC like the Explorer and plays what it
   finds (read-only, paired, the user's own network).
 - Resident single-instance app, update chip, Win+E replacement, opt-in file associations,
@@ -122,33 +126,25 @@ tools without an explicit decision (rules in `docs/ui-direction.md`).
 Standard Electron three-layer split (`src/main`, `src/preload`, `src/renderer`), mirroring
 Filesmith's conventions.
 
-- **THE TERMINAL COMES FROM `prism-term-core`** (#154): the `core/` folder of
-  github.com/Maxaubert/PrismTerminal, a DEV dependency pinned to a `core-v*` tag and compiled into
-  the app. **Do not recreate a local copy of a file the core owns** (`terminal`, `shells`,
-  `termPrompt`, `agentDetect`, `termCwd`, `TerminalPanel`, `TermFind`, `termLook`, `termTheme`,
-  `agentTitle`, `agentClock`, `termActivity`, `termAnsi`, `termBus`, `termPaste`, `termPrefs`,
-  `recentRoots`): a terminal fix is made in PrismTerminal's `core/`, tagged, and picked up here by
-  bumping the pin. Its contract and build lines are in that repo's `core/README.md`. Prism is a
-  HOST: `src/renderer/src/termHost.ts` (imported FIRST by `main.tsx`) declares the only
-  differences. Settings > Terminal, Agents and Dictation are the core's sections; a terminal row
-  written here is a fork, and the e2e `termOptions` fails on it.
-- **THE CORE NOW LIVES IN THIS REPO** (Phase 1 of retiring Prism Terminal, core 0.41.6 imported with its
-  history): `packages/term-core` is an npm workspace named `prism-term-core`, and `node_modules/prism-term-core`
-  is a link to it. Phases 2 to 5 (core tests and lint here, 0.44.4, pruning, a rewrite of this block)
-  follow; until then the paragraphs about the pin and the core's home in PrismTerminal are being retired.
-  **WORKTREE TRAP**: a worktree's node_modules is robocopied from main and keeps main's link, so it would
-  test main's core. Run `npm install` in the worktree after the copy; `tools/check-core-link.mjs`
-  (run by `e2e`, `e2e:terminal`, `package` and `tools/e2e/run.mjs`) fails when the link is not this checkout's.
-  The import PRs merge with `gh pr merge --merge` (never squash), or the subtree history is lost.
-- **The pin gate**: `npm run e2e:terminal` is REQUIRED green in any PR that moves the core tag, and
-  runs in CI (`.github/workflows/terminal-gate.yml`). Keep it RUNNER-SAFE (nothing may assume this
-  machine). Core bumps MERGE THEMSELVES when green, so the gate is the only reviewer: a bug that
-  reaches Prism through a bump FIRST becomes a failing scenario in `e2e:terminal`, THEN gets fixed.
-  A flaky check is a bug in the gate: fix the race, never retry around it.
-- **Dictation is the core's**; its rules live once in PrismTerminal's CLAUDE.md. Prism arms it
-  only over a SHOWING terminal; the engine ships as `resources/bin/whisper`; the microphone is the
-  one extra permission (audio only, camera refused).
-- **No command help in Prism** (2026-09-22): the core's popup is Prism Terminal's alone.
+- **THE TERMINAL IS `packages/term-core`** (npm workspace `prism-term-core`, in this repo since 2026-10-23; Prism
+  Terminal, which it came from, is retired). A DEV dependency on purpose: electron-vite compiles it into the app.
+  A terminal fix is an ordinary Prism PR: no core version, no tag, no bump PR, and Prism's own version ships it
+  (XTVERSION reports it). Imports stay `prism-term-core/...`. Its contract: `packages/term-core/README.md`;
+  the rules (inert input, resume-only command, `onKey`, cells, ConPTY, the panel's ground, replies, quit, dictation)
+  with their measurements: [`docs/terminal-rules.md`](docs/terminal-rules.md). Read both before touching the core.
+- **The renderer's host differences are `src/renderer/src/termHost.ts`** (`TermHostConfig`, imported FIRST by
+  `renderApp.tsx`; main's are the `registerTermIpc` / `registerDictationIpc` deps in `src/main/ipc/terminal.ts`): every way Prism
+  differs is a field or a dep, never a fork. Settings > Terminal, Agents and Dictation are the core's
+  sections; a terminal row written in `src/` is a fork, and the e2e `termOptions` fails on it. Adding a field is an
+  owner decision. The core is lint-walled (relative imports only, no `window.prism`, `src/` or `electron`).
+- **The gate and the ratchet**: `npm run e2e:terminal` (runner-safe, also in CI) guards the terminal. A bug a
+  terminal change caused FIRST becomes a failing scenario (or core unit test), THEN gets fixed; a flaky check is a
+  bug in the gate: fix the race, never retry around it.
+- **Dictation is the core's**, armed only over a SHOWING terminal (Right Alt, set in `termHost.ts`); the engine ships
+  as `resources/bin/whisper`; the microphone is the one extra permission. Rules: `docs/terminal-rules.md`. No command
+  help, tab marks, orchestrator or dictation link in Prism (dropped 2026-10-23).
+- **A page that works is not a page that looks right**: after moving UI between `src/` and `packages/term-core/`,
+  LOOK at the `settings-*.png` screenshots `settingsLook` writes.
 - **Settings** (#292) is the core's grouped-card frame; Prism's part is `components/settings/`
   (`appOptions.ts` is a CLOSED list of Prism's rows). Descriptions are plain words, at most eight
   (`settings/settingsCopy.test.ts`). The chosen rail page is grey, never the accent.
@@ -161,9 +157,11 @@ Filesmith's conventions.
   phone, terminal, Explorer, media, installer). Read the matching entry before changing a feature.
 - `docs/ui-direction.md`: the look (themes, colour picker, panels, toolbar). Read before any
   visual change.
-- `docs/architecture.md`: the full architecture notes (core terminal contract, dictation, Win+E
+- `docs/architecture.md`: the full architecture notes (the terminal core in Prism, dictation, Win+E
   pipe protocol, settings frame stopgaps, sidebar side, reuse from Filesmith). Read before
-  touching main/preload wiring, the core pin, or Win+E.
+  touching main/preload wiring, the terminal core, or Win+E.
+- `docs/terminal-rules.md`: the terminal's must-not-regress rules and dictation rules, with measurements and owner
+  quotes (copied from Prism Terminal), plus how the core and Prism fit. `npm run diag` reads the diagnostics log.
 - `docs/build-and-conventions.md`: the full build, test, release and conventions notes, with the
   history and measurements behind each rule above. Read before changing the e2e, install or release flow.
 - `docs/menus.md`: every right-click menu and its builder in `src/renderer/src/menus/` (one file
