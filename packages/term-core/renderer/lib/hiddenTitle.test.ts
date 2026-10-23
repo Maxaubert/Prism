@@ -32,8 +32,7 @@ describe('labels that repeat themselves', () => {
   const read = (p: string): string => readFileSync(join(__dirname, p), 'utf8')
   it.each([
     ['../settings/layout/SettingsFrame.tsx', /title=\{p\.label\}/],
-    ['../settings/layout/SettingRow.tsx', /title=\{text\}/],
-    ['../components/HelpPanel.tsx', /title=\{row\.(name|command)\}/]
+    ['../settings/layout/SettingRow.tsx', /title=\{text\}/]
   ])('%s puts no fixed tooltip on its own visible text', (file, bare) => {
     expect(read(file)).not.toMatch(bare)
   })

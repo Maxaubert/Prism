@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BELL_GAP_MS,
   THEME_REPORTS_OFF,
-  bellGate,
   colourQueryReplies,
   decrqmReply,
   dsrThemeReply,
@@ -110,7 +108,7 @@ describe('themePush', () => {
 
 describe('xtversionReply (#171)', () => {
   it('names this terminal, then the xterm.js under it, as DCS >| ... ST', () => {
-    expect(xtversionReply('0.32.0', '6.0.0')).toBe('\x1bP>|PrismTerminal 0.32.0 (xterm.js 6.0.0)\x1b\\')
+    expect(xtversionReply('0.32.0', '6.0.0')).toBe('\x1bP>|Prism 0.32.0 (xterm.js 6.0.0)\x1b\\')
   })
   it('never starts the name with "xterm.js": Claude would apply its VS Code tuning', () => {
     const name = xtversionReply('0.32.0', '6.0.0').slice('\x1bP>|'.length)
@@ -128,21 +126,6 @@ describe('xtversionAsked', () => {
     expect(xtversionAsked([0])).toBe(true)
     expect(xtversionAsked([1])).toBe(false)
     expect(xtversionAsked([0, 0])).toBe(false)
-  })
-})
-
-describe('bellGate (#177)', () => {
-  it('lets the first bell through', () => {
-    expect(bellGate(null, 5000)).toBe(true)
-  })
-  it('drops a bell 300 ms after the last one, lets one 1.1 s after through', () => {
-    expect(bellGate(5000, 5300)).toBe(false)
-    expect(bellGate(5000, 6100)).toBe(true)
-  })
-  it('is a one-second gap', () => {
-    expect(BELL_GAP_MS).toBe(1000)
-    expect(bellGate(0, 999)).toBe(false)
-    expect(bellGate(0, 1000)).toBe(true)
   })
 })
 

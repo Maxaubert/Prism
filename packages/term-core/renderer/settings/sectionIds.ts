@@ -13,7 +13,6 @@ export const SETTINGS_SECTIONS = {
   shell: 'Shell',
   text: 'Text',
   theme: 'Theme',
-  help: 'Command help',
   marks: 'Tab marks',
   claude: 'Claude Code',
   colours: 'Mark colours',

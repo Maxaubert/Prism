@@ -65,8 +65,6 @@ export interface TermApi {
    *  Optional so an older host bridge still builds; the copy is then dropped,
    *  as it was before. Write-only: there is no read. */
   writeClipboardFromTerm?(text: string): Promise<boolean>
-  /** A session rang the bell (#177). Optional; without it the bell is silent. */
-  termBell?(id: string): void
   openExternal(url: string): void
   /** Paths (#99). Optional so a host bridge without them still builds; the
    *  terminal then paints and opens no paths. */
@@ -74,14 +72,12 @@ export interface TermApi {
   termOpenPath?(cwd: string, text: string, mode: 'open' | 'reveal'): void
 }
 
-/** How a tab marks its agent (#143 added `ring`). What a host's strip can
- *  DRAW is its `tabMarks.indicators`; a stored value outside it reads as the
+/** How a tab marks its agent. A stored value outside these reads as the
  *  host's default (`readIndicator`). */
-export type AgentIndicator = 'off' | 'minimal' | 'ring' | 'full'
+export type AgentIndicator = 'off' | 'minimal' | 'full'
 
-/** The choices a host that has not declared `tabMarks` draws: its own Off,
- *  Minimal and Full (Prism, whose Full is its own filled tab). */
-export const LEGACY_INDICATORS: readonly AgentIndicator[] = ['off', 'minimal', 'full']
+/** The choices the strip draws: Off, Minimal and Full (Prism's own filled tab). */
+export const INDICATORS: readonly AgentIndicator[] = ['off', 'minimal', 'full']
 
 export interface TermHostConfig {
   api: TermApi
@@ -131,32 +127,12 @@ export interface TermHostConfig {
   themedAgentColors(themeId: string): { working: string; finished: string; question?: string; failed?: string }
 
   /**
-   * The colour the terminal is really painted on, where the host lets somebody
-   * pick one over the theme's (Prism Terminal's Background colour; 2026-09-28).
-   * The core floors the text, the cursor and the sixteen against it
-   * (`onGround`). Absent or null: the theme's own background (Prism).
+   * What "Acrylic" means as a TERMINAL setting: the window material belongs to
+   * the host's STYLE, and the row only decides whether the terminal lets it show
+   * through; the theme Background has no alpha, since two alphas over one sheet
+   * of glass would fight (owner, 2026-09-19).
    */
-  terminalGround?(): string | null
-
-  /**
-   * The host's window colours changed (a picked accent or background), so
-   * whatever the core worked out from `themedAgentColors` or `terminalGround`
-   * is worked out again: running terminals restyle, the indicator recolours.
-   * Absent: they change only with the theme, as before (Prism).
-   */
-  onChromeChange?(cb: () => void): () => void
-
-  /**
-   * What "Acrylic" means as a TERMINAL setting. 'window': the terminal setting
-   * switches the window's own material on, for any theme, and the theme
-   * Background's alpha is how much of it shows (Prism Terminal, where nothing
-   * else owns the window; it was an Opacity slider until #114). 'style': the
-   * window material belongs to the host's STYLE, and the row only decides
-   * whether the terminal lets it show through; the theme Background has no
-   * alpha, since two alphas over one sheet of glass would fight (Prism; owner,
-   * 2026-09-19).
-   */
-  acrylic: { kind: 'window'; supported(): Promise<boolean> } | { kind: 'style' }
+  acrylic: { kind: 'style' }
 
   /**
    * A chord the HOST owns even while a shell has the keyboard. xterm must not
@@ -197,16 +173,6 @@ export interface TermHostConfig {
    * gives a file, Explorer for a folder, never a program run).
    */
   openPath?(target: { abs: string; kind: 'file' | 'dir'; mode: 'open' | 'reveal' }): boolean
-
-  /**
-   * WHAT THE HOST'S TAB STRIP DRAWS (#143; owner decision, 2026-10-10, named
-   * in its PR). `indicators`: the choices the Agents page offers and the store
-   * accepts, in order; `rainbow`: the strip draws the rainbow finish, so the
-   * "Rainbow finished mark" row is offered. Absent: Off, Minimal and Full,
-   * where Full is the host's own filled tab, and no rainbow row (Prism, until
-   * it adopts the core's marks), so an update changes nothing it draws.
-   */
-  tabMarks?: { indicators: readonly AgentIndicator[]; rainbow: boolean }
 
   /**
    * RIGHT CLICKS TO PROGRAMS (Flare #49, DIFF-22; owner, 2026-10-22: "right
@@ -254,21 +220,6 @@ const NEUTRAL: TermHostConfig['defaults'] = {
 export const hostDefaults = (): TermHostConfig['defaults'] => host?.defaults ?? NEUTRAL
 export const followsHostStyle = (): boolean => host?.followsHostStyle ?? false
 export const paintsGround = (): boolean => host?.paintsGround ?? true
-/** The host's picked ground (`terminalGround`), null where there is none or no
- *  host has spoken. */
-export const hostGround = (): string | null => host?.terminalGround?.() ?? null
-/** The terminal setting switches the WINDOW's material (Prism Terminal), so
- *  the theme Background's alpha is the window's see-through (#114). False
- *  where the style owns the glass (Prism), or no host has spoken. */
-export const hostOwnsWindowAcrylic = (): boolean => host?.acrylic.kind === 'window'
-/** Hear the host's window colours change (`onChromeChange`); a no-op where the
- *  host has none, or none has spoken. */
-export const onHostChromeChange = (cb: () => void): (() => void) => host?.onChromeChange?.(cb) ?? (() => {})
-/** The indicator choices the host's strip draws (`tabMarks`), the legacy three
- *  where it has not declared them or no host has spoken. */
-export const hostIndicators = (): readonly AgentIndicator[] => host?.tabMarks?.indicators ?? LEGACY_INDICATORS
-/** Whether the host's strip draws the rainbow finish (`tabMarks.rainbow`). */
-export const hostRainbow = (): boolean => host?.tabMarks?.rainbow ?? false
 /** Whether a right press reaches a program that reads the mouse
  *  (`rightClickReports`): yes where the host has not declared it. */
 export const hostSendsRightClicks = (): boolean => host?.rightClickReports?.() ?? true

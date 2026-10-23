@@ -18,7 +18,6 @@
     "./renderer/settings/options": "./renderer/settings/options.ts",
     "./renderer/settings/*": "./renderer/settings/*.tsx",
     "./renderer/settings/dictationOptions": "./renderer/settings/dictationOptions.ts",
-    "./renderer/settings/markOptions": "./renderer/settings/markOptions.ts",
     "./renderer/styles/*": "./renderer/styles/*",
     "./tools/*": "./tools/*",
     "./claude-plugin/*": "./claude-plugin/*"

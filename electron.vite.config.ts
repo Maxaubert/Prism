@@ -1,5 +1,5 @@
 import { join, resolve } from 'path'
-import { cpSync, createReadStream, existsSync } from 'fs'
+import { cpSync, createReadStream, existsSync, readFileSync } from 'fs'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -10,8 +10,8 @@ import type { Plugin } from 'vite'
  * prism-term-core's `exports` maps `./renderer/settings/*` to `.tsx` only, so
  * `coreIndex`, `sectionIds` and `layout/icons` (Find a setting's index, the
  * section ids, the icon names) cannot be imported by package path. Each is
- * resolved to its file here, by its exact specifier, until the core exports
- * them; the same list is in `vitest.config.ts` and `tsconfig.web.json`.
+ * resolved to its file in `packages/term-core` here, by its exact specifier;
+ * the same list is in `vitest.config.ts` and `tsconfig.web.json`.
  */
 const CORE_TS = [
   'renderer/settings/coreIndex',
@@ -60,6 +60,9 @@ function pdfSideData(): Plugin {
   }
 }
 
+// XTVERSION reports Prism's own version (shared/termVersion.ts reads this).
+const PRISM_VERSION = (JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as { version: string }).version
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
@@ -87,11 +90,12 @@ export default defineConfig({
   },
   renderer: {
     root: 'src/renderer',
+    define: { __PRISM_VERSION__: JSON.stringify(PRISM_VERSION) },
     resolve: {
       alias: [
         { find: '@renderer', replacement: resolve('src/renderer/src') },
         { find: '@shared', replacement: resolve('src/shared') },
-        ...CORE_TS.map((m) => ({ find: new RegExp(`^prism-term-core/${m}$`), replacement: resolve(`node_modules/prism-term-core/${m}.ts`) }))
+        ...CORE_TS.map((m) => ({ find: new RegExp(`^prism-term-core/${m}$`), replacement: resolve(`packages/term-core/${m}.ts`) }))
       ],
       // THE TERMINAL COMES FROM prism-term-core (the `core/` of PrismTerminal, #154).
       // It ships TypeScript SOURCE and is a DEV dependency on purpose, so
