@@ -11,8 +11,9 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
 
 ## How the core and Prism fit
 
-- <a id="host-seam"></a>**`src/renderer/src/termHost.ts` is the ONLY place Prism differs from the core's defaults.** It
-  is imported FIRST by `renderApp.tsx` and declares every difference as a `TermHostConfig` field
+- <a id="host-seam"></a>**The renderer's host differences are `src/renderer/src/termHost.ts` (`TermHostConfig`); main's are
+  the `registerTermIpc` / `registerDictationIpc` deps in `src/main/ipc/terminal.ts`.** `termHost.ts` is
+  imported FIRST by `renderApp.tsx` and declares every difference as a `TermHostConfig` field
   (`renderer/host.ts`): the terminal follows the app style, "acrylic" means the style's material shows through (no
   opacity slider), the panel paints the ground, the indicator is Minimal in the accent, the Right Alt dictation key,
   a right-click is the menu's (`rightClickReports: () => false`), and Prism's chords (`ownsKey`). A difference that
@@ -63,7 +64,9 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
 ## Rules that must not regress (copied from Prism Terminal, all measured)
 
 - <a id="only-command-is-resume"></a>**The only command the app writes into a shell is the agent resume**, as the shell's STARTUP
-  command, with the id shape-checked in main (`validResume`). Never type into a user's shell. The id rides in the
+  command, with the id shape-checked in main (`validResume`). Never type into a user's shell, with Prism's one
+  written exception: the core's `cdTerm` / `cdCommand` write a `Set-Location` (quoted per shell) into a USED shell
+  when Prism asks for it, guarded by `mayCd` in `src/main/ipc/terminal.ts` (#99). The id rides in the
   environment ([same command line](#same-command-line)). Dictation is the one other thing that reaches a prompt, and
   only as one bracketed paste with no Enter ([dictation](#dictation)). Prism Terminal's orchestrator exception (the
   app typing into ANOTHER tab's running Claude) was dropped with the orchestrator, so there is none here.
@@ -94,7 +97,8 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
   session alone (a `cd` must not re-attach it and take the focus). Under a question or the update
   window the tab chords do nothing (Ctrl+W keeps its rule). A kill while a spawn is pending wins,
   and a warm shell's exit removes only itself. A stop during transcribing is not heard, so a clip is
-  pasted once. The `reviewKeys` e2e holds the renderer half.
+  pasted once. The renderer half was held in the archived PrismTerminal repo by its `reviewKeys` e2e;
+  not yet ported to Prism.
 - <a id="bundled-conpty"></a>**Bundled ConPTY.** Shells spawn with `useConptyDll: true`; the inbox conhost fast-fails the whole
   app (0xc0000409) when a pty is killed mid-read. `node-pty` stays `asarUnpack`ed and
   `npmRebuild: false` (it ships N-API prebuilds; a rebuild dies in node-gyp).
@@ -117,8 +121,8 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
   its input line (its fullscreen view does not; neither view hides the cursor or draws a caret). On the
   normal screen `termCaretHold` holds the textarea on the caret the last key produced (the LOWEST
   position its echo reached) while the cursor is parked above it; at or below, on the alternate
-  screen, scrolled back or after a resize, xterm's placement stands. Only the textarea moves. The
-  `caretHold` e2e holds it.
+  screen, scrolled back or after a resize, xterm's placement stands. Only the textarea moves. Held in
+  the archived PrismTerminal repo by its `caretHold` e2e; not yet ported to Prism.
 - <a id="typing-on-onkey"></a>**Typing is heard on `onKey`**, never `onData`: xterm answers the pty on its own (focus reports,
   device attributes) and those replies must not count as the user typing.
 - <a id="indicator-agent-word"></a>**The indicator is the agent's own word.** Claude and Codex write their state into the terminal
@@ -137,12 +141,10 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
   listener, no tab ids, and `claude -p` / SDK runs never write it (MEASURED). SessionStart/End are left
   out (their bytes reached the pty 1 of 3 and 0 of 3). Main hands a shell the plugin through
   `CLAUDE_CODE_PLUGIN_DIRS` (`ptyEnv`, the user's value kept, an inherited copy of ours dropped:
-  `claudePlugin.ts`), only where the host passes `claudePluginDir` +
-+  extraResources; dev reads the core's copy)
-  extraResources; dev reads the core's copy) AND the page's "Exact status from Claude Code"
-  (`agent-hooks`, on) is on; a warm shell is adopted only with the same answer. +
-+  nothing changes there until it ships the files.
-  nothing changes there until it ships the files. The reader: `lib/agentHookSignal` (parse, our prefix
+  `claudePlugin.ts`), only where the host passes `claudePluginDir`
+   (extraResources; dev reads the core's copy) AND the page's "Exact status from Claude Code"
+   (`agent-hooks`, on) is on; a warm shell is adopted only with the same answer. Prism passes no dir
+   today (`src/main/ipc/terminal.ts`), so nothing changes until it ships the files. The reader: `lib/agentHookSignal` (parse, our prefix
   only, else `false` so other OSC 777 users are untouched), termBus, `lib/agentHookState` (the pure
   rules), `useAgentIndicator`. A HOOKED session is never scored from output; its screen is read
   only to HOLD a Question its hooks raised, while the box is on screen, never to raise one. Its title
@@ -172,7 +174,9 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
   the badge, its kind on the tab's tooltip ("Failed: rate limit"); it raises Finished under it, so
   with the switch off the tab reads as before. Sessions that never send a signal (Codex, an older
   claude, an untrusted folder, plugins blocked by policy) keep the old method whole. Codex's
-  `[ ! ] Action Required` title is its Question. The `agentHooks` e2e holds it (it fails on main).
+  `[ ! ] Action Required` title is its Question. In Prism the rules are held by `agentHookSignal.test.ts`, `agentHookState.test.ts` and
+  the replayed timelines; the end-to-end check was the archived PrismTerminal repo's `agentHooks` e2e, not yet
+  ported to Prism.
 - <a id="process-poll"></a>**The process poll** (`agentPoll.ts`) asks only after a pty printed something and backs off 2.5s to
   20s. It reports CHANGES, so its first verdict on a shell is said once; the e2e waits for it.
   A title that claims an agent the poll has not reported asks for a look NOW (`termAgentLook`,
@@ -187,14 +191,14 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
   Claude tabs with the session id on their command lines held main for 12 to 14 s. So the resume id rides in
   `PRISM_RESUME_ID` (`withResume`), cleared by the shell before claude starts, and the DWM helper is one quote-free
   `-Command` line. Measure a startup on the PACKAGED app: the dev `electron.exe` pays none of this. Held by
-  `terminal.test.ts` (`withResume`) and `dwmHelper.test.ts`; +
-+  [`diagnostics.md`](diagnostics.md).
-  [`diagnostics.md`](diagnostics.md).
+  `terminal.test.ts` (`withResume`) and `dwmHelper.test.ts`; the full measurement is in the
+  [diagnostics log section](#diag-log) above and the archived PrismTerminal repo's `docs/diagnostics.md`.
 - <a id="redraw-nudge"></a>**A THEME PUSH IS FOLLOWED BY A RESIZE NUDGE, NEVER A KEY** (owner, 2026-10-11, choosing
   "Tiny resize nudge" over sending Ctrl+L or leaving it). Claude Code 2.1.296 switches palette on `?997` but redraws
   only its live frame (measured, the #172 section of the compat spec). After a push the program asked for, the panel
   resizes that terminal one column narrower for `NUDGE_HOLD_MS` and refits it back (`termReplies.ts`), waiting until
-  a hidden tab is shown. Nothing is typed. Held by the `termReplies` e2e (the stand-in sees cols-1 then cols, once).
+  a hidden tab is shown. Nothing is typed. Held in the archived PrismTerminal repo by its `termReplies` e2e (the stand-in sees cols-1 then cols,
+  once); not yet ported to Prism.
 - <a id="replies-only-when-asked"></a>**THE APP ANSWERS A PROGRAM ONLY WHAT IT ASKED** (#168, #171, #172, #176; spec
   `docs/superpowers/specs/2026-10-10-claude-code-compat-design.md` section 15). Every byte the core writes into a pty that
   no key produced is a reply to a query in that pty's own stream (OSC 10/11 `?`, `CSI ? 996 n`, `CSI > q`, DECRQM 2031)
@@ -208,12 +212,13 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
   measurement (Prism Terminal's `chromeTheme.test.ts` pinned that the two agree on every preset; Prism's chrome is its style). MEASURED (Claude Code 2.1.296, 2026-10-10):
   xterm had answered OSC 11 from the clear canvas as `rgb:0000/0000/0000`, so Claude was dark on every ground; Claude
   writes `?2031h` without a DECRQM probe, never asks `?996n` or OSC 10, and on a pushed `?997;2n` re-asks OSC 11 and
-  turns light. XTVERSION (#171) answers `CSI > q` and `CSI > 0 q` only, +
-+  <version>)`
-  <version>)` (the constants in `packages/term-core/shared/termVersion.ts`, held to the package files by `termVersion.test.ts`); the
+  turns light. XTVERSION (#171) answers `CSI > q` and `CSI > 0 q` only, as `DCS >| Prism <app version> (xterm.js
+  <version>) ST` (the app version is `__PRISM_VERSION__`, defined by the build; the constants in `packages/term-core/shared/termVersion.ts`, held to the package files by `termVersion.test.ts`); the
   name must NOT start with `xterm.js`, which Claude reads as VS Code's terminal. MEASURED (Claude Code 2.1.296 --model
   haiku, bundled ConPTY, one streamed answer, 2026-10-11): no reply, `synchronizedOutput=no` and 0 `?2026h`; with the
-  reply, `synchronizedOutput=yes` and 65 frames wrapped in `?2026h`/`?2026l`. OSC 52 (#176) is WRITE-ONLY: only the
+  reply, `synchronizedOutput=yes` and 65 frames wrapped in `?2026h`/`?2026l`. NOT RE-MEASURED in Prism: the name changed from `PrismTerminal <core
+  version>` to `Prism <app version>`, and the #171 `synchronizedOutput` measurement was made with the old name; re-check
+  on an installed build. OSC 52 (#176) is WRITE-ONLY: only the
   `c` (or empty) selection, base64 of strict UTF-8, at most 1 MB (`OSC52_MAX`), through main
   (`clipboard:term-write`, its own channel and cap, opaque to the diagnostics log), with the Copied badge; a read
   (`?`) is swallowed and never answered, a clear is ignored, every OSC 52 is handled so none is drawn.
@@ -225,7 +230,8 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
   `background: #00000000` plus a named `cursorAccent` (it defaults to the background, which would
   make the character under a block cursor a hole). Exactly ONE coat per pixel, which also matters
   on acrylic: two translucent coats are a visibly darker panel, so App's own container behind the
-  panel stays unpainted. The e2e `theme` scenario measures the strip, and fails on the old code.
+  panel stays unpainted. In the archived PrismTerminal repo its `theme` e2e measured the strip and failed on the old code; Prism has no
+  such scenario yet (not yet ported).
 - <a id="links-painted"></a>**Links are PAINTED, not only underlined on hover** (owner, 2026-09-19, #10). xterm's link addon
   marks a link only under the pointer, so `lib/termLinkPaint.ts` lays a DECORATION on each row a
   link sits on: the link colour as its foreground, a faint underline as its element, never in the
@@ -246,7 +252,7 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
   PAGE** (#167; MEASURED 2 s stalls before, 2009 ms and 2046 ms in `scan`, Stable's diag log
   2026-10-10): a full pass paints the live screen, then the scrollback bottom up in slices of 8 ms
   or less (`lib/linkScanPlan.ts`, a marker as the cursor), and a found path repaints only the tab
-  and the lines that asked (`revisit`). The `linkPaintStall` e2e holds it. **OSC 8 LINKS** (#169)
+  and the lines that asked (`revisit`). Held in the archived PrismTerminal repo by its `linkPaintStall` e2e; not yet ported to Prism. **OSC 8 LINKS** (#169)
   open on a LEFT click, http(s) only, never through a confirm (the `linkHandler` option; xterm's
   default asked `confirm()` and opened a blank window main denied, on any button). Their cells are
   painted from the stream (`lib/termOsc8.ts`: the cursor at the open and at the close, MEASURED to
@@ -259,7 +265,7 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
   it out): supports-hyperlinks reads it BEFORE its isTTY test (read in claude.exe 2.1.296), so it
   put raw OSC 8 into every pipe and redirect, Claude's own Bash tool commands among them. Claude
   prints `label (long url)` without it; its `hyperlinks` setting, or a user's own variable, turns
-  OSC 8 on. The `osc8Links` e2e holds both.
+  OSC 8 on. Both held in the archived PrismTerminal repo by its `osc8Links` e2e; not yet ported to Prism.
 - <a id="path-links"></a>**A PATH ON SCREEN IS A LINK WHEN IT EXISTS** (#99; owner, 2026-09-29: "clickable links that would
   open the file or folder", then "go ahead"). `lib/termPaths` finds what COULD be a path (relative or
   absolute, sentence punctuation and `:12` taken off); main's `termPathOpen` answers which exist from
@@ -273,7 +279,7 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
   main deps (Prism, until wired) paints no paths at all; `TermHostConfig.openPath` is where Prism
   opens them inside Prism. A found path repaints only the tab that asked and only the lines that
   asked (#167: `linkRanges(text, cwd, owner)`, `onPathsFound(owner, fn)`, `takeAsked`); waking
-  every tab's full repaint froze the window 2 s (MEASURED). The `pathLinks` e2e holds it.
+  every tab's full repaint froze the window 2 s (MEASURED). Held in the archived PrismTerminal repo by its `pathLinks` e2e; not yet ported to Prism.
 - <a id="file-drop-and-menu"></a>**A file dropped on the terminal types its quoted path, and the terminal answers a right-click**
   (2026-09-19, #16). The drop goes through `quotePaths` and `termInput`, never Enter, and only over a shell;
   the menu is Paste (the terminal's own paste rule, via `pasteInto`) and Find in scrollback, led by Copy link
@@ -282,14 +288,11 @@ tab marks, the orchestrator and `/catch-up`, dictate-anywhere and the dictation 
   performs a REAL drop with Chromium's drag events (`Input.dispatchDragEvent` carrying a file path): a
   synthetic DataTransfer holds a File with no path and proves nothing about `getPathForFile`. When a component
   is stripped, grep what ELSE it owned before calling a feature kept.
-- <a id="product-for-others"></a>**THIS IS A PRODUCT FOR OTHER PEOPLE** (owner, 2026-09-19: "this isn't an app for just me. keep
-  that in mind with all things you implement"). A feature bundles or fetches what it needs and works
-  on a fresh Windows install: never lean on the owner's GPU, tools, caches or installed runtimes.
 - <a id="dictation"></a>**DICTATION** (#13, 2026-09-19; spec in `docs/superpowers/specs/2026-09-19-dictation-design.md`).
   Built ONCE in `packages/term-core/`, for Prism too. Hold Right Alt, speak, release: the FINAL text is pasted at the
   cursor of the shell that was in front when you started. The rules that must not regress:
   - **It is the FOURTH written exception to "the app never types into your shell"** (with the agent
-    resume, Prism's `Set-Location`, and drop-to-type-path): the user spoke it on purpose, it arrives as
+    resume, the `Set-Location` of `cdTerm` guarded by `mayCd`, and drop-to-type-path): the user spoke it on purpose, it arrives as
     one bracketed paste, and it NEVER carries Enter or a newline (`cleanTranscript` and the panel's
     `pasteSpokenText` both strip them; the e2e asserts no new prompt appears).
   - **Off means off.** Default off. With it off no key listener is armed, no process exists, nothing

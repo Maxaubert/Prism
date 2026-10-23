@@ -85,7 +85,7 @@ is from the era of two hosts; what still holds is that every difference of the O
    terminal setting, which chords the app owns, whether a right-click reaches a program that reads the
    mouse (`rightClickReports`, Flare #49; absent, xterm forwards it as before), the dictation key a user who
    never picked one gets (`dictation.defaultHotkey`; absent, Ctrl+Win; Prism
-   declares Right Alt in `src/renderer/src/termHost.ts`, the only host difference). If a difference is not on that page, it is a fork,
+   declares Right Alt in `src/renderer/src/termHost.ts`, the renderer's host difference file). If a difference is not on that page, it is a fork,
    and a fork is what this exists to end. Adding a field is an owner decision.
 4. **Defaults are per host on purpose.** An update must never silently change
    what an existing user sees. Where the owner picks one value for both apps,
@@ -233,7 +233,7 @@ resolve: { dedupe: ['react', 'react-dom'] }, optimizeDeps: { exclude: ['prism-te
 ```
 
 Plain `.ts` settings modules that the package `exports` do not reach (`coreIndex`, `sectionIds`,
-`layout/icons`) are resolved by exact specifier through `CORE_TS` in `electron.vite.config.ts` and
+`layout/icons`, `diagnosticsOptions`: four) are resolved by exact specifier through `CORE_TS` in `electron.vite.config.ts` and
 `vitest.config.ts`, and the paths in `tsconfig.web.json`.
 
 **A worktree must relink the package.** A copied `node_modules` still links to main's folder; run `npm install`

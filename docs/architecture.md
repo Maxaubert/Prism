@@ -31,8 +31,8 @@ Filesmith's conventions.
   bundle the wrong core. `npm install` in the worktree relinks it, and `tools/check-core-link.mjs` (run by `pretest`,
   `pretypecheck`, `prebuild`, `e2e`, `e2e:terminal`, `package`) fails when it is wrong.
   PRISM IS A HOST of the core: `src/renderer/src/termHost.ts` (imported FIRST by `renderApp.tsx`, since App's module
-  graph is evaluated before the body of the file that imports it) declares every place Prism differs from the core's
-  defaults, and is the ONLY such place. What differs is only what MUST: the terminal follows the app style by
+  graph is evaluated before the body of the file that imports it) declares the renderer's host differences from the core's
+  defaults (main's are the `registerTermIpc` / `registerDictationIpc` deps in `src/main/ipc/terminal.ts`). What differs is only what MUST: the terminal follows the app style by
   default (styles exist only here), "acrylic" means letting the style's material show through and has no opacity
   slider (the style owns the glass), Right Alt is the dictation key, a right-click is the menu's, and Prism's own
   chords. Everything else is the core's default by owner decision (2026-09-19): the indicator is MINIMAL by default
@@ -48,7 +48,7 @@ Filesmith's conventions.
   **THE TERMINAL GATE: `npm run e2e:terminal`** (owner, 2026-09-19: "we need to run some automated tests that
   confirm that the terminal in Prism still works, since it has more failure points due to its larger footprint").
   It builds and runs every scenario the terminal can break (terminal, termOptions, termColourPicker, settingsLook,
-  diagLog, helpPanel, dictation, dictationPage, termCwd, agentTitle, handoffOverTerm, promptLayout, termMenuCopy,
+  diagLog, noCommandHelp, dictation, dictationPage, termCwd, agentTitle, handoffOverTerm, promptLayout, termMenuCopy,
   tabs, sort, pinRecent, updateWindow, updateGuard, updateQuiet, because the update chip and its window come from
   the core) and is required green in any PR that touches `packages/term-core/`, `termHost.ts`, the build configs or
   the terminal wiring, before the usual full e2e. **IT ALSO RUNS IN CI** (`.github/workflows/terminal-gate.yml`,
@@ -64,12 +64,12 @@ Filesmith's conventions.
   was held by exactly one, a scrollback check that read a re-attached xterm before it repainted).
   **A GATE CAN BE LANDED BEFORE THE FEATURE** (#253): `termColourPicker` drives the colour picker (alpha on the
   working colour, the Full tab's ink on the composite, Escape putting back an unset row, no alpha on the theme
-  Background here) and SKIPS while `node_modules/prism-term-core/renderer/settings/ColourPicker.tsx` is missing, by
+  Background here) and SKIPS while `packages/term-core/renderer/settings/ColourPicker.tsx` is missing, by
   the file and never a version. `termOptions` checks the RULE for `onlyWhere` rows (every one absent), not that
   there is exactly one.
   **WHAT WAS DROPPED ON THE WAY IN** (2026-10-23, owner decisions in the plan): command help, the tab marks, the
   orchestrator and `/catch-up`, the dictation link for other apps (`dictationLink`, `dictationClient`), the resident
-  Parakeet host and `agentHookTimelines`. The Claude status plugin (`claude-plugin/`, OSC 777 hooks) is KEPT but not
+  Parakeet host. The Claude status plugin (`claude-plugin/`, OSC 777 hooks) is KEPT but not
   switched on in Prism; wiring it in is a separate feature. Their code stays in the archived repo's history.
 - **DICTATION IN THE TERMINAL IS THE CORE'S TOO** (2026-09-19, #162; owner: "make sure this feature
   is synced and part of the core and should be the same in normal Prism, with dictation as its own
@@ -100,7 +100,8 @@ Filesmith's conventions.
 - **NO COMMAND HELP IN PRISM** (2026-09-22, owner: "command help shouldn't be part of Prism the
   normal app, only the terminal app"; reverses #175). Since 2026-10-23 the popup is gone from the core as well:
   Prism mounts no `HelpPanel`, its terminal menu has no row, Settings has no switch, and F1 is the
-  shell's (termHost's `ownsKey` does not claim it).- **REMEMBER TABS IS A SETTING** (2026-09-22, owner: "Prism should also have the option to not
+  shell's (termHost's `ownsKey` does not claim it). The `noCommandHelp` e2e proves the rule.
+- **REMEMBER TABS IS A SETTING** (2026-09-22, owner: "Prism should also have the option to not
   remember tabs"). Settings > Explorer > Reopen tabs at start, on by default (how Prism always started), key
   `prism.tabs.remember` (`lib/tabs/tabRestorePrefs.ts`). Off, a COLD start opens only the Explorer tab
   and whatever Prism was opened with: main reads the key from the window preferences store in
