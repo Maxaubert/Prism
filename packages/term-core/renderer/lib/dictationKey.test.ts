@@ -15,6 +15,10 @@ import {
   type KeyState
 } from './dictationKey'
 
+/** The bare Right Alt the solo rules were written for (the default until
+ *  2026-10-16): every AltGr rule is still held on it. */
+const RIGHT_ALT: Hotkey = { code: 'AltRight', ctrl: false, alt: false, shift: false, meta: false }
+
 type Mods = Partial<Pick<Hotkey, 'ctrl' | 'alt' | 'shift' | 'meta'>> & { repeat?: boolean }
 
 const key = (type: 'down' | 'up', code: string, at: number, m: Mods = {}): KeyEvt => ({
@@ -46,7 +50,7 @@ interface Step {
 function run(
   events: KeyEvt[],
   mode: DictMode,
-  hotkey: Hotkey = DEFAULT_HOTKEY,
+  hotkey: Hotkey = RIGHT_ALT,
   holdMs?: number
 ): { steps: Step[]; actions: KeyAction[]; state: KeyState } {
   let state = initialKeyState()
@@ -63,8 +67,12 @@ const CHORD: Hotkey = { code: 'KeyD', ctrl: true, alt: false, shift: true, meta:
 const F9: Hotkey = { code: 'F9', ctrl: false, alt: false, shift: false, meta: false }
 
 describe('the default', () => {
-  it('is a bare Right Alt', () => {
-    expect(DEFAULT_HOTKEY).toEqual({ code: 'AltRight', ctrl: false, alt: false, shift: false, meta: false })
+  // Owner, 2026-10-16: Ctrl+Win, since right Alt is AltGr on a Norwegian
+  // keyboard and the key now works from any app.
+  it('is Ctrl+Win', () => {
+    expect(DEFAULT_HOTKEY).toEqual({ code: 'MetaLeft', ctrl: true, alt: false, shift: false, meta: true })
+    expect(formatHotkey(DEFAULT_HOTKEY)).toBe('Ctrl+Win')
+    expect(usableHotkey(DEFAULT_HOTKEY)).toBe(true)
   })
   it('starts idle', () => {
     expect(initialKeyState().phase).toBe('idle')
@@ -84,7 +92,7 @@ describe('hold mode, bare modifier', () => {
   })
 
   it('honours a holdMs of its own', () => {
-    const r = run([raltDown(0), tick(200), tick(350)], 'hold', DEFAULT_HOTKEY, 350)
+    const r = run([raltDown(0), tick(200), tick(350)], 'hold', RIGHT_ALT, 350)
     expect(r.steps.map((s) => s.action)).toEqual([null, null, 'start'])
   })
 
@@ -354,17 +362,17 @@ describe('a chord or a plain key', () => {
 
 describe('isHotkeyEvent', () => {
   it('a bare modifier matches itself, its own flag notwithstanding', () => {
-    expect(isHotkeyEvent(raltDown(0), DEFAULT_HOTKEY)).toBe(true)
-    expect(isHotkeyEvent(down('AltRight', 0, { ctrl: true, alt: true }), DEFAULT_HOTKEY)).toBe(true)
-    expect(isHotkeyEvent(down('AltLeft', 0, { alt: true }), DEFAULT_HOTKEY)).toBe(false)
-    expect(isHotkeyEvent(raltDown(0, { shift: true }), DEFAULT_HOTKEY)).toBe(false)
+    expect(isHotkeyEvent(raltDown(0), RIGHT_ALT)).toBe(true)
+    expect(isHotkeyEvent(down('AltRight', 0, { ctrl: true, alt: true }), RIGHT_ALT)).toBe(true)
+    expect(isHotkeyEvent(down('AltLeft', 0, { alt: true }), RIGHT_ALT)).toBe(false)
+    expect(isHotkeyEvent(raltDown(0, { shift: true }), RIGHT_ALT)).toBe(false)
   })
   it('only Right Alt is forgiven a Ctrl: that is AltGr, and no other key has one', () => {
-    const lalt: Hotkey = { ...DEFAULT_HOTKEY, code: 'AltLeft' }
+    const lalt: Hotkey = { ...RIGHT_ALT, code: 'AltLeft' }
     expect(isHotkeyEvent(down('AltLeft', 0, { ctrl: true, alt: true }), lalt)).toBe(false)
   })
   it('an up matches on the code alone, whatever is still held', () => {
-    expect(isHotkeyEvent(up('AltRight', 0, { ctrl: true }), DEFAULT_HOTKEY)).toBe(true)
+    expect(isHotkeyEvent(up('AltRight', 0, { ctrl: true }), RIGHT_ALT)).toBe(true)
     expect(isHotkeyEvent(up('KeyD', 0), CHORD)).toBe(true)
   })
   it('a chord matches its modifiers exactly', () => {
@@ -373,8 +381,8 @@ describe('isHotkeyEvent', () => {
     expect(isHotkeyEvent(down('KeyD', 0, { ctrl: true, shift: true, alt: true }), CHORD)).toBe(false)
   })
   it('a tick and a blur are nobody\'s key', () => {
-    expect(isHotkeyEvent(tick(0), DEFAULT_HOTKEY)).toBe(false)
-    expect(isHotkeyEvent(blur(0), DEFAULT_HOTKEY)).toBe(false)
+    expect(isHotkeyEvent(tick(0), RIGHT_ALT)).toBe(false)
+    expect(isHotkeyEvent(blur(0), RIGHT_ALT)).toBe(false)
   })
 })
 
@@ -387,7 +395,7 @@ describe('formatHotkey', () => {
     meta: m.meta ?? false
   })
   it('names a bare modifier by its side', () => {
-    expect(formatHotkey(DEFAULT_HOTKEY)).toBe('Right Alt')
+    expect(formatHotkey(RIGHT_ALT)).toBe('Right Alt')
     expect(formatHotkey(h('ControlLeft'))).toBe('Left Ctrl')
     expect(formatHotkey(h('ShiftRight'))).toBe('Right Shift')
     expect(formatHotkey(h('MetaLeft'))).toBe('Left Win')
@@ -410,7 +418,7 @@ describe('formatHotkey', () => {
 
 describe('parseHotkeyFromEvent', () => {
   it('a bare modifier press is that modifier, with its own flag dropped', () => {
-    expect(parseHotkeyFromEvent(raltDown(0))).toEqual(DEFAULT_HOTKEY)
+    expect(parseHotkeyFromEvent(raltDown(0))).toEqual(RIGHT_ALT)
     expect(parseHotkeyFromEvent(down('ControlLeft', 0, { ctrl: true }))).toEqual({
       code: 'ControlLeft',
       ctrl: false,
@@ -420,7 +428,7 @@ describe('parseHotkeyFromEvent', () => {
     })
   })
   it('AltGr is read as Right Alt, not as Ctrl+Right Alt', () => {
-    expect(parseHotkeyFromEvent(down('AltRight', 0, { ctrl: true, alt: true }))).toEqual(DEFAULT_HOTKEY)
+    expect(parseHotkeyFromEvent(down('AltRight', 0, { ctrl: true, alt: true }))).toEqual(RIGHT_ALT)
   })
   it('a chord keeps its modifiers', () => {
     expect(parseHotkeyFromEvent(down('KeyD', 0, { ctrl: true, shift: true }))).toEqual(CHORD)
@@ -438,7 +446,7 @@ describe('parseHotkeyFromEvent', () => {
     const dom = { type: 'keydown', code: 'KeyD', ctrlKey: true, altKey: false, shiftKey: true, metaKey: false }
     expect(parseHotkeyFromEvent(dom)).toEqual(CHORD)
     const altGr = { type: 'keydown', code: 'AltRight', ctrlKey: true, altKey: true, shiftKey: false, metaKey: false }
-    expect(parseHotkeyFromEvent(altGr)).toEqual(DEFAULT_HOTKEY)
+    expect(parseHotkeyFromEvent(altGr)).toEqual(RIGHT_ALT)
     expect(parseHotkeyFromEvent({ ...dom, code: 'Escape' })).toBeNull()
   })
   it('round-trips through the reducer: what was bound is what is recognised', () => {
@@ -476,7 +484,7 @@ describe('usableHotkey', () => {
     ...mods
   })
   it('takes the default, a bare modifier, a function key and a free chord', () => {
-    expect(usableHotkey(DEFAULT_HOTKEY)).toBe(true)
+    expect(usableHotkey(RIGHT_ALT)).toBe(true)
     expect(usableHotkey(hk('ControlLeft'))).toBe(true)
     expect(usableHotkey(hk('F9'))).toBe(true)
     expect(usableHotkey(hk('Pause'))).toBe(true)
@@ -492,5 +500,41 @@ describe('usableHotkey', () => {
     for (const code of ['KeyC', 'KeyV', 'KeyW', 'KeyT', 'KeyF', 'Tab', 'Digit2', 'Comma'])
       expect(usableHotkey(hk(code, { ctrl: true }))).toBe(false)
     expect(usableHotkey(hk('KeyC', { ctrl: true, shift: true }))).toBe(false)
+  })
+})
+
+// CTRL+WIN, A CHORD OF MODIFIERS (owner, 2026-10-16): either key first, the
+// solo rules (it decides while nothing else is pressed), either key's up stops.
+describe('a chord of modifiers (Ctrl+Win)', () => {
+  const CW = DEFAULT_HOTKEY
+  const ctrlDown = (at: number, o: Partial<Record<'ctrl' | 'meta', boolean>> = {}) => down('ControlLeft', at, { ctrl: true, ...o })
+  const winDown = (at: number, o: Partial<Record<'ctrl' | 'meta', boolean>> = {}) => down('MetaLeft', at, { meta: true, ...o })
+
+  it('records on a hold, Ctrl first or Win first, and stops on either key going up', () => {
+    const a = run([ctrlDown(0), winDown(10, { ctrl: true }), tick(210), up('MetaLeft', 900, { ctrl: true })], 'hold', CW)
+    expect(a.actions.filter(Boolean)).toEqual(['start', 'stop'])
+    const b = run([winDown(0), ctrlDown(10, { meta: true }), tick(210), up('ControlLeft', 900, { meta: true })], 'hold', CW)
+    expect(b.actions.filter(Boolean)).toEqual(['start', 'stop'])
+  })
+
+  it('never dictates Ctrl+Win+Left (switching desktops): the arrow cancels it, unswallowed', () => {
+    const r = run([ctrlDown(0), winDown(10, { ctrl: true }), down('ArrowLeft', 60, { ctrl: true, meta: true }), tick(210)], 'hold', CW)
+    expect(r.actions.filter(Boolean)).toEqual([])
+    expect(r.steps[2].swallow).toBe(false)
+  })
+
+  it('is not Ctrl alone, nor Win alone, nor Ctrl+Shift+Win', () => {
+    expect(isHotkeyEvent(ctrlDown(0), CW)).toBe(false)
+    expect(isHotkeyEvent(winDown(0), CW)).toBe(false)
+    expect(isHotkeyEvent(winDown(0, { ctrl: true }), CW)).toBe(true)
+    expect(isHotkeyEvent(down('MetaLeft', 0, { ctrl: true, meta: true, shift: true }), CW)).toBe(false)
+  })
+
+  it('binds from the keys as pressed, and names itself by its modifiers', () => {
+    expect(parseHotkeyFromEvent(winDown(0, { ctrl: true }))).toEqual(CW)
+    expect(parseHotkeyFromEvent(ctrlDown(0, { meta: true }))).toEqual({ code: 'ControlLeft', ctrl: true, alt: false, shift: false, meta: true })
+    expect(formatHotkey({ code: 'ControlLeft', ctrl: true, alt: false, shift: false, meta: true })).toBe('Ctrl+Win')
+    // Right Alt with the Ctrl AltGr brings is still the bare key.
+    expect(parseHotkeyFromEvent(down('AltRight', 0, { ctrl: true, alt: true }))).toEqual(RIGHT_ALT)
   })
 })

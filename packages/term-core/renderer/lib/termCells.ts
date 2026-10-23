@@ -104,21 +104,68 @@ export interface LogicalLine extends CellText {
   last: number
   /** Every cell's width. */
   widths: number[]
+  /** Where in `text` a row broken BY HAND starts (`byHand`); empty unless
+   *  asked for. */
+  joins: number[]
+}
+
+/** What a path's piece can be made of: not a break of `termPaths`, and not a
+ *  box-drawing character (a table's or a frame's edge). */
+const PATHISH = /^[^\s"'`<>|*?─-╿]$/
+
+/**
+ * A ROW THE PROGRAM BROKE BY HAND (owner, 2026-10-21: a path Claude printed was
+ * not a link). Claude Code breaks its own lines at the window's width and
+ * writes each row on its own, so xterm never marks the second row wrapped, and
+ * a long path became two pieces that each named nothing. Row `y` carries on
+ * row `y - 1` when that row's last cell and this row's first both hold a
+ * piece of a path, and the piece across the edge has a separator in it. Only
+ * PATHS are read across it: a path that exists lights up, and a sentence that
+ * happens to end at the edge stays as it was.
+ */
+export function byHand(b: BufferLike, cols: number, y: number, scratch?: CellLike): boolean {
+  if (y <= 0 || cols < 2) return false
+  const row = b.getLine(y)
+  const above = b.getLine(y - 1)
+  if (!row || !above || row.isWrapped) return false
+  const at = (line: LineLike, x: number): string => line.getCell(x, scratch)?.getChars() ?? ''
+  if (!PATHISH.test(at(above, cols - 1)) || !PATHISH.test(at(row, 0))) return false
+  let x = cols - 1
+  let piece = ''
+  for (; x >= 0; x -= 1) {
+    const c = at(above, x)
+    if (c === '' && above.getCell(x, scratch)?.getWidth() === 0) continue
+    if (!PATHISH.test(c)) break
+    piece = c + piece
+  }
+  for (x = 0; x < cols; x += 1) {
+    const c = at(row, x)
+    if (c === '' && row.getCell(x, scratch)?.getWidth() === 0) continue
+    if (!PATHISH.test(c)) break
+    piece += c
+  }
+  return /[\\/]/.test(piece)
 }
 
 /** The LOGICAL line holding buffer row `y`: its first and last rows across
  *  wraps, every cell's width, the joined text, its index and the cell just
- *  past the last printed one. Moved here from TerminalPanel (audit
- *  2026-10-12). */
-export function logicalLine(b: BufferLike, cols: number, y: number): LogicalLine {
+ *  past the last printed one. With `hand`, across rows broken `byHand` too.
+ *  Moved here from TerminalPanel (audit 2026-10-12). */
+export function logicalLine(b: BufferLike, cols: number, y: number, hand = false): LogicalLine {
+  const goesOn = (r: number): boolean => !!b.getLine(r)?.isWrapped || (hand && byHand(b, cols, r))
   let first = y
-  while (first > 0 && b.getLine(first)?.isWrapped) first -= 1
+  while (first > 0 && goesOn(first)) first -= 1
   let last = y
-  while (last + 1 < b.length && b.getLine(last + 1)?.isWrapped) last += 1
+  while (last + 1 < b.length && goesOn(last + 1)) last += 1
   const cells: CellInfo[] = []
-  for (let i = first; i <= last; i += 1) cells.push(...(bufferRowCells(b.getLine(i), cols) ?? []))
+  const handRows: number[] = []
+  for (let i = first; i <= last; i += 1) {
+    if (i > first && !b.getLine(i)?.isWrapped) handRows.push(i - first)
+    cells.push(...(bufferRowCells(b.getLine(i), cols) ?? []))
+  }
   const { text, index, textEnd } = cellText(cells)
-  return { first, last, widths: cells.map((c) => c.width), text, index, textEnd }
+  const joins = handRows.map((k) => index[k * cols])
+  return { first, last, widths: cells.map((c) => c.width), text, index, textEnd, joins }
 }
 
 /** Where the cell at buffer row `row`, column `col` starts in the line's

@@ -1,4 +1,4 @@
-import type { DetectedAgent, ShellDef } from '../shared/types'
+import type { DetectedAgent, PluginChoice, ShellDef } from '../shared/types'
 import type { DictationApi } from '../preload/dictationApi'
 import type { ShownQuestion } from '../shared/questionShown'
 
@@ -33,11 +33,11 @@ export interface ClipboardRead {
  *  signatures exist in one place. */
 export interface TermApi {
   termShells(): Promise<ShellDef[]>
-  termSpawn(id: string, cwd: string, shellId?: string, resume?: string, hooks?: boolean): Promise<boolean>
+  termSpawn(id: string, cwd: string, shellId?: string, resume?: string, hooks?: boolean | PluginChoice): Promise<boolean>
   termInput(id: string, data: string): void
   termResize(id: string, cols: number, rows: number): void
   termKill(id: string): void
-  termPrewarm(cwd: string, shellId?: string, hooks?: boolean): void
+  termPrewarm(cwd: string, shellId?: string, hooks?: boolean | PluginChoice): void
   onTermData(cb: (id: string, data: string) => void): () => void
   onTermAgent(cb: (id: string, has: boolean, kind: DetectedAgent | null) => void): () => void
   /** Ask the process poll to look NOW, past its backoff (#73). Optional so a
