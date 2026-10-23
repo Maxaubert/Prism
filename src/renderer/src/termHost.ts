@@ -5,12 +5,12 @@ import { resolveTermTheme } from 'prism-term-core/renderer/lib/termTheme'
 /**
  * PRISM AS A HOST OF THE TERMINAL CORE (#154).
  *
- * The terminal is `prism-term-core`, shared with the sibling app Prism
- * Terminal, and every place the two apps legitimately differ is a field here.
- * The owner's rule is that the two terminals are THE SAME ("all should be
- * synced, unless it conflicts with one app"), so a value here differs from
- * Prism Terminal's only where Prism is genuinely a different kind of app: it
- * has app styles, a dock that the terminal lives in, and tabs that are places.
+ * The terminal is `prism-term-core` (packages/term-core, in this repo since
+ * 2026-10-23), and this file is the ONLY place Prism differs from the core's
+ * defaults: every difference is a field here, never a fork (docs/terminal-rules.md).
+ * The owner's rule from the two-app era was that the terminals are THE SAME
+ * unless Prism is genuinely a different kind of app: it has app styles, a dock
+ * that the terminal lives in, and tabs that are places.
  *
  * A SIDE-EFFECT MODULE, imported FIRST by renderApp.tsx: imports are evaluated
  * in order and before that file's own body, and App's module graph (theme.ts

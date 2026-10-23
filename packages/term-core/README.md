@@ -1,35 +1,29 @@
 # prism-term-core
 
-What **Prism Terminal** and **Prism** share. One copy, two apps.
+The terminal of Prism, and the few other things the update chip and window need. It lives in this repo as
+`packages/term-core`, an npm workspace named `prism-term-core`; every import is `prism-term-core/...`.
 
-This folder is the terminal, and since 2026-09-19 (#28) the few other things the
-two apps must show identically: today that is the update chip and the window it
-opens. Prism Terminal is an app built around it; Prism is a media viewer that
-embeds it. Both compile this same TypeScript source, so a feature or fix in here
-is written once and reaches both.
+Read [`docs/terminal-rules.md`](../../docs/terminal-rules.md) before changing anything here: it holds the
+rules that must not regress, with their measurements and the owner's words.
 
-## Why it exists
+## Where it came from
 
-Prism Terminal began (2026-09-18) as a COPY of Prism's built-in terminal. A copy
-drifts from the first commit: within a day, links highlighting, a painting fix,
-a themed indicator and a paste rule each existed in only one of the two apps.
-The owner's rule (2026-09-19, issue #15): *"this terminal app is just an
-extraction of the main Prism app and should therefore be reflected in both
-apps... all should be synced, unless it conflicts with one app, then you need to
-ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
-
+It began (2026-09-18) as the `core/` folder of Prism Terminal, a sibling app extracted from Prism's built-in
+terminal, shared by both through a pinned `core-v*` tag. On 2026-10-23 Prism Terminal was retired and the core moved
+into Prism (the plan: `Documents\Claude\research\prism-terminal\2026-10-23-retire-pt-move-core-plan.md`). There
+is no `core-dist` branch, no tag and no core version any more. Text below that says "the two apps" or "both apps"
+is from the era of two hosts; what still holds is that every difference of the ONE host (Prism) is a declared
+`TermHostConfig` field, so the core can be hosted again without forking it.
 ## The contract
 
 1. **What is the terminal lives here, once.** The pty and shells, the prompt
    bootstrap, agent detection / poll / resume, the panel, find, link painting,
    the agent indicator's rules and colours, the close question, the paste rule,
    the theme and look stores, **and the terminal's SETTINGS UI** (`renderer/settings`):
-   the owner's rule is that the two apps' terminal settings are the same
-   settings, "the setting names, types, how they function", while the personal
-   VALUES stay per app (each has its own storage; nothing is shared).
+   the owner's rule (2026-09-19) is that terminal settings keep "the setting names, types, how they function" in one place,
+   while the VALUES are the host's own (its storage).
 2. **What is an app's shell stays in the app.** Prism: roots and the wall, the
-   sidebar, the split dock, several shells per tab, app styles. Prism Terminal:
-   folder tabs, the start screen, window chrome from the theme, the lifecycle.
+   sidebar, the split dock, several shells per tab, app styles.
    Dictation (#13) is in here too, whole: the key, the microphone, the engine,
    the model store, the pill, the tab mark and its Settings page. A host wires
    it with four lines: `registerDictationIpc` in main, `createDictationApi` in
@@ -54,9 +48,9 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    **A program's OSC 52 copy** (#176) needs nothing from a host: `createTermApi` and
    `registerTermIpc` carry `clipboard:term-write` (write-only, 1 MB). The orchestrator,
    `/catch-up`, the bell hook and command help were dropped (2026-10-23).
-   **AND WHAT THE TWO APPS MUST SHOW IDENTICALLY, TERMINAL OR NOT** (#28, owner,
+   **AND THE UPDATE CHIP AND ITS WINDOW, TERMINAL OR NOT** (#28, owner,
    2026-09-19). This WIDENS the core, on purpose, from "the terminal" to "what
-   the two apps share". Asked to build the update window (*"when you click the
+   the two apps shared". Asked to build the update window (*"when you click the
    Update badge, it opens like a pop window, which shows the change log or like
    patch notes for the new update, and then you can choose cancel or install"*)
    and to show it in both apps, the question was whether to write it twice; the
@@ -83,15 +77,15 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    and printed as text nodes; never HTML, never rendered markdown, never an
    anchor. **The chip never changes width**, in any phase: every label is laid
    out in one cell and only the current one is visible.
-3. **A difference between the apps is DECLARED, never forked.** Every place the
-   two legitimately differ is a field of `TermHostConfig` in
+3. **A difference is DECLARED, never forked.** Every place a host
+   legitimately differs is a field of `TermHostConfig` in
    [`renderer/host.ts`](renderer/host.ts): the default each untouched setting
    reads as, whether there is a host style to follow, who paints the ground,
    what an unpicked indicator colour resolves to, what "acrylic" means as a
    terminal setting, which chords the app owns, whether a right-click reaches a program that reads the
    mouse (`rightClickReports`, Flare #49; absent, xterm forwards it as before), the dictation key a user who
    never picked one gets (`dictation.defaultHotkey`; absent, Ctrl+Win; Prism
-   declares Right Alt). If a difference is not on that page, it is a fork,
+   declares Right Alt in `src/renderer/src/termHost.ts`, the only host difference). If a difference is not on that page, it is a fork,
    and a fork is what this exists to end. Adding a field is an owner decision.
 4. **Defaults are per host on purpose.** An update must never silently change
    what an existing user sees. Where the owner picks one value for both apps,
@@ -185,8 +179,8 @@ the window's `session-end`, where no quit comes. The bridge is `DGCH` in
 `shared/channels.ts`, `preload/diagApi.ts` and `main/diagIpc.ts`; the page
 calls `startDiag(bridge)` and anything may call `crumb()`. The Settings page
 is `settings/sections/DiagnosticsPage.tsx` (props only), its rows
-`diagnosticsOptions.ts`. Schema and how to read it: Prism Terminal's
-`docs/diagnostics.md`.
+`diagnosticsOptions.ts`. Read it with `npm run diag` (`tools/diag.mjs`): it writes
+`%APPDATA%\Prism\logs\diag.jsonl`; kinds include `page-stall`, `main-lag`, `ipc-slow`, `agent-hook`, `mark`.
 
 **THE TAB MARKS (#143)** were Prism Terminal's strip and were dropped from the core (2026-10-23): `tabMark`, `markColours`, `markPalette`, `nameInk`, `switchKnob`, `TabMark`, `AgentIcon`, `marks.css`, the Ring indicator, the rainbow finish and `TermHostConfig.tabMarks`. The indicator choices are Off, Minimal (Bar) and Full.
 
@@ -203,68 +197,59 @@ random token per shell, warm or not; Sonara's hook reads the same variable).
 No Sonara: nothing is sent. `termQuestion` is optional on `TermApi`; a host on
 `createTermApi` and `registerTermIpc` (both apps) gets it with nothing to add.
 
-## Rules for code in here (lint-enforced in Prism Terminal's `eslint.config.js`)
+## Rules for code in here (lint-enforced in Prism's `eslint.config.js`, the `packages/term-core` block)
 
 - **Relative imports only.** No `@shared` / `@renderer` / `@core` aliases: a
   consumer's bundler resolves an alias against ITS OWN tree. Measured: the core
   silently ran Prism's copy of a file, with no error anywhere.
 - **Never `window.prism`.** Reach main through `termApi()`.
-- **Never import from a host's `src/`**, never import `electron`, never import
-  Prism Terminal's `chromeTheme` (inside Prism it would overwrite the app's
-  styles).
-- **Carry the superset.** If one app needs a capability the other does not
-  (`cdTerm`, `decideFollow`, following the host style), it lives here and the
-  other app simply does not call it. Deleting it here takes it from both.
+- **Never import from a host's `src/`**, never import `electron`.
+- **Carry the superset.** A capability one host needs and another does not
+  (`cdTerm`, `decideFollow`, following the host style) lives here and the
+  other host simply does not call it. Deleting it here takes it from every host.
 - **Components outside the terminal take PROPS ONLY.** The update chip and its
   dialog never reach for a bridge, not even `termApi()`: a host hands the hook
-  the three preload members it needs (`UpdateBridge`), so the same components
-  drop into a host whose terminal is not even mounted.
-- CSS: the core uses Tailwind utilities and the `--p-*` tokens both apps define,
-  plus the class `.p-scroll` and the `.xterm` rules in each app's `index.css`. A
-  new token or class needed here must be added to BOTH.
+  the three preload members it needs (`UpdateBridge`).
+- CSS: the core uses Tailwind utilities and the `--p-*` tokens Prism defines,
+  plus the class `.p-scroll` and the `.xterm` rules in `index.css`. A new token or class needed
+  here must be added there.
+- A main-side file obeys "main never waits on the disk": a `*Sync` call is marked
+  `// sync-ok: <reason>` (`src/main/syncCalls.test.ts`).
 
-## How each app consumes it
+## How Prism consumes it
 
-**Prism Terminal** (this repo): directly, through the app-side alias `@core`,
-plus ONE line in `src/renderer/src/index.css`: `@source '../../../core';`. Tailwind
-scans from the renderer root down and `core/` is outside it, so without the line
-a utility used only in here is never generated, silently (#20: it took the whole
-Settings page apart, with every functional test green).
-The app's tests, lint and the e2e scenarios are the core's gate.
-
-**Prism**: as a dev dependency pinned to a tag of the `core-dist` branch, which
-is this folder on its own (`git subtree split --prefix=core`), so the package is
-small, has no install scripts and carries no app files:
-
-```jsonc
-// Prism/package.json
-"devDependencies": { "prism-term-core": "github:Maxaubert/PrismTerminal#core-v0.1.0" }
-```
-
-A DEV dependency on purpose: electron-vite bundles dev dependencies into the app
-and externalises production ones, so the core is compiled in and nothing extra
-ships. Prism's build needs three lines, all measured:
+Root `package.json` has `"workspaces": ["packages/*"]` and the devDependency `"prism-term-core": "*"`, which npm
+links as `node_modules/prism-term-core` to this folder. A DEV dependency on purpose: electron-vite bundles dev
+dependencies into the app and externalises production ones, so the core is compiled in and nothing extra ships.
+Prism's build needs these lines, all measured:
 
 ```ts
-// electron.vite.config.ts, renderer: a linked checkout otherwise brings a second React
+// electron.vite.config.ts, renderer: a linked package otherwise brings a second React
 resolve: { dedupe: ['react', 'react-dom'] }, optimizeDeps: { exclude: ['prism-term-core'] }
 ```
 ```css
-/* src/renderer/src/index.css: Tailwind generates nothing from a dependency until told to look */
-@source '../../../node_modules/prism-term-core';
+/* src/renderer/src/index.css: Tailwind generates nothing from a folder outside the renderer until told to look */
+@source '../../../packages/term-core';
 ```
 
-`react`, `node-pty` and `@xterm/*` must stay at compatible versions in both apps
-so npm keeps ONE copy of each; the core is verified against Prism Terminal's
-lockfile but ships against Prism's. Both apps pin `node-pty` to EXACTLY
-`1.2.0-beta.15` (1.1.0's quit crash, #127/#159). The core's peer names that
-build (`^1.1.0 || 1.2.0-beta.15`): a bare `^1.1.0` matches no prerelease, so npm
-refused the pin in Prism.
+Plain `.ts` settings modules that the package `exports` do not reach (`coreIndex`, `sectionIds`,
+`layout/icons`) are resolved by exact specifier through `CORE_TS` in `electron.vite.config.ts` and
+`vitest.config.ts`, and the paths in `tsconfig.web.json`.
 
-## Releasing the core
+**A worktree must relink the package.** A copied `node_modules` still links to main's folder; run `npm install`
+in the worktree. `tools/check-core-link.mjs` fails `test`, `typecheck`, `build`, `e2e` and `package` otherwise.
 
-There is no core release. The core is a workspace package of Prism (`packages/term-core`); a terminal change is a Prism change, gated by `npm run e2e:terminal` (`terminal-gate.yml`), and ships with Prism's own version. XTVERSION reports Prism's version (`shared/termVersion.ts`, defined from the root `package.json` by the build); `XTERM_VERSION` moves with xterm (`termVersion.test.ts` fails otherwise). Keep the gate runner-safe: nothing in those scenarios may assume one particular machine.
+`react`, `node-pty` and `@xterm/*` versions are Prism's. `node-pty` is pinned to EXACTLY `1.2.0-beta.15`
+(1.1.0's quit crash, #127/#159; `src/main/nodePtyPin.test.ts`). The core's peer names that build
+(`^1.1.0 || 1.2.0-beta.15`): a bare `^1.1.0` matches no prerelease, so npm refused the pin.
 
+## Changing the core
+
+There is no core release. A terminal change is a Prism PR with Prism's version bumped as usual, gated by
+`npm run e2e:terminal` (`terminal-gate.yml`, which triggers on `packages/term-core/**`). A bug becomes a failing
+scenario or unit test FIRST, then the fix. XTVERSION reports Prism's version (`shared/termVersion.ts`, defined from
+the root `package.json` by the build); `XTERM_VERSION` moves with xterm (`termVersion.test.ts` fails otherwise).
+Keep the gate runner-safe: nothing in those scenarios may assume one particular machine.
 ## One copy of each rule (2026-10-12, core 0.34.0)
 
 An audit for duplicated code (`Documents\Claude\research\prism-terminal\2026-10-12-duplication-audit.md`)
@@ -285,13 +270,3 @@ re-types what they decide:
   `shared/webUrl.ts` (`isWebUrl`), `shared/folderNames.ts`, `shared/types.ts`'s `RESUMABLE_AGENTS`
   and `isResumable`, `main/atomicWrite.ts`, `preload/api.ts`'s `subscribe`.
 - `lib/termLook.ts`'s `AGENT_COLOUR_STATES`: the three mark colours as one table.
-
-## Status (2026-09-19)
-
-Prism Terminal runs entirely on this core. Prism's adoption is written and
-waiting on the owner's review as three stacked draft PRs (Prism #155, #156 and
-the step-3 PR): identical files, then the panel / look stores / bridge, then the
-settings, the indicator's rules and the close question. Until this branch merges
-Prism pins a release candidate (`core-v0.1.0-rc.N`); the first real tag,
-`core-v0.1.0`, is cut from `main` after the merge and Prism is repointed at it.
-Issue #15 holds the decisions and what is left.
