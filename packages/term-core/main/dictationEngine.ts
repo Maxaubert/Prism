@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process'
+import { SYS } from './sysTools'
 import { randomBytes } from 'crypto'
 import { request } from 'http'
 import { createServer } from 'net'
@@ -42,6 +43,14 @@ import type {
  * (its `-f -`, read into memory, MEASURED: "read 352078 bytes from stdin"),
  * and the text comes back on stdout. So this path writes no audio to disk
  * either. It has no language switch: the model detects the language itself.
+ *
+ * ...UNLESS THE HOST GIVES A RESIDENT HOST (2026-10-17, owner: "It needs to be
+ * ready at all times"). `parakeetHost` names `core/dictation-host/
+ * parakeetHost.ps1`, a long-lived Windows PowerShell that keeps the model
+ * loaded and calls parakeet.dll per pass. MEASURED on the owner's RTX 5090:
+ * 24 to 170 ms a pass (1 s to 60 s clips) against parakeet-cli's 0.72 to
+ * 0.86 s, the text identical; ready 0.9 s after spawn, paid once. A host that
+ * will not start is not asked again this session: parakeet-cli answers.
  * ------------------------------------------------------------------ */
 
 /** The first CUDA run compiles its kernels for about 9 s (MEASURED), so a
@@ -122,6 +131,11 @@ export interface DictationEngineDeps {
   engineFor?: (modelId: string) => 'whisper' | 'parakeet'
   /** Threads for a Parakeet pass on the CPU. */
   threads?: number
+  /** The resident Parakeet host's script, and where it may cache its compiled
+   *  code; null or absent: one parakeet-cli per pass. */
+  parakeetHost?: () => { script: string; cache: string | null } | null
+  /** Windows PowerShell, which runs that script. */
+  powershell?: string
   /** What to actually launch for an engine exe and its argv. The default is
    *  the exe itself; the tests run a Node script through process.execPath. */
   command?: (exePath: string, args: string[]) => { file: string; args: string[] }
@@ -154,6 +168,19 @@ interface Job {
 }
 
 type Launch = { ok: true; server: Server } | { ok: false; detail: string }
+
+/** The resident Parakeet host: one model on one engine, kept loaded. */
+interface ParakeetHost {
+  child: ChildProcess
+  kind: EngineKind
+  dir: string
+  modelPath: string
+  ready: Promise<boolean>
+  exited: boolean
+  /** Whoever waits on its next line ("ready", "ok ...", "err ..."), and on its exit. */
+  waiter: ((line: string | null) => void) | null
+  stderr: string
+}
 type Answer = { ok: true; text: string } | { ok: false; detail: string; died: boolean }
 
 const STOPPED: TranscribeResult = { ok: false, reason: 'engine-failed', detail: 'dictation was stopped' }
@@ -252,6 +279,9 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
   let current: Server | null = null
   /** The Parakeet pass in flight, so stop() can end it. */
   let pass: ChildProcess | null = null
+  let phost: ParakeetHost | null = null
+  /** The resident host would not start: parakeet-cli for the rest of the session. */
+  let hostBroken = false
   /** The model a Parakeet pass last answered for: there is no resident
    *  process to be warm, but the first GPU pass compiles kernels (16 s,
    *  MEASURED) and a partial must not queue behind that. */
@@ -425,6 +455,123 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
     })
   }
 
+  function killHost(h: ParakeetHost): void {
+    if (phost === h) phost = null
+    if (h.exited) return
+    try {
+      h.child.stdin?.end('quit\n')
+    } catch {
+      /* gone */
+    }
+    h.child.kill()
+  }
+
+  /** The host's next protocol line, or null when it exits first. */
+  function nextLine(h: ParakeetHost): Promise<string | null> {
+    return new Promise((resolve) => {
+      if (h.exited) return resolve(null)
+      h.waiter = resolve
+    })
+  }
+
+  function startHost(kind: EngineKind, dir: string, modelPath: string, script: string, cache: string | null): ParakeetHost {
+    const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, dir, modelPath, kind === 'gpu' ? '1' : '0', String(threads)]
+    if (cache) args.push(cache)
+    const child = spawnImpl(deps.powershell ?? SYS.powershell, args, { cwd: dir, env: childEnv(kind, dir), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+    const h: ParakeetHost = { child, kind, dir, modelPath, ready: Promise.resolve(false), exited: false, waiter: null, stderr: '' }
+    let buf = ''
+    child.stdout?.setEncoding('utf8')
+    child.stdout?.on('data', (d: string) => {
+      buf += d
+      let i
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim()
+        buf = buf.slice(i + 1)
+        // Only its own words: anything a native library printed is not.
+        if (!/^(ready|ok|err)\b/.test(line)) continue
+        const w = h.waiter
+        h.waiter = null
+        w?.(line)
+      }
+    })
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (c: string) => {
+      h.stderr = (h.stderr + c).slice(-STDERR_KEEP)
+    })
+    const gone = (): void => {
+      if (h.exited) return
+      h.exited = true
+      if (phost === h) phost = null
+      const w = h.waiter
+      h.waiter = null
+      w?.(null)
+    }
+    child.once('error', (e) => {
+      h.stderr = (h.stderr + e.message).slice(-STDERR_KEEP)
+      gone()
+    })
+    child.once('close', gone)
+    child.stdin?.on('error', () => {})
+    h.ready = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        resolve(false)
+        killHost(h)
+      }, startTimeoutMs)
+      void nextLine(h).then((l) => {
+        clearTimeout(timer)
+        resolve(l === 'ready')
+      })
+    })
+    return h
+  }
+
+  /** One pass on the resident host: started (or restarted for another model or
+   *  engine) as needed. Null when there is no host to use: parakeet-cli then. */
+  async function hostOnce(kind: EngineKind, dir: string, modelPath: string, wav: Uint8Array): Promise<Answer | null> {
+    const spec = hostBroken ? null : deps.parakeetHost?.() ?? null
+    if (!spec) return null
+    let h = phost
+    if (h && (h.exited || h.kind !== kind || h.dir !== dir || h.modelPath !== modelPath)) {
+      killHost(h)
+      h = null
+    }
+    if (!h) {
+      h = startHost(kind, dir, modelPath, spec.script, spec.cache)
+      phost = h
+    }
+    if (!(await h.ready)) {
+      // Never ready: the host itself (PowerShell, the script) or the engine.
+      // The per-pass path says which, and the host is not tried again.
+      killHost(h)
+      hostBroken = true
+      return null
+    }
+    const answer = new Promise<Answer>((resolve) => {
+      const timer = setTimeout(() => {
+        resolve({ ok: false, detail: `no answer after ${requestTimeoutMs} ms`, died: false })
+        killHost(h!)
+      }, requestTimeoutMs)
+      void nextLine(h!).then((l) => {
+        clearTimeout(timer)
+        if (l === null) resolve({ ok: false, detail: h!.stderr.trim() || 'the Parakeet host exited', died: true })
+        else if (l.startsWith('ok')) resolve({ ok: true, text: Buffer.from(l.slice(3).trim(), 'base64').toString('utf8').trim() })
+        else resolve({ ok: false, detail: l.slice(4), died: false })
+      })
+    })
+    try {
+      h.child.stdin?.write(`pass ${wav.byteLength}\n`)
+      h.child.stdin?.write(Buffer.from(wav.buffer, wav.byteOffset, wav.byteLength))
+    } catch {
+      /* its exit answers */
+    }
+    return answer
+  }
+
+  /** One pass, on the resident host when there is one, else a fresh parakeet-cli. */
+  async function parakeetPass(kind: EngineKind, dir: string, modelPath: string, wav: Uint8Array): Promise<Answer> {
+    return (await hostOnce(kind, dir, modelPath, wav)) ?? parakeetOnce(kind, dir, modelPath, wav)
+  }
+
   /** A pass for a Parakeet model: the same choice of engine and the same
    *  once-and-for-good fall back to the CPU as a Whisper server gets. */
   async function runParakeet(req: TranscribeRequest, modelPath: string, stopped: () => boolean): Promise<TranscribeResult> {
@@ -434,7 +581,7 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
     if (stopped()) return STOPPED
     if (!want) return { ok: false, reason: 'no-engine' }
     let kind = want.kind
-    let answer = await parakeetOnce(kind, want.dir, modelPath, req.wav)
+    let answer = await parakeetPass(kind, want.dir, modelPath, req.wav)
     if (stopped()) return STOPPED
     // Only a GPU engine that DIED falls back, Whisper's own rule: an "error:"
     // about the audio or a timeout is not the card's fault, and the switch
@@ -448,7 +595,7 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
       const cpuDir = deps.cpuDir()
       if (!cpuDir) return { ok: false, reason: 'engine-failed', detail: answer.detail }
       kind = 'cpu'
-      answer = await parakeetOnce(kind, cpuDir, modelPath, req.wav)
+      answer = await parakeetPass(kind, cpuDir, modelPath, req.wav)
       if (stopped()) return STOPPED
     }
     lastKind = kind
@@ -599,6 +746,8 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
     if (!modelPath) return { ok: false, reason: 'no-model' }
     if (runnerFor(req.modelId) === 'parakeet') return runParakeet(req, modelPath, stopped)
     const language = req.language || 'auto'
+    // A resident Parakeet host holds a model nobody uses now.
+    if (phost) killHost(phost)
 
     const want = await pick()
     if (stopped()) return STOPPED
@@ -653,13 +802,19 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
 
   function armIdle(): void {
     if (idleTimer) clearTimeout(idleTimer)
+    // Never stands down (a host that keeps it ready at all times, Prism
+    // Terminal's dictation service): only `stop()` ends it.
+    if (!Number.isFinite(idleMs)) return
     // unref: a timer five minutes out must not be what keeps a quitting app alive.
     idleTimer = setTimeout(() => {
       idleTimer = null
-      if (running || !current) return
+      if (running || (!current && !phost)) return
       const left = lastUsed + idleMs - now()
       if (left > 0) armIdle()
-      else kill(current)
+      else {
+        if (current) kill(current)
+        if (phost) killHost(phost)
+      }
     }, Math.max(1, lastUsed + idleMs - now()))
     idleTimer.unref()
   }
@@ -673,7 +828,7 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
     }
     if (!job) {
       lastUsed = now()
-      if (current) armIdle()
+      if (current || phost) armIdle()
       return
     }
     if (idleTimer) {
@@ -747,13 +902,14 @@ export function createDictationEngine(deps: DictationEngineDeps): DictationEngin
         pass.kill()
         pass = null
       }
+      if (phost) killHost(phost)
       parakeetWarm = null
     },
 
     info() {
       // `engine` is the kind of the server that is up, or of the last one that
       // was, so Settings can still say which engine answered after a stand-down.
-      return { running: current !== null || pass !== null, engine: current ? current.kind : lastKind, gpuFellBack }
+      return { running: current !== null || pass !== null || phost !== null, engine: current ? current.kind : lastKind, gpuFellBack }
     }
   }
 }

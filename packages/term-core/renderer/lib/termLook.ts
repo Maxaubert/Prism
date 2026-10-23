@@ -258,6 +258,24 @@ export const [agentFailedOn, setAgentFailedOn] = onSwitch(FAILED_ON_KEY)
  * not, and no plugin loads. A running shell keeps what it started with.
  */
 export const [agentHooksOn, setAgentHooksOn] = onSwitch(HOOKS_KEY)
+
+/**
+ * THE ORCHESTRATOR (beta, owner 2026-10-16): OFF unless switched on ('1'), so
+ * someone who never wants it gets nothing: no orchestrator plugin in Claude,
+ * no session list kept, no tab menu entry. On, new tabs get the orchestrator
+ * plugin (its skills and the role hook) beside the status one.
+ */
+const ORCH_KEY = 'prism.term.orchestrator'
+export const orchestratorOn = (): boolean => readPref(ORCH_KEY) === '1'
+export function setOrchestratorOn(on: boolean): void {
+  writePref(ORCH_KEY, on ? '1' : '0')
+  notify()
+}
+/** What a new shell is given: the status plugin, and the orchestrator's. */
+export const pluginChoice = (): { status: boolean; orchestrator: boolean } => ({
+  status: agentHooksOn(),
+  orchestrator: orchestratorOn()
+})
 /** A stored agent colour: six digits, or eight with an alpha (#112), in its
  *  canonical form, or null. */
 const agentHex = canonicalStored
@@ -598,6 +616,9 @@ export function useAgentFailedOn(): boolean {
 }
 export function useAgentHooksOn(): boolean {
   return useSyncExternalStore(sub, agentHooksOn)
+}
+export function useOrchestratorOn(): boolean {
+  return useSyncExternalStore(sub, orchestratorOn)
 }
 export function useCustomTermTheme(): CustomTermTheme | null {
   // Cache per notify tick: useSyncExternalStore needs a stable snapshot.

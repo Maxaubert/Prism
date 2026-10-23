@@ -73,6 +73,28 @@ export function findLinks(text: string): LinkSpan[] {
   return out
 }
 
+/** The pieces of `text` between the rows a program broke by hand
+ *  (`termCells.byHand`), as [start, end) offsets. */
+export function segmentsOf(text: string, joins: readonly number[]): Array<[number, number]> {
+  const out: Array<[number, number]> = []
+  let from = 0
+  for (const j of joins) {
+    out.push([from, j])
+    from = j
+  }
+  out.push([from, text.length])
+  return out
+}
+
+/** `findLinks`, never across a row broken by hand: only a PATH is read across
+ *  one, where existing on disk says it was one path. */
+export function findLinksIn(text: string, joins: readonly number[] = []): LinkSpan[] {
+  if (!joins.length) return findLinks(text)
+  return segmentsOf(text, joins).flatMap(([s, e]) =>
+    findLinks(text.slice(s, e)).map((l) => ({ start: l.start + s, end: l.end + s }))
+  )
+}
+
 function count(s: string, ch: string): number {
   let n = 0
   for (const c of s) if (c === ch) n += 1

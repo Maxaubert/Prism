@@ -76,6 +76,8 @@ export interface TermIpcDeps {
    * environment is touched, whatever the page says.
    */
   claudePluginDir?: string
+  /** The opt-in orchestrator plugin's folder (2026-10-16); none: never added. */
+  orchestratorPluginDir?: string
   /**
    * A session rang the bell (#177): the host draws the user's eye to its
    * window (Prism Terminal flashes the taskbar button while the window is not
@@ -93,8 +95,17 @@ export function registerTermIpc(deps: TermIpcDeps): () => void {
   const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
   // The page says whether its setting is on; only a literal true turns it on,
   // and only where the host ships the plugin.
-  const plugin = (hooks: unknown): ClaudePluginEnv | undefined =>
-    deps.claudePluginDir ? { dir: deps.claudePluginDir, on: hooks === true } : undefined
+  // `hooks` is the status switch (a boolean, as before) or both switches
+  // ({ status, orchestrator }, 2026-10-16).
+  const plugin = (hooks: unknown): ClaudePluginEnv | undefined => {
+    if (!deps.claudePluginDir) return undefined
+    const h = hooks && typeof hooks === 'object' ? (hooks as { status?: unknown; orchestrator?: unknown }) : { status: hooks }
+    return {
+      dir: deps.claudePluginDir,
+      on: h.status === true,
+      ...(deps.orchestratorPluginDir ? { orchestrator: { dir: deps.orchestratorPluginDir, on: h.orchestrator === true } } : {})
+    }
+  }
 
   ipcMain.handle(CH.shells, () => detectShells())
 

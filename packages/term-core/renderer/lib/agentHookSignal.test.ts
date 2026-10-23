@@ -14,6 +14,16 @@ describe('parseAgentSignal', () => {
     expect(parseAgentSignal('prism-agent;state=failed;kind=rate_limit')).toEqual({ state: 'failed', kind: 'rate_limit' })
   })
 
+  // The catch-up report (2026-10-16): the turn names its Claude session, and
+  // only a lower-case UUID is carried; anything else is dropped, the state kept.
+  it('carries a session id only as a UUID, and keeps the state without one', () => {
+    const id = 'b44e954e-a9cf-4ba9-a3c0-99ec6795d1d9'
+    expect(parseAgentSignal(`prism-agent;state=done;session=${id}`)).toEqual({ state: 'done', session: id })
+    expect(parseAgentSignal(`prism-agent;state=working;session=${id}`)).toEqual({ state: 'working', session: id })
+    for (const bad of [id.toUpperCase(), `${id}x`, '-44e954e-a9cf-4ba9-a3c0-99ec6795d1d9', '..\\x', ''])
+      expect(parseAgentSignal(`prism-agent;state=done;session=${bad}`), bad).toEqual({ state: 'done' })
+  })
+
   it('refuses an unknown state', () => {
     expect(parseAgentSignal('prism-agent;state=sleeping')).toBeNull()
     expect(parseAgentSignal('prism-agent;state=')).toBeNull()
@@ -85,7 +95,8 @@ describe('the Claude Code plugin', () => {
           expect(h.command).toBe('cmd.exe')
           const [d, c, call, script, ...rest] = h.args ?? []
           expect([d, c, call, script]).toEqual(['/d', '/c', 'call', '$' + '{CLAUDE_PLUGIN_ROOT}/hook.cmd'])
-          for (const a of rest) expect(a).toMatch(/^[a-z_]+$/)
+          // Fixed words only (and the +sid flag): nothing a hook prints is built from input.
+          for (const a of rest) expect(a).toMatch(/^(?:[a-z_]+|\+sid)$/)
           return { event, matcher: e.matcher, args: rest.join(' ') }
         })
       )
@@ -110,18 +121,40 @@ describe('the Claude Code plugin', () => {
     copyFileSync(join(PLUGIN, 'hook.cmd'), join(root, 'hook.cmd'))
     const placeholder = '$' + '{CLAUDE_PLUGIN_ROOT}'
     const all = Object.values(hooks).flatMap((entries) => entries.flatMap((e) => e.hooks))
+    const SID = 'b44e954e-a9cf-4ba9-a3c0-99ec6795d1d9'
+    const env = { ...process.env, CLAUDE_CODE_SESSION_ID: SID }
     for (const h of all) {
       const args = (h.args ?? []).slice(4).join(' ')
       const out = execFileSync(h.command, (h.args ?? []).map((a) => a.replace(placeholder, root)), {
         encoding: 'utf8',
         input: '{"hook_event_name":"Stop"}',
-        windowsHide: true
+        windowsHide: true,
+        env
       })
       const seq = JSON.parse(out.trim()).terminalSequence as string
       const open = '\u001b]777;'
       expect(seq.startsWith(open) && seq.endsWith('\u0007'), args).toBe(true)
-      const [state, kind] = args.split(' ')
-      expect(parseAgentSignal(seq.slice(open.length, -1))).toEqual(kind ? { state, kind } : { state })
+      const [state, second] = args.split(' ')
+      const want = second === '+sid' ? { state, session: SID } : second ? { state, kind: second } : { state }
+      expect(parseAgentSignal(seq.slice(open.length, -1))).toEqual(want)
     }
-  })
+    // A cmd.exe per hook: seconds on a busy PC (MEASURED 5.8 s in a full run).
+  }, 60_000)
+
+  // The id is Claude's, but read with care (review 2026-10-16): cmd expands
+  // %VAR% before it parses, so a ) & | < > ^ or quote in the value would have
+  // broken the block or the JSON and lost the STATE with it (rule 9). Delayed
+  // expansion and a character test leave anything odd out.
+  it.runIf(process.platform === 'win32')('prints the state as valid JSON whatever the session id holds', () => {
+    const hook = join(PLUGIN, 'hook.cmd')
+    for (const v of ['a&calc', 'x)"', 'a\\b', '%PATH%', '!PATH!', 'B44E954E-A9CF-4BA9-A3C0-99EC6795D1D9', ';44e954e-a9cf-4ba9-a3c0-99ec6795d1d9', 'b44e954e-a9cf-4ba9-a3c0-99ec6795d1d9x', '']) {
+      const out = execFileSync('cmd.exe', ['/d', '/c', 'call', hook, 'done', '+sid'], {
+        encoding: 'utf8',
+        windowsHide: true,
+        env: { ...process.env, CLAUDE_CODE_SESSION_ID: v }
+      })
+      const seq = JSON.parse(out.trim()).terminalSequence as string
+      expect(parseAgentSignal(seq.slice('\u001b]777;'.length, -1)), v).toEqual({ state: 'done' })
+    }
+  }, 60_000)
 })

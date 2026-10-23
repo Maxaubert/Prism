@@ -1,0 +1,18 @@
+{
+  "description": "Prism Terminal's orchestrator role: on each prompt, role.cmd tells Claude it is the orchestrator when this tab is the one the owner promoted (its PRISM_TAB_ID is in orchestrator-tab.txt beside PRISM_SESSIONS_FILE), and prints nothing otherwise. Exec form (args): no shell.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd.exe",
+            "args": ["/d", "/c", "call", "${CLAUDE_PLUGIN_ROOT}/role.cmd"],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

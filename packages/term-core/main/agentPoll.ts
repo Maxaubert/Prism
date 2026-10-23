@@ -216,6 +216,24 @@ export function pollAgentsNow(): void {
 }
 
 /**
+ * WHICH AGENT RUNS UNDER THIS SESSION'S SHELL NOW, from Windows' own process
+ * list (2026-10-16, security review of the orchestrator's sends): the tab's
+ * agent mark rests on in-band signals any program in the tab can print, so
+ * before the app types into a tab it asks the process tree itself. One fresh
+ * query; null for no session, no agent, or a query that did not answer.
+ */
+export function agentUnder(id: string, query: (done: (stdout: string | null) => void) => void = queryProcesses): Promise<DetectedAgent | null> {
+  const s = livePids().find((p) => p.id === id)
+  if (!s) return Promise.resolve(null)
+  return new Promise((resolve) =>
+    query((stdout) => {
+      const rows = stdout ? parseProcLines(stdout) : []
+      resolve(rows.length ? treeAgentKind(rows, s.pid) : null)
+    })
+  )
+}
+
+/**
  * SAY THIS SESSION'S NEXT ANSWER, CHANGED OR NOT (review 2026-10-11). The
  * renderer asks when the shell's prompt took an agent's keys back, or when a
  * resumed agent's first answer was "no agent": it needs the poll's word at

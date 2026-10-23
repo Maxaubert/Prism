@@ -52,11 +52,10 @@ export async function startCapture(opts: {
     .MediaStreamTrackProcessor
   if (!Processor || !navigator.mediaDevices?.getUserMedia) throw 'unsupported' satisfies CaptureFailure
 
-  let stream: MediaStream
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
+  const open = (deviceId?: string): Promise<MediaStream> =>
+    navigator.mediaDevices.getUserMedia({
       audio: {
-        ...(opts.deviceId ? { deviceId: { exact: opts.deviceId } } : {}),
+        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
         channelCount: 1,
         // Takes this page's own output (the start cue) out of the recording.
         echoCancellation: true,
@@ -66,8 +65,21 @@ export async function startCapture(opts: {
         autoGainControl: true
       }
     })
+  let stream: MediaStream
+  try {
+    stream = await open(opts.deviceId)
   } catch (err) {
-    throw captureFailure(err)
+    // THE CHOSEN MIC IS GONE, SO THE SYSTEM DEFAULT (owner, 2026-10-17: "it
+    // says now it cant find the mic, but mics connected and should be the
+    // system default"). A saved device id stops matching when the mic is
+    // replugged into another port or the profile is new; refusing to record
+    // then is worse than recording from the default.
+    if (!opts.deviceId || captureFailure(err) !== 'no-device') throw captureFailure(err)
+    try {
+      stream = await open()
+    } catch (err2) {
+      throw captureFailure(err2)
+    }
   }
 
   const track = stream.getAudioTracks()[0]
