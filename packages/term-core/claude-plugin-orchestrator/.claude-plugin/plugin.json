@@ -1,0 +1,5 @@
+{
+  "name": "prism-terminal-orchestrator",
+  "version": "1.0.0",
+  "description": "Prism Terminal's orchestrator (beta, opt-in in Settings): a catch-up report of what the other tabs' Claude sessions did since you last looked, and an orchestrator role for the tab you promote. Reads Claude Code's own transcripts on this PC; sends nothing anywhere."
+}

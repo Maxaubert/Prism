@@ -1,6 +1,6 @@
 import { PATHS_MAX } from '../../shared/termLimits'
 import { termApi } from '../host'
-import { findLinks } from './termLinks'
+import { findLinksIn, segmentsOf } from './termLinks'
 import { findPaths, type PathCandidate } from './termPaths'
 
 /**
@@ -161,7 +161,10 @@ export function findPath(
   let unknown = false
   for (const base of anchorBases(owner, cwd, path)) {
     const b = knownPath(base, path)
-    if (b && !(b.kind === 'dir' && holdsCwd(b.abs, cwd))) return { hit: b, base }
+    // A folder inside the tab's is plain too (owner, 2026-10-17: "the status
+    // line in claude still shows my path as a link"): Claude in a worktree
+    // below the shell's folder prints `worktrees/<name>`. A file stays a link.
+    if (b && !(b.kind === 'dir' && (holdsCwd(b.abs, cwd) || holdsCwd(cwd, b.abs)))) return { hit: b, base }
     if (b === undefined) {
       unknown = true
       need(base)
@@ -274,10 +277,43 @@ function request(cwd: string, paths: string[], owner: string): void {
  * (MEASURED in the first screenshot of this). A path that runs straight into
  * `>` is left alone.
  */
-export function pathCandidates(text: string, links = findLinks(text)): PathCandidate[] {
-  return findPaths(text).filter(
-    (c) => text[c.end] !== '>' && !links.some((l) => c.start < l.end && l.start < c.end)
+export function pathCandidates(
+  text: string,
+  links?: Array<{ start: number; end: number }>,
+  /** Where rows broken by hand start (`termCells.byHand`): a path is read
+   *  ACROSS each, first, and within each piece as before. */
+  joins: readonly number[] = []
+): PathCandidate[] {
+  const web = links ?? findLinksIn(text, joins)
+  const keep = (c: PathCandidate): boolean =>
+    text[c.end] !== '>' && !web.some((l) => c.start < l.end && l.start < c.end)
+  if (!joins.length) return findPaths(text).filter(keep)
+  const across = findPaths(text).filter((c) => joins.some((j) => c.start < j && j < c.end))
+  const pieces = segmentsOf(text, joins).flatMap(([s, e]) =>
+    findPaths(text.slice(s, e)).map((c) => ({ ...c, start: c.start + s, end: c.end + s }))
   )
+  return [...across, ...pieces].filter(keep)
+}
+
+/**
+ * The candidates that name something, each with what it names. A path across
+ * a row broken by hand comes first and, when it exists, covers its pieces:
+ * `C:\a\scrat` + `chpad\b.exe` is one file, and neither piece is a link. When
+ * it names nothing, its pieces are read as they always were.
+ */
+export function pathsFound(
+  owner: string,
+  cwd: string,
+  candidates: PathCandidate[],
+  ask?: Map<string, string[]>
+): Array<{ c: PathCandidate; f: PathFound }> {
+  const out: Array<{ c: PathCandidate; f: PathFound }> = []
+  for (const c of candidates) {
+    if (out.some((o) => o.c.start < c.end && c.start < o.c.end)) continue
+    const f = findPath(owner, cwd, c.path, ask)
+    if (f) out.push({ c, f })
+  }
+  return out
 }
 
 /**
@@ -288,16 +324,16 @@ export function linkRanges(
   text: string,
   cwd: string | null,
   /** The session asking: only it hears when one of its paths exists (#167). */
-  owner: string = NO_OWNER
+  owner: string = NO_OWNER,
+  /** Where rows broken by hand start in `text` (`termCells.byHand`). */
+  joins: readonly number[] = []
 ): Array<{ start: number; end: number }> {
   asked.delete(owner)
-  const links = findLinks(text)
+  const links = findLinksIn(text, joins)
   if (!cwd || !termApi().termPathKinds || !/[\\/.]/.test(text)) return links
   const out: Array<{ start: number; end: number }> = [...links]
   const ask = new Map<string, string[]>()
-  for (const c of pathCandidates(text, links)) {
-    const f = findPath(owner, cwd, c.path, ask)
-    if (!f) continue
+  for (const { c, f } of pathsFound(owner, cwd, pathCandidates(text, links, joins), ask)) {
     out.push(c)
     if (!isRelative(c.path)) learnAnchor(owner, f.hit)
   }

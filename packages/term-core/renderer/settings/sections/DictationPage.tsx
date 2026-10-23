@@ -133,7 +133,9 @@ function ModelRow({
   )
 }
 
-export function DictationPage(): JSX.Element | null {
+/** `after`: a host's own rows at the foot of the page (Prism Terminal's
+ *  "Dictate from any app", 2026-10-16). */
+export function DictationPage({ after }: { after?: ReactNode } = {}): JSX.Element | null {
   const d = useDictationState()
   const [micProblem, setMicProblem] = useState<string | null>(null)
   if (!d.host || !d.api) return null
@@ -271,6 +273,7 @@ export function DictationPage(): JSX.Element | null {
           </div>
         </SettingsSection>
       )}
+      {after}
       {d.asking && (
         <ModelDownloadAsk
           text={LIMITED_LANGUAGES_TEXT}

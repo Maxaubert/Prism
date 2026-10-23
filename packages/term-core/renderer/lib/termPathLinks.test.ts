@@ -246,6 +246,42 @@ describe('the folder the tab is in is never a link found from a shown folder', (
     expect(linkRanges(status, CWD, 'A')).toEqual([])
     expect(findPath('A', CWD, 'Github-loftspace/Stutter')).toBe(null)
   })
+
+  // Owner, 2026-10-17: "the status line in claude still shows my path as a
+  // link". Claude worked in a worktree BELOW the shell's folder, its status
+  // line `worktrees/dictate-anywhere`, found from a shown `.claude` folder.
+  it('the status line stays plain when Claude works in a folder inside the tab', async () => {
+    const wtDirs = new Set([CWD, `${CWD}\\.claude`, `${CWD}\\.claude\\worktrees`, `${CWD}\\.claude\\worktrees\\wt`])
+    const wtFiles = new Set([`${CWD}\\.claude\\notes.md`, `${CWD}\\.claude\\worktrees\\wt\\a.ts`])
+    configureTermCore({
+      api: {
+        termPathKinds: vi.fn(async (cwd: string, texts: string[]) =>
+          texts.map((t) => {
+            const abs = join(cwd, t)
+            return wtDirs.has(abs) ? { kind: 'dir' as const, abs } : wtFiles.has(abs) ? { kind: 'file' as const, abs } : null
+          })
+        )
+      } as unknown as TermApi
+    } as TermHostConfig)
+    const shown = `see ${CWD}\\.claude\\notes.md`
+    linkRanges(shown, CWD, 'A')
+    await settle()
+    linkRanges(shown, CWD, 'A')
+    await settle()
+    const status = 'worktrees/wt (Opus 5.5)'
+    for (let i = 0; i < 3; i += 1) {
+      linkRanges(status, CWD, 'A')
+      await settle()
+    }
+    expect(linkRanges(status, CWD, 'A')).toEqual([])
+    // A FILE there is still a link.
+    const file = 'worktrees/wt/a.ts'
+    for (let i = 0; i < 3; i += 1) {
+      linkRanges(file, CWD, 'A')
+      await settle()
+    }
+    expect(linkRanges(file, CWD, 'A').length).toBe(1)
+  })
 })
 
 // 2026-10-16: every Claude tab in the owner's Stable copy stopped taking keys
@@ -339,5 +375,55 @@ describe('a closed tab is forgotten', () => {
     expect(pathOwnersKept()).toBe(1)
     forgetPathOwner('A')
     expect(pathOwnersKept()).toBe(0)
+  })
+})
+
+// Owner, 2026-10-21: a long path Claude printed was not a link. Claude Code
+// breaks its own lines at the window's width, so the rows `C:\...\scrat` and
+// `chpad\...\Flare-win-Setup.exe` each named nothing.
+describe('a path broken by hand at the edge is read across the break', () => {
+  const EXE = 'C:\\t\\scratchpad\\flare-pack\\Flare-win-Setup.exe'
+  const files = new Set([EXE, 'C:\\t\\a.txt'])
+  const ask = vi.fn(async (_cwd: string, texts: string[]) =>
+    texts.map((t) => (files.has(t) ? { kind: 'file' as const, abs: t } : null))
+  )
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 4; i += 1) await vi.advanceTimersByTimeAsync(50)
+  }
+  const ranges = async (text: string, joins: number[]): Promise<Array<{ start: number; end: number }>> => {
+    linkRanges(text, 'C:\\w', 'A', joins)
+    await settle()
+    return linkRanges(text, 'C:\\w', 'A', joins).map(({ start, end }) => ({ start, end }))
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    ask.mockClear()
+    configureTermCore({ api: { termPathKinds: ask } as unknown as TermApi } as TermHostConfig)
+  })
+  afterEach(() => {
+    resetPathCache()
+    resetTermCore()
+    vi.useRealTimers()
+  })
+
+  it('one link over both rows, and neither half alone', async () => {
+    const top = '- Location: C:\\t\\scrat'
+    const text = `${top}chpad\\flare-pack\\Flare-win-Setup.exe`
+    expect(await ranges(text, [top.length])).toEqual([{ start: 12, end: text.length }])
+    // Without the break known, the halves are all there is: no link.
+    resetPathCache()
+    expect(await ranges(text.slice(0, top.length), [])).toEqual([])
+  })
+
+  it('a path that ends at the edge keeps its link when the joined text names nothing', async () => {
+    const top = 'see C:\\t\\a.txt'
+    expect(await ranges(`${top}\\more`, [top.length])).toEqual([{ start: 4, end: top.length }])
+  })
+
+  it('a web link is never carried across the break', () => {
+    const top = 'go https://a.io/x'
+    expect(linkRanges(`${top}/y/z`, 'C:\\w', 'A', [top.length])).toEqual([{ start: 3, end: top.length }])
+    expect(pathCandidates(`${top}/y/z`, undefined, [top.length]).map((c) => c.path)).toEqual(['/y/z'])
   })
 })

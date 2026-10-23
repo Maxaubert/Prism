@@ -2,8 +2,8 @@ import type { IBufferCell, IBufferLine, IDecoration, IDisposable, IMarker, Termi
 import { crumb } from './diag'
 import { rowsToReink } from './linkInkRows'
 import { sliceRows } from './linkScanPlan'
-import { findLinks } from './termLinks'
-import { bufferRowCells, cellText } from './termCells'
+import { findLinksIn } from './termLinks'
+import { bufferRowCells, byHand, cellText, logicalLine } from './termCells'
 import {
   piecesOverlap,
   spanRows,
@@ -43,7 +43,9 @@ import {
  * xterm's DOM renderer REPLACES a row's contents when it draws it, so a row a
  * TUI rewrites starts clean and is inked again only if it still holds a link:
  * no smear to clean up. Per row: a program that owns the screen places its own
- * text, and a link it breaks over two rows is two pieces of text there.
+ * text, and a web link it breaks over two rows is two pieces of text there. A
+ * PATH it breaks at the edge is read across the break (`termCells.byHand`), on
+ * both screens, and each row inks its own piece.
  *
  * OSC 8 LINKS ARE PAINTED FROM THE STREAM (#169): the panel notes where each
  * one was printed (`termOsc8.ts`) and hands them over as `opts.spans`; both
@@ -121,7 +123,7 @@ export function attachLinkPaint(
   color: () => string,
   /** What wears the link colour in a line of text: the web links, and the
    *  host panel adds the paths that exist (#99). */
-  find: (text: string) => Array<{ start: number; end: number }> = findLinks,
+  find: (text: string, joins: readonly number[]) => Array<{ start: number; end: number }> = findLinksIn,
   opts: LinkPaintOptions = {}
 ): LinkPainter {
   let painted: Painted[] = []
@@ -148,6 +150,13 @@ export function attachLinkPaint(
   /** The one cell every cell read loads into (perf review 2026-10-16). */
   let scratch: IBufferCell | undefined
   const cell0 = (): IBufferCell => (scratch ??= term.buffer.active.getNullCell())
+
+  /** Whether row `r` carries on the row above: wrapped by xterm, or broken by
+   *  hand at the edge by the program (`termCells.byHand`). */
+  const goesOn = (r: number): boolean => {
+    const b = term.buffer.active
+    return !!b.getLine(r)?.isWrapped || byHand(b, term.cols, r, cell0())
+  }
 
   const markerAt = (line: number): IMarker | undefined => {
     const b = term.buffer.active
@@ -247,8 +256,10 @@ export function attachLinkPaint(
     // cells: an index into the string is not a column once a line holds one.
     let text = ''
     const cells: Cell[] = []
+    const joins: number[] = []
     const into = cell0()
     rows.forEach((line, i) => {
+      if (i > 0 && !line.isWrapped) joins.push(text.length)
       for (let x = 0; x < line.length; x += 1) {
         const cell = line.getCell(x, into)
         if (!cell) continue
@@ -259,7 +270,7 @@ export function attachLinkPaint(
         for (let k = 0; k < chars.length; k += 1) cells.push({ row: first + i, x, w })
       }
     })
-    const links = find(text)
+    const links = find(text, joins)
     const asked = opts.asked?.() ?? false
     if (asked) noteWaiting(first)
     for (const link of links) {
@@ -305,11 +316,37 @@ export function attachLinkPaint(
     return out
   }
 
+  /**
+   * What wears the link colour in drawn row `r` (its text `text`). A row the
+   * program broke by hand from the one above or below (`termCells.byHand`) is
+   * read with them, and keeps the part of each link that falls on it, only
+   * where its drawn text is the cells' text (as `spanRanges` does).
+   */
+  const rowLinks = (r: number, text: string): Array<{ start: number; end: number }> => {
+    const b = term.buffer.active
+    const y = b.viewportY + r
+    const cols = term.cols
+    if (!byHand(b, cols, y, cell0()) && !byHand(b, cols, y + 1, cell0()))
+      return /[\\/.]/.test(text) ? find(text, []) : []
+    const line = logicalLine(b, cols, y, true)
+    if (!/[\\/.]/.test(line.text)) return []
+    const from = line.index[(y - line.first) * cols]
+    const to = line.index[(y - line.first + 1) * cols]
+    const own = line.text.slice(from, to)
+    const out: Array<{ start: number; end: number }> = []
+    for (const l of find(line.text, line.joins)) {
+      const start = Math.max(l.start, from) - from
+      const end = Math.min(l.end, to) - from
+      if (end > start && text.slice(start, end) === own.slice(start, end)) out.push({ start, end })
+    }
+    return out
+  }
+
   /** Ink the links in one drawn row (screen row `r`) of the alternate screen.
    *  True when the row now holds ink. */
   const inkRow = (row: Element, ink: string, r: number): boolean => {
     const text = row.textContent ?? ''
-    const found = /[\\/.]/.test(text) ? find(text) : []
+    const found = rowLinks(r, text)
     // An OSC 8 label that is itself a URL is inked once, as the URL.
     const spans = spanRanges(r, text).filter((s) => !found.some((l) => l.start < s.end && s.start < l.end))
     // In order along the row: the pieces are wrapped last first, below.
@@ -403,9 +440,8 @@ export function attachLinkPaint(
 
   /** The last row of the logical line that starts on `first`. */
   const lastRowOf = (first: number, end: number): number => {
-    const b = term.buffer.active
     let last = first
-    while (last + 1 <= end && b.getLine(last + 1)?.isWrapped) last += 1
+    while (last + 1 <= end && goesOn(last + 1)) last += 1
     return last
   }
 
@@ -461,7 +497,7 @@ export function attachLinkPaint(
       // first row, which the walk reaches next. A segment stops above the
       // first line of the live pass that made it, so no line here runs into
       // painted rows.
-      if (!b.getLine(r)?.isWrapped) paintLogical(r, lastRowOf(r, b.length - 1), ink)
+      if (!goesOn(r)) paintLogical(r, lastRowOf(r, b.length - 1), ink)
     })
     if (!rows) {
       dropSegment()
@@ -518,7 +554,7 @@ export function attachLinkPaint(
     const full = done < 0
     let start = full ? live : Math.min(done, live)
     // A pass starts on a whole logical line.
-    while (start > 0 && b.getLine(start)?.isWrapped) start -= 1
+    while (start > 0 && goesOn(start)) start -= 1
     const end = Math.min(b.length - 1, live + term.rows - 1)
     const t0 = performance.now()
     if (full || t0 - keysBorn > KEYS_TTL_MS) {
@@ -536,7 +572,7 @@ export function attachLinkPaint(
     let from = start
     if (!full && live - start > BURST_SCREENS * term.rows) {
       from = live
-      while (from > start && b.getLine(from)?.isWrapped) from -= 1
+      while (from > start && goesOn(from)) from -= 1
       if (from > start) {
         forgetLines(start, from - 1)
         queueBacklog(from - 1, start)
@@ -615,7 +651,7 @@ export function attachLinkPaint(
       let hi = -1
       for (let r = 0; r < rows.length; r += 1) {
         const text = rows[r].textContent ?? ''
-        if (!/[\\/.]/.test(text) || !find(text).length) continue
+        if (!rowLinks(r, text).length) continue
         if (lo < 0) lo = r
         hi = r
       }

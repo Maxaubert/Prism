@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { LIMITED_LANGUAGES_TEXT } from '../../../shared/dictationCatalog'
-import { DEFAULT_HOTKEY, formatHotkey, parseHotkeyFromEvent, usableHotkey, type Hotkey } from '../../lib/dictationKey'
-import { setDictationHotkey, setDictationMic } from '../../lib/dictationPrefs'
+import { formatHotkey, parseHotkeyFromEvent, usableHotkey, type Hotkey } from '../../lib/dictationKey'
+import { defaultDictationHotkey, setDictationHotkey, setDictationMic } from '../../lib/dictationPrefs'
 import { listMics, startCapture, type Capture } from '../../lib/micCapture'
 import { Select } from '../fields'
 
@@ -19,7 +19,7 @@ export const button =
 export const primary =
   'rounded-md border border-[color:var(--p-line)] bg-[color-mix(in_srgb,var(--p-text)_12%,var(--p-control))] px-3 py-1 text-[11.5px] font-semibold text-[var(--p-text)] transition hover:bg-[color-mix(in_srgb,var(--p-text)_18%,var(--p-control))] disabled:opacity-50'
 
-/** Click, then press the key or chord. A bare modifier (Right Alt, the default)
+/** Click, then press the key or chord. A bare modifier (Right Alt, Prism's default)
  *  is taken on its RELEASE, so that Ctrl+Shift+D is not captured as "Ctrl". */
 export function HotkeyField({
   value,
@@ -77,11 +77,13 @@ export function HotkeyField({
       window.removeEventListener('pointerdown', away, true)
     }
   }, [listening])
-  const isDefault = JSON.stringify(value) === JSON.stringify(DEFAULT_HOTKEY)
+  // The HOST's default (Right Alt in Prism, Ctrl+Win in Prism Terminal).
+  const fallback = defaultDictationHotkey()
+  const isDefault = JSON.stringify(value) === JSON.stringify(fallback)
   return (
     <div className="flex items-center gap-2">
       {!isDefault && !listening && (
-        <button className={look} disabled={disabled} onClick={() => setDictationHotkey(DEFAULT_HOTKEY)}>
+        <button className={look} disabled={disabled} onClick={() => setDictationHotkey(fallback)}>
           Reset
         </button>
       )}

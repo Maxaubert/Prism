@@ -27,7 +27,15 @@ export interface Hotkey {
   meta: boolean
 }
 
-export const DEFAULT_HOTKEY: Hotkey = { code: 'AltRight', ctrl: false, alt: false, shift: false, meta: false }
+/**
+ * CTRL+WIN (owner, 2026-10-16: "we'll change it from being right Alt to being
+ * control plus the windows key"): right Alt is AltGr on the owner's Norwegian
+ * keyboard, and the key now works from any app (globalDictKey), where AltGr
+ * types @ { [ in everything else. A MODIFIER CHORD: either key may go first,
+ * and it follows the solo rules below, so Ctrl+Win+Left (switch desktops)
+ * never dictates. A user's own saved key is kept; only the default moved.
+ */
+export const DEFAULT_HOTKEY: Hotkey = { code: 'MetaLeft', ctrl: true, alt: false, shift: false, meta: true }
 
 export type DictMode = 'hold' | 'toggle'
 
@@ -115,9 +123,33 @@ export function initialKeyState(): KeyState {
   return { phase: 'idle', held: false, downAt: 0, polluted: false, altGr: false, escHeld: false }
 }
 
-/** A modifier bound on its own, which is what the solo rules apply to. */
+/** A modifier bound on its own. */
 function isBareModifier(h: Hotkey): boolean {
   return h.code in MODIFIER_FLAG && !h.ctrl && !h.alt && !h.shift && !h.meta
+}
+
+/** The modifiers a binding made only of modifiers holds down: its own key's
+ *  flag and every flag it names (Ctrl+Win: ctrl and meta). */
+function chordSet(h: Hotkey): Set<'ctrl' | 'alt' | 'shift' | 'meta'> {
+  const set = new Set(FLAGS.filter((f) => h[f]))
+  const own = MODIFIER_FLAG[h.code]
+  if (own) set.add(own)
+  return set
+}
+
+/** Only modifiers: a bare one (Right Alt) or a chord of them (Ctrl+Win). The
+ *  SOLO rules apply to both: it decides while nothing else is pressed, so a
+ *  key that is typed with it (AltGr's @, Ctrl+Win+Left) is never dictation. */
+function isSolo(h: Hotkey): boolean {
+  return h.code in MODIFIER_FLAG
+}
+
+/** A key of this solo binding: the bare key itself, or any key of a chord's
+ *  modifiers, left or right (Ctrl+Win takes either Ctrl, either Win). */
+function isSoloKey(code: string, h: Hotkey): boolean {
+  if (isBareModifier(h)) return code === h.code
+  const flag = MODIFIER_FLAG[code]
+  return !!flag && chordSet(h).has(flag)
 }
 
 /**
@@ -138,6 +170,14 @@ function isBareModifier(h: Hotkey): boolean {
  */
 export function isHotkeyEvent(evt: KeyEvt | KeyChord, hotkey: Hotkey): boolean {
   if (evt.type === 'tick' || evt.type === 'blur') return false
+  // A chord of modifiers: either of its keys, the moment the held set is
+  // exactly the chord (the second key down completes it, whichever it is).
+  if (isSolo(hotkey) && !isBareModifier(hotkey)) {
+    if (!isSoloKey(evt.code, hotkey)) return false
+    if (evt.type === 'up') return true
+    const set = chordSet(hotkey)
+    return FLAGS.every((f) => !!evt[f] === set.has(f))
+  }
   if (evt.code !== hotkey.code) return false
   if (evt.type === 'up') return true
   if (!isBareModifier(hotkey)) return FLAGS.every((f) => evt[f] === hotkey[f])
@@ -157,7 +197,8 @@ export function isHotkeyEvent(evt: KeyEvt | KeyChord, hotkey: Hotkey): boolean {
  */
 export function reduceKey(state: KeyState, evt: KeyEvt, cfg: KeyConfig): KeyResult {
   const holdMs = cfg.holdMs ?? DEFAULT_HOLD_MS
-  const bare = isBareModifier(cfg.hotkey)
+  // Solo: a bare modifier or a chord of modifiers (Ctrl+Win) decides alone.
+  const bare = isSolo(cfg.hotkey)
   const stay = (swallow = false): KeyResult => ({ state, action: null, swallow })
   /** Hold mode's wait is over: the key has been down, alone, for holdMs. */
   const ripe = bare && cfg.mode === 'hold' && state.phase === 'arming' && evt.at - state.downAt >= holdMs
@@ -178,7 +219,7 @@ export function reduceKey(state: KeyState, evt: KeyEvt, cfg: KeyConfig): KeyResu
     return stay()
   }
 
-  const own = evt.code === cfg.hotkey.code
+  const own = bare ? isSoloKey(evt.code, cfg.hotkey) : evt.code === cfg.hotkey.code
 
   if (evt.type === 'up') {
     if (own && state.held) return release(state, evt.at, cfg.mode, bare)
@@ -191,7 +232,7 @@ export function reduceKey(state: KeyState, evt: KeyEvt, cfg: KeyConfig): KeyResu
   // ---- a key going down ----
 
   if (own && state.held) {
-    // Auto-repeat of the hotkey (or a down with the repeat flag lost): part of
+    // Auto-repeat of the hotkey (either key of a chord) (or a down with the repeat flag lost): part of
     // the same press. It never arms again, but it is an event like any other
     // and can carry the start if the host's tick is late.
     if (ripe) return { state: { ...state, phase: 'listening' }, action: 'start', swallow: true }
@@ -333,6 +374,11 @@ function keyName(code: string): string {
 
 /** 'Right Alt', 'Ctrl+Shift+D': what Settings shows for a binding. */
 export function formatHotkey(h: Hotkey): string {
+  // A chord of modifiers is its modifiers: 'Ctrl+Win', not 'Ctrl+Win+Left Win'.
+  if (isSolo(h) && !isBareModifier(h)) {
+    const set = chordSet(h)
+    return (['ctrl', 'alt', 'shift', 'meta'] as const).filter((f) => set.has(f)).map((f) => ({ ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', meta: 'Win' })[f]).join('+')
+  }
   const parts: string[] = []
   if (h.ctrl) parts.push('Ctrl')
   if (h.alt) parts.push('Alt')
@@ -361,7 +407,15 @@ export function parseHotkeyFromEvent(evt: KeyEvt | KeyChord | DomKeyLike): Hotke
   if ('ctrlKey' in evt) return parseHotkeyFromEvent(keyEvtFromDom('down', evt, 0))
   if (evt.type === 'tick' || evt.type === 'blur') return null
   if (!evt.code || evt.code === 'Unidentified' || evt.code === 'Escape') return null
-  if (evt.code in MODIFIER_FLAG) return { code: evt.code, ctrl: false, alt: false, shift: false, meta: false }
+  if (evt.code in MODIFIER_FLAG) {
+    // A modifier with OTHER modifiers held is a chord of them (Ctrl+Win), the
+    // key's own flag set; alone, or Right Alt with the Ctrl AltGr brings, it
+    // is that key bare.
+    const own = MODIFIER_FLAG[evt.code]
+    const others = FLAGS.filter((f) => f !== own && evt[f] && !(f === 'ctrl' && evt.code === 'AltRight'))
+    if (!others.length) return { code: evt.code, ctrl: false, alt: false, shift: false, meta: false }
+    return { code: evt.code, ctrl: evt.ctrl || own === 'ctrl', alt: evt.alt || own === 'alt', shift: evt.shift || own === 'shift', meta: evt.meta || own === 'meta' }
+  }
   return { code: evt.code, ctrl: evt.ctrl, alt: evt.alt, shift: evt.shift, meta: evt.meta }
 }
 
@@ -375,7 +429,8 @@ export function parseHotkeyFromEvent(evt: KeyEvt | KeyChord | DomKeyLike): Hotke
  * Alt or Win that the terminal does not already use.
  */
 export function usableHotkey(h: Hotkey): boolean {
-  if (isBareModifier(h)) return true
+  // Modifiers alone type nothing: a bare one, or a chord of two or more.
+  if (isSolo(h)) return true
   if (!h.ctrl && !h.alt && !h.meta)
     return /^F([1-9]|1[0-9]|2[0-4])$/.test(h.code) || h.code === 'Pause' || h.code === 'ScrollLock'
   if (h.ctrl && !h.alt && !h.meta && /^(Key[CVWTF]|Tab|Digit[1-9]|Comma)$/.test(h.code)) return false

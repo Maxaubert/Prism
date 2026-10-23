@@ -1,6 +1,7 @@
-import type { DetectedAgent, ShellDef } from '../shared/types'
+import type { DetectedAgent, PluginChoice, ShellDef } from '../shared/types'
 import type { DictationApi } from '../preload/dictationApi'
 import type { ShownQuestion } from '../shared/questionShown'
+import type { Hotkey } from './lib/dictationKey'
 
 /**
  * THE HOST SEAM (2026-09-19, #15).
@@ -33,11 +34,11 @@ export interface ClipboardRead {
  *  signatures exist in one place. */
 export interface TermApi {
   termShells(): Promise<ShellDef[]>
-  termSpawn(id: string, cwd: string, shellId?: string, resume?: string, hooks?: boolean): Promise<boolean>
+  termSpawn(id: string, cwd: string, shellId?: string, resume?: string, hooks?: boolean | PluginChoice): Promise<boolean>
   termInput(id: string, data: string): void
   termResize(id: string, cols: number, rows: number): void
   termKill(id: string): void
-  termPrewarm(cwd: string, shellId?: string, hooks?: boolean): void
+  termPrewarm(cwd: string, shellId?: string, hooks?: boolean | PluginChoice): void
   onTermData(cb: (id: string, data: string) => void): () => void
   onTermAgent(cb: (id: string, has: boolean, kind: DetectedAgent | null) => void): () => void
   /** Ask the process poll to look NOW, past its backoff (#73). Optional so a
@@ -177,6 +178,15 @@ export interface TermHostConfig {
   dictation?: {
     api: DictationApi
     canDictate(): boolean
+    /**
+     * The key a user who never picked one dictates with (2026-10-23). Absent:
+     * the core's DEFAULT_HOTKEY, Ctrl+Win (Prism Terminal's global key). Prism
+     * keeps Right Alt, its documented key: core 0.43.0 moved the built-in
+     * default, and Prism, which never saves one, moved with it silently, so
+     * Right Alt over its terminal stopped dictating (Prism #429). A saved key
+     * always wins; this is only what "nothing saved" and the reset mean.
+     */
+    defaultHotkey?: Hotkey
   }
 
   /**
@@ -197,6 +207,18 @@ export interface TermHostConfig {
    * it adopts the core's marks), so an update changes nothing it draws.
    */
   tabMarks?: { indicators: readonly AgentIndicator[]; rainbow: boolean }
+
+  /**
+   * RIGHT CLICKS TO PROGRAMS (Flare #49, DIFF-22; owner, 2026-10-22: "right
+   * click should just open the menu not paste in the input"). Present: the
+   * host's "Send right clicks to programs" setting, read at every right press;
+   * false (its default) keeps a right press, its release and a right drag from
+   * a program that reads the mouse (`lib/termRightClick.ts`), so Claude Code
+   * never pastes on the click that opens the menu. Absent: xterm forwards them
+   * as it always did (Prism, until it adopts it), so an update changes nothing
+   * there.
+   */
+  rightClickReports?(): boolean
 }
 
 let host: TermHostConfig | null = null
@@ -247,6 +269,9 @@ export const onHostChromeChange = (cb: () => void): (() => void) => host?.onChro
 export const hostIndicators = (): readonly AgentIndicator[] => host?.tabMarks?.indicators ?? LEGACY_INDICATORS
 /** Whether the host's strip draws the rainbow finish (`tabMarks.rainbow`). */
 export const hostRainbow = (): boolean => host?.tabMarks?.rainbow ?? false
+/** Whether a right press reaches a program that reads the mouse
+ *  (`rightClickReports`): yes where the host has not declared it. */
+export const hostSendsRightClicks = (): boolean => host?.rightClickReports?.() ?? true
 
 /** For tests, and for a host that tears down. */
 export function resetTermCore(): void {
