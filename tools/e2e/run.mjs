@@ -955,7 +955,7 @@ async function termOptionsScenario(fixtures) {
   console.log('terminal options')
   const { app, win } = await launch(join(fixtures, 'README.md'))
   try {
-    const src = readFileSync(join(process.cwd(), 'node_modules/prism-term-core/renderer/settings/options.ts'), 'utf8')
+    const src = readFileSync(join(process.cwd(), 'packages/term-core/renderer/settings/options.ts'), 'utf8')
     // Prism's window material belongs to the app STYLE, so a row the list
     // marks `onlyWhere` (window-acrylic-only: the opacity slider today) is not
     // shown here. HOW MANY such rows there are is the core's business, not
@@ -1104,7 +1104,7 @@ async function noCommandHelpScenario(fixtures) {
  */
 async function termColourPickerScenario(fixtures) {
   console.log('terminal colour picker')
-  if (!existsSync(join(ROOT, 'node_modules/prism-term-core/renderer/settings/ColourPicker.tsx'))) {
+  if (!existsSync(join(ROOT, 'packages/term-core/renderer/settings/ColourPicker.tsx'))) {
     console.log('  skipped (core has no ColourPicker)')
     return
   }
@@ -1296,7 +1296,7 @@ const JFK = {
   url: 'https://raw.githubusercontent.com/ggml-org/whisper.cpp/b0a11594aec50892a02cd8d129eee2dfe93a8bb8/samples/jfk.wav',
   sha256: '59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e'
 }
-const CATALOG = join(ROOT, 'node_modules/prism-term-core/shared/dictationCatalog.ts')
+const CATALOG = join(ROOT, 'packages/term-core/shared/dictationCatalog.ts')
 const cachedDownload = (name, url, sha256) => fetchOnce(E2E_CACHE, name, url, sha256)
 /** One catalog entry, read out of the core's own file: the e2e fetches exactly
  *  what the app would. */
@@ -1447,7 +1447,7 @@ async function dictationPageScenario(fixtures) {
     await win.evaluate(() => localStorage.setItem('prism.dictation.model', 'base'))
     await settingsPage(win, 'dictation')
     await win.waitForSelector('[data-dictation-item="gpu-pack"][data-state="installed"]', { timeout: 8000 })
-    const src = readFileSync(join(ROOT, 'node_modules/prism-term-core/renderer/settings/dictationOptions.ts'), 'utf8')
+    const src = readFileSync(join(ROOT, 'packages/term-core/renderer/settings/dictationOptions.ts'), 'utf8')
     const wanted = [...src.matchAll(/\{\s*id: '([a-z-]+)'/g)].map((m) => m[1]).sort()
     const shown = (await win.evaluate(() => [...document.querySelectorAll('[data-dictation-settings] [data-pref], [data-dictation-settings][data-pref]')].map((e) => e.getAttribute('data-pref')))).sort()
     ok(wanted.length >= 9 && JSON.stringify(shown) === JSON.stringify(wanted), `the Dictation page shows exactly the core's option list (${JSON.stringify(shown)})`)
@@ -16929,9 +16929,9 @@ async function settingsSearchScenario(fixtures) {
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 1000))
     const labelOf = {}
     for (const file of [
-      'node_modules/prism-term-core/renderer/settings/options.ts',
-      'node_modules/prism-term-core/renderer/settings/dictationOptions.ts',
-      'node_modules/prism-term-core/renderer/settings/diagnosticsOptions.ts',
+      'packages/term-core/renderer/settings/options.ts',
+      'packages/term-core/renderer/settings/dictationOptions.ts',
+      'packages/term-core/renderer/settings/diagnosticsOptions.ts',
       'src/renderer/src/components/settings/appOptions.ts'
     ])
       for (const m of readFileSync(join(ROOT, file), 'utf8').matchAll(/\{\s*id: '([a-z-]+)'[^}]*\}/g))

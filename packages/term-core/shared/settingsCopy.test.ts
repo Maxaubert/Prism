@@ -70,7 +70,7 @@ describe("the core's own settings", () => {
   it('keep every new label plain and every new subtext to eight words', () => {
     const fresh = source.filter((f) => {
       const r = relative(dir, f).replace(/\\/g, '/')
-      return /^(layout|sections)\//.test(r) || ['options.ts', 'dictationOptions.ts', 'helpOptions.ts', 'diagnosticsOptions.ts', 'coreIndex.ts'].includes(r)
+      return /^(layout|sections)\//.test(r) || ['options.ts', 'dictationOptions.ts', 'diagnosticsOptions.ts', 'coreIndex.ts'].includes(r)
     })
     expect(fresh.length).toBeGreaterThan(10)
     const long: string[] = []

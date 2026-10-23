@@ -2,15 +2,11 @@ import { useSyncExternalStore } from 'react'
 import {
   followsHostStyle,
   hostDefaults,
-  hostGround,
-  hostIndicators,
-  hostOwnsWindowAcrylic,
-  onHostChromeChange,
+  INDICATORS,
   type AgentIndicator
 } from '../host'
 import { liveThemeId } from './termThemeRetired'
-import { alphaOf, canonicalStored, opaque, parseColour, toStored } from './colour'
-import { seeThroughAlpha } from './seeThrough'
+import { alphaOf, canonicalStored, parseColour, toStored } from './colour'
 import { readPref, writePref } from './prefStore'
 
 export type { AgentIndicator }
@@ -116,15 +112,12 @@ export function termBaseFontPx(): number {
 }
 
 const ACRYLIC_KEY = 'prism.term.acrylic'
-const OPACITY_KEY = 'prism.term.opacity'
 
 /** Whether the window is acrylic: the theme's background is painted at the
  *  ground's alpha (`termGroundAlpha`) and the desktop shows through. Inside
  *  Prism this belonged to the follow-style terminal alone and was on by
- *  default; there it is still the switch. Where the terminal owns the window
- *  acrylic it is the see-through slider above 0 (`termSeeThrough`). */
+ *  default; there it is still the switch. */
 export function termAcrylic(): boolean {
-  if (hostOwnsWindowAcrylic()) return termSeeThrough() > 0
   const v = localStorage.getItem(ACRYLIC_KEY)
   // Never touched: the host's default (on in Prism, off in Prism Terminal).
   return v === null ? hostDefaults().acrylic : v === '1'
@@ -134,81 +127,24 @@ export function setTermAcrylic(on: boolean): void {
   localStorage.setItem(ACRYLIC_KEY, on ? '1' : '0')
   notify()
 }
-/** The switch's old key, for the host's one-time move to the slider. */
-export const LEGACY_ACRYLIC_KEY = ACRYLIC_KEY
-
-/**
- * THE SEE-THROUGH SLIDER (owner, 2026-10-13: "can you add a see through
- * slider, now its just a toggle make it a slider only with it being at 0 by
- * default"), where the terminal owns the window acrylic (Prism Terminal). How
- * much of the desktop shows through, in percent: the window's ground is
- * painted at alpha 1 - level/100. 0 is the material off and a solid window;
- * the top is 70, the 30% alpha floor the Opacity slider and the Background's
- * alpha had. It is the ONLY see-through control there ("slider only": the
- * Background pickers carry no alpha), and PART OF THE THEME, as Prism's own
- * see-through is ("prism has it built into themes ... Like Prism: an edit"):
- * a theme extra, so moving it lights Save changes, a theme pick puts the
- * theme's own back (a preset's is 0) and Custom keeps it.
- * Stored as written, read clamped; never stored reads as 0 (the host's
- * migration writes it once before the first paint).
- */
-export const SEE_THROUGH_TOP = 70
-const SEE_THROUGH_KEY = 'prism.term.seeThrough'
-export const SEE_THROUGH_STORE_KEY = SEE_THROUGH_KEY
-export function seeThroughLevel(raw: unknown): number {
-  const n = raw === null || raw === undefined || raw === '' ? NaN : Number(raw)
-  return Number.isFinite(n) ? Math.min(SEE_THROUGH_TOP, Math.max(0, Math.round(n))) : 0
-}
-export function termSeeThrough(): number {
-  return seeThroughLevel(localStorage.getItem(SEE_THROUGH_KEY))
-}
-export function setTermSeeThrough(level: number): void {
-  localStorage.setItem(SEE_THROUGH_KEY, String(seeThroughLevel(level)))
-  notify()
-}
-/**
- * THE OPACITY SLIDER IS GONE (#114; owner, 2026-10-03: alpha "should be built
- * into the colour pickers ... it should not be a separate opacity setting").
- * The window's see-through is the ALPHA of the ground in force now
- * (`termGroundAlpha`). This reads what the slider left behind, ONCE, for the
- * host's migration, exactly as the window read it: 30-100, defensively, since
- * Number(null) and Number('') are 0, which would read "never set" as fully
- * transparent. Nothing writes the key any more.
- */
-export function legacyTermOpacity(): number {
-  return opacityPct(localStorage.getItem(OPACITY_KEY))
-}
-
-/** A stored opacity as the window read it, 30-100; 100 for anything else. */
-export function opacityPct(raw: unknown): number {
-  const n = raw === null || raw === undefined || raw === '' ? NaN : Number(raw)
-  return Number.isFinite(n) ? Math.min(100, Math.max(30, Math.round(n))) : 100
-}
-
-/** The legacy key, for the migration that removes it. */
-export const LEGACY_OPACITY_KEY = OPACITY_KEY
-
 const AGENT_IND_KEY = 'prism.term.agentIndicator'
 
 
 /**
- * A stored indicator as the host can draw it (#143): a value among `allowed`
- * reads as itself, anything else (never set, nonsense, or a choice this host's
- * strip does not draw, such as Ring in Prism) as `fallback`. A stored `full`
- * reads as `full`: where the host draws the new marks that IS the new Full,
- * the migration being the meaning, so nothing is rewritten.
+ * A stored indicator as the strip can draw it: a value among `allowed` reads
+ * as itself, anything else (never set, nonsense, or a choice the strip does
+ * not draw) as `fallback`.
  */
 export function readIndicator(raw: unknown, allowed: readonly AgentIndicator[], fallback: AgentIndicator): AgentIndicator {
   return typeof raw === 'string' && (allowed as readonly string[]).includes(raw) ? (raw as AgentIndicator) : fallback
 }
 
 /** How an agent shows on its tab: not at all, a line under the tab (Minimal),
- *  a spinner by the name (Ring, #143), or the tabs you are not on filled
- *  (Full). MINIMAL is the default (owner, 2026-09-18; it was full in Prism and
+ *  or the tabs you are not on filled (Full). MINIMAL is the default (owner, 2026-09-18; it was full in Prism and
  *  in the first build): the line says it, and a filled tab is the loud version
  *  you opt into. */
 export function agentIndicator(): AgentIndicator {
-  return readIndicator(localStorage.getItem(AGENT_IND_KEY), hostIndicators(), hostDefaults().indicator)
+  return readIndicator(localStorage.getItem(AGENT_IND_KEY), INDICATORS, hostDefaults().indicator)
 }
 
 export function setAgentIndicator(v: AgentIndicator): void {
@@ -232,16 +168,6 @@ const QUESTION_ON_KEY = 'prism.term.agentQuestionOn'
 export const [agentDoneOn, setAgentDoneOn] = onSwitch(DONE_ON_KEY)
 export const [agentQuestionOn, setAgentQuestionOn] = onSwitch(QUESTION_ON_KEY)
 
-const RAINBOW_KEY = 'prism.term.agentRainbow'
-
-/**
- * THE RAINBOW FINISH (#143; owner, 2026-10-10): a finished tab wears the app
- * icon's colours, flowing. A switch, ON by default; off is the finished
- * colour, still. Not a theme setting: a theme pick never touches it. Drawn
- * only where the host's strip draws it (`tabMarks.rainbow`).
- */
-export const [agentRainbow, setAgentRainbow] = onSwitch(RAINBOW_KEY)
-
 const FAILED_ON_KEY = 'prism.term.agentFailedOn'
 const HOOKS_KEY = 'prism.term.agentHooks'
 
@@ -259,23 +185,8 @@ export const [agentFailedOn, setAgentFailedOn] = onSwitch(FAILED_ON_KEY)
  */
 export const [agentHooksOn, setAgentHooksOn] = onSwitch(HOOKS_KEY)
 
-/**
- * THE ORCHESTRATOR (beta, owner 2026-10-16): OFF unless switched on ('1'), so
- * someone who never wants it gets nothing: no orchestrator plugin in Claude,
- * no session list kept, no tab menu entry. On, new tabs get the orchestrator
- * plugin (its skills and the role hook) beside the status one.
- */
-const ORCH_KEY = 'prism.term.orchestrator'
-export const orchestratorOn = (): boolean => readPref(ORCH_KEY) === '1'
-export function setOrchestratorOn(on: boolean): void {
-  writePref(ORCH_KEY, on ? '1' : '0')
-  notify()
-}
-/** What a new shell is given: the status plugin, and the orchestrator's. */
-export const pluginChoice = (): { status: boolean; orchestrator: boolean } => ({
-  status: agentHooksOn(),
-  orchestrator: orchestratorOn()
-})
+/** What a new shell is given: the status plugin. */
+export const pluginChoice = (): { status: boolean } => ({ status: agentHooksOn() })
 /** A stored agent colour: six digits, or eight with an alpha (#112), in its
  *  canonical form, or null. */
 const agentHex = canonicalStored
@@ -365,9 +276,6 @@ export interface CustomTermTheme {
   doneColor?: string
   questionColor?: string
   acrylic?: boolean
-  /** The see-through slider's level, where the terminal owns the window
-   *  acrylic (2026-10-13); the ground is saved opaque there. */
-  seeThrough?: number
 }
 
 /** What every theme-bound non-colour setting is out of the box. Picking any
@@ -379,7 +287,6 @@ export function termExtraDefaults(): {
   doneColor: string
   questionColor: string
   acrylic: boolean
-  seeThrough: number
 } {
   const d = hostDefaults()
   return {
@@ -388,9 +295,7 @@ export function termExtraDefaults(): {
     indicatorColor: d.agentColor,
     doneColor: d.agentDoneColor,
     questionColor: '',
-    acrylic: d.acrylic,
-    // Every theme's own see-through is none (owner: "at 0 by default").
-    seeThrough: 0
+    acrylic: d.acrylic
   }
 }
 
@@ -400,9 +305,6 @@ export function resetTermExtras(): void {
   localStorage.removeItem(AGENT_IND_KEY)
   for (const c of AGENT_COLOUR_STATES) localStorage.removeItem(c.key)
   localStorage.removeItem(ACRYLIC_KEY)
-  // Written, not removed: a stored level is also the sign the host's one-time
-  // move from the switch has run.
-  if (hostOwnsWindowAcrylic()) localStorage.setItem(SEE_THROUGH_KEY, '0')
   notify()
 }
 
@@ -411,17 +313,15 @@ export function applyCustomExtras(t: CustomTermTheme | null): void {
   if (!t) return
   // The font and its size belong to no theme (2026-09-28): an older save that
   // carries them does not put them back.
-  // Through the same reader as the store (#143): a saved Ring in a host that
-  // draws none is not written over the user's choice.
-  if (t.indicator && hostIndicators().includes(t.indicator)) localStorage.setItem(AGENT_IND_KEY, t.indicator)
+  // Through the same reader as the store: a value the strip does not draw is
+  // not written over the user's choice.
+  if (t.indicator && INDICATORS.includes(t.indicator)) localStorage.setItem(AGENT_IND_KEY, t.indicator)
   // A saved setup that followed the theme goes back to following it.
   // Validated as every other writer is: a colour that is not one follows the
   // theme rather than landing in storage unchecked (#112).
   for (const c of AGENT_COLOUR_STATES) writeChoice(c.key, t[c.custom])
-  // The see-through the save captured: the slider's level where the terminal
-  // owns the window acrylic (a save without one is none), else the switch.
-  if (hostOwnsWindowAcrylic()) localStorage.setItem(SEE_THROUGH_KEY, String(seeThroughLevel(t.seeThrough ?? 0)))
-  else if (t.acrylic !== undefined) localStorage.setItem(ACRYLIC_KEY, t.acrylic ? '1' : '0')
+  // The see-through switch the save captured.
+  if (t.acrylic !== undefined) localStorage.setItem(ACRYLIC_KEY, t.acrylic ? '1' : '0')
   notify()
 }
 
@@ -482,50 +382,14 @@ function stored(c: unknown): string | null {
  * the default see-through (#156, `paintsAlpha`): a preset is no longer 1.
  */
 export function termGroundAlpha(): number {
-  // Where it is the window's see-through, it is the slider's (2026-10-13),
-  // never read off a colour: the pickers carry no alpha there any more.
-  if (hostOwnsWindowAcrylic()) return 1 - termSeeThrough() / 100
   return rawGroundAlpha()
 }
-/** The lowest window see-through: Opacity 30's byte, round(0.3 * 255). */
-export const GROUND_ALPHA_MIN = 0x4d / 255
-
-/**
- * THE OLD RULE, kept for the host's one-time move to the see-through slider
- * (2026-10-13), which turns what the window painted into a level. It was the
- * rule for what a ground painted where the terminal owns the window acrylic
- * (#156), shared by the window and Save changes' dirty check. With the switch on, an OPAQUE ground paints the default see-through
- * (Prism's levels, by the ground light or dark): on means see-through by
- * itself, as Prism's switch does, where before #156 a preset stayed solid and
- * the switch looked broken. A ground that carries an alpha keeps it, floored
- * at 30% as the Opacity slider was.
- */
-export function paintsAlpha(raw: number, ground: string, acrylicOn: boolean): number {
-  if (acrylicOn && isOpaque(raw)) return seeThroughAlpha(ground)
-  return Math.max(GROUND_ALPHA_MIN, raw)
-}
-/** Opaque BY THE BYTE: an alpha that stores as ff is opaque. */
-const isOpaque = (a: number): boolean => Math.round(a * 255) >= 255
-
 function rawGroundAlpha(): number {
-  const picked = hostGround()
-  if (picked) return alphaOf(picked)
   if (termThemeId() === 'custom') {
     const c = customTermTheme()
     if (c) return alphaOf(c.bg)
   }
   return 1
-}
-
-/**
- * A palette as Custom saves it and the colour editor opens it (#114): where
- * the terminal owns the window acrylic the ground is OPAQUE, the see-through
- * being the slider's level, saved beside it (2026-10-13). Where the host's
- * style owns the glass (Prism), the palette as it is.
- */
-export function withGroundAlpha<T extends { bg: string }>(palette: T): T {
-  if (!hostOwnsWindowAcrylic()) return palette
-  return { ...palette, bg: opaque(palette.bg) }
 }
 
 /**
@@ -577,21 +441,9 @@ export function useTermFontId(): string {
 export function useTermAcrylic(): boolean {
   return useSyncExternalStore(sub, termAcrylic)
 }
-export function useTermSeeThrough(): number {
-  return useSyncExternalStore(sub, termSeeThrough)
-}
-/** The ground's alpha, re-read when the look OR the host's window colours
- *  change (a picked background is the host's, not this store's). */
+/** The ground's alpha, re-read when the look changes. */
 export function useTermGroundAlpha(): number {
-  return useSyncExternalStore(subGround, termGroundAlpha)
-}
-function subGround(cb: () => void): () => void {
-  const offLook = onTermLookChange(cb)
-  const offChrome = onHostChromeChange(cb)
-  return () => {
-    offLook()
-    offChrome()
-  }
+  return useSyncExternalStore(sub, termGroundAlpha)
 }
 export function useAgentIndicator(): AgentIndicator {
   return useSyncExternalStore(sub, agentIndicator)
@@ -608,17 +460,11 @@ export function useAgentDoneOn(): boolean {
 export function useAgentQuestionOn(): boolean {
   return useSyncExternalStore(sub, agentQuestionOn)
 }
-export function useAgentRainbow(): boolean {
-  return useSyncExternalStore(sub, agentRainbow)
-}
 export function useAgentFailedOn(): boolean {
   return useSyncExternalStore(sub, agentFailedOn)
 }
 export function useAgentHooksOn(): boolean {
   return useSyncExternalStore(sub, agentHooksOn)
-}
-export function useOrchestratorOn(): boolean {
-  return useSyncExternalStore(sub, orchestratorOn)
 }
 export function useCustomTermTheme(): CustomTermTheme | null {
   // Cache per notify tick: useSyncExternalStore needs a stable snapshot.

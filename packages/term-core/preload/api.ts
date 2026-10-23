@@ -79,9 +79,6 @@ export interface TermPreloadApi {
    * bridge lets a program read the clipboard. Answers whether it landed.
    */
   writeClipboardFromTerm(text: string): Promise<boolean>
-  /** A session rang the bell (#177). What it looks like is the host's
-   *  (`attention` in `registerTermIpc`); silent where it passes none. */
-  termBell(id: string): void
   /** The web-links addon's click-through: external URLs go to the OS browser. */
   openExternal(url: string): void
   /** Which of these texts name a file or a folder from `cwd` (#99). Main
@@ -128,7 +125,6 @@ export function createTermApi(ipc: IpcRendererLike): TermPreloadApi {
     readClipboardAsync: () => ipc.invoke(CH.clipboardReadAsync) as Promise<ClipboardRead>,
     writeClipboard: (text) => ipc.invoke(CH.clipboardWrite, text) as Promise<boolean>,
     writeClipboardFromTerm: (text) => ipc.invoke(CH.clipboardTerm, text) as Promise<boolean>,
-    termBell: (id) => ipc.send(CH.bell, id),
     openExternal: (url) => {
       if (isWebUrl(url)) ipc.send(CH.openExternal, url)
     },

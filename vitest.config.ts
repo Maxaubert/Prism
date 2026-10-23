@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { defineConfig } from 'vitest/config'
@@ -7,6 +8,10 @@ const root = fileURLToPath(new URL('.', import.meta.url))
 // Unit tests only (pure logic under src/). The aliases mirror
 // electron.vite.config.ts so test imports match app imports.
 export default defineConfig({
+  // The version XTVERSION reports: electron.vite.config.ts defines the same.
+  define: {
+    __PRISM_VERSION__: JSON.stringify((JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { version: string }).version)
+  },
   resolve: {
     alias: [
       { find: '@shared', replacement: resolve(root, 'src/shared') },
@@ -20,7 +25,7 @@ export default defineConfig({
         'renderer/settings/diagnosticsOptions'
       ].map((m) => ({
         find: new RegExp(`^prism-term-core/${m}$`),
-        replacement: resolve(root, `node_modules/prism-term-core/${m}.ts`)
+        replacement: resolve(root, `packages/term-core/${m}.ts`)
       }))
     ]
   },

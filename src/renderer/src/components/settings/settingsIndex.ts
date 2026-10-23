@@ -25,13 +25,11 @@ export const SETTINGS_PAGES: Array<SettingsPageDef & { id: AppPageId }> = [
 ]
 
 /** Which page holds each of the core's sections HERE. Prism's window wears
- *  its own style, so the terminal theme is the Terminal page's (Q2); command
- *  help is Prism Terminal's alone (owner, 2026-09-22) and is never drawn. */
+ *  its own style, so the terminal theme is the Terminal page's (Q2). */
 const PAGE_OF: Record<SettingsSectionId, AppPageId> = {
   shell: 'terminal',
   text: 'terminal',
   theme: 'terminal',
-  help: 'terminal',
   marks: 'agents',
   claude: 'agents',
   colours: 'agents',
@@ -62,10 +60,10 @@ export const ROW_ORDER = [
   'app-version', 'show-setup'
 ] as const
 
-/** The index Find a setting reads: the core's rows drawn here (no command
- *  help; the Diagnostics page since #322), and this app's own, in page order. */
+/** The index Find a setting reads: the core's rows drawn here (the
+ *  Diagnostics page since #322), and this app's own, in page order. */
 export function settingsIndex(nvidia: boolean): SettingsIndexEntry[] {
-  const core = coreSettingsIndex({ pageOf: (s) => PAGE_OF[s], nvidia, help: false, diagnostics: true })
+  const core = coreSettingsIndex({ pageOf: (s) => PAGE_OF[s], nvidia, diagnostics: true })
   const own: SettingsIndexEntry[] = APP_OPTIONS.map((o) => ({
     id: o.id,
     page: o.page,

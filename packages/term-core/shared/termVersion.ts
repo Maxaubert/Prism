@@ -1,11 +1,12 @@
 /**
  * The versions the terminal reports to a program that asks (XTVERSION, #171).
  *
- * Constants, not a JSON import of package.json: Prism's renderer tsconfig is
- * `composite` and does not include the core's package.json, so the import
- * would not build there. `termVersion.test.ts` holds both to the package files,
- * so a core release that bumps `core/package.json` (or xterm) without this
- * fails `npm test` (core/README.md, "Releasing the core").
+ * The terminal is Prism's now, so XTVERSION reports PRISM'S version: the host
+ * build defines `__PRISM_VERSION__` from the root package.json
+ * (`electron.vite.config.ts` for the app, `vitest.config.ts` for the tests),
+ * so a release needs no second number to bump. `termVersion.test.ts` holds
+ * both constants to the package files.
  */
-export const TERM_CORE_VERSION = '0.44.6'
+declare const __PRISM_VERSION__: string
+export const TERM_APP_VERSION: string = typeof __PRISM_VERSION__ === 'string' ? __PRISM_VERSION__ : '0.0.0'
 export const XTERM_VERSION = '6.0.0'
