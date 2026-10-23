@@ -12,7 +12,9 @@ import { rm, writeFile } from 'fs/promises'
  */
 export function writeAtomic(file: string, data: string): void {
   const tmp = `${file}.tmp`
+  // sync-ok: the all-or-nothing sync write, for startup and quit callers; the live path is createAtomicWriter
   writeFileSync(tmp, data)
+  // sync-ok: the all-or-nothing sync write, for startup and quit callers; the live path is createAtomicWriter
   renameSync(tmp, file)
 }
 
@@ -53,6 +55,7 @@ export function createAtomicWriter(file: string): AtomicWriter {
       try {
         await writeFile(tmp, job.data)
         if (job.n > landed) {
+          // sync-ok: one rename, all-or-nothing, kept on main so it is ordered against saveNow (the data went out on the threadpool)
           renameSync(tmp, file)
           landed = job.n
         } else await rm(tmp, { force: true })
@@ -71,7 +74,9 @@ export function createAtomicWriter(file: string): AtomicWriter {
     saveNow: (data) => {
       const n = (seq += 1)
       next = null
+      // sync-ok: saveNow is the close and the quit
       writeFileSync(nowTmp, data)
+      // sync-ok: saveNow is the close and the quit
       renameSync(nowTmp, file)
       landed = n
     },

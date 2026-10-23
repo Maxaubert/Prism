@@ -157,9 +157,11 @@ export function createDictationStore(deps: DictationStoreDeps): DictationStore {
   function installedSync(e: CatalogEntry): boolean {
     try {
       if (!isPack(e)) {
+        // sync-ok: modelPath and gpuEngineDir are sync in the contract; one stat, remembered for INSTALLED_MEMO_MS
         const s = statSync(finalPath(e))
         return s.isFile() && s.size === e.bytes
       }
+      // sync-ok: modelPath and gpuEngineDir are sync in the contract; a marker under 200 bytes, remembered for INSTALLED_MEMO_MS
       const m = JSON.parse(readFileSync(join(packDir(e), PACK_MARKER), 'utf8')) as Partial<CatalogEntry>
       return m.bytes === e.bytes && m.sha256 === e.sha256
     } catch {
@@ -179,6 +181,7 @@ export function createDictationStore(deps: DictationStoreDeps): DictationStore {
   function installed(e: CatalogEntry): boolean {
     const until = installedUntil.get(e.id)
     if (until !== undefined && now() < until) return true
+    // sync-ok: the sync contract, remembered for INSTALLED_MEMO_MS
     const ok = installedSync(e)
     if (ok) installedUntil.set(e.id, now() + INSTALLED_MEMO_MS)
     else installedUntil.delete(e.id)
@@ -192,10 +195,12 @@ export function createDictationStore(deps: DictationStoreDeps): DictationStore {
    * a walk of whatever was in the zip.
    */
   function findServer(dir: string, depth = 0): string | null {
+    // sync-ok: the sync contract of gpuEngineDir, remembered with engineDirMemo
     if (existsSync(join(dir, SERVER_EXE))) return dir
     if (depth >= 2) return null
     let names: string[]
     try {
+      // sync-ok: two levels down at most, remembered with engineDirMemo
       names = readdirSync(dir, { withFileTypes: true })
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
@@ -239,6 +244,7 @@ export function createDictationStore(deps: DictationStoreDeps): DictationStore {
     const signal = flight.controller.signal
     const cancelled: DownloadResult = { ok: false, reason: 'cancelled' }
     try {
+      // sync-ok: the first line of a download, off the hot path
       if (installedSync(e)) return { ok: true }
       // Clear the way: a part file from a crash, and for the pack the zip and
       // the half-unzipped folder a crash during the unzip leaves behind.
@@ -475,6 +481,7 @@ export function createDictationStore(deps: DictationStoreDeps): DictationStore {
     if (!installed(e)) return null
     const dir = packDir(e)
     if (believed && engineDirMemo && engineDirMemo.startsWith(dir)) return engineDirMemo
+    // sync-ok: the sync contract of gpuEngineDir: one stat on a remembered folder
     if (engineDirMemo && engineDirMemo.startsWith(dir) && existsSync(join(engineDirMemo, SERVER_EXE))) return engineDirMemo
     engineDirMemo = findServer(dir)
     return engineDirMemo

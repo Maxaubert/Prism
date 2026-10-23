@@ -64,6 +64,7 @@ export function registerDictationIpc(deps: DictationIpcDeps): () => void {
       cudaCacheDir: () => {
         const dir = join(deps.sharedRoot, 'cuda-cache')
         try {
+          // sync-ok: once per engine start; the folder is kept for good
           mkdirSync(dir, { recursive: true })
           return dir
         } catch {
