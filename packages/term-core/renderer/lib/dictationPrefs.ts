@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { DEFAULT_HOTKEY, usableHotkey, type DictMode, type Hotkey } from './dictationKey'
 import { readPref, writePref } from './prefStore'
+import { dictationHost } from '../host'
 
 /**
  * Dictation's settings (#13). VALUES ARE PER APP: each app has its own
@@ -45,15 +46,23 @@ export const setDictationEnabled = (on: boolean): void => write(K.enabled, on ? 
 export const dictationMode = (): DictMode => (read(K.mode) === 'toggle' ? 'toggle' : 'hold')
 export const setDictationMode = (m: DictMode): void => write(K.mode, m)
 
-// Parsed once per stored string: useSyncExternalStore needs a STABLE snapshot,
-// and a fresh object per read would re-render for ever.
+/** What "nothing saved" means: the host's declared key, else the core's
+ *  Ctrl+Win (see `dictation.defaultHotkey` in host.ts). */
+export const defaultDictationHotkey = (): Hotkey => dictationHost()?.defaultHotkey ?? DEFAULT_HOTKEY
+
+// Parsed once per stored string AND default: useSyncExternalStore needs a
+// STABLE snapshot, and a fresh object per read would re-render for ever. The
+// default is part of the key because a read can come before the host speaks.
 let hotkeyRaw: string | null = null
+let hotkeyDefault: Hotkey | null = null
 let hotkeyParsed: Hotkey = DEFAULT_HOTKEY
 export function dictationHotkey(): Hotkey {
   const raw = read(K.hotkey)
-  if (raw === hotkeyRaw) return hotkeyParsed
+  const fallback = defaultDictationHotkey()
+  if (raw === hotkeyRaw && fallback === hotkeyDefault) return hotkeyParsed
   hotkeyRaw = raw
-  hotkeyParsed = DEFAULT_HOTKEY
+  hotkeyDefault = fallback
+  hotkeyParsed = fallback
   if (raw) {
     try {
       const v = JSON.parse(raw) as Partial<Hotkey>

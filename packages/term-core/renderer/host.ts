@@ -1,6 +1,7 @@
 import type { DetectedAgent, PluginChoice, ShellDef } from '../shared/types'
 import type { DictationApi } from '../preload/dictationApi'
 import type { ShownQuestion } from '../shared/questionShown'
+import type { Hotkey } from './lib/dictationKey'
 
 /**
  * THE HOST SEAM (2026-09-19, #15).
@@ -177,6 +178,15 @@ export interface TermHostConfig {
   dictation?: {
     api: DictationApi
     canDictate(): boolean
+    /**
+     * The key a user who never picked one dictates with (2026-10-23). Absent:
+     * the core's DEFAULT_HOTKEY, Ctrl+Win (Prism Terminal's global key). Prism
+     * keeps Right Alt, its documented key: core 0.43.0 moved the built-in
+     * default, and Prism, which never saves one, moved with it silently, so
+     * Right Alt over its terminal stopped dictating (Prism #429). A saved key
+     * always wins; this is only what "nothing saved" and the reset mean.
+     */
+    defaultHotkey?: Hotkey
   }
 
   /**
