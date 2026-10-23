@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { TERM_PRESETS, resolveTermTheme } from './termTheme'
-import { onGround } from './termGround'
 import { saveCustomTermTheme } from './termLook'
 
 // ALPHA EXACTLY 1 CHANGES NOTHING (#112). Taken BEFORE alpha reached the
@@ -25,12 +24,5 @@ describe('resolveTermTheme, opaque, as it was', () => {
   it('an opaque Custom with a failing cursor', () => {
     saveCustomTermTheme(OPAQUE_CUSTOM)
     expect(resolveTermTheme('custom')).toMatchSnapshot()
-  })
-  it('every preset and the Custom on a picked ground', () => {
-    saveCustomTermTheme(OPAQUE_CUSTOM)
-    const out: Record<string, unknown> = {}
-    for (const ground of ['#f4f1ea', '#203040'])
-      for (const id of [...TERM_PRESETS.map((p) => p.id), 'custom']) out[`${id}@${ground}`] = onGround(resolveTermTheme(id), ground)
-    expect(out).toMatchSnapshot()
   })
 })

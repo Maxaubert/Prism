@@ -112,26 +112,16 @@ export function noteThemeMode(s: ThemeReports, mode: GroundMode): ThemeReports {
  * status=2)`, and wraps 65 frames (65 `?2026h`, 65 `?2026l`). The name must NOT
  * start with "xterm.js": Claude reads that as VS Code's terminal and applies
  * its VS Code scroll tuning. The emulator IS this core in both apps, so both
- * answer `PrismTerminal <core version>` (spec decision 5).
+ * answer `Prism <app version>`.
  */
-export function xtversionReply(core: string, xterm: string): string {
-  return `${ESC}P>|PrismTerminal ${core} (xterm.js ${xterm})${ST}`
+export function xtversionReply(app: string, xterm: string): string {
+  return `${ESC}P>|Prism ${app} (xterm.js ${xterm})${ST}`
 }
 
 /** `CSI > q` and `CSI > 0 q` ask for the version; any other parameter is not
  *  XTVERSION and is left to xterm. */
 export function xtversionAsked(params: number[]): boolean {
   return params.length === 0 || (params.length === 1 && params[0] === 0)
-}
-
-/** The least time between two bells that reach the host (#177): a `cat` of a
- *  binary file rings hundreds of times, and a taskbar flash per ring is noise. */
-export const BELL_GAP_MS = 1000
-
-/** Whether a bell at `now` gets through, given the last one that did (null:
- *  none yet). Per session. */
-export function bellGate(last: number | null, now: number): boolean {
-  return last === null || now - last >= BELL_GAP_MS
 }
 
 /** The look changed: the report to push, only while the program asked for

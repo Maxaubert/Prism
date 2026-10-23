@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_TERM_THEME, TERM_PRESETS, resolveCustomTheme, resolveTermTheme } from './termTheme'
 import { saveCustomTermTheme } from './termLook'
-import { onGround } from './termGround'
 import { contrastRatio } from './termAnsi'
 import { xtermTheme } from './termXterm'
 
@@ -46,15 +45,10 @@ describe('a Custom with alpha (#112)', () => {
     expect(t.cursor).toMatch(/^#[0-9a-f]{6}$/)
     expect(t.selectionBackground).toBe(`${t.cursor}55`)
   })
-  it('a chosen selection is honoured, and survives a picked ground', () => {
+  it('a chosen selection is honoured', () => {
     localStorage.clear()
     saveCustomTermTheme({ bg: '#101010', fg: '#eeeeee', cursor: '#ff8000', selection: '#3355ff80', ansi: {} })
     expect(resolveTermTheme('custom').selectionBackground).toBe('#3355ff80')
-    expect(onGround(resolveTermTheme('custom'), '#f4f1e8').selectionBackground).toBe('#3355ff80')
-  })
-  it('a derived selection follows the floored cursor on a picked ground, as before', () => {
-    const t = onGround(resolveTermTheme('dracula'), '#f4f1e8')
-    expect(t.selectionBackground).toBe(`${t.cursor}55`)
   })
   it('foreground, cursor and the sixteen are composited against the ground in force', () => {
     localStorage.clear()
@@ -109,7 +103,7 @@ describe('what xterm is handed (#112)', () => {
     for (const id of [...TERM_PRESETS.map((p) => p.id), 'custom'])
       for (const ground of [null, '#f4f1e8', '#20304080'])
         for (const paints of [true, false]) {
-          const t = xtermTheme(onGround(resolveTermTheme(id, ground), ground), { paintsGround: paints, clearGround: !paints })
+          const t = xtermTheme(resolveTermTheme(id, ground), { paintsGround: paints, clearGround: !paints })
           for (const [k, v] of Object.entries(t)) if (typeof v === 'string') expect(v, `${id} ${k}`).toMatch(HEX)
         }
   })

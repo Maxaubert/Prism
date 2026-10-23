@@ -22,8 +22,6 @@ export const CH = {
   clipboardWrite: 'clipboard:write',
   /** A program's OSC 52 copy (#176): its own channel and its own cap. */
   clipboardTerm: 'clipboard:term-write',
-  /** A session rang the bell (#177); the host decides what that looks like. */
-  bell: 'term:bell',
   openExternal: 'shell:open-external',
   pathKinds: 'term:path-kinds',
   openPath: 'term:open-path',

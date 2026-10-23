@@ -4,8 +4,6 @@ import { join } from 'path'
 import { labelProblem, copyProblem, subTooLong } from '../../shared/settingsCopy'
 import { DIAGNOSTICS_OPTIONS } from './diagnosticsOptions'
 import { DICTATION_OPTIONS, dictationOptionIds } from './dictationOptions'
-import { HELP_OPTIONS } from './helpOptions'
-import { MARK_OPTIONS } from './markOptions'
 import { isSettingIcon } from './layout/icons'
 import { TERMINAL_OPTIONS, terminalOptionIds } from './options'
 import { SETTINGS_SECTIONS } from './sectionIds'
@@ -39,10 +37,8 @@ const rendered = new Set(
   )
 )
 
-// The marks' own rows (#143) are drawn right after the Finished switch.
-const TERMINAL_AND_MARKS = TERMINAL_OPTIONS.flatMap((o) => (o.id === 'agent-done-on' ? [o, ...MARK_OPTIONS] : [o]))
-const ALL = [...TERMINAL_AND_MARKS, ...DICTATION_OPTIONS, ...HELP_OPTIONS, ...DIAGNOSTICS_OPTIONS]
-const LIST_FILES = ['options.ts', 'markOptions.ts', 'dictationOptions.ts', 'helpOptions.ts', 'diagnosticsOptions.ts']
+const ALL = [...TERMINAL_OPTIONS, ...DICTATION_OPTIONS, ...DIAGNOSTICS_OPTIONS]
+const LIST_FILES = ['options.ts', 'dictationOptions.ts', 'diagnosticsOptions.ts']
 
 describe('the terminal options list', () => {
   it('names every row the shared sections render, and nothing they do not', () => {
@@ -55,10 +51,8 @@ describe('the terminal options list', () => {
     for (const k of keys) expect(k.startsWith('prism.term.')).toBe(true)
   })
 
-  it('shows the same list in every host, with no Opacity row any more (#114)', () => {
-    // The one row that differed was the Opacity slider, Prism Terminal only;
-    // the theme Background's alpha took its place.
-    expect(terminalOptionIds({ windowAcrylic: true })).toEqual(terminalOptionIds({ windowAcrylic: false }))
+  it('has no Opacity row (#114), and every row is for every host', () => {
+    expect(terminalOptionIds()).toEqual(TERMINAL_OPTIONS.map((o) => o.id))
     expect(TERMINAL_OPTIONS.some((o) => o.id === 'term-opacity' || o.key === 'prism.term.opacity')).toBe(false)
   })
 
@@ -67,22 +61,6 @@ describe('the terminal options list', () => {
     expect(new Set(keys).size).toBe(keys.length)
     for (const k of keys) expect(k.startsWith('prism.dictation.')).toBe(true)
     expect(DICTATION_OPTIONS.filter((o) => o.key === null).map((o) => o.id)).toEqual(['dictation-gpu'])
-  })
-
-  it('keeps command help in a list of its own, under prism.help', () => {
-    // NOT in TERMINAL_OPTIONS: Prism's gate reads that file as text, and a row
-    // there would fail Prism's parity check until Prism had wired the panel.
-    expect(HELP_OPTIONS.map((o) => o.id)).toEqual(['help-enabled'])
-    for (const o of HELP_OPTIONS) expect(o.key.startsWith('prism.help.')).toBe(true)
-    expect(TERMINAL_OPTIONS.some((o) => o.id.startsWith('help'))).toBe(false)
-  })
-
-  it("keeps the tab marks' rows in a list of their own, under prism.term (#143)", () => {
-    // NOT in TERMINAL_OPTIONS: Prism's gate reads that file as text and orders
-    // every id in it, and Prism's strip does not draw the rainbow.
-    expect(MARK_OPTIONS.map((o) => o.id)).toEqual(['agent-rainbow'])
-    for (const o of MARK_OPTIONS) expect(o.key.startsWith('prism.term.')).toBe(true)
-    expect(TERMINAL_OPTIONS.some((o) => MARK_OPTIONS.some((m) => m.id === o.id || m.key === o.key))).toBe(false)
   })
 
   it('offers the GPU row only where an NVIDIA adapter is present', () => {
@@ -100,7 +78,6 @@ describe('the terminal options list', () => {
         "term-font=prism.term.fontPct",
         "agent-indicator=prism.term.agentIndicator",
         "agent-done-on=prism.term.agentDoneOn",
-        "agent-rainbow=prism.term.agentRainbow",
         "agent-question-on=prism.term.agentQuestionOn",
         "agent-failed-on=prism.term.agentFailedOn",
         "agent-hooks=prism.term.agentHooks",
@@ -118,7 +95,6 @@ describe('the terminal options list', () => {
         "dictation-sounds=prism.dictation.sounds",
         "dictation-model=prism.dictation.model",
         "dictation-gpu=null",
-        "help-enabled=prism.help.enabled",
         "diag-verbose=null",
         "diag-folder=null",
         "diag-mark=null",
@@ -172,13 +148,9 @@ describe('the grouped cards fields of the lists (2026-10-05)', () => {
       const list =
         f === 'options.ts'
           ? TERMINAL_OPTIONS
-          : f === 'markOptions.ts'
-            ? MARK_OPTIONS
           : f === 'dictationOptions.ts'
             ? DICTATION_OPTIONS
-            : f === 'diagnosticsOptions.ts'
-              ? DIAGNOSTICS_OPTIONS
-              : HELP_OPTIONS
+            : DIAGNOSTICS_OPTIONS
       expect(ids, f).toEqual(list.map((o) => o.id))
       for (const m of entries) {
         expect(m[0].includes('\n'), m[1]).toBe(false)

@@ -38,17 +38,9 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    runs `core/tools/fetch-whisper.mjs <dir>` at build time and ships that folder
    as `resources/bin/whisper`, and grants its own window the `media` permission
    (audio only).
-   **One dictation for every app** (2026-10-17, spec
-   `docs/superpowers/specs/2026-10-17-dictation-all-apps.md`): a Prism Terminal
-   runs it for every app on the PC, over an authenticated local pipe
-   (`main/dictationLink.ts`). Another app joins with `startDictationClient`
-   (`main/dictationClient.ts`): the pipe and key from `linkPipe(linkKey(...))`,
-   its name ("Prism"), and a host giving its tabs, `agentUnder`, `writeTerm`
-   and a paste into its front tab (`pasteIntoFront`). While connected its page
-   turns its own key reading off (`setDictationPageKeys(false)`). The checked
-   typing (`typeChecked`, the rule 2 exception) is the core's, for every app.
-   Optional for a host: `parakeetHost` on `registerDictationIpc` keeps Parakeet
-   loaded (`dictation-host/parakeetHost.ps1`), `idleMs` keeps the engine up.
+   Dictation here is Prism's own, inside its terminal: the cross-app link,
+   its client and the Parakeet resident host were dropped (2026-10-23, the retire
+   plan); `idleMs` keeps the engine up.
    **Claude Code's hooks** (#131) are in here too: the plugin itself
    (`claude-plugin/`), the env injection (`main/terminal.ts` `ptyEnv`,
    `main/claudePlugin.ts`), the reader (`renderer/lib/agentHookSignal.ts`,
@@ -59,25 +51,9 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    the page's setting to `termPrewarm`; one that passes no folder changes no
    shell's environment. Its strip draws `failedIds` as a third line, and its
    `themedAgentColors` may name `failed` (else `FAILED_RED`).
-   **The orchestrator** (beta, 2026-10-16): the status plugin's turn hooks
-   (`UserPromptSubmit`, `Stop`) add `session=<Claude session id>` to the signal
-   (`AgentSignal.session`, a lower-case UUID or nothing). A SECOND plugin,
-   `claude-plugin-orchestrator` (the `catch-up` and `orchestrator` skills, the
-   role hook), is opt-in: `orchestratorOn()` (off by default) and
-   `pluginChoice()` go to `termSpawn`/`termPrewarm` as `{ status, orchestrator }`
-   (a plain boolean still means the status plugin), and a host ships the
-   folder and passes it as `orchestratorPluginDir` to `registerTermIpc`. A
-   host that keeps a session list calls `setSessionsFile(path)`
-   (`main/terminal.ts`), and every shell then gets `PRISM_SESSIONS_FILE` (an
-   inherited one is always dropped). Prism Terminal's ledger and the
-   promoted tab are app code (`src/main/sessionLedger.ts`, `sessionsWire.ts`);
-   a host without them passes no folder, and nothing changes there.
-   **The bell and OSC 52** (#177, #176) ride the bridge, not `TermHostConfig`.
-   A program's OSC 52 copy needs nothing from a host: `createTermApi` and
-   `registerTermIpc` carry `clipboard:term-write` (write-only, 1 MB). The bell
-   needs ONE line: a host wires it by passing `attention` to `registerTermIpc`
-   (Prism Terminal flashes its taskbar button while the window is unfocused,
-   `src/main/bellFlash.ts`); a host that passes none stays silent.
+   **A program's OSC 52 copy** (#176) needs nothing from a host: `createTermApi` and
+   `registerTermIpc` carry `clipboard:term-write` (write-only, 1 MB). The orchestrator,
+   `/catch-up`, the bell hook and command help were dropped (2026-10-23).
    **AND WHAT THE TWO APPS MUST SHOW IDENTICALLY, TERMINAL OR NOT** (#28, owner,
    2026-09-19). This WIDENS the core, on purpose, from "the terminal" to "what
    the two apps share". Asked to build the update window (*"when you click the
@@ -107,41 +83,12 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    and printed as text nodes; never HTML, never rendered markdown, never an
    anchor. **The chip never changes width**, in any phase: every label is laid
    out in one cell and only the current one is visible.
-   **COMMAND HELP (#12)** is the second thing in here that is not terminal, under
-   the same bar: `shared/help/` (the catalogue, six files of curated entries; its
-   pure offline search; `catalogue.test.ts`, the gate for content),
-   `renderer/lib/helpPrefs.ts`, `renderer/components/HelpPanel.tsx` and
-   `renderer/settings/sections/HelpSection.tsx` + `helpOptions.ts`. A host wires it with:
-   `helpEnabled()` / `useHelpEnabled()` to decide whether its way in exists at
-   all (on by default; off means no button and no key); ONE `<HelpPanel>`, a
-   side panel since 0.38.0 (#199), mounted INSIDE the terminal's column (it is
-   absolutely placed on its right, under the title bar) from its first opening
-   on and handed `open`, so it slides out as well as in; lazy-loaded since it
-   brings the catalogue with it, handed `shell`
-   (`shellOfShellId` of the shell in front, from the light `shared/help/shells.ts`),
-   `monoFont` (`termFontStack()`), `onCopy` (the bridge's `writeClipboard`, which
-   goes through main because `navigator.clipboard` refuses an unfocused
-   document; Prism Terminal passes `copyTextQuietly`, since the row's check says
-   it), `onPickShell` and `onClose`; its key in `ownsKey`, tested against
-   `helpEnabled()`, so xterm yields it exactly when the host takes it (Prism
-   Terminal uses a bare F1); and `<HelpSection>` on its settings
-   page. As with the update window, a
-   host that raises a question of its own while the panel is out must PUT IT
-   AWAY first and must not open it over one. It is NOT a dialog: it may stay
-   out across a tab switch (the shell beside it gets the keyboard); a find bar,
-   which sits where it does, puts it away. Two rules
-   travel with it. **It never inserts and never runs**: the component has no
-   session id and no bridge, only `onCopy`, and a host must not give it more.
-   **Copy is exact**: the text on screen, which since 0.38.0 drops a TRAILING
-   placeholder (`blankless`: `Set-Location ` for `Set-Location FOLDER`) and
-   keeps every other one.
 3. **A difference between the apps is DECLARED, never forked.** Every place the
    two legitimately differ is a field of `TermHostConfig` in
    [`renderer/host.ts`](renderer/host.ts): the default each untouched setting
    reads as, whether there is a host style to follow, who paints the ground,
    what an unpicked indicator colour resolves to, what "acrylic" means as a
-   terminal setting, which chords the app owns, which tab marks its strip draws
-   (`tabMarks`, #143), whether a right-click reaches a program that reads the
+   terminal setting, which chords the app owns, whether a right-click reaches a program that reads the
    mouse (`rightClickReports`, Flare #49; absent, xterm forwards it as before), the dictation key a user who
    never picked one gets (`dictation.defaultHotkey`; absent, Ctrl+Win; Prism
    declares Right Alt). If a difference is not on that page, it is a fork,
@@ -171,27 +118,7 @@ is `[data-colour-popover][role="dialog"]`; the sliders are named "Saturation
 and brightness", "Hue" and "Alpha"; `button[data-colour-format]` and
 `button[data-colour-eyedropper]`. A host's own window-level key listener must
 leave events from inside `[data-colour-popover]` alone. Since 0.22.0 (#114)
-there is no Opacity row and no `termOpacity`/`setTermOpacity`: where
-`acrylic.kind` is 'window' the theme Background's alpha is the window's
-see-through (`termGroundAlpha`, `withGroundAlpha`, `legacyTermOpacity` for a
-host's one-time migration); `TERMINAL_OPTIONS` is the same list in every host.
-Since 0.31.0 (#156) the switch alone makes such a window see-through: an
-opaque ground in force under it paints Prism's default levels
-(`seeThroughAlpha`, 0xb9 dark / 0xd1 light, `lib/seeThrough.ts`) through
-`paintsAlpha`, the one rule `termGroundAlpha` and Save changes' dirty check
-share. The switch is read as stored (`termAcrylic`): the rule that held High
-Contrast solid went with the theme (owner, 2026-10-11). The
-row is named by `acrylicLabel()` ("See-through window" there, the list's label
-in Prism) and drawn right under the wall, before `afterTheme`.
-Since 0.36.0 (owner, 2026-10-13) that row is a SLIDER where `acrylic.kind` is
-'window': `termSeeThrough`/`setTermSeeThrough`/`useTermSeeThrough`, 0 to
-`SEE_THROUGH_TOP` (70), `termAcrylic()` is `level > 0` and `termGroundAlpha()`
-is `1 - level/100`, never a colour's alpha. The level is a theme extra (reset
-on a pick, saved as `CustomTermTheme.seeThrough`, applied with Custom); the
-Background pickers carry no alpha and `withGroundAlpha` saves the ground
-opaque. `paintsAlpha` and `LEGACY_ACRYLIC_KEY`/`SEE_THROUGH_STORE_KEY` are for
-the host's one-time move. Where it is 'style' (Prism) nothing changed: the
-switch, `setTermAcrylic`. The settings field is `Slider` in `fields.tsx`.
+there is no Opacity row and no `termOpacity`/`setTermOpacity`: the window material belongs to the host's style (`acrylic.kind` is 'style', the only kind since the 2026-10-23 prune), so the row is a switch, `setTermAcrylic`; `TERMINAL_OPTIONS` is the same list in every host.
 Since 0.31.0 (#157) the wall orders the presets after its leading cards with
 `orderTermThemes` (`lib/themeOrder.ts`): neutral grounds first, then coloured,
 each black to white by OKLab L; neutral is chroma below `NEUTRAL_CHROMA`.
@@ -212,10 +139,10 @@ fourth, under the same bar. Spec and plan:
   `TerminalThemeSection({ afterTheme, onThemePicked })`,
   `AgentMarksSection({ after })`, `ClaudeCodeSection`, `MarkColoursSection`
   (carries the SAME Save changes as the theme row: both save the whole setup
-  and light together, `theme/useTermSetup.ts`), `HelpSection`, `DictationPage`.
+  and light together, `theme/useTermSetup.ts`), `DictationPage`.
   WHICH PAGE holds a section is the host's; `coreSettingsIndex({ pageOf,
-  nvidia, help })` gives the host the core's rows for its index.
-- The lists (`options.ts`, `dictationOptions.ts`, `helpOptions.ts`) carry each
+  nvidia })` gives the host the core's rows for its index.
+- The lists (`options.ts`, `dictationOptions.ts`, `diagnosticsOptions.ts`) carry each
   row's `section`, `icon`, `sub` (its resting subtext, at most eight plain
   words, which the search reads too) and hidden `keywords`, as FLAT one-line
   entries with no brace inside: Prism's gate reads them as text. Their order
@@ -237,7 +164,7 @@ fourth, under the same bar. Spec and plan:
 - **The old layouts are gone** (audit 2026-10-12, after checking Prism's pinned
   core imports none of them): `Pref`, `ThemeHead`, `ROWS`,
   `TerminalAppearanceSettings`, `AgentIndicatorSetting`, `AttentionSettings`,
-  `ShellSetting`, `HelpSetting`, `DictationSettings`, and the colour fields'
+  `ShellSetting`, `DictationSettings`, and the colour fields'
   `parseHexInput` / `hexCommit` / `HexSwatch` (`colourCommit` and `ColourField`
   replaced them). The pieces they shared (`theme/ThemeWall.tsx`,
   `theme/useTermSetup.ts`, `dictation/useDictationState.ts`,
@@ -261,33 +188,7 @@ is `settings/sections/DiagnosticsPage.tsx` (props only), its rows
 `diagnosticsOptions.ts`. Schema and how to read it: Prism Terminal's
 `docs/diagnostics.md`.
 
-**THE TAB MARKS (#143, 2026-10-10)** are the sixth: how a tab says its agent
-is working, finished, asking or failed. `renderer/lib/tabMark.ts`
-(`resolveTabMark`, the one rule: which mark, in which colour role, with which
-motion, for Off, Minimal, Ring and Full on a flat or a Powerline tab),
-`markColours.ts` (the icon's rainbow, `floorMark` to 3:1 on every ground),
-`nameInk.ts` (Full's name: the theme's text unless under 2:1 on the fill),
-`markPalette.ts` (every colour a strip's marks wear, pure),
-`components/TabMark.tsx` (a flat tab's run, line, ring and fill, props only;
-Ring is one mono glyph per state in the name's ink since #162)
-and `styles/marks.css`, the motion, which a host IMPORTS
-(`prism-term-core/renderer/styles/marks.css`; without it the marks stand still).
-**`tabMarks`** on `TermHostConfig` declares what the host's strip draws: the
-indicator choices (`hostIndicators()`; a stored value outside them reads as the
-host's default, `readIndicator`) and whether it draws the rainbow
-(`hostRainbow()`, which also decides whether `AgentMarksSection` draws the
-"Rainbow finished mark" row). Absent: Off, Minimal and Full, Full being the
-host's own filled tab, and no rainbow row, so a host that has not adopted the
-marks sees no change. That row's list is `settings/markOptions.ts`, NOT
-`TERMINAL_OPTIONS`; `coreSettingsIndex({ marks: true })` indexes it. Its
-switch is `agentRainbow()` (`prism.term.agentRainbow`, on; no theme resets it).
-Since #154 Full's working fill on a flat tab carries Minimal's run on top
-(`overlay`, in the name's ink; a Powerline fill has no overlay) and finished is
-the rainbow across the whole tab (`rainbowInk` picks its name's ink).
-
-**THE ON SWITCH'S KNOB (#154)** is `--p-switch-knob` where the host defines it
-(`lib/switchKnob.ts`: the theme's black or white, flipped only under 2:1 on
-the track), else `--p-on-accent` as before. Prism has not defined it.
+**THE TAB MARKS (#143)** were Prism Terminal's strip and were dropped from the core (2026-10-23): `tabMark`, `markColours`, `markPalette`, `nameInk`, `switchKnob`, `TabMark`, `AgentIcon`, `marks.css`, the Ring indicator, the rainbow finish and `TermHostConfig.tabMarks`. The indicator choices are Off, Minimal (Bar) and Full.
 
 **THE QUESTION FOLLOWER (Sonara #323, core 0.41.0)** tells Sonara, the
 text-to-speech reader for Claude Code, which question of an AskUserQuestion
@@ -320,9 +221,7 @@ No Sonara: nothing is sent. `termQuestion` is optional on `TermApi`; a host on
   drop into a host whose terminal is not even mounted.
 - CSS: the core uses Tailwind utilities and the `--p-*` tokens both apps define,
   plus the class `.p-scroll` and the `.xterm` rules in each app's `index.css`. A
-  new token or class needed here must be added to BOTH. The marks' classes
-  (`.p-agent-run`, `.p-mark-*`) live in the core's own `styles/marks.css` since
-  #143, which each host imports.
+  new token or class needed here must be added to BOTH.
 
 ## How each app consumes it
 
@@ -364,31 +263,7 @@ refused the pin in Prism.
 
 ## Releasing the core
 
-Nobody does, by hand (PrismTerminal #23; owner, 2026-09-19: "that compiled copy
-needs to be auto bumped when a new Prism Terminal release or merge to main
-happens"). Land the change through a PR in Prism Terminal, WITH a bump of
-`core/package.json`'s version (CI fails the PR otherwise: a released tag is never
-moved). Bump `core/shared/termVersion.ts` (`TERM_CORE_VERSION`, what XTVERSION
-reports, #171) with `core/package.json`, and `XTERM_VERSION` with xterm:
-`termVersion.test.ts` fails otherwise. On merge, `.github/workflows/core-release.yml`:
-
-1. re-splits this folder into `core-dist` and tags `core-v<version>`. Tags are
-   `core-v*` for the core and `v*` for the app, since this repo is both;
-2. opens a PR in Prism bumping the pin and Prism's own version;
-3. waits for that PR's checks, which include Prism's TERMINAL GATE on a GitHub
-   runner (`terminal-gate.yml` there): the built app driven through every
-   scenario the terminal can break, real dictation included. Prism has the larger
-   footprint and so more ways to break, which is why the proof runs there;
-4. merges it, if the owner has set the repo variable `PRISM_AUTO_MERGE` to
-   `true`, and Prism releases itself; otherwise the green PR waits for a person.
-   A red check never merges.
-
-The one thing still cut by hand is a RELEASE CANDIDATE for an open PR
-(`core-v0.2.0-rc.N`, split from the PR's branch), so Prism's half can be built
-and tested before the core's half merges. The core's lint and unit tests run
-only here; Prism's gate on it is its compiler, its unit suite and that e2e.
-**Keep Prism's gate runner-safe:** nothing in those scenarios may assume one
-particular machine.
+There is no core release. The core is a workspace package of Prism (`packages/term-core`); a terminal change is a Prism change, gated by `npm run e2e:terminal` (`terminal-gate.yml`), and ships with Prism's own version. XTVERSION reports Prism's version (`shared/termVersion.ts`, defined from the root `package.json` by the build); `XTERM_VERSION` moves with xterm (`termVersion.test.ts` fails otherwise). Keep the gate runner-safe: nothing in those scenarios may assume one particular machine.
 
 ## One copy of each rule (2026-10-12, core 0.34.0)
 
