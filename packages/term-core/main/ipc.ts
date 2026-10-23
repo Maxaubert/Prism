@@ -76,16 +76,6 @@ export interface TermIpcDeps {
    * environment is touched, whatever the page says.
    */
   claudePluginDir?: string
-  /** The opt-in orchestrator plugin's folder (2026-10-16); none: never added. */
-  orchestratorPluginDir?: string
-  /**
-   * A session rang the bell (#177): the host draws the user's eye to its
-   * window (Prism Terminal flashes the taskbar button while the window is not
-   * focused). A bridge member, not a TermHostConfig field: the behaviour is
-   * the same in both apps, and the host only lends its window, as it lends
-   * `openExternal`. Absent: the bell is silent, as it always was.
-   */
-  attention?(): void
 }
 
 /** Registers every terminal channel and starts the agent poll. Returns the
@@ -95,15 +85,13 @@ export function registerTermIpc(deps: TermIpcDeps): () => void {
   const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
   // The page says whether its setting is on; only a literal true turns it on,
   // and only where the host ships the plugin.
-  // `hooks` is the status switch (a boolean, as before) or both switches
-  // ({ status, orchestrator }, 2026-10-16).
+  // `hooks` is the status switch: a boolean, or { status }.
   const plugin = (hooks: unknown): ClaudePluginEnv | undefined => {
     if (!deps.claudePluginDir) return undefined
-    const h = hooks && typeof hooks === 'object' ? (hooks as { status?: unknown; orchestrator?: unknown }) : { status: hooks }
+    const h = hooks && typeof hooks === 'object' ? (hooks as { status?: unknown }) : { status: hooks }
     return {
       dir: deps.claudePluginDir,
-      on: h.status === true,
-      ...(deps.orchestratorPluginDir ? { orchestrator: { dir: deps.orchestratorPluginDir, on: h.orchestrator === true } } : {})
+      on: h.status === true
     }
   }
 
@@ -217,10 +205,6 @@ export function registerTermIpc(deps: TermIpcDeps): () => void {
   // trimmed, over OSC52_MAX. Through main so a background tab or an unfocused
   // window still copies. There is no read channel: OSC 52 is write-only.
   ipcMain.handle(CH.clipboardTerm, writeCapped(OSC52_MAX))
-
-  // The bell (#177). The page already let at most one a second per tab
-  // through; what it means is the host's (`attention`), silence without one.
-  ipcMain.on(CH.bell, () => deps.attention?.())
 
   // A link clicked in the terminal. The page is never trusted with a scheme.
   ipcMain.on(CH.openExternal, (_e: unknown, url: unknown) => {

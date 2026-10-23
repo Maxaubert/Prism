@@ -16,7 +16,7 @@ import {
   xtversionReply,
   type GroundMode
 } from '../lib/termReplies'
-import { TERM_CORE_VERSION, XTERM_VERSION } from '../../shared/termVersion'
+import { TERM_APP_VERSION, XTERM_VERSION } from '../../shared/termVersion'
 import { OSC52_MAX, parseOsc52 } from '../lib/termOsc52'
 
 /** What the replies need of their session: everything else is xterm's. */
@@ -138,7 +138,7 @@ export function attachReplies(term: Terminal, d: ReplyDeps): Replies {
   // turns on synchronized output. Any other parameter stays xterm's.
   term.parser.registerCsiHandler({ prefix: '>', final: 'q' }, (params) => {
     if (!xtversionAsked(modeParams(params))) return false
-    reply(xtversionReply(TERM_CORE_VERSION, XTERM_VERSION))
+    reply(xtversionReply(TERM_APP_VERSION, XTERM_VERSION))
     return true
   })
   // OSC 52, WRITE-ONLY (#176; termOsc52.ts says why). Every OSC 52 is handled

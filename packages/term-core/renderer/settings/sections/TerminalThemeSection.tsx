@@ -1,19 +1,12 @@
 import type { JSX, ReactNode } from 'react'
-import { hostOwnsWindowAcrylic } from '../../host'
-import {
-  SEE_THROUGH_TOP,
-  setTermAcrylic,
-  setTermSeeThrough,
-  useTermAcrylic,
-  useTermSeeThrough
-} from '../../lib/termLook'
-import { SaveButton, Slider, Switch } from '../fields'
+import { setTermAcrylic, useTermAcrylic } from '../../lib/termLook'
+import { SaveButton, Switch } from '../fields'
 import { SettingBlock } from '../layout/SettingBlock'
 import { SettingRow } from '../layout/SettingRow'
 import { SettingsSection } from '../layout/SettingsSection'
 import { ThemeWall } from '../theme/ThemeWall'
-import { useNoAcrylic, useTermSetup } from '../theme/useTermSetup'
-import { acrylicLabel, acrylicSub, opt, saveSetupTitle, sectionTitle, themeSub } from './opts'
+import { useTermSetup } from '../theme/useTermSetup'
+import { acrylicSub, opt, saveSetupTitle, sectionTitle, themeSub } from './opts'
 
 /**
  * THE THEME, as one section (2026-10-05): the theme row with Save changes, the
@@ -40,18 +33,14 @@ export function TerminalThemeSection({
   onSaved?: () => void
 } = {}): JSX.Element {
   const acrylicOn = useTermAcrylic()
-  const level = useTermSeeThrough()
-  const windowGlass = hostOwnsWindowAcrylic()
   const setup = useTermSetup()
   const dirty = setup.dirty || extraDirty
   const save = (): void => {
     setup.save()
     onSaved?.()
   }
-  const noAcrylic = useNoAcrylic()
   const theme = opt('term-theme')
   const acrylic = opt('term-acrylic')
-  const label = acrylicLabel()
   return (
     <SettingsSection id="theme" title={sectionTitle('theme')}>
       <SettingRow id="term-theme" icon={theme.icon} label={theme.label} sub={themeSub()}>
@@ -60,30 +49,15 @@ export function TerminalThemeSection({
       <SettingBlock pad data-term-wall="">
         <ThemeWall onThemePicked={onThemePicked} extraDirty={extraDirty} onSaved={onSaved} />
       </SettingBlock>
-      {/* The material does not exist before Windows 11, so there the row says
-          why instead of offering a control that would do nothing. Where the
-          terminal owns the window acrylic it is the see-through SLIDER
-          (owner, 2026-10-13), 0 being off; in Prism the switch it was. */}
+      {/* The switch: whether the terminal lets the app style's glass show through. */}
       <SettingRow
         id="term-acrylic"
         icon={acrylic.icon}
-        label={label}
-        sub={noAcrylic ? 'Needs Windows 11.' : acrylicSub()}
-        off={noAcrylic}
-        tap={!windowGlass}
+        label={acrylic.label}
+        sub={acrylicSub()}
+        tap
       >
-        {windowGlass ? (
-          <Slider
-            value={noAcrylic ? 0 : level}
-            max={SEE_THROUGH_TOP}
-            onChange={setTermSeeThrough}
-            label={label}
-            format={(v) => (v === 0 ? 'Off' : `${v}%`)}
-            disabled={noAcrylic}
-          />
-        ) : (
-          <Switch on={acrylicOn && !noAcrylic} onChange={setTermAcrylic} label={label} disabled={noAcrylic} />
-        )}
+        <Switch on={acrylicOn} onChange={setTermAcrylic} label={acrylic.label} />
       </SettingRow>
       {afterTheme}
     </SettingsSection>

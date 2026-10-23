@@ -10,7 +10,6 @@ import {
   useCustomTermTheme,
   useTermThemeId,
   useThemeDraft,
-  withGroundAlpha,
   type CustomTermTheme
 } from '../../lib/termLook'
 import {
@@ -361,7 +360,7 @@ export function ThemeWall({
           red: t.red ?? ''
         }}
         onPick={() => pick(p.id)}
-        onEdit={() => setEditing(withGroundAlpha(paletteOf(p.id)))}
+        onEdit={() => setEditing(paletteOf(p.id))}
       />
     )
   }
@@ -402,7 +401,7 @@ export function ThemeWall({
               cursor={customDrawn!.cursor}
               ansi={cardAnsi(customDrawn as unknown as Record<string, string>)}
               onPick={() => pick('custom')}
-              onEdit={() => setEditing(withGroundAlpha(paletteOf('custom')))}
+              onEdit={() => setEditing(paletteOf('custom'))}
             />
           )}
           {defaultPreset && presetCard(defaultPreset)}

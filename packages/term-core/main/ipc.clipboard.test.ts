@@ -10,7 +10,6 @@ import { CLIPBOARD_WRITE_MAX, registerTermIpc, type TermIpcDeps } from './ipc'
 function wire(extra: Partial<TermIpcDeps> = {}): {
   write: (text: unknown) => unknown
   termWrite: (text: unknown) => unknown
-  bell: (id: unknown) => void
   written: string[]
   stop: () => void
 } {
@@ -40,7 +39,6 @@ function wire(extra: Partial<TermIpcDeps> = {}): {
   return {
     write: (text) => handlers.get(CH.clipboardWrite)?.({}, text),
     termWrite: (text) => handlers.get(CH.clipboardTerm)?.({}, text),
-    bell: (id) => listeners.get(CH.bell)?.({}, id),
     written,
     stop
   }
@@ -81,25 +79,6 @@ describe('clipboard:term-write', () => {
     const w = wire()
     for (const bad of [undefined, null, 7, {}, ['x'], '', 'x'.repeat(OSC52_MAX + 1)]) expect(w.termWrite(bad)).toBe(false)
     expect(w.written).toEqual([])
-    w.stop()
-  })
-})
-
-// THE BELL (#177): the host lends its window through `attention`; without it
-// a host stays silent, as Prism is until its own one line.
-describe('term:bell', () => {
-  it('calls the host attention once per bell', () => {
-    let calls = 0
-    const w = wire({ attention: () => calls++ })
-    w.bell('tab-1')
-    w.bell('tab-2')
-    expect(calls).toBe(2)
-    w.stop()
-  })
-
-  it('is a no-op for a host without attention', () => {
-    const w = wire()
-    expect(() => w.bell('tab-1')).not.toThrow()
     w.stop()
   })
 })

@@ -33,9 +33,8 @@ import { ResumeSkeleton } from './ResumeSkeleton'
 import { parseOsc9 } from '../../shared/termCwd'
 import { parseAgentSignal } from '../lib/agentHookSignal'
 import { resolveTermTheme, watchTermTheme } from '../lib/termTheme'
-import { onGround } from '../lib/termGround'
 import { xtermTheme, type XtermTheme } from '../lib/termXterm'
-import { bellGate, groundMode, type GroundMode } from '../lib/termReplies'
+import { groundMode, type GroundMode } from '../lib/termReplies'
 import { attachReplies } from './termReplyHandlers'
 import { followsHostStyle, hostSendsRightClicks, paintsGround, termApi, termHost, type ClipboardRead } from '../host'
 import { keepRightClick } from '../lib/termRightClick'
@@ -123,12 +122,8 @@ interface Session {
 
 const sessions = new Map<string, Session>()
 
-/** The theme on the ground the panel really paints (the host's pick, if any).
- *  A Custom's see-through colours are composited against that ground (#112). */
-const groundedTheme = (): ReturnType<typeof resolveTermTheme> => {
-  const ground = termHost().terminalGround?.()
-  return onGround(resolveTermTheme(termThemeId(), ground), ground)
-}
+/** The theme the panel paints (the one in force, the editor's draft included). */
+const groundedTheme = (): ReturnType<typeof resolveTermTheme> => resolveTermTheme(termThemeId())
 
 /** What a link wears on the theme in force: blue, moved as far as this
  *  ground (a preset's, or one the user picked) needs for it to read. */
@@ -488,10 +483,7 @@ onTermLookChange(applyLook)
 let styleWatch: (() => void) | null = null
 function watchHostStyle(): void {
   if (!styleWatch && followsHostStyle()) styleWatch = watchTermTheme(() => applyLook())
-  // A host whose picked window colours change the ground: restyle with them.
-  if (!chromeWatch) chromeWatch = termHost().onChromeChange?.(() => applyLook()) ?? (() => {})
 }
-let chromeWatch: (() => void) | null = null
 
 /** Ctrl+scroll: zoom THIS session's text, unpersisted. */
 function zoomSession(id: string, delta: number): void {
@@ -983,16 +975,6 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     copied: announceCopied
   })
   const tellTheme = replies.tellTheme
-  // THE BELL (#177): at most one a second per tab reaches the host (a `cat` of
-  // a binary rings hundreds of times), which flashes the taskbar while the
-  // window is unfocused (spec decision 1). Never a sound.
-  let lastBell: number | null = null
-  term.onBell(() => {
-    const now = performance.now()
-    if (!bellGate(lastBell, now)) return
-    lastBell = now
-    termApi().termBell?.(id)
-  })
   // A RESUMING TAB WEARS A SKELETON (#106), not a text spinner: the shell's
   // own words (its prompt, the resume command) are cleared the moment the
   // agent takes the console, and the terminal is shown once the agent has

@@ -1,6 +1,6 @@
 {
   "name": "prism",
-  "version": "0.118.3",
+  "version": "0.118.4",
   "description": "A fast, universal media viewer for Windows.",
   "author": "Max",
   "license": "MIT",
@@ -31,7 +31,7 @@
     "test:win-e": "node tools/test-win-e.mjs",
     "fetch:ffmpeg": "node tools/fetch-ffmpeg.mjs",
     "fetch:7zip": "node tools/fetch-7zip.mjs",
-    "fetch:whisper": "node node_modules/prism-term-core/tools/fetch-whisper.mjs vendor/whisper",
+    "fetch:whisper": "node packages/term-core/tools/fetch-whisper.mjs vendor/whisper",
     "fetch:bin": "npm run fetch:ffmpeg && npm run fetch:7zip && npm run fetch:fluidsynth && npm run fetch:everything && npm run fetch:whisper",
     "fetch:everything": "node tools/fetch-everything.mjs",
     "test:everything-bundle": "node tools/test-everything-bundle.mjs",

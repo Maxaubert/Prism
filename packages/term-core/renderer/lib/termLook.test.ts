@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FONT_PCTS, agentColorChoice, agentDoneColorChoice, agentQuestionColorChoice, setAgentDoneColor, setAgentQuestionColor, termGroundAlpha, applyCustomExtras, resetTermExtras, agentIndicator, customTermTheme, setAgentColor, saveCustomTermTheme, setAgentIndicator, setTermAcrylic, setTermFontPct, setTermSeeThrough, setTermThemeId, termAcrylic, termBaseFontPx, termExtraDefaults, termFontPct, legacyTermOpacity, termThemeId } from './termLook'
+import { FONT_PCTS, agentColorChoice, agentDoneColorChoice, agentQuestionColorChoice, setAgentDoneColor, setAgentQuestionColor, termGroundAlpha, applyCustomExtras, resetTermExtras, agentIndicator, customTermTheme, setAgentColor, saveCustomTermTheme, setAgentIndicator, setTermAcrylic, setTermFontPct, setTermThemeId, termAcrylic, termBaseFontPx, termExtraDefaults, termFontPct, termThemeId } from './termLook'
 import * as termLook from './termLook'
-import { configureTermCore, resetTermCore, type TermHostConfig } from '../host'
 
 beforeEach(() => localStorage.clear())
 
@@ -98,20 +97,6 @@ describe('acrylic, and the opacity it no longer has', () => {
     setTermAcrylic(true)
     expect(termAcrylic()).toBe(true)
   })
-  // #114: the Background colour's alpha replaced the Opacity slider. The old
-  // value is READ ONCE, by the migration, as the window read it: defensively,
-  // since Number(null) and Number('') are 0, and clamped 30-100.
-  it('the legacy opacity reads never-set as opaque and clamps as the window did', () => {
-    expect(legacyTermOpacity()).toBe(100)
-    localStorage.setItem('prism.term.opacity', '')
-    expect(legacyTermOpacity()).toBe(100)
-    localStorage.setItem('prism.term.opacity', '5')
-    expect(legacyTermOpacity()).toBe(30)
-    localStorage.setItem('prism.term.opacity', '62.4')
-    expect(legacyTermOpacity()).toBe(62)
-    localStorage.setItem('prism.term.opacity', 'soup')
-    expect(legacyTermOpacity()).toBe(100)
-  })
   it('nothing writes an opacity any more, and no theme carries one', () => {
     expect('setTermOpacity' in termLook).toBe(false)
     expect('termOpacity' in termLook).toBe(false)
@@ -175,20 +160,6 @@ describe('colours with alpha', () => {
     setTermThemeId('custom')
     expect(termGroundAlpha()).toBeCloseTo(0x80 / 255)
   })
-  it("where the terminal owns the window acrylic, the ground alpha is the slider's, never the colour's (2026-10-13)", () => {
-    saveCustomTermTheme({ bg: '#12121205', fg: '#eeeeee', cursor: '#ff0000', ansi: {} })
-    setTermThemeId('custom')
-    // No host, or a host whose style owns the glass: read as stored.
-    expect(termGroundAlpha()).toBeCloseTo(0x05 / 255)
-    configureTermCore({ acrylic: { kind: 'window', supported: async () => true } } as unknown as TermHostConfig)
-    try {
-      expect(termGroundAlpha()).toBe(1)
-      setTermSeeThrough(70)
-      expect(termGroundAlpha()).toBeCloseTo(0.3)
-    } finally {
-      resetTermCore()
-    }
-  })
 })
 
 // #112: alpha on every colour. Every reader takes 6 or 8 digits; a bad value
@@ -247,57 +218,23 @@ describe('colours with alpha', () => {
   })
 })
 
-describe('the indicator choices a host draws (#143)', () => {
-  const host = (tabMarks?: TermHostConfig['tabMarks']): TermHostConfig =>
-    ({
-      api: {} as TermHostConfig['api'],
-      defaults: { theme: 'prism', acrylic: false, indicator: 'minimal', agentColor: '', agentDoneColor: '' },
-      followsHostStyle: false,
-      paintsGround: true,
-      themedAgentColors: () => ({ working: '#5b5bd6', finished: '#22c55e' }),
-      acrylic: { kind: 'style' },
-      ownsKey: () => false,
-      ...(tabMarks ? { tabMarks } : {})
-    }) as TermHostConfig
-  const ALL = ['off', 'minimal', 'ring', 'full'] as const
-  const OLD = ['off', 'minimal', 'full'] as const
+describe('the indicator choices the strip draws', () => {
+  const ALL = ['off', 'minimal', 'full'] as const
 
-  it('reads a stored value the host draws as itself, a stored Full as the (new) Full', () => {
+  it('reads a stored value the strip draws as itself, anything else as the fallback', () => {
     expect(termLook.readIndicator('full', ALL, 'minimal')).toBe('full')
-    expect(termLook.readIndicator('ring', ALL, 'minimal')).toBe('ring')
-    expect(termLook.readIndicator('ring', OLD, 'minimal')).toBe('minimal')
+    expect(termLook.readIndicator('ring', ALL, 'minimal')).toBe('minimal')
     for (const raw of [null, '', 'loud', 3]) expect(termLook.readIndicator(raw, ALL, 'minimal')).toBe('minimal')
   })
 
-  it('never answers Ring in a host without tabMarks, even when stored', () => {
-    configureTermCore(host())
+  it('never answers a value the strip does not draw, even when stored', () => {
     localStorage.setItem('prism.term.agentIndicator', 'ring')
     expect(agentIndicator()).toBe('minimal')
-    configureTermCore(host({ indicators: ALL, rainbow: true }))
-    expect(agentIndicator()).toBe('ring')
-    resetTermCore()
   })
 
-  it('does not write a saved Custom Ring over the choice where the host draws none', () => {
-    configureTermCore(host())
+  it('does not write a saved Custom setup\'s unknown indicator over the choice', () => {
     setAgentIndicator('off')
-    applyCustomExtras({ bg: '#000000', fg: '#ffffff', cursor: '#ffffff', ansi: {}, indicator: 'ring' })
+    applyCustomExtras({ bg: '#000000', fg: '#ffffff', cursor: '#ffffff', ansi: {}, indicator: 'ring' as never })
     expect(localStorage.getItem('prism.term.agentIndicator')).toBe('off')
-    configureTermCore(host({ indicators: ALL, rainbow: true }))
-    applyCustomExtras({ bg: '#000000', fg: '#ffffff', cursor: '#ffffff', ansi: {}, indicator: 'ring' })
-    expect(agentIndicator()).toBe('ring')
-    resetTermCore()
-  })
-
-  it('keeps the rainbow on by default, off only for 0, and a theme pick leaves it alone', () => {
-    expect(termLook.agentRainbow()).toBe(true)
-    localStorage.setItem('prism.term.agentRainbow', 'nonsense')
-    expect(termLook.agentRainbow()).toBe(true)
-    termLook.setAgentRainbow(false)
-    expect(localStorage.getItem('prism.term.agentRainbow')).toBe('0')
-    resetTermExtras()
-    expect(termLook.agentRainbow()).toBe(false)
-    termLook.setAgentRainbow(true)
-    expect(termLook.agentRainbow()).toBe(true)
   })
 })
