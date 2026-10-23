@@ -12,8 +12,9 @@ const walk = (dir: string): string[] =>
     if (statSync(p).isDirectory()) return f === 'node_modules' ? [] : walk(p)
     return /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) ? [p] : []
   })
-const root = join(__dirname, '..', '..', '..')
-const files = [...walk(join(root, 'core')), ...walk(join(root, 'src'))].map((f) => ({
+// packages/term-core and the host's src, from the repo root (four up from here).
+const root = join(__dirname, '..', '..', '..', '..')
+const files = [...walk(join(root, 'packages', 'term-core')), ...walk(join(root, 'src'))].map((f) => ({
   f: relative(root, f).split('\\').join('/'),
   src: readFileSync(f, 'utf8')
 }))
@@ -26,7 +27,7 @@ describe('the ground', () => {
     const typed = files
       .filter(({ src }) => /#0b0b0f|#101215/i.test(src))
       .map(({ f }) => f)
-      .filter((f) => f !== 'core/shared/ground.ts' && f !== 'core/renderer/lib/switchKnob.ts')
+      .filter((f) => f !== 'packages/term-core/shared/ground.ts' && f !== 'packages/term-core/renderer/lib/switchKnob.ts')
     expect(typed).toEqual([])
   })
   it('no file compares a luminance with a hand-typed 0.4', () => {

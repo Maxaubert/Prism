@@ -14,6 +14,7 @@ import { join, relative } from 'path'
 // eval source counts too: it is code, so it carries the marker as well.
 
 const MAIN = __dirname
+const CORE_MAIN = join(MAIN, '..', '..', 'packages', 'term-core', 'main')
 const SKIP_DIRS = [join(MAIN, 'phone', 'testing')]
 
 function sources(dir: string): string[] {
@@ -105,11 +106,18 @@ describe('unmarkedSyncCalls', () => {
 })
 
 describe('main never waits (2026-10-12)', () => {
-  it('every synchronous call in src/main carries a sync-ok reason', () => {
+  it('every synchronous call in src/main and the core\'s main carries a sync-ok reason', () => {
     const bad: string[] = []
-    for (const file of sources(MAIN)) {
-      const rel = relative(MAIN, file).replace(/\\/g, '/')
-      for (const line of unmarkedSyncCalls(readFileSync(file, 'utf8'))) bad.push(`src/main/${rel}:${line}`)
+    // The terminal core's main-process code runs in this same process (Phase 2 of
+    // moving the core in), so it keeps the same rule.
+    for (const [dir, label] of [
+      [MAIN, 'src/main'],
+      [CORE_MAIN, 'packages/term-core/main']
+    ] as const) {
+      for (const file of sources(dir)) {
+        const rel = relative(dir, file).replace(/\\/g, '/')
+        for (const line of unmarkedSyncCalls(readFileSync(file, 'utf8'))) bad.push(`${label}/${rel}:${line}`)
+      }
     }
     expect(bad, `convert these to fs/promises, or mark a genuine startup / quit / worker / sync-by-design call with "// sync-ok: <reason>":\n${bad.join('\n')}`).toEqual([])
   })

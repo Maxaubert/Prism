@@ -46,7 +46,7 @@ export interface DiagLog {
   /** Write what is queued now; resolves when it is on disk (or dropped). */
   flush(): Promise<void>
   /** The quit path's write: synchronous, so it lands before the process ends. */
-  flushSync(): void
+  flushSync(): void // sync-ok: a declaration, the quit path's name
   /** Did any write fail this session? */
   failed(): boolean
   /** Stop the timer and write what is left. */
@@ -149,6 +149,7 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
    *  threadpool that the canary measures. */
   const ensureDir = (): void => {
     if (dirReady) return
+    // sync-ok: once per run (remembered): the log folder
     mkdirSync(dir, { recursive: true })
     dirReady = true
   }
@@ -161,14 +162,17 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
   const rotateIfFull = (incoming: number): void => {
     if (!rotateDue(incoming)) return
     try {
+      // sync-ok: rotation runs on flushSync only, the quit
       rmSync(`${file}.${DIAG_KEEP}`, { force: true })
       for (let n = DIAG_KEEP - 1; n >= 1; n -= 1) {
         try {
+          // sync-ok: rotation runs on flushSync only, the quit
           renameSync(`${file}.${n}`, `${file}.${n + 1}`)
         } catch {
           /* that one did not exist yet */
         }
       }
+      // sync-ok: rotation runs on flushSync only, the quit
       renameSync(file, `${file}.1`)
       size = 0
     } catch (err) {
@@ -290,6 +294,7 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
       ensureDir()
       const bytes = Buffer.byteLength(text)
       rotateIfFull(bytes)
+      // sync-ok: flushSync is the quit path
       appendFileSync(file, text)
       size += bytes
     } catch (err) {
@@ -324,6 +329,7 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
       if (on === verbose) return
       verbose = on
       try {
+        // sync-ok: the owner flipping Settings > Diagnostics: one folder and a file under 100 bytes
         mkdirSync(dirname(stateFile), { recursive: true })
         writeAtomic(stateFile, JSON.stringify({ verbose }))
       } catch (err) {
@@ -336,6 +342,7 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
     failed: () => anyFailed,
     close: () => {
       if (closed) return
+      // sync-ok: close is the quit path
       flushSync()
       closed = true
     }
@@ -344,6 +351,7 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
 
 function readVerbose(stateFile: string): boolean {
   try {
+    // sync-ok: startup, once
     const v = JSON.parse(readFileSync(stateFile, 'utf8')) as { verbose?: unknown }
     return v?.verbose === true
   } catch {
@@ -353,6 +361,7 @@ function readVerbose(stateFile: string): boolean {
 
 function fileSize(file: string): number {
   try {
+    // sync-ok: startup, and a size check after a write that landed
     return statSync(file).size
   } catch {
     return 0
