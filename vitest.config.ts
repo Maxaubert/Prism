@@ -7,7 +7,6 @@ const root = fileURLToPath(new URL('.', import.meta.url))
 // Unit tests only (pure logic under src/). The aliases mirror
 // electron.vite.config.ts so test imports match app imports.
 export default defineConfig({
-  esbuild: { jsx: 'automatic' },
   resolve: {
     alias: [
       { find: '@shared', replacement: resolve(root, 'src/shared') },

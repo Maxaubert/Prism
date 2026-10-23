@@ -63,6 +63,17 @@ export default tseslint.config(
     }
   },
   {
+    // The app imports the core through its package name, never by reaching into the
+    // workspace folder: a relative or packages/ path would bypass the package's exports.
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [{ group: ['**/packages/term-core/**'], message: 'import the core as prism-term-core/...' }] }
+      ]
+    }
+  },
+  {
     // tools/ runs on Node, drives a browser through Playwright, and injects the
     // odd snippet into a page: it needs both sets of globals and none of the
     // React rules.
