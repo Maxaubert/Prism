@@ -35,6 +35,8 @@ export const SETTING_ICONS = {
   fail: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7.5v5.5M12 16.5h.01',
   taskbar: 'M3 15h18v5H3zM6.5 17.5h.01M10 17.5h4M17 4.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z',
   hook: 'M8 3v6a4 4 0 0 0 8 0V3M12 13v3a5 5 0 0 1-5 5',
+  // The orchestrator (2026-10-16): one hub and the sessions it leads.
+  lead: 'M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM10.2 10.6 6.4 7.4M13.8 10.6l3.8-3.2M12 14.5v3.6M5 4.4a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6zM19 4.4a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6zM12 18.1a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6z',
   // The tab marks (#143): an arc for the rainbow finish, a chevron for the
   // Prompt tab style.
   rainbow: 'M3 17a9 9 0 0 1 18 0M6.5 17a5.5 5.5 0 0 1 11 0M10 17a2 2 0 0 1 4 0',

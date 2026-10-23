@@ -61,12 +61,12 @@ export function TermThemeCard({
   // (code review 2026-09-24, #28): nested inside the card's button it was
   // flattened into the card's name, and could not be reached as a control.
   return (
-    <div className="relative w-[196px]">
+    <div className="relative min-w-0">
       <button
         data-term-card={id}
         aria-pressed={on}
         onClick={onPick}
-        className={`group flex w-[196px] flex-col overflow-hidden rounded-md border text-left transition-colors ${
+        className={`group flex w-full flex-col overflow-hidden rounded-md border text-left transition-colors ${
           on
             ? 'border-[color:var(--p-accent-hi)] ring-1 ring-[var(--p-accent-solid,var(--p-accent))]/45'
             : 'border-[color:var(--p-line)] hover:border-[color:var(--p-divider)]'
@@ -386,7 +386,12 @@ export function ThemeWall({
         }`}
         style={{ maxHeight: wallHeight }}
       >
-        <div className="flex flex-wrap gap-3">
+        {/* AS MANY CARDS AS FIT, STRETCHED TO THE ROW (owner, 2026-10-21: "the
+            themes should compact a bit ... you should see 4 per row, since there's
+            so close to being enough space"). Fixed 196px cards left a strip on
+            the right almost a card wide. 172px still holds the preview's longest
+            line; Flare's wall uses the same numbers. */}
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(172px,1fr))]">
           {custom && (
             <TermThemeCard
               id="custom"

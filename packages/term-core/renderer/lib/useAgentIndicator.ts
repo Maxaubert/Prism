@@ -17,6 +17,7 @@ import {
 } from './agentHookState'
 import { looksLikeBackgroundWork } from './agentBackground'
 import { termApi } from '../host'
+import { HeldMarks, lookingAt } from './agentHold'
 import { forgetAgentDiag, logAgentHook, logAgentMarks, logAgentTitle, noteWhy } from './agentDiag'
 
 /**
@@ -99,44 +100,18 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     looking.current = { activeId, focused }
   }, [activeId, focused])
   /**
-   * COMING BACK IS A LOOK TOO (owner, 2026-10-14: "i sent a message with this
-   * tab in focus, changed window, it completed i came back, and that mark was
-   * there. it shouldnt have been there since thats the selected tab ... the
-   * badge should disappear"). A finish while the window is behind another app
-   * still raises Finished, and the taskbar badge counts it; the pointer MOVING
-   * over the window is the owner back, and takes the tab in front's mark down
-   * with the badge, before any click gives the window focus. A pointer merely
-   * resting over it while typing elsewhere is not: only movement counts, and
-   * only for that moment (`MOVE_LOOK_MS`).
+   * COMING BACK IS NOT A LOOK (owner, 2026-10-21, replacing the 2026-10-14
+   * "coming back is a look too": "you go from another app back into the
+   * terminal ... you don't know which is completed, if it was the tab you were
+   * on. So it should keep that completed icon until you click a new tab"). A
+   * Finished or Failed mark raised on the tab in front while the window was
+   * away is HELD (`agentHold`): focus returning and the pointer moving do not
+   * take it down, and the badge keeps counting it. LEAVING the tab does (owner,
+   * 2026-10-23: "have it disappear once I click off the tab"): the tab in
+   * front changing, by a click or a key, and work restarting, the agent going
+   * or the tab closing. A click on the same tab is not leaving it.
    */
-  const [moved, setMoved] = useState(0)
-  const movedAt = useRef(0)
-  // Whether a look by the pointer could take anything down: only a Finished
-  // or Failed mark on the tab in front (perf review 2026-10-16: every move
-  // over the unfocused window re-rendered App twice a second for nothing).
-  const frontMarked = useRef(false)
-  useEffect(() => {
-    frontMarked.current = !!activeId && (doneIds.has(activeId) || failedIds.has(activeId))
-  }, [activeId, doneIds, failedIds])
-  useEffect(() => {
-    const MOVE_LOOK_MS = 1000
-    let last = 0
-    const onMove = (): void => {
-      // The window's focus as this hook hears it (focus and blur), not
-      // document.hasFocus(): under Playwright that is always true (MEASURED in
-      // the parked e2e window), and the two must agree.
-      if (looking.current.focused) return
-      const now = Date.now()
-      movedAt.current = now
-      if (!frontMarked.current) return
-      // A look every half second at most: a moving pointer fires constantly.
-      if (now - last < MOVE_LOOK_MS / 2) return
-      last = now
-      setMoved((n) => n + 1)
-    }
-    window.addEventListener('pointermove', onMove, { passive: true })
-    return () => window.removeEventListener('pointermove', onMove)
-  }, [])
+  const held = useRef(new HeldMarks())
   const lookedAt = (id: string): boolean => looking.current.focused && looking.current.activeId === id
   /** The last title state of each titled session, so output can be checked
    *  for a question only while its agent is idle. */
@@ -309,8 +284,17 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
       stopTitleRecheck(id)
     }
     const marks = (mark: AttentionMark) => (prev: ReadonlySet<string>): ReadonlySet<string> => {
-      if ((away || raisedWhileSeen(mark)) && o.raise.includes(mark)) return prev.has(id) ? prev : new Set(prev).add(id)
-      return o.clear.includes(mark) ? without(prev, id) : prev
+      if ((away || raisedWhileSeen(mark)) && o.raise.includes(mark)) {
+        if (mark !== 'question') held.current.raised(id, looking.current)
+        return prev.has(id) ? prev : new Set(prev).add(id)
+      }
+      if (o.clear.includes(mark)) {
+        // A Stop that clears a Failed is the same event that raised Finished:
+        // the hold it just made stays.
+        if (mark !== 'question' && !o.raise.some((m) => m !== 'question')) held.current.drop(id)
+        return without(prev, id)
+      }
+      return prev
     }
     setDoneIds(marks('finished'))
     setQuestionIds(marks('question'))
@@ -561,7 +545,15 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     noteWorking(workingIds)
     const was = prevWorking.current
     prevWorking.current = workingIds
-    const seeing = (id: string): boolean => id === activeId && (focused || Date.now() - movedAt.current < 1000)
+    const look = { activeId, focused }
+    // The tab in front changed (a click or a key): a mark held on the tab left
+    // comes down with it. With the window
+    // still away (a tab closed or opened under it) nothing was seen: the mark
+    // stays as an ordinary background mark, taken down when the tab is visited.
+    const left = held.current.moved(activeId)
+    const released = focused ? left : []
+    // Looking takes a mark down, unless it is HELD (raised while away).
+    const seeing = (id: string): boolean => held.current.seen(id, look) || released.includes(id)
     /** Why a mark comes down here, for the log (#152). */
     const cleared = (id: string): string =>
       workingIds.has(id) ? 'working again' : seeing(id) ? 'tab looked at' : 'agent gone'
@@ -573,14 +565,16 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
         // tab was in the background, or the window was.
         // A hooked session is told apart by its hooks instead (#131): a
         // question or an Esc stops the work too, and neither is a finish.
-        if (!workingIds.has(id) && agentIds.has(id) && !seeing(id) && !hooked.current.has(id)) {
+        if (!workingIds.has(id) && agentIds.has(id) && !lookingAt(id, look) && !hooked.current.has(id)) {
           noteWhy(id, 'stopped working while away')
+          held.current.raised(id, look)
           mut().add(id)
         }
       }
       for (const id of prev) {
         if (workingIds.has(id) || seeing(id) || !agentIds.has(id)) {
           noteWhy(id, cleared(id))
+          if (workingIds.has(id) || !agentIds.has(id)) held.current.drop(id)
           mut().delete(id)
         }
       }
@@ -605,11 +599,12 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
       for (const id of prev)
         if (seeing(id) || workingIds.has(id) || !agentIds.has(id)) {
           noteWhy(id, cleared(id))
+          if (workingIds.has(id) || !agentIds.has(id)) held.current.drop(id)
           next = without(next, id)
         }
       return next
     })
-  }, [workingIds, activeId, agentIds, focused, moved])
+  }, [workingIds, activeId, agentIds, focused])
 
   // STABLE: a host subscribes to the pty's exit ONCE and calls this from there.
   const forget = useCallback((id: string): void => {
@@ -627,6 +622,7 @@ export function useAgentIndicator(activeId: string | null): AgentIndicator {
     setDoneIds((prev) => without(prev, id))
     setQuestionIds((prev) => without(prev, id))
     setFailedIds((prev) => without(prev, id))
+    held.current.drop(id)
     hooked.current.delete(id)
     failedKinds.current.delete(id)
     titleState.current.delete(id)

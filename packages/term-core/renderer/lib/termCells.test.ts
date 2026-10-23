@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { findLinks } from './termLinks'
 import {
   bufferRowCells,
+  byHand,
   cellFrom,
   cellText,
   charAtCell,
@@ -114,5 +115,37 @@ describe('reading a row into cells (perf review 2026-10-16)', () => {
     ])
     expect(seen).toHaveLength(3)
     expect(seen.every((c) => c === scratch)).toBe(true)
+  })
+})
+
+// Owner, 2026-10-21: Claude Code breaks its own lines at the window's width
+// and writes each row on its own, so xterm never marks the next row wrapped.
+describe('a row broken by hand (byHand)', () => {
+  const row = (text: string, wrapped = false) => ({
+    isWrapped: wrapped,
+    getCell: (x: number) => {
+      const ch = x < text.length ? text[x] : ''
+      return { getChars: () => ch, getWidth: () => 1 }
+    }
+  })
+  const buf = (...rows: string[]) => ({ length: rows.length, getLine: (y: number) => (y < rows.length ? row(rows[y]) : undefined) })
+
+  it('a path cut at the edge carries on into the next row', () => {
+    const b = buf('at C:\\t\\scra', 'tch\\a.exe')
+    expect(byHand(b, 12, 1)).toBe(true)
+    const l = logicalLine(b, 12, 1, true)
+    expect([l.first, l.last]).toEqual([0, 1])
+    expect(l.text.trimEnd()).toBe('at C:\\t\\scratch\\a.exe')
+    expect(l.joins).toEqual([12])
+    // Not asked for: the line is the row, as before.
+    expect(logicalLine(b, 12, 1).first).toBe(1)
+  })
+
+  it('not when the row ends short of the edge, the next starts blank, or no separator is near', () => {
+    expect(byHand(buf('at C:\\t\\sc', 'ratch\\a.exe'), 12, 1)).toBe(false)
+    expect(byHand(buf('at C:\\t\\scra', ' tch\\a.exe'), 12, 1)).toBe(false)
+    expect(byHand(buf('a sentence e', 'nds here'), 12, 1)).toBe(false)
+    // A frame's edge is no path.
+    expect(byHand(buf('\u2502 C:\\t\\a \u2502', '\u2502 b \u2502'), 10, 1)).toBe(false)
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AGENT_FAIL_MAX, AGENT_FORCE_GAP, AGENT_POLL_MAX, AGENT_POLL_MIN, createAgentPoll, type AgentPollDeps } from './agentPoll'
+import { AGENT_FAIL_MAX, AGENT_FORCE_GAP, AGENT_POLL_MAX, AGENT_POLL_MIN, agentUnder, createAgentPoll, type AgentPollDeps } from './agentPoll'
 
 /**
  * The poll's three rules, checked without a process list: ask only when a
@@ -263,5 +263,15 @@ describe('the agent poll', () => {
       ['t1', false, null],
       ['t1', false, null]
     ])
+  })
+})
+
+// The orchestrator types only into a tab Windows says runs Claude (2026-10-16):
+// a tab with no live shell has no answer, and the query is never made.
+describe('agentUnder', () => {
+  it('answers null for a session with no shell, without asking Windows', async () => {
+    let asked = 0
+    expect(await agentUnder('nope', (done) => { asked += 1; done('1 0') })).toBeNull()
+    expect(asked).toBe(0)
   })
 })

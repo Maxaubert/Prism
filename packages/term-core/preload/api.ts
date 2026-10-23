@@ -1,4 +1,4 @@
-import type { DetectedAgent, ShellDef } from '../shared/types'
+import type { DetectedAgent, PluginChoice, ShellDef } from '../shared/types'
 import { CH } from '../shared/channels'
 import type { ShownQuestion } from '../shared/questionShown'
 import { isWebUrl } from '../shared/webUrl'
@@ -36,12 +36,12 @@ export interface TermPreloadApi {
   /** `resume` is what the host's restore handed back for this shell, untouched.
    *  `hooks`: the page's "Exact status from Claude Code" setting (#131); main
    *  hands the shell the plugin only where its host ships one. */
-  termSpawn(id: string, cwd: string, shellId?: string, resume?: string, hooks?: boolean): Promise<boolean>
+  termSpawn(id: string, cwd: string, shellId?: string, resume?: string, hooks?: boolean | PluginChoice): Promise<boolean>
   termInput(id: string, data: string): void
   termResize(id: string, cols: number, rows: number): void
   termKill(id: string): void
   /** Start a shell in `cwd` ahead of the click. Best-effort. */
-  termPrewarm(cwd: string, shellId?: string, hooks?: boolean): void
+  termPrewarm(cwd: string, shellId?: string, hooks?: boolean | PluginChoice): void
   /** Move a shell to a folder it should follow (Prism's #99); main writes the line. */
   termCd(id: string, path: string): void
   onTermData(cb: (id: string, data: string) => void): () => void

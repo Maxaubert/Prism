@@ -37,6 +37,12 @@ export interface DictationIpcDeps {
   /** `%LOCALAPPDATA%\PrismDictation`: models and the GPU pack, shared by both apps. */
   sharedRoot: string
   hasNvidia(): Promise<boolean>
+  /** How long the engine stays up with nothing to do (default five minutes);
+   *  Infinity keeps it ready until dictation is switched off. */
+  idleMs?: number
+  /** The resident Parakeet host (`core/dictation-host/parakeetHost.ps1`, wherever
+   *  the host ships it) and a folder for its compiled code; absent: parakeet-cli per pass. */
+  parakeetHost?: () => { script: string; cache: string | null } | null
   /** Test seams. */
   store?: DictationStore
   engine?: DictationEngine
@@ -59,6 +65,8 @@ export function registerDictationIpc(deps: DictationIpcDeps): () => void {
       cpuDir: deps.cpuEngineDir,
       store,
       hasNvidia: deps.hasNvidia,
+      idleMs: deps.idleMs,
+      parakeetHost: deps.parakeetHost,
       // The GPU engine's own kernel cache, beside the models both apps share
       // (see DICTATION_CUDA_CACHE_BYTES): compiled once, kept for good.
       cudaCacheDir: () => {

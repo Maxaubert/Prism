@@ -38,6 +38,17 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    runs `core/tools/fetch-whisper.mjs <dir>` at build time and ships that folder
    as `resources/bin/whisper`, and grants its own window the `media` permission
    (audio only).
+   **One dictation for every app** (2026-10-17, spec
+   `docs/superpowers/specs/2026-10-17-dictation-all-apps.md`): a Prism Terminal
+   runs it for every app on the PC, over an authenticated local pipe
+   (`main/dictationLink.ts`). Another app joins with `startDictationClient`
+   (`main/dictationClient.ts`): the pipe and key from `linkPipe(linkKey(...))`,
+   its name ("Prism"), and a host giving its tabs, `agentUnder`, `writeTerm`
+   and a paste into its front tab (`pasteIntoFront`). While connected its page
+   turns its own key reading off (`setDictationPageKeys(false)`). The checked
+   typing (`typeChecked`, the rule 2 exception) is the core's, for every app.
+   Optional for a host: `parakeetHost` on `registerDictationIpc` keeps Parakeet
+   loaded (`dictation-host/parakeetHost.ps1`), `idleMs` keeps the engine up.
    **Claude Code's hooks** (#131) are in here too: the plugin itself
    (`claude-plugin/`), the env injection (`main/terminal.ts` `ptyEnv`,
    `main/claudePlugin.ts`), the reader (`renderer/lib/agentHookSignal.ts`,
@@ -48,6 +59,19 @@ ask me."* And: *"why can't this repo be the core?"* It can, and this is it.
    the page's setting to `termPrewarm`; one that passes no folder changes no
    shell's environment. Its strip draws `failedIds` as a third line, and its
    `themedAgentColors` may name `failed` (else `FAILED_RED`).
+   **The orchestrator** (beta, 2026-10-16): the status plugin's turn hooks
+   (`UserPromptSubmit`, `Stop`) add `session=<Claude session id>` to the signal
+   (`AgentSignal.session`, a lower-case UUID or nothing). A SECOND plugin,
+   `claude-plugin-orchestrator` (the `catch-up` and `orchestrator` skills, the
+   role hook), is opt-in: `orchestratorOn()` (off by default) and
+   `pluginChoice()` go to `termSpawn`/`termPrewarm` as `{ status, orchestrator }`
+   (a plain boolean still means the status plugin), and a host ships the
+   folder and passes it as `orchestratorPluginDir` to `registerTermIpc`. A
+   host that keeps a session list calls `setSessionsFile(path)`
+   (`main/terminal.ts`), and every shell then gets `PRISM_SESSIONS_FILE` (an
+   inherited one is always dropped). Prism Terminal's ledger and the
+   promoted tab are app code (`src/main/sessionLedger.ts`, `sessionsWire.ts`);
+   a host without them passes no folder, and nothing changes there.
    **The bell and OSC 52** (#177, #176) ride the bridge, not `TermHostConfig`.
    A program's OSC 52 copy needs nothing from a host: `createTermApi` and
    `registerTermIpc` carry `clipboard:term-write` (write-only, 1 MB). The bell
@@ -374,7 +398,8 @@ re-types what they decide:
 - `components/layers.ts`: `LAYER`, the overlay z-order, bottom to top.
 - `lib/prefStore.ts`: `enumPref`, `boolPref`, `readPref`, `writePref`; a blocked store loses the
   choice, never the app. Keys stay byte for byte.
-- `lib/termCells.ts`: also `logicalLine`, `bufferRowCells`, `charAtCell` (rule 11).
+- `lib/termCells.ts`: also `logicalLine`, `bufferRowCells`, `charAtCell` (rule 11), and `byHand`: a
+  row a program broke at the edge itself (Claude Code), where PATHS are read across the break.
 - `lib/termKeys.ts`: what a key over a shell does, in order. `components/termReplyHandlers.ts`: what
   a program asks the terminal about itself.
 - `lib/oklab.ts`, `colour.ts`'s `canonicalStored` and `clamp`, `termAnsi.ts`'s `towardRoom`.
