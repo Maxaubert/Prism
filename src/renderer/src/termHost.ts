@@ -72,6 +72,12 @@ configureTermCore({
   // SHOWING: App hands the controller null otherwise, so Right Alt over a film,
   // a PDF or the tree does nothing at all.
   dictation: { api: window.prism, canDictate: () => true },
+  // A RIGHT-CLICK IS THE MENU'S (PrismTerminal #254, Flare #49; owner,
+  // 2026-10-22: "right click should just open the menu not paste in the
+  // input"). Claude Code reads the mouse and pastes on a right press, while
+  // Prism's terminal menu opens on the same click. Prism has no "send right
+  // clicks to programs" row, so a right press never reaches the program.
+  rightClickReports: () => false,
   ownsKey: (e) => {
     // No command help here (owner, 2026-09-22: "command help shouldn't be part
     // of Prism, only the terminal app"), so F1 is the shell's, always.
