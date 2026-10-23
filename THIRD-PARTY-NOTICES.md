@@ -78,10 +78,6 @@ voidtools' permissive licence (which also covers its bundled PCRE); ES is MIT. L
 `resources/everything/Everything-LICENSE.txt`, `resources/everything/ES-LICENSE.txt`, and
 `resources/everything/NOTICE.txt`. https://www.voidtools.com/
 
-### prism-term-core (MIT)
-The terminal shared with Prism Terminal, from Maxaubert/PrismTerminal (`core/`), compiled into
-the app. Copyright (c) 2026 Max. https://github.com/Maxaubert/PrismTerminal
-
 ### node-pty (MIT), Microsoft ConPTY and winpty
 `node-pty` (Copyright (c) 2012-2015 Christopher Jeffrey, and Microsoft) in
 `resources/app.asar.unpacked/node_modules/node-pty`, with the `conpty.dll` and

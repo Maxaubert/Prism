@@ -95,7 +95,11 @@ start ("Cannot find module 'dijkstrajs'"). The build now checks itself: `tools/c
 is electron-builder's `afterPack` and fails the package, here and in the release workflow, naming
 every package `dependencies` reaches that is not in `app.asar` (by name: the packer flattens
 nested copies). `node tools/check-packed.mjs <dir with resources\app.asar>` checks any build,
-the installed one included. A package worktree gets `robocopy <main>\node_modules ... /E /SL /XJ`.
+the installed one included. A package worktree gets `robocopy <main>\node_modules ... /E /SL /XJ`,
+THEN `npm install` in the worktree: `prism-term-core` is a workspace link, and the copy keeps main's link,
+so the worktree would build and test main's `packages/term-core`. `tools/check-core-link.mjs` fails the
+`e2e`, `e2e:terminal` and `package` scripts (and `tools/e2e/run.mjs`) when
+`realpath(node_modules/prism-term-core)` is not `<checkout>/packages/term-core`.
 
 **THE E2E IS THE PR GATE AND NOTHING ELSE; AN INSTALL RUNS NONE** (owner, 2026-09-02, and again
 2026-10-03 after installs that ran suites first: "no e2e, just install, e2e only before pr, as part

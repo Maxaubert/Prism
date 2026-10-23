@@ -1,0 +1,611 @@
+import { useSyncExternalStore } from 'react'
+import {
+  followsHostStyle,
+  hostDefaults,
+  hostGround,
+  hostIndicators,
+  hostOwnsWindowAcrylic,
+  onHostChromeChange,
+  type AgentIndicator
+} from '../host'
+import { liveThemeId } from './termThemeRetired'
+import { alphaOf, canonicalStored, opaque, parseColour, toStored } from './colour'
+import { seeThroughAlpha } from './seeThrough'
+import { readPref, writePref } from './prefStore'
+
+export type { AgentIndicator }
+
+// The terminal's persisted look: which theme it wears and its base font size.
+// Same tiny-store shape as tabPrefs. Per-SESSION font zoom (Ctrl+scroll) is
+// deliberately NOT here: that lives and dies with the session.
+
+const THEME_KEY = 'prism.term.theme'
+const FONT_KEY = 'prism.term.fontPct'
+
+export const TERM_BASE_FONT_PX = 13
+/** 50% to 200% in tens (owner, 2026-09-28: "font size should have 10%
+ *  increments from 50-200"). It was 80-200 with uneven steps. */
+export const FONT_PCTS = [50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200] as const
+
+let listeners: Array<() => void> = []
+const notify = (): void => listeners.forEach((l) => l())
+
+/** A switch, on unless switched off ('0'), read and written defensively
+ *  (prefStore) and announced on this module's listeners: the five agent
+ *  switches below were each the same two functions (audit 2026-10-12). */
+const onSwitch = (key: string): [() => boolean, (on: boolean) => void] => [
+  () => readPref(key) !== '0',
+  (on) => {
+    writePref(key, on ? '1' : '0')
+    notify()
+  }
+]
+
+/** Names a preset (or 'custom'). 'prism' is the default. Inside Prism the
+ *  default was 'style', follow the app style; there is no app style here, so a
+ *  stored 'style' reads as 'prism' rather than as a theme nothing can resolve. */
+export function termThemeId(): string {
+  const v = localStorage.getItem(THEME_KEY)
+  // Never touched: the HOST's default ('style' in Prism, a preset here). A
+  // stored 'style' where the host has no style to follow reads as that
+  // default too, rather than as a theme nothing can resolve.
+  if (!v || (v === 'style' && !followsHostStyle())) return hostDefaults().theme
+  // A theme since retired (#62) reads as the kept one nearest it.
+  return liveThemeId(v)
+}
+
+export function setTermThemeId(id: string): void {
+  localStorage.setItem(THEME_KEY, id)
+  notify()
+}
+
+const FONT_FAMILY_KEY = 'prism.term.font'
+
+/** Monospace faces worth offering on Windows; each falls back to the stack's
+ *  next face when not installed, so picking a missing one degrades quietly. */
+export const TERM_FONTS = [
+  { id: 'cascadia', name: 'Cascadia Mono', stack: '"Cascadia Mono", "JetBrainsMono NF", Consolas, monospace' },
+  { id: 'cascadia-code', name: 'Cascadia Code', stack: '"Cascadia Code", "Cascadia Mono", Consolas, monospace' },
+  { id: 'consolas', name: 'Consolas', stack: 'Consolas, "Cascadia Mono", monospace' },
+  { id: 'jetbrains', name: 'JetBrains Mono', stack: '"JetBrains Mono", "JetBrainsMono NF", "Cascadia Mono", Consolas, monospace' },
+  { id: 'jetbrains-nf', name: 'JetBrainsMono Nerd Font', stack: '"JetBrainsMono NF", "JetBrains Mono", "Cascadia Mono", Consolas, monospace' },
+  { id: 'fira', name: 'Fira Code', stack: '"Fira Code", "Cascadia Mono", Consolas, monospace' },
+  { id: 'source', name: 'Source Code Pro', stack: '"Source Code Pro", "Cascadia Mono", Consolas, monospace' },
+  { id: 'lucida', name: 'Lucida Console', stack: '"Lucida Console", Consolas, monospace' },
+  { id: 'courier', name: 'Courier New', stack: '"Courier New", Courier, monospace' },
+  { id: 'ibm-plex', name: 'IBM Plex Mono', stack: '"IBM Plex Mono", "Cascadia Mono", Consolas, monospace' },
+  { id: 'roboto-mono', name: 'Roboto Mono', stack: '"Roboto Mono", "Cascadia Mono", Consolas, monospace' },
+  { id: 'ubuntu-mono', name: 'Ubuntu Mono', stack: '"Ubuntu Mono", "Cascadia Mono", Consolas, monospace' },
+  { id: 'hack', name: 'Hack', stack: 'Hack, "Cascadia Mono", Consolas, monospace' },
+  { id: 'iosevka', name: 'Iosevka', stack: 'Iosevka, "Iosevka Term", "Cascadia Mono", Consolas, monospace' },
+  { id: 'dejavu', name: 'DejaVu Sans Mono', stack: '"DejaVu Sans Mono", "Cascadia Mono", Consolas, monospace' }
+] as const
+
+export function termFontId(): string {
+  const v = localStorage.getItem(FONT_FAMILY_KEY)
+  return TERM_FONTS.some((f) => f.id === v) ? (v as string) : 'cascadia'
+}
+
+export function setTermFontId(id: string): void {
+  localStorage.setItem(FONT_FAMILY_KEY, id)
+  notify()
+}
+
+export function termFontStack(): string {
+  return TERM_FONTS.find((f) => f.id === termFontId())?.stack ?? TERM_FONTS[0].stack
+}
+
+export function termFontPct(): number {
+  const raw = localStorage.getItem(FONT_KEY)
+  const v = Number(raw)
+  // Never set (or nonsense) is the default size. A size saved on the old
+  // list that is not on this one (125, 175) is the NEAREST step, not a jump
+  // back to 100: the text should not change size under anyone with the update.
+  if (!raw || !Number.isFinite(v) || v < FONT_PCTS[0] || v > FONT_PCTS[FONT_PCTS.length - 1]) return 100
+  return Math.round(v / 10) * 10
+}
+
+export function setTermFontPct(pct: number): void {
+  localStorage.setItem(FONT_KEY, String(pct))
+  notify()
+}
+
+/** The base font in pixels the current percentage means. */
+export function termBaseFontPx(): number {
+  return Math.round((TERM_BASE_FONT_PX * termFontPct()) / 100)
+}
+
+const ACRYLIC_KEY = 'prism.term.acrylic'
+const OPACITY_KEY = 'prism.term.opacity'
+
+/** Whether the window is acrylic: the theme's background is painted at the
+ *  ground's alpha (`termGroundAlpha`) and the desktop shows through. Inside
+ *  Prism this belonged to the follow-style terminal alone and was on by
+ *  default; there it is still the switch. Where the terminal owns the window
+ *  acrylic it is the see-through slider above 0 (`termSeeThrough`). */
+export function termAcrylic(): boolean {
+  if (hostOwnsWindowAcrylic()) return termSeeThrough() > 0
+  const v = localStorage.getItem(ACRYLIC_KEY)
+  // Never touched: the host's default (on in Prism, off in Prism Terminal).
+  return v === null ? hostDefaults().acrylic : v === '1'
+}
+/** Prism's switch (`acrylic.kind: 'style'`). */
+export function setTermAcrylic(on: boolean): void {
+  localStorage.setItem(ACRYLIC_KEY, on ? '1' : '0')
+  notify()
+}
+/** The switch's old key, for the host's one-time move to the slider. */
+export const LEGACY_ACRYLIC_KEY = ACRYLIC_KEY
+
+/**
+ * THE SEE-THROUGH SLIDER (owner, 2026-10-13: "can you add a see through
+ * slider, now its just a toggle make it a slider only with it being at 0 by
+ * default"), where the terminal owns the window acrylic (Prism Terminal). How
+ * much of the desktop shows through, in percent: the window's ground is
+ * painted at alpha 1 - level/100. 0 is the material off and a solid window;
+ * the top is 70, the 30% alpha floor the Opacity slider and the Background's
+ * alpha had. It is the ONLY see-through control there ("slider only": the
+ * Background pickers carry no alpha), and PART OF THE THEME, as Prism's own
+ * see-through is ("prism has it built into themes ... Like Prism: an edit"):
+ * a theme extra, so moving it lights Save changes, a theme pick puts the
+ * theme's own back (a preset's is 0) and Custom keeps it.
+ * Stored as written, read clamped; never stored reads as 0 (the host's
+ * migration writes it once before the first paint).
+ */
+export const SEE_THROUGH_TOP = 70
+const SEE_THROUGH_KEY = 'prism.term.seeThrough'
+export const SEE_THROUGH_STORE_KEY = SEE_THROUGH_KEY
+export function seeThroughLevel(raw: unknown): number {
+  const n = raw === null || raw === undefined || raw === '' ? NaN : Number(raw)
+  return Number.isFinite(n) ? Math.min(SEE_THROUGH_TOP, Math.max(0, Math.round(n))) : 0
+}
+export function termSeeThrough(): number {
+  return seeThroughLevel(localStorage.getItem(SEE_THROUGH_KEY))
+}
+export function setTermSeeThrough(level: number): void {
+  localStorage.setItem(SEE_THROUGH_KEY, String(seeThroughLevel(level)))
+  notify()
+}
+/**
+ * THE OPACITY SLIDER IS GONE (#114; owner, 2026-10-03: alpha "should be built
+ * into the colour pickers ... it should not be a separate opacity setting").
+ * The window's see-through is the ALPHA of the ground in force now
+ * (`termGroundAlpha`). This reads what the slider left behind, ONCE, for the
+ * host's migration, exactly as the window read it: 30-100, defensively, since
+ * Number(null) and Number('') are 0, which would read "never set" as fully
+ * transparent. Nothing writes the key any more.
+ */
+export function legacyTermOpacity(): number {
+  return opacityPct(localStorage.getItem(OPACITY_KEY))
+}
+
+/** A stored opacity as the window read it, 30-100; 100 for anything else. */
+export function opacityPct(raw: unknown): number {
+  const n = raw === null || raw === undefined || raw === '' ? NaN : Number(raw)
+  return Number.isFinite(n) ? Math.min(100, Math.max(30, Math.round(n))) : 100
+}
+
+/** The legacy key, for the migration that removes it. */
+export const LEGACY_OPACITY_KEY = OPACITY_KEY
+
+const AGENT_IND_KEY = 'prism.term.agentIndicator'
+
+
+/**
+ * A stored indicator as the host can draw it (#143): a value among `allowed`
+ * reads as itself, anything else (never set, nonsense, or a choice this host's
+ * strip does not draw, such as Ring in Prism) as `fallback`. A stored `full`
+ * reads as `full`: where the host draws the new marks that IS the new Full,
+ * the migration being the meaning, so nothing is rewritten.
+ */
+export function readIndicator(raw: unknown, allowed: readonly AgentIndicator[], fallback: AgentIndicator): AgentIndicator {
+  return typeof raw === 'string' && (allowed as readonly string[]).includes(raw) ? (raw as AgentIndicator) : fallback
+}
+
+/** How an agent shows on its tab: not at all, a line under the tab (Minimal),
+ *  a spinner by the name (Ring, #143), or the tabs you are not on filled
+ *  (Full). MINIMAL is the default (owner, 2026-09-18; it was full in Prism and
+ *  in the first build): the line says it, and a filled tab is the loud version
+ *  you opt into. */
+export function agentIndicator(): AgentIndicator {
+  return readIndicator(localStorage.getItem(AGENT_IND_KEY), hostIndicators(), hostDefaults().indicator)
+}
+
+export function setAgentIndicator(v: AgentIndicator): void {
+  localStorage.setItem(AGENT_IND_KEY, v)
+  notify()
+}
+
+const AGENT_COLOR_KEY = 'prism.term.agentColor'
+const AGENT_DONE_KEY = 'prism.term.agentDoneColor'
+const AGENT_QUESTION_KEY = 'prism.term.agentQuestionColor'
+const DONE_ON_KEY = 'prism.term.agentDoneOn'
+const QUESTION_ON_KEY = 'prism.term.agentQuestionOn'
+
+/**
+ * THE TWO ATTENTION MARKS, each optional (2026-09-28; owner: "an optional
+ * completion indicator ... a green border on the bottom", and "a question
+ * indicator ... a blue indicator, also optional"). ON by default: they are how
+ * a tab that needs you says so. Switches, not theme settings, so a theme
+ * never turns them on or off.
+ */
+export const [agentDoneOn, setAgentDoneOn] = onSwitch(DONE_ON_KEY)
+export const [agentQuestionOn, setAgentQuestionOn] = onSwitch(QUESTION_ON_KEY)
+
+const RAINBOW_KEY = 'prism.term.agentRainbow'
+
+/**
+ * THE RAINBOW FINISH (#143; owner, 2026-10-10): a finished tab wears the app
+ * icon's colours, flowing. A switch, ON by default; off is the finished
+ * colour, still. Not a theme setting: a theme pick never touches it. Drawn
+ * only where the host's strip draws it (`tabMarks.rainbow`).
+ */
+export const [agentRainbow, setAgentRainbow] = onSwitch(RAINBOW_KEY)
+
+const FAILED_ON_KEY = 'prism.term.agentFailedOn'
+const HOOKS_KEY = 'prism.term.agentHooks'
+
+/**
+ * THE FAILED MARK (#131): a turn that ended on an error (a rate limit, an
+ * overload), told by Claude Code's own hook. A switch beside the other two,
+ * on by default for their reason.
+ */
+export const [agentFailedOn, setAgentFailedOn] = onSwitch(FAILED_ON_KEY)
+
+/**
+ * "EXACT STATUS FROM CLAUDE CODE" (#131; owner, 2026-10-05: on by default,
+ * with a switch). On, a NEW shell is handed the bundled plugin; off, it is
+ * not, and no plugin loads. A running shell keeps what it started with.
+ */
+export const [agentHooksOn, setAgentHooksOn] = onSwitch(HOOKS_KEY)
+/** A stored agent colour: six digits, or eight with an alpha (#112), in its
+ *  canonical form, or null. */
+const agentHex = canonicalStored
+
+/** Write a choice, or forget it: anything but a 6 or 8 digit hex gives the
+ *  choice back to the theme. */
+function writeChoice(key: string, hex: string | null | undefined): void {
+  const v = agentHex(hex)
+  if (v) localStorage.setItem(key, v)
+  else localStorage.removeItem(key)
+}
+
+/**
+ * The two agent colours, as CHOICES. '' means "follow the theme" and is the
+ * default (owner, 2026-09-18: the indicator should wear the theme's accent):
+ * a fixed orange belonged to one theme and clashed with thirty-eight others.
+ * What the theme gives when nothing is chosen is lib/agentColors' business;
+ * this file only remembers whether the user has an opinion.
+ */
+export type AgentColourState = 'working' | 'finished' | 'question'
+
+/**
+ * THE THREE MARK COLOURS, ONE TABLE (audit 2026-10-12: each had its own key,
+ * getter, setter, hook, reset line and settings row, written three times).
+ * Where it is stored, what is in force with no choice (the host's default, or
+ * '' for the theme's own), and its field in a saved Custom setup.
+ */
+export const AGENT_COLOUR_STATES: ReadonlyArray<{
+  state: AgentColourState
+  key: string
+  fallback: () => string
+  custom: 'indicatorColor' | 'doneColor' | 'questionColor'
+}> = [
+  { state: 'working', key: AGENT_COLOR_KEY, fallback: () => hostDefaults().agentColor, custom: 'indicatorColor' },
+  // An agent that stopped working on a BACKGROUND tab wears it until visited.
+  { state: 'finished', key: AGENT_DONE_KEY, fallback: () => hostDefaults().agentDoneColor, custom: 'doneColor' },
+  // '' = the default blue, moved to the ground's floor by lib/agentColors.
+  { state: 'question', key: AGENT_QUESTION_KEY, fallback: () => '', custom: 'questionColor' }
+]
+const colourRow = (state: AgentColourState): (typeof AGENT_COLOUR_STATES)[number] =>
+  AGENT_COLOUR_STATES.find((c) => c.state === state)!
+
+/** The colour chosen for a mark, or its default. */
+export function agentColourChoice(state: AgentColourState): string {
+  const c = colourRow(state)
+  return agentHex(localStorage.getItem(c.key)) ?? c.fallback()
+}
+
+/** A hex picks a colour; '' gives the choice back to the theme. */
+export function setAgentColour(state: AgentColourState, hex: string): void {
+  writeChoice(colourRow(state).key, hex)
+  notify()
+}
+
+/** The named forms, kept for every caller in both apps. */
+export const agentColorChoice = (): string => agentColourChoice('working')
+export const setAgentColor = (hex: string): void => setAgentColour('working', hex)
+export const agentDoneColorChoice = (): string => agentColourChoice('finished')
+export const setAgentDoneColor = (hex: string): void => setAgentColour('finished', hex)
+export const agentQuestionColorChoice = (): string => agentColourChoice('question')
+export const setAgentQuestionColor = (hex: string): void => setAgentColour('question', hex)
+
+export const CUSTOM_KEY = 'prism.term.custom'
+
+export interface CustomTermTheme {
+  /** Every colour is the stored form: `#rrggbb`, or `#rrggbbaa` with an
+   *  alpha (#112). */
+  bg: string
+  fg: string
+  cursor: string
+  /** The selection's fill, with its alpha. Absent: derived from the cursor,
+   *  as it always was (`<cursor>55`). */
+  selection?: string
+  ansi: Record<string, string>
+  /** The window chrome's accent, the theme's it was made from (owner,
+   *  2026-10-12). Absent in older saves: the chrome takes the palette's blue. */
+  accent?: string
+  /** The rest of the terminal setup, captured by "Save changes": the look is
+   *  more than the palette. All optional - older saves carry colours only.
+   *  `font` and `fontPct` are READ NO MORE (owner, 2026-09-28: the font and its
+   *  size "should transcend" a theme, so no theme sets them); older saves may
+   *  still carry them, and they are ignored. */
+  font?: string
+  fontPct?: number
+  indicator?: AgentIndicator
+  indicatorColor?: string
+  doneColor?: string
+  questionColor?: string
+  acrylic?: boolean
+  /** The see-through slider's level, where the terminal owns the window
+   *  acrylic (2026-10-13); the ground is saved opaque there. */
+  seeThrough?: number
+}
+
+/** What every theme-bound non-colour setting is out of the box. Picking any
+ *  theme returns to these; deviating from them is what "Save changes" saves.
+ *  The font and its size are not among them: they belong to no theme. */
+export function termExtraDefaults(): {
+  indicator: AgentIndicator
+  indicatorColor: string
+  doneColor: string
+  questionColor: string
+  acrylic: boolean
+  seeThrough: number
+} {
+  const d = hostDefaults()
+  return {
+    indicator: d.indicator,
+    // '' = the theme's own (see agentColorChoice).
+    indicatorColor: d.agentColor,
+    doneColor: d.agentDoneColor,
+    questionColor: '',
+    acrylic: d.acrylic,
+    // Every theme's own see-through is none (owner: "at 0 by default").
+    seeThrough: 0
+  }
+}
+
+/** Selecting a theme overwrites the terminal settings with their defaults:
+ *  the theme is the whole setup, not just the palette. */
+export function resetTermExtras(): void {
+  localStorage.removeItem(AGENT_IND_KEY)
+  for (const c of AGENT_COLOUR_STATES) localStorage.removeItem(c.key)
+  localStorage.removeItem(ACRYLIC_KEY)
+  // Written, not removed: a stored level is also the sign the host's one-time
+  // move from the switch has run.
+  if (hostOwnsWindowAcrylic()) localStorage.setItem(SEE_THROUGH_KEY, '0')
+  notify()
+}
+
+/** Re-apply the non-colour half of a saved Custom setup, when it has one. */
+export function applyCustomExtras(t: CustomTermTheme | null): void {
+  if (!t) return
+  // The font and its size belong to no theme (2026-09-28): an older save that
+  // carries them does not put them back.
+  // Through the same reader as the store (#143): a saved Ring in a host that
+  // draws none is not written over the user's choice.
+  if (t.indicator && hostIndicators().includes(t.indicator)) localStorage.setItem(AGENT_IND_KEY, t.indicator)
+  // A saved setup that followed the theme goes back to following it.
+  // Validated as every other writer is: a colour that is not one follows the
+  // theme rather than landing in storage unchecked (#112).
+  for (const c of AGENT_COLOUR_STATES) writeChoice(c.key, t[c.custom])
+  // The see-through the save captured: the slider's level where the terminal
+  // owns the window acrylic (a save without one is none), else the switch.
+  if (hostOwnsWindowAcrylic()) localStorage.setItem(SEE_THROUGH_KEY, String(seeThroughLevel(t.seeThrough ?? 0)))
+  else if (t.acrylic !== undefined) localStorage.setItem(ACRYLIC_KEY, t.acrylic ? '1' : '0')
+  notify()
+}
+
+/** The user's ONE custom theme, or null before any save. Saving overwrites:
+ *  like Tabby, there is a single Custom slot, edited and re-saved. */
+export function customTermTheme(): CustomTermTheme | null {
+  try {
+    const raw = localStorage.getItem(CUSTOM_KEY)
+    if (!raw) return null
+    const v = JSON.parse(raw) as CustomTermTheme
+    // Every colour read through the one parser and kept in the one stored form
+    // (#112). A background or foreground that is not a colour is no Custom, as
+    // it always was; a bad cursor is the text colour, a bad selection is
+    // derived, and a bad one of the sixteen is simply absent.
+    const bg = stored(v.bg)
+    const fg = stored(v.fg)
+    if (!bg || !fg) return null
+    const ansi: Record<string, string> = {}
+    if (v.ansi && typeof v.ansi === 'object')
+      for (const [k, c] of Object.entries(v.ansi)) {
+        const ok = stored(c)
+        if (ok) ansi[k] = ok
+      }
+    const selection = stored(v.selection)
+    const accent = stored(v.accent)
+    const out: CustomTermTheme = { ...v, bg, fg, cursor: stored(v.cursor) ?? fg, ansi }
+    if (selection) out.selection = selection
+    else delete out.selection
+    if (accent) out.accent = accent
+    else delete out.accent
+    return out
+  } catch {
+    return null
+  }
+}
+
+/** A colour in its stored form, or null for anything that is not one. */
+function stored(c: unknown): string | null {
+  if (typeof c !== 'string') return null
+  const p = parseColour(c)
+  return p ? toStored(p) : null
+}
+
+/**
+ * The alpha of the ground in force (#112): the host's picked ground where it
+ * has one (Prism Terminal's Background colour), else the Custom theme's own
+ * background, 1 for a preset (presets are opaque). The same order as the
+ * window paints in. Since #114 this IS the window's see-through under
+ * acrylic, in place of the Opacity slider.
+ *
+ * Where it is the window's see-through it is FLOORED on the way out, as the
+ * slider's reader clamped to 30-100 (review of #115): the pickers clamp what
+ * they write, but a stored or hand-edited `#12121205` must not paint an all
+ * but invisible window. The floor is the byte 30% gives (0x4d), so every
+ * value a picker or the migration writes reads unchanged.
+ *
+ * And there, with the see-through switch on, an OPAQUE ground paints
+ * the default see-through (#156, `paintsAlpha`): a preset is no longer 1.
+ */
+export function termGroundAlpha(): number {
+  // Where it is the window's see-through, it is the slider's (2026-10-13),
+  // never read off a colour: the pickers carry no alpha there any more.
+  if (hostOwnsWindowAcrylic()) return 1 - termSeeThrough() / 100
+  return rawGroundAlpha()
+}
+/** The lowest window see-through: Opacity 30's byte, round(0.3 * 255). */
+export const GROUND_ALPHA_MIN = 0x4d / 255
+
+/**
+ * THE OLD RULE, kept for the host's one-time move to the see-through slider
+ * (2026-10-13), which turns what the window painted into a level. It was the
+ * rule for what a ground painted where the terminal owns the window acrylic
+ * (#156), shared by the window and Save changes' dirty check. With the switch on, an OPAQUE ground paints the default see-through
+ * (Prism's levels, by the ground light or dark): on means see-through by
+ * itself, as Prism's switch does, where before #156 a preset stayed solid and
+ * the switch looked broken. A ground that carries an alpha keeps it, floored
+ * at 30% as the Opacity slider was.
+ */
+export function paintsAlpha(raw: number, ground: string, acrylicOn: boolean): number {
+  if (acrylicOn && isOpaque(raw)) return seeThroughAlpha(ground)
+  return Math.max(GROUND_ALPHA_MIN, raw)
+}
+/** Opaque BY THE BYTE: an alpha that stores as ff is opaque. */
+const isOpaque = (a: number): boolean => Math.round(a * 255) >= 255
+
+function rawGroundAlpha(): number {
+  const picked = hostGround()
+  if (picked) return alphaOf(picked)
+  if (termThemeId() === 'custom') {
+    const c = customTermTheme()
+    if (c) return alphaOf(c.bg)
+  }
+  return 1
+}
+
+/**
+ * A palette as Custom saves it and the colour editor opens it (#114): where
+ * the terminal owns the window acrylic the ground is OPAQUE, the see-through
+ * being the slider's level, saved beside it (2026-10-13). Where the host's
+ * style owns the glass (Prism), the palette as it is.
+ */
+export function withGroundAlpha<T extends { bg: string }>(palette: T): T {
+  if (!hostOwnsWindowAcrylic()) return palette
+  return { ...palette, bg: opaque(palette.bg) }
+}
+
+/**
+ * THE COLOUR EDITOR'S DRAFT (owner, 2026-10-12: "let me pick a colour there
+ * and have it apply instantly so that I can ctrl tab to see how it actually
+ * looks, and when I go back to settings that popup should still be open").
+ * While it is set the editor is open and the theme in force IS the draft
+ * (`resolveTermTheme`), so every pick repaints every terminal and the chrome.
+ * It lives here, not in the editor, so the Settings tab can unmount under a
+ * tab switch and find the editor open, as it was, when it mounts again. In
+ * memory only: Save keeps it as Custom, Cancel drops it, a restart forgets it.
+ */
+let draft: CustomTermTheme | null = null
+export function themeDraft(): CustomTermTheme | null {
+  return draft
+}
+export function setThemeDraft(next: CustomTermTheme | null): void {
+  draft = next
+  notify()
+}
+
+export function saveCustomTermTheme(theme: CustomTermTheme): void {
+  localStorage.setItem(CUSTOM_KEY, JSON.stringify(theme))
+  notify()
+}
+
+export function onTermLookChange(cb: () => void): () => void {
+  listeners.push(cb)
+  return () => {
+    listeners = listeners.filter((l) => l !== cb)
+  }
+}
+
+const sub = onTermLookChange
+
+export function useThemeDraft(): CustomTermTheme | null {
+  return useSyncExternalStore(sub, themeDraft)
+}
+
+export function useTermThemeId(): string {
+  return useSyncExternalStore(sub, termThemeId)
+}
+export function useTermFontPct(): number {
+  return useSyncExternalStore(sub, termFontPct)
+}
+export function useTermFontId(): string {
+  return useSyncExternalStore(sub, termFontId)
+}
+export function useTermAcrylic(): boolean {
+  return useSyncExternalStore(sub, termAcrylic)
+}
+export function useTermSeeThrough(): number {
+  return useSyncExternalStore(sub, termSeeThrough)
+}
+/** The ground's alpha, re-read when the look OR the host's window colours
+ *  change (a picked background is the host's, not this store's). */
+export function useTermGroundAlpha(): number {
+  return useSyncExternalStore(subGround, termGroundAlpha)
+}
+function subGround(cb: () => void): () => void {
+  const offLook = onTermLookChange(cb)
+  const offChrome = onHostChromeChange(cb)
+  return () => {
+    offLook()
+    offChrome()
+  }
+}
+export function useAgentIndicator(): AgentIndicator {
+  return useSyncExternalStore(sub, agentIndicator)
+}
+export function useAgentColourChoice(state: AgentColourState): string {
+  return useSyncExternalStore(sub, () => agentColourChoice(state))
+}
+export const useAgentColorChoice = (): string => useAgentColourChoice('working')
+export const useAgentDoneColorChoice = (): string => useAgentColourChoice('finished')
+export const useAgentQuestionColorChoice = (): string => useAgentColourChoice('question')
+export function useAgentDoneOn(): boolean {
+  return useSyncExternalStore(sub, agentDoneOn)
+}
+export function useAgentQuestionOn(): boolean {
+  return useSyncExternalStore(sub, agentQuestionOn)
+}
+export function useAgentRainbow(): boolean {
+  return useSyncExternalStore(sub, agentRainbow)
+}
+export function useAgentFailedOn(): boolean {
+  return useSyncExternalStore(sub, agentFailedOn)
+}
+export function useAgentHooksOn(): boolean {
+  return useSyncExternalStore(sub, agentHooksOn)
+}
+export function useCustomTermTheme(): CustomTermTheme | null {
+  // Cache per notify tick: useSyncExternalStore needs a stable snapshot.
+  return useSyncExternalStore(sub, customSnapshot)
+}
+let customCache: { raw: string | null; value: CustomTermTheme | null } = { raw: null, value: null }
+function customSnapshot(): CustomTermTheme | null {
+  const raw = localStorage.getItem(CUSTOM_KEY)
+  if (raw !== customCache.raw) customCache = { raw, value: customTermTheme() }
+  return customCache.value
+}
