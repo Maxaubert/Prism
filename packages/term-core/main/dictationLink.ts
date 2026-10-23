@@ -61,7 +61,7 @@ function sameMac(a: string, b: string): boolean {
 export function linkKey(file: string): Buffer | null {
   const read = (): Buffer | null => {
     try {
-      const t = readFileSync(file, 'utf8').trim()
+      const t = readFileSync(file, 'utf8').trim() // sync-ok: read once as the link starts, a 64-byte file; Prism never starts the link
       return /^[0-9a-f]{64}$/.test(t) ? Buffer.from(t, 'hex') : null
     } catch {
       return null
@@ -70,10 +70,10 @@ export function linkKey(file: string): Buffer | null {
   const have = read()
   if (have) return have
   try {
-    mkdirSync(dirname(file), { recursive: true })
-    const fd = openSync(file, 'wx')
-    writeSync(fd, randomBytes(32).toString('hex'))
-    closeSync(fd)
+    mkdirSync(dirname(file), { recursive: true }) // sync-ok: read once as the link starts, a 64-byte file; Prism never starts the link
+    const fd = openSync(file, 'wx') // sync-ok: read once as the link starts, a 64-byte file; Prism never starts the link
+    writeSync(fd, randomBytes(32).toString('hex')) // sync-ok: read once as the link starts, a 64-byte file; Prism never starts the link
+    closeSync(fd) // sync-ok: read once as the link starts, a 64-byte file; Prism never starts the link
   } catch {
     /* another copy made it first, or it cannot be made */
   }
