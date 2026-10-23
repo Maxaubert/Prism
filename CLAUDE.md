@@ -132,8 +132,9 @@ Filesmith's conventions.
   (XTVERSION reports it). Imports stay `prism-term-core/...`. Its contract: `packages/term-core/README.md`;
   the rules (inert input, resume-only command, `onKey`, cells, ConPTY, the panel's ground, replies, quit, dictation)
   with their measurements: [`docs/terminal-rules.md`](docs/terminal-rules.md). Read both before touching the core.
-- **`src/renderer/src/termHost.ts` is the ONLY host difference** (imported FIRST by `renderApp.tsx`): every way Prism
-  differs is a `TermHostConfig` field, never a fork. Settings > Terminal, Agents and Dictation are the core's
+- **The renderer's host differences are `src/renderer/src/termHost.ts`** (`TermHostConfig`, imported FIRST by
+  `renderApp.tsx`; main's are the `registerTermIpc` / `registerDictationIpc` deps in `src/main/ipc/terminal.ts`): every way Prism
+  differs is a field or a dep, never a fork. Settings > Terminal, Agents and Dictation are the core's
   sections; a terminal row written in `src/` is a fork, and the e2e `termOptions` fails on it. Adding a field is an
   owner decision. The core is lint-walled (relative imports only, no `window.prism`, `src/` or `electron`).
 - **The gate and the ratchet**: `npm run e2e:terminal` (runner-safe, also in CI) guards the terminal. A bug a
