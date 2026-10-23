@@ -5,6 +5,7 @@ import { latestWriter } from './latestWrite'
 import { isAbsolute, resolve } from 'path'
 import type { BrowseLocation, SavedBrowse, SavedPane } from '@shared/browse'
 import { isInside } from '@shared/path'
+import type { AgentKind } from 'prism-term-core/shared/types'
 
 /**
  * The tab strip, across restarts.
@@ -42,7 +43,7 @@ export interface SavedTab {
    *  resume it (`claude --continue` rebuilds the conversation per folder). */
   /** Which agent the shell hosted at quit, so the right resume runs. The
    *  legacy `true` from before codex could resume means claude. */
-  agent?: 'claude' | 'codex'
+  agent?: AgentKind
   /**
    * The folders that were OPEN in this tab's tree.
    *

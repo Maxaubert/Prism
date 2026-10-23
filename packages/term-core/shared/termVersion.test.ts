@@ -15,6 +15,6 @@ describe('termVersion', () => {
   })
 
   it('is the xterm.js the app bundles', () => {
-    expect(XTERM_VERSION).toBe(version(join(__dirname, '..', '..', 'node_modules', '@xterm', 'xterm', 'package.json')))
+    expect(XTERM_VERSION).toBe(version(join(__dirname, '..', '..', '..', 'node_modules', '@xterm', 'xterm', 'package.json')))
   })
 })

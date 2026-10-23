@@ -45,13 +45,16 @@ const WANT = 32
 function headSync(file: string): string {
   let fd = -1
   try {
+    // sync-ok: the sync twin of claudeSessionsAsync, no production caller (its tests only)
     fd = openSync(file, 'r')
     const buf = Buffer.alloc(HEAD_BYTES)
+    // sync-ok: the sync twin of claudeSessionsAsync, no production caller (its tests only)
     const n = readSync(fd, buf, 0, HEAD_BYTES, 0)
     return buf.subarray(0, n).toString('utf8')
   } catch {
     return ''
   } finally {
+    // sync-ok: the sync twin of claudeSessionsAsync, no production caller (its tests only)
     if (fd >= 0) closeSync(fd)
   }
 }
@@ -89,13 +92,16 @@ export function claudeSessions(cwd: string, home: string = homedir()): string[] 
   const enc = cwd.replace(/[^A-Za-z0-9]/g, '-')
   const dir = join(home, '.claude', 'projects', enc)
   try {
+    // sync-ok: the sync twin of claudeSessionsAsync, no production caller (its tests only)
     const newest = readdirSync(dir)
       .filter((f) => f.endsWith('.jsonl'))
+      // sync-ok: the sync twin of claudeSessionsAsync, no production caller (its tests only)
       .map((f) => ({ id: f.slice(0, -'.jsonl'.length), m: statSync(join(dir, f)).mtimeMs }))
       .sort((a, b) => b.m - a.m)
     const out: string[] = []
     for (const s of newest) {
       if (out.length >= WANT) break
+      // sync-ok: the sync twin of claudeSessionsAsync, no production caller (its tests only)
       if (isInteractiveHead(headSync(join(dir, `${s.id}.jsonl`)))) out.push(s.id)
     }
     return out

@@ -19,6 +19,7 @@ export function isOurPlugin(dir: string): boolean {
   if (known !== undefined) return known
   let ours = false
   try {
+    // sync-ok: ptyEnv takes a sync predicate; one file under 1 KB, read once per plugin folder and then remembered
     const m = JSON.parse(readFileSync(join(dir.trim(), '.claude-plugin', 'plugin.json'), 'utf8')) as { name?: unknown }
     ours = m.name === PLUGIN_NAME
   } catch {

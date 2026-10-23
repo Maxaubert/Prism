@@ -68,6 +68,7 @@ import {
 import { onCwd } from 'prism-term-core/renderer/lib/termBus'
 import { ancestorChain } from './lib/fileTree'
 import { decideFollow } from 'prism-term-core/shared/termCwd'
+import { isResumable } from 'prism-term-core/shared/types'
 import CopiedBadge from 'prism-term-core/renderer/components/CopiedBadge'
 import { TermDock } from './components/TermDock'
 import { TopBar } from './components/titlebar/TopBar'
@@ -884,7 +885,7 @@ export default function App(): JSX.Element {
         agent: (() => {
           if (!t.term || !agentIds.has(t.term.id)) return undefined
           const kind = agentKinds.current.get(t.term.id)
-          return kind === 'claude' || kind === 'codex' ? kind : undefined
+          return isResumable(kind) ? kind : undefined
         })()
       })),
       Math.max(

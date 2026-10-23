@@ -21,10 +21,7 @@ export default tseslint.config(
       '.demo/**',
       '.e2e/**',
       'videos/**',
-      '**/*.d.ts',
-      // The shared terminal core, imported as a subtree (Phase 1 of retiring Prism Terminal).
-      // It is linted by Prism Terminal's own config until Phase 2 ports its lint wall here.
-      'packages/term-core/**'
+      '**/*.d.ts'
     ]
   },
   js.configs.recommended,
@@ -36,6 +33,44 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }]
+    }
+  },
+  {
+    // THE CORE STAYS EMBEDDABLE (#15, ported from Prism Terminal's wall). The core is
+    // compiled by whatever app hosts it, so it may not reach for anything only one host
+    // has. A path alias is resolved against the CONSUMER's tree (measured: silently, with
+    // no error, the core ran the host's copy of a file), the host's src/ is not the core's
+    // to import, `electron` is the host's to load, and the bridge to main is handed in
+    // through renderer/host, never taken off a global. The window chrome is a host's own
+    // idea and would overwrite another host's styles if the core pulled it in.
+    files: ['packages/term-core/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: ['@shared/*', '@renderer/*', '@core/*'], message: 'No path aliases inside the core: a consumer resolves them against its own tree. Use a relative import.' },
+            { group: ['**/src/*', '**/src/**'], message: 'The core may not import from a host app.' },
+            { group: ['**/chromeTheme', '**/chromeTheme.*'], message: "chromeTheme is a host's window chrome; inside the core it would overwrite the app's styles." }
+          ],
+          paths: [{ name: 'electron', message: 'The core never imports electron: the host passes what it needs (ipcMain, ipcRenderer, clipboard).' }]
+        }
+      ],
+      'no-restricted-properties': [
+        'error',
+        { object: 'window', property: 'prism', message: 'The core reaches main through termApi() (renderer/host), never through a global.' }
+      ]
+    }
+  },
+  {
+    // The app imports the core through its package name, never by reaching into the
+    // workspace folder: a relative or packages/ path would bypass the package's exports.
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [{ group: ['**/packages/term-core/**'], message: 'import the core as prism-term-core/...' }] }
+      ]
     }
   },
   {

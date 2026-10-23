@@ -19,6 +19,7 @@ import { createTermApi } from 'prism-term-core/preload/api'
 import { createDictationApi } from 'prism-term-core/preload/dictationApi'
 import { createDiagApi } from 'prism-term-core/preload/diagApi'
 import type { UpdateInfo } from 'prism-term-core/shared/updateTypes'
+import type { AgentKind } from 'prism-term-core/shared/types'
 import type {
   ArchiveRenameResult,
   ExtractAllResult,
@@ -195,7 +196,7 @@ const api = {
       terms?: number
       /** The folder that shell was standing in, when it is not the root. */
       cwd?: string
-      agent?: 'claude' | 'codex'
+      agent?: AgentKind
       open?: string[]
     }>,
     active: number
