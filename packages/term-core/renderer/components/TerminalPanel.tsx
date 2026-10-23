@@ -37,7 +37,8 @@ import { onGround } from '../lib/termGround'
 import { xtermTheme, type XtermTheme } from '../lib/termXterm'
 import { bellGate, groundMode, type GroundMode } from '../lib/termReplies'
 import { attachReplies } from './termReplyHandlers'
-import { followsHostStyle, paintsGround, termApi, termHost, type ClipboardRead } from '../host'
+import { followsHostStyle, hostSendsRightClicks, paintsGround, termApi, termHost, type ClipboardRead } from '../host'
+import { keepRightClick } from '../lib/termRightClick'
 import { findLinks, linkColor } from '../lib/termLinks'
 import { watchAppCopies } from '../lib/appCopyNotice'
 import { announceCopied, copyText } from '../lib/copyNotice'
@@ -1105,12 +1106,29 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   el.addEventListener('mousedown', copyDown, true)
   window.addEventListener('mouseup', copyUp, true)
   window.addEventListener('mousemove', copyMove, true)
+  // The right button is the menu's (lib/termRightClick, Flare #49): stopped on
+  // the way DOWN to xterm's element, which listens below this one. The other
+  // capture listeners here are on this node or above it, so they still run.
+  const rightClick = (e: MouseEvent): void => {
+    if (
+      keepRightClick({
+        type: e.type,
+        button: e.button,
+        buttons: e.buttons,
+        mouseTracking: term.modes.mouseTrackingMode,
+        sendRight: hostSendsRightClicks()
+      })
+    )
+      e.stopPropagation()
+  }
+  for (const t of ['mousedown', 'mouseup', 'mousemove'] as const) el.addEventListener(t, rightClick, true)
   const unsub = [
     () => questions.dispose(),
     () => {
       el.removeEventListener('mousedown', copyDown, true)
       window.removeEventListener('mouseup', copyUp, true)
       window.removeEventListener('mousemove', copyMove, true)
+      for (const t of ['mousedown', 'mouseup', 'mousemove'] as const) el.removeEventListener(t, rightClick, true)
     },
     attachClickCaret(term, el, id, (line, x) => oscLink(line, x) !== null),
     // A path this session asked about turned out to exist: paint the lines
