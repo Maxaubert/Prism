@@ -20,6 +20,9 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
+    "packages/term-core/main/**/*",
+    "packages/term-core/preload/**/*",
+    "packages/term-core/shared/**/*",
     "test/**/*",
     "electron.vite.config.ts",
     "vitest.config.ts"
