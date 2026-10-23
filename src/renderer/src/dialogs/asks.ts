@@ -1,10 +1,11 @@
 import type { OpenPayload } from '@shared/types'
+import type { AgentKind } from 'prism-term-core/shared/types'
 
 /** The agent a close is about to end: what it is, and how long it has been
  *  mid-answer. `forMs` is null when it is only present, waiting at its own
  *  prompt - still a conversation the close ends. */
 export interface AgentBusy {
-  kind: 'claude' | 'codex' | 'other'
+  kind: AgentKind | 'other'
   forMs: number | null
 }
 

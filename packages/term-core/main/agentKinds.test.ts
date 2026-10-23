@@ -28,8 +28,9 @@ describe('the resumable agents', () => {
         if (statSync(p).isDirectory()) return walk(p)
         return /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) ? [p] : []
       })
-    const root = join(__dirname, '..', '..')
-    const byHand = [...walk(join(root, 'core')), ...walk(join(root, 'src'))]
+    // The core is packages/term-core here, the host's own code is src (the repo root is three up).
+    const root = join(__dirname, '..', '..', '..')
+    const byHand = [...walk(join(root, 'packages', 'term-core')), ...walk(join(root, 'src'))]
       .filter((f) => /=== 'claude' \|\| \S+ === 'codex'|'claude' \| 'codex'/.test(readFileSync(f, 'utf8')))
       .map((f) => relative(root, f).split('\\').join('/'))
     expect(byHand).toEqual([])

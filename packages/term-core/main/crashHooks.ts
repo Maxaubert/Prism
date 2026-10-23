@@ -41,6 +41,7 @@ export function hookCrashes({ log, process: proc, app, now = () => performance.n
   const land = (k: string, fields: Record<string, unknown>): void => {
     try {
       log.write('main', k, fields)
+      // sync-ok: a crash: the process is going down and the line must land first
       log.flushSync()
     } catch {
       /* the log never adds a second failure to the first */
