@@ -71,7 +71,14 @@ configureTermCore({
   // DICTATION (#162), the core's. A press only counts while a terminal is
   // SHOWING: App hands the controller null otherwise, so Right Alt over a film,
   // a PDF or the tree does nothing at all.
-  dictation: { api: window.prism, canDictate: () => true },
+  // RIGHT ALT stays Prism's key (2026-10-23): core 0.43.0 made Ctrl+Win the
+  // core's default for Prism Terminal's global key, and a user who never saved
+  // a key would have moved with it (Prism #429, the red `dictation` gate).
+  dictation: {
+    api: window.prism,
+    canDictate: () => true,
+    defaultHotkey: { code: 'AltRight', ctrl: false, alt: false, shift: false, meta: false }
+  },
   // A RIGHT-CLICK IS THE MENU'S (PrismTerminal #254, Flare #49; owner,
   // 2026-10-22: "right click should just open the menu not paste in the
   // input"). Claude Code reads the mouse and pastes on a right press, while
