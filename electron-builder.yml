@@ -73,7 +73,7 @@ extraResources:
       - '!.source'
   # The speech engine for the terminal's dictation (#162): whisper.cpp's
   # official CPU build with Microsoft's C++ runtime beside it, fetched by the
-  # CORE's own script (node_modules/prism-term-core/tools/fetch-whisper.mjs)
+  # CORE's own script (packages/term-core/tools/fetch-whisper.mjs)
   # against a pinned SHA-256, so both apps ship the same bytes. A folder of its
   # own, not bin/: its ggml DLLs must not sit among ffmpeg's.
   - from: vendor/whisper
