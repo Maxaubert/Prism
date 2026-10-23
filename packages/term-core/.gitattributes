@@ -1,0 +1,4 @@
+# The Claude Code plugin's hook (#131) is a batch file: cmd reads it line by
+# line and is only reliable with CRLF. Here as well as at the repo root so the
+# rule travels with core-dist, the split Prism checks out.
+*.cmd text eol=crlf
