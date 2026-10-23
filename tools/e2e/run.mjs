@@ -33,9 +33,12 @@ import { fileURLToPath } from 'node:url'
 import { homedir, tmpdir } from 'node:os'
 import { BIG, buildBigFixtures, buildFixtures, FFMPEG, OTHER_ROOT } from './fixtures.mjs'
 import { cachedDownload as fetchOnce } from '../lib/pinnedDownload.mjs'
+import { assertCoreLink } from '../lib/coreLink.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
+// A worktree with main's copied node_modules would test main's terminal core (see lib/coreLink.mjs).
+assertCoreLink(ROOT)
 const MAIN = process.env.PRISM_E2E_MAIN ?? join(ROOT, 'out', 'main', 'index.js')
 // Two worktrees can run the suite at once (2026-10-04, #271: a run in one
 // reaped the other's app, since both matched the same profile name). A run

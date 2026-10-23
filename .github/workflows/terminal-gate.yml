@@ -25,9 +25,18 @@ on:
     paths:
       - package.json
       - package-lock.json
+      - packages/term-core/**
+      - electron.vite.config.ts
+      - vitest.config.ts
+      - tsconfig.web.json
       - src/renderer/src/termHost.ts
       - src/renderer/src/components/TermDock.tsx
       - src/renderer/src/menus/terminalPanel.tsx
+      - src/preload/**
+      - src/main/ipc/terminal.ts
+      - src/renderer/src/App.tsx
+      - src/renderer/src/*.css
+      - electron-builder.yml
       - tools/e2e/**
       - tools/lib/**
       - .github/workflows/terminal-gate.yml
@@ -58,7 +67,7 @@ jobs:
           path: |
             vendor
             .e2e/cache
-          key: terminal-gate-bin-${{ hashFiles('tools/fetch-*.mjs', 'package-lock.json') }}
+          key: terminal-gate-bin-${{ hashFiles('tools/fetch-*.mjs', 'packages/term-core/tools/fetch-*.mjs', 'package-lock.json') }}
 
       - name: The terminal gate
         run: npm run e2e:terminal
