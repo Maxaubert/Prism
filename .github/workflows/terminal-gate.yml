@@ -25,6 +25,10 @@ on:
     paths:
       - package.json
       - package-lock.json
+      - packages/term-core/**
+      - electron.vite.config.ts
+      - vitest.config.ts
+      - tsconfig.web.json
       - src/renderer/src/termHost.ts
       - src/renderer/src/components/TermDock.tsx
       - src/renderer/src/menus/terminalPanel.tsx

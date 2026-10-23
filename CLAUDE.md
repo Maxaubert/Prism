@@ -132,6 +132,14 @@ Filesmith's conventions.
   HOST: `src/renderer/src/termHost.ts` (imported FIRST by `main.tsx`) declares the only
   differences. Settings > Terminal, Agents and Dictation are the core's sections; a terminal row
   written here is a fork, and the e2e `termOptions` fails on it.
+- **THE CORE NOW LIVES IN THIS REPO** (Phase 1 of retiring Prism Terminal, core 0.41.6 imported with its
+  history): `packages/term-core` is an npm workspace named `prism-term-core`, and `node_modules/prism-term-core`
+  is a link to it. Phases 2 to 5 (core tests and lint here, 0.44.4, pruning, a rewrite of this block)
+  follow; until then the paragraphs about the pin and the core's home in PrismTerminal are being retired.
+  **WORKTREE TRAP**: a worktree's node_modules is robocopied from main and keeps main's link, so it would
+  test main's core. Run `npm install` in the worktree after the copy; `tools/check-core-link.mjs`
+  (run by `e2e`, `e2e:terminal`, `package` and `tools/e2e/run.mjs`) fails when the link is not this checkout's.
+  The import PRs merge with `gh pr merge --merge` (never squash), or the subtree history is lost.
 - **The pin gate**: `npm run e2e:terminal` is REQUIRED green in any PR that moves the core tag, and
   runs in CI (`.github/workflows/terminal-gate.yml`). Keep it RUNNER-SAFE (nothing may assume this
   machine). Core bumps MERGE THEMSELVES when green, so the gate is the only reviewer: a bug that

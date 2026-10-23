@@ -21,7 +21,10 @@ export default tseslint.config(
       '.demo/**',
       '.e2e/**',
       'videos/**',
-      '**/*.d.ts'
+      '**/*.d.ts',
+      // The shared terminal core, imported as a subtree (Phase 1 of retiring Prism Terminal).
+      // It is linted by Prism Terminal's own config until Phase 2 ports its lint wall here.
+      'packages/term-core/**'
     ]
   },
   js.configs.recommended,
