@@ -64,8 +64,6 @@ describe("Prism's own settings rows", () => {
         "open-folders=windows",
         "explorer-verb=windows",
         "default-apps=windows",
-        "tree-side=prism.tree.side",
-        "newtab-show=prism.newtab.show",
         "viz-style=prism.viz.style+prism.viz.presets",
         "viz-colour=prism.viz.theme",
         "viz-glow=prism.viz.glow",
@@ -110,10 +108,10 @@ describe('Find a setting', () => {
     const at = Object.fromEntries(settingsIndex().map((e) => [e.id, `${e.page}/${e.section}${e.view ? `/${e.view}` : ''}`]))
     expect(at['c-accent']).toBe('appearance/Colours')
     expect(at['win-e-shortcut']).toBe('explorer/Windows')
-    expect(at['tree-side']).toBe('project/Project tabs')
-    expect(at['newtab-show']).toBe('project/Project tabs')
-    // Two Sidebar positions (#304; owner, 2026-10-07: "two settings, one on
-    // the project tab and one on the explorer tab"), each on its own page.
+    // The project tabs' rows (the tree's side, what a project showed first)
+    // went with them (2026-10-26).
+    expect(at['tree-side']).toBeUndefined()
+    expect(at['newtab-show']).toBeUndefined()
     expect(at['explorer-side']).toBe('explorer/Layout')
     expect(at['explorer-size']).toBe('explorer/Layout')
     expect(at['newtab-mode']).toBe('explorer/Opening things')

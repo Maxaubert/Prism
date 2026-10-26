@@ -20,9 +20,9 @@ export const FIELD = 'input,textarea,select,[contenteditable]:not([contenteditab
 export const EDITOR = '.cm-editor'
 /** A dialog or a menu is up and has the key. */
 export const OVERLAY = '[role="dialog"],[role="menu"]'
-/** The folder's own surfaces (project tree, Explorer, its places, a splitter):
- *  a search key pressed there searches the folder, not the open file. */
-export const NAV_SURFACE = '[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"]'
+/** The folder's own surfaces (Explorer, its places, a splitter): a search key
+ *  pressed there searches the folder, not the open file. */
+export const NAV_SURFACE = '.folder-browser,.browse-viewer-places,[role="separator"]'
 
 export function isTypingTarget(el: HTMLElement | null | undefined): boolean {
   return !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)

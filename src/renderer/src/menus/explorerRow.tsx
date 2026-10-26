@@ -30,7 +30,6 @@ export interface ExplorerRowMenuContext {
   openFile: (file: ViewerFile) => void
   showInPreview: (path: string) => void
   openInNewTab: (path: string, isFolder: boolean) => void
-  openAsProject: (entry: BrowseEntry) => void
   copyFiles: (paths: string[], cut?: boolean) => void
   paste: (directory: string) => void
   pinQuickAccess: (pins: QuickAccessPin[]) => void
@@ -76,8 +75,7 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
   const rows: MenuItem[] = [
     // THE ORDER (owner, 2026-10-12): opening, then the clipboard rows
     // together (Cut, Copy, Copy path, Paste), then what changes the item,
-    // then where it is and its facts, and Delete always LAST. The project
-    // tree's row menu (treeRow.tsx) keeps the same order.
+    // then where it is and its facts, and Delete always LAST.
     {
       label: 'Open',
       icon: <FileMenuIcon name="open" />,
@@ -100,11 +98,6 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
       label: 'Open in new tab',
       icon: <FileMenuIcon name="new-tab" />,
       onPick: () => ctx.openInNewTab(entry.path, entry.isFolder)
-    },
-    {
-      label: 'Open as project',
-      icon: <FileMenuIcon name="project" />,
-      onPick: () => ctx.openAsProject(entry)
     },
     // A file opens in another app.
     ...(entry.isFolder ? [] : [fileAppMenu(entry.path, ctx.apps ?? null)]),

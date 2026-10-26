@@ -19,7 +19,6 @@ const answers = (): AskAnswers => ({
   saveAllThen: vi.fn(),
   discardTabBuffers: vi.fn(),
   forceCloseTab: vi.fn(),
-  applyReroot: vi.fn(),
   answerReload: vi.fn(),
   runInstall: vi.fn()
 })

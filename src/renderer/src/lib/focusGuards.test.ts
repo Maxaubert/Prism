@@ -22,7 +22,7 @@ describe('focus guards', () => {
     expect(EDITOR).toBe('.cm-editor')
     expect(OVERLAY).toBe('[role="dialog"],[role="menu"]')
     expect(NAV_SURFACE).toBe(
-      '[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"]'
+      '.folder-browser,.browse-viewer-places,[role="separator"]'
     )
   })
 

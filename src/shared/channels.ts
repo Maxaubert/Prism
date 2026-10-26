@@ -54,10 +54,6 @@ export const CALL = {
   listingCacheClear: 'listing-cache:clear',
 
   openDialog: 'open:dialog',
-  openPath: 'open:path',
-  openFolder: 'open:folder',
-  openHome: 'open:home',
-  openRoot: 'open:root',
   openWithin: 'open:within',
   openListen: 'open:listen',
 

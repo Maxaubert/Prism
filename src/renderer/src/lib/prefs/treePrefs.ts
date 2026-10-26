@@ -50,7 +50,7 @@ export function useTreeSize(): (typeof TREE_SIZES)[number] {
   return TREE_SIZES.find((s) => s.id === id) ?? TREE_SIZES[1]
 }
 
-/* ---------- which side it lives on ---------- */
+/* ---------- which side a panel lives on ---------- */
 
 export type TreeSide = 'left' | 'right'
 
@@ -59,11 +59,3 @@ export const TREE_SIDES: Array<{ id: TreeSide; name: string }> = [
   { id: 'right', name: 'Right' }
 ]
 
-const sidePref = createPref<TreeSide>({
-  key: 'prism.tree.side',
-  parse: (v) => (v === 'right' ? 'right' : 'left'),
-  fallback: 'left'
-})
-
-export const setTreeSide = sidePref.set
-export const useTreeSide = sidePref.use

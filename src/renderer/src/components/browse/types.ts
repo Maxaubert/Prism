@@ -9,7 +9,7 @@ import type { ListPending } from '../../hooks/usePendingHint'
 export interface BrowsePlace {
   path: string
   label: string
-  group: 'Quick access' | 'Projects' | 'This PC'
+  group: 'Quick access' | 'This PC'
   /** The Windows Known Folder a Quick access place is (#296): its glyph. */
   known?: BrowseShortcut['known']
 }
@@ -106,7 +106,6 @@ export interface FolderBrowserProps {
   onScroll: (top: number) => void
   onQueryChange: (query: string) => void
   onSortChange: (sort: BrowseSort) => void
-  onOpenProject?: (entry: BrowseEntry) => void
   onOpenNewTab?: (path: string, isFolder?: boolean) => void
   onCancelSearch?: () => void
   onSearchRange?: (first: number) => void

@@ -298,17 +298,6 @@ async function buildPayload(p: string, root?: string): Promise<OpenPayload | nul
   return { files, index: idx, root: here }
 }
 
-/** Build the open payload for a FOLDER the user chose: the tree roots there and
- *  the viewer shows its first viewable file. A folder holding nothing Prism can
- *  show still opens - you get its tree and an empty viewer, which is a usable
- *  place to browse from rather than a refusal. */
-async function folderPayload(dir: string): Promise<OpenPayload | null> {
-  if (!(await exists(dir))) return null
-  addRoot(dir)
-  const files = (await listDir(dir)).files
-  return { files, index: files.length ? 0 : -1, root: dir }
-}
-
 const extraWindowOwner = explorerWindowOwner(userPaths.root(), process.argv)
 const preferencesOwner = extraWindowOwner ?? userPaths.root()
 const windowPreferences = createWindowPreferences(preferencesOwner, !!extraWindowOwner)
@@ -410,8 +399,7 @@ const explorerListings = createExplorerListings({
 const { restoreTabs, saveTabs, flushTabs } = createTabsSession({
   cachedListing: (path) => explorerListings.cachedAsync(path),
   archiveRead: (tabId, path) => archiveRead(tabId, path),
-  buildPayload: (p, root) => buildPayload(p, root),
-  folderPayload: (dir) => folderPayload(dir)
+  buildPayload: (p, root) => buildPayload(p, root)
 })
 // E2E only: a first run's home folder is a fixture, never the machine's own.
 if (process.argv.includes('--e2e') && process.env.PRISM_E2E_HOME) app.setPath('home', process.env.PRISM_E2E_HOME)
@@ -436,20 +424,18 @@ const pickedSubs = new Set<string>()
 async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
   // A FILE from outside goes to the Explorer tab (owner, 2026-09-22: "that file
   // opened in prism's explorer rather than as a project"). Nothing is built for
-  // it: `buildPayload` registers the folder as a root, which is a project's
-  // folder and a phone's to browse, and the Explorer grants its own folders
-  // per tab as it walks there. Same channel as everything else, so it keeps
-  // its place behind the restore.
+  // it: the Explorer grants its own folders per tab as it walks there. Same
+  // channel as everything else, so it keeps its place behind the restore.
   if (!target.dir) {
     const explorerFile: OpenPayload = { explorerFile: target.path, files: [], index: -1, root: dirname(target.path) }
     sendToPage(PUSH.openFile, explorerFile)
     return
   }
-  // A FOLDER roots there and tells the renderer so, which is what lets the
-  // "New projects show" setting decide whether that lands on the first file, a
-  // terminal, or nothing.
-  const built = await folderPayload(target.path)
-  if (built && appState.mainWindow) appState.mainWindow.webContents.send(PUSH.openFile, { ...built, folder: true as const })
+  // A FOLDER opens an Explorer tab at it (owner, 2026-10-26: no more projects).
+  // Nothing is built for it either; the page makes the tab and grants the folder.
+  if (!(await exists(target.path))) return
+  const explorerFolder: OpenPayload = { explorerFolder: target.path, files: [], index: -1, root: target.path }
+  sendToPage(PUSH.openFile, explorerFolder)
 }
 
 /** The phone switch, its port and the paired phones (#104). */
@@ -1039,7 +1025,6 @@ const ctx = {
   written,
   // Opening: the payload builders, a web link, picked subtitles.
   buildPayload,
-  folderPayload,
   openLink,
   pickedSubs,
   // Text files: the size cap and the shape each arrived with.

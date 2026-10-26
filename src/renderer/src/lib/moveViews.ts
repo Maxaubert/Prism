@@ -15,9 +15,7 @@ export function captureMoveViews(tabs: readonly Tab[], paths: readonly string[])
   return tabs.flatMap((tab) => {
     const affected = (path: string): boolean => paths.some((parent) => within(path, parent))
     const live = tab.index >= 0 && !!tab.files[tab.index] && affected(tab.files[tab.index].path)
-    const panes = tab.panes.filter((pane) => !affected(pane.path))
-    if (!live && panes.length === tab.panes.length) return []
-    return [{ tab, live, panes: panes.length === tab.panes.length ? tab.panes : panes }]
+    return live ? [{ tab, live }] : []
   })
 }
 
@@ -28,11 +26,7 @@ export function releaseMoveViews(tabs: readonly Tab[], held: HeldViews): Tab[] {
     const entry = held.find((item) => item.tab.id === tab.id)
     if (!entry) return tab
     const sameView = tab.files[tab.index] === entry.tab.files[entry.tab.index]
-    return {
-      ...tab,
-      index: entry.live && sameView ? -1 : tab.index,
-      panes: tab.panes === entry.tab.panes ? entry.panes : tab.panes
-    }
+    return { ...tab, index: entry.live && sameView ? -1 : tab.index }
   })
 }
 
@@ -52,15 +46,10 @@ export function restoreMoveViews(
     const entry = held.find((item) => item.tab.id === tab.id)
     const heldIndex = entry ? tab.files.indexOf(entry.tab.files[entry.tab.index]) : -1
     const restoreLive = entry?.live && tab.index === -1 && heldIndex >= 0
-    const originalPanes = entry && tab.panes === entry.panes ? entry.tab.panes : tab.panes
     const remap = (path: string): string => movedPath(path, moves)
     const files = mapChanged(tab.files, (file) => {
       const path = remap(file.path)
       return path === file.path ? file : { ...file, path, name: baseName(path) }
-    })
-    const panes = mapChanged(originalPanes, (pane) => {
-      const path = remap(pane.path)
-      return path === pane.path ? pane : { ...pane, path }
     })
     const history = mapChanged(tab.browse.history, (location) => {
       const path = remap(location.path)
@@ -75,8 +64,7 @@ export function restoreMoveViews(
         ? tab.browse
         : { ...tab.browse, path, history }
     const index = restoreLive ? heldIndex : tab.index
-    if (files === tab.files && panes === tab.panes && browse === tab.browse && index === tab.index)
-      return tab
-    return { ...tab, files, index, panes, browse }
+    if (files === tab.files && browse === tab.browse && index === tab.index) return tab
+    return { ...tab, files, index, browse }
   })
 }
