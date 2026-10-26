@@ -1,4 +1,4 @@
-import { contrastRatio, mixHex, towardRoom } from './termAnsi'
+import { contrastRatio, mixHex, towardRoom } from './colourMath'
 
 // ONE COLOUR, WITH ALPHA, FOR EVERY COLOUR SETTING IN BOTH APPS (#112; owner,
 // 2026-10-03: "the colour pickers should be the same for both apps, i need an
@@ -8,7 +8,7 @@ import { contrastRatio, mixHex, towardRoom } from './termAnsi'
 // Spec: docs/superpowers/specs/2026-10-03-colour-picker-alpha-design.md.
 //
 // Pure: the picker's maths, the one stored form, and the contrast rules a
-// see-through colour is held to. `termAnsi.normalizeColor` stays what it is,
+// see-through colour is held to. `colourMath.normalizeColor` stays what it is,
 // the opaque reader the palette maths use.
 
 /** r, g, b 0..255 (fractions allowed on the way through), a 0..1. */

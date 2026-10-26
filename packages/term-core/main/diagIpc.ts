@@ -1,6 +1,6 @@
 import { DGCH } from '../shared/channels'
 import type { DiagLog } from './diagLog'
-import type { IpcMainLike } from './ipc'
+import type { IpcMainLike } from './ipcLike'
 
 /**
  * THE MAIN HALF OF THE DIAGNOSTICS BRIDGE (#140), for both hosts. The preload

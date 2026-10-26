@@ -115,6 +115,8 @@ import { registerMediaIpc } from './ipc/media'
 import { registerPropsIpc } from './ipc/props'
 import { registerBrowseIpc, registerTreeIpc } from './ipc/browse'
 import { registerTerminalIpc } from './ipc/terminal'
+import { registerLinkIpc } from './ipc/links'
+import { installPermissionHandler } from './permissions'
 import { registerSaveCopyIpc, registerFilesIpc, registerShellIpc, registerMoveIpc, registerNewFilesIpc } from './ipc/files'
 import { registerOpenIpc } from './ipc/open'
 import { registerPreferencesIpc, registerWinEIpc, registerSessionIpc } from './ipc/window'
@@ -1487,6 +1489,8 @@ if (!app.requestSingleInstanceLock()) {
     registerOpenIpc(ctx)
     registerSaveCopyIpc(ctx)
     stopDictation = registerTerminalIpc(ctx)
+    registerLinkIpc(ctx)
+    installPermissionHandler()
     registerBrowseIpc(ctx)
     registerSessionIpc(ctx)
     registerTreeIpc(ctx)

@@ -1,4 +1,4 @@
-import { baseName, parentName } from '../../shared/folderNames'
+import { baseName, parentName } from './folderNames'
 // The folders Prism has been opened in, most recent first (2026-08-23). The
 // tab strip's `+` offers the last few on a right-click, so reopening a project
 // does not mean walking a chooser to it again.

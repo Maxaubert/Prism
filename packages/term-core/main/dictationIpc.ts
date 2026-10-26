@@ -13,7 +13,7 @@ import type {
 import { createDictationEngine } from './dictationEngine'
 import { createDictationStore } from './dictationStore'
 import { createMediaPause } from './mediaPause'
-import type { IpcMainLike } from './ipc'
+import type { IpcMainLike } from './ipcLike'
 
 /**
  * The main half of DICTATION's bridge (#13), for both hosts.

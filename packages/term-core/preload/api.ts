@@ -2,6 +2,7 @@ import type { DetectedAgent, PluginChoice, ShellDef } from '../shared/types'
 import { CH } from '../shared/channels'
 import type { ShownQuestion } from '../shared/questionShown'
 import { isWebUrl } from '../shared/webUrl'
+import type { IpcRendererLike } from './ipcLike'
 
 /**
  * The preload half of the terminal's bridge, for both hosts.
@@ -13,16 +14,6 @@ import { isWebUrl } from '../shared/webUrl'
  * the core must not decide how a host loads Electron.
  */
 
-/** The slice of Electron's `ipcRenderer` this needs. */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-export interface IpcRendererLike {
-  invoke(channel: string, ...args: any[]): Promise<any>
-  send(channel: string, ...args: any[]): void
-  sendSync(channel: string, ...args: any[]): any
-  on(channel: string, listener: (event: any, ...args: any[]) => void): unknown
-  removeListener(channel: string, listener: (event: any, ...args: any[]) => void): unknown
-}
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export interface ClipboardRead {
   image: boolean
