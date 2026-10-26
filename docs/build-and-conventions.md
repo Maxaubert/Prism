@@ -45,8 +45,8 @@ open in the tree they were the 47,816-row stall of #235). A new test may mkdtemp
 
 **THE E2E NEVER TOUCHES THE OWNER'S CLIPBOARD** (#356, 2026-10-14): a screenshot taken during a
 run pasted as fixture paths. Under `--e2e` every clipboard the app has is one in memory
-(`src/main/e2eClipboard.ts`): Electron's `clipboard` in main is patched in place (so the core's
-terminal paste and the harness's `app.evaluate(({ clipboard }) => ...)` share it), the file drop
+(`src/main/e2eClipboard.ts`): Electron's `clipboard` in main is patched in place (so the
+harness's `app.evaluate(({ clipboard }) => ...)` share it), the file drop
 list skips PowerShell, and the page's `navigator.clipboard` and the preload's image copy reach it
 over `e2e:clipboard` (`renderer/src/lib/e2eClipboard.ts`). A scenario reads the app's clipboard
 and never puts the owner's back. Not covered: a NATIVE copy (`document.execCommand('copy')`, the
@@ -66,7 +66,7 @@ creates the window `focusable: false` and `showInactive()`s it, because thirty l
 yanking the caret out of whatever the owner is typing is its own kind of broken. Playwright
 drives the page over CDP, which needs no OS focus. MEASURED both ways: without the flag the
 new window becomes the foreground window, with it the foreground never changes.
-And every scenario REAPS what it leaves behind (same date, same file): the terminal
+And every scenario REAPS what it leaves behind (same date, same file): an old
 scenario's app outlived its `app.close()` - five electron processes still up - and since it
 holds the single-instance lock, every scenario after it launched, handed its file over and
 exited. Fifteen scenarios failed for one leak, and no amount of retrying could have helped;
@@ -98,7 +98,7 @@ nested copies). `node tools/check-packed.mjs <dir with resources\app.asar>` chec
 the installed one included. A package worktree gets `robocopy <main>\node_modules ... /E /SL /XJ`,
 THEN `npm install` in the worktree: `prism-term-core` is a workspace link, and the copy keeps main's link,
 so the worktree would build and test main's `packages/term-core`. `tools/check-core-link.mjs` fails the
-`e2e`, `e2e:terminal` and `package` scripts (and `tools/e2e/run.mjs`) when
+`e2e`, `e2e:ui` and `package` scripts (and `tools/e2e/run.mjs`) when
 `realpath(node_modules/prism-term-core)` is not `<checkout>/packages/term-core`.
 
 **THE E2E IS THE PR GATE AND NOTHING ELSE; AN INSTALL RUNS NONE** (owner, 2026-09-02, and again
@@ -132,14 +132,7 @@ has gone.
   `react-markdown` +
   `remark-gfm` + `rehype-raw` + `rehype-sanitize` (markdown), `pdfjs-dist` (PDF),
   `heic-convert` (HEIC decode), `adm-zip` (the archive viewer: reading and rewriting zip
-  containers is not a thing to hand-roll; pure JS, no native code), `node-pty` + `@xterm/*` (the terminal: a real ConPTY and
-  its renderer, not a thing to hand-roll; node-pty is the app's ONE third-party native module, ships
-  N-API prebuilds, and must stay asarUnpacked or Windows cannot load it; the other native module
-  is Prism's OWN `native/sweep` addon (#338), built from source by `npm run build:sweep` with the
+  containers is not a thing to hand-roll; pure JS, no native code). The app has no third-party native
+  module; its OWN is the `native/sweep` addon (#338), built from source by `npm run build:sweep` with the
   DEV dependency `node-gyp` and MSVC, `/MT`, shipped in `resources\sweep` beside `PrismDwm.exe`'s
-  `resources\dwm`, unsigned until SignPath enrolment, where the `.node` must join the set; `@xterm/*` now
-  includes `addon-search`, because searching a terminal means the SCROLLBACK buffer,
-  wrapped lines and the alternate screen, none of which a DOM search over the rendered
-  rows can see), `exifr` (main-only, the photo's own EXIF). Shells spawn
-  with node-pty's bundled conpty.dll (`useConptyDll: true`): the OS conhost FAST-FAILS
-  the whole app (0xc0000409, no dialog) when a pty is killed mid-read (crashed 2026-08-21).
+  `resources\dwm`, unsigned until SignPath enrolment, where the `.node` must join the set. `exifr` (main-only, the photo's own EXIF). (node-pty, `@xterm/*` and the ConPTY rules left on 2026-10-26.)

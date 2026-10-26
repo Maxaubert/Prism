@@ -3,7 +3,7 @@
 // calls, marks), each with the crumbs that came just before it, so "it
 // stalled just now" is answered from the log rather than from memory.
 // Prism writes %APPDATA%\Prism\logs\diag.jsonl (the core's diagLog); schema in
-// packages/term-core/README.md and docs/terminal-rules.md.
+// packages/term-core/README.md.
 //
 //   npm run diag                        newest problems in Prism's log
 //   npm run diag -- --since 10m         only the last ten minutes (s, m, h, d)
