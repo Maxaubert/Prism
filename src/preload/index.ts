@@ -162,14 +162,12 @@ const api = {
   /** fsmedia:// URL for a local path, so <img>/<video>/<audio>/<embed> can load it. */
   mediaUrl: (path: string): string => `fsmedia://local/${encodeURIComponent(path)}`,
 
-  /** Open the file dialog; resolves with the folder payload or null if cancelled. */
-  openDialog: (): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openDialog),
   /** Choose a folder without opening it: the Settings picker. */
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke(CALL.dialogPickFolder),
   /** Choose real files: the archive panel's "Add files". Empty when cancelled. */
   pickFiles: (): Promise<string[]> => ipcRenderer.invoke(CALL.dialogPickFiles),
   /** Report the tab strip, for persistence only. The root wall is never
-   *  rebuilt from a snapshot (it raced payloads in flight); see dropRoot. */
+   *  rebuilt from a snapshot (it raced payloads in flight). */
   tabsChanged: (
     tabs: Array<{
       root: string
@@ -181,8 +179,6 @@ const api = {
     }>,
     active: number
   ): void => ipcRenderer.send(CALL.tabsChanged, { tabs, active }),
-  /** A root no longer held by any tab. The one way the wall shrinks. */
-  dropRoot: (root: string): void => ipcRenderer.send(CALL.rootsDrop, root),
   /** Where you had got to in a film, kept ONCE on the PC by file path
    *  (#118): the phone reads and writes the same store over /api/pos, so a
    *  film left at minute 40 here opens at minute 40 there. Seconds, or null. */

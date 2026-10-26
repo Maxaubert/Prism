@@ -32,7 +32,6 @@ export const LONG_WAIT_CHANNELS: readonly string[] = [
   // Waits on the user: each opens a system dialog and answers when it closes.
   CALL.dialogPickFolder,
   CALL.dialogPickFiles,
-  CALL.openDialog,
   CALL.subsPick,
   CALL.imageSaveCopy,
   // Searches: a recursive walk (or Everything's index) that answers when the

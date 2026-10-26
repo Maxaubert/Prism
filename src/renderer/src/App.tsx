@@ -109,6 +109,7 @@ import { useInternalFileDrag } from './lib/drag/internalFileDrag'
 import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
+import { updateJob } from './lib/jobs'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { nextTabId } from './lib/sessionIds'
 
@@ -135,6 +136,10 @@ export default function App(): JSX.Element {
   // onOpenFile, and must not be rebuilt whenever a tab changes.
   const [tabState, setTabState] = useState<TabState>({ tabs: [], activeId: null })
   const [restoring, setRestoring] = useState(true)
+  // Paste byte progress for the job chip. App owns it because the chip is
+  // always mounted here; the sidebar that used to subscribe is gone, and
+  // without this a long Explorer copy showed no percentage.
+  useEffect(() => window.prism.onPasteProgress((m) => updateJob(m.jobId, m.pct)), [])
   const { tabs, activeId } = tabState
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
   // THE TAB STRIP ON THE DIAGNOSTICS TIMELINE (#322): opened, closed, switched

@@ -53,7 +53,6 @@ export const CALL = {
 
   listingCacheClear: 'listing-cache:clear',
 
-  openDialog: 'open:dialog',
   openWithin: 'open:within',
   openListen: 'open:listen',
 
@@ -62,7 +61,6 @@ export const CALL = {
 
   tabsChanged: 'tabs:changed',
 
-  rootsDrop: 'roots:drop',
 
   posGet: 'pos:get',
   posSet: 'pos:set',
