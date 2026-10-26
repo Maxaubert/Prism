@@ -91,7 +91,9 @@ export function BrowsePlaces({
     pin.isFolder
       ? places.find(
           (place) =>
-            place.group === 'Quick access' && place.known && sameQuickAccessPath(place.path, pin.path)
+            place.group === 'Quick access' &&
+            place.known &&
+            sameQuickAccessPath(place.path, pin.path)
         )?.known
       : undefined
   const sections: Record<PinSection, QuickAccessPin[]> = {
@@ -144,9 +146,12 @@ export function BrowsePlaces({
     const row = (event.target as Element).closest<HTMLElement>('[data-quick-access-path]')
     const at = row ? list.findIndex((pin) => pin.path === row.dataset.quickAccessPath) : -1
     const box = row?.getBoundingClientRect()
-    const before = box && at >= 0
-      ? event.clientY < box.top + box.height / 2 ? list[at].path : list[at + 1]?.path
-      : undefined
+    const before =
+      box && at >= 0
+        ? event.clientY < box.top + box.height / 2
+          ? list[at].path
+          : list[at + 1]?.path
+        : undefined
     const moving = event.dataTransfer.getData(QUICK_ACCESS_PIN_MIME)
     if (moving && list.some((pin) => sameQuickAccessPath(pin.path, moving)))
       onMoveQuickAccess?.(moving, before)
@@ -238,7 +243,13 @@ export function BrowsePlaces({
               onContextMenu={(event) => {
                 event.preventDefault()
                 event.stopPropagation()
-                setMenu({ pin, x: event.clientX, y: event.clientY, pinned: true, row: `pin:${pin.path}` })
+                setMenu({
+                  pin,
+                  x: event.clientX,
+                  y: event.clientY,
+                  pinned: true,
+                  row: `pin:${pin.path}`
+                })
               }}
               onKeyDown={(event) => {
                 if (!pin.isFolder && event.key === 'Enter') {
@@ -247,11 +258,16 @@ export function BrowsePlaces({
                   onQuickAccessFile?.(pin.path, true)
                   return
                 }
-                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
-                  return
+                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
                 event.preventDefault()
                 const box = event.currentTarget.getBoundingClientRect()
-                setMenu({ pin, x: box.left + 20, y: box.bottom, pinned: true, row: `pin:${pin.path}` })
+                setMenu({
+                  pin,
+                  x: box.left + 20,
+                  y: box.bottom,
+                  pinned: true,
+                  row: `pin:${pin.path}`
+                })
               }}
               onDragStart={(event) => {
                 setDrag(null)
@@ -385,15 +401,16 @@ export function BrowsePlaces({
             onNavigate,
             onQuickAccessFile,
             onOpenNewTab,
-                      onUnpinQuickAccess,
+            onUnpinQuickAccess,
             onMoveQuickAccess,
             onPinQuickAccessPaths,
             onProperties: onProperties
               ? () => {
                   const { pin } = menu
-                  const drive = menu.row.startsWith('place:') && drives.some((d) => d.path === pin.path)
-                    ? (usage.get(pin.path.toUpperCase()) ?? { path: pin.path })
-                    : undefined
+                  const drive =
+                    menu.row.startsWith('place:') && drives.some((d) => d.path === pin.path)
+                      ? (usage.get(pin.path.toUpperCase()) ?? { path: pin.path })
+                      : undefined
                   onProperties(
                     {
                       path: pin.path,

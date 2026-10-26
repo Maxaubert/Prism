@@ -117,12 +117,6 @@ describe('the path wall', () => {
     expect(w.archiveOk(`${ROOT}\\book.cbz`)).toBe(false)
   })
 
-  it('a shell starts inside the wall or in a root', () => {
-    const w = createPathWall({ ...deps, insideDesktop: () => false, isAnyRoot: (p) => p === 'D:\\Tab' })
-    expect(w.insideWall('D:\\Tab')).toBe(true)
-    expect(w.insideWall('D:\\Other')).toBe(false)
-    expect(wall().insideWall(`${ROOT}\\sub`)).toBe(true)
-  })
 
   it('media: roots, extracted, servable, the app tree and the comics folder', () => {
     const w = wall()

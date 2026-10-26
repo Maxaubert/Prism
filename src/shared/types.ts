@@ -227,7 +227,7 @@ export interface OpenPayload {
    *  folding a restore silently deletes a tab the user had. */
   restore?: boolean
   /** A FILE arrived from outside (a double-click, "Open with", the Explorer
-   *  menu's "Open in Prism", the command line, a drop; 2026-09-22). It goes to
+   *  menu's "Open file", the command line, a drop; 2026-09-22). It goes to
    *  the pinned Explorer tab, so main builds nothing for it and registers no
    *  root: `files` is empty, `index` -1, `root` its folder. */
   explorerFile?: string

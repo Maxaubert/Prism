@@ -55,8 +55,8 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw "Release v$v already exists. Bump package.json in the PR." }
           $global:LASTEXITCODE = 0
 
-      # Unsigned, per-user NSIS; node-pty ships N-API prebuilds so no native
-      # toolchain is involved (npmRebuild is false in the builder config).
+      # Unsigned, per-user NSIS; no dependency is rebuilt (npmRebuild is false in
+      # the builder config) and Prism's own sweep addon comes from build:sweep.
       # --publish never: on CI electron-builder tries to publish ITSELF and
       # fails wanting a token - the gh step below owns publishing.
       # ffmpeg for the audio Chromium will not decode (AC-3/DTS/TrueHD). The
