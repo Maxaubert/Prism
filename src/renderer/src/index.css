@@ -554,6 +554,82 @@ input[type='color']::-webkit-color-swatch {
 }
 .p-doc th { background: var(--p-side-flat); font-weight: 600 }
 
+/*
+ * A spreadsheet is a GRID, not a page (#437). A 10-column report ran off the
+ * paper onto the dark canvas, dark ink on near-black, and every cell wrapped
+ * word by word. So a workbook drops the paper: the grid fills the viewer the
+ * way Excel's does, scrolls sideways inside it, and keeps its letters and row
+ * numbers pinned. Widths and fills come from the file (sheetHtml.ts).
+ */
+.p-doc:has(.xl-book) { padding: 0 }
+.p-sheet:has(> .xl-book) {
+  max-width: none;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  line-height: 1.35;
+}
+.p-sheet:has(> .xl-book)::before { display: none }
+.p-sheet > .xl-book { max-width: none; margin: 0 }
+.p-doc .xl-name {
+  position: sticky;
+  left: 0;
+  width: fit-content;
+  margin: 0;
+  padding: 0.9em 0.75em 0.4em;
+  font-size: 13px;
+}
+/* Fixed layout honours the file's widths only with a definite table width;
+   1px grows to exactly the sum of the columns. max-content falls back to auto
+   layout, where an unwrapped title widens its column. */
+.p-doc table.xl {
+  max-width: none;
+  width: 1px;
+  margin: 0;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.p-doc .xl td, .p-doc .xl th {
+  height: 22px;
+  padding: 0 4px;
+  border: 0;
+  border-right: 1px solid #e2e4e8;
+  border-bottom: 1px solid #e2e4e8;
+  white-space: nowrap;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.p-doc .xl td.xl-n { text-align: right }
+.p-doc .xl td.xl-c { text-align: center }
+.p-doc .xl td.xl-ink { color: #fff; font-weight: 600 }
+/* Text runs on over empty neighbours, and the gridlines it crosses go. */
+.p-doc .xl td.xl-run { overflow: visible; position: relative; z-index: 1; border-right-color: transparent }
+.p-doc .xl td.xl-run-on { border-right-color: transparent }
+.p-doc .xl thead th, .p-doc .xl tbody th {
+  background: #f3f4f6;
+  color: #5f636b;
+  font-weight: 400;
+  font-size: 12px;
+  text-align: center;
+  border-color: #d5d8dd;
+}
+.p-doc .xl thead th { position: sticky; top: 0; z-index: 3 }
+.p-doc .xl tbody th { position: sticky; left: 0; z-index: 2 }
+.p-doc .xl thead th.xl-corner { left: 0; z-index: 4 }
+.p-doc .xl-more, .p-doc .xl-empty {
+  position: sticky;
+  left: 0;
+  width: fit-content;
+  margin: 0.75em;
+  color: var(--p-text-soft);
+  font-size: 13px;
+}
+
 /* Find-in-document (2026-08-30). Painted through the CSS Custom Highlight API
    rather than by wrapping matches in <mark>: the office and ebook viewers
    render HTML that main sanitised, and the markdown view is React's, so

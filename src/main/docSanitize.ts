@@ -1,4 +1,5 @@
 import type { Processor } from 'unified'
+import type { Options as Schema } from 'rehype-sanitize'
 
 /**
  * The gate between somebody else's document and Prism's renderer.
@@ -15,7 +16,7 @@ import type { Processor } from 'unified'
  * app fails to start. (It did.)
  */
 
-const schema = {
+const schema: Schema = {
   tagNames: [
     'p', 'br', 'hr', 'div', 'span', 'section', 'article', 'blockquote', 'pre', 'code',
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
@@ -28,8 +29,10 @@ const schema = {
     '*': ['className'],
     img: ['src', 'alt', 'width', 'height'],
     th: ['colSpan', 'rowSpan'],
-    td: ['colSpan', 'rowSpan'],
-    col: ['span']
+    // A spreadsheet's fills and column widths (#437), as attributes held to a
+    // pattern: a style attribute is CSS, and CSS can fetch.
+    td: ['colSpan', 'rowSpan', ['bgColor', /^#[0-9a-f]{6}$/]],
+    col: ['span', ['width', /^\d{1,4}$/]]
   },
   // Only data: images. A document must not fetch anything: a remote <img> is
   // a read receipt, and file:// is somebody reading the disk.
