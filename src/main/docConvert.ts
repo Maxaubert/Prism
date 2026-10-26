@@ -1,5 +1,6 @@
 import { readFile } from 'fs/promises'
 import { extname } from 'path'
+import { workbookToHtml } from './sheetHtml'
 
 /**
  * Office and ebook documents, turned into HTML the viewer can show.
@@ -278,12 +279,9 @@ export async function convertDoc(path: string): Promise<string | null> {
 
   if (kind === 'sheet') {
     const XLSX = await import('xlsx')
-    const wb = XLSX.read(await readFile(path), { type: 'buffer' })
-    return wb.SheetNames.map((name) => {
-      const html = XLSX.utils.sheet_to_html(wb.Sheets[name], { id: 'sheet' })
-      const table = /<table[^>]*>([\s\S]*?)<\/table>/i.exec(html)?.[1] ?? ''
-      return `<h2>${esc(name)}</h2>\n<table>${table}</table>`
-    }).join('\n')
+    // cellStyles brings the column widths and fills the grid draws (#437).
+    const wb = XLSX.read(await readFile(path), { type: 'buffer', cellStyles: true })
+    return workbookToHtml(wb.SheetNames, wb.Sheets)
   }
 
   if (kind === 'slides') {
