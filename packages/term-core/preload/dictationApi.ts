@@ -8,7 +8,8 @@ import type {
   TranscribeRequest,
   TranscribeResult
 } from '../shared/dictationTypes'
-import { subscribe, type IpcRendererLike } from './api'
+import { subscribe } from './api'
+import type { IpcRendererLike } from './ipcLike'
 
 /**
  * The preload half of DICTATION's bridge (#13), for both hosts. Separate from

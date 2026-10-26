@@ -31,7 +31,7 @@ import { decideFollow } from 'prism-term-core/shared/termCwd'
 import { asksBeforeClosingTab } from 'prism-term-core/renderer/lib/agentClose'
 import { workingFor } from 'prism-term-core/renderer/lib/agentClock'
 import { focusTermSession } from 'prism-term-core/renderer/components/TerminalPanel'
-import { rememberRoot, forgetRoot } from 'prism-term-core/renderer/lib/recentRoots'
+import { rememberRoot, forgetRoot } from '@renderer/lib/recentRoots'
 import type { Ask } from '../dialogs/asks'
 
 // THE TABS (out of App.tsx, structure cleanup 2026-10-12, unchanged): a new

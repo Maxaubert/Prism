@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import { recentLabels } from 'prism-term-core/renderer/lib/recentRoots'
+import { recentLabels } from '@renderer/lib/recentRoots'
 import type { MenuItem } from '../components/ContextMenu'
 import { FolderFill } from '../components/icons/Icon'
 

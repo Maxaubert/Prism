@@ -16,6 +16,7 @@ import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'el
  *  passes --prism-e2e through additionalArguments: the renderer has its own argv. */
 const E2E_RUN = process.argv.includes('--prism-e2e')
 import { createTermApi } from 'prism-term-core/preload/api'
+import { isWebUrl } from 'prism-term-core/shared/webUrl'
 import { createDictationApi } from 'prism-term-core/preload/dictationApi'
 import { createDiagApi } from 'prism-term-core/preload/diagApi'
 import type { UpdateInfo } from 'prism-term-core/shared/updateTypes'
@@ -604,6 +605,13 @@ const api = {
   // ...and the diagnostics log's (#322): the page's lines, its heartbeat, and
   // Settings > Diagnostics. Timing stays main-side; these calls are not timed.
   ...createDiagApi(ipcRenderer),
+
+  /** A web link to the system browser. http(s) only, here and again in main
+   *  (2026-10-26: Prism's own; the PDF view's links no longer ride the terminal
+   *  bridge). */
+  openExternal: (url: string): void => {
+    if (isWebUrl(url)) ipcRenderer.send(CALL.openExternal, url)
+  },
 
   // frameless window controls
   minimize: (): void => ipcRenderer.send(CALL.windowMinimize),

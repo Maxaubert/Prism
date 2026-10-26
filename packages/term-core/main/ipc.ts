@@ -8,6 +8,7 @@ import { postQuestionShown } from './sonaraLink'
 import { asShownQuestion } from '../shared/questionShown'
 import { openTermPath, pathKinds, PATHS_MAX, type PathOpeners } from './termPathOpen'
 import { isWebUrl } from '../shared/webUrl'
+import type { IpcMainLike } from './ipcLike'
 
 /**
  * The main half of the terminal's bridge, for both hosts.
@@ -24,15 +25,6 @@ import { isWebUrl } from '../shared/webUrl'
  * how a host loads Electron and stays testable without it.
  */
 
-/* The slice of Electron's `ipcMain` this needs. Its listener types are
- * written against Electron's own event classes, which the core does not
- * import, so the arguments are typed at each handler instead. */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-export interface IpcMainLike {
-  handle(channel: string, listener: (event: any, ...args: any[]) => unknown): unknown
-  on(channel: string, listener: (event: any, ...args: any[]) => void): unknown
-}
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 interface ClipboardLike {
   availableFormats(): string[]

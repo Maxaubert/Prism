@@ -166,6 +166,8 @@ export const CALL = {
 
   comicOpen: 'comic:open',
 
+  openExternal: 'link:open-external',
+
   windowMinimize: 'window:minimize',
   windowToggleMaximize: 'window:toggle-maximize',
   windowClose: 'window:close',

@@ -25,6 +25,9 @@ const SHIPPED: Record<string, 'shared' | 'window'> = {
   'prism.open.external': 'shared',
   'prism.player.prefs': 'shared',
   'prism.quickAccess': 'shared',
+  // Moved from the terminal core into src/renderer/src/lib/recentRoots (2026-10-26); same strings.
+  'prism.recentRoots': 'shared',
+  'prism.pinnedRoots': 'shared',
   'prism.sidebar.driveStyle': 'shared',
   'prism.slideshow.seconds': 'shared',
   'prism.sort': 'shared',

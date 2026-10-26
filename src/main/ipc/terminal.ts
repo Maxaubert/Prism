@@ -1,4 +1,4 @@
-import { clipboard, app, BrowserWindow, ipcMain, session } from 'electron'
+import { clipboard, app, ipcMain } from 'electron'
 import { dirname, join } from 'path'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
@@ -71,16 +71,6 @@ export function registerTerminalIpc(ctx: MainCtx): () => void {
       const info = (await app.getGPUInfo('basic')) as { gpuDevice?: Array<{ vendorId?: number }> }
       return (info.gpuDevice ?? []).some((d) => d.vendorId === 0x10de)
     }
-  })
-  // The page may now ask for the MICROPHONE, so the answer is written down:
-  // audio capture, for Prism's own windows. Everything else keeps Electron's
-  // default (granted), because this app leans on several of them and a
-  // closed list here would be a guess; the CAMERA is the one thing refused.
-  session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
-    if (permission !== 'media') return callback(true)
-    const types = (details as { mediaTypes?: string[] }).mediaTypes ?? []
-    const ours = BrowserWindow.getAllWindows().some((w) => w.webContents === wc)
-    callback(ours && types.length > 0 && types.every((t) => t === 'audio'))
   })
   // Kills dictation's children (the speech server, the media helper) at quit.
   return stopDictation
