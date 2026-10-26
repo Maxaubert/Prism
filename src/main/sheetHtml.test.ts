@@ -60,6 +60,14 @@ describe('sheetHtml (#437: a spreadsheet is a grid, not a page)', () => {
     expect(html).not.toContain('gone')
   })
 
+  it('clips a merge that claims the whole sheet to what is drawn', () => {
+    const ws = sheet([['Title'], ['b']])
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 1048575, c: 16383 } }]
+    const t = performance.now()
+    expect(sheetToHtml(ws)).toContain('rowspan="2"')
+    expect(performance.now() - t).toBeLessThan(500)
+  })
+
   it('skips hidden columns and rows', () => {
     const ws = sheet([['keep', 'hidden'], ['hidden row', 'x']])
     ws['!cols'] = [{}, { hidden: true }]

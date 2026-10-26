@@ -106,10 +106,17 @@ export function sheetToHtml(ws: WorkSheet): string {
   // Merged blocks: the top-left cell spans, the rest are not drawn.
   const span = new Map<string, { rows: number; cols: number }>()
   const covered = new Set<string>()
+  // Clipped to the drawn area, and the walk is bounded: a merge is the file's
+  // claim, and A1:XFD1048576 would be seventeen billion cells.
+  let budget = (lastRow - range.s.r + 1) * cols.length * 2
   for (const m of (ws['!merges'] ?? []) as Range[]) {
-    span.set(`${m.s.r},${m.s.c}`, { rows: m.e.r - m.s.r + 1, cols: cols.filter((c) => c >= m.s.c && c <= m.e.c).length })
-    for (let r = m.s.r; r <= m.e.r; r++)
-      for (let c = m.s.c; c <= m.e.c; c++) if (r !== m.s.r || c !== m.s.c) covered.add(`${r},${c}`)
+    if (m.s.r < range.s.r || m.s.r > lastRow || m.s.c < range.s.c || m.s.c > lastCol) continue
+    const r1 = Math.min(m.e.r, lastRow)
+    const c1 = Math.min(m.e.c, lastCol)
+    span.set(`${m.s.r},${m.s.c}`, { rows: r1 - m.s.r + 1, cols: cols.filter((c) => c >= m.s.c && c <= c1).length })
+    for (let r = m.s.r; r <= r1 && budget > 0; r++)
+      for (let c = m.s.c; c <= c1; c++, budget--) if (r !== m.s.r || c !== m.s.c) covered.add(`${r},${c}`)
+    if (budget <= 0) break
   }
 
   const at = (r: number, c: number): CellObject | undefined => ws[`${colName(c)}${r + 1}`] as CellObject | undefined
