@@ -38,7 +38,7 @@ import {
 } from './explorerWindow'
 import { createWindowPreferences } from './windowPreferences'
 import { isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
-import { addRoot, isAnyRoot, onRootsChanged } from './roots'
+import { isAnyRoot, onRootsChanged } from './roots'
 import {
   grantDesktopDirectory,
   insideDesktop
@@ -288,7 +288,6 @@ protocol.registerSchemesAsPrivileged([
 async function buildPayload(p: string, root?: string): Promise<OpenPayload | null> {
   if (!(await exists(p))) return null
   const dir = dirname(p)
-  if (root === undefined) addRoot(dir)
   const here = root ?? dir
   const files = (await listDir(dir)).files
   const idx = files.findIndex((v) => resolve(v.path) === resolve(p))
@@ -1437,7 +1436,7 @@ if (!app.requestSingleInstanceLock()) {
     const ready: ReadyCtx = { positions, readTextWalled, probeCached, docHtmlOf }
 
     startUpdates(preferencesOwner)
-    registerOpenIpc(ctx)
+    registerOpenIpc()
     registerSaveCopyIpc(ctx)
     registerLinkIpc(ctx)
     installPermissionHandler()
