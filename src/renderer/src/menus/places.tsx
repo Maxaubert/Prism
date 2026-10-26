@@ -24,7 +24,6 @@ export interface PlacesMenuContext {
   /** Marks the row the menu came from as the picked place. */
   onChoose: () => void
   onNavigate: (path: string) => void
-  onNewTerminal: (directory: string) => void
   /** Each optional action leaves its row DISABLED when absent. */
   onQuickAccessFile?: (path: string, full?: boolean) => void
   onOpenNewTab?: (path: string, isFolder?: boolean) => void
@@ -69,15 +68,6 @@ export function placesMenu(ctx: PlacesMenuContext): MenuItem[] {
           isFolder: pin.isFolder
         })
     },
-    ...(pin.isFolder
-      ? [
-          {
-            label: 'New terminal here',
-            icon: <FileMenuIcon name="terminal" />,
-            onPick: () => ctx.onNewTerminal(pin.path)
-          }
-        ]
-      : []),
     // The clipboard row, then the pin rows, then where it is and its facts
     // (owner, 2026-10-12: the same order as a file or folder row).
     ...fileVerbs(pin.path)

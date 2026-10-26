@@ -22,18 +22,10 @@ import {
   toggleSettingsTab,
   rerootTab,
   setTabPanes,
-  setTabTerm,
-  splitTermView,
   reorderTabs,
   tabLabels,
-  toggleTermView,
-  type Tab,
-  addTerm,
-  pickTerm,
-  removeTerm,
-  termLabel
+  type Tab
 } from './tabs'
-import { pinTermPane } from '../panes'
 import { newBrowse } from '../browse'
 
 const f = (path: string): ViewerFile => ({
@@ -67,7 +59,7 @@ describe('Explorer and project tabs', () => {
     expect(result.tabs[0]).toBe(explorer)
     expect(result.tabs[1]).toMatchObject({
       root: SHOOT, role: 'project', index: -1, files: p.files,
-      browse: { surface: 'viewer', path: SHOOT }, term: null, terms: []
+      browse: { surface: 'viewer', path: SHOOT }
     })
     expect(result.tabs[1].tree.expanded.has(SHOOT)).toBe(true)
     expect(newTab({ ...p, role: 'project' }, 'file-project').index).toBe(0)
@@ -98,7 +90,7 @@ describe('Explorer and project tabs', () => {
     const p = payload(SHOOT, [])
     const browser = addExplorerTab([], p, 'explorer', true).tabs[0]
     browser.browse = newBrowse(DOCS)
-    const project = { ...tabOf(SHOOT, []), term: { id: 'shell', view: 'hidden' as const }, terms: ['shell'] }
+    const project = tabOf(SHOOT, [])
     const extra = { ...browser, id: 'extra', panes: [{ id: 'dirty', path: 'C:\\notes.txt', dir: 'right' as const }] }
     const restored = ensurePinnedExplorer([project, browser, extra], p, 'unused')
     expect(restored.map((tab) => tab.id)).toEqual(['explorer', project.id, 'extra'])
@@ -154,15 +146,14 @@ describe('frontPinnedExplorer', () => {
   const explorerAnd = (preview: boolean): Tab[] => {
     const browser = addExplorerTab([], payload(DOCS, [], -1), 'explorer', true).tabs[0]
     return [
-      { ...browser, browse: { ...browser.browse, preview }, term: { id: 's1', view: 'full' } },
+      { ...browser, browse: { ...browser.browse, preview } },
       tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
     ]
   }
-  it('brings the pinned Explorer to the front with its terminal stepped aside', () => {
+  it('brings the pinned Explorer to the front', () => {
     const tabs = explorerAnd(true)
     const r = frontPinnedExplorer(tabs, false)!
     expect(r.activeId).toBe('explorer')
-    expect(r.tabs[0].term?.view).toBe('hidden')
     expect(r.tabs[1]).toBe(tabs[1])
   })
   it('turns the preview pane on for the Preview mode, and leaves it alone for Full view', () => {
@@ -413,42 +404,6 @@ describe('addTab', () => {
   })
 })
 
-describe('the terminal slot', () => {
-  it('a new tab has no terminal', () => {
-    expect(tabOf(SHOOT, []).term).toBeNull()
-  })
-  it('setTabTerm writes only the named tab', () => {
-    const a = tabOf(SHOOT, [])
-    const b = tabOf(DOCS, [])
-    const next = setTabTerm([a, b], a.id, { id: 's1', view: 'full' })
-    expect(next[0].term).toEqual({ id: 's1', view: 'full' })
-    expect(next[1].term).toBeNull()
-  })
-
-  it('toggle: absent opens FULL - full view is the terminal home', () => {
-    expect(toggleTermView(null, 'n')).toEqual({ id: 'n', view: 'full' })
-  })
-  it('toggle: hidden shows full again, visible hides, from either mode', () => {
-    expect(toggleTermView({ id: 's', view: 'hidden' }, 'n')).toEqual({ id: 's', view: 'full' })
-    expect(toggleTermView({ id: 's', view: 'full' }, 'n')).toEqual({ id: 's', view: 'hidden' })
-    expect(toggleTermView({ id: 's', view: 'split' }, 'n')).toEqual({ id: 's', view: 'hidden' })
-  })
-  it('split: absent spawns straight into split, beside the file', () => {
-    expect(splitTermView(null, 'n')).toEqual({ id: 'n', view: 'split' })
-  })
-  it('split: folds back to the file alone; any other state becomes split', () => {
-    expect(splitTermView({ id: 's', view: 'split' }, 'n')).toEqual({ id: 's', view: 'hidden' })
-    expect(splitTermView({ id: 's', view: 'full' }, 'n')).toEqual({ id: 's', view: 'split' })
-    expect(splitTermView({ id: 's', view: 'hidden' }, 'n')).toEqual({ id: 's', view: 'split' })
-  })
-  it('rerooting keeps the shell: a dev server survives the tree moving', () => {
-    const shoot = tabOf(SHOOT, ['C:@shoot@a.jpg'.split('@').join(String.fromCharCode(92))])
-    const withTerm = setTabTerm([shoot], shoot.id, { id: 's1', view: 'split' })
-    const r = rerootTab(withTerm, shoot.id, payload(DOCS, []), 'x')
-    expect(r.tabs[0].term).toEqual({ id: 's1', view: 'split' })
-  })
-})
-
 describe('the settings tab', () => {
   it('opens once and re-activates after that', () => {
     const a = tabOf(SHOOT, [])
@@ -515,8 +470,6 @@ describe('the gear', () => {
     files: [],
     index: -1,
     tree: { expanded: new Set<string>(), children: {} },
-    term: null,
-    terms: [],
     panes: []
   })
 
@@ -602,72 +555,6 @@ describe('the folders between a root and a file', () => {
 
   it('handles forward slashes too', () => {
     expect(ancestorsWithin('C:/r', 'C:/r/a/x.txt')).toEqual(['C:/r/a', 'C:/r'])
-  })
-})
-
-describe('a tab holds several terminals (2026-09-03)', () => {
-  const tab = (): Tab => ({
-    id: 't1',
-    root: 'C:\\x',
-    browse: newBrowse('C:\\x'),
-    files: [],
-    index: -1,
-    tree: { expanded: new Set(['C:\\x']), children: {} },
-    term: null,
-    terms: [],
-    panes: []
-  })
-
-  it('setTabTerm keeps the list honest: a new id joins it, a known one does not repeat', () => {
-    let tabs = setTabTerm([tab()], 't1', { id: 'a', view: 'full' })
-    expect(tabs[0].terms).toEqual(['a'])
-    tabs = setTabTerm(tabs, 't1', { id: 'a', view: 'hidden' })
-    expect(tabs[0].terms).toEqual(['a'])
-    tabs = addTerm(tabs, 't1', 'b', 'full')
-    expect(tabs[0].terms).toEqual(['a', 'b'])
-    expect(tabs[0].term).toEqual({ id: 'b', view: 'full' })
-  })
-
-  it('picking a shell makes it current with the showing view, and ignores strangers', () => {
-    let tabs = addTerm(addTerm([tab()], 't1', 'a', 'split'), 't1', 'b', 'split')
-    tabs = pickTerm(tabs, 't1', 'a')
-    expect(tabs[0].term).toEqual({ id: 'a', view: 'split' })
-    tabs = setTabTerm(tabs, 't1', { id: 'a', view: 'hidden' })
-    tabs = pickTerm(tabs, 't1', 'b')
-    expect(tabs[0].term).toEqual({ id: 'b', view: 'full' })
-    expect(pickTerm(tabs, 't1', 'zzz')[0].term?.id).toBe('b')
-  })
-
-  it('removing the current shell hands over to the most recent survivor; the last leaves null', () => {
-    let tabs = addTerm(
-      addTerm(addTerm([tab()], 't1', 'a', 'full'), 't1', 'b', 'full'),
-      't1',
-      'c',
-      'full'
-    )
-    tabs = removeTerm(tabs, 't1', 'c')
-    expect(tabs[0].terms).toEqual(['a', 'b'])
-    expect(tabs[0].term).toEqual({ id: 'b', view: 'full' })
-    tabs = removeTerm(tabs, 't1', 'a') // not current: list only
-    expect(tabs[0].term?.id).toBe('b')
-    tabs = removeTerm(tabs, 't1', 'b')
-    expect(tabs[0].term).toBeNull()
-    expect(tabs[0].terms).toEqual([])
-  })
-
-  it('labels follow the order opened', () => {
-    const t = { terms: ['a', 'b'] }
-    expect(termLabel(t, 'a')).toBe('Terminal 1')
-    expect(termLabel(t, 'b')).toBe('Terminal 2')
-    expect(termLabel(t, 'q')).toBe('Terminal ?')
-  })
-
-  it('a terminal pane wears a sentinel path and moves on re-pin', () => {
-    let panes = pinTermPane([], 'p1', 'a', 'right')
-    expect(panes[0]).toEqual({ id: 'p1', path: 'term:a', dir: 'right', term: 'a' })
-    panes = pinTermPane(panes, 'p2', 'a', 'bottom')
-    expect(panes).toHaveLength(1)
-    expect(panes[0].dir).toBe('bottom')
   })
 })
 

@@ -99,6 +99,4 @@ export interface SavedPane {
   id: string
   path: string
   dir: 'left' | 'right' | 'top' | 'bottom'
-  /** Index in the saved terminal slots, remapped to a fresh shell on restore. */
-  termSlot?: number
 }

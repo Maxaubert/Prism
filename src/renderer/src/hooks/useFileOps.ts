@@ -336,7 +336,7 @@ export function useFileOps({
           const viewing = entry.live ? [entry.tab.files[entry.tab.index].path] : []
           viewing.push(
             ...entry.tab.panes
-              .filter((pane) => !pane.term && !entry.panes.includes(pane))
+              .filter((pane) => !entry.panes.includes(pane))
               .map((pane) => pane.path)
           )
           for (const path of viewing) {

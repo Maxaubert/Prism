@@ -89,7 +89,6 @@ export interface FolderBrowserProps {
   previewEnabled: boolean
   previewVisible: boolean
   preview?: ReactNode
-  terminalControls?: ReactNode
   /** Something else is in front (a question, the update window, Settings):
    *  the search popup does not open, and leaves if it was up (#267). */
   covered?: boolean
@@ -107,7 +106,6 @@ export interface FolderBrowserProps {
   onScroll: (top: number) => void
   onQueryChange: (query: string) => void
   onSortChange: (sort: BrowseSort) => void
-  onNewTerminal: (directory: string) => void
   onOpenProject?: (entry: BrowseEntry) => void
   onOpenNewTab?: (path: string, isFolder?: boolean) => void
   onCancelSearch?: () => void

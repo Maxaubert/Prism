@@ -44,7 +44,6 @@ const rowCtx = (over: Partial<TreeRowMenuContext> = {}): TreeRowMenuContext => (
   unpinSplit: vi.fn(),
   copyMark: vi.fn(),
   paste: vi.fn(),
-  termHere: vi.fn(),
   extract: vi.fn(),
   addToArchive: vi.fn(),
   onDuplicated: vi.fn(),
@@ -99,7 +98,6 @@ describe('treeRowMenu', () => {
       'Open',
       'Open in new tab',
       'Open as project',
-      'New terminal here',
       'Cut',
       'Copy',
       'Copy path',
@@ -186,19 +184,18 @@ describe('treeDeadSpaceMenu', () => {
   it('the dead space acts on the root', () => {
     const paste = vi.fn()
     const showProperties = vi.fn()
-    const items = treeDeadSpaceMenu({ root: 'C:\\p', paste, termHere: vi.fn(), showProperties })
+    const items = treeDeadSpaceMenu({ root: 'C:\\p', paste, showProperties })
     expect(labels(items)).toEqual([
       'Paste',
       'Copy path',
-      'New terminal here',
       'Show in File Explorer',
       'Properties'
     ])
     items[0].onPick?.()
     expect(paste).toHaveBeenCalledWith('C:\\p')
-    items[4].onPick?.()
-    expect(showProperties).toHaveBeenCalledWith({ path: 'C:\\p', name: 'p', isFolder: true })
     items[3].onPick?.()
+    expect(showProperties).toHaveBeenCalledWith({ path: 'C:\\p', name: 'p', isFolder: true })
+    items[2].onPick?.()
     expect(showInExplorer).toHaveBeenCalledWith('C:\\p')
   })
 })

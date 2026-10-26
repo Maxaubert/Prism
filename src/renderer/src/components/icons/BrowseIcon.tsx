@@ -8,7 +8,6 @@ const paths = {
   up: PATHS.arrowUp,
   chevron: 'm9 5 7 7-7 7',
   search: 'm20 20-5-5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0',
-  terminal: 'm4 5 6 7-6 7M13 19h7',
   open: 'M13 4h7v7M20 4l-10 10M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4',
   copy: 'M9 8h10a1 1 0 0 1 1 1v11H9ZM15 4H4v11',
   rename: 'm14 4 6 6M4 20l2-7L17 2l5 5L11 18Z',
@@ -17,8 +16,7 @@ const paths = {
   drive: 'm5 5-3 10v5h20v-5L19 5ZM2 15h20M6 18h1M10 18h1',
   close: 'm6 6 12 12M6 18 18 6',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
-  folder: 'M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z',
-  cdHere: 'M20 5v7a3 3 0 0 1-3 3H5m4-4-4 4 4 4'
+  folder: 'M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z'
 }
 
 export function BrowseIcon({ name }: { name: keyof typeof paths }): JSX.Element {

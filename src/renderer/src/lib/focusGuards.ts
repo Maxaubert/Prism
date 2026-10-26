@@ -16,8 +16,8 @@
 
 /** Anything that takes typed text. */
 export const FIELD = 'input,textarea,select,[contenteditable]:not([contenteditable="false"])'
-/** The code editor and the terminal: both type, neither is an input. */
-export const EDITOR = '.cm-editor,.xterm'
+/** The code editor: it types, but it is not an input. */
+export const EDITOR = '.cm-editor'
 /** A dialog or a menu is up and has the key. */
 export const OVERLAY = '[role="dialog"],[role="menu"]'
 /** The folder's own surfaces (project tree, Explorer, its places, a splitter):

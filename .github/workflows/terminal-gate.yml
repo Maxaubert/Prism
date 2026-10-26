@@ -29,11 +29,7 @@ on:
       - electron.vite.config.ts
       - vitest.config.ts
       - tsconfig.web.json
-      - src/renderer/src/termHost.ts
-      - src/renderer/src/components/TermDock.tsx
-      - src/renderer/src/menus/terminalPanel.tsx
       - src/preload/**
-      - src/main/ipc/terminal.ts
       - src/renderer/src/App.tsx
       - src/renderer/src/*.css
       - electron-builder.yml
@@ -70,7 +66,8 @@ jobs:
           key: terminal-gate-bin-${{ hashFiles('tools/fetch-*.mjs', 'packages/term-core/tools/fetch-*.mjs', 'package-lock.json') }}
 
       - name: The terminal gate
-        run: npm run e2e:terminal
+        # `e2e:terminal` became `e2e:ui` (2026-10-26, explorer-only strip); the e2e stage renames this gate.
+        run: npm run e2e:ui
 
       - name: Keep the screenshots and the log when it fails
         if: failure()

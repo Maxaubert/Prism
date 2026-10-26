@@ -66,8 +66,6 @@ import { Thumbs } from './thumbs'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs } from './tabs'
 import { userPaths } from './paths'
-import { detectShells } from 'prism-term-core/main/shells'
-import { killAll } from 'prism-term-core/main/terminal'
 import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnostics'
 import { withStackPolicy } from 'prism-term-core/main/diagIpc'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
@@ -114,7 +112,6 @@ import { registerArchiveIpc, type ArchiveBodies } from './ipc/archive'
 import { registerMediaIpc } from './ipc/media'
 import { registerPropsIpc } from './ipc/props'
 import { registerBrowseIpc, registerTreeIpc } from './ipc/browse'
-import { registerTerminalIpc } from './ipc/terminal'
 import { registerLinkIpc } from './ipc/links'
 import { installPermissionHandler } from './permissions'
 import { registerSaveCopyIpc, registerFilesIpc, registerShellIpc, registerMoveIpc, registerNewFilesIpc } from './ipc/files'
@@ -177,15 +174,6 @@ app.commandLine.appendSwitch('disable-direct-composition')
  * sound is the point.
  */
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
-
-// THE E2E SPEAKS THROUGH A FAKE MICROPHONE (#162): Chromium plays a WAV into
-// getUserMedia, so the dictation scenario runs the real capture, the real
-// engine and the real paste with nobody in the room. Only under --e2e.
-if (process.argv.includes('--e2e') && process.env.PRISM_E2E_MIC) {
-  app.commandLine.appendSwitch('use-fake-device-for-media-stream')
-  app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
-  app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.PRISM_E2E_MIC)
-}
 
 // THE E2E NEVER TOUCHES THE REAL CLIPBOARD (#356): every clipboard the app
 // has is one in memory under --e2e (e2eClipboard.ts).
@@ -444,9 +432,6 @@ let startupRestored = false
  *  wherever they live, because choosing them in main's own dialog is the
  *  consent the root wall exists to ask for. */
 const pickedSubs = new Set<string>()
-
-/** Kills dictation's children (the speech server, the media helper). */
-let stopDictation: () => void = () => {}
 
 async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
   // A FILE from outside goes to the Explorer tab (owner, 2026-09-22: "that file
@@ -827,16 +812,9 @@ function createWindow(): void {
     show: showWindow,
     recreate: recreateWindow,
     giveUp: giveUpWindow,
-    // The text and the agent the page held died with it; a close must not
-    // ask about either.
-    // The shells the page drew die with it too (#265, review): the reloaded
-    // page restores its tabs and resumes their agents, so a pty left running
-    // would be a second, unseen Claude answering on the same session with no
-    // close question guarding it. Warm spares go with them.
+    // The text the page held died with it; a close must not ask about it.
     stateLost: () => {
       appState.editorDirty = false
-      appState.agentBusy = false
-      killAll()
     },
     quitting: () => appState.appQuitting,
     held: () => holdRecovery
@@ -1219,7 +1197,6 @@ if (!app.requestSingleInstanceLock()) {
   if (shortcutRequest && browse) winEBrowse.set(shortcutRequest, browse)
   if (shortcutRequest) winERequests.enqueue(shortcutRequest)
 
-  // Every shell dies with the app; a pty with no window is an orphan.
   let indexerStopped = false
   let stoppingIndexer = false
   app.on('will-quit', (event) => {
@@ -1236,8 +1213,6 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
     markExplorerWindow(userPaths.root(), true)
-    stopDictation()
-    killAll()
     killSidecars()
     cancelAllConversions()
     // The quit is going ahead: the log's queue is written synchronously, so
@@ -1247,15 +1222,6 @@ if (!app.requestSingleInstanceLock()) {
     diag?.stop()
     diag = null
   })
-
-  // Warm the terminal's fixed costs shortly after launch: the native module
-  // import and the shell probe both belong off every later click path.
-  app.whenReady().then(() =>
-    setTimeout(() => {
-      void import('node-pty')
-      void detectShells()
-    }, 2500)
-  )
 
   app.whenReady().then(() => {
     // THE PAGE OPTS IN TO HAVING ITS STACK READ (#322): the diagnostics log
@@ -1488,7 +1454,6 @@ if (!app.requestSingleInstanceLock()) {
     startUpdates(preferencesOwner)
     registerOpenIpc(ctx)
     registerSaveCopyIpc(ctx)
-    stopDictation = registerTerminalIpc(ctx)
     registerLinkIpc(ctx)
     installPermissionHandler()
     registerBrowseIpc(ctx)

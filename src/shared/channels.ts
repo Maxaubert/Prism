@@ -2,8 +2,8 @@
  * PRISM'S IPC CHANNEL NAMES, ONCE (structure cleanup, 2026-10-12). The preload
  * and main both read this table, so a channel cannot be renamed on one side of
  * the bridge and not the other: a typo is a type error, not a call that never
- * answers. The terminal's, dictation's and the diagnostics log's channels are
- * the core's (`prism-term-core/shared/channels`) and are not repeated here.
+ * answers. The diagnostics log's channels are the core's
+ * (`prism-term-core/shared/channels`) and are not repeated here.
  *
  * The VALUES are the wire: `npm run diag` reports and the e2e read some of
  * them (`e2e:slow-ipc`), so a value changes only on purpose.
@@ -171,7 +171,6 @@ export const CALL = {
   windowMinimize: 'window:minimize',
   windowToggleMaximize: 'window:toggle-maximize',
   windowClose: 'window:close',
-  windowAgentBusy: 'window:agent-busy',
   windowSetFullscreen: 'window:set-fullscreen',
   windowMaterial: 'window:material',
   windowFsTransition: 'window:fs-transition',

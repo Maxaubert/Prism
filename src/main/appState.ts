@@ -14,9 +14,6 @@ export const appState = {
   mainWindow: null as BrowserWindow | null,
   /** The renderer's editor holds unsaved text. Mirrored here so `close` can ask. */
   editorDirty: false,
-  /** Mirrored from the renderer: an agent is MID-ANSWER in some shell. Holds the
-   *  window exactly as unsaved text does (prism-term-core's close rule, #154). */
-  agentBusy: false,
   /** The user has answered the "unsaved changes" question: let the close through. */
   closeConfirmed: false,
   /** An update is installing: the quit it ends in is already agreed to. */

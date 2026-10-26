@@ -6,9 +6,8 @@ import {
   type RefObject,
   type SetStateAction
 } from 'react'
-import type { DetectedAgent } from 'prism-term-core/shared/types'
 import { newTabMode, newTabFolder } from '../lib/prefs/newTabPrefs'
-import { nextTabId, disposeSession, nextTermId } from '../lib/sessionIds'
+import { nextTabId } from '../lib/sessionIds'
 import { visitedDirectories } from '../lib/visitedDirectories'
 import type { OpenPayload } from '@shared/types'
 import {
@@ -18,7 +17,6 @@ import {
   type Tab,
   rerootTab,
   sameRoot,
-  setTabTerm,
   reorderTabs,
   type TabState
 } from '../lib/tabs/tabs'
@@ -26,18 +24,12 @@ import { useWinEOpen } from './useWinEOpen'
 import type { useFolderBrowsing } from './useFolderBrowsing'
 import { forgetTabVolume } from '../lib/tabs/tabVolume'
 import { baseName } from '@shared/path'
-import { isTouched, idleAtPrompt } from 'prism-term-core/renderer/lib/termActivity'
-import { decideFollow } from 'prism-term-core/shared/termCwd'
-import { asksBeforeClosingTab } from 'prism-term-core/renderer/lib/agentClose'
-import { workingFor } from 'prism-term-core/renderer/lib/agentClock'
-import { focusTermSession } from 'prism-term-core/renderer/components/TerminalPanel'
 import { rememberRoot, forgetRoot } from '@renderer/lib/recentRoots'
 import type { Ask } from '../dialogs/asks'
 
 // THE TABS (out of App.tsx, structure cleanup 2026-10-12, unchanged): a new
-// tab, closing one (asking first when it strands unsaved text or ends an
-// agent), re-rooting one, the recent folders, picking and reordering, and
-// handing a showing terminal its focus back. App holds the tab state.
+// tab, closing one (asking first when it strands unsaved text), re-rooting
+// one, the recent folders, and picking and reordering. App holds the tab state.
 
 export interface TabOpsDeps {
   setTabState: Dispatch<SetStateAction<TabState>>
@@ -47,21 +39,15 @@ export interface TabOpsDeps {
   setup: boolean
   fullscreen: boolean
   setFs: (on: boolean) => void
-  termRoots: RefObject<Map<string, string>>
   bufferOwners: RefObject<Map<string, Set<string>>>
   buffers: RefObject<Map<string, { path: string; text: string }>>
   tabs: Tab[]
   syncDirty: () => void
-  agentKinds: RefObject<Map<string, DetectedAgent>>
-  termCwd: RefObject<Map<string, string>>
   activeId: string | null
   setAsk: Dispatch<SetStateAction<Ask | null>>
-  workingIds: ReadonlySet<string>
-  agentIds: ReadonlySet<string>
 }
 
 export interface TabOps {
-  restoreTermFocus: (id?: string | undefined) => void
   newTab: () => void
   closeActiveTab: () => void
   reorderTab: (id: string, toIndex: number) => void
@@ -82,17 +68,12 @@ export function useTabOps({
   setup,
   fullscreen,
   setFs,
-  termRoots,
   bufferOwners,
   buffers,
   tabs,
   syncDirty,
-  agentKinds,
-  termCwd,
   activeId,
-  setAsk,
-  workingIds,
-  agentIds
+  setAsk
 }: TabOpsDeps): TabOps {
   /**
    * A new tab, immediately. No dialog: the + and Ctrl+T are meant to be instant,
@@ -134,24 +115,16 @@ export function useTabOps({
   const forceCloseTab = useCallback(
     (id: string) => {
       setTabState((s) => {
-        // The tab's shell dies with it, both halves: main's pty and the
-        // renderer's xterm instance.
         const tab = s.tabs.find((t) => t.id === id)
         if (tab && isPinnedExplorer(tab)) return s
-        // EVERY shell the tab held (2026-09-03), not only the current one.
-        for (const termId of tab?.terms ?? []) {
-          window.prism.termKill(termId)
-          disposeSession(termId)
-          termRoots.current.delete(termId)
-        }
-        // ...and so does the level it was playing at: the id never comes back.
+        // The level the tab was playing at goes with it: the id never comes back.
         forgetTabVolume(id)
         window.prism.browseRelease(id)
         bufferOwners.current.delete(id)
         return closeTab(s.tabs, id, s.activeId)
       })
     },
-    [bufferOwners, setTabState, termRoots]
+    [bufferOwners, setTabState]
   )
   /** Unsaved buffers living under a tab's root, as their names are spelled. */
   const dirtyUnder = useCallback(
@@ -188,53 +161,10 @@ export function useTabOps({
   )
   const applyReroot = useCallback(
     (id: string | null, p: OpenPayload) => {
-      setTabState((s) => {
-        const next = rerootTab(s.tabs, id, p, nextTabId())
-        // The terminal policy on a folder change: an UNTOUCHED shell simply
-        // follows - killed and respawned in the new folder, view kept. A
-        // touched one (a Claude session, half-typed work) stays where it was;
-        // Clear later re-syncs it.
-        const tab = next.tabs.find((t) => t.id === id)
-        if (
-          tab?.term &&
-          !isTouched(tab.term.id) &&
-          !agentKinds.current.has(tab.term.id) &&
-          !sameRoot(termRoots.current.get(tab.term.id) ?? '', p.root)
-        ) {
-          window.prism.termKill(tab.term.id)
-          disposeSession(tab.term.id)
-          termRoots.current.delete(tab.term.id)
-          const termId = nextTermId()
-          termRoots.current.set(termId, p.root)
-          return {
-            ...next,
-            tabs: setTabTerm(next.tabs, tab.id, { id: termId, view: tab.term.view })
-          }
-        }
-        // A TOUCHED shell follows too now (#99, owner decision 2026-09-04), by
-        // one Set-Location written into it - and only at a moment that cannot
-        // hurt: it has reported a prompt and nothing has been typed since (so
-        // no half-typed line runs with the cd in front of it), no agent is
-        // living in it (its folder is the agent's, not the tab's), and it is
-        // not already there. Anything else, it is left alone, silently: the
-        // shell is somebody's work and a folder change is not a reason to
-        // interrupt it.
-        if (
-          tab?.term &&
-          isTouched(tab.term.id) &&
-          !agentKinds.current.has(tab.term.id) &&
-          idleAtPrompt(tab.term.id) &&
-          decideFollow(p.root, termCwd.current.get(tab.term.id) ?? '') !== 'same' &&
-          termCwd.current.has(tab.term.id)
-        ) {
-          termCwd.current.set(tab.term.id, p.root)
-          window.prism.termCd(tab.term.id, p.root)
-        }
-        return next
-      })
+      setTabState((s) => rerootTab(s.tabs, id, p, nextTabId()))
       setHasNavigated(false)
     },
-    [agentKinds, setHasNavigated, setTabState, termCwd, termRoots]
+    [setHasNavigated, setTabState]
   )
   /**
    * The sidebar's folder button: this tab becomes that folder, rather than a new
@@ -264,54 +194,18 @@ export function useTabOps({
         forceCloseTab(id)
         return
       }
-      // Unsaved text asks in EVERY mode: the setting below only governs the
-      // plain "you are closing a tab" confirmation, never data loss.
+      // Unsaved text asks first; anything else closes at once.
       const names = [...buffers.current.values()]
         .filter((b) => bufferBelongsTo(tab, b.path))
         .map((b) => baseName(b.path))
       if (names.length) setAsk({ kind: 'close-tab', id, names })
-      else {
-        // THE CLOSE QUESTION IS ONE RULE, NOT A SETTING (owner, 2026-09-19;
-        // prism-term-core's agentClose, the same in Prism Terminal): a plain
-        // shell closes unasked, a tab whose shell HOSTS an agent asks, working
-        // or idle. It replaced the Agents / Off setting that lived here.
-        // ANY of the tab's shells (2026-09-03): an agent in a hidden second
-        // terminal is exactly what the question exists to protect; a working
-        // one is named ahead of an idle one, being what is most at stake.
-        const hostId =
-          tab.terms.find((t) => workingIds.has(t)) ?? tab.terms.find((t) => agentIds.has(t))
-        if (hostId === undefined || !asksBeforeClosingTab(true)) forceCloseTab(id)
-        else
-          setAsk({
-            kind: 'close-tab-confirm',
-            id,
-            label: baseName(tab.root),
-            agent: {
-              kind: agentKinds.current.get(hostId) ?? 'other',
-              forMs: workingIds.has(hostId) ? workingFor(hostId) : null
-            }
-          })
-      }
+      else forceCloseTab(id)
     },
-    [agentIds, agentKinds, bufferBelongsTo, forceCloseTab, tabs, workingIds, buffers, setAsk]
+    [bufferBelongsTo, forceCloseTab, tabs, buffers, setAsk]
   )
   const closeActiveTab = useCallback(() => {
     if (activeId) closeOneTab(activeId)
   }, [activeId, closeOneTab])
-  /** Whatever a tab interaction did to DOM focus, a SHOWING terminal gets the
-   *  keyboard back: clicking or dragging a tab is not "I left the shell", and
-   *  losing focus there sent the arrows off to page the folder instead. */
-  const restoreTermFocus = useCallback(
-    (id?: string) => {
-      setTabState((s) => {
-        const tab = s.tabs.find((t) => t.id === (id ?? s.activeId))
-        if (tab?.term && tab.term.view !== 'hidden')
-          requestAnimationFrame(() => focusTermSession(tab.term!.id))
-        return s
-      })
-    },
-    [setTabState]
-  )
   /* The folders Prism has been opened in (2026-08-23): the strip's + offers
      the last few on a right-click. Every root a tab holds is remembered as it
      appears, so the list is what actually happened rather than a curated
@@ -360,21 +254,18 @@ export function useTabOps({
   const pickTab = useCallback(
     (id: string) => {
       setTabState((s) => ({ ...s, activeId: id }))
-      restoreTermFocus(id)
     },
-    [restoreTermFocus, setTabState]
+    [setTabState]
   )
   /** The strip's own drag: a tab lands in front of `toIndex` (#70). */
   const reorderTab = useCallback(
     (id: string, toIndex: number) =>
       // Focus is the strip's business: it puts back whatever the drag
-      // interrupted - a shell, a tree row, the search box - rather than
-      // assuming the terminal.
+      // interrupted - a tree row, the search box.
       setTabState((s) => ({ ...s, tabs: reorderTabs(s.tabs, id, toIndex) })),
     [setTabState]
   )
   return {
-    restoreTermFocus,
     newTab,
     closeActiveTab,
     reorderTab,

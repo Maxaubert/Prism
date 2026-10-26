@@ -1,7 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DCH } from 'prism-term-core/shared/channels'
 import { CALL } from '@shared/channels'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
 
@@ -21,14 +20,12 @@ describe('the long-wait channels', () => {
   const main = sources(__dirname)
     .map((f) => readFileSync(f, 'utf8'))
     .join('\n')
-  // Main registers each through the shared table (`CALL.x`, 2026-10-12); the
-  // core registers dictation's channels itself (`registerDictationIpc`).
-  const registered = new Set<string>([
-    ...[...main.matchAll(/ipcMain\.(?:handle|on)\(\s*CALL\.(\w+)/g)].map(
+  // Main registers each through the shared table (`CALL.x`, 2026-10-12).
+  const registered = new Set<string>(
+    [...main.matchAll(/ipcMain\.(?:handle|on)\(\s*CALL\.(\w+)/g)].map(
       (m) => CALL[m[1] as keyof typeof CALL]
-    ),
-    ...Object.values(DCH)
-  ])
+    )
+  )
 
   it('are each registered in main', () => {
     expect(registered.size).toBeGreaterThan(50)

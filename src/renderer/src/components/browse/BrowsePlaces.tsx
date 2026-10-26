@@ -27,7 +27,6 @@ type Props = Pick<
   | 'places'
   | 'directory'
   | 'onNavigate'
-  | 'onNewTerminal'
   | 'quickAccess'
   | 'onQuickAccessFile'
   | 'onUnpinQuickAccess'
@@ -70,7 +69,6 @@ export function BrowsePlaces({
   places,
   directory,
   onNavigate,
-  onNewTerminal,
   onOpenProject,
   onOpenNewTab,
   onProperties,
@@ -402,7 +400,6 @@ export function BrowsePlaces({
             index: menuIndex,
             onChoose: () => choose(menu.row, menu.pin.path),
             onNavigate,
-            onNewTerminal,
             onQuickAccessFile,
             onOpenNewTab,
             onOpenProject,

@@ -34,15 +34,6 @@ describe('settings controls', () => {
     expect(sw).toMatch(/on \? SWITCH_KNOB_ON : 'bg-white'/)
   })
 
-  it("dictation's buttons carry no accent", () => {
-    const src = readFileSync(resolve(__dirname, 'dictation', 'parts.tsx'), 'utf8')
-    for (const name of ['button', 'primary']) {
-      const m = src.match(new RegExp(`const ${name} =\\s*'([^']*)'`))
-      expect(m, name).not.toBeNull()
-      expect(m![1]).not.toMatch(ACCENT)
-    }
-  })
-
   // #112: the colour picker's controls are settings controls too. Its buttons
   // are ROW_BUTTON, its thumbs ink on a ring of the ground, and the accent is
   // only ever a focus ring.

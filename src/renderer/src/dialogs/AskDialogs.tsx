@@ -2,7 +2,6 @@ import type { JSX } from 'react'
 import type { OnClash, OpenPayload } from '@shared/types'
 import type { MoveOnClash } from '@shared/ipcTypes'
 import type { Ask } from './asks'
-import { CloseAgentDialog } from './CloseAgentDialog'
 import { DeleteDialog } from './DeleteDialog'
 import { DeleteManyDialog } from './DeleteManyDialog'
 import { FileChangedDialog } from './FileChangedDialog'
@@ -100,25 +99,6 @@ export function AskDialogs({
       }
       return <FileChangedDialog name={ask.name} onKeep={answer(false)} onReload={answer(true)} />
     }
-    case 'close-tab-confirm':
-    case 'close-window-agent':
-      return (
-        <CloseAgentDialog
-          target={
-            ask.kind === 'close-tab-confirm' ? 'tab' : ask.then === 'install' ? 'install' : 'window'
-          }
-          label={ask.label}
-          agent={ask.agent}
-          others={ask.kind === 'close-window-agent' ? ask.others : 0}
-          onCancel={a.dismiss}
-          onClose={() => {
-            a.dismiss()
-            if (ask.kind === 'close-tab-confirm') a.forceCloseTab(ask.id)
-            else if (ask.then === 'install') a.runInstall()
-            else window.prism.close(true)
-          }}
-        />
-      )
     case 'close-tab':
       return (
         <UnsavedDialog

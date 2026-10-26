@@ -28,7 +28,6 @@ export interface ExplorerRowMenuContext {
   pinned: boolean
   openFolder: (path: string) => void
   openFile: (file: ViewerFile) => void
-  newTerminalAt: (path: string) => void
   showInPreview: (path: string) => void
   openInNewTab: (path: string, isFolder: boolean) => void
   openAsProject: (entry: BrowseEntry) => void
@@ -107,16 +106,8 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
       icon: <FileMenuIcon name="project" />,
       onPick: () => ctx.openAsProject(entry)
     },
-    // A folder opens a shell where a file opens in another app.
-    ...(entry.isFolder
-      ? [
-          {
-            label: 'New terminal here',
-            icon: <FileMenuIcon name="terminal" />,
-            onPick: () => ctx.newTerminalAt(entry.path)
-          }
-        ]
-      : [fileAppMenu(entry.path, ctx.apps ?? null)]),
+    // A file opens in another app.
+    ...(entry.isFolder ? [] : [fileAppMenu(entry.path, ctx.apps ?? null)]),
     {
       label: 'Cut',
       icon: <FileMenuIcon name="cut" />,

@@ -2,8 +2,6 @@ import { useFullscreenVeil } from './hooks/useFullscreenVeil'
 import { useWindowClose } from './hooks/useWindowClose'
 import { useFileOps } from './hooks/useFileOps'
 import { useAppKeys } from './hooks/useAppKeys'
-import { useTerminal } from './hooks/useTerminal'
-import { useTermPanes } from './hooks/useTermPanes'
 import { useTabOps } from './hooks/useTabOps'
 import { useExplorerArrival } from './hooks/useExplorerArrival'
 import { visitedDirectories } from './lib/visitedDirectories'
@@ -35,12 +33,9 @@ import {
   receiveFile,
   sameRoot,
   setTabPanes,
-  setTabTerm,
   type TabState,
   type TreeState,
-  setBrowseSurface,
-  removeTerm,
-  termLabel
+  setBrowseSurface
 } from './lib/tabs/tabs'
 import {
   lastSplitDir,
@@ -48,29 +43,14 @@ import {
   pinPane,
   saveSplitDir,
   unpinPane,
-  type SplitDir,
-  pinTermPane
+  type SplitDir
 } from './lib/panes'
 import { fileKind, isMarkdown } from '@shared/fileKind'
 import { baseName, extOf } from '@shared/path'
-import { dockAxis, dockFlex } from './lib/termDock'
-import { savedShellId } from 'prism-term-core/renderer/lib/termPrefs'
-import { useAgentIndicator } from 'prism-term-core/renderer/lib/useAgentIndicator'
-import { useDictationArm } from 'prism-term-core/renderer/lib/useDictation'
 import UpdateChip from 'prism-term-core/renderer/components/UpdateChip'
 import UpdateDialog from 'prism-term-core/renderer/components/UpdateDialog'
 import { newTabShow } from './lib/prefs/newTabPrefs'
-import {
-  idleAtPrompt,
-  isTouched,
-  markResume,
-} from 'prism-term-core/renderer/lib/termActivity'
-import { onCwd } from 'prism-term-core/renderer/lib/termBus'
 import { ancestorChain } from './lib/fileTree'
-import { decideFollow } from 'prism-term-core/shared/termCwd'
-import { isResumable } from 'prism-term-core/shared/types'
-import CopiedBadge from 'prism-term-core/renderer/components/CopiedBadge'
-import { TermDock } from './components/TermDock'
 import { TopBar } from './components/titlebar/TopBar'
 import { TitleButtons } from './components/titlebar/TitleButtons'
 import { EditorLoading, Viewer } from './components/stage/Viewer'
@@ -81,10 +61,8 @@ import { explorerRowMenu } from './menus/explorerRow'
 import { titleBarMoreMenu } from './menus/moreMenu'
 import { useFolderBrowsing } from './hooks/useFolderBrowsing'
 import { browseParent } from './lib/browse'
-import { terminalRestoreOrder } from './lib/terminalRestore'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
-import { BrowseIcon } from './components/icons/BrowseIcon'
 import { ExplorerResize } from './components/browse/ExplorerResize'
 import { useExplorerWidths } from './hooks/useExplorerWidths'
 import { usePreviewSlide } from './hooks/usePreviewSlide'
@@ -151,8 +129,7 @@ import { compactRailPref, onboardedPref, placesPref, sidebarPref } from './lib/p
 import { JobChip } from './components/JobChip'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { Icon } from './components/icons/Icon'
-import { disposeSession, nextTabId, nextTermId } from './lib/sessionIds'
-import { hiddenTitle } from './lib/hiddenTitle'
+import { nextTabId } from './lib/sessionIds'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
 // or dialog), routes by kind to a viewer, and pages through the folder. Video,
@@ -187,26 +164,6 @@ export default function App(): JSX.Element {
     for (const c of tabCrumbs(crumbedTabs.current, tabState)) crumb(c.a, c.fields, { often: c.often })
     crumbedTabs.current = tabState
   }, [tabState])
-  /**
-   * WHICH SHELLS HOST AN AGENT, WHICH ARE MID-ANSWER, WHICH FINISHED BEHIND
-   * YOUR BACK: prism-term-core's rules, the same code Prism Terminal runs
-   * (#154; owner, 2026-09-19: "Prism Terminal's indicator rules in both").
-   * The title reader, the birth rule and the output fallback lived here until
-   * then and were the original of that hook. A session is "in front" when it is
-   * the active tab's current shell. Up here because the reroot and the close
-   * path below both ask it.
-   */
-  const {
-    agentIds,
-    workingIds,
-    doneIds,
-    agentKinds,
-    forget: forgetAgent
-  } = useAgentIndicator(active?.term?.id ?? null)
-  // DICTATION (#162) is armed with the shell that is SHOWING, or with nothing:
-  // a hidden terminal is not something to speak into, and this window is a
-  // media viewer most of the time. It renders nothing and re-renders nothing.
-  useDictationArm(active?.term && active.term.view !== 'hidden' ? active.term.id : null)
   const rawIndex = active?.index ?? -1
   const settingsOpen = active?.kind === 'settings'
   const toggleSettings = useCallback(() => {
@@ -500,9 +457,8 @@ export default function App(): JSX.Element {
    * from rather than a refusal.
    */
   /**
-   * Put the "New tabs show" setting into effect on the active tab: a terminal
-   * in full view, nothing at all, or (the default) the folder's first file,
-   * which is what the payload already carries.
+   * Put the "New tabs show" setting into effect on the active tab: the
+   * folder's first file, or (the default) nothing at all.
    *
    * Shared by the + and by a FOLDER arriving from Explorer's menu, which is
    * the same act by another route and should not answer the question
@@ -513,12 +469,6 @@ export default function App(): JSX.Element {
     const tab = st.tabs.find((t) => t.id === st.activeId)
     if (!tab) return st
     if (show === 'file') return { ...st, tabs: setBrowseSurface(st.tabs, tab.id, 'viewer') }
-    if (show === 'terminal') {
-      if (tab.term) return st
-      const termId = nextTermId()
-      termRoots.current.set(termId, tab.root)
-      return { ...st, tabs: setTabTerm(st.tabs, tab.id, { id: termId, view: 'full' }) }
-    }
     // The quiet start: the sidebar keeps the folder's files, but nothing
     // goes on screen (NoFileState) until the user picks one.
     return {
@@ -587,54 +537,7 @@ export default function App(): JSX.Element {
         const target = st.tabs.find((t) => t.id === st.activeId)
         if (p.restore && target && p.restoreOrder !== undefined)
           restoreOrders.current.set(target.id, p.restoreOrder)
-        let tabs = st.tabs
-        // A restored tab that was showing its terminal comes back AS a terminal:
-        // a fresh shell where the old one stood (sessions die with the app),
-        // same view.
-        if (p.term && target && !target.term) {
-          const termId = nextTermId()
-          // Where that shell WAS, which is the root unless "Open terminal
-          // here" or a cd moved it (2026-09-09). Main has already checked it
-          // is the root or inside it, so the wall's spawn check passes.
-          const spawnAt = p.termCwd ?? target.root
-          termRoots.current.set(termId, spawnAt)
-          // The shell hosted a Claude session at close: the fresh one launches
-          // straight into it (spawn carries the id; see TerminalPanel). The
-          // session spawns NOW, tab in front or not - every tab's conversation
-          // resumes at launch, not when its tab is first visited.
-          if (p.agentResume) markResume(termId, p.agentResume)
-          void import('prism-term-core/renderer/components/TerminalPanel').then((m) =>
-            m.ensureTermSession(termId, spawnAt, savedShellId())
-          )
-          tabs = setTabTerm(tabs, target.id, { id: termId, view: p.term })
-          // The other shells the tab held get their SLOTS now and spawn when
-          // picked (2026-09-03): a hidden terminal never mounts a panel, and
-          // the panel is what spawns.
-          for (let k = 1; k < (p.terms ?? 1); k += 1) {
-            const extra = nextTermId()
-            termRoots.current.set(extra, target.root)
-            tabs = tabs.map((t) => (t.id === target.id ? { ...t, terms: [...t.terms, extra] } : t))
-          }
-          const restored = tabs.find((t) => t.id === target.id)!
-          for (const pane of p.panes ?? []) {
-            if (pane.termSlot === undefined) continue
-            const term = restored.terms[pane.termSlot]
-            if (term)
-              tabs = setTabPanes(
-                tabs,
-                target.id,
-                pinTermPane(tabs.find((t) => t.id === target.id)!.panes, pane.id, term, pane.dir)
-              )
-          }
-        }
-        // A file ARRIVING means "show me this file" (2026-09-04), exactly as
-        // a tree click does: over a FULL terminal it hides the shell (still
-        // running) and gives the file the room. It used to land underneath
-        // the terminal, unseen, and - since a full terminal marks nothing in
-        // the tree - unmarked as well, so Explorer's double-click looked like
-        // it had done nothing. In split the file lands in its pane as before.
-        if (!p.restore && target?.term?.view === 'full')
-          tabs = setTabTerm(tabs, target.id, { ...target.term, view: 'hidden' })
+        const tabs = st.tabs
         // Background restores keep the focus where it is: restore arrives in
         // SAVED ORDER now (no more active-goes-last splice, which scrambled the
         // strip), and only the saved active tab takes the front, and only
@@ -653,20 +556,6 @@ export default function App(): JSX.Element {
     },
     [withNewTabShow]
   )
-
-  // Pre-warm: a tab in front with no shell probably gets one soon. After a
-  // short dwell, main starts it; opening the terminal then ADOPTS a running
-  // shell instead of paying pwsh's startup at the click. The xterm chunk is
-  // prefetched once at idle for the same reason.
-  useEffect(() => {
-    if (!active || active.kind === 'settings' || isExplorerTab(active) || active.term) return
-    const t = setTimeout(() => window.prism.termPrewarm(active.root, savedShellId()), 900)
-    return () => clearTimeout(t)
-  }, [active])
-  useEffect(() => {
-    const t = setTimeout(() => void import('prism-term-core/renderer/components/TerminalPanel'), 4000)
-    return () => clearTimeout(t)
-  }, [])
 
   // A FILE WINDOWS HANDS OVER PLAYS (2026-09-14, #139, owner: "if you click a
   // video file and that video file opens in Prism, it should autoplay").
@@ -720,7 +609,7 @@ export default function App(): JSX.Element {
   }, [])
   const [phoneOpen, setPhoneOpen] = useState(false)
   // Closing, and the update install that ends in a quit (hooks/useWindowClose).
-  const { update, leave, runInstall } = useWindowClose({ workingIds, tabs, setAsk, agentKinds, dirtyPaths, ask })
+  const { update, leave, runInstall } = useWindowClose({ setAsk, dirtyPaths, ask })
   /** The running version, for the window's "You have" line. Asked once. */
   const [appVersion, setAppVersion] = useState('')
   useEffect(() => {
@@ -736,18 +625,8 @@ export default function App(): JSX.Element {
     activeIdRef.current = activeId
   }, [tabs, activeId])
 
-  /** Where each shell last said it was (#99): its prompt's own report. A
-   *  shell that has never reported (WSL, a shell still starting) is absent,
-   *  and absent means Prism does not know, so it does not act. */
-  const termCwd = useRef(new Map<string, string>())
-  const [cwdRevision, setCwdRevision] = useState(0)
-  /** Where each live session was SPAWNED, for the reroot policy: an untouched
-   *  shell whose folder no longer matches its tab gets replaced; Clear also
-   *  re-syncs a stale one. */
-  const termRoots = useRef(new Map<string, string>())
   // The tabs: new, close, re-root, recent, pick, reorder (hooks/useTabOps).
   const {
-    restoreTermFocus,
     newTab,
     closeActiveTab,
     reorderTab,
@@ -766,17 +645,12 @@ export default function App(): JSX.Element {
     setup,
     fullscreen,
     setFs,
-    termRoots,
     bufferOwners,
     buffers,
     tabs,
     syncDirty,
-    agentKinds,
-    termCwd,
     activeId,
-    setAsk,
-    workingIds,
-    agentIds
+    setAsk
   })
 
   const openAsProject = useCallback(
@@ -804,25 +678,6 @@ export default function App(): JSX.Element {
     []
   )
 
-  /* ----- the terminal ----- */
-
-  // The dock, the shells' roots and the tab's terminal view (hooks/useTerminal).
-  const {
-    termFolder,
-    pickDock,
-    applyTermView,
-    termTabAt,
-    openTermFull,
-    toggleTerm,
-    dockEdge,
-    termSizes,
-    resizeTermPanel
-  } = useTerminal({
-    termRoots,
-    termCwd,
-    setTabState,
-    active
-  })
   // Tell main what is open, whenever it changes: persistence for next launch.
   // The root wall is deliberately NOT rebuilt from this snapshot. A report
   // races payloads still in flight (a restore, plus a file Explorer just
@@ -851,74 +706,21 @@ export default function App(): JSX.Element {
         pinned: t.pinned,
         root: t.root,
         browse: t.browse,
-        panes: t.panes.map((pane) => ({
-          id: pane.id,
-          path: pane.path,
-          dir: pane.dir,
-          ...(pane.term
-            ? { termSlot: terminalRestoreOrder(t.terms, t.term?.id).indexOf(pane.term) }
-            : {})
-        })),
+        panes: t.panes.map((pane) => ({ id: pane.id, path: pane.path, dir: pane.dir })),
         file: t.files[t.index]?.path,
-        // A visible terminal is part of what the tab IS: a Claude-session tab
-        // must reopen as a terminal next launch, not as an empty viewer.
-        term: t.term?.view,
-        // How many shells, so a tab with three comes back with three slots.
-        terms: t.terms.length > 1 ? t.terms.length : undefined,
-        // WHERE that shell was standing (2026-09-09). The tab's root is not
-        // the answer: "Open terminal here" spawns a shell in a subfolder and
-        // deliberately leaves the root alone, and so does a cd inside it, so
-        // restoring at the root put the shell somewhere the user had left -
-        // and sent the agent resume to the root's newest conversation rather
-        // than the one held down there. The shell's OWN report first (#99's
-        // OSC 9;9, the truth), the folder it was spawned in as the fallback
-        // for a shell that has not reported yet or never will (WSL, bash).
-        cwd: t.term ? termFolder(t.term.id) : undefined,
         // Where you had got to in the tree. Not a per-tab setting - the tab is
         // still a root and a file - but closing Prism used to collapse
         // everything, so a file six folders down came back unmarked in a
         // sidebar that showed none of the rows leading to it.
-        open: [...t.tree.expanded],
-        // ...and one hosting claude or codex resumes its conversation on
-        // restore, each by its own flag. 'other' agents have nothing to
-        // come back to, so they are not recorded.
-        agent: (() => {
-          if (!t.term || !agentIds.has(t.term.id)) return undefined
-          const kind = agentKinds.current.get(t.term.id)
-          return isResumable(kind) ? kind : undefined
-        })()
+        open: [...t.tree.expanded]
       })),
       Math.max(
         0,
         folderTabs.findIndex((t) => t.id === activeId)
       )
     )
-  }, [tabs, activeId, agentIds, agentKinds, cwdRevision, termFolder])
+  }, [tabs, activeId])
 
-
-  // The shell ended: typed exit, or died. App owns this rather than the panel,
-  // because it must be heard even while the panel is hidden or another tab is
-  // in front - the tab's term slot has to clear either way.
-  useEffect(
-    () =>
-      window.prism.onTermExit((id) => {
-        disposeSession(id)
-        forgetAgent(id)
-        termRoots.current.delete(id)
-        setTabState((s) => {
-          // Out of the LIST, not only out of the current slot (2026-09-03):
-          // a dead id left in `terms` was handed the dock back the moment
-          // its replacement closed. A pane holding it goes with it, and the
-          // most recent survivor - if any - takes over.
-          const tab = s.tabs.find((t) => t.terms.includes(id))
-          if (!tab) return s
-          const pane = tab.panes.find((pn) => pn.term === id)
-          const tabs = pane ? setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, pane.id)) : s.tabs
-          return { ...s, tabs: removeTerm(tabs, tab.id, id) }
-        })
-      }),
-    [forgetAgent]
-  )
   /** Step the active tab by `delta`, wrapping, so Ctrl+Tab cycles. */
   const stepTab = useCallback((delta: number) => {
     setTabState((s) => {
@@ -991,54 +793,6 @@ export default function App(): JSX.Element {
     (update: (t: TreeState) => TreeState) => activeId && setTree(activeId, update),
     [activeId, setTree]
   )
-  /**
-   * The shell walked somewhere (#99): its tab follows. INSIDE the root the
-   * tree expands to the folder and marks it (the root stays - a project tab
-   * that rerooted on every `cd src` would throw the project away, and no
-   * editor surveyed does that; Warp pins to the git root for the same
-   * reason). OUTSIDE it the tab reroots to the folder, since the tree would
-   * otherwise show nothing true. Same place, nothing. Only the tab's CURRENT
-   * shell drives it; a pane's shell reports and is remembered, no more.
-   *
-   * The report is the prompt's, so it arrives once per prompt, including the
-   * prompt after a Set-Location Prism wrote itself - which is why "same as
-   * last time" is checked first: that echo is exactly a no-op.
-   */
-  const [revealReq, setRevealReq] = useState<{ tabId: string; path: string; seq: number } | null>(
-    null
-  )
-  const revealSeq = useRef(0)
-  useEffect(
-    () =>
-      onCwd((sessionId, path) => {
-        const before = termCwd.current.get(sessionId)
-        termCwd.current.set(sessionId, path)
-        if (before && decideFollow(before, path) === 'same') return
-        setCwdRevision((revision) => revision + 1)
-        // The tab whose CURRENT shell this is. `tabs` is a dependency, so the
-        // subscription is renewed with the state and never reads a stale list.
-        const tab = tabs.find((t) => t.kind !== 'settings' && t.term?.id === sessionId)
-        if (!tab) return
-        const where = decideFollow(tab.root, path)
-        if (where === 'same') return
-        if (where === 'inside') {
-          const chain = [...ancestorChain(tab.root, path), path]
-          setTree(tab.id, (t) => {
-            if (chain.every((c) => t.expanded.has(c))) return t
-            const expanded = new Set(t.expanded)
-            chain.forEach((c) => expanded.add(c))
-            return { ...t, expanded }
-          })
-          revealSeq.current += 1
-          setRevealReq({ tabId: tab.id, path, seq: revealSeq.current })
-          return
-        }
-        // A shell report changes only its own cwd. Register desktop access,
-        // but never move the browser cursor, project identity or phone share.
-        void window.prism.browseDirectory(tab.id, path, { details: false })
-      }),
-    [setTree, tabs]
-  )
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
   const openBrowseFile = browsing.openFile
@@ -1070,34 +824,24 @@ export default function App(): JSX.Element {
         chain.forEach((c) => expanded.add(c))
         return { ...t, expanded }
       })
-      revealSeq.current += 1
-      setRevealReq({ tabId: active.id, path, seq: revealSeq.current })
     },
     [active, browsing, setTree]
   )
 
   /**
-   * Which window of a split the user is IN: the live pane, a pinned pane (by
-   * id), or the terminal. The sidebar's selected row follows it - the file in
-   * the focused window is the one marked, and a focused terminal marks none.
+   * Which window of a split the user is IN: the live pane or a pinned pane (by
+   * id). The sidebar's selected row follows it - the file in the focused
+   * window is the one marked.
    * Tracked from real pointer-downs and focus, so it needs no plumbing through
    * the viewers: each region wears a data attribute and the listener resolves
    * the innermost one.
    */
-  const [paneFocus, setPaneFocus] = useState<'live' | 'term' | string>('live')
-  // Opening a file in split view refocuses the terminal panel as it re-docks;
-  // that focus is mechanical, not the user choosing the shell, and must not
-  // steal the selection from the file that was just opened.
-  const ignoreTermFocusUntil = useRef(0)
+  const [paneFocus, setPaneFocus] = useState<'live' | string>('live')
   useEffect(() => {
     const resolve = (target: EventTarget | null): void => {
       const el = target instanceof Element ? target : null
-      const region = el?.closest('[data-pane], [data-term-region]')
+      const region = el?.closest('[data-pane]')
       if (!region) return
-      if (region.hasAttribute('data-term-region')) {
-        if (Date.now() >= ignoreTermFocusUntil.current) setPaneFocus('term')
-        return
-      }
       const kind = region.getAttribute('data-pane')
       if (kind === 'pinned') setPaneFocus(region.getAttribute('data-pane-id') ?? 'live')
       else setPaneFocus('live')
@@ -1111,13 +855,11 @@ export default function App(): JSX.Element {
       window.removeEventListener('focusin', focus, true)
     }
   }, [])
-  // The focused thing can vanish: its pane unpinned, the terminal hidden, the
-  // tab switched. Focus falls back to the live pane rather than pointing at
-  // nothing.
+  // The focused thing can vanish: its pane unpinned, the tab switched. Focus
+  // falls back to the live pane rather than pointing at nothing.
   useEffect(() => setPaneFocus('live'), [activeId])
   useEffect(() => {
     setPaneFocus((f) => {
-      if (f === 'term') return active?.term && active.term.view !== 'hidden' ? f : 'live'
       if (f !== 'live' && !active?.panes.some((pn) => pn.id === f)) return 'live'
       return f
     })
@@ -1134,21 +876,6 @@ export default function App(): JSX.Element {
       }
       const d = dir ?? lastSplitDir()
       saveSplitDir(d)
-      // Over a FULL terminal, "open in split view" means: this file, beside
-      // the shell. The terminal drops to its split, docked on the side
-      // OPPOSITE the one picked for the file, and the file opens live -
-      // nothing gets pinned, this is the terminal/file split.
-      if (active && active.kind !== 'settings' && active.term?.view === 'full') {
-        const opposite = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' } as const
-        pickDock(opposite[d])
-        applyTermView((term, id) => (term ? { ...term, view: 'split' } : { id, view: 'split' }))
-        void window.prism.openWithin(active.root, path).then((p) => p && open(p))
-        // The just-opened file is the one selected, not the shell the re-dock
-        // is about to mechanically refocus.
-        ignoreTermFocusUntil.current = Date.now() + 800
-        setPaneFocus('live')
-        return
-      }
       // A re-pin keeps its pane (pinPane moves it), so focus its EXISTING id.
       const already = active?.panes.find((pn) => pn.path.toLowerCase() === path.toLowerCase())
       const paneId = already?.id ?? `pane-${Date.now()}-${(paneSeq.current += 1)}`
@@ -1156,15 +883,15 @@ export default function App(): JSX.Element {
         const tab = s.tabs.find((t) => t.id === s.activeId)
         if (!tab || tab.kind === 'settings') return s
         // A SPLIT STARTS FRESH from a single-item view (owner, 2026-09-03):
-        // fullscreen and a full-view terminal both hide the grid, and a pin
-        // made from there used to bring every old pane back with it. What
-        // you could not see is not what you meant to add to.
-        const base = fullscreen || tab.term?.view === 'full' ? [] : tab.panes
+        // fullscreen hides the grid, and a pin made from there used to bring
+        // every old pane back with it. What you could not see is not what you
+        // meant to add to.
+        const base = fullscreen ? [] : tab.panes
         return { ...s, tabs: setTabPanes(s.tabs, tab.id, pinPane(base, paneId, path, d)) }
       })
       setPaneFocus(paneId) // the freshly pinned file is where the eye went
     },
-    [active, applyTermView, openBrowseSplit, open, pickDock, fullscreen]
+    [active, openBrowseSplit, fullscreen]
   )
   const unpinSplitId = useCallback((paneId: string) => {
     setTabState((s) => {
@@ -1181,30 +908,22 @@ export default function App(): JSX.Element {
       return hit ? { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, hit.id)) } : s
     })
   }, [])
-  // Several shells per tab and the split's panes (hooks/useTermPanes).
-  const {
-    closeTermId,
-    openTermSplit,
-    pickTermId,
-    openNewTerm,
-    splitTermId,
-    closeTerm,
-    closeFilePane,
-    pinTermAsPane,
-    closeTermPane
-  } = useTermPanes({
-    applyTermView,
-    active,
-    termRoots,
-    setTabState,
-    setPaneFocus,
-    termTabAt,
-    paneSeqRef: paneSeq,
-    fullscreen,
-    unpinSplitId,
-    openBrowseFile,
-    open
-  })
+  /** The split's X buttons and the context menu's "Remove from split view".
+   *  Closing ONE window of a split leaves the others standing: with pinned
+   *  panes up, closing the live file promotes the OLDEST pin into the live
+   *  slot. */
+  const closeFilePane = useCallback(() => {
+    const first = active?.panes[0]
+    if (!active || !first) return
+    setTabState((s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeId)
+      if (!tab) return s
+      return { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, first.id)) }
+    })
+    if (isExplorerTab(active)) void openBrowseFile(first.path)
+    else void window.prism.openWithin(active.root, first.path).then((p) => p && open(p))
+    setPaneFocus('live')
+  }, [active, open, openBrowseFile])
 
   /**
    * Split-view pins: "Open in split view" adds the file as a pane beside the
@@ -1238,38 +957,6 @@ export default function App(): JSX.Element {
       )
     })()
   }, [])
-  /** The terminal menu's version: a new tab on the same root, shell in front. */
-  /** A fresh tab rooted at `root`, with its terminal in front. */
-
-  /**
-   * "Open terminal here", on a folder in the tree (2026-08-31).
-   *
-   * An untouched project shell can be replaced at the requested folder.
-   * A touched shell or agent stays alive; the new shell joins the same
-   * project's terminal list. Explorer alone opens a separate project tab.
-   *
-   * The tab's own root does not move: this opens a shell somewhere, it does
-   * not renavigate the window. The sidebar's folder button is the verb for
-   * that, and it is deliberately a different button.
-   */
-  const openTermHere = useCallback((folder: string) => {
-    if (!active || active.kind === 'settings') return
-    if (isExplorerTab(active)) {
-      termTabAt(folder)
-      return
-    }
-    const term = active.term
-    if (term && !isTouched(term.id) && !agentIds.has(term.id) && !agentKinds.current.has(term.id))
-      closeTermId(term.id)
-    const termId = nextTermId()
-    termRoots.current.set(termId, folder)
-    setTabState((s) => ({
-      ...s,
-      tabs: setTabTerm(s.tabs, active.id, { id: termId, view: 'full' })
-    }))
-    setPaneFocus('term')
-  }, [active, agentIds, agentKinds, closeTermId, termTabAt])
-
   const toggleFullscreen = useCallback(() => setFs(!fullscreen), [fullscreen, setFs])
 
   // The visible list: every viewable sibling, in the chosen order, and the
@@ -1298,9 +985,8 @@ export default function App(): JSX.Element {
   )
 
   const file = view?.files[view.index] ?? null
-  const termView = active?.term?.view ?? 'hidden'
   const viewingFile =
-    !!file && !!active && isExplorerTab(active) && !browsing.folder && termView !== 'full'
+    !!file && !!active && isExplorerTab(active) && !browsing.folder
   // THE COLLAPSED PANEL PEEKS (#250): which panel is collapsed and could come
   // out over the content right now. Never over Settings (its rail collapses to
   // glyphs, it does not hide), the first-run setup or fullscreen, and on an
@@ -1475,79 +1161,10 @@ export default function App(): JSX.Element {
         label: location.name,
         group: location.group === 'drive' ? ('This PC' as const) : ('Quick access' as const),
         known: location.known
-      })),
-      ...tabs
-        .filter((tab) => tab.kind !== 'settings' && tab.terms.length > 0)
-        .filter(
-          (tab, index, all) => all.findIndex((other) => sameRoot(other.root, tab.root)) === index
-        )
-        .map((tab) => ({ path: tab.root, label: baseName(tab.root), group: 'Projects' as const }))
+      }))
     ],
-    [browsing.locations, tabs]
+    [browsing.locations]
   )
-  const canChangeTerminalFolder =
-    !!active?.term &&
-    !agentIds.has(active.term.id) &&
-    !agentKinds.current.has(active.term.id) &&
-    idleAtPrompt(active.term.id) &&
-    termCwd.current.has(active.term.id)
-  const terminalBrowseControls = active?.term ? (
-    <div className="browse-terminal-actions">
-      {/* Each carries an icon and its words: the words go when the Explorer
-          is narrow, so the address field keeps the room (review of #268). */}
-      {termView !== 'full' && (
-        <button
-          onClick={openTermFull}
-          aria-label="Return to terminal"
-          title={termFolder(active.term.id)}
-        >
-          <BrowseIcon name="terminal" />
-          <span>Return to terminal</span>
-        </button>
-      )}
-      <button
-        aria-label="Terminal folder"
-        title="Terminal folder"
-        onClick={() => {
-          const path = termFolder(active.term!.id)
-          if (path) void browsing.navigate(path)
-        }}
-      >
-        <BrowseIcon name="folder" />
-        <span>Terminal folder</span>
-      </button>
-      {termView !== 'full' && (
-        <button
-          className="browse-cd"
-          aria-label="Use folder in terminal"
-          disabled={!canChangeTerminalFolder}
-          title={
-            canChangeTerminalFolder
-              ? 'Change the idle terminal to this folder'
-              : 'Available at an idle shell prompt with no agent or typed command'
-          }
-          onClick={() => {
-            const term = active.term
-            if (
-              !term ||
-              agentKinds.current.has(term.id) ||
-              !idleAtPrompt(term.id) ||
-              !termCwd.current.has(term.id)
-            )
-              return
-            window.prism.termCd(term.id, active.browse.path)
-          }}
-        >
-          <BrowseIcon name="cdHere" />
-          <span>Use folder in terminal</span>
-        </button>
-      )}
-    </div>
-  ) : null
-  /** The terminal's own find bar. Lives here because Ctrl+Shift+F is claimed
-   *  in App's key handler, like every other key the shell does not keep. */
-  const [termFind, setTermFind] = useState(false)
-
 
   /* ------------------------------------------------------------------ *
    * Every tab holding media keeps its player, and the strip only decides
@@ -1726,7 +1343,6 @@ export default function App(): JSX.Element {
     settingsOpen,
     fullscreen,
     active,
-    termView,
     browsing,
     viewerDirectory,
     pasteFiles,
@@ -1738,10 +1354,6 @@ export default function App(): JSX.Element {
     setFs,
     redo,
     undo,
-    restoreTermFocus,
-    toggleTerm,
-    setTermFind,
-    openTermFull,
     newTab,
     unpinSplitId,
     closeActiveTab,
@@ -1790,8 +1402,6 @@ export default function App(): JSX.Element {
       e.preventDefault()
       setDragging(false)
       if (setup) return
-      // A drop on the terminal panel types the path there; it is not an open.
-      if ((e.target as HTMLElement | null)?.closest?.('[data-term-panel]')) return
       // Prism's own rows carry paths in the payload, not as files. Dropping
       // one on the viewer means "show me this": a file opens here, a folder
       // becomes this tab's root. Archive members are not on disk, so they
@@ -1848,9 +1458,7 @@ export default function App(): JSX.Element {
   const washed = settingsOpen || setup || !file || file.kind === 'audio'
 
   const many = (view?.files.length ?? 0) > 1
-  // No folder position over a FULL terminal either: it counts a file that
-  // isn't on screen.
-  const pos = many && termView !== 'full' ? `${view!.index + 1} / ${view!.files.length}` : ''
+  const pos = many ? `${view!.index + 1} / ${view!.files.length}` : ''
 
   // What both shapes of the chrome carry (#250): the bar and the tab row draw
   // the same toggle, chip and strip from one place.
@@ -1861,12 +1469,9 @@ export default function App(): JSX.Element {
       : sidebar
   const panelToggle = viewingFile && !settingsOpen ? undefined : togglePanel
   // Only markdown takes the pencil. Code and plain text have no rendered form
-  // to leave, so they are simply editable where they sit. A FULL terminal
-  // hides it: the document is not on screen to edit, the same reason the bar
-  // drops the file's name there.
+  // to leave, so they are simply editable where they sit.
   // A member of an archive is read-only (#300): no pencil.
-  const editable =
-    termView !== 'full' && file?.kind === 'text' && isMarkdown(file.name) && !file.member
+  const editable = file?.kind === 'text' && isMarkdown(file.name) && !file.member
   const chip = (
     <UpdateChip
       info={update.state.info}
@@ -1880,9 +1485,6 @@ export default function App(): JSX.Element {
   const stripProps = {
     tabs,
     activeId,
-    workingIds,
-    doneIds,
-    agentIds,
     onDropFile: openInNewTab,
     onDropIntoTab,
     onReorder: reorderTab,
@@ -1916,9 +1518,6 @@ export default function App(): JSX.Element {
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
   return (
     <div className="prism-desktop flex h-full flex-col text-[var(--p-text)] [font-size:var(--p-size)]">
-      {/* "Copied", at the bottom centre, for every terminal copy (#215): the
-          core's badge, answering the core's copyText. */}
-      <CopiedBadge />
       {/* The fullscreen fade, OUTSIDE the fullscreen element: it covers the
           whole window - sidebar, tabs and title bar included - so everything
           darkens together rather than the picture going first and the chrome
@@ -1932,11 +1531,9 @@ export default function App(): JSX.Element {
       {!fullscreen && (setup || titleBar === 'shown') && (
         <TopBar
           // The tree already names (and highlights) the open file; the bar only
-          // repeats it when the tree isn't there to say it. A FULL terminal
-          // names nothing: the file it would name is not what's on screen.
+          // repeats it when the tree isn't there to say it.
           name={
-            !active || isExplorerTab(active) || settingsOpen || sidebar || termView === 'full'
-              ? '' : (file?.name ?? '')
+            !active || isExplorerTab(active) || settingsOpen || sidebar ? '' : (file?.name ?? '')
           }
           pos={pos}
           settingsOpen={settingsOpen}
@@ -2069,45 +1666,17 @@ export default function App(): JSX.Element {
             root={active.root}
             tabId={active.id}
             onOpenFolder={rerootHere}
-            onToggleTerm={toggleTerm}
-            termOpen={termView !== 'hidden'}
             onPinSplit={pinSplit}
             onUnpinSplit={unpinSplitPath}
             pinnedPaths={active.panes.map((pn) => pn.path)}
             onOpenNewTab={openInNewTab}
             onOpenProject={(path, isFolder) => openAsProject({ path, name: path, isFolder })}
-            onTermHere={openTermHere}
-            onTermSplit={openTermSplit}
-            terms={active.terms.map((id) => ({
-              id,
-              label:
-                termLabel(active, id) +
-                (agentIds.has(id) && agentKinds.current.get(id)
-                  ? ` · ${agentKinds.current.get(id)}`
-                  : ''),
-              current: active.term?.id === id,
-              // On screen now: the current shell while it is showing, or one
-              // pinned as a pane. What the split checklist ticks.
-              shown:
-                (active.term?.id === id && active.term.view !== 'hidden') ||
-                active.panes.some((pn) => pn.term === id)
-            }))}
-            onPickTerm={pickTermId}
-            onNewTerm={openNewTerm}
-            onCloseTermId={closeTermId}
-            onSplitTermId={splitTermId}
-            onCloseTerm={active.term ? closeTerm : null}
             state={active.tree}
             onTree={onTree}
-            reveal={revealReq && revealReq.tabId === active.id ? revealReq : null}
             // The selected row follows what is ON SCREEN: a pinned pane marks
-            // its file, the terminal marks nothing - in a split when it holds
-            // the focus, and in FULL view always, where the viewer is not
-            // showing anything at all - and otherwise the open file.
+            // its file, otherwise the open file.
             currentPath={
-              paneFocus === 'term' || termView === 'full'
-                ? null
-                : (active.panes.find((pn) => pn.id === paneFocus)?.path ?? file?.path ?? null)
+              active.panes.find((pn) => pn.id === paneFocus)?.path ?? file?.path ?? null
             }
             // Only the open file can hold unsaved text, so one flag is enough
             // to mark the one row that needs marking.
@@ -2127,10 +1696,7 @@ export default function App(): JSX.Element {
             wash={washed}
           />
         )}
-        <div
-          className="relative flex min-w-0 min-h-0 flex-1"
-          style={{ flexDirection: dockFlex(dockEdge) }}
-        >
+        <div className="relative flex min-w-0 min-h-0 flex-1 flex-col">
           {browsing.folder && active && browsing.location && !fullscreen && (
             <div className="browse-surface-host absolute inset-0">
               <FolderBrowser
@@ -2185,7 +1751,6 @@ export default function App(): JSX.Element {
                   crumb('sort', { key: sort.key, direction: sort.direction })
                   browsing.patch({ sort, sortChosen: true, scrollTop: 0 })
                 }}
-                onNewTerminal={termTabAt}
                 onCopy={(entry) =>
                   browseArchive
                     ? archiveActions.copy([entry.path], browseArchive, new Set(entry.isFolder ? [entry.path] : []))
@@ -2259,7 +1824,6 @@ export default function App(): JSX.Element {
                 previewEnabled={active.browse.preview}
                 previewVisible={previewSlide.out}
                 onPreviewToggle={togglePreview}
-                terminalControls={terminalBrowseControls}
                 covered={!!ask || update.state.open || settingsOpen || !!setup}
               />
             </div>
@@ -2273,27 +1837,6 @@ export default function App(): JSX.Element {
               edge={explorerSide === 'right' ? 'left' : 'right'}
             />
           )}
-          {!browsing.folder &&
-            active &&
-            isExplorerTab(active) &&
-            termView === 'full' &&
-            !fullscreen && (
-              <div className="browse-return-row">
-                <button onClick={browsing.showFolder} title="Return to folder">
-                  Browse files
-                </button>
-                <span
-                  {...hiddenTitle(
-                    termView === 'full' && active.term ? termFolder(active.term.id) : active.browse.path
-                  )}
-                >
-                  {termView === 'full' && active.term
-                    ? termFolder(active.term.id)
-                    : active.browse.path}
-                </span>
-                {terminalBrowseControls}
-              </div>
-            )}
           <div
             // As the Explorer's PREVIEW the box sits over the folder
             // browser, which already paints the window's ground there: it
@@ -2304,12 +1847,7 @@ export default function App(): JSX.Element {
             className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden ${
               previewSlide.out && !fullscreen ? '' : `bg-[var(--p-bg)] ${washed ? 'p-wash' : ''}`
             } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent-solid)]' : ''} ${
-              // Full view: the terminal takes the whole area, but the viewer
-              // stays MOUNTED so scroll, zoom and playback survive the visit -
-              // the same reason hidden shells stay alive.
-              termView === 'full' || (browsing.folder && !fullscreen && !previewSlide.out)
-                ? 'hidden'
-                : ''
+              browsing.folder && !fullscreen && !previewSlide.out ? 'hidden' : ''
             }`}
             ref={viewerBox}
             data-browse-preview={(previewSlide.out && !fullscreen) || undefined}
@@ -2337,11 +1875,7 @@ export default function App(): JSX.Element {
                 <div
                   key={e.tabId}
                   data-player-tab={e.tabId}
-                  inert={
-                    e.tabId !== activeId ||
-                    (browsing.folder && !showBrowsePreview) ||
-                    termView === 'full'
-                  }
+                  inert={e.tabId !== activeId || (browsing.folder && !showBrowsePreview)}
                   aria-hidden={e.tabId === activeId ? undefined : true}
                   className={
                     e.tabId === activeId
@@ -2398,11 +1932,7 @@ export default function App(): JSX.Element {
                     {warm.map((w) => (
                       <div
                         key={w.tabId}
-                        inert={
-                          w.tabId !== activeId ||
-                          (browsing.folder && !showBrowsePreview) ||
-                          termView === 'full'
-                        }
+                        inert={w.tabId !== activeId || (browsing.folder && !showBrowsePreview)}
                         aria-hidden={w.tabId === activeId ? undefined : true}
                         className={
                           w.tabId === activeId
@@ -2458,14 +1988,8 @@ export default function App(): JSX.Element {
                 ) : (
                   <EmptyState onNewTab={newTab} onOpenFolder={rerootHere} />
                 )
-              // While the terminal is FULL its panes are drawn in the terminal
-              // area, not here: this grid sits hidden behind it, and mounting a
-              // shell's panel twice would attach one xterm to one session twice.
-              const pins = (
+              const pins =
                 browsing.folder || (active && isExplorerTab(active)) ? [] : (active?.panes ?? [])
-              ).filter(
-                (pn) => termView !== 'full' || !pn.term
-              )
               const withPlayers = (
                 <>
                   {players}
@@ -2505,12 +2029,7 @@ export default function App(): JSX.Element {
                       path={pn.path}
                       area={areas.pinned[i]}
                       dir={pn.dir}
-                      term={pn.term}
-                      termRoot={
-                        pn.term ? (termRoots.current.get(pn.term) ?? active?.root ?? '') : undefined
-                      }
-                      shellId={pn.term ? savedShellId() : undefined}
-                      onMove={(d) => (pn.term ? pinTermAsPane(pn.term, d) : pinSplit(pn.path, d))}
+                      onMove={(d) => pinSplit(pn.path, d)}
                       onClose={() => unpinSplitId(pn.id)}
                       viewerProps={{
                         onUndoable: noteUndo,
@@ -2539,77 +2058,7 @@ export default function App(): JSX.Element {
             })()}
             {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
-            {/* The region-level X only when the region IS one window: with the
-              pane grid up, each window carries its own. */}
-            {termView === 'split' && !fullscreen && !active?.panes.length && (
-              <button
-                className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
-                onClick={closeFilePane}
-                title="Remove from split view"
-                aria-label="Remove the file from the split"
-              >
-                <Icon name="close" size={11} weight="2.2" join={false} />
-              </button>
-            )}
           </div>
-          {/* The tab's shell, when it is visible. Only the ACTIVE tab's panel is
-            in the DOM; hidden tabs' sessions stay alive in the store, and
-            coming back reattaches them with scrollback intact. Full view is
-            the terminal's home; split is the dock. Fullscreen is for watching:
-            no terminal, like the rest of the chrome. */}
-          {active?.term &&
-            termView !== 'hidden' &&
-            !fullscreen &&
-            (() => {
-              const dock = (
-                <TermDock
-                  mode={termView}
-                  onClose={closeTermPane}
-                  onKill={closeTerm}
-                  edge={dockEdge}
-                  size={termSizes[dockAxis(dockEdge)]}
-                  onResize={resizeTermPanel}
-                  onDockPick={pickDock}
-                  sessionId={active.term.id}
-                  root={termRoots.current.get(active.term.id) ?? active.root}
-                  shellId={savedShellId()}
-                  find={termFind}
-                  onFind={setTermFind}
-                  // Only while the setting is on: off, the app offers it nowhere.
-                />
-              )
-              // TERMINALS ONLY, in full view (owner, 2026-09-03): the shells
-              // pinned as panes share the terminal's own area with it - the
-              // current one in the live slot - and no file pane is drawn.
-              const termPanes = active.panes.filter((pn) => !!pn.term)
-              if (termView !== 'full' || !termPanes.length) return dock
-              const ta = paneAreas(termPanes)
-              return (
-                <div
-                  className="grid min-h-0 min-w-0 flex-1 gap-px bg-[var(--p-divider)]"
-                  data-workspace-term-grid
-                  style={{ gridTemplateRows: '1fr 1fr', gridTemplateColumns: '1fr 1fr' }}
-                >
-                  <div className="flex min-h-0 min-w-0" style={{ gridArea: ta.live }}>
-                    {dock}
-                  </div>
-                  {termPanes.map((pn, i) => (
-                    <PinnedPaneView
-                      key={pn.id}
-                      paneId={pn.id}
-                      path={pn.path}
-                      area={ta.pinned[i]}
-                      dir={pn.dir}
-                      term={pn.term}
-                      termRoot={termRoots.current.get(pn.term ?? '') ?? active.root}
-                      shellId={savedShellId()}
-                      onMove={(d) => pinTermAsPane(pn.term ?? '', d)}
-                      onClose={() => unpinSplitId(pn.id)}
-                    />
-                  ))}
-                </div>
-              )
-            })()}
         </div>
       </div>
       <Settings
@@ -2679,7 +2128,6 @@ export default function App(): JSX.Element {
               pinned: quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)),
               openFolder: (path) => void browsing.navigate(path),
               openFile: (file) => void browsing.openFile(file),
-              newTerminalAt: (path) => termTabAt(path),
               showInPreview: (path) => {
                 pinSplit(path)
               },

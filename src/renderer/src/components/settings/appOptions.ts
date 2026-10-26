@@ -1,10 +1,9 @@
 /**
  * PRISM'S OWN SETTINGS ROWS, a closed list (2026-10-05, the grouped cards
- * redesign, #292). The terminal's and dictation's rows are prism-term-core's
- * lists; these are the rows about Prism itself: its style, the Explorer, the
- * player, About. The `termOptions` e2e asserts the Terminal and Agents pages
- * show the core's lists and nothing else, and `settingsSearch` opens every
- * row here by its label: a row in neither list is a fork.
+ * redesign, #292). The Diagnostics rows are prism-term-core's list; these are
+ * the rows about Prism itself: its style, the Explorer, the player, About.
+ * `settingsSearch` opens every row here by its label: a row in neither list is
+ * a fork.
  *
  * `section` is where the row is drawn (`APP_SECTIONS`), `view` the Media
  * page's half that holds it, and `store` where the value lives: the
@@ -21,9 +20,6 @@ export type AppPageId =
   | 'appearance'
   | 'explorer'
   | 'project'
-  | 'terminal'
-  | 'agents'
-  | 'dictation'
   | 'media'
   | 'diagnostics'
   | 'about'
@@ -97,7 +93,7 @@ export const APP_OPTIONS: readonly AppOption[] = [
   { id: 'explorer-verb', label: 'Add to the Explorer menu', sub: 'Open files and folders in Prism.', section: 'windows', page: 'explorer', icon: 'menu', keywords: 'context menu right click open with', store: 'windows' },
   { id: 'default-apps', label: 'Default app for file types', sub: 'Windows keeps this choice.', section: 'windows', page: 'explorer', icon: 'filecheck', keywords: 'associations default viewer open with', store: 'windows' },
   { id: 'tree-side', label: 'Sidebar position', sub: 'The side the file tree sits on.', section: 'project', page: 'project', icon: 'sidebar', keywords: 'left right tree panel project', store: ['prism.tree.side'] },
-  { id: 'newtab-show', label: 'First view of a new project', sub: 'What a folder opened as a project shows.', section: 'project', page: 'project', icon: 'project', keywords: 'project terminal browser first file', store: ['prism.newtab.show'] },
+  { id: 'newtab-show', label: 'First view of a new project', sub: 'What a folder opened as a project shows.', section: 'project', page: 'project', icon: 'project', keywords: 'project browser first file', store: ['prism.newtab.show'] },
   { id: 'viz-style', label: 'Visualizer style', sub: '', section: 'viz-style', page: 'media', view: 'visualizer', icon: 'media', keywords: 'music audio shape bars halo preset', store: ['prism.viz.style', 'prism.viz.presets'] },
   { id: 'viz-colour', label: 'Visualizer colour', sub: '', section: 'viz-colour', page: 'media', view: 'visualizer', icon: 'droplet', keywords: 'color solid gradient palette', store: ['prism.viz.theme'] },
   { id: 'viz-glow', label: 'Glow', sub: 'A soft glow around the shapes.', section: 'viz-colour', page: 'media', view: 'visualizer', icon: 'glow', keywords: 'visualizer effect shine', store: ['prism.viz.glow'] },

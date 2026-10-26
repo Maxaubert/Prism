@@ -1,7 +1,7 @@
 import { useEffect, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import type { ViewerFile } from '@shared/types'
 import { isTypingTarget } from '../lib/focusGuards'
-import { isExplorerTab, type Tab, type TermView } from '../lib/tabs/tabs'
+import { isExplorerTab, type Tab } from '../lib/tabs/tabs'
 import { copyFilePaths } from '../lib/fileClipboard'
 import { browseParent } from '../lib/browse'
 import type { useFolderBrowsing } from './useFolderBrowsing'
@@ -29,7 +29,6 @@ export interface AppKeysDeps {
   settingsOpen: boolean
   fullscreen: boolean
   active: Tab | null
-  termView: TermView
   browsing: ReturnType<typeof useFolderBrowsing>
   viewerDirectory: string | undefined
   pasteFiles: (directory: string) => Promise<void>
@@ -41,10 +40,6 @@ export interface AppKeysDeps {
   setFs: (on: boolean) => void
   redo: () => void
   undo: () => void
-  restoreTermFocus: (id?: string | undefined) => void
-  toggleTerm: () => void
-  setTermFind: Dispatch<SetStateAction<boolean>>
-  openTermFull: () => void
   newTab: () => void
   unpinSplitId: (paneId: string) => void
   closeActiveTab: () => void
@@ -61,7 +56,6 @@ export function useAppKeys({
   settingsOpen,
   fullscreen,
   active,
-  termView,
   browsing,
   viewerDirectory,
   pasteFiles,
@@ -73,10 +67,6 @@ export function useAppKeys({
   setFs,
   redo,
   undo,
-  restoreTermFocus,
-  toggleTerm,
-  setTermFind,
-  openTermFull,
   newTab,
   unpinSplitId,
   closeActiveTab,
@@ -108,14 +98,6 @@ export function useAppKeys({
       // nothing. Ctrl+Z (a file move undone behind a scrim), Ctrl+T and the
       // vertical keys are behind the same shield for the same reason.
       const typing = isTypingTarget(el)
-      // A focused terminal is typing too (xterm's hidden textarea), but the
-      // tab-management hotkeys (Ctrl+T/W/Tab/digits) and Ctrl+B (sidebar)
-      // still belong to Prism there, by request - which does cost the shell
-      // Ctrl+W (delete-word) and Ctrl+B (vim page-up, tmux's prefix). The
-      // keys shells truly live on - Ctrl+C, Ctrl+D (EOF), Ctrl+S (XOFF),
-      // Escape, the arrows - stay the shell's; only the search box, a rename
-      // and the text editor keep the full typing shield.
-      const inTerm = !!el && !!el.closest('.xterm')
       // THE EXPLORER'S SEARCH POPUP (#267) owns every key while it is up: it
       // is drawn outside the Explorer (over the whole window), and a chord
       // that reached the app behind it would change what is under it.
@@ -147,10 +129,8 @@ export function useAppKeys({
         const explorerFileFocus =
           active &&
           isExplorerTab(active) &&
-          termView !== 'full' &&
           (!browsing.folder || !!el?.closest('[data-workspace-viewer]')) &&
           !typing &&
-          !inTerm &&
           !el?.closest(
             '.cm-editor,[role="dialog"],[role="menu"],[role="separator"],.browse-viewer-places'
           ) &&
@@ -190,7 +170,6 @@ export function useAppKeys({
         if (
           viewingFile &&
           !typing &&
-          !inTerm &&
           e.key === 'Backspace' &&
           !e.ctrlKey &&
           !e.altKey &&
@@ -205,7 +184,7 @@ export function useAppKeys({
           returnToFolder()
           return
         }
-        if (viewingFile && !inTerm && e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
+        if (viewingFile && e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
           e.preventDefault()
           e.stopPropagation()
           document
@@ -225,7 +204,6 @@ export function useAppKeys({
         active &&
         isExplorerTab(active) &&
         e.altKey &&
-        !inTerm &&
         !typing &&
         !el?.closest('[data-project-sidebar]') &&
         ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)
@@ -242,7 +220,7 @@ export function useAppKeys({
       } else if (e.key === 'F11') {
         e.preventDefault()
         setFs(!fullscreen)
-      } else if (e.ctrlKey && !typing && !inTerm && !fullscreen && /^[zy]$/i.test(e.key)) {
+      } else if (e.ctrlKey && !typing && !fullscreen && /^[zy]$/i.test(e.key)) {
         // Ctrl+Z / Ctrl+Y (and Ctrl+Shift+Z) undo Prism's OWN writes. Behind
         // the typing guard, so the text editor and the shell keep their own -
         // and behind FULLSCREEN (2026-08-28), where the tree and its verbs are
@@ -251,52 +229,17 @@ export function useAppKeys({
         e.preventDefault()
         if (e.key.toLowerCase() === 'y' || e.shiftKey) redo()
         else undo()
-      } else if (e.key === '`' && e.ctrlKey) {
-        // NOT behind the typing guard: one of the few keys Prism claims over
-        // a focused terminal (F11 and Ctrl+Shift+T are the others).
-        // Everything else, Escape and Ctrl+W included, belongs to the shell.
-        //
-        // Three-way, VS Code's rule (2026-08-31): a terminal that is SHOWING
-        // but does not have the keyboard gets the keyboard, and only a second
-        // press - from inside it - hides it. The old two-way toggle meant
-        // that reaching for the shell you could already see put it away, so
-        // you pressed it twice and got a scroll position you had not asked
-        // for. `toggleTermView` itself is unchanged, and still tested.
-        e.preventDefault()
-        // Over the help popup (#175) the key means what it says, "the terminal":
-        // the popup goes and the shell has the keyboard. Handing the shell the
-        // focus with the popup still up is the failure the core warns about,
-        // a question typed "into the search field" landing in the shell.
-        if (termView !== 'hidden' && !inTerm) restoreTermFocus()
-        else toggleTerm()
-      } else if (
-        (e.code === 'KeyF' || e.key === 'f' || e.key === 'F') &&
-        e.ctrlKey &&
-        e.shiftKey &&
-        termView !== 'hidden'
-      ) {
-        // Claimed over a focused shell too (xterm's own handler returns false
-        // for it, or the pty would get the bytes as well). Only while a
-        // terminal is showing: Ctrl+Shift+F means nothing otherwise, and
-        // swallowing it everywhere would be chrome pretending to be a feature.
-        e.preventDefault()
-        setTermFind(true)
-      } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && e.shiftKey) {
-        // Also claimed while the shell is focused: it never hides, it only
-        // brings the terminal to full view, so it cannot eat typed text.
-        e.preventDefault()
-        openTermFull()
       } else if (
         (e.code === 'KeyT' || e.key === 't' || e.key === 'T') &&
         e.ctrlKey &&
-        (!typing || inTerm)
+        !typing
       ) {
         e.preventDefault()
         newTab()
       } else if (
         (e.code === 'KeyW' || e.key === 'w' || e.key === 'W') &&
         e.ctrlKey &&
-        (!typing || inTerm)
+        !typing
       ) {
         // Close the innermost thing first: split panes pop LIFO (tabs within
         // the tab), and only with none left does Ctrl+W reach the tab itself.
@@ -309,16 +252,16 @@ export function useAppKeys({
         } else {
           closeActiveTab()
         }
-      } else if (e.key === 'Tab' && e.ctrlKey && (!typing || inTerm)) {
+      } else if (e.key === 'Tab' && e.ctrlKey && !typing) {
         e.preventDefault()
         stepTab(e.shiftKey ? -1 : 1)
-      } else if (e.ctrlKey && (!typing || inTerm) && /^[1-9]$/.test(e.key)) {
+      } else if (e.ctrlKey && !typing && /^[1-9]$/.test(e.key)) {
         e.preventDefault()
         jumpTab(Number(e.key))
       } else if (
         (e.code === 'KeyB' || e.key === 'b' || e.key === 'B') &&
         e.ctrlKey &&
-        (!typing || inTerm)
+        !typing
       ) {
         e.preventDefault()
         togglePanel()
@@ -341,7 +284,7 @@ export function useAppKeys({
         }
         // ESCAPE DOES NOT CLOSE THE WINDOW (owner, 2026-09-01). It used to,
         // which is the image-viewer habit and wrong for this one: Prism is
-        // RESIDENT and holds tabs, a terminal and unsaved text, and a reflex
+        // RESIDENT and holds tabs and unsaved text, and a reflex
         // keystroke that puts all of that away is the same failure the close
         // flow exists to prevent - the more so because Escape is the key you
         // press to back out of things, not to leave.
@@ -351,12 +294,12 @@ export function useAppKeys({
         // of, it does nothing at all. Ctrl+W closes a tab; the X closes the
         // window.
         if (fullscreen) setFs(false)
-      } else if ((e.key === 'PageDown' || e.key === 'PageUp') && !typing && termView !== 'full') {
+      } else if ((e.key === 'PageDown' || e.key === 'PageUp') && !typing) {
         // Same rule as the arrows: the document has these only once it has
         // been focused. Reading a pdf from the sidebar should page the folder.
         if (docFocused()) return
         go(e.key === 'PageDown' ? 1 : -1)
-      } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing && termView !== 'full') {
+      } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing) {
         // FOCUS decides, for every kind. A document owns the vertical keys only
         // while it is focused - click into it, or Tab to it. Until then it has
         // no more claim on them than a photo does, so arrowing through a folder
@@ -413,21 +356,16 @@ export function useAppKeys({
     hasNavigated,
     jumpTab,
     newTab,
-    openTermFull,
     redo,
-    restoreTermFocus,
     settingsOpen,
     setup,
     stepTab,
-    termView,
     togglePanel,
-    toggleTerm,
     undo,
     unpinSplitId,
     setAsk,
     setBrowseRename,
     setFs,
-    setTermFind,
     treeNav
   ])
 }

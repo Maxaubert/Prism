@@ -10,8 +10,6 @@ import {
   updateBrowseLocation
 } from '../browse'
 
-export type TermView = 'hidden' | 'full' | 'split'
-
 /**
  * The tab list, as pure data.
  *
@@ -39,30 +37,21 @@ export interface Tab {
    *  flipped to and from like anything else. Not persisted, never confirmed
    *  on close, owns no root. */
   kind?: 'settings'
-  /** Browsing is separate from a project with a tree and terminal ownership.
+  /** Browsing is separate from a project with a tree.
    * Missing roles are legacy project tabs. */
   role?: 'explorer' | 'project'
   /** Only the permanent Explorer may be pinned in the strip. */
   pinned?: boolean
   /** Stable project/tree and phone-share root. Desktop browsing has its own grants. */
   root: string
-  /** Folder browsing is independent of the project tree, live shells and current viewer. */
+  /** Folder browsing is independent of the project tree and current viewer. */
   browse: SavedBrowse
   /** The root folder's viewable files, as main listed them. */
   files: ViewerFile[]
   /** Which of `files` is on screen. -1 when the folder holds nothing viewable. */
   index: number
   tree: TreeState
-  /** The tab's CURRENT shell - the most recently used one - if any was ever
-   *  opened. `view` is only visibility - a hidden terminal keeps running.
-   *  `full` replaces the viewer; `split` shares with it (the dock). Null
-   *  until the first open. */
-  term: { id: string; view: TermView } | null
-  /** EVERY shell the tab holds, in the order opened (2026-09-03, owner: a tab
-   *  can have several terminals). `term.id` is always one of these; the
-   *  others run on, hidden, until picked or pinned as a pane. */
-  terms: string[]
-  /** Split-view pins: up to three fixed files (or terminals) beside the live pane. */
+  /** Split-view pins: up to three fixed files beside the live pane. */
   panes: PinnedPane[]
 }
 
@@ -131,9 +120,7 @@ export function newTab(p: OpenPayload, id: string): Tab {
     // A restored tab comes back with its folders open, and ANY tab opens the
     // folders leading to the file it is showing, so the sidebar can mark it.
     tree: restoredTree(p.root, p.open, p.files[p.index]?.path),
-    term: null,
-    terms: [],
-    panes: p.panes?.filter((pane) => pane.termSlot === undefined) ?? []
+    panes: p.panes ?? []
   }
 }
 
@@ -181,7 +168,7 @@ export function ensurePinnedExplorer(tabs: readonly Tab[], p: OpenPayload, id: s
 
 /**
  * A file from outside is on its way to the pinned Explorer (2026-09-22): bring
- * it to the front with its terminal stepped aside, and, for the Preview mode,
+ * it to the front and, for the Preview mode,
  * the preview pane on - that is what the setting asked for, whatever the pane
  * was left as. Null when there is no pinned Explorer to bring.
  */
@@ -194,8 +181,7 @@ export function frontPinnedExplorer(tabs: readonly Tab[], preview: boolean): Tab
       tab === pinned
         ? {
             ...tab,
-            browse: preview ? { ...tab.browse, preview: true } : tab.browse,
-            term: tab.term ? { ...tab.term, view: 'hidden' } : null
+            browse: preview ? { ...tab.browse, preview: true } : tab.browse
           }
         : tab
     )
@@ -213,8 +199,7 @@ export function navigateBrowse(tabs: readonly Tab[], tabId: string, path: string
     tab.id === tabId && tab.kind !== 'settings'
       ? leaveShown(tab, {
           ...tab,
-          browse: navigateBrowseState(tab.browse, path, shownFile(tab)),
-          term: hideTerm(tab.term)
+          browse: navigateBrowseState(tab.browse, path, shownFile(tab))
         })
       : tab
   )
@@ -224,7 +209,7 @@ export function travelBrowse(tabs: readonly Tab[], tabId: string, delta: number)
   return tabs.map((tab) => {
     if (tab.id !== tabId || tab.kind === 'settings') return tab
     const browse = travelBrowseState(tab.browse, delta, shownFile(tab))
-    return browse === tab.browse ? tab : leaveShown(tab, { ...tab, browse, term: hideTerm(tab.term) })
+    return browse === tab.browse ? tab : leaveShown(tab, { ...tab, browse })
   })
 }
 
@@ -267,10 +252,6 @@ function shownFile(tab: Tab): string | null {
   const file = tab.index >= 0 ? tab.files[tab.index] : undefined
   if (!file) return null
   return tab.browse.surface === 'viewer' || tab.browse.preview ? file.path : null
-}
-
-function hideTerm(term: Tab['term']): Tab['term'] {
-  return term && term.view !== 'hidden' ? { ...term, view: 'hidden' } : term
 }
 
 export function setBrowseLocation(
@@ -351,9 +332,7 @@ export function setBrowseSurface(
   surface: SavedBrowse['surface']
 ): Tab[] {
   return tabs.map((tab) =>
-    tab.id === tabId
-      ? { ...tab, browse: { ...tab.browse, surface }, term: hideTerm(tab.term) }
-      : tab
+    tab.id === tabId ? { ...tab, browse: { ...tab.browse, surface } } : tab
   )
 }
 
@@ -364,82 +343,6 @@ export function setBrowsePreview(tabs: readonly Tab[], tabId: string, preview: b
       ? { ...tab, browse: withHeld({ ...tab.browse, preview }, preview && !!tab.browse.previewHeld) }
       : tab
   )
-}
-
-/**
- * The visibility transitions, pure so they can be tested:
- *   - toggle (`Ctrl+\``, the sidebar button): anything visible hides; hidden
- *     or absent opens FULL. Full view is the terminal's home; split is the
- *     deliberate arrangement.
- *   - split (`Ctrl+D`, the context menu): a file on screen gains the terminal
- *     beside it; already split folds back to the file alone.
- * `wantTerm` returns what the tab's term should become; the caller supplies
- * the id for a shell that does not exist yet.
- */
-export function toggleTermView(
-  term: { id: string; view: TermView } | null,
-  newId: string
-): { id: string; view: TermView } {
-  if (!term) return { id: newId, view: 'full' }
-  return { ...term, view: term.view === 'hidden' ? 'full' : 'hidden' }
-}
-
-export function splitTermView(
-  term: { id: string; view: TermView } | null,
-  newId: string
-): { id: string; view: TermView } {
-  if (!term) return { id: newId, view: 'split' }
-  return { ...term, view: term.view === 'split' ? 'hidden' : 'split' }
-}
-
-/** Write one tab's CURRENT terminal; every other tab is untouched. A shell
- *  id the tab has not seen joins its list, so every path that mints a fresh
- *  id (toggle, split, restore, reroot) keeps the list honest by construction. */
-export function setTabTerm(tabs: readonly Tab[], tabId: string, term: Tab['term']): Tab[] {
-  return tabs.map((t) => {
-    if (t.id !== tabId) return t
-    const terms = term && !t.terms.includes(term.id) ? [...t.terms, term.id] : t.terms
-    return { ...t, term, terms }
-  })
-}
-
-/**
- * The tab's terminals as a LIST (2026-09-03, owner). `term` stays the current
- * one - the most recently used, which is what the button's left click opens -
- * so everything written against "the tab's terminal" keeps meaning that.
- */
-
-/** A fresh shell joins the list and becomes current, shown `view`. */
-export function addTerm(tabs: readonly Tab[], tabId: string, id: string, view: TermView): Tab[] {
-  return setTabTerm(tabs, tabId, { id, view })
-}
-
-/** Pick an existing shell: it becomes current, wearing the view the current
- *  one had (or full when nothing was showing). Unknown ids are ignored. */
-export function pickTerm(tabs: readonly Tab[], tabId: string, id: string): Tab[] {
-  return tabs.map((t) => {
-    if (t.id !== tabId || !t.terms.includes(id)) return t
-    const view = t.term && t.term.view !== 'hidden' ? t.term.view : 'full'
-    return { ...t, term: { id, view } }
-  })
-}
-
-/** A shell is gone. If it was current, the most recently opened survivor
- *  takes over with the same view; the last one out leaves null. */
-export function removeTerm(tabs: readonly Tab[], tabId: string, id: string): Tab[] {
-  return tabs.map((t) => {
-    if (t.id !== tabId) return t
-    const terms = t.terms.filter((x) => x !== id)
-    if (t.term?.id !== id) return { ...t, terms }
-    const heir = terms[terms.length - 1]
-    return { ...t, terms, term: heir ? { id: heir, view: t.term.view } : null }
-  })
-}
-
-/** "Terminal 1", "Terminal 2"... by the order opened; the label the menus use. */
-export function termLabel(tab: Pick<Tab, 'terms'>, id: string): string {
-  const i = tab.terms.indexOf(id)
-  return `Terminal ${i < 0 ? '?' : i + 1}`
 }
 
 /** Open the Settings tab: activate the existing one, or add it at the end. */
@@ -454,8 +357,6 @@ export function openSettingsTab(tabs: readonly Tab[], id: string): TabState {
     files: [],
     index: -1,
     tree: emptyTree(''),
-    term: null,
-    terms: [],
     panes: []
   }
   return { tabs: [...tabs, tab], activeId: id }
@@ -591,10 +492,8 @@ export function rerootTab(
   if (i < 0) return receiveFile(tabs, p, newId)
   if (isExplorerTab(tabs[i])) return addTab(tabs, { ...p, role: 'project', pinned: false }, newId)
   const next = tabs.slice()
-  // The shell survives the move: killing a dev server because the tree changed
-  // folders would be worse. Its cwd is visibly the old one; exit + reopen gets
-  // the new root. Everything else (files, index, tree) starts fresh.
-  next[i] = { ...newTab(p, tabs[i].id), term: tabs[i].term, terms: tabs[i].terms }
+  // Files, index and tree start fresh.
+  next[i] = newTab(p, tabs[i].id)
   return { tabs: next, activeId: tabs[i].id }
 }
 
@@ -650,7 +549,7 @@ export function reorderTabs(tabs: readonly Tab[], id: string, toIndex: number): 
 }
 
 export function tabLabels(tabs: readonly Tab[]): string[] {
-  const paths = tabs.map((t) => (t.role === 'project' || t.terms.length || t.term ? t.root : t.browse.path))
+  const paths = tabs.map((t) => (t.role === 'project' ? t.root : t.browse.path))
   const bases = tabs.map((t, i) => (t.kind === 'settings' ? 'Settings' : baseOf(paths[i])))
   // A collision means one basename over DIFFERENT roots. Two tabs on the very
   // same folder (the + allows that) have nothing to tell apart, so they keep

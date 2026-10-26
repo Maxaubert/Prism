@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AskDialogs, type AskAnswers } from './AskDialogs'
 import type { Ask } from './asks'
-import { CloseAgentDialog } from './CloseAgentDialog'
 import { DeleteDialog } from './DeleteDialog'
 import { NoticeDialog } from './NoticeDialog'
 import { UnsavedDialog } from './UnsavedDialog'
@@ -63,24 +62,6 @@ describe('AskDialogs', () => {
     expect(a.discardAll).toHaveBeenCalled()
     expect(a.dismiss).toHaveBeenCalled()
     expect(a.leave).toHaveBeenCalledWith('install')
-  })
-
-  it('the agent question picks its target and its action', () => {
-    const a = answers()
-    const agent = { kind: 'claude', forMs: null } as const
-    const tab = draw({ kind: 'close-tab-confirm', id: 't1', label: 'x', agent }, 'under', a)
-    expect(tab?.type).toBe(CloseAgentDialog)
-    expect(tab?.props.target).toBe('tab')
-    tab?.props.onClose?.()
-    expect(a.forceCloseTab).toHaveBeenCalledWith('t1')
-    const inst = draw(
-      { kind: 'close-window-agent', label: 'x', agent, others: 0, then: 'install' },
-      'under',
-      a
-    )
-    expect(inst?.props.target).toBe('install')
-    inst?.props.onClose?.()
-    expect(a.runInstall).toHaveBeenCalled()
   })
 
   it('a changed file answers the reload and clears the ask', () => {
