@@ -3,8 +3,8 @@
  * numbers were spread over a dozen files, so the order could only be read by
  * collecting them). Whole Tailwind classes, so the build sees each one.
  *
- * - panel: what lies over the terminal and the page (the find bar, the
- *   dictation pill, the tab sidebar).
+ * - panel: what lies over the page (the find bar, the tab
+ *   strip's overlays).
  * - pop: a small popup anchored to a control (a dropdown, the update chip's tip).
  * - menu: a right-click menu, over every panel and popup.
  * - picker: the colour picker opened outside any dialog, just under a dialog.
