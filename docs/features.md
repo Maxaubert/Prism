@@ -76,6 +76,15 @@ changing a feature: each entry records what the owner decided, why, and what hol
   Every one is converted AND SANITISED IN MAIN against an allowlist before it reaches the
   renderer - no script, no handlers, no iframe/form, images only as the converter's own data:
   URIs, and no links at all, because the window it lands in can reach `window.prism`.
+  **A SPREADSHEET IS A GRID, NOT A PAGE** (owner report, 2026-10-26, #437): a 10-column report
+  ran off the paper onto the dark canvas (dark ink on near-black) and wrapped every cell word by
+  word. A workbook now drops the paper and draws what Excel shows (`src/main/sheetHtml.ts`):
+  column letters and row numbers pinned while scrolling, the file's own column widths
+  (characters x 7 + 5 px), one line per row, text running on over EMPTY neighbours and clipped
+  by full ones, numbers and dates right-aligned, solid fills (light ink on a dark one), merges,
+  hidden rows and columns skipped, capped at 5000 rows x 200 columns with a note. Widths and
+  fills travel as `<col width>` / `<td bgcolor>` held to a pattern by the sanitiser, never as a
+  style. Held by `sheetHtml.test.ts`.
 - **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,
   zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). The zoom baseline is rebased
   (2026-08-12): 1.9 pdf.js units is the default and the pill calls it 100%. Markdown renders formatted
