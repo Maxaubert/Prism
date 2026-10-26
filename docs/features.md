@@ -923,7 +923,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   marked, from the core's read-only `termContextAt`, both copied exactly through main. Close
   terminal STAYS here (it was Prism Terminal's Close TAB the owner removed). Backspace over a
   selection on the line being edited deletes it, the core's since core-v0.11.0. The
-  `termMenuCopy` scenario proves both in a real pwsh and is in `e2e:terminal`.
+  `termMenuCopy` scenario proved both in a real pwsh (removed with the terminal, 2026-10-26).
   Ctrl+A (2026-08-25) marks everything in whichever surface you last pressed in:
   every row the TREE is showing (expanded folders included, never what is
   collapsed and invisible), or every member of the archive folder you are in.
@@ -2395,7 +2395,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
     the page wear too), and `Dialog`'s key listener re-registered on every render, which
     Prism Terminal MEASURED losing an Escape about one run in five; it registers once and
     reads the latest `onCancel` from a ref.
-  `updateWindow`, `updateGuard` and `updateQuiet` are in `npm run e2e:terminal`, runner-safe
+  `updateWindow`, `updateGuard` and `updateQuiet` are in `npm run e2e:ui`, runner-safe
   (the agent is a shell speaking through its title, and the poll's first answer is WAITED for,
   not slept for: it arrives seconds after a spawn and takes a titled session's state with it).
 - **One icon per kind** (2026-08-30, #74): the ProgIDs used to point `DefaultIcon` at

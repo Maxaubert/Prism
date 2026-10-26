@@ -214,7 +214,7 @@ const wall = createPathWall({
   memberOwns: (p) => memberTemp.owns(p),
   rendererDir: RENDERER_DIR
 })
-const { readable, editable, movable, archiveOk, archiveReadOk, comicOk, insideWall } = wall
+const { readable, editable, movable, archiveOk, archiveReadOk, comicOk } = wall
 
 /** fsmedia:// (mediaProtocol.ts), walled by `mediaAllowed`. */
 const serveMedia = createMediaServer({ allowed: wall.mediaAllowed, ffmpeg: ffmpegTools, heic: heicToJpeg })
@@ -1006,7 +1006,6 @@ const ctx = {
   archiveOk,
   archiveReadOk,
   comicOk,
-  insideWall,
   // Places inside archives, their passwords, and where members are unpacked.
   archives,
   archivePasswords,
