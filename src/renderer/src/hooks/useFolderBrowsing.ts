@@ -110,7 +110,7 @@ function rememberCached(path: string): BrowseDirectory | null {
   return hit && !hit.listing.unreadable ? visitedDirectories.remember(hit) : null
 }
 
-/** Folder navigation owns only the browse cursor. It never reroots a session or writes to a shell. */
+/** Folder navigation owns only the browse cursor. It never reroots a session. */
 export function useFolderBrowsing(
   active: Tab | null,
   setState: Dispatch<SetStateAction<TabState>>,
@@ -178,8 +178,7 @@ export function useFolderBrowsing(
   const folder =
     !!active &&
     isExplorerTab(active) &&
-    active.browse.surface === 'folder' &&
-    (!active.term || active.term.view === 'hidden')
+    active.browse.surface === 'folder'
   // DOWNLOADS (#285): the Known Folder shows its own sort, newest first,
   // until one is picked there (lib/downloadsView.ts).
   const downloads = isDownloads(path, downloadsPath(locations))
@@ -527,8 +526,7 @@ export function useFolderBrowsing(
                 browse: {
                   ...t.browse,
                   surface: full ? 'viewer' : 'folder'
-                },
-                term: t.term ? { ...t.term, view: 'hidden' } : null
+                }
               }
             : t
         )

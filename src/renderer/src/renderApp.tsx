@@ -1,7 +1,3 @@
-// The terminal core asks its host who it is. FIRST, because imports are
-// evaluated in order and before this file's own body, and App's module graph
-// (theme.ts paints at import time) must find a host already there.
-import './termHost'
 import './lib/windowPreferences'
 import './lib/e2eClipboard'
 import { StrictMode } from 'react'

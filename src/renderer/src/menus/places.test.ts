@@ -27,7 +27,6 @@ const build = (over: Partial<PlacesMenuContext> = {}): ReturnType<typeof placesM
     index: 1,
     onChoose: vi.fn(),
     onNavigate: vi.fn(),
-    onNewTerminal: vi.fn(),
     onQuickAccessFile: vi.fn(),
     onOpenNewTab: vi.fn(),
     onOpenProject: vi.fn(),
@@ -49,7 +48,6 @@ describe('placesMenu', () => {
       'Open',
       'Open in new tab',
       'Open as project',
-      'New terminal here',
       'Copy path',
       ...PIN_ROWS,
       'Show in File Explorer',
@@ -57,7 +55,7 @@ describe('placesMenu', () => {
     ])
     expect(disabled(build())).toEqual([])
   })
-  it('a pinned FILE has no terminal row, and Open opens the file', () => {
+  it('a pinned FILE opens the file', () => {
     const onQuickAccessFile = vi.fn()
     const onNavigate = vi.fn()
     const file = { path: 'C:\\b.txt', label: 'b.txt', isFolder: false }
@@ -81,7 +79,6 @@ describe('placesMenu', () => {
       'Open',
       'Open in new tab',
       'Open as project',
-      'New terminal here',
       'Copy path',
       'Pin to Quick access',
       'Show in File Explorer',

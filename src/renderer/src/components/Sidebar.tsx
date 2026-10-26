@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -21,7 +20,6 @@ import { sortFiles, useSort } from '../lib/prefs/sortPrefs'
 import { useTreeSide, useTreeSize } from '../lib/prefs/treePrefs'
 import { ContextMenu } from './ContextMenu'
 import { treeDeadSpaceMenu, treeMarkedMenu, treeRowMenu } from '../menus/treeRow'
-import { terminalButtonMenu } from '../menus/terminalButton'
 import { NoticeDialog } from '../dialogs/NoticeDialog'
 import { DEFAULT_W, MAX_W, MIN_W, usePanelResize } from './sidebar/usePanelResize'
 import { useTreeKeys } from './sidebar/useTreeKeys'
@@ -45,7 +43,6 @@ import { useSweep } from '../hooks/useSweep'
 import { setDrag, type DragPayload } from '../lib/drag/dragDrop'
 import { inField, isTypingTarget } from '../lib/focusGuards'
 import { Icon } from './icons/Icon'
-import { PATHS } from './icons/paths'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
 // first time a folder is opened and are cached after that; main refuses anything
@@ -68,40 +65,6 @@ const SEARCH_HELP = [
 
 /** Focus a tree row once it is drawn, for up to 40 frames, and only while
  *  nothing else holds the keyboard (review of #330, after a rename). */
-/** The terminal button's prompt. Open, it sits cut out of a SOLID tile, the
- *  way the preview's column fills: a pressed toggle is never tinted the
- *  accent (owner, 2026-10-12: "filled in like the preview button"). */
-function TermGlyph({ open }: { open: boolean }): JSX.Element {
-  const mask = useId()
-  const prompt = PATHS.prompt
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={18}
-      height={18}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.1"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      data-toggle-glyph={open ? 'on' : 'off'}
-    >
-      {open ? (
-        <>
-          <mask id={mask}>
-            <rect width="24" height="24" fill="white" stroke="none" />
-            <path d={prompt} stroke="black" />
-          </mask>
-          <rect x="2.5" y="3.5" width="19" height="17" rx="3" fill="currentColor" stroke="none" mask={`url(#${mask})`} />
-        </>
-      ) : (
-        <path d={prompt} />
-      )}
-    </svg>
-  )
-}
-
 function focusRowIn(box: HTMLElement | null, path: string, tries = 40): void {
   const a = document.activeElement
   if (a && a !== document.body) return
@@ -131,24 +94,13 @@ export function Sidebar({
   onNav,
   wash,
   onOpenFolder,
-  onToggleTerm,
-  termOpen,
   onPinSplit,
   onUnpinSplit,
   pinnedPaths,
   onOpenNewTab,
   onOpenProject,
-  onTermHere,
-  onTermSplit,
-  onCloseTerm,
-  terms,
-  onPickTerm,
-  onNewTerm,
-  onCloseTermId,
-  onSplitTermId,
   state,
   onTree,
-  reveal = null
 }: {
   open: boolean
   /** Mid-slide after an open or close (App's `panelSliding`): only then does the
@@ -205,9 +157,6 @@ export function Sidebar({
    *  with sort and filter: those narrow what you are looking at, this changes
    *  it, and they do not belong in one cluster. */
   onOpenFolder: () => void
-  /** Toggle this tab's terminal (full view). Lives in the footer row. */
-  onToggleTerm: () => void
-  termOpen: boolean
   /** Pin a file as a split pane; no direction means the remembered one. */
   onPinSplit: (path: string, dir?: SplitDir) => void
   onUnpinSplit: (path: string) => void
@@ -217,28 +166,9 @@ export function Sidebar({
   onOpenNewTab: (path: string) => void
   /** A new project at this folder, or at a file's parent with that file open. */
   onOpenProject: (path: string, isFolder: boolean) => void
-  /** The terminal button menu's "Open in new tab". */
-  /** A folder row's "Open terminal here": a shell spawned in that folder. */
-  onTermHere: (folder: string) => void
-  /** The terminal button's own right-click menu. */
-  onTermSplit: () => void
-  /** The tab's shells (2026-09-03): the button's menu lists them when there
-   *  are several - pick one, split one, close one. */
-  terms: Array<{ id: string; label: string; current: boolean; shown: boolean }>
-  onPickTerm: (id: string) => void
-  onNewTerm: () => void
-  onCloseTermId: (id: string) => void
-  onSplitTermId: (id: string) => void
-  /** Null while no shell exists: there is nothing to clear yet. */
-  /** Kill the shell for good; null when there is none. */
-  onCloseTerm: (() => void) | null
   /** The tree's expanded folders and loaded children. Owned by the tab. */
   state: TreeState
   onTree: (update: (s: TreeState) => TreeState) => void
-  /** A folder the shell has walked into (#99): expand to it and put the
-   *  cursor on it, the way clicking it would. `seq` makes the same folder
-   *  twice two requests. */
-  reveal?: { path: string; seq: number } | null
 }): JSX.Element {
   // The tree's state belongs to the TAB, not to this component. Owned here it
   // reset on every tab switch, which made a tab feel like a reload rather than
@@ -277,9 +207,6 @@ export function Sidebar({
     []
   )
   const [props, setProps] = useState<Omit<Menu, 'x' | 'y' | 'apps'> | null>(null)
-  // The terminal button's right-click menu: its own tiny state, since the file
-  // menu carries a path and this one is about the tab's shell.
-  const [termMenu, setTermMenu] = useState<{ x: number; y: number } | null>(null)
   const panel = useRef<HTMLElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   // The file the tree has already been positioned for. Scrolling away by hand
@@ -884,7 +811,7 @@ export function Sidebar({
       if (!hasFocus.current || !order.length) return
       const el = e.target as HTMLElement | null
       if (isTypingTarget(el)) return
-      if (el?.closest('.xterm,.browse-list')) return
+      if (el?.closest('.browse-list')) return
       e.preventDefault()
       setSel({ anchor: order[0], items: new Set(order) })
     }
@@ -1090,26 +1017,6 @@ export function Sidebar({
     [openPicked, showRow]
   )
 
-  // The shell walked into a folder (#99): show it and mark it, WITHOUT taking
-  // the keyboard - the person who typed the cd is still typing in the
-  // terminal, and `land` would move focus onto the row. The row is scrolled
-  // into view once the expansion has rendered it.
-  // App has already expanded the chain in the tab's tree (and the gap-filler
-  // loads what that opened), so this is the mark alone, adjusted during
-  // render like the cursor reset above: one request, one mark.
-  const [revealSeen, setRevealSeen] = useState(0)
-  if (reveal && reveal.seq !== revealSeen) {
-    setRevealSeen(reveal.seq)
-    setCursor(reveal.path)
-    setSel({ anchor: reveal.path, items: new Set([reveal.path]) })
-  }
-  useEffect(() => {
-    if (!reveal) return
-    const path = reveal.path
-    const raf = requestAnimationFrame(() => showRow(path))
-    return () => cancelAnimationFrame(raf)
-  }, [reveal, showRow])
-
   // The tree's answer to an arrow key. Returns false when it has nothing to
   // say, and App pages the folder the old way instead: while the panel is shut,
   // while search has replaced the tree, or at the ends of the tree.
@@ -1197,7 +1104,7 @@ export function Sidebar({
       style={{ width: open || overlay ? width : 0 }}
       onKeyDown={(event) => {
         const target = event.target as HTMLElement
-        if (target.closest('[role="menu"],[role="dialog"],.xterm,.cm-editor')) return
+        if (target.closest('[role="menu"],[role="dialog"],.cm-editor')) return
         if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
           event.preventDefault()
           event.stopPropagation()
@@ -1454,30 +1361,10 @@ export function Sidebar({
             </TreeProvider>
           )}
         </div>
-        {/* The footer row: the sidebar's actions on the place itself. One
-            button today, right-aligned; a row so the next one has a home. The
-            state reads through the GLYPH, not a border: outlined shut, filled
-            open, the way the tab-strip accent belongs to the state it marks. */}
+        {/* The footer row: the job chip (2026-09-03), a paste or an extraction
+            in flight, right-aligned. */}
         <div className="flex h-9 shrink-0 items-center justify-end gap-1.5 border-t border-[color:var(--p-line)] px-2">
-          {/* The job chip (2026-09-03): a paste or an extraction in flight,
-              beside the terminal button rather than over the window. */}
           <JobChip />
-          {/* Bare prompt, frameless (picked from the button lab, 2026-08-21):
-              just the glyph. Hover brings the tree rows' grey tile; open
-              fills the glyph (TermGlyph), never the accent. */}
-          <button
-            className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[3px] text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-            onClick={onToggleTerm}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              setTermMenu({ x: e.clientX, y: e.clientY })
-            }}
-            title="Terminal (Ctrl+`)"
-            aria-label="Terminal"
-            aria-pressed={termOpen}
-          >
-            <TermGlyph open={termOpen} />
-          </button>
         </div>
       </div>
 
@@ -1510,23 +1397,6 @@ export function Sidebar({
         />
       </div>
 
-      {termMenu && (
-        <ContextMenu
-          x={termMenu.x}
-          y={termMenu.y}
-          onClose={() => setTermMenu(null)}
-          items={terminalButtonMenu({
-            terms,
-            pickTerm: onPickTerm,
-            newTerm: onNewTerm,
-            splitTermId: onSplitTermId,
-            termSplit: onTermSplit,
-            closeTermId: onCloseTermId,
-            closeTerm: onCloseTerm
-          })}
-        />
-      )}
-
       {placeMenu && (
         <ContextMenu
           x={placeMenu.x}
@@ -1535,7 +1405,6 @@ export function Sidebar({
           items={treeDeadSpaceMenu({
             root,
             paste: runPaste,
-            termHere: onTermHere,
             showProperties: setProps
           })}
         />
@@ -1622,7 +1491,6 @@ export function Sidebar({
             unpinSplit: onUnpinSplit,
             copyMark,
             paste: runPaste,
-            termHere: onTermHere,
             extract,
             addToArchive,
             onDuplicated,

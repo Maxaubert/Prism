@@ -36,7 +36,6 @@ export function ProjectPage(): JSX.Element {
           onChange={(v) => setNewTabShow(v as NewTabShow)}
           options={[
             { id: 'file', name: 'First file in the folder' },
-            { id: 'terminal', name: 'A terminal' },
             { id: 'none', name: 'Folder browser' }
           ]}
         />

@@ -15,7 +15,7 @@ export function captureMoveViews(tabs: readonly Tab[], paths: readonly string[])
   return tabs.flatMap((tab) => {
     const affected = (path: string): boolean => paths.some((parent) => within(path, parent))
     const live = tab.index >= 0 && !!tab.files[tab.index] && affected(tab.files[tab.index].path)
-    const panes = tab.panes.filter((pane) => pane.term || !affected(pane.path))
+    const panes = tab.panes.filter((pane) => !affected(pane.path))
     if (!live && panes.length === tab.panes.length) return []
     return [{ tab, live, panes: panes.length === tab.panes.length ? tab.panes : panes }]
   })
@@ -59,7 +59,7 @@ export function restoreMoveViews(
       return path === file.path ? file : { ...file, path, name: baseName(path) }
     })
     const panes = mapChanged(originalPanes, (pane) => {
-      const path = pane.term ? pane.path : remap(pane.path)
+      const path = remap(pane.path)
       return path === pane.path ? pane : { ...pane, path }
     })
     const history = mapChanged(tab.browse.history, (location) => {

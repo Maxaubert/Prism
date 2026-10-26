@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
-import { dictationHost } from 'prism-term-core/renderer/host'
 import { Segmented } from 'prism-term-core/renderer/settings/fields'
 import { SettingsFrame } from 'prism-term-core/renderer/settings/layout/SettingsFrame'
-import { DictationPage } from 'prism-term-core/renderer/settings/sections/DictationPage'
 import { DiagnosticsPage } from 'prism-term-core/renderer/settings/sections/DiagnosticsPage'
 import { useTitleBarMode } from '../../lib/prefs/titleBarPrefs'
 import type { TransportStyle } from '../../lib/transport'
@@ -10,22 +8,19 @@ import { useTreeSize } from '../../lib/prefs/treePrefs'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import { useStyle } from '../../lib/theme'
 import { AboutPage } from './AboutPage'
-import { AgentsPage } from './AgentsPage'
 import { AppearancePage } from './AppearancePage'
 import type { AppPageId, MediaView } from './appOptions'
 import { ExplorerPage } from './ExplorerPage'
 import { MediaPage } from './MediaPage'
 import { ProjectPage } from './ProjectPage'
 import { SETTINGS_PAGES, settingsIndex } from './settingsIndex'
-import { TerminalPage } from './TerminalPage'
 
 // THE SETTINGS PAGE IS PRISM'S; ITS FRAME, SECTIONS AND ROWS ARE THE CORE'S
 // (2026-10-05, the grouped cards redesign, #292; the owner approved v1,
 // "Grouped cards", with no accent bar on the chosen rail item). What is
 // Prism's: which pages exist and in what order, which section sits on which
 // page, its own rows (`appOptions.ts`), the page and Media view memory, the
-// compact rail toggle and the zoom. The terminal's and dictation's rows are
-// the core's, the same code as Prism Terminal's (#154).
+// compact rail toggle and the zoom. The Diagnostics page is the core's.
 
 const MEDIA_VIEWS: Array<{ id: MediaView; name: string }> = [
   { id: 'visualizer', name: 'Visualizer' },
@@ -59,23 +54,7 @@ export function Settings({
   const [view, setView] = useState<MediaView>('visualizer')
   const size = useTreeSize()
   const style = useStyle()
-  // The GPU row is drawn only where an NVIDIA card is found, so it is in the
-  // index only there too.
-  const [nvidia, setNvidia] = useState(false)
-  useEffect(() => {
-    if (!open) return
-    let live = true
-    void dictationHost()
-      ?.api.dictationInfo()
-      .then((info) => {
-        if (live) setNvidia(!!info?.nvidia)
-      })
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [open])
-  const index = useMemo(() => settingsIndex(nvidia), [nvidia])
+  const index = useMemo(() => settingsIndex(), [])
 
   useEffect(() => {
     if (!open) return
@@ -164,14 +143,6 @@ export function Settings({
             <ExplorerPage />
           ) : page === 'project' ? (
             <ProjectPage />
-          ) : page === 'terminal' ? (
-            <TerminalPage />
-          ) : page === 'agents' ? (
-            <AgentsPage />
-          ) : page === 'dictation' ? (
-            // THE CORE'S PAGE, whole: the same settings Prism Terminal shows,
-            // with this app's own values (the model files are shared).
-            <DictationPage />
           ) : page === 'diagnostics' ? (
             // THE CORE'S PAGE (#322), the same as Prism Terminal's: Detailed
             // logging, the log folder, Mark a problem. Handed the bridge,

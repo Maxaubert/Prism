@@ -203,12 +203,12 @@ describe('timeIpcMain', () => {
     const ipc = new FakeIpcMain()
     const c = clock()
     const timing = timeIpcMain(ipc, fakeLog(), { now: c.now })
-    ipc.on('term:spawn', () => c.at(c.now() + 1800))
+    ipc.on('archive:list', () => c.at(c.now() + 1800))
     c.at(1000)
-    ipc.emit('term:spawn', {})
+    ipc.emit('archive:list', {})
     c.at(2850)
     expect(timing.inflight()).toEqual([])
-    expect(timing.inflight(2000)).toEqual([{ ch: 'term:spawn', ms: 1800, done: true }])
+    expect(timing.inflight(2000)).toEqual([{ ch: 'archive:list', ms: 1800, done: true }])
     expect(timing.inflight(10)).toEqual([])
   })
 
@@ -219,9 +219,8 @@ describe('timeIpcMain', () => {
     const timing = timeIpcMain(ipc, log, { now: c.now, longWait: ['dialog:pick-folder'] })
     const hold: Array<() => void> = []
     ipc.handle('dialog:pick-folder', () => new Promise<void>((r) => hold.push(r)))
-    ipc.handle('dictation:download', () => new Promise<void>((r) => hold.push(r)))
     ipc.handle('folder:sizes', () => new Promise<void>((r) => hold.push(r)))
-    const calls = [ipc.invoke('dialog:pick-folder'), ipc.invoke('dictation:download'), ipc.invoke('folder:sizes')]
+    const calls = [ipc.invoke('dialog:pick-folder'), ipc.invoke('folder:sizes')]
     await Promise.resolve()
     c.at(90_000)
     expect(timing.inflight(1000)).toEqual([{ ch: 'folder:sizes', ms: 90_000 }])
@@ -235,24 +234,9 @@ describe('timeIpcMain', () => {
     const ipc = new FakeIpcMain()
     const log = fakeLog()
     const c = clock()
-    timeIpcMain(ipc, log, { now: c.now, opaque: (ch) => ch === 'term:input' })
-    ipc.on('term:input', () => c.at(c.now() + 200))
-    ipc.emit('term:input', {}, 't1', 'hunter2')
+    timeIpcMain(ipc, log, { now: c.now, opaque: (ch) => ch === 'text:save' })
+    ipc.on('text:save', () => c.at(c.now() + 200))
+    ipc.emit('text:save', {}, 't1', 'hunter2')
     expect(log.lines[0].fields.args).toEqual(['string:2', 'string:7'])
-  })
-
-  it("never writes down a program's clipboard copy (#176), by default", async () => {
-    const ipc = new FakeIpcMain()
-    const log = fakeLog()
-    const c = clock()
-    timeIpcMain(ipc, log, { now: c.now })
-    ipc.handle('clipboard:term-write', () => {
-      c.at(c.now() + 700)
-      return true
-    })
-    await ipc.invoke('clipboard:term-write', 'secret token')
-    await Promise.resolve()
-    expect(log.lines.length).toBeGreaterThan(0)
-    expect(JSON.stringify(log.lines)).not.toContain('secret token')
   })
 })

@@ -22,7 +22,7 @@ import {
   withAlpha,
   type Rgba
 } from './colour'
-import { contrastRatio } from './termAnsi'
+import { contrastRatio } from './colourMath'
 
 const rgba = (r: number, g: number, b: number, a = 1): Rgba => ({ r, g, b, a })
 

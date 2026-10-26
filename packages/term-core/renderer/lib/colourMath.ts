@@ -1,8 +1,8 @@
 // Small, pure colour maths, self-contained on purpose: the hex reader, the mix,
 // WCAG luminance and contrast, and the one direction rule a floor walk takes.
-// Moved out of termAnsi.ts (2026-10-26, explorer-only strip) so colour.ts and
-// oklab.ts, which the settings picker and the themes keep, no longer depend on
-// the terminal's palette module. termAnsi re-exports these unchanged.
+// Moved out of termAnsi.ts (2026-10-26, explorer-only strip) so colour.ts, which
+// the settings picker and the themes keep, does not depend on the terminal's
+// palette module (which went with the terminal).
 
 /**
  * Any CSS colour a style can publish, flattened to opaque #rrggbb: #rgb,

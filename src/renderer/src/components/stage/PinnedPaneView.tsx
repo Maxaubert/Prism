@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, type JSX } from 'react'
+import { useState, type JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
 import type { SplitDir } from '../../lib/panes'
 import { fileKind } from '@shared/fileKind'
@@ -8,19 +8,12 @@ import { splitPaneMenu } from '../../menus/splitPane'
 import { Icon } from '../icons/Icon'
 import { Viewer } from './Viewer'
 
-// A shell pinned as a PANE renders the same panel the dock does, behind the
-// same lazy boundary, so xterm stays out of the launch bundle.
-const TerminalPanelLazy = lazy(() => import('prism-term-core/renderer/components/TerminalPanel'))
-
 /** One pinned split pane: a fixed file, independent of paging, with its X. */
 export function PinnedPaneView({
   paneId,
   path,
   area,
   dir,
-  term,
-  termRoot,
-  shellId,
   onMove,
   onClose,
   viewerProps
@@ -29,17 +22,12 @@ export function PinnedPaneView({
   path: string
   area: string
   dir: SplitDir
-  /** A TERMINAL pane (2026-09-03): the shell's id, its root and the shell
-   *  to spawn, instead of a file. */
-  term?: string
-  termRoot?: string
-  shellId?: string
   onMove: (dir: SplitDir) => void
   onClose: () => void
-  /** What a FILE pane's viewer needs; a terminal pane has no viewer. */
+  /** What the pane's viewer needs. */
   viewerProps?: Omit<Parameters<typeof Viewer>[0], 'file'>
 }): JSX.Element {
-  const name = term ? 'terminal' : baseName(path)
+  const name = baseName(path)
   const ext = extOf(name)
   const file: ViewerFile = { path, name, ext, kind: fileKind(ext, name), size: 0, mtimeMs: 0 }
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -70,21 +58,7 @@ export function PinnedPaneView({
           items={splitPaneMenu({ dir, onMove, onClose })}
         />
       )}
-      {term ? (
-        <div className="h-full w-full" data-term-region>
-          <Suspense
-            fallback={
-              <div className="grid h-full place-items-center text-sm text-[var(--p-dim)]">
-                Starting shell…
-              </div>
-            }
-          >
-            <TerminalPanelLazy sessionId={term} root={termRoot ?? ''} shellId={shellId} />
-          </Suspense>
-        </div>
-      ) : viewerProps ? (
-        <Viewer key={`${file.kind}:${path}`} file={file} {...viewerProps} />
-      ) : null}
+      {viewerProps ? <Viewer key={`${file.kind}:${path}`} file={file} {...viewerProps} /> : null}
       <button
         className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/pane:opacity-100"
         onClick={onClose}

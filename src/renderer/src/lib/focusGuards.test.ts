@@ -19,7 +19,7 @@ const el = (tagName: string, isContentEditable = false): HTMLElement =>
 describe('focus guards', () => {
   it('pins the selector lists', () => {
     expect(FIELD).toBe('input,textarea,select,[contenteditable]:not([contenteditable="false"])')
-    expect(EDITOR).toBe('.cm-editor,.xterm')
+    expect(EDITOR).toBe('.cm-editor')
     expect(OVERLAY).toBe('[role="dialog"],[role="menu"]')
     expect(NAV_SURFACE).toBe(
       '[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"]'

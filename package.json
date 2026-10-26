@@ -20,7 +20,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run --passWithNoTests",
     "e2e": "node tools/check-core-link.mjs && npm run fetch:bin && npm run build && node tools/e2e/run.mjs",
-    "e2e:terminal": "node tools/check-core-link.mjs && npm run fetch:bin && npm run build && node tools/e2e/run.mjs =terminal =termOptions =termColourPicker =settingsLook =diagLog =noCommandHelp =dictation =dictationPage =termCwd =agentTitle =handoffOverTerm =promptLayout =termMenuCopy =tabs =sort =pinRecent =updateWindow =updateGuard =updateQuiet",
+    "e2e:ui": "node tools/check-core-link.mjs && npm run fetch:bin && npm run build && node tools/e2e/run.mjs =settingsLook =diagLog =tabs =sort =pinRecent =updateWindow =updateGuard =updateQuiet",
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -31,8 +31,7 @@
     "test:win-e": "node tools/test-win-e.mjs",
     "fetch:ffmpeg": "node tools/fetch-ffmpeg.mjs",
     "fetch:7zip": "node tools/fetch-7zip.mjs",
-    "fetch:whisper": "node packages/term-core/tools/fetch-whisper.mjs vendor/whisper",
-    "fetch:bin": "npm run fetch:ffmpeg && npm run fetch:7zip && npm run fetch:fluidsynth && npm run fetch:everything && npm run fetch:whisper",
+    "fetch:bin": "npm run fetch:ffmpeg && npm run fetch:7zip && npm run fetch:fluidsynth && npm run fetch:everything",
     "fetch:everything": "node tools/fetch-everything.mjs",
     "test:everything-bundle": "node tools/test-everything-bundle.mjs",
     "fetch:fluidsynth": "node tools/fetch-fluidsynth.mjs",
@@ -64,17 +63,11 @@
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.9",
     "@lezer/highlight": "^1.2.3",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/addon-search": "^0.16.0",
-    "@xterm/addon-unicode11": "^0.9.0",
-    "@xterm/addon-web-links": "^0.12.0",
-    "@xterm/xterm": "^6.0.0",
     "adm-zip": "^0.6.0",
     "exifr": "^7.1.3",
     "heic-convert": "^2.1.0",
     "hls.js": "^1.7.2",
     "mammoth": "^1.12.1",
-    "node-pty": "1.2.0-beta.15",
     "pdfjs-dist": "^6.2.108",
     "qrcode": "^1.5.4",
     "react": "^19.2.7",
@@ -114,8 +107,5 @@
     "typescript-eslint": "^8.64.0",
     "vite": "^7.3.6",
     "vitest": "^3.2.7"
-  },
-  "allowScripts": {
-    "node-pty@1.2.0-beta.15": true
   }
 }

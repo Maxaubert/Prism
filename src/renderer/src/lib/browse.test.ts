@@ -17,7 +17,6 @@ import {
   setBrowseLocation,
   setBrowsePreview,
   setBrowseSurface,
-  setTabTerm,
   tabLabels,
   travelBrowse
 } from './tabs/tabs'
@@ -160,16 +159,11 @@ describe('folder history', () => {
 })
 
 describe('browsing alongside sessions', () => {
-  it('leaves shells, project identity, viewers, trees and pinned panes intact', () => {
-    const initial = setTabTerm([newTab(payload, 'project')], 'project', {
-      id: 'agent',
-      view: 'full'
-    })
+  it('leaves project identity, viewers, trees and pinned panes intact', () => {
+    const initial = [newTab(payload, 'project')]
     const tab = initial[0]
     let tabs = navigateBrowse(initial, tab.id, other)
     expect(tabs[0].root).toBe(root)
-    expect(tabs[0].term).toEqual({ id: 'agent', view: 'hidden' })
-    expect(tabs[0].terms).toBe(tab.terms)
     expect(tabs[0].files).toBe(tab.files)
     expect(tabs[0].index).toBe(tab.index)
     expect(tabs[0].tree).toBe(tab.tree)
@@ -181,22 +175,19 @@ describe('browsing alongside sessions', () => {
     expect(tabs[0].browse.path).toBe(root)
     expect(tabs[0].browse.preview).toBe(true)
     expect(tabs[0].files).toBe(tab.files)
-    expect(tabs[0].term?.id).toBe('agent')
   })
 
   it('opens a separate top-level session without changing the browsing tab', () => {
     const browser = navigateBrowse([newTab(payload, 'browser')], 'browser', other)[0]
     const result = addTab([browser], { root: other, files: [], index: -1, folder: true }, 'session')
-    const tabs = setTabTerm(result.tabs, result.activeId!, { id: 'new-shell', view: 'full' })
+    const tabs = result.tabs
     expect(tabs).toHaveLength(2)
     expect(tabs[0]).toBe(browser)
     expect(tabs[1].root).toBe(other)
-    expect(tabs[1].term?.id).toBe('new-shell')
   })
 
   it('keeps session labels stable while browsing labels follow the displayed folder', () => {
     let tabs = [newTab(payload, 'session'), newTab({ ...payload, role: 'explorer' }, 'browser')]
-    tabs = setTabTerm(tabs, 'session', { id: 'agent', view: 'hidden' })
     tabs = navigateBrowse(navigateBrowse(tabs, 'session', other), 'browser', other)
     expect(tabLabels(tabs)).toEqual(['Prism', 'Movies'])
   })
@@ -211,11 +202,11 @@ describe('browsing alongside sessions', () => {
     expect(travelBrowse([next], next.id, -1)[0].browse.path).toBe(other)
   })
 
-  it('restores serialized browse state and stable tab identity without coupling shell cwd', () => {
+  it('restores serialized browse state and stable tab identity', () => {
     const state = navigateBrowseState(newBrowse(root), other)
     const saved = JSON.parse(JSON.stringify(state))
     const tab = newTab(
-      { ...payload, restore: true, restoreTabId: 'saved-id', browse: saved, termCwd: root },
+      { ...payload, restore: true, restoreTabId: 'saved-id', browse: saved },
       'new-id'
     )
     expect(tab.id).toBe('saved-id')

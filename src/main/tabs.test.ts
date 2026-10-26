@@ -32,12 +32,12 @@ describe('parseTabs', () => {
   it('retains one permanent Explorer while keeping every tab and active owner', () => {
     const root = folder('home')
     const parsed = parseTabs(JSON.stringify({ tabs: [
-      { id: 'project', root, role: 'project', pinned: true, term: 'hidden' },
+      { id: 'project', root, role: 'project', pinned: true },
       { id: 'explorer', root, role: 'explorer', pinned: true },
       { id: 'extra', root, role: 'explorer', pinned: true }
     ], active: 2 }))
     expect(parsed).toEqual({ tabs: [
-      { id: 'project', root, role: 'project', term: 'hidden' },
+      { id: 'project', root, role: 'project' },
       { id: 'explorer', root, role: 'explorer', pinned: true },
       { id: 'extra', root, role: 'explorer' }
     ], active: 2 })
@@ -47,10 +47,10 @@ describe('parseTabs', () => {
     const root = folder('legacy')
     expect(parseTabs(JSON.stringify({ tabs: [
       { root, role: 'invalid', pinned: true },
-      { root, pinned: true, term: 'full', agent: 'codex' }
+      { root, pinned: true }
     ], active: 1 }))).toEqual({ tabs: [
       { root },
-      { root, term: 'full', agent: 'codex' }
+      { root }
     ], active: 1 })
   })
   it('keeps the first saved ID and regenerates duplicate owners on restore', () => {
@@ -76,23 +76,17 @@ describe('parseTabs', () => {
     })
   })
 
-  it('carries the terminal view, and only sane values of it', () => {
+  it('ignores the terminal view an old strip carries (2026-10-26)', () => {
     const a = folder('shoot')
     const b = folder('docs')
-    const c = folder('code')
     const saved = {
       tabs: [
-        { root: a, term: 'full' },
-        { root: b, term: 'split' },
-        { root: c, term: 'sideways' }
+        { root: a, term: 'full', terms: 3 },
+        { root: b, term: 'split', cwd: b, agent: 'claude' }
       ],
       active: 0
     }
-    expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([
-      { root: a, term: 'full' },
-      { root: b, term: 'split' },
-      { root: c }
-    ])
+    expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a }, { root: b }])
   })
 
   it('drops a root that is gone, without a word', () => {
@@ -148,63 +142,14 @@ describe('parseTabs', () => {
     expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a }])
   })
 
-  it('reads the old boolean agent flag as claude, and codex as itself', () => {
-    const a = folder('agents')
-    const saved = {
-      tabs: [
-        { root: a, term: 'full', agent: true },
-        { root: a, term: 'full', agent: 'codex' },
-        { root: a, term: 'full', agent: 'nonsense' }
-      ],
-      active: 0
-    }
-    expect(parseTabs(JSON.stringify(saved)).tabs.map((t) => t.agent)).toEqual([
-      'claude',
-      'codex',
-      undefined
-    ])
-  })
-
-  it("keeps the shell's own folder when it is inside the root", () => {
-    const a = folder('project')
-    const sub = folder(join('project', 'src'))
-    const saved = { tabs: [{ root: a, term: 'full', cwd: sub }], active: 0 }
-    expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a, term: 'full', cwd: sub }])
-  })
-
-  it('matches the root case-insensitively, since two spellings are one folder', () => {
-    const a = folder('project')
-    const sub = folder(join('project', 'src'))
-    const saved = { tabs: [{ root: a.toUpperCase(), term: 'full', cwd: sub }], active: 0 }
-    expect(parseTabs(JSON.stringify(saved)).tabs[0]?.cwd).toBe(sub)
-  })
-
-  it('keeps an outside shell folder, but drops one that is gone or has no terminal', () => {
-    const a = folder('project')
-    const away = folder('elsewhere')
-    const saved = {
-      tabs: [
-        { root: a, term: 'full', cwd: join(a, 'deleted') },
-        { root: a, term: 'full', cwd: away },
-        { root: a, cwd: a }
-      ],
-      active: 0
-    }
-    expect(parseTabs(JSON.stringify(saved)).tabs.map((t) => t.cwd)).toEqual([
-      undefined,
-      away,
-      undefined
-    ])
-  })
-
   it('restores the SECOND of two tabs on the same folder as active (field bug)', () => {
     const a = folder('shoot')
     const saved: SavedTabs = {
-      tabs: [{ root: a }, { root: a, term: 'full', agent: 'claude' }],
+      tabs: [{ root: a }, { root: a }],
       active: 1
     }
     expect(parseTabs(JSON.stringify(saved))).toEqual({
-      tabs: [{ root: a }, { root: a, term: 'full', agent: 'claude' }],
+      tabs: [{ root: a }, { root: a }],
       active: 1
     })
   })

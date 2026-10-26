@@ -2,7 +2,6 @@ import { useSyncExternalStore } from 'react'
 import { ACCENT_THEME_ID, THEMES, themeById } from './viz/styles'
 import type { VizTheme } from './viz/core'
 import { setBarTheme, setTheme, vizState } from './viz/vizStore'
-import { resetTermExtras, setTermThemeId } from 'prism-term-core/renderer/lib/termLook'
 import {
   alphaOf,
   composite,
@@ -1491,11 +1490,6 @@ export function setStyle(id: string): void {
       /* no storage */
     }
   }
-  // A new style brings its own terminal: the terminal theme returns to
-  // follow-style with stock settings. A saved Custom setup stays saved and
-  // reselectable.
-  setTermThemeId('style')
-  resetTermExtras()
   apply()
 }
 

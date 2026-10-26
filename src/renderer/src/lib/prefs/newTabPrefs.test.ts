@@ -19,12 +19,14 @@ describe('new-tab prefs', () => {
     expect(newTabMode()).toBe('ask')
     expect(newTabFolder()).toBe('D:\\x')
   })
-  it('show round-trips all three and garbage falls back', () => {
-    for (const show of ['terminal', 'none', 'file'] as const) {
+  it('show round-trips both and garbage, or a retired terminal, falls back', () => {
+    for (const show of ['none', 'file'] as const) {
       setNewTabShow(show)
       expect(newTabShow()).toBe(show)
     }
     localStorage.setItem('prism.newtab.show', 'soup')
+    expect(newTabShow()).toBe('none')
+    localStorage.setItem('prism.newtab.show', 'terminal')
     expect(newTabShow()).toBe('none')
     localStorage.setItem('prism.newtab.mode', 'soup')
     expect(newTabMode()).toBe('home')

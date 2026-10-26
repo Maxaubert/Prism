@@ -6,7 +6,6 @@ import { createFolderHandler } from '../folderHandler'
 import { dropRoot } from '../roots'
 import { REMEMBER_FOLDERS_KEY } from '@shared/listingPrefs'
 import { type SavedTabs } from '../tabs'
-import { killWarm } from 'prism-term-core/main/terminal'
 import { E2E, isMainSender } from '../appState'
 import type { MainCtx } from './context'
 
@@ -96,6 +95,5 @@ export function registerSessionIpc(ctx: MainCtx): void {
   // one at a time, from the owner of the tab list.
   ipcMain.on(CALL.rootsDrop, (_e, root: string) => {
     dropRoot(root)
-    killWarm(root) // a warm spare for a closed tab is an orphan
   })
 }

@@ -26,8 +26,6 @@ export interface TreeDeadSpaceMenuContext {
   root: string
   /** Paste the clipboard's files into a folder. */
   paste: (dest: string) => void | Promise<void>
-  /** Spawn a shell in a folder. */
-  termHere: (folder: string) => void
   /** The root folder's facts (owner, 2026-10-12: folders get Properties). */
   showProperties: (target: { path: string; name: string; isFolder: boolean }) => void
 }
@@ -45,11 +43,6 @@ export function treeDeadSpaceMenu(ctx: TreeDeadSpaceMenuContext): MenuItem[] {
       label: 'Copy path',
       icon: <FileMenuIcon name="path" />,
       onPick: () => void navigator.clipboard.writeText(root)
-    },
-    {
-      label: 'New terminal here',
-      icon: <FileMenuIcon name="terminal" />,
-      onPick: () => ctx.termHere(root)
     },
     {
       label: 'Show in File Explorer',
@@ -139,7 +132,6 @@ export interface TreeRowMenuContext {
   unpinSplit: (path: string) => void
   copyMark: (paths: string[], cut: boolean) => void
   paste: (dest: string) => void | Promise<void>
-  termHere: (folder: string) => void
   /** Extract an archive, here (no dialog) or to a folder main asks for. */
   extract: (path: string, here: boolean) => void
   addToArchive: (path: string, name: string) => void
@@ -211,15 +203,6 @@ export function treeRowMenu(ctx: TreeRowMenuContext): MenuItem[] {
                 }))
               },
           fileAppMenu(path, ctx.apps)
-        ]
-      : []),
-    ...(isFolder
-      ? [
-          {
-            label: 'New terminal here',
-            icon: <FileMenuIcon name="terminal" />,
-            onPick: () => ctx.termHere(path)
-          }
         ]
       : []),
     {

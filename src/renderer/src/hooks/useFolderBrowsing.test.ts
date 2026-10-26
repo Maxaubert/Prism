@@ -46,14 +46,11 @@ describe('project and Explorer surface isolation', () => {
     expect(result.pending).toBe('quiet')
   })
 
-  it('keeps a project with a hidden terminal out of the folder surface', () => {
+  it('keeps a project out of the folder surface', () => {
     const tab = restored('project')
-    tab.term = { id: 'shell', view: 'hidden' }
-    tab.terms = ['shell']
     const result = initialBrowsing(tab)
     expect(result.folder).toBe(false)
     expect(result.searchState).toBeUndefined()
-    expect(tab.term).toEqual({ id: 'shell', view: 'hidden' })
   })
 
   it('keeps the Explorer split file when the list navigates or selects a folder', () => {

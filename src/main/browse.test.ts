@@ -107,13 +107,11 @@ it('does not filter the desktop file list by extension or viewer support', async
   expect(result?.listing.files.find((file) => file.name === 'library.dll')?.kind).toBe('other')
 })
 
-it('restores independent browsing, hidden terminal cwd, tree expansion and shell slots', () => {
+it('restores independent browsing and tree expansion', () => {
   const project = join(box, 'project')
   const browsing = join(box, 'browsing')
-  const shell = join(box, 'shell')
   mkdirSync(project)
   mkdirSync(browsing)
-  mkdirSync(shell)
   const history = [
     {
       path: browsing,
@@ -128,9 +126,6 @@ it('restores independent browsing, hidden terminal cwd, tree expansion and shell
       {
         id: 'stable',
         root: project,
-        term: 'hidden',
-        cwd: shell,
-        terms: 3,
         open: [project],
         browse: { path: browsing, history, cursor: 0, surface: 'folder', preview: true }
       }
@@ -171,24 +166,29 @@ it('refuses a late callback starting a new browse after its owning tab closed', 
   expect(await browseDirectory('new-tab', box)).not.toBeNull()
 })
 
-it('preserves terminal pin slots for remapping and refuses nonexistent slots', () => {
+it('ignores the terminal fields an old strip carries (2026-10-26)', () => {
   const state = {
     tabs: [
       {
         root: box,
-        term: 'hidden',
-        terms: 2,
+        term: 'full',
+        terms: 3,
+        agent: 'claude',
+        cwd: box,
         panes: [
-          { id: 'terminal', path: 'term:old-id', dir: 'left', termSlot: 1 },
+          { id: 'terminal', path: 'term:slot-1', dir: 'left', termSlot: 1 },
           { id: 'gone', path: 'term:gone', dir: 'right', termSlot: 9 }
         ]
       }
     ],
     active: 0
   }
-  expect(parseTabs(JSON.stringify(state)).tabs[0].panes).toEqual([
-    { id: 'terminal', path: 'term:slot-1', dir: 'left', termSlot: 1 }
-  ])
+  const tab = parseTabs(JSON.stringify(state)).tabs[0]
+  expect(tab).toEqual({ root: box })
+  expect(tab).not.toHaveProperty('term')
+  expect(tab).not.toHaveProperty('terms')
+  expect(tab).not.toHaveProperty('agent')
+  expect(tab).not.toHaveProperty('cwd')
 })
 
 describe('browseLocations', () => {

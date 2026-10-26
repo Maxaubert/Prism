@@ -15,12 +15,9 @@ import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'el
 /** Started by the e2e harness (#356: its clipboard is main's fake). Main
  *  passes --prism-e2e through additionalArguments: the renderer has its own argv. */
 const E2E_RUN = process.argv.includes('--prism-e2e')
-import { createTermApi } from 'prism-term-core/preload/api'
 import { isWebUrl } from 'prism-term-core/shared/webUrl'
-import { createDictationApi } from 'prism-term-core/preload/dictationApi'
 import { createDiagApi } from 'prism-term-core/preload/diagApi'
 import type { UpdateInfo } from 'prism-term-core/shared/updateTypes'
-import type { AgentKind } from 'prism-term-core/shared/types'
 import type {
   ArchiveRenameResult,
   ExtractAllResult,
@@ -193,11 +190,6 @@ const api = {
       browse?: SavedBrowse
       panes?: SavedPane[]
       file?: string
-      term?: 'full' | 'split' | 'hidden'
-      terms?: number
-      /** The folder that shell was standing in, when it is not the root. */
-      cwd?: string
-      agent?: AgentKind
       open?: string[]
     }>,
     active: number
@@ -592,23 +584,12 @@ const api = {
   ): Promise<ComicOpenResult> =>
     ipcRenderer.invoke(CALL.comicOpen, path, password),
 
-  /* ----- the terminal ----- */
-
-  // THE TERMINAL'S BRIDGE IS THE CORE'S (prism-term-core/preload/api, #154): the
-  // member names, their signatures and the channel names exist once, for Prism
-  // and for Prism Terminal. The clipboard read for the paste rule goes through
-  // main now (synchronously, as the key handler that asks has to be), which is
-  // what lets the same bridge serve a sandboxed preload too.
-  ...createTermApi(ipcRenderer),
-  // ...and dictation's (#162), the same way.
-  ...createDictationApi(ipcRenderer),
-  // ...and the diagnostics log's (#322): the page's lines, its heartbeat, and
+  // THE DIAGNOSTICS LOG's (#322): the page's lines, its heartbeat, and
   // Settings > Diagnostics. Timing stays main-side; these calls are not timed.
   ...createDiagApi(ipcRenderer),
 
   /** A web link to the system browser. http(s) only, here and again in main
-   *  (2026-10-26: Prism's own; the PDF view's links no longer ride the terminal
-   *  bridge). */
+   *  (2026-10-26: Prism's own channel, `link:open-external`). */
   openExternal: (url: string): void => {
     if (isWebUrl(url)) ipcRenderer.send(CALL.openExternal, url)
   },
@@ -620,12 +601,9 @@ const api = {
   close: (force = false): void => ipcRenderer.send(CALL.windowClose, force),
   /** Keep main in step with the editor, so closing can ask before it discards. */
   setDirty: (dirty: boolean): void => ipcRenderer.send(CALL.editorDirty, dirty),
-  /** An agent is mid-answer in some shell: main holds the window's close
-   *  until the renderer has asked, as it does for unsaved text. */
-  setAgentBusy: (busy: boolean): void => ipcRenderer.send(CALL.windowAgentBusy, busy),
   /** Something is playing: hold the screen awake until told otherwise. */
   setAwake: (on: boolean): void => ipcRenderer.send(CALL.powerAwake, on),
-  /** Main blocked a close (unsaved text, or a working agent): ask. */
+  /** Main blocked a close (unsaved text): ask. */
   onAskClose: subscribe(PUSH.appAskClose),
   setFullscreen: (on: boolean): void => ipcRenderer.send(CALL.windowSetFullscreen, on),
   /* ----- the update check ----- */

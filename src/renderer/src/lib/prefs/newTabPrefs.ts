@@ -4,7 +4,8 @@ import { createPref } from './createPref'
 // One saved setting per key (prefs/createPref.ts).
 
 export type NewTabMode = 'home' | 'folder' | 'ask'
-export type NewTabShow = 'file' | 'terminal' | 'none'
+// 'terminal' is gone (2026-10-26); a saved one reads as the folder browser.
+export type NewTabShow = 'file' | 'none'
 
 const modePref = createPref<NewTabMode>({
   key: 'prism.newtab.mode',
@@ -21,7 +22,7 @@ const folderPref = createPref<string>({
 const showPref = createPref<NewTabShow>({
   key: 'prism.newtab.show',
   read: 'always',
-  parse: (v) => (v === 'terminal' || v === 'file' ? v : 'none'),
+  parse: (v) => (v === 'file' ? v : 'none'),
   fallback: 'none'
 })
 
