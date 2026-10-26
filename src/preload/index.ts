@@ -7,8 +7,7 @@ import type {
   BrowseSearchResult,
   BrowseSearchWindowRequest,
   BrowseShortcut,
-  SavedBrowse,
-  SavedPane
+  SavedBrowse
 } from '@shared/browse'
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 
@@ -165,16 +164,6 @@ const api = {
 
   /** Open the file dialog; resolves with the folder payload or null if cancelled. */
   openDialog: (): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openDialog),
-  /** Build a payload for a dropped/known path (drag-and-drop). */
-  openPath: (path: string): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openPath, path),
-  /** Choose a FOLDER to root in. The only way to name a root deliberately;
-   *  every other route infers it from the file that arrived. */
-  openFolder: (from?: string): Promise<OpenPayload | null> =>
-    ipcRenderer.invoke(CALL.openFolder, from),
-  /** A new tab rooted at the user's own folder. No dialog: the + is instant. */
-  openHome: (): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openHome),
-  /** A new tab rooted at a remembered folder (the Settings choice). */
-  openRoot: (dir: string): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openRoot, dir),
   /** Choose a folder without opening it: the Settings picker. */
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke(CALL.dialogPickFolder),
   /** Choose real files: the archive panel's "Add files". Empty when cancelled. */
@@ -184,13 +173,11 @@ const api = {
   tabsChanged: (
     tabs: Array<{
       root: string
-      role?: 'explorer' | 'project'
+      role?: 'explorer'
       pinned?: boolean
       id?: string
       browse?: SavedBrowse
-      panes?: SavedPane[]
       file?: string
-      open?: string[]
     }>,
     active: number
   ): void => ipcRenderer.send(CALL.tabsChanged, { tabs, active }),
@@ -339,7 +326,7 @@ const api = {
   /** Does this file's audio need Prism's own decoder (AC-3, DTS, TrueHD and
    *  friends, none of which Chromium can play), and where is it served. */
   probeMedia: (path: string): Promise<MediaProbe> => ipcRenderer.invoke(CALL.mediaProbe, path),
-  /** Are Prism's entries ("Open file", "Open as project") in File Explorer's
+  /** Are Prism's entries ("Open file", "Open in Prism") in File Explorer's
    *  context menu right now? */
   shellVerbStatus: (): Promise<boolean> => ipcRenderer.invoke(CALL.shellVerbStatus),
   /** Add or remove it. Per-user, no elevation; false means Windows refused. */

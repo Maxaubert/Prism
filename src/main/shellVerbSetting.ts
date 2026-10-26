@@ -51,7 +51,7 @@ export function createShellVerbSetting(
       enqueue(async () => {
         if (await deps.registered()) {
           // RELABEL AN EXISTING INSTALL (2026-09-19, #167). The labels became
-          // "Open file" and "Open as project", and a working verb is otherwise
+          // "Open file" and "Open in Prism", and a working verb is otherwise
           // left alone, so a registration that survives into this build (an
           // upgrade whose uninstaller was skipped, an exe replaced in place)
           // would keep the old text for ever. An ordinary upgrade does not

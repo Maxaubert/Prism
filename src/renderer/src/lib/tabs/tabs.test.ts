@@ -9,19 +9,13 @@ import {
   setBrowseScroll,
   searchBrowse,
   addExplorerTab,
-  addProjectTab,
   ensurePinnedExplorer,
+  isExplorerTab,
   frontPinnedExplorer,
-  ancestorsWithin,
   closeTab,
-  emptyTree,
   newTab,
   openSettingsTab,
-  restoredTree,
-  receiveFile,
   toggleSettingsTab,
-  rerootTab,
-  setTabPanes,
   reorderTabs,
   tabLabels,
   type Tab
@@ -43,36 +37,33 @@ const payload = (root: string, files: string[], index = 0): OpenPayload => ({
   index
 })
 
-const BS = '\\\\'
 const SHOOT = 'C:\\shoot'
 const DOCS = 'D:\\docs'
 
 const tabOf = (root: string, files: string[], index = 0): Tab =>
   newTab(payload(root, files, index), `t-${root}`)
 
-describe('Explorer and project tabs', () => {
-  it('opens a folder as an empty project without disturbing Explorer or its files', () => {
+describe('Explorer tabs', () => {
+  it('every tab is an Explorer tab, whatever a payload says (2026-10-26)', () => {
     const p = payload(SHOOT, ['C:\\shoot\\a.jpg', 'C:\\shoot\\b.jpg'], 0)
-    const explorer = addExplorerTab([], p, 'explorer', true).tabs[0]
-    const result = addProjectTab([explorer], p, 'project')
-    expect(result.activeId).toBe('project')
-    expect(result.tabs[0]).toBe(explorer)
-    expect(result.tabs[1]).toMatchObject({
-      root: SHOOT, role: 'project', index: -1, files: p.files,
-      browse: { surface: 'viewer', path: SHOOT }
-    })
-    expect(result.tabs[1].tree.expanded.has(SHOOT)).toBe(true)
-    expect(newTab({ ...p, role: 'project' }, 'file-project').index).toBe(0)
+    expect(newTab(p, 'a').role).toBe('explorer')
+    expect(isExplorerTab(newTab(p, 'a'))).toBe(true)
+    expect(isExplorerTab(openSettingsTab([], 's').tabs[0])).toBe(false)
   })
 
-  it('restores an explicitly empty project without mounting the first listed file', () => {
+  it('a file in a tab opens in the full viewer, a folder on its list', () => {
+    const p = payload(SHOOT, ['C:\\shoot\\a.jpg'], 0)
+    expect(newTab(p, 'file').browse.surface).toBe('viewer')
+    expect(newTab({ ...p, index: -1 }, 'folder').browse.surface).toBe('folder')
+  })
+
+  it('restores an empty folder tab without mounting the first listed file', () => {
     const p = payload(SHOOT, ['C:\\shoot\\a.jpg'], -1)
-    const restored = newTab({ ...p, role: 'project', browse: newBrowse(SHOOT, 'viewer'),
-      restore: true, restoreTabId: 'empty-project' }, 'unused')
-    expect(restored.id).toBe('empty-project')
+    const restored = newTab({ ...p, browse: newBrowse(SHOOT, 'folder'),
+      restore: true, restoreTabId: 'empty-folder' }, 'unused')
+    expect(restored.id).toBe('empty-folder')
     expect(restored.index).toBe(-1)
-    expect(restored.browse.surface).toBe('viewer')
-    expect(newTab(p, 'legacy-folder').index).toBe(0)
+    expect(restored.browse.surface).toBe('folder')
   })
   it('does not select or mount a file when Explorer opens a nonempty folder', () => {
     const p = payload(SHOOT, ['C:\\shoot\\a.jpg'], -1)
@@ -83,26 +74,24 @@ describe('Explorer and project tabs', () => {
     expect(ordinary.index).toBe(-1)
     expect(newTab({ ...p, role: 'explorer', restore: true }, 'restored').index).toBe(-1)
     expect(newTab({ ...p, role: 'explorer', index: 0 }, 'opened-file').index).toBe(0)
-    expect(newTab(p, 'legacy-project').index).toBe(0)
   })
 
   it('restores the pinned Explorer without resetting its location or duplicating owners', () => {
     const p = payload(SHOOT, [])
     const browser = addExplorerTab([], p, 'explorer', true).tabs[0]
     browser.browse = newBrowse(DOCS)
-    const project = tabOf(SHOOT, [])
-    const extra = { ...browser, id: 'extra', panes: [{ id: 'dirty', path: 'C:\\notes.txt', dir: 'right' as const }] }
-    const restored = ensurePinnedExplorer([project, browser, extra], p, 'unused')
-    expect(restored.map((tab) => tab.id)).toEqual(['explorer', project.id, 'extra'])
+    const other = tabOf(SHOOT, [])
+    const extra = { ...browser, id: 'extra' }
+    const restored = ensurePinnedExplorer([other, browser, extra], p, 'unused')
+    expect(restored.map((tab) => tab.id)).toEqual(['explorer', other.id, 'extra'])
     expect(restored[0]).toBe(browser)
     expect(restored[0].browse.path).toBe(DOCS)
-    expect(restored[1]).toBe(project)
-    expect(restored[2].panes).toBe(extra.panes)
+    expect(restored[1]).toBe(other)
     expect(restored[2].pinned).toBe(false)
     expect(ensurePinnedExplorer(restored, p, 'unused')).toEqual(restored)
   })
 
-  it('adds closable Explorer tabs beside the permanent one without absorbing a project', () => {
+  it('adds closable Explorer tabs beside the permanent one', () => {
     const p = payload(SHOOT, [])
     const pinned = addExplorerTab([], p, 'explorer', true)
     const extra = addExplorerTab(pinned.tabs, p, 'extra')
@@ -110,10 +99,6 @@ describe('Explorer and project tabs', () => {
     expect(extra.tabs.map((tab) => tab.role)).toEqual(['explorer', 'explorer'])
     expect(closeTab(extra.tabs, 'extra', 'extra').activeId).toBe('explorer')
     expect(closeTab(extra.tabs, 'explorer', 'extra').tabs).toEqual(extra.tabs)
-    const file = receiveFile(extra.tabs, payload(SHOOT, ['C:\\shoot\\a.jpg']), 'project')
-    expect(file.tabs).toHaveLength(3)
-    expect(file.tabs[0]).toBe(extra.tabs[0])
-    expect(file.tabs[2].role).toBe('project')
   })
 
   it('keeps the permanent Explorer first when other tabs reorder', () => {
@@ -124,21 +109,11 @@ describe('Explorer and project tabs', () => {
     expect(reorderTabs([first, a, b], b.id, 0)).toEqual([first, b, a])
   })
 
-  it('opens a separate project when a folder action originates in Explorer', () => {
-    const browser = addExplorerTab([], payload(SHOOT, []), 'explorer', true).tabs[0]
-    const result = rerootTab([browser], browser.id, payload(SHOOT, []), 'project')
-    expect(result.activeId).toBe('project')
-    expect(result.tabs).toHaveLength(2)
-    expect(result.tabs[0]).toBe(browser)
-    expect(result.tabs[1].role).toBe('project')
-    expect(result.tabs[1].pinned).toBeUndefined()
-  })
-
-  it('labels project roots independently of browsing and names the permanent Explorer', () => {
+  it('labels a tab by the folder it shows and names the permanent Explorer', () => {
     const first = addExplorerTab([], payload(SHOOT, []), 'explorer', true).tabs[0]
     const extra = addExplorerTab([], payload(DOCS, []), 'extra').tabs[0]
-    const project = { ...tabOf(SHOOT, []), browse: newBrowse(DOCS) }
-    expect(tabLabels([first, extra, project])).toEqual(['Explorer', 'docs', 'shoot'])
+    const moved = { ...tabOf(SHOOT, []), browse: newBrowse(DOCS) }
+    expect(tabLabels([first, extra, moved])).toEqual(['Explorer', 'docs', 'docs'])
   })
 })
 
@@ -162,109 +137,6 @@ describe('frontPinnedExplorer', () => {
   })
   it('is null when there is no pinned Explorer', () => {
     expect(frontPinnedExplorer([tabOf(SHOOT, ['C:\\shoot\\a.jpg'])], true)).toBeNull()
-  })
-})
-
-describe('receiveFile', () => {
-  it('fills the empty window when nothing is open', () => {
-    const r = receiveFile([], payload(SHOOT, ['C:\\shoot\\a.jpg']), 'id1')
-    expect(r.tabs).toHaveLength(1)
-    expect(r.tabs[0].root).toBe(SHOOT)
-    expect(r.activeId).toBe(r.tabs[0].id)
-  })
-
-  it('reuses a tab whose root already holds the file, and points it at it', () => {
-    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg', 'C:\\shoot\\b.jpg'])
-    const docs = tabOf(DOCS, ['D:\\docs\\r.md'])
-    const r = receiveFile(
-      [shoot, docs],
-      payload(SHOOT, ['C:\\shoot\\a.jpg', 'C:\\shoot\\b.jpg'], 1),
-      'unused'
-    )
-    expect(r.tabs).toHaveLength(2) // no duplicate of the same project
-    expect(r.activeId).toBe(shoot.id)
-    expect(r.tabs[0].index).toBe(1) // and it moved to the file that arrived
-  })
-
-  it('opens a file from a SUBFOLDER in a tab of its own, rooted there (owner, 2026-09-04)', () => {
-    // Reverses 2026-09-01: the containing-root fold put a Downloads file into
-    // a tab rooted at the user's folder and moved that tab's view. Separate
-    // folders are separate tabs; only the exact root folds.
-    const drive = tabOf('X:' + BS, ['X:' + BS + 'a.jpg'])
-    const r = receiveFile(
-      [drive],
-      payload('X:' + BS + 'Comics' + BS + 'Artbooks', [
-        'X:' + BS + 'Comics' + BS + 'Artbooks' + BS + 'p.jpg'
-      ]),
-      'new'
-    )
-    expect(r.tabs).toHaveLength(2)
-    expect(r.activeId).toBe('new')
-    expect(r.tabs[1].root).toBe('X:' + BS + 'Comics' + BS + 'Artbooks')
-    expect(r.tabs[0].root).toBe('X:' + BS) // the old tab is left exactly as it was
-    expect(r.tabs[0].index).toBe(drive.index)
-  })
-
-  it('folds only into the tab whose root IS the folder, however many contain it', () => {
-    const drive = tabOf('X:' + BS, ['X:' + BS + 'a.jpg'])
-    const comics = tabOf('X:' + BS + 'Comics', ['X:' + BS + 'Comics' + BS + 'b.jpg'])
-    const same = receiveFile(
-      [drive, comics],
-      payload('x:' + BS + 'comics', ['X:' + BS + 'Comics' + BS + 'p.jpg']),
-      'new'
-    )
-    expect(same.tabs).toHaveLength(2)
-    expect(same.activeId).toBe(comics.id)
-    const deeper = receiveFile(
-      [drive, comics],
-      payload('X:' + BS + 'Comics' + BS + 'Art', [
-        'X:' + BS + 'Comics' + BS + 'Art' + BS + 'p.jpg'
-      ]),
-      'new'
-    )
-    expect(deeper.tabs).toHaveLength(3)
-    expect(deeper.activeId).toBe('new')
-  })
-
-  it('does not treat a sibling with a shared prefix as containing the file', () => {
-    const comics = tabOf('X:' + BS + 'Comics', ['X:' + BS + 'Comics' + BS + 'b.jpg'])
-    const r = receiveFile(
-      [comics],
-      payload('X:' + BS + 'ComicsOld', ['X:' + BS + 'ComicsOld' + BS + 'p.jpg']),
-      'new'
-    )
-    expect(r.tabs).toHaveLength(2) // a new tab, correctly
-  })
-
-  it('matches a root case-insensitively, the way Windows does', () => {
-    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
-    const r = receiveFile([shoot], payload(SHOOT.toUpperCase(), ['C:\\shoot\\a.jpg']), 'new')
-    expect(r.tabs).toHaveLength(1)
-  })
-
-  it('spawns a tab for a root nothing else covers', () => {
-    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
-    const r = receiveFile([shoot], payload(DOCS, ['D:\\docs\\r.md']), 'id2')
-    expect(r.tabs).toHaveLength(2)
-    expect(r.tabs[1].root).toBe(DOCS)
-    expect(r.activeId).toBe('id2')
-  })
-
-  it('refreshes the reused tab file list, so a renamed sibling is not stale', () => {
-    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
-    const r = receiveFile(
-      [shoot],
-      payload(SHOOT, ['C:\\shoot\\a.jpg', 'C:\\shoot\\new.jpg'], 1),
-      'x'
-    )
-    expect(r.tabs[0].files.map((v) => v.name)).toEqual(['a.jpg', 'new.jpg'])
-  })
-
-  it('keeps the reused tab expanded folders: it is a place you left', () => {
-    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
-    shoot.tree.expanded.add('C:\\shoot\\sub')
-    const r = receiveFile([shoot], payload(SHOOT, ['C:\\shoot\\a.jpg']), 'x')
-    expect(r.tabs[0].tree.expanded.has('C:\\shoot\\sub')).toBe(true)
   })
 })
 
@@ -335,63 +207,12 @@ describe('tabLabels', () => {
   })
 })
 
-describe('emptyTree', () => {
-  it('starts with the root expanded and nothing loaded', () => {
-    const t = emptyTree(SHOOT)
-    expect([...t.expanded]).toEqual([SHOOT])
-    expect(t.children).toEqual({})
-  })
-})
-
-describe('rerootTab', () => {
-  it('replaces the tab root in place, keeping its id and its position', () => {
-    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
-    const music = tabOf('E:\\music', ['E:\\music\\s.mp3'])
-    const r = rerootTab([shoot, music], shoot.id, payload(DOCS, ['D:\\docs\\r.md']), 'unused')
-    expect(r.tabs).toHaveLength(2)
-    expect(r.tabs[0].id).toBe(shoot.id) // same tab, not a new one beside it
-    expect(r.tabs[0].root).toBe(DOCS)
-    expect(r.tabs[0].files.map((v) => v.name)).toEqual(['r.md'])
-    expect(r.activeId).toBe(shoot.id)
-  })
-
-  it('gives the rerooted tab a fresh tree: the old folders are not in it', () => {
-    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
-    shoot.tree.expanded.add('C:\\shoot\\sub')
-    const r = rerootTab([shoot], shoot.id, payload(DOCS, ['D:\\docs\\r.md']), 'x')
-    expect([...r.tabs[0].tree.expanded]).toEqual([DOCS])
-  })
-
-  it('switches to the tab that already holds that root instead of duplicating it', () => {
-    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
-    const docs = tabOf(DOCS, ['D:\\docs\\r.md'])
-    const r = rerootTab([shoot, docs], shoot.id, payload(DOCS, ['D:\\docs\\r.md']), 'x')
-    expect(r.tabs).toHaveLength(2)
-    expect(r.tabs[0].root).toBe(SHOOT) // the tab you clicked from is left alone
-    expect(r.activeId).toBe(docs.id)
-  })
-
-  it('rerooting a tab onto its own root is a no-op it stays on', () => {
-    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
-    const r = rerootTab([shoot], shoot.id, payload(SHOOT, ['C:\\shoot\\a.jpg']), 'x')
-    expect(r.tabs).toHaveLength(1)
-    expect(r.activeId).toBe(shoot.id)
-  })
-
-  it('with no tab to reroot it simply opens one', () => {
-    const r = rerootTab([], null, payload(SHOOT, ['C:\\shoot\\a.jpg']), 'fresh')
-    expect(r.tabs).toHaveLength(1)
-    expect(r.tabs[0].id).toBe('fresh')
-    expect(r.activeId).toBe('fresh')
-  })
-})
-
 describe('addTab', () => {
   it('always spawns, even onto a root that is already open', () => {
     const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
     const r = addTab([shoot], payload(SHOOT, ['C:\\shoot\\a.jpg']), 'second')
-    // Deliberately unlike receiveFile: + is an explicit "give me a tab", not
-    // "show me this file", so it must never silently do nothing.
+    // + is an explicit "give me a tab", not "show me this file", so it must
+    // never silently do nothing.
     expect(r.tabs).toHaveLength(2)
     expect(r.activeId).toBe('second')
   })
@@ -414,28 +235,9 @@ describe('the settings tab', () => {
     expect(again.tabs).toHaveLength(2)
     expect(again.activeId).toBe('set-1')
   })
-  it('is labelled Settings and never swallows an arriving file', () => {
+  it('is labelled Settings', () => {
     const st = openSettingsTab([], 's').tabs
     expect(tabLabels(st)).toEqual(['Settings'])
-    const r = receiveFile(st, payload(SHOOT, []), 'n')
-    expect(r.tabs).toHaveLength(2)
-    expect(r.tabs[1].kind).toBeUndefined()
-  })
-})
-
-describe('the pinned panes slot', () => {
-  it('starts empty, writes only the named tab, and rerooting clears it', () => {
-    const a = tabOf(SHOOT, [])
-    const b = tabOf(DOCS, [])
-    expect(a.panes).toEqual([])
-    const next = setTabPanes([a, b], a.id, [{ id: 'p1', path: 'x', dir: 'right' }])
-    expect(next[0].panes).toHaveLength(1)
-    expect(next[1].panes).toEqual([])
-    const r = rerootTab(next, a.id, payload(DOCS, []), 'n')
-    // wait - DOCS is already open in tab b, so reroot SWITCHES; use a fresh root
-    const r2 = rerootTab(next, a.id, payload('E:' + String.fromCharCode(92) + 'elsewhere', []), 'n')
-    expect(r2.tabs[0].panes).toEqual([]) // pinned files belong to the old folder
-    void r
   })
 })
 
@@ -468,9 +270,7 @@ describe('the gear', () => {
     root: '',
     browse: newBrowse(''),
     files: [],
-    index: -1,
-    tree: { expanded: new Set<string>(), children: {} },
-    panes: []
+    index: -1
   })
 
   it('opens settings when there are none', () => {
@@ -503,61 +303,6 @@ describe('the gear', () => {
   })
 })
 
-describe('the tree a restored tab comes back with', () => {
-  it('re-opens the folders that were open', () => {
-    const t = restoredTree('C:\\r', ['C:\\r\\a', 'C:\\r\\a\\b'])
-    expect([...t.expanded].sort()).toEqual(['C:\\r', 'C:\\r\\a', 'C:\\r\\a\\b'])
-  })
-
-  it('opens the folders leading to the file it is showing', () => {
-    // The half that matters when there is no saved tree at all: a file handed
-    // over by Explorer has to be markable in the sidebar, and it cannot be if
-    // the rows leading to it were never expanded.
-    const t = restoredTree('C:\\r', [], 'C:\\r\\a\\b\\photo.jpg')
-    expect(t.expanded.has('C:\\r\\a')).toBe(true)
-    expect(t.expanded.has('C:\\r\\a\\b')).toBe(true)
-    expect(t.expanded.has('C:\\r\\a\\b\\photo.jpg')).toBe(false)
-  })
-
-  it('always has the root open', () => {
-    expect(restoredTree('C:\\r').expanded.has('C:\\r')).toBe(true)
-  })
-
-  it('caps what it will re-open, since a suggestion is not a record', () => {
-    const many = Array.from({ length: 900 }, (_, i) => `C:\\r\\f${i}`)
-    expect(restoredTree('C:\\r', many).expanded.size).toBe(401)
-  })
-})
-
-describe('the folders between a root and a file', () => {
-  it('lists them from the file upwards, ending at the root', () => {
-    expect(ancestorsWithin('C:\\r', 'C:\\r\\a\\b\\x.txt')).toEqual([
-      'C:\\r\\a\\b',
-      'C:\\r\\a',
-      'C:\\r'
-    ])
-  })
-
-  it('gives just the root for a file sitting in it', () => {
-    expect(ancestorsWithin('C:\\r', 'C:\\r\\x.txt')).toEqual(['C:\\r'])
-  })
-
-  it('never climbs above the root', () => {
-    // A path outside the tab yields nothing rather than walking to the drive.
-    expect(ancestorsWithin('C:\\r\\deep', 'C:\\other\\x.txt')).toEqual([])
-  })
-
-  it('ignores a trailing separator on the root', () => {
-    // The owner's own case: a tab rooted at X:\\ showing a file in X:\\Comics.
-    // Comics is a real ancestor and has to be opened for the row to exist.
-    expect(ancestorsWithin('X:\\', 'X:\\Comics\\a.cbz')).toEqual(['X:\\Comics', 'X:'])
-  })
-
-  it('handles forward slashes too', () => {
-    expect(ancestorsWithin('C:/r', 'C:/r/a/x.txt')).toEqual(['C:/r/a', 'C:/r'])
-  })
-})
-
 describe('replaceBrowsePath (review of #300)', () => {
   it('rewrites the current history entry instead of pushing one, so Back gets past a gone folder', () => {
     const tab: Tab = { ...tabOf('C:\\a', []), id: 't1', browse: newBrowse('C:\\a') }
@@ -574,7 +319,6 @@ describe('going into a folder clears the preview (#300 review)', () => {
     ...tabOf('C:\\a', ['C:\\a\\x.zip', 'C:\\a\\b.jpg'], index),
     id: 't1',
     index,
-    role: 'explorer',
     browse: { ...newBrowse('C:\\a'), preview }
   })
 
@@ -607,13 +351,6 @@ describe('going into a folder clears the preview (#300 review)', () => {
     const off = setBrowsePreview(went, 't1', false)[0]
     expect(off.browse.previewHeld).toBeUndefined()
     expect(setBrowsePreview([off], 't1', true)[0].browse.previewHeld).toBeUndefined()
-  })
-
-  it('a project keeps its open file', () => {
-    const project = { ...explorer(true, 0), role: 'project' as const }
-    const went = navigateBrowse([project], 't1', 'C:\\a\\x.zip')[0]
-    expect(went.index).toBe(0)
-    expect(went.browse.previewHeld).toBeUndefined()
   })
 })
 

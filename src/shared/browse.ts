@@ -93,10 +93,3 @@ export interface BrowseDriveUsage {
   total?: number
   free?: number
 }
-
-/** A file pinned beside the live viewer, retained across restart. */
-export interface SavedPane {
-  id: string
-  path: string
-  dir: 'left' | 'right' | 'top' | 'bottom'
-}

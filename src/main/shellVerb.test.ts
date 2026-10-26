@@ -33,28 +33,22 @@ describe('the Explorer verb', () => {
     // %1 is empty on a background click: the verb would launch Prism with no
     // path at all, which is exactly the "nothing happens" this fixes.
     const bg = verbKeys().find((k) => k.includes('Background'))!
-    expect(verbSpec(bg)).toEqual({ label: 'Open as project', arg: '%V' })
+    expect(verbSpec(bg)).toEqual({ label: 'Open in Prism', arg: '%V' })
     expect(verbSpec(verbKeys()[0]).arg).toBe('%1')
   })
 
-  it('says what the click DOES: a file is opened, a folder becomes a project', () => {
-    // Owner, 2026-09-19 (#167): "Prism is split now into File Explorer and
-    // Project", so a folder, and the empty space inside one, opens AS A
-    // PROJECT, and a single file is simply opened.
+  it('says what the click DOES: a file is opened, a folder opens in Prism', () => {
+    // Owner, 2026-10-26: projects are gone, so the folder verb (and the one on
+    // the empty space inside a folder) says "Open in Prism" again, where it
+    // was "Open as project" from 2026-09-19 (#167) until then.
     const [file, dir, bg] = verbKeys()
     expect(verbSpec(file).label).toBe('Open file')
-    expect(verbSpec(dir).label).toBe('Open as project')
-    expect(verbSpec(bg).label).toBe('Open as project')
-  })
-
-  it('never names Prism in a label, because the icon beside it already does', () => {
-    // Owner, same day: "don't have any of them mention Prism, you can see that
-    // by the logo."
-    for (const key of verbKeys()) expect(verbSpec(key).label).not.toMatch(/prism/i)
+    expect(verbSpec(dir).label).toBe('Open in Prism')
+    expect(verbSpec(bg).label).toBe('Open in Prism')
     const labels = addArgs(EXE)
       .filter((a) => a.includes('/ve') && !a[1].endsWith('\\command'))
       .map((a) => a[a.length - 2])
-    expect(labels).toEqual(['Open file', 'Open as project', 'Open as project'])
+    expect(labels).toEqual(['Open file', 'Open in Prism', 'Open in Prism'])
   })
 
   it('quotes the path inside the command, so a folder with spaces survives', () => {
@@ -176,8 +170,8 @@ describe('complete live menu registration', () => {
 describe('a stale label is rewritten, and nothing else is', () => {
   const OLD: Record<string, string | null> = {
     [verbKeys()[0]]: 'Open in Prism',
-    [verbKeys()[1]]: 'Open in Prism',
-    [verbKeys()[2]]: 'Open Prism here'
+    [verbKeys()[1]]: 'Open as project',
+    [verbKeys()[2]]: 'Open as project'
   }
 
   /** A registry that answers the two queries the way reg.exe prints them, and
@@ -243,7 +237,7 @@ describe('a stale label is rewritten, and nothing else is', () => {
         '/f'
       ])
     )
-    expect(Object.values(labels)).toEqual(['Open file', 'Open as project', 'Open as project'])
+    expect(Object.values(labels)).toEqual(['Open file', 'Open in Prism', 'Open in Prism'])
   })
 
   it('writes the label ONLY: never the command, never the icon', async () => {
@@ -262,7 +256,7 @@ describe('a stale label is rewritten, and nothing else is', () => {
       labels: { [file]: 'Open file', [dir]: 'Open in Prism', [bg]: 'Open as project' }
     })
     expect(await relabelVerb(EXE, run)).toBe(true)
-    expect(writes.map((w) => w[1])).toEqual([dir])
+    expect(writes.map((w) => w[1])).toEqual([bg])
   })
 
   it('writes nothing at all when the labels are already current', async () => {

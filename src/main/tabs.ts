@@ -2,9 +2,8 @@ import { containerSync } from './archiveBrowse'
 import { isLocalFixed } from './driveKinds'
 import { existsSync, readFileSync, statSync } from 'fs'
 import { latestWriter } from './latestWrite'
-import { isAbsolute, resolve } from 'path'
-import type { BrowseLocation, SavedBrowse, SavedPane } from '@shared/browse'
-import { isInside } from '@shared/path'
+import { isAbsolute } from 'path'
+import type { BrowseLocation, SavedBrowse } from '@shared/browse'
 
 /**
  * The tab strip, across restarts.
@@ -21,27 +20,14 @@ import { isInside } from '@shared/path'
 
 export interface SavedTab {
   id?: string
-  role?: 'explorer' | 'project'
+  /** Every saved tab is an Explorer tab now. An older strip's project tabs
+   *  (`role: 'project'`, or no role) are migrated by `parseTabs`. */
+  role?: 'explorer'
   pinned?: boolean
   browse?: SavedBrowse
-  panes?: SavedPane[]
   root: string
   /** The file that tab was showing. Absent if it was showing none. */
   file?: string
-  /**
-   * The folders that were OPEN in this tab's tree.
-   *
-   * A tab is a root and a current file (2026-08-20), and this is deliberately
-   * not a per-tab SETTING - it is where you had got to. Closing Prism used to
-   * collapse the whole tree, so reopening on a file six folders down showed it
-   * in the viewer with nothing marked in the sidebar, because none of the rows
-   * leading to it existed yet.
-   *
-   * Capped, because it is a suggestion and not a record: a tree somebody has
-   * opened a thousand folders in is not worth carrying, and the ancestors of
-   * the current file are re-derived on restore regardless.
-   */
-  open?: string[]
 }
 
 export interface SavedTabs {
@@ -51,19 +37,6 @@ export interface SavedTabs {
 }
 
 const NONE: SavedTabs = { tabs: [], active: 0 }
-
-/** Rebuilding a folder listing must not select its first file in a workspace
- * the user deliberately left empty. Legacy folder restores keep their policy. */
-export function restoredFileIndex(tab: SavedTab, rebuiltIndex: number): number {
-  return tab.role === 'project' && !tab.file && tab.browse?.surface === 'viewer'
-    ? -1
-    : rebuiltIndex
-}
-
-/** Is `p` the folder `root` or somewhere inside it? Resolved first, so `..`
- *  cannot walk out; case and a trailing separator never make two folders. */
-const inside = (root: string, p: string): boolean =>
-  isInside(resolve(root), resolve(p), { orEqual: true })
 
 const isFolder = (p: string): boolean => {
   try {
@@ -195,23 +168,25 @@ export function parseTabs(raw: string): SavedTabs {
   let active = -1
   list.forEach((entry, i) => {
     if (!entry || typeof entry !== 'object') return
-    // THE TERMINAL IS GONE (owner, 2026-10-26): an old strip's `term`, `terms`,
-    // `agent`, `agentResume` and `cwd` are never read, so a tab that had a shell
-    // or a Claude session comes back as the plain tab it was.
-    const { root, file, id, browse, open, panes, role, pinned } = entry as {
+    // THE TERMINAL AND THE PROJECT TABS ARE GONE (owner, 2026-10-26). An old
+    // strip's `term`, `terms`, `agent`, `agentResume`, `cwd`, `panes` and `open`
+    // (the tree's folders) are never read, so a tab that had a shell or a
+    // pinned pane comes back as the plain tab it was. A tab that was a project
+    // (`role: 'project'`, or no role at all) comes back as an Explorer tab at
+    // the folder it was showing (`browse.path`, else its root), with the file
+    // it had open still open in the full viewer.
+    const { root, file, id, browse, role, pinned } = entry as {
       id?: unknown
       role?: unknown
       pinned?: unknown
       browse?: unknown
-      open?: unknown
-      panes?: unknown
       root?: unknown
       file?: unknown
     }
     if (typeof root !== 'string' || !isAbsolute(root) || !isFolder(root)) return
     // sync-ok: startup, the tab restore (once per page load, before the strip shows)
     const tab: SavedTab = typeof file === 'string' && existsSync(file) ? { root, file } : { root }
-    if (role === 'explorer' || role === 'project') tab.role = role
+    tab.role = 'explorer'
     if (role === 'explorer' && pinned === true && !keptPinnedExplorer) {
       tab.pinned = true
       keptPinnedExplorer = true
@@ -221,41 +196,15 @@ export function parseTabs(raw: string): SavedTabs {
       ids.add(id)
     }
     const keptBrowse = parseBrowse(browse)
-    if (keptBrowse) tab.browse = keptBrowse
-    if (Array.isArray(panes)) {
-      const kept: SavedPane[] = []
-      for (const pane of panes.slice(0, 3)) {
-        if (
-          !pane ||
-          typeof pane !== 'object' ||
-          typeof pane.id !== 'string' ||
-          typeof pane.path !== 'string' ||
-          !['left', 'right', 'top', 'bottom'].includes(pane.dir)
-        )
-          continue
-        if (!isAbsolute(pane.path)) continue
-        try {
-          // sync-ok: startup, the tab restore (once per page load, before the strip shows)
-          if (statSync(pane.path).isFile())
-            kept.push({ id: pane.id, path: pane.path, dir: pane.dir })
-        } catch {
-          /* A missing pinned file is no longer a pane. */
-        }
-      }
-      if (kept.length) tab.panes = kept
-    }
-    if (Array.isArray(open)) {
-      const folders = open
-        .slice(0, 400)
-        .filter(
-          (p): p is string =>
-            typeof p === 'string' &&
-            isAbsolute(p) &&
-            (inside(root, p) || !!keptBrowse?.history.some((entry) => inside(entry.path, p))) &&
-            mayBePlace(p)
-        )
-      if (folders.length) tab.open = folders
-    }
+    // The migration. A project tab's own `browse.surface` said whether the
+    // viewer or the folder list was in front; for it the open file decides. A
+    // project tab with no `browse` at all needs none made: the page opens its
+    // folder (or its file) at `root`.
+    if (keptBrowse)
+      tab.browse =
+        role === 'explorer'
+          ? keptBrowse
+          : { ...keptBrowse, surface: tab.file ? 'viewer' : 'folder' }
     if (i === wasActive) active = tabs.length
     tabs.push(tab)
   })

@@ -1295,7 +1295,7 @@
   !insertmacro PRISM_UNEXT "zip" "Prism.Zip"
   !insertmacro PRISM_UNEXT "zsh" "Prism.Zsh"
   ; ---- end generated ----
-  ; "Open file" and "Open as project" in Explorer's own menu (shellVerb.ts;
+  ; "Open file" and "Open in Prism" in Explorer's own menu (shellVerb.ts;
   ; "Open in Prism" until 2026-09-19, the keys kept their names). A per-user
   ; runtime toggle, so the uninstaller cannot read whether it is on and simply
   ; removes all three keys. What was left behind was a live menu entry pointing

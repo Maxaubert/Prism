@@ -1,8 +1,7 @@
 import { dirname, resolve } from 'path'
-import { addRoot } from './roots'
 import { grantDesktopDirectory } from './desktopAccess'
 import { browseDirectory, type BrowseRead } from './browse'
-import { restoredFileIndex, tabsWriter, type SavedTabs } from './tabs'
+import { tabsWriter, type SavedTabs } from './tabs'
 import { userPaths } from './paths'
 import type { BrowseDirectory } from '@shared/browse'
 import type { OpenPayload } from '@shared/types'
@@ -18,7 +17,6 @@ export interface TabsSessionDeps {
   cachedListing: (path: string) => Promise<BrowseDirectory | null>
   archiveRead: (tabId: string, path: string) => Promise<BrowseRead | null | undefined>
   buildPayload: (p: string, root?: string) => Promise<OpenPayload | null>
-  folderPayload: (dir: string) => Promise<OpenPayload | null>
 }
 
 export interface TabsSession {
@@ -76,16 +74,16 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
   }
 
   /**
-   * Restore last session's strip: register each surviving root so the wall
-   * accepts it, then hand the renderer the payloads to rebuild the tabs from.
+   * Restore last session's strip: grant each surviving folder to its tab, then
+   * hand the renderer the payloads to rebuild the tabs from.
    * The strip is the one index.ts already read (2026-10-16): this used to read
    * and parse it a second time, every sync stat of it twice per page load.
    *
-   * EXPLORER TABS FIRST, EVERYTHING ELSE AS IT IS READY (#271). The first
-   * Explorer rows used to wait on every saved tab in turn: each project's
-   * folder read and each Claude transcript lookup. Now the Explorer payloads
-   * go first, each carrying its cached or names-only listing, and the project
-   * tabs follow in parallel, each sent when it is ready. `restoreOrder` is the
+   * TABS SHOWING A FOLDER FIRST, THE ONES WITH A FILE OPEN AS THEY ARE READY
+   * (#271). The first rows used to wait on every saved tab in turn. Now the
+   * folder tabs go first, each carrying its cached or names-only listing, and
+   * the tabs with a file open follow in parallel, each sent when it is ready.
+   * `restoreOrder` is the
    * saved position, and the page puts each tab there, so the strip comes back
    * in SAVED order however the payloads arrive. Returns whether a pinned
    * Explorer tab was sent.
@@ -98,16 +96,11 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
     for (const [i, t] of saved.tabs.entries()) {
       // The SAVED root, not the file's folder: navigating into a subfolder and
       // reopening there used to leave the tab rooted at the subfolder, because
-      // the payload was rebuilt from the file alone and root followed it. The
-      // wall has to be registered here, since buildPayload only does that when
-      // it is inventing the root itself.
+      // the payload was rebuilt from the file alone and root followed it. Every
+      // tab is granted its own folders here, as an Explorer tab walks to them.
       const restoreTabId = ids[i]
-      if (t.role !== 'explorer') addRoot(t.root)
-      else grantDesktopDirectory(restoreTabId, t.root)
-      for (const pane of t.panes ?? [])
-        grantDesktopDirectory(restoreTabId, dirname(pane.path))
+      grantDesktopDirectory(restoreTabId, t.root)
       if (t.file) grantDesktopDirectory(restoreTabId, dirname(t.file))
-      for (const path of t.open ?? []) grantDesktopDirectory(restoreTabId, path)
       for (const location of t.browse?.history ?? [])
         grantDesktopDirectory(restoreTabId, location.path)
       if (t.browse) grantDesktopDirectory(restoreTabId, t.browse.path)
@@ -123,22 +116,19 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
       // it to the front without moving it.
       return {
         ...payload,
-        index: restoredFileIndex(t, payload.index),
         restore: true,
         restoreTabId: ids[i],
         restoreOrder: i,
-        role: t.role,
+        role: 'explorer' as const,
         pinned: t.pinned,
         ...(t.browse ? { browse: t.browse } : {}),
-        ...(t.panes ? { panes: t.panes } : {}),
         ...(i === saved.active ? { restoreActive: true } : {}),
-        ...(t.open?.length ? { open: t.open } : {}),
         ...(listing ? { listing } : {})
       }
     }
     let pinnedSent = false
     // Wave one: the Explorer tabs, from the cache or a names-only read.
-    const explorers = saved.tabs.flatMap((t, i) => (t.role === 'explorer' && !t.file ? [i] : []))
+    const explorers = saved.tabs.flatMap((t, i) => (!t.file ? [i] : []))
     const waveOne = Promise.allSettled(
       explorers.map(async (i) => {
         const t = saved.tabs[i]
@@ -165,14 +155,11 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
     const waveTwo = Promise.allSettled(
       rest.map(async (i) => {
         const t = saved.tabs[i]
-        const payload = t.file
-          ? await deps.buildPayload(t.file, t.root)
-          : t.role === 'explorer'
-            ? null
-            : await deps.folderPayload(t.root)
+        // Wave one took every tab without a file; what is left has one open.
+        const payload = t.file ? await deps.buildPayload(t.file, t.root) : null
         if (!payload) return
         const done = await finish(i, payload)
-        if (done.role === 'explorer' && done.pinned) pinnedSent = true
+        if (done.pinned) pinnedSent = true
         send(done)
       })
     )

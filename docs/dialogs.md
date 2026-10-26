@@ -30,7 +30,7 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
 | `MoveClashDialog` | Names already taken where a move lands: Keep both or Replace | App (`move-clash`): drag, paste |
 | `NameTakenDialog` | A rename onto a taken name: Replace or Keep both | App (`clash`) |
 | `FileChangedDialog` | A file with unsaved edits changed on disk: Keep mine or Reload | App (`file-changed`) |
-| `UnsavedDialog` | Unsaved changes: Cancel, Discard, Save all changes | App (`close-dirty`, `close-tab`, `reroot`) |
+| `UnsavedDialog` | Unsaved changes: Cancel, Discard, Save all changes | App (`close-dirty`, `close-tab`) |
 | `CloseAgentDialog` | An agent is in the shell: close the tab, the window, or install | App (`close-tab-confirm`, `close-window-agent`) |
 | `NoticeDialog` | One line that did not work, one button | App (`failed`, "That didn't work"), `Sidebar.tsx` (Paste, Add to archive), `archive/useArchiveOps.tsx` ("Archive") |
 | `PasswordDialog` | The archive's password (again, when it was wrong) | `archive/useArchiveOps.tsx`, `ArchiveView.tsx`, `MemberGate.tsx`, App (Explorer inside a zip) |

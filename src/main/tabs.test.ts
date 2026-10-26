@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { parseTabs, restoredFileIndex, tabsWriter, type SavedTabs } from './tabs'
+import { parseTabs, tabsWriter, type SavedTabs } from './tabs'
 
 let box = ''
 beforeEach(() => {
@@ -17,17 +17,39 @@ const folder = (name: string): string => {
 }
 
 describe('parseTabs', () => {
-  it('preserves the empty project workspace after persistence despite a nonempty rebuilt folder', () => {
+  it('migrates a saved project tab to an Explorer tab at its folder, keeping the open file (2026-10-26)', () => {
     const root = folder('project')
-    const file = join(root, 'notes.txt')
-    writeFileSync(file, 'first file in the folder')
+    const sub = folder('project/shots')
+    const file = join(sub, 'notes.txt')
+    writeFileSync(file, 'the open file')
+    const browse = { path: sub, history: [], cursor: 0, surface: 'folder', preview: false }
+    const parsed = parseTabs(
+      JSON.stringify({
+        tabs: [
+          { id: 'p1', root, role: 'project', file, browse, open: [root, sub], panes: [] },
+          { id: 'p2', root, file }
+        ],
+        active: 0
+      })
+    )
+    const [first, second] = parsed.tabs
+    expect(first).toMatchObject({ id: 'p1', root, role: 'explorer', file })
+    expect(first.pinned).toBeUndefined()
+    // The folder it was showing is kept; the open file puts the viewer in front.
+    expect(first.browse?.path).toBe(sub)
+    expect(first.browse?.surface).toBe('viewer')
+    // A project tab saved before `browse` existed has none: the page opens its root.
+    expect(second).toEqual({ id: 'p2', root, role: 'explorer', file })
+    expect('open' in first).toBe(false)
+    expect('panes' in first).toBe(false)
+  })
+  it('a migrated project tab that had no file opens on its folder, not on an empty viewer', () => {
+    const root = folder('empty-workspace')
+    // The old "empty workspace": surface viewer, nothing open.
     const browse = { path: root, surface: 'viewer', history: [], cursor: 0, preview: false }
     const parsed = parseTabs(JSON.stringify({ tabs: [{ root, role: 'project', browse }], active: 0 }))
     expect(parsed.tabs[0].file).toBeUndefined()
-    expect(restoredFileIndex(parsed.tabs[0], 0)).toBe(-1)
-    expect(restoredFileIndex({ ...parsed.tabs[0], file }, 0)).toBe(0)
-    expect(restoredFileIndex({ root }, 0)).toBe(0)
-    expect(restoredFileIndex({ ...parsed.tabs[0], browse: { ...parsed.tabs[0].browse!, surface: 'folder' } }, 0)).toBe(0)
+    expect(parsed.tabs[0].browse?.surface).toBe('folder')
   })
   it('retains one permanent Explorer while keeping every tab and active owner', () => {
     const root = folder('home')
@@ -37,7 +59,7 @@ describe('parseTabs', () => {
       { id: 'extra', root, role: 'explorer', pinned: true }
     ], active: 2 }))
     expect(parsed).toEqual({ tabs: [
-      { id: 'project', root, role: 'project' },
+      { id: 'project', root, role: 'explorer' },
       { id: 'explorer', root, role: 'explorer', pinned: true },
       { id: 'extra', root, role: 'explorer' }
     ], active: 2 })
@@ -49,8 +71,8 @@ describe('parseTabs', () => {
       { root, role: 'invalid', pinned: true },
       { root, pinned: true }
     ], active: 1 }))).toEqual({ tabs: [
-      { root },
-      { root }
+      { root, role: 'explorer' },
+      { root, role: 'explorer' }
     ], active: 1 })
   })
   it('keeps the first saved ID and regenerates duplicate owners on restore', () => {
@@ -64,14 +86,23 @@ describe('parseTabs', () => {
         active: 1
       })
     )
-    expect(parsed).toEqual({ tabs: [{ id: 'same', root }, { root }], active: 1 })
+    expect(parsed).toEqual({
+      tabs: [
+        { id: 'same', root, role: 'explorer' },
+        { root, role: 'explorer' }
+      ],
+      active: 1
+    })
   })
   it('keeps roots that still exist, in order', () => {
     const a = folder('shoot')
     const b = folder('docs')
     const saved: SavedTabs = { tabs: [{ root: a }, { root: b }], active: 1 }
     expect(parseTabs(JSON.stringify(saved))).toEqual({
-      tabs: [{ root: a }, { root: b }],
+      tabs: [
+        { root: a, role: 'explorer' },
+        { root: b, role: 'explorer' }
+      ],
       active: 1
     })
   })
@@ -86,7 +117,10 @@ describe('parseTabs', () => {
       ],
       active: 0
     }
-    expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a }, { root: b }])
+    expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([
+      { root: a, role: 'explorer' },
+      { root: b, role: 'explorer' }
+    ])
   })
 
   it('drops a root that is gone, without a word', () => {
@@ -95,7 +129,7 @@ describe('parseTabs', () => {
       tabs: [{ root: a }, { root: join(box, 'deleted-last-week') }],
       active: 0
     }
-    expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a }])
+    expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a, role: 'explorer' }])
   })
 
   it('drops a root that is a file rather than a folder', () => {
@@ -103,14 +137,14 @@ describe('parseTabs', () => {
     const f = join(box, 'notes.txt')
     writeFileSync(f, 'x')
     expect(parseTabs(JSON.stringify({ tabs: [{ root: a }, { root: f }], active: 0 })).tabs).toEqual(
-      [{ root: a }]
+      [{ root: a, role: 'explorer' }]
     )
   })
 
   it('pulls the active index back when the tab it named was dropped', () => {
     const a = folder('shoot')
     const saved: SavedTabs = { tabs: [{ root: join(box, 'gone') }, { root: a }], active: 1 }
-    expect(parseTabs(JSON.stringify(saved))).toEqual({ tabs: [{ root: a }], active: 0 })
+    expect(parseTabs(JSON.stringify(saved))).toEqual({ tabs: [{ root: a, role: 'explorer' }], active: 0 })
   })
 
   it('carries the file each tab was showing, when it is still there', () => {
@@ -118,7 +152,7 @@ describe('parseTabs', () => {
     const f = join(a, 'a.jpg')
     writeFileSync(f, 'x')
     expect(parseTabs(JSON.stringify({ tabs: [{ root: a, file: f }], active: 0 }))).toEqual({
-      tabs: [{ root: a, file: f }],
+      tabs: [{ root: a, role: 'explorer', file: f }],
       active: 0
     })
   })
@@ -126,7 +160,7 @@ describe('parseTabs', () => {
   it('forgets a file that is gone but keeps its tab', () => {
     const a = folder('shoot')
     const saved = { tabs: [{ root: a, file: join(a, 'binned.jpg') }], active: 0 }
-    expect(parseTabs(JSON.stringify(saved))).toEqual({ tabs: [{ root: a }], active: 0 })
+    expect(parseTabs(JSON.stringify(saved))).toEqual({ tabs: [{ root: a, role: 'explorer' }], active: 0 })
   })
 
   it('a corrupt or foreign file is simply no tabs', () => {
@@ -139,7 +173,7 @@ describe('parseTabs', () => {
   it('ignores entries that are not shaped like a tab', () => {
     const a = folder('shoot')
     const saved = { tabs: [{ root: a }, { nope: 1 }, 'string', null], active: 0 }
-    expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a }])
+    expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a, role: 'explorer' }])
   })
 
   it('restores the SECOND of two tabs on the same folder as active (field bug)', () => {
@@ -149,7 +183,10 @@ describe('parseTabs', () => {
       active: 1
     }
     expect(parseTabs(JSON.stringify(saved))).toEqual({
-      tabs: [{ root: a }, { root: a }],
+      tabs: [
+        { root: a, role: 'explorer' },
+        { root: a, role: 'explorer' }
+      ],
       active: 1
     })
   })
@@ -174,7 +211,7 @@ describe('parseTabs', () => {
 })
 
 describe('the bulk of a strip off this PC (2026-10-16: sync stats waited out the SMB timeout)', () => {
-  it('keeps history and open folders on a share unchecked, and still drops gone local ones', () => {
+  it('keeps history on a share unchecked, and still drops gone local ones', () => {
     const root = folder('here')
     const gone = join(box, 'gone')
     const share = '\\\\prism-test-offline.invalid\\share\\photos'
@@ -185,12 +222,13 @@ describe('the bulk of a strip off this PC (2026-10-16: sync stats waited out the
     )
     expect(parsed.tabs[0].browse?.history.map((h) => h.path)).toEqual([share, root])
     expect(parsed.tabs[0].browse?.cursor).toBe(1)
-    expect(parsed.tabs[0].open).toEqual([join(share, '2026')])
+    // The tree's open folders went with the tree (2026-10-26): never read.
+    expect('open' in parsed.tabs[0]).toBe(false)
   })
 })
 
 describe('places inside an archive (#300)', () => {
-  it('keeps history entries and open tree folders inside a zip that is still there', () => {
+  it('keeps history entries inside a zip that is still there', () => {
     const root = folder('downloads')
     const zip = join(root, 'w.zip')
     writeFileSync(zip, 'zip bytes')
@@ -212,7 +250,6 @@ describe('places inside an archive (#300)', () => {
     expect(parsed.tabs[0].browse?.path).toBe(inside)
     expect(parsed.tabs[0].browse?.history.map((h) => h.path)).toEqual([root, inside])
     expect(parsed.tabs[0].browse?.history[1].sort.key).toBe('packed')
-    expect(parsed.tabs[0].open).toEqual([zip, join(zip, 'Wind')])
   })
 
   it('drops them when the zip has gone', () => {

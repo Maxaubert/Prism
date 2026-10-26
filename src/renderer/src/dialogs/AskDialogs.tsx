@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import type { OnClash, OpenPayload } from '@shared/types'
+import type { OnClash } from '@shared/types'
 import type { MoveOnClash } from '@shared/ipcTypes'
 import type { Ask } from './asks'
 import { DeleteDialog } from './DeleteDialog'
@@ -27,7 +27,6 @@ export interface AskAnswers {
   saveAllThen: (then: () => void) => void
   discardTabBuffers: (id: string) => void
   forceCloseTab: (id: string) => void
-  applyReroot: (id: string, payload: OpenPayload) => void
   answerReload: (path: string, reload: boolean) => void
   runInstall: () => void
 }
@@ -38,7 +37,7 @@ export interface AskAnswers {
  * is drawn before the update window and the Explorer's own dialogs, `over`
  * after them.
  */
-const OVER = new Set<Ask['kind']>(['close-tab', 'reroot', 'clash', 'failed'])
+const OVER = new Set<Ask['kind']>(['close-tab', 'clash', 'failed'])
 
 export function AskDialogs({
   ask,
@@ -111,20 +110,6 @@ export function AskDialogs({
             a.forceCloseTab(ask.id)
           }}
           onSave={() => a.saveAllThen(() => a.forceCloseTab(ask.id))}
-        />
-      )
-    case 'reroot':
-      return (
-        <UnsavedDialog
-          names={ask.names}
-          consequence="Opening another folder here is the last way back to them."
-          onCancel={a.dismiss}
-          onDiscard={() => {
-            a.discardTabBuffers(ask.id)
-            a.dismiss()
-            a.applyReroot(ask.id, ask.payload)
-          }}
-          onSave={() => a.saveAllThen(() => a.applyReroot(ask.id, ask.payload))}
         />
       )
     case 'clash':

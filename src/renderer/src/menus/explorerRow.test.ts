@@ -24,7 +24,6 @@ const menu = (over: Partial<ExplorerRowMenuContext>): ExplorerRowMenuContext => 
   openFile: vi.fn(),
   showInPreview: vi.fn(),
   openInNewTab: vi.fn(),
-  openAsProject: vi.fn(),
   copyFiles: vi.fn(),
   paste: vi.fn(),
   pinQuickAccess: vi.fn(),
@@ -45,7 +44,6 @@ describe('explorerRowMenu', () => {
       'Open',
       'Show in preview',
       'Open in new tab',
-      'Open as project',
       'Open in',
       'Cut',
       'Copy',
@@ -63,7 +61,6 @@ describe('explorerRowMenu', () => {
     expect(labels(menu({ entry: folder }))).toEqual([
       'Open',
       'Open in new tab',
-      'Open as project',
       'Cut',
       'Copy',
       'Copy path',

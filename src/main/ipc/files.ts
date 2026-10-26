@@ -208,7 +208,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
 /** Explorer's verbs, Open with, the clipboard and paste, file icons, restore. */
 export function registerShellIpc(ctx: MainCtx): void {
   const { ownWrite, readable, shellVerbSetting, textShape, written } = ctx
-  // "Open file" / "Open as project" in File Explorer's own context menu
+  // "Open file" / "Open in Prism" in File Explorer's own context menu
   // (HKCU only).
   ipcMain.handle(CALL.shellVerbStatus, () => shellVerbSetting.status())
   ipcMain.handle(CALL.shellVerbSet, (_e, on: unknown): Promise<boolean> | false =>

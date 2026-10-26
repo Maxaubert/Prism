@@ -15,8 +15,6 @@ import {
   isPinnedExplorer,
   closeTab,
   type Tab,
-  rerootTab,
-  sameRoot,
   reorderTabs,
   type TabState
 } from '../lib/tabs/tabs'
@@ -28,8 +26,8 @@ import { rememberRoot, forgetRoot } from '@renderer/lib/recentRoots'
 import type { Ask } from '../dialogs/asks'
 
 // THE TABS (out of App.tsx, structure cleanup 2026-10-12, unchanged): a new
-// tab, closing one (asking first when it strands unsaved text), re-rooting
-// one, the recent folders, and picking and reordering. App holds the tab state.
+// tab, closing one (asking first when it strands unsaved text), opening a
+// picked folder, the recent folders, and picking and reordering. App holds the tab state.
 
 export interface TabOpsDeps {
   setTabState: Dispatch<SetStateAction<TabState>>
@@ -56,8 +54,7 @@ export interface TabOps {
   closeOneTab: (id: string) => void
   discardTabBuffers: (id: string) => void
   forceCloseTab: (id: string) => void
-  applyReroot: (id: string | null, p: OpenPayload) => void
-  rerootHere: () => void
+  openFolderTab: () => void
 }
 
 export function useTabOps({
@@ -78,7 +75,6 @@ export function useTabOps({
   /**
    * A new tab, immediately. No dialog: the + and Ctrl+T are meant to be instant,
    * so a tab arrives rooted at the user's own folder and you browse from there.
-   * Choosing a folder is the sidebar's button, which changes THIS tab.
    *
    * It spawns unconditionally, unlike an arriving file: pressing + and watching
    * nothing happen because that root was already open would be worse than two
@@ -126,23 +122,12 @@ export function useTabOps({
     },
     [bufferOwners, setTabState]
   )
-  /** Unsaved buffers living under a tab's root, as their names are spelled. */
-  const dirtyUnder = useCallback(
-    (root: string): string[] => {
-      const r = root.toLowerCase()
-      return [...buffers.current.values()]
-        .filter((b) => b.path.toLowerCase().startsWith(r))
-        .map((b) => baseName(b.path))
-    },
-    [buffers]
-  )
   const bufferBelongsTo = useCallback(
     (tab: Tab, path: string): boolean => {
       const key = path.toLowerCase()
       return (
         !!bufferOwners.current.get(tab.id)?.has(key) ||
-        tab.files[tab.index]?.path.toLowerCase() === key ||
-        tab.panes.some((pane) => pane.path.toLowerCase() === key)
+        tab.files[tab.index]?.path.toLowerCase() === key
       )
     },
     [bufferOwners]
@@ -159,31 +144,25 @@ export function useTabOps({
     },
     [tabs, bufferBelongsTo, syncDirty, buffers]
   )
-  const applyReroot = useCallback(
-    (id: string | null, p: OpenPayload) => {
-      setTabState((s) => rerootTab(s.tabs, id, p, nextTabId()))
-      setHasNavigated(false)
-    },
-    [setHasNavigated, setTabState]
-  )
   /**
-   * The sidebar's folder button: this tab becomes that folder, rather than a new
-   * tab beside it. The strip's `+` is the one that accumulates.
-   *
-   * It asks first when the tab holds unsaved text, because the consequence is
-   * the close-a-tab consequence: the route back to those buffers goes with the
-   * root. A folder already open in another tab switches there instead, so the
-   * one-tab-per-root rule the arriving-file logic leans on still holds.
+   * Open a folder the user picks in a tab of its own (the empty window's
+   * button). Tabs no longer re-root: a folder is a place to walk to, and the
+   * Explorer does that.
    */
-  const rerootHere = useCallback(() => {
-    void window.prism.openFolder(tabs.find((t) => t.id === activeId)?.root).then((p) => {
-      if (!p) return
-      const here = tabs.find((t) => t.id === activeId)
-      const names = here && !sameRoot(here.root, p.root) ? dirtyUnder(here.root) : []
-      if (names.length && activeId) setAsk({ kind: 'reroot', id: activeId, names, payload: p })
-      else applyReroot(activeId, p)
+  const openFolderTab = useCallback(() => {
+    void window.prism.pickFolder().then((path) => {
+      if (!path) return
+      const id = nextTabId()
+      void window.prism.browseDirectory(id, path).then((directory) => {
+        if (!directory) return
+        visitedDirectories.remember(directory)
+        setTabState((s) =>
+          addExplorerTab(s.tabs, { root: directory.path, files: directory.listing.files, index: -1 }, id)
+        )
+        setHasNavigated(false)
+      })
     })
-  }, [activeId, applyReroot, dirtyUnder, tabs, setAsk])
+  }, [setHasNavigated, setTabState])
   /** Close a tab, asking first when that would strand unsaved text. */
   const closeOneTab = useCallback(
     (id: string) => {
@@ -274,7 +253,6 @@ export function useTabOps({
     closeOneTab,
     discardTabBuffers,
     forceCloseTab,
-    applyReroot,
-    rerootHere
+    openFolderTab
   }
 }

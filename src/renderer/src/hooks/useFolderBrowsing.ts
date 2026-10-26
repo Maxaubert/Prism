@@ -202,6 +202,25 @@ export function useFolderBrowsing(
     location?.selected ?? null
   )
 
+  // THE FULL VIEWER HEARS THE DISK TOO (2026-10-26). A file open in the viewer
+  // (a log CodeView follows, a markdown page that refreshes) used to hear its
+  // folder through the project's root watcher; with projects gone the only
+  // watch is the folder list's, which is shut while the viewer is in front.
+  // So the viewer surface watches the folder of the file it shows, through
+  // the same per-tab watch (the tab was granted that folder when the file was
+  // opened or restored). The two never overlap: one surface is in front.
+  const shownPath =
+    active && active.kind !== 'settings' && active.browse.surface === 'viewer' && active.index >= 0
+      ? (active.files[active.index]?.path ?? null)
+      : null
+  const viewerFolder = shownPath ? browseParent(shownPath) : null
+  useEffect(() => {
+    if (!id || !viewerFolder || folder) return
+    void window.prism.browseWatch(id, viewerFolder)
+    return () => {
+      void window.prism.browseWatch(id, null)
+    }
+  }, [id, viewerFolder, folder])
   useEffect(() => {
     void window.prism.browseLocations().then(setLocations)
     void window.prism.weekStart().then(setWeekStart).catch(() => {})

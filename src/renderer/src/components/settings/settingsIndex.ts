@@ -11,9 +11,6 @@ import { iconPath } from '../icons/settingsIcons'
 export const SETTINGS_PAGES: Array<SettingsPageDef & { id: AppPageId }> = [
   { id: 'appearance', label: 'Appearance', icon: 'appearance' },
   { id: 'explorer', label: 'Explorer', icon: iconPath('explorer') },
-  // Owner, 2026-10-06: "project specific settings should be in a tab called
-  // project settings not in explorer".
-  { id: 'project', label: 'Project settings', icon: iconPath('project') },
   { id: 'media', label: 'Media', icon: iconPath('media') },
   // The diagnostics log (#322): in the rail's bottom group, beside About,
   // with the other pages about the app itself rather than what it shows.
@@ -33,7 +30,6 @@ export const ROW_ORDER = [
   'c-font', 'tree-size', 'title-bar', 'tab-width', 'c-edges', 'c-corners',
   'explorer-side', 'explorer-size', 'drive-style', 'newtab-mode', 'open-external',
   'remember-tabs', 'remember-folders', 'win-e-shortcut', 'open-folders', 'explorer-verb', 'default-apps',
-  'tree-side', 'newtab-show',
   'viz-style', 'viz-colour', 'viz-glow', 'viz-cycle', 'viz-move',
   'transport-style', 'transport-bg', 'transport-colour', 'transport-glow', 'transport-cycle', 'transport-move',
   'diag-verbose', 'diag-folder', 'diag-mark',

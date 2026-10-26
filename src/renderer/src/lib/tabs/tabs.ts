@@ -1,7 +1,6 @@
-import type { DirListing, OpenPayload, ViewerFile } from '@shared/types'
+import type { OpenPayload, ViewerFile } from '@shared/types'
 import type { BrowseLocation, SavedBrowse } from '@shared/browse'
-import type { PinnedPane } from '../panes'
-import { isInside, parentDir, trimSep } from '@shared/path'
+import { isInside } from '@shared/path'
 import {
   navigateBrowseState,
   newBrowse,
@@ -13,22 +12,15 @@ import {
 /**
  * The tab list, as pure data.
  *
- * A tab is a root and a current file. Not a project with settings, not a thing
- * you curate: close it and nothing is lost but the place you were looking.
+ * Every tab is an Explorer tab (owner, 2026-10-26: Prism is an Explorer and a
+ * viewer; project tabs and their file tree are gone). A tab is a place it is
+ * browsing and a current file. Not a thing you curate: close it and nothing
+ * is lost but the place you were looking.
  *
  * Every branch that decides where an arriving file lands is here rather than in
  * App, because that rule is the whole feature and it is worth being able to test
  * without a window.
  */
-
-/** The sidebar tree's state, lifted out of Sidebar so it belongs to the tab.
- *  Left inside the component it reset on every switch, which made a tab feel
- *  like a reload rather than a place you left. */
-export interface TreeState {
-  expanded: Set<string>
-  /** path -> its children, once loaded. Absent means "not loaded yet". */
-  children: Record<string, DirListing>
-}
 
 export interface Tab {
   /** Stable for the tab's life; the React key and the id every action names. */
@@ -37,64 +29,19 @@ export interface Tab {
    *  flipped to and from like anything else. Not persisted, never confirmed
    *  on close, owns no root. */
   kind?: 'settings'
-  /** Browsing is separate from a project with a tree.
-   * Missing roles are legacy project tabs. */
-  role?: 'explorer' | 'project'
+  /** Always 'explorer' for a folder tab. Kept as a field so a strip saved by an
+   *  older Prism still reads (its project tabs migrate to Explorer tabs). */
+  role?: 'explorer'
   /** Only the permanent Explorer may be pinned in the strip. */
   pinned?: boolean
-  /** Stable project/tree and phone-share root. Desktop browsing has its own grants. */
+  /** The folder the tab was opened at. Desktop browsing has its own grants. */
   root: string
-  /** Folder browsing is independent of the project tree and current viewer. */
+  /** Folder browsing is independent of the current viewer. */
   browse: SavedBrowse
   /** The root folder's viewable files, as main listed them. */
   files: ViewerFile[]
   /** Which of `files` is on screen. -1 when the folder holds nothing viewable. */
   index: number
-  tree: TreeState
-  /** Split-view pins: up to three fixed files beside the live pane. */
-  panes: PinnedPane[]
-}
-
-/** A tree with only its root open and nothing loaded. */
-export function emptyTree(root: string): TreeState {
-  return { expanded: new Set([root]), children: {} }
-}
-
-/** How many remembered folders a restored tab will re-open. Past this it is
- *  not a place you were, it is a tree somebody unfolded. */
-const MAX_OPEN = 400
-
-/**
- * The tree a RESTORED tab starts with: the folders that were open when Prism
- * closed, plus every ancestor of the file it is showing.
- *
- * The ancestors matter on their own. A file can arrive from outside (argv,
- * Explorer's "Open file") with no saved tree at all, and the sidebar has to be able
- * to mark it - which it cannot do if the rows leading to it were never
- * expanded. Both halves land in one set, and duplicates are free.
- */
-export function restoredTree(root: string, open: readonly string[] = [], file?: string): TreeState {
-  const expanded = new Set<string>([root])
-  for (const p of open.slice(0, MAX_OPEN)) if (p) expanded.add(p)
-  if (file) for (const a of ancestorsWithin(root, file)) expanded.add(a)
-  return { expanded, children: {} }
-}
-
-/** Every folder between `root` and `file`, inclusive of root, exclusive of
- *  the file itself. Case-insensitive, because Windows paths are. */
-export function ancestorsWithin(root: string, file: string): string[] {
-  const out: string[] = []
-  const r = trimSep(root)
-  let at = trimSep(file)
-  // Walk up from the file, stopping at the root: a path outside it yields
-  // nothing rather than climbing to the drive.
-  for (let guard = 0; guard < 64; guard += 1) {
-    at = parentDir(at)
-    if (!at || at.length < r.length) break
-    out.push(at)
-    if (at.toLowerCase() === r.toLowerCase()) break
-  }
-  return out
 }
 
 /** Windows does not distinguish roots by case, so neither does a tab. */
@@ -108,28 +55,22 @@ export const underRoot = (root: string, p: string): boolean => isInside(root, p)
 export function newTab(p: OpenPayload, id: string): Tab {
   return {
     id: p.restore && p.restoreTabId ? p.restoreTabId : id,
-    role: p.role ?? 'project',
-    ...(p.role === 'explorer' && p.pinned ? { pinned: true } : {}),
+    role: 'explorer',
+    ...(p.pinned ? { pinned: true } : {}),
     root: p.root,
-    browse: p.browse ?? newBrowse(p.root, p.folder || p.index < 0 ? 'folder' : 'viewer'),
+    browse: p.browse ?? newBrowse(p.root, p.index < 0 ? 'folder' : 'viewer'),
     files: p.files,
-    index:
-      p.index < 0 && (p.role === 'explorer' || p.browse?.surface === 'viewer')
-        ? -1
-        : p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1,
-    // A restored tab comes back with its folders open, and ANY tab opens the
-    // folders leading to the file it is showing, so the sidebar can mark it.
-    tree: restoredTree(p.root, p.open, p.files[p.index]?.path),
-    panes: p.panes ?? []
+    index: p.index < 0 ? -1 : p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1
   }
 }
 
-export const isExplorerTab = (tab: Tab): boolean =>
-  tab.kind !== 'settings' && tab.role === 'explorer'
+/** Every tab but Settings is an Explorer tab; the name stays for the callers
+ *  that tell the two apart. */
+export const isExplorerTab = (tab: Tab): boolean => tab.kind !== 'settings'
 
 export const isPinnedExplorer = (tab: Tab): boolean => isExplorerTab(tab) && tab.pinned === true
 
-/** An explicit new browser never reuses or reroots an existing project. */
+/** An explicit new browser never reuses or reroots an existing tab. */
 export function addExplorerTab(
   tabs: readonly Tab[],
   p: OpenPayload,
@@ -139,21 +80,10 @@ export function addExplorerTab(
   const existing = pinned ? tabs.find(isPinnedExplorer) : undefined
   if (existing) return { tabs: tabs.slice(), activeId: existing.id }
   const spawned = newTab(
-    { ...p, role: 'explorer', pinned, browse: p.browse ?? newBrowse(p.root) },
+    { ...p, pinned, browse: p.browse ?? newBrowse(p.root) },
     id
   )
   return { tabs: pinned ? [spawned, ...tabs] : [...tabs, spawned], activeId: spawned.id }
-}
-
-/** Opening a folder as a project starts with its tree and an empty workspace. */
-export function addProjectTab(tabs: readonly Tab[], p: OpenPayload, id: string): TabState {
-  return addTab(tabs, {
-    ...p,
-    role: 'project',
-    pinned: false,
-    index: -1,
-    browse: newBrowse(p.root, 'viewer')
-  }, id)
 }
 
 /** Restore keeps every owner's identity and location. Extra stale pin flags
@@ -188,12 +118,7 @@ export function frontPinnedExplorer(tabs: readonly Tab[], preview: boolean): Tab
   }
 }
 
-/** Write one tab's pinned panes; every other tab is untouched. */
-export function setTabPanes(tabs: readonly Tab[], tabId: string, panes: PinnedPane[]): Tab[] {
-  return tabs.map((t) => (t.id === tabId ? { ...t, panes } : t))
-}
-
-/** Browsing does not reroot a project or replace a shell, viewer, tree or pinned pane. */
+/** Browsing a folder moves the tab's place and leaves its viewer alone. */
 export function navigateBrowse(tabs: readonly Tab[], tabId: string, path: string): Tab[] {
   return tabs.map((tab) =>
     tab.id === tabId && tab.kind !== 'settings'
@@ -219,7 +144,7 @@ export function travelBrowse(tabs: readonly Tab[], tabId: string, delta: number)
  * showed the zip's own card, "the double view"). An Explorer that moves to
  * another folder, the inside of a zip included, drops the file on display. A
  * pane that was open stays open and empty (`previewHeld`), so nothing jumps; a
- * shut one stays shut. A project keeps its open file: browsing never replaces it.
+ * shut one stays shut.
  * Coming back OUT of a zip shows it again (#334): `wayOutPreview`, in the hook.
  */
 function leaveShown(was: Tab, tab: Tab): Tab {
@@ -355,9 +280,7 @@ export function openSettingsTab(tabs: readonly Tab[], id: string): TabState {
     root: '',
     browse: newBrowse(''),
     files: [],
-    index: -1,
-    tree: emptyTree(''),
-    panes: []
+    index: -1
   }
   return { tabs: [...tabs, tab], activeId: id }
 }
@@ -394,11 +317,8 @@ export interface TabState {
 /**
  * Add a tab, unconditionally.
  *
- * The strip's `+` is an explicit "give me a tab", not "show me this file", so
- * unlike `receiveFile` it does NOT fold into a tab that already has that root:
+ * The strip's `+` is an explicit "give me a tab", not "show me this file":
  * pressing + and watching nothing happen is worse than two tabs on one folder.
- * Arriving files still land in the first tab matching their root, so nothing
- * downstream has to care that two can exist.
  */
 export function addTab(tabs: readonly Tab[], p: OpenPayload, id: string): TabState {
   const spawned = newTab(p, id)
@@ -429,72 +349,6 @@ export function addRestoredTab(
   if (at < 0) next.push(spawned)
   else next.splice(at, 0, spawned)
   return { tabs: next, activeId: spawned.id }
-}
-
-/**
- * Where a file arriving from outside lands. One rule, three outcomes:
- *
- *   1. A tab whose root already holds it: switch to that tab and point it at
- *      the file. Quick-looking through a folder never breeds duplicate tabs.
- *   2. Otherwise, with tabs already open: a new tab.
- *   3. Otherwise: fill the empty window.
- *
- * The reused tab takes the fresh file list too, so a sibling renamed since it
- * was opened is not stale, but keeps its expanded folders: it is a place you
- * left, not a reload.
- */
-export function receiveFile(tabs: readonly Tab[], p: OpenPayload, id: string): TabState {
-  // A tab takes the file only when its root IS the file's own folder (owner,
-  // 2026-09-04, reversing 2026-09-01). The containing-root fold - a file two
-  // folders down landing in the tab already showing that tree - put a file
-  // from Downloads into a tab rooted at the user's folder and moved that
-  // tab's view, and an agent's tab is the one you least want moved under
-  // you. A file from any other folder, a subfolder of an open tab included,
-  // opens a tab of its own rooted at that folder: separate folders, separate
-  // tabs, and one tab per root still holds.
-  const hit = tabs.findIndex((t) => t.kind !== 'settings' && !isExplorerTab(t) && sameRoot(t.root, p.root))
-  if (hit >= 0) {
-    const next = tabs.slice()
-    const was = next[hit]
-    next[hit] = {
-      ...was,
-      browse: { ...navigateBrowseState(was.browse, p.root), surface: 'viewer' },
-      files: p.files,
-      index: p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1
-    }
-    return { tabs: next, activeId: was.id }
-  }
-  return addTab(tabs, p, id)
-}
-
-/**
- * Point one tab at a different folder, in place.
- *
- * This is what the sidebar's folder button does, as against the strip's `+`:
- * the tab you are in becomes that folder, keeping its id and its place in the
- * strip, so "open a folder" is a move rather than an accumulation. The tree
- * starts fresh, because the folders the old root had open mean nothing here.
- *
- * If another tab is already that folder, it wins: switching to it keeps one tab
- * per root, which is the invariant `receiveFile` leans on to know that a file
- * arriving from outside has a home. Rerooting a tab onto its own root is then
- * naturally a no-op you simply stay on.
- */
-export function rerootTab(
-  tabs: readonly Tab[],
-  id: string | null,
-  p: OpenPayload,
-  newId: string
-): TabState {
-  const already = tabs.find((t) => !isExplorerTab(t) && sameRoot(t.root, p.root))
-  if (already) return { tabs: tabs.slice(), activeId: already.id }
-  const i = tabs.findIndex((t) => t.id === id)
-  if (i < 0) return receiveFile(tabs, p, newId)
-  if (isExplorerTab(tabs[i])) return addTab(tabs, { ...p, role: 'project', pinned: false }, newId)
-  const next = tabs.slice()
-  // Files, index and tree start fresh.
-  next[i] = newTab(p, tabs[i].id)
-  return { tabs: next, activeId: tabs[i].id }
 }
 
 /**
@@ -549,7 +403,7 @@ export function reorderTabs(tabs: readonly Tab[], id: string, toIndex: number): 
 }
 
 export function tabLabels(tabs: readonly Tab[]): string[] {
-  const paths = tabs.map((t) => (t.role === 'project' ? t.root : t.browse.path))
+  const paths = tabs.map((t) => t.browse.path)
   const bases = tabs.map((t, i) => (t.kind === 'settings' ? 'Settings' : baseOf(paths[i])))
   // A collision means one basename over DIFFERENT roots. Two tabs on the very
   // same folder (the + allows that) have nothing to tell apart, so they keep

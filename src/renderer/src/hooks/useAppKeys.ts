@@ -1,4 +1,4 @@
-import { useEffect, type Dispatch, type RefObject, type SetStateAction } from 'react'
+import { useEffect, type Dispatch, type SetStateAction } from 'react'
 import type { ViewerFile } from '@shared/types'
 import { isTypingTarget } from '../lib/focusGuards'
 import { isExplorerTab, type Tab } from '../lib/tabs/tabs'
@@ -41,13 +41,11 @@ export interface AppKeysDeps {
   redo: () => void
   undo: () => void
   newTab: () => void
-  unpinSplitId: (paneId: string) => void
   closeActiveTab: () => void
   stepTab: (delta: number) => void
   jumpTab: (n: number) => void
   togglePanel: () => void
   go: (delta: number) => void
-  treeNav: RefObject<((dir: 'up' | 'down') => boolean) | null>
   hasNavigated: boolean
 }
 
@@ -68,13 +66,11 @@ export function useAppKeys({
   redo,
   undo,
   newTab,
-  unpinSplitId,
   closeActiveTab,
   stepTab,
   jumpTab,
   togglePanel,
   go,
-  treeNav,
   hasNavigated
 }: AppKeysDeps): void {
   // App-level keys, in the capture phase so this runs before the player's own
@@ -104,7 +100,7 @@ export function useAppKeys({
       if (el?.closest('[data-search-popup]')) return
       // A MENU ROW WITH THE FOCUS owns the plain keys (#272): More opened from
       // the keyboard puts the focus on its first row, and Down there walked
-      // the sidebar's tree too, whose row then took the focus out of the
+      // the list too, whose row then took the focus out of the
       // menu (measured in the moreMenu e2e). The chords stay the app's.
       if (el?.closest('[role="menu"]') && !e.ctrlKey && !e.altKey && !e.metaKey) return
       // SETTINGS OWNS ITS PLAIN KEYS (#292): Up and Down walk its rail and
@@ -195,17 +191,15 @@ export function useAppKeys({
           return
         }
       }
-      // THE COMMON LIST KEYS (#330) are the list's and the tree's own: Shift
-      // and Ctrl with Up/Down extend the marks or move the keyboard's place
-      // there, and must not also walk the tree (which OPENS what it lands on)
-      // or page the folder behind it. Alt+Up in the tree is its parent row.
-      const inLists = !!el?.closest('.browse-list,[data-project-sidebar]')
+      // THE COMMON LIST KEYS (#330) are the list's own: Shift and Ctrl with
+      // Up/Down extend the marks or move the keyboard's place there, and must
+      // not also page the folder behind it.
+      const inLists = !!el?.closest('.browse-list')
       if (
         active &&
         isExplorerTab(active) &&
         e.altKey &&
         !typing &&
-        !el?.closest('[data-project-sidebar]') &&
         ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)
       ) {
         e.preventDefault()
@@ -241,17 +235,11 @@ export function useAppKeys({
         e.ctrlKey &&
         !typing
       ) {
-        // Close the innermost thing first: split panes pop LIFO (tabs within
-        // the tab), and only with none left does Ctrl+W reach the tab itself.
-        // It still never takes the window on the last tab: Prism is resident,
-        // and a window that vanishes under a reflex keystroke - with unsaved
-        // text in it - is the failure the close flow exists to prevent.
+        // It never takes the window on the last tab: Prism is resident, and a
+        // window that vanishes under a reflex keystroke - with unsaved text in
+        // it - is the failure the close flow exists to prevent.
         e.preventDefault()
-        if (active && !isExplorerTab(active) && active.panes.length > 0) {
-          unpinSplitId(active.panes[active.panes.length - 1].id)
-        } else {
-          closeActiveTab()
-        }
+        closeActiveTab()
       } else if (e.key === 'Tab' && e.ctrlKey && !typing) {
         e.preventDefault()
         stepTab(e.shiftKey ? -1 : 1)
@@ -306,24 +294,12 @@ export function useAppKeys({
         // from the sidebar behaves the same whatever kind of file it lands on.
         // (`typing` already covered the text editor's caret, above.)
         if (docFocused()) return
-        // Alt too: Alt+Up is the tree's parent row, and walking the tree here
-        // first would open or play the row above on the way (review of #330).
+        // Alt too: Alt+Up is the list's parent row (review of #330).
         if (inLists && (e.ctrlKey || e.shiftKey || e.altKey)) return
-        // The tree gets first refusal: it walks folders as well as files, and
-        // says no when it isn't there to walk.
-        const dir = e.key === 'ArrowDown' ? 'down' : 'up'
-        if (!fullscreen && treeNav.current?.(dir)) {
-          e.preventDefault()
-          return
-        }
-        // Nothing to walk, and a player in front of you: Up/Down are the
-        // VOLUME, which is what every media player has taught (2026-08-30).
-        // They used to be preventDefault-ed unconditionally here, and
-        // useMediaControls yields on defaultPrevented, so the volume keys were
-        // dead everywhere - most obviously in fullscreen, where the sidebar is
-        // gone and there is nothing else for them to do. The player only gets
-        // them when the tree does not want them, so browsing a folder from the
-        // sidebar is unchanged.
+        // A player in front of you: Up/Down are the VOLUME, which is what every
+        // media player has taught (2026-08-30). They used to be
+        // preventDefault-ed unconditionally here, and useMediaControls yields
+        // on defaultPrevented, so the volume keys were dead everywhere.
         if (!!file && PLAYABLE.has(file.kind)) return // player handles it
         e.preventDefault()
         go(e.key === 'ArrowDown' ? 1 : -1)
@@ -362,10 +338,8 @@ export function useAppKeys({
     stepTab,
     togglePanel,
     undo,
-    unpinSplitId,
     setAsk,
     setBrowseRename,
-    setFs,
-    treeNav
+    setFs
   ])
 }

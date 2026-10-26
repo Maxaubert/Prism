@@ -1,4 +1,3 @@
-import type { OpenPayload } from '@shared/types'
 
 /** A question Prism has to put to the user before (or instead of) touching a
  *  file. App holds one at a time; `AskDialogs` draws it. */
@@ -9,12 +8,8 @@ export type Ask =
   | { kind: 'clash'; path: string; name: string; suggestion: string }
   | { kind: 'failed'; message: string }
   | { kind: 'close-dirty'; then?: 'install' }
-  // Closing a TAB whose root holds unsaved text. Same three answers as the
+  // Closing a TAB that holds unsaved text. Same three answers as the
   // window's, because the stake is the same: leave that tab and the only route
   // back to those buffers is gone, even though the window stays open.
   | { kind: 'close-tab'; id: string; names: readonly string[] }
   | { kind: 'file-changed'; path: string; name: string }
-  // Pointing a tab at a different folder strands its unsaved text exactly as
-  // closing it would, so it asks the same question and carries the payload it
-  // will apply on the way through.
-  | { kind: 'reroot'; id: string; names: readonly string[]; payload: OpenPayload }

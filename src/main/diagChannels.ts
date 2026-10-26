@@ -31,7 +31,6 @@ import { CALL } from '@shared/channels'
 export const LONG_WAIT_CHANNELS: readonly string[] = [
   // Waits on the user: each opens a system dialog and answers when it closes.
   CALL.dialogPickFolder,
-  CALL.openFolder,
   CALL.dialogPickFiles,
   CALL.openDialog,
   CALL.subsPick,

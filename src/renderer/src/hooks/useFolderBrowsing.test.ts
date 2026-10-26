@@ -21,40 +21,23 @@ function initialBrowsing(tab: Tab): ReturnType<typeof useFolderBrowsing> {
   return result
 }
 
-function restored(role?: Tab['role']): Tab {
+function restored(): Tab {
   const browse = newBrowse('C:\\project', 'folder')
   browse.history[0].query = 'notes'
-  return {
-    ...newTab({ root: browse.path, files: [], index: -1, browse, role }, 'restored'),
-    role
-  }
+  return newTab({ root: browse.path, files: [], index: -1, browse }, 'restored')
 }
 
-describe('project and Explorer surface isolation', () => {
-  it.each(['project', undefined] as const)('keeps a restored %s project out of folder search and loading', (role) => {
-    const result = initialBrowsing(restored(role))
-    expect(result.folder).toBe(false)
-    expect(result.searchState).toBeUndefined()
-    expect(result.pending).toBe('none')
-  })
-
+describe('Explorer surface', () => {
   it('retains folder browsing and the saved search for Explorer', () => {
-    const result = initialBrowsing(restored('explorer'))
+    const result = initialBrowsing(restored())
     expect(result.folder).toBe(true)
     expect(result.searchState?.running).toBe(true)
     // Waiting for its folder, quietly: no hint before 300 ms, never a message.
     expect(result.pending).toBe('quiet')
   })
 
-  it('keeps a project out of the folder surface', () => {
-    const tab = restored('project')
-    const result = initialBrowsing(tab)
-    expect(result.folder).toBe(false)
-    expect(result.searchState).toBeUndefined()
-  })
-
   it('keeps the Explorer split file when the list navigates or selects a folder', () => {
-    const tab = restored('explorer')
+    const tab = restored()
     const file = {
       path: 'C:\\movies\\clip.mp4',
       name: 'clip.mp4',
@@ -87,7 +70,7 @@ describe('a quiet select (#263)', () => {
     updates: () => number
     looks: () => number
   } {
-    const tab = restored('explorer')
+    const tab = restored()
     tab.browse.preview = true
     let updates = 0
     const setState = (() => {
@@ -123,13 +106,13 @@ describe('a quiet select (#263)', () => {
 
 describe('an open that lands after a sweep (#263)', () => {
   it('takes the selected path when nothing was marked meanwhile', () => {
-    const tab = restored('explorer')
+    const tab = restored()
     const tabs = arrivalSelection([tab], tab.id, 'C:\\project\\v1.mp4', false)
     expect(browseLocation(tabs[0].browse).selected).toBe('C:\\project\\v1.mp4')
   })
 
   it('leaves the marks their selected path when rows were marked meanwhile', () => {
-    const tab = restored('explorer')
+    const tab = restored()
     tab.browse.history[0].selected = 'C:\\project\\v3.mp4'
     const tabs = arrivalSelection([tab], tab.id, 'C:\\project\\v1.mp4', true)
     expect(browseLocation(tabs[0].browse).selected).toBe('C:\\project\\v3.mp4')
@@ -150,7 +133,7 @@ describe('the open-folder crumb (#322)', () => {
     vi.stubGlobal('window', {
       prism: { browseDirectory: async (_tab: string, path: string) => ({ path, listing }) }
     })
-    const tab = restored('explorer')
+    const tab = restored()
     let result!: ReturnType<typeof useFolderBrowsing>
     function Probe(): null {
       result = useFolderBrowsing(tab, () => {}, 0)
@@ -171,7 +154,7 @@ describe('the open-folder crumb (#322)', () => {
 
   it('marks a folder that could not be read', async () => {
     vi.stubGlobal('window', { prism: { browseDirectory: async () => null } })
-    const tab = restored('explorer')
+    const tab = restored()
     let result!: ReturnType<typeof useFolderBrowsing>
     function Probe(): null {
       result = useFolderBrowsing(tab, () => {}, 0)

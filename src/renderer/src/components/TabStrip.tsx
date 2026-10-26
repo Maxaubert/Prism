@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
-import { isExplorerTab, isPinnedExplorer, tabLabels, type Tab } from '../lib/tabs/tabs'
+import { isPinnedExplorer, tabLabels, type Tab } from '../lib/tabs/tabs'
 import { pinnedRoots, plusMenuList, recentRoots, togglePin } from '@renderer/lib/recentRoots'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/drag/dragDrop'
 import { ContextMenu } from './ContextMenu'
@@ -10,7 +10,7 @@ import { Icon } from './icons/Icon'
 import { PATHS } from './icons/paths'
 
 /**
- * The open projects, as a row under the title bar.
+ * The open tabs, as a row under the title bar.
  *
  * Present from the first tab, so the `+` is always somewhere to reach and the
  * chrome never shifts under you when a second folder opens. It goes only when
@@ -261,7 +261,7 @@ export function TabStrip({
         return (
           <div
             key={t.id}
-            data-tab-role={t.kind === 'settings' ? 'settings' : t.role ?? 'project'}
+            data-tab-role={t.kind === 'settings' ? 'settings' : 'explorer'}
             data-pinned={isPinnedExplorer(t) ? '' : undefined}
             // Hairline side edges in the divider token: they separate flush
             // tabs when the style draws edges, and vanish (the token goes
@@ -330,16 +330,14 @@ export function TabStrip({
                 x: e.clientX,
                 y: e.clientY,
                 id: t.id,
-                root: t.kind === 'settings' ? '' : isExplorerTab(t) ? t.browse.path : t.root,
+                root: t.kind === 'settings' ? '' : t.browse.path,
                 pinned: isPinnedExplorer(t)
               })
             }}
             // Tabs reorder by dragging (#70): the half of the tab the pointer
             // is over decides which side of it the dragged tab lands.
             data-tab
-            data-folder-drop={
-              t.kind === 'settings' ? undefined : isExplorerTab(t) ? t.browse.path : t.root
-            }
+            data-folder-drop={t.kind === 'settings' ? undefined : t.browse.path}
             data-drag-over={fileDropTab === t.id || undefined}
             onDragOver={(e) => {
               // Stop before the blank-strip handler: an existing tab is a
@@ -384,11 +382,11 @@ export function TabStrip({
             {/* EVERY TAB SAYS WHAT IT HOLDS (#308; owner, 2026-10-06: "we
                 should have some default icons per type of page explorer,
                 project and settings"; 2026-10-07, of the mockup: "A3 and C2").
-                A folder, code brackets or a gear in the tab's own ink, solid
+                A folder or a gear in the tab's own ink, solid
                 on the tab you are on and lines on the rest. It replaced the
                 small folder in the folder colour that only Explorer tabs had. */}
             <TabKindIcon
-              kind={t.kind === 'settings' ? 'settings' : isExplorerTab(t) ? 'explorer' : 'project'}
+              kind={t.kind === 'settings' ? 'settings' : 'explorer'}
               solid={on}
             />
             <button
@@ -399,7 +397,7 @@ export function TabStrip({
               // button, truncated there. Fit: the label sizes the tab, up to
               // 14rem, as before.
               className={`min-w-0 truncate py-1 text-left ${width === 'fixed' ? 'flex-1' : 'max-w-[14rem]'}`}
-              title={isExplorerTab(t) ? t.browse.path : t.root}
+              title={t.browse.path}
               onClick={() => {
               // A press that travelled is a drag, not a pick.
               if (dragging.current) {

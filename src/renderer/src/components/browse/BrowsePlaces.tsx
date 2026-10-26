@@ -33,7 +33,6 @@ type Props = Pick<
   | 'onMoveQuickAccess'
   | 'onPinQuickAccessPaths'
   | 'onDropInto'
-  | 'onOpenProject'
   | 'onOpenNewTab'
   | 'readDrives'
   | 'onProperties'
@@ -60,7 +59,7 @@ function isPinDrag(event: DragEvent): boolean {
  * like the sidebar from here, so use that, with the icons and the disks with a
  * bar showing how much is in use"). Quick access is the pins that ARE a
  * Windows Known Folder, each with its own glyph; Pinned is every other pin;
- * then Projects; then This PC, each drive with its usage bar and free line.
+ * then This PC, each drive with its usage bar and free line.
  * The pin list is still ONE store in one order (`quickAccess.ts`): an unpinned
  * Desktop stays gone, a re-pinned one comes back under Quick access, and a pin
  * moves only among its own section's rows.
@@ -69,7 +68,6 @@ export function BrowsePlaces({
   places,
   directory,
   onNavigate,
-  onOpenProject,
   onOpenNewTab,
   onProperties,
   quickAccess,
@@ -116,7 +114,7 @@ export function BrowsePlaces({
     y: number
     pinned: boolean
     /** Which row opened it, so that row alone wears the menu's tint: a
-     *  pinned project is a pin AND a Projects row, one path in two places. */
+     *  pin can also be a drive, one path in two places. */
     row: string
   } | null>(null)
   const [drop, setDrop] = useState<{ section: PinSection; before?: string } | null>(null)
@@ -153,7 +151,6 @@ export function BrowsePlaces({
     if (moving && list.some((pin) => sameQuickAccessPath(pin.path, moving)))
       onMoveQuickAccess?.(moving, before)
   }
-  const projects = places.filter((place) => place.group === 'Projects')
   // ONE PLACE IS MARKED (#296; owner, 2026-10-06), File Explorer's rule
   // (lib/placeMark.ts): the one clicked while the folder is inside it, else
   // the first whose path IS the folder. aria-current is on that row alone.
@@ -161,7 +158,7 @@ export function BrowsePlaces({
     ...[...sections['Quick access'], ...sections.Pinned]
       .filter((pin) => pin.isFolder)
       .map((pin) => ({ row: `pin:${pin.path}`, path: pin.path })),
-    ...[...projects, ...drives].map((place) => ({ row: `place:${place.path}`, path: place.path }))
+    ...drives.map((place) => ({ row: `place:${place.path}`, path: place.path }))
   ]
   const marked = markedPlace(placeRows, directory, chosenPlace)
   // While a menu is open on ANOTHER row, the mark is DIMMED (owner, same
@@ -356,20 +353,6 @@ export function BrowsePlaces({
       <nav>
         {pinSection('Quick access')}
         {pinSection('Pinned')}
-        {projects.length > 0 && (
-          <section aria-label="Projects">
-            <h2>Projects</h2>
-            {projects.map((place) =>
-              placeButton(
-                place,
-                <>
-                  <FolderIcon color="var(--p-tree-folder)" />
-                  <span>{place.label}</span>
-                </>
-              )
-            )}
-          </section>
-        )}
         {drives.length > 0 && (
           <section aria-label="This PC" data-drive-style={driveLook}>
             <h2>This PC</h2>
@@ -402,8 +385,7 @@ export function BrowsePlaces({
             onNavigate,
             onQuickAccessFile,
             onOpenNewTab,
-            onOpenProject,
-            onUnpinQuickAccess,
+                      onUnpinQuickAccess,
             onMoveQuickAccess,
             onPinQuickAccessPaths,
             onProperties: onProperties

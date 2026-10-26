@@ -107,7 +107,7 @@ it('does not filter the desktop file list by extension or viewer support', async
   expect(result?.listing.files.find((file) => file.name === 'library.dll')?.kind).toBe('other')
 })
 
-it('restores independent browsing and tree expansion', () => {
+it('restores independent browsing', () => {
   const project = join(box, 'project')
   const browsing = join(box, 'browsing')
   mkdirSync(project)
@@ -126,7 +126,7 @@ it('restores independent browsing and tree expansion', () => {
       {
         id: 'stable',
         root: project,
-        open: [project],
+        role: 'explorer',
         browse: { path: browsing, history, cursor: 0, surface: 'folder', preview: true }
       }
     ],
@@ -135,19 +135,16 @@ it('restores independent browsing and tree expansion', () => {
   expect(parseTabs(JSON.stringify(state))).toEqual(state)
 })
 
-it('restores real pinned files outside the project and drops missing pins', () => {
+it('ignores the pinned panes an old strip carries (2026-10-26)', () => {
   const project = join(box, 'project')
   mkdirSync(project)
   const path = join(box, 'pinned.txt')
   writeFileSync(path, 'pinned')
-  const pane = { id: 'pin', path, dir: 'right' }
   const state = {
-    tabs: [
-      { root: project, panes: [pane, { id: 'gone', path: join(box, 'gone.txt'), dir: 'top' }] }
-    ],
+    tabs: [{ root: project, panes: [{ id: 'pin', path, dir: 'right' }] }],
     active: 0
   }
-  expect(parseTabs(JSON.stringify(state)).tabs[0].panes).toEqual([pane])
+  expect('panes' in parseTabs(JSON.stringify(state)).tabs[0]).toBe(false)
 })
 
 it('does not recreate grants when a tab closes during an asynchronous browse', async () => {
@@ -184,7 +181,7 @@ it('ignores the terminal fields an old strip carries (2026-10-26)', () => {
     active: 0
   }
   const tab = parseTabs(JSON.stringify(state)).tabs[0]
-  expect(tab).toEqual({ root: box })
+  expect(tab).toEqual({ root: box, role: 'explorer' })
   expect(tab).not.toHaveProperty('term')
   expect(tab).not.toHaveProperty('terms')
   expect(tab).not.toHaveProperty('agent')

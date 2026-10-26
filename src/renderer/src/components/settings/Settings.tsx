@@ -12,7 +12,6 @@ import { AppearancePage } from './AppearancePage'
 import type { AppPageId, MediaView } from './appOptions'
 import { ExplorerPage } from './ExplorerPage'
 import { MediaPage } from './MediaPage'
-import { ProjectPage } from './ProjectPage'
 import { SETTINGS_PAGES, settingsIndex } from './settingsIndex'
 
 // THE SETTINGS PAGE IS PRISM'S; ITS FRAME, SECTIONS AND ROWS ARE THE CORE'S
@@ -141,8 +140,6 @@ export function Settings({
             <AppearancePage />
           ) : page === 'explorer' ? (
             <ExplorerPage />
-          ) : page === 'project' ? (
-            <ProjectPage />
           ) : page === 'diagnostics' ? (
             // THE CORE'S PAGE (#322), the same as Prism Terminal's: Detailed
             // logging, the log folder, Mark a problem. Handed the bridge,

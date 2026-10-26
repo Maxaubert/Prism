@@ -362,7 +362,6 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
             }
           : props.onNavigate
       }
-      onOpenProject={props.onOpenProject}
       onOpenNewTab={props.onOpenNewTab}
       onProperties={props.onProperties}
     />
