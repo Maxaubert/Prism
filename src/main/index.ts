@@ -1,4 +1,5 @@
-import { LAG_WINDOW_MS, startLagProfiler, STARTUP_PROFILE_MS } from './lagProfiler'
+import { startLagProfiler } from './lagProfiler'
+import { startNativeTrace } from './nativeTrace'
 import { CALL, PUSH } from '@shared/channels'
 import {
   app,
@@ -8,6 +9,7 @@ import {
   BrowserWindow,
   ipcMain,
   dialog,
+  contentTracing,
   crashReporter,
   utilityProcess,
   Menu,
@@ -1090,19 +1092,23 @@ if (!app.requestSingleInstanceLock()) {
       else void shell.openPath(dir)
     },
     longWaitChannels: [...LONG_WAIT_CHANNELS],
-    powerMonitor: () => powerMonitor
+    powerMonitor: () => powerMonitor,
+    // Detailed logging until the owner switches it off (owner, 2026-10-27:
+    // "keep logging as much as possible" while Prism is young). The e2e
+    // keeps the quiet default its scenarios measure against.
+    verboseByDefault: !E2E
   })
-  // A main-lag of 1 s or more carries a CPU profile (2026-10-12): e2e and
-  // Detailed logging only (lagProfiler.ts).
-  // Also on for every launch's first STARTUP_PROFILE_MS (2026-10-27): the
-  // startup freeze happened only in ordinary launches, where nothing was
-  // profiling, so its one profile could never be caught. Nothing is written
-  // unless a lag of 1 s or more happens. One window past it, so a lag that
-  // ends just after the mark still finds its window running.
-  startLagProfiler({
-    log: diag.log,
-    enabled: () => E2E || !!diag?.log.verbose() || process.uptime() * 1000 < STARTUP_PROFILE_MS + LAG_WINDOW_MS
-  })
+  // A main-lag of 1 s or more carries a CPU profile (2026-10-12) and a
+  // Chromium trace (2026-10-27), in every session (owner, 2026-10-27, "keep
+  // logging as much as possible"): the profile says what JavaScript did, the
+  // trace what Electron and Chromium did when JavaScript sat idle
+  // (lagProfiler.ts, nativeTrace.ts). Nothing is written without a lag.
+  startLagProfiler({ log: diag.log, enabled: () => true })
+  // contentTracing refuses to start before ready ("cannot be used before app
+  // is ready", e2e diagLog), so the trace starts there; the profile above
+  // covers the moments before it.
+  const traceLog = diag.log
+  void app.whenReady().then(() => startNativeTrace({ log: traceLog, tracing: contentTracing }))
   // E2E only (review of #322): the harness ends a scenario with `app.exit`,
   // which skips will-quit, so it writes main's queue first and the run's
   // Stalls table sees a scenario's last moments.

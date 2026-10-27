@@ -43,6 +43,8 @@ export interface DiagnosticsDeps {
   /** Electron's `app.getAppMetrics`: each process's memory for the `memory`
    *  crumb and `mem-high` (2026-10-16). Absent: no memory readings. */
   appMetrics?: () => ProcessMetricLike[]
+  /** Detailed logging until the owner switches it (`DiagLogOptions`). */
+  verboseByDefault?: boolean
 }
 
 /** The slice of a BrowserWindow the watch needs. */
@@ -65,7 +67,7 @@ export function startDiagnostics(deps: DiagnosticsDeps): Diagnostics {
     return { log: NULL_DIAG_LOG, watchWindow: () => {}, stop: () => {} }
   }
   const dir = deps.diagLogDir
-  const log = createDiagLog({ dir })
+  const log = createDiagLog({ dir, verboseByDefault: deps.verboseByDefault })
   setDiagMain(log)
 
   const cpu = cpus()
