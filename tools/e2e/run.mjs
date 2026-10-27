@@ -14196,6 +14196,65 @@ async function zipFolderScenario(fixtures) {
  * picked there previews as before; Back keeps it empty. Nothing is previewed
  * on its own.
  */
+/**
+ * A MENU IS ABOVE EVERY PANEL (owner, 2026-10-27, a screenshot: the address
+ * bar's menu dropped over the preview, the preview's text was drawn ON it,
+ * and the pointer over its rows was the text caret). The menu rendered inside
+ * the toolbar's stacking context, below the preview pane's. Every row must be
+ * what the pointer actually hits at its centre, with a pointer cursor.
+ */
+async function menuOverPreviewScenario(fixtures) {
+  console.log('a menu is above the preview pane')
+  const { dir } = await zipWorld(fixtures, 'menuoverpreview')
+  writeFileSync(join(dir, 'long.txt'), Array.from({ length: 80 }, (_, i) => `line ${i} of a long text file`).join('\n'))
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  try {
+    await explorerAt(win, dir)
+    await zipRow(win, 'long.txt').click()
+    ok(
+      await until(async () => /line 3 of a long/.test((await win.locator('[data-browse-preview]').textContent()) ?? ''), 10000),
+      'the text file previews'
+    )
+    // Right-click the address bar right above the preview pane, so the menu
+    // drops over the pane's text.
+    const at = await win.evaluate(() => {
+      const nav = document.querySelector('.folder-browser [data-testid="browse-toolbar"] nav.browse-path')
+      const pane = document.querySelector('[data-browse-preview]')
+      const n = nav.getBoundingClientRect()
+      const p = pane.getBoundingClientRect()
+      return { x: Math.round(Math.max(n.left + 20, Math.min(n.right - 20, p.left + 30))), y: Math.round(n.top + n.height / 2) }
+    })
+    await win.mouse.click(at.x, at.y, { button: 'right' })
+    ok(await until(async () => (await win.locator('[role="menu"]').count()) === 1, 5000), 'the address menu opens')
+    const rows = await win.evaluate(() => {
+      const menu = document.querySelector('[role="menu"]')
+      const pane = document.querySelector('[data-browse-preview]').getBoundingClientRect()
+      return [...menu.querySelectorAll('[role="menuitem"]')].map((r) => {
+        const b = r.getBoundingClientRect()
+        const x = b.left + b.width / 2
+        const y = b.top + b.height / 2
+        const hit = document.elementFromPoint(x, y)
+        return {
+          label: r.textContent.trim(),
+          overPane: x >= pane.left && x <= pane.right && y >= pane.top && y <= pane.bottom,
+          top: !!hit && menu.contains(hit),
+          hit: hit ? hit.className || hit.tagName : null,
+          cursor: getComputedStyle(hit ?? r).cursor
+        }
+      })
+    })
+    ok(rows.some((r) => r.overPane), `the menu really lies over the pane (${JSON.stringify(rows.map((r) => r.overPane))})`)
+    for (const r of rows) {
+      ok(r.top, `"${r.label}" is on top, not under the preview (hit ${r.hit})`)
+      ok(r.cursor !== 'text', `"${r.label}" shows no text caret (${r.cursor})`)
+    }
+    await win.screenshot({ path: join(SHOTS, 'menu-over-preview.png') })
+    await win.keyboard.press('Escape')
+  } finally {
+    await app.close()
+  }
+}
+
 async function previewClearsScenario(fixtures) {
   console.log('going into a folder clears the preview (#300 review)')
   const { dir } = await zipWorld(fixtures, 'previewclears')
@@ -15738,6 +15797,7 @@ await run(zipRestoreScenario)
 await run(zipLockedScenario)
 await run(zipFolderScenario)
 await run(previewClearsScenario)
+await run(menuOverPreviewScenario)
 await run(zipPreviewBackScenario)
 await run(comicScenario)
 await run(folderArgScenario)
