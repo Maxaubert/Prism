@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 const execFile = vi.fn()
-vi.mock('child_process', () => ({ execFile }))
+vi.mock('./spawnWorker', () => ({ execFile }))
 
 const { hasWindowsFiles } = await import('./fileClipboard')
 

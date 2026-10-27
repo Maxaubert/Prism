@@ -1,4 +1,4 @@
-import { execFile } from 'child_process'
+import { execFile } from './spawnWorker'
 import { createHash } from 'crypto'
 import { mkdir, stat } from 'fs/promises'
 import { dirname, extname, join } from 'path'

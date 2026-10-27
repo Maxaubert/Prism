@@ -1,4 +1,4 @@
-import { execFile } from 'child_process'
+import { execFile } from './spawnWorker'
 
 /**
  * WHICH DRIVES ARE THIS PC'S OWN DISKS (#271). The listing cache and the read
@@ -57,7 +57,7 @@ let asked: Promise<void> | null = null
 export function learnDriveKinds(): Promise<void> {
   if (asked || process.platform !== 'win32') return asked ?? Promise.resolve()
   asked = new Promise<void>((done) => {
-    const child = execFile(
+    execFile(
       'powershell.exe',
       [
         '-NoProfile',
@@ -71,7 +71,6 @@ export function learnDriveKinds(): Promise<void> {
         done()
       }
     )
-    child.stdin?.end()
   })
   return asked
 }

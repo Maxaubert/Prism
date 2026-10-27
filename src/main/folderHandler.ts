@@ -1,7 +1,6 @@
-import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { access, rm, writeFile } from 'fs/promises'
-import { promisify } from 'util'
+import { run as runOffMain } from './spawnWorker'
 import type { FolderHandlerStatus } from '@shared/folderHandler'
 
 /**
@@ -19,11 +18,10 @@ import type { FolderHandlerStatus } from '@shared/folderHandler'
  * Explorer for anything short of Prism's acknowledgement. Measured routes and
  * the design: docs/superpowers/specs/2026-10-15-folder-handler-design.md.
  */
-const exec = promisify(execFile)
 type Runner = (file: string, args: string[]) => Promise<string>
 const run: Runner = async (file, args) => {
   try {
-    return (await exec(file, args, { windowsHide: true, timeout: 15000, maxBuffer: 64 * 1024 })).stdout
+    return (await runOffMain(file, args, { windowsHide: true, timeout: 15000, maxBuffer: 64 * 1024 })).stdout
   } catch (error) {
     // The helper prints the state it left, with its error, on a nonzero exit.
     const stdout = (error as { stdout?: unknown }).stdout

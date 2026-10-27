@@ -1,14 +1,11 @@
-import { execFile } from 'child_process'
 import { existsSync } from 'fs'
-import { promisify } from 'util'
+import { run as runOffMain } from './spawnWorker'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 
-const exec = promisify(execFile)
 type Runner = (file: string, args: string[]) => Promise<string>
 const run: Runner = async (file, args) => {
   try {
-    return (await exec(file, args, { windowsHide: true, timeout: 15000, maxBuffer: 64 * 1024 }))
-      .stdout
+    return (await runOffMain(file, args, { windowsHide: true, timeout: 15000, maxBuffer: 64 * 1024 })).stdout
   } catch (error) {
     // The helper returns current state with an error even on a nonzero exit.
     const stdout = (error as { stdout?: unknown }).stdout

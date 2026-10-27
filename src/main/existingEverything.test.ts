@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { execFile } from 'child_process'
+import { execFile } from './spawnWorker'
 import { randomUUID } from 'crypto'
 import { findRunningEverything } from './existingEverything'
 
-vi.mock('child_process', () => ({ execFile: vi.fn() }))
+vi.mock('./spawnWorker', () => ({ execFile: vi.fn() }))
 beforeEach(() => {
   vi.clearAllMocks()
 })
