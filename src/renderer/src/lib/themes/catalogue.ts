@@ -78,6 +78,32 @@ export const paintedStep = (alpha: number): number => Math.round(alpha * 255) / 
  */
 const blurbOf = (t: CatalogueTheme): string => t.blurb.replace(/\s*Kept from the current set\.\s*$/, '')
 
+/**
+ * The visualizer and progress bar scheme each theme wears (owner, 2026-10-27:
+ * "a color that fits", not the accent itself). Light themes take schemes with
+ * no pale stops, which vanish on a light ground.
+ */
+export const MEDIA_SCHEMES: Record<string, string> = {
+  aurora: 'ocean',
+  'new-void': 'skyviolet',
+  carbon: 'gold',
+  crimson: 'fire',
+  jade: 'aurora',
+  volt: 'toxic',
+  'midnight-hc': 'white',
+  glacier: 'ice',
+  lagoon: 'forest',
+  frost: 'deepsea',
+  paper: 'skyviolet',
+  sand: 'emberdark',
+  sage: 'mossline',
+  blush: 'winegrad',
+  chalk: 'd-ink',
+  'daylight-hc': 'd-ink',
+  orchid: 'nebula',
+  pearl: 'copper'
+}
+
 /** A shipped theme as the app's model. */
 export function themeStyle(t: CatalogueTheme): Style {
   const glassy = t.groundAlpha < 1
@@ -117,6 +143,7 @@ export function themeStyle(t: CatalogueTheme): Style {
     icon: t.textDim,
     folderIcon: t.folder,
     accent: t.accentSolid,
+    media: MEDIA_SCHEMES[t.id],
     selection: t.selection,
     // Every shipped theme sets in the system face (2026-09-20 rule).
     font: 'system',

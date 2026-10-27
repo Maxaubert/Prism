@@ -80,6 +80,9 @@ export interface Style {
   /** How solid the accent's FILLS are, 0.1 to 1 (#249). Unset is 1, which is
    *  every style saved before it existed. Read it through accentAlphaOf. */
   accentAlpha?: number
+  /** The visualizer and progress bar scheme that fits the theme (owner,
+   *  2026-10-27): a scheme id in viz THEMES, not necessarily the accent. */
+  media?: string
   /** The marked-file tint's own colour and strength (#257), six or eight hex
    *  digits. Unset, it follows the accent at TINT_ALPHA. */
   selection?: string
@@ -1491,6 +1494,25 @@ export function setStyle(id: string): void {
     }
   }
   apply()
+  followTheme()
+}
+
+/** The scheme the visualizer and progress bar wear with a style: its own
+ *  `media`, the shipped theme it grew from, or a named accent. */
+export function mediaSchemeOf(style: Style): string | null {
+  if (style.media) return style.media
+  const base = style.base ? THEME_STYLES.find((t) => t.id === style.base) : undefined
+  if (base?.media) return base.media
+  return style.accent.startsWith('#') ? null : style.accent
+}
+
+/** A theme switch dresses the visualizer and the progress bar in the theme's
+ *  scheme. Either one set to follow the accent keeps following it. */
+function followTheme(): void {
+  const scheme = mediaSchemeOf(byId(current))
+  if (scheme === null) return
+  if (vizState().theme !== ACCENT_THEME_ID) setTheme(scheme)
+  if (vizState().barTheme !== ACCENT_THEME_ID) setBarTheme(scheme)
 }
 
 /**
@@ -1917,15 +1939,24 @@ export function useThemes(): Style[] {
   return allStyles()
 }
 
+const MEDIA_SYNC_KEY = 'prism.viz.followsTheme'
+
 // Paint before first render so nothing flashes the wrong colour.
 paint(edited(byId(current)))
 mirrorMode(edited(byId(current)).mode)
 
 // On a fresh install the visualizer and the progress bar have no colour of their
-// own yet, so they take the style's accent. Once you've picked one, it stands.
+// own yet, so they take the theme's scheme; a pick stands until the next theme
+// switch. Once, on the first start after themes got schemes (2026-10-27), both
+// take the current theme's, since before that a theme never set them.
 try {
-  if (!localStorage.getItem('prism.viz.theme')) setTheme(byId(current).accent)
-  if (!localStorage.getItem('prism.viz.barTheme')) setBarTheme(byId(current).accent)
+  const scheme = mediaSchemeOf(byId(current))
+  const once = !localStorage.getItem(MEDIA_SYNC_KEY)
+  if (scheme !== null) {
+    if (once || !localStorage.getItem('prism.viz.theme')) setTheme(scheme)
+    if (once || !localStorage.getItem('prism.viz.barTheme')) setBarTheme(scheme)
+  }
+  localStorage.setItem(MEDIA_SYNC_KEY, '1')
 } catch {
   /* no storage: the defaults in vizStore stand */
 }

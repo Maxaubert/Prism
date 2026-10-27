@@ -59,6 +59,7 @@ export const PREF_KEYS = {
   'prism.viz.barTheme': 'shared',
   'prism.viz.cycle': 'shared',
   'prism.viz.drop': 'shared',
+  'prism.viz.followsTheme': 'shared',
   'prism.viz.glow': 'shared',
   'prism.viz.height': 'shared',
   'prism.viz.logo': 'shared',
