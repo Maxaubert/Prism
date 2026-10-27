@@ -74,10 +74,10 @@ describe('nativeTrace', () => {
     expect(log.lines.at(-1)?.fields?.trace).toBeUndefined()
     log.write('main', 'main-lag', { ms: 3980 })
     expect(log.lines.at(-1)?.fields?.trace).toBe('lag-2026-10-27T08-12-17-745Z.trace.json')
-    await tick()
-    await tick()
+    // Recording restarts after the prune's readdir, which is real disk work:
+    // wait for it, never count ticks (the release run's CI was slower).
+    await vi.waitFor(() => expect(tracing.starts).toBe(2))
     expect(readdirSync(log.dir)).toContain('lag-2026-10-27T08-12-17-745Z.trace.json')
-    expect(tracing.starts).toBe(2)
     // A second lag inside the gap writes nothing more.
     t += 10_000
     log.write('main', 'main-lag', { ms: 2000 })
@@ -91,10 +91,8 @@ describe('nativeTrace', () => {
     startNativeTrace({ log, tracing })
     await tick()
     log.write('main', 'main-lag', { ms: 1500 })
-    await tick()
-    await tick()
+    await vi.waitFor(() => expect(tracing.starts).toBe(2))
     expect(log.lines.some((l) => l.k === 'lag-trace' && l.fields?.missing === true)).toBe(true)
-    expect(tracing.starts).toBe(2)
   })
 
   it('stop hands write back', async () => {
