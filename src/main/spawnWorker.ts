@@ -70,7 +70,15 @@ parentPort.on('message', (m) => {
   try {
     child = execFile(m.exe, m.args, m.opts, (err, stdout, stderr) => {
       kids.delete(m.id)
-      parentPort.postMessage({ id: m.id, err: err ? failure(err) : null, stdout, stderr })
+      // Bytes are MOVED to main, never copied: a decoded image can be 256 MB.
+      let move = []
+      if (Buffer.isBuffer(stdout)) {
+        const own = new Uint8Array(stdout.byteLength)
+        own.set(stdout)
+        stdout = own
+        move = [own.buffer]
+      }
+      parentPort.postMessage({ id: m.id, err: err ? failure(err) : null, stdout, stderr }, move)
     })
   } catch (e) {
     parentPort.postMessage({ id: m.id, err: failure(e), stdout: '', stderr: '' })
@@ -84,17 +92,25 @@ parentPort.on('message', (m) => {
 })
 `
 
-let worker: Worker | null = null
-let nextId = 1
-const pending = new Map<number, (r: Reply) => void>()
+/** A worker and the calls waiting on IT: a dead worker answers only its own
+ *  (its 'error' and 'exit' both fire, the second after the next one exists). */
+interface Live {
+  w: Worker
+  pending: Map<number, (r: Reply) => void>
+}
 
-function theWorker(): Worker {
+let worker: Live | null = null
+let nextId = 1
+
+function theWorker(): Live {
   if (worker) return worker
   const w = new Worker(WORKER, { eval: true })
   // An idle worker never holds the app open on quit.
   w.unref()
+  const live: Live = { w, pending: new Map() }
+  const { pending } = live
   const lost = (message: string): void => {
-    if (worker === w) worker = null
+    if (worker === live) worker = null
     for (const [id, answer] of pending) answer({ id, err: { message }, stdout: '', stderr: '' })
     pending.clear()
   }
@@ -105,8 +121,8 @@ function theWorker(): Worker {
   })
   w.on('error', (e: Error) => lost(String(e?.message ?? e)))
   w.on('exit', () => lost('the process worker stopped'))
-  worker = w
-  return w
+  worker = live
+  return live
 }
 
 const text = (v: string | Uint8Array | undefined): string =>
@@ -151,8 +167,9 @@ export function execFile(
     else (callback as ExecCallback)(err, text(r.stdout), text(r.stderr))
   }
   const id = nextId++
+  let live: Live | null = null
   const kill = (): void => {
-    if (!done) worker?.postMessage({ cancel: id })
+    if (!done) live?.w.postMessage({ cancel: id })
   }
   const abort = (): void => {
     kill()
@@ -163,10 +180,11 @@ export function execFile(
     return { kill }
   }
   try {
-    pending.set(id, answer)
-    theWorker().postMessage({ id, exe, args: [...args], opts: { windowsHide: true, ...opts }, input })
+    live = theWorker()
+    live.pending.set(id, answer)
+    live.w.postMessage({ id, exe, args: [...args], opts: { windowsHide: true, ...opts }, input })
   } catch (e) {
-    pending.delete(id)
+    live?.pending.delete(id)
     queueMicrotask(() => answer({ id, err: { message: String((e as Error)?.message ?? e) }, stdout: '', stderr: '' }))
     return { kill }
   }
@@ -196,11 +214,13 @@ export function launch(
 ): Promise<number | undefined> {
   return new Promise((resolve, reject) => {
     const id = nextId++
-    pending.set(id, (r) => (r.err ? reject(errorOf(r.err)) : resolve(Number(text(r.stdout)) || undefined)))
+    let live: Live | null = null
     try {
-      theWorker().postMessage({ id, launch: true, exe, args: [...args], opts: options })
+      live = theWorker()
+      live.pending.set(id, (r) => (r.err ? reject(errorOf(r.err)) : resolve(Number(text(r.stdout)) || undefined)))
+      live.w.postMessage({ id, launch: true, exe, args: [...args], opts: options })
     } catch (e) {
-      pending.delete(id)
+      live?.pending.delete(id)
       reject(e as Error)
     }
   })

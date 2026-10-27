@@ -1,4 +1,4 @@
-import { startLagProfiler, STARTUP_PROFILE_MS } from './lagProfiler'
+import { LAG_WINDOW_MS, startLagProfiler, STARTUP_PROFILE_MS } from './lagProfiler'
 import { CALL, PUSH } from '@shared/channels'
 import {
   app,
@@ -1097,10 +1097,11 @@ if (!app.requestSingleInstanceLock()) {
   // Also on for every launch's first STARTUP_PROFILE_MS (2026-10-27): the
   // startup freeze happened only in ordinary launches, where nothing was
   // profiling, so its one profile could never be caught. Nothing is written
-  // unless a lag of 1 s or more happens.
+  // unless a lag of 1 s or more happens. One window past it, so a lag that
+  // ends just after the mark still finds its window running.
   startLagProfiler({
     log: diag.log,
-    enabled: () => E2E || !!diag?.log.verbose() || process.uptime() * 1000 < STARTUP_PROFILE_MS
+    enabled: () => E2E || !!diag?.log.verbose() || process.uptime() * 1000 < STARTUP_PROFILE_MS + LAG_WINDOW_MS
   })
   // E2E only (review of #322): the harness ends a scenario with `app.exit`,
   // which skips will-quit, so it writes main's queue first and the run's
