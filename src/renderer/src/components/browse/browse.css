@@ -646,41 +646,8 @@ body[data-internal-file-drag] .browse-path:focus-within {
 .browse-list-area {
   position: relative;
 }
-.browse-overlay-scroll {
-  position: absolute;
-  right: 0;
-  z-index: 3;
-  width: 10px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 400ms ease-out;
-}
-.browse-overlay-scroll[data-shown] {
-  opacity: 1;
-  pointer-events: auto;
-  transition-duration: 150ms;
-}
-.browse-overlay-thumb {
-  position: absolute;
-  right: 2px;
-  width: 4px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--p-text) 24%, transparent);
-  transition:
-    width 120ms ease-out,
-    background-color 120ms ease-out;
-}
-.browse-overlay-scroll:hover .browse-overlay-thumb,
-.browse-overlay-thumb:active {
-  width: 6px;
-  background: color-mix(in srgb, var(--p-text) 42%, transparent);
-}
-@media (prefers-reduced-motion: reduce) {
-  .browse-overlay-scroll,
-  .browse-overlay-thumb {
-    transition: none;
-  }
-}
+/* .browse-overlay-scroll / .browse-overlay-thumb live in index.css: every
+   scrollbar in the app is this one (OverlayScrollbars.tsx). */
 .browse-row-space {
   min-height: 100%;
 }
@@ -931,12 +898,9 @@ body[data-internal-file-drag] .browse-path:focus-within {
 .browse-list-area[data-row-size='large'] .browse-columns {
   font-size: 13px;
 }
-.browse-list-area[data-row-size='large'] .browse-row :is(
-    .browse-column-type,
-    .browse-column-path,
-    .browse-column-size,
-    .browse-column-modified
-  ) {
+.browse-list-area[data-row-size='large']
+  .browse-row
+  :is(.browse-column-type, .browse-column-path, .browse-column-size, .browse-column-modified) {
   font-size: 13px;
 }
 @container (max-width: 720px) {

@@ -717,6 +717,14 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   scrollbar is too distracting"): a scroll or a wheel shows it, 900 ms of stillness fades it,
   and the pointer resting on the list no longer wakes it. The pointer on the bar itself, while
   it shows, and a drag of its thumb hold it up. `listScrollbar` e2e.
+  **EVERY SCROLLBAR IS THE LIST'S** (owner, 2026-10-27: "the sidebar scrollbar should be more
+  minimalistic all scrollbars should be the same. the one on the main view of the explorer is
+  pretty good so reuse that"). `OverlayScrollbars.tsx`, mounted once in `renderApp.tsx`, catches
+  every scroll on the document and draws the same bar (same classes, now in `index.css`) over
+  whatever scrolled, vertical and horizontal; native bars are hidden while it is mounted
+  (`p-overlay-scrollbars`). `data-own-scrollbar` opts out: the file list (its own), the address
+  crumbs and the drive legend (no bar on purpose). `listScrollbar` e2e scrolls the places panel
+  and finds the 4 px bar on its edge; `lib/overlayScroll.test.ts` holds the arithmetic.
   **THE ADDRESS AND THE SEARCH ARE ONE FIELD** (#267; owner, 2026-10-04: "make the url box more
   visible and for the black theme make the grey colours used in search and in the url bar darker
   grey"). Both wear `.browse-field` (`--p-field`, `-edge`, `-edge-hover`, `-hint`). On a ground

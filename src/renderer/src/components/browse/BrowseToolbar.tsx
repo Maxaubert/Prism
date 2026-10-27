@@ -176,7 +176,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
             setMenu({ x: event.clientX, y: event.clientY, path: props.directory })
           }}
         >
-          <div className="browse-crumbs" ref={crumbs}>
+          <div className="browse-crumbs" ref={crumbs} data-own-scrollbar>
             {browseCrumbs(props.directory).map((crumb, index, all) => (
               // DOLPHIN'S ADDRESS FIELD (#267; owner, 2026-10-04: "the url bar
               // in the image looks really clean too so copy that style"): a
