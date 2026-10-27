@@ -8,6 +8,7 @@ import {
   peekTimer,
   onScrollbar,
   peekWhere,
+  PEEK_KEEP_PX,
   type PeekEvent,
   type PeekState
 } from './sidebarPeek'
@@ -51,8 +52,8 @@ function sim(held: () => boolean = () => false) {
 
 describe('sidebar peek', () => {
   it('uses the timings the design names', () => {
-    expect(PEEK_DWELL_MS).toBe(150)
-    expect(PEEK_GRACE_MS).toBe(300)
+    expect(PEEK_DWELL_MS).toBe(60)
+    expect(PEEK_GRACE_MS).toBe(100)
     expect(PEEK_EDGE_PX).toBeGreaterThanOrEqual(4)
     expect(PEEK_EDGE_PX).toBeLessThanOrEqual(8)
   })
@@ -69,13 +70,13 @@ describe('sidebar peek', () => {
   it('does not open for a pointer that only crosses the edge', () => {
     const p = sim()
     p.move('edge')
-    p.wait(80)
+    p.wait(PEEK_DWELL_MS - 20)
     p.move('away')
     p.wait(1000)
     expect(p.state.open).toBe(false)
     // and a second crossing starts its own dwell from nothing
     p.move('edge')
-    p.wait(100)
+    p.wait(PEEK_DWELL_MS - 10)
     expect(p.state.open).toBe(false)
   })
 
@@ -98,7 +99,7 @@ describe('sidebar peek', () => {
     p.move('edge')
     p.wait(PEEK_DWELL_MS)
     p.move('away')
-    p.wait(200)
+    p.wait(PEEK_GRACE_MS - 20)
     p.move('panel')
     p.wait(1000)
     expect(p.state.open).toBe(true)
@@ -205,6 +206,11 @@ describe('where the pointer is', () => {
     expect(peekWhere(200, 300, zone, 'left', panel)).toBe('panel')
     expect(peekWhere(2, 300, zone, 'left', panel)).toBe('panel')
     expect(peekWhere(300, 300, zone, 'left', panel)).toBe('away')
+  })
+  it('keeps a pointer grazing the panel edge on the panel (Flare KEEP)', () => {
+    const panel = { left: 0, right: 260, top: 70, bottom: 700 }
+    expect(peekWhere(260 + PEEK_KEEP_PX - 1, 300, zone, 'left', panel)).toBe('panel')
+    expect(peekWhere(260 + PEEK_KEEP_PX, 300, zone, 'left', panel)).toBe('away')
   })
 })
 

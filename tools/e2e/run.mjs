@@ -14831,7 +14831,12 @@ async function explorerSideScenario(fixtures) {
     ok(/-10px/.test(shadow), `the shadow falls on the list's side (${shadow})`)
     await win.screenshot({ path: join(SHOTS, 'explorer-side-right-peek.png') })
     await win.mouse.move(away.x, away.y, { steps: 4 })
-    ok(await until(async () => !(await placesShown()), 2000, 25), 'they go when the pointer leaves')
+    // As quick as Flare's (owner, 2026-10-27): a 100 ms grace and the 180 ms
+    // slide, so gone inside 450 ms (300 ms of grace took about 480).
+    const leftAt = Date.now()
+    ok(await until(async () => !(await placesShown()), 2000, 10), 'they go when the pointer leaves')
+    const goneMs = Date.now() - leftAt
+    ok(goneMs < 450, `and quickly, as Flare's do (${goneMs} ms)`)
     await win.mouse.move(hiddenBoxes.work.r - 2, edgeY)
     ok(await until(async () => (await win.locator(`${browser}[data-places-peek="in"]`).count()) === 1, 2000, 25), 'out again')
     await sleep(300)
