@@ -171,8 +171,9 @@ export function BrowseToolbar(props: Props): JSX.Element {
           onContextMenu={(event) => {
             event.preventDefault()
             event.stopPropagation()
-            const crumb = (event.target as HTMLElement).closest<HTMLElement>('[data-crumb-path]')
-            setMenu({ x: event.clientX, y: event.clientY, path: crumb?.dataset.crumbPath ?? props.directory })
+            // The folder you are IN, wherever on the bar you clicked (owner,
+            // 2026-10-27): a parent crumb's menu used to copy only up to it.
+            setMenu({ x: event.clientX, y: event.clientY, path: props.directory })
           }}
         >
           <div className="browse-crumbs" ref={crumbs}>

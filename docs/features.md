@@ -2695,8 +2695,9 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   when both are one colour.
 - **THE ADDRESS BAR ANSWERS A RIGHT-CLICK** (2026-09-22, owner: "let me right click the url bar to
   get options to copy path or copy as text like file explorer"). Explorer's own three: Copy address,
-  Copy address as text, Edit address. A crumb's menu acts on THAT crumb's folder, the bar's on the
-  folder shown. Copy address is Explorer's PAIR in one data object - the folder as a file drop AND
+  Copy address as text, Edit address, always for the FOLDER SHOWN, wherever on the bar you click
+  (owner, 2026-10-27: "it should always copy the full path to the active folder you're in"; a
+  parent crumb's menu used to copy only up to that crumb). `menuOverPreview` holds it. Copy address is Explorer's PAIR in one data object - the folder as a file drop AND
   its path as text (`file:copy-address`, `copyWindowsFiles`' `text`) - so a paste in Explorer takes
   the folder and a paste in a text field takes the path.
 - **Every surface answers a right-click** (2026-08-30, #76). Seven had no menu at all while
