@@ -101,6 +101,11 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   SYNTHESISED, not decoded (2026-08-24, `midi.ts`): a `.mid` is a score, so Prism bundles
   FluidSynth (LGPL) and the MIT FluidR3Mono soundfont, renders the file to a WAV once, and
   plays that. What you hear is the soundfont's reading of the score, which is what MIDI is.
+  THE VISUALIZER AND THE PROGRESS BAR WEAR THE THEME (owner, 2026-10-27: "a color that fits",
+  not necessarily the accent). Each of the 18 themes names a scheme (`MEDIA_SCHEMES` in
+  `themes/catalogue.ts`; light themes get schemes with no pale stops), a theme switch sets both
+  to it, and one set to follow the accent keeps following. A pick of your own stands until the
+  next switch. `theme.test.ts` holds it.
 - **Office and ebook documents** (2026-08-24, kind `doc`): `.docx/.docm` via mammoth, `.odt/.odp`
   by walking the ODF XML, spreadsheets via SheetJS (one table per sheet), `.pptx` as its slides
   in order (slide10 AFTER slide2, which zip order does not give), `.rtf` by a brace walker (a

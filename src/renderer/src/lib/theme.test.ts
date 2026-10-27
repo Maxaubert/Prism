@@ -16,10 +16,11 @@ import {
   type Style,
   tabsOf,
   titleOf,
-  withChrome, isStylesOwn, acrylicLevel } from './theme'
-import { ACCENT_THEME_ID } from './viz/styles'
+  withChrome, isStylesOwn, acrylicLevel, mediaSchemeOf } from './theme'
+import { ACCENT_THEME_ID, THEMES } from './viz/styles'
+import { THEME_STYLES } from './themes/catalogue'
 import { RETIRED_STYLES } from './themes/retired'
-import { DEFAULT_BAR_THEME, visibleThemes } from './viz/vizStore'
+import { DEFAULT_BAR_THEME, setBarTheme, setTheme, vizState, visibleThemes } from './viz/vizStore'
 
 // Every shipped style has to be readable, in both modes. These are the numbers
 // that caught grey-on-white: a fixed dimming fraction reads fine on a dark panel
@@ -394,5 +395,35 @@ describe("the owner's picks of 2026-09-20", () => {
     // zip with it, which is what "the same setting" means.
     const red = variablesFor({ ...STYLES[0], folderIcon: '#dc5656' })
     expect(red['--p-tree-zip']).toBe('#dc5656')
+  })
+})
+
+describe('the visualizer and progress bar wear the theme (owner, 2026-10-27)', () => {
+  it('every shipped theme names a scheme that exists', () => {
+    for (const t of THEME_STYLES) {
+      expect(t.media, t.id).toBeTruthy()
+      expect(THEMES.some((s) => s.id === t.media), `${t.id}: ${t.media}`).toBe(true)
+    }
+  })
+
+  it('a theme switch sets both to its scheme', () => {
+    setTheme('rainbow')
+    setBarTheme('rainbow')
+    setStyle('crimson')
+    expect(vizState().theme).toBe('fire')
+    expect(vizState().barTheme).toBe('fire')
+    setStyle('sage')
+    expect(vizState().theme).toBe('mossline')
+  })
+
+  it('one set to follow the accent keeps following it', () => {
+    setBarTheme(ACCENT_THEME_ID)
+    setStyle('carbon')
+    expect(vizState().barTheme).toBe(ACCENT_THEME_ID)
+    expect(vizState().theme).toBe('gold')
+  })
+
+  it('a saved preset takes the scheme of the theme it grew from', () => {
+    expect(mediaSchemeOf({ ...THEME_STYLES[0], id: 'custom-x', media: undefined, base: 'pearl' })).toBe('copper')
   })
 })
