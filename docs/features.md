@@ -833,6 +833,12 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   (the tint drained toward its own grey at `SEL_DIM` of its strength, held in
   `theme.selection.test.ts`) once they act elsewhere. The list's selection dims the same way while
   the sidebar is active, File Explorer's inactive selection. `rightClickSelect` measures all of it.
+  A COLLAPSED PANEL PEEKS AS QUICKLY AS FLARE'S SIDEBAR (owner, 2026-10-27: "flare has a very good
+  balance prism is a bit too unresponsive ... the time it takes to hide when the cursor is not over
+  the sidebar"). `lib/sidebarPeek.ts` takes Flare's `reveal.rs` numbers: 60 ms on the edge opens it
+  (was 150), it goes 100 ms after the pointer leaves (was 300), and the panel counts 4 px past its
+  own box (Flare's KEEP) so a graze does not start the close. The 6 px strip and the 180 ms slide
+  stay Prism's. `sidebarPeek.test.ts`; e2e `explorerSide` holds the hide under 450 ms (286 measured).
   THE PLACES PANEL SLIDES ONLY WHEN IT IS TOGGLED, AND A TAB SWITCH SLIDES NOTHING (#204, owner,
   2026-09-23). Both panels animate their width (180ms) only while App's `panelSliding` is true,
   for one slide after a toggle (`slidePanel`); the places column keeps its contents at their open
