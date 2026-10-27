@@ -184,6 +184,18 @@ describe('createDiagLog', () => {
     expect(make({ dir }).verbose()).toBe(true)
   })
 
+  it('starts detailed when the host says so, until the owner switches it off', () => {
+    const root = scratch()
+    const dir = join(root, 'logs')
+    const log = make({ dir, verboseByDefault: true })
+    expect(log.verbose()).toBe(true)
+    log.setVerbose(false)
+    log.close()
+    expect(make({ dir, verboseByDefault: true }).verbose()).toBe(false)
+    writeFileSync(join(root, 'diag.json'), '{}')
+    expect(make({ dir, verboseByDefault: true }).verbose()).toBe(true)
+  })
+
   it('reads a damaged state file as quiet', () => {
     const root = scratch()
     writeFileSync(join(root, 'diag.json'), '{not json')

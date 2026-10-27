@@ -64,10 +64,16 @@ export interface DiagLogOptions {
   uptime?: () => number
   maxBytes?: number
   flushMs?: number
+  /** Detailed logging when the owner never chose (no `diag.json`, or no
+   *  `verbose` in it). Prism logs everything while it is young (owner,
+   *  2026-10-27); a switch flipped in Settings is kept either way. */
+  verboseByDefault?: boolean
 }
 
 export const DIAG_FILE = 'diag.jsonl'
-export const DIAG_MAX_BYTES = 2 * 1024 * 1024
+/** 8 MB a file, five files: months of history even with Detailed logging on
+ *  (owner, 2026-10-27, "keep logging as much as possible"; was 2 MB). */
+export const DIAG_MAX_BYTES = 8 * 1024 * 1024
 /** Rotated files kept beside the live one: `.1` (newest) to `.4`. */
 export const DIAG_KEEP = 4
 /** Every line's own keys, in this order, before its fields. */
@@ -87,7 +93,7 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
   const maxBytes = opts.maxBytes ?? DIAG_MAX_BYTES
   const flushMs = opts.flushMs ?? 250
 
-  let verbose = readVerbose(stateFile)
+  let verbose = readVerbose(stateFile, opts.verboseByDefault ?? false)
   let size = fileSize(file)
   let queue: string[] = []
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -349,13 +355,13 @@ export function createDiagLog(opts: DiagLogOptions): DiagLog {
   }
 }
 
-function readVerbose(stateFile: string): boolean {
+function readVerbose(stateFile: string, dflt: boolean): boolean {
   try {
     // sync-ok: startup, once
     const v = JSON.parse(readFileSync(stateFile, 'utf8')) as { verbose?: unknown }
-    return v?.verbose === true
+    return typeof v?.verbose === 'boolean' ? v.verbose : dflt
   } catch {
-    return false
+    return dflt
   }
 }
 

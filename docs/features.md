@@ -1937,8 +1937,19 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   made then. Every short-lived program (registry, PowerShell, Everything, ffprobe, thumbnails,
   subtitles, 7-Zip listings, "Open with" launches) now starts from one worker thread
   (`spawnWorker.ts`); what streams from a child says `// spawn-ok: <reason>`, and
-  `spawnCalls.test.ts` fails on anything else. Every launch also profiles its first 30 s
-  (`STARTUP_PROFILE_MS`), so a startup lag of 1 s or more leaves a `lag-*.cpuprofile` naming it.
+  `spawnCalls.test.ts` fails on anything else. Every launch also profiled its first 30 s, and
+  the profile of 0.119.4's startup freeze (3980 ms) was 4.6 s of `(idle)`: the block is in
+  Electron, Chromium or Windows, not JavaScript, which is why the native trace below exists.
+- **LOG AS MUCH AS POSSIBLE WHILE PRISM IS YOUNG** (owner, 2026-10-27: "i think its important to
+  keep logging as much as possible in order to fix issues now that the app is in its early
+  stages"). Four things, one PR: (1) the CPU profiler runs in EVERY session (`lagProfiler.ts`,
+  `enabled: () => true`). (2) A `main-lag` of 1 s or more also dumps a Chromium trace
+  (`nativeTrace.ts`): `contentTracing` records `toplevel`, IPC, mojo, GPU and loading events
+  into an 8 MB ring buffer all session, and the lag stops it into `logs\lag-<time>.trace.json`
+  (open in ui.perfetto.dev), named in the line's `trace`; one dump a minute at most, newest five
+  kept (`nativeTrace.test.ts`). (3) Detailed logging is ON until the owner switches it off
+  (`verboseByDefault`, a switch flipped in Settings is kept; the e2e keeps the quiet default;
+  `diagLog.test.ts`). (4) The log keeps 8 MB a file, five files (`DIAG_MAX_BYTES`, was 2 MB).
   **THE TAB STRIP IS SAVED OFF MAIN** (owner, 2026-10-12: the app "stalled for like 5 seconds",
   first after an unpin, then on entering Downloads). A CPU profile of the owner's main process
   put every sample of a 3954 ms freeze in `writeFileSync` under `writeTabs`: the tab strip's
@@ -1985,8 +1996,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   `lag-profile` line says how much was JavaScript and where (`lagSummary.ts`; a builtin
   such as `spawn` names its caller; the window named is the one holding most of the lag,
   since the rotation can fire after a block but before the detector's tick logs it,
-  `lagProfiler.test.ts`). ON ONLY UNDER `--e2e` OR WITH DETAILED LOGGING (in normal use
-  nothing); the newest ten files are kept. The e2e's Stalls table prints the summary and copies the
+  `lagProfiler.test.ts`). ON IN EVERY SESSION since 2026-10-27 (it was `--e2e` and
+  Detailed logging only); the newest ten files are kept. The e2e's Stalls table prints the summary and copies the
   files to `.e2e\lag-profiles`; `diagLog` holds the chain end to end with a 1.3 s busy
   main. What the profiles showed, each fixed: (1) `spawn` of the DWM border helper held
   main 405 ms as a window was shown (`tabs`); it is called on every show, theme, maximize
