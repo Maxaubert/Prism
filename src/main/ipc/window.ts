@@ -3,10 +3,8 @@ import { CALL } from '@shared/channels'
 import { join } from 'path'
 import { createWinEShortcut } from '../winEShortcut'
 import { createFolderHandler } from '../folderHandler'
-import { dropRoot } from '../roots'
 import { REMEMBER_FOLDERS_KEY } from '@shared/listingPrefs'
 import { type SavedTabs } from '../tabs'
-import { killWarm } from 'prism-term-core/main/terminal'
 import { E2E, isMainSender } from '../appState'
 import type { MainCtx } from './context'
 
@@ -92,10 +90,4 @@ export function registerSessionIpc(ctx: MainCtx): void {
   // The renderer is the only thing that knows whether a media element is
   // actually playing, so it owns the answer and main just holds the block.
   ipcMain.on(CALL.powerAwake, (_e, on: boolean) => keepAwake(on))
-  // A root no longer held by ANY tab (closed, or rerooted away). Explicit,
-  // one at a time, from the owner of the tab list.
-  ipcMain.on(CALL.rootsDrop, (_e, root: string) => {
-    dropRoot(root)
-    killWarm(root) // a warm spare for a closed tab is an orphan
-  })
 }

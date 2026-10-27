@@ -72,11 +72,9 @@ export function watchWindowState(win: BrowserWindow, flushTabs: () => void): voi
   win.on('close', save)
   win.on('close', flushTabs)
   // Every route out of the window ends here: the title bar's X, Alt+F4, the
-  // taskbar, Escape. Unsaved text stops all of them until the user answers,
-  // and so does an agent that is mid-answer: the renderer knows which of the
-  // two it is, and asks about the text first.
+  // taskbar, Escape. Unsaved text stops all of them until the user answers.
   win.on('close', (e) => {
-    if ((!appState.editorDirty && !appState.agentBusy) || appState.closeConfirmed) return
+    if (!appState.editorDirty || appState.closeConfirmed) return
     e.preventDefault()
     win.webContents.send(PUSH.appAskClose)
     // A minimised or background window can't show its own dialog usefully.
@@ -256,9 +254,6 @@ export function registerWindowIpc(): void {
   // already answered it.
   ipcMain.on(CALL.editorDirty, (_e, d: boolean) => {
     appState.editorDirty = !!d
-  })
-  ipcMain.on(CALL.windowAgentBusy, (_e, busy: boolean) => {
-    appState.agentBusy = busy === true
   })
   ipcMain.on(CALL.windowClose, (_e, force?: boolean) => {
     if (force) appState.closeConfirmed = true

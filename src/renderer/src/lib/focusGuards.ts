@@ -16,13 +16,13 @@
 
 /** Anything that takes typed text. */
 export const FIELD = 'input,textarea,select,[contenteditable]:not([contenteditable="false"])'
-/** The code editor and the terminal: both type, neither is an input. */
-export const EDITOR = '.cm-editor,.xterm'
+/** The code editor: it types, but it is not an input. */
+export const EDITOR = '.cm-editor'
 /** A dialog or a menu is up and has the key. */
 export const OVERLAY = '[role="dialog"],[role="menu"]'
-/** The folder's own surfaces (project tree, Explorer, its places, a splitter):
- *  a search key pressed there searches the folder, not the open file. */
-export const NAV_SURFACE = '[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"]'
+/** The folder's own surfaces (Explorer, its places, a splitter): a search key
+ *  pressed there searches the folder, not the open file. */
+export const NAV_SURFACE = '.folder-browser,.browse-viewer-places,[role="separator"]'
 
 export function isTypingTarget(el: HTMLElement | null | undefined): boolean {
   return !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)

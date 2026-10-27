@@ -9,7 +9,6 @@ import type { TabState } from './tabs'
  *
  * - `tab-open` / `tab-close`, with the tab's kind and root.
  * - `tab-switch`: another tab in front.
- * - `project-open`: a project tab opened, or a project tab's root changed.
  * - `player-open`: a tab's current file became a video or a sound. Detailed
  *   logging's only (`often`) while the Explorer shows it in the preview pane
  *   beside the list: there every row the selection lands on opens, so holding
@@ -21,7 +20,7 @@ export interface TabCrumb {
   often?: boolean
 }
 
-const kindOf = (t: TabState['tabs'][number]): string => t.kind ?? t.role ?? 'project'
+const kindOf = (t: TabState['tabs'][number]): string => t.kind ?? 'explorer'
 
 function playing(t: TabState['tabs'][number]): { path: string; kind: string } | null {
   const f = t.files[t.index]
@@ -38,9 +37,6 @@ export function tabCrumbs(prev: TabState, next: TabState): TabCrumb[] {
     const kind = kindOf(t)
     if (!was) {
       out.push({ a: 'tab-open', fields: { id: t.id, kind, root: t.root || null } })
-      if (kind === 'project') out.push({ a: 'project-open', fields: { id: t.id, root: t.root } })
-    } else if (kind === 'project' && was.root !== t.root) {
-      out.push({ a: 'project-open', fields: { id: t.id, root: t.root } })
     }
     const now = playing(t)
     const then = was ? playing(was) : null

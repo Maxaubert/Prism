@@ -268,7 +268,7 @@ export function registerBrowseIpc(ctx: MainCtx): void {
   })
 }
 
-/** The project tree: a click inside a tab, a folder's listing, the sidebar's search. */
+/** Opening a file inside a tab, a folder's listing and the tree search (the phone's, too). */
 export function registerTreeIpc(ctx: MainCtx): void {
   const { archives, buildPayload } = ctx
   // The three navigation handlers take the root they act in, because they are

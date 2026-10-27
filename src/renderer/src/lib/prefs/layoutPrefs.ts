@@ -6,15 +6,6 @@ import { createPref } from './createPref'
 
 const flag = (on: boolean): string => (on ? '1' : '0')
 
-/** The project tab's file tree. Off on a fresh install: the media is the point. */
-export const sidebarPref = createPref<boolean>({
-  key: 'prism.sidebar',
-  read: 'always',
-  parse: (raw) => raw === '1',
-  serialize: flag,
-  fallback: false
-})
-
 /** The Explorer tab's places panel. On unless it was closed. */
 export const placesPref = createPref<boolean>({
   key: 'prism.explorer.places',

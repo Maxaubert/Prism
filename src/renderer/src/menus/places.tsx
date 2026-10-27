@@ -1,19 +1,18 @@
 import type { MenuItem } from '../components/ContextMenu'
 import { FileMenuIcon } from '../components/icons/FileMenuIcon'
-import type { BrowseEntry } from '../components/browse/types'
 import type { QuickAccessPin } from '../lib/quickAccess'
 import { fileVerbs } from './fileVerbs'
 
 /**
  * THE PLACES PANEL'S MENU (#296): what the user right-clicks in the Explorer's
- * places column, a Quick access or Pinned pin, a Projects row or a This PC
+ * places column, a Quick access or Pinned pin, a This PC
  * drive (`components/browse/BrowsePlaces.tsx`, opened by a right click, the
  * menu key or Shift+F10). One menu for all of them; a pin, or a place that is
  * also pinned, gets the pin rows, anything else gets "Pin to Quick access".
  */
 
 export interface PlacesMenuContext {
-  /** The place right-clicked, as a pin (a Projects row or a drive is a folder). */
+  /** The place right-clicked, as a pin (a drive is a folder). */
   pin: QuickAccessPin
   /** Whether that path is in the pin list, whichever row opened the menu. */
   pinned: boolean
@@ -24,11 +23,9 @@ export interface PlacesMenuContext {
   /** Marks the row the menu came from as the picked place. */
   onChoose: () => void
   onNavigate: (path: string) => void
-  onNewTerminal: (directory: string) => void
   /** Each optional action leaves its row DISABLED when absent. */
   onQuickAccessFile?: (path: string, full?: boolean) => void
   onOpenNewTab?: (path: string, isFolder?: boolean) => void
-  onOpenProject?: (entry: BrowseEntry) => void
   onUnpinQuickAccess?: (path: string) => void
   onMoveQuickAccess?: (path: string, beforePath?: string) => void
   onPinQuickAccessPaths?: (paths: string[], beforePath?: string) => void
@@ -58,26 +55,6 @@ export function placesMenu(ctx: PlacesMenuContext): MenuItem[] {
       disabled: !ctx.onOpenNewTab,
       onPick: () => ctx.onOpenNewTab?.(pin.path, pin.isFolder)
     },
-    {
-      label: 'Open as project',
-      icon: <FileMenuIcon name="project" />,
-      disabled: !ctx.onOpenProject,
-      onPick: () =>
-        ctx.onOpenProject?.({
-          path: pin.path,
-          name: pin.label,
-          isFolder: pin.isFolder
-        })
-    },
-    ...(pin.isFolder
-      ? [
-          {
-            label: 'New terminal here',
-            icon: <FileMenuIcon name="terminal" />,
-            onPick: () => ctx.onNewTerminal(pin.path)
-          }
-        ]
-      : []),
     // The clipboard row, then the pin rows, then where it is and its facts
     // (owner, 2026-10-12: the same order as a file or folder row).
     ...fileVerbs(pin.path)

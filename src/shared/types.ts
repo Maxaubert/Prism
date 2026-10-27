@@ -1,4 +1,4 @@
-import type { SavedBrowse, SavedPane } from './browse'
+import type { SavedBrowse } from './browse'
 import type { ArchiveEncryption } from './ipcTypes'
 import type { ExtractFail } from './extraction'
 
@@ -207,59 +207,34 @@ export type RenameResult =
       suggestion?: string
     }
 
-/** What main hands the renderer when a file is opened: the folder's viewable
- * files, the index of the one that was actually opened, and the session root
- * (the folder Prism was opened in) that the sidebar tree is bounded by. */
+/** What main hands the renderer when a tab is restored or something is opened
+ * from outside: the folder's viewable files, the index of the one that was
+ * actually opened, and the folder the tab was opened at. */
 export interface OpenPayload {
   browse?: SavedBrowse
-  panes?: SavedPane[]
   restoreTabId?: string
-  /** Explorer tabs browse freely; project tabs own a folder tree and shells. */
-  role?: 'explorer' | 'project'
+  /** Every tab is an Explorer tab; the field stays so a saved strip reads. */
+  role?: 'explorer'
   /** The permanent first Explorer tab. */
   pinned?: boolean
   files: ViewerFile[]
   /** Which of `files` to show. -1 when a folder was opened and it holds nothing
-   *  viewable: the tree is still rooted there, the viewer just has no file. */
+   *  viewable: the tab is still at that folder, the viewer just has no file. */
   index: number
   root: string
-  /** Restore only: the tab had a terminal showing in this view when the app
-   *  closed, so reopen one (a fresh shell - sessions die with the app). A tab
-   *  that lived as a Claude session must come back as a terminal, not as an
-   *  empty viewer. */
-  term?: 'full' | 'split' | 'hidden'
-  /** Restore only: how many shells the tab held (2026-09-03). The current one
-   *  is spawned at once; the others get their slots and spawn when picked. */
-  terms?: number
-  /** Restore only: the FOLDER that shell was standing in (2026-09-09), which
-   *  is not always the tab's root - "Open terminal here" and a cd inside the
-   *  root both move it, and the root deliberately does not follow. The fresh
-   *  shell starts there, and an agent resumes the conversation recorded for
-   *  THAT folder rather than the root's newest one. Desktop browsing and
-   *  the shell's location are independent of the phone's shared root. */
-  termCwd?: string
-  /** Restore only: the SESSION ID of the Claude conversation the terminal
-   *  hosted at close. The fresh shell launches `claude --resume <id>` as its
-   *  startup command - the ONE command Prism ever writes itself (owner
-   *  decision, 2026-08-21), and never typed on screen. */
-  agentResume?: string
   /** Restore only: this payload rebuilds a SAVED tab. It always becomes its
    *  own tab - the arriving-file rule folds same-root payloads into one, and
    *  folding a restore silently deletes a tab the user had. */
   restore?: boolean
-  /** A FOLDER arrived from outside (Explorer's "Open as project", on a folder
-   *  or on its background). The tab roots there, and what it SHOWS is the
-   *  "New projects show" setting's business: the folder browser (the default
-   *  since #148), the first file, or a terminal. */
-  folder?: boolean
   /** A FILE arrived from outside (a double-click, "Open with", the Explorer
-   *  menu's "Open file", the command line; 2026-09-22). It goes to the pinned
-   *  Explorer tab rather than becoming a project, so main builds nothing for it
-   *  and registers no root: `files` is empty, `index` -1, `root` its folder. */
+   *  menu's "Open file", the command line, a drop; 2026-09-22). It goes to
+   *  the pinned Explorer tab, so main builds nothing for it and registers no
+   *  root: `files` is empty, `index` -1, `root` its folder. */
   explorerFile?: string
-  /** Restore only: the folders that were open in this tab's tree, so the
-   *  sidebar comes back as it was left rather than collapsed to the root. */
-  open?: string[]
+  /** A FOLDER arrived from outside (the shell verb "Open in Prism", the
+   *  command line, a second instance; 2026-10-26). It opens an Explorer tab at
+   *  that folder. Like `explorerFile`, main builds nothing for it. */
+  explorerFolder?: string
   /** Restore only: this saved tab was the ACTIVE one - it takes the front.
    *  The rest restore behind whatever is already showing. */
   restoreActive?: boolean

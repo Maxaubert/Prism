@@ -41,8 +41,6 @@ export const PATHS = {
   /** Out of the window: a box with an arrow leaving its corner. */
   openOut: 'M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6',
   pin: 'M15 3l6 6-3 1-4 4 .5 4.5L10 14l-6 6-1-1 6-6-4.5-4.5L9 8l4-4z',
-  /** A shell prompt: a chevron and the cursor line. */
-  prompt: 'M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19',
   pencil: 'M4 20h4L19 9l-4-4L4 16z',
   bin: 'M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5',
   speaker: 'M4 9v6h4l5 4V5L8 9H4Z',

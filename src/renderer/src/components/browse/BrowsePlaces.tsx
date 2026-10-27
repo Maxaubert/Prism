@@ -27,14 +27,12 @@ type Props = Pick<
   | 'places'
   | 'directory'
   | 'onNavigate'
-  | 'onNewTerminal'
   | 'quickAccess'
   | 'onQuickAccessFile'
   | 'onUnpinQuickAccess'
   | 'onMoveQuickAccess'
   | 'onPinQuickAccessPaths'
   | 'onDropInto'
-  | 'onOpenProject'
   | 'onOpenNewTab'
   | 'readDrives'
   | 'onProperties'
@@ -61,7 +59,7 @@ function isPinDrag(event: DragEvent): boolean {
  * like the sidebar from here, so use that, with the icons and the disks with a
  * bar showing how much is in use"). Quick access is the pins that ARE a
  * Windows Known Folder, each with its own glyph; Pinned is every other pin;
- * then Projects; then This PC, each drive with its usage bar and free line.
+ * then This PC, each drive with its usage bar and free line.
  * The pin list is still ONE store in one order (`quickAccess.ts`): an unpinned
  * Desktop stays gone, a re-pinned one comes back under Quick access, and a pin
  * moves only among its own section's rows.
@@ -70,8 +68,6 @@ export function BrowsePlaces({
   places,
   directory,
   onNavigate,
-  onNewTerminal,
-  onOpenProject,
   onOpenNewTab,
   onProperties,
   quickAccess,
@@ -95,7 +91,9 @@ export function BrowsePlaces({
     pin.isFolder
       ? places.find(
           (place) =>
-            place.group === 'Quick access' && place.known && sameQuickAccessPath(place.path, pin.path)
+            place.group === 'Quick access' &&
+            place.known &&
+            sameQuickAccessPath(place.path, pin.path)
         )?.known
       : undefined
   const sections: Record<PinSection, QuickAccessPin[]> = {
@@ -118,7 +116,7 @@ export function BrowsePlaces({
     y: number
     pinned: boolean
     /** Which row opened it, so that row alone wears the menu's tint: a
-     *  pinned project is a pin AND a Projects row, one path in two places. */
+     *  pin can also be a drive, one path in two places. */
     row: string
   } | null>(null)
   const [drop, setDrop] = useState<{ section: PinSection; before?: string } | null>(null)
@@ -148,14 +146,16 @@ export function BrowsePlaces({
     const row = (event.target as Element).closest<HTMLElement>('[data-quick-access-path]')
     const at = row ? list.findIndex((pin) => pin.path === row.dataset.quickAccessPath) : -1
     const box = row?.getBoundingClientRect()
-    const before = box && at >= 0
-      ? event.clientY < box.top + box.height / 2 ? list[at].path : list[at + 1]?.path
-      : undefined
+    const before =
+      box && at >= 0
+        ? event.clientY < box.top + box.height / 2
+          ? list[at].path
+          : list[at + 1]?.path
+        : undefined
     const moving = event.dataTransfer.getData(QUICK_ACCESS_PIN_MIME)
     if (moving && list.some((pin) => sameQuickAccessPath(pin.path, moving)))
       onMoveQuickAccess?.(moving, before)
   }
-  const projects = places.filter((place) => place.group === 'Projects')
   // ONE PLACE IS MARKED (#296; owner, 2026-10-06), File Explorer's rule
   // (lib/placeMark.ts): the one clicked while the folder is inside it, else
   // the first whose path IS the folder. aria-current is on that row alone.
@@ -163,7 +163,7 @@ export function BrowsePlaces({
     ...[...sections['Quick access'], ...sections.Pinned]
       .filter((pin) => pin.isFolder)
       .map((pin) => ({ row: `pin:${pin.path}`, path: pin.path })),
-    ...[...projects, ...drives].map((place) => ({ row: `place:${place.path}`, path: place.path }))
+    ...drives.map((place) => ({ row: `place:${place.path}`, path: place.path }))
   ]
   const marked = markedPlace(placeRows, directory, chosenPlace)
   // While a menu is open on ANOTHER row, the mark is DIMMED (owner, same
@@ -243,7 +243,13 @@ export function BrowsePlaces({
               onContextMenu={(event) => {
                 event.preventDefault()
                 event.stopPropagation()
-                setMenu({ pin, x: event.clientX, y: event.clientY, pinned: true, row: `pin:${pin.path}` })
+                setMenu({
+                  pin,
+                  x: event.clientX,
+                  y: event.clientY,
+                  pinned: true,
+                  row: `pin:${pin.path}`
+                })
               }}
               onKeyDown={(event) => {
                 if (!pin.isFolder && event.key === 'Enter') {
@@ -252,11 +258,16 @@ export function BrowsePlaces({
                   onQuickAccessFile?.(pin.path, true)
                   return
                 }
-                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
-                  return
+                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
                 event.preventDefault()
                 const box = event.currentTarget.getBoundingClientRect()
-                setMenu({ pin, x: box.left + 20, y: box.bottom, pinned: true, row: `pin:${pin.path}` })
+                setMenu({
+                  pin,
+                  x: box.left + 20,
+                  y: box.bottom,
+                  pinned: true,
+                  row: `pin:${pin.path}`
+                })
               }}
               onDragStart={(event) => {
                 setDrag(null)
@@ -358,20 +369,6 @@ export function BrowsePlaces({
       <nav>
         {pinSection('Quick access')}
         {pinSection('Pinned')}
-        {projects.length > 0 && (
-          <section aria-label="Projects">
-            <h2>Projects</h2>
-            {projects.map((place) =>
-              placeButton(
-                place,
-                <>
-                  <FolderIcon color="var(--p-tree-folder)" />
-                  <span>{place.label}</span>
-                </>
-              )
-            )}
-          </section>
-        )}
         {drives.length > 0 && (
           <section aria-label="This PC" data-drive-style={driveLook}>
             <h2>This PC</h2>
@@ -402,19 +399,18 @@ export function BrowsePlaces({
             index: menuIndex,
             onChoose: () => choose(menu.row, menu.pin.path),
             onNavigate,
-            onNewTerminal,
             onQuickAccessFile,
             onOpenNewTab,
-            onOpenProject,
             onUnpinQuickAccess,
             onMoveQuickAccess,
             onPinQuickAccessPaths,
             onProperties: onProperties
               ? () => {
                   const { pin } = menu
-                  const drive = menu.row.startsWith('place:') && drives.some((d) => d.path === pin.path)
-                    ? (usage.get(pin.path.toUpperCase()) ?? { path: pin.path })
-                    : undefined
+                  const drive =
+                    menu.row.startsWith('place:') && drives.some((d) => d.path === pin.path)
+                      ? (usage.get(pin.path.toUpperCase()) ?? { path: pin.path })
+                      : undefined
                   onProperties(
                     {
                       path: pin.path,

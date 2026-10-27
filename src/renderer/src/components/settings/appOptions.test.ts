@@ -1,16 +1,12 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DICTATION_OPTIONS } from 'prism-term-core/renderer/settings/dictationOptions'
 import { DIAGNOSTICS_OPTIONS } from 'prism-term-core/renderer/settings/diagnosticsOptions'
-import { TERMINAL_OPTIONS } from 'prism-term-core/renderer/settings/options'
 import { APP_OPTIONS, APP_SECTIONS } from './appOptions'
 import { isIconName } from '../icons/settingsIcons'
 import { ROW_ORDER, SETTINGS_PAGES, settingsIndex } from './settingsIndex'
 
-// Prism's command help is Prism Terminal's alone (owner, 2026-09-22), so the
-// core's help list is not Prism's to show.
-const CORE = [...TERMINAL_OPTIONS, ...DICTATION_OPTIONS, ...DIAGNOSTICS_OPTIONS]
+const CORE = [...DIAGNOSTICS_OPTIONS]
 
 describe("Prism's own settings rows", () => {
   it('have unique ids, none of them a core row', () => {
@@ -68,8 +64,6 @@ describe("Prism's own settings rows", () => {
         "open-folders=windows",
         "explorer-verb=windows",
         "default-apps=windows",
-        "tree-side=prism.tree.side",
-        "newtab-show=prism.newtab.show",
         "viz-style=prism.viz.style+prism.viz.presets",
         "viz-colour=prism.viz.theme",
         "viz-glow=prism.viz.glow",
@@ -106,30 +100,23 @@ describe('Find a setting', () => {
     expect([...ROW_ORDER].sort()).toEqual([...CORE, ...APP_OPTIONS].map((o) => o.id).sort())
   })
 
-  it('indexes what is drawn on this PC: the GPU row only with an NVIDIA card, never command help', () => {
-    expect(settingsIndex(true).map((e) => e.id)).toEqual([...ROW_ORDER])
-    expect(settingsIndex(false).map((e) => e.id)).toEqual(ROW_ORDER.filter((id) => id !== 'dictation-gpu'))
-    expect(settingsIndex(true).some((e) => e.id === 'help-enabled')).toBe(false)
+  it('indexes every row that is drawn', () => {
+    expect(settingsIndex().map((e) => e.id)).toEqual([...ROW_ORDER])
   })
 
   it('says where each row lives, the style colours under a plain Colours (#302)', () => {
-    const at = Object.fromEntries(settingsIndex(true).map((e) => [e.id, `${e.page}/${e.section}${e.view ? `/${e.view}` : ''}`]))
+    const at = Object.fromEntries(settingsIndex().map((e) => [e.id, `${e.page}/${e.section}${e.view ? `/${e.view}` : ''}`]))
     expect(at['c-accent']).toBe('appearance/Colours')
-    expect(at['term-theme']).toBe('terminal/Theme')
-    expect(at['term-shell']).toBe('terminal/Shell')
-    expect(at['agent-hooks']).toBe('agents/Claude Code')
-    expect(at['agent-color']).toBe('agents/Mark colours')
     expect(at['win-e-shortcut']).toBe('explorer/Windows')
-    expect(at['tree-side']).toBe('project/Project tabs')
-    expect(at['newtab-show']).toBe('project/Project tabs')
-    // Two Sidebar positions (#304; owner, 2026-10-07: "two settings, one on
-    // the project tab and one on the explorer tab"), each on its own page.
+    // The project tabs' rows (the tree's side, what a project showed first)
+    // went with them (2026-10-26).
+    expect(at['tree-side']).toBeUndefined()
+    expect(at['newtab-show']).toBeUndefined()
     expect(at['explorer-side']).toBe('explorer/Layout')
     expect(at['explorer-size']).toBe('explorer/Layout')
     expect(at['newtab-mode']).toBe('explorer/Opening things')
     expect(at['transport-bg']).toBe('media/Behind the controls/progress')
     expect(at['viz-glow']).toBe('media/Visualizer colour/visualizer')
-    expect(at['dictation-enabled']).toBe('dictation/')
     expect(at['app-version']).toBe('about/')
     // The core's Diagnostics page (#322), beside About.
     expect(at['diag-verbose']).toBe('diagnostics/')

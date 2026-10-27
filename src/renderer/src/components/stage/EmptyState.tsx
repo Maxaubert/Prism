@@ -60,11 +60,10 @@ export function EmptyState({
   )
 }
 
-/** A tab with a root but nothing on screen yet (a terminal-first tab whose
- *  terminal was tucked away): quiet words, not the open-file pitch. The way
- *  in is the sidebar this tab already has, so nothing here needs a button.
- *  Deliberately NOT the first file auto-opened: a hidden terminal must never
- *  start playing whatever happens to sort first. */
+/** A tab with a root but nothing on screen yet: quiet words, not the
+ *  open-file pitch. The way in is the sidebar this tab already has, so nothing
+ *  here needs a button. Deliberately NOT the first file auto-opened: a tab
+ *  must never start playing whatever happens to sort first. */
 export function NoFileState(): JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-1.5 text-center">

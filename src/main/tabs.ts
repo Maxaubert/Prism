@@ -2,10 +2,8 @@ import { containerSync } from './archiveBrowse'
 import { isLocalFixed } from './driveKinds'
 import { existsSync, readFileSync, statSync } from 'fs'
 import { latestWriter } from './latestWrite'
-import { isAbsolute, resolve } from 'path'
-import type { BrowseLocation, SavedBrowse, SavedPane } from '@shared/browse'
-import { isInside } from '@shared/path'
-import type { AgentKind } from 'prism-term-core/shared/types'
+import { isAbsolute } from 'path'
+import type { BrowseLocation, SavedBrowse } from '@shared/browse'
 
 /**
  * The tab strip, across restarts.
@@ -22,42 +20,14 @@ import type { AgentKind } from 'prism-term-core/shared/types'
 
 export interface SavedTab {
   id?: string
-  role?: 'explorer' | 'project'
+  /** Every saved tab is an Explorer tab now. An older strip's project tabs
+   *  (`role: 'project'`, or no role) are migrated by `parseTabs`. */
+  role?: 'explorer'
   pinned?: boolean
   browse?: SavedBrowse
-  panes?: SavedPane[]
   root: string
   /** The file that tab was showing. Absent if it was showing none. */
   file?: string
-  /** The terminal was showing, in this view. The shell itself dies with the
-   *  app; this remembers only that the tab should come back AS a terminal. */
-  term?: 'full' | 'split' | 'hidden'
-  /** How many shells the tab held (2026-09-03): a tab with three comes back
-   *  with three slots, the current one spawned and the rest spawned when
-   *  picked. Absent or 1 means the one `term` describes. */
-  terms?: number
-  /** The shell's own existing absolute folder. Browsing and shell location
-   * are independent; restoring a shell never moves the phone's shared root. */
-  cwd?: string
-  /** The shell hosted a CLAUDE session when the strip was saved: restore may
-   *  resume it (`claude --continue` rebuilds the conversation per folder). */
-  /** Which agent the shell hosted at quit, so the right resume runs. The
-   *  legacy `true` from before codex could resume means claude. */
-  agent?: AgentKind
-  /**
-   * The folders that were OPEN in this tab's tree.
-   *
-   * A tab is a root and a current file (2026-08-20), and this is deliberately
-   * not a per-tab SETTING - it is where you had got to. Closing Prism used to
-   * collapse the whole tree, so reopening on a file six folders down showed it
-   * in the viewer with nothing marked in the sidebar, because none of the rows
-   * leading to it existed yet.
-   *
-   * Capped, because it is a suggestion and not a record: a tree somebody has
-   * opened a thousand folders in is not worth carrying, and the ancestors of
-   * the current file are re-derived on restore regardless.
-   */
-  open?: string[]
 }
 
 export interface SavedTabs {
@@ -67,19 +37,6 @@ export interface SavedTabs {
 }
 
 const NONE: SavedTabs = { tabs: [], active: 0 }
-
-/** Rebuilding a folder listing must not select its first file in a workspace
- * the user deliberately left empty. Legacy folder restores keep their policy. */
-export function restoredFileIndex(tab: SavedTab, rebuiltIndex: number): number {
-  return tab.role === 'project' && !tab.file && tab.browse?.surface === 'viewer'
-    ? -1
-    : rebuiltIndex
-}
-
-/** Is `p` the folder `root` or somewhere inside it? Resolved first, so `..`
- *  cannot walk out; case and a trailing separator never make two folders. */
-const inside = (root: string, p: string): boolean =>
-  isInside(resolve(root), resolve(p), { orEqual: true })
 
 const isFolder = (p: string): boolean => {
   try {
@@ -211,24 +168,25 @@ export function parseTabs(raw: string): SavedTabs {
   let active = -1
   list.forEach((entry, i) => {
     if (!entry || typeof entry !== 'object') return
-    const { root, file, term, agent, cwd, id, browse, open, terms, panes, role, pinned } = entry as {
+    // THE TERMINAL AND THE PROJECT TABS ARE GONE (owner, 2026-10-26). An old
+    // strip's `term`, `terms`, `agent`, `agentResume`, `cwd`, `panes` and `open`
+    // (the tree's folders) are never read, so a tab that had a shell or a
+    // pinned pane comes back as the plain tab it was. A tab that was a project
+    // (`role: 'project'`, or no role at all) comes back as an Explorer tab at
+    // the folder it was showing (`browse.path`, else its root), with the file
+    // it had open still open in the full viewer.
+    const { root, file, id, browse, role, pinned } = entry as {
       id?: unknown
       role?: unknown
       pinned?: unknown
       browse?: unknown
-      open?: unknown
-      terms?: unknown
-      panes?: unknown
       root?: unknown
       file?: unknown
-      term?: unknown
-      agent?: unknown
-      cwd?: unknown
     }
     if (typeof root !== 'string' || !isAbsolute(root) || !isFolder(root)) return
     // sync-ok: startup, the tab restore (once per page load, before the strip shows)
     const tab: SavedTab = typeof file === 'string' && existsSync(file) ? { root, file } : { root }
-    if (role === 'explorer' || role === 'project') tab.role = role
+    tab.role = 'explorer'
     if (role === 'explorer' && pinned === true && !keptPinnedExplorer) {
       tab.pinned = true
       keptPinnedExplorer = true
@@ -238,67 +196,15 @@ export function parseTabs(raw: string): SavedTabs {
       ids.add(id)
     }
     const keptBrowse = parseBrowse(browse)
-    if (keptBrowse) tab.browse = keptBrowse
-    if (Array.isArray(panes)) {
-      const kept: SavedPane[] = []
-      for (const pane of panes.slice(0, 3)) {
-        if (
-          !pane ||
-          typeof pane !== 'object' ||
-          typeof pane.id !== 'string' ||
-          typeof pane.path !== 'string' ||
-          !['left', 'right', 'top', 'bottom'].includes(pane.dir)
-        )
-          continue
-        if (
-          (term === 'full' || term === 'split' || term === 'hidden') &&
-          typeof pane.termSlot === 'number' &&
-          Number.isInteger(pane.termSlot) &&
-          pane.termSlot >= 0 &&
-          pane.termSlot < Math.min(typeof terms === 'number' ? terms : 1, 16)
-        ) {
-          kept.push({
-            id: pane.id,
-            path: `term:slot-${pane.termSlot}`,
-            dir: pane.dir,
-            termSlot: pane.termSlot
-          })
-          continue
-        }
-        if (!isAbsolute(pane.path)) continue
-        try {
-          // sync-ok: startup, the tab restore (once per page load, before the strip shows)
-          if (statSync(pane.path).isFile())
-            kept.push({ id: pane.id, path: pane.path, dir: pane.dir })
-        } catch {
-          /* A missing pinned file is no longer a pane. */
-        }
-      }
-      if (kept.length) tab.panes = kept
-    }
-    if (Array.isArray(open)) {
-      const folders = open
-        .slice(0, 400)
-        .filter(
-          (p): p is string =>
-            typeof p === 'string' &&
-            isAbsolute(p) &&
-            (inside(root, p) || !!keptBrowse?.history.some((entry) => inside(entry.path, p))) &&
-            mayBePlace(p)
-        )
-      if (folders.length) tab.open = folders
-    }
-    if (term === 'full' || term === 'split' || term === 'hidden') {
-      tab.term = term
-      if (typeof terms === 'number' && Number.isInteger(terms) && terms > 1)
-        tab.terms = Math.min(terms, 16)
-      // Only meaningful with a terminal. `true` is the old spelling of claude.
-      if (agent === true || agent === 'claude') tab.agent = 'claude'
-      else if (agent === 'codex') tab.agent = 'codex'
-      // A gone folder falls back to the project. An existing outside folder
-      // stays the shell's own cwd and receives a desktop-only restore grant.
-      if (typeof cwd === 'string' && isAbsolute(cwd) && isFolder(cwd)) tab.cwd = cwd
-    }
+    // The migration. A project tab's own `browse.surface` said whether the
+    // viewer or the folder list was in front; for it the open file decides. A
+    // project tab with no `browse` at all needs none made: the page opens its
+    // folder (or its file) at `root`.
+    if (keptBrowse)
+      tab.browse =
+        role === 'explorer'
+          ? keptBrowse
+          : { ...keptBrowse, surface: tab.file ? 'viewer' : 'folder' }
     if (i === wasActive) active = tabs.length
     tabs.push(tab)
   })
@@ -329,8 +235,8 @@ export function readTabs(path: string): SavedTabs {
  * writeFileUtf8 under writeTabs). `write` hands the bytes to libuv's thread
  * pool and swaps them in with a rename, so a slow disk delays the file, never
  * the app, and a crash mid-write leaves the old file whole. Only `flushSync`,
- * at quit, still waits: a lost last write is a Claude session that never
- * resumes. Writes run one at a time and the newest lands last (`latestWriter`).
+ * at quit, still waits: a lost last write is a strip that never comes back.
+ * Writes run one at a time and the newest lands last (`latestWriter`).
  */
 export function tabsWriter(path: () => string): {
   write: (state: SavedTabs) => Promise<void>

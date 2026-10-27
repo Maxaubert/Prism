@@ -7,19 +7,16 @@ import type {
   BrowseSearchResult,
   BrowseSearchWindowRequest,
   BrowseShortcut,
-  SavedBrowse,
-  SavedPane
+  SavedBrowse
 } from '@shared/browse'
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 
 /** Started by the e2e harness (#356: its clipboard is main's fake). Main
  *  passes --prism-e2e through additionalArguments: the renderer has its own argv. */
 const E2E_RUN = process.argv.includes('--prism-e2e')
-import { createTermApi } from 'prism-term-core/preload/api'
-import { createDictationApi } from 'prism-term-core/preload/dictationApi'
+import { isWebUrl } from 'prism-term-core/shared/webUrl'
 import { createDiagApi } from 'prism-term-core/preload/diagApi'
 import type { UpdateInfo } from 'prism-term-core/shared/updateTypes'
-import type { AgentKind } from 'prism-term-core/shared/types'
 import type {
   ArchiveRenameResult,
   ExtractAllResult,
@@ -165,44 +162,23 @@ const api = {
   /** fsmedia:// URL for a local path, so <img>/<video>/<audio>/<embed> can load it. */
   mediaUrl: (path: string): string => `fsmedia://local/${encodeURIComponent(path)}`,
 
-  /** Open the file dialog; resolves with the folder payload or null if cancelled. */
-  openDialog: (): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openDialog),
-  /** Build a payload for a dropped/known path (drag-and-drop). */
-  openPath: (path: string): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openPath, path),
-  /** Choose a FOLDER to root in. The only way to name a root deliberately;
-   *  every other route infers it from the file that arrived. */
-  openFolder: (from?: string): Promise<OpenPayload | null> =>
-    ipcRenderer.invoke(CALL.openFolder, from),
-  /** A new tab rooted at the user's own folder. No dialog: the + is instant. */
-  openHome: (): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openHome),
-  /** A new tab rooted at a remembered folder (the Settings choice). */
-  openRoot: (dir: string): Promise<OpenPayload | null> => ipcRenderer.invoke(CALL.openRoot, dir),
   /** Choose a folder without opening it: the Settings picker. */
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke(CALL.dialogPickFolder),
   /** Choose real files: the archive panel's "Add files". Empty when cancelled. */
   pickFiles: (): Promise<string[]> => ipcRenderer.invoke(CALL.dialogPickFiles),
   /** Report the tab strip, for persistence only. The root wall is never
-   *  rebuilt from a snapshot (it raced payloads in flight); see dropRoot. */
+   *  rebuilt from a snapshot (it raced payloads in flight). */
   tabsChanged: (
     tabs: Array<{
       root: string
-      role?: 'explorer' | 'project'
+      role?: 'explorer'
       pinned?: boolean
       id?: string
       browse?: SavedBrowse
-      panes?: SavedPane[]
       file?: string
-      term?: 'full' | 'split' | 'hidden'
-      terms?: number
-      /** The folder that shell was standing in, when it is not the root. */
-      cwd?: string
-      agent?: AgentKind
-      open?: string[]
     }>,
     active: number
   ): void => ipcRenderer.send(CALL.tabsChanged, { tabs, active }),
-  /** A root no longer held by any tab. The one way the wall shrinks. */
-  dropRoot: (root: string): void => ipcRenderer.send(CALL.rootsDrop, root),
   /** Where you had got to in a film, kept ONCE on the PC by file path
    *  (#118): the phone reads and writes the same store over /api/pos, so a
    *  film left at minute 40 here opens at minute 40 there. Seconds, or null. */
@@ -346,7 +322,7 @@ const api = {
   /** Does this file's audio need Prism's own decoder (AC-3, DTS, TrueHD and
    *  friends, none of which Chromium can play), and where is it served. */
   probeMedia: (path: string): Promise<MediaProbe> => ipcRenderer.invoke(CALL.mediaProbe, path),
-  /** Are Prism's entries ("Open file", "Open as project") in File Explorer's
+  /** Are Prism's entries ("Open file", "Open in Prism") in File Explorer's
    *  context menu right now? */
   shellVerbStatus: (): Promise<boolean> => ipcRenderer.invoke(CALL.shellVerbStatus),
   /** Add or remove it. Per-user, no elevation; false means Windows refused. */
@@ -591,19 +567,15 @@ const api = {
   ): Promise<ComicOpenResult> =>
     ipcRenderer.invoke(CALL.comicOpen, path, password),
 
-  /* ----- the terminal ----- */
-
-  // THE TERMINAL'S BRIDGE IS THE CORE'S (prism-term-core/preload/api, #154): the
-  // member names, their signatures and the channel names exist once, for Prism
-  // and for Prism Terminal. The clipboard read for the paste rule goes through
-  // main now (synchronously, as the key handler that asks has to be), which is
-  // what lets the same bridge serve a sandboxed preload too.
-  ...createTermApi(ipcRenderer),
-  // ...and dictation's (#162), the same way.
-  ...createDictationApi(ipcRenderer),
-  // ...and the diagnostics log's (#322): the page's lines, its heartbeat, and
+  // THE DIAGNOSTICS LOG's (#322): the page's lines, its heartbeat, and
   // Settings > Diagnostics. Timing stays main-side; these calls are not timed.
   ...createDiagApi(ipcRenderer),
+
+  /** A web link to the system browser. http(s) only, here and again in main
+   *  (2026-10-26: Prism's own channel, `link:open-external`). */
+  openExternal: (url: string): void => {
+    if (isWebUrl(url)) ipcRenderer.send(CALL.openExternal, url)
+  },
 
   // frameless window controls
   minimize: (): void => ipcRenderer.send(CALL.windowMinimize),
@@ -612,12 +584,9 @@ const api = {
   close: (force = false): void => ipcRenderer.send(CALL.windowClose, force),
   /** Keep main in step with the editor, so closing can ask before it discards. */
   setDirty: (dirty: boolean): void => ipcRenderer.send(CALL.editorDirty, dirty),
-  /** An agent is mid-answer in some shell: main holds the window's close
-   *  until the renderer has asked, as it does for unsaved text. */
-  setAgentBusy: (busy: boolean): void => ipcRenderer.send(CALL.windowAgentBusy, busy),
   /** Something is playing: hold the screen awake until told otherwise. */
   setAwake: (on: boolean): void => ipcRenderer.send(CALL.powerAwake, on),
-  /** Main blocked a close (unsaved text, or a working agent): ask. */
+  /** Main blocked a close (unsaved text): ask. */
   onAskClose: subscribe(PUSH.appAskClose),
   setFullscreen: (on: boolean): void => ipcRenderer.send(CALL.windowSetFullscreen, on),
   /* ----- the update check ----- */

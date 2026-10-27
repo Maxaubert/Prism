@@ -157,70 +157,8 @@
   position: relative;
   top: var(--browse-number-dy, 0.2px);
 }
-.browse-return-row {
-  position: absolute;
-  z-index: 5;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--p-divider);
-  background: var(--p-bg);
-  font-size: 13px;
-}
-.browse-return-row > span {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--p-text-soft);
-}
-.browse-return-row button,
-.browse-terminal-actions button {
-  min-height: 32px;
-  padding: 4px 8px;
-  border-radius: 3px;
-  white-space: nowrap;
-  color: var(--p-text);
-}
-.browse-return-row button:hover,
-.browse-terminal-actions button:hover {
-  background: var(--p-hover);
-}
-/* Focus is the hover's fill, not a ring (#272). */
-.browse-return-row button:focus-visible,
-.browse-terminal-actions button:focus-visible {
-  outline: none;
-  background: var(--p-hover);
-}
-.browse-terminal-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.browse-terminal-actions button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.browse-return-row ~ [data-workspace-viewer]:not([data-browse-preview]) {
-  margin-top: 40px;
-}
-.browse-return-row ~ [data-term-panel],
-.browse-return-row ~ [data-workspace-term-grid] {
-  margin-top: 40px;
-}
 @media (max-width: 760px) {
   .browse-workspace {
     --browse-preview-width: 44%;
-  }
-  .browse-return-row {
-    flex-wrap: wrap;
-    height: auto;
-    min-height: 40px;
   }
 }

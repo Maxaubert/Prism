@@ -1,5 +1,4 @@
 import { performance } from 'perf_hooks'
-import { CH, DCH } from '../shared/channels'
 import type { DiagLog } from './diagLog'
 import { errorFields, summariseArgs } from './diagSummary'
 
@@ -75,11 +74,11 @@ export interface IpcTimingOptions {
  * `main-lag` and pushed the real suspect out of the eight slots. They are
  * still `ipc-error` when they fail, and `ipc` in Detailed logging.
  */
-export const LONG_WAIT: ReadonlySet<string> = new Set([DCH.download])
+export const LONG_WAIT: ReadonlySet<string> = new Set<string>()
 
-/** Typed text, the clipboard and recorded audio: never written down, even
- *  when the call that carried them was slow. */
-const OPAQUE = new Set<string>([CH.input, CH.clipboardWrite, CH.clipboardTerm, DCH.transcribe])
+/** Channels whose arguments are never written down, even when the call that
+ *  carried them was slow. None of Prism's carry typed text or audio. */
+const OPAQUE = new Set<string>()
 const isOwn = (ch: string): boolean => ch.startsWith('diag:')
 const RECENT_MAX = 32
 

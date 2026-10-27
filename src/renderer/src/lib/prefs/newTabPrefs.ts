@@ -4,7 +4,8 @@ import { createPref } from './createPref'
 // One saved setting per key (prefs/createPref.ts).
 
 export type NewTabMode = 'home' | 'folder' | 'ask'
-export type NewTabShow = 'file' | 'terminal' | 'none'
+// What a new tab SHOWS ('prism.newtab.show') went with the project tabs
+// (2026-10-26): every tab opens on its folder. The key stays in `prefKeys.ts`.
 
 const modePref = createPref<NewTabMode>({
   key: 'prism.newtab.mode',
@@ -18,27 +19,16 @@ const folderPref = createPref<string>({
   parse: (v) => v ?? '',
   fallback: ''
 })
-const showPref = createPref<NewTabShow>({
-  key: 'prism.newtab.show',
-  read: 'always',
-  parse: (v) => (v === 'terminal' || v === 'file' ? v : 'none'),
-  fallback: 'none'
-})
 
 export const newTabMode = modePref.get
 
 /** The chosen folder, only meaningful while mode is 'folder'. */
 export const newTabFolder = folderPref.get
 
-export const newTabShow = showPref.get
-
 export function setNewTabMode(mode: NewTabMode, folder?: string): void {
   if (folder !== undefined) folderPref.set(folder)
   modePref.set(mode)
 }
 
-export const setNewTabShow = showPref.set
-
 export const useNewTabMode = modePref.use
 export const useNewTabFolder = folderPref.use
-export const useNewTabShow = showPref.use

@@ -1,11 +1,6 @@
-import { DictationTabMark } from 'prism-term-core/renderer/components/DictationTabMark'
 import { useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
-import { isExplorerTab, isPinnedExplorer, tabLabels, type Tab } from '../lib/tabs/tabs'
-import { useAgentIndicator } from 'prism-term-core/renderer/lib/termLook'
-import { useAgentColors } from 'prism-term-core/renderer/lib/agentColors'
-import { inkOn } from 'prism-term-core/renderer/lib/colour'
-import { tabsOf, useStyle } from '../lib/theme'
-import { pinnedRoots, plusMenuList, recentRoots, togglePin } from 'prism-term-core/renderer/lib/recentRoots'
+import { isPinnedExplorer, tabLabels, type Tab } from '../lib/tabs/tabs'
+import { pinnedRoots, plusMenuList, recentRoots, togglePin } from '@renderer/lib/recentRoots'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/drag/dragDrop'
 import { ContextMenu } from './ContextMenu'
 import { plusButtonMenu, tabContextMenu } from '../menus/tabStrip'
@@ -15,7 +10,7 @@ import { Icon } from './icons/Icon'
 import { PATHS } from './icons/paths'
 
 /**
- * The open projects, as a row under the title bar.
+ * The open tabs, as a row under the title bar.
  *
  * Present from the first tab, so the `+` is always somewhere to reach and the
  * chrome never shifts under you when a second folder opens. It goes only when
@@ -51,9 +46,6 @@ const plusMenuRows = (): Array<{ path: string; pinned: boolean }> =>
 export function TabStrip({
   tabs,
   activeId,
-  workingIds,
-  doneIds,
-  agentIds,
   onPick,
   onClose,
   onNew,
@@ -66,14 +58,6 @@ export function TabStrip({
 }: {
   tabs: Tab[]
   activeId: string | null
-  /** Sessions with SUSTAINED recent output: with an agent present, this IS
-   *  the indicator. Idle looks default - only working paints. */
-  workingIds: ReadonlySet<string>
-  /** Sessions whose agent finished while their tab was in the background;
-   *  they wear the finished colour until the tab is visited. */
-  doneIds: ReadonlySet<string>
-  /** Sessions whose shell currently hosts an AI CLI (Claude Code, codex). */
-  agentIds: ReadonlySet<string>
   onPick: (id: string) => void
   onClose: (id: string) => void
   /** The + at the end. This one ADDS a tab, rooted at the user's own folder
@@ -97,16 +81,7 @@ export function TabStrip({
    *  the height and the rule under it. */
   inTitleRow?: boolean
 }): JSX.Element | null {
-  const indicator = useAgentIndicator()
   const width = useTabWidth()
-  // The user's pick where there is one, else the app style's accent and the
-  // theme's green (termHost.ts): the same rule as Prism Terminal.
-  const { working: agentColor, finished: doneColor } = useAgentColors()
-  // Full mode fills the tab with the chosen colour. The colour can carry an
-  // alpha, so the ink is the core's `inkOn`: chosen on the tint as laid over
-  // the strip's flat ground (`tabsOf`, the one --p-tabs-flat publishes).
-  const stripGround = tabsOf(useStyle())
-  const onTint = (c: string): string => inkOn(c, stripGround)
   // A tab being carried (#71 follow-up): the strip animates it rather than
   // drawing a hairline - the tab lifts out and its neighbours slide across to
   // open the gap it would drop into, which is what "picked up" looks like.
@@ -283,25 +258,10 @@ export function TabStrip({
     >
       {tabs.map((t, i) => {
         const on = t.id === activeId
-        // The agent indicator: paints while the agent is genuinely working
-        // (the working colour) or finished behind another tab (the finished
-        // colour, until visited) - the whole tab filled (full) or the brain
-        // icon plus edge bar tinted (minimal). Idle shows nothing.
-        const working =
-          indicator !== 'off' && !!t.term && agentIds.has(t.term.id) && workingIds.has(t.term.id)
-        // Finished-while-away belongs to FULL alone (owner, 2026-08-23):
-        // minimal answers one question, "is something running right now", and
-        // a tab that has merely stopped is not that.
-        const done = indicator === 'full' && !working && !!t.term && doneIds.has(t.term.id)
-        const tint = working ? agentColor : done ? doneColor : null
-        const loud = tint !== null && indicator === 'full'
         return (
           <div
             key={t.id}
-            data-agent={tint ? indicator : undefined}
-            data-agent-state={working ? 'working' : done ? 'done' : undefined}
-            data-agent-present={t.term && agentIds.has(t.term.id) ? '' : undefined}
-            data-tab-role={t.kind === 'settings' ? 'settings' : t.role ?? 'project'}
+            data-tab-role={t.kind === 'settings' ? 'settings' : 'explorer'}
             data-pinned={isPinnedExplorer(t) ? '' : undefined}
             // Hairline side edges in the divider token: they separate flush
             // tabs when the style draws edges, and vanish (the token goes
@@ -325,9 +285,7 @@ export function TabStrip({
             className={`no-drag group relative flex items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors ${
               width === 'fixed' ? 'min-w-[64px] flex-[0_1_114px]' : 'min-w-0 shrink'
             } ${
-              loud
-                ? ''
-                : on
+              on
                   ? // THE SECONDARY COLOUR (owner, 2026-09-03): the strip, the
                     // tabs at rest and this one are all --p-tabs, one surface
                     // with the sidebar and the title bar. --p-tab-active is
@@ -341,7 +299,6 @@ export function TabStrip({
                   : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
             }`}
             style={{
-              ...(loud && tint ? { background: tint, color: onTint(tint) } : {}),
               transform: `translateX(${carry?.id === t.id ? carry.dx : slide(i)}px)`,
               zIndex: carry?.id === t.id ? 5 : undefined,
               // What you carry is a COPY - Chromium's own drag snapshot - so
@@ -373,16 +330,14 @@ export function TabStrip({
                 x: e.clientX,
                 y: e.clientY,
                 id: t.id,
-                root: t.kind === 'settings' ? '' : isExplorerTab(t) ? t.browse.path : t.root,
+                root: t.kind === 'settings' ? '' : t.browse.path,
                 pinned: isPinnedExplorer(t)
               })
             }}
             // Tabs reorder by dragging (#70): the half of the tab the pointer
             // is over decides which side of it the dragged tab lands.
             data-tab
-            data-folder-drop={
-              t.kind === 'settings' ? undefined : isExplorerTab(t) ? t.browse.path : t.root
-            }
+            data-folder-drop={t.kind === 'settings' ? undefined : t.browse.path}
             data-drag-over={fileDropTab === t.id || undefined}
             onDragOver={(e) => {
               // Stop before the blank-strip handler: an existing tab is a
@@ -422,63 +377,18 @@ export function TabStrip({
             onPointerUp={onTabPointerUp}
             onPointerCancel={() => carry && endDrag()}
           >
-            {/* The active mark: an accent rule along the top. It yields while
-                the working fill is up - two signals on one tab would fight. */}
-            {on && !loud && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
-            {/* Minimal mark: a bar running along the BOTTOM edge while the
-                agent works, the way a loading tab reads. It sits under the
-                label rather than beside it, so a narrow tab loses none of its
-                name to it. */}
-            {working && indicator === 'minimal' && (
-              <span className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] overflow-hidden" aria-hidden>
-                <span
-                  className="p-agent-run absolute inset-y-0 w-[42%] rounded-full"
-                  style={{ background: agentColor }}
-                />
-              </span>
-            )}
-            {/* A permanent icon slot: the brain appears in it while the
-                agent works or waits unseen, and it is transparent otherwise -
-                so the tab NEVER changes width while an agent runs.
-                FULL ALONE (owner, 2026-09-09). Minimal is the animated bar and
-                nothing else: it was the bar AND the brain, which is two marks
-                for the one thing minimal says, and the louder of the two is
-                the icon - so the quiet volume read almost as loud as the other
-                one. A mode that can never fill the slot does not reserve it
-                either, which is why the slot itself goes with the icon; the
-                widths only settle differently, and only when the setting is
-                deliberately changed. */}
+            {/* The active mark: an accent rule along the top. */}
+            {on && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
             {/* EVERY TAB SAYS WHAT IT HOLDS (#308; owner, 2026-10-06: "we
                 should have some default icons per type of page explorer,
                 project and settings"; 2026-10-07, of the mockup: "A3 and C2").
-                A folder, code brackets or a gear in the tab's own ink, solid
+                A folder or a gear in the tab's own ink, solid
                 on the tab you are on and lines on the rest. It replaced the
                 small folder in the folder colour that only Explorer tabs had. */}
             <TabKindIcon
-              kind={t.kind === 'settings' ? 'settings' : isExplorerTab(t) ? 'explorer' : 'project'}
+              kind={t.kind === 'settings' ? 'settings' : 'explorer'}
               solid={on}
             />
-            {!isExplorerTab(t) && t.kind !== 'settings' && indicator === 'full' && (
-            <span className="grid h-[13px] w-[13px] shrink-0 place-items-center" aria-hidden={!tint}>
-              {tint && (
-                <svg
-                  data-activity={working ? 'working' : 'done'}
-                  viewBox="0 0 24 24"
-                  width={13}
-                  height={13}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.9"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-label={working ? 'Agent working' : 'Agent finished'}
-                >
-                  <path d="M9.5 4a2.7 2.7 0 0 0-2.7 2.7c-1.5.3-2.6 1.6-2.6 3.2 0 .8.3 1.6.8 2.1a3.2 3.2 0 0 0 1.3 5.4A2.9 2.9 0 0 0 9.2 20c.5 0 1-.1 1.3-.4V4.5A2.6 2.6 0 0 0 9.5 4zM14.5 4a2.7 2.7 0 0 1 2.7 2.7c1.5.3 2.6 1.6 2.6 3.2 0 .8-.3 1.6-.8 2.1a3.2 3.2 0 0 1-1.3 5.4A2.9 2.9 0 0 1 14.8 20c-.5 0-1-.1-1.3-.4V4.5a2.6 2.6 0 0 1 1-.5z" />
-                </svg>
-              )}
-            </span>
-            )}
-            {t.term && <DictationTabMark sessionId={t.term.id} />}
             <button
               role="tab"
               aria-selected={on}
@@ -487,7 +397,7 @@ export function TabStrip({
               // button, truncated there. Fit: the label sizes the tab, up to
               // 14rem, as before.
               className={`min-w-0 truncate py-1 text-left ${width === 'fixed' ? 'flex-1' : 'max-w-[14rem]'}`}
-              title={isExplorerTab(t) ? t.browse.path : t.root}
+              title={t.browse.path}
               onClick={() => {
               // A press that travelled is a drag, not a pick.
               if (dragging.current) {
