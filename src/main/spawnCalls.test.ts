@@ -30,8 +30,11 @@ describe('main starts no process on its own thread', () => {
       if (ALLOWED.has(rel) || rel.startsWith('phone/testing/')) continue
       const lines = readFileSync(file, 'utf8').split(/\r?\n/)
       lines.forEach((line, i) => {
-        if (!/from ['"](node:)?child_process['"]|require\(['"](node:)?child_process['"]\)/.test(line)) return
-        if (/^\s*import type /.test(line) || /import\(['"]child_process['"]\)/.test(line)) return
+        const reaches =
+          /from ['"](node:)?child_process['"]|require\(\s*['"](node:)?child_process['"]\s*\)/.test(line) ||
+          // A dynamic import starts things too; `import('child_process').X` is a type.
+          /import\(\s*['"](node:)?child_process['"]\s*\)(?!\.\w)/.test(line)
+        if (!reaches || /^\s*import type /.test(line)) return
         if (/spawn-ok:/.test(line) || /spawn-ok:/.test(lines[i - 1] ?? '')) return
         offenders.push(`${rel}:${i + 1}`)
       })
