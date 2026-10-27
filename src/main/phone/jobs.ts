@@ -20,6 +20,7 @@
  * spawn one ffmpeg between them, and a generation number lets a start that
  * was superseded while it was clearing the directory stand down quietly.
  */
+// spawn-ok: an HLS job streams segments and progress from ffmpeg.
 import { spawn as nodeSpawn, type ChildProcess } from 'child_process'
 import { promises as fsp } from 'fs'
 import { join } from 'path'

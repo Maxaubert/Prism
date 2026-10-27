@@ -1,4 +1,4 @@
-import { execFile } from 'child_process'
+import { execFile } from './spawnWorker'
 import { fakeCopyFiles, fakeFiles } from './e2eClipboard'
 
 /** Under --e2e the file drop list is the in-memory one (#356), never the system's. */
@@ -55,14 +55,12 @@ export function copyWindowsFiles(paths: string[], cut: boolean, text?: string): 
     return Promise.resolve(true)
   }
   return new Promise((done) => {
-    const child = execFile(
+    execFile(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-STA', '-Command', writeClipboard],
-      { windowsHide: true, timeout: 10_000 },
+      { windowsHide: true, timeout: 10_000, input: JSON.stringify({ paths, cut, text: text ?? null }) },
       (error) => done(!error)
     )
-    child.stdin?.on('error', () => {}) // The process callback handles an early exit.
-    child.stdin?.end(JSON.stringify({ paths, cut, text: text ?? null }), 'utf8')
   })
 }
 

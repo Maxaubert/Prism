@@ -1,4 +1,6 @@
-import { execFile, spawn } from 'child_process'
+// spawn-ok: the picture is streamed out of ffmpeg's stdout as it is made.
+import { spawn } from 'child_process'
+import { execFile } from './spawnWorker'
 import { stat } from 'fs/promises'
 import type { MediaProps } from '@shared/props'
 import { createLru } from './lru'

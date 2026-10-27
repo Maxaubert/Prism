@@ -1,4 +1,4 @@
-import { execFile } from 'child_process'
+import { execFile } from './spawnWorker'
 import { existsSync } from 'fs'
 import { delimiter, dirname, join } from 'path'
 

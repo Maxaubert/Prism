@@ -27,15 +27,18 @@ import { summarizeLag, type CpuProfile } from './lagSummary'
  * overlaps the lag most, and a window that holds only part of it is kept
  * beside it as `-prev` (review, 2026-10-12).
  *
- * ON ONLY UNDER THE E2E (`--e2e`) OR WHILE DETAILED LOGGING IS ON (Settings >
- * Diagnostics), checked every rotation, so the switch takes effect within
- * 5 s. Off, there is no session, no profiler and nothing written.
+ * ON UNDER THE E2E (`--e2e`), WHILE DETAILED LOGGING IS ON (Settings >
+ * Diagnostics), AND FOR EVERY LAUNCH'S FIRST STARTUP_PROFILE_MS (2026-10-27),
+ * checked every rotation, so a switch takes effect within 5 s. Off, there is
+ * no session, no profiler and nothing written.
  *
  * The detector itself is the terminal core's (`stallWatch`): this wraps the
  * log's `write`, which the detector calls, so nothing in the core changes.
  */
 
 export const LAG_PROFILE_MIN_MS = 1000
+/** Every launch profiles its own first half minute, whatever the setting. */
+export const STARTUP_PROFILE_MS = 30_000
 export const LAG_PROFILE_KEEP = 10
 export const LAG_WINDOW_MS = 5000
 /** The detector's tick: the lag is measured from the tick before it. */

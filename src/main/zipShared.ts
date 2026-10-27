@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip'
-import { execFile } from 'child_process'
+import { execFile } from './spawnWorker'
 import { existsSync } from 'fs'
 import { mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'

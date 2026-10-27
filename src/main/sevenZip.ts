@@ -1,4 +1,6 @@
-import { execFile, spawn, type ChildProcess } from 'child_process'
+// spawn-ok: an extraction streams its progress from 7-Zip's stdout.
+import { spawn, type ChildProcess } from 'child_process'
+import { execFile } from './spawnWorker'
 
 /**
  * Every 7-Zip call is ASYNC (2026-08-26), and that is not a style preference.
@@ -13,7 +15,7 @@ function run(
   timeout: number
 ): Promise<{ ok: true; out: string } | { ok: false; stderr: string }> {
   return new Promise((resolve) => {
-    const child = execFile(
+    execFile(
       exe,
       args,
       { encoding: 'utf8', windowsHide: true, timeout, maxBuffer: 64 << 20 },
@@ -26,8 +28,8 @@ function run(
         resolve({ ok: false, stderr: said.join('\n').trim() })
       }
     )
-    // NOBODY IS GOING TO TYPE (2026-09-20, see `NO_STDIN`).
-    child.stdin?.end()
+    // NOBODY IS GOING TO TYPE (2026-09-20, see `NO_STDIN`): the worker
+    // closes every child's stdin.
   })
 }
 
