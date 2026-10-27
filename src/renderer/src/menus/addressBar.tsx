@@ -5,8 +5,10 @@ import { clipboardText } from '../lib/clipboardText'
  * THE ADDRESS BAR'S MENU (owner, 2026-09-22: "let me right click the url bar
  * to get options to copy path or copy as text, like File Explorer"): what the
  * user right-clicks on the Explorer's and the file viewer's address field
- * (`components/browse/BrowseToolbar.tsx`), for one folder: the crumb
- * right-clicked, or the folder shown when it was the bar itself.
+ * (`components/browse/BrowseToolbar.tsx`), always for the folder shown, wherever
+ * on the bar the click landed (owner, 2026-10-27: "it should always copy the
+ * full path to the active folder you're in"; a crumb's menu used to act on
+ * that crumb's folder).
  */
 
 export interface AddressBarMenuContext {
