@@ -123,7 +123,7 @@ export function DriveDonut(props: {
       </div>
       {slices ? (
         <div className="donut-legend-wrap">
-          <div className="donut-legend p-scroll" ref={legendRef} style={{ height: SIZE }} onScroll={markMore}>
+          <div className="donut-legend p-scroll" data-own-scrollbar ref={legendRef} style={{ height: SIZE }} onScroll={markMore}>
             <ul>
               {slices.map((s, i) => (
                 <li key={s.path}>

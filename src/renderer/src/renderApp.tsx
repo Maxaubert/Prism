@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import Tooltips from 'prism-term-core/renderer/components/Tooltips'
 import App from './App'
 import { ExtractWindow } from './components/ExtractWindow'
+import { OverlayScrollbars } from './components/OverlayScrollbars'
 import { installExtractionGuard } from './lib/extractionGuard'
 import './index.css'
 
@@ -50,5 +51,7 @@ createRoot(document.getElementById('root')!).render(
     {/* Every `title` in the app, drawn by the core centred under its item
         instead of by Windows at the pointer (owner, 2026-10-13). Once, here. */}
     <Tooltips />
+    {/* Every scrollbar is the file list's thin overlay bar (owner, 2026-10-27). */}
+    <OverlayScrollbars />
   </StrictMode>
 )
