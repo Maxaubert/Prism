@@ -17,7 +17,7 @@
  * Pure parts - the argv, the key - are exported and tested; the class owns
  * the processes.
  */
-import { spawn } from 'child_process'
+import { execFile } from './spawnWorker'
 import { createHash } from 'crypto'
 import { promises as fsp } from 'fs'
 import { join } from 'path'
@@ -178,16 +178,16 @@ export class Thumbs {
     const file = args[args.indexOf('-i') + 1]
     const out = args[args.length - 1]
     return new Promise((resolve) => {
-      const child = spawn(this.ffmpeg, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'ignore'] })
-      this.register(child, file)
-      child.on('error', () => resolve(false))
-      child.on('close', (code) => {
-        if (code !== 0) return resolve(false)
+      const closed: (() => void)[] = []
+      const child = execFile(this.ffmpeg, args, { windowsHide: true, maxBuffer: 4 << 20 }, (err) => {
+        for (const fn of closed) fn()
+        if (err) return resolve(false)
         void fsp
           .stat(out)
           .then((s) => resolve(s.size > 0))
           .catch(() => resolve(false))
       })
+      this.register({ kill: child.kill, once: (_event, fn) => void closed.push(fn) }, file)
     })
   }
 

@@ -1,3 +1,4 @@
+// spawn-ok: a Win+E window is Prism itself, watched until it exits.
 import { spawn } from 'child_process'
 import { writeFileSync } from 'fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'

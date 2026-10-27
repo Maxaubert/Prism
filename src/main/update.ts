@@ -1,4 +1,5 @@
 import { app } from 'electron'
+// spawn-ok: the installer handoff, as the app quits.
 import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'

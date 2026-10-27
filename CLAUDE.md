@@ -79,6 +79,9 @@ library manager, not an editor.
 - **Main never waits on the disk** (2026-10-12): no `*Sync` fs or process call in `src/main` on a
   live path. Startup, quit, worker code and sync-IPC answers mark theirs `// sync-ok: <reason>`;
   `syncCalls.test.ts` fails on an unmarked one.
+- **Main never starts a process itself** (2026-10-27): short-lived programs go through
+  `src/main/spawnWorker.ts` (a worker thread pays CreateProcess's wait); a module that streams from
+  a child marks its `child_process` import `// spawn-ok: <reason>`. `spawnCalls.test.ts` enforces it.
 - A new bundled binary or dependency adds its entry to `THIRD-PARTY-NOTICES.md` in the same PR.
 - No new runtime dependencies beyond React / Electron / `prism-core` without a reason. Current
   reasoned exceptions (all viewer-core, destined for `prism-core`): CodeMirror 6

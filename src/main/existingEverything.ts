@@ -1,4 +1,4 @@
-import { execFile } from 'child_process'
+import { execFile } from './spawnWorker'
 import type { IndexerEndpoint } from './indexerRuntime'
 
 const probes = new Map<string, { until: number; result: Promise<IndexerEndpoint | null> }>()

@@ -1,3 +1,4 @@
+// spawn-ok: the waveform streams out of ffmpeg's stdout.
 import { spawn } from 'child_process'
 import { holders } from './holders'
 import { stat } from 'fs/promises'

@@ -1,4 +1,4 @@
-import { execFile } from 'child_process'
+import { execFile } from './spawnWorker'
 import { basename } from 'path'
 import { exists } from './fsUtil'
 
