@@ -15530,13 +15530,17 @@ async function diagLogScenario(fixtures) {
     // .trace.json whose toplevel events hold the 1.3 s task, the view a
     // freeze outside JavaScript needs.
     ok(typeof lag?.trace === 'string' && /^lag-.*\.trace\.json$/.test(lag.trace), `the main-lag names its Chromium trace (${lag?.trace})`)
-    const traced = await until(() => {
+    // Chromium writes the file from every process, which took more than 15 s
+    // on the CI runner: wait for the dump's own `lag-trace` line, then read.
+    const dumped = await diagHas((l) => l.k === 'lag-trace' && l.trace === lag?.trace, 90000)
+    ok(!!dumped && !dumped.missing, `the trace dump finished (${JSON.stringify(dumped && { dumpMs: dumped.dumpMs, err: dumped.err })})`)
+    const traced = (() => {
       try {
         return JSON.parse(readFileSync(join(DIAG_DIR, lag.trace), 'utf8'))
       } catch {
         return null
       }
-    }, 15000, 200)
+    })()
     const longTask = (traced?.traceEvents ?? []).find((e) => String(e.cat).includes('toplevel') && e.dur >= 1_000_000)
     ok(!!longTask, `and the trace holds the long task (${traced ? `${traced.traceEvents?.length} events, ${longTask ? `${Math.round(longTask.dur / 1000)} ms ${longTask.name}` : 'none over 1 s'}` : 'not written'})`)
 

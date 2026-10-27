@@ -113,10 +113,16 @@ export function startNativeTrace(deps: NativeTraceDeps): NativeTrace {
     recording = false
     lastDump = now()
     const name = lagTraceName(wall())
+    const t0 = now()
+    // A `lag-trace` line once the file is down (or could not be): how long
+    // the dump took, and the e2e's signal that the file is complete.
     tracing
       .stopRecording(join(log.dir, name))
       .then(
-        () => prune().catch(() => {}),
+        () => {
+          log.write('main', 'lag-trace', { trace: name, lagMs: ms, dumpMs: now() - t0 })
+          return prune().catch(() => {})
+        },
         (err: unknown) =>
           log.write('main', 'lag-trace', {
             trace: name,
