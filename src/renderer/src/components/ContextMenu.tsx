@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { createPortal } from 'react-dom'
 import { Icon } from './icons/Icon'
 
 // The right-click menu for a tree row. Just the actions: you right-clicked the
@@ -330,7 +331,12 @@ export function ContextMenu({
     setSub({ label: it.label, x: window.innerWidth, y: anchorY - 1 }) // corrected after measure
   }
 
-  return (
+  // IN THE BODY, ABOVE EVERY PANEL (owner, 2026-10-27, a screenshot: the
+  // address bar's menu dropped over the preview, which drew its text on top
+  // and showed the text caret). Rendered where it was opened, the menu lived
+  // in that part's stacking context, and no z-index lifts it out of one.
+  // React events still bubble through the opener, as before.
+  return createPortal(
     // data-owns-escape: the app's own (earlier, capture-phase) Escape handler
     // yields to any element carrying it, so closing this menu can't close the
     // window underneath.
@@ -383,6 +389,7 @@ export function ContextMenu({
           ))}
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   )
 }

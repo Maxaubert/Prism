@@ -823,7 +823,11 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   Windows sends `contextmenu` on the RELEASE, so every frame of the held button had no menu. A
   right press outside now closes the menu in the capture phase of the `contextmenu` that opens the
   next one (or 400 ms after the release if none comes), for every ContextMenu, the project tree's
-  too. `rightClickSelect` records every animation frame across a second right-click. Two
+  too. `rightClickSelect` records every animation frame across a second right-click. A MENU IS
+  ABOVE EVERY PANEL (owner, 2026-10-27, a screenshot: the address bar's menu over the preview had
+  the preview's text drawn on it and the text caret over its rows): `ContextMenu` renders into
+  `document.body` through a portal, out of the opener's stacking context. `menuOverPreview`
+  checks every row is what the pointer hits at its centre. Two
   strengths (`useActiveArea`, `data-active-area` on `.folder-browser`; a press or focus, menus
   excluded): full `--p-sel-tint` while the sidebar is where the user acts, `--p-sel-tint-dim`
   (the tint drained toward its own grey at `SEL_DIM` of its strength, held in
