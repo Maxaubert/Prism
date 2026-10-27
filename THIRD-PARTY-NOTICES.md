@@ -2,7 +2,7 @@
 
 Prism is proprietary (see `LICENSE`), but it builds on the components below, each under its own
 licence. Those licences are unaffected by Prism's licence and their notices must be preserved.
-Every program in `resources/bin`, `resources/everything` and `resources/bin/whisper` is used
+Every program in `resources/bin` and `resources/everything` is used
 unmodified, as a separate program.
 
 Paths are relative to the install folder (`%LOCALAPPDATA%\Programs\Prism` by default).
@@ -61,31 +61,11 @@ FluidR3 by Frank Wen, mono conversion by Michael Cowgill, as shipped by MuseScor
 commit in `tools/fetch-fluidsynth.mjs`). `resources/bin/soundfont.sf3`. Licence and
 acknowledgements: `resources/bin/LICENSE-soundfont.md`.
 
-### whisper.cpp (MIT)
-The official CPU build of `whisper-server.exe` and its ggml DLLs, for dictation, in
-`resources/bin/whisper`. Copyright (c) 2023-2026 The ggml authors. Licence:
-`resources/bin/whisper/LICENSE-whisper.cpp.txt`. https://github.com/ggml-org/whisper.cpp
-
-### Microsoft Visual C++ runtime
-`msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll` and `vcomp140.dll` in
-`resources/bin/whisper`, redistributed unmodified as published by Microsoft so the speech engine
-runs on a Windows without the Visual C++ Redistributable. Microsoft's licence terms for the
-Visual C++ redistributable files apply.
-
 ### Everything 1.4.1.1032 and ES 1.1.0.38 (voidtools)
 David Carpenter / voidtools, for fast file search. `resources/everything`. Everything is under
 voidtools' permissive licence (which also covers its bundled PCRE); ES is MIT. Licences:
 `resources/everything/Everything-LICENSE.txt`, `resources/everything/ES-LICENSE.txt`, and
 `resources/everything/NOTICE.txt`. https://www.voidtools.com/
-
-### node-pty (MIT), Microsoft ConPTY and winpty
-`node-pty` (Copyright (c) 2012-2015 Christopher Jeffrey, and Microsoft) in
-`resources/app.asar.unpacked/node_modules/node-pty`, with the `conpty.dll` and
-`OpenConsole.exe` that Microsoft publishes from the Windows Terminal project. Licence:
-`node_modules/node-pty/LICENSE` in the same folder. node-pty's copy of ConPTY carries no licence
-file of its own; the Windows Terminal project that publishes it is MIT.
-node-pty also carries `winpty-agent.exe` from winpty (MIT, Copyright (c) 2011-2016 Ryan
-Prichard); its licence is `node_modules/node-pty/deps/winpty/LICENSE` in the same folder.
 
 ### electron-builder's installer pieces (MIT) and NSIS (zlib/libpng licence)
 Setup and the uninstaller are built with NSIS, and electron-builder adds its own install and
@@ -96,8 +76,7 @@ https://www.electron.build
 Compiled into the app or carried in `resources/app.asar`, where each package's own licence file
 sits at `node_modules/<package>/LICENSE`.
 
-- **MIT**: React and React DOM, CodeMirror 6 and its language packages, Lezer, xterm.js and its
-  addons, react-markdown, remark-gfm and the unified / rehype / remark family, adm-zip, exifr,
+- **MIT**: React and React DOM, CodeMirror 6 and its language packages, Lezer, react-markdown, remark-gfm and the unified / rehype / remark family, adm-zip, exifr,
   qrcode, jszip (dual MIT or GPL-3.0, used under MIT), the stylesheet Tailwind CSS generates,
   and their MIT dependencies.
 - **Apache-2.0**: pdf.js (`pdfjs-dist`, Mozilla), SheetJS Community Edition (`xlsx`, with its

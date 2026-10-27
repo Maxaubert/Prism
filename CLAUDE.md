@@ -34,12 +34,10 @@ library manager, not an editor.
 - **THE E2E IS THE PR GATE AND NOTHING ELSE; AN INSTALL RUNS NONE** (owner, 2026-09-02 and
   2026-10-03): while iterating, the scenarios that cover the change; before a PR is opened or
   pushed, the whole suite. Agents and workflows follow the same split.
-- **A terminal change has its own gate: `npm run e2e:terminal`**, green in any PR that touches `packages/term-core/`,
-  `termHost.ts` or the terminal wiring, before the full e2e (`terminal-gate.yml` runs it in CI). A terminal bug becomes a
-  failing scenario FIRST, then the fix ([`docs/terminal-rules.md`](docs/terminal-rules.md#ratchet)).
+- **`npm run e2e:ui`** is the runner-safe subset (settingsLook, diagLog, tabs, sort, pinRecent, update*); `ui-gate.yml`
+  runs it in CI. A UI bug becomes a failing scenario FIRST, then the fix.
 - **A worktree needs `npm install` after its node_modules is copied** from main, so `node_modules/prism-term-core`
-  links to THIS worktree's `packages/term-core` (`tools/check-core-link.mjs` fails otherwise, see
-  [the trap](docs/terminal-rules.md#worktree-core-link)).
+  links to THIS worktree's `packages/term-core` (`tools/check-core-link.mjs` fails otherwise).
 - **A TEST RUN LEAVES NOTHING IN %TEMP%** (2026-09-28): `vitest.global.ts` points TEMP at one
   folder and removes it after, so a new test may mkdtemp freely.
 - **New file type? Standing step:** if the change adds an extension, it goes in
@@ -86,13 +84,10 @@ library manager, not an editor.
   reasoned exceptions (all viewer-core, destined for `prism-core`): CodeMirror 6
   (`@codemirror/*` + `@lezer/highlight`, the code viewer), `react-markdown` + `remark-gfm` +
   `rehype-raw` + `rehype-sanitize` (markdown), `pdfjs-dist` (PDF), `heic-convert` (HEIC decode),
-  `adm-zip` (the archive viewer; pure JS), `node-pty` + `@xterm/*` (the terminal, including
-  `addon-search` for the scrollback), `exifr` (main-only, the photo's own EXIF). node-pty is the
-  app's ONE third-party native module, ships N-API prebuilds, and must stay asarUnpacked. Prism's
-  OWN addon is `native/sweep` (#338, the native sweep box; rules in its README), built from source
-  by `npm run build:sweep` (dev dependency `node-gyp`, MSVC, `/MT`). Shells spawn with
-  node-pty's bundled conpty.dll (`useConptyDll: true`): the OS conhost FAST-FAILS the whole app
-  (0xc0000409, no dialog) when a pty is killed mid-read (crashed 2026-08-21).
+  `adm-zip` (the archive viewer; pure JS), `exifr` (main-only, the photo's own EXIF). The app has
+  no third-party native module. Prism's OWN addon is `native/sweep` (#338, the native sweep box;
+  rules in its README), built from source by `npm run build:sweep` (dev dependency `node-gyp`,
+  MSVC, `/MT`).
 - A feature decision is recorded in `docs/features.md` (the look in `docs/ui-direction.md`) in the
   file's voice: what the owner decided, the date and issue, and what test holds it.
 
@@ -109,10 +104,10 @@ tools without an explicit decision (rules in `docs/ui-direction.md`).
 - A universal quick-viewer: image, video, audio (with visualizer), PDF, office and ebook
   documents, code and text (CodeMirror, always editable, saves in place), markdown, comics,
   archives (zips browse as ordinary folders).
-- Explorer tab (folder browser with places and preview), project tabs with a file tree, folder
-  navigation with arrow keys, search with operators, rename / delete / move, right-click on
-  every surface.
-- A terminal per tab (the core in `packages/term-core`), with local dictation (Right Alt).
+- Explorer tabs (folder browser with places and preview; every tab is one), folder navigation
+  with arrow keys, search with operators, rename / delete / move, right-click on every surface.
+- **Explorer only** (owner, 2026-10-26): no terminal, dictation, project tabs or file tree.
+  Record and tests: `docs/features.md`.
 - Prism on your phone: a LAN page that browses the whole PC like the Explorer and plays what it
   finds (read-only, paired, the user's own network).
 - Resident single-instance app, update chip, Win+E replacement, opt-in file associations,
@@ -126,23 +121,11 @@ tools without an explicit decision (rules in `docs/ui-direction.md`).
 Standard Electron three-layer split (`src/main`, `src/preload`, `src/renderer`), mirroring
 Filesmith's conventions.
 
-- **THE TERMINAL IS `packages/term-core`** (npm workspace `prism-term-core`, in this repo since 2026-10-23; Prism
-  Terminal, which it came from, is retired). A DEV dependency on purpose: electron-vite compiles it into the app.
-  A terminal fix is an ordinary Prism PR: no core version, no tag, no bump PR, and Prism's own version ships it
-  (XTVERSION reports it). Imports stay `prism-term-core/...`. Its contract: `packages/term-core/README.md`;
-  the rules (inert input, resume-only command, `onKey`, cells, ConPTY, the panel's ground, replies, quit, dictation)
-  with their measurements: [`docs/terminal-rules.md`](docs/terminal-rules.md). Read both before touching the core.
-- **The renderer's host differences are `src/renderer/src/termHost.ts`** (`TermHostConfig`, imported FIRST by
-  `renderApp.tsx`; main's are the `registerTermIpc` / `registerDictationIpc` deps in `src/main/ipc/terminal.ts`): every way Prism
-  differs is a field or a dep, never a fork. Settings > Terminal, Agents and Dictation are the core's
-  sections; a terminal row written in `src/` is a fork, and the e2e `termOptions` fails on it. Adding a field is an
-  owner decision. The core is lint-walled (relative imports only, no `window.prism`, `src/` or `electron`).
-- **The gate and the ratchet**: `npm run e2e:terminal` (runner-safe, also in CI) guards the terminal. A bug a
-  terminal change caused FIRST becomes a failing scenario (or core unit test), THEN gets fixed; a flaky check is a
-  bug in the gate: fix the race, never retry around it.
-- **Dictation is the core's**, armed only over a SHOWING terminal (Right Alt, set in `termHost.ts`); the engine ships
-  as `resources/bin/whisper`; the microphone is the one extra permission. Rules: `docs/terminal-rules.md`. No command
-  help, tab marks, orchestrator or dictation link in Prism (dropped 2026-10-23).
+- **`packages/term-core`** (npm workspace `prism-term-core`) is no longer a terminal: since 2026-10-26 it holds
+  only the settings frame and controls, the Diagnostics page, the update chip and window, diag log, colour
+  maths and Tooltips. A DEV dependency on purpose: electron-vite compiles it into the app. Imports stay
+  `prism-term-core/...`; its contract is `packages/term-core/README.md`. The core is lint-walled (relative
+  imports only, no `window.prism`, `src/` or `electron`).
 - **A page that works is not a page that looks right**: after moving UI between `src/` and `packages/term-core/`,
   LOOK at the `settings-*.png` screenshots `settingsLook` writes.
 - **Settings** (#292) is the core's grouped-card frame; Prism's part is `components/settings/`
@@ -154,14 +137,13 @@ Filesmith's conventions.
 ## Docs
 
 - `docs/features.md`: the full feature history and every per-feature rule (performance rules,
-  phone, terminal, Explorer, media, installer). Read the matching entry before changing a feature.
+  phone, Explorer, media, installer). Read the matching entry before changing a feature.
 - `docs/ui-direction.md`: the look (themes, colour picker, panels, toolbar). Read before any
   visual change.
-- `docs/architecture.md`: the full architecture notes (the terminal core in Prism, dictation, Win+E
-  pipe protocol, settings frame stopgaps, sidebar side, reuse from Filesmith). Read before
-  touching main/preload wiring, the terminal core, or Win+E.
-- `docs/terminal-rules.md`: the terminal's must-not-regress rules and dictation rules, with measurements and owner
-  quotes (copied from Prism Terminal), plus how the core and Prism fit. `npm run diag` reads the diagnostics log.
+- `docs/architecture.md`: the full architecture notes (the settings core, Win+E
+  pipe protocol, settings frame stopgaps, reuse from Filesmith). Read before
+  touching main/preload wiring, the core, or Win+E.
+- `npm run diag` reads the diagnostics log (`tools/diag.mjs`).
 - `docs/build-and-conventions.md`: the full build, test, release and conventions notes, with the
   history and measurements behind each rule above. Read before changing the e2e, install or release flow.
 - `docs/menus.md`: every right-click menu and its builder in `src/renderer/src/menus/` (one file

@@ -3,6 +3,39 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
+
+Owner decision 2026-10-26 (spec: `docs/superpowers/specs/2026-10-26-explorer-only-design.md`, release
+0.119.0): Prism is an Explorer plus its viewers. The terminal, local dictation and project tabs with their
+file tree are removed. Reason: a fast viewer should not carry what the owner never uses, and the terminal's
+agent poll was the measured cause of the ~5 s startup freeze (`diag.jsonl` 2026-10-21, 24 and 26, seen in 7 of
+8 runs). Every older entry below that describes the terminal, dictation, agents, the sidebar tree, split panes
+or project settings is HISTORY, kept for its measurements; none of it ships.
+
+- **Stays**: Explorer tabs (the pinned one and extra ones), every viewer, search, rename / move / delete,
+  Properties, archives, Win+E, file associations, the folder handler (#393), the update chip and window,
+  Settings (Appearance, Explorer, Media, Diagnostics, About), 18 themes and the colour picker, the phone page,
+  `npm run diag`.
+- **Entry points**: a file from argv, an association, a second instance or a drop opens in the pinned Explorer
+  as before. A folder from argv, a drop or the shell verb opens an Explorer tab at it (or switches to a tab that
+  already shows exactly that folder). The shell verb on folders now reads "Open in Prism"; `relabelVerb`
+  rewrites the old "Open as project" text on the next start.
+- **Saved tabs migrate**: a `role: 'project'` (or role-less) entry restores as an Explorer tab at its
+  `browse.path ?? root`, keeping its open file; old `open` and `panes` fields are ignored. Held by
+  `src/main/tabs.test.ts` and `src/renderer/src/lib/tabs/tabs.test.ts`.
+- **Permissions**: every `media` permission is denied (the microphone was dictation's only use), held by
+  `src/main/permissions.test.ts`. PDF external links use Prism's own `openExternal` channel.
+- **Viewer watch**: a file in the full viewer is no longer watched through a project root; `useFolderBrowsing`
+  watches the shown file's folder while the viewer is in front (`useFolderBrowsing.test.ts`).
+- **Dead pref keys keep their strings** (`prism.term.*`, `prism.tree.*`, `prism.sidebar*`, `prism.newtab.show`
+  values): `src/shared/prefKeys.test.ts` pins them, and a stored `terminal` new-tab value reads as the folder
+  browser (`newTabPrefs.test.ts`). `%LOCALAPPDATA%\PrismDictation` is never deleted (Flare may use it).
+- **Core**: `packages/term-core` is pruned to the settings frame, Diagnostics, the update chip and window,
+  diag log, colour maths and Tooltips. No node-pty, `@xterm/*` or whisper ships (`THIRD-PARTY-NOTICES.md`).
+- **Gates**: `npm run e2e` (112 scenarios at the cut, offscreen) is the PR gate; `npm run e2e:ui` is the
+  runner-safe subset that `ui-gate.yml` runs in CI (it replaced `terminal-gate.yml`). The `channels.test.ts`,
+  `prefKeys.test.ts` and `syncCalls.test.ts` walls are unchanged.
+
 ## Scope
 
 **In scope (v1, the universal quick-viewer):**
@@ -890,7 +923,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
   marked, from the core's read-only `termContextAt`, both copied exactly through main. Close
   terminal STAYS here (it was Prism Terminal's Close TAB the owner removed). Backspace over a
   selection on the line being edited deletes it, the core's since core-v0.11.0. The
-  `termMenuCopy` scenario proves both in a real pwsh and is in `e2e:terminal`.
+  `termMenuCopy` scenario proved both in a real pwsh (removed with the terminal, 2026-10-26).
   Ctrl+A (2026-08-25) marks everything in whichever surface you last pressed in:
   every row the TREE is showing (expanded folders included, never what is
   collapsed and invisible), or every member of the archive folder you are in.
@@ -2362,7 +2395,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
     the page wear too), and `Dialog`'s key listener re-registered on every render, which
     Prism Terminal MEASURED losing an Escape about one run in five; it registers once and
     reads the latest `onCancel` from a ref.
-  `updateWindow`, `updateGuard` and `updateQuiet` are in `npm run e2e:terminal`, runner-safe
+  `updateWindow`, `updateGuard` and `updateQuiet` are in `npm run e2e:ui`, runner-safe
   (the agent is a shell speaking through its title, and the poll's first answer is WAITED for,
   not slept for: it arrives seconds after a spawn and takes a titled session's state with it).
 - **One icon per kind** (2026-08-30, #74): the ProgIDs used to point `DefaultIcon` at

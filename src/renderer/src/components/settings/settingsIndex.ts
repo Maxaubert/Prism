@@ -11,12 +11,6 @@ import { iconPath } from '../icons/settingsIcons'
 export const SETTINGS_PAGES: Array<SettingsPageDef & { id: AppPageId }> = [
   { id: 'appearance', label: 'Appearance', icon: 'appearance' },
   { id: 'explorer', label: 'Explorer', icon: iconPath('explorer') },
-  // Owner, 2026-10-06: "project specific settings should be in a tab called
-  // project settings not in explorer".
-  { id: 'project', label: 'Project settings', icon: iconPath('project') },
-  { id: 'terminal', label: 'Terminal', icon: 'terminal' },
-  { id: 'agents', label: 'Agents', icon: 'agents' },
-  { id: 'dictation', label: 'Dictation', icon: 'dictation' },
   { id: 'media', label: 'Media', icon: iconPath('media') },
   // The diagnostics log (#322): in the rail's bottom group, beside About,
   // with the other pages about the app itself rather than what it shows.
@@ -24,20 +18,8 @@ export const SETTINGS_PAGES: Array<SettingsPageDef & { id: AppPageId }> = [
   { id: 'about', label: 'About', icon: 'about', end: true }
 ]
 
-/** Which page holds each of the core's sections HERE. Prism's window wears
- *  its own style, so the terminal theme is the Terminal page's (Q2). */
+/** Which page holds each of the core's sections HERE. */
 const PAGE_OF: Record<SettingsSectionId, AppPageId> = {
-  shell: 'terminal',
-  text: 'terminal',
-  theme: 'terminal',
-  marks: 'agents',
-  claude: 'agents',
-  colours: 'agents',
-  dictation: 'dictation',
-  listening: 'dictation',
-  while: 'dictation',
-  models: 'dictation',
-  gpu: 'dictation',
   diagnostics: 'diagnostics'
 }
 
@@ -48,12 +30,6 @@ export const ROW_ORDER = [
   'c-font', 'tree-size', 'title-bar', 'tab-width', 'c-edges', 'c-corners',
   'explorer-side', 'explorer-size', 'drive-style', 'newtab-mode', 'open-external',
   'remember-tabs', 'remember-folders', 'win-e-shortcut', 'open-folders', 'explorer-verb', 'default-apps',
-  'tree-side', 'newtab-show',
-  'term-shell', 'term-font-family', 'term-font', 'term-theme', 'term-acrylic',
-  'agent-indicator', 'agent-done-on', 'agent-question-on', 'agent-failed-on', 'agent-hooks',
-  'agent-color', 'agent-done-color', 'agent-question-color',
-  'dictation-enabled', 'dictation-mode', 'dictation-hotkey', 'dictation-mic', 'dictation-language',
-  'dictation-pause-media', 'dictation-sounds', 'dictation-model', 'dictation-gpu',
   'viz-style', 'viz-colour', 'viz-glow', 'viz-cycle', 'viz-move',
   'transport-style', 'transport-bg', 'transport-colour', 'transport-glow', 'transport-cycle', 'transport-move',
   'diag-verbose', 'diag-folder', 'diag-mark',
@@ -62,8 +38,8 @@ export const ROW_ORDER = [
 
 /** The index Find a setting reads: the core's rows drawn here (the
  *  Diagnostics page since #322), and this app's own, in page order. */
-export function settingsIndex(nvidia: boolean): SettingsIndexEntry[] {
-  const core = coreSettingsIndex({ pageOf: (s) => PAGE_OF[s], nvidia, diagnostics: true })
+export function settingsIndex(): SettingsIndexEntry[] {
+  const core = coreSettingsIndex({ pageOf: (s) => PAGE_OF[s] })
   const own: SettingsIndexEntry[] = APP_OPTIONS.map((o) => ({
     id: o.id,
     page: o.page,

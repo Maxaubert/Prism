@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { contrast } from '../colour'
 import { composite, opaque, parseColour } from 'prism-term-core/renderer/lib/colour'
-import { buildTermTheme } from 'prism-term-core/renderer/lib/termTheme'
 import { paintedAlpha, STYLES, variablesFor } from '../theme'
 
 // EVERY FLOOR, ON WHAT PRISM PAINTS (#298, spec 8). The 18 themes were designed
@@ -62,18 +61,6 @@ for (const s of STYLES) {
         expect(contrast(v[`--p-code-${t}`], line), `${t} on the active line`).toBeGreaterThanOrEqual(4.5)
       expect(contrast(v['--p-code-invalid'], ground)).toBeGreaterThanOrEqual(4.5)
       expect(contrast(v['--p-code-invalid'], panel)).toBeGreaterThanOrEqual(4.5)
-    })
-
-    it("the terminal's derived sixteen hold 3:1 on the ground when it follows the theme", () => {
-      // The core derives them against --p-side-flat, which is the PANEL on a
-      // shipped theme; the panel sits between the ground and the text on all
-      // 18, so they clear the ground too (spec 6).
-      const term = buildTermTheme(v['--p-bg'], v['--p-text'], v['--p-accent-hi'], v['--p-side-flat'])
-      const ansi = ['red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan'] as const
-      for (const k of ansi) {
-        const c = (term as unknown as Record<string, string>)[k]
-        expect(contrast(c, ground), `${k} ${c}`).toBeGreaterThanOrEqual(3)
-      }
     })
 
     if (paintedAlpha(s) < 1) {

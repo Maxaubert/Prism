@@ -27,10 +27,8 @@ const build = (over: Partial<PlacesMenuContext> = {}): ReturnType<typeof placesM
     index: 1,
     onChoose: vi.fn(),
     onNavigate: vi.fn(),
-    onNewTerminal: vi.fn(),
     onQuickAccessFile: vi.fn(),
     onOpenNewTab: vi.fn(),
-    onOpenProject: vi.fn(),
     onUnpinQuickAccess: vi.fn(),
     onProperties: vi.fn(),
     onMoveQuickAccess: vi.fn(),
@@ -48,8 +46,6 @@ describe('placesMenu', () => {
     expect(labels(build())).toEqual([
       'Open',
       'Open in new tab',
-      'Open as project',
-      'New terminal here',
       'Copy path',
       ...PIN_ROWS,
       'Show in File Explorer',
@@ -57,7 +53,7 @@ describe('placesMenu', () => {
     ])
     expect(disabled(build())).toEqual([])
   })
-  it('a pinned FILE has no terminal row, and Open opens the file', () => {
+  it('a pinned FILE opens the file', () => {
     const onQuickAccessFile = vi.fn()
     const onNavigate = vi.fn()
     const file = { path: 'C:\\b.txt', label: 'b.txt', isFolder: false }
@@ -65,7 +61,6 @@ describe('placesMenu', () => {
     expect(labels(items)).toEqual([
       'Open',
       'Open in new tab',
-      'Open as project',
       'Copy path',
       ...PIN_ROWS,
       'Show in File Explorer',
@@ -75,13 +70,11 @@ describe('placesMenu', () => {
     expect(onQuickAccessFile).toHaveBeenCalledWith('C:\\b.txt', true)
     expect(onNavigate).not.toHaveBeenCalled()
   })
-  it('a Projects row or drive that is not pinned offers the pin instead', () => {
+  it('a drive that is not pinned offers the pin instead', () => {
     const items = build({ pin: folder('D:\\'), pinned: false, index: -1 })
     expect(labels(items)).toEqual([
       'Open',
       'Open in new tab',
-      'Open as project',
-      'New terminal here',
       'Copy path',
       'Pin to Quick access',
       'Show in File Explorer',
@@ -117,12 +110,11 @@ describe('placesMenu', () => {
       disabled(
         build({
           onOpenNewTab: undefined,
-          onOpenProject: undefined,
           onUnpinQuickAccess: undefined,
           onMoveQuickAccess: undefined
         })
       )
-    ).toEqual(['Open in new tab', 'Open as project', ...PIN_ROWS])
+    ).toEqual(['Open in new tab', ...PIN_ROWS])
     expect(disabled(build({ pinned: false, onPinQuickAccessPaths: undefined }))).toEqual([
       'Pin to Quick access'
     ])

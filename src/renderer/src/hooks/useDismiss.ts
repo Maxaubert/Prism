@@ -1,7 +1,7 @@
 import { useEffect, useRef, type RefObject } from 'react'
 
 /**
- * A popover's way out (SortMenu, PlayerMenu): while `open`, a press outside
+ * A popover's way out (PlayerMenu): while `open`, a press outside
  * `box`, the window losing focus, or Escape closes it. Capture phase, so the
  * press and the key land before whatever is under them; Escape is stopped
  * here, so the app does not also take it as "close the window".

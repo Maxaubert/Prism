@@ -1,0 +1,68 @@
+# THE UI GATE, ON A RUNNER (replaces terminal-gate.yml, 2026-10-26).
+#
+# `npm run e2e:ui` drives the BUILT app through the scenarios that need no
+# machine of the owner's: the tab strip, sorting, pinned and recent roots, the
+# settings look, the diagnostics log and the update chip and window. The rest of
+# the e2e stays on the owner's PC (see CLAUDE.md). A GitHub Windows runner has a
+# real desktop session, so Electron gets a real window; the suite parks it
+# offscreen exactly as it does locally.
+#
+# It runs when the shared core, the build or the e2e itself can have moved, and
+# on demand.
+name: ui-gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - package.json
+      - package-lock.json
+      - packages/term-core/**
+      - electron.vite.config.ts
+      - vitest.config.ts
+      - tsconfig.web.json
+      - src/preload/**
+      - src/renderer/src/App.tsx
+      - src/renderer/src/*.css
+      - electron-builder.yml
+      - tools/e2e/**
+      - tools/lib/**
+      - .github/workflows/ui-gate.yml
+
+concurrency:
+  group: ui-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The bundled binaries (ffmpeg for the fixtures) are pinned by checksum,
+      # so a cache hit is exactly what a fresh fetch would produce.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            vendor
+            .e2e/cache
+          key: ui-gate-bin-${{ hashFiles('tools/fetch-*.mjs', 'package-lock.json') }}
+
+      - name: The UI gate
+        run: npm run e2e:ui
+
+      - name: Keep the screenshots and the log when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-gate-shots
+          path: .e2e/shots
+          if-no-files-found: ignore

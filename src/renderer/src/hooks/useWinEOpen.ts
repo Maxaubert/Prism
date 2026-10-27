@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { addExplorerTab, isPinnedExplorer, navigateBrowse, type TabState } from '../lib/tabs/tabs'
 
-/** A shortcut opens the browser without repurposing any project or its terminal.
+/** A shortcut opens the browser without repurposing any project.
  *  A request from Windows' folder verb (#393) carries a folder: the browser
  *  lands there instead of Home. A folder that cannot be read falls back to
  *  Home here, never to nothing: the helper already sent anything that is not
@@ -44,8 +44,7 @@ export function useWinEOpen(
                 tab.id === pinned.id
                   ? {
                       ...tab,
-                      browse: { ...tab.browse, surface: 'folder' },
-                      term: tab.term ? { ...tab.term, view: 'hidden' } : null
+                      browse: { ...tab.browse, surface: 'folder' }
                     }
                   : tab
               )

@@ -1,5 +1,5 @@
 import { DGCH } from '../shared/channels'
-import type { IpcRendererLike } from './api'
+import type { IpcRendererLike } from './ipcLike'
 
 /**
  * The preload half of the DIAGNOSTICS bridge (#140), for both hosts. A host

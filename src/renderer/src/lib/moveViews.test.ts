@@ -13,22 +13,19 @@ const tab = (id: string, path: string) =>
   )
 
 describe('viewers held by a file move', () => {
-  it('restores every source preview and pinned file after a clash or refusal', () => {
+  it('restores every source preview after a clash or refusal', () => {
     const a = tab('a', 'C:\\work\\book\\page.jpg')
     const b = tab('b', 'C:\\work\\other.jpg')
-    b.panes = [{ id: 'pin', path: a.files[0].path, dir: 'right' }]
     const tabs = [a, b]
     const held = captureMoveViews(tabs, ['C:\\work\\book'])
     const released = releaseMoveViews(tabs, held)
     expect(released[0].index).toBe(-1)
     expect(released[1].index).toBe(0)
-    expect(released[1].panes).toEqual([])
     expect(restoreMoveViews(released, held, [])).toEqual(tabs)
   })
 
-  it('follows moved folder prefixes for live and pinned viewers without changing roots', () => {
+  it('follows moved folder prefixes for the live viewer without changing roots', () => {
     const a = tab('a', 'C:\\work\\book\\page.jpg')
-    a.panes = [{ id: 'pin', path: 'C:\\work\\book\\film.mp4', dir: 'right' }]
     const held = captureMoveViews([a], ['C:\\work\\book'])
     const [restored] = restoreMoveViews(releaseMoveViews([a], held), held, [
       {
@@ -38,7 +35,6 @@ describe('viewers held by a file move', () => {
     ])
     expect(restored.index).toBe(0)
     expect(restored.files[0].path).toBe('D:\\other\\book (2)\\page.jpg')
-    expect(restored.panes[0].path).toBe('D:\\other\\book (2)\\film.mp4')
     expect(restored.root).toBe(a.root)
   })
 
@@ -87,8 +83,6 @@ describe('viewers held by a file move', () => {
   it('restores both viewers when an unrelated concurrent move finishes first', () => {
     const a = tab('a', 'C:\\work\\a\\page.jpg')
     const b = tab('b', 'C:\\work\\b\\page.jpg')
-    a.panes = [{ id: 'a-pin', path: 'C:\\work\\a\\movie.mp4', dir: 'right' }]
-    b.panes = [{ id: 'b-pin', path: 'C:\\work\\b\\movie.mp4', dir: 'right' }]
     const heldA = captureMoveViews([a, b], ['C:\\work\\a'])
     const releasedA = releaseMoveViews([a, b], heldA)
     const heldB = captureMoveViews(releasedA, ['C:\\work\\b'])
@@ -98,9 +92,7 @@ describe('viewers held by a file move', () => {
     const restored = restoreMoveViews(restoredB, heldA, [{ from: 'C:\\work\\a', to: 'D:\\a' }])
     expect(restored.map((item) => item.index)).toEqual([0, 0])
     expect(restored[0].files[0].path).toBe('D:\\a\\page.jpg')
-    expect(restored[0].panes[0].path).toBe('D:\\a\\movie.mp4')
     expect(restored[1].files[0].path).toBe('D:\\b\\page.jpg')
-    expect(restored[1].panes[0].path).toBe('D:\\b\\movie.mp4')
   })
 
   it('restores the held file after a sibling moves within the same tab list', () => {

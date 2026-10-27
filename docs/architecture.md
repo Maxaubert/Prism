@@ -8,99 +8,21 @@ summary of the rules; this file has the history, the measurements and the detail
 Standard Electron three-layer split (`src/main`, `src/preload`, `src/renderer`), mirroring
 Filesmith's conventions.
 
-- **THE TERMINAL IS `packages/term-core`** (2026-10-23, the retire plan `Documents\Claude\research\prism-terminal\2026-10-23-retire-pt-move-core-plan.md`;
-  before that, from 2026-09-19 #154, it was the `core/` folder of the sibling app Prism Terminal, pinned here as a
-  `core-v*` tag of its `core-dist` branch; that repo is archived and its tags and `core-dist` stay as history, and
-  the core's own git history came along with `git subtree`). It is an npm workspace named `prism-term-core`, a DEV
-  dependency on purpose: electron-vite compiles dev dependencies INTO the app, so it ships as part of the bundle and
-  nothing extra is packaged. It is TypeScript source, compiled by Prism's own Vite, checked by Prism's own tsc,
-  unit-tested by `npm test` (`packages/term-core/**/*.test.{ts,tsx}`) and linted under a wall (relative imports
-  only, no `window.prism`, `src/` or `electron`). Every import stays `prism-term-core/...`, resolved through the
-  workspace link `node_modules/prism-term-core`; the aliases (`CORE_TS` in `electron.vite.config.ts`,
-  `vitest.config.ts`, the `tsconfig.web.json` paths) and the `@source` line in `index.css` point at
-  `packages/term-core`. **Do not recreate a local copy of a file the core owns** (`terminal`, `shells`,
-  `termPrompt`, `agentDetect`, `termCwd`, `TerminalPanel`, `TermFind`, `termLook`, `termTheme`, and the renderer
-  libs `agentTitle`, `agentClock`, `termActivity`, `termAnsi`, `termBus`, `termPaste`, `termPrefs`, `recentRoots`):
-  a terminal fix is made in `packages/term-core`, in an ordinary Prism PR. There is no core version, no tag and no
-  bump PR; Prism's version ships it, and XTVERSION reports it (`shared/termVersion.ts`, defined from the root
-  `package.json` by the build; `termVersion.test.ts` holds it). The contract and the build lines (`resolve.dedupe`,
-  `optimizeDeps.exclude`, `@source`) are in `packages/term-core/README.md`; the rules that must not regress, with
-  their measurements, in [`terminal-rules.md`](terminal-rules.md).
-  **THE WORKTREE TRAP**: Prism packages from worktrees whose `node_modules` is a robocopy of main's. The copied
-  `node_modules/prism-term-core` link still points at MAIN's `packages/term-core`, so the worktree would test and
-  bundle the wrong core. `npm install` in the worktree relinks it, and `tools/check-core-link.mjs` (run by `pretest`,
-  `pretypecheck`, `prebuild`, `e2e`, `e2e:terminal`, `package`) fails when it is wrong.
-  PRISM IS A HOST of the core: `src/renderer/src/termHost.ts` (imported FIRST by `renderApp.tsx`, since App's module
-  graph is evaluated before the body of the file that imports it) declares the renderer's host differences from the core's
-  defaults (main's are the `registerTermIpc` / `registerDictationIpc` deps in `src/main/ipc/terminal.ts`). What differs is only what MUST: the terminal follows the app style by
-  default (styles exist only here), "acrylic" means letting the style's material show through and has no opacity
-  slider (the style owns the glass), Right Alt is the dictation key, a right-click is the menu's, and Prism's own
-  chords. Everything else is the core's default by owner decision (2026-09-19): the indicator is MINIMAL by default
-  and its colours follow the accent, the panel paints the ground (so the dock paints nothing behind it), and a theme
-  pick never resets Bar / Full nor does a saved theme carry it. The panel, find, `termLook`, `termTheme`, the agent
-  poll, the resume lookup, the bridge to main (`createTermApi` in the preload, `registerTermIpc` in main, which takes
-  Prism's WALL as three small answers), the indicator's rules (`useAgentIndicator`), its colours (`useAgentColors`),
-  the close rule (`agentClose`) and **the terminal's SETTINGS** all come from the core. Settings > Terminal and
-  Settings > Agents are the core's sections (`ShellSection`, `TerminalTextSection`, `TerminalThemeSection`;
-  `AgentMarksSection`, `ClaudeCodeSection`, `MarkColoursSection`) and nothing else (#292): a terminal row written
-  here instead of there is a fork, and the e2e `termOptions` goes red on it (it compares the two pages with the
-  core's `settings/options.ts`, order checked per section). Adding a host field is an owner decision.
-  **THE TERMINAL GATE: `npm run e2e:terminal`** (owner, 2026-09-19: "we need to run some automated tests that
-  confirm that the terminal in Prism still works, since it has more failure points due to its larger footprint").
-  It builds and runs every scenario the terminal can break (terminal, termOptions, termColourPicker, settingsLook,
-  diagLog, noCommandHelp, dictation, dictationPage, termCwd, agentTitle, handoffOverTerm, promptLayout, termMenuCopy,
-  tabs, sort, pinRecent, updateWindow, updateGuard, updateQuiet, because the update chip and its window come from
-  the core) and is required green in any PR that touches `packages/term-core/`, `termHost.ts`, the build configs or
-  the terminal wiring, before the usual full e2e. **IT ALSO RUNS IN CI** (`.github/workflows/terminal-gate.yml`,
-  #164; owner, 2026-09-19: "we need automated tests to confirm it never conflicts"), on a GitHub Windows runner,
-  on any PR whose paths include `packages/term-core/**`, `electron.vite.config.ts`, `vitest.config.ts`,
-  `tsconfig.web.json`, `termHost.ts` and the terminal wiring. KEEP THE GATE RUNNER-SAFE: nothing in those scenarios
-  may assume this machine (a real `claude` CLI is skipped where absent; no path may be expected to sit under the
-  Users folder). Since the move there are no self-merging core bumps, so a person (or the PR's own checks) is the
-  reviewer, and the owner's ratchet still holds: "if it ever creates a bug in only one app, we'll make a test that
-  it needs to pass, so the automation gets more and more secure over time." A terminal bug FIRST becomes a scenario
-  that fails on the broken build (in `e2e:terminal`, runner-safe) or a unit test in the core, THEN gets fixed. A
-  FLAKY check in the gate is a bug in the gate: fix the race, never retry around it (the first automatic bump, #165,
-  was held by exactly one, a scrollback check that read a re-attached xterm before it repainted).
-  **A GATE CAN BE LANDED BEFORE THE FEATURE** (#253): `termColourPicker` drives the colour picker (alpha on the
-  working colour, the Full tab's ink on the composite, Escape putting back an unset row, no alpha on the theme
-  Background here) and SKIPS while `packages/term-core/renderer/settings/ColourPicker.tsx` is missing, by
-  the file and never a version. `termOptions` checks the RULE for `onlyWhere` rows (every one absent), not that
-  there is exactly one.
-  **WHAT WAS DROPPED ON THE WAY IN** (2026-10-23, owner decisions in the plan): command help, the tab marks, the
-  orchestrator and `/catch-up`, the dictation link for other apps (`dictationLink`, `dictationClient`), the resident
-  Parakeet host. The Claude status plugin (`claude-plugin/`, OSC 777 hooks) is KEPT but not
-  switched on in Prism; wiring it in is a separate feature. Their code stays in the archived repo's history.
-- **DICTATION IN THE TERMINAL IS THE CORE'S TOO** (2026-09-19, #162; owner: "make sure this feature
-  is synced and part of the core and should be the same in normal Prism, with dictation as its own
-  tab there too"). Hold Right Alt over a SHOWING terminal, speak, release: the words are pasted at
-  the shell's cursor, never sent, transcribed on this PC by whisper.cpp. Every rule of it (off means
-  off, local only, pinned checksums, Right Alt as a solo hold because it is AltGr on a Norwegian
-  keyboard, live text shown and only the final pasted) is written down ONCE, in
-  [`terminal-rules.md`](terminal-rules.md#dictation); do not restate or fork them here. What is Prism's own:
-  - **A media viewer first.** App arms the core with the shell that is SHOWING, or with null, so
-    Right Alt over a film, a PDF or the tree does nothing (`useDictationArm` in App.tsx; the e2e
-    holds the key with no terminal up and asserts no pill and no process).
-  - **Right Alt is Prism's default key** (`termHost.ts`), where the core's own default is Ctrl+Win; a saved key is kept.
-  - **Settings > Dictation**, its own page, is the core's `DictationPage` whole.
-    Values are this app's; the model files are in `%LOCALAPPDATA%\PrismDictation`, shared with
-    other apps on the PC (Flare reads the models), so a model downloaded there is installed here.
-  - **The engine ships in the installer**: `npm run fetch:whisper` runs the CORE's script
-    (`packages/term-core/tools/fetch-whisper.mjs`) into `vendor/whisper`, packaged as
-    `resources/bin/whisper` (a folder of its own: its ggml DLLs must not sit among ffmpeg's). It
-    carries Microsoft's C++ runtime app-local. It is the terminal's THIRD bundled binary reason
-    after ffmpeg and 7-Zip, and like them is never committed.
-  - **The microphone is the one new permission.** Main grants `media` for audio only, to Prism's
-    own windows; the camera is refused. Everything else keeps Electron's default, deliberately: a
-    closed list in an app this size would be a guess.
-  - The pill lives in `TermDock`'s terminal box, the mic mark in `TabStrip`; both are core
-    components that read the dictation store themselves, so speaking re-renders neither App nor
-    the strip. `dictation` and `dictationPage` are in `npm run e2e:terminal`.
-  - Dictate-anywhere (a global key, a widget, the session list) is not Prism's: Flare owns it.
-- **NO COMMAND HELP IN PRISM** (2026-09-22, owner: "command help shouldn't be part of Prism the
-  normal app, only the terminal app"; reverses #175). Since 2026-10-23 the popup is gone from the core as well:
-  Prism mounts no `HelpPanel`, its terminal menu has no row, Settings has no switch, and F1 is the
-  shell's (termHost's `ownsKey` does not claim it). The `noCommandHelp` e2e proves the rule.
+- **EXPLORER ONLY** (owner, 2026-10-26; the record and the tests that hold it are in `docs/features.md`). The
+  terminal, dictation and project tabs with their file tree are gone. Before that, `packages/term-core` was the
+  terminal (2026-10-23, from the sibling Prism Terminal); it is PRUNED now to what Prism still uses: the settings
+  frame and controls, the Diagnostics page, the update chip and window, the diag log, colour maths and Tooltips.
+  The workspace keeps its name `prism-term-core` and its imports (`prism-term-core/...`); a rename can follow.
+  It is a DEV dependency on purpose (electron-vite compiles it into the app), lint-walled (relative imports only,
+  no `window.prism`, `src/` or `electron`), and `tools/check-core-link.mjs` (`pretest`, `pretypecheck`, `prebuild`,
+  `e2e`, `package`) fails when `node_modules/prism-term-core` does not link to THIS checkout's `packages/term-core`
+  (a worktree needs `npm install` after its node_modules is copied). Its contract: `packages/term-core/README.md`.
+  Do not recreate a local copy of a file the core owns. Moved out of the core into `src/`: `recentRoots` (same
+  storage keys), the permission handler (all `media` denied) and `openExternal`.
+- **THE UI GATE: `npm run e2e:ui`** runs the runner-safe scenarios (settingsLook, diagLog, tabs, sort, pinRecent,
+  updateWindow, updateGuard, updateQuiet); `.github/workflows/ui-gate.yml` runs it in CI. KEEP IT RUNNER-SAFE:
+  nothing in those scenarios may need this machine's files, GPU or audio. A UI bug first becomes a scenario that
+  fails on the broken build, then gets fixed.
 - **REMEMBER TABS IS A SETTING** (2026-09-22, owner: "Prism should also have the option to not
   remember tabs"). Settings > Explorer > Reopen tabs at start, on by default (how Prism always started), key
   `prism.tabs.remember` (`lib/tabs/tabRestorePrefs.ts`). Off, a COLD start opens only the Explorer tab
@@ -132,11 +54,6 @@ Filesmith's conventions.
   could hold the hook past `LowLevelHooksTimeout` (the key then reaches Explorer, and repeated
   timeouts make Windows drop the hook silently), the hook is re-armed every 15 s, and the helper
   keeps `logs\win-e.log` in the profile: start, stop, late presses, and how each request ended.
-- **THE TERMINAL ROWS COME IN ONE ORDER, THE CORE'S** (2026-09-22, owner: the two apps' terminal
-  settings "the same in terms of order"). The core's sections draw them; `termOptions` reads each
-  core section (`[data-settings-section]`) top to bottom against `TERMINAL_OPTIONS`, as Prism
-  Terminal's `options` does. The restore's claude lookup
-  is the core's async one now (`claudeSessionsAsync`), which is Prism's half of the launch freeze.
 - **SETTINGS DESCRIPTIONS ARE PLAIN WORDS** (2026-09-22, owner: "no symbols other than comma and
   dot, no mentioning of specific keys or tips, just a simple text description of what it does").
   Every hint on Prism's own pages was rewritten to that rule, the core's rows likewise in the core.
@@ -145,7 +62,7 @@ Filesmith's conventions.
 - **THE SETTINGS PAGE IS GROUPED CARDS, ON THE CORE'S FRAME** (#292; owner, 2026-10-05, approved
   v1 "Grouped cards" with no accent bar on the chosen rail item; spec and plan: the archived PrismTerminal repo's
   `docs/superpowers/specs/2026-10-05-settings-redesign-design.md`, #135 there).
-  Rail: Find a setting, Appearance, Explorer, Project settings, Terminal, Agents, Dictation, Media,
+  Rail: Find a setting, Appearance, Explorer, Media, Diagnostics,
   (spacer) About;
   Media's Visualizer | Progress bar switch is in its header. The frame, sections, rows, controls,
   search and flash are prism-term-core's (`renderer/settings/layout`, `sections`, `fields`); Prism's
@@ -163,27 +80,20 @@ Filesmith's conventions.
   module, so `coreIndex`, `sectionIds` and `layout/icons` are resolved by exact specifier in
   `electron.vite.config.ts` (`CORE_TS`), `vitest.config.ts` and `tsconfig.web.json`; and the
   frame's `compact` classes lose in the cascade to its base ones, so `index.css` gives
-  `[data-settings-compact]` the rail width. `settingsLook` (in `e2e:terminal`, runner-safe:
+  `[data-settings-compact]` the rail width. `settingsLook` (in `e2e:ui`, runner-safe:
   contrast, grey rail, Save the only accent button, row and tile size, panel corners from the
   style's roundness, Large text, narrow and compact rail, screenshots of every page in both
   schemes) and `settingsSearch` (every indexed row found by its label and opened) hold it.
-  **PROJECT SETTINGS IS ITS OWN PAGE, AND THE TREE ALWAYS FOLLOWS THE OPEN FILE** (#296; owner,
-  2026-10-06: "project specific settings should be in a tab called project settings not in
-  explorer. and remove the setting for scroll to open file, it should just be on by default, no
-  setting"). `ProjectPage.tsx` holds Sidebar position (the tree's) and First view of a new project; Folder for
-  new tabs stays on Explorer, since the + and Ctrl+T open an Explorer tab. Scroll to the open file
-  is gone and a stored `prism.tree.autoscroll` is ignored.
-- **SIDEBAR POSITION IS TWO SETTINGS: THE EXPLORER'S PLACES AND THE PROJECT TREE, AND THE PREVIEW
-  TAKES THE OTHER SIDE** (#304; owner, 2026-10-07: "fix the setting in Explorer for the sidebar where
+  Project settings (#296) is gone with the project tabs (2026-10-26); a stored `prism.tree.side` or
+  `prism.tree.autoscroll` is ignored.
+- **SIDEBAR POSITION IS THE EXPLORER'S PLACES SIDE, AND THE PREVIEW TAKES THE OTHER SIDE** (#304; owner, 2026-10-07: "fix the setting in Explorer for the sidebar where
   you can put it on the right side or the left side? I think that's just an empty setting for now,
   but actually implement it. And remember that when the sidebar goes on the right, the preview menu
   and button to open it would have to go on the left"; then, the same day, after testing one shared
   row: "No, it should be two settings, one on the project tab and one on the explorer tab").
   Explorer > Layout opens with `explorer-side` (key `prism.explorer.side`, `lib/prefs/explorerSidePrefs.ts`,
-  default Left): the Explorer tab's places panel, and nothing else. Project settings keeps
-  `tree-side` (key `prism.tree.side`, unchanged): the project tree, and nothing else. Neither moves
-  the other; App reads the Explorer's for an Explorer tab and the tree's for a project tab
-  (`workspaceSide`), and each panel peeks from its own. On the Explorer's Right:
+  default Left): the Explorer tab's places panel, and nothing else. The project tree's twin
+  (`tree-side`, key `prism.tree.side`) went with the tree on 2026-10-26; the key is dead. On the Explorer's Right:
   `.folder-browser[data-side='right']` is a three-column grid (preview, list, places;
   the preview column 0px while shut, so its slide still tweens one column), the places come after
   the list in the DOM (Tab walks left to right), the preview toggle LEADS the address row (before
@@ -253,23 +163,18 @@ Filesmith's conventions.
     The stem selection is `lib/selectStem.ts`.
   - pasting files into a folder (Explorer and tree), with every line it says: `hooks/useFilePaste.ts`
     (`useFilePaste`, `PASTE_MESSAGES`, `pasteMessage`).
-  - the unsaved-changes question (closing, installing, closing a tab, re-rooting a tab):
+  - the unsaved-changes question (closing, installing, closing a tab):
     `dialogs/UnsavedDialog.tsx`; App's `saveAllThen` and `discardTabBuffers` answer it.
   - every question and notice dialog: `src/renderer/src/dialogs/` (one file per dialog, a test
     beside each; App's `Ask` union and `AskDialogs`). Index: `docs/dialogs.md`.
   - App's parts by job (structure cleanup, stage 11): the title bar `components/titlebar/`
-    (`TopBar`, `TitleButtons`); the stage's views `components/stage/` (`Viewer`, `PinnedPaneView`,
-    `EmptyState`); the file operations and undo/redo over them `hooks/useFileOps.ts`, with the
+    (`TopBar`, `TitleButtons`); the stage's views `components/stage/` (`Viewer`, `EmptyState`); the file operations and undo/redo over them `hooks/useFileOps.ts`, with the
     inverse of each undo entry in `lib/undoApply.ts` (`undoEntry`, `redoEntry`; `undo.ts` stays
     the pure stack); leaving the window and the update install `hooks/useWindowClose.ts`;
     fullscreen and its fade `hooks/useFullscreenVeil.ts`; the window's keys `hooks/useAppKeys.ts`;
-    the dock, the shells' roots and the tab's terminal view `hooks/useTerminal.ts`; several shells
-    per tab and the split's panes `hooks/useTermPanes.ts`; the tabs (new, close, re-root, recent,
+    the tabs (new, close, recent,
     pick, reorder) `hooks/useTabOps.ts`; the session's tab and shell ids
     `lib/sessionIds.ts`.
-  - the project tree's parts (Sidebar.tsx): `components/sidebar/` (`usePanelResize` the width,
-    `useTreeKeys` a key on a row, `useTreeDrop` drag and drop, `useTreeClipboard` Ctrl+C/X/V,
-    paste and the delete keys; `types.ts` the menu and job shapes).
   - the archive panel's parts (ArchiveView.tsx): `components/archive/` (`useArchiveListing` the
     members and the reload, `useBandSelect` the drag-select band, `entry.ts` the row shape and
     columns, `MemberView`, `LockBadge`, `RenameInput`, `ArcVerb`; the verbs stay
@@ -302,7 +207,7 @@ Filesmith's conventions.
     fullscreen, DWM border, `raise`, the window:* messages), `tabsSession.ts` (restore, save,
     flush the strip), `updateFlow.ts` (the offer and update:*), `dialogs.ts` (parented native
     dialogs, `pickFolder`, `pickFiles`), `phone/index.ts` (`startPhoneService`, pos:*).
-  - the IPC handlers, by area: `src/main/ipc/` (`window`, `open`, `files`, `terminal`, `browse`,
+  - the IPC handlers, by area: `src/main/ipc/` (`window`, `open`, `files`, `browse`,
     `props`, `media`, `archive`). Each is a `registerXIpc(ctx)` that index.ts's whenReady calls
     in the order the handlers were always registered; `ctx` (`MainCtx`) is index.ts's shared
     state and helpers, `ready` (`ReadyCtx`) what whenReady makes. A new handler goes in its
@@ -310,8 +215,8 @@ Filesmith's conventions.
     with `isMainSender` (`appState.ts`).
   - IPC channel names: `src/shared/channels.ts` (`PUSH` main to page, `CALL` page to main,
     `SWEEP_CHANNELS`). Main and the preload never spell a channel as a string;
-    `channels.test.ts` fails on a bare one and on an entry one side lacks. The terminal's,
-    dictation's and diagnostics' channels stay the core's.
+    `channels.test.ts` fails on a bare one and on an entry one side lacks. The diagnostics
+    channels (`DGCH`) stay the core's.
   - what the bridge answers: `src/shared/ipcTypes.ts` (`FileStat`, `PhotoInfo`, `SubtitleTrack`,
     paste, move and archive results, progress payloads, `HostCapabilities`); the extraction
     results (`ExtractFailure` and the per-route answers) in `src/shared/extraction.ts`. Main

@@ -57,8 +57,7 @@ describe("the core's own settings", () => {
   const source = walk(dir).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
 
   it('describe every setting in plain words', () => {
-    const files = [...source, join(__dirname, 'dictationCatalog.ts')]
-    const problems = files.flatMap((f) =>
+    const problems = source.flatMap((f) =>
       settingsDescriptions(readFileSync(f, 'utf8'))
         .map((text) => ({ f, text, problem: copyProblem(text) }))
         .filter((p) => p.problem)
@@ -66,11 +65,11 @@ describe("the core's own settings", () => {
     expect(problems).toEqual([])
   })
 
-  // THE WORD LIMIT: the lists, `layout/`, `sections/` and the catalogue's notes.
+  // THE WORD LIMIT: the lists, `layout/` and `sections/`.
   it('keep every new label plain and every new subtext to eight words', () => {
     const fresh = source.filter((f) => {
       const r = relative(dir, f).replace(/\\/g, '/')
-      return /^(layout|sections)\//.test(r) || ['options.ts', 'dictationOptions.ts', 'diagnosticsOptions.ts', 'coreIndex.ts'].includes(r)
+      return /^(layout|sections)\//.test(r) || ['diagnosticsOptions.ts', 'coreIndex.ts'].includes(r)
     })
     expect(fresh.length).toBeGreaterThan(10)
     const long: string[] = []
@@ -84,9 +83,6 @@ describe("the core's own settings", () => {
       }
       for (const t of labels) if (labelProblem(t)) bad.push(t)
     }
-    // The model notes are each a row's subtext on the new page.
-    for (const t of settingsDescriptions(readFileSync(join(__dirname, 'dictationCatalog.ts'), 'utf8')))
-      if (subTooLong(t)) long.push(t)
     expect(long).toEqual([])
     expect(bad).toEqual([])
   })

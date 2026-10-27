@@ -78,9 +78,6 @@ export interface PathWall {
    * `.cbz` is not the archive kind is that its verbs are the wrong menu.
    */
   comicOk(p: unknown): p is string
-  /** Where a shell may START (or be warmed, or cd into): an open root or a
-   *  granted folder. */
-  insideWall(dir: string): boolean
   /** fsmedia:// (2026-08-28): a root, an extracted member, something main
    *  made itself, the app's own asset tree, or the comics folder. */
   mediaAllowed(p: string): boolean
@@ -124,7 +121,6 @@ export function createPathWall(deps: WallDeps): PathWall {
       fileKind(extname(p)) === 'archive',
     comicOk: (p): p is string =>
       typeof p === 'string' && deps.insideDesktop(p) && fileKind(extname(p)) === 'comic',
-    insideWall: (dir) => deps.insideDesktop(dir) || deps.isAnyRoot(dir),
     mediaAllowed: (p) =>
       deps.insideDesktop(p) ||
       extracted(p) ||

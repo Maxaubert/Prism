@@ -8,8 +8,8 @@ import {
   type RefObject,
   type SetStateAction
 } from 'react'
-import { isExplorerTab, type Tab, type TabState } from '../lib/tabs/tabs'
-import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
+import { type Tab, type TabState } from '../lib/tabs/tabs'
+import type { OnClash, ViewerFile } from '@shared/types'
 import {
   rememberRename,
   type UndoEntry,
@@ -47,7 +47,6 @@ export interface FileOpsDeps {
     full?: boolean,
     play?: boolean
   ) => Promise<boolean | undefined>
-  open: (p: OpenPayload | null) => void
   setAsk: Dispatch<SetStateAction<Ask | null>>
   setRefreshKey: Dispatch<SetStateAction<number>>
   rekeyBuffer: (from: string, to: string) => void
@@ -91,7 +90,6 @@ export interface FileOps {
 export function useFileOps({
   active,
   openBrowseFile,
-  open,
   setAsk,
   setRefreshKey,
   rekeyBuffer,
@@ -125,10 +123,9 @@ export function useFileOps({
   const reopen = useCallback(
     (p: string, play = false) => {
       if (!active) return
-      if (isExplorerTab(active)) void openBrowseFile(p, active.browse.surface === 'viewer', play)
-      else void window.prism.openWithin(active.root, p).then((payload) => payload && open(payload))
+      void openBrowseFile(p, active.browse.surface === 'viewer', play)
     },
-    [active, open, openBrowseFile]
+    [active, openBrowseFile]
   )
 
   /** What is on screen NOW, for the end of a slow rename or delete (2026-10-16):
@@ -334,11 +331,6 @@ export function useFileOps({
         const marks = new Map<string, { t: number; paused: boolean }>()
         for (const entry of held) {
           const viewing = entry.live ? [entry.tab.files[entry.tab.index].path] : []
-          viewing.push(
-            ...entry.tab.panes
-              .filter((pane) => !pane.term && !entry.panes.includes(pane))
-              .map((pane) => pane.path)
-          )
           for (const path of viewing) {
             const url = window.prism.mediaUrl(path)
             marks.set(path, { t: sessionTime(url), paused: wasPaused(url) })
@@ -549,7 +541,7 @@ export function useFileOps({
     (tabId: string, payload: DragPayload): void => {
       const target = moveTabs.current.find((tab) => tab.id === tabId)
       if (!target || target.kind === 'settings') return
-      onBrowseDropInto(isExplorerTab(target) ? target.browse.path : target.root, payload, target.id)
+      onBrowseDropInto(target.browse.path, payload, target.id)
     },
     [onBrowseDropInto]
   )

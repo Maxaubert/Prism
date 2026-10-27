@@ -1,7 +1,7 @@
 @import 'tailwindcss';
-/* The terminal is a workspace package (prism-term-core), and Tailwind generates
-   NOTHING from a package's markup until told to look: measured, its utilities
-   were simply absent from the CSS. */
+/* The shared core is a workspace package (prism-term-core), and Tailwind
+   generates NOTHING from a package's markup until told to look: measured, its
+   utilities were simply absent from the CSS. */
 @source '../../../packages/term-core';
 
 @theme {
@@ -407,34 +407,6 @@ input[type='color']::-webkit-color-swatch {
   border-radius: 3px;
 }
 
-/* xterm's stock stylesheet paints .xterm-viewport solid black (a macOS
-   scrollbar-opacity workaround). The THEME background lives on the scrollable
-   element above it, so the black was invisible - until the acrylic share made
-   the theme transparent and the black showed through as "every terminal is
-   black". The panel behind the terminal owns the surface; this layer stays
-   clear. */
-.xterm .xterm-viewport {
-  /* !important because xterm.css rides the LAZY terminal chunk and lands in
-     the document after this sheet - equal specificity would lose on order. */
-  background-color: transparent !important;
-  /* xterm 6 scrolls with its OWN slider (below), yet its sheet still gives the
-     viewport overflow-y: scroll, so Chromium drew a second, EMPTY native bar
-     beside it (#215; found in Prism Terminal #52, owner, 2026-09-23). */
-  scrollbar-width: none;
-}
-
-/* The terminal's scrollbar, minimal (#215): xterm's own slider, 6px and round
-   like every other scrollbar here; its colours are the core's, from the theme.
-   It fades when idle and shows on a scroll or under the pointer. */
-.xterm .xterm-scrollable-element > .scrollbar.vertical {
-  width: 6px !important;
-}
-.xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
-  left: 0 !important;
-  width: 6px !important;
-  border-radius: 3px;
-}
-
 /* Office and ebook documents (DocView). A reading column on the viewer's own
    ground, sized for prose rather than for the window: a full-width line of
    9-point Word text is unreadable, and every one of these files is something
@@ -737,24 +709,6 @@ input[type='color']::-webkit-color-swatch {
 @media (pointer: coarse) {
   [data-arc-row] {
     min-height: 44px;
-  }
-}
-
-/* A folder that opens fades its rows in (2026-09-28): the tree now draws only
-   the rows in view, so the old slide, which needed every child mounted, went
-   with the 47,816 rows it was animating. */
-@keyframes tree-row-in {
-  from {
-    opacity: 0;
-    transform: translateY(-3px);
-  }
-}
-.tree-row-in {
-  animation: tree-row-in 160ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-@media (prefers-reduced-motion: reduce) {
-  .tree-row-in {
-    animation: none;
   }
 }
 

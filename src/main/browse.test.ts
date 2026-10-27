@@ -107,13 +107,11 @@ it('does not filter the desktop file list by extension or viewer support', async
   expect(result?.listing.files.find((file) => file.name === 'library.dll')?.kind).toBe('other')
 })
 
-it('restores independent browsing, hidden terminal cwd, tree expansion and shell slots', () => {
+it('restores independent browsing', () => {
   const project = join(box, 'project')
   const browsing = join(box, 'browsing')
-  const shell = join(box, 'shell')
   mkdirSync(project)
   mkdirSync(browsing)
-  mkdirSync(shell)
   const history = [
     {
       path: browsing,
@@ -128,10 +126,7 @@ it('restores independent browsing, hidden terminal cwd, tree expansion and shell
       {
         id: 'stable',
         root: project,
-        term: 'hidden',
-        cwd: shell,
-        terms: 3,
-        open: [project],
+        role: 'explorer',
         browse: { path: browsing, history, cursor: 0, surface: 'folder', preview: true }
       }
     ],
@@ -140,19 +135,16 @@ it('restores independent browsing, hidden terminal cwd, tree expansion and shell
   expect(parseTabs(JSON.stringify(state))).toEqual(state)
 })
 
-it('restores real pinned files outside the project and drops missing pins', () => {
+it('ignores the pinned panes an old strip carries (2026-10-26)', () => {
   const project = join(box, 'project')
   mkdirSync(project)
   const path = join(box, 'pinned.txt')
   writeFileSync(path, 'pinned')
-  const pane = { id: 'pin', path, dir: 'right' }
   const state = {
-    tabs: [
-      { root: project, panes: [pane, { id: 'gone', path: join(box, 'gone.txt'), dir: 'top' }] }
-    ],
+    tabs: [{ root: project, panes: [{ id: 'pin', path, dir: 'right' }] }],
     active: 0
   }
-  expect(parseTabs(JSON.stringify(state)).tabs[0].panes).toEqual([pane])
+  expect('panes' in parseTabs(JSON.stringify(state)).tabs[0]).toBe(false)
 })
 
 it('does not recreate grants when a tab closes during an asynchronous browse', async () => {
@@ -171,24 +163,29 @@ it('refuses a late callback starting a new browse after its owning tab closed', 
   expect(await browseDirectory('new-tab', box)).not.toBeNull()
 })
 
-it('preserves terminal pin slots for remapping and refuses nonexistent slots', () => {
+it('ignores the terminal fields an old strip carries (2026-10-26)', () => {
   const state = {
     tabs: [
       {
         root: box,
-        term: 'hidden',
-        terms: 2,
+        term: 'full',
+        terms: 3,
+        agent: 'claude',
+        cwd: box,
         panes: [
-          { id: 'terminal', path: 'term:old-id', dir: 'left', termSlot: 1 },
+          { id: 'terminal', path: 'term:slot-1', dir: 'left', termSlot: 1 },
           { id: 'gone', path: 'term:gone', dir: 'right', termSlot: 9 }
         ]
       }
     ],
     active: 0
   }
-  expect(parseTabs(JSON.stringify(state)).tabs[0].panes).toEqual([
-    { id: 'terminal', path: 'term:slot-1', dir: 'left', termSlot: 1 }
-  ])
+  const tab = parseTabs(JSON.stringify(state)).tabs[0]
+  expect(tab).toEqual({ root: box, role: 'explorer' })
+  expect(tab).not.toHaveProperty('term')
+  expect(tab).not.toHaveProperty('terms')
+  expect(tab).not.toHaveProperty('agent')
+  expect(tab).not.toHaveProperty('cwd')
 })
 
 describe('browseLocations', () => {

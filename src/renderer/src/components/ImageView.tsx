@@ -447,7 +447,7 @@ export function ImageView({
           if (
             e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey &&
             (el === document.body || (el !== null && stageRef.current?.contains(el))) &&
-            !el?.closest('[role="menu"],[role="dialog"],.xterm,.cm-editor') &&
+            !el?.closest('[role="menu"],[role="dialog"],.cm-editor') &&
             !window.getSelection()?.toString()
           ) {
             e.preventDefault()

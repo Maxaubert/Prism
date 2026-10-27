@@ -22,12 +22,10 @@ export interface PeekOptions {
 export type PeekPhase = 'in' | 'out' | null
 
 /** Whether a point is on a scrollbar: a native one on the element under it or
- *  any box round it, or xterm's own slider (a terminal hides the native bar
- *  and draws its own). See `onScrollbar`. */
+ *  any box round it. See `onScrollbar`. */
 const overScrollbar = (x: number, y: number): boolean => {
   const hit = document.elementFromPoint(x, y)
   if (!hit) return false
-  if (hit.closest('.xterm .scrollbar')) return true
   for (let el: Element | null = hit; el && el !== document.body; el = el.parentElement) {
     if (el.scrollHeight <= el.clientHeight) continue
     const css = getComputedStyle(el)

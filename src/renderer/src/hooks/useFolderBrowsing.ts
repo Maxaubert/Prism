@@ -110,7 +110,7 @@ function rememberCached(path: string): BrowseDirectory | null {
   return hit && !hit.listing.unreadable ? visitedDirectories.remember(hit) : null
 }
 
-/** Folder navigation owns only the browse cursor. It never reroots a session or writes to a shell. */
+/** Folder navigation owns only the browse cursor. It never reroots a session. */
 export function useFolderBrowsing(
   active: Tab | null,
   setState: Dispatch<SetStateAction<TabState>>,
@@ -178,8 +178,7 @@ export function useFolderBrowsing(
   const folder =
     !!active &&
     isExplorerTab(active) &&
-    active.browse.surface === 'folder' &&
-    (!active.term || active.term.view === 'hidden')
+    active.browse.surface === 'folder'
   // DOWNLOADS (#285): the Known Folder shows its own sort, newest first,
   // until one is picked there (lib/downloadsView.ts).
   const downloads = isDownloads(path, downloadsPath(locations))
@@ -203,6 +202,25 @@ export function useFolderBrowsing(
     location?.selected ?? null
   )
 
+  // THE FULL VIEWER HEARS THE DISK TOO (2026-10-26). A file open in the viewer
+  // (a log CodeView follows, a markdown page that refreshes) used to hear its
+  // folder through the project's root watcher; with projects gone the only
+  // watch is the folder list's, which is shut while the viewer is in front.
+  // So the viewer surface watches the folder of the file it shows, through
+  // the same per-tab watch (the tab was granted that folder when the file was
+  // opened or restored). The two never overlap: one surface is in front.
+  const shownPath =
+    active && active.kind !== 'settings' && active.browse.surface === 'viewer' && active.index >= 0
+      ? (active.files[active.index]?.path ?? null)
+      : null
+  const viewerFolder = shownPath ? browseParent(shownPath) : null
+  useEffect(() => {
+    if (!id || !viewerFolder || folder) return
+    void window.prism.browseWatch(id, viewerFolder)
+    return () => {
+      void window.prism.browseWatch(id, null)
+    }
+  }, [id, viewerFolder, folder])
   useEffect(() => {
     void window.prism.browseLocations().then(setLocations)
     void window.prism.weekStart().then(setWeekStart).catch(() => {})
@@ -527,8 +545,7 @@ export function useFolderBrowsing(
                 browse: {
                   ...t.browse,
                   surface: full ? 'viewer' : 'folder'
-                },
-                term: t.term ? { ...t.term, view: 'hidden' } : null
+                }
               }
             : t
         )

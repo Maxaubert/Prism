@@ -3,21 +3,20 @@ import { existsSync } from 'fs'
 
 /**
  * Prism's entries in File Explorer's context menu: "Open file" on a file,
- * "Open as project" on a folder and on the empty space inside one.
+ * "Open in Prism" on a folder and on the empty space inside one.
  *
- * THE LABELS DO NOT SAY "PRISM" (owner, 2026-09-19, #167). They were "Open in
- * Prism" and "Open Prism here" until then. The owner: "Prism is split now into
- * File Explorer and Project ... maybe just say Open As Project ... and don't
- * have any of them mention Prism, you can see that by the logo." The icon
- * beside the row is Prism's own, so the name was being said twice, and what
- * the row never said was WHAT the click does: a folder becomes a project, a
- * file is opened. The key names keep "OpenWithPrism": a key is an identity,
- * not copy, and renaming it would orphan every entry already written.
+ * THE FOLDER LABEL IS "OPEN IN PRISM" AGAIN (owner, 2026-10-26). From
+ * 2026-09-19 (#167) it was "Open as project", because a folder became a
+ * project tab with a file tree. Projects are gone: a folder now opens an
+ * Explorer tab at it, so the row says plainly where it opens. The key names
+ * keep "OpenWithPrism": a key is an identity, not copy, and renaming it would
+ * orphan every entry already written. A machine that still carries the old
+ * words is relabelled on the next start (`relabelVerb`).
  *
  * Written to HKCU only - per user, no elevation, nothing machine-wide - as a
  * classic shell verb under `*` (any file) and `Directory` (any folder). The
  * file verb shows the file in the Explorer tab, which is what Prism does with
- * any file handed to it (2026-09-22); the folder verb opens it as a project.
+ * any file handed to it (2026-09-22); the folder verb opens an Explorer tab.
  *
  * WINDOWS 11 CAVEAT, stated rather than papered over: the short menu that
  * appears on right-click is built from IExplorerCommand handlers, which need a
@@ -34,7 +33,7 @@ const DIR_KEY = 'HKCU\\Software\\Classes\\Directory\\shell\\OpenWithPrism'
 /** Right-click on the folder's BACKGROUND - Explorer's empty space, nothing
  *  selected. A different key with a different substitution: %V is the folder
  *  being viewed and %1 is empty there, which is why one verb cannot serve
- *  both. Its label is the folder verb's own, "Open as project": it is the
+ *  both. Its label is the folder verb's own, "Open in Prism": it is the
  *  same act on the same folder, reached from inside it. */
 const BG_KEY = 'HKCU\\Software\\Classes\\Directory\\Background\\shell\\OpenWithPrism'
 
@@ -42,8 +41,8 @@ export const verbKeys = (): string[] => [FILE_KEY, DIR_KEY, BG_KEY]
 
 /** What each key is called in the menu, and what Explorer substitutes for it. */
 export function verbSpec(key: string): { label: string; arg: string } {
-  if (key === BG_KEY) return { label: 'Open as project', arg: '%V' }
-  if (key === DIR_KEY) return { label: 'Open as project', arg: '%1' }
+  if (key === BG_KEY) return { label: 'Open in Prism', arg: '%V' }
+  if (key === DIR_KEY) return { label: 'Open in Prism', arg: '%1' }
   return { label: 'Open file', arg: '%1' }
 }
 
@@ -184,8 +183,8 @@ export async function verbRegistered(
  * Bring the labels of an EXISTING registration up to date. True when a label
  * was rewritten.
  *
- * The labels changed on 2026-09-19 (#167), and the verb is on by default, so
- * nearly every machine carried the old text. AN UPGRADE THROUGH THE INSTALLER
+ * The labels changed on 2026-09-19 (#167) and again on 2026-10-26, and the
+ * verb is on by default, so nearly every machine carries the old text. AN UPGRADE THROUGH THE INSTALLER
  * DOES NOT NEED THIS: the old uninstaller deletes the three keys on the way
  * (see `shouldWriteVerb`), the startup repair writes them back, and what it
  * writes carries the current labels by construction. This is for the

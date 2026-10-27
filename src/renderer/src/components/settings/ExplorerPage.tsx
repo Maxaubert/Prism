@@ -19,7 +19,6 @@ import { FolderHandlerRow } from './FolderHandlerRow'
 // EXPLORER (2026-10-05, the grouped cards redesign): what was General, the
 // tree and the Explorer's rows, sorted by what they set up: the layout, how
 // things open, what comes back at a start, and how Prism sits in Windows.
-// What only a PROJECT tab uses is on Project settings (owner, 2026-10-06).
 
 /** One of this page's rows, its icon, label and resting subtext read from
  *  `appOptions.ts` so the page and Find a setting say the same words. */
@@ -34,15 +33,13 @@ function LayoutSection(): JSX.Element {
   const side = useExplorerSide()
   return (
     <SettingsSection id="layout" title={APP_SECTIONS.layout}>
-      {/* THE EXPLORER'S OWN SIDEBAR POSITION (#304; owner, 2026-10-07: "No,
-          it should be two settings, one on the project tab and one on the
-          explorer tab"). It moves the places panel; on the right the preview
-          pane takes the left. The project tree's row is on Project settings. */}
+      {/* THE EXPLORER'S OWN SIDEBAR POSITION (#304). It moves the places panel;
+          on the right the preview pane takes the left. */}
       <SettingRow id="explorer-side" {...row('explorer-side')}>
         <Segmented value={side} onChange={(v) => setExplorerSide(v as ExplorerSide)} options={TREE_SIDES} />
       </SettingRow>
-      {/* The Explorer's rows alone (owner, 2026-10-03): the tree and the rest
-          of the app keep Font size. */}
+      {/* The Explorer's rows alone (owner, 2026-10-03): the rest of the app
+          keeps Font size. */}
       <SettingRow id="explorer-size" {...row('explorer-size')}>
         <Segmented value={size} onChange={setExplorerSize} options={EXPLORER_SIZES.map(({ id, name }) => ({ id, name }))} />
       </SettingRow>

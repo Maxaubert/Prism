@@ -102,8 +102,8 @@ describe('Explorer menu setting', () => {
   })
 
   /**
-   * Relabelling (2026-09-19, #167). The labels changed ("Open file", "Open as
-   * project") and a working verb is otherwise left alone, so a registration
+   * Relabelling (2026-09-19, #167). The labels changed ("Open file", "Open in
+   * Prism") and a working verb is otherwise left alone, so a registration
    * that survives into the new build would carry the old text for ever (an
    * ordinary upgrade deletes the keys and reinstalls them, which is the
    * install path tested above). `relabelVerb` holds the rule

@@ -362,8 +362,6 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
             }
           : props.onNavigate
       }
-      onNewTerminal={props.onNewTerminal}
-      onOpenProject={props.onOpenProject}
       onOpenNewTab={props.onOpenNewTab}
       onProperties={props.onProperties}
     />
@@ -463,7 +461,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           !e.altKey &&
           e.key.toLowerCase() === 'f' &&
           // An editor or a shell inside keeps its own find.
-          !target.closest('.cm-editor,.xterm,[data-doc-scroller],[data-pdf-scroller]')
+          !target.closest('.cm-editor,[data-doc-scroller],[data-pdf-scroller]')
         ) {
           e.preventDefault()
           e.stopPropagation()
@@ -518,9 +516,6 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         leading={right ? previewToggle : undefined}
         trailing={
           <>
-            {props.terminalControls && (
-              <div className="browse-terminal-controls">{props.terminalControls}</div>
-            )}
             {!right && previewToggle}
             <button
               className="browse-icon-button browse-search-button"

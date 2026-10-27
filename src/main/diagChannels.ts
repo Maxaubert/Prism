@@ -1,4 +1,3 @@
-import { DCH } from 'prism-term-core/shared/channels'
 import { CALL } from '@shared/channels'
 
 /**
@@ -26,16 +25,13 @@ import { CALL } from '@shared/channels'
  * Phone: none. The phone's long polls are HTTP requests to the phone server
  * in main, not IPC, so the timing never sees them.
  *
- * A unit test holds every name to a registration in `index.ts` (or to the
- * core's dictation table), so a renamed channel cannot leave a stale entry
+ * A unit test holds every name to a registration in main, so a renamed channel cannot leave a stale entry
  * behind.
  */
 export const LONG_WAIT_CHANNELS: readonly string[] = [
   // Waits on the user: each opens a system dialog and answers when it closes.
   CALL.dialogPickFolder,
-  CALL.openFolder,
   CALL.dialogPickFiles,
-  CALL.openDialog,
   CALL.subsPick,
   CALL.imageSaveCopy,
   // Searches: a recursive walk (or Everything's index) that answers when the
@@ -74,11 +70,5 @@ export const LONG_WAIT_CHANNELS: readonly string[] = [
   // ffmpeg or FluidSynth decoding a whole track in a child process: as long as
   // the file is.
   CALL.mediaPeaks,
-  CALL.audioSynth,
-  // Dictation's passes run in whisper-server or parakeet-cli: Parakeet is one
-  // process per pass, MEASURED 0.72-0.86 s on CPU, so every pass would cross
-  // the 500 ms line, and a cold GPU's first pass took 31.8 s. The core's own
-  // `LONG_WAIT` holds only the download. (The warm-up is a send, not a call:
-  // nothing waits on it.)
-  DCH.transcribe
+  CALL.audioSynth
 ]

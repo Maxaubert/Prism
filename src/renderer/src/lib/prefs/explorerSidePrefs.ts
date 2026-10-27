@@ -1,13 +1,10 @@
 import { createPref } from './createPref'
 import type { TreeSide } from './treePrefs'
 
-// THE EXPLORER'S SIDEBAR POSITION, ITS OWN SETTING (#304; owner, 2026-10-07,
-// after testing one shared row: "No, it should be two settings, one on the
-// project tab and one on the explorer tab"). Settings > Explorer > Layout >
+// THE EXPLORER'S SIDEBAR POSITION (#304). Settings > Explorer > Layout >
 // Sidebar position. It moves the Explorer tab's places panel; the preview
-// pane and its toggle take the other side. The project tree keeps its own
-// row on Project settings (`prism.tree.side`, treePrefs.ts), and neither
-// moves the other.
+// pane and its toggle take the other side. (It had a twin for the project
+// tree, `prism.tree.side`, until the project tabs went, 2026-10-26.)
 
 export type ExplorerSide = TreeSide
 

@@ -38,7 +38,7 @@ import {
 } from './explorerWindow'
 import { createWindowPreferences } from './windowPreferences'
 import { isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
-import { addRoot, isAnyRoot, onRootsChanged } from './roots'
+import { isAnyRoot, onRootsChanged } from './roots'
 import {
   grantDesktopDirectory,
   insideDesktop
@@ -66,8 +66,6 @@ import { Thumbs } from './thumbs'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs } from './tabs'
 import { userPaths } from './paths'
-import { detectShells } from 'prism-term-core/main/shells'
-import { killAll } from 'prism-term-core/main/terminal'
 import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnostics'
 import { withStackPolicy } from 'prism-term-core/main/diagIpc'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
@@ -114,7 +112,8 @@ import { registerArchiveIpc, type ArchiveBodies } from './ipc/archive'
 import { registerMediaIpc } from './ipc/media'
 import { registerPropsIpc } from './ipc/props'
 import { registerBrowseIpc, registerTreeIpc } from './ipc/browse'
-import { registerTerminalIpc } from './ipc/terminal'
+import { registerLinkIpc } from './ipc/links'
+import { installPermissionHandler } from './permissions'
 import { registerSaveCopyIpc, registerFilesIpc, registerShellIpc, registerMoveIpc, registerNewFilesIpc } from './ipc/files'
 import { registerOpenIpc } from './ipc/open'
 import { registerPreferencesIpc, registerWinEIpc, registerSessionIpc } from './ipc/window'
@@ -176,15 +175,6 @@ app.commandLine.appendSwitch('disable-direct-composition')
  */
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
-// THE E2E SPEAKS THROUGH A FAKE MICROPHONE (#162): Chromium plays a WAV into
-// getUserMedia, so the dictation scenario runs the real capture, the real
-// engine and the real paste with nobody in the room. Only under --e2e.
-if (process.argv.includes('--e2e') && process.env.PRISM_E2E_MIC) {
-  app.commandLine.appendSwitch('use-fake-device-for-media-stream')
-  app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
-  app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.PRISM_E2E_MIC)
-}
-
 // THE E2E NEVER TOUCHES THE REAL CLIPBOARD (#356): every clipboard the app
 // has is one in memory under --e2e (e2eClipboard.ts).
 if (process.argv.includes('--e2e')) {
@@ -224,7 +214,7 @@ const wall = createPathWall({
   memberOwns: (p) => memberTemp.owns(p),
   rendererDir: RENDERER_DIR
 })
-const { readable, editable, movable, archiveOk, archiveReadOk, comicOk, insideWall } = wall
+const { readable, editable, movable, archiveOk, archiveReadOk, comicOk } = wall
 
 /** fsmedia:// (mediaProtocol.ts), walled by `mediaAllowed`. */
 const serveMedia = createMediaServer({ allowed: wall.mediaAllowed, ffmpeg: ffmpegTools, heic: heicToJpeg })
@@ -298,7 +288,6 @@ protocol.registerSchemesAsPrivileged([
 async function buildPayload(p: string, root?: string): Promise<OpenPayload | null> {
   if (!(await exists(p))) return null
   const dir = dirname(p)
-  if (root === undefined) addRoot(dir)
   const here = root ?? dir
   const files = (await listDir(dir)).files
   const idx = files.findIndex((v) => resolve(v.path) === resolve(p))
@@ -306,17 +295,6 @@ async function buildPayload(p: string, root?: string): Promise<OpenPayload | nul
   // alone: you asked for this file, so you get it.
   if (idx < 0) return { files: [await toViewerFile(p)], index: 0, root: here }
   return { files, index: idx, root: here }
-}
-
-/** Build the open payload for a FOLDER the user chose: the tree roots there and
- *  the viewer shows its first viewable file. A folder holding nothing Prism can
- *  show still opens - you get its tree and an empty viewer, which is a usable
- *  place to browse from rather than a refusal. */
-async function folderPayload(dir: string): Promise<OpenPayload | null> {
-  if (!(await exists(dir))) return null
-  addRoot(dir)
-  const files = (await listDir(dir)).files
-  return { files, index: files.length ? 0 : -1, root: dir }
 }
 
 const extraWindowOwner = explorerWindowOwner(userPaths.root(), process.argv)
@@ -420,8 +398,7 @@ const explorerListings = createExplorerListings({
 const { restoreTabs, saveTabs, flushTabs } = createTabsSession({
   cachedListing: (path) => explorerListings.cachedAsync(path),
   archiveRead: (tabId, path) => archiveRead(tabId, path),
-  buildPayload: (p, root) => buildPayload(p, root),
-  folderPayload: (dir) => folderPayload(dir)
+  buildPayload: (p, root) => buildPayload(p, root)
 })
 // E2E only: a first run's home folder is a fixture, never the machine's own.
 if (process.argv.includes('--e2e') && process.env.PRISM_E2E_HOME) app.setPath('home', process.env.PRISM_E2E_HOME)
@@ -443,26 +420,21 @@ let startupRestored = false
  *  consent the root wall exists to ask for. */
 const pickedSubs = new Set<string>()
 
-/** Kills dictation's children (the speech server, the media helper). */
-let stopDictation: () => void = () => {}
-
 async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
   // A FILE from outside goes to the Explorer tab (owner, 2026-09-22: "that file
   // opened in prism's explorer rather than as a project"). Nothing is built for
-  // it: `buildPayload` registers the folder as a root, which is a project's
-  // folder and a phone's to browse, and the Explorer grants its own folders
-  // per tab as it walks there. Same channel as everything else, so it keeps
-  // its place behind the restore.
+  // it: the Explorer grants its own folders per tab as it walks there. Same
+  // channel as everything else, so it keeps its place behind the restore.
   if (!target.dir) {
     const explorerFile: OpenPayload = { explorerFile: target.path, files: [], index: -1, root: dirname(target.path) }
     sendToPage(PUSH.openFile, explorerFile)
     return
   }
-  // A FOLDER roots there and tells the renderer so, which is what lets the
-  // "New projects show" setting decide whether that lands on the first file, a
-  // terminal, or nothing.
-  const built = await folderPayload(target.path)
-  if (built && appState.mainWindow) appState.mainWindow.webContents.send(PUSH.openFile, { ...built, folder: true as const })
+  // A FOLDER opens an Explorer tab at it (owner, 2026-10-26: no more projects).
+  // Nothing is built for it either; the page makes the tab and grants the folder.
+  if (!(await exists(target.path))) return
+  const explorerFolder: OpenPayload = { explorerFolder: target.path, files: [], index: -1, root: target.path }
+  sendToPage(PUSH.openFile, explorerFolder)
 }
 
 /** The phone switch, its port and the paired phones (#104). */
@@ -825,16 +797,9 @@ function createWindow(): void {
     show: showWindow,
     recreate: recreateWindow,
     giveUp: giveUpWindow,
-    // The text and the agent the page held died with it; a close must not
-    // ask about either.
-    // The shells the page drew die with it too (#265, review): the reloaded
-    // page restores its tabs and resumes their agents, so a pty left running
-    // would be a second, unseen Claude answering on the same session with no
-    // close question guarding it. Warm spares go with them.
+    // The text the page held died with it; a close must not ask about it.
     stateLost: () => {
       appState.editorDirty = false
-      appState.agentBusy = false
-      killAll()
     },
     quitting: () => appState.appQuitting,
     held: () => holdRecovery
@@ -1041,7 +1006,6 @@ const ctx = {
   archiveOk,
   archiveReadOk,
   comicOk,
-  insideWall,
   // Places inside archives, their passwords, and where members are unpacked.
   archives,
   archivePasswords,
@@ -1059,7 +1023,6 @@ const ctx = {
   written,
   // Opening: the payload builders, a web link, picked subtitles.
   buildPayload,
-  folderPayload,
   openLink,
   pickedSubs,
   // Text files: the size cap and the shape each arrived with.
@@ -1217,7 +1180,6 @@ if (!app.requestSingleInstanceLock()) {
   if (shortcutRequest && browse) winEBrowse.set(shortcutRequest, browse)
   if (shortcutRequest) winERequests.enqueue(shortcutRequest)
 
-  // Every shell dies with the app; a pty with no window is an orphan.
   let indexerStopped = false
   let stoppingIndexer = false
   app.on('will-quit', (event) => {
@@ -1234,8 +1196,6 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
     markExplorerWindow(userPaths.root(), true)
-    stopDictation()
-    killAll()
     killSidecars()
     cancelAllConversions()
     // The quit is going ahead: the log's queue is written synchronously, so
@@ -1245,15 +1205,6 @@ if (!app.requestSingleInstanceLock()) {
     diag?.stop()
     diag = null
   })
-
-  // Warm the terminal's fixed costs shortly after launch: the native module
-  // import and the shell probe both belong off every later click path.
-  app.whenReady().then(() =>
-    setTimeout(() => {
-      void import('node-pty')
-      void detectShells()
-    }, 2500)
-  )
 
   app.whenReady().then(() => {
     // THE PAGE OPTS IN TO HAVING ITS STACK READ (#322): the diagnostics log
@@ -1484,9 +1435,10 @@ if (!app.requestSingleInstanceLock()) {
     const ready: ReadyCtx = { positions, readTextWalled, probeCached, docHtmlOf }
 
     startUpdates(preferencesOwner)
-    registerOpenIpc(ctx)
+    registerOpenIpc()
     registerSaveCopyIpc(ctx)
-    stopDictation = registerTerminalIpc(ctx)
+    registerLinkIpc(ctx)
+    installPermissionHandler()
     registerBrowseIpc(ctx)
     registerSessionIpc(ctx)
     registerTreeIpc(ctx)

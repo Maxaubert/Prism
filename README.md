@@ -45,19 +45,13 @@ never shipped: one small app that opens everything and looks good doing it.
   stays clean and monospaced.
 - **Folder aware**: open one file, then use the arrow keys to move through its neighbours.
   Choose whether the arrows stay within media, within documents, or one file type, from the
-  filter in the sidebar or Settings → General.
-- **File tree** (`Ctrl+B`): a collapsible panel of the folder you opened in. Expand subfolders,
-  click any file to view it. It never reaches above that folder. Right-click for the verbs:
-  open in another app, show in Explorer, copy, duplicate, rename, delete. Drive it entirely
-  from the keyboard: arrows move through folders and files alike, `Enter` opens or collapses
-  a folder, and files open as you land on them.
-- **The usual file keys, in the Explorer and the tree**: `Ctrl+A` selects all, `Ctrl+Shift+A`
+  filter in the Explorer or Settings → General.
+- **The usual file keys, in the Explorer**: `Ctrl+A` selects all, `Ctrl+Shift+A`
   or `Esc` clears; `Shift+Up/Down/Home/End` extend the selection and `Ctrl+Up/Down/Home/End`
   move without changing it, with `Ctrl+Space` to mark the row you are on (marking never opens
   or plays anything); `Ctrl+C/X/V` copy, cut and paste files, `Ctrl+Z` / `Ctrl+Y` undo and
   redo; `Ctrl+Shift+N` makes a new folder and names it; `Del`, `Ctrl+D` and `Shift+Del` all go
-  to the Recycle Bin; `F2` renames; `Alt+Left/Right/Up` go back, forward and up (`Alt+Up` is
-  the parent row in the tree); type a name to jump to it; `Ctrl+F` or `F3` searches;
+  to the Recycle Bin; `F2` renames; `Alt+Left/Right/Up` go back, forward and up; type a name to jump to it; `Ctrl+F` or `F3` searches;
   `Alt+Enter` shows Properties; `Ctrl+Shift+C` copies the full paths; `Ctrl+Enter` opens a
   folder in a new tab.
 - **Code, highlighted**: source files open with syntax colouring, line numbers, folding and
@@ -66,17 +60,17 @@ never shipped: one small app that opens everything and looks good doing it.
 - **Edit text files in place**: any text file is editable where it sits, `Ctrl+S` to save. Click
   into the text to get a caret; until you do, the arrow keys keep paging the folder. Markdown
   keeps a pencil in the top bar, to swap its rendered page for its raw source. Wander off to
-  another file and your edits wait for you: unsaved files are starred in the tree, and nothing
+  another file and your edits wait for you: unsaved files are marked in the tab strip, and nothing
   closes Prism out from under them.
 - **Zips are folders**: a zip (and a 7z, rar, tar, iso and the rest) keeps its icon but opens
-  like any other folder, in the Explorer and in a project's tree. One address runs through it,
+  like any other folder, in the Explorer . One address runs through it,
   Back and Forward walk in and out, and sorting, search and the preview pane work inside it.
   A strip names the archive with Extract here and Extract to...; the right-click menus are the
   archive's (extract, add files, rename and delete inside a zip). A file inside opens
   read-only, unpacked to a temporary folder that is cleared when Prism closes.
 - **Opens from Explorer**: opt in to make Prism the default viewer for the file types you choose.
 - **In Explorer's right-click menu**: beside the Prism icon, **Open file** on any file and
-  **Open as project** on a folder, or on the empty space inside one, which roots a tab there.
+  **Open in Prism** on a folder, or on the empty space inside one, which opens a tab there.
   On by default, switched in Settings → General; on Windows 11 the entries sit under "Show
   more options" (`Shift+F10`).
 - **On your phone**: More (the three dots) > Phone serves the folder you have open to phones on your own
@@ -88,7 +82,7 @@ never shipped: one small app that opens everything and looks good doing it.
   it is (an MKV, HEVC on an Android, Dolby audio) the PC's GPU converts live, HDR tone-mapped,
   and the phone seeks through it like any other file. PDFs, markdown, code, office and ebook
   documents, comics and archives open on the phone too, read-only: nothing on the phone can
-  change a file on the PC. Search from the phone with the same box the sidebar has - a couple
+  change a file on the PC. Search from the phone with the same box the Explorer has - a couple
   of words in any order, `"a phrase"`, `*.mp4`, `ext:pdf`, `-drafts` - and a file three
   folders down is one tap away instead of unreachable, and the list narrows as you type
   rather than going blank while the PC answers. Films go fullscreen by whatever route
@@ -97,11 +91,6 @@ never shipped: one small app that opens everything and looks good doing it.
   back instead of pausing; the tap after that pauses, the way every phone player behaves.
   There is one screen, the folder: the phone plays what it opens, and never drives the PC.
 
-- **A terminal beside the file** (`` Ctrl+` ``): a real shell docked to the window, opened in the
-  folder you are viewing, with themes, find, command help and local dictation. It is the
-  same terminal as [Prism Terminal](https://github.com/Maxaubert/PrismTerminal), shared code
-  rather than a copy, so a fix in one reaches the other. A file dropped on it types its path,
-  quoted for the shell it goes to.
 - **Gets back up on its own**: if the window's page crashes or hangs, Prism reloads it, and
   a window that keeps failing is rebuilt. Opening a file always brings up a working window.
   Crash reports stay on your PC (in Prism's own folder under `%APPDATA%`) and are never
