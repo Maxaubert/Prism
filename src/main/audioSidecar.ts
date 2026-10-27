@@ -1,3 +1,4 @@
+// spawn-ok: the sidecar streams decoded audio out of ffmpeg as it plays.
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { holders } from './holders'
 import { access } from 'fs/promises'

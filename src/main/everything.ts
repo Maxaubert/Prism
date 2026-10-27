@@ -5,7 +5,7 @@
  * Standalone legacy callers can still discover an existing ES client; production
  * initializes the managed runtime before registering search IPC.
  */
-import { execFile } from 'child_process'
+import { execFile } from './spawnWorker'
 import { managedIndexerRuntime } from './indexerRuntime'
 import { basename, extname, join } from 'path'
 import { fileKind, isViewable } from '@shared/fileKind'

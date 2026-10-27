@@ -1,3 +1,4 @@
+// spawn-ok: a conversion streams its progress from ffmpeg's stdout.
 import { spawn } from 'child_process'
 import { holders } from './holders'
 import { createHash } from 'crypto'

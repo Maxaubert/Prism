@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { CALL, PUSH } from '@shared/channels'
 import { basename, join } from 'path'
 import { open as openFile, readdir, stat, statfs } from 'fs/promises'
-import { spawn } from 'child_process'
+import { launch } from '../spawnWorker'
 import { insideDesktop } from '../desktopAccess'
 import { getIndexedFolderSizes } from '../everythingBrowse'
 import { photoInfo } from '../photoInfo'
@@ -131,11 +131,8 @@ export function registerPropsIpc(ctx: MainCtx): void {
     if (typeof root !== 'string' || !DRIVE_ROOT.test(root)) return false
     try {
       const exe = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cleanmgr.exe')
-      // A missing cleanmgr (some Server and LTSC builds) fails as an 'error'
-      // event after spawn returns; unheard, it would throw in main.
-      const child = spawn(exe, ['/d', root[0].toUpperCase()], { detached: true, stdio: 'ignore' })
-      child.on('error', () => {})
-      child.unref()
+      // A missing cleanmgr (some Server and LTSC builds) is a rejected launch.
+      void launch(exe, ['/d', root[0].toUpperCase()]).catch(() => {})
       return true
     } catch {
       return false

@@ -1,4 +1,4 @@
-import { execFile } from 'child_process'
+import { execFile } from './spawnWorker'
 import { findEverything } from './everything'
 import { nativeBrowseQuery } from '@shared/browseQuery'
 import { dirname, resolve, sep } from 'path'

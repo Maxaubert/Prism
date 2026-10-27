@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'child_process'
+import { execFile, launch } from './spawnWorker'
 import { createHash, randomUUID } from 'crypto'
 import { access, mkdir, readFile, readdir, unlink, writeFile } from 'fs/promises'
 import { join, resolve } from 'path'
@@ -50,15 +50,7 @@ const defaults: RuntimeDependencies = {
         error ? fail(error) : done(out)
       )
     }),
-  start: (exe, args) =>
-    new Promise((done, fail) => {
-      const child = spawn(exe, args, { windowsHide: true, detached: true, stdio: 'ignore' })
-      child.once('error', fail)
-      child.once('spawn', () => {
-        child.unref()
-        done(child.pid)
-      })
-    }),
+  start: (exe, args) => launch(exe, args, { windowsHide: true }),
   alive: (pid) => {
     try {
       process.kill(pid, 0)

@@ -10,7 +10,7 @@ import type {
 } from '@shared/ipcTypes'
 import { basename, dirname, extname, join, resolve, sep } from 'path'
 import { copyFile, readFile, stat, writeFile } from 'fs/promises'
-import { execFile, spawn } from 'child_process'
+import { execFile, launch } from '../spawnWorker'
 import { copyWindowsFiles, hasWindowsFiles, readWindowsFiles } from '../fileClipboard'
 import { insideDesktop } from '../desktopAccess'
 import { container } from '../archiveBrowse'
@@ -227,10 +227,7 @@ export function registerShellIpc(ctx: MainCtx): void {
   // the store apps the submenu can't launch.
   ipcMain.on(CALL.fileOpenChooser, (_e, p: string) => {
     if (!insideDesktop(p)) return
-    spawn('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', p], {
-      detached: true,
-      stdio: 'ignore'
-    }).unref()
+    void launch('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', p]).catch(() => {})
   })
 
   // What the "Open in" submenu lists. The candidates main enumerated are the
@@ -263,14 +260,14 @@ export function registerShellIpc(ctx: MainCtx): void {
       }))
     )
   })
-  ipcMain.handle(CALL.fileOpenWith, (_e, p: string, exe: string): boolean => {
+  ipcMain.handle(CALL.fileOpenWith, async (_e, p: string, exe: string): Promise<boolean> => {
     if (!insideDesktop(p)) return false
     // The expired list still answers a launch: the menu the user is clicking
     // was built from it moments ago.
     const c = openWithCache.get(extname(p).toLowerCase())?.list.find((x) => x.exe === exe)
     if (!c) return false
     try {
-      spawn(c.exe, argsFor(c.args, p), { detached: true, stdio: 'ignore' }).unref()
+      await launch(c.exe, argsFor(c.args, p))
       return true
     } catch {
       return false

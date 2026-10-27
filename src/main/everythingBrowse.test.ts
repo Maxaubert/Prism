@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { execFile } from 'child_process'
+import { execFile } from './spawnWorker'
 import { findEverything } from './everything'
 import {
   clearEverythingBrowseCache,
@@ -10,7 +10,7 @@ import {
 import { managedIndexerRuntime } from './indexerRuntime'
 import { findRunningEverything } from './existingEverything'
 
-vi.mock('child_process', () => ({ execFile: vi.fn() }))
+vi.mock('./spawnWorker', () => ({ execFile: vi.fn() }))
 vi.mock('./everything', () => ({ findEverything: vi.fn(async () => 'es.exe') }))
 vi.mock('./indexerRuntime', () => ({ managedIndexerRuntime: vi.fn(() => undefined) }))
 vi.mock('./existingEverything', () => ({ findRunningEverything: vi.fn(async () => null) }))

@@ -1,4 +1,4 @@
-import { startLagProfiler } from './lagProfiler'
+import { startLagProfiler, STARTUP_PROFILE_MS } from './lagProfiler'
 import { CALL, PUSH } from '@shared/channels'
 import {
   app,
@@ -1094,7 +1094,14 @@ if (!app.requestSingleInstanceLock()) {
   })
   // A main-lag of 1 s or more carries a CPU profile (2026-10-12): e2e and
   // Detailed logging only (lagProfiler.ts).
-  startLagProfiler({ log: diag.log, enabled: () => E2E || !!diag?.log.verbose() })
+  // Also on for every launch's first STARTUP_PROFILE_MS (2026-10-27): the
+  // startup freeze happened only in ordinary launches, where nothing was
+  // profiling, so its one profile could never be caught. Nothing is written
+  // unless a lag of 1 s or more happens.
+  startLagProfiler({
+    log: diag.log,
+    enabled: () => E2E || !!diag?.log.verbose() || process.uptime() * 1000 < STARTUP_PROFILE_MS
+  })
   // E2E only (review of #322): the harness ends a scenario with `app.exit`,
   // which skips will-quit, so it writes main's queue first and the run's
   // Stalls table sees a scenario's last moments.

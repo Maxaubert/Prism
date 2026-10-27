@@ -1926,6 +1926,15 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   is startup, quit, worker code, a `sendSync` answer, the root wall's `canonical()` and adm-zip
   (whole-archive reads and writes; since moved to the zip worker, below), each with a
   `// sync-ok: <reason>`. `src/main/syncCalls.test.ts` fails `npm test` on any unmarked one.
+  **MAIN NEVER STARTS A PROCESS ITSELF** (owner, 2026-10-27: "start looking at stalls and fix
+  them"). Starting a process is synchronous on the starting thread, and #351 measured it taking
+  main for 3 s; the startup freeze (4 to 5 s about ten seconds in, nothing in flight, still there
+  in 0.119.1 with the terminal gone) lines up with the reg.exe, PowerShell and es.exe burst main
+  made then. Every short-lived program (registry, PowerShell, Everything, ffprobe, thumbnails,
+  subtitles, 7-Zip listings, "Open with" launches) now starts from one worker thread
+  (`spawnWorker.ts`); what streams from a child says `// spawn-ok: <reason>`, and
+  `spawnCalls.test.ts` fails on anything else. Every launch also profiles its first 30 s
+  (`STARTUP_PROFILE_MS`), so a startup lag of 1 s or more leaves a `lag-*.cpuprofile` naming it.
   **THE TAB STRIP IS SAVED OFF MAIN** (owner, 2026-10-12: the app "stalled for like 5 seconds",
   first after an unpin, then on entering Downloads). A CPU profile of the owner's main process
   put every sample of a 3954 ms freeze in `writeFileSync` under `writeTabs`: the tab strip's
