@@ -14250,6 +14250,30 @@ async function menuOverPreviewScenario(fixtures) {
     }
     await win.screenshot({ path: join(SHOTS, 'menu-over-preview.png') })
     await win.keyboard.press('Escape')
+    // THE FULL PATH, WHEREVER YOU CLICK (owner, 2026-10-27: inside a sub folder
+    // of Downloads, a right-click on the Downloads crumb copied only up to
+    // Downloads). In a sub folder, right-click the PARENT's crumb: Copy address
+    // as text is still the folder shown. The page's writeText is stubbed, so
+    // the machine's clipboard is never touched.
+    const deeper = join(dir, 'deeper')
+    mkdirSync(deeper, { recursive: true })
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(deeper)
+    await win.keyboard.press('Enter')
+    ok(
+      await until(async () => (await win.locator('.folder-browser nav.browse-path').getAttribute('data-path')) === deeper, 10000),
+      'into the sub folder'
+    )
+    await win.evaluate(() => {
+      globalThis.__copied = []
+      navigator.clipboard.writeText = (t) => (globalThis.__copied.push(t), Promise.resolve())
+    })
+    await win
+      .locator(`.folder-browser nav.browse-path .browse-crumb button[data-crumb-path="${dir.replace(/\\/g, '\\\\')}"]`)
+      .click({ button: 'right' })
+    await win.locator('[role="menu"] [role="menuitem"]:has-text("Copy address as text")').click()
+    const copied = await win.evaluate(() => globalThis.__copied)
+    ok(copied.length === 1 && copied[0] === deeper, `a parent crumb copies the folder you are in (${JSON.stringify(copied)})`)
   } finally {
     await app.close()
   }
