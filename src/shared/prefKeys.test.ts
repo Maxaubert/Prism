@@ -52,6 +52,7 @@ const SHIPPED: Record<string, 'shared' | 'window'> = {
   'prism.viz.barTheme': 'shared',
   'prism.viz.cycle': 'shared',
   'prism.viz.drop': 'shared',
+  'prism.viz.followsTheme': 'shared',
   'prism.viz.glow': 'shared',
   'prism.viz.height': 'shared',
   'prism.viz.logo': 'shared',
