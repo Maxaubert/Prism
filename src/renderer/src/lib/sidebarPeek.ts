@@ -42,10 +42,17 @@ export type PeekEvent =
   /** The slide away has finished. */
   | { type: 'settled' }
 
+// THE TIMINGS ARE FLARE'S (owner, 2026-10-27: Prism's peek was "a bit too
+// unresponsive", Flare "has a very good balance"; Flare's
+// crates/flare-tabs/src/reveal.rs open_delay 60, close_delay 100, KEEP 4).
+// Was 150 / 300 with no margin.
 /** How long the pointer rests on the edge before the panel comes out. */
-export const PEEK_DWELL_MS = 150
+export const PEEK_DWELL_MS = 60
 /** How long after the pointer leaves the panel it goes away again. */
-export const PEEK_GRACE_MS = 300
+export const PEEK_GRACE_MS = 100
+/** The panel counts this far past its own box, so with the short grace a
+ *  pointer that grazes the panel's edge does not start it closing. */
+export const PEEK_KEEP_PX = 4
 /** The hot strip along the window's side, in CSS pixels. Wide enough to land
  *  on without aiming (the very edge of a maximized window is a wall the pointer
  *  stops against, which is the usual way it gets there), narrow enough that a
@@ -99,9 +106,19 @@ export function peekWhere(
   side: 'left' | 'right',
   panel: { left: number; right: number; top: number; bottom: number } | null
 ): PeekAt {
-  if (panel && x >= panel.left && x < panel.right && y >= panel.top && y < panel.bottom) return 'panel'
+  if (
+    panel &&
+    x >= panel.left - PEEK_KEEP_PX &&
+    x < panel.right + PEEK_KEEP_PX &&
+    y >= panel.top &&
+    y < panel.bottom
+  )
+    return 'panel'
   if (y < zone.top || y >= zone.bottom) return 'away'
-  const inStrip = side === 'left' ? x >= zone.left && x < zone.left + PEEK_EDGE_PX : x < zone.right && x >= zone.right - PEEK_EDGE_PX
+  const inStrip =
+    side === 'left'
+      ? x >= zone.left && x < zone.left + PEEK_EDGE_PX
+      : x < zone.right && x >= zone.right - PEEK_EDGE_PX
   return inStrip ? 'edge' : 'away'
 }
 
