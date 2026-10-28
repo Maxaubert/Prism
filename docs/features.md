@@ -468,6 +468,19 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   Documents mark their scroller `data-doc-scroller`; `docFocused()` in `hooks/useAppKeys.ts` is
   the single test, and there is deliberately no kind-based DOC set any more. A window-level key
   listener in a viewer (PdfView's page keys, CodeView's Ctrl+S/Ctrl+F) must check focus itself.
+  **IN FULL VIEW A DOCUMENT KEEPS UP AND DOWN, AND THE STEPPING IS THE LIST'S ORDER** (owner,
+  2026-10-28, an Excel workbook: "the arrow keys up and down navigate files while you're in it which it
+  should not", "with the excel sheet in full view up goes down and down goes up", and keyed through it
+  "brings my pc to its knees"; scope: all documents). Changes the 2026-08-17 rule for FULL VIEW only: a
+  `doc`, `pdf` or `text` file in full view takes the first Up or Down itself (`useAppKeys`, `DOCUMENTS`):
+  its scroller is focused and scrolls a line, and the keys are its own from then on. From the list
+  (preview beside it) nothing changed. The slowdown was the arrows hopping file to file in Downloads,
+  each opened in full view (a video, a PDF, a HEIC conversion, the workbook converted again on every
+  pass): measured on the workbook itself, keyed scrolling inside it is light (no long frames, CPU near
+  0). And full view stepped by the old viewer sort (`prism.sort`, name) while the list showed its own
+  (Downloads newest first), so Down was not the next row: `App` now orders the viewer's files by the
+  list's sort (`browsing.sort`, the same `sortFiles` the list uses). e2e `docArrows` (fails on the old
+  code).
 - **Search has operators** (2026-08-28, `shared/searchQuery.ts`, pure and
   tested): every word must match, in any order (`holiday 2024` finds
   "2024-06 holiday", which one substring never could), `"two words"` is a
