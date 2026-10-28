@@ -39,6 +39,19 @@ import { writeAtomic, writeAtomicSync } from './latestWrite'
 
 export const CACHE_LIMITS = { folders: 200, entries: 2000, bytes: 20 * 1024 * 1024 }
 
+/**
+ * THE SAME-FRAME PAINT COMES FROM MEMORY (review, 2026-10-28: "look for stall
+ * points"). `browse:cached` is a sendSync, and it used to read the folder's
+ * file from disk inside it, so a disk stall (fs-slow canaries of 3.9 to 8.2 s
+ * on the owner's PC) froze main AND the page for the whole stall. The stored
+ * text of the most used folders is now held in memory: read ahead after the
+ * index loads (pinned places first), kept by every put and every async read,
+ * least recently used out first. The sync read answers only from there; a
+ * folder not held is a miss, the async listing paints it, and its text is
+ * read in the background so the next click is a hit.
+ */
+export const HELD_LIMITS = { folders: 64, bytes: 4 * 1024 * 1024 }
+
 export interface IndexEntry {
   path: string
   key: string
@@ -280,6 +293,9 @@ export interface ListingCacheOptions {
   maxFolders?: number
   maxEntries?: number
   maxBytes?: number
+  /** How many folders' stored text is held in memory for `read`. */
+  maxHeld?: number
+  maxHeldBytes?: number
   now?: () => number
   indexDelayMs?: number
 }
@@ -292,6 +308,8 @@ export function createListingCache(options: ListingCacheOptions) {
     maxFolders = CACHE_LIMITS.folders,
     maxEntries = CACHE_LIMITS.entries,
     maxBytes = CACHE_LIMITS.bytes,
+    maxHeld = HELD_LIMITS.folders,
+    maxHeldBytes = HELD_LIMITS.bytes,
     now = Date.now,
     indexDelayMs = 500
   } = options
@@ -314,6 +332,11 @@ export function createListingCache(options: ListingCacheOptions) {
   let indexDirty = false
   /** Bumped by the quit flush: an async write already in flight must not land over it. */
   let flushes = 0
+  /** The stored text `read` answers from, oldest use first (see HELD_LIMITS). */
+  const held = new Map<string, string>()
+  let heldBytes = 0
+  /** Background reads into `held`, so `idle()` can wait for them. */
+  const filling = new Set<Promise<void>>()
 
   const fileOf = (key: string): string => join(directory, `${key}.json`)
   const indexText = (): string => JSON.stringify({ v: 1, entries: [...index.values()] })
@@ -391,8 +414,50 @@ export function createListingCache(options: ListingCacheOptions) {
    *  index entry it was written under, so a forget, a clear or a failed
    *  write (each drops or replaces the entry) makes the next put write. */
   const written = new Map<string, { entry: IndexEntry; sig: string }>()
+  const unhold = (key: string): void => {
+    const text = held.get(key)
+    if (text === undefined) return
+    held.delete(key)
+    heldBytes -= text.length
+  }
+  const hold = (key: string, text: string): void => {
+    unhold(key)
+    if (text.length > maxHeldBytes) return
+    held.set(key, text)
+    heldBytes += text.length
+    for (const old of held.keys()) {
+      if (held.size <= maxHeld && heldBytes <= maxHeldBytes) break
+      unhold(old)
+    }
+  }
+  const track = (job: Promise<void>): Promise<void> => {
+    filling.add(job)
+    void job.finally(() => filling.delete(job))
+    return job
+  }
+  /** Read one stored folder into memory, off the main thread, counting no hit. */
+  const fill = (key: string): Promise<void> => {
+    const entry = index.get(key)
+    if (!entry || held.has(key)) return Promise.resolve()
+    const mine = epoch
+    return track(
+      readFile(fileOf(key), 'utf8')
+        .then((text) => {
+          if (enabled && mine === epoch && index.get(key) === entry && !held.has(key)) hold(key, text)
+        })
+        .catch(() => {})
+    )
+  }
+  /** The most worth keeping, pinned places first, read in one after another. */
+  const warmHeld = async (): Promise<void> => {
+    const best = [...index.values()]
+      .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || worth(b) - worth(a))
+      .slice(0, maxHeld)
+    for (const e of best) await fill(e.key)
+  }
   const forget = (key: string): void => {
     written.delete(key)
+    unhold(key)
     index.delete(key)
     if (!readOnly) rm(fileOf(key), { force: true }).catch(() => {})
   }
@@ -417,6 +482,7 @@ export function createListingCache(options: ListingCacheOptions) {
       // they would sit outside the 20 MB budget with their file names until a
       // Clear. Swept off the start-up path, after the index is in memory.
       if (!readOnly) void this.sweep()
+      void track(warmHeld())
     },
     /** Delete every file in the folder that the index does not name. */
     async sweep(): Promise<number> {
@@ -469,21 +535,27 @@ export function createListingCache(options: ListingCacheOptions) {
     get generation(): number {
       return epoch
     },
-    /** One folder's stored listing, synchronously (a file of tens of KB),
-     *  for the page's `browse:cached`. A caller that can wait uses readAsync. */
+    /** One folder's stored listing, synchronously and FROM MEMORY only, for
+     *  the page's `browse:cached` (see HELD_LIMITS): the disk is never
+     *  touched in a sync IPC. A folder not held is a miss now and is read in
+     *  the background for next time. A caller that can wait uses readAsync. */
     read(path: string): CachedListing | null {
       if (!enabled) return null
       const key = cacheKey(path)
       const entry = index.get(key)
       if (!entry) return null
-      let text: string | null = null
-      try {
-        // sync-ok: browse:cached is sendSync by design, it paints in the same frame as the click
-        text = readFileSync(fileOf(key), 'utf8')
-      } catch {
-        /* gone: a miss */
+      const text = held.get(key)
+      if (text === undefined) {
+        void fill(key)
+        return null
       }
+      hold(key, text) // the most recently used now
       return answer(key, entry, path, text)
+    },
+    /** A folder about to be opened (the hover read-ahead): bring its stored
+     *  text into memory, so the click's sync read is a hit. */
+    warm(path: string): void {
+      if (enabled) void fill(cacheKey(path))
     },
     /** read(), off the main thread: for callers that can await (the restore). */
     async readAsync(path: string): Promise<CachedListing | null> {
@@ -500,7 +572,9 @@ export function createListingCache(options: ListingCacheOptions) {
       }
       // Cleared, switched off or rewritten while the file was read.
       if (!enabled || mine !== epoch || index.get(key) !== entry) return null
-      return answer(key, entry, path, text)
+      const cached = answer(key, entry, path, text)
+      if (cached && text !== null) hold(key, text)
+      return cached
     },
     /** Keep a COMPLETE listing (sizes and dates known). Written atomically, a
      *  temporary file renamed over the old one, so a crash mid-write leaves
@@ -532,6 +606,7 @@ export function createListingCache(options: ListingCacheOptions) {
       written.set(key, { entry, sig })
       for (const drop of evictionOrder([...index.values()], maxFolders, maxBytes)) forget(drop)
       if (index.has(key)) {
+        hold(key, text)
         const mine = epoch
         const target = fileOf(key)
         pendingWrites += 1
@@ -574,6 +649,8 @@ export function createListingCache(options: ListingCacheOptions) {
       epoch += 1
       index.clear()
       written.clear()
+      held.clear()
+      heldBytes = 0
       if (indexTimer) clearTimeout(indexTimer)
       indexTimer = null
       if (readOnly) return Promise.resolve(true)
@@ -620,10 +697,11 @@ export function createListingCache(options: ListingCacheOptions) {
         indexTimer = null
         void writeIndex()
       }
-      while (clearing || indexWrite || inflight.size) {
+      while (clearing || indexWrite || inflight.size || filling.size) {
         if (clearing) await clearing
         if (indexWrite) await indexWrite
         if (inflight.size) await Promise.all([...inflight])
+        if (filling.size) await Promise.all([...filling])
       }
     },
     /** For tests and the e2e: what is held. */

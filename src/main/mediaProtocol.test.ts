@@ -26,6 +26,18 @@ describe('fsmedia://', () => {
     expect(res.status).toBe(403)
   })
 
+  it('resolves the path off the thread before the wall reads it (review, 2026-10-28)', async () => {
+    const order: string[] = []
+    const res = await createMediaServer({
+      allowed: (p) => (order.push(`allowed ${p}`), p === file),
+      warm: async (p) => void order.push(`warm ${p}`),
+      ffmpeg: () => null,
+      heic: () => Promise.reject(new Error('no'))
+    })(new Request(url(file)))
+    expect(res.status).toBe(200)
+    expect(order).toEqual([`warm ${file}`, `allowed ${file}`])
+  })
+
   it('answers 404 for a missing file inside the wall', async () => {
     const res = await server(() => true)(new Request(url(join(dir, 'gone.mp4'))))
     expect(res.status).toBe(404)

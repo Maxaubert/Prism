@@ -1,5 +1,5 @@
 import { dirname } from 'path'
-import { canonicalPath, withinCanonical } from './dirList'
+import { canonicalPath, forgetCanonical, warmCanonical, withinCanonical } from './dirList'
 import { insideAnyRoot, validRoot } from './roots'
 import { closeAllBrowseWatches, closeBrowseWatch } from './browseWatch'
 import { diagMain } from 'prism-term-core/main/diagLog'
@@ -144,18 +144,40 @@ export function insideDesktopAll<T>(paths: readonly T[]): Array<T & string> {
   )
 }
 
+/**
+ * The same guards, with the paths resolved OFF main's thread first (review,
+ * 2026-10-28): for a caller that can await (the size lists and rows, the
+ * media protocol). The answer is the sync guard's own; only the realpath
+ * calls it would have made have already been made, and remembered.
+ */
+export async function insideDesktopAllAsync<T>(paths: readonly T[]): Promise<Array<T & string>> {
+  const named = paths.filter((p): p is T & string => typeof p === 'string' && !!p)
+  await warmCanonical(named.flatMap((p) => [p, dirname(p)]))
+  return insideDesktopAll(paths)
+}
+
+export async function insideDesktopAsync(path: string): Promise<boolean> {
+  if (typeof path !== 'string' || !path) return false
+  await warmCanonical([path, dirname(path)])
+  return insideDesktop(path)
+}
+
 function inside(path: string): boolean {
+  if (!path) return false
   // Search grants many result parents. Resolve only a matching direct grant
   // before the alias-aware fallback; probing every unrelated grant with native
   // realpath for every size row made large result sets block the main thread.
+  // The path itself is resolved ONCE however many owners hold its parent
+  // (review, 2026-10-28), and the fallback reuses it.
   const parent = dirname(path)
+  let target: string | undefined
   for (const { byPath: grants } of directories.values()) {
     if (grants.has(path)) return true
     const held = grants.get(parent)
-    if (held !== undefined && withinCanonical(held, canonicalPath(path))) return true
+    if (held !== undefined && withinCanonical(held, (target ??= canonicalPath(path)))) return true
   }
   if (insideAnyRoot(path)) return true
-  return !!path && anyGrantDirectlyHolds(asked(path))
+  return anyGrantDirectlyHolds({ path: target ?? canonicalPath(path), parent: canonicalPath(parent) })
 }
 
 export function validDesktopRoot(root: string, path: string): boolean {
@@ -195,6 +217,7 @@ function extendNow(root: string, paths: string[]): void {
 }
 
 export function resetDesktopAccess(): void {
+  forgetCanonical()
   closeAllBrowseWatches()
   directories.clear()
   revisions.clear()

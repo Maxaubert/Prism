@@ -1,5 +1,4 @@
-// spawn-ok: the waveform streams out of ffmpeg's stdout.
-import { spawn } from 'child_process'
+import { spawnStream } from './spawnWorker'
 import { holders } from './holders'
 import { stat } from 'fs/promises'
 import { createLru } from './lru'
@@ -208,7 +207,9 @@ function decode(
       perBucket: Math.max(1, Math.floor((duration * PEAKS_RATE) / BUCKETS)),
       odd: null as number | null
     }
-    const proc = spawn(ffmpeg, peaksArgs(file), { windowsHide: true })
+    // Started by the process worker (review, 2026-10-28): one per audio
+    // file opened, and CreateProcess on main has frozen it for seconds (#351).
+    const proc = spawnStream(ffmpeg, peaksArgs(file), { windowsHide: true })
     run.kill = () => proc.kill()
     holders.add(proc, file) // a move of the file kills this first (#127)
     // A file with no audio, or one ffmpeg cannot open, simply produces nothing.
@@ -217,7 +218,6 @@ function decode(
       any = true
       foldChunk(chunk, acc)
     })
-    proc.stderr.resume()
     const done = (): void => {
       // A killed job's half-envelope is not the file's: never cached.
       if (!any || run.cancelled) return resolve(null)

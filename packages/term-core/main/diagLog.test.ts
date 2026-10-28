@@ -219,7 +219,8 @@ describe('createDiagLog', () => {
     const log = make({ dir, uptime: () => 7 })
     log.write('page', 'page-error', { src: null, k: 'session', up: 0, t: 'x', msg: 'm' })
     await log.flush()
-    expect(lines(log.file)[0]).toMatchObject({ src: 'page', k: 'page-error', up: 7, msg: 'm' })
+    // By kind, not position (2026-10-28: on a slow CI runner another line came first).
+    expect(lines(log.file).find((l) => l.k === 'page-error')).toMatchObject({ src: 'page', k: 'page-error', up: 7, msg: 'm' })
   })
 
   it('caps what a caller hands it', async () => {

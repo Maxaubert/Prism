@@ -2040,6 +2040,27 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   `spawnCalls.test.ts` fails on anything else. Every launch also profiled its first 30 s, and
   the profile of 0.119.4's startup freeze (3980 ms) was 4.6 s of `(idle)`: the block is in
   Electron, Chromium or Windows, not JavaScript, which is why the native trace below exists.
+- **MAIN'S REMAINING STALL POINTS** (owner, 2026-10-28: "do a review of the app look for bugs, lingering
+  code that should be changed ... look for stall points, things that use up too many resources"; review
+  `research/prism/2026-10-28-performance-review.md` #9, #13 to #17, #28, #53, #54). (1) The wall remembers
+  a resolved path for 2 s (`dirList` `canonical`, only paths that exist, bounded, cleared by Prism's own
+  writes through `written`), resolves each path once per guard call, and an awaiting caller (fsmedia://
+  and fsaudio:// Range requests, `folder:sizes-cached`, `folder:size`) resolves off main first
+  (`warmCanonical`, `insideDesktopAllAsync`); the folder-size warm-up runs on local fixed drives only.
+  `dirListCanonical.test.ts`. (2) `browse:cached` answers from memory, never the disk: the stored text of
+  64 folders (4 MB) is held, read in after the index loads (pinned places first), kept by every put, async
+  read and hover read-ahead; a folder not held misses and the async listing paints it
+  (`listingCache.test.ts`). (3) Tab restore applies the history's rule to a tab's root, path and file: off
+  this PC's fixed disks they are kept unchecked (`tabs.test.ts`). (4) A copy's landing rows are sent BEFORE
+  anything is sized, then sized with lstat (links and junctions never followed) before the copy starts:
+  sizing beside the copy was built here, but #455's paste loop landed first and kept the simpler order
+  (`pasteCopy.test.ts`). (5) Streaming children start in the
+  process worker too (`spawnStream`, stdout moved over in chunks, pause and resume reach the pipe): the
+  audio sidecar (every seek) and the waveform's peaks so far; propsMedia, videoConvert, sevenZip, phone
+  jobs and the Win+E launch still carry `spawn-ok` (`spawnWorker.test.ts`). (6) The worker moves a Buffer
+  that owns its memory instead of copying it (a 256 MB decode no longer peaks at twice that). (7) A tail
+  reads at most 4 MB a turn, skips a backlog past 64 MB with a reset to the last 2 MB, and a file shown as
+  its tail follows from where that tail ended (`fileTail.test.ts`).
 - **LOG AS MUCH AS POSSIBLE WHILE PRISM IS YOUNG** (owner, 2026-10-27: "i think its important to
   keep logging as much as possible in order to fix issues now that the app is in its early
   stages"). Four things, one PR: (1) the CPU profiler runs in EVERY session (`lagProfiler.ts`,

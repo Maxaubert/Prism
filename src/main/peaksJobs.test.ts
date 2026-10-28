@@ -1,12 +1,12 @@
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
-import { spawn } from 'child_process'
+import { spawnStream } from './spawnWorker'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { cancelPeaks, loadPeaks } from './peaks'
 
 // The waveform's jobs (review, 2026-10-16): a fake ffmpeg per spawn, so the
 // test can see how many decodes run at once and which ones were killed.
-vi.mock('child_process', () => ({ spawn: vi.fn() }))
+vi.mock('./spawnWorker', () => ({ spawnStream: vi.fn() }))
 vi.mock('./holders', () => ({ holders: { add: vi.fn() } }))
 
 interface Fake extends EventEmitter {
@@ -20,7 +20,7 @@ let procs: Fake[] = []
 
 beforeEach(() => {
   procs = []
-  vi.mocked(spawn).mockImplementation((() => {
+  vi.mocked(spawnStream).mockImplementation((() => {
     const p = new EventEmitter() as Fake
     p.stdout = new PassThrough()
     p.stderr = new PassThrough()
@@ -31,7 +31,7 @@ beforeEach(() => {
     }
     procs.push(p)
     return p
-  }) as unknown as typeof spawn)
+  }) as unknown as typeof spawnStream)
 })
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 5))

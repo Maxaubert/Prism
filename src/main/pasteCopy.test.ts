@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { copyCounted, movePct, pastesIntoItself, pctOf, predictNames } from './pasteCopy'
+import { copyCounted, movePct, pastesIntoItself, pctOf, predictNames, walkSizes } from './pasteCopy'
 import { uniqueNameAsync } from './fileOps'
 
 describe('paste progress arithmetic (review, 2026-10-28)', () => {
@@ -67,4 +67,26 @@ describe('copyCounted', () => {
     await copyCounted(a, join(a, 'A'), () => {})
     expect(readdirSync(join(a, 'A')).sort()).toEqual(['f.txt'])
   }, 10_000)
+})
+
+describe('walkSizes (review, 2026-10-28)', () => {
+  it('counts every file below a folder and never follows a junction', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'prism-paste-'))
+    mkdirSync(join(root, 'src', 'inner'), { recursive: true })
+    writeFileSync(join(root, 'src', 'a.txt'), 'abc')
+    writeFileSync(join(root, 'src', 'inner', 'b.txt'), 'de')
+    mkdirSync(join(root, 'big'))
+    writeFileSync(join(root, 'big', 'c.bin'), 'x'.repeat(1000))
+    // A junction out (and one back to itself, the Application Data loop).
+    symlinkSync(join(root, 'big'), join(root, 'src', 'out'), 'junction')
+    symlinkSync(join(root, 'src'), join(root, 'src', 'inner', 'loop'), 'junction')
+    expect(await walkSizes(join(root, 'src'))).toBe(5)
+    expect(await walkSizes(join(root, 'src', 'a.txt'))).toBe(3)
+  })
+
+  it('stops when told the copy no longer needs it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'prism-paste-'))
+    writeFileSync(join(root, 'a.txt'), 'abc')
+    expect(await walkSizes(root, () => true)).toBe(0)
+  })
 })

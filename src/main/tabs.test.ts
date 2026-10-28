@@ -225,6 +225,20 @@ describe('the bulk of a strip off this PC (2026-10-16: sync stats waited out the
     // The tree's open folders went with the tree (2026-10-26): never read.
     expect('open' in parsed.tabs[0]).toBe(false)
   })
+
+  it('keeps a tab whose root, path and file sit on a share unchecked (review, 2026-10-28)', () => {
+    const share = '\\\\prism-test-offline.invalid\\share\\photos'
+    const at = (path: string): object => ({ path, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } })
+    const browse = { path: share, history: [at(share)], cursor: 0, surface: 'viewer', preview: false }
+    const file = join(share, 'a.jpg')
+    const t0 = Date.now()
+    const parsed = parseTabs(JSON.stringify({ tabs: [{ root: share, role: 'explorer', browse, file }], active: 0 }))
+    expect(parsed.tabs).toHaveLength(1)
+    expect(parsed.tabs[0]).toMatchObject({ root: share, file })
+    expect(parsed.tabs[0].browse?.path).toBe(share)
+    // Nothing was asked of the network: no SMB timeout was waited out.
+    expect(Date.now() - t0).toBeLessThan(1000)
+  })
 })
 
 describe('places inside an archive (#300)', () => {
