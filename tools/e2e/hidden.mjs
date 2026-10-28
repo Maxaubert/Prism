@@ -22,7 +22,8 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..', '..')
 const [script, ...args] = process.argv.slice(2)
-const direct = !!process.env.CI || process.env.PRISM_E2E_DESKTOP === 'same' || process.platform !== 'win32'
+const direct =
+  !!process.env.CI || process.env.PRISM_E2E_DESKTOP === 'same' || process.platform !== 'win32'
 
 if (direct) {
   const child = spawn(process.execPath, [script, ...args], { stdio: 'inherit', cwd: root })
