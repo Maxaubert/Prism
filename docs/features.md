@@ -51,6 +51,11 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
 
 - Open via: a file argument (Explorer double-click / "open with" / CLI), drag-and-drop, and an
   open dialog.
+- **A CUT ROW LOOKS CUT** (owner, 2026-10-28: "when you click ctrl x on an item selected the highlight
+  effect should get dimmed to indicate you clicked ctrl x"). A row marked cut (`data-cut`, from
+  `lib/fileClipboard`) wears the inactive selection's dimmed tint and edge while selected, and its name and
+  icon fade to 55 % (`browse.css`); a paste or a new copy clears the mark. e2e `explorerVerbs` compares the
+  cut row's tint with the dimmed and full ones.
 - **A SLOW PICTURE OVER ANOTHER SAYS IT IS LOADING** (owner, 2026-10-28: a HEIC clicked while another
   picture is in the preview "just takes some time then it switches ... which makes it seem like the image
   can't be viewed or there is a bug"). The viewer keeps the last picture until the next is ready (so
