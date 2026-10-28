@@ -1112,6 +1112,11 @@ if (!app.requestSingleInstanceLock()) {
     },
     longWaitChannels: [...LONG_WAIT_CHANNELS],
     powerMonitor: () => powerMonitor,
+    // The `memory` crumb every five minutes and `mem-high` (perf review,
+    // 2026-10-28): the core had them since 2026-10-16, but Prism never passed
+    // the metrics, so three weeks of log had no reading while main sat at
+    // 430 MB. Read only from the watch's timer, long after ready.
+    appMetrics: () => app.getAppMetrics(),
     // Detailed logging until the owner switches it off (owner, 2026-10-27:
     // "keep logging as much as possible" while Prism is young). The e2e
     // keeps the quiet default its scenarios measure against.

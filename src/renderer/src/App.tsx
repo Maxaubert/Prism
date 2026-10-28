@@ -21,6 +21,7 @@ import {
 import type { OpenPayload, OpenWithApp } from '@shared/types'
 import type { BrowseDriveUsage } from '@shared/browse'
 import { preloadImage } from './lib/imageLoader'
+import { neighbourImages } from './lib/warmNeighbours'
 import {
   addRestoredTab,
   addExplorerTab,
@@ -1084,27 +1085,33 @@ export default function App(): JSX.Element {
   // The shared image cache holds them (and enforces the memory policy), so we just
   // fire the requests; ±1 is enough to make stepping feel seamless. Very large
   // files are skipped: warming one costs more (memory, decode jank) than it saves.
+  //
+  // Keyed on the neighbours' PATHS, not on `view` (perf review, 2026-10-28):
+  // the warm-up's reads are now given up when the step moves on, and `view` is
+  // rebuilt by every details patch, which would abort and restart them.
+  const warmPaths = useMemo(() => (view ? neighbourImages(view.files, view.index, PRELOAD_MAX_BYTES).join('\n') : ''), [view])
   useEffect(() => {
-    if (!view) return
+    if (!warmPaths) return
+    const stop = new AbortController()
     // Wait for idle before warming neighbours. Load time is dominated by reading
     // the file, so firing these immediately makes two big neighbours compete with
     // the image the user is actually waiting for.
     const start = (): void => {
-      for (const d of [-1, 1]) {
-        const n = view.files[view.index + d]
-        // An unknown size (#271) is warmed, as 0 (could not stat) always was.
-        if (n && n.kind === 'image' && (n.size ?? 0) <= PRELOAD_MAX_BYTES) {
-          preloadImage(window.prism.mediaUrl(n.path))
-        }
-      }
+      for (const p of warmPaths.split('\n')) preloadImage(window.prism.mediaUrl(p), stop.signal)
     }
     if (typeof requestIdleCallback === 'function') {
       const id = requestIdleCallback(start, { timeout: 1500 })
-      return () => cancelIdleCallback(id)
+      return () => {
+        cancelIdleCallback(id)
+        stop.abort()
+      }
     }
     const t = setTimeout(start, 400)
-    return () => clearTimeout(t)
-  }, [view])
+    return () => {
+      clearTimeout(t)
+      stop.abort()
+    }
+  }, [warmPaths])
 
   // Drag-and-drop (path via webUtils, since Electron removed File.path).
   useEffect(() => {

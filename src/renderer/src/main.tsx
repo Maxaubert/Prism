@@ -1,5 +1,5 @@
 import './lib/windowPreferences'
-import { startDiag } from 'prism-term-core/renderer/lib/diag'
+import { noteDiagBackground, startDiag } from 'prism-term-core/renderer/lib/diag'
 import { watchSweepOverlay } from './hooks/sweepOverlayState'
 import { readStored } from './lib/storage'
 
@@ -8,6 +8,10 @@ import { readStored } from './lib/storage'
 // small entry, so a stall while the app chunk evaluates or App mounts is
 // caught too; it pulls in no React and nothing heavy.
 startDiag(window.prism)
+// Minimised, the beat and the batch slow down (perf review, 2026-10-28): the
+// window is never throttled, so nothing else would. Main says it (the page
+// cannot see a minimise) and slows its own watch to match.
+window.prism.onWindowState((st) => noteDiagBackground(st.minimised))
 // The native sweep box's state (#338): main says it once, shortly after the
 // first paint, and again on each change; listening from here, it is never missed.
 watchSweepOverlay()

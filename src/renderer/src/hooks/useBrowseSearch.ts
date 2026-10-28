@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BrowseSearchResult, BrowseSort } from '@shared/browse'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import { mergeSearchWindows, searchWindowOffset } from '../lib/searchWindows'
@@ -235,17 +235,26 @@ export function useBrowseSearch(
     },
     [key]
   )
+  // Kept between renders while nothing changed (perf review, 2026-10-28): the
+  // Explorer hands these on through `useFolderBrowsing`, whose answer is only
+  // stable when its parts are.
+  const stopSearch = useCallback(() => cancel.current(), [])
+  const result = useMemo(
+    () => (searching ? (current?.result ?? emptyResult(path!)) : undefined),
+    [searching, current, path]
+  )
+  const state = useMemo(
+    () =>
+      searching && result
+        ? { ...result, windows: current?.windows, running: current?.running ?? true }
+        : undefined,
+    [searching, result, current]
+  )
   return {
-    result: searching ? (current?.result ?? emptyResult(path!)) : undefined,
-    state: searching
-      ? {
-          ...(current?.result ?? emptyResult(path!)),
-          windows: current?.windows,
-          running: current?.running ?? true
-        }
-      : undefined,
+    result,
+    state,
     error: searching ? current?.error : undefined,
-    cancel: () => cancel.current(),
+    cancel: stopSearch,
     requestRange
   }
 }

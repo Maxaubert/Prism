@@ -217,7 +217,10 @@ export function ImageView({
     // the picture already on screen down to nothing while the next one decodes:
     // the same black flash, arrived at from the other direction. It starts false
     // on first mount, which is the only time a fade is wanted.
-    loadImage(url)
+    // Stepping past this picture gives up its read (perf review, 2026-10-28):
+    // holding an arrow through big photos no longer fetches every one in full.
+    const stop = new AbortController()
+    loadImage(url, stop.signal)
       .then((r) => {
         if (!alive) return
         setFailed(false)
@@ -231,6 +234,7 @@ export function ImageView({
       .catch(() => alive && setFailed(true))
     return () => {
       alive = false
+      stop.abort()
     }
   }, [url])
 
