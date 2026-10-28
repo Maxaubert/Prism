@@ -4,6 +4,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { NULL_DIAG_LOG, type DiagLog } from 'prism-term-core/main/diagLog'
 import {
+  LAG_WINDOW_MS,
+  SAMPLE_INTERVAL_US,
   lagProfileName,
   profilesToPrune,
   startLagProfiler,
@@ -171,6 +173,37 @@ describe('startLagProfiler', () => {
     // Window 1 (0 to 6000) holds the lag; window 2 (6000 to 6010) only its tail.
     expect(read('lag-2026-10-12T09-30-01-123Z.cpuprofile')).toEqual({ n: 1 })
     expect(read('lag-2026-10-12T09-30-01-123Z-prev.cpuprofile')).toEqual({ n: 2 })
+  })
+
+  it('samples every 4 ms in 15 s windows, not every 1 ms in 5 s ones (review, 2026-10-28)', () => {
+    expect(SAMPLE_INTERVAL_US).toBe(4000)
+    expect(LAG_WINDOW_MS).toBe(15_000)
+    const params: unknown[] = []
+    const p = startLagProfiler({
+      log: fakeLog(tmpdir()),
+      enabled: () => true,
+      session: () => ({
+        connect: () => {},
+        disconnect: () => {},
+        post: (method, prm, cb) => {
+          if (method === 'Profiler.setSamplingInterval') params.push(prm)
+          cb?.(null, {})
+        }
+      })
+    })
+    p.stop()
+    expect(params).toEqual([{ interval: SAMPLE_INTERVAL_US }])
+  })
+
+  it('writes no profile for a lag a trace dump caused (afterDump)', () => {
+    const calls: string[] = []
+    const log = fakeLog(tmpdir())
+    const p = startLagProfiler({ log, enabled: () => true, session: () => fakeSession(calls) })
+    calls.length = 0
+    log.write('main', 'main-lag', { ms: 3000, afterDump: true })
+    expect(calls).not.toContain('Profiler.stop')
+    p.stop()
+    expect(log.lines).toEqual([{ k: 'main-lag', ms: 3000, afterDump: true }])
   })
 
   it('stops its session when Detailed logging is turned off', () => {

@@ -3,6 +3,7 @@ import {
   chipSummary,
   endJob,
   landingIn,
+  landingReader,
   landJob,
   listJobs,
   MIN_SHOW_MS,
@@ -89,7 +90,7 @@ describe('the job queue behind the chip (2026-09-03)', () => {
 
 describe('landing items (owner, 2026-10-28: a paste shows its rows)', () => {
   beforeEach(() => resetJobs())
-  it('lists what is still copying into a folder, and drops each as it lands', () => {
+  it('lists what a paste is copying into a folder, a landed one at 100 until the list has it', () => {
     const id = startJob('paste', 'Copying')
     landJob(id, 'C:/into', [
       { path: 'C:/into/a.bin', name: 'a.bin', isFolder: false },
@@ -100,7 +101,42 @@ describe('landing items (owner, 2026-10-28: a paste shows its rows)', () => {
     updateLanding(id, 0, 40)
     expect(landingIn(listJobs(), 'C:/into')[0].pct).toBe(40)
     updateLanding(id, 0, 100)
-    expect(landingIn(listJobs(), 'C:/into').map((it) => it.name)).toEqual(['b'])
+    // Kept, at 100: the list drops it once the listing has the real file
+    // (review, 2026-10-28: it blinked out until the watcher's re-read).
+    expect(landingIn(listJobs(), 'C:/into').map((it) => [it.name, it.pct])).toEqual([
+      ['a.bin', 100],
+      ['b', 0]
+    ])
+  })
+  it('progress on an item says every item before it is through', () => {
+    const id = startJob('paste', 'Copying')
+    landJob(id, 'C:/into', [
+      { path: 'C:/into/1', name: '1', isFolder: false },
+      { path: 'C:/into/2', name: '2', isFolder: false },
+      { path: 'C:/into/3', name: '3', isFolder: false }
+    ])
+    updateLanding(id, 2, 30)
+    expect(landingIn(listJobs(), 'C:/into').map((it) => it.pct)).toEqual([100, 100, 30])
+    const before = listJobs()
+    updateLanding(id, 2, 30)
+    expect(listJobs()).toBe(before)
+  })
+  it('a folder reader hands back the same rows while only another folder or nothing changed', () => {
+    const id = startJob('paste', 'Copying')
+    landJob(id, 'C:/into', [{ path: 'C:/into/a', name: 'a', isFolder: false }])
+    const into = landingReader('C:/into')
+    const other = landingReader('C:/other')
+    const first = into()
+    const none = other()
+    expect(first).toHaveLength(1)
+    const b = startJob('paste', 'Copying')
+    landJob(b, 'C:/elsewhere', [{ path: 'C:/elsewhere/x', name: 'x', isFolder: false }])
+    updateLanding(b, 0, 50)
+    expect(into()).toBe(first)
+    expect(other()).toBe(none)
+    updateLanding(id, 0, 60)
+    expect(into()).not.toBe(first)
+    expect(into()[0].pct).toBe(60)
   })
   it('a finished job lands nothing more', () => {
     const id = startJob('paste', 'Copying')

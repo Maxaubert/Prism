@@ -53,6 +53,12 @@ describe('uniqueNameAsync (2026-10-12, off the main thread)', () => {
     mkdirSync(join(dir, 'Photos'))
     expect(await uniqueNameAsync(dir, 'Photos')).toBe('Photos (2)')
   })
+
+  it('counts names a caller has already handed out as taken, in any case (review, 2026-10-28)', async () => {
+    const dir = folder('a.jpg')
+    expect(await uniqueNameAsync(dir, 'a.jpg', new Set(['a (2).jpg']))).toBe('a (3).jpg')
+    expect(await uniqueNameAsync(folder(), 'B.md', new Set(['b.md']))).toBe('B (2).md')
+  })
 })
 
 describe('renameFile', () => {

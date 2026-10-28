@@ -36,14 +36,24 @@ const sameFile = (a: string, b: string): boolean => a.toLowerCase() === b.toLowe
  * main never waits on the disk while the user works); the synchronous
  * `uniqueName` went with its last caller. The name is free when looked at, not when used: a
  * caller that makes it should still take EEXIST as "try again".
+ *
+ * `taken` (lower-cased names) counts as there too: a paste that names all its
+ * items before copying any keeps two same-named sources apart (review,
+ * 2026-10-28).
  */
-export async function uniqueNameAsync(dir: string, name: string): Promise<string> {
-  if (!(await exists(join(dir, name)))) return name
+export async function uniqueNameAsync(
+  dir: string,
+  name: string,
+  taken?: ReadonlySet<string>
+): Promise<string> {
+  const free = async (n: string): Promise<boolean> =>
+    !taken?.has(n.toLowerCase()) && !(await exists(join(dir, n)))
+  if (await free(name)) return name
   const ext = extname(name)
   const stem = ext ? name.slice(0, -ext.length) : name
   for (let i = 2; i < 1000; i += 1) {
     const candidate = `${stem} (${i})${ext}`
-    if (!(await exists(join(dir, candidate)))) return candidate
+    if (await free(candidate)) return candidate
   }
   return `${stem} (${Date.now()})${ext}`
 }
