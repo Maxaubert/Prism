@@ -15,6 +15,18 @@ import type { Ask } from '../dialogs/asks'
 
 /** The kinds a player owns Up and Down for once nothing else wants them. */
 const PLAYABLE = new Set(['video', 'audio'])
+/** The kinds that are read by scrolling: in FULL VIEW they own Up and Down
+ *  (owner, 2026-10-28, "the arrow keys up and down navigate files while
+ *  you're in it which it should not", all documents). */
+const DOCUMENTS = new Set(['doc', 'pdf', 'text'])
+
+/** The document scroller on screen (another tab's stays mounted, hidden). */
+const shownDocScroller = (): HTMLElement | null =>
+  [...document.querySelectorAll<HTMLElement>('[data-doc-scroller]')].find(
+    (el) => el.getClientRects().length > 0 && !el.closest('[aria-hidden="true"]')
+  ) ?? null
+/** One arrow's worth of scroll, the browser's own line step. */
+const LINE_PX = 40
 
 // Whether the open document currently holds focus. Documents mark their own
 // scroller with data-doc-scroller; nothing auto-focuses one, so this is true
@@ -294,6 +306,18 @@ export function useAppKeys({
         // from the sidebar behaves the same whatever kind of file it lands on.
         // (`typing` already covered the text editor's caret, above.)
         if (docFocused()) return
+        // A DOCUMENT IN FULL VIEW SCROLLS (owner, 2026-10-28): the first
+        // arrow focuses it and scrolls a line, the rest are its own. The list,
+        // not the open document, is where Up and Down walk the folder.
+        if (viewingFile && !!file && DOCUMENTS.has(file.kind) && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+          const scroller = shownDocScroller()
+          if (scroller) {
+            e.preventDefault()
+            scroller.focus({ preventScroll: true })
+            scroller.scrollBy({ top: e.key === 'ArrowDown' ? LINE_PX : -LINE_PX })
+            return
+          }
+        }
         // Alt too: Alt+Up is the list's parent row (review of #330).
         if (inLists && (e.ctrlKey || e.shiftKey || e.altKey)) return
         // A player in front of you: Up/Down are the VOLUME, which is what every

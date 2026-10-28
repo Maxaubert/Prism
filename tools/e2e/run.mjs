@@ -482,8 +482,8 @@ async function mdScenario(fixtures) {
       'bullet lists keep their discs'
     )
 
-    // A rendered README takes no focus either, so Up/Down keep paging the
-    // folder until the reader actually clicks into the page.
+    // A rendered README takes no focus, and in FULL VIEW the arrows are its
+    // own anyway (owner, 2026-10-28): Down scrolls it and never pages away.
     const mdRow = () => viewing(win)
     ok(
       await win.evaluate(() => !document.activeElement?.closest('[data-doc-scroller]')),
@@ -491,7 +491,7 @@ async function mdScenario(fixtures) {
     )
     await win.keyboard.press('ArrowDown')
     await sleep(700)
-    ok(!((await mdRow()) ?? '').includes('README.md'), 'Down pages the folder from an unfocused README')
+    ok(((await mdRow()) ?? '').includes('README.md'), 'Down in full view stays on the README')
     await viewFile(win, 'README.md')
     await win.waitForSelector('.p-md h1', { timeout: 10000 })
     await sleep(400)
@@ -2987,9 +2987,11 @@ async function codeScenario(fixtures) {
       }),
       'a focused scroller draws no focus frame'
     )
+    // In FULL VIEW a document keeps Up and Down (owner, 2026-10-28): they
+    // scroll it, focused or not, and never page the folder.
     await win.keyboard.press('ArrowUp')
     await sleep(700)
-    ok(((await selected()) ?? '').includes('hello.sh'), 'Up pages the folder while nothing is focused')
+    ok(((await selected()) ?? '').includes('main.py'), 'Up in full view stays on the file')
 
     // AND LEFT DOES NOT (2026-09-01). It is the viewer's key now, and a text
     // file has no use for it, so it must do nothing at all rather than page.
@@ -3022,17 +3024,10 @@ async function codeScenario(fixtures) {
     ok(!win.isClosed(), 'Escape does not close the window')
     await win.keyboard.press('ArrowDown')
     await sleep(700)
-    ok(((await selected()) ?? '').includes('main.py'), 'and the arrows page again')
-
-    // Up and Down have to agree with Left and Right. They used to be handed to
-    // every document unconditionally, which meant they did nothing at all on a
-    // code file the user was only navigating past.
+    ok(((await selected()) ?? '').includes('main.py'), 'and the arrows still keep to the file')
     await win.keyboard.press('ArrowUp')
     await sleep(700)
-    ok(((await selected()) ?? '').includes('hello.sh'), 'Up pages the folder when the caret is not in the file')
-    await win.keyboard.press('ArrowDown')
-    await sleep(700)
-    ok(((await selected()) ?? '').includes('main.py'), 'and Down pages back')
+    ok(((await selected()) ?? '').includes('main.py'), 'Up stays on the file when the caret is not in it')
 
     await win.locator('.cm-line').first().click()
     await win
@@ -14431,6 +14426,77 @@ async function previewSlowImageScenario(fixtures) {
   }
 }
 
+/** FULL VIEW KEEPS THE LIST'S ORDER, AND A DOCUMENT KEEPS THE ARROWS (owner,
+ *  2026-10-28: in an Excel sheet "the arrow keys up and down navigate files
+ *  while you're in it which it should not", and in full view "up goes down
+ *  and down goes up"). The list sorted by date: Down from its first row opens
+ *  its second row, not the next name. A workbook in full view: Down scrolls
+ *  it and never leaves it, focused or not. */
+async function docArrowsScenario(fixtures) {
+  console.log('full view: the list order, and documents keep the arrows')
+  const dir = join(fixtures, 'docarrows')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  // Names a, b, c; dates c (oldest), a, b (newest): by date, c then a then b.
+  const PNG_BYTES = readFileSync(join(ROOT, 'build', 'icon.png'))
+  const now = Date.now() / 1000
+  for (const [n, age] of [['a.png', 200], ['b.png', 100], ['c.png', 300]]) {
+    writeFileSync(join(dir, n), PNG_BYTES)
+    utimesSync(join(dir, n), now - age, now - age)
+  }
+  // A workbook long enough to scroll.
+  const XLSX = (await import('xlsx')).default ?? (await import('xlsx'))
+  const rows = Array.from({ length: 400 }, (_, r) => [`row ${r + 1}`, r * 3, `note ${r}`])
+  const book = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), 'One')
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows.slice(0, 50)), 'Two')
+  XLSX.writeFile(book, join(dir, 'w.xlsx'))
+  utimesSync(join(dir, 'w.xlsx'), now - 50, now - 50)
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'w.xlsx'))
+  const scroller = () => win.evaluate(() => {
+    const el = [...document.querySelectorAll('[data-doc-scroller]')].find((e) => e.getClientRects().length)
+    return el ? Math.round(el.scrollTop) : null
+  })
+  try {
+    // 1. The workbook in full view, nothing clicked: Down scrolls it.
+    ok(await until(async () => (await win.locator('.p-sheet').count()) === 1, 20000), 'the workbook opens in full view')
+    await sleep(600)
+    for (let i = 0; i < 5; i += 1) {
+      await win.keyboard.press('ArrowDown')
+      await sleep(120)
+    }
+    await sleep(400)
+    ok((await win.locator('.p-sheet').count()) === 1, 'Down without a click stays on the workbook')
+    const top = await scroller()
+    ok(top !== null && top > 0, `and scrolls it (${top} px)`)
+    await win.keyboard.press('ArrowUp')
+    await sleep(400)
+    ok((await scroller()) < top, `Up scrolls it back (${await scroller()} px)`)
+
+    // 2. The list by date, oldest first: Down from its first row is its second.
+    await explorerAt(win, dir)
+    const header = win.locator('[aria-label^="Sort by date modified"]')
+    await header.click()
+    await sleep(400)
+    const order = await win.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path]')].map((r) => r.getAttribute('data-browse-path').split(/[\\/]/).pop())
+    )
+    ok(order.join(',') === 'c.png,a.png,b.png,w.xlsx' || order.join(',') === 'w.xlsx,b.png,a.png,c.png', `the list is by date (${order.join(', ')})`)
+    const first = order[0] === 'c.png' ? 'c.png' : 'b.png'
+    const second = order[0] === 'c.png' ? 'a.png' : 'a.png'
+    await win.locator(`[data-testid="browse-list"] [data-browse-path$="${first}"]`).dblclick()
+    const shown = () => win.evaluate(() => [...document.querySelectorAll('img[alt]')].find((i) => i.getClientRects().length)?.getAttribute('alt') ?? '')
+    ok(await until(async () => (await shown()) === first, 10000), `${first} opens in full view`)
+    await win.keyboard.press('ArrowDown')
+    ok(await until(async () => (await shown()) === second, 5000), `Down opens the list's next row, ${second} (${await shown()})`)
+    await win.keyboard.press('ArrowUp')
+    ok(await until(async () => (await shown()) === first, 5000), `Up comes back to ${first} (${await shown()})`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function previewClearsScenario(fixtures) {
   console.log('going into a folder clears the preview (#300 review)')
   const { dir } = await zipWorld(fixtures, 'previewclears')
@@ -16004,6 +16070,7 @@ await run(zipRestoreScenario)
 await run(zipLockedScenario)
 await run(zipFolderScenario)
 await run(previewClearsScenario)
+await run(docArrowsScenario)
 await run(previewSlowImageScenario)
 await run(menuOverPreviewScenario)
 await run(zipPreviewBackScenario)
