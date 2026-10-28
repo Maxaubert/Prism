@@ -656,7 +656,24 @@ export default function App(): JSX.Element {
   // removed 2026-08-20: a forgotten filter read as missing files.)
   // Keyed on the files, not the tab (review, 2026-10-16): the tab is a new
   // object on every patch of its browse state, and each one re-sorted them.
-  const sort = useSort()
+  // THE LIST'S ORDER, not a second one (owner, 2026-10-28: in full view "up
+  // goes down and down goes up"). The viewer stepped by the old viewer sort
+  // (name) while the list showed its own, Downloads newest first, so the next
+  // file was not the next row. The list orders its files with the same
+  // `sortFiles` (browse/entries.ts), so its key is used as is; only `path` (a
+  // search's folder order) reads as name here.
+  const sortPref = useSort()
+  const listSort = browsing.sort
+  const sort = useMemo(
+    () =>
+      listSort
+        ? {
+            field: listSort.key === 'path' ? ('name' as const) : listSort.key,
+            dir: listSort.direction
+          }
+        : sortPref,
+    [listSort, sortPref]
+  )
   const activeFiles = active?.files
   const view = useMemo(() => {
     if (!activeFiles || rawIndex < 0 || !activeFiles.length) return null
