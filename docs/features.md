@@ -724,7 +724,9 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   whatever scrolled, vertical and horizontal; native bars are hidden while it is mounted
   (`p-overlay-scrollbars`). `data-own-scrollbar` opts out: the file list (its own), the address
   crumbs and the drive legend (no bar on purpose). `listScrollbar` e2e scrolls the places panel
-  and finds the 4 px bar on its edge; `lib/overlayScroll.test.ts` holds the arithmetic.
+  and finds the bar on its edge; `lib/overlayScroll.test.ts` holds the arithmetic. QUIETER AND FLUSH
+  (owner, 2026-10-28: "still not subtle enough and its not on the edge ... theres a small gap"): the
+  thumb is 3 px at 16 % (5 px at 32 % under the pointer), with no inset; the e2e measures the gap as 0.
   **THE ADDRESS AND THE SEARCH ARE ONE FIELD** (#267; owner, 2026-10-04: "make the url box more
   visible and for the black theme make the grey colours used in search and in the url bar darker
   grey"). Both wear `.browse-field` (`--p-field`, `-edge`, `-edge-hover`, `-hint`). On a ground
