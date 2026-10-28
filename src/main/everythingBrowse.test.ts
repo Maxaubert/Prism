@@ -8,12 +8,15 @@ import {
   searchEverythingBrowseWindow
 } from './everythingBrowse'
 import { managedIndexerRuntime } from './indexerRuntime'
-import { findRunningEverything } from './existingEverything'
+import { findRunningEverything, forgetRunningEverything } from './existingEverything'
 
 vi.mock('./spawnWorker', () => ({ execFile: vi.fn() }))
 vi.mock('./everything', () => ({ findEverything: vi.fn(async () => 'es.exe') }))
 vi.mock('./indexerRuntime', () => ({ managedIndexerRuntime: vi.fn(() => undefined) }))
-vi.mock('./existingEverything', () => ({ findRunningEverything: vi.fn(async () => null) }))
+vi.mock('./existingEverything', () => ({
+  findRunningEverything: vi.fn(async () => null),
+  forgetRunningEverything: vi.fn()
+}))
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -151,6 +154,8 @@ describe('Everything Explorer adapter', () => {
     ).toEqual(rows)
     expect(findEverything).toHaveBeenCalledOnce()
     expect(vi.mocked(execFile).mock.calls[2][1]).toContain('Prism-private')
+    // Passed over, so its long-held probe answer is asked again (perf review #32).
+    expect(forgetRunningEverything).toHaveBeenCalledOnce()
   })
 
   it('does not treat another index coverage as proof that an empty result is complete', async () => {

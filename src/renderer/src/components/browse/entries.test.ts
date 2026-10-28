@@ -133,7 +133,7 @@ describe('folder browser entries', () => {
         ...dated,
         complete: false,
         carried: true,
-        files: [...dated.files, { ...file('new.part', 'other', 0), path: 'C:\Dl\new.part', mtimeMs: undefined }]
+        files: [...dated.files, { ...file('new.part', 'other', 0), path: 'C:\\Dl\\new.part', mtimeMs: undefined }]
       }
       expect(datesKnown(carried)).toBe(false)
       expect(datesUsable(carried)).toBe(true)
@@ -144,7 +144,7 @@ describe('folder browser entries', () => {
       // Folders first elsewhere, files still by date with the new one newest.
       expect(rows('desc', false)).toEqual(['New folder', 'Old folder', 'new.part', 'b.zip', 'a.zip', 'c.exe'])
       // A new folder is the newest folder.
-      const newFolder = { ...carried, folders: [...carried.folders, { path: 'C:\Dl\Fresh', name: 'Fresh' }] }
+      const newFolder = { ...carried, folders: [...carried.folders, { path: 'C:\\Dl\\Fresh', name: 'Fresh' }] }
       expect(browseEntries(newFolder, '', { key: 'modified', direction: 'desc' }, {}, false)[0].name).toBe('Fresh')
     })
     it('a carried listing keeps a size sort, new files last either way (perf review #3)', () => {
