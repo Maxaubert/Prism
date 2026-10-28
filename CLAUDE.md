@@ -28,7 +28,10 @@ library manager, not an editor.
 - **THE E2E STAYS HEADLESS** (owner, 2026-10-03): it runs OFFSCREEN (`tools/e2e/run.mjs` `park()`:
   opacity 0, at -4000,-4000, off the taskbar) and never takes the foreground (`--e2e` makes the
   window `focusable: false` and `showInactive()`). Anything added to the e2e goes in
-  `tools/e2e/run.mjs` and keeps that nature. Every scenario REAPS the processes it leaves (matched
+  `tools/e2e/run.mjs` and keeps that nature. **It runs on its OWN WINDOWS DESKTOP** (owner,
+  2026-10-28: "constantly stealing focus"): `npm run e2e*` go through `tools/e2e/hidden.mjs`, which
+  starts the run on a second desktop (`HiddenDesktop.cs`) so nothing it opens can reach the owner's
+  foreground; never call `node tools/e2e/run.mjs` directly on this PC. CI runs it direct. Every scenario REAPS the processes it leaves (matched
   by profile path only, so the machine's own Prism is never touched): one leaked app holds the
   single-instance lock and fails every scenario after it.
 - **THE E2E IS THE PR GATE AND NOTHING ELSE; AN INSTALL RUNS NONE** (owner, 2026-09-02 and
