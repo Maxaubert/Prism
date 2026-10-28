@@ -12,7 +12,6 @@ import {
   resetDesktopAccess,
   validDesktopRoot
 } from './desktopAccess'
-import { resetRoots } from './roots'
 
 let directory: string
 beforeEach(() => {
@@ -21,12 +20,10 @@ beforeEach(() => {
   // so the timing tests' paths under it read as outside (CI only, #322).
   directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'prism-desktop-access-')))
   resetDesktopAccess()
-  resetRoots()
 })
 afterEach(() => {
   vi.restoreAllMocks()
   resetDesktopAccess()
-  resetRoots()
   rmSync(directory, { recursive: true, force: true })
 })
 

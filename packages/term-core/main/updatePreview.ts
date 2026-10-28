@@ -40,18 +40,18 @@ export const SAMPLE_NOTES = [
   '<!-- Release notes generated using configuration in .github/release.yml at main -->',
   '',
   "## What's Changed",
-  '* The update button opens a window with the patch notes, Cancel and Install by @Maxaubert in https://github.com/Maxaubert/PrismTerminal/pull/30',
-  '* Explorer entries read "Open terminal here", and a window edges setting (#27) by @Maxaubert in https://github.com/Maxaubert/PrismTerminal/pull/29',
-  '* Dictation: speak into the terminal, transcribed on your own machine by @Maxaubert in https://github.com/Maxaubert/PrismTerminal/pull/22',
-  '* fix(terminal): a prompt survives the window getting narrower and wider again by @Maxaubert in https://github.com/Maxaubert/PrismTerminal/pull/31',
-  '* fix(tabs): closing a tab that hosts an agent asks first, working or idle by @Maxaubert in https://github.com/Maxaubert/PrismTerminal/pull/32',
-  '* Links are painted in a colour that follows the theme by @Maxaubert in https://github.com/Maxaubert/PrismTerminal/pull/33',
-  '* Bump electron from 43.1.0 to 43.1.1 by @dependabot[bot] in https://github.com/Maxaubert/PrismTerminal/pull/34',
+  '* The update button opens a window with the patch notes, Cancel and Install by @Maxaubert in https://github.com/Maxaubert/Prism/pull/30',
+  '* A cut row looks cut, and a paste shows its items as they copy (#452) by @Maxaubert in https://github.com/Maxaubert/Prism/pull/453',
+  '* feat(explorer): Downloads keeps its newest-first order by @Maxaubert in https://github.com/Maxaubert/Prism/pull/440',
+  '* fix(viewer): a picture keeps its zoom when the window gets narrower and wider again by @Maxaubert in https://github.com/Maxaubert/Prism/pull/431',
+  '* fix(tabs): closing the last tab closes the window, from every route by @Maxaubert in https://github.com/Maxaubert/Prism/pull/432',
+  '* Links are painted in a colour that follows the theme by @Maxaubert in https://github.com/Maxaubert/Prism/pull/433',
+  '* Bump electron from 43.1.0 to 43.1.1 by @dependabot[bot] in https://github.com/Maxaubert/Prism/pull/434',
   '',
   '## New Contributors',
-  '* @dependabot[bot] made their first contribution in https://github.com/Maxaubert/PrismTerminal/pull/34',
+  '* @dependabot[bot] made their first contribution in https://github.com/Maxaubert/Prism/pull/434',
   '',
-  '**Full Changelog**: https://github.com/Maxaubert/PrismTerminal/compare/v0.4.0...v0.5.0'
+  '**Full Changelog**: https://github.com/Maxaubert/Prism/compare/v0.118.0...v0.119.0'
 ].join('\n')
 
 /** The offer a preview announces. No url: there is nothing to download. */

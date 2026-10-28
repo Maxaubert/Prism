@@ -17,7 +17,6 @@ import {
   releaseDesktop,
   resetDesktopAccess
 } from './desktopAccess'
-import { addRoot, insideAnyRoot, openRoots, resetRoots } from './roots'
 import type { BrowseSearchProgress } from '@shared/browse'
 import { searchEverythingBrowse, searchEverythingBrowseWindow } from './everythingBrowse'
 
@@ -43,7 +42,6 @@ beforeEach(() => {
   writeFileSync(join(playnite, 'Playnite.exe'), 'unsupported but searchable')
   writeFileSync(join(playnite, '.playnite-settings'), 'hidden but searchable')
   writeFileSync(join(home, 'playnite-notes.txt'), 'notes')
-  resetRoots()
   resetDesktopAccess()
   grantDesktopDirectory('explorer', home)
 })
@@ -113,7 +111,6 @@ describe('recursive desktop Explorer search', () => {
     expect(stats).not.toHaveBeenCalled()
     expect(walk).not.toHaveBeenCalled()
     expect(progress).not.toHaveBeenCalled()
-    expect(insideAnyRoot(file)).toBe(false)
     expect(insideDesktop(file)).toBe(true)
     expect(vi.mocked(searchEverythingBrowseWindow).mock.calls.at(-1)?.[2]).toEqual(request)
   })
@@ -198,7 +195,6 @@ describe('recursive desktop Explorer search', () => {
     expect(walk).not.toHaveBeenCalled()
     expect(stats).not.toHaveBeenCalled()
     expect(insideDesktop(join(playnite, 'Playnite.exe'))).toBe(true)
-    expect(insideAnyRoot(join(playnite, 'Playnite.exe'))).toBe(false)
   })
 
   it('never recursively walks after an empty indexed answer and reports unsupported fallback filters', async () => {
@@ -289,12 +285,9 @@ describe('recursive desktop Explorer search', () => {
   it('grants only matching desktop locations to the owner without sharing them to the phone', async () => {
     const project = join(box, 'Project')
     mkdirSync(project)
-    addRoot(project)
     expect(insideDesktop(join(playnite, 'Playnite.exe'))).toBe(false)
     await browseSearch('explorer', home, 'Playnite.exe', 'grant')
     expect(insideDesktop(join(playnite, 'Playnite.exe'))).toBe(true)
-    expect(insideAnyRoot(join(playnite, 'Playnite.exe'))).toBe(false)
-    expect(openRoots()).toEqual([project])
     releaseDesktop('explorer')
     expect(insideDesktop(join(playnite, 'Playnite.exe'))).toBe(false)
   })

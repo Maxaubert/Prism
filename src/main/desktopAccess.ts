@@ -1,6 +1,5 @@
 import { dirname } from 'path'
 import { canonicalPath, forgetCanonical, warmCanonical, withinCanonical } from './dirList'
-import { insideAnyRoot, validRoot } from './roots'
 import { closeAllBrowseWatches, closeBrowseWatch } from './browseWatch'
 import { diagMain } from 'prism-term-core/main/diagLog'
 
@@ -176,8 +175,7 @@ function inside(path: string): boolean {
     const held = grants.get(parent)
     if (held !== undefined && withinCanonical(held, (target ??= canonicalPath(path)))) return true
   }
-  if (insideAnyRoot(path)) return true
-  return anyGrantDirectlyHolds({ path: target ?? canonicalPath(path), parent: canonicalPath(parent) })
+  return !!path && anyGrantDirectlyHolds({ path: target ?? canonicalPath(path), parent: canonicalPath(parent) })
 }
 
 export function validDesktopRoot(root: string, path: string): boolean {
@@ -185,7 +183,6 @@ export function validDesktopRoot(root: string, path: string): boolean {
 }
 
 function validDesktopRootNow(root: string, path: string): boolean {
-  if (validRoot(root, path)) return true
   if (!root || !path) return false
   const owner = canonicalPath(root)
   let target: Asked | null = null

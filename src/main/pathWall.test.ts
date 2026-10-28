@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { createPathWall, underDir, type WallDeps } from './pathWall'
 
 // THE ROOT WALL (stage 9a): every guard pinned, so a refactor that loosens one
-// fails here first. The fakes stand for an open root C:\Root (which is also
-// a tab's own root folder), the member temp folder C:\Temp\members, and the
-// renderer's asset tree C:\App\renderer.
+// fails here first. The fakes stand for a granted folder C:\Root, the member
+// temp folder C:\Temp\members, and the renderer's asset tree C:\App\renderer.
+// The old 'a tab's own root can never be renamed or binned' rule went with the
+// roots (2026-10-28): no root had been registered since #439.
 const ROOT = 'C:\\Root'
 const inRoot = (p: string): boolean => p.toLowerCase().startsWith('c:\\root')
 const deps: WallDeps = {
   insideDesktop: inRoot,
-  isAnyRoot: (p) => p.toLowerCase() === 'c:\\root',
   memberOwns: (p) => typeof p === 'string' && p.toLowerCase().startsWith('c:\\temp\\members\\'),
   rendererDir: 'C:\\App\\renderer'
 }
@@ -66,20 +66,18 @@ describe('the path wall', () => {
     expect(w.movable('C:\\Data\\converted.mp4')).toBe(false)
   })
 
-  it('edits stay inside the wall and never touch a root', () => {
+  it('edits stay inside the wall', () => {
     const w = wall()
     expect(w.editable(`${ROOT}\\a.txt`)).toBe(true)
-    expect(w.editable(ROOT)).toBe(false)
     expect(w.editable('C:\\Elsewhere\\a.txt')).toBe(false)
     w.grantExtracted('C:\\Temp\\x.txt')
     expect(w.editable('C:\\Temp\\x.txt')).toBe(false)
     expect(w.editable('C:\\Temp\\members\\run\\a.txt')).toBe(false)
   })
 
-  it('moves: inside or extracted, never a root', () => {
+  it('moves: inside or extracted', () => {
     const w = wall()
     expect(w.movable(`${ROOT}\\a.txt`)).toBe(true)
-    expect(w.movable(ROOT)).toBe(false)
     expect(w.movable('C:\\Elsewhere\\a.txt')).toBe(false)
     expect(w.movable('C:\\Temp\\members\\run\\a.txt')).toBe(true)
     expect(w.movable(7)).toBe(false)

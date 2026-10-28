@@ -1,4 +1,4 @@
-import { WINDOW_LOCAL_KEYS, WINDOW_LOCAL_PREFIXES } from './prefKeys'
+import { WINDOW_LOCAL_KEYS, WINDOW_LOCAL_PREFIXES, retiredPrefKey } from './prefKeys'
 
 export interface WindowPreferencesSnapshot {
   values: Record<string, string>
@@ -13,7 +13,8 @@ export interface WindowPreferenceChange {
   value: string | null
 }
 
-/** Preferences travel between windows; layout, reading progress and phone credentials do not. */
+/** Preferences travel between windows; layout, reading progress, phone credentials and
+ *  retired keys (prefKeys.ts) do not. */
 export function validWindowPreferenceKey(key: unknown): key is string {
   return (
     typeof key === 'string' &&
@@ -21,6 +22,7 @@ export function validWindowPreferenceKey(key: unknown): key is string {
     key.length <= 200 &&
     key.startsWith('prism.') &&
     !WINDOW_LOCAL_KEYS.has(key) &&
+    !retiredPrefKey(key) &&
     !WINDOW_LOCAL_PREFIXES.some((prefix) => key.startsWith(prefix))
   )
 }

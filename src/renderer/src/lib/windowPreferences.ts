@@ -1,4 +1,5 @@
 import { validWindowPreferenceKey, type WindowPreferencesSnapshot } from '@shared/windowPreferences'
+import { RETIRED_PREF_KEYS } from '@shared/prefKeys'
 
 /** Runs before App imports, including stores that read preferences at module evaluation. */
 function loadWindowPreferences(): void {
@@ -11,6 +12,9 @@ function loadWindowPreferences(): void {
   const nativeRemove = prototype.removeItem
   let snapshot = bridge.windowPreferencesLoad()
   if (!snapshot) return
+  // Retired keys (prefKeys.ts) are read by nothing; drop this window's copies
+  // (2026-10-28). The native remove: they are not shared keys any more.
+  for (const key of RETIRED_PREF_KEYS) if (storage.getItem(key) !== null) nativeRemove.call(storage, key)
 
   if (!snapshot.shared) {
     const seed: Record<string, string> = {}
