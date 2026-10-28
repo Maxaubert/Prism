@@ -201,6 +201,7 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
     prefetch(path: string): Promise<BrowseDirectory | null> {
       if (typeof path !== 'string' || !isAbsolute(path) || path.length > 1024)
         return Promise.resolve(null)
+      cache.warm(resolve(path))
       return prefetchQueue.add(path)
     }
   }

@@ -136,6 +136,7 @@ describe('the cache on disk', () => {
     expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([])
     const two = createListingCache({ directory: dir })
     two.load()
+    await two.idle() // the held texts are read in behind the index
     const hit = two.read('c:\\a')
     expect(hit?.listing.files.map((f) => f.size)).toEqual([0, 1])
     expect(hit?.folderMtimeMs).toBe(42)
@@ -207,7 +208,7 @@ describe('the cache on disk', () => {
     cache.put('C:\\A', listing('C:\\A', 1, 0), 1)
     await settle()
     writeFileSync(join(dir, `${cacheKey('C:\\A')}.json`), '{"v":1,')
-    expect(cache.read('C:\\A')).toBeNull()
+    expect(await cache.readAsync('C:\\A')).toBeNull()
     expect(cache.has('C:\\A')).toBe(false)
   })
 
@@ -241,6 +242,7 @@ describe('the cache on disk', () => {
     const two = createListingCache({ directory: dir })
     two.load()
     await two.sweep() // load starts one; this waits for the folder to be swept
+    await two.idle()
     expect(readdirSync(dir).sort()).toEqual([`${cacheKey('C:\\A')}.json`, 'index.json'].sort())
     expect(two.read('C:\\A')).not.toBeNull()
   })
@@ -326,10 +328,51 @@ describe('the cache on disk', () => {
     const before = readFileSync(join(dir, 'index.json'), 'utf8')
     const reader = createListingCache({ directory: dir, readOnly: true })
     reader.load()
+    await reader.idle()
     expect(reader.read('C:\\A')).not.toBeNull()
     reader.put('C:\\B', listing('C:\\B', 1, 0), 1)
     reader.flush()
     expect(readFileSync(join(dir, 'index.json'), 'utf8')).toBe(before)
+  })
+})
+
+describe('the same-frame read answers from memory (review, 2026-10-28)', () => {
+  it('never reads the disk in the sync read: a folder not held misses, then is read in behind it', async () => {
+    const dir = join(box, 'cache')
+    const one = createListingCache({ directory: dir, indexDelayMs: 1 })
+    one.put('C:\\A', listing('C:\\A', 1, 0), 1)
+    one.put('C:\\B', listing('C:\\B', 1, 0), 1)
+    await one.idle()
+    one.flush()
+    // Holds one folder only: the warm-up after load reads in one of the two.
+    const two = createListingCache({ directory: dir, maxHeld: 1 })
+    two.load()
+    await two.idle()
+    const first = two.read('C:\\A')
+    const other = first ? 'C:\\B' : 'C:\\A'
+    if (!first) expect(two.read('C:\\B')).not.toBeNull()
+    expect(two.read(other)).toBeNull()
+    await two.idle()
+    expect(two.read(other)?.path).toBe(other)
+  })
+
+  it('serves a put at once, and a hover warms a folder for the click', async () => {
+    const dir = join(box, 'cache')
+    const one = createListingCache({ directory: dir, indexDelayMs: 1 })
+    one.put('C:\\A', listing('C:\\A', 1, 0), 1)
+    expect(one.read('C:\\A')).not.toBeNull()
+    await one.idle()
+    one.flush()
+    const two = createListingCache({ directory: dir, maxHeld: 0 })
+    two.load()
+    await two.idle()
+    expect(two.read('C:\\A')).toBeNull()
+    const three = createListingCache({ directory: dir, maxHeld: 4 })
+    three.load()
+    await three.idle()
+    three.warm('C:\\A')
+    await three.idle()
+    expect(three.read('C:\\A')).not.toBeNull()
   })
 })
 

@@ -39,7 +39,7 @@ import {
   markExplorerWindow
 } from './explorerWindow'
 import { createWindowPreferences } from './windowPreferences'
-import { isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
+import { forgetCanonical, isSkipped, listDir, searchFiles, toViewerFile, warmCanonical } from './dirList'
 import { isAnyRoot, onRootsChanged } from './roots'
 import {
   grantDesktopDirectory,
@@ -219,7 +219,13 @@ const wall = createPathWall({
 const { readable, editable, movable, archiveOk, archiveReadOk, comicOk } = wall
 
 /** fsmedia:// (mediaProtocol.ts), walled by `mediaAllowed`. */
-const serveMediaNow = createMediaServer({ allowed: wall.mediaAllowed, ffmpeg: ffmpegTools, heic: heicToJpeg })
+const warmWall = (p: string): Promise<void> => warmCanonical([p, dirname(p)])
+const serveMediaNow = createMediaServer({
+  allowed: wall.mediaAllowed,
+  warm: warmWall,
+  ffmpeg: ffmpegTools,
+  heic: heicToJpeg
+})
 // E2E only: a file whose name holds PRISM_E2E_SLOW_MEDIA answers 1.5 s late,
 // standing in for a slow conversion (a HEIC), so the preview's wait can be
 // seen (e2e previewSlowImage).
@@ -540,6 +546,9 @@ function ownWrite(...paths: Array<string | null | undefined>): void {
 }
 
 async function written(...paths: Array<string | null | undefined>): Promise<void> {
+  // The wall's remembered resolutions (dirList `forgetCanonical`): a rename,
+  // move or delete Prism made is never judged by where a path pointed before.
+  forgetCanonical()
   await folderSizes
     .invalidate(paths.filter((p): p is string => typeof p === 'string' && !!p))
     .catch(() => {})
@@ -1307,6 +1316,7 @@ if (!app.requestSingleInstanceLock()) {
     protocol.handle(AUDIO_SCHEME, (request) =>
       serveSidecarAudio(request, {
         allowed: readable,
+        warm: warmWall,
         packaged: app.isPackaged,
         resourcesPath: process.resourcesPath,
         appPath: app.getAppPath()

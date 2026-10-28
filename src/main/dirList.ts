@@ -1,5 +1,5 @@
 import { realpathSync, type Dirent } from 'fs'
-import { readdir, stat } from 'fs/promises'
+import { readdir, realpath, stat } from 'fs/promises'
 import { basename, extname, join, resolve, sep } from 'path'
 import { fileKind, isViewable } from '@shared/fileKind'
 import { byName } from '@shared/path'
@@ -24,16 +24,78 @@ const isWin = process.platform === 'win32'
 /** Resolved, symlink-free, comparable form of a path. Falls back to `resolve`
  *  when the path doesn't exist yet (realpath throws on missing entries). */
 function canonical(p: string): string {
+  const now = Date.now()
+  const memo = resolved.get(p)
+  if (memo && now - memo.at < CANONICAL_TTL_MS) return memo.path
   let r: string
+  let found = true
   try {
     // sync-ok: the root wall's canonical path check; its guards answer inline, by design
     r = realpathSync.native ? realpathSync.native(p) : realpathSync(p)
   } catch {
     r = resolve(p)
+    found = false
   }
+  const path = comparable(r)
+  if (found) remember(p, path, now)
+  return path
+}
+
+function comparable(r: string): string {
   // Trailing separator would break the boundary check below ("C:\a\" vs "C:\a").
   if (r.length > 1 && r.endsWith(sep)) r = r.slice(0, -1)
   return isWin ? r.toLowerCase() : r
+}
+
+/**
+ * A RESOLVED PATH IS REMEMBERED FOR TWO SECONDS (review, 2026-10-28: "look for
+ * stall points"). The guards resolved the same paths over and over on main's
+ * thread: every Range request of a playing video, both passes of a folder's
+ * size list, each size row three times. On a share, a sleeping USB disk or a
+ * OneDrive placeholder each one can wait out the I/O (guard-slow lines of
+ * 281 to 1067 ms in the owner's log). Only a path that exists is remembered,
+ * and Prism's own renames, moves and deletes forget everything
+ * (`forgetCanonical`), so the window in which a junction swapped in by
+ * another program is judged by where it pointed is two seconds at most.
+ */
+const CANONICAL_TTL_MS = 2000
+const CANONICAL_MAX = 4096
+const resolved = new Map<string, { path: string; at: number }>()
+
+function remember(p: string, path: string, at: number): void {
+  if (resolved.size >= CANONICAL_MAX) resolved.clear()
+  resolved.set(p, { path, at })
+}
+
+/** Prism changed the disk itself: no remembered resolution survives it. */
+export function forgetCanonical(): void {
+  resolved.clear()
+}
+
+/**
+ * Resolve these paths OFF main's thread (libuv's realpath, the same native
+ * call), a few at a time, into the memo `canonical` answers from. A caller
+ * that can await (the media protocol, the size lists) warms first, and its
+ * synchronous guard then touches no disk.
+ */
+export async function warmCanonical(paths: Iterable<string>, limit = 4): Promise<void> {
+  const now = Date.now()
+  const todo = [...new Set(paths)].filter((p) => {
+    const memo = resolved.get(p)
+    return !!p && !(memo && now - memo.at < CANONICAL_TTL_MS)
+  })
+  let next = 0
+  const lane = async (): Promise<void> => {
+    while (next < todo.length) {
+      const p = todo[next++]
+      try {
+        remember(p, comparable(await realpath(p)), Date.now())
+      } catch {
+        /* missing: `canonical` falls back to resolve, as it always did */
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, todo.length) }, lane))
 }
 
 /**

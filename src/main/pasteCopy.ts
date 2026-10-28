@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, readdir, stat } from 'node:fs/promises'
+import { lstat, mkdir, readdir, stat } from 'node:fs/promises'
 import { pipeline } from 'node:stream/promises'
 import { join } from 'node:path'
 import { insideSelf } from './moveOps'
@@ -80,4 +80,32 @@ export async function copyCounted(
   const reader = createReadStream(src)
   reader.on('data', (chunk) => tick(chunk.length))
   await pipeline(reader, createWriteStream(target, { flags: 'wx' }))
+}
+
+/**
+ * Every file under a path, in bytes, for a paste's progress arithmetic.
+ *
+ * SIZED AFTER THE ROWS ARE SHOWN (review, 2026-10-28): the paste used to walk
+ * every source whole before it said anything, so a big folder showed nothing
+ * until the walk ended ("nothing happens and suddenly items just appear").
+ * It now runs beside the copy, and `stopped` ends it early once the copy no
+ * longer needs it. Links and junctions are counted as themselves and never
+ * followed (lstat): a junction loop such as `Application Data` cannot keep
+ * it walking, and the bar is only a guide.
+ */
+export async function walkSizes(p: string, stopped: () => boolean = () => false): Promise<number> {
+  if (stopped()) return 0
+  const st = await lstat(p)
+  if (!st.isDirectory()) return st.isSymbolicLink() ? 0 : st.size
+  let total = 0
+  for (const e of await readdir(p, { withFileTypes: true })) {
+    if (stopped()) break
+    if (e.isSymbolicLink()) continue
+    try {
+      total += await walkSizes(join(p, e.name), stopped)
+    } catch {
+      /* unreadable entries copy as failures later; the bar only guides */
+    }
+  }
+  return total
 }
