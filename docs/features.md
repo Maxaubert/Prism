@@ -12,11 +12,20 @@ agent poll was the measured cause of the ~5 s startup freeze (`diag.jsonl` 2026-
 8 runs). Every older entry below that describes the terminal, dictation, agents, the sidebar tree, split panes
 or project settings is HISTORY, kept for its measurements; none of it ships.
 
-- **Stays**: Explorer tabs (the pinned one and extra ones), every viewer, search, rename / move / delete,
+- **Stays**: Explorer tabs (none pinned since 2026-10-28, below), every viewer, search, rename / move / delete,
   Properties, archives, Win+E, file associations, the folder handler (#393), the update chip and window,
   Settings (Appearance, Explorer, Media, Diagnostics, About), 18 themes and the colour picker, the phone page,
   `npm run diag`.
-- **Entry points**: a file from argv, an association, a second instance or a drop opens in the pinned Explorer
+- **NO PINNED TAB; THE LAST CLOSE CLOSES PRISM** (owner, 2026-10-28: "remove the pin system for tabs every
+  tab can be closed if you close the last it closes prism just like file explorer", and "tab should show the
+  current folder name"). Every tab has its X, its Close tab row and middle-click, and drags anywhere; every tab
+  is named by the folder it shows (the first one read "Explorer"). One Explorer tab still carries an invisible
+  HOME mark (`Tab.pinned`, kept for saved strips), the one a file from outside lands in: restore keeps the
+  strip's order and marks the first Explorer tab when none is marked, and closing the home tab hands the mark to
+  the first Explorer tab left (`closeTab`). Closing the last tab closes the window (`useTabOps`
+  `forceCloseTab`, after the unsaved-text question) and leaves the strip saved, so the next launch restores
+  it. `tabs.test.ts`, `tabStrip.test.ts`; e2e `tabs`.
+- **Entry points**: a file from argv, an association, a second instance or a drop opens in the home Explorer tab
   as before. A folder from argv, a drop or the shell verb opens an Explorer tab at it (or switches to a tab that
   already shows exactly that folder). The shell verb on folders now reads "Open in Prism"; `relabelVerb`
   rewrites the old "Open as project" text on the next start.

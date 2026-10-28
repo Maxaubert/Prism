@@ -13,8 +13,6 @@ import { FolderFill } from '../components/icons/Icon'
 export interface TabMenuContext {
   /** The tab's folder; '' for a tab with no folder (Settings). */
   root: string
-  /** A pinned Explorer tab, which cannot be closed. */
-  pinned: boolean
   onClose: () => void
 }
 
@@ -43,8 +41,9 @@ export function tabContextMenu(ctx: TabMenuContext): MenuItem[] {
           }
         ]
       : []),
-    // Close LAST, where Delete sits on a file (owner, 2026-10-12).
-    ...(!ctx.pinned ? [{ label: 'Close tab', hint: 'Ctrl+W', onPick: ctx.onClose }] : [])
+    // Close LAST, where Delete sits on a file (owner, 2026-10-12). Every
+    // tab has it (owner, 2026-10-28: no pinned tab).
+    { label: 'Close tab', hint: 'Ctrl+W', onPick: ctx.onClose }
   ]
 }
 

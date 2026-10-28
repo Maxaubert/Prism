@@ -12,7 +12,6 @@ import { visitedDirectories } from '../lib/visitedDirectories'
 import type { OpenPayload } from '@shared/types'
 import {
   addExplorerTab,
-  isPinnedExplorer,
   closeTab,
   type Tab,
   reorderTabs,
@@ -105,14 +104,17 @@ export function useTabOps({
     if (fullscreen) setFs(false)
   })
 
-  /** Close one tab. The last one leaves an empty window rather than taking the
-   *  window with it: Prism is resident, and a window that vanishes under a
-   *  reflex keystroke is the failure this app has been careful to avoid. */
+  /** Close one tab, any tab. Closing the LAST one closes the window, as File
+   *  Explorer does (owner, 2026-10-28: "if you close the last it closes prism
+   *  just like file explorer"); the strip is kept, so the next launch restores
+   *  that tab. Unsaved text was asked about before this runs. */
   const forceCloseTab = useCallback(
     (id: string) => {
+      if (tabs.length === 1 && tabs[0].id === id) {
+        window.prism.close()
+        return
+      }
       setTabState((s) => {
-        const tab = s.tabs.find((t) => t.id === id)
-        if (tab && isPinnedExplorer(tab)) return s
         // The level the tab was playing at goes with it: the id never comes back.
         forgetTabVolume(id)
         window.prism.browseRelease(id)
@@ -120,7 +122,7 @@ export function useTabOps({
         return closeTab(s.tabs, id, s.activeId)
       })
     },
-    [bufferOwners, setTabState]
+    [bufferOwners, setTabState, tabs]
   )
   const bufferBelongsTo = useCallback(
     (tab: Tab, path: string): boolean => {
@@ -168,7 +170,6 @@ export function useTabOps({
     (id: string) => {
       const tab = tabs.find((t) => t.id === id)
       if (!tab) return
-      if (isPinnedExplorer(tab)) return
       if (tab.kind === 'settings') {
         forceCloseTab(id)
         return

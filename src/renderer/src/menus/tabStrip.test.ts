@@ -13,19 +13,13 @@ describe('tabContextMenu', () => {
   it('a folder tab: the folder rows, then close, last', () => {
     const showInExplorer = vi.fn()
     setHost({ showInExplorer })
-    const items = tabContextMenu({ root: 'C:\\a', pinned: false, onClose: vi.fn() })
+    const items = tabContextMenu({ root: 'C:\\a', onClose: vi.fn() })
     expect(labels(items)).toEqual(['Copy folder path', 'Show folder in File Explorer', 'Close tab'])
     items[1].onPick?.()
     expect(showInExplorer).toHaveBeenCalledWith('C:\\a')
   })
-  it('a pinned Explorer tab cannot be closed', () => {
-    expect(labels(tabContextMenu({ root: 'C:\\a', pinned: true, onClose: vi.fn() }))).toEqual([
-      'Copy folder path',
-      'Show folder in File Explorer'
-    ])
-  })
   it('Settings has no folder: only Close tab', () => {
-    expect(labels(tabContextMenu({ root: '', pinned: false, onClose: vi.fn() }))).toEqual([
+    expect(labels(tabContextMenu({ root: '', onClose: vi.fn() }))).toEqual([
       'Close tab'
     ])
   })
