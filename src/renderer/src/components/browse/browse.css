@@ -730,9 +730,6 @@ body[data-internal-file-drag] .browse-path:focus-within {
   width: var(--browse-row-icon, 14px);
   height: var(--browse-row-icon, 14px);
 }
-.browse-row[data-cut] .browse-name > svg {
-  opacity: 0.45;
-}
 .browse-row .browse-column-type,
 .browse-row .browse-column-path,
 .browse-row .browse-column-size,
@@ -769,6 +766,25 @@ body[data-internal-file-drag] .browse-path:focus-within {
     inset -1px 0 0 var(--p-sel-line-dim),
     var(--sel-top),
     var(--sel-bottom);
+}
+/* A CUT ROW DIMS (owner, 2026-10-28: "when you click ctrl x on an item
+   selected the highlight effect should get dimmed to indicate you clicked
+   ctrl x"): its highlight takes the inactive selection's dimmed tint and edge,
+   and its name and icon fade, File Explorer's cut look. Paste or a new copy
+   clears the mark (lib/fileClipboard). */
+.folder-browser .browse-row[data-selected][data-cut],
+.folder-browser .browse-row[data-selected][data-cut]:hover {
+  --sel-top: inset 0 1px 0 var(--p-sel-line-dim);
+  --sel-bottom: inset 0 -1px 0 var(--p-sel-line-dim);
+  background-color: var(--p-sel-tint-dim);
+  box-shadow:
+    inset 1px 0 0 var(--p-sel-line-dim),
+    inset -1px 0 0 var(--p-sel-line-dim),
+    var(--sel-top),
+    var(--sel-bottom);
+}
+.browse-row[data-cut] .browse-name {
+  opacity: 0.55;
 }
 .folder-browser .browse-row[data-selected][data-join-up] {
   --sel-top: 0 0 0 transparent;
