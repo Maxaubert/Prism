@@ -15,7 +15,10 @@ const lower = (path: string): string => path.toLowerCase()
  * dates it had for the files still there (the owner's approved
  * recommendation 3: a cached value may be stale for a moment and is corrected
  * at once), so a revisit never blanks cells that were filled. A file that is
- * new stays blank until its patch.
+ * new stays blank until its patch, and the answer says `carried`: the blanks
+ * are new rows, not a first visit's, so a Date or Size sort keeps its order
+ * (perf review #3, 2026-10-28: Downloads flipped to A-Z on every refresh that
+ * brought a new file, and back when its date landed).
  */
 export function carryDetails(prev: DirListing | null | undefined, next: DirListing): DirListing {
   if (!prev || next.complete !== false || !(prev.files.length || prev.folders.length)) return next
@@ -39,7 +42,7 @@ export function carryDetails(prev: DirListing | null | undefined, next: DirListi
     changed = true
     return { ...f, size: old.size, mtimeMs: old.mtimeMs }
   })
-  return changed ? { ...next, folders, files } : next
+  return changed ? { ...next, folders, files, carried: true } : next
 }
 
 /** Lay a details patch over a listing. The last patch makes it complete. */
@@ -69,6 +72,39 @@ export function applyDetails(listing: DirListing, details: BrowseDetails): DirLi
     return { ...rest, folders, files }
   }
   return changed ? { ...listing, folders, files } : listing
+}
+
+/**
+ * The same rows as the listing on screen (perf review #18, 2026-10-28): the
+ * same paths in the same order, each with the same size and date (or the
+ * same blank), and the same hidden count. A re-read that answers this draws
+ * nothing new. A place inside an archive never counts as the same: its
+ * container's facts ride on the listing too.
+ */
+export function sameRows(a: DirListing, b: DirListing): boolean {
+  if (a === b) return true
+  if (
+    a.folders.length !== b.folders.length ||
+    a.files.length !== b.files.length ||
+    a.hidden !== b.hidden ||
+    !!a.unreadable !== !!b.unreadable ||
+    a.archive ||
+    b.archive ||
+    a.archiveError ||
+    b.archiveError
+  )
+    return false
+  for (let i = 0; i < a.folders.length; i++) {
+    const x = a.folders[i]
+    const y = b.folders[i]
+    if (x.path !== y.path || x.mtimeMs !== y.mtimeMs) return false
+  }
+  for (let i = 0; i < a.files.length; i++) {
+    const x = a.files[i]
+    const y = b.files[i]
+    if (x.path !== y.path || x.size !== y.size || x.mtimeMs !== y.mtimeMs) return false
+  }
+  return true
 }
 
 /** Some file in it has no size or date yet. */

@@ -3,7 +3,14 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { browseLocation, newBrowse } from '../lib/browse'
 import { newTab, type Tab } from '../lib/tabs/tabs'
-import { arrivalSelection, BACKGROUND_READ_SLOW_MS, openFolderCrumb, useFolderBrowsing } from './useFolderBrowsing'
+import {
+  arrivalSelection,
+  BACKGROUND_READ_SLOW_MS,
+  FOCUS_TRUST_MS,
+  focusNeedsRead,
+  openFolderCrumb,
+  useFolderBrowsing
+} from './useFolderBrowsing'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 
 // The diagnostics log's crumbs (#322), caught rather than sent.
@@ -116,6 +123,20 @@ describe('an open that lands after a sweep (#263)', () => {
     tab.browse.history[0].selected = 'C:\\project\\v3.mp4'
     const tabs = arrivalSelection([tab], tab.id, 'C:\\project\\v1.mp4', true)
     expect(browseLocation(tabs[0].browse).selected).toBe('C:\\project\\v3.mp4')
+  })
+})
+
+describe('the focus trusts a live watch (perf review #10)', () => {
+  const key = 'c:\\dl'
+  it('reads nothing while the watch is up and the rows are recent', () => {
+    expect(focusNeedsRead({ tabId: 't', key }, { tabId: 't', key, at: 1000 }, 't', key, 2000)).toBe(false)
+  })
+  it('reads when no watch is up, it is another folder, or the read is old', () => {
+    expect(focusNeedsRead(null, { tabId: 't', key, at: 1000 }, 't', key, 2000)).toBe(true)
+    expect(focusNeedsRead({ tabId: 't', key: 'c:\\other' }, { tabId: 't', key, at: 1000 }, 't', key, 2000)).toBe(true)
+    expect(focusNeedsRead({ tabId: 'u', key }, { tabId: 't', key, at: 1000 }, 't', key, 2000)).toBe(true)
+    expect(focusNeedsRead({ tabId: 't', key }, { tabId: 't', key, at: 1000 }, 't', key, 1000 + FOCUS_TRUST_MS)).toBe(true)
+    expect(focusNeedsRead({ tabId: 't', key }, null, 't', key, 2000)).toBe(true)
   })
 })
 

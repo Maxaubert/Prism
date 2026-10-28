@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DirListing, ViewerFile } from '@shared/types'
-import { browseEntries, datesKnown } from './entries'
+import { browseEntries, datesKnown, datesUsable } from './entries'
 
 function file(name: string, kind: ViewerFile['kind'], size: number): ViewerFile {
   return {
@@ -126,6 +126,38 @@ describe('folder browser entries', () => {
       expect(browseEntries(pending, '', { key: 'modified', direction: 'desc' }, {}, true)[0].name).toBe('New folder')
       expect(browseEntries(pending, '', { key: 'modified', direction: 'desc' }, {}, true)[1].name).toBe('Old folder')
       expect(datesKnown(dated)).toBe(true)
+    })
+    it('a refresh that brings a new file keeps the date order (perf review #3)', () => {
+      // carryDetails kept every known date; only the new download lacks one.
+      const carried: DirListing = {
+        ...dated,
+        complete: false,
+        carried: true,
+        files: [...dated.files, { ...file('new.part', 'other', 0), path: 'C:\Dl\new.part', mtimeMs: undefined }]
+      }
+      expect(datesKnown(carried)).toBe(false)
+      expect(datesUsable(carried)).toBe(true)
+      const rows = (direction: 'asc' | 'desc', mixed = true) =>
+        browseEntries(carried, '', { key: 'modified', direction }, {}, mixed).map((e) => e.name)
+      expect(rows('desc')).toEqual(['new.part', 'New folder', 'a.zip', 'b.zip', 'c.exe', 'Old folder'])
+      expect(rows('asc')).toEqual(['Old folder', 'c.exe', 'a.zip', 'b.zip', 'New folder', 'new.part'])
+      // Folders first elsewhere, files still by date with the new one newest.
+      expect(rows('desc', false)).toEqual(['New folder', 'Old folder', 'new.part', 'b.zip', 'a.zip', 'c.exe'])
+      // A new folder is the newest folder.
+      const newFolder = { ...carried, folders: [...carried.folders, { path: 'C:\Dl\Fresh', name: 'Fresh' }] }
+      expect(browseEntries(newFolder, '', { key: 'modified', direction: 'desc' }, {}, false)[0].name).toBe('Fresh')
+    })
+    it('a carried listing keeps a size sort, new files last either way (perf review #3)', () => {
+      const carried: DirListing = {
+        folders: [],
+        files: [file('small', 'other', 1), file('big', 'other', 9), { ...file('fresh', 'other', 0), size: undefined }],
+        complete: false,
+        carried: true
+      }
+      const by = (direction: 'asc' | 'desc') =>
+        browseEntries(carried, '', { key: 'size', direction }).map((e) => e.name)
+      expect(by('desc')).toEqual(['big', 'small', 'fresh'])
+      expect(by('asc')).toEqual(['small', 'big', 'fresh'])
     })
     it('orders folders by their dates too outside Downloads, still first', () => {
       const byDate = (direction: 'asc' | 'desc') =>
