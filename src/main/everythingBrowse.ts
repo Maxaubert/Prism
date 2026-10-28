@@ -3,7 +3,7 @@ import { findEverything } from './everything'
 import { nativeBrowseQuery } from '@shared/browseQuery'
 import { dirname, resolve, sep } from 'path'
 import { managedIndexerRuntime, type IndexerEndpoint } from './indexerRuntime'
-import { findRunningEverything } from './existingEverything'
+import { findRunningEverything, forgetRunningEverything } from './existingEverything'
 import type { BrowseSearchWindowRequest } from '@shared/browse'
 import { createLru } from './lru'
 
@@ -18,7 +18,14 @@ async function* queryEndpoints(root: string, signal: AbortSignal): AsyncGenerato
   const managed = managedIndexerRuntime()
   if (managed?.useExistingIndex) {
     const existing = await findRunningEverything(managed.endpoint.exe, signal)
-    if (existing && !signal.aborted) yield existing
+    if (existing && !signal.aborted) {
+      yield existing
+      // Back here means the caller moved on from it: its query failed or
+      // answered nothing. The found answer is held for minutes now (perf
+      // review #32), so it is asked again rather than trusted (an Everything
+      // that quit, a drive it does not index: the next probe says).
+      if (!signal.aborted) forgetRunningEverything(managed.endpoint.exe)
+    }
   }
   if (signal.aborted) return
   const exe = await findEverything(root, signal)

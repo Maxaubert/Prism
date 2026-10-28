@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { execFile } from './spawnWorker'
 import { randomUUID } from 'crypto'
-import { findRunningEverything } from './existingEverything'
+import {
+  ABSENT_TTL_MS,
+  FOUND_TTL_MS,
+  findRunningEverything,
+  forgetRunningEverything
+} from './existingEverything'
 
 vi.mock('./spawnWorker', () => ({ execFile: vi.fn() }))
 beforeEach(() => {
@@ -70,6 +75,33 @@ describe('read-only existing Everything discovery', () => {
     callbacks[1](null, '1.4.1.1032')
     expect(await other).toEqual({ exe, instance: '1.5a' })
     expect(execFile).toHaveBeenCalledTimes(2)
+  })
+
+  it('trusts a found one for minutes, until a query against it fails (perf review #32)', async () => {
+    const exe = `${randomUUID()}-es.exe`
+    let now = 1_000_000
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    answer('1.5.0.1409a')
+    answer('0.0.0.0')
+    expect(await findRunningEverything(exe)).toEqual({ exe, instance: '1.5a' })
+    now += FOUND_TTL_MS - 1000
+    expect(await findRunningEverything(exe)).toEqual({ exe, instance: '1.5a' })
+    expect(execFile).toHaveBeenCalledTimes(2)
+    forgetRunningEverything(exe)
+    answer('', new Error('gone'))
+    answer('', new Error('gone'))
+    expect(await findRunningEverything(exe)).toBeNull()
+    expect(execFile).toHaveBeenCalledTimes(4)
+    // None found is asked again after half a minute, not before.
+    now += ABSENT_TTL_MS - 1000
+    expect(await findRunningEverything(exe)).toBeNull()
+    expect(execFile).toHaveBeenCalledTimes(4)
+    now += 2000
+    answer('1.4.1.1032')
+    answer('1.4.1.1032')
+    expect(await findRunningEverything(exe)).toEqual({ exe, instance: '1.5a' })
+    expect(execFile).toHaveBeenCalledTimes(6)
+    clock.mockRestore()
   })
 
   it('does no work for a request already cancelled', async () => {

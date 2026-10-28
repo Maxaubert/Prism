@@ -33,6 +33,24 @@ describe('preferences across independent windows', () => {
       stop()
     }
   })
+  it("hears its own write as nothing, and another window's as a change (perf review #45)", async () => {
+    const owner = profile()
+    const primary = createWindowPreferences(owner, false)
+    const notify = vi.fn()
+    const stop = primary.watch(notify)
+    try {
+      primary.set({ key: 'prism.theme', value: 'dark' })
+      await primary.idle()
+      // Past the watch's 25 ms settle and its look at the named file.
+      await new Promise((r) => setTimeout(r, 300))
+      expect(notify).not.toHaveBeenCalled()
+      createWindowPreferences(owner, true).set({ key: 'prism.quickAccess', value: '["x"]' })
+      await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(1))
+      expect(notify.mock.calls[0][0].values).toEqual({ 'prism.theme': 'dark', 'prism.quickAccess': '["x"]' })
+    } finally {
+      stop()
+    }
+  })
   it('inherits primary preferences without copying tabs, file positions or phone data', async () => {
     const owner = profile()
     const primary = createWindowPreferences(owner, false)

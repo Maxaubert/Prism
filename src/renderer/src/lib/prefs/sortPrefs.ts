@@ -70,6 +70,23 @@ export function sortFiles(
   return [...files].sort((a, b) => flip * (primary(a, b) || byName(a, b)))
 }
 
+/** The last order made for each list of files, by its field and direction. */
+const sortedOnce = new WeakMap<readonly ViewerFile[], { field: string; dir: SortDir; files: ViewerFile[] }>()
+
+/**
+ * `sortFiles`, once per list of files and sort (perf review #21, 2026-10-28):
+ * the viewer re-sorted its whole folder on every arrow press, though only the
+ * position had moved. The same list object with the same sort answers the
+ * order it was given last time. A new list (the folder changed) sorts again.
+ */
+export function sortFilesOnce(files: ViewerFile[], field: SortField | 'packed', dir: SortDir): ViewerFile[] {
+  const hit = sortedOnce.get(files)
+  if (hit && hit.field === field && hit.dir === dir) return hit.files
+  const sorted = sortFiles(files, field, dir)
+  sortedOnce.set(files, { field, dir, files: sorted })
+  return sorted
+}
+
 /** Two dates in ascending order, a missing one the newest (a carried
  *  listing's new row, perf review #3). */
 export function newer(a: number | undefined, b: number | undefined): number {

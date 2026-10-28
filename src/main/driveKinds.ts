@@ -1,4 +1,4 @@
-import { execFile } from './spawnWorker'
+import { readDriveTable } from './driveUsage'
 
 /**
  * WHICH DRIVES ARE THIS PC'S OWN DISKS (#271). The listing cache and the read
@@ -13,6 +13,10 @@ import { execFile } from './spawnWorker'
  * 2 removable, 3 local fixed, 4 network, 5 optical). Until that answer only
  * the system drive counts as fixed, which is where home, Desktop, Documents and
  * Downloads live on a fresh install, so the first launch is covered too.
+ *
+ * The query is the drive names' own (`readDriveTable` in driveUsage.ts, perf
+ * review #51, 2026-10-28): one PowerShell answers both, where each asked WMI
+ * the same question in a PowerShell of its own.
  */
 
 export type DriveKind = 'fixed' | 'other' | 'unknown'
@@ -38,12 +42,13 @@ export function driveKindOf(
   return 'unknown'
 }
 
-/** Pure: WMI's "C:=3" lines into a map, ignoring anything else. */
+/** Pure: WMI's "C:=3" lines, or the drive table's "C:|3|Label" ones, into a
+ *  map, ignoring anything else. */
 export function parseDriveKinds(text: string): Map<string, number> {
   const out = new Map<string, number>()
   for (const line of text.split(/\r?\n/)) {
-    const m = /^([A-Za-z]):=(\d)$/.exec(line.trim())
-    if (m) out.set(`${m[1].toUpperCase()}:`, Number(m[2]))
+    const m = /^([A-Za-z]):(?:=(\d)|\|(\d)\|.*)$/.exec(line.trim())
+    if (m) out.set(`${m[1].toUpperCase()}:`, Number(m[2] ?? m[3]))
   }
   return out
 }
@@ -56,22 +61,12 @@ let asked: Promise<void> | null = null
  *  system-drive-only answer, which is the safe one. */
 export function learnDriveKinds(): Promise<void> {
   if (asked || process.platform !== 'win32') return asked ?? Promise.resolve()
-  asked = new Promise<void>((done) => {
-    execFile(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        'Get-CimInstance Win32_LogicalDisk | ForEach-Object { "$($_.DeviceID)=$($_.DriveType)" }'
-      ],
-      { windowsHide: true, timeout: 15_000 },
-      (error, stdout) => {
-        if (!error) kinds = parseDriveKinds(String(stdout))
-        done()
-      }
-    )
-  })
+  asked = readDriveTable().then(
+    (stdout) => {
+      if (stdout !== null) kinds = parseDriveKinds(stdout)
+    },
+    () => {}
+  )
   return asked
 }
 
