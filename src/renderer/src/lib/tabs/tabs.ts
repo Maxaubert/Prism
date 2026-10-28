@@ -32,7 +32,12 @@ export interface Tab {
   /** Always 'explorer' for a folder tab. Kept as a field so a strip saved by an
    *  older Prism still reads (its project tabs migrate to Explorer tabs). */
   role?: 'explorer'
-  /** Only the permanent Explorer may be pinned in the strip. */
+  /** The HOME tab: where a file or folder from outside lands. Invisible since
+   *  2026-10-28 (owner: "remove the pin system for tabs every tab can be
+   *  closed if you close the last it closes prism just like file explorer"):
+   *  it closes, moves and is named like any tab, and closing it hands the mark
+   *  to the first Explorer tab left. The field keeps its old name so saved
+   *  strips read. */
   pinned?: boolean
   /** The folder the tab was opened at. Desktop browsing has its own grants. */
   root: string
@@ -86,14 +91,22 @@ export function addExplorerTab(
   return { tabs: pinned ? [spawned, ...tabs] : [...tabs, spawned], activeId: spawned.id }
 }
 
-/** Restore keeps every owner's identity and location. Extra stale pin flags
- * are cleared rather than dropping tabs that may still own edited files. */
+/** Restore keeps every owner's identity, location and ORDER. Exactly one
+ * Explorer tab carries the home mark: the marked one, else the first Explorer
+ * tab, else a new one in front. Extra stale marks are cleared rather than
+ * dropping tabs that may still own edited files. */
 export function ensurePinnedExplorer(tabs: readonly Tab[], p: OpenPayload, id: string): Tab[] {
-  const pinned = tabs.find(isPinnedExplorer)
-  if (!pinned) return addExplorerTab(tabs, p, id, true).tabs
-  return [pinned, ...tabs.filter((tab) => tab !== pinned).map((tab) =>
-    isPinnedExplorer(tab) ? { ...tab, pinned: false } : tab
-  )]
+  const home = tabs.find(isPinnedExplorer) ?? tabs.find(isExplorerTab)
+  if (!home) return addExplorerTab(tabs, p, id, true).tabs
+  return tabs.map((tab) =>
+    tab === home
+      ? tab.pinned
+        ? tab
+        : { ...tab, pinned: true }
+      : isPinnedExplorer(tab)
+        ? { ...tab, pinned: false }
+        : tab
+  )
 }
 
 /**
@@ -352,14 +365,19 @@ export function addRestoredTab(
 }
 
 /**
- * Close one tab. The active mark goes to the right-hand neighbour, then the
- * left, then nowhere: closing the last tab leaves an empty window rather than
- * taking the window with it.
+ * Close one tab, any tab (2026-10-28). The active mark goes to the right-hand
+ * neighbour, then the left, then nowhere; the caller closes the window when
+ * none is left. Closing the home tab hands its mark to the first Explorer tab
+ * left, so a file from outside still has somewhere to land.
  */
 export function closeTab(tabs: readonly Tab[], id: string, activeId: string | null): TabState {
   const i = tabs.findIndex((t) => t.id === id)
-  if (i < 0 || isPinnedExplorer(tabs[i])) return { tabs: tabs.slice(), activeId }
-  const next = tabs.filter((t) => t.id !== id)
+  if (i < 0) return { tabs: tabs.slice(), activeId }
+  let next = tabs.filter((t) => t.id !== id)
+  if (isPinnedExplorer(tabs[i])) {
+    const heirHome = next.find(isExplorerTab)
+    if (heirHome) next = next.map((t) => (t === heirHome ? { ...t, pinned: true } : t))
+  }
   if (activeId !== id) return { tabs: next, activeId }
   const heir = next[i] ?? next[i - 1] ?? null
   return { tabs: next, activeId: heir?.id ?? null }
@@ -382,7 +400,9 @@ function parentName(p: string): string {
  * only where two tabs would otherwise read the same. Two `assets` folders are
  * genuinely ambiguous; every other tab keeps the short label it deserves.
  *
- * A drive root has no basename, so it keeps its whole path.
+ * A drive root has no basename, so it keeps its whole path. The home tab is
+ * named the same way: the folder it is in, never "Explorer" (owner, 2026-10-28:
+ * "tab should show the current folder name").
  */
 /**
  * Move a tab to another slot in the strip (#70, dragged by its own row).
@@ -391,13 +411,13 @@ function parentName(p: string): string {
  */
 export function reorderTabs(tabs: readonly Tab[], id: string, toIndex: number): Tab[] {
   const from = tabs.findIndex((t) => t.id === id)
-  if (from < 0 || isPinnedExplorer(tabs[from])) return [...tabs]
+  if (from < 0) return [...tabs]
   const next = [...tabs]
   const [moved] = next.splice(from, 1)
   // Removing the tab shifts everything after it left by one, so a drop that
-  // was aimed past its old home has to come back by one too.
-  const firstMovable = isPinnedExplorer(next[0] ?? moved) ? 1 : 0
-  const at = Math.max(firstMovable, Math.min(toIndex > from ? toIndex - 1 : toIndex, next.length))
+  // was aimed past its old home has to come back by one too. Every tab moves,
+  // the home tab included (2026-10-28).
+  const at = Math.max(0, Math.min(toIndex > from ? toIndex - 1 : toIndex, next.length))
   next.splice(at, 0, moved)
   return next
 }
@@ -415,7 +435,6 @@ export function tabLabels(tabs: readonly Tab[]): string[] {
     rootsByBase.set(bases[i], set)
   })
   return tabs.map((_, i) => {
-    if (isPinnedExplorer(tabs[i])) return 'Explorer'
     const b = bases[i]
     if (!b) return paths[i]
     if ((rootsByBase.get(b)?.size ?? 0) < 2) return b

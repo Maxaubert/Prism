@@ -120,7 +120,7 @@ export function TabStrip({
     rows: Array<{ path: string; pinned: boolean }>
   } | null>(null)
   /** A tab's own menu (its rows: menus/tabStrip.tsx). */
-  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string; root: string; pinned: boolean } | null>(
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string; root: string } | null>(
     null
   )
   const [dropAt, setDropAt] = useState<number | null>(null)
@@ -160,7 +160,6 @@ export function TabStrip({
   }
   const onTabPointerDown = (e: PointerEvent<HTMLDivElement>, id: string, i: number): void => {
     if (e.button !== 0) return
-    if (isPinnedExplorer(tabs[i])) return
     // The X is not a handle: capturing the pointer here would swallow its
     // own click and close nothing.
     if ((e.target as HTMLElement).closest('[data-tab-close]')) return
@@ -191,7 +190,7 @@ export function TabStrip({
     setCarry((c) => (c ? { ...c, dx, live: true } : c))
     // The CARRIED tab's own centre decides, not the pointer: it is what the
     // eye is following, and it keeps a grab near an edge honest.
-    if (lane) setDropAt(Math.max(isPinnedExplorer(tabs[0]) ? 1 : 0, slotAt(lane.mid + dx)))
+    if (lane) setDropAt(slotAt(lane.mid + dx))
   }
   const onTabPointerUp = (e: PointerEvent<HTMLDivElement>): void => {
     if (!carry) return
@@ -214,7 +213,7 @@ export function TabStrip({
   // Middle-click closes, the way every tab strip does. `auxclick` rather than
   // mousedown so a stray middle press while scrolling does not lose a tab.
   const auxClose = (e: MouseEvent, id: string): void => {
-    if (e.button === 1 && !tabs.some((tab) => tab.id === id && isPinnedExplorer(tab))) {
+    if (e.button === 1) {
       e.preventDefault()
       onClose(id)
     }
@@ -330,8 +329,7 @@ export function TabStrip({
                 x: e.clientX,
                 y: e.clientY,
                 id: t.id,
-                root: t.kind === 'settings' ? '' : t.browse.path,
-                pinned: isPinnedExplorer(t)
+                root: t.kind === 'settings' ? '' : t.browse.path
               })
             }}
             // Tabs reorder by dragging (#70): the half of the tab the pointer
@@ -409,9 +407,9 @@ export function TabStrip({
             >
               {labels[i]}
             </button>
-            {isPinnedExplorer(t) ? (
-              <span title="Pinned Explorer" className="text-[var(--p-dim)]"><PinGlyph filled /></span>
-            ) : <button
+            {/* Every tab closes (owner, 2026-10-28), the home tab included:
+                no pin, the X like any other. */}
+            <button
               className={`grid h-4 w-4 shrink-0 place-items-center rounded-sm text-[var(--p-icon)] transition-opacity hover:bg-white/10 hover:text-[var(--p-text)] ${
                 on ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
               }`}
@@ -424,7 +422,7 @@ export function TabStrip({
               }}
             >
               <Icon name="close" size={10} weight="2.4" join={false} />
-            </button>}
+            </button>
           </div>
         )
       })}
@@ -452,7 +450,6 @@ export function TabStrip({
           onClose={() => setTabMenu(null)}
           items={tabContextMenu({
             root: tabMenu.root,
-            pinned: tabMenu.pinned,
             onClose: () => onClose(tabMenu.id)
           })}
         />
