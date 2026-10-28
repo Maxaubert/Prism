@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { FileKind, ViewerFile } from '@shared/types'
-import { sortFiles } from './sortPrefs'
+import { sortFiles, sortFilesOnce } from './sortPrefs'
 
 const f = (name: string, kind: FileKind, size: number, mtimeMs: number): ViewerFile => ({
   path: `C:/f/${name}`,
@@ -44,5 +44,18 @@ describe('sortFiles', () => {
     const out = sortFiles(FILES, 'name', 'asc')
     expect(out).not.toBe(FILES)
     expect(out[0]).toBe(FILES[2]) // same reference, so indexOf keeps working
+  })
+})
+
+describe('sortFilesOnce (perf review #21)', () => {
+  it('sorts a list once per sort, so a step through the viewer does not sort again', () => {
+    const list = [...FILES]
+    const first = sortFilesOnce(list, 'name', 'asc')
+    expect(sortFilesOnce(list, 'name', 'asc')).toBe(first)
+    expect(names(first)).toEqual(names(sortFiles(FILES, 'name', 'asc')))
+    const desc = sortFilesOnce(list, 'name', 'desc')
+    expect(desc).not.toBe(first)
+    expect(names(desc)).toEqual(['notes.txt', 'ep10.mp4', 'ep2.mp4', 'cover.png'])
+    expect(sortFilesOnce([...FILES], 'name', 'desc')).not.toBe(desc)
   })
 })

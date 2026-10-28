@@ -15,6 +15,19 @@ export const FOCUS_GAP = 30_000
 const known = new Map<string, BrowseDriveUsage>()
 let askedAt = 0
 
+/** One drive's answer says what the last one said. */
+export function sameDrive(a: BrowseDriveUsage | undefined, b: BrowseDriveUsage): boolean {
+  return (
+    !!a &&
+    a.path === b.path &&
+    a.total === b.total &&
+    a.free === b.free &&
+    a.label === b.label &&
+    a.kind === b.kind &&
+    !!a.system === !!b.system
+  )
+}
+
 export function useDriveUsage(
   paths: readonly string[],
   read: ((paths: string[]) => Promise<BrowseDriveUsage[]>) | undefined
@@ -29,8 +42,21 @@ export function useDriveUsage(
       askedAt = Date.now()
       read(roots)
         .then((answer) => {
-          for (const drive of answer) known.set(drive.path.toUpperCase(), drive)
-          if (live) setSeen(new Map(known))
+          // THE SAME BYTES DRAW NOTHING (perf review #33, 2026-10-28): every
+          // poll set a new map, so the places panel re-rendered every three
+          // minutes with nothing changed.
+          for (const drive of answer) {
+            const key = drive.path.toUpperCase()
+            if (!sameDrive(known.get(key), drive)) known.set(key, drive)
+          }
+          // Against what THIS panel shows: another one may have filled the
+          // shared answers before this one had any.
+          if (live)
+            setSeen((shown) =>
+              answer.every((drive) => sameDrive(shown.get(drive.path.toUpperCase()), drive))
+                ? shown
+                : new Map(known)
+            )
         })
         .catch(() => {})
     }

@@ -248,6 +248,28 @@ function validEntry(e: unknown): e is IndexEntry {
   )
 }
 
+/**
+ * What a listing holds, as a short string: every row's path, size and date,
+ * the folder's own date and the hidden count, through two 32-bit FNV-1a
+ * hashes. Equal signatures mean a put would write the same rows again
+ * (perf review #10).
+ */
+export function listingSignature(listing: DirListing, folderMtimeMs: number): string {
+  let a = 0x811c9dc5
+  let b = 0x01000193
+  const add = (text: string): void => {
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i)
+      a = Math.imul(a ^ c, 0x01000193)
+      b = Math.imul(b ^ c, 0x5bd1e995) ^ (b >>> 15)
+    }
+  }
+  add(`${folderMtimeMs}|${listing.hidden ?? 0}|${listing.folders.length}|${listing.files.length}`)
+  for (const f of listing.folders) add(`\n${f.path}|${f.mtimeMs ?? ''}`)
+  for (const f of listing.files) add(`\n${f.path}|${f.size ?? ''}|${f.mtimeMs ?? ''}`)
+  return `${(a >>> 0).toString(36)}.${(b >>> 0).toString(36)}`
+}
+
 export interface ListingCacheOptions {
   directory: string
   /** May this folder be stored at all: local fixed drives only. */
@@ -363,7 +385,14 @@ export function createListingCache(options: ListingCacheOptions) {
     scheduleIndex()
     return cached
   }
+  /** What each folder was last written with (perf review #10, 2026-10-28):
+   *  a refresh (the watcher, the window's focus) of a folder that has not
+   *  changed rewrote its file and the index all the same. Held with the
+   *  index entry it was written under, so a forget, a clear or a failed
+   *  write (each drops or replaces the entry) makes the next put write. */
+  const written = new Map<string, { entry: IndexEntry; sig: string }>()
   const forget = (key: string): void => {
+    written.delete(key)
     index.delete(key)
     if (!readOnly) rm(fileOf(key), { force: true }).catch(() => {})
   }
@@ -483,10 +512,13 @@ export function createListingCache(options: ListingCacheOptions) {
       if (since !== undefined && since !== epoch) return
       if (!allowed(path)) return
       const key = cacheKey(path)
+      const sig = listingSignature(listing, folderMtimeMs)
+      const same = written.get(key)
+      if (same && same.sig === sig && index.get(key) === same.entry) return
       const savedAt = now()
       const text = JSON.stringify(encodeListing(path, listing, folderMtimeMs, savedAt, maxEntries))
       const old = index.get(key)
-      index.set(key, {
+      const entry: IndexEntry = {
         path,
         key,
         folderMtimeMs,
@@ -495,7 +527,9 @@ export function createListingCache(options: ListingCacheOptions) {
         hits: (old?.hits ?? 0) + 1,
         bytes: Buffer.byteLength(text),
         ...(old?.pinned || pinnedKeys.has(key) ? { pinned: true } : {})
-      })
+      }
+      index.set(key, entry)
+      written.set(key, { entry, sig })
       for (const drop of evictionOrder([...index.values()], maxFolders, maxBytes)) forget(drop)
       if (index.has(key)) {
         const mine = epoch
@@ -539,6 +573,7 @@ export function createListingCache(options: ListingCacheOptions) {
     clear(): Promise<boolean> {
       epoch += 1
       index.clear()
+      written.clear()
       if (indexTimer) clearTimeout(indexTimer)
       indexTimer = null
       if (readOnly) return Promise.resolve(true)

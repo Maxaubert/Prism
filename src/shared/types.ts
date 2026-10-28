@@ -112,6 +112,12 @@ export interface DirListing {
    *  the Explorer is answered with names first and `browse:details` patches
    *  follow. Absent means complete. */
   complete?: boolean
+  /** Renderer-side: a names-first answer that took its sizes and dates from
+   *  the listing already on screen (`carryDetails`). The rows that still lack
+   *  them are NEW, so a Date or Size sort keeps its order and places them
+   *  (newest, size last) instead of falling back to names (perf review #3,
+   *  2026-10-28). Never set by main. */
+  carried?: boolean
   /** This listing is a place INSIDE an archive (#300): what the strip, the
    *  Packed column, the crumbs' zip icon and the menus need to know. */
   archive?: ArchiveMeta

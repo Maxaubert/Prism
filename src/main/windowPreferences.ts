@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'crypto'
 import { mkdirSync, readFileSync, readdirSync, watch, writeFileSync } from 'fs'
 import { mkdir, readFile, readdir, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { basename, join } from 'path'
 import {
   validWindowPreferenceKey,
   type WindowPreferencesSnapshot
@@ -19,6 +19,13 @@ import { writeAtomic, writeAtomicSync } from './latestWrite'
  * write per key at a time, the newest last. The folder watch refreshes the
  * snapshot asynchronously, which is how another window's change arrives; a
  * key with a write of ours still pending keeps our value over the disk's.
+ *
+ * OUR OWN WRITE IS NOT NEWS (perf review #45, 2026-10-28): every set renamed
+ * its file into the watched folder, and the watch answered with a read of
+ * every file there and a push of the whole snapshot to the page that had
+ * just set it. The watch now reads only the files named in its events, and
+ * when each still holds what this process wrote, nothing is re-read or sent;
+ * a push whose snapshot is the one last sent is not sent either.
  */
 export function createWindowPreferences(
   owner: string,
@@ -53,6 +60,8 @@ export function createWindowPreferences(
   const touched = new Map<string, number>()
   /** Bumped by the quit flush: an async write in flight must not land over it. */
   let flushes = 0
+  /** The text this process last wrote, per file name (perf review #45). */
+  const ours = new Map<string, string>()
 
   const snapshot = (): WindowPreferencesSnapshot => {
     const values: Record<string, string> = Object.create(null)
@@ -153,6 +162,8 @@ export function createWindowPreferences(
       for (let next = pending.get(key); next; next = pending.get(key)) {
         const flushedAt = flushes
         const text = JSON.stringify({ key, value: next.value })
+        const name = basename(file(key))
+        ours.set(name, text)
         try {
           await mkdir(root, { recursive: true })
           if (next.seed) {
@@ -161,6 +172,7 @@ export function createWindowPreferences(
             } catch (error) {
               if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
               // Another window has it: its value, not the seed, is the truth.
+              if (ours.get(name) === text) ours.delete(name)
               if (pending.get(key) === next) pending.delete(key)
               void refresh()
               continue
@@ -173,6 +185,7 @@ export function createWindowPreferences(
           }
         } catch {
           /* Unwritten: memory keeps it for this run; the disk wins at the next read. */
+          if (ours.get(name) === text) ours.delete(name)
         }
         if (pending.get(key) === next) pending.delete(key)
       }
@@ -197,14 +210,34 @@ export function createWindowPreferences(
         mkdirSync(root, { recursive: true }) // sync-ok: startup, the watch starts in app.whenReady
         let timer: ReturnType<typeof setTimeout> | undefined
         let stopped = false
+        /** The files named since the last look. */
+        const named = new Set<string>()
+        let sent = JSON.stringify(snapshot())
+        const look = async (): Promise<void> => {
+          const names = [...named]
+          named.clear()
+          if (names.every((name) => ours.has(name))) {
+            const echoes = await Promise.all(
+              names.map((name) =>
+                readFile(join(root, name), 'utf8').then(
+                  (text) => text === ours.get(name),
+                  () => false
+                )
+              )
+            )
+            if (echoes.every(Boolean)) return
+          }
+          const next = await refresh()
+          const text = JSON.stringify(next)
+          if (stopped || text === sent) return
+          sent = text
+          changed(next)
+        }
         const watcher = watch(root, (_event, name) => {
           if (!name?.endsWith('.json')) return
+          named.add(basename(name))
           clearTimeout(timer)
-          timer = setTimeout(() => {
-            void refresh().then((next) => {
-              if (!stopped) changed(next)
-            })
-          }, 25)
+          timer = setTimeout(() => void look(), 25)
           timer.unref()
         })
         watcher.on('error', () => watcher.close())

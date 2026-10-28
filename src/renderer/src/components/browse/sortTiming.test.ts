@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { time } from 'prism-term-core/renderer/lib/diag'
 import { createSortPass, sortTrigger, type SortInputs } from './sortTiming'
+import { sameOrder } from './entries'
 
 // The diagnostics log's timing (#322), caught rather than sent; it still runs.
 vi.mock('prism-term-core/renderer/lib/diag', () => ({
@@ -78,5 +79,64 @@ describe('createSortPass (#322)', () => {
     expect(sizes.length).toBeGreaterThan(1)
     expect(sizes.length).toBeLessThan(10)
     expect((sizes[1] as [string, { held: number; heldMaxMs: number }])[1]).toMatchObject({ held: expect.any(Number), heldMaxMs: 90 })
+  })
+})
+
+describe('an order that cannot move is not sorted again (perf review #11, #20)', () => {
+  const folder = (name: string, mtimeMs?: number) => ({ path: `C:\\F\\${name}`, name, mtimeMs })
+  const file = (name: string, size?: number, mtimeMs?: number) => ({
+    path: `C:\\F\\${name}`,
+    name,
+    ext: '.txt',
+    kind: 'text' as const,
+    size,
+    mtimeMs
+  })
+  const names = { folders: [folder('b'), folder('a')], files: [file('z.txt'), file('y.txt')], complete: false }
+  const patched = {
+    folders: [folder('b', 5), folder('a', 6)],
+    files: [file('z.txt', 1, 2), file('y.txt', 3, 4)]
+  }
+  const base: SortInputs = { listing: names, query: '', sort: { key: 'name', direction: 'asc' }, sizes: {}, dated: false }
+
+  it('refills a Name sort from a details patch, in the same order, with the new details', () => {
+    const pass = createSortPass()
+    const first = pass(base)
+    expect(first.map((e) => e.name)).toEqual(['a', 'b', 'y.txt', 'z.txt'])
+    const second = pass({ ...base, listing: patched })
+    expect(second.map((e) => e.name)).toEqual(['a', 'b', 'y.txt', 'z.txt'])
+    expect(second[2].file?.size).toBe(3)
+    expect(second[0].mtimeMs).toBe(6)
+    expect(sameOrder(base, { ...base, listing: patched })).toBe(true)
+  })
+
+  it('sorts again when a patch can move a row, or the rows changed', () => {
+    const byDate = { ...base, sort: { key: 'modified' as const, direction: 'desc' as const } }
+    expect(sameOrder(byDate, { ...byDate, listing: patched })).toBe(false)
+    const more = { ...patched, files: [...patched.files, file('x.txt', 1, 1)] }
+    expect(sameOrder(base, { ...base, listing: more })).toBe(false)
+    expect(sameOrder(base, { ...base, query: 'a' })).toBe(false)
+  })
+
+  it('a folder-size tick refills every sort but Size, keeping untouched rows', () => {
+    const size = (bytes: number) => ({
+      bytes,
+      files: 1,
+      folders: 0,
+      unreadable: 0,
+      skippedLinks: 0,
+      truncated: false,
+      countsKnown: true
+    })
+    const pass = createSortPass()
+    const first = pass({ ...base, listing: patched })
+    const sizes = { 'C:\\F\\a': size(10) }
+    expect(sameOrder({ ...base, listing: patched }, { ...base, listing: patched, sizes })).toBe(true)
+    const second = pass({ ...base, listing: patched, sizes })
+    expect(second[0].folderSize?.bytes).toBe(10)
+    expect(second[1]).toBe(first[1])
+    expect(second[2]).toBe(first[2])
+    const bySize = { ...base, listing: patched, sort: { key: 'size' as const, direction: 'desc' as const } }
+    expect(sameOrder(bySize, { ...bySize, sizes })).toBe(false)
   })
 })

@@ -54,11 +54,15 @@ export function registerBrowseIpc(ctx: MainCtx): void {
   // dates follow as `browse:details`. The indexer warm-up and the folder
   // sizes go AFTER the reply leaves (setImmediate): the size warm-up's
   // realpath checks, two per subfolder, used to run before it.
+  // A RE-READ IS NOT AN ARRIVAL (perf review #10, 2026-10-28): the watcher's
+  // and the focus's re-reads (`again`) of the folder on screen skip both
+  // warm-ups. Its arrival warmed them, and Downloads during a download
+  // re-reads about once a second.
   ipcMain.handle(
     CALL.browseDirectory,
-    async (_e, tabId: string, path: string, options?: { details?: boolean }) => {
+    async (_e, tabId: string, path: string, options?: { details?: boolean; again?: boolean }) => {
       const directory = await explorerListings.browse(tabId, path, options?.details !== false)
-      if (directory && !directory.listing.unreadable) {
+      if (directory && !directory.listing.unreadable && options?.again !== true) {
         const folders = directory.listing.folders.map((folder) => folder.path)
         setImmediate(() => {
           void warmIndexer(directory.path)

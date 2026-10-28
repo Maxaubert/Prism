@@ -64,6 +64,23 @@ it('resolves only the asked-about paths, however many grants there are (#351)', 
   expect(native.mock.calls.length).toBeLessThanOrEqual(12)
 })
 
+// Perf review #31 (2026-10-28): the owner checks looked a folder up by
+// scanning every grant of the tab; they are lookups now, with the same answers.
+it('looks a held folder up per tab, an alias and a second spelling included', () => {
+  const selected = join(directory, 'selected')
+  const alias = join(directory, 'alias')
+  mkdirSync(selected)
+  symlinkSync(selected, alias, 'junction')
+  for (let index = 0; index < 500; index++) grantDesktopDirectory('a', join(directory, `hit-${index}`))
+  grantDesktopDirectory('a', selected)
+  grantDesktopDirectory('a', selected.toUpperCase())
+  expect(ownsDesktopDirectory('a', alias)).toBe(true)
+  expect(ownsDesktopDirectory('a', selected)).toBe(true)
+  expect(ownsDesktopDirectory('b', selected)).toBe(false)
+  expect(ownsDesktopDirectory('a', join(directory, 'never'))).toBe(false)
+  expect(validDesktopRoot(alias, join(selected, 'x.txt'))).toBe(true)
+})
+
 it('retains alias access while refusing a direct child junction into an unvisited location', () => {
   const selected = join(directory, 'selected')
   const outside = join(directory, 'outside')

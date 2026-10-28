@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DirListing, ViewerFile } from '@shared/types'
-import { applyDetails, carryDetails, detailsPending } from './listingMerge'
+import { applyDetails, carryDetails, detailsPending, sameRows } from './listingMerge'
 import { sortFiles } from './prefs/sortPrefs'
 import { addRestoredTab, newTab, type Tab } from './tabs/tabs'
 import { smallFolderChildren } from '../hooks/useListingPrefetch'
@@ -66,6 +66,27 @@ describe('names first, then details (#271)', () => {
     const again = carryDetails(done, { ...names, files: [file('a')] })
     expect(again.folders[0].mtimeMs).toBe(42)
     expect(again.files[0].size).toBe(1)
+  })
+
+  it('knows the same rows, so a re-read that changed nothing draws nothing (perf review #18)', () => {
+    const on = { folders: [{ path: 'C:\\x\\S', name: 'S', mtimeMs: 1 }], files: [file('a', 1), file('b', 2)] }
+    const again = { ...on, folders: [...on.folders], files: [file('a', 1), file('b', 2)], complete: false }
+    expect(sameRows(on, again)).toBe(true)
+    expect(sameRows(on, { ...again, files: [file('a', 1), file('b', 3)] })).toBe(false)
+    expect(sameRows(on, { ...again, files: [file('a', 1)] })).toBe(false)
+    expect(sameRows(on, { ...again, files: [file('b', 2), file('a', 1)] })).toBe(false)
+    expect(sameRows(on, { ...again, hidden: 2 })).toBe(false)
+  })
+
+  it('says when it carried, so the new rows keep a date sort (perf review #3)', () => {
+    const shown = { folders: [], files: [file('a', 1)] }
+    const fresh = { folders: [], files: [file('a'), file('b')], complete: false }
+    const carried = carryDetails(shown, fresh)
+    expect(carried.carried).toBe(true)
+    expect(carried.files[1].size).toBeUndefined()
+    // Nothing carried (a first visit): no flag, the name fallback stays.
+    expect(carryDetails(null, fresh).carried).toBeUndefined()
+    expect(sortFiles(carried.files, 'size', 'desc', true).map((f) => f.name)).toEqual(['a', 'b'])
   })
 
   it('a size sort waits for every size, in name order, never counting a blank as 0', () => {

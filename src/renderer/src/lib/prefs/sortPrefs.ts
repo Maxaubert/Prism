@@ -29,31 +29,70 @@ export const DEFAULT_SORT = { field: 'name' as SortField, dir: 'asc' as SortDir 
  *  SIZE AND DATE WAIT FOR THEIR DETAILS (#271): while any file of a
  *  names-first listing has no size (or date) yet, that sort is the NAME
  *  order, and it re-sorts once when the last patch lands. Sorting half the
- *  rows by a number and half by nothing would shuffle the list on every patch. */
+ *  rows by a number and half by nothing would shuffle the list on every patch.
+ *
+ *  EXCEPT A CARRIED LISTING (`carried`, perf review #3, 2026-10-28): a refresh
+ *  of a folder on screen keeps the details it had, so only NEW files lack
+ *  them. The order stays; a file with no date yet is the newest, one with no
+ *  size yet goes last in either direction, until its patch lands. */
 export function sortFiles(
   files: ViewerFile[],
   field: SortField | 'packed',
-  dir: SortDir
+  dir: SortDir,
+  carried = false
 ): ViewerFile[] {
   if (
-    (field === 'size' && files.some((f) => f.size === undefined)) ||
-    (field === 'modified' && files.some((f) => f.mtimeMs === undefined))
+    !carried &&
+    ((field === 'size' && files.some((f) => f.size === undefined)) ||
+      (field === 'modified' && files.some((f) => f.mtimeMs === undefined)))
   ) {
     field = 'name'
     dir = 'asc'
   }
+  const flip = dir === 'desc' ? -1 : 1
+  if (field === 'size') {
+    // Unknown sizes last in either direction (a carried listing's new rows).
+    return [...files].sort((a, b) => {
+      if (a.size === undefined || b.size === undefined)
+        return a.size === b.size ? byName(a, b) : a.size === undefined ? 1 : -1
+      return flip * (a.size - b.size || byName(a, b))
+    })
+  }
   const primary = (a: ViewerFile, b: ViewerFile): number => {
     switch (field) {
-      case 'modified': return (a.mtimeMs ?? 0) - (b.mtimeMs ?? 0)
-      case 'size': return (a.size ?? 0) - (b.size ?? 0)
+      case 'modified': return newer(a.mtimeMs, b.mtimeMs)
       // Inside an archive (#300): what each member occupies in the container.
       case 'packed': return (a.packed ?? 0) - (b.packed ?? 0)
       case 'type': return a.kind.localeCompare(b.kind)
       default: return byName(a, b)
     }
   }
-  const flip = dir === 'desc' ? -1 : 1
   return [...files].sort((a, b) => flip * (primary(a, b) || byName(a, b)))
+}
+
+/** The last order made for each list of files, by its field and direction. */
+const sortedOnce = new WeakMap<readonly ViewerFile[], { field: string; dir: SortDir; files: ViewerFile[] }>()
+
+/**
+ * `sortFiles`, once per list of files and sort (perf review #21, 2026-10-28):
+ * the viewer re-sorted its whole folder on every arrow press, though only the
+ * position had moved. The same list object with the same sort answers the
+ * order it was given last time. A new list (the folder changed) sorts again.
+ */
+export function sortFilesOnce(files: ViewerFile[], field: SortField | 'packed', dir: SortDir): ViewerFile[] {
+  const hit = sortedOnce.get(files)
+  if (hit && hit.field === field && hit.dir === dir) return hit.files
+  const sorted = sortFiles(files, field, dir)
+  sortedOnce.set(files, { field, dir, files: sorted })
+  return sorted
+}
+
+/** Two dates in ascending order, a missing one the newest (a carried
+ *  listing's new row, perf review #3). */
+export function newer(a: number | undefined, b: number | undefined): number {
+  const x = a ?? Infinity
+  const y = b ?? Infinity
+  return x === y ? 0 : x < y ? -1 : 1
 }
 
 /* ---------- the persisted setting ---------- */
