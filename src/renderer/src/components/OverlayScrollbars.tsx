@@ -1,6 +1,13 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type JSX,
+  type PointerEvent as ReactPointerEvent
+} from 'react'
 import { createPortal } from 'react-dom'
-import { thumbFor, type Axis, type Thumb } from '../lib/overlayScroll'
+import { sameTracks, scrollsByStyle, thumbFor, type Axis, type Bar } from '../lib/overlayScroll'
 
 /**
  * EVERY SCROLLBAR IS THE FILE LIST'S (owner, 2026-10-27: "the sidebar
@@ -18,32 +25,46 @@ import { thumbFor, type Axis, type Thumb } from '../lib/overlayScroll'
  * An element marked `data-own-scrollbar` draws its own or none on purpose:
  * the file list (its own bar), the address bar's crumbs (scrolled to keep the
  * path's end in view) and the drive legend (its own "more" fade).
+ *
+ * Review, 2026-10-28: an axis the element's style does not let scroll
+ * (`overflow: hidden`) gets no bar; a scroll that only moves the thumbs writes
+ * them straight to the thumb, and React renders only when a track changes; a
+ * bar that goes away under the pointer, or a drag the system cancels, no
+ * longer leaves the bar held shown and every other scroller ignored; and
+ * outside-press closers let a press on the bar be (`data-overlay-scrollbar`,
+ * `onOverlayScrollbar`), so a scrolled menu's thumb can be dragged.
  */
 
 const HIDE_MS = 900
 
-interface Bar {
-  axis: Axis
-  /** The track's box on screen (fixed). */
-  left: number
-  top: number
-  length: number
-  thumb: Thumb
+type Axes = Record<Axis, boolean>
+
+/** Which axes the element's own style lets scroll; the page scrolls both. */
+function axesOf(el: HTMLElement): Axes {
+  if (el === document.scrollingElement) return { x: true, y: true }
+  const cs = getComputedStyle(el)
+  return { x: scrollsByStyle(cs.overflowX), y: scrollsByStyle(cs.overflowY) }
 }
 
-function barsOf(el: Element): Bar[] {
+function barsOf(el: HTMLElement, axes: Axes): Bar[] {
   const r = el.getBoundingClientRect()
-  const m = el as HTMLElement
-  const left = r.left + m.clientLeft
-  const top = r.top + m.clientTop
+  const left = r.left + el.clientLeft
+  const top = r.top + el.clientTop
   const out: Bar[] = []
-  const y = thumbFor(m, 'y')
-  if (y.scrollable)
-    out.push({ axis: 'y', left: left + m.clientWidth - 10, top, length: m.clientHeight, thumb: y })
-  const x = thumbFor(m, 'x')
-  if (x.scrollable)
-    out.push({ axis: 'x', left, top: top + m.clientHeight - 10, length: m.clientWidth, thumb: x })
+  const y = axes.y ? thumbFor(el, 'y') : null
+  if (y?.scrollable)
+    out.push({ axis: 'y', left: left + el.clientWidth - 10, top, length: el.clientHeight, thumb: y })
+  const x = axes.x ? thumbFor(el, 'x') : null
+  if (x?.scrollable)
+    out.push({ axis: 'x', left, top: top + el.clientHeight - 10, length: el.clientWidth, thumb: x })
   return out
+}
+
+function placeThumbs(thumbs: Record<Axis, HTMLDivElement | null>, bars: readonly Bar[]): void {
+  for (const b of bars) {
+    const t = thumbs[b.axis]
+    if (t) t.style[b.axis === 'y' ? 'top' : 'left'] = `${b.thumb.start}px`
+  }
 }
 
 function scrollerOf(target: EventTarget | null): HTMLElement | null {
@@ -55,16 +76,33 @@ export function OverlayScrollbars(): JSX.Element | null {
   const [bars, setBars] = useState<Bar[]>([])
   const [shown, setShown] = useState(false)
   const el = useRef<HTMLElement | null>(null)
+  const axes = useRef<Axes>({ x: false, y: false })
+  const drawn = useRef<Bar[]>([])
+  const thumbs = useRef<Record<Axis, HTMLDivElement | null>>({ x: null, y: null })
   const hover = useRef(false)
   const drag = useRef<{ axis: Axis; start: number; from: number } | null>(null)
   const idle = useRef(0)
+
+  // The thumbs' offsets are never React's: a render places them from the
+  // latest measure, and a scroll that moved only them places them itself.
+  useLayoutEffect(() => placeThumbs(thumbs.current, drawn.current), [bars])
 
   useEffect(() => {
     const root = document.documentElement
     root.classList.add('p-overlay-scrollbars')
     const measure = (): void => {
       const cur = el.current
-      setBars(cur && cur.isConnected ? barsOf(cur) : [])
+      const next = cur && cur.isConnected ? barsOf(cur, axes.current) : []
+      // No bar, no pointer on it and no drag: a bar that unmounted under the
+      // pointer never sees its leave or its release.
+      if (!next.length) {
+        hover.current = false
+        drag.current = null
+      }
+      const same = sameTracks(drawn.current, next)
+      drawn.current = next
+      if (same) placeThumbs(thumbs.current, next)
+      else setBars(next)
     }
     const hideLater = (): void => {
       window.clearTimeout(idle.current)
@@ -78,8 +116,12 @@ export function OverlayScrollbars(): JSX.Element | null {
       if (!target || target.closest('[data-own-scrollbar]')) return
       if (target !== el.current) {
         if (drag.current) return
+        const next = axesOf(target)
+        if (!next.x && !next.y) return
         ro.disconnect()
         el.current = target
+        axes.current = next
+        hover.current = false
         ro.observe(target)
       }
       measure()
@@ -102,6 +144,15 @@ export function OverlayScrollbars(): JSX.Element | null {
     idle.current = window.setTimeout(() => setShown(false), HIDE_MS)
   }
 
+  /** The drag is over: released, cancelled by the system, or its capture lost. */
+  const endDrag = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!drag.current) return
+    drag.current = null
+    if (e.currentTarget.hasPointerCapture(e.pointerId))
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    if (!hover.current) hideSoon()
+  }
+
   if (!bars.length) return null
   return createPortal(
     <>
@@ -110,6 +161,7 @@ export function OverlayScrollbars(): JSX.Element | null {
           key={b.axis}
           className="browse-overlay-scroll p-overlay-fixed"
           data-axis={b.axis}
+          data-overlay-scrollbar
           data-shown={shown || undefined}
           aria-hidden
           style={
@@ -128,11 +180,10 @@ export function OverlayScrollbars(): JSX.Element | null {
         >
           <div
             className="browse-overlay-thumb"
-            style={
-              b.axis === 'y'
-                ? { top: b.thumb.start, height: b.thumb.size }
-                : { left: b.thumb.start, width: b.thumb.size }
-            }
+            ref={(t) => {
+              thumbs.current[b.axis] = t
+            }}
+            style={b.axis === 'y' ? { height: b.thumb.size } : { width: b.thumb.size }}
             onPointerDown={(e) => {
               const cur = el.current
               if (!cur || e.button !== 0) return
@@ -157,11 +208,9 @@ export function OverlayScrollbars(): JSX.Element | null {
                   d.from + (e.clientX - d.start) * ((cur.scrollWidth - cur.clientWidth) / range)
               }
             }}
-            onPointerUp={(e) => {
-              drag.current = null
-              e.currentTarget.releasePointerCapture(e.pointerId)
-              if (!hover.current) hideSoon()
-            }}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onLostPointerCapture={endDrag}
           />
         </div>
       ))}

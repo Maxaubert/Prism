@@ -247,9 +247,8 @@ export function useAppKeys({
         e.ctrlKey &&
         !typing
       ) {
-        // It never takes the window on the last tab: Prism is resident, and a
-        // window that vanishes under a reflex keystroke - with unsaved text in
-        // it - is the failure the close flow exists to prevent.
+        // On the last tab it closes the window, as File Explorer does (owner,
+        // 2026-10-28, #450), after the unsaved-text ask like any close.
         e.preventDefault()
         closeActiveTab()
       } else if (e.key === 'Tab' && e.ctrlKey && !typing) {

@@ -322,6 +322,22 @@ export function toggleSettingsTab(
   return openSettingsTab(tabs, id)
 }
 
+/**
+ * Would putting Settings away leave no tab at all (review, 2026-10-28)? Then
+ * the window closes instead, as on any other last tab (owner, 2026-10-28: "if
+ * you close the last it closes prism just like file explorer"); the gear and
+ * Settings' own close used to leave an empty window behind. `toggle` is the
+ * gear, which closes Settings only when it is the tab in view.
+ */
+export function settingsCloseIsLast(
+  tabs: readonly Tab[],
+  activeId: string | null,
+  toggle: boolean
+): boolean {
+  if (tabs.length !== 1 || tabs[0].kind !== 'settings') return false
+  return !toggle || tabs[0].id === activeId
+}
+
 export interface TabState {
   tabs: Tab[]
   activeId: string | null

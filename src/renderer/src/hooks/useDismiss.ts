@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react'
+import { onOverlayScrollbar } from '../lib/overlayScroll'
 
 /**
  * A popover's way out (PlayerMenu): while `open`, a press outside
@@ -34,7 +35,8 @@ export function useDismiss(
       else shut()
     }
     const onDown = (e: PointerEvent): void => {
-      if (!box.current?.contains(e.target as Node)) shut()
+      // A press on the overlay scrollbar is the popover's own scrolling.
+      if (!box.current?.contains(e.target as Node) && !onOverlayScrollbar(e.target)) shut()
     }
     window.addEventListener('keydown', onKey, true)
     window.addEventListener('pointerdown', onDown, true)

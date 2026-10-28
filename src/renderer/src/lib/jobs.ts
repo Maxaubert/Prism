@@ -20,6 +20,7 @@
  * the chip renders in two places (the sidebar footer, or floating when the
  * panel is shut) that must agree.
  */
+import { useMemo, useSyncExternalStore } from 'react'
 import { createStore } from './store'
 
 export type JobKind = 'paste' | 'add'
@@ -91,28 +92,76 @@ export function landJob(id: string, dir: string, items: Array<Omit<LandingItem, 
   )
 }
 
-/** How far one landing item has got. */
+/** How far one landing item has got. The copy goes in order, so every item
+ *  before it is through: main sends at most one message per tick (review,
+ *  2026-10-28), and a landing it did not say is said by this. */
 export function updateLanding(id: string, index: number, pct: number): void {
   let changed = false
   const next = store.get().map((j) => {
     const it = j.landing?.items[index]
-    if (j.id !== id || !it || it.pct === pct) return j
+    if (j.id !== id || !it) return j
+    const was = j.landing!.items
+    const want = (x: LandingItem, i: number): number => (i === index ? pct : i < index ? 100 : x.pct)
+    if (!was.some((x, i) => x.pct !== want(x, i))) return j
     changed = true
-    const items = j.landing!.items.map((x, i) => (i === index ? { ...x, pct } : x))
+    const items = was.map((x, i) => (x.pct === want(x, i) ? x : { ...x, pct: want(x, i) }))
     return { ...j, landing: { dir: j.landing!.dir, items } }
   })
   if (changed) store.set(next)
 }
 
-/** Every item still landing in `dir` (case-insensitive), by its path. */
-export function landingIn(list: readonly Job[], dir: string): Array<LandingItem & { since: number }> {
+export type LandingRow = LandingItem & { since: number }
+
+/** Every item a paste is landing in `dir` (case-insensitive), by its path. A
+ *  landed one (100) stays too: the list drops it once the listing has the
+ *  real file, so a row never blinks out before its file shows (review,
+ *  2026-10-28). */
+export function landingIn(list: readonly Job[], dir: string): LandingRow[] {
   const norm = (p: string): string => p.toLowerCase().replace(/[\\/]+$/, '')
   const key = norm(dir)
   return list.flatMap((j) =>
     !j.done && j.landing && norm(j.landing.dir) === key
-      ? j.landing.items.filter((it) => it.pct < 100).map((it) => ({ ...it, since: j.since }))
+      ? j.landing.items.map((it) => ({ ...it, since: j.since }))
       : []
   )
+}
+
+const NO_ROWS: readonly LandingRow[] = []
+
+function sameRows(a: readonly LandingRow[], b: readonly LandingRow[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (x, i) =>
+        x.path === b[i].path &&
+        x.pct === b[i].pct &&
+        x.isFolder === b[i].isFolder &&
+        x.since === b[i].since
+    )
+  )
+}
+
+/** A reader of `landingIn(dir)` that hands back the SAME array while nothing
+ *  landing in `dir` changed, for the hook below (pure, so testable). */
+export function landingReader(dir: string, get: () => readonly Job[] = store.get): () => readonly LandingRow[] {
+  let from: readonly Job[] | null = null
+  let last: readonly LandingRow[] = NO_ROWS
+  return () => {
+    const list = get()
+    if (list === from) return last
+    from = list
+    const next = landingIn(list, dir)
+    if (!sameRows(last, next)) last = next.length ? next : NO_ROWS
+    return last
+  }
+}
+
+/** What is landing in `dir`, following the store: a component renders again
+ *  only when THIS folder's rows change, not on every job's tick (review,
+ *  2026-10-28: every open Explorer tab re-rendered on every paste tick). */
+export function useLandingIn(dir: string): readonly LandingRow[] {
+  const read = useMemo(() => landingReader(dir), [dir])
+  return useSyncExternalStore(store.subscribe, read, read)
 }
 
 function remove(id: string): void {

@@ -1738,7 +1738,16 @@ async function rowPasteScenario(fixtures) {
     // WAITED FOR, NOT SLEPT FOR (2026-09-21). The paste is a PowerShell read
     // of the clipboard, a copy and a list refresh: each step waits for its own
     // condition, bounded, and says what it saw.
-    const before = await rowCount()
+    // The list SETTLED first (2026-10-28): under the full suite's load it was
+    // still filling in (3 of 5 rows) when `before` was read, and the paste's
+    // row then only made up for a row not drawn yet (3 -> 3).
+    let before = await rowCount()
+    for (let still = 0, i = 0; still < 5 && i < 100; i += 1) {
+      await sleep(100)
+      const n = await rowCount()
+      still = n === before ? still + 1 : 0
+      before = n
+    }
     await paste().click()
     await until(async () => (await rowCount()) > before, 20000, 100)
     const after = await rowCount()
@@ -4013,6 +4022,48 @@ async function tabsCloseLastScenario(fixtures) {
     ok(
       await until(async () => await app.evaluate(() => globalThis.__e2eLastTabClosed === true), 3000, 50),
       'closing the last tab closes the window'
+    )
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
+// SETTINGS AS THE LAST TAB (review, 2026-10-28): putting Settings away with
+// the gear when it is the only tab closes the window, like any last tab; it
+// used to leave an empty window with no tabs.
+async function settingsLastTabScenario(fixtures) {
+  console.log('tabs: the gear on Settings as the last tab closes Prism')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const strip = '[role="tablist"]'
+  try {
+    await win.waitForSelector(`${strip} [data-tab-role]`, { timeout: 10000 })
+    const gear = win.locator('[aria-label="Settings"]')
+    await gear.click()
+    ok(
+      await until(async () => (await gear.getAttribute('aria-pressed')) === 'true', 6000, 50),
+      'the gear opens Settings'
+    )
+    // Close every other tab, leaving Settings alone in the strip.
+    for (let i = 0; i < 8 && (await win.locator(`${strip} [data-tab-role]`).count()) > 1; i += 1) {
+      const other = win.locator(`${strip} [data-tab-role]:not([data-tab-role="settings"])`).first()
+      if (!(await other.count())) break
+      await other.hover()
+      await other.locator('[data-tab-close]').click()
+      await sleep(300)
+    }
+    const left = await win.locator(`${strip} [data-tab-role]`).count()
+    ok(left <= 1, `only Settings is left (${left} tab)`)
+    await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && /index\.html/.test(x.webContents.getURL()))
+      w?.once('close', (e) => {
+        e.preventDefault()
+        globalThis.__e2eSettingsLastClosed = true
+      })
+    })
+    await gear.click()
+    ok(
+      await until(async () => await app.evaluate(() => globalThis.__e2eSettingsLastClosed === true), 3000, 50),
+      'the gear on the last tab closes the window'
     )
   } finally {
     await app.close().catch(() => {})
@@ -7057,6 +7108,33 @@ async function listScrollbarScenario(fixtures) {
     ok(s.gap === 0, `with no gap to the edge (${s.gap} px)`)
     await win.screenshot({ path: join(SHOTS, 'sidebar-scrollbar.png') })
     ok(await until(async () => (await side())?.shown === false, 3000, 50), 'and it hides again')
+    // REVIEW, 2026-10-28: a scroll that moves only the thumb places it
+    // without a render, and it still follows; an element whose style does
+    // not let it scroll (overflow: hidden) gets no bar when code scrolls it.
+    const thumbTop = () =>
+      win.evaluate(() => {
+        const t = document.querySelector('.browse-overlay-scroll.p-overlay-fixed[data-axis="y"] .browse-overlay-thumb')
+        return t ? Math.round(t.getBoundingClientRect().top) : null
+      })
+    const topBefore = await thumbTop()
+    await win.evaluate((n) => { document.querySelector(n).scrollTop = 0 }, nav)
+    ok(await until(async () => (await thumbTop()) !== topBefore, 2000, 25), `the thumb follows the scroll (${topBefore} -> ${await thumbTop()})`)
+    ok(await until(async () => (await side())?.shown === false, 3000, 50), 'and hides again')
+    await win.evaluate(() => {
+      const hidden = document.createElement('div')
+      hidden.id = 'e2e-overflow-hidden'
+      hidden.style.cssText = 'position:fixed;left:40px;top:40px;width:200px;height:100px;overflow:hidden'
+      hidden.innerHTML = '<div style="width:900px;height:900px"></div>'
+      document.body.appendChild(hidden)
+      hidden.scrollTop = 200
+      hidden.scrollLeft = 200
+    })
+    await sleep(400)
+    ok(
+      (await win.evaluate(() => document.querySelectorAll('.browse-overlay-scroll.p-overlay-fixed[data-shown]').length)) === 0,
+      'an overflow: hidden box scrolled by code shows no bar'
+    )
+    await win.evaluate(() => document.getElementById('e2e-overflow-hidden')?.remove())
   } finally {
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
@@ -16131,6 +16209,7 @@ await run(documentScenario, 2000)
 await run(synthAndRawScenario)
 await run(tabsScenario)
 await run(tabsCloseLastScenario)
+await run(settingsLastTabScenario)
 await run(titleBarScenario)
 await run(moreMenuScenario)
 await run(updateWindowScenario)
