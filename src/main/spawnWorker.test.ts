@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { execFile, launch, run } from './spawnWorker'
+import { execFile, launch, run, spawnStream } from './spawnWorker'
 
 // The worker is real here: a real thread starting real processes. node itself
 // is the child, so the test needs nothing installed.
@@ -61,5 +61,74 @@ describe('the process worker', () => {
     const pid = await launch(NODE, ['-e', 'setTimeout(()=>{},300)'])
     expect(typeof pid).toBe('number')
     await expect(launch('Z:/no/such/program.exe', [])).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('hands back a big buffer whole (moved, not copied: review, 2026-10-28)', async () => {
+    const n = 3 * 1024 * 1024
+    const out = await new Promise<Buffer>((resolve, reject) =>
+      execFile(
+        NODE,
+        ['-e', `process.stdout.write(Buffer.alloc(${n}, 7))`],
+        { encoding: 'buffer', maxBuffer: 16 << 20 },
+        (err, stdout) => (err ? reject(err) : resolve(stdout))
+      )
+    )
+    expect(out.length).toBe(n)
+    expect(out[0]).toBe(7)
+    expect(out[n - 1]).toBe(7)
+  })
+})
+
+// A child main STREAMS from (review, 2026-10-28): started in the worker, its
+// stdout chunks passed over, so CreateProcess never runs on main's thread.
+describe('a streaming child', () => {
+  it('streams stdout, ends, and closes with the exit code', async () => {
+    const child = spawnStream(NODE, [
+      '-e',
+      'process.stdout.write("ab");setTimeout(()=>{process.stdout.write("cd");process.exit(2)},30)'
+    ])
+    const chunks: Buffer[] = []
+    let spawned = false
+    let ended = false
+    child.on('spawn', () => (spawned = true))
+    child.stdout.on('data', (c: Buffer) => chunks.push(c))
+    child.stdout.on('end', () => (ended = true))
+    const code = await new Promise((r) => child.once('close', r))
+    expect(spawned).toBe(true)
+    expect(typeof child.pid).toBe('number')
+    expect(ended).toBe(true)
+    expect(Buffer.concat(chunks).toString()).toBe('abcd')
+    expect(code).toBe(2)
+    expect(child.exitCode).toBe(2)
+  })
+
+  it('kills on request and still closes once', async () => {
+    const child = spawnStream(NODE, ['-e', 'setInterval(()=>process.stdout.write("x"),10)'])
+    let closes = 0
+    const closed = new Promise((r) => child.on('close', () => r(++closes)))
+    await new Promise((r) => child.stdout.once('data', r))
+    child.stdout.pause()
+    child.stdout.resume()
+    expect(child.kill()).toBe(true)
+    expect(child.kill()).toBe(false)
+    await closed
+    await new Promise((r) => setTimeout(r, 100))
+    expect(closes).toBe(1)
+    expect(child.killed).toBe(true)
+  })
+
+  it('reports a missing program as an error event, then closes', async () => {
+    const child = spawnStream('Z:/no/such/program.exe', [])
+    const err = await new Promise<{ code?: unknown }>((r) => child.on('error', r))
+    expect(err.code).toBe('ENOENT')
+    await new Promise((r) => child.once('close', r))
+  })
+
+  it('passes stderr on only when asked', async () => {
+    const child = spawnStream(NODE, ['-e', 'process.stderr.write("oops")'], { stderr: true })
+    let err = ''
+    child.stderr.on('data', (c: Buffer) => (err += c.toString()))
+    await new Promise((r) => child.once('close', r))
+    expect(err).toBe('oops')
   })
 })

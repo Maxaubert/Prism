@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events'
 import { Worker } from 'worker_threads'
 
 /**
@@ -15,6 +16,12 @@ import { Worker } from 'worker_threads'
  * `execFile` here has node's callback shape, so a call site changes its
  * import and nothing else. `spawnCalls.test.ts` keeps `child_process` out of
  * the rest of main; the few that stream or detach say why on the line.
+ *
+ * A child that STREAMS goes through here too (`spawnStream`, review,
+ * 2026-10-28: "look for stall points"): streaming is a reason main needs the
+ * stdout, not a reason main must make the CreateProcess call. The worker
+ * starts it and passes each stdout chunk over (moved, not copied), and main
+ * gets a small stand-in with the ChildProcess shape the callers used.
  */
 
 export interface ExecOptions {
@@ -42,15 +49,74 @@ interface Reply {
   stderr: string | Uint8Array
 }
 
+/** What a streaming child says, in order: spawn, out/err chunks, end, close. */
+interface StreamEvent {
+  id: number
+  ev: 'spawn' | 'out' | 'err' | 'end' | 'error' | 'close'
+  pid?: number
+  chunk?: Uint8Array
+  err?: NonNullable<Reply['err']>
+  code?: number | null
+  signal?: string | null
+}
+
 const WORKER = `
 const { parentPort } = require('worker_threads')
 const { execFile, spawn } = require('child_process')
 const kids = new Map()
 const failure = (e) => ({ message: String((e && e.message) || e), code: e && e.code, killed: !!(e && e.killed), signal: (e && e.signal) || null })
+// Bytes are MOVED to main, never copied (a decoded image can be 256 MB). A
+// Buffer that owns its whole ArrayBuffer (anything Buffer.concat or a pipe
+// read made above node's 4 KB pool) goes as it is; only a slice of a shared
+// pool is copied first, since moving the pool would take its neighbours too.
+const own = (b) => {
+  if (b.byteOffset === 0 && b.byteLength === b.buffer.byteLength) {
+    const u = new Uint8Array(b.buffer, 0, b.byteLength)
+    return [u, [b.buffer]]
+  }
+  const u = new Uint8Array(b.byteLength)
+  u.set(b)
+  return [u, [u.buffer]]
+}
+const stream = (m) => {
+  const post = (x, move) => parentPort.postMessage(Object.assign({ id: m.id }, x), move || [])
+  let child
+  try {
+    child = spawn(m.exe, m.args, { windowsHide: m.opts.windowsHide !== false, cwd: m.opts.cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (e) {
+    post({ ev: 'error', err: failure(e) })
+    post({ ev: 'close', code: null, signal: null })
+    return
+  }
+  kids.set(m.id, child)
+  child.once('spawn', () => post({ ev: 'spawn', pid: child.pid }))
+  child.once('error', (e) => post({ ev: 'error', err: failure(e) }))
+  child.stdout.on('data', (c) => {
+    const [u, move] = own(c)
+    post({ ev: 'out', chunk: u }, move)
+  })
+  child.stdout.on('end', () => post({ ev: 'end' }))
+  // An unread pipe blocks the child: stderr is drained, and passed on only when asked.
+  if (m.opts.stderr) child.stderr.on('data', (c) => { const [u, move] = own(c); post({ ev: 'err', chunk: u }, move) })
+  else child.stderr.resume()
+  child.once('close', (code, signal) => {
+    kids.delete(m.id)
+    post({ ev: 'close', code, signal })
+  })
+}
 parentPort.on('message', (m) => {
   if (m.cancel !== undefined) {
     const c = kids.get(m.cancel)
     if (c) c.kill()
+    return
+  }
+  if (m.pause !== undefined || m.resume !== undefined) {
+    const c = kids.get(m.pause !== undefined ? m.pause : m.resume)
+    if (c && c.stdout) m.pause !== undefined ? c.stdout.pause() : c.stdout.resume()
+    return
+  }
+  if (m.stream) {
+    stream(m)
     return
   }
   if (m.launch) {
@@ -70,14 +136,8 @@ parentPort.on('message', (m) => {
   try {
     child = execFile(m.exe, m.args, m.opts, (err, stdout, stderr) => {
       kids.delete(m.id)
-      // Bytes are MOVED to main, never copied: a decoded image can be 256 MB.
       let move = []
-      if (Buffer.isBuffer(stdout)) {
-        const own = new Uint8Array(stdout.byteLength)
-        own.set(stdout)
-        stdout = own
-        move = [own.buffer]
-      }
+      if (Buffer.isBuffer(stdout)) [stdout, move] = own(stdout)
       parentPort.postMessage({ id: m.id, err: err ? failure(err) : null, stdout, stderr }, move)
     })
   } catch (e) {
@@ -97,6 +157,7 @@ parentPort.on('message', (m) => {
 interface Live {
   w: Worker
   pending: Map<number, (r: Reply) => void>
+  streams: Map<number, (e: StreamEvent) => void>
 }
 
 let worker: Live | null = null
@@ -107,14 +168,24 @@ function theWorker(): Live {
   const w = new Worker(WORKER, { eval: true })
   // An idle worker never holds the app open on quit.
   w.unref()
-  const live: Live = { w, pending: new Map() }
-  const { pending } = live
+  const live: Live = { w, pending: new Map(), streams: new Map() }
+  const { pending, streams } = live
   const lost = (message: string): void => {
     if (worker === live) worker = null
     for (const [id, answer] of pending) answer({ id, err: { message }, stdout: '', stderr: '' })
     pending.clear()
+    for (const [id, tell] of [...streams]) {
+      tell({ id, ev: 'error', err: { message } })
+      tell({ id, ev: 'close', code: null, signal: null })
+    }
+    streams.clear()
   }
-  w.on('message', (r: Reply) => {
+  w.on('message', (r: Reply | StreamEvent) => {
+    if ('ev' in r) {
+      streams.get(r.id)?.(r)
+      if (r.ev === 'close') streams.delete(r.id)
+      return
+    }
     const answer = pending.get(r.id)
     pending.delete(r.id)
     answer?.(r)
@@ -224,4 +295,98 @@ export function launch(
       reject(e as Error)
     }
   })
+}
+
+/** One pipe of a streaming child, as main sees it: 'data' (a Buffer) and
+ *  'end'. `pause` and `resume` reach the real pipe in the worker; a chunk
+ *  already on its way still arrives after a pause. */
+export class StreamPipe extends EventEmitter {
+  constructor(private readonly flow: (on: boolean) => void) {
+    super()
+  }
+  pause(): this {
+    this.flow(false)
+    return this
+  }
+  resume(): this {
+    this.flow(true)
+    return this
+  }
+}
+
+/**
+ * A child the worker started and streams from: the slice of ChildProcess the
+ * streaming callers use (`stdout`, `stderr`, `kill`, 'spawn', 'error' and
+ * 'close'), and the `Held` shape `holders` needs.
+ */
+export class StreamChild extends EventEmitter {
+  pid: number | undefined
+  exitCode: number | null = null
+  killed = false
+  readonly stdout: StreamPipe
+  readonly stderr: StreamPipe
+  constructor(private readonly post: (m: object) => void, private readonly id: number) {
+    super()
+    this.stdout = new StreamPipe((on) => this.post(on ? { resume: id } : { pause: id }))
+    this.stderr = new StreamPipe(() => {})
+  }
+  kill(): boolean {
+    if (this.exitCode !== null || this.killed) return false
+    this.killed = true
+    this.post({ cancel: this.id })
+    return true
+  }
+}
+
+/** Options for `spawnStream`: `stderr` passes the child's stderr on as
+ *  'data' (otherwise it is drained in the worker and never crosses). */
+export interface StreamOptions {
+  windowsHide?: boolean
+  cwd?: string
+  stderr?: boolean
+}
+
+/** node's `spawn` for a child main streams from, started by the process
+ *  worker so CreateProcess never runs on main's thread. Stdin is closed. */
+export function spawnStream(exe: string, args: readonly string[], options: StreamOptions = {}): StreamChild {
+  const id = nextId++
+  let live: Live | null = null
+  const child = new StreamChild((m) => live?.w.postMessage(m), id)
+  const tell = (e: StreamEvent): void => {
+    switch (e.ev) {
+      case 'spawn':
+        child.pid = e.pid
+        child.emit('spawn')
+        break
+      case 'out':
+        if (e.chunk) child.stdout.emit('data', Buffer.from(e.chunk.buffer, e.chunk.byteOffset, e.chunk.byteLength))
+        break
+      case 'err':
+        if (e.chunk) child.stderr.emit('data', Buffer.from(e.chunk.buffer, e.chunk.byteOffset, e.chunk.byteLength))
+        break
+      case 'end':
+        child.stdout.emit('end')
+        break
+      case 'error':
+        if (child.listenerCount('error')) child.emit('error', errorOf(e.err ?? { message: 'failed' }))
+        break
+      case 'close':
+        child.exitCode = e.code ?? null
+        child.emit('exit', e.code ?? null, e.signal ?? null)
+        child.emit('close', e.code ?? null, e.signal ?? null)
+        break
+    }
+  }
+  try {
+    live = theWorker()
+    live.streams.set(id, tell)
+    live.w.postMessage({ id, stream: true, exe, args: [...args], opts: { windowsHide: true, ...options } })
+  } catch (e) {
+    const err = { message: String((e as Error)?.message ?? e) }
+    queueMicrotask(() => {
+      tell({ id, ev: 'error', err })
+      tell({ id, ev: 'close', code: null, signal: null })
+    })
+  }
+  return child
 }

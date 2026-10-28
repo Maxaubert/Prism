@@ -23,7 +23,7 @@ import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from '../fileOps'
 import { appsForExt, argsFor, type AppCandidate } from '../openWith'
 import { addToArchive, archiveTooLarge, moveMembers } from '../archive'
 import { insideSelf, moveEntries } from '../moveOps'
-import { copyCounted, movePct, pastesIntoItself, pctOf, predictNames } from '../pasteCopy'
+import { copyCounted, movePct, pastesIntoItself, pctOf, predictNames, walkSizes } from '../pasteCopy'
 import { fileKind, isMarkdown } from '@shared/fileKind'
 import { samePath } from '@shared/path'
 import type { OnClash, OpenWithApp, RenameResult, TextRead, WriteResult } from '@shared/types'
@@ -310,21 +310,6 @@ export function registerShellIpc(ctx: MainCtx): void {
    *  process per right-click made the row late (2026-10-16). */
   ipcMain.handle(CALL.clipboardHasFiles, () => hasWindowsFiles(() => clipboard.availableFormats()))
 
-  /** Every file under a path, with sizes, for the progress arithmetic. */
-  async function walkSizes(p: string): Promise<number> {
-    const fs = await import('fs/promises')
-    const st = await fs.stat(p)
-    if (!st.isDirectory()) return st.size
-    let total = 0
-    for (const e of await fs.readdir(p, { withFileTypes: true })) {
-      try {
-        total += await walkSizes(join(p, e.name))
-      } catch {
-        /* unreadable entries copy as failures later; the bar only guides */
-      }
-    }
-    return total
-  }
 
   /**
    * Paste, with PROGRESS and an answer that names what landed (2026-09-03).
@@ -346,10 +331,6 @@ export function registerShellIpc(ctx: MainCtx): void {
         cut.every((c) => src.some((f) => samePath(f, String(c)))))
     ownWrite(join(destDir, 'x'))
     const fs = await import('fs/promises')
-    const sizes = moving
-      ? src.map(() => 0) // a rename is instant; only the cross-volume fallback counts bytes
-      : await Promise.all(src.map((f) => walkSizes(f).catch(() => 0)))
-    const total = sizes.reduce((x, y) => x + y, 0)
     const job = typeof jobId === 'string' ? jobId : ''
     // THE LIST SHOWS WHAT IS LANDING (owner, 2026-10-28: "nothing happens and
     // suddenly items just appear"): a copy names each item and the path it
@@ -375,6 +356,13 @@ export function registerShellIpc(ctx: MainCtx): void {
       )
       sendToPage(PUSH.pasteProgress, { jobId: job, pct: 0, start: { dir: destDir, items } })
     }
+    // Sized AFTER the rows are said (review, 2026-10-28, finding 17): a big
+    // folder's walk no longer holds the list empty. lstat, never following a
+    // junction (pasteCopy.walkSizes). A move is a rename and sizes nothing.
+    const sizes = moving
+      ? src.map(() => 0) // only the cross-volume fallback counts bytes
+      : await Promise.all(src.map((f) => walkSizes(f).catch(() => 0)))
+    const total = sizes.reduce((x, y) => x + y, 0)
     let done = 0
     let lastSent = 0
     // A message at most every PASTE_TICK_MS, bytes and landings alike (review,

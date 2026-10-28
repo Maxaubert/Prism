@@ -67,11 +67,23 @@ const isPlace = (p: string): boolean => isFolder(p) || containerSync(p) !== null
  */
 const mayBePlace = (p: string): boolean => !isLocalFixed(p) || isPlace(p)
 
+/**
+ * THE SAME RULE FOR A TAB'S OWN ROOT, PATH AND FILE (review, 2026-10-28: "look
+ * for stall points"). Only the history had it: a tab whose root or current
+ * folder sat on an offline share still waited out the SMB timeout here, and
+ * this runs on every page load (a reload or a crash recovery too), not only
+ * at startup. Off this PC's own fixed disks they are kept unchecked; the
+ * async listing finds a folder that has gone, and the viewer a file.
+ */
+const mayBeFolder = (p: string): boolean => !isLocalFixed(p) || isFolder(p)
+// sync-ok: startup, the tab restore (once per page load, before the strip shows)
+const mayExist = (p: string): boolean => !isLocalFixed(p) || existsSync(p)
+
 /** History is a bounded suggestion. Each surviving location keeps its own view. */
 export function parseBrowse(raw: unknown): SavedBrowse | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const value = raw as Partial<SavedBrowse>
-  if (typeof value.path !== 'string' || !isAbsolute(value.path) || !isPlace(value.path))
+  if (typeof value.path !== 'string' || !isAbsolute(value.path) || !mayBePlace(value.path))
     return undefined
   const history: BrowseLocation[] = []
   let cursor = 0
@@ -183,9 +195,9 @@ export function parseTabs(raw: string): SavedTabs {
       root?: unknown
       file?: unknown
     }
-    if (typeof root !== 'string' || !isAbsolute(root) || !isFolder(root)) return
-    // sync-ok: startup, the tab restore (once per page load, before the strip shows)
-    const tab: SavedTab = typeof file === 'string' && existsSync(file) ? { root, file } : { root }
+    if (typeof root !== 'string' || !isAbsolute(root) || !mayBeFolder(root)) return
+    const tab: SavedTab =
+      typeof file === 'string' && isAbsolute(file) && mayExist(file) ? { root, file } : { root }
     tab.role = 'explorer'
     if (role === 'explorer' && pinned === true && !keptPinnedExplorer) {
       tab.pinned = true
