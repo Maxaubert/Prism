@@ -76,44 +76,51 @@ describe('Explorer tabs', () => {
     expect(newTab({ ...p, role: 'explorer', index: 0 }, 'opened-file').index).toBe(0)
   })
 
-  it('restores the pinned Explorer without resetting its location or duplicating owners', () => {
+  it('restores the home tab in place: no reorder, one mark, a first Explorer promoted', () => {
     const p = payload(SHOOT, [])
     const browser = addExplorerTab([], p, 'explorer', true).tabs[0]
     browser.browse = newBrowse(DOCS)
     const other = tabOf(SHOOT, [])
     const extra = { ...browser, id: 'extra' }
     const restored = ensurePinnedExplorer([other, browser, extra], p, 'unused')
-    expect(restored.map((tab) => tab.id)).toEqual(['explorer', other.id, 'extra'])
-    expect(restored[0]).toBe(browser)
-    expect(restored[0].browse.path).toBe(DOCS)
-    expect(restored[1]).toBe(other)
+    expect(restored.map((tab) => tab.id)).toEqual([other.id, 'explorer', 'extra'])
+    expect(restored[1]).toBe(browser)
+    expect(restored[1].browse.path).toBe(DOCS)
+    expect(restored[0]).toBe(other)
     expect(restored[2].pinned).toBe(false)
     expect(ensurePinnedExplorer(restored, p, 'unused')).toEqual(restored)
+    // No mark at all: the first Explorer tab takes it, nothing is added.
+    const unmarked = ensurePinnedExplorer([other, { ...extra, pinned: false }], p, 'unused')
+    expect(unmarked.map((t) => t.id)).toEqual([other.id, 'extra'])
+    expect(unmarked[0].pinned).toBe(true)
   })
 
-  it('adds closable Explorer tabs beside the permanent one', () => {
+  it('closes any tab, the home one included, and hands its mark on (owner, 2026-10-28)', () => {
     const p = payload(SHOOT, [])
-    const pinned = addExplorerTab([], p, 'explorer', true)
-    const extra = addExplorerTab(pinned.tabs, p, 'extra')
-    expect(extra.activeId).toBe('extra')
-    expect(extra.tabs.map((tab) => tab.role)).toEqual(['explorer', 'explorer'])
+    const home = addExplorerTab([], p, 'explorer', true)
+    const extra = addExplorerTab(home.tabs, p, 'extra')
     expect(closeTab(extra.tabs, 'extra', 'extra').activeId).toBe('explorer')
-    expect(closeTab(extra.tabs, 'explorer', 'extra').tabs).toEqual(extra.tabs)
+    const closedHome = closeTab(extra.tabs, 'explorer', 'explorer')
+    expect(closedHome.tabs.map((t) => t.id)).toEqual(['extra'])
+    expect(closedHome.tabs[0].pinned).toBe(true)
+    expect(closedHome.activeId).toBe('extra')
+    // The last tab closes too; App closes the window (useTabOps).
+    expect(closeTab(closedHome.tabs, 'extra', 'extra')).toEqual({ tabs: [], activeId: null })
   })
 
-  it('keeps the permanent Explorer first when other tabs reorder', () => {
+  it('moves every tab, the home one included', () => {
     const first = addExplorerTab([], payload(SHOOT, []), 'explorer', true).tabs[0]
     const a = tabOf(SHOOT, [])
     const b = tabOf(DOCS, [])
-    expect(reorderTabs([first, a, b], first.id, 3)).toEqual([first, a, b])
-    expect(reorderTabs([first, a, b], b.id, 0)).toEqual([first, b, a])
+    expect(reorderTabs([first, a, b], first.id, 3)).toEqual([a, b, first])
+    expect(reorderTabs([first, a, b], b.id, 0)).toEqual([b, first, a])
   })
 
-  it('labels a tab by the folder it shows and names the permanent Explorer', () => {
+  it('labels every tab by the folder it shows, the home one too', () => {
     const first = addExplorerTab([], payload(SHOOT, []), 'explorer', true).tabs[0]
     const extra = addExplorerTab([], payload(DOCS, []), 'extra').tabs[0]
     const moved = { ...tabOf(SHOOT, []), browse: newBrowse(DOCS) }
-    expect(tabLabels([first, extra, moved])).toEqual(['Explorer', 'docs', 'docs'])
+    expect(tabLabels([first, extra, moved])).toEqual(['shoot', 'docs', 'docs'])
   })
 })
 

@@ -3981,6 +3981,49 @@ async function openInExplorerScenario(fixtures) {
   }
 }
 
+/** NO PINNED TAB (owner, 2026-10-28: "remove the pin system for tabs every
+ *  tab can be closed if you close the last it closes prism just like file
+ *  explorer", "tab should show the current folder name"). The first tab is
+ *  named by its folder, has an X like any tab, and its X on the last tab asks
+ *  the window to close (caught in main and held, so the run goes on). */
+async function tabsCloseLastScenario(fixtures) {
+  console.log('tabs: no pin, the last close closes Prism')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const strip = '[role="tablist"]'
+  try {
+    await win.waitForSelector(`${strip} [data-tab-role]`, { timeout: 10000 })
+    // Leave only the first tab, whatever the launch opened beside it.
+    for (let i = 0; i < 6 && (await win.locator(`${strip} [data-tab-role]`).count()) > 1; i += 1) {
+      await win.locator(`${strip} [data-tab-role]`).last().locator('[data-tab-close]').click()
+      await sleep(300)
+    }
+    ok((await win.locator(`${strip} [data-tab-role]`).count()) === 1, 'one tab left')
+    const first = win.locator(`${strip} [data-tab-role]`).first()
+    const label = ((await first.locator('[role="tab"]').textContent()) ?? '').trim()
+    const path = (await first.locator('[role="tab"]').getAttribute('title')) ?? ''
+    const base = path.split(/[\\/]/).filter(Boolean).pop() ?? ''
+    ok(label !== 'Explorer' && label === base, `the tab is named by its folder (${label} for ${path})`)
+    ok((await first.locator('[data-tab-close]').count()) === 1, 'and has an X like any tab')
+    ok((await first.locator('[title="Pinned Explorer"]').count()) === 0, 'and no pin')
+    await app.evaluate(({ BrowserWindow }) => {
+      // The main window: the one whose page is the app (index.html).
+      const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && /index\.html/.test(x.webContents.getURL()))
+      w?.once('close', (e) => {
+        e.preventDefault()
+        globalThis.__e2eLastTabClosed = true
+      })
+    })
+    await first.hover()
+    await first.locator('[data-tab-close]').click()
+    ok(
+      await until(async () => await app.evaluate(() => globalThis.__e2eLastTabClosed === true), 3000, 50),
+      'closing the last tab closes the window'
+    )
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
 async function tabsScenario(fixtures) {
   console.log('tabs')
   const otherRoot = OTHER_ROOT
@@ -13572,7 +13615,7 @@ async function themeLooksScenario(fixtures) {
       await win.mouse.move(5, 5)
       await win.screenshot({ path: join(SHOTS, `theme-code-${id}.png`) })
     }
-    await win.locator('[role="tab"]:has-text("Explorer")').first().click()
+    await win.locator('[data-pinned] [role="tab"]').first().click()
     for (const id of ['aurora', 'carbon', 'jade', 'crimson', 'paper', 'midnight-hc', 'glacier', 'pearl']) {
       await switchStyle(win, id)
       await sleep(350)
@@ -15862,6 +15905,7 @@ await run(sevenZipScenario)
 await run(documentScenario, 2000)
 await run(synthAndRawScenario)
 await run(tabsScenario)
+await run(tabsCloseLastScenario)
 await run(titleBarScenario)
 await run(moreMenuScenario)
 await run(updateWindowScenario)
