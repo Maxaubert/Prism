@@ -9,6 +9,7 @@ import {
   decodeListing,
   encodeListing,
   evictionOrder,
+  listingSignature,
   type IndexEntry
 } from './listingCache'
 
@@ -171,6 +172,33 @@ describe('the cache on disk', () => {
     cache.put('C:\\Home', listing('C:\\Home', 1, 0), 1)
     cache.put('C:\\Other', listing('C:\\Other', 1, 0), 1)
     expect(cache.entries().map((e) => e.path)).toEqual(['C:\\Home'])
+  })
+
+  it('a refresh that changed nothing writes nothing (perf review #10)', async () => {
+    let t = 0
+    const cache = createListingCache({ directory: join(box, 'cache'), now: () => ++t })
+    cache.put('C:\\A', listing('C:\\A', 1, 2), 5)
+    await settle()
+    const first = cache.entries()[0].savedAt
+    cache.put('C:\\A', listing('C:\\A', 1, 2), 5)
+    expect(cache.entries()[0].savedAt).toBe(first)
+    // A changed row, or the folder's own date, writes again.
+    cache.put('C:\\A', listing('C:\\A', 1, 3), 5)
+    const second = cache.entries()[0].savedAt
+    expect(second).toBeGreaterThan(first)
+    cache.put('C:\\A', listing('C:\\A', 1, 3), 6)
+    expect(cache.entries()[0].savedAt).toBeGreaterThan(second)
+    // A forgotten entry is written again even with the same rows.
+    cache.drop('C:\\A')
+    cache.put('C:\\A', listing('C:\\A', 1, 3), 6)
+    expect(cache.entries()).toHaveLength(1)
+  })
+
+  it('signs a listing by its rows', () => {
+    const a = listing('C:\\A', 1, 2)
+    expect(listingSignature(a, 1)).toBe(listingSignature(listing('C:\\A', 1, 2), 1))
+    expect(listingSignature(a, 1)).not.toBe(listingSignature(a, 2))
+    expect(listingSignature(a, 1)).not.toBe(listingSignature(listing('C:\\A', 2, 2), 1))
   })
 
   it('treats a damaged file as a miss and forgets it', async () => {

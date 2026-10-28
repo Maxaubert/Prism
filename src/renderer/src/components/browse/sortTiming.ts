@@ -1,7 +1,7 @@
 import { time } from 'prism-term-core/renderer/lib/diag'
 import type { DirListing } from '@shared/types'
 import type { FolderSizes } from '../../lib/folderSize'
-import { browseEntries } from './entries'
+import { browseEntries, refill, sameOrder } from './entries'
 import type { BrowseEntry, BrowseSort } from './types'
 
 /**
@@ -51,16 +51,27 @@ export const SORT_SLOW_EVERY_MS = 5000
  * first slow pass is written; the slow passes after it, for
  * `SORT_SLOW_EVERY_MS`, are counted, and the next line written for that
  * trigger carries them as `held` with the slowest as `heldMaxMs`.
+ *
+ * AN ORDER THAT CANNOT MOVE IS NOT SORTED AGAIN (perf review #11 and #20,
+ * 2026-10-28): a details patch under a Name sort, or a folder-size tick under
+ * anything but Size, refills the last pass's rows in their order
+ * (`sameOrder`, `refill`) instead of sorting the folder again.
  */
 export function createSortPass(clock: () => number = () => performance.now()): (inputs: SortInputs) => BrowseEntry[] {
   let last: SortInputs | null = null
+  let lastOut: BrowseEntry[] = []
   const gates = new Map<string, { sentAt: number; held: number; heldMaxMs: number }>()
   return (inputs) => {
     const trigger = sortTrigger(last, inputs)
+    const prev = last
     last = inputs
     const rows = inputs.listing ? inputs.listing.folders.length + inputs.listing.files.length : 0
     const t0 = clock()
-    const out = browseEntries(inputs.listing, inputs.query, inputs.sort, inputs.sizes, inputs.dated)
+    const out =
+      prev && prev.listing && inputs.listing && sameOrder(prev, inputs)
+        ? refill(lastOut, prev.listing, inputs.listing, inputs.sizes)
+        : browseEntries(inputs.listing, inputs.query, inputs.sort, inputs.sizes, inputs.dated)
+    lastOut = out
     const t1 = clock()
     const ms = t1 - t0
     if (ms < SORT_SLOW_MS) return out
