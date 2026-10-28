@@ -16,6 +16,9 @@ import { listKey } from '../../lib/listKeys'
 import { sweepBase, sweepSelect } from '../../lib/marquee'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
+import { landingIn, useJobs } from '../../lib/jobs'
+import { fileKind } from '@shared/fileKind'
+import type { DirListing } from '@shared/types'
 import { useListingPrefetch } from '../../hooks/useListingPrefetch'
 import { browsableArchive } from '@shared/archivePlace'
 import type { FolderSizes } from '../../lib/folderSize'
@@ -120,16 +123,54 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   // The pass times itself (#322, `sortTiming.ts`): a slow one is `sort-slow`,
   // with which input made it run again.
   const [sortPass] = useState(createSortPass)
+  // WHAT A PASTE IS STILL COPYING HERE (owner, 2026-10-28: "nothing happens
+  // and suddenly items just appear"): each item joins the listing at once,
+  // sorted where it will land, and the list draws it inert with its bar until
+  // the real file arrives (then the listing has it and this drops it).
+  const jobs = useJobs()
+  const landingItems = useMemo(
+    () =>
+      landingIn(jobs, props.directory).filter(
+        (it) =>
+          !props.listing?.files.some((f) => f.path.toLowerCase() === it.path.toLowerCase()) &&
+          !props.listing?.folders.some((f) => f.path.toLowerCase() === it.path.toLowerCase())
+      ),
+    [jobs, props.directory, props.listing]
+  )
+  const landing = useMemo(
+    () => (landingItems.length ? new Map(landingItems.map((it) => [it.path.toLowerCase(), it.pct])) : undefined),
+    [landingItems]
+  )
+  const listing = useMemo((): DirListing | null => {
+    if (!landingItems.length || !props.listing) return props.listing ?? null
+    const dot = (n: string): string => {
+      const i = n.lastIndexOf('.')
+      return i > 0 ? n.slice(i).toLowerCase() : ''
+    }
+    return {
+      ...props.listing,
+      folders: [
+        ...props.listing.folders,
+        ...landingItems.filter((it) => it.isFolder).map((it) => ({ path: it.path, name: it.name, mtimeMs: it.since }))
+      ],
+      files: [
+        ...props.listing.files,
+        ...landingItems
+          .filter((it) => !it.isFolder)
+          .map((it) => ({ path: it.path, name: it.name, ext: dot(it.name), kind: fileKind(dot(it.name), it.name), size: 0, mtimeMs: it.since }))
+      ]
+    }
+  }, [landingItems, props.listing])
   const entries = useMemo(
     () =>
       sortPass({
-        listing: props.listing,
+        listing,
         query: props.searchState ? '' : props.query,
         sort: props.sort,
         sizes: folderSizes,
         dated
       }),
-    [sortPass, props.listing, props.query, props.sort, props.searchState, folderSizes, dated]
+    [sortPass, listing, props.query, props.sort, props.searchState, folderSizes, dated]
   )
   const weekStart = props.weekStart
   const dividers = useMemo(
@@ -579,6 +620,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         onActivate={activate}
         onSelect={pickOne}
         marked={marked}
+        landing={landing}
         onPick={pick}
         onSweep={swept}
         onExtend={extendTo}

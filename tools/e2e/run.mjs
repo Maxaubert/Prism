@@ -9230,6 +9230,77 @@ async function addressFieldScenario(fixtures) {
  * are gone from above the list, which takes their height; every one of them
  * is still on the row's right-click menu and its key, and this proves each.
  */
+/** A BIG PASTE SHOWS IN THE LIST (owner, 2026-10-28: "for bigger items or
+ *  things that take time to paste it should show a progress bar now nothing
+ *  happens and suddenly items just appear"). A 600 MB file pasted from the
+ *  list: while it copies, the job chip is up, ON TOP (the point at its centre
+ *  is the chip, not a panel over it), with its bar. */
+async function pasteProgressScenario(fixtures) {
+  console.log('a big paste shows its progress')
+  const dir = join(fixtures, 'pasteprogress')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'into'), { recursive: true })
+  const big = join(dir, 'big.bin')
+  // Real bytes, not a sparse file: a sparse copy finishes before a frame.
+  const chunk = Buffer.alloc(16 * 1024 * 1024, 7)
+  for (let i = 0; i < 38; i += 1) appendFileSync(big, chunk)
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'into'))
+  const row = (suffix) => win.locator(`[data-testid="browse-list"] [data-browse-path$="${suffix}"]`)
+  try {
+    await explorerAt(win, dir)
+    await row('big.bin').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'the file is on the clipboard')
+    await row('\\into').dblclick()
+    ok(await until(async () => ((await win.locator('.browse-path').getAttribute('data-path')) ?? '').endsWith('into'), 8000), 'into the folder')
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    // The row is there while it copies: inert, saying Copying, with a bar
+    // that fills, and only then a normal row.
+    const look = () =>
+      win.evaluate(() => {
+        const r = document.querySelector('[data-testid="browse-list"] [data-browse-path$="big.bin"]')
+        if (!r) return null
+        return {
+          landing: r.hasAttribute('data-landing'),
+          inert: r.inert === true,
+          type: r.querySelector('.browse-column-type')?.textContent ?? '',
+          pct: Number(r.querySelector('.browse-landing')?.getAttribute('data-pct') ?? -1)
+        }
+      })
+    let first = null
+    const end = Date.now() + 20000
+    while (Date.now() < end && !first) {
+      const l = await look()
+      if (l?.landing) first = l
+      else await sleep(20)
+    }
+    ok(!!first && first.inert && first.type === 'Copying…' && first.pct >= 0, `while it copies, the item is a row with its bar (${JSON.stringify(first)})`)
+    if (first) await win.screenshot({ path: join(SHOTS, 'paste-landing.png') })
+    let moved = false
+    const end2 = Date.now() + 20000
+    while (Date.now() < end2) {
+      const l = await look()
+      if (!l?.landing) break
+      if (l.pct > (first?.pct ?? 0)) moved = true
+      await sleep(40)
+    }
+    ok(moved, 'and its bar fills as it copies')
+    ok(
+      await until(async () => {
+        const l = await look()
+        return !!l && !l.landing && !l.inert
+      }, 30000),
+      `then it is a normal row (${JSON.stringify(await look())})`
+    )
+    ok(await until(() => existsSync(join(dir, 'into', 'big.bin')) && statSync(join(dir, 'into', 'big.bin')).size === statSync(big).size, 30000), 'the copy lands whole')
+    await win.screenshot({ path: join(SHOTS, 'paste-progress.png') })
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function explorerVerbsScenario(fixtures) {
   console.log('explorer verbs without the action row')
   const dir = join(fixtures, 'verbs')
@@ -16136,6 +16207,7 @@ await run(quietTooltipsScenario)
 await run(placedTipsScenario)
 await run(sizesKeptScenario)
 await run(explorerVerbsScenario)
+await run(pasteProgressScenario)
 await run(propertiesWindowScenario)
 await run(searchPopupScenario)
 await run(searchNavScenario)

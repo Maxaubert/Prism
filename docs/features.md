@@ -51,6 +51,14 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
 
 - Open via: a file argument (Explorer double-click / "open with" / CLI), drag-and-drop, and an
   open dialog.
+- **A PASTE SHOWS IN THE LIST** (owner, 2026-10-28: "for bigger items or things that take time to paste it
+  should show a progress bar now nothing happens and suddenly items just appear"; picked: rows in the list).
+  The job chip was there all along (bottom left, small and dim), which is why it read as nothing. Now a copy
+  says its items as it starts (`file:paste-into` sends `start: { dir, items }`, each item's expected path)
+  and how far each has got (`item`, `itemPct`); the list (`FolderBrowser`) puts every item still copying into
+  the listing at once, sorted where it will land, drawn faded, inert, "Copying…" with a filling bar in the
+  Size column (`lib/jobs` `landJob`/`landingIn`, `BrowseList` `landing`), until the real file arrives. A
+  move is a rename and shows none. `jobs.test.ts`; e2e `pasteProgress` (a 600 MB copy).
 - **A CUT ROW LOOKS CUT** (owner, 2026-10-28: "when you click ctrl x on an item selected the highlight
   effect should get dimmed to indicate you clicked ctrl x"). A row marked cut (`data-cut`, from
   `lib/fileClipboard`) wears the inactive selection's dimmed tint and edge while selected, and its name and

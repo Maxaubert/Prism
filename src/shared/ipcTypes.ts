@@ -127,6 +127,20 @@ export type ArchiveMoveResult = 'ok' | 'encrypted' | 'failed'
 export interface PasteProgress {
   jobId: string
   pct: number
+  /** Said once, as a copy starts (owner, 2026-10-28: the list shows each
+   *  item being pasted as a row with its own bar): the folder they land in
+   *  and each item's expected path. Absent on a move, which is a rename. */
+  start?: { dir: string; items: PasteItem[] }
+  /** Which item (an index into `start.items`) the copy is on, and how far
+   *  through it, 0-100. 100 once it has landed. */
+  item?: number
+  itemPct?: number
+}
+/** One item a paste is copying, as the list shows it while it lands. */
+export interface PasteItem {
+  path: string
+  name: string
+  isFolder: boolean
 }
 /** A video conversion's progress, 0-100. */
 export interface ConvertProgress {
