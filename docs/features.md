@@ -2052,8 +2052,9 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   read and hover read-ahead; a folder not held misses and the async listing paints it
   (`listingCache.test.ts`). (3) Tab restore applies the history's rule to a tab's root, path and file: off
   this PC's fixed disks they are kept unchecked (`tabs.test.ts`). (4) A copy's landing rows are sent BEFORE
-  anything is sized; sizes are walked beside the copy with lstat (links and junctions never followed), and
-  until they are in the bar counts items landed (`pasteCopy.test.ts`). (5) Streaming children start in the
+  anything is sized, then sized with lstat (links and junctions never followed) before the copy starts:
+  sizing beside the copy was built here, but #455's paste loop landed first and kept the simpler order
+  (`pasteCopy.test.ts`). (5) Streaming children start in the
   process worker too (`spawnStream`, stdout moved over in chunks, pause and resume reach the pipe): the
   audio sidecar (every seek) and the waveform's peaks so far; propsMedia, videoConvert, sevenZip, phone
   jobs and the Win+E launch still carry `spawn-ok` (`spawnWorker.test.ts`). (6) The worker moves a Buffer
