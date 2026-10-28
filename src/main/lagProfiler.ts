@@ -9,8 +9,9 @@ import { summarizeLag, type CpuProfile } from './lagSummary'
  * A MAIN-LAG CARRIES ITS OWN CPU PROFILE (owner, 2026-10-12, "handle this":
  * e2e runs showed 3 to 10 s main-process freezes with only finished, fast IPC
  * in flight, so the `inflight` list could not say what main was doing). While
- * it is on, main runs V8's sampling profiler (1 ms) from its own inspector
- * session in short windows: every 5 s the window is stopped and a new one
+ * it is on, main runs V8's sampling profiler (every 4 ms, SAMPLE_INTERVAL_US)
+ * from its own inspector session in windows: every 15 s the window is stopped
+ * and a new one
  * started, and the last finished one is kept. A `main-lag` of 1 s or more
  * stops the running window at once and writes the windows covering the lag
  * to the log folder as `lag-<time>.cpuprofile` (open it in Chrome DevTools'
@@ -39,7 +40,13 @@ import { summarizeLag, type CpuProfile } from './lagSummary'
 
 export const LAG_PROFILE_MIN_MS = 1000
 export const LAG_PROFILE_KEEP = 10
-export const LAG_WINDOW_MS = 5000
+/** One window's length (performance review, 2026-10-28: it was 5 s, so a stop,
+ *  a profile handed back to main and a start every 5 s, all session). */
+export const LAG_WINDOW_MS = 15_000
+/** V8's sampling interval, microseconds (performance review, 2026-10-28: it was
+ *  1 ms, a thousand interrupts a second of the thread it watches, for good). 4 ms
+ *  still puts 250 samples in the shortest lag it profiles. */
+export const SAMPLE_INTERVAL_US = 4000
 /** The detector's tick: the lag is measured from the tick before it. */
 const TICK_MS = 50
 
@@ -129,7 +136,7 @@ export function startLagProfiler(deps: LagProfilerDeps): LagProfiler {
     s.connect()
     session = s
     void post('Profiler.enable')
-    void post('Profiler.setSamplingInterval', { interval: 1000 })
+    void post('Profiler.setSamplingInterval', { interval: SAMPLE_INTERVAL_US })
     void post('Profiler.start')
     curStart = now()
   }
@@ -211,7 +218,16 @@ export function startLagProfiler(deps: LagProfilerDeps): LagProfiler {
   const write = log.write
   log.write = (src, k, fields) => {
     const ms = fields?.ms
-    if (src === 'main' && k === 'main-lag' && typeof ms === 'number' && ms >= LAG_PROFILE_MIN_MS) {
+    // A lag during or just after a Chromium trace dump (nativeTrace.ts marks
+    // it `afterDump`) is the dump's own cost: no profile, so one dump cannot
+    // set off a run of cpuprofile writes on a disk that is already busy.
+    if (
+      src === 'main' &&
+      k === 'main-lag' &&
+      typeof ms === 'number' &&
+      ms >= LAG_PROFILE_MIN_MS &&
+      fields?.afterDump !== true
+    ) {
       let profile: string | null = null
       safe(() => {
         profile = onLag(ms)

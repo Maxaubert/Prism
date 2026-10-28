@@ -24,7 +24,9 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   strip's order and marks the first Explorer tab when none is marked, and closing the home tab hands the mark to
   the first Explorer tab left (`closeTab`). Closing the last tab closes the window (`useTabOps`
   `forceCloseTab`, after the unsaved-text question) and leaves the strip saved, so the next launch restores
-  it. `tabs.test.ts`, `tabStrip.test.ts`; e2e `tabs`.
+  it. `tabs.test.ts`, `tabStrip.test.ts`; e2e `tabs`. Settings as the last tab follows the same rule
+  (performance review, 2026-10-28): the gear or Settings' own close then closes the window, where it left an
+  empty one (`settingsCloseIsLast`, `tabs.test.ts`; e2e `settingsLastTab`).
 - **Entry points**: a file from argv, an association, a second instance or a drop opens in the home Explorer tab
   as before. A folder from argv, a drop or the shell verb opens an Explorer tab at it (or switches to a tab that
   already shows exactly that folder). The shell verb on folders now reads "Open in Prism"; `relabelVerb`
@@ -59,6 +61,18 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the listing at once, sorted where it will land, drawn faded, inert, "Copying…" with a filling bar in the
   Size column (`lib/jobs` `landJob`/`landingIn`, `BrowseList` `landing`), until the real file arrives. A
   move is a rename and shows none. `jobs.test.ts`; e2e `pasteProgress` (a 600 MB copy).
+  CHEAP FOR A BIG PASTE INTO A BIG FOLDER (performance review, 2026-10-28; owner: "look for stall points,
+  things that use up too many resources"): each progress message filtered every item against the whole
+  listing, lower-casing both, re-sorted the folder, and re-rendered every open Explorer tab, and main sent one
+  unthrottled message per landed item. Now `FolderBrowser` follows only its own folder's rows
+  (`useLandingIn`), looks them up in a set, and builds the merged listing from the ROW SET alone
+  (`browse/landingRows.ts` `rowsKey`): a percentage tick redraws bars and never re-sorts. Main sends at most
+  one message per 120 ms, landings included; progress on an item says every item before it is through
+  (`updateLanding`). A landed row stays at 100 until the listing has the real file (it blinked out until the
+  watcher's re-read). Two sources with one name predict two names in order (`pasteCopy.ts` `predictNames`,
+  `uniqueNameAsync`'s `taken`), and the copy writes exactly where its row said (they shared one path and one
+  row hid the other). A cut copied across drives counts its percentage in items (`movePct`; from the second
+  such item it read 100%). `landingRows.test.ts`, `jobs.test.ts`, `pasteCopy.test.ts`, `fileOps.test.ts`.
 - **A CUT ROW LOOKS CUT** (owner, 2026-10-28: "when you click ctrl x on an item selected the highlight
   effect should get dimmed to indicate you clicked ctrl x"). A row marked cut (`data-cut`, from
   `lib/fileClipboard`) wears the inactive selection's dimmed tint and edge while selected, and its name and
@@ -769,6 +783,14 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   and finds the bar on its edge; `lib/overlayScroll.test.ts` holds the arithmetic. QUIETER AND FLUSH
   (owner, 2026-10-28: "still not subtle enough and its not on the edge ... theres a small gap"): the
   thumb is 3 px at 16 % (5 px at 32 % under the pointer), with no inset; the e2e measures the gap as 0.
+  SAFER AND CHEAPER (performance review, 2026-10-28): a bar that unmounted under the pointer, or a drag
+  the system cancelled (`pointercancel`, lost capture), left the bar held shown and every other scroller
+  ignored for the window's life; now an empty measure clears hover and drag, and cancel ends a drag like a
+  release. Menus and popovers no longer close on a press on the bar (`data-overlay-scrollbar`,
+  `onOverlayScrollbar` in `useDismiss` and `ContextMenu`), so a scrolled menu's thumb can be dragged. An
+  axis whose style is `overflow: hidden` gets no bar (`scrollsByStyle`). A scroll that moves only the thumb
+  writes its offset to the thumb; React renders only when a track changes (`sameTracks`).
+  `overlayScroll.test.ts`; `listScrollbar` e2e checks the thumb follows and a hidden box gets no bar.
   **THE ADDRESS AND THE SEARCH ARE ONE FIELD** (#267; owner, 2026-10-04: "make the url box more
   visible and for the black theme make the grey colours used in search and in the url bar darker
   grey"). Both wear `.browse-field` (`--p-field`, `-edge`, `-edge-hover`, `-hint`). On a ground
@@ -2008,6 +2030,18 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   kept (`nativeTrace.test.ts`). (3) Detailed logging is ON until the owner switches it off
   (`verboseByDefault`, a switch flipped in Settings is kept; the e2e keeps the quiet default;
   `diagLog.test.ts`). (4) The log keeps 8 MB a file, five files (`DIAG_MAX_BYTES`, was 2 MB).
+  **CHEAPER AND SAFER, STILL ALWAYS ON** (performance review, 2026-10-28; owner: "look for stall points,
+  things that use up too many resources"). The owner's log showed a dump of the 8 MB buffer take 6.2 s into
+  a 43 MB file, main lagging 2.6 s during it and 8.8 s right after recording restarted, and a dump cut off by
+  quit left a 13 MB `<guid>.tmp` that no prune matched. Now: a 2 MB buffer of `toplevel`, `electron`,
+  `startup` and `navigation` (`ipc`, `mojom`, `gpu` and `loading` filled it many times faster and no dump
+  needed them); one dump every 10 minutes; none within 30 s of an `fs-slow` line (the disk is the stall);
+  none once quitting (`before-quit` stops it); recording comes back 30 s after a dump. A main-lag during a
+  dump or within 30 s of one says `afterDump: true` and gets no CPU profile. Kept traces are capped at
+  50 MB as well as five, and a leftover trace `.tmp` from an earlier session goes a minute after launch.
+  The CPU profiler samples every 4 ms (was 1 ms) in 15 s windows (was 5 s): still 250 samples in a 1 s
+  lag, a quarter of the interrupts and a third of the stop/start work. `nativeTrace.test.ts`,
+  `lagProfiler.test.ts`.
   **THE TAB STRIP IS SAVED OFF MAIN** (owner, 2026-10-12: the app "stalled for like 5 seconds",
   first after an unpin, then on entering Downloads). A CPU profile of the owner's main process
   put every sample of a 3954 ms freeze in `writeFileSync` under `writeTabs`: the tab strip's
@@ -2048,8 +2082,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   2026-10-12: "handle this, create a plan then go ahead"; plan
   `docs/superpowers/plans/2026-10-12-main-freezes-plan.md`). After the disk work left main,
   e2e runs still showed 3 to 10 s `main-lag`s with only finished IPC in flight, so the cause
-  had to be caught in the act. `lagProfiler.ts` runs V8's sampling profiler (1 ms) in main
-  from its own inspector session, in 5 s windows; a `main-lag` of 1 s or more writes the
+  had to be caught in the act. `lagProfiler.ts` runs V8's sampling profiler (1 ms; 4 ms
+  since 2026-10-28) in main from its own inspector session, in 5 s windows (15 s since 2026-10-28); a `main-lag` of 1 s or more writes the
   window holding it to `logs\lag-<time>.cpuprofile`, names it in the line, and a
   `lag-profile` line says how much was JavaScript and where (`lagSummary.ts`; a builtin
   such as `spawn` names its caller; the window named is the one holding most of the lag,

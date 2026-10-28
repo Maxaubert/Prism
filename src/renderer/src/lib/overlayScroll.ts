@@ -30,3 +30,44 @@ export function thumbFor(m: ScrollMetrics, axis: Axis): Thumb {
   const start = (pos / (full - view)) * (view - size)
   return { scrollable: true, start: Math.max(0, Math.min(view - size, start)), size }
 }
+
+/** One axis's bar: the track's box on screen (fixed) and its thumb. */
+export interface Bar {
+  axis: Axis
+  left: number
+  top: number
+  length: number
+  thumb: Thumb
+}
+
+/** Does an `overflow-x`/`overflow-y` value let the user scroll that way? A
+ *  hidden axis can still be scrolled by code (scrollIntoView), and it got a
+ *  visible, draggable bar that shifted the content sideways (review,
+ *  2026-10-28). */
+export function scrollsByStyle(overflow: string): boolean {
+  return overflow === 'auto' || overflow === 'scroll' || overflow === 'overlay'
+}
+
+/** The same tracks, thumb sizes included: only the thumbs' offsets may differ,
+ *  which the component writes straight to the thumb instead of rendering. */
+export function sameTracks(a: readonly Bar[], b: readonly Bar[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (x, i) =>
+        x.axis === b[i].axis &&
+        x.left === b[i].left &&
+        x.top === b[i].top &&
+        x.length === b[i].length &&
+        x.thumb.size === b[i].thumb.size
+    )
+  )
+}
+
+/** A press on an overlay bar. Outside-press closers (menus, popovers) let it
+ *  be: the bar is portaled outside their box, so pressing the thumb of a
+ *  scrolled menu closed the menu under it (review, 2026-10-28). */
+export function onOverlayScrollbar(target: EventTarget | Node | null): boolean {
+  const el = target as { closest?: (selector: string) => unknown } | null
+  return typeof el?.closest === 'function' && !!el.closest('[data-overlay-scrollbar]')
+}

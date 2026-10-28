@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from './icons/Icon'
+import { onOverlayScrollbar } from '../lib/overlayScroll'
 
 // The right-click menu for a tree row. Just the actions: you right-clicked the
 // row, so you know what it applies to. Small, keyboard-dismissable, clamped so
@@ -263,8 +264,13 @@ export function ContextMenu({
       lateClose.current = null
       rightPress.current = false
     }
+    // The overlay scrollbar is portaled outside the menu: a press on it is
+    // the menu's own scrolling (review, 2026-10-28).
     const outside = (t: Node): boolean =>
-      !anchor?.contains(t) && !box.current?.contains(t) && !fly.current?.contains(t)
+      !anchor?.contains(t) &&
+      !box.current?.contains(t) &&
+      !fly.current?.contains(t) &&
+      !onOverlayScrollbar(t)
     const onDown = (e: PointerEvent): void => {
       if (!outside(e.target as Node)) return
       if (e.button === 2) {
