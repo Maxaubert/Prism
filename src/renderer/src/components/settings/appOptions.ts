@@ -72,7 +72,7 @@ export const APP_OPTIONS: readonly AppOption[] = [
   { id: 'c-accent', label: 'Accent colour', sub: 'Buttons, progress, visualizer and chosen cards.', section: 'style-colours', page: 'appearance', icon: 'accent', keywords: 'highlight color alpha', store: DRAFT },
   { id: 'c-selection', label: 'Selection colour', sub: 'Tint of selected files and places.', section: 'style-colours', page: 'appearance', icon: 'select', keywords: 'marked highlight tint color', store: DRAFT },
   { id: 'c-text', label: 'Text colour', sub: 'File names, labels and readouts.', section: 'style-colours', page: 'appearance', icon: 'text', keywords: 'ink foreground color', store: DRAFT },
-  { id: 'c-folder-icon', label: 'Folder icon colour', sub: 'Folder icons in the file tree.', section: 'style-colours', page: 'appearance', icon: 'folder', keywords: 'folders zip color', store: DRAFT },
+  { id: 'c-folder-icon', label: 'Folder icon colour', sub: 'Folder icons in the Explorer.', section: 'style-colours', page: 'appearance', icon: 'folder', keywords: 'folders zip color', store: DRAFT },
   { id: 'c-font', label: 'Font', sub: 'The typeface used across the app.', section: 'app-text', page: 'appearance', icon: 'font', keywords: 'typeface face family', store: DRAFT },
   { id: 'tree-size', label: 'Font size', sub: 'Sidebar and settings text.', section: 'app-text', page: 'appearance', icon: 'size', keywords: 'font zoom bigger smaller scale', store: ['prism.tree.size'] },
   { id: 'title-bar', label: 'Show title bar', sub: 'When off, tabs share the top row.', section: 'window', page: 'appearance', icon: 'titlebar', keywords: 'caption top frame hide hidden', store: ['prism.window.titleBar'] },

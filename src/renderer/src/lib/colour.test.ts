@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { contrastRatio, luminance as coreLuminance, mixHex } from 'prism-term-core/renderer/lib/colourMath'
 import { contrast, hexToRgb, luminance, mix, rgbToHex } from './colour'
 
 describe('colour maths', () => {
@@ -12,6 +13,12 @@ describe('colour maths', () => {
   it('writes six digits, rounded', () => {
     expect(rgbToHex([70, 130, 251])).toBe('#4682fb')
     expect(rgbToHex([0.4, 254.6, 15])).toBe('#00ff0f')
+  })
+
+  it("mix, luminance and contrast are the core's, not a copy (2026-10-28)", () => {
+    expect(mix).toBe(mixHex)
+    expect(luminance).toBe(coreLuminance)
+    expect(contrast).toBe(contrastRatio)
   })
 
   it('mixes channel by channel', () => {

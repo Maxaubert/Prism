@@ -48,7 +48,7 @@ export function PanelToggle({
       className="no-drag grid h-7 w-8 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
       onClick={onToggle}
       title={settingsOpen ? 'Collapse the rail (Ctrl+B)' : 'Files (Ctrl+B)'}
-      aria-label={settingsOpen ? 'Collapse the settings rail' : 'Toggle file tree'}
+      aria-label={settingsOpen ? 'Collapse the settings rail' : 'Toggle places panel'}
       aria-pressed={open}
     >
       <PanelGlyph filled={open} />

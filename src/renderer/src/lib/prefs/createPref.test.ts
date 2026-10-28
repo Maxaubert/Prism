@@ -20,12 +20,12 @@ const sideOf = (raw: string | null): 'left' | 'right' => (raw === 'right' ? 'rig
 
 describe('createPref', () => {
   it('reads, writes and tells its listeners under its own key', () => {
-    const pref = createPref({ key: 'prism.tree.side', read: 'always', parse: sideOf, fallback: 'left' })
+    const pref = createPref({ key: 'prism.explorer.side', read: 'always', parse: sideOf, fallback: 'left' })
     expect(pref.get()).toBe('left')
     const heard = vi.fn()
     const off = pref.subscribe(heard)
     pref.set('right')
-    expect(localStorage.getItem('prism.tree.side')).toBe('right')
+    expect(localStorage.getItem('prism.explorer.side')).toBe('right')
     expect(pref.get()).toBe('right')
     expect(heard).toHaveBeenCalledTimes(1)
     off()
@@ -35,18 +35,18 @@ describe('createPref', () => {
 
   it('knows whether its key travels between windows', () => {
     expect(createPref({ key: 'prism.sort', parse: String, fallback: '' }).scope).toBe('shared')
-    expect(createPref({ key: 'prism.sidebar', parse: String, fallback: '' }).scope).toBe('window')
+    expect(createPref({ key: 'prism.settings.rail', parse: String, fallback: '' }).scope).toBe('window')
   })
 
   it('never throws when storage refuses: reads fall back, a write lasts the session', () => {
-    localStorage.setItem('prism.tree.side', 'right')
+    localStorage.setItem('prism.explorer.side', 'right')
     refuse()
-    const always = createPref({ key: 'prism.tree.side', read: 'always', parse: sideOf, fallback: 'left' })
+    const always = createPref({ key: 'prism.explorer.side', read: 'always', parse: sideOf, fallback: 'left' })
     expect(() => always.get()).not.toThrow()
     expect(always.get()).toBe('left')
     expect(() => always.set('right')).not.toThrow()
 
-    const once = createPref({ key: 'prism.tree.side', parse: sideOf, fallback: 'left' })
+    const once = createPref({ key: 'prism.explorer.side', parse: sideOf, fallback: 'left' })
     expect(once.get()).toBe('left')
     const heard = vi.fn()
     once.subscribe(heard)
@@ -67,9 +67,9 @@ describe('createPref', () => {
   })
 
   it('once: holds the value it loaded until reload, as a fresh launch would', () => {
-    localStorage.setItem('prism.tree.side', 'right')
-    const pref = createPref({ key: 'prism.tree.side', parse: sideOf, fallback: 'left' })
-    localStorage.setItem('prism.tree.side', 'left')
+    localStorage.setItem('prism.explorer.side', 'right')
+    const pref = createPref({ key: 'prism.explorer.side', parse: sideOf, fallback: 'left' })
+    localStorage.setItem('prism.explorer.side', 'left')
     expect(pref.get()).toBe('right')
     pref.reload()
     expect(pref.get()).toBe('left')

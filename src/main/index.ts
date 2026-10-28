@@ -39,8 +39,7 @@ import {
   markExplorerWindow
 } from './explorerWindow'
 import { createWindowPreferences } from './windowPreferences'
-import { forgetCanonical, isSkipped, listDir, searchFiles, toViewerFile, warmCanonical } from './dirList'
-import { isAnyRoot, onRootsChanged } from './roots'
+import { forgetCanonical, listDir, searchFiles, toViewerFile, warmCanonical } from './dirList'
 import {
   grantDesktopDirectory,
   insideDesktop
@@ -65,7 +64,6 @@ import { PhoneLog } from './phone/diag'
 import { Positions } from './positions'
 import { holders } from './holders'
 import { Thumbs } from './thumbs'
-import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs } from './tabs'
 import { userPaths } from './paths'
 import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnostics'
@@ -212,7 +210,6 @@ const RENDERER_DIR = resolve(join(__dirname, '..', 'renderer'))
  */
 const wall = createPathWall({
   insideDesktop,
-  isAnyRoot,
   memberOwns: (p) => memberTemp.owns(p),
   rendererDir: RENDERER_DIR
 })
@@ -496,11 +493,10 @@ function openLink(url: string): void {
  * and devtools is worth having when a scenario fails.
  */
 /**
- * The tree follows the folder, not just Prism's own writes (2026-08-30).
- *
- * The watcher set is the ROOT set by construction: roots.ts announces every
- * open and close and this is the only thing that starts or stops a watch, so
- * it can never drift onto a path the renderer named.
+ * A watched folder changed (2026-08-30): the Explorer follows the folder, not
+ * just Prism's own writes. browseWatch.ts (one non-recursive watch per tab,
+ * 2026-10-26) is the only caller; the recursive root watcher it replaced went
+ * with the roots (2026-10-28).
  */
 function folderChanged(change: { root: string; dirs: string[] }): void {
   // Our index and cache writes must not invalidate themselves recursively.
@@ -523,26 +519,6 @@ function folderChanged(change: { root: string; dirs: string[] }): void {
     .invalidate(directories, tell)
     .catch(() => {})
     .finally(tell)
-}
-
-onRootsChanged((root, open) => {
-  if (!open) {
-    unwatchRoot(root)
-    return
-  }
-  watchRoot(root, folderChanged, isSkipped)
-})
-
-/**
- * Prism is about to write here itself, so the watcher should say nothing.
- *
- * Every one of these handlers is already followed by the renderer refreshing
- * that folder; a watcher echo would be a second, redundant refresh that also
- * costs the selection twice.
- */
-function ownWrite(...paths: Array<string | null | undefined>): void {
-  const now = Date.now()
-  for (const p of paths) if (typeof p === 'string' && p) muteDir(dirname(p), now)
 }
 
 async function written(...paths: Array<string | null | undefined>): Promise<void> {
@@ -1039,8 +1015,7 @@ const ctx = {
   folderChanged,
   SLOW_SETUP_MS,
   SLOW_SCAN_MS,
-  // Prism's own writes: muted for the watcher, then sizes refreshed.
-  ownWrite,
+  // Prism's own writes: sizes refreshed.
   written,
   // Opening: the payload builders, a web link, picked subtitles.
   buildPayload,
@@ -1507,7 +1482,6 @@ if (!app.requestSingleInstanceLock()) {
     // Nothing can be playing without a window, and a block that outlives the
     // thing it was held for is a laptop that never sleeps again.
     keepAwake(false)
-    closeAllWatches()
     stopAllTails()
     if (process.platform !== 'darwin') app.quit()
   })

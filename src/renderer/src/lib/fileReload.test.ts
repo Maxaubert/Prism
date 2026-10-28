@@ -19,7 +19,7 @@ describe('whether a watcher event could be about this file', () => {
   })
 
   it('takes the root itself as a hit, which is what a nameless event reports', () => {
-    // ReadDirectoryChangesW sometimes gives no file name; dirWatch then
+    // ReadDirectoryChangesW sometimes gives no file name; the watch then
     // reports the root, and there is no way to tell what moved.
     expect(touchesFile(file, change('C:\\work', 'C:\\work'))).toBe(true)
   })
@@ -47,9 +47,8 @@ describe('whether the file really moved', () => {
   })
 
   it('says no when nothing moved - which is Prism own save, arriving late', () => {
-    // ownWrite mutes the directory, but a muted directory is DEFERRED and
-    // emitted when the mute lifts. Every Ctrl+S therefore produces an event
-    // about 1.2s later, and only the stamp tells them apart.
+    // The folder watch sees Prism's own writes too, so every Ctrl+S
+    // produces an event, and only the stamp tells them apart.
     expect(stampChanged({ mtimeMs: 7, size: 42 }, { mtimeMs: 7, size: 42 })).toBe(false)
   })
 

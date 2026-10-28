@@ -13,13 +13,9 @@ export type PrefScope = 'shared' | 'window'
 
 export const PREF_KEYS = {
   // Layout of this window.
-  'prism.sidebar': 'window',
-  'prism.sidebar.width': 'window',
   'prism.explorer.places': 'window',
   'prism.explorer.widths': 'window',
   'prism.settings.rail': 'window',
-  'prism.term.h': 'window',
-  'prism.term.w': 'window',
   // Settings.
   'prism.onboarded': 'shared',
   'prism.code.wrap': 'shared',
@@ -37,12 +33,9 @@ export const PREF_KEYS = {
   'prism.sidebar.driveStyle': 'shared',
   'prism.slideshow.seconds': 'shared',
   'prism.sort': 'shared',
-  'prism.split.dir': 'shared',
   'prism.tabs.remember': 'shared',
-  'prism.term.dock': 'shared',
   'prism.transport.bg': 'shared',
   'prism.transport.style': 'shared',
-  'prism.tree.side': 'shared',
   'prism.tree.size': 'shared',
   'prism.window.tabWidth': 'shared',
   'prism.window.titleBar': 'shared',
@@ -74,6 +67,45 @@ export const PREF_KEYS = {
 } as const satisfies Record<string, PrefScope>
 
 export type PrefKey = keyof typeof PREF_KEYS
+
+/**
+ * Keys nothing reads any more: the terminal, the sidebar tree and the split
+ * panes went with #439 and the project tabs (2026-10-26). They stay named
+ * here so they stop travelling (2026-10-28, performance review: "things that
+ * use up too many resources"): the window preferences sync refuses them, main
+ * deletes their files from the store once per run, and each window drops them
+ * from its localStorage. An EXPLICIT list, never a prism.term prefix: the
+ * colour picker's format (core colourFormat.ts) lives under that prefix, and
+ * the tree size and the sidebar drive style are live despite their names.
+ */
+export const RETIRED_PREF_KEYS: readonly string[] = [
+  'prism.sidebar',
+  'prism.sidebar.width',
+  'prism.split.dir',
+  'prism.tabs.confirmClose',
+  'prism.term.acrylic',
+  'prism.term.agentColor',
+  'prism.term.agentDoneColor',
+  'prism.term.agentIndicator',
+  'prism.term.agentQuestionColor',
+  'prism.term.custom',
+  'prism.term.dock',
+  'prism.term.font',
+  'prism.term.fontPct',
+  'prism.term.h',
+  'prism.term.opacity',
+  'prism.term.shell',
+  'prism.term.theme',
+  'prism.term.w',
+  'prism.tree.side'
+]
+
+const RETIRED: ReadonlySet<string> = new Set(RETIRED_PREF_KEYS)
+
+/** True for a key on the retired list above. */
+export function retiredPrefKey(key: string): boolean {
+  return RETIRED.has(key)
+}
 
 /** Families of keys, one per item: reading progress, the player's legacy
  *  resume points, and the phone page's own token and view. None travels. */

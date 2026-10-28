@@ -5,7 +5,6 @@ import { tmpdir } from 'os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { folderSize } from './folderSize'
 import { grantDesktopDirectory, insideDesktop, resetDesktopAccess } from './desktopAccess'
-import { insideAnyRoot, resetRoots } from './roots'
 
 vi.mock('fs/promises', async (importOriginal) => ({
   ...(await importOriginal<typeof import('fs/promises')>())
@@ -22,7 +21,6 @@ beforeEach(() => {
   mkdirSync(join(root, 'nested', 'empty'), { recursive: true })
   writeFileSync(join(root, 'one.txt'), Buffer.alloc(7))
   writeFileSync(join(root, 'nested', '.hidden'), Buffer.alloc(11))
-  resetRoots()
   resetDesktopAccess()
 })
 
@@ -58,7 +56,6 @@ describe('recursive folder size', () => {
     expect(insideDesktop(child)).toBe(false)
     await scan(root)
     expect(insideDesktop(child)).toBe(false)
-    expect(insideAnyRoot(child)).toBe(false)
   })
 
   it('skips outside junctions and loops, including a linked root', async () => {

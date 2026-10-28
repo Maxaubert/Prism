@@ -11,7 +11,7 @@ import {
 import { OverlayScrollbar } from '../browse/OverlayScrollbar'
 import '../browse/browse.css'
 import './donut.css'
-import { hiddenTitle } from '../../lib/hiddenTitle'
+import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
 
 /** The ring (spec: 150px, 20px ring) and the gap between two slices. */
 const SIZE = 150

@@ -95,7 +95,7 @@ describe('window preference bootstrap', () => {
     h.local.setItem('prism.style', 'stale-local')
     h.local.setItem('prism.quickAccess', '[{"path":"C:\\\\Photos"}]')
     h.local.setItem('prism.futurePreference', 'new-local-setting')
-    h.local.setItem('prism.sidebar.width', '350')
+    h.local.setItem('prism.explorer.widths', '350')
     h.local.setItem('unrelated', 'leave-me')
     h.bridge.windowPreferencesSeed.mockImplementation((values) => {
       expect(h.bridge.windowPreferencesLoad).toHaveBeenCalledOnce()
@@ -112,7 +112,7 @@ describe('window preference bootstrap', () => {
     })
     expect(h.local.getItem('prism.style')).toBe('canonical')
     expect(h.local.getItem('prism.futurePreference')).toBe('new-local-setting')
-    expect(h.local.getItem('prism.sidebar.width')).toBe('350')
+    expect(h.local.getItem('prism.explorer.widths')).toBe('350')
     expect(h.local.getItem('unrelated')).toBe('leave-me')
     expect(h.bridge.windowPreferencesSet).not.toHaveBeenCalled()
     expect(globalThis.localStorage).toBe(originalStorage)
@@ -125,13 +125,13 @@ describe('window preference bootstrap', () => {
         'prism.style': 'shared-style',
         'prism.onboarded': '1',
         'prism.quickAccess': '[]',
-        'prism.sidebar.width': '999',
+        'prism.explorer.widths': '999',
         'prism.phone.token': 'never-import',
         unrelated: 'never-import'
       }
     })
     h.local.setItem('prism.style', 'old-child-style')
-    h.local.setItem('prism.sidebar.width', '240')
+    h.local.setItem('prism.explorer.widths', '240')
 
     await import('./windowPreferences')
 
@@ -139,7 +139,7 @@ describe('window preference bootstrap', () => {
     expect(h.local.getItem('prism.style')).toBe('shared-style')
     expect(h.local.getItem('prism.onboarded')).toBe('1')
     expect(h.local.getItem('prism.quickAccess')).toBe('[]')
-    expect(h.local.getItem('prism.sidebar.width')).toBe('240')
+    expect(h.local.getItem('prism.explorer.widths')).toBe('240')
     expect(h.local.getItem('prism.phone.token')).toBeNull()
     expect(h.local.getItem('unrelated')).toBeNull()
     expect(h.bridge.windowPreferencesSet).not.toHaveBeenCalled()
@@ -149,23 +149,38 @@ describe('window preference bootstrap', () => {
     const h = harness({
       shared: false,
       values: {},
-      removed: ['prism.term.font', 'prism.sidebar.width', 'unrelated']
+      removed: ['prism.code.wrap', 'prism.explorer.widths', 'unrelated']
     })
-    h.local.setItem('prism.term.font', 'removed-in-another-window')
+    h.local.setItem('prism.code.wrap', 'removed-in-another-window')
     h.local.setItem('prism.futurePreference', 'still-local')
-    h.local.setItem('prism.sidebar.width', '300')
+    h.local.setItem('prism.explorer.widths', '300')
     h.local.setItem('unrelated', 'still-local')
 
     await import('./windowPreferences')
 
     expect(h.bridge.windowPreferencesSeed).toHaveBeenCalledExactlyOnceWith({
-      'prism.term.font': 'removed-in-another-window',
+      'prism.code.wrap': 'removed-in-another-window',
       'prism.futurePreference': 'still-local'
     })
-    expect(h.local.getItem('prism.term.font')).toBeNull()
+    expect(h.local.getItem('prism.code.wrap')).toBeNull()
     expect(h.local.getItem('prism.futurePreference')).toBe('still-local')
-    expect(h.local.getItem('prism.sidebar.width')).toBe('300')
+    expect(h.local.getItem('prism.explorer.widths')).toBe('300')
     expect(h.local.getItem('unrelated')).toBe('still-local')
+    expect(h.bridge.windowPreferencesSet).not.toHaveBeenCalled()
+  })
+
+  it('drops retired keys from this window without telling the store (2026-10-28)', async () => {
+    const h = harness({ shared: true, values: {} })
+    h.local.setItem('prism.term.shell', 'pwsh')
+    h.local.setItem('prism.tree.side', 'left')
+    h.local.setItem('prism.term.colourFormat', 'hex')
+    h.local.setItem('prism.tree.size', '14')
+    await import('./windowPreferences')
+    expect(h.local.getItem('prism.term.shell')).toBeNull()
+    expect(h.local.getItem('prism.tree.side')).toBeNull()
+    // Live keys that only look retired stay.
+    expect(h.local.getItem('prism.term.colourFormat')).toBe('hex')
+    expect(h.local.getItem('prism.tree.size')).toBe('14')
     expect(h.bridge.windowPreferencesSet).not.toHaveBeenCalled()
   })
 
@@ -173,12 +188,13 @@ describe('window preference bootstrap', () => {
     const h = harness({ shared: true, values: {} })
     await import('./windowPreferences')
     h.local.setItem('prism.style', 'dark')
-    h.local.removeItem('prism.term.font')
+    h.local.removeItem('prism.code.wrap')
     for (const storage of [h.local, h.session]) {
       for (const key of [
         'unrelated',
+        // Retired keys (prefKeys.ts) do not travel either.
         'prism.sidebar',
-        'prism.sidebar.width',
+        'prism.term.shell',
         'prism.explorer.widths',
         'prism.explorer.places',
         'prism.settings.rail',
@@ -198,7 +214,7 @@ describe('window preference bootstrap', () => {
     h.session.removeItem('prism.style')
     expect(h.bridge.windowPreferencesSet.mock.calls).toEqual([
       [{ key: 'prism.style', value: 'dark' }],
-      [{ key: 'prism.term.font', value: null }]
+      [{ key: 'prism.code.wrap', value: null }]
     ])
     expect(h.local.getItem('prism.style')).toBe('dark')
   })
@@ -279,21 +295,21 @@ it('applies shared updates with storage events, shares custom styles and ignores
 it('refreshes canonical preferences synchronously on focus before the next user edit', async () => {
   const h = harness({
     shared: true,
-    values: { 'prism.quickAccess': '["Home"]', 'prism.term.font': 'old-font' }
+    values: { 'prism.quickAccess': '["Home"]', 'prism.code.wrap': 'old-font' }
   })
   await import('./windowPreferences')
   const changes: string[] = []
   h.target.addEventListener('storage', (event) => changes.push((event as StorageEvent).key!))
   h.bridge.windowPreferencesLoad.mockReturnValue({
     shared: true,
-    values: { 'prism.quickAccess': '["Home","Photos"]', 'prism.sidebar.width': '999' },
-    removed: ['prism.term.font']
+    values: { 'prism.quickAccess': '["Home","Photos"]', 'prism.explorer.widths': '999' },
+    removed: ['prism.code.wrap']
   })
   h.target.dispatchEvent(new Event('focus'))
   expect(h.local.getItem('prism.quickAccess')).toBe('["Home","Photos"]')
-  expect(h.local.getItem('prism.term.font')).toBeNull()
-  expect(h.local.getItem('prism.sidebar.width')).toBeNull()
-  expect(changes).toEqual(['prism.quickAccess', 'prism.term.font'])
+  expect(h.local.getItem('prism.code.wrap')).toBeNull()
+  expect(h.local.getItem('prism.explorer.widths')).toBeNull()
+  expect(changes).toEqual(['prism.quickAccess', 'prism.code.wrap'])
   expect(h.bridge.windowPreferencesSeed).not.toHaveBeenCalled()
   expect(h.bridge.windowPreferencesSet).not.toHaveBeenCalled()
   h.target.dispatchEvent(new Event('focus'))
