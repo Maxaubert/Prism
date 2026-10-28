@@ -783,6 +783,29 @@ body[data-internal-file-drag] .browse-path:focus-within {
     var(--sel-top),
     var(--sel-bottom);
 }
+/* A ROW STILL BEING PASTED (owner, 2026-10-28): faded like a cut row, its
+   size cell a thin bar filling as it copies. Inert until the file lands. */
+.browse-row[data-landing] .browse-name,
+.browse-row[data-landing] .browse-column-type,
+.browse-row[data-landing] .browse-column-modified {
+  opacity: 0.55;
+}
+.browse-landing {
+  display: block;
+  position: relative;
+  height: 3px;
+  margin-top: 1px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--p-track);
+}
+.browse-landing-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+  background: var(--color-accent-hi);
+  transition: width 120ms linear;
+}
 .browse-row[data-cut] .browse-name {
   opacity: 0.55;
 }
