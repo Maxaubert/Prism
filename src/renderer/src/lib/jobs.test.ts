@@ -1,5 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { chipSummary, endJob, listJobs, MIN_SHOW_MS, resetJobs, startJob, updateJob } from './jobs'
+import {
+  chipSummary,
+  endJob,
+  landingIn,
+  landJob,
+  listJobs,
+  MIN_SHOW_MS,
+  resetJobs,
+  startJob,
+  updateJob,
+  updateLanding
+} from './jobs'
 
 describe('the job queue behind the chip (2026-09-03)', () => {
   beforeEach(() => {
@@ -73,5 +84,28 @@ describe('the job queue behind the chip (2026-09-03)', () => {
     vi.advanceTimersByTime(MIN_SHOW_MS * 3)
     endJob(a)
     expect(listJobs()).toHaveLength(0)
+  })
+})
+
+describe('landing items (owner, 2026-10-28: a paste shows its rows)', () => {
+  beforeEach(() => resetJobs())
+  it('lists what is still copying into a folder, and drops each as it lands', () => {
+    const id = startJob('paste', 'Copying')
+    landJob(id, 'C:/into', [
+      { path: 'C:/into/a.bin', name: 'a.bin', isFolder: false },
+      { path: 'C:/into/b', name: 'b', isFolder: true }
+    ])
+    expect(landingIn(listJobs(), 'c:/INTO/').map((it) => it.name)).toEqual(['a.bin', 'b'])
+    expect(landingIn(listJobs(), 'C:/elsewhere')).toEqual([])
+    updateLanding(id, 0, 40)
+    expect(landingIn(listJobs(), 'C:/into')[0].pct).toBe(40)
+    updateLanding(id, 0, 100)
+    expect(landingIn(listJobs(), 'C:/into').map((it) => it.name)).toEqual(['b'])
+  })
+  it('a finished job lands nothing more', () => {
+    const id = startJob('paste', 'Copying')
+    landJob(id, 'C:/into', [{ path: 'C:/into/a.bin', name: 'a.bin', isFolder: false }])
+    endJob(id)
+    expect(landingIn(listJobs(), 'C:/into')).toEqual([])
   })
 })

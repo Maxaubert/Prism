@@ -343,28 +343,59 @@ export function registerShellIpc(ctx: MainCtx): void {
         cut.every((c) => src.some((f) => samePath(f, String(c)))))
     ownWrite(join(destDir, 'x'))
     const fs = await import('fs/promises')
-    const total = moving
-      ? 0 // a rename is instant; only the cross-volume fallback counts bytes
-      : await Promise.all(src.map((f) => walkSizes(f).catch(() => 0))).then((a) =>
-          a.reduce((x, y) => x + y, 0)
-        )
+    const sizes = moving
+      ? src.map(() => 0) // a rename is instant; only the cross-volume fallback counts bytes
+      : await Promise.all(src.map((f) => walkSizes(f).catch(() => 0)))
+    const total = sizes.reduce((x, y) => x + y, 0)
+    const job = typeof jobId === 'string' ? jobId : ''
+    // THE LIST SHOWS WHAT IS LANDING (owner, 2026-10-28: "nothing happens and
+    // suddenly items just appear"): a copy names each item and the path it
+    // is expected at, so the list can draw it as a row with its own bar.
+    // Expected, not promised: two sources with one name are told apart by
+    // the copy itself, and the row simply goes when the job ends.
+    let current = -1
+    let itemDone = 0
+    if (!moving) {
+      const items = await Promise.all(
+        src.map(async (s) => {
+          const name = await uniqueNameAsync(destDir, basename(s)).catch(() => basename(s))
+          const isFolder = await stat(s).then((st) => st.isDirectory(), () => false)
+          return { path: join(destDir, name), name, isFolder }
+        })
+      )
+      sendToPage(PUSH.pasteProgress, { jobId: job, pct: 0, start: { dir: destDir, items } })
+    }
     let done = 0
     let lastSent = 0
     const tick = (bytes: number, of = total): void => {
       done += bytes
+      itemDone += bytes
       const now = Date.now()
       if (of > 0 && now - lastSent > 120) {
         lastSent = now
+        const size = sizes[current] ?? 0
         sendToPage(PUSH.pasteProgress, {
-          jobId: typeof jobId === 'string' ? jobId : '',
-          pct: Math.min(100, (done / of) * 100)
+          jobId: job,
+          pct: Math.min(100, (done / of) * 100),
+          ...(current >= 0 && size > 0 ? { item: current, itemPct: Math.min(100, (itemDone / size) * 100) } : {})
         })
       }
+    }
+    const landed = (i: number): void => {
+      if (moving) return
+      sendToPage(PUSH.pasteProgress, {
+        jobId: job,
+        pct: total > 0 ? Math.min(100, (done / total) * 100) : 100,
+        item: i,
+        itemPct: 100
+      })
     }
     let pasted = 0
     let failed = 0
     const paths: string[] = []
-    for (const s of src) {
+    for (const [i, s] of src.entries()) {
+      current = i
+      itemDone = 0
       // A folder pasted into itself or below itself is skipped and counted
       // as failed (2026-10-16): it used to copy its own copy until the path
       // ran out, and a cut fell through to the same copy (pasteCopy.ts).
@@ -395,6 +426,7 @@ export function registerShellIpc(ctx: MainCtx): void {
         }
         paths.push(target)
         pasted += 1
+        landed(i)
       } catch {
         failed += 1
       }
