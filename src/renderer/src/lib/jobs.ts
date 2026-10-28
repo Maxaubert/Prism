@@ -35,6 +35,18 @@ export interface Job {
   since: number
   /** Finished, and only lingering for the minimum showing. */
   done?: boolean
+  /** A copy's items as they land (owner, 2026-10-28): the folder, and each
+   *  item with its own progress, for the rows the list draws until each
+   *  file is really there. */
+  landing?: { dir: string; items: LandingItem[] }
+}
+
+/** One item a paste is copying, and how far it has got (0-100). */
+export interface LandingItem {
+  path: string
+  name: string
+  isFolder: boolean
+  pct: number
 }
 
 /**
@@ -66,6 +78,41 @@ export function updateJob(id: string, pct: number | null): void {
     return { ...j, pct }
   })
   if (changed) store.set(next)
+}
+
+/** The items a copy is about to land, said once as it starts. */
+export function landJob(id: string, dir: string, items: Array<Omit<LandingItem, 'pct'>>): void {
+  store.set(
+    store
+      .get()
+      .map((j) =>
+        j.id === id ? { ...j, landing: { dir, items: items.map((it) => ({ ...it, pct: 0 })) } } : j
+      )
+  )
+}
+
+/** How far one landing item has got. */
+export function updateLanding(id: string, index: number, pct: number): void {
+  let changed = false
+  const next = store.get().map((j) => {
+    const it = j.landing?.items[index]
+    if (j.id !== id || !it || it.pct === pct) return j
+    changed = true
+    const items = j.landing!.items.map((x, i) => (i === index ? { ...x, pct } : x))
+    return { ...j, landing: { dir: j.landing!.dir, items } }
+  })
+  if (changed) store.set(next)
+}
+
+/** Every item still landing in `dir` (case-insensitive), by its path. */
+export function landingIn(list: readonly Job[], dir: string): Array<LandingItem & { since: number }> {
+  const norm = (p: string): string => p.toLowerCase().replace(/[\\/]+$/, '')
+  const key = norm(dir)
+  return list.flatMap((j) =>
+    !j.done && j.landing && norm(j.landing.dir) === key
+      ? j.landing.items.filter((it) => it.pct < 100).map((it) => ({ ...it, since: j.since }))
+      : []
+  )
 }
 
 function remove(id: string): void {

@@ -105,6 +105,9 @@ type Props = Pick<
   /** Every marked row (the selection plus a sweep's or a Ctrl click's), or
    *  null when the one `selectedPath` is the whole selection. */
   marked?: ReadonlySet<string> | null
+  /** Items a paste is still copying here, by lower-cased path, and how far
+   *  each has got (0-100): drawn as inert rows with a bar (owner, 2026-10-28). */
+  landing?: ReadonlyMap<string, number>
   /** A click that carries Ctrl or Shift: FolderBrowser builds the selection. */
   onPick?: (entry: BrowseEntry, mods: { ctrl: boolean; shift: boolean }) => void
   /** A sweep let go with the rectangle up: these rows, the keyboard on `near`.
@@ -839,6 +842,10 @@ export function BrowseList(props: Props): JSX.Element {
                     tabIndex={primary ? 0 : -1}
                     className="browse-row"
                     data-cut={cut.has(entry.path.toLowerCase()) || undefined}
+                    data-landing={props.landing?.has(entry.path.toLowerCase()) || undefined}
+                    aria-busy={props.landing?.has(entry.path.toLowerCase()) || undefined}
+                    // Still copying: nothing to open, preview or drag yet.
+                    inert={props.landing?.has(entry.path.toLowerCase()) || undefined}
                     aria-description={
                       [
                         groupOf?.[divided?.entryAt(first + offset) ?? -1],
@@ -947,14 +954,23 @@ export function BrowseList(props: Props): JSX.Element {
                     >
                       {searching
                         ? (browseParent(entry.path) ?? entry.path)
-                        : typeLabel(entry.name, entry.isFolder)}
+                        : props.landing?.has(entry.path.toLowerCase())
+                          ? 'Copying…'
+                          : typeLabel(entry.name, entry.isFolder)}
                     </span>
                     <span
                       className="browse-column-size"
                       title={entry.folderSize ? folderSizeCoverage(entry.folderSize) : undefined}
                     >
                       {/* No size yet is a blank cell, never "0 B" (#271). */}
-                      {entry.file
+                      {props.landing?.has(entry.path.toLowerCase()) ? (
+                        <span className="browse-landing" data-pct={Math.round(props.landing.get(entry.path.toLowerCase()) ?? 0)}>
+                          <span
+                            className="browse-landing-fill"
+                            style={{ width: `${props.landing.get(entry.path.toLowerCase()) ?? 0}%` }}
+                          />
+                        </span>
+                      ) : entry.file
                         ? entry.file.size === undefined
                           ? ''
                           : formatBytes(entry.file.size)
