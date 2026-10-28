@@ -57,6 +57,16 @@ code viewer's Copy row), which no scenario presses; one that does must stub it f
 was deleted): whatever is added to the e2e is added to `tools/e2e/run.mjs` and keeps its nature,
 parked offscreen and never taking the focus.
 
+**AND ON ITS OWN DESKTOP** (owner, 2026-10-28: "going forward can you do your e2e or testing
+headless. the current way is constantly stealing focus and distracting whatever im currently
+doing"). Offscreen and unfocusable was not enough: helpers and windows the suite starts could still
+come to the front. `tools/e2e/hidden.mjs` (what every `npm run e2e*` script calls) creates a second
+desktop in the same window station (`tools/e2e/HiddenDesktop.cs`, compiled by PowerShell's
+`Add-Type`) and starts the run there; every process it starts inherits that desktop, which can never
+hold the owner's foreground. Chromium renders and screenshots there as usual (measured 2026-10-28).
+The run's output goes to `.e2e/hidden-run.log`, which the wrapper follows to the terminal, and its
+exit code is the run's. Under `CI`, or with `PRISM_E2E_DESKTOP=same`, it runs directly.
+
 `npm run dev` / `npm test` for the inner loop; `npm run e2e` drives the built app through
 Playwright and runs OFFSCREEN (`tools/e2e/run.mjs` `park()`: opacity 0, position -4000,-4000,
 off the taskbar) so it never covers what you are doing. Electron has no headless mode, and a
