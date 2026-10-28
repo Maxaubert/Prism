@@ -9302,6 +9302,21 @@ async function explorerVerbsScenario(fixtures) {
     await row('gamma.txt').locator('.browse-name-text').click()
     await win.keyboard.press('Control+x')
     ok(await until(async () => (await row('gamma.txt').getAttribute('data-cut')) !== null, 8000), 'Ctrl+X marks the row cut')
+    // And LOOKS cut (owner, 2026-10-28: "the highlight effect should get
+    // dimmed"): the selected row wears the dimmed tint, not the full one, and
+    // its name fades.
+    const cutLook = await row('gamma.txt').evaluate((el) => {
+      const probe = document.createElement('div')
+      probe.style.backgroundColor = 'var(--p-sel-tint-dim)'
+      el.parentElement.appendChild(probe)
+      const dim = getComputedStyle(probe).backgroundColor
+      probe.style.backgroundColor = 'var(--p-sel-tint)'
+      const full = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return { bg: getComputedStyle(el).backgroundColor, dim, full, name: Number(getComputedStyle(el.querySelector('.browse-name')).opacity) }
+    })
+    ok(cutLook.bg === cutLook.dim && cutLook.dim !== cutLook.full, `the cut row's highlight is dimmed (${JSON.stringify(cutLook)})`)
+    ok(cutLook.name < 0.8, `and its name fades (${cutLook.name})`)
 
     // Del asks before anything goes to the Recycle Bin; Cancel keeps it.
     await row('alpha (2).txt').locator('.browse-name-text').click()
