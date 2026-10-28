@@ -88,8 +88,7 @@ export async function copyCounted(
  * SIZED AFTER THE ROWS ARE SHOWN (review, 2026-10-28): the paste used to walk
  * every source whole before it said anything, so a big folder showed nothing
  * until the walk ended ("nothing happens and suddenly items just appear").
- * It now runs beside the copy, and `stopped` ends it early once the copy no
- * longer needs it. Links and junctions are counted as themselves and never
+ * It now runs after the rows are said; `stopped` can end it early. Links and junctions are counted as themselves and never
  * followed (lstat): a junction loop such as `Application Data` cannot keep
  * it walking, and the bar is only a guide.
  */
