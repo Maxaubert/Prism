@@ -16056,9 +16056,12 @@ async function explorerDiagScenario(fixtures) {
     // navigation's marker must not swallow the next read's crumb.
     await win.locator('.folder-browser nav.browse-path .browse-crumb button[aria-current="location"]').click()
     ok(!!(await until(() => opens().filter((l) => l.reason === 'navigate').length === 2, 10000, 100)), 'asking for the folder on screen again is a navigate crumb')
+    // FOCUS TRUSTS A LIVE WATCH (perf review, 2026-10-28, finding 10): the
+    // folder is watched and was read a moment ago, so coming back to the
+    // window reads nothing (it used to re-read every time, beside the watch).
     await win.evaluate(() => window.dispatchEvent(new Event('focus')))
-    const focus = await until(() => opens().find((l) => l.reason === 'focus'), 10000, 100)
-    ok(!!focus, `the window's focus re-read after it is said, reason focus (${opens().map((l) => l.reason).join(', ')})`)
+    await sleep(1500)
+    ok(!opens().some((l) => l.reason === 'focus'), `a focus on a watched, fresh folder reads nothing (${opens().map((l) => l.reason).join(', ')})`)
     const sortedBefore = readDiag().filter((l) => l.k === 'crumb' && l.a === 'sort').length
     await win.locator('.browse-list-area .browse-columns .browse-column-name').click()
     const sort = await diagHas((l, i, all) => l.k === 'crumb' && l.a === 'sort' && all.slice(0, i + 1).filter((x) => x.k === 'crumb' && x.a === 'sort').length > sortedBefore)
