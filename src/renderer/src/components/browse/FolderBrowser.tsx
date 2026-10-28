@@ -16,8 +16,8 @@ import { listKey } from '../../lib/listKeys'
 import { sweepBase, sweepSelect } from '../../lib/marquee'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
-import { landingIn, useJobs } from '../../lib/jobs'
-import { fileKind } from '@shared/fileKind'
+import { useLandingIn } from '../../lib/jobs'
+import { landingPcts, listedPaths, rowsKey, unlisted, withLanding } from './landingRows'
 import type { DirListing } from '@shared/types'
 import { useListingPrefetch } from '../../hooks/useListingPrefetch'
 import { browsableArchive } from '@shared/archivePlace'
@@ -127,40 +127,22 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   // and suddenly items just appear"): each item joins the listing at once,
   // sorted where it will land, and the list draws it inert with its bar until
   // the real file arrives (then the listing has it and this drops it).
-  const jobs = useJobs()
+  // Only this folder's rows are followed, the listing is looked up through a
+  // set, and the merged listing changes with the row SET, never a percentage,
+  // so a progress tick never re-sorts the folder (landingRows.ts).
+  const landingAll = useLandingIn(props.directory)
+  const landingHere = landingAll.length > 0
+  const listed = useMemo(() => (landingHere ? listedPaths(props.listing) : null), [landingHere, props.listing])
   const landingItems = useMemo(
-    () =>
-      landingIn(jobs, props.directory).filter(
-        (it) =>
-          !props.listing?.files.some((f) => f.path.toLowerCase() === it.path.toLowerCase()) &&
-          !props.listing?.folders.some((f) => f.path.toLowerCase() === it.path.toLowerCase())
-      ),
-    [jobs, props.directory, props.listing]
+    () => (listed ? unlisted(landingAll, listed) : []),
+    [landingAll, listed]
   )
-  const landing = useMemo(
-    () => (landingItems.length ? new Map(landingItems.map((it) => [it.path.toLowerCase(), it.pct])) : undefined),
-    [landingItems]
+  const landing = useMemo(() => landingPcts(landingItems), [landingItems])
+  const landingKey = rowsKey(landingItems)
+  const listing = useMemo(
+    (): DirListing | null => withLanding(props.listing ?? null, landingKey),
+    [landingKey, props.listing]
   )
-  const listing = useMemo((): DirListing | null => {
-    if (!landingItems.length || !props.listing) return props.listing ?? null
-    const dot = (n: string): string => {
-      const i = n.lastIndexOf('.')
-      return i > 0 ? n.slice(i).toLowerCase() : ''
-    }
-    return {
-      ...props.listing,
-      folders: [
-        ...props.listing.folders,
-        ...landingItems.filter((it) => it.isFolder).map((it) => ({ path: it.path, name: it.name, mtimeMs: it.since }))
-      ],
-      files: [
-        ...props.listing.files,
-        ...landingItems
-          .filter((it) => !it.isFolder)
-          .map((it) => ({ path: it.path, name: it.name, ext: dot(it.name), kind: fileKind(dot(it.name), it.name), size: 0, mtimeMs: it.since }))
-      ]
-    }
-  }, [landingItems, props.listing])
   const entries = useMemo(
     () =>
       sortPass({

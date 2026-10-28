@@ -1118,7 +1118,12 @@ if (!app.requestSingleInstanceLock()) {
   // is ready", e2e diagLog), so the trace starts there; the profile above
   // covers the moments before it.
   const traceLog = diag.log
-  void app.whenReady().then(() => startNativeTrace({ log: traceLog, tracing: contentTracing }))
+  // Quitting ends it: a dump started then would only be cut off, leaving its
+  // .tmp behind (performance review, 2026-10-28).
+  void app.whenReady().then(() => {
+    const trace = startNativeTrace({ log: traceLog, tracing: contentTracing })
+    app.once('before-quit', () => trace.stop())
+  })
   // E2E only (review of #322): the harness ends a scenario with `app.exit`,
   // which skips will-quit, so it writes main's queue first and the run's
   // Stalls table sees a scenario's last moments.

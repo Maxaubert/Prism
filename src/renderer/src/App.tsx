@@ -28,6 +28,7 @@ import {
   ensurePinnedExplorer,
   closeTab,
   toggleSettingsTab,
+  settingsCloseIsLast,
   sameRoot,
   type Tab,
   type TabState
@@ -160,7 +161,17 @@ export default function App(): JSX.Element {
   }, [tabState])
   const rawIndex = active?.index ?? -1
   const settingsOpen = active?.kind === 'settings'
+  // The strip as it stands, for the Settings closes below: whether one would
+  // leave no tab is decided before the state changes, not inside an updater.
+  const tabStateNow = useRef(tabState)
+  useEffect(() => {
+    tabStateNow.current = tabState
+  }, [tabState])
   const toggleSettings = useCallback(() => {
+    const now = tabStateNow.current
+    // Settings as the last tab: the gear closes the window, like any last
+    // tab (review, 2026-10-28; it left an empty window).
+    if (settingsCloseIsLast(now.tabs, now.activeId, true)) return window.prism.close()
     setTabState((s) =>
       toggleSettingsTab(s.tabs, s.activeId, `settings-${(settingsSeq.current += 1)}`)
     )
@@ -171,14 +182,21 @@ export default function App(): JSX.Element {
       return st ? closeTab(s.tabs, st.id, s.activeId) : s
     })
   }, [])
+  /** Settings' own close (its X, Escape): the window goes with the last tab. */
+  const putSettingsAway = useCallback(() => {
+    const now = tabStateNow.current
+    if (settingsCloseIsLast(now.tabs, now.activeId, false)) return window.prism.close()
+    closeSettingsTab()
+  }, [closeSettingsTab])
   /**
    * Show NOTHING in the active tab, without closing it (2026-09-02).
    *
    * `index: -1` is the state a tab already has when its folder holds nothing
    * viewable, and NoFileState is what renders there. Deleting the last file
-   * used to close the tab instead, which is the same failure Ctrl+W's rule
-   * exists to prevent: Prism is resident, and a tab that vanishes takes its
-   * folder with it. Paste a file into an empty
+   * used to close the tab instead: a tab that vanishes takes its folder with
+   * it, and only an explicit close takes a tab (the last one takes the
+   * window after the unsaved-text ask, as File Explorer does; owner,
+   * 2026-10-28). Paste a file into an empty
    * folder, open it, delete it - and the folder you were working in was gone.
    */
   const showNothing = useCallback(
@@ -1647,7 +1665,7 @@ export default function App(): JSX.Element {
           setSetup(true)
         }}
         compactRail={compactRail}
-        onClose={closeSettingsTab}
+        onClose={putSettingsAway}
         transportStyle={transportStyle}
         onPickTransport={pickTransport}
         transportBg={transportBg}

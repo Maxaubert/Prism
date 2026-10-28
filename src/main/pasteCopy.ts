@@ -17,6 +17,45 @@ export function pastesIntoItself(src: string, destDir: string): boolean {
   return insideSelf(src, destDir)
 }
 
+/** A share as a percentage, 0 to 100 (0 when there is nothing to share). */
+export function pctOf(done: number, of: number): number {
+  return of > 0 ? Math.min(100, (done / of) * 100) : 0
+}
+
+/**
+ * How far a CUT has got when an item could not be renamed (another drive, a
+ * lock) and is being copied instead (review, 2026-10-28). A move's other
+ * items are renames with no byte count, so the job is counted in items: the
+ * ones before this, plus this one's share. It used to divide the whole job's
+ * bytes by this item's size, which read 100% from the second such item on.
+ */
+export function movePct(index: number, count: number, itemDone: number, itemSize: number): number {
+  if (count <= 0) return 0
+  const share = itemSize > 0 ? Math.min(1, itemDone / itemSize) : 0
+  return Math.min(100, ((index + share) / count) * 100)
+}
+
+/**
+ * The name each pasted item will land under, in order (review, 2026-10-28):
+ * each is kept apart from the ones before it as well as from what is on
+ * disk, so `A\readme.md` and `B\readme.md` land as `readme.md` and
+ * `readme (2).md`, the list's rows have one path each, and the copy writes
+ * exactly where its row said.
+ */
+export async function predictNames(
+  names: string[],
+  unique: (name: string, taken: ReadonlySet<string>) => Promise<string>
+): Promise<string[]> {
+  const taken = new Set<string>()
+  const out: string[] = []
+  for (const n of names) {
+    const name = await unique(n, taken).catch(() => n)
+    taken.add(name.toLowerCase())
+    out.push(name)
+  }
+  return out
+}
+
 /** Copy a file or a whole folder, streaming files so the byte count can
  *  tick. fs.cp gives no progress at all, which for a 4GB ISO is minutes
  *  of nothing (owner, 2026-09-03). */

@@ -23,7 +23,7 @@ import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from '../fileOps'
 import { appsForExt, argsFor, type AppCandidate } from '../openWith'
 import { addToArchive, archiveTooLarge, moveMembers } from '../archive'
 import { insideSelf, moveEntries } from '../moveOps'
-import { copyCounted, pastesIntoItself } from '../pasteCopy'
+import { copyCounted, movePct, pastesIntoItself, pctOf, predictNames } from '../pasteCopy'
 import { fileKind, isMarkdown } from '@shared/fileKind'
 import { samePath } from '@shared/path'
 import type { OnClash, OpenWithApp, RenameResult, TextRead, WriteResult } from '@shared/types'
@@ -31,6 +31,9 @@ import { exists } from '../fsUtil'
 import { sendToPage } from '../appState'
 import { saveDialog } from '../dialogs'
 import type { MainCtx, ReadyCtx } from './context'
+
+/** At most one paste progress message this often, ms. */
+const PASTE_TICK_MS = 120
 
 export function registerSaveCopyIpc(ctx: MainCtx): void {
   const { ownWrite, written } = ctx
@@ -351,44 +354,67 @@ export function registerShellIpc(ctx: MainCtx): void {
     // THE LIST SHOWS WHAT IS LANDING (owner, 2026-10-28: "nothing happens and
     // suddenly items just appear"): a copy names each item and the path it
     // is expected at, so the list can draw it as a row with its own bar.
-    // Expected, not promised: two sources with one name are told apart by
-    // the copy itself, and the row simply goes when the job ends.
+    // The names are picked in order, each apart from the ones before it, and
+    // the copy writes to exactly that name (review, 2026-10-28: two sources
+    // called readme.md both predicted readme.md, one row hid the other).
     let current = -1
     let itemDone = 0
+    const predicted = moving
+      ? []
+      : await predictNames(
+          src.map((s) => basename(s)),
+          (name, taken) => uniqueNameAsync(destDir, name, taken)
+        )
+    const reserved = new Set(predicted.map((n) => n.toLowerCase()))
     if (!moving) {
       const items = await Promise.all(
-        src.map(async (s) => {
-          const name = await uniqueNameAsync(destDir, basename(s)).catch(() => basename(s))
+        src.map(async (s, i) => {
           const isFolder = await stat(s).then((st) => st.isDirectory(), () => false)
-          return { path: join(destDir, name), name, isFolder }
+          return { path: join(destDir, predicted[i]), name: predicted[i], isFolder }
         })
       )
       sendToPage(PUSH.pasteProgress, { jobId: job, pct: 0, start: { dir: destDir, items } })
     }
     let done = 0
     let lastSent = 0
-    const tick = (bytes: number, of = total): void => {
+    // A message at most every PASTE_TICK_MS, bytes and landings alike (review,
+    // 2026-10-28: one per landed item, unthrottled, was a message, a store
+    // update and a list pass per file of a 3,000-photo paste). Progress on an
+    // item says every item before it is through, so a landing skipped here is
+    // said by the next message (lib/jobs.ts updateLanding).
+    const due = (): boolean => {
+      const now = Date.now()
+      if (now - lastSent <= PASTE_TICK_MS) return false
+      lastSent = now
+      return true
+    }
+    let unsaid = -1
+    const tick = (bytes: number): void => {
       done += bytes
       itemDone += bytes
-      const now = Date.now()
-      if (of > 0 && now - lastSent > 120) {
-        lastSent = now
+      if (total > 0 && due()) {
+        unsaid = -1
         const size = sizes[current] ?? 0
         sendToPage(PUSH.pasteProgress, {
           jobId: job,
-          pct: Math.min(100, (done / of) * 100),
-          ...(current >= 0 && size > 0 ? { item: current, itemPct: Math.min(100, (itemDone / size) * 100) } : {})
+          pct: pctOf(done, total),
+          ...(current >= 0 && size > 0 ? { item: current, itemPct: pctOf(itemDone, size) } : {})
         })
       }
     }
-    const landed = (i: number): void => {
-      if (moving) return
+    const sayLanded = (i: number): void =>
       sendToPage(PUSH.pasteProgress, {
         jobId: job,
-        pct: total > 0 ? Math.min(100, (done / total) * 100) : 100,
+        pct: total > 0 ? pctOf(done, total) : 100,
         item: i,
         itemPct: 100
       })
+    const landed = (i: number): void => {
+      if (moving) return
+      if (due()) {
+        unsaid = -1
+        sayLanded(i)
+      } else unsaid = i
     }
     let pasted = 0
     let failed = 0
@@ -404,19 +430,26 @@ export function registerShellIpc(ctx: MainCtx): void {
         continue
       }
       try {
-        const target = join(destDir, await uniqueNameAsync(destDir, basename(s)))
+        // The predicted name, unless something took it meanwhile (then the
+        // next free one that no other item of this paste is to land under).
+        const name =
+          predicted[i] && !(await exists(join(destDir, predicted[i])))
+            ? predicted[i]
+            : await uniqueNameAsync(destDir, basename(s), reserved)
+        const target = join(destDir, name)
         if (moving) {
           try {
             await fs.rename(s, target)
           } catch {
-            // EXDEV or a lock: counted copy, then the source goes.
+            // EXDEV or a lock: counted copy, then the source goes, its share
+            // of the job counted in items (pasteCopy.ts movePct).
             const size = await walkSizes(s).catch(() => 0)
             let moved = 0
             await copyCounted(s, target, (b) => {
               moved += b
-              tick(b, size)
+              if (size > 0 && due())
+                sendToPage(PUSH.pasteProgress, { jobId: job, pct: movePct(i, src.length, moved, size) })
             })
-            void moved
             await fs.rm(s, { recursive: true })
           }
           // A cut carries the text shape like a drag-move does (2026-10-16).
@@ -431,6 +464,7 @@ export function registerShellIpc(ctx: MainCtx): void {
         failed += 1
       }
     }
+    if (unsaid >= 0) sayLanded(unsaid)
     await written(destDir, ...(moving ? src : []))
     return { pasted, failed, paths, moved: moving }
   })

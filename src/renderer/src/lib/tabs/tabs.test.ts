@@ -16,6 +16,7 @@ import {
   newTab,
   openSettingsTab,
   toggleSettingsTab,
+  settingsCloseIsLast,
   reorderTabs,
   tabLabels,
   type Tab
@@ -301,6 +302,17 @@ describe('the gear', () => {
     const st = toggleSettingsTab(tabs, tabs[0].id, 'settings-2')
     expect(st.tabs).toHaveLength(2)
     expect(st.activeId).toBe('s')
+  })
+
+  it('knows when putting settings away would leave no tab, so the window closes (review, 2026-10-28)', () => {
+    const only = [settings('s')]
+    expect(settingsCloseIsLast(only, 's', true)).toBe(true)
+    expect(settingsCloseIsLast(only, null, false)).toBe(true)
+    // The gear on settings not in view brings them forward; nothing closes.
+    expect(settingsCloseIsLast(only, null, true)).toBe(false)
+    const two = [tabOf('C:\\a', ['C:\\a\\one.jpg']), settings('s')]
+    expect(settingsCloseIsLast(two, 's', true)).toBe(false)
+    expect(settingsCloseIsLast([tabOf('C:\\a', [])], null, false)).toBe(false)
   })
 
   it('never makes a second settings tab', () => {
