@@ -7003,6 +7003,9 @@ async function listScrollbarScenario(fixtures) {
           scrollable: el.scrollHeight > el.clientHeight + 1,
           shown: !!bar?.hasAttribute('data-shown'),
           atEdge: !!b && Math.abs(b.right - (r.left + el.clientLeft + el.clientWidth)) <= 1 && Math.abs(b.top - r.top) <= 2,
+          // Flush (owner, 2026-10-28: "theres a small gap between it and the
+          // right edge"): the thumb's right IS the element's inner right.
+          gap: thumb ? Math.round((r.left + el.clientLeft + el.clientWidth - thumb.getBoundingClientRect().right) * 10) / 10 : null,
           thumbW: thumb ? Math.round(thumb.getBoundingClientRect().width) : 0
         }
       }, nav)
@@ -7012,7 +7015,8 @@ async function listScrollbarScenario(fixtures) {
     await win.evaluate((n) => { document.querySelector(n).scrollTop = 120 }, nav)
     ok(await until(async () => (await side())?.shown === true, 2000, 25), 'scrolling the sidebar shows the overlay bar')
     s = await side()
-    ok(s.atEdge && s.thumbW === 4, `along its right edge, the list's 4 px thumb (${JSON.stringify(s)})`)
+    ok(s.atEdge && s.thumbW === 3, `along its right edge, the list's 3 px thumb (${JSON.stringify(s)})`)
+    ok(s.gap === 0, `with no gap to the edge (${s.gap} px)`)
     await win.screenshot({ path: join(SHOTS, 'sidebar-scrollbar.png') })
     ok(await until(async () => (await side())?.shown === false, 3000, 50), 'and it hides again')
   } finally {
