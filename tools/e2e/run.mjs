@@ -1738,7 +1738,16 @@ async function rowPasteScenario(fixtures) {
     // WAITED FOR, NOT SLEPT FOR (2026-09-21). The paste is a PowerShell read
     // of the clipboard, a copy and a list refresh: each step waits for its own
     // condition, bounded, and says what it saw.
-    const before = await rowCount()
+    // The list SETTLED first (2026-10-28): under the full suite's load it was
+    // still filling in (3 of 5 rows) when `before` was read, and the paste's
+    // row then only made up for a row not drawn yet (3 -> 3).
+    let before = await rowCount()
+    for (let still = 0, i = 0; still < 5 && i < 100; i += 1) {
+      await sleep(100)
+      const n = await rowCount()
+      still = n === before ? still + 1 : 0
+      before = n
+    }
     await paste().click()
     await until(async () => (await rowCount()) > before, 20000, 100)
     const after = await rowCount()
