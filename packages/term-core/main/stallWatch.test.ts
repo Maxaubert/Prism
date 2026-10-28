@@ -213,6 +213,34 @@ describe('sleep', () => {
   })
 })
 
+describe('a minimised window (perf review, 2026-10-28)', () => {
+  it('waits the background gap before asking for the stack, and starts afresh on return', async () => {
+    let asked = 0
+    const w = watch({
+      collectStack: () => {
+        asked += 1
+        return Promise.resolve(null)
+      }
+    })
+    w.beat()
+    w.background(true)
+    // The page beats every 2.5 s while minimised: a 2.5 s gap is no freeze.
+    for (let i = 0; i < 50; i += 1) await pass(50)
+    w.beat()
+    for (let i = 0; i < 50; i += 1) await pass(50)
+    expect(asked).toBe(0)
+    // A hung page is still caught, at the longer gap.
+    for (let i = 0; i < 160; i += 1) await pass(50)
+    expect(asked).toBe(1)
+    // Back in front: the gap starts now, not at the last slow beat.
+    w.background(false)
+    for (let i = 0; i < 30; i += 1) await pass(50)
+    expect(asked).toBe(1)
+    for (let i = 0; i < 20; i += 1) await pass(50)
+    expect(asked).toBe(2)
+  })
+})
+
 describe('stop', () => {
   it('ends every timer', async () => {
     const w = watch()

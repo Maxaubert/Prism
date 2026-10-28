@@ -38,6 +38,23 @@ let ring: Crumb[] = []
 let queue: DiagPageLine[] = []
 let dropped = 0
 let errorGate = createDiagGate<DiagPageLine>()
+
+/**
+ * THE PACE WHILE NOBODY IS LOOKING (perf review, 2026-10-28). Prism's window
+ * is never throttled (media keeps playing), so a minimised resident app sent
+ * its batch four times a second and its beat twice, all day. While the host
+ * says the window is in the background (`noteDiagBackground`), the beat goes
+ * every `BEAT_BACKGROUND_MS` and the batch every `FLUSH_BACKGROUND_MS`; main
+ * waits correspondingly longer before it asks for the page's stack
+ * (`stallWatch`'s `background`), so a hung page is still caught. Back in
+ * front, the page beats and sends at once and returns to the normal pace.
+ */
+export const FLUSH_MS = 250
+export const BEAT_MS = 500
+export const FLUSH_BACKGROUND_MS = 2000
+export const BEAT_BACKGROUND_MS = 2500
+let background = false
+let pace: ((on: boolean) => void) | null = null
 let stopFn: (() => void) | null = null
 
 /** A script's own name, without where the app happens to be installed. */
@@ -118,6 +135,8 @@ function enqueue(line: DiagPageLine): void {
     return
   }
   queue.push(line)
+  // The slow pace must not cost lines: a burst sends itself.
+  if (background && queue.length >= QUEUE_MAX / 2) send()
 }
 
 /** An error or a rejection, through the repeat gate (`shared/diagGate`): an
@@ -194,6 +213,11 @@ export function noteDiagVerbose(on: boolean): void {
   verbose = on
 }
 
+/** The host's window went to the background (minimised) or came back. */
+export function noteDiagBackground(on: boolean): void {
+  pace?.(on)
+}
+
 interface PageTarget {
   addEventListener?(type: string, fn: (ev: never) => void): void
   removeEventListener?(type: string, fn: (ev: never) => void): void
@@ -210,14 +234,29 @@ export function startDiag(bridge: DiagApi, target: PageTarget = globalThis as un
     })
     .catch(() => {})
 
-  const flush = setInterval(send, 250)
-  const beat = setInterval(() => {
+  const beatOnce = (): void => {
     try {
       bridge.diagBeat()
     } catch {
       /* silent */
     }
-  }, 500)
+  }
+  background = false
+  let flush = setInterval(send, FLUSH_MS)
+  let beat = setInterval(beatOnce, BEAT_MS)
+  const setPace = (on: boolean): void => {
+    if (on === background) return
+    background = on
+    clearInterval(flush)
+    clearInterval(beat)
+    if (!on) {
+      beatOnce()
+      send()
+    }
+    flush = setInterval(send, on ? FLUSH_BACKGROUND_MS : FLUSH_MS)
+    beat = setInterval(beatOnce, on ? BEAT_BACKGROUND_MS : BEAT_MS)
+  }
+  pace = setPace
 
   const observers: PerformanceObserver[] = []
   const supported = typeof PerformanceObserver !== 'undefined' ? (PerformanceObserver.supportedEntryTypes ?? []) : []
@@ -256,6 +295,8 @@ export function startDiag(bridge: DiagApi, target: PageTarget = globalThis as un
     target.removeEventListener?.('unhandledrejection', onRejection)
     target.removeEventListener?.('pagehide', onHide)
     send()
+    if (pace === setPace) pace = null
+    background = false
     if (stopFn === stop) stopFn = null
   }
   stopFn = stop
@@ -272,4 +313,6 @@ export function resetDiag(): void {
   queue = []
   dropped = 0
   errorGate = createDiagGate<DiagPageLine>()
+  background = false
+  pace = null
 }

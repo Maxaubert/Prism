@@ -50,6 +50,8 @@ export interface DiagnosticsDeps {
 /** The slice of a BrowserWindow the watch needs. */
 export interface DiagWindow extends EmitterLike {
   isDestroyed?(): boolean
+  /** Minimised: the page beats slower, and the watch waits longer for it. */
+  isMinimized?(): boolean
   webContents: { mainFrame?: { collectJavaScriptCallStack?(): Promise<string> | Promise<void> } | null }
 }
 
@@ -113,6 +115,17 @@ export function startDiagnostics(deps: DiagnosticsDeps): Diagnostics {
     watchWindow: (w) => {
       win = w
       watchWindowHealth(w, log, watch)
+      // The page slows its beat while minimised (perf review, 2026-10-28,
+      // `renderer/lib/diag`); main hears the same events first, so its
+      // patience is already longer when the slow beats start.
+      const pace = (): void => {
+        if (win === w) watch.background(!!w.isMinimized?.())
+      }
+      w.on('minimize', pace)
+      w.on('restore', pace)
+      w.on('show', pace)
+      // A rebuilt window (#265) replaces this one, minimised or not.
+      watch.background(false)
       if (!power && deps.powerMonitor) {
         try {
           power = deps.powerMonitor()
