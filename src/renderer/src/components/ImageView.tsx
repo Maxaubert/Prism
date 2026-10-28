@@ -119,6 +119,14 @@ export function ImageView({
    *  the spinner shows (review, 2026-10-16, lib/imageLoading). */
   const [paintedHuge, setPaintedHuge] = useState<LoadedImage | null>(null)
   const loading = imageStillLoading(loaded, huge, img, paintedHuge)
+  /** The url whose picture `img` is. While it is not the url asked for, the
+   *  next picture is still on its way and the old one is only standing in
+   *  (owner, 2026-10-28: a HEIC opened over another picture "just takes some
+   *  time then it switches ... which makes it seem like the image can't be
+   *  viewed"): the spinner shows over it and it dims, both after a moment, so
+   *  arrowing through quick pictures shows neither. */
+  const [shownUrl, setShownUrl] = useState<string | null>(null)
+  const switching = !!img && shownUrl !== url && !failed
 
   /* How big the stage is, measured rather than assumed (2026-08-28).
    *
@@ -214,6 +222,7 @@ export function ImageView({
         if (!alive) return
         setFailed(false)
         setImg(r)
+        setShownUrl(url)
         setZoom(1)
         setTx(0)
         setTy(0)
@@ -515,8 +524,9 @@ export function ImageView({
           {/* Buffering spinner. Mounted for the whole load; the `delayed-loader`
               class keeps it invisible for the first ~260ms (CSS, so it survives a
               main-thread stall from a huge decode) and fades it in after that. */}
-          {loading && (
-            <LoadingState className="pointer-events-none absolute inset-0" />
+          {(loading || switching) && (
+            // Keyed by the file, so each new wait starts its own delay.
+            <LoadingState key={url} className="pointer-events-none absolute inset-0 z-[1]" />
           )}
           {/* Fit the stage in both directions (same reason as the video): max-w/max-h
               cap at intrinsic size, which left images smaller than the window sitting
@@ -552,8 +562,11 @@ export function ImageView({
                 height: src && fitScale ? src.height * fitScale : stage.h,
                 transform: `translate(-50%, -50%) translate(${tx}px, ${ty}px) scale(${zoom * rotFit}) rotate(${rot}deg)`,
                 cursor,
-                opacity: loaded ? 1 : 0,
-                transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
+                // The stand-in dims only once the wait is long enough to see.
+                opacity: loaded ? (switching ? 0.35 : 1) : 0,
+                transition: panning
+                  ? 'none'
+                  : `transform .12s ease-out, opacity .2s ease-out ${switching ? '.25s' : '0s'}`
               }}
             >
               {huge ? (
