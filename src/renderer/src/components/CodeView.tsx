@@ -158,6 +158,8 @@ export function CodeView({
    *  `saved.current` stays null, so `save()` refuses and the update listener
    *  never reports a buffer that could be written back over the file. */
   const [tailed, setTailed] = useState<{ from: number; size: number } | null>(null)
+  /** `tailed`, for the follow effect, which must not restart when it changes. */
+  const tailedRef = useRef<{ from: number; size: number } | null>(null)
   const [dirty, setDirty] = useState(false)
   /** Why the last save failed, or null. Carried rather than a bare flag:
    *  a read-only file and a folder that has gone are different problems. */
@@ -283,7 +285,7 @@ export function CodeView({
       const failedRead = 'error' in read ? read.error : null
       const disk = 'text' in read ? read.text : ''
       setUnreadable(failedRead)
-      setTailed(null)
+      setTailed((tailedRef.current = null))
       setFollowing(false)
       saved.current = failedRead ? null : { path, text: disk }
       // Unsaved text App kept for this file wins over what is on disk: coming
@@ -322,7 +324,7 @@ export function CodeView({
             annotations: [Transaction.addToHistory.of(false)]
           })
           setUnreadable(null)
-          setTailed({ from: tail.from, size: tail.size })
+          setTailed((tailedRef.current = { from: tail.from, size: tail.size }))
           // A file this size is one being written to. Follow it.
           setFollowing(true)
         })
@@ -444,7 +446,11 @@ export function CodeView({
     const p = pathRef.current
     // From the size we stamped at read time, so anything written between the
     // read and this call arrives rather than being silently skipped.
-    const from = stamp.current?.path === p ? stamp.current.at.size : 0
+    // A file shown as its TAIL follows on from where that tail ended (review,
+    // 2026-10-28): it has no stamp, and from 0 main was asked for the whole
+    // file again as one appended chunk.
+    const tail = tailedRef.current
+    const from = tail ? tail.size : stamp.current?.path === p ? stamp.current.at.size : 0
     // No "what was on disk" while following: that ref is what save() checks,
     // so its absence is the read-only guarantee rather than a flag anyone has
     // to remember to test.

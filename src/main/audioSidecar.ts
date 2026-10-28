@@ -1,5 +1,4 @@
-// spawn-ok: the sidecar streams decoded audio out of ffmpeg as it plays.
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
+import { spawnStream, type StreamChild } from './spawnWorker'
 import { holders } from './holders'
 import { access } from 'fs/promises'
 import {
@@ -57,8 +56,10 @@ export function parseSidecarUrl(raw: string): SidecarRequest | null {
 
 // Every ffmpeg this module has running. A seek abandons the response mid-flight
 // (Chromium simply drops it), and an orphaned decoder would sit there filling a
-// pipe nobody reads, so cancellation kills, and so does quitting.
-const live = new Set<ChildProcessWithoutNullStreams>()
+// pipe nobody reads, so cancellation kills, and so does quitting. Started by
+// the process worker (review, 2026-10-28): every seek starts one, and
+// CreateProcess on main has frozen every window for seconds (#351).
+const live = new Set<StreamChild>()
 
 export function killSidecars(): void {
   for (const p of live) p.kill()
@@ -68,6 +69,8 @@ export function killSidecars(): void {
 interface Deps {
   /** The root wall: only files the window may see get decoded. */
   allowed: (p: string) => boolean
+  /** Resolve the path off main's thread first (mediaProtocol's `warm`). */
+  warm?: (p: string) => Promise<void>
   packaged: boolean
   resourcesPath: string
   appPath: string
@@ -79,6 +82,7 @@ interface Deps {
 export async function serveSidecarAudio(request: Request, deps: Deps): Promise<Response> {
   const req = parseSidecarUrl(request.url)
   if (!req) return new Response(null, { status: 400 })
+  await deps.warm?.(req.file)
   if (!deps.allowed(req.file)) return new Response(null, { status: 403 })
   const there = await access(req.file).then(
     () => true,
@@ -98,7 +102,7 @@ export async function serveSidecarAudio(request: Request, deps: Deps): Promise<R
   const end = range?.end ?? total - 1
   const length = end - start + 1
 
-  let proc: ChildProcessWithoutNullStreams | null = null
+  let proc: StreamChild | null = null
   let sent = 0
 
   const body = new ReadableStream<Uint8Array>({
@@ -117,7 +121,7 @@ export async function serveSidecarAudio(request: Request, deps: Deps): Promise<R
       }
 
       const at = timeForByte(Math.max(start, WAV_HEADER_BYTES))
-      const child = spawn(tools.ffmpeg, sidecarArgs(req.file, req.stream, at), { windowsHide: true })
+      const child = spawnStream(tools.ffmpeg, sidecarArgs(req.file, req.stream, at), { windowsHide: true })
       proc = child
       live.add(child)
       // Registered by the FILE it reads (#127): a move of that file kills
@@ -172,8 +176,7 @@ export async function serveSidecarAudio(request: Request, deps: Deps): Promise<R
           /* already gone */
         }
       })
-      // stderr is drained and dropped: an unread pipe blocks the child.
-      child.stderr.resume()
+      // stderr is drained and dropped in the worker: an unread pipe blocks the child.
     },
     pull() {
       proc?.stdout.resume()

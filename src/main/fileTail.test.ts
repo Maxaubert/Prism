@@ -2,7 +2,15 @@ import { mkdtempSync, rmSync, writeFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import { readTail, startTail, stopAllTails, type TailEvent } from './fileTail'
+import {
+  readTail,
+  startTail,
+  stopAllTails,
+  TAIL_BACKLOG_MAX,
+  TAIL_CHUNK,
+  TAIL_SKIP_TO,
+  type TailEvent
+} from './fileTail'
 
 const dir = mkdtempSync(join(tmpdir(), 'prism-tail-'))
 const file = (name: string, body: string | Buffer): string => {
@@ -108,4 +116,31 @@ describe('following a file that grows', () => {
   it('refuses to follow something that is not a file', async () => {
     expect(await startTail(join(dir, 'nothing.log'), 0, () => {})).toBe(false)
   })
+
+  // Review, 2026-10-28: the whole new delta was one allocation and one
+  // message, however much a log had grown between two polls.
+  it('reads a big backlog a bounded chunk at a time, all of it, in order', async () => {
+    const line = 'x'.repeat(1023) + '\n'
+    const body = line.repeat((TAIL_CHUNK * 2.5) / 1024)
+    const p = file('backlog.log', body)
+    const seen: TailEvent[] = []
+    await startTail(p, 0, (e) => seen.push(e))
+    await waitFor(seen, (s) => s.reduce((n, e) => n + e.text.length, 0) >= body.length)
+    expect(seen.length).toBeGreaterThanOrEqual(3)
+    expect(seen.every((e) => e.text.length <= TAIL_CHUNK && !e.reset)).toBe(true)
+    expect(seen.map((e) => e.text).join('')).toBe(body)
+  })
+
+  it('skips a backlog past the text cap: a reset, then the last part from a whole line', async () => {
+    const line = 'y'.repeat(1023) + '\n'
+    const p = file('huge.log', line.repeat(TAIL_BACKLOG_MAX / 1024 + 64) + 'last\n')
+    const seen: TailEvent[] = []
+    await startTail(p, 0, (e) => seen.push(e))
+    await waitFor(seen, (s) => s.some((e) => e.text.endsWith('last\n')), 8000)
+    expect(seen[0].reset).toBe(true)
+    const text = seen.map((e) => e.text).join('')
+    expect(text.length).toBeLessThanOrEqual(TAIL_SKIP_TO)
+    expect(text.startsWith('y')).toBe(true)
+    expect(text.split('\n').slice(0, -2).every((l) => l.length === 1023)).toBe(true)
+  }, 15_000)
 })

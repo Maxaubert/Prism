@@ -17,6 +17,10 @@ export interface MediaServerDeps {
    *  always been walled; this one was not, which was an accident of the two
    *  handlers being written a month apart rather than a decision. */
   allowed: (p: string) => boolean
+  /** Resolve the path off main's thread before `allowed` reads it (review,
+   *  2026-10-28): every Range request of a playing video asks the wall, and
+   *  its realpath was a native call on main each time. */
+  warm?: (p: string) => Promise<void>
   /** The bundled ffmpeg, for the stills Chromium cannot draw. */
   ffmpeg: () => FfmpegTools | null
   /** A HEIC still as JPEG (heicClient.ts). */
@@ -65,6 +69,7 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
     } catch {
       return new Response(null, { status: 400 })
     }
+    await deps.warm?.(filePath)
     if (!deps.allowed(filePath)) return new Response(null, { status: 403 })
     // Async since the phone server (2026-09-06) started answering a LAN's
     // worth of Range requests through here: a sync stat on main's one thread

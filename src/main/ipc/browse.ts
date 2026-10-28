@@ -6,6 +6,8 @@ import {
   extendDesktopDirectories,
   insideDesktop,
   insideDesktopAll,
+  insideDesktopAllAsync,
+  insideDesktopAsync,
   releaseDesktop,
   validDesktopRoot
 } from '../desktopAccess'
@@ -14,6 +16,7 @@ import { driveUsage, withUsedShare } from '../driveUsage'
 import { container } from '../archiveBrowse'
 import { containerCandidates } from '@shared/archivePlace'
 import { weekStart } from '../weekStart'
+import { isLocalFixed } from '../driveKinds'
 import {
   browseSearch,
   browseSuggest,
@@ -47,8 +50,14 @@ export function registerBrowseIpc(ctx: MainCtx): void {
   // cached as unreadable. Additions stay main's (the payload builders);
   // removals arrive explicitly below, and a snapshot cannot remove what it
   // never knew about.
-  const warmFolderSizes = (paths: string[]): void => {
-    void folderSizes.prefetchIndexed(insideDesktopAll(paths)).catch(() => {})
+  // Local fixed drives only, like the read-ahead (review, 2026-10-28): on a
+  // share each subfolder's guard was an SMB round trip, and the paths are
+  // now resolved off main's thread before the guard reads them.
+  const warmFolderSizes = (dir: string, paths: string[]): void => {
+    if (!isLocalFixed(dir)) return
+    void insideDesktopAllAsync(paths)
+      .then((allowed) => folderSizes.prefetchIndexed(allowed))
+      .catch(() => {})
   }
   // NAMES FIRST (#271): the reply is the folder's names, and the sizes and
   // dates follow as `browse:details`. The indexer warm-up and the folder
@@ -66,7 +75,7 @@ export function registerBrowseIpc(ctx: MainCtx): void {
         const folders = directory.listing.folders.map((folder) => folder.path)
         setImmediate(() => {
           void warmIndexer(directory.path)
-          warmFolderSizes(folders)
+          warmFolderSizes(directory.path, folders)
         })
       }
       return directory
@@ -206,20 +215,21 @@ export function registerBrowseIpc(ctx: MainCtx): void {
   ipcMain.handle(CALL.folderSizesCached, async (_event, paths: unknown) => {
     if (!Array.isArray(paths) || paths.length > 10000) return {}
     // One timed guard call per list (#322): this is where suspect 1 runs.
-    const authorized = insideDesktopAll(paths)
+    // Resolved off main's thread first; the second pass finds them resolved.
+    const authorized = await insideDesktopAllAsync(paths)
     const cached = await folderSizes.readCached(authorized)
     const still = new Set(insideDesktopAll(Object.keys(cached)))
     return Object.fromEntries(Object.entries(cached).filter(([path]) => still.has(path)))
   })
   ipcMain.handle(CALL.folderSizesRefresh, async (_event, path: unknown) => {
-    if (typeof path !== 'string' || !insideDesktop(path)) return
+    if (typeof path !== 'string' || !(await insideDesktopAsync(path))) return
     await folderSizes.invalidate([path])
   })
   const folderSizeRequests = new Map<number, Map<string, AbortController>>()
   ipcMain.handle(CALL.folderSize, async (event, path: string, requestId: string) => {
     if (
       typeof path !== 'string' ||
-      !insideDesktop(path) ||
+      !(await insideDesktopAsync(path)) ||
       typeof requestId !== 'string' ||
       !requestId ||
       requestId.length > 200 ||

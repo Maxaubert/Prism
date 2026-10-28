@@ -45,6 +45,8 @@ interface Watch {
   decoder: TextDecoder
   /** Reads in flight, so a slow read never overlaps the next tick. */
   busy: boolean
+  /** A backlog was skipped: drop text up to the first line break. */
+  fragment?: boolean
 }
 
 const watches = new Map<string, Watch>()
@@ -55,9 +57,17 @@ const POLL_MS = 500
 
 const key = (p: string): string => p.toLowerCase()
 
+/** The most one poll reads (review, 2026-10-28). */
+export const TAIL_CHUNK = 4 * 1024 * 1024
+/** A backlog past this (the editor's 64 MB text cap) is skipped, not read. */
+export const TAIL_BACKLOG_MAX = 64 * 1024 * 1024
+/** Where a skip starts again: the size of the tail CodeView shows first. */
+export const TAIL_SKIP_TO = 2 * 1024 * 1024
+
 async function pump(w: Watch, emit: (e: TailEvent) => void): Promise<void> {
   if (w.busy) return
   w.busy = true
+  let more = false
   try {
     const st = await stat(w.path)
     if (st.size < w.offset) {
@@ -69,18 +79,36 @@ async function pump(w: Watch, emit: (e: TailEvent) => void): Promise<void> {
       return
     }
     if (st.size === w.offset) return
-    const want = st.size - w.offset
-    const buf = Buffer.alloc(Number(want))
+    if (st.size - w.offset > TAIL_BACKLOG_MAX) {
+      // More arrived than the editor would ever be handed whole (the 64 MB
+      // text cap): start again from the file's last part, as its first
+      // read did, rather than allocate and send the lot.
+      w.offset = st.size - TAIL_SKIP_TO
+      w.decoder = new TextDecoder(w.decoder.encoding, { fatal: false })
+      w.fragment = true
+      emit({ path: w.path, text: '', reset: true })
+    }
+    // ONE BOUNDED READ A TURN (review, 2026-10-28): the whole delta used to be
+    // one allocation and one message, however much a log had grown.
+    const want = Math.min(st.size - w.offset, TAIL_CHUNK)
+    const buf = Buffer.allocUnsafe(want)
     const fh = await open(w.path, 'r')
     try {
       const { bytesRead } = await fh.read(buf, 0, buf.length, w.offset)
       w.offset += bytesRead
       // `stream: true` holds a partial character back for the next chunk,
       // which is the whole reason the decoder lives on the watch.
-      const text = w.decoder.decode(buf.subarray(0, bytesRead), { stream: true })
+      let text = w.decoder.decode(buf.subarray(0, bytesRead), { stream: true })
+      if (w.fragment) {
+        // After a skip the first line is a fragment, as readTail drops its own.
+        const nl = text.indexOf('\n')
+        text = nl >= 0 ? text.slice(nl + 1) : ''
+        if (nl >= 0) w.fragment = false
+      }
       // CodeMirror rejoins its document with \n, so a CRLF log tailed as-is
       // grows a stray \r at the end of every appended line.
       if (text) emit({ path: w.path, text: text.replace(/\r\n/g, '\n'), reset: false })
+      more = bytesRead > 0 && w.offset < st.size
     } finally {
       await fh.close().catch(() => {})
     }
@@ -90,6 +118,11 @@ async function pump(w: Watch, emit: (e: TailEvent) => void): Promise<void> {
   } finally {
     w.busy = false
   }
+  // The rest of a backlog follows at once, a chunk a turn, while it is still followed.
+  if (more)
+    setImmediate(() => {
+      if (watches.get(key(w.path)) === w) void pump(w, emit)
+    })
 }
 
 /**
