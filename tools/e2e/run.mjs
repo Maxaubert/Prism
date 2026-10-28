@@ -8987,7 +8987,8 @@ async function toolbarIconsScenario(fixtures) {
       ok(t.iconInk === t.ink && !t.ownColour, `${name}: the icon is the tab's own ink (${t.iconInk} on ${t.ink})`)
       ok(t.oldFolder === 0, `${name}: the folder-coloured glyph is gone`)
       ok(t.order && t.inside, `${name}: icon, name and close sit in a row without overlap`)
-      if (t.pinned) ok(t.pin === 1, `${name} keeps its pin`)
+      // No tab wears a pin (owner, 2026-10-28: "remove the pin"), the home tab included.
+      ok(t.pin === 0, `${name} wears no pin (${t.pin})`)
     }
     const active = tabs.filter((t) => t.active)
     const restTab = tabs.find((t) => !t.active)
