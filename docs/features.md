@@ -51,6 +51,13 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
 
 - Open via: a file argument (Explorer double-click / "open with" / CLI), drag-and-drop, and an
   open dialog.
+- **A SLOW PICTURE OVER ANOTHER SAYS IT IS LOADING** (owner, 2026-10-28: a HEIC clicked while another
+  picture is in the preview "just takes some time then it switches ... which makes it seem like the image
+  can't be viewed or there is a bug"). The viewer keeps the last picture until the next is ready (so
+  arrowing never flashes empty), and now, once the wait is long enough to see (the spinner's own delay;
+  the dim after 0.25 s), shows the ring over that stand-in and dims it to 35 % (`ImageView` `switching`).
+  A quick or preloaded picture shows neither. e2e `previewSlowImage` (`PRISM_E2E_SLOW_MEDIA` makes one
+  file answer 1.5 s late; it fails on the old viewer).
 - **Image** viewer: fit / zoom / pan / rotate / fullscreen; common formats natively, HEIC/HEIF
   through a pure-JS libheif worker, and (2026-08-24) Targa, PCX, Photoshop, OpenEXR, DPX, SGI,
   DDS, PNM, JPEG 2000, QOI, Radiance HDR and X BitMap through `imageDecode.ts`, which asks the
