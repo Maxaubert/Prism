@@ -287,20 +287,24 @@ body {
   pointer-events: auto;
   transition-duration: 150ms;
 }
+/* Flush with the edge and quieter than #267's first cut (owner, 2026-10-28:
+   "still not subtle enough and its not on the edge ... theres a small gap"):
+   3 px at 16 %, 5 px at 32 % under the pointer, no inset (was 2 px in, 4 px
+   at 24 %). */
 .browse-overlay-thumb {
   position: absolute;
-  right: 2px;
-  width: 4px;
+  right: 0;
+  width: 3px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--p-text) 24%, transparent);
+  background: color-mix(in srgb, var(--p-text) 16%, transparent);
   transition:
     width 120ms ease-out,
     background-color 120ms ease-out;
 }
 .browse-overlay-scroll:hover .browse-overlay-thumb,
 .browse-overlay-thumb:active {
-  width: 6px;
-  background: color-mix(in srgb, var(--p-text) 42%, transparent);
+  width: 5px;
+  background: color-mix(in srgb, var(--p-text) 32%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
   .browse-overlay-scroll,
@@ -320,9 +324,9 @@ body {
 .browse-overlay-scroll[data-axis='x'] .browse-overlay-thumb {
   top: auto;
   right: auto;
-  bottom: 2px;
+  bottom: 0;
   width: auto;
-  height: 4px;
+  height: 3px;
   transition:
     height 120ms ease-out,
     background-color 120ms ease-out;
@@ -330,7 +334,7 @@ body {
 .browse-overlay-scroll[data-axis='x']:hover .browse-overlay-thumb,
 .browse-overlay-scroll[data-axis='x'] .browse-overlay-thumb:active {
   width: auto;
-  height: 6px;
+  height: 5px;
 }
 
 /* No scrollbar at all: the pane scrolls, it just doesn't advertise it - the same
