@@ -15398,6 +15398,14 @@ async function propertiesWindowScenario(fixtures) {
       await closeProps(win)
     }
 
+    // On the second desktop (tools/e2e/hidden.mjs) this machine's Everything is
+    // out of reach: its IPC is a window on the OWNER's desktop, and a window on
+    // another desktop cannot be found (measured 2026-10-28: 0 slices). The
+    // drive step needs that index, so it is skipped there, and says so.
+    if (process.env.PRISM_E2E_DESKTOP === 'hidden') {
+      console.log("  (on the hidden desktop this PC's Everything cannot be reached, so the drive donut checks are skipped)")
+      return
+    }
     // 7. THE DRIVE, from This PC. The index answers when it has C:; until it
     // does the window asks again, each opening its own question.
     const cDrive = win.locator('.folder-browser .browse-places section[aria-label="This PC"] .browse-drive[title="C:\\\\"]')
