@@ -3,7 +3,10 @@ import {
   createDriveUsage,
   driveKind,
   LABEL_COMMAND,
+  LABEL_RETRY,
+  LABEL_TTL,
   parseLabels,
+  readDriveTable,
   readLabels,
   STATFS_WAIT,
   withUsedShare
@@ -69,6 +72,47 @@ describe('driveUsage', () => {
     expect(d.labels).toHaveBeenCalledTimes(1)
     await usage(['C:\\', 'D:\\'])
     expect(d.labels).toHaveBeenCalledTimes(2)
+  })
+
+  it('past the hour, answers with the names it has and reads new ones behind it (perf review #44)', async () => {
+    let now = 0
+    let finish: (names: ReturnType<typeof parseLabels>) => void = () => {}
+    const labels = vi
+      .fn<() => Promise<ReturnType<typeof parseLabels>>>()
+      .mockResolvedValueOnce(parseLabels('C:|3|Old'))
+      .mockImplementationOnce(() => new Promise((r) => (finish = r)))
+    const usage = createDriveUsage(deps({ labels, now: () => now }))
+    expect((await usage(['C:\\']))[0].label).toBe('Old')
+    now = LABEL_TTL - 1
+    await usage(['C:\\'])
+    expect(labels).toHaveBeenCalledTimes(1)
+    now = LABEL_TTL + 1
+    // The new read is still out: the reply does not wait for it.
+    expect((await usage(['C:\\']))[0].label).toBe('Old')
+    expect(labels).toHaveBeenCalledTimes(2)
+    finish(parseLabels('C:|3|New'))
+    await new Promise((r) => setTimeout(r, 0))
+    expect((await usage(['C:\\']))[0].label).toBe('New')
+  })
+
+  it('a failed name read keeps the names it had and is asked again sooner', async () => {
+    let now = 0
+    const labels = vi
+      .fn<() => Promise<ReturnType<typeof parseLabels>>>()
+      .mockResolvedValueOnce(parseLabels('C:|3|Kept'))
+      .mockResolvedValueOnce(new Map())
+      .mockResolvedValue(parseLabels('C:|3|Back'))
+    const usage = createDriveUsage(deps({ labels, now: () => now }))
+    await usage(['C:\\'])
+    now = LABEL_TTL + 1
+    expect((await usage(['C:\\']))[0].label).toBe('Kept')
+    await new Promise((r) => setTimeout(r, 0))
+    now += LABEL_RETRY - 1000
+    expect((await usage(['C:\\']))[0].label).toBe('Kept')
+    expect(labels).toHaveBeenCalledTimes(2)
+    now += 2000
+    await usage(['C:\\'])
+    expect(labels).toHaveBeenCalledTimes(3)
   })
 
   it('a drive that does not answer has no sizes, and is not asked again while out', async () => {
@@ -147,5 +191,10 @@ describe.runIf(process.platform === 'win32')('readLabels', () => {
     const labels = await readLabels()
     const system = `${(process.env.SystemDrive ?? 'C:').toUpperCase()}\\`
     expect(labels.get(system)?.kind).toBe('local')
+  }, 20_000)
+  it('shares one query between the names and the kinds (perf review #51)', async () => {
+    const one = readDriveTable()
+    expect(readDriveTable()).toBe(one)
+    expect(await one).toMatch(/^[A-Z]:\|\d\|/im)
   }, 20_000)
 })

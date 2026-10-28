@@ -26,7 +26,7 @@ import {
 } from '../lib/tabs/tabs'
 import { fileKind } from '@shared/fileKind'
 import { baseName, extOf } from '@shared/path'
-import { applyDetails } from '../lib/listingMerge'
+import { applyDetails, sameRows } from '../lib/listingMerge'
 import { downloadsPath, isDownloads, viewSort } from '../lib/downloadsView'
 import { browseLocation, browseParent } from '../lib/browse'
 import { intendToPlay } from '../lib/playState'
@@ -73,6 +73,26 @@ export type OpenReason = 'navigate' | 'back' | 'forward' | 'refresh' | 'focus' |
  *  #322): a folder written to without a break (Downloads during a download)
  *  re-reads about once a second for as long as it lasts. */
 export const BACKGROUND_READ_SLOW_MS = 200
+
+/** THE FOCUS TRUSTS A LIVE WATCH (perf review #10, 2026-10-28): coming back
+ *  to the window re-read the folder on screen every time, though its watcher
+ *  already re-reads it on every change. With the watch set up and a read this
+ *  recent, the focus reads nothing; past it (a watch that went quiet, a share
+ *  whose notifications never come) it still re-reads, at most this often. */
+export const FOCUS_TRUST_MS = 60_000
+
+/** Whether the window's focus should re-read the folder on screen. */
+export function focusNeedsRead(
+  watched: { tabId: string; key: string } | null,
+  lastRead: { tabId: string; key: string; at: number } | null,
+  tabId: string,
+  key: string,
+  now: number
+): boolean {
+  const live = !!watched && watched.tabId === tabId && watched.key === key
+  const fresh = !!lastRead && lastRead.tabId === tabId && lastRead.key === key && now - lastRead.at < FOCUS_TRUST_MS
+  return !(live && fresh)
+}
 
 /** One folder read, on the timeline: where, why, how long, how many rows,
  *  and whether rows were already on screen from a cache while it read. */
@@ -155,8 +175,26 @@ export function useFolderBrowsing(
   // Quiet selects per tab (#263): an open that lands after one must not take
   // the selected path back, or the marks just made read as stale and go.
   const marked = useRef(new Map<string, number>())
+  /** The folder this tab's watch was set up on (perf review #10), and when
+   *  its rows were last read: what the window's focus trusts. */
+  const watched = useRef<{ tabId: string; key: string } | null>(null)
+  const lastRead = useRef<{ tabId: string; key: string; at: number } | null>(null)
+  const watchFolder = useCallback((tabId: string, folderPath: string) => {
+    const key = directoryKey(folderPath)
+    lastRead.current = { tabId, key, at: performance.now() }
+    void window.prism.browseWatch(tabId, folderPath).then(
+      (ok) => {
+        watched.current = ok ? { tabId, key } : null
+      },
+      () => {
+        watched.current = null
+      }
+    )
+  }, [])
   const readDirectory = useRef(
-    createDirectoryRequests((tabId, target) => window.prism.browseDirectory(tabId, target))
+    createDirectoryRequests((tabId, target, again) =>
+      window.prism.browseDirectory(tabId, target, again ? { again } : undefined)
+    )
   )
   const delivered = useRef<{
     tabId: string
@@ -226,19 +264,20 @@ export function useFolderBrowsing(
     void window.prism.weekStart().then(setWeekStart).catch(() => {})
   }, [])
   // Sizes and dates of a names-first answer (#271), laid over the rows in
-  // place: the shared snapshot and the list on screen alike.
+  // place: the shared snapshot and the list on screen alike. ONE MERGE, NOT
+  // TWO (perf review #11, 2026-10-28): when the list on screen is the
+  // snapshot's listing, the snapshot's patched one is taken as is; only a
+  // list that differs (a re-read that kept the rows on screen) is merged again.
   useEffect(
     () =>
       window.prism.onBrowseDetails((details) => {
-        visitedDirectories.patch(details)
-        setResult((r) =>
-          r && directoryKey(r.path) === directoryKey(details.path)
-            ? (() => {
-                const listing = applyDetails(r.listing, details)
-                return listing === r.listing ? r : { ...r, listing }
-              })()
-            : r
-        )
+        const before = visitedDirectories.peek(details.path)?.listing
+        const held = visitedDirectories.patch(details)?.listing
+        setResult((r) => {
+          if (!r || directoryKey(r.path) !== directoryKey(details.path)) return r
+          const listing = held && before && r.listing === before ? held : applyDetails(r.listing, details)
+          return listing === r.listing ? r : { ...r, listing }
+        })
       }),
     []
   )
@@ -251,11 +290,15 @@ export function useFolderBrowsing(
     const changed = window.prism.onDirChanged(({ dirs }) => {
       if (dirs.some((dir) => dir.toLowerCase() === path.toLowerCase())) refresh('dir-changed')
     })
-    const onFocus = (): void => refresh('focus')
+    const onFocus = (): void => {
+      if (focusNeedsRead(watched.current, lastRead.current, id, directoryKey(path), performance.now()))
+        refresh('focus')
+    }
     window.addEventListener('focus', onFocus)
     return () => {
       changed()
       window.removeEventListener('focus', onFocus)
+      watched.current = null
       void window.prism.browseWatch(id, null)
     }
   }, [folder, id, path])
@@ -278,7 +321,7 @@ export function useFolderBrowsing(
     ) {
       navigated.current = null
       readReason.current = null
-      void window.prism.browseWatch(id, path)
+      watchFolder(id, path)
       return
     }
     let cancelled = false
@@ -289,8 +332,9 @@ export function useFolderBrowsing(
     navigated.current = null
     const t0 = performance.now()
     const shown = !!visitedDirectories.get(path)
+    const again = reason === 'dir-changed' || reason === 'focus'
     void readDirectory
-      .current(id, path, `${refreshKey}:${revision}`)
+      .current(id, path, `${refreshKey}:${revision}`, again)
       .then((next) => {
         // Said even when the effect has moved on (review of #322): a slow
         // read the user gave up on (a hung network folder) is exactly what
@@ -300,7 +344,20 @@ export function useFolderBrowsing(
         if (cancelled) return
         if (serial.current.get(id) === request) setWaitingFor(null)
         if (next && !next.listing.unreadable) {
-          setResult({ ...visitedDirectories.remember(next), tabId: id })
+          const merged = visitedDirectories.remember(next)
+          // THE SAME ROWS DRAW NOTHING (perf review #18, 2026-10-28): a
+          // re-read whose rows match the ones on screen (the focus's, or the
+          // watcher's for a change that left this folder's rows as they were)
+          // keeps the answer on screen, so nothing re-sorts or re-renders.
+          // Its details patch still lands on that answer if a size moved.
+          setResult((r) =>
+            r &&
+            r.tabId === id &&
+            directoryKey(r.path) === directoryKey(merged.path) &&
+            sameRows(r.listing, merged.listing)
+              ? r
+              : { ...merged, tabId: id }
+          )
           setError(undefined)
           // A folder gone from inside a zip answered the nearest one still
           // there (#300): the tab's CURRENT entry becomes that place (a push
@@ -310,7 +367,7 @@ export function useFolderBrowsing(
             directoryKey(next.path) !== directoryKey(path)
           )
             setState((s) => ({ ...s, tabs: replaceBrowsePath(s.tabs, id, next.path) }))
-          void window.prism.browseWatch(id, next.path)
+          watchFolder(id, next.path)
         } else {
           visitedDirectories.forget(path)
           setResult(null)
@@ -339,7 +396,7 @@ export function useFolderBrowsing(
     return () => {
       cancelled = true
     }
-  }, [folder, id, path, refreshKey, revision, askArchive, setState])
+  }, [folder, id, path, refreshKey, revision, askArchive, setState, watchFolder])
 
   const navigate = useCallback(
     async (target: string, tabId = id) => {

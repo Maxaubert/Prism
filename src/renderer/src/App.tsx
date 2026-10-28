@@ -63,7 +63,7 @@ import {
 import { BrowseRename } from './components/browse/BrowseRename'
 import { PropertiesDialog } from './components/properties/PropertiesDialog'
 import './components/browse/workspace.css'
-import { sortFiles, useSort } from './lib/prefs/sortPrefs'
+import { sortFilesOnce, useSort } from './lib/prefs/sortPrefs'
 import { useExplorerSide } from './lib/prefs/explorerSidePrefs'
 import { PreviewEmpty } from './components/browse/PreviewEmpty'
 import { PasswordDialog } from './dialogs/PasswordDialog'
@@ -701,9 +701,13 @@ export default function App(): JSX.Element {
     [listSort, sortPref]
   )
   const activeFiles = active?.files
+  // ONE SORT PER FOLDER, NOT PER STEP (perf review #21, 2026-10-28): the
+  // order depends on the files and the sort only, so an arrow press (a new
+  // rawIndex) takes the folder's sorted list (`sortFilesOnce`) and only looks
+  // its file up, instead of sorting the whole folder again.
   const view = useMemo(() => {
     if (!activeFiles || rawIndex < 0 || !activeFiles.length) return null
-    const files = sortFiles(activeFiles, sort.field, sort.dir)
+    const files = sortFilesOnce(activeFiles, sort.field, sort.dir)
     return { files, index: Math.max(0, files.indexOf(activeFiles[rawIndex])) }
   }, [activeFiles, rawIndex, sort])
 

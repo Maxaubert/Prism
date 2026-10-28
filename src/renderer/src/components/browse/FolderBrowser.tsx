@@ -6,7 +6,7 @@ import { BrowseSearchStatus } from './BrowseSearchStatus'
 import { BrowseSearchPopup } from './BrowseSearchPopup'
 import { BrowsePlaces } from './BrowsePlaces'
 import { BrowseToolbar } from './BrowseToolbar'
-import { datesKnown } from './entries'
+import { datesUsable } from './entries'
 import { createSortPass } from './sortTiming'
 import { dateDividers } from '../../lib/dateGroups'
 import { dateView } from '../../lib/downloadsView'
@@ -157,8 +157,13 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const weekStart = props.weekStart
   const dividers = useMemo(
     () =>
-      dated && datesKnown(props.listing)
-        ? dateDividers(entries, (e) => (e.file ? e.file.mtimeMs : e.mtimeMs), new Date(), weekStart)
+      dated && datesUsable(props.listing)
+        ? (() => {
+            // A carried listing's new row has no date yet and sorts as the
+            // newest (perf review #3): it reads as today.
+            const now = new Date()
+            return dateDividers(entries, (e) => (e.file ? e.file.mtimeMs : e.mtimeMs) ?? now.getTime(), now, weekStart)
+          })()
         : undefined,
     [dated, props.listing, entries, weekStart]
   )

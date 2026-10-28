@@ -103,11 +103,13 @@ function syncOr<T>(channel: CallChannel, fallback: T, ...args: unknown[]): T {
 const api = {
   /** A folder's names now, its sizes and dates after as `onBrowseDetails`
    *  (#271). `details: false` is a read for its grant only, which must not
-   *  take the disk from the folder on screen. */
+   *  take the disk from the folder on screen. `again` is a background
+   *  re-read of the folder on screen (the watcher, the window's focus): main
+   *  skips the arrival's warm-ups (perf review #10). */
   browseDirectory: (
     tabId: string,
     path: string,
-    options?: { details?: boolean }
+    options?: { details?: boolean; again?: boolean }
   ): Promise<BrowseDirectory | null> =>
     ipcRenderer.invoke(CALL.browseDirectory, tabId, path, options),
   /** The listing cache's copy of a folder, synchronously, or null (#271). */

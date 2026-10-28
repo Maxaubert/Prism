@@ -85,6 +85,26 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the dim after 0.25 s), shows the ring over that stand-in and dims it to 35 % (`ImageView` `switching`).
   A quick or preloaded picture shows neither. e2e `previewSlowImage` (`PRISM_E2E_SLOW_MEDIA` makes one
   file answer 1.5 s late; it fails on the old viewer).
+- **THE EXPLORER'S REFRESHES COST LESS** (owner, 2026-10-28: "do a review of the app look for bugs,
+  lingering code that should be changed ... look for stall points, things that use up too many
+  resources"; findings in research/prism/2026-10-28-performance-review.md). A refresh that brings a new
+  file keeps a Date or Size sort: the answer that carried the old details says `carried`, and its new rows
+  sort as the newest (no size: last) until their patch lands, where Downloads used to flip to A-Z and back
+  (#3; `entries.test.ts`, `listingMerge.test.ts`). A watcher or focus re-read (`again`) skips the
+  arrival's indexer and folder-size warm-ups, and the listing cache skips a write whose rows did not
+  change (#10; `listingCache.test.ts`). The window's focus no longer re-reads a folder whose watch is up
+  and read in the last minute (`FOCUS_TRUST_MS`, #10). A re-read with the same rows keeps the answer on
+  screen, so nothing re-sorts (#18). A details patch is merged once, not twice (#11), and a details patch
+  under Name/Type/Path, or a folder-size tick under any sort but Size, refills the rows in their order
+  instead of sorting again (`sameOrder`/`refill`, #11 #20; `sortTiming.test.ts`). The viewer sorts its
+  folder once per folder, not per arrow press (#21). Each tab's grants are counted by resolved folder,
+  so the owner checks are lookups (#31; `desktopAccess.test.ts`). A running Everything, once found, is
+  trusted for 5 minutes and forgotten when a query passes it over; none found is asked again after 30 s
+  (#32 #42; `existingEverything.test.ts`). Drive names are re-read when the drive set changes, else
+  hourly, and a refresh answers with the names it has while new ones load; one PowerShell answers names
+  and kinds, run through `spawnWorker`; the places panel skips a render when the drives say the same
+  (#33 #44 #51 #52; `driveUsage.test.ts`, `useDriveUsage.test.ts`). A preference write of this process
+  no longer echoes through the folder watch into a re-read and a push (#45; `windowPreferences.test.ts`).
 - **Image** viewer: fit / zoom / pan / rotate / fullscreen; common formats natively, HEIC/HEIF
   through a pure-JS libheif worker, and (2026-08-24) Targa, PCX, Photoshop, OpenEXR, DPX, SGI,
   DDS, PNM, JPEG 2000, QOI, Radiance HDR and X BitMap through `imageDecode.ts`, which asks the

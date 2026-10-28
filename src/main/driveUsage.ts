@@ -1,7 +1,7 @@
 import { statfs } from 'fs/promises'
 import { join } from 'path'
-import { Worker } from 'worker_threads'
 import type { BrowseDriveUsage } from '@shared/browse'
+import { execFile } from './spawnWorker'
 
 /**
  * HOW FULL EACH DRIVE IS, for the Explorer's This PC rows (#296; owner,
@@ -17,11 +17,19 @@ import type { BrowseDriveUsage } from '@shared/browse'
  * gives. One PowerShell CIM query reads every drive's label and type at once;
  * it runs only when the set of drives changes or LABEL_TTL has passed, never
  * per refresh, and the sizes never wait on it longer than LABEL_WAIT.
+ *
+ * NAMES RARELY CHANGE (perf review #33 and #44, 2026-10-28): the query ran
+ * every 10 minutes and each reply waited on it (`ipc-slow browse:drives` of
+ * 0.5 to 4 s, about every 12 minutes in the owner's log). It runs when the
+ * drive set changes, else at most hourly, and a refresh past the hour answers
+ * with the names it has at once while the new ones are read behind it
+ * (stale while revalidate). Only a new drive set, or no names yet, waits.
  */
 
 export const STATFS_WAIT = 1500
 export const LABEL_WAIT = 4000
-export const LABEL_TTL = 10 * 60_000
+export const LABEL_TTL = 60 * 60_000
+export const LABEL_RETRY = 10 * 60_000
 
 type Space = { total: number; free: number }
 type Label = { label: string; kind: NonNullable<BrowseDriveUsage['kind']> }
@@ -69,45 +77,51 @@ export const LABEL_COMMAND =
  * log: `main-lag` 2.95 to 3.25 s with only `browse:drives` in flight, about
  * every four hours, against 550 ms for the query on every other refresh). A
  * worker pays that wait on its own thread; main only hears the answer.
+ *
+ * The app's one process worker (`spawnWorker`, #441) since perf review #52
+ * (2026-10-28): this booted a fresh worker isolate per call. Its stdout or
+ * null; also the Properties window's drive model query (`driveModel.ts`).
  */
-const LABEL_WORKER = `
-const { parentPort, workerData } = require('worker_threads')
-const { execFile } = require('child_process')
-execFile(workerData.exe, workerData.args, { windowsHide: true, timeout: 10000 }, (error, stdout) =>
-  parentPort.postMessage(error ? null : String(stdout))
-)
-`
-
-/** One PowerShell command run from a worker thread (#351), its stdout or
- *  null. Also the Properties window's drive model query (`driveModel.ts`). */
 export function powershellInWorker(command: string): Promise<string | null> {
   return new Promise((resolve) => {
-    let worker: Worker
     try {
-      worker = new Worker(LABEL_WORKER, {
-        eval: true,
-        workerData: { exe: powershell(), args: ['-NoProfile', '-NonInteractive', '-Command', command] }
-      })
+      execFile(
+        powershell(),
+        ['-NoProfile', '-NonInteractive', '-Command', command],
+        { windowsHide: true, timeout: 10_000 },
+        (error, stdout) => resolve(error ? null : String(stdout))
+      )
     } catch {
       resolve(null)
-      return
     }
-    let answered = false
-    const answer = (stdout: string | null): void => {
-      if (answered) return
-      answered = true
-      resolve(stdout)
-      void worker.terminate()
-    }
-    worker.once('message', (stdout: string | null) => answer(stdout))
-    worker.once('error', () => answer(null))
-    worker.once('exit', () => answer(null))
   })
+}
+
+/**
+ * ONE QUERY FOR NAMES AND KINDS (perf review #51, 2026-10-28). The drive
+ * kinds (`driveKinds.ts`) asked WMI the same Win32_LogicalDisk question in
+ * a second PowerShell; both read this answer now. A call while one is out,
+ * or within DRIVE_TABLE_FRESH of the last answer, shares it.
+ */
+export const DRIVE_TABLE_FRESH = 5000
+let table: { at: number; read: Promise<string | null> } | null = null
+
+export function readDriveTable(now = Date.now()): Promise<string | null> {
+  if (process.platform !== 'win32') return Promise.resolve(null)
+  if (table && now - table.at < DRIVE_TABLE_FRESH) return table.read
+  const read = powershellInWorker(LABEL_COMMAND)
+  const mine = { at: Number.POSITIVE_INFINITY, read }
+  table = mine
+  // Still out: shared however long it takes. Answered: fresh for a moment.
+  void read.then(() => {
+    if (table === mine) mine.at = Date.now()
+  })
+  return read
 }
 
 export async function readLabels(): Promise<Map<string, Label>> {
   if (process.platform !== 'win32') return new Map()
-  const stdout = await powershellInWorker(LABEL_COMMAND)
+  const stdout = await readDriveTable()
   return stdout === null ? new Map() : parseLabels(stdout)
 }
 
@@ -141,12 +155,25 @@ const within = <T>(work: Promise<T>, ms: number): Promise<T | undefined> =>
 export function createDriveUsage(deps: DriveUsageDeps = defaults) {
   const pending = new Map<string, Promise<Space>>()
   let labels: { at: number; set: string; read: Promise<Map<string, Label>> } | null = null
+  /** The last names that came back, and for which drive set. */
+  let known: { set: string; names: Map<string, Label> } | null = null
 
   const labelsFor = (roots: string[]): Promise<Map<string, Label>> => {
     const set = roots.join('|')
     if (!labels || labels.set !== set || deps.now() - labels.at > LABEL_TTL) {
-      labels = { at: deps.now(), set, read: deps.labels().catch(() => new Map()) }
+      const read = deps.labels().catch(() => new Map<string, Label>())
+      labels = { at: deps.now(), set, read }
+      const mine = labels
+      void read.then((names) => {
+        if (names.size) known = { set, names }
+        // An empty answer is a failed query: it never replaces names it had,
+        // and it is asked again after LABEL_RETRY rather than the hour.
+        else mine.at -= LABEL_TTL - LABEL_RETRY
+      })
     }
+    // Same drives, names already in: answer with those at once while a stale
+    // read refreshes them behind the reply (perf review #44).
+    if (known && known.set === set) return Promise.resolve(known.names)
     return labels.read
   }
 

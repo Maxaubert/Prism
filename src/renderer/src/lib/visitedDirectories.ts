@@ -43,6 +43,10 @@ export function createVisitedDirectories(maxFolders = 64, maxRows = 100_000) {
       return hit
     },
     forget,
+    /** The held entry, without counting it as used. */
+    peek(path: string): BrowseDirectory | null {
+      return entries.get(directoryKey(path)) ?? null
+    },
     /** Keep a fresh answer. A names-only one keeps the sizes the old copy had
      *  for files still there, and any stashed patches are laid over it. The
      *  merged entry is returned: it is what the list should draw. */
@@ -93,14 +97,20 @@ export const visitedDirectories = createVisitedDirectories()
 
 /** Navigation and the resulting location effect can await the same directory read. */
 export function createDirectoryRequests(
-  read: (tabId: string, path: string) => Promise<BrowseDirectory | null>
+  read: (tabId: string, path: string, again?: boolean) => Promise<BrowseDirectory | null>
 ) {
   const pending = new Map<string, Promise<BrowseDirectory | null>>()
-  return (tabId: string, path: string, generation: string): Promise<BrowseDirectory | null> => {
+  return (
+    tabId: string,
+    path: string,
+    generation: string,
+    /** A background re-read of the folder on screen (perf review #10). */
+    again = false
+  ): Promise<BrowseDirectory | null> => {
     const key = `${tabId}\0${directoryKey(path)}\0${generation}`
     const existing = pending.get(key)
     if (existing) return existing
-    const request = read(tabId, path)
+    const request = read(tabId, path, again)
     pending.set(key, request)
     const clear = (): void => {
       if (pending.get(key) === request) pending.delete(key)

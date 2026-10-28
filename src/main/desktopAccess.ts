@@ -15,7 +15,19 @@ import { diagMain } from 'prism-term-core/main/diagLog'
 // path asked about is still resolved on every call, so a junction is judged
 // by where it points now; a granted folder later swapped for a junction no
 // longer matches its own grant, which refuses rather than allows.
-const directories = new Map<string, Map<string, string>>()
+//
+// AND LOOKED UP, NOT SCANNED (perf review #31, 2026-10-28): a search grants
+// every hit's folder, so a tab that has searched a lot holds many grants, and
+// the owner checks spread and scanned all of them on every listing, watch and
+// search. Each tab keeps its resolved folders counted by value too, so "does
+// this tab hold that folder" is one lookup.
+interface Grants {
+  /** The path as granted, and what it resolved to then. */
+  byPath: Map<string, string>
+  /** Each resolved folder, and how many granted paths resolved to it. */
+  canon: Map<string, number>
+}
+const directories = new Map<string, Grants>()
 const revisions = new Map<string, number>()
 
 export function desktopRevision(tabId: string): number {
@@ -29,8 +41,13 @@ export function desktopClosed(tabId: string): boolean {
 export function grantDesktopDirectory(tabId: string, path: string): void {
   if (desktopClosed(tabId)) return
   let grants = directories.get(tabId)
-  if (!grants) directories.set(tabId, (grants = new Map()))
-  if (!grants.has(path)) grants.set(path, canonicalPath(path))
+  if (!grants) directories.set(tabId, (grants = { byPath: new Map(), canon: new Map() }))
+  if (!grants.byPath.has(path)) hold(grants, path, canonicalPath(path))
+}
+
+function hold(grants: Grants, path: string, resolved: string): void {
+  grants.byPath.set(path, resolved)
+  grants.canon.set(resolved, (grants.canon.get(resolved) ?? 0) + 1)
 }
 
 export function releaseDesktop(tabId: string): void {
@@ -46,8 +63,7 @@ export function ownsDesktopDirectory(tabId: string, path: string): boolean {
   return timed('ownsDesktopDirectory', 1, () => {
     const grants = directories.get(tabId)
     if (!grants || !path) return false
-    const target = canonicalPath(path)
-    return [...grants.values()].some((dir) => dir === target)
+    return grants.canon.has(canonicalPath(path))
   })
 }
 
@@ -64,7 +80,7 @@ export const GUARD_SLOW_MS = 50
 
 function grantCount(): number {
   let n = 0
-  for (const grants of directories.values()) n += grants.size
+  for (const grants of directories.values()) n += grants.byPath.size
   return n
 }
 
@@ -89,14 +105,17 @@ function asked(path: string): Asked {
   return { path: canonicalPath(path), parent: canonicalPath(dirname(path)) }
 }
 
-/** The folder itself or one of its direct entries, both sides resolved. */
-function directlyWithin(dir: string, target: Asked): boolean {
-  return dir === target.path || (dir === target.parent && withinCanonical(dir, target.path))
+/** One owner holds the folder itself or the folder of a direct entry, both
+ *  sides resolved: two lookups, whatever the number of grants. */
+function holdsDirectly(grants: Grants, target: Asked): boolean {
+  return (
+    grants.canon.has(target.path) ||
+    (grants.canon.has(target.parent) && withinCanonical(target.parent, target.path))
+  )
 }
 
 function anyGrantDirectlyHolds(target: Asked): boolean {
-  for (const grants of directories.values())
-    for (const dir of grants.values()) if (directlyWithin(dir, target)) return true
+  for (const grants of directories.values()) if (holdsDirectly(grants, target)) return true
   return false
 }
 
@@ -108,9 +127,7 @@ export function ownsDirectly(tabId: string, path: string): boolean {
   return timed('ownsDirectly', 1, () => {
     const grants = directories.get(tabId)
     if (!grants || !path) return false
-    const target = asked(path)
-    for (const dir of grants.values()) if (directlyWithin(dir, target)) return true
-    return false
+    return holdsDirectly(grants, asked(path))
   })
 }
 
@@ -132,7 +149,7 @@ function inside(path: string): boolean {
   // before the alias-aware fallback; probing every unrelated grant with native
   // realpath for every size row made large result sets block the main thread.
   const parent = dirname(path)
-  for (const grants of directories.values()) {
+  for (const { byPath: grants } of directories.values()) {
     if (grants.has(path)) return true
     const held = grants.get(parent)
     if (held !== undefined && withinCanonical(held, canonicalPath(path))) return true
@@ -151,10 +168,9 @@ function validDesktopRootNow(root: string, path: string): boolean {
   const owner = canonicalPath(root)
   let target: Asked | null = null
   for (const grants of directories.values()) {
-    const dirs = [...grants.values()]
-    if (!dirs.includes(owner)) continue
+    if (!grants.canon.has(owner)) continue
     target ??= asked(path)
-    if (dirs.some((dir) => directlyWithin(dir, target!))) return true
+    if (holdsDirectly(grants, target)) return true
   }
   return false
 }
@@ -168,13 +184,13 @@ export function extendDesktopDirectories(root: string, paths: string[]): void {
 function extendNow(root: string, paths: string[]): void {
   if (!root) return
   const owner = canonicalPath(root)
-  const owners = [...directories.values()].filter((grants) => [...grants.values()].includes(owner))
+  const owners = [...directories.values()].filter((grants) => grants.canon.has(owner))
   if (!owners.length) return
   for (const path of paths) {
     if (!path) continue
     const target = canonicalPath(path)
     if (!withinCanonical(owner, target)) continue
-    for (const grants of owners) if (!grants.has(path)) grants.set(path, target)
+    for (const grants of owners) if (!grants.byPath.has(path)) hold(grants, path, target)
   }
 }
 

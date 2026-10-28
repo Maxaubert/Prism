@@ -154,6 +154,13 @@ describe('the read-ahead queue', () => {
 describe('which drives the cache and the read ahead may touch', () => {
   const kinds = parseDriveKinds('C:=3\r\nD:=2\r\nZ:=4\r\nnoise\r\n')
 
+  it("reads the drive names' table too, one query for both (perf review #51)", () => {
+    expect([...parseDriveKinds('C:|3|Windows\r\nE:|2|a|b\r\nF:||\r\n')]).toEqual([
+      ['C:', 3],
+      ['E:', 2]
+    ])
+  })
+
   it('reads WMI lines', () => {
     expect([...kinds]).toEqual([
       ['C:', 3],
