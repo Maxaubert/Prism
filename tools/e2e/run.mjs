@@ -14359,6 +14359,78 @@ async function menuOverPreviewScenario(fixtures) {
   }
 }
 
+/** A SLOW PICTURE OVER ANOTHER SHOWS IT IS LOADING (owner, 2026-10-28: a HEIC
+ *  opened while another picture is in the preview "just takes some time then
+ *  it switches ... which makes it seem like the image can't be viewed").
+ *  PRISM_E2E_SLOW_MEDIA makes slow.png answer 1.5 s late, as a conversion
+ *  would: the spinner shows over the old picture and it dims, then the new
+ *  one replaces both. */
+async function previewSlowImageScenario(fixtures) {
+  console.log('a slow picture shows its loading ring over the last one')
+  const dir = join(fixtures, 'previewslow')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  // Far apart in the list: a neighbour is loaded ahead of time, and a picture
+  // already loaded is not slow.
+  for (const n of ['a.png', 'b.png', 'c.png', 'd.png', 'e.png', 'zslow.png'])
+    copyFileSync(join(ROOT, 'build', 'icon.png'), join(dir, n))
+  const { app, win } = await launchWith({ ...NO_INDEX, PRISM_E2E_SLOW_MEDIA: 'zslow.png' }, join(dir, 'a.png'))
+  const row = (name) => win.locator(`[data-testid="browse-list"] [data-browse-path$="${name}"]`)
+  const look = () =>
+    win.evaluate(() => {
+      const box = document.querySelector('[data-browse-preview]')
+      const img = box?.querySelector('img[src^="blob:"], img')
+      const layer = img?.parentElement
+      return {
+        ring: !!box?.querySelector('.delayed-loader'),
+        ringShown: (() => {
+          const r = box?.querySelector('.delayed-loader')
+          return r ? Number(getComputedStyle(r).opacity) : 0
+        })(),
+        dim: layer ? Number(getComputedStyle(layer).opacity) : null,
+        // The picture's own data: the blob url changes only when the new
+        // picture is in (the alt follows the selection at once).
+        src: img?.getAttribute('src') ?? ''
+      }
+    })
+  try {
+    await explorerAt(win, dir)
+    await row('a.png').click()
+    ok(await until(async () => !!(await look()).src && !(await look()).ring, 10000), 'the first picture is in the preview')
+    await sleep(500)
+    const first = (await look()).src
+    await row('zslow.png').click()
+    ok(
+      await until(async () => {
+        const l = await look()
+        return l.ring && l.ringShown > 0.5
+      }, 1200, 25),
+      `while the next one is slow, the ring shows over the last (${JSON.stringify(await look())})`
+    )
+    ok(await until(async () => ((await look()).dim ?? 1) < 0.6, 1200, 25), `and the stand-in dims (${JSON.stringify(await look())})`)
+    ok(
+      await until(async () => {
+        const l = await look()
+        return l.src !== first && !l.ring && l.dim === 1
+      }, 8000, 50),
+      `then the new picture replaces both (${JSON.stringify(await look())})`
+    )
+    // A quick picture back shows neither.
+    await row('a.png').click()
+    let flashed = false
+    const end = Date.now() + 400
+    while (Date.now() < end) {
+      const l = await look()
+      if (l.ringShown > 0.05 || (l.dim ?? 1) < 0.95) flashed = true
+      await sleep(20)
+    }
+    ok(!flashed, 'a quick (cached) picture shows no ring and no dim')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function previewClearsScenario(fixtures) {
   console.log('going into a folder clears the preview (#300 review)')
   const { dir } = await zipWorld(fixtures, 'previewclears')
@@ -15932,6 +16004,7 @@ await run(zipRestoreScenario)
 await run(zipLockedScenario)
 await run(zipFolderScenario)
 await run(previewClearsScenario)
+await run(previewSlowImageScenario)
 await run(menuOverPreviewScenario)
 await run(zipPreviewBackScenario)
 await run(comicScenario)

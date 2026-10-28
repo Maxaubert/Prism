@@ -219,7 +219,17 @@ const wall = createPathWall({
 const { readable, editable, movable, archiveOk, archiveReadOk, comicOk } = wall
 
 /** fsmedia:// (mediaProtocol.ts), walled by `mediaAllowed`. */
-const serveMedia = createMediaServer({ allowed: wall.mediaAllowed, ffmpeg: ffmpegTools, heic: heicToJpeg })
+const serveMediaNow = createMediaServer({ allowed: wall.mediaAllowed, ffmpeg: ffmpegTools, heic: heicToJpeg })
+// E2E only: a file whose name holds PRISM_E2E_SLOW_MEDIA answers 1.5 s late,
+// standing in for a slow conversion (a HEIC), so the preview's wait can be
+// seen (e2e previewSlowImage).
+const slowMedia = process.argv.includes('--e2e') ? process.env.PRISM_E2E_SLOW_MEDIA : undefined
+const serveMedia = slowMedia
+  ? async (request: Request): Promise<Response> => {
+      if (decodeURIComponent(request.url).includes(slowMedia)) await new Promise((r) => setTimeout(r, 1500))
+      return serveMediaNow(request)
+    }
+  : serveMediaNow
 
 /**
  * The encoding and line endings each text file arrived with.
