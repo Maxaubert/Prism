@@ -739,6 +739,7 @@ export function BrowseList(props: Props): JSX.Element {
       <div
         ref={scroller}
         className="browse-list"
+        data-own-scrollbar
         role="listbox"
         aria-label={
           searching

@@ -6983,6 +6983,38 @@ async function listScrollbarScenario(fixtures) {
     ok(await until(async () => (await look())?.shown === true, 2000, 25), 'a wheel over the list shows it')
     ok(await until(async () => (await look())?.shown === false, 3000, 50), 'and it hides once the wheel stops')
     await win.mouse.move(5, 5)
+
+    // EVERY SCROLLBAR IS THIS ONE (owner, 2026-10-27: "the sidebar scrollbar
+    // should be more minimalistic all scrollbars should be the same"): the
+    // places panel draws no native bar, and scrolling it shows the list's
+    // thin overlay bar along its right edge, which hides again.
+    await win.setViewportSize({ width: 1100, height: 360 })
+    const nav = '.folder-browser .browse-places nav'
+    const side = () =>
+      win.evaluate((n) => {
+        const el = document.querySelector(n)
+        const bar = document.querySelector('.browse-overlay-scroll.p-overlay-fixed[data-axis="y"]')
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        const b = bar?.getBoundingClientRect()
+        const thumb = bar?.querySelector('.browse-overlay-thumb')
+        return {
+          native: getComputedStyle(el).scrollbarWidth,
+          scrollable: el.scrollHeight > el.clientHeight + 1,
+          shown: !!bar?.hasAttribute('data-shown'),
+          atEdge: !!b && Math.abs(b.right - (r.left + el.clientLeft + el.clientWidth)) <= 1 && Math.abs(b.top - r.top) <= 2,
+          thumbW: thumb ? Math.round(thumb.getBoundingClientRect().width) : 0
+        }
+      }, nav)
+    let s = await side()
+    ok(!!s && s.native === 'none', `the sidebar draws no native scrollbar (${s?.native})`)
+    ok(!!s?.scrollable, 'the sidebar scrolls at this height')
+    await win.evaluate((n) => { document.querySelector(n).scrollTop = 120 }, nav)
+    ok(await until(async () => (await side())?.shown === true, 2000, 25), 'scrolling the sidebar shows the overlay bar')
+    s = await side()
+    ok(s.atEdge && s.thumbW === 4, `along its right edge, the list's 4 px thumb (${JSON.stringify(s)})`)
+    await win.screenshot({ path: join(SHOTS, 'sidebar-scrollbar.png') })
+    ok(await until(async () => (await side())?.shown === false, 3000, 50), 'and it hides again')
   } finally {
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
