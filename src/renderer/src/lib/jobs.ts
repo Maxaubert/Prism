@@ -36,6 +36,9 @@ export interface Job {
   since: number
   /** Finished, and only lingering for the minimum showing. */
   done?: boolean
+  /** Finished and past its minimum showing: off the chip, kept only so its
+   *  landing rows last until the listing has the files (LAND_HOLD_MS). */
+  holding?: boolean
   /** A copy's items as they land (owner, 2026-10-28): the folder, and each
    *  item with its own progress, for the rows the list draws until each
    *  file is really there. */
@@ -101,7 +104,8 @@ export function updateLanding(id: string, index: number, pct: number): void {
     const it = j.landing?.items[index]
     if (j.id !== id || !it) return j
     const was = j.landing!.items
-    const want = (x: LandingItem, i: number): number => (i === index ? pct : i < index ? 100 : x.pct)
+    const want = (x: LandingItem, i: number): number =>
+      i === index ? pct : i < index ? 100 : x.pct
     if (!was.some((x, i) => x.pct !== want(x, i))) return j
     changed = true
     const items = was.map((x, i) => (x.pct === want(x, i) ? x : { ...x, pct: want(x, i) }))
@@ -120,7 +124,7 @@ export function landingIn(list: readonly Job[], dir: string): LandingRow[] {
   const norm = (p: string): string => p.toLowerCase().replace(/[\\/]+$/, '')
   const key = norm(dir)
   return list.flatMap((j) =>
-    !j.done && j.landing && norm(j.landing.dir) === key
+    j.landing && norm(j.landing.dir) === key
       ? j.landing.items.map((it) => ({ ...it, since: j.since }))
       : []
   )
@@ -143,7 +147,10 @@ function sameRows(a: readonly LandingRow[], b: readonly LandingRow[]): boolean {
 
 /** A reader of `landingIn(dir)` that hands back the SAME array while nothing
  *  landing in `dir` changed, for the hook below (pure, so testable). */
-export function landingReader(dir: string, get: () => readonly Job[] = store.get): () => readonly LandingRow[] {
+export function landingReader(
+  dir: string,
+  get: () => readonly Job[] = store.get
+): () => readonly LandingRow[] {
   let from: readonly Job[] | null = null
   let last: readonly LandingRow[] = NO_ROWS
   return () => {
@@ -164,8 +171,24 @@ export function useLandingIn(dir: string): readonly LandingRow[] {
   return useSyncExternalStore(store.subscribe, read, read)
 }
 
+/** How long a finished paste keeps its rows for the listing to catch up
+ *  (2026-10-29: the job ended, its rows went, and the folder's re-list had
+ *  not brought the new file yet, so the file blinked out: 5, 6, 5, 6). The
+ *  list drops each row as soon as the real file is there. */
+export const LAND_HOLD_MS = 4000
+const holdTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+/** Past its minimum showing: off the chip, kept only for its rows. */
+function hold(id: string): void {
+  holdTimers.delete(id)
+  store.set(store.get().map((j) => (j.id === id && !j.holding ? { ...j, holding: true } : j)))
+}
+
 function remove(id: string): void {
   leaving.delete(id)
+  const t = holdTimers.get(id)
+  if (t) clearTimeout(t)
+  holdTimers.delete(id)
   const jobs = store.get()
   const next = jobs.filter((j) => j.id !== id)
   if (next.length === jobs.length) return
@@ -177,6 +200,26 @@ export function endJob(id: string): void {
   const job = jobs.find((j) => j.id === id)
   if (!job || leaving.has(id)) return
   const shown = Date.now() - job.since
+  if (job.landing) {
+    const minLeft = Math.max(0, MIN_SHOW_MS - shown)
+    store.set(
+      jobs.map((j) =>
+        j.id === id
+          ? { ...j, pct: 100, done: true, ...(minLeft === 0 ? { holding: true } : {}) }
+          : j
+      )
+    )
+    if (minLeft > 0)
+      holdTimers.set(
+        id,
+        setTimeout(() => hold(id), minLeft)
+      )
+    leaving.set(
+      id,
+      setTimeout(() => remove(id), Math.max(minLeft, LAND_HOLD_MS))
+    )
+    return
+  }
   if (shown >= MIN_SHOW_MS) return remove(id)
   // Too quick to have been seen: hold it at done for the rest of the minimum.
   store.set(jobs.map((j) => (j.id === id ? { ...j, pct: 100, done: true } : j)))
@@ -192,6 +235,8 @@ export const listJobs = store.get
 export function resetJobs(): void {
   for (const t of leaving.values()) clearTimeout(t)
   leaving.clear()
+  for (const t of holdTimers.values()) clearTimeout(t)
+  holdTimers.clear()
   store.set([])
 }
 
@@ -207,9 +252,10 @@ export function resetJobs(): void {
 export function chipSummary(
   list: readonly Job[]
 ): { label: string; pct: number | null; more: number } | null {
-  if (!list.length) return null
-  const head = list.find((j) => !j.done) ?? list[0]
-  return { label: head.label, pct: head.pct, more: list.length - 1 }
+  const shown = list.filter((j) => !j.holding)
+  if (!shown.length) return null
+  const head = shown.find((j) => !j.done) ?? shown[0]
+  return { label: head.label, pct: head.pct, more: shown.length - 1 }
 }
 
 export const useJobs = store.use
