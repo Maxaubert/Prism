@@ -15930,7 +15930,9 @@ async function winERunningEdgesScenario(fixtures) {
       if (r) BrowserWindow.fromId(r.id)?.emit('focus')
     }, lastId)
     await sleep(700) // tabs.json saves on a 400ms debounce
-    await app.close().catch(() => {})
+    // A REAL quit: the harness's close is app.exit, which skips before-quit,
+    // so every window would look closed one by one and drop its entry.
+    await quitForLog(app)
     app = null
     const saved = sessionFile()
     ok(
