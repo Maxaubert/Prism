@@ -31,13 +31,8 @@ import {
   initDwmHelper
 } from './dwmHelper'
 import { pathsFromArgv, pathsFromArgvAsync } from './argv'
-import { browseRequest, createWinERequests, winERequest } from './winERequests'
-import {
-  cleanExplorerWindows,
-  explorerWindowOwner,
-  launchExplorerWindow,
-  markExplorerWindow
-} from './explorerWindow'
+import { WIN_E_FIRST, browseRequest, createWinERequests, winERequest, winEHostOf } from './winERequests'
+import { removeOldExplorerWindows } from './oldExplorerWindows'
 import { createWindowPreferences } from './windowPreferences'
 import { forgetCanonical, listDir, searchFiles, toViewerFile, warmCanonical } from './dirList'
 import {
@@ -325,9 +320,11 @@ async function buildPayload(p: string, root?: string): Promise<OpenPayload | nul
   return { files, index: idx, root: here }
 }
 
-const extraWindowOwner = explorerWindowOwner(userPaths.root(), process.argv)
-const preferencesOwner = extraWindowOwner ?? userPaths.root()
-const windowPreferences = createWindowPreferences(preferencesOwner, !!extraWindowOwner)
+/** The profile every store lives in. Every Prism window is in this process
+ *  (tab tear-off step 2, 2026-10-29): the Win+E windows that were second
+ *  processes on profiles of their own, reading this one's, are gone. */
+const preferencesOwner = userPaths.root()
+const windowPreferences = createWindowPreferences(preferencesOwner, false)
 /** The first restore of this process has happened ("Remember tabs" applies to it alone). */
 let coldRestoreDone = false
 const indexDirectory = join(preferencesOwner, 'search-index')
@@ -358,12 +355,11 @@ const folderSizes = new FolderSizeCache({
  * The Explorer's listings (#271): names first, details streamed, a cache on
  * disk for the first frame after a launch or a reboot, and a read ahead. The
  * index is read here, synchronously and before any window, because the
- * restore answers from it. A second Explorer window reads it and never writes.
+ * restore answers from it. One cache for every window of the process.
  */
 const listingCache = createListingCache({
   directory: join(preferencesOwner, 'listing-cache'),
-  allowed: isLocalFixed,
-  readOnly: !!extraWindowOwner
+  allowed: isLocalFixed
 })
 listingCache.load()
 /**
@@ -429,17 +425,35 @@ const { restoreTabs, session: sessionFile } = createTabsSession({
 })
 // E2E only: a first run's home folder is a fixture, never the machine's own.
 if (process.argv.includes('--e2e') && process.env.PRISM_E2E_HOME) app.setPath('home', process.env.PRISM_E2E_HOME)
-let preferencesLoaded!: () => void
-const preferencesReady = new Promise<void>((resolve) => {
-  preferencesLoaded = resolve
-})
 /** The folder each Win+E request opens, when it came from the folder verb (#393). */
 const winEBrowse = new Map<string, string>()
-/** A cold start's Win+E lands in the session's FIRST window (2026-10-29). */
-const winEHost = (): BrowserWindow | null => windows.all().find((r) => r.first)?.win ?? null
-const winERequests = createWinERequests((id) =>
-  windows.sendTo(winEHost(), PUSH.winEOpen, { id, path: winEBrowse.get(id) ?? null })
-)
+/** Where a new window opened for a plain Win+E lands: "Folder for new tabs"
+ *  when it names a folder, else the home Explorer the window opens on (a
+ *  window cannot ask for a folder before it is there, so "Ask" is Home too). */
+function newTabFolder(): string | null {
+  const values = windowPreferences.load().values
+  const folder = values['prism.newtab.folder']
+  return values['prism.newtab.mode'] === 'folder' && folder ? folder : null
+}
+/**
+ * WIN+E LANDS IN A WINDOW OF THIS PROCESS (tab tear-off step 2, 2026-10-29;
+ * review finding #12). A cold start's request goes to the session's FIRST
+ * window, as it always did: its pinned Explorer, or a new one. A request
+ * while Prism runs opened a whole second Prism until now
+ * (`explorerWindow.ts`, retired); it opens a NEW window here instead, whose
+ * page answers it (`winEHostOf`): the folder it carries, else the folder for
+ * new tabs.
+ */
+const winERequests = createWinERequests((id, host) => {
+  const to = windows.all().find((r) => winEHostOf(r) === host)
+  const path = winEBrowse.get(id) ?? (host === WIN_E_FIRST ? null : newTabFolder())
+  windows.sendTo(to, PUSH.winEOpen, { id, path })
+})
+/** A Win+E or folder-verb request while Prism runs: a new window for it. */
+function openWinEWindow(id: string): void {
+  if (appState.appQuitting || appState.installingUpdate) return
+  createWindow({ seed: { kind: 'none' }, winE: id })
+}
 /** Files from outside that wait for the window they go to (the one focused
  *  last, `windows.target()`) to restore. Only that window drains it: at the
  *  end of its restore, when it gains the focus having restored (the window
@@ -593,7 +607,6 @@ const shellVerbSetting = createShellVerbSetting({
   automatic:
     app.isPackaged &&
     !E2E &&
-    !extraWindowOwner &&
     !process.argv.includes('--preview') &&
     !winERequest(process.argv)
 })
@@ -687,7 +700,7 @@ function recreateWindow(old: BrowserWindow): void {
   const r = windows.recordOf(old)
   const seed: WindowSeed = r?.reported ? { kind: 'tabs', tabs: r.reported } : (r?.seed ?? { kind: 'none' })
   const bounds = old.isDestroyed() ? undefined : old.getNormalBounds()
-  const fresh = createWindow({ first: r?.first, seed, launchFlags: r?.launchFlags, bounds })
+  const fresh = createWindow({ first: r?.first, seed, launchFlags: r?.launchFlags, bounds, winE: r?.winE })
   if (r) {
     windows.handOver(old, fresh)
     sessionFile.rekey(r.id, fresh.webContents.id)
@@ -797,6 +810,9 @@ interface WindowOptions {
   bounds?: { x?: number; y?: number; width: number; height: number }
   /** The saved entry of the session file, for the cold start's first window. */
   saved?: SessionEntry | null
+  /** The Win+E or folder-verb request this window is opened for while Prism
+   *  runs (step 2): its page answers it. */
+  winE?: string | null
 }
 
 /** The first window of the session has been made (whenReady). */
@@ -883,8 +899,10 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
       ]
     }
   })
-  const rec = windows.add(win, { key, first, seed: options.seed ?? { kind: 'none' }, launchFlags })
+  const rec = windows.add(win, { key, first, seed: options.seed ?? { kind: 'none' }, launchFlags, winE: options.winE })
   const page = rec.id
+  /** The Win+E requests this window's page answers, if any (`winEHostOf`). */
+  const winEHost = winEHostOf(rec)
   firstWindowMade = true
   // The cold start's first window carries the saved entry until its page
   // reports a strip of its own (session.ts `seed`).
@@ -981,6 +999,8 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
       // entry with it; the last one keeps it (owner, 2026-10-29).
       sessionFile.closed(page, { others, quitting: appState.appQuitting || appState.installingUpdate })
       for (const tabId of released) releaseTab(tabId)
+      // Its Win+E state goes with it (a crash rebuild's window keeps it).
+      if (winEHost) winERequests.forget(winEHost)
     }
     // Tails are keyed by the PAGE, not the tab: a crash rebuild's new page
     // has a new id and starts its own, so the old page's stop here too
@@ -1056,8 +1076,9 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   win.webContents.on('did-start-loading', () => {
     rec.restoreStarted = false
     rec.restored = false
-    // The Win+E queue is the first window's (a cold start's request lands there).
-    if (rec.first) winERequests.reload()
+    // This window's Win+E requests wait for its new page (a cold start's
+    // lands in the first window, one while Prism runs in its own).
+    if (winEHost) winERequests.reload(winEHost)
   })
   // The page itself, not a frame inside it: a document preview's iframe
   // loading is no reason to abandon a restore.
@@ -1066,8 +1087,9 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   })
   // A shortcut press needs an immediate window even on a cold renderer load.
   // Its solid background is followed by the lightweight opening screen. The
-  // first window's only: a later window never reads the process's argv.
-  if (first && winERequest(process.argv)) showWindow()
+  // first window's from the process's argv (a later window never reads it),
+  // a window opened for a request while Prism runs from that request.
+  if ((first && winERequest(process.argv)) || rec.winE) showWindow()
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (devUrl) void win.loadURL(devUrl)
   else void win.loadFile(join(__dirname, '../renderer/index.html'))
@@ -1112,14 +1134,14 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
       // give-up at every later launch. The Explorer tab and the files handed
       // over still arrive; the log says the tabs were left out.
       const strained = windowBudget.strained(Date.now())
-      if (strained && seed.kind !== 'none' && !skip && !extraWindowOwner)
+      if (strained && seed.kind !== 'none' && !skip)
         logWindow('restore', { tabs: 'skipped', reason: 'repeated-deaths' })
       const send = (payload: OpenPayload): void => {
         if (!stale()) windows.sendTo(win, PUSH.openFile, payload)
       }
       // The strip, filtered (`parseTabs`: a root that has gone takes its tab).
       const strip = (): SavedTabs | null => {
-        if (extraWindowOwner || skip || strained) return null
+        if (skip || strained) return null
         if (seed.kind === 'saved') return sessionRaw ? parseTabs(sessionRaw) : null
         if (seed.kind === 'tabs') return parseTabs(JSON.stringify(seed.tabs))
         return null
@@ -1163,7 +1185,7 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
       // Only the window they go to drains it (the one focused last).
       await drainPending(win, () => !stale())
       if (stale()) return
-      if (rec.first) winERequests.restored()
+      if (winEHost) winERequests.restored(winEHost)
     })()
       .catch((error: unknown) => console.error('Could not restore the startup session:', error))
       .finally(() => {
@@ -1229,8 +1251,6 @@ const ctx = {
   textShape,
   // The window, its preferences and the session.
   windowPreferences,
-  extraWindowOwner,
-  preferencesLoaded,
   preferencesOwner,
   winERequests,
   shellVerbSetting,
@@ -1274,9 +1294,8 @@ if (!app.requestSingleInstanceLock()) {
    * every ipcMain registration comes after this line (the timing wraps
    * ipcMain itself, so a channel registered earlier would go untimed). Only
    * the instance holding the lock: a second launch hands its file over and
-   * ends, and two writers on one file would interleave their batches. An
-   * extra Explorer window (Win+E) runs on its own profile, so it keeps its
-   * own log there and never shares the owner's file.
+   * ends, and two writers on one file would interleave their batches. A
+   * Win+E window is a window of this process (2026-10-29), so it logs here.
    */
   diag = startDiagnostics({
     diagLogDir: userPaths.logs(),
@@ -1321,26 +1340,26 @@ if (!app.requestSingleInstanceLock()) {
   // Stalls table sees a scenario's last moments.
   // sync-ok: e2e only, the harness calls it just before app.exit
   if (E2E) Object.assign(globalThis, { __e2eDiagFlush: () => diag?.log.flushSync() })
-  markExplorerWindow(userPaths.root(), false)
   app.on('second-instance', (_e, argv) => {
     const shortcutRequest = winERequest(argv)
     if (shortcutRequest) {
-      if (appState.installingUpdate) return
-      void Promise.all([app.whenReady(), preferencesReady])
-        .then(() => {
-          return launchExplorerWindow({
-            owner: preferencesOwner,
-            id: shortcutRequest,
-            executable: process.execPath,
-            packaged: app.isPackaged,
-            appPath: app.getAppPath(),
-            argv: process.argv,
-            browse: browseRequest(argv)
-          })
-        })
-        .catch(() => {
-          /* The helper falls back if the new window cannot launch. */
-        })
+      // A window now would only be taken away: no answer, and the helper's
+      // own File Explorer fallback opens instead.
+      if (appState.installingUpdate || appState.appQuitting) return
+      const browse = browseRequest(argv)
+      if (browse) winEBrowse.set(shortcutRequest, browse)
+      // THE STARTING PROCESS'S FIRST WINDOW takes a request that arrives
+      // before it is made, exactly as the cold start's own (the helper of a
+      // second press while Prism is still starting).
+      if (!firstWindowMade) {
+        winERequests.enqueue(shortcutRequest)
+        return
+      }
+      // A NEW WINDOW OF THIS PROCESS (tab tear-off step 2, 2026-10-29; it
+      // was a whole second Prism). "started" goes down the helper's pipe at
+      // once, and the id once that window's page shows the folder. A token
+      // already pending (a retransmission) opens nothing more.
+      if (winERequests.enqueue(shortcutRequest, shortcutRequest)) openWinEWindow(shortcutRequest)
       return
     }
     // `Prism.exe --preview-update` while Prism is already running (it is
@@ -1421,7 +1440,6 @@ if (!app.requestSingleInstanceLock()) {
       }
       return
     }
-    markExplorerWindow(userPaths.root(), true)
     killSidecars()
     cancelAllConversions()
     // The quit is going ahead: the log's queue is written synchronously, so
@@ -1457,7 +1475,6 @@ if (!app.requestSingleInstanceLock()) {
         id: 'e2e-early-probe',
         filePath: process.env.PRISM_E2E_EARLY_PROBE
       })
-    void cleanExplorerWindows(preferencesOwner)
     // Reuse a ready index before starting private background indexing. NOT
     // before the Explorer's first answer (#271): the indexer, the drive-kind
     // probe and folder sizes all want libuv's four threads, and they must not
@@ -1497,6 +1514,11 @@ if (!app.requestSingleInstanceLock()) {
     process.once('exit', () => memberTemp.removeRun())
     void explorerListings.settled.then(() =>
       setTimeout(() => void cleanDeadRuns(memberTemp.root, pidAlive, memberTemp.dir), 5000)
+    )
+    // The profiles the retired Win+E processes kept (step 2, 2026-10-29), the
+    // same way: never on the startup path, and nothing to do once gone.
+    void explorerListings.settled.then(() =>
+      setTimeout(() => void removeOldExplorerWindows(preferencesOwner), 5000)
     )
     registerPreferencesIpc(ctx)
     registerWinEIpc(ctx)
@@ -1661,7 +1683,7 @@ if (!app.requestSingleInstanceLock()) {
     /** What the IPC handlers in ipc/ need that only exists now (`ReadyCtx`). */
     const ready: ReadyCtx = { positions, readTextWalled, probeCached, docHtmlOf }
 
-    startUpdates(preferencesOwner)
+    startUpdates()
     registerOpenIpc()
     registerSaveCopyIpc(ctx)
     registerLinkIpc(ctx)
@@ -1704,6 +1726,7 @@ if (!app.requestSingleInstanceLock()) {
             page: r.id,
             key: r.key,
             first: r.first,
+            winE: r.winE,
             dirty: r.dirty,
             restored: r.restored,
             tabs: (r.reported?.tabs ?? []).map((t) => t.id ?? '')

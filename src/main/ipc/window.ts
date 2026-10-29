@@ -6,21 +6,20 @@ import { createFolderHandler } from '../folderHandler'
 import { REMEMBER_FOLDERS_KEY } from '@shared/listingPrefs'
 import { type SavedTabs } from '../tabs'
 import { E2E, windows } from '../appState'
+import { winEHostOf } from '../winERequests'
 import type { MainCtx } from './context'
 
 /** The window's preferences (shared between Prism's windows): load, seed, set.
  *  Any Prism page may (2026-10-29: every window of the process is one), and a
  *  preview's frame never. */
 export function registerPreferencesIpc(ctx: MainCtx): void {
-  const { extraWindowOwner, listingCache, preferencesLoaded, windowPreferences } = ctx
+  const { listingCache, windowPreferences } = ctx
   ipcMain.on(CALL.windowPreferencesLoad, (event) => {
-    const page = windows.isPrismPage(event.sender)
-    event.returnValue = page ? windowPreferences.load() : null
-    if (page && extraWindowOwner) preferencesLoaded()
+    event.returnValue = windows.isPrismPage(event.sender) ? windowPreferences.load() : null
   })
   // A later window finds the store already shared and never seeds it again
   // (lib/windowPreferences.ts seeds only when `!snapshot.shared`); a second
-  // seed would be harmless anyway, the promise resolves once.
+  // seed would be harmless anyway (a seed writes only what is absent).
   ipcMain.on(CALL.windowPreferencesSeed, (event, values: unknown) => {
     event.returnValue = null
     if (!windows.isPrismPage(event.sender)) return
@@ -28,8 +27,6 @@ export function registerPreferencesIpc(ctx: MainCtx): void {
       event.returnValue = windowPreferences.seed(values)
     } catch {
       /* Local preferences still work if the shared store is unavailable. */
-    } finally {
-      preferencesLoaded()
     }
   })
   ipcMain.on(CALL.windowPreferencesSet, (event, change: unknown) => {
@@ -43,7 +40,7 @@ export function registerPreferencesIpc(ctx: MainCtx): void {
 
 /** Win+E: the shortcut's switch, and the requests it hands this window. */
 export function registerWinEIpc(ctx: MainCtx): void {
-  const { extraWindowOwner, preferencesOwner, winERequests } = ctx
+  const { preferencesOwner, winERequests } = ctx
   const winE = createWinEShortcut({
     helper: join(process.resourcesPath, 'win-e', 'PrismShortcut.exe'),
     executable: process.execPath,
@@ -59,16 +56,20 @@ export function registerWinEIpc(ctx: MainCtx): void {
       throw new Error('Invalid shortcut request')
     return winE.set(enabled)
   })
-  // A cold start's Win+E lands in the session's FIRST window (2026-10-29),
-  // as it always did: only its page listens for the queue and answers it.
-  const winEHost = (sender: Electron.WebContents): boolean => !!windows.of(sender)?.first && windows.isPrismPage(sender)
+  // A cold start's Win+E lands in the session's FIRST window, one while
+  // Prism runs in the window opened for it (2026-10-29): each page listens
+  // for, and answers, its own window's requests only (`winEHostOf`).
+  const winEHost = (sender: Electron.WebContents): string | null =>
+    windows.isPrismPage(sender) ? winEHostOf(windows.of(sender)) : null
   ipcMain.on(CALL.winEListen, (event) => {
-    if (winEHost(event.sender)) winERequests.listen()
+    const host = winEHost(event.sender)
+    if (host) winERequests.listen(host)
   })
   ipcMain.on(CALL.winEReady, (event, id: unknown) => {
-    if (winEHost(event.sender) && typeof id === 'string') winERequests.ready(id)
+    const host = winEHost(event.sender)
+    if (host && typeof id === 'string') winERequests.ready(id, host)
   })
-  if (!extraWindowOwner) void winE.resume()
+  void winE.resume()
   // Open folders in Prism (#393): the same helper, a copy of it outside the
   // install folder answering Windows' folder verb.
   const folders = createFolderHandler({
@@ -86,7 +87,7 @@ export function registerWinEIpc(ctx: MainCtx): void {
     if (!windows.isPrismPage(event.sender) || typeof on !== 'boolean') throw new Error('Invalid folder request')
     return folders.set(on)
   })
-  if (!extraWindowOwner) void folders.repair()
+  void folders.repair()
 }
 
 /** What the renderer reports for the session: the tab strip, playing media, a dropped root. */

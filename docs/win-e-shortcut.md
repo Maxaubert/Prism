@@ -11,12 +11,20 @@ working minimize, maximize and close controls. Loading feedback does not count
 as a successful launch: the shortcut still waits for a rendered Explorer folder
 before acknowledging readiness. Files opened during startup wait for the interface.
 
-Additional windows use separate working profiles so tabs, browsing grants
-and phone pairings cannot leak between windows. Appearance and other preferences are
-inherited from the shared preference store when a window opens. Shared preference
-changes refresh other windows, including saved style and visualizer presets.
-Normally closed working profiles are cleaned up after exit;
-crashed sessions are retained. The primary profile owns the shortcut registration.
+When Prism is already running, a Win+E press (or a folder opened through the
+folder handler, #393) opens a new window of that same Prism, not a second Prism
+(2026-10-29, tab tear-off step 2). The window opens on one Explorer tab: at the
+folder the request names, otherwise at Settings > Explorer > Folder for new tabs
+when that is a folder, otherwise Home. Its page acknowledges the helper as before:
+"started" at once, the ready line once its folder shows. When Prism is not running,
+the request opens Prism itself, as it always did. Every window shares one
+preference store, listing cache and search index, so a setting changes in all of
+them at once. Each window keeps its own tabs and their browsing grants, and saves
+its own strip (the last window closed is what the next start opens).
+
+Up to 0.120 each extra window was a separate Prism process on a working profile of
+its own under `explorer-windows\` in Prism's folder. Those profiles are removed once,
+shortly after the first start of a newer Prism.
 
 The setting reads Windows state, confirms changes, and reports failures. It is
 available only in packaged Windows builds. A different Prism installation or
@@ -49,10 +57,12 @@ project-tab title rule went with the project tabs.)
 - Unit tests cover default-off startup, confirmed setting changes, serialization,
   failed-state readback and queued startup/renderer handshakes.
 - Explorer Playwright tests exercise the General setting with mocked Windows state,
-  titlebar visibility, cold startup and warm second-instance requests. The latter
-  use real named pipes and the packaged app with isolated profiles, without a hook.
-- Multiple-window scenarios check separate processes, shared preferences, isolated
-  browsing grants, and a child remaining usable after its parent closes.
+  titlebar visibility, cold startup (`folderOpen`) and requests while Prism runs
+  (`folderOpenRunning`), over a stand-in for the helper's named pipe, without a hook.
+- `folderOpenRunning` checks that a request while Prism runs opens one window more
+  in the SAME process (one Prism main process on the profile, read from the process
+  list), that the helper gets "started" then the id, and that the new window shows
+  the asked folder, or the folder for new tabs for a plain Win+E.
 - The owner confirmed the physical shortcut and chosen style with the current test
   build. Sign-in, crash-hook removal and installed upgrade/uninstall still need
   dedicated lifecycle verification; the automated checks do not claim those cases.
