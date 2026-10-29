@@ -54,6 +54,17 @@ Filesmith's conventions.
   could hold the hook past `LowLevelHooksTimeout` (the key then reaches Explorer, and repeated
   timeouts make Windows drop the hook silently), the hook is re-armed every 15 s, and the helper
   keeps `logs\win-e.log` in the profile: start, stop, late presses, and how each request ended.
+- **WIN+E WHILE PRISM RUNS IS A WINDOW OF THIS PROCESS** (tab tear-off step 2, 2026-10-29; review finding
+  #12). `second-instance` with `--win-e=<id>` (and `--browse=<folder>`) queues the request NAMED FOR A NEW
+  WINDOW (`winERequests.enqueue(id, id)`, which writes "started" at once) and makes that window
+  (`createWindow({ winE: id })`, seed `none`: the home Explorer, never the saved strip). Its restore marks
+  ITS host restored, its page's `winE:listen` / `winE:ready` count for its host only (`winEHostOf`: the first
+  window answers `WIN_E_FIRST`, the cold start's; a Win+E window its own id), and main's dispatch sends
+  `winE:open` to that window with the request's folder, or "Folder for new tabs" for a plain press. The
+  helper's protocol is unchanged: one held, half-open socket, "<id> started" then "<id>". A request before
+  the first window exists is the first window's, as at a cold start. `explorerWindow.ts` (a second Prism on
+  `<userData>/explorer-windows/<uuid>`) is gone; `oldExplorerWindows.ts` removes those profiles once, after
+  the first answer. The update install checks only `windows.anyDirty()`.
 - **SETTINGS DESCRIPTIONS ARE PLAIN WORDS** (2026-09-22, owner: "no symbols other than comma and
   dot, no mentioning of specific keys or tips, just a simple text description of what it does").
   Every hint on Prism's own pages was rewritten to that rule, the core's rows likewise in the core.

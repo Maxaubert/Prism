@@ -45,6 +45,19 @@ export function announceWinE(id: string): void {
   socket.on('connect', () => socket.write(`${id} started\n`))
 }
 
+/**
+ * A request that will never be answered lets go of its pipe (review,
+ * 2026-10-29): its window closed before the folder showed, or it expired.
+ * The helper reads the close as no Prism and opens File Explorer AT ONCE,
+ * as it did when the old second process exited, rather than after its 45 s
+ * patience; and the handle is not held for the life of the process.
+ */
+export function dropWinE(id: string): void {
+  const open = held.get(id)
+  held.delete(id)
+  open?.destroy()
+}
+
 /** Connect only to a generated local pipe, never to a path supplied by argv. */
 export function acknowledgeWinE(id: string): Promise<void> {
   if (!UUID.test(id)) return Promise.resolve()
@@ -72,61 +85,114 @@ export function acknowledgeWinE(id: string): Promise<void> {
   })
 }
 
-/** A request can arrive before startup restore or renderer subscription. */
+/** The host of a cold start's request: the session's FIRST window (it is
+ *  not made yet when the request is queued). */
+export const WIN_E_FIRST = 'first'
+
+/** The host a window's page answers for: the first window the cold start's
+ *  requests, a window opened for a request its own; none for any other. */
+export function winEHostOf(r: { first: boolean; winE: string | null } | undefined): string | null {
+  if (!r) return null
+  return r.first ? WIN_E_FIRST : r.winE
+}
+
+/**
+ * A request can arrive before its window has restored or its page subscribed.
+ *
+ * EACH REQUEST NAMES ITS WINDOW (tab tear-off step 2, 2026-10-29). A cold
+ * start's lands in the session's first window (`WIN_E_FIRST`); a Win+E or a
+ * folder-verb open while Prism runs opens a NEW window in this process, and
+ * the request is that window's alone (its host is the request's own id). So
+ * listening, restored and a reload are per host: one window loading never
+ * resets another's request, and only the page the request went to may answer
+ * it.
+ */
 export function createWinERequests(
-  dispatch: (id: string) => void,
+  dispatch: (id: string, host: string, browse: string | null) => void,
   acknowledge: (id: string) => Promise<void> = acknowledgeWinE,
-  announce: (id: string) => void = announceWinE
+  announce: (id: string) => void = announceWinE,
+  drop: (id: string) => void = dropWinE
 ): {
-  enqueue: (id: string) => void
-  listen: () => void
-  restored: () => void
-  reload: () => void
-  ready: (id: string) => void
+  /** False for a token that is invalid, already pending, or one too many:
+   *  a retransmitted token must never open a second window, nor change the
+   *  folder the first one carries. `browse` is the folder verb's folder
+   *  (#393), kept with the request and gone with it. */
+  enqueue: (id: string, host?: string, browse?: string | null) => boolean
+  listen: (host?: string) => void
+  restored: (host?: string) => void
+  reload: (host?: string) => void
+  ready: (id: string, host?: string) => void
+  /** The host's window has gone: its state goes, and so do its requests,
+   *  each pipe let go so the helper falls back at once. */
+  forget: (host: string) => void
 } {
-  let listening = false
-  let restored = false
-  const pending = new Map<string, { sent: boolean; timer: ReturnType<typeof setTimeout> }>()
+  const hosts = new Map<string, { listening: boolean; restored: boolean }>()
+  const hostState = (host: string): { listening: boolean; restored: boolean } => {
+    let h = hosts.get(host)
+    if (!h) hosts.set(host, (h = { listening: false, restored: false }))
+    return h
+  }
+  const live = (host: string): boolean => {
+    const h = hosts.get(host)
+    return !!h && h.listening && h.restored
+  }
+  const pending = new Map<
+    string,
+    { host: string; browse: string | null; sent: boolean; timer: ReturnType<typeof setTimeout> }
+  >()
   const flush = (): void => {
-    if (!listening || !restored) return
     for (const [id, request] of pending)
-      if (!request.sent) {
+      if (!request.sent && live(request.host)) {
         request.sent = true
-        dispatch(id)
+        dispatch(id, request.host, request.browse)
       }
   }
+  /** A request that will not be answered: it goes, and its pipe with it. */
+  const abandon = (id: string): void => {
+    const request = pending.get(id)
+    if (!request) return
+    clearTimeout(request.timer)
+    pending.delete(id)
+    drop(id)
+  }
   return {
-    enqueue(id) {
-      if (!UUID.test(id) || pending.has(id) || pending.size >= 8) return
+    enqueue(id, host = WIN_E_FIRST, browse = null) {
+      if (!UUID.test(id) || pending.has(id) || pending.size >= 8) return false
       // "started" goes to the helper now; the ready line when the browser shows.
       announce(id)
       // Kept as long as the helper's patience, which a cold start can need.
-      const timer = setTimeout(() => pending.delete(id), 45000)
+      const timer = setTimeout(() => abandon(id), 45000)
       timer.unref()
-      pending.set(id, { sent: false, timer })
+      pending.set(id, { host, browse, sent: false, timer })
+      flush()
+      return true
+    },
+    listen(host = WIN_E_FIRST) {
+      hostState(host).listening = true
       flush()
     },
-    listen() {
-      listening = true
+    restored(host = WIN_E_FIRST) {
+      hostState(host).restored = true
       flush()
     },
-    restored() {
-      restored = true
-      flush()
+    reload(host = WIN_E_FIRST) {
+      const h = hostState(host)
+      h.listening = false
+      h.restored = false
+      for (const request of pending.values()) if (request.host === host) request.sent = false
     },
-    reload() {
-      listening = false
-      restored = false
-      for (const request of pending.values()) request.sent = false
-    },
-    ready(id) {
+    ready(id, host = WIN_E_FIRST) {
       const request = pending.get(id)
-      if (!request?.sent || !listening || !restored) return
+      if (!request?.sent || request.host !== host || !live(host)) return
       clearTimeout(request.timer)
       pending.delete(id)
       void acknowledge(id).catch(() => {
         /* No reply lets the helper fall back. */
       })
+    },
+    forget(host) {
+      hosts.delete(host)
+      for (const [id, request] of [...pending]) if (request.host === host) abandon(id)
     }
   }
 }

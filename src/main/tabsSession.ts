@@ -37,6 +37,8 @@ export interface SessionStore {
   report(key: number, state: SavedTabs): void
   bounds(key: number, bounds: SavedBounds): void
   focus(key: number): void
+  /** A Win+E window ranks below an ordinary one (session.ts). */
+  minor(key: number): void
   rekey(from: number, to: number): void
   /** A window closed: `others` are still open, or the app is `quitting`.
    *  Written at once: on main's thread only when it is the last window or
@@ -245,6 +247,7 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
     // Not written on its own: which window leads matters at the next write
     // and at every close, and a focus is no reason to touch the disk.
     focus: (key) => model.focus(key),
+    minor: (key) => model.minor(key),
     rekey: (from, to) => model.rekey(from, to),
     closed(key, how) {
       model.closed(key, how)

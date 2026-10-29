@@ -1,6 +1,5 @@
-import { app, ipcMain, dialog } from 'electron'
+import { app, ipcMain } from 'electron'
 import { CALL, PUSH } from '@shared/channels'
-import { hasOtherExplorerWindows } from './explorerWindow'
 import { installUpdate, updateCalls, watchForUpdates, type UpdateInfo } from './update'
 import { previewUpdate, runPreviewInstall, wantsPreview } from 'prism-term-core/main/updatePreview'
 import pkg from '../../package.json'
@@ -38,11 +37,8 @@ export function offerUpdate(info: UpdateInfo): void {
  *  `--preview-update` never replaces one). */
 export const updateOffered = (): boolean => !!pendingUpdate
 
-/**
- * Start the check and register the update:* messages. `preferencesOwner` is
- * the profile whose other Explorer windows must close before an install.
- */
-export function startUpdates(preferencesOwner: string): void {
+/** Start the check and register the update:* messages. */
+export function startUpdates(): void {
   // The update check: watch GitHub Releases, remember the newest offer so a
   // renderer that loads after the tick still hears about it (`offerUpdate`
   // and `pendingUpdate`, above).
@@ -109,18 +105,12 @@ export function startUpdates(preferencesOwner: string): void {
     // route the user has already agreed to.
     // ANY window's unsaved text (2026-10-29): the quit closes every one.
     if (windows.anyDirty()) return false
-    const canInstall = async (): Promise<boolean> => {
-      if (!(await hasOtherExplorerWindows(preferencesOwner))) return !windows.anyDirty()
-      const owner = windows.target()?.win
-      if (owner)
-        await dialog.showMessageBox(owner, {
-          type: 'info',
-          message: 'Close the other Prism windows before installing the update.',
-          detail: 'This keeps their open files safe.',
-          buttons: ['OK']
-        })
-      return false
-    }
+    // Asked again just before the installer runs (`installUpdate`): text
+    // typed during the download keeps it from running. Every Prism window is
+    // in this process now (tab tear-off step 2, 2026-10-29: a Win+E window is
+    // no longer a second Prism), so "no window holds unsaved text" is the
+    // whole question; there is no other process to wait for.
+    const canInstall = async (): Promise<boolean> => !windows.anyDirty()
     if (appState.installingUpdate || !(await canInstall())) return false
     appState.installingUpdate = true
     confirmAllCloses(true)
