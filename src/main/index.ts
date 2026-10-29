@@ -1325,7 +1325,10 @@ const tear = createTearOff<BrowserWindow>({
   // The drop: the floating window is a window of the session from now on,
   // with the tab it shows as its strip (its page reported it while it was
   // still the spare, which the session ignores).
-  commit: (win, carry) => {
+  // The source's record and entry lose the tab at the same moment, not when
+  // its page reports again (review 2026-10-29): until then its close released
+  // the moved tab's grants and watch, and the file held the tab twice.
+  commit: (win, carry, source) => {
     const r = windows.recordOf(win)
     if (!r) return
     r.spare = false
@@ -1336,7 +1339,9 @@ const tear = createTearOff<BrowserWindow>({
       active: 0
     }
     sessionFile.report(r.id, r.reported)
-    windows.noteTabOwner(t.id, win.webContents)
+    const left = windows.handTab(t.id, source, win)
+    const src = windows.recordOf(source)
+    if (left && src) sessionFile.report(src.id, left)
   },
   reveal: (win) => {
     if (win.isDestroyed()) return

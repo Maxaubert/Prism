@@ -4506,22 +4506,31 @@ async function tabTearScenario(fixtures) {
     await win.mouse.up()
     const waited = (await tearState()).waiting
     console.log(`  (the drop ${waited ? 'waited for the fresh page' : 'found the page ready'})`)
+    // A window OTHER than the source: until the drop commits, the source
+    // still lists the tab, and is not the window this is about.
+    const sourceKey = await win.evaluate(() => window.prism.windowKey)
+    const freshOf = (list) => list.find((w) => w.key !== sourceKey && w.tabs.includes(extra[1]))
     let freshList = []
     ok(
       await until(async () => {
         freshList = await e2eWindows(app)
-        return freshList.some((w) => w.tabs.includes(extra[1]))
+        return !!freshOf(freshList)
       }, 15000),
       `the fresh window holds the tab once its page has it (${JSON.stringify(freshList.map((w) => w.tabs))})`
     )
     ok(await until(async () => !(await ids(win)).includes(extra[1]), 5000), 'and the source let it go')
-    const freshRec = freshList.find((w) => w.tabs.includes(extra[1]))
+    ok(
+      !(await e2eWindows(app)).find((w) => w.key === sourceKey)?.tabs.includes(extra[1]),
+      'in main as well'
+    )
+    const freshRec = freshOf(freshList)
     const freshShown = await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.isVisible() ?? null, freshRec?.id)
     ok(freshShown === true, `the fresh window is shown, not left hidden (${freshShown})`)
     const freshPage = await pageOf(freshRec?.key)
+    let freshIds = null
     ok(
-      !!freshPage && (await until(async () => JSON.stringify(await ids(freshPage)) === JSON.stringify([extra[1]]), 8000)),
-      'and its page shows that tab, by the same id'
+      !!freshPage && (await until(async () => JSON.stringify((freshIds = await ids(freshPage))) === JSON.stringify([extra[1]]), 8000)),
+      `and its page shows that tab, by the same id (${freshPage ? JSON.stringify(freshIds) : `no page has the key ${freshRec?.key}`})`
     )
     ok((await tearState()).waiting === false, 'nothing is left waiting')
 
