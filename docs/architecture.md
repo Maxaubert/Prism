@@ -211,8 +211,12 @@ Filesmith's conventions.
     `props`, `media`, `archive`). Each is a `registerXIpc(ctx)` that index.ts's whenReady calls
     in the order the handlers were always registered; `ctx` (`MainCtx`) is index.ts's shared
     state and helpers, `ready` (`ReadyCtx`) what whenReady makes. A new handler goes in its
-    area's file, never back into index.ts. Push to the page with `sendToPage`, check a sender
-    with `isMainSender` (`appState.ts`).
+    area's file, never back into index.ts. Prism has several windows in one process
+    (2026-10-29): push through the registry, `windows` in `appState.ts`
+    (`windowRegistry.ts`): `sendTo(sender)` for a reply or a progress stream,
+    `sendToTabOwner(tabId)` for a tab's push, `sendToAll` for app-wide news; every send is
+    guarded. A sender is a Prism page when `windows.isPrismPage(sender)`, and its window is
+    `windows.windowOf(sender)`; a window:* message acts on that window, never on another.
   - IPC channel names: `src/shared/channels.ts` (`PUSH` main to page, `CALL` page to main,
     `SWEEP_CHANNELS`). Main and the preload never spell a channel as a string;
     `channels.test.ts` fails on a bare one and on an entry one side lacks. The diagnostics

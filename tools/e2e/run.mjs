@@ -168,14 +168,36 @@ async function seedProfile() {
  * screenshots - it keeps compositing at this position, so everything works and
  * nothing appears. Main shows the window on ready-to-show, so this has to run
  * after that, and again once it has settled.
+ *
+ * EVERY window, not the first (tab tear-off step 1, 2026-10-29): Prism makes
+ * more than one window in one process now, and Electron promises no order for
+ * `getAllWindows()`, so index 0 may not even be the main one.
  */
 const park = ({ BrowserWindow }) => {
-  const w = BrowserWindow.getAllWindows()[0]
-  if (!w) return
-  w.setSkipTaskbar(true)
-  w.setOpacity(0)
-  w.setPosition(-4000, -4000)
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (w.isDestroyed()) continue
+    w.setSkipTaskbar(true)
+    w.setOpacity(0)
+    w.setPosition(-4000, -4000)
+  }
 }
+
+/**
+ * THE MAIN WINDOW, and one of its methods called (2026-10-29): the session's
+ * FIRST window as main itself knows it (`__e2eMainWindow`, --e2e only), never
+ * `getAllWindows()[0]`, whose order Electron does not promise once there are
+ * two. `mainWin(app, 'setSize', 760, 400)`; `mainWin(app, 'getSize')`. Inside
+ * an `app.evaluate` of its own, a scenario writes the same lookup inline:
+ * `(globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0])`.
+ */
+const mainWin = (app, method, ...args) =>
+  app.evaluate(
+    ({ BrowserWindow }, [m, a]) => {
+      const w = globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]
+      return w ? w[m](...a) : undefined
+    },
+    [method, args]
+  )
 
 async function offscreen(app) {
   await app.evaluate(park)
@@ -707,7 +729,7 @@ async function pdfScenario(fixtures) {
     // in the ordinary state; the shroud is a second BrowserWindow.
     const fsMeasure = () =>
       app.evaluate(({ BrowserWindow, screen }) => {
-        const w = BrowserWindow.getAllWindows().find((x) => x.getTitle() !== '' || x.getBounds().width > 200) ?? BrowserWindow.getAllWindows()[0]
+        const w = globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows().find((x) => x.getTitle() !== '' || x.getBounds().width > 200) ?? BrowserWindow.getAllWindows()[0]
         const b = w.getBounds()
         const d = screen.getDisplayMatching(b).bounds
         return { covers: b.width >= d.width && b.height >= d.height, rs: w.isResizable() }
@@ -3794,7 +3816,7 @@ async function neverWindowlessScenario(fixtures) {
    *  the next look cannot be at the page from before. */
   const crash = async (app) => {
     const before = deaths()
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.forcefullyCrashRenderer())
+    await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0])?.webContents.forcefullyCrashRenderer())
     return until(() => deaths() > before, 8000, 50)
   }
   // A page killed WHILE Playwright is still attaching to it makes Playwright
@@ -4023,6 +4045,184 @@ async function tabsCloseLastScenario(fixtures) {
     ok(
       await until(async () => await app.evaluate(() => globalThis.__e2eLastTabClosed === true), 3000, 50),
       'closing the last tab closes the window'
+    )
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
+/** A second Prism window in the same process, the way main makes any later
+ *  one (`__e2eOpenWindow`, --e2e only; tab tear-off step 1, 2026-10-29), as
+ *  a Playwright page, parked with every other window. */
+async function openSecondWindow(app) {
+  const appeared = app.waitForEvent('window', { timeout: 15000 })
+  await app.evaluate(() => globalThis.__e2eOpenWindow())
+  const win2 = await appeared
+  await win2.waitForLoadState('domcontentloaded')
+  await offscreen(app)
+  return win2
+}
+/** Main's own list of its windows: id, page id, first, dirty, restored, tab ids. */
+const e2eWindows = (app) => app.evaluate(() => globalThis.__e2eWindows())
+/** The session file as it is on disk now, or null. */
+function sessionFile() {
+  try {
+    return JSON.parse(readFileSync(join(PROFILE, 'tabs.json'), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+// TWO WINDOWS SIDE BY SIDE (tab tear-off step 1, 2026-10-29; spec
+// docs/superpowers/specs/2026-10-29-tab-tearoff-design.md section 2). One
+// process, two windows: each window's own title-bar buttons act on that
+// window and never the other, each saves its own strip, the second window's
+// X closes only it, and its close lets go of what main held for its tabs.
+async function twoWindowsScenario(fixtures) {
+  console.log('windows: two side by side, each its own')
+  // The second window opens on the home Explorer: a fixture, never the
+  // machine's own home.
+  const { app, win } = await launchWith({ PRISM_E2E_HOME: join(fixtures, 'code') }, join(fixtures, 'README.md'))
+  const strip = '[role="tablist"]'
+  try {
+    await win.waitForSelector(`${strip} [data-tab-role]`, { timeout: 10000 })
+    const win2 = await openSecondWindow(app)
+    await win2.waitForSelector(`${strip} [data-tab-role]`, { timeout: 10000 })
+    let list = []
+    ok(
+      await until(async () => {
+        list = await e2eWindows(app)
+        return list.length === 2 && list.every((w) => w.restored && w.tabs.length > 0)
+      }, 10000),
+      `two windows, each restored with its own strip (${JSON.stringify(list)})`
+    )
+    const [one, two] = [list.find((w) => w.first), list.find((w) => !w.first)]
+    ok(!!one && !!two, 'one of them is the first window, the other is not')
+    ok(!two?.tabs.some((id) => one?.tabs.includes(id)), `no tab id is in both windows (${one?.tabs} / ${two?.tabs})`)
+    ok(
+      (await win2.locator(`${strip} [data-tab-role]`).count()) === 1,
+      'the second window opens on one tab, never a copy of the saved strip'
+    )
+    const titles = await win2.locator(`${strip} [role="tab"]`).evaluateAll((els) => els.map((e) => e.getAttribute('title') ?? ''))
+    ok(titles.length === 1 && /[\\/]code$/i.test(titles[0]), `its tab is the home Explorer (${JSON.stringify(titles)})`)
+
+    // Each window's own controls act on itself.
+    const state = (id) =>
+      app.evaluate(({ BrowserWindow }, i) => {
+        const w = BrowserWindow.fromId(i)
+        return w ? { min: w.isMinimized(), max: w.isMaximized() } : null
+      }, id)
+    await win2.locator('[data-title-bar] [aria-label="Minimize"]').click()
+    ok(await until(async () => (await state(two.id))?.min === true, 4000, 50), "the second window's Minimize minimises the second window")
+    ok((await state(one.id))?.min === false, 'and not the first')
+    await app.evaluate(({ BrowserWindow }, i) => BrowserWindow.fromId(i)?.restore(), two.id)
+    await offscreen(app)
+    await win2.locator('[data-title-bar] [aria-label="Maximize"]').click()
+    ok(await until(async () => (await state(two.id))?.max === true, 4000, 50), "the second window's Maximize maximises the second window")
+    ok((await state(one.id))?.max === false, 'and not the first')
+    await win2.locator('[data-title-bar] [aria-label="Maximize"]').click()
+    ok(await until(async () => (await state(two.id))?.max === false, 4000, 50), 'pressed again, it is restored')
+    await offscreen(app)
+    await win.locator('[data-title-bar] [aria-label="Minimize"]').click()
+    ok(await until(async () => (await state(one.id))?.min === true, 4000, 50), "the first window's Minimize minimises the first window")
+    ok((await state(two.id))?.min === false, 'and not the second')
+    await mainWin(app, 'restore')
+    await offscreen(app)
+
+    // Both save, each into its own entry of the session file.
+    let saved = null
+    ok(
+      await until(() => {
+        saved = sessionFile()
+        return Array.isArray(saved?.windows) && saved.windows.length === 2
+      }, 5000),
+      `the session file keeps both windows (${saved?.windows?.length ?? 'none'})`
+    )
+    const savedIds = (saved?.windows ?? []).map((w) => w.tabs.map((t) => t.id))
+    ok(
+      savedIds.length === 2 && !savedIds[1].some((id) => savedIds[0].includes(id)),
+      `each with its own tabs (${JSON.stringify(savedIds)})`
+    )
+
+    // What main holds for the second window's tabs, before it closes.
+    const held = (id) => app.evaluate((_e, t) => globalThis.__e2eTabHeld(t), id)
+    const twoTab = two.tabs[0]
+    ok((await held(twoTab)).released === false, `the second window's tab holds its grants while it is open (${twoTab})`)
+
+    // The second window's X closes only it.
+    await win2.locator('[data-title-bar] [aria-label="Close window"]').click()
+    ok(await until(async () => (await e2eWindows(app)).length === 1, 5000, 100), "the second window's X closes the second window")
+    const left = await e2eWindows(app)
+    ok(left[0]?.first === true, 'the first window is the one left')
+    ok((await win.evaluate(() => 1 + 1)) === 2, 'and its page still answers')
+    // Closing it released what main held for its tabs.
+    const after = await held(twoTab)
+    ok(after.released === true && after.watching === false, `its tabs' grants and folder watch are let go (${JSON.stringify(after)})`)
+    ok((await held(one.tabs[0])).released === false, "the first window's tabs keep theirs")
+    // Its entry went with it: the file is one window again, and it is the first.
+    ok(
+      await until(() => {
+        const s = sessionFile()
+        return s?.windows?.length === 1 && s.tabs.every((t) => one.tabs.includes(t.id))
+      }, 5000),
+      'the session file is the first window alone again'
+    )
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
+// THE LAST WINDOW CLOSED IS WHAT COMES BACK (owner, 2026-10-29: "windows close
+// one by one, and starting Prism with none open gives ONE window"). Close the
+// FIRST window, then the second: the next launch opens one window, holding
+// the second's tabs, not the first's.
+async function lastClosedRestoreScenario(fixtures) {
+  console.log('windows: the last window closed is the one that comes back')
+  const codeDir = join(fixtures, 'code')
+  const env = { PRISM_E2E_HOME: codeDir }
+  let { app, win } = await launchWith(env, join(fixtures, 'README.md'))
+  const strip = '[role="tablist"]'
+  try {
+    await win.waitForSelector(`${strip} [data-tab-role]`, { timeout: 10000 })
+    const win2 = await openSecondWindow(app)
+    await win2.waitForSelector(`${strip} [data-tab-role]`, { timeout: 10000 })
+    ok(
+      await until(() => sessionFile()?.windows?.length === 2, 6000),
+      'both windows are in the session file'
+    )
+    // The first window closes first; the app stays, with the second.
+    await win.locator('[data-title-bar] [aria-label="Close window"]').click()
+    ok(await until(async () => (await e2eWindows(app)).length === 1, 5000, 100), 'closing the first window leaves the second open')
+    ok(
+      await until(() => {
+        const s = sessionFile()
+        return s?.windows?.length === 1 && s.tabs.length === 1 && /[\\/]code$/i.test(s.tabs[0].root)
+      }, 5000),
+      'the session file is the second window now'
+    )
+    // Then the second, the last: the app quits, and keeps its strip.
+    const child = app.process()
+    await win2.locator('[data-title-bar] [aria-label="Close window"]').click()
+    ok(await until(() => child.exitCode !== null, 10000, 100), 'closing the last window quits Prism')
+    const s = sessionFile()
+    ok(s?.tabs?.length === 1 && /[\\/]code$/i.test(s.tabs[0].root), `the file keeps the last window's strip (${JSON.stringify(s?.tabs?.map((t) => t.root))})`)
+  } finally {
+    await app.close().catch(() => {})
+  }
+  await sleep(900) // let the single-instance lock go
+  // Starting with none open gives ONE window, with the last-closed window's tabs.
+  app = await startApp({ env })
+  try {
+    win = await app.firstWindow()
+    await win.waitForLoadState('domcontentloaded')
+    await offscreen(app)
+    await win.waitForSelector(`${strip} [data-tab-role]`, { timeout: 10000 })
+    await sleep(800)
+    ok((await e2eWindows(app)).length === 1, 'the next launch opens one window')
+    const titles = await win.locator(`${strip} [role="tab"]`).evaluateAll((els) => els.map((e) => e.getAttribute('title') ?? ''))
+    ok(
+      titles.length === 1 && /[\\/]code$/i.test(titles[0]),
+      `holding the last-closed window's tab, not the first window's (${JSON.stringify(titles)})`
     )
   } finally {
     await app.close().catch(() => {})
@@ -5288,7 +5488,7 @@ async function fullscreenBlackScenario(fixtures) {
     // resize borders and covers the monitor exactly, which is what makes the
     // shell's own borderless-game detection put the taskbar beneath it.
     const covers = await app.evaluate(({ BrowserWindow, screen }) => {
-      const w = BrowserWindow.getAllWindows()[0]
+      const w = (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0])
       const b = w.getBounds()
       const d = screen.getDisplayMatching(b).bounds
       return { b, d, onTop: w.isAlwaysOnTop(), osFs: w.isFullScreen(), rs: w.isResizable() }
@@ -5313,7 +5513,7 @@ async function fullscreenBlackScenario(fixtures) {
     await sleep(900)
     ok((await stageBg()) === windowed, 'and the theme comes back on the way out')
     const back = await app.evaluate(({ BrowserWindow, screen }) => {
-      const w = BrowserWindow.getAllWindows()[0]
+      const w = (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0])
       const b = w.getBounds()
       return { b, d: screen.getDisplayMatching(b).bounds, onTop: w.isAlwaysOnTop() }
     })
@@ -5323,7 +5523,7 @@ async function fullscreenBlackScenario(fixtures) {
       `and goes back to its own size (${back.b.width}x${back.b.height})`
     )
     ok(
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isResizable()),
+      await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).isResizable()),
       'and is resizable again'
     )
 
@@ -5331,12 +5531,12 @@ async function fullscreenBlackScenario(fixtures) {
     // is IGNORED by Windows - the owner's window is normally maximized, and
     // F11 left it at the work area with the taskbar still showing. Main drops
     // the maximized state first and puts it back on the way out.
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].maximize())
+    await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).maximize())
     await sleep(600)
     await win.keyboard.press('F11')
     await sleep(900)
     const fromMax = await app.evaluate(({ BrowserWindow, screen }) => {
-      const w = BrowserWindow.getAllWindows()[0]
+      const w = (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0])
       const b = w.getBounds()
       const d = screen.getDisplayMatching(b).bounds
       return { b, d, maxed: w.isMaximized() }
@@ -5349,7 +5549,7 @@ async function fullscreenBlackScenario(fixtures) {
     await win.keyboard.press('F11')
     await sleep(900)
     ok(
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized()),
+      await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).isMaximized()),
       'and comes back maximized, not restored'
     )
   } finally {
@@ -5357,7 +5557,7 @@ async function fullscreenBlackScenario(fixtures) {
     // later launch came up maximized, where `setSize` is ignored, and the
     // narrow-window checks of `columnHeaders` and `panelsAlign` measured a full
     // screen (MEASURED in the #292 review: those two fail after this one alone).
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].unmaximize()).catch(() => {})
+    await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).unmaximize()).catch(() => {})
     await sleep(300)
     await app.close()
   }
@@ -8196,8 +8396,8 @@ async function panelsAlignScenario(fixtures) {
 
     // A NARROW WINDOW: the three still share a line, and the sidebar, which
     // lost its top padding to the band, still scrolls.
-    const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 400))
+    const sizeBefore = await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).getSize())
+    await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(760, 400))
     await until(() => win.evaluate(() => window.innerWidth <= 800), 4000, 50)
     await check('Narrow, notes.txt', 'narrow-txt')
     const scroll = await win.evaluate(async () => {
@@ -8211,7 +8411,7 @@ async function panelsAlignScenario(fixtures) {
       return { overflows: true, moved }
     })
     ok(scroll.overflows && scroll.moved > 0, `Narrow: the sidebar overflows and still scrolls (${JSON.stringify(scroll)})`)
-    await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setSize(w, h), sizeBefore)
+    await app.evaluate(({ BrowserWindow }, [w, h]) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(w, h), sizeBefore)
     await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
 
     // A LIGHT THEME draws the same line.
@@ -8681,13 +8881,13 @@ async function columnHeadersScenario(fixtures) {
     }
 
     // A NARROW WINDOW hides columns; whatever is last still reaches the edge.
-    const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 560))
+    const sizeBefore = await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).getSize())
+    await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(760, 560))
     await until(() => win.evaluate(() => window.innerWidth <= 800), 4000, 50)
     await sleep(300)
     const gn = await geometry()
     ok(gn.cells.length < 4 && tiles(gn), `at a narrow window the fewer cells still tile (${say(gn)})`)
-    await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setSize(w, h), sizeBefore)
+    await app.evaluate(({ BrowserWindow }, [w, h]) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(w, h), sizeBefore)
     await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
     await sleep(300)
 
@@ -12104,8 +12304,8 @@ async function updateWindowScenario(fixtures) {
     // AT THE NARROWEST WINDOW PRISM ALLOWS TOO (minWidth 560): the order holds,
     // nothing in the group overlaps, and the chip has not been pushed over the
     // "Prism" word to its left. The name is what gives way, as it should.
-    const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(560, 400))
+    const sizeBefore = await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).getSize())
+    await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(560, 400))
     await until(() => win.evaluate(() => window.innerWidth <= 600), 4000, 50)
     const narrow = await win.evaluate(() => {
       const bar = document.querySelector('[data-title-bar]')
@@ -12125,7 +12325,7 @@ async function updateWindowScenario(fixtures) {
         narrow.settingsRight <= narrow.toolsLeft,
       `and at the minimum window width: name, chip, Settings, More, none overlapping (${JSON.stringify(narrow)})`
     )
-    await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setSize(w, h), sizeBefore)
+    await app.evaluate(({ BrowserWindow }, [w, h]) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(w, h), sizeBefore)
     await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
     // Read AFTER the window is back: on a scaled display a size set and read
     // back lands a pixel or two off, and what the phases below must not move
@@ -13294,8 +13494,8 @@ async function settingsLookScenario(fixtures) {
   let sizeBefore = null
   try {
     ;({ app, win } = await launch(join(fixtures, 'README.md')))
-    sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
-    const setSize = (w, h) => app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), [w, h])
+    sizeBefore = await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).getSize())
+    const setSize = (w, h) => app.evaluate(({ BrowserWindow }, s) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(s[0], s[1]), [w, h])
     await setSize(1600, 1000)
     await win.waitForSelector('.browse-viewer-toolbar', { timeout: 15000 })
     await kept.set(win, 'aurora')
@@ -13414,7 +13614,7 @@ async function settingsLookScenario(fixtures) {
     EXTRA_ENV = {}
     if (win) await kept.restore(win)
     await win?.evaluate(() => localStorage.removeItem('prism.tree.size')).catch(() => {})
-    if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
+    if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(s[0], s[1]), sizeBefore).catch(() => {})
     await app?.close().catch(() => {})
   }
 }
@@ -13500,9 +13700,9 @@ async function themeWallScenario(fixtures) {
   const bg = () => win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg'))
   const stored = () => win.evaluate(() => localStorage.getItem('prism.style'))
   const focused = () => win.evaluate(() => document.activeElement?.getAttribute('data-theme-card') ?? null)
-  const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
+  const sizeBefore = await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).getSize())
   try {
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 1000))
+    await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(1600, 1000))
     draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
     await setDraft(null)
     await kept.set(win, 'aurora')
@@ -13745,7 +13945,7 @@ async function themeWallScenario(fixtures) {
     await win.emulateMedia({ reducedMotion: 'no-preference' }).catch(() => {})
     await setDraft(draftBefore ?? null).catch(() => {})
     await kept.restore(win)
-    await app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
+    await app.evaluate(({ BrowserWindow }, s) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(s[0], s[1]), sizeBefore).catch(() => {})
     await app.close().catch(() => {})
   }
 }
@@ -13923,8 +14123,8 @@ async function settingsSearchScenario(fixtures) {
     const started = await launch(join(fixtures, 'README.md'))
     app = started.app
     const win = started.win
-    sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 1000))
+    sizeBefore = await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).getSize())
+    await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(1600, 1000))
     const labelOf = {}
     for (const file of [
       'packages/term-core/renderer/settings/diagnosticsOptions.ts',
@@ -14059,7 +14259,7 @@ async function settingsSearchScenario(fixtures) {
     ok((await win.locator('[data-settings-tab="diagnostics"]').getAttribute('aria-current')) === 'page', 'Enter opens it, and the rail says it is the page')
   } finally {
     EXTRA_ENV = {}
-    if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setSize(s[0], s[1]), sizeBefore).catch(() => {})
+    if (sizeBefore) await app?.evaluate(({ BrowserWindow }, s) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(s[0], s[1]), sizeBefore).catch(() => {})
     await app?.close().catch(() => {})
   }
 }
@@ -16212,6 +16412,8 @@ await run(documentScenario, 2000)
 await run(synthAndRawScenario)
 await run(tabsScenario)
 await run(tabsCloseLastScenario)
+await run(twoWindowsScenario)
+await run(lastClosedRestoreScenario)
 await run(settingsLastTabScenario)
 await run(titleBarScenario)
 await run(moreMenuScenario)

@@ -131,7 +131,7 @@ function summary(l) {
     case 'ipc-error':
       return `${l.ch}: ${l.err}`
     case 'page-stack':
-      return `${l.ms}ms without a heartbeat${l.unresponsive ? ', unresponsive' : ''}\n${indent(l.stack, 6)}`
+      return `${l.ms}ms without a heartbeat${l.page ? ` (page ${l.page})` : ''}${l.unresponsive ? ', unresponsive' : ''}\n${indent(l.stack, 6)}`
     case 'page-error':
     case 'page-rejection':
     case 'main-error':

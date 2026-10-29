@@ -32,8 +32,8 @@ export interface StallWatchDeps {
   inflight(windowMs?: number): InflightCall[]
   /** One cheap async fs call: the host stats its userData folder. */
   canary(): Promise<unknown>
-  /** The page's JavaScript stack now, or null. Absent: no page-stack. */
-  collectStack?(): Promise<string | null>
+  /** The JavaScript stack of page `page` now, or null. Absent: no page-stack. */
+  collectStack?(page: number): Promise<string | null>
   /** Monotonic ms. */
   now?: () => number
   /** Epoch ms, the clock a page's stall is reported in. */
@@ -50,13 +50,23 @@ export interface StallWatchDeps {
   stackKeepMs?: number
 }
 
+/**
+ * EVERY PAGE BEATS ON ITS OWN (2026-10-29, Prism's tab tear-off step 1: one
+ * process, several windows). One shared beat let window A's heartbeat hide a
+ * hung window B, the very hang the stall log exists to catch. So each page
+ * (its webContents id; 0 when the host names none) has its own last beat, its
+ * own gap and its own background pace, and the stack is asked of the page
+ * that went quiet.
+ */
 export interface StallWatch {
   /** `diag:beat`: the page is alive. */
-  beat(): void
+  beat(page?: number): void
   /** A `page-stall` arrived: it started at `startAt` (epoch ms) and lasted `ms`. */
-  pageStall(startAt: number, ms: number): void
+  pageStall(startAt: number, ms: number, page?: number): void
   /** The window's own `unresponsive` event. */
-  unresponsive(): void
+  unresponsive(page?: number): void
+  /** The page has gone (its window closed): its beats are no longer waited for. */
+  forget(page: number): void
   /**
    * `powerMonitor`'s `suspend` and `resume` (review of #140). The monotonic
    * clock may run on through a sleep, and the first tick after a lid-close
@@ -72,7 +82,7 @@ export interface StallWatch {
    * stretches to `backgroundGapMs`: a hung page is still caught, a slow beat
    * is not taken for one. Coming back starts the gap afresh.
    */
-  background(on: boolean): void
+  background(on: boolean, page?: number): void
   stop(): void
 }
 
@@ -93,13 +103,26 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
   const canarySlowMs = deps.canarySlowMs ?? 500
   const beatGapMs = deps.beatGapMs ?? 2000
   const backgroundGapMs = deps.backgroundGapMs ?? 10_000
-  let inBackground = false
   const stackKeepMs = deps.stackKeepMs ?? 60_000
 
   let last = now()
-  let lastBeat: number | null = null
-  let askedThisGap = false
-  let held: { stack: string; at: number; ms: number; heldAt: number } | null = null
+  /** Each page's beat: when it last came, whether this gap already asked
+   *  for its stack, and whether the page is in the background. */
+  interface Page {
+    lastBeat: number | null
+    askedThisGap: boolean
+    inBackground: boolean
+  }
+  const pages = new Map<number, Page>()
+  const pageOf = (page: number): Page => {
+    let p = pages.get(page)
+    if (!p) pages.set(page, (p = { lastBeat: null, askedThisGap: false, inBackground: false }))
+    return p
+  }
+  /** The stack each quiet page answered, held until its stall arrives, one
+   *  per page (review, 2026-10-29): a single slot let page B's gap overwrite
+   *  page A's stack, and B's unresponsive write A's. */
+  const held = new Map<number, { stack: string; at: number; ms: number; heldAt: number }>()
   let canaryBusy = false
   let suspended = false
   /** Bumped at a resume: a canary stat that spanned the sleep is not timed. */
@@ -113,12 +136,12 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
     }
   }
 
-  const askStack = (gapMs: number): Promise<void> => {
+  const askStack = (gapMs: number, page: number): Promise<void> => {
     const collect = deps.collectStack
     if (!collect) return Promise.resolve()
-    return collect().then(
+    return collect(page).then(
       (stack) => {
-        if (isStack(stack)) held = { stack, at: wall(), ms: Math.round(gapMs), heldAt: now() }
+        if (isStack(stack)) held.set(page, { stack, at: wall(), ms: Math.round(gapMs), heldAt: now() })
       },
       () => {}
     )
@@ -140,13 +163,14 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
         // that time is main's, and must not read as a page freeze (review of
         // #140: the output held back then floods the page, its long frame
         // overlaps the stack, and the page is blamed for main's stall).
-        if (lastBeat !== null) lastBeat = Math.min(n, lastBeat + late)
+        for (const p of pages.values()) if (p.lastBeat !== null) p.lastBeat = Math.min(n, p.lastBeat + late)
       }
-      if (lastBeat !== null && !askedThisGap && n - lastBeat >= (inBackground ? backgroundGapMs : beatGapMs)) {
-        askedThisGap = true
-        void askStack(n - lastBeat)
-      }
-      if (held && n - held.heldAt > stackKeepMs) held = null
+      for (const [page, p] of pages)
+        if (p.lastBeat !== null && !p.askedThisGap && n - p.lastBeat >= (p.inBackground ? backgroundGapMs : beatGapMs)) {
+          p.askedThisGap = true
+          void askStack(n - p.lastBeat, page)
+        }
+      for (const [page, h] of held) if (n - h.heldAt > stackKeepMs) held.delete(page)
     })
   }, tickMs)
   tick.unref?.()
@@ -172,29 +196,40 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
   }, canaryMs)
   canary.unref?.()
 
-  const writeHeld = (extra: Record<string, unknown> = {}): void => {
-    if (!held) return
-    log.write('main', 'page-stack', { stack: held.stack, ms: held.ms, ...extra })
-    held = null
+  /** Page `page`'s held stack, written with the page it came from. */
+  const writeHeld = (page: number, extra: Record<string, unknown> = {}): void => {
+    const h = held.get(page)
+    if (!h) return
+    log.write('main', 'page-stack', { stack: h.stack, ms: h.ms, page, ...extra })
+    held.delete(page)
   }
 
   return {
-    beat: () => {
-      lastBeat = now()
-      askedThisGap = false
+    beat: (page = 0) => {
+      const p = pageOf(page)
+      p.lastBeat = now()
+      p.askedThisGap = false
     },
-    pageStall: (startAt, ms) =>
+    pageStall: (startAt, ms, page) =>
       safe(() => {
-        if (!held) return
-        if (held.at >= startAt - SLACK_MS && held.at <= startAt + ms + SLACK_MS) writeHeld()
+        // Another page's stall is not this stack's (2026-10-29); a stall
+        // that names no page may be any held stack it covers.
+        for (const [p, h] of [...held])
+          if ((page === undefined || p === page) && h.at >= startAt - SLACK_MS && h.at <= startAt + ms + SLACK_MS)
+            writeHeld(p)
       }),
-    unresponsive: () =>
+    unresponsive: (page = 0) =>
       safe(() => {
-        if (held) return writeHeld({ unresponsive: true })
+        if (held.has(page)) return writeHeld(page, { unresponsive: true })
         // No beat gap seen yet (or no stack held): a hang the window reports
         // is real, so ask now and write what comes back.
-        void askStack(lastBeat === null ? 0 : now() - lastBeat).then(() => writeHeld({ unresponsive: true }))
+        const beat = pages.get(page)?.lastBeat ?? null
+        void askStack(beat === null ? 0 : now() - beat, page).then(() => writeHeld(page, { unresponsive: true }))
       }),
+    forget: (page) => {
+      pages.delete(page)
+      held.delete(page)
+    },
     suspend: () => {
       suspended = true
     },
@@ -202,17 +237,20 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
       suspended = false
       epoch += 1
       last = now()
-      if (lastBeat !== null) lastBeat = now()
-      askedThisGap = false
+      for (const p of pages.values()) {
+        if (p.lastBeat !== null) p.lastBeat = now()
+        p.askedThisGap = false
+      }
     },
-    background: (on) => {
-      if (on === inBackground) return
-      inBackground = on
+    background: (on, page = 0) => {
+      const p = pageOf(page)
+      if (on === p.inBackground) return
+      p.inBackground = on
       // Back in front: the page's next beat is up to a slow beat away, and
       // must not read as a freeze against the short gap.
-      if (!on && lastBeat !== null) {
-        lastBeat = now()
-        askedThisGap = false
+      if (!on && p.lastBeat !== null) {
+        p.lastBeat = now()
+        p.askedThisGap = false
       }
     },
     stop: () => {

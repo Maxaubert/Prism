@@ -52,7 +52,11 @@ export interface DiagWindow extends EmitterLike {
   isDestroyed?(): boolean
   /** Minimised: the page beats slower, and the watch waits longer for it. */
   isMinimized?(): boolean
-  webContents: { mainFrame?: { collectJavaScriptCallStack?(): Promise<string> | Promise<void> } | null }
+  webContents: {
+    /** The page's id: the key its beats arrive under (several windows, 2026-10-29). */
+    id?: number
+    mainFrame?: { collectJavaScriptCallStack?(): Promise<string> | Promise<void> } | null
+  }
 }
 
 export interface Diagnostics {
@@ -88,13 +92,18 @@ export function startDiagnostics(deps: DiagnosticsDeps): Diagnostics {
   })
 
   const timing = timeIpcMain(deps.ipcMain, log, { longWait: deps.longWaitChannels })
-  let win: DiagWindow | null = null
+  /** Every window watched, by its page's id: the stack is asked of the page
+   *  that stopped beating, never of whichever window came last (2026-10-29). */
+  const wins = new Map<number, DiagWindow>()
+  const keyOf = (w: DiagWindow): number => w.webContents.id ?? 0
   const watch: StallWatch = startStallWatch({
     log,
     inflight: timing.inflight,
     // userData: local, small, and the folder every other write of the app goes to.
     canary: () => stat(dirname(dir)),
-    collectStack: async () => {
+    collectStack: async (page) => {
+      // A host that names no page (0) has one window: the newest stands in.
+      const win = wins.get(page) ?? (page === 0 ? [...wins.values()].pop() : undefined)
       if (!win || win.isDestroyed?.()) return null
       const frame = win.webContents.mainFrame
       const stack = frame?.collectJavaScriptCallStack ? await frame.collectJavaScriptCallStack() : null
@@ -113,19 +122,26 @@ export function startDiagnostics(deps: DiagnosticsDeps): Diagnostics {
   return {
     log,
     watchWindow: (w) => {
-      win = w
-      watchWindowHealth(w, log, watch)
+      const key = keyOf(w)
+      wins.set(key, w)
+      watchWindowHealth(w, log, { unresponsive: () => watch.unresponsive(key) })
       // The page slows its beat while minimised (perf review, 2026-10-28,
       // `renderer/lib/diag`); main hears the same events first, so its
-      // patience is already longer when the slow beats start.
+      // patience is already longer when the slow beats start. Per window.
       const pace = (): void => {
-        if (win === w) watch.background(!!w.isMinimized?.())
+        if (wins.get(key) === w) watch.background(!!w.isMinimized?.(), key)
       }
       w.on('minimize', pace)
       w.on('restore', pace)
       w.on('show', pace)
+      // A closed window's page is no longer waited for.
+      w.on('closed', () => {
+        if (wins.get(key) !== w) return
+        wins.delete(key)
+        watch.forget(key)
+      })
       // A rebuilt window (#265) replaces this one, minimised or not.
-      watch.background(false)
+      watch.background(false, key)
       if (!power && deps.powerMonitor) {
         try {
           power = deps.powerMonitor()

@@ -28,9 +28,12 @@ import { fileKind, isMarkdown } from '@shared/fileKind'
 import { samePath } from '@shared/path'
 import type { OnClash, OpenWithApp, RenameResult, TextRead, WriteResult } from '@shared/types'
 import { exists } from '../fsUtil'
-import { sendToPage } from '../appState'
+import { windows } from '../appState'
 import { saveDialog } from '../dialogs'
 import type { MainCtx, ReadyCtx } from './context'
+
+/** Whose tail it is: the page's webContents id (fileTail's `owner`). */
+export const tailOwner = (sender: { id: number }): string => `page-${sender.id}`
 
 /** At most one paste progress message this often, ms. */
 const PASTE_TICK_MS = 120
@@ -49,17 +52,20 @@ export function registerSaveCopyIpc(ctx: MainCtx): void {
   ipcMain.handle(
     CALL.imageSaveCopy,
     async (
-      _e,
+      e,
       bytes: ArrayBuffer,
       suggested: string,
       format: 'png' | 'jpeg'
     ): Promise<string | null> => {
       if (!(bytes instanceof ArrayBuffer) || !bytes.byteLength) return null
       const ext = format === 'png' ? 'png' : 'jpg'
-      const r = await saveDialog({
-        defaultPath: suggested.replace(/\.[^.]*$/, '') + '.' + ext,
-        filters: [{ name: format === 'png' ? 'PNG image' : 'JPEG image', extensions: [ext] }]
-      })
+      const r = await saveDialog(
+        {
+          defaultPath: suggested.replace(/\.[^.]*$/, '') + '.' + ext,
+          filters: [{ name: format === 'png' ? 'PNG image' : 'JPEG image', extensions: [ext] }]
+        },
+        e.sender
+      )
       if (r.canceled || !r.filePath) return null
       try {
         await writeFile(r.filePath, Buffer.from(bytes))
@@ -130,14 +136,15 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
   /** Follow a file that is still being written: new bytes arrive on
    *  `file:appended` until `tail:stop`. One watch per path. */
-  ipcMain.handle(CALL.tailStart, async (_e, p: string, from: number) => {
+  // One tail per path PER WINDOW (2026-10-29), its chunks to that window
+  // only; a window's close stops its own (index.ts, `stopTailsOf`).
+  ipcMain.handle(CALL.tailStart, async (event, p: string, from: number) => {
     if (!readable(p)) return false
-    return startTail(p, Number(from) || 0, (e) =>
-      sendToPage(PUSH.fileAppended, e)
-    )
+    const sender = event.sender
+    return startTail(p, Number(from) || 0, (e) => windows.sendTo(sender, PUSH.fileAppended, e), tailOwner(sender))
   })
-  ipcMain.handle(CALL.tailStop, (_e, p: string) => {
-    if (typeof p === 'string') stopTail(p)
+  ipcMain.handle(CALL.tailStop, (event, p: string) => {
+    if (typeof p === 'string') stopTail(p, tailOwner(event.sender))
   })
 
   ipcMain.handle(CALL.fileText, async (_e, p: string): Promise<TextRead> => {
@@ -312,7 +319,11 @@ export function registerShellIpc(ctx: MainCtx): void {
    * copies the same paths that Prism previously marked as cut. Older file
    * clipboards without this format retain the matching renderer mark fallback.
    */
-  ipcMain.handle(CALL.filePasteInto, async (_e, destDir: string, cut?: string[], jobId?: string): Promise<PasteResult> => {
+  ipcMain.handle(CALL.filePasteInto, async (e, destDir: string, cut?: string[], jobId?: string): Promise<PasteResult> => {
+    // The progress goes to the window that pasted (2026-10-29), and to
+    // nobody once it has closed.
+    const sendToPage = (channel: typeof PUSH.pasteProgress, payload: unknown): void =>
+      void windows.sendTo(e.sender, channel, payload)
     if (typeof destDir !== 'string' || !insideDesktop(destDir)) {
       return { pasted: 0, failed: 0, refused: true, paths: [] }
     }

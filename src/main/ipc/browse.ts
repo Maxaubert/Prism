@@ -28,7 +28,7 @@ import { browseWatcherOf } from '../browseWatch'
 import { mainCrumb } from '../diagCrumb'
 import type { BrowseSearchResult } from '@shared/browse'
 import type { DirListing, OpenPayload } from '@shared/types'
-import { E2E, isMainSender } from '../appState'
+import { E2E, windows } from '../appState'
 import type { MainCtx } from './context'
 
 /** The Explorer: listings, the cache, search and suggestions, watches, drives, folder sizes. */
@@ -69,7 +69,9 @@ export function registerBrowseIpc(ctx: MainCtx): void {
   // re-reads about once a second.
   ipcMain.handle(
     CALL.browseDirectory,
-    async (_e, tabId: string, path: string, options?: { details?: boolean; again?: boolean }) => {
+    async (e, tabId: string, path: string, options?: { details?: boolean; again?: boolean }) => {
+      // The window asking owns the tab (2026-10-29): its details stream there.
+      windows.noteTabOwner(tabId, e.sender)
       const directory = await explorerListings.browse(tabId, path, options?.details !== false)
       if (directory && !directory.listing.unreadable && options?.again !== true) {
         const folders = directory.listing.folders.map((folder) => folder.path)
@@ -85,7 +87,7 @@ export function registerBrowseIpc(ctx: MainCtx): void {
   // seen this session paints from disk in the same frame as the click.
   ipcMain.on(CALL.browseCached, (event, path: unknown) => {
     event.returnValue =
-      isMainSender(event.sender) && typeof path === 'string'
+      windows.isPrismPage(event.sender) && typeof path === 'string'
         ? explorerListings.cached(path)
         : null
   })
@@ -188,7 +190,8 @@ export function registerBrowseIpc(ctx: MainCtx): void {
       searchWaiting.delete(suggestSlot(tabId))
     if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId), requestId)
   })
-  ipcMain.handle(CALL.browseWatch, async (_e, tabId: string, path: string | null) => {
+  ipcMain.handle(CALL.browseWatch, async (e, tabId: string, path: string | null) => {
+    windows.noteTabOwner(tabId, e.sender)
     // The watcher's set-up is timed (#322): it runs in main's thread, and a
     // network folder can make it slow. One per folder shown, so a quick one
     // is Detailed logging's only. The time includes the ownership guard,
@@ -275,11 +278,22 @@ export function registerBrowseIpc(ctx: MainCtx): void {
     if (typeof requestId === 'string')
       folderSizeRequests.get(event.sender.id)?.get(requestId)?.abort()
   })
-  ipcMain.on(CALL.browseRelease, (_e, tabId: string) => {
-    cancelBrowseSearch(tabId)
-    if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId))
-    releaseDesktop(tabId)
-  })
+  ipcMain.on(CALL.browseRelease, (_e, tabId: string) => releaseTab(tabId))
+}
+
+/**
+ * Everything main holds for one tab, let go: its searches, its folder grants
+ * (which takes its folder watch, and stops its listing's details run), for
+ * good. The page's own close of a tab, and (2026-10-29) a window's close for
+ * every tab it held, unless that tab is mid-move to another window.
+ */
+export function releaseTab(tabId: string): void {
+  cancelBrowseSearch(tabId)
+  if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId))
+  releaseDesktop(tabId)
+  // Its owner entry too (review, 2026-10-29): kept, the registry's map grew
+  // with every tab ever browsed, and a window's close released them all again.
+  windows.forgetTab(tabId)
 }
 
 /** Opening a file inside a tab, a folder's listing and the tree search (the phone's, too). */
