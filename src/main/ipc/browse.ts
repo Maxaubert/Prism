@@ -1,7 +1,7 @@
 import { app, ipcMain } from 'electron'
 import { CALL, PUSH } from '@shared/channels'
-import { dirname, resolve } from 'path'
-import { listDir, searchFiles } from '../dirList'
+import { resolve } from 'path'
+import { listDir } from '../dirList'
 import {
   extendDesktopDirectories,
   insideDesktop,
@@ -333,15 +333,5 @@ export function registerTreeIpc(ctx: MainCtx): void {
     const listing = await listDir(p)
     if (!listing.unreadable) extendDesktopDirectories(root, [p])
     return listing
-  })
-  // The sidebar's search: that tab's whole root, bounded, never outside it.
-  ipcMain.handle(CALL.searchFiles, async (_e, root: string, query: string) => {
-    if (!validDesktopRoot(root, root)) return { hits: [], truncated: false }
-    const result = await searchFiles(root, query)
-    extendDesktopDirectories(
-      root,
-      result.hits.map((hit) => dirname(hit.path))
-    )
-    return result
   })
 }

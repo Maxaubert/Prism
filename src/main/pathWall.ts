@@ -12,15 +12,13 @@ import { fileKind } from '@shared/fileKind'
  * (CLAUDE.md "Security walls"): never make a guard looser in passing.
  *
  * The wall is built from what it consults, so a test can hand it fakes:
- * `insideDesktop` (an open root or a folder the Explorer granted),
- * `isAnyRoot` (a tab's own root folder), and `memberOwns` (this run's member
+ * `insideDesktop` (a folder the Explorer granted) and `memberOwns` (this run's member
  * temp folder, memberTemp.ts). What it HOLDS is what main granted itself:
  * the extracted members, the files main built (a converted copy, a MIDI wav,
  * a markdown document's pictures), and the comics folder.
  */
 export interface WallDeps {
   insideDesktop: (p: string) => boolean
-  isAnyRoot: (p: string) => boolean
   memberOwns: (p: unknown) => boolean
   /** Where the renderer's own files live (pdf.js fetches its cmaps, fonts,
    *  wasm and icc profiles through fsmedia://). */
@@ -49,10 +47,9 @@ export interface PathWall {
   extracted(p: unknown): boolean
   /** A READ: inside the wall, or something main extracted itself. */
   readable(p: unknown): p is string
-  /** A WRITE in place (rename, bin, save): inside the wall, and never a tab's
-   *  own root, which would pull the ground out from under the window. */
+  /** A WRITE in place (rename, bin, save): inside the wall. */
   editable(p: string): boolean
-  /** A move or zip SOURCE: never a root; inside the wall or extracted (an
+  /** A move or zip SOURCE: inside the wall or extracted (an
    *  extracted member dragged to a folder can be written there). */
   movable(p: unknown): p is string
   /** An archive WRITE verb: the zip sits inside the wall and is the archive
@@ -110,9 +107,9 @@ export function createPathWall(deps: WallDeps): PathWall {
     comicsDir: () => comics,
     extracted,
     readable,
-    editable: (p) => deps.insideDesktop(p) && !deps.isAnyRoot(p),
+    editable: (p) => deps.insideDesktop(p),
     movable: (p): p is string =>
-      typeof p === 'string' && !deps.isAnyRoot(p) && (deps.insideDesktop(p) || extracted(p)),
+      typeof p === 'string' && (deps.insideDesktop(p) || extracted(p)),
     archiveOk: (p): p is string =>
       typeof p === 'string' && deps.insideDesktop(p) && fileKind(extname(p)) === 'archive',
     archiveReadOk: (p): p is string =>

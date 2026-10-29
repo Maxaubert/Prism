@@ -74,7 +74,6 @@ export const CALL = {
 
   dirList: 'dir:list',
 
-  searchFiles: 'search:files',
 
   fileRename: 'file:rename',
   fileTrash: 'file:trash',

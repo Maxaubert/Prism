@@ -10,14 +10,12 @@ import {
   resetDesktopAccess,
   validDesktopRoot
 } from './desktopAccess'
-import { addRoot, insideAnyRoot, openRoots, resetRoots, validRoot } from './roots'
 import { listDir } from './dirList'
 import { parseTabs } from './tabs'
 
 let box: string
 beforeEach(() => {
   box = mkdtempSync(join(tmpdir(), 'prism-browse-'))
-  resetRoots()
   resetDesktopAccess()
 })
 afterEach(() => rmSync(box, { recursive: true, force: true }))
@@ -30,20 +28,15 @@ describe('desktop browsing authority', () => {
     mkdirSync(privateDir)
     const secret = join(privateDir, 'secret.txt')
     writeFileSync(secret, 'private')
-    addRoot(project)
     await browseDirectory('files', box)
-    expect(openRoots()).toEqual([project])
-    expect(validRoot(project, box)).toBe(false)
-    expect(insideAnyRoot(secret)).toBe(false)
     expect(insideDesktop(secret)).toBe(false)
     expect(insideDesktop(privateDir)).toBe(true)
     expect(validDesktopRoot(box, privateDir)).toBe(true)
     await browseDirectory('files', privateDir)
     expect(insideDesktop(secret)).toBe(true)
-    expect(validRoot(project, secret)).toBe(false)
     releaseDesktop('files')
     expect(insideDesktop(secret)).toBe(false)
-    expect(insideDesktop(project)).toBe(true)
+    expect(insideDesktop(project)).toBe(false)
   })
 
   it('retains visited directories per tab until the owner closes', async () => {

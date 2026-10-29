@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { clipboardText } from '../../lib/clipboardText'
 import { dialogButton } from '../dialogLook'
 import { CheckGlyph, CopyGlyph } from '../icons/propertyGlyphs'
-import { hiddenTitle } from '../../lib/hiddenTitle'
+import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
 
 // The Properties window's pieces, shared by every kind (owner, 2026-10-12;
 // the approved mockup `research/prism/mockups/2026-10-12-properties/final`):

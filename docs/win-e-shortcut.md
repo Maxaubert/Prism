@@ -3,7 +3,7 @@
 Settings > General > **Open Prism with Win+E** is off by default. Enabling it starts
 a small Windows helper and registers that helper at sign-in for the current user.
 Prism itself can close normally. Each distinct Win+E press opens a new Explorer
-window, preserving existing windows, project files and terminals. Holding the keys
+window, preserving existing windows and their open files. Holding the keys
 does not create repeated windows.
 
 The window shows a lightweight opening screen while the interface loads, with
@@ -11,7 +11,7 @@ working minimize, maximize and close controls. Loading feedback does not count
 as a successful launch: the shortcut still waits for a rendered Explorer folder
 before acknowledging readiness. Files opened during startup wait for the interface.
 
-Additional windows use separate working profiles so tabs, terminals, browsing grants
+Additional windows use separate working profiles so tabs, browsing grants
 and phone pairings cannot leak between windows. Appearance and other preferences are
 inherited from the shared preference store when a window opens. Shared preference
 changes refresh other windows, including saved style and visualizer presets.
@@ -38,8 +38,8 @@ its native Win+E behavior. Deleting an inactive installation can leave a harmles
 startup entry pointing at a missing helper; that entry cannot intercept Win+E.
 
 Explorer tabs never repeat the active filename in the title bar, including full-file
-view with places collapsed. Project tabs still show the active filename when their
-sidebar is closed and a full terminal is not covering the file.
+view with places collapsed. (Every tab is an Explorer tab since 2026-10-26; the old
+project-tab title rule went with the project tabs.)
 
 ## Verification
 
@@ -52,7 +52,7 @@ sidebar is closed and a full terminal is not covering the file.
   titlebar visibility, cold startup and warm second-instance requests. The latter
   use real named pipes and the packaged app with isolated profiles, without a hook.
 - Multiple-window scenarios check separate processes, shared preferences, isolated
-  browsing grants and terminals, and a child remaining usable after its parent closes.
+  browsing grants, and a child remaining usable after its parent closes.
 - The owner confirmed the physical shortcut and chosen style with the current test
   build. Sign-in, crash-hook removal and installed upgrade/uninstall still need
   dedicated lifecycle verification; the automated checks do not claim those cases.

@@ -3927,11 +3927,12 @@ async function openInExplorerScenario(fixtures) {
     win.evaluate(() => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')
   const visible = (sel) => win.evaluate((s) => !!document.querySelector(s)?.getClientRects().length, sel)
   const waitFor = (fn) => until(fn, 10000)
-  // Tabs beside the pinned Explorer.
-  const projects = () => win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()
+  // Tabs beside the home Explorer tab (`data-pinned` is its invisible home
+  // mark since #450 removed tab pins).
+  const otherTabs = () => win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()
   try {
-    ok((await projects()) === 1, 'the launch file is a viewer tab, the Explorer behind it')
-    const before = await projects()
+    ok((await otherTabs()) === 1, 'the launch file is a viewer tab, the Explorer behind it')
+    const before = await otherTabs()
 
     // PREVIEW, the default: the list, walked to the file's folder, the file
     // selected and in the preview pane.
@@ -3939,7 +3940,7 @@ async function openInExplorerScenario(fixtures) {
     ok(await waitFor(explorerFront), 'a file handed over brings the Explorer tab to the front')
     ok(await waitFor(async () => /other[\\/]bad\.json$/i.test(await selectedRow())), 'walked to its folder with the file selected')
     ok(await waitFor(() => visible('[data-browse-preview]')), 'and shown in the preview pane (the default)')
-    ok((await projects()) === before, 'no project tab was made')
+    ok((await otherTabs()) === before, 'no new tab was made')
 
     // Back returns to where the Explorer was.
     await win.keyboard.press('Alt+ArrowLeft')
@@ -3975,11 +3976,11 @@ async function openInExplorerScenario(fixtures) {
       'a film handed over plays in the preview pane'
     )
     await win.evaluate(() => document.querySelectorAll('video').forEach((v) => v.pause()))
-    ok((await projects()) === before, 'and still no project tab was made')
+    ok((await otherTabs()) === before, 'and still no new tab was made')
 
     // A FOLDER is unchanged: "Open as project".
     await handoff(OTHER_ROOT)
-    ok(await waitFor(async () => (await projects()) === before + 1), 'a folder handed over still becomes a tab of its own')
+    ok(await waitFor(async () => (await otherTabs()) === before + 1), 'a folder handed over still becomes a tab of its own')
   } finally {
     await app.close()
   }
@@ -4252,15 +4253,16 @@ async function tabsScenario(fixtures) {
     await sleep(500)
     ok((await tabRows().count()) === 2, 'and closes again')
 
-    // The close question is one rule and no setting (#154): it protects
-    // agents only. Ordinary project tabs close immediately.
+    // The close question is one rule and no setting (#154): only unsaved
+    // text asks (the agent question went with the terminal, 2026-10-26).
+    // A tab with nothing unsaved closes immediately.
     // Aim Ctrl+W at the code tab, so the fixtures tab (which the rest of the
     // scenario leans on) stays put.
     await tabRows().last().click()
     await sleep(300)
     await win.keyboard.press('Control+w')
     await sleep(400)
-    ok((await win.locator('[role="dialog"]').count()) === 0, 'ordinary project tabs do not ask for confirmation')
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'a tab with nothing unsaved does not ask for confirmation')
     ok((await tabRows().count()) === 1, 'Ctrl+W closes the ordinary tab immediately')
     // recreate the second tab, restoring the order the flow below expects.
     // The SIBLING root, not a subfolder: a subfolder folds into the tab that
@@ -12163,7 +12165,7 @@ async function updateWindowScenario(fixtures) {
       els.map((el) => ({ heading: el.querySelector('h3')?.textContent?.trim() ?? '', lines: [...el.querySelectorAll('[data-update-entry]')].map((li) => (li.textContent ?? '').trim()) }))
     )
     ok(sections.map((x) => x.heading).join('|') === 'New features|Bug fixes|Under the hood', `the notes are sorted under headings (${sections.map((x) => `${x.heading}: ${x.lines.length}`).join(', ')})`)
-    ok(sections[1]?.lines[0] === 'A prompt survives the window getting narrower and wider again', `a fix reads as a sentence, its "fix(terminal):" gone ("${sections[1]?.lines[0]}")`)
+    ok(sections[1]?.lines[0] === 'A picture keeps its zoom when the window gets narrower and wider again', `a fix reads as a sentence, its "fix(viewer):" gone ("${sections[1]?.lines[0]}")`)
     ok(entries.every((e) => !/\(#\d+\)\s*$/.test(e) && !/^[a-z]+(\([^)]*\))?!?:/.test(e) && e[0] === e[0].toUpperCase()), 'no line ends in a pull request number or starts with a commit type, and each starts with a capital')
     const text = (await dialog.textContent()) ?? ''
     ok(!/by @/.test(text), 'no author tail ("by @") reaches the window')
@@ -12402,19 +12404,17 @@ async function updateWindowScenario(fixtures) {
  * INSTALL STILL GOES THROUGH PRISM'S GUARD (#168). The chip used to call
  * `installUpdate` in App directly; Install in the core's window calls it now,
  * through `useUpdateFlow`'s guard, and "do not weaken it" is only true if it is
- * driven: UNSAVED TEXT is asked about first (2026-08-28), then an agent that is
- * MID-ANSWER, and only then does anything start. A preview asks nothing (it
- * quits nothing), so this scenario is handed a real-shaped offer whose url the
- * installer refuses before it sends a byte (PRISM_E2E_UPDATE_OFFER): both
- * questions, their Cancel, the go-ahead and the line a FAILED install leaves
- * are all driven with no network, no download and no installer.
+ * driven: UNSAVED TEXT is asked about first (2026-08-28), and only then does
+ * anything start (the mid-answer agent question went with the terminal,
+ * 2026-10-26). A preview asks nothing (it quits nothing), so this scenario is
+ * handed a real-shaped offer whose url the installer refuses before it sends a
+ * byte (PRISM_E2E_UPDATE_OFFER): the question, its Cancel, the go-ahead and the
+ * line a FAILED install leaves are all driven with no network, no download and
+ * no installer.
  *
  * The notes of that offer are HOSTILE and over-long, so the plain-text rule is
  * proved in Prism's real page and not only in the parser's unit tests: what is
  * asserted is the DOM the body produced.
- *
- * The agent is a shell standing in for Claude through its TITLE, exactly as
- * `agentTitle` does it: no CLI, nothing of this machine.
  */
 async function updateGuardScenario(fixtures) {
   console.log('update guard')

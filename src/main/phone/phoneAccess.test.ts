@@ -3,7 +3,6 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { insideDesktop, resetDesktopAccess } from '../desktopAccess'
-import { resetRoots } from '../roots'
 import { localPath, phoneListed, phoneMay, phoneOnThisPc, phoneRelease } from './phoneAccess'
 
 let dir: string
@@ -13,11 +12,9 @@ beforeEach(() => {
   writeFileSync(join(dir, 'films', 'a.mp4'), 'a')
   writeFileSync(join(dir, 'films', 'deeper', 'b.mp4'), 'b')
   resetDesktopAccess()
-  resetRoots()
 })
 afterEach(() => {
   resetDesktopAccess()
-  resetRoots()
   rmSync(dir, { recursive: true, force: true })
 })
 

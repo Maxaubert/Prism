@@ -39,7 +39,6 @@ export const LONG_WAIT_CHANNELS: readonly string[] = [
   // and `guard-slow` the path guard inside them.
   CALL.browseSearch,
   CALL.browseSuggest,
-  CALL.searchFiles,
   // A folder's size: a full recursive scan, cancellable, answering at the end.
   // Its `folder-size` crumb carries the time.
   CALL.folderSize,

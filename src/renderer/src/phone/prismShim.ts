@@ -104,23 +104,22 @@ const askPlayChosen = (path: string): Promise<PlayAnswer> => askPlay(path, chose
 const withPw = (params: Record<string, string>, password?: string): Record<string, string> =>
   password ? { ...params, pw: password } : params
 
+/**
+ * The phone's search: the folder the phone is in and everything below it
+ * (2026-10-14). It used to ride on the desktop's `searchTree` name (the old
+ * sidebar's search); the desktop dropped that call with the tree (2026-10-28),
+ * so it is the phone's own export now. A refused or failed ask reads as no
+ * hits, which is what the field already draws while nothing matches.
+ */
+export const searchHere = (dir: string, query: string): Promise<SearchResult> =>
+  getOr<SearchResult>(routePath(ROUTE.search), { dir, q: query }, { hits: [], truncated: false })
+
 const implemented: Shim = {
   capabilities,
   mediaUrl,
   demo: false,
   forceSetup: false,
   listDir: (_root, path) => getOr<DirListing, null>(routePath(ROUTE.dir), { path }, null),
-  /**
-   * The sidebar's search, named the same so the field is the desktop's own
-   * call (Task 2). The ROOT is dropped on purpose: the phone's is the one it
-   * paired to and the server knows it, and a root a page could name is a root
-   * it could ask to have searched. A refused or failed ask reads as no hits,
-   * which is what the field already draws while nothing matches.
-   */
-  // The folder the phone is in and everything below it (2026-10-14): the
-  // browser hands that folder where the desktop hands a root.
-  searchTree: (dir, query) =>
-    getOr<SearchResult>(routePath(ROUTE.search), { dir, q: query }, { hits: [], truncated: false }),
   /**
    * The read-only document routes (#106). Each answers in the shape its IPC
    * does, so the viewers are not told the difference, and a refused or

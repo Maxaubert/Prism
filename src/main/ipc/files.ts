@@ -8,7 +8,7 @@ import type {
   MoveResult,
   PasteResult
 } from '@shared/ipcTypes'
-import { basename, dirname, extname, join, resolve, sep } from 'path'
+import { basename, dirname, extname, join, resolve } from 'path'
 import { copyFile, readFile, stat, writeFile } from 'fs/promises'
 import { execFile, launch } from '../spawnWorker'
 import { copyWindowsFiles, hasWindowsFiles, readWindowsFiles } from '../fileClipboard'
@@ -36,7 +36,7 @@ import type { MainCtx, ReadyCtx } from './context'
 const PASTE_TICK_MS = 120
 
 export function registerSaveCopyIpc(ctx: MainCtx): void {
-  const { ownWrite, written } = ctx
+  const { written } = ctx
   /**
    * Save the picture as an ordinary PNG or JPEG, somewhere the user picks.
    *
@@ -62,8 +62,6 @@ export function registerSaveCopyIpc(ctx: MainCtx): void {
       })
       if (r.canceled || !r.filePath) return null
       try {
-        // Muted so the folder watcher does not report Prism's own write.
-        ownWrite(r.filePath)
         await writeFile(r.filePath, Buffer.from(bytes))
         await written(r.filePath)
         return r.filePath
@@ -76,7 +74,7 @@ export function registerSaveCopyIpc(ctx: MainCtx): void {
 
 /** Rename, bin, read and save text, follow a growing file. */
 export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
-  const { TEXT_MAX_BYTES, editable, ownWrite, readable, textShape, wall, written } = ctx
+  const { TEXT_MAX_BYTES, editable, readable, textShape, wall, written } = ctx
   const { positions, readTextWalled } = ready
   // File operations. Inside the root only, and nothing is ever destroyed: an
   // overwritten or deleted file goes to the Recycle Bin.
@@ -86,9 +84,8 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
   ipcMain.handle(
     CALL.fileRename,
     async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> => {
-      ownWrite(p)
       if (!editable(p))
-        return { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
+        return { ok: false, reason: 'failed', message: 'Prism cannot rename that here.' }
       await holders.release([p]) // a rename is refused for the same reason a move is (#127)
       const r = await renameFile(p, name, onClash, (t) => shell.trashItem(t))
       await written(p, r.ok ? r.path : dirname(p))
@@ -103,7 +100,6 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
     }
   )
   ipcMain.handle(CALL.fileTrash, async (_e, p: string): Promise<boolean> => {
-    ownWrite(p)
     if (!editable(p)) return false
     try {
       await shell.trashItem(p)
@@ -172,7 +168,6 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
    * `extractedPaths`, writes never do.
    */
   ipcMain.handle(CALL.fileWrite, async (_e, p: string, text: string): Promise<WriteResult> => {
-    ownWrite(p)
     if (!insideDesktop(p)) return { ok: false, reason: 'refused' }
     if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text')
       return { ok: false, reason: 'refused' }
@@ -210,7 +205,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
 /** Explorer's verbs, Open with, the clipboard and paste, file icons, restore. */
 export function registerShellIpc(ctx: MainCtx): void {
-  const { ownWrite, readable, shellVerbSetting, textShape, written } = ctx
+  const { readable, shellVerbSetting, textShape, written } = ctx
   // "Open file" / "Open in Prism" in File Explorer's own context menu
   // (HKCU only).
   ipcMain.handle(CALL.shellVerbStatus, () => shellVerbSetting.status())
@@ -329,7 +324,6 @@ export function registerShellIpc(ctx: MainCtx): void {
       (Array.isArray(cut) &&
         cut.length === src.length &&
         cut.every((c) => src.some((f) => samePath(f, String(c)))))
-    ownWrite(join(destDir, 'x'))
     const fs = await import('fs/promises')
     const job = typeof jobId === 'string' ? jobId : ''
     // THE LIST SHOWS WHAT IS LANDING (owner, 2026-10-28: "nothing happens and
@@ -483,7 +477,6 @@ export function registerShellIpc(ctx: MainCtx): void {
   // and the namespace move is not. Best effort: an item the user has since
   // emptied simply is not there any more.
   ipcMain.handle(CALL.fileRestore, async (_e, paths: string[]): Promise<boolean> => {
-    ownWrite(...(Array.isArray(paths) ? paths : []))
     if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideDesktop(p)))
       return Promise.resolve(false)
     const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
@@ -516,7 +509,7 @@ export function registerShellIpc(ctx: MainCtx): void {
 
 /** Drag and drop: move, add to a zip, move members. */
 export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
-  const { archiveOk, movable, ownWrite, textShape, written } = ctx
+  const { archiveOk, movable, textShape, written } = ctx
   const { positions } = ready
   /* ----- drag and drop (#70): move, add to a zip, extract out of one ----- */
 
@@ -536,7 +529,6 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
       onClash: MoveOnClash
     ): Promise<MoveResult> => {
       // Both ends: a move empties one folder and fills another.
-      ownWrite(destDir + sep + 'x', ...(Array.isArray(paths) ? paths : []))
       /**
        * A drop that asks for nothing does nothing, SILENTLY (2026-08-31).
        *
@@ -613,9 +605,8 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
 /** Duplicate, New folder, and undoing a new folder. */
 export function registerNewFilesIpc(ctx: MainCtx): void {
-  const { editable, ownWrite, written } = ctx
+  const { editable, written } = ctx
   ipcMain.handle(CALL.fileDuplicate, async (_e, p: string): Promise<string | null> => {
-    ownWrite(p)
     if (!insideDesktop(p)) return null
     try {
       if (!(await stat(p)).isFile()) return null // folders are a different feature
@@ -642,7 +633,6 @@ export function registerNewFilesIpc(ctx: MainCtx): void {
       if (typeof dir !== 'string' || !dir || (name !== undefined && typeof name !== 'string'))
         return null
       if ((await container(dir)) || !insideDesktop(dir)) return null
-      ownWrite(join(dir, 'New folder'))
       const made = await makeFolder(dir, name)
       await written(made ?? dir)
       return made
@@ -653,7 +643,6 @@ export function registerNewFilesIpc(ctx: MainCtx): void {
     CALL.fileBinIfEmpty,
     async (_e, p: string): Promise<BinIfEmptyResult> => {
       if (typeof p !== 'string' || (await container(p)) || !editable(p)) return 'failed'
-      ownWrite(p)
       try {
         return await binIfEmpty(p, (t) => shell.trashItem(t))
       } finally {

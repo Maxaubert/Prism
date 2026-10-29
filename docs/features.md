@@ -41,6 +41,19 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
 - **Dead pref keys keep their strings** (`prism.term.*`, `prism.tree.*`, `prism.sidebar*`, `prism.newtab.show`
   values): `src/shared/prefKeys.test.ts` pins them, and a stored `terminal` new-tab value reads as the folder
   browser (`newTabPrefs.test.ts`). `%LOCALAPPDATA%\PrismDictation` is never deleted (Flare may use it).
+- **The leftovers went** (2026-10-28, performance review, owner: "do a review of the app look for bugs,
+  lingering code that should be changed ... look for stall points, things that use up too many resources").
+  `src/main/roots.ts` and the recursive `src/main/dirWatch.ts` are gone: no root had been registered since
+  #439, so the watcher never started, `ownWrite`'s mute map only grew, and the "a tab's own root cannot be
+  renamed or binned" check guarded nothing. The wall is the desktop grants (`desktopAccess.ts`) plus what main
+  extracted or made (`pathWall.ts`), unchanged in effect; the folder watch is `browseWatch.ts`. The sidebar's
+  `searchTree` / `search:files` and the unused `copyFileToClipboard` left the desktop preload; the phone keeps
+  its own `searchHere` (`prismShim.ts`). The dead pref keys are RETIRED, by an explicit list in
+  `src/shared/prefKeys.ts` (never a `prism.term` prefix: the colour picker's format lives there): the sync
+  refuses them, main deletes their store files once per run, each window drops its copies.
+  `prefKeys.test.ts` still pins every string; `windowPreferences.test.ts` (main and renderer) hold the cleanup.
+  The places toggle, the folder-icon setting and the update dialog no longer name the tree or terminals, and
+  the renderer's copies of the core's `hiddenTitle` and colour maths became the core's.
 - **Core**: `packages/term-core` is pruned to the settings frame, Diagnostics, the update chip and window,
   diag log, colour maths and Tooltips. No node-pty, `@xterm/*` or whisper ships (`THIRD-PARTY-NOTICES.md`).
 - **Gates**: `npm run e2e` (112 scenarios at the cut, offscreen) is the PR gate; `npm run e2e:ui` is the
@@ -1172,7 +1185,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   last one leaves an EMPTY WINDOW rather than quitting: Prism is resident and a window that
   vanishes under a reflex keystroke is the failure the close flow exists to prevent.
   Closing a tab holding unsaved text asks, like the window does.
-  The root wall is a set now (`src/main/roots.ts`), not one string. Navigation handlers
+  The root wall is a set now (`src/main/roots.ts`, removed 2026-10-28 with the roots), not one string. Navigation handlers
   (`open:within`, `dir:list`, `search:files`) name their root and get the strict per-tab
   check; everything else checks `insideAnyRoot`. The renderer owns the tab list and reports
   it, which is what narrows the wall when a tab closes.
@@ -2950,7 +2963,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   only for documents long enough to be worth it, cleared at the end (a document read to the
   bottom opens at the top next time). The PDF remembers a PAGE, because an offset depends on the
   zoom and on which pages are virtualized.
-- **The tree notices changes Prism did not make** (2026-08-30, `src/main/dirWatch.ts`).
+- **The tree notices changes Prism did not make** (2026-08-30, `src/main/dirWatch.ts`; SUPERSEDED by
+  `browseWatch.ts`, one non-recursive watch per tab, 2026-10-26, and removed 2026-10-28).
   `refreshKey` only ever moved on Prism's own writes, so a download finishing or an agent
   writing files left the tree lying. Coalesced into a set of directories on a quiet window with
   a hard ceiling; filtered by the listing's own rules and by EVERY path segment (a recursive

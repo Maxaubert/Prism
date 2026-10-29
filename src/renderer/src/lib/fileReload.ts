@@ -9,9 +9,8 @@
  * is the bug this exists to close.
  *
  * The signal is weaker than it looks. `DirChange` carries `{ root, dirs }`
- * and never a file name, and Prism's OWN save produces one too: `ownWrite`
- * mutes the directory, but `flush` DEFERS a muted directory rather than
- * dropping it, so the event arrives a second and a half later regardless. So
+ * and never a file name, and Prism's OWN save produces one too: the folder
+ * watch (browseWatch.ts) sees every write in the folder, Prism's included. So
  * "the folder changed" can never mean "someone else changed my file". The
  * only honest test is the file's own stamp, which is why `stampChanged` is
  * the correctness condition and not an optimisation.
