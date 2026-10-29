@@ -127,6 +127,27 @@ describe('the page heartbeat', () => {
     expect(log.lines).toEqual([{ src: 'main', k: 'page-stack', fields: { stack: STACK, ms: 2000 } }])
   })
 
+  it('EVERY PAGE BEATS ON ITS OWN (2026-10-29): one window beating never hides another going quiet', async () => {
+    const collect = vi.fn((page: number) => Promise.resolve(page > 0 ? STACK : null))
+    const w = watch({ collectStack: collect })
+    w.beat(1)
+    w.beat(2)
+    // Page 1 keeps beating; page 2 stops.
+    for (let i = 0; i < 50; i += 1) {
+      await pass(50)
+      if (i % 10 === 0) w.beat(1)
+    }
+    expect(collect.mock.calls.map(([page]) => page)).toEqual([2])
+    // A closed page is no longer waited for.
+    w.forget(2)
+    w.beat(1)
+    for (let i = 0; i < 50; i += 1) {
+      await pass(50)
+      if (i % 10 === 0) w.beat(1)
+    }
+    expect(collect).toHaveBeenCalledTimes(1)
+  })
+
   it('drops the stack when no stall covers it: a throttled timer is not a freeze', async () => {
     const w = watch({ collectStack: () => Promise.resolve(STACK) })
     w.beat()

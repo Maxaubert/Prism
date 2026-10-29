@@ -5,20 +5,25 @@ import { createWinEShortcut } from '../winEShortcut'
 import { createFolderHandler } from '../folderHandler'
 import { REMEMBER_FOLDERS_KEY } from '@shared/listingPrefs'
 import { type SavedTabs } from '../tabs'
-import { E2E, isMainSender } from '../appState'
+import { E2E, windows } from '../appState'
 import type { MainCtx } from './context'
 
-/** The window's preferences (shared between Prism's windows): load, seed, set. */
+/** The window's preferences (shared between Prism's windows): load, seed, set.
+ *  Any Prism page may (2026-10-29: every window of the process is one), and a
+ *  preview's frame never. */
 export function registerPreferencesIpc(ctx: MainCtx): void {
   const { extraWindowOwner, listingCache, preferencesLoaded, windowPreferences } = ctx
   ipcMain.on(CALL.windowPreferencesLoad, (event) => {
-    event.returnValue =
-      isMainSender(event.sender) ? windowPreferences.load() : null
-    if (isMainSender(event.sender) && extraWindowOwner) preferencesLoaded()
+    const page = windows.isPrismPage(event.sender)
+    event.returnValue = page ? windowPreferences.load() : null
+    if (page && extraWindowOwner) preferencesLoaded()
   })
+  // A later window finds the store already shared and never seeds it again
+  // (lib/windowPreferences.ts seeds only when `!snapshot.shared`); a second
+  // seed would be harmless anyway, the promise resolves once.
   ipcMain.on(CALL.windowPreferencesSeed, (event, values: unknown) => {
     event.returnValue = null
-    if (!isMainSender(event.sender)) return
+    if (!windows.isPrismPage(event.sender)) return
     try {
       event.returnValue = windowPreferences.seed(values)
     } catch {
@@ -28,8 +33,7 @@ export function registerPreferencesIpc(ctx: MainCtx): void {
     }
   })
   ipcMain.on(CALL.windowPreferencesSet, (event, change: unknown) => {
-    event.returnValue =
-      isMainSender(event.sender) && windowPreferences.set(change)
+    event.returnValue = windows.isPrismPage(event.sender) && windowPreferences.set(change)
     // The switch takes effect now, not when the folder watch gets round to it.
     const c = change as { key?: unknown; value?: unknown } | null
     if (event.returnValue && c?.key === REMEMBER_FOLDERS_KEY)
@@ -47,20 +51,22 @@ export function registerWinEIpc(ctx: MainCtx): void {
     supported: process.platform === 'win32' && app.isPackaged && !E2E
   })
   ipcMain.handle(CALL.winEStatus, (event) => {
-    if (!isMainSender(event.sender)) throw new Error('Unknown window')
+    if (!windows.isPrismPage(event.sender)) throw new Error('Unknown window')
     return winE.status()
   })
   ipcMain.handle(CALL.winESet, (event, enabled: unknown) => {
-    if (!isMainSender(event.sender) || typeof enabled !== 'boolean')
+    if (!windows.isPrismPage(event.sender) || typeof enabled !== 'boolean')
       throw new Error('Invalid shortcut request')
     return winE.set(enabled)
   })
+  // A cold start's Win+E lands in the session's FIRST window (2026-10-29),
+  // as it always did: only its page listens for the queue and answers it.
+  const winEHost = (sender: Electron.WebContents): boolean => !!windows.of(sender)?.first && windows.isPrismPage(sender)
   ipcMain.on(CALL.winEListen, (event) => {
-    if (isMainSender(event.sender)) winERequests.listen()
+    if (winEHost(event.sender)) winERequests.listen()
   })
   ipcMain.on(CALL.winEReady, (event, id: unknown) => {
-    if (isMainSender(event.sender) && typeof id === 'string')
-      winERequests.ready(id)
+    if (winEHost(event.sender) && typeof id === 'string') winERequests.ready(id)
   })
   if (!extraWindowOwner) void winE.resume()
   // Open folders in Prism (#393): the same helper, a copy of it outside the
@@ -73,11 +79,11 @@ export function registerWinEIpc(ctx: MainCtx): void {
     marker: join(preferencesOwner, 'folders-on')
   })
   ipcMain.handle(CALL.foldersStatus, (event) => {
-    if (!isMainSender(event.sender)) throw new Error('Unknown window')
+    if (!windows.isPrismPage(event.sender)) throw new Error('Unknown window')
     return folders.status()
   })
   ipcMain.handle(CALL.foldersSet, (event, on: unknown) => {
-    if (!isMainSender(event.sender) || typeof on !== 'boolean') throw new Error('Invalid folder request')
+    if (!windows.isPrismPage(event.sender) || typeof on !== 'boolean') throw new Error('Invalid folder request')
     return folders.set(on)
   })
   if (!extraWindowOwner) void folders.repair()
@@ -85,9 +91,12 @@ export function registerWinEIpc(ctx: MainCtx): void {
 
 /** What the renderer reports for the session: the tab strip, playing media, a dropped root. */
 export function registerSessionIpc(ctx: MainCtx): void {
-  const { keepAwake, saveTabs } = ctx
-  ipcMain.on(CALL.tabsChanged, (_e, state: SavedTabs) => saveTabs(state))
+  const { keepAwake, reportTabs } = ctx
+  // Each window's own strip, into its own entry (2026-10-29): two windows
+  // never overwrite each other's.
+  ipcMain.on(CALL.tabsChanged, (e, state: SavedTabs) => reportTabs(e.sender, state))
   // The renderer is the only thing that knows whether a media element is
-  // actually playing, so it owns the answer and main just holds the block.
-  ipcMain.on(CALL.powerAwake, (_e, on: boolean) => keepAwake(on))
+  // actually playing, so it owns the answer and main just holds the block,
+  // while ANY window plays (keepAwake counts them by page).
+  ipcMain.on(CALL.powerAwake, (e, on: boolean) => keepAwake(e.sender, on))
 }

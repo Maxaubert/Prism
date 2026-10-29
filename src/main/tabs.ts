@@ -240,6 +240,20 @@ export function readTabs(path: string): SavedTabs {
 }
 
 /**
+ * The session file's text, read ONCE, before the first window (2026-10-29):
+ * its bounds size that window, and its strip is what the first window's
+ * restore filters (`parseTabs`). Null when there is no file.
+ */
+export function readSessionRaw(path: string): string | null {
+  try {
+    // sync-ok: startup, before the first window exists (it is sized from this)
+    return readFileSync(path, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+/**
  * THE TAB STRIP IS SAVED OFF THE MAIN THREAD (owner, 2026-10-12: the app
  * "stalled for like 5 seconds"). `writeFileSync` on the debounce held main for
  * 3954 ms writing a 20 KB file while Windows had the disk busy (MEASURED, a

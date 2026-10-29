@@ -3,15 +3,20 @@ import { CALL, PUSH } from '@shared/channels'
 import { readFileSync } from 'fs'
 import { borderColourForWindow, hwndOf, setBorder, setCornersRounded } from './dwmHelper'
 import { restoredWindow, type WindowState } from './windowSize'
-import { latestWriter } from './latestWrite'
 import { userPaths } from './paths'
-import { E2E, appState } from './appState'
+import { E2E, windows } from './appState'
+import type { SavedBounds } from './session'
 
 // THE WINDOW'S CHROME (stage 9c of the structure cleanup, 2026-10-12, out of
 // index.ts): where the window was last time, its translucency and the
 // borderless fullscreen, the DWM border, bringing it forward, and the
-// window:* messages the title bar and the player send. The window itself is
-// `appState.mainWindow`; index.ts builds it and calls in here.
+// window:* messages the title bar and the player send. index.ts builds the
+// windows and calls in here.
+//
+// EVERY WINDOW ITS OWN (tab tear-off step 1, 2026-10-29): each window:*
+// message acts on the window whose page SENT it, never on "the" window, and
+// the fullscreen and transition state is kept per window (`chromeOf`). The
+// theme is one for the app: a change re-applies the material to every window.
 
 /**
  * Where the window was last time.
@@ -26,31 +31,33 @@ import { E2E, appState } from './appState'
  * window remembered on a second monitor that is no longer there would otherwise
  * open somewhere nobody can reach it.
  */
-/** What is saved: the un-maximised bounds, and whether it was maximised (written, never
- *  restored since 2026-10-11; see windowSize.ts). */
-interface SavedWindow extends WindowState {
-  maximised?: boolean
-}
-
 const WINDOW_STATE = userPaths.windowState
 
-export function readWindowState(): WindowState {
-  let saved: unknown = null
-  try {
-    // sync-ok: startup, the size is needed before the BrowserWindow is built
-    saved = JSON.parse(readFileSync(WINDOW_STATE(), 'utf8'))
-  } catch {
-    /* no file yet, or one written by something else */
-  }
+/**
+ * The size and place of the session's first window: the session file's own
+ * bounds (2026-10-29, one entry per window), else window-state.json, which is
+ * where an older Prism kept them (read, never written any more).
+ */
+export function readWindowState(sessionBounds: SavedBounds | null): WindowState {
+  let saved: unknown = sessionBounds
+  if (!saved)
+    try {
+      // sync-ok: startup, the size is needed before the BrowserWindow is built
+      saved = JSON.parse(readFileSync(WINDOW_STATE(), 'utf8'))
+    } catch {
+      /* no file yet, or one written by something else */
+    }
   return restoredWindow(saved, screen.getAllDisplays(), screen.getPrimaryDisplay().workArea)
 }
 
 /** Save on a delay: a drag fires this continuously, and the disk does not need
- *  to hear about every pixel of it. The write is the tab strip's kind (owner,
- *  2026-10-12, the 3.9 s tabs.json freeze): off main, swapped in whole, newest
- *  last. */
-const windowStateFile = latestWriter(WINDOW_STATE)
-export function watchWindowState(win: BrowserWindow, flushTabs: () => void): void {
+ *  to hear about every pixel of it. The bounds go into the window's own entry
+ *  of the session file (`report`), written off main like the tab strip. */
+export function watchWindowState(
+  win: BrowserWindow,
+  report: (bounds: SavedBounds) => void,
+  flush: () => void
+): void {
   let timer: NodeJS.Timeout | null = null
   const save = (): void => {
     if (timer) clearTimeout(timer)
@@ -58,9 +65,7 @@ export function watchWindowState(win: BrowserWindow, flushTabs: () => void): voi
       if (win.isDestroyed() || win.isMinimized()) return
       // getNormalBounds is the un-maximised size, which is what should come back
       // when the window is restored.
-      const b = win.getNormalBounds()
-      const state: SavedWindow = { ...b, maximised: win.isMaximized() }
-      void windowStateFile.write(JSON.stringify(state))
+      report({ ...win.getNormalBounds(), maximised: win.isMaximized() })
     }, 400)
   }
   // Listed one by one: BrowserWindow's overloads are per event name, so a loop
@@ -69,12 +74,19 @@ export function watchWindowState(win: BrowserWindow, flushTabs: () => void): voi
   win.on('move', save)
   win.on('maximize', save)
   win.on('unmaximize', save)
-  win.on('close', save)
-  win.on('close', flushTabs)
+  win.on('close', () => {
+    if (timer) clearTimeout(timer)
+    timer = null
+    if (!win.isDestroyed() && !win.isMinimized()) report({ ...win.getNormalBounds(), maximised: win.isMaximized() })
+  })
+  win.on('close', flush)
   // Every route out of the window ends here: the title bar's X, Alt+F4, the
   // taskbar, Escape. Unsaved text stops all of them until the user answers.
+  // THIS window's text and THIS window's answer (2026-10-29): another
+  // window's "discard" never lets this one's unsaved text through.
   win.on('close', (e) => {
-    if (!appState.editorDirty || appState.closeConfirmed) return
+    const r = windows.recordOf(win)
+    if (!r?.dirty || r.closeConfirmed) return
     e.preventDefault()
     win.webContents.send(PUSH.appAskClose)
     // A minimised or background window can't show its own dialog usefully.
@@ -116,7 +128,23 @@ let wantedMaterial: { material: string; light?: boolean } = { material: 'none' }
  * where nothing can be seen changing. It stays opaque until the fade on the far
  * side has lifted.
  */
-let fsTransition = false
+/**
+ * Each window's own share of the state described here and below (2026-10-29):
+ * its transition, its borderless-fullscreen bounds and maximize, and its
+ * border strip's timer. A WeakMap, so a closed window takes its own with it.
+ */
+interface WindowChrome {
+  fsTransition: boolean
+  preFsBounds: Electron.Rectangle | null
+  preFsMaximized: boolean
+  borderStrip: NodeJS.Timeout | null
+}
+const chrome = new WeakMap<BrowserWindow, WindowChrome>()
+function chromeOf(win: BrowserWindow): WindowChrome {
+  let c = chrome.get(win)
+  if (!c) chrome.set(win, (c = { fsTransition: false, preFsBounds: null, preFsMaximized: false, borderStrip: null }))
+  return c
+}
 /**
  * BORDERLESS FULLSCREEN (2026-09-02), and why the OS one is not used.
  *
@@ -136,30 +164,31 @@ let fsTransition = false
  * What is given up: `document.fullscreenElement`, and with it the `:fullscreen`
  * CSS hook and Chromium's native Escape. App owns Escape already and tracks the
  * state from this IPC, so both are covered.
+ *
+ * MAXIMIZED IS A STATE, NOT A SIZE (2026-09-03). `setBounds` on a maximized
+ * window is ignored by Windows - verified by sending F11 to one: the window
+ * answered `IsZoomed: true` with its bottom still at the work area's edge,
+ * taskbar showing, which is exactly "it's more like window maximized" as the
+ * owner put it. So the state is dropped before the bounds are set
+ * (`preFsMaximized`), and put back on the way out instead of restoring a
+ * rectangle. Both are per window (`chromeOf`).
  */
-let preFsBounds: Electron.Rectangle | null = null
-/** MAXIMIZED IS A STATE, NOT A SIZE (2026-09-03). `setBounds` on a maximized
- *  window is ignored by Windows - verified by sending F11 to one: the window
- *  answered `IsZoomed: true` with its bottom still at the work area's edge,
- *  taskbar showing, which is exactly "it's more like window maximized" as the
- *  owner put it. So the state is dropped before the bounds are set, and put
- *  back on the way out instead of restoring a rectangle. */
-let preFsMaximized = false
-export const isFs = (): boolean => !!preFsBounds
+export const isFs = (win: BrowserWindow): boolean => !!chromeOf(win).preFsBounds
 
-export function applyMaterial(fullscreen: boolean): void {
+export function applyMaterial(win: BrowserWindow, fullscreen: boolean): void {
+  if (win.isDestroyed()) return
+  const c = chromeOf(win)
   // Borderless counts: there is nothing behind a window covering the screen.
-  fullscreen = fullscreen || !!preFsBounds
-  if (!appState.mainWindow) return
+  fullscreen = fullscreen || !!c.preFsBounds
   const { material, light } = wantedMaterial
   const solid = light ? '#f7f7f9' : '#111318'
   try {
-    if (fullscreen || fsTransition || material === 'none') {
-      appState.mainWindow.setBackgroundColor(solid)
-      appState.mainWindow.setBackgroundMaterial('none')
+    if (fullscreen || c.fsTransition || material === 'none') {
+      win.setBackgroundColor(solid)
+      win.setBackgroundMaterial('none')
     } else {
-      appState.mainWindow.setBackgroundColor('#00000000')
-      appState.mainWindow.setBackgroundMaterial(material as 'acrylic' | 'mica' | 'tabbed')
+      win.setBackgroundColor('#00000000')
+      win.setBackgroundMaterial(material as 'acrylic' | 'mica' | 'tabbed')
     }
   } catch {
     /* older Windows: the solid background stands */
@@ -169,14 +198,18 @@ export function applyMaterial(fullscreen: boolean): void {
   // ready-to-show read back as default once the theme handshake had run). So
   // Remove it immediately as well as after the rewrite. Waiting for the
   // debounce alone leaves a visible edge during the fullscreen fade.
-  applyDwmBorder()
-  if (borderStrip) clearTimeout(borderStrip)
-  borderStrip = setTimeout(() => {
-    borderStrip = null
-    applyDwmBorder()
+  applyDwmBorder(win)
+  if (c.borderStrip) clearTimeout(c.borderStrip)
+  c.borderStrip = setTimeout(() => {
+    c.borderStrip = null
+    applyDwmBorder(win)
   }, 80)
 }
-let borderStrip: NodeJS.Timeout | null = null
+
+/** The theme is the app's: a new one reaches every window at once. */
+function applyMaterialEverywhere(): void {
+  for (const r of windows.all()) applyMaterial(r.win, r.win.isFullScreen())
+}
 
 /**
  * Bring the window genuinely forward (2026-08-28).
@@ -218,17 +251,16 @@ export function raise(win: BrowserWindow): void {
  * two-second compile, which is why the edge used to arrive two seconds after
  * the window did.
  */
-export function applyDwmBorder(): void {
-  const win = appState.mainWindow
-  if (!win) return
+export function applyDwmBorder(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
   try {
     const hwnd = hwndOf(win.getNativeWindowHandle())
     setBorder(
       hwnd,
       borderColourForWindow({
         maximized: win.isMaximized(),
-        fullscreen: isFs(),
-        transitioning: fsTransition,
+        fullscreen: isFs(win),
+        transitioning: chromeOf(win).fsTransition,
         light: !!wantedMaterial.light
       })
     )
@@ -242,22 +274,29 @@ export function applyDwmBorder(): void {
  * #265, would add a second listener), in the order index.ts always had them.
  */
 export function registerWindowIpc(): void {
-  ipcMain.on(CALL.windowMinimize, () => appState.mainWindow?.minimize())
-  ipcMain.on(CALL.windowToggleMaximize, () =>
-    appState.mainWindow?.isMaximized()
-      ? appState.mainWindow.unmaximize()
-      : appState.mainWindow?.maximize()
-  )
-  // Closing with unsaved text asks first. The renderer keeps `editorDirty`
-  // current, so the common (clean) path closes with no round trip; only a
-  // dirty buffer costs a question. `force` is the renderer saying the user
-  // already answered it.
-  ipcMain.on(CALL.editorDirty, (_e, d: boolean) => {
-    appState.editorDirty = !!d
+  // The window whose page sent it (2026-10-29): a second window's X, its
+  // minimise and its F11 act on that window, never on the first.
+  const own = (e: Electron.IpcMainEvent): BrowserWindow | null => windows.windowOf(e.sender)
+  ipcMain.on(CALL.windowMinimize, (e) => own(e)?.minimize())
+  ipcMain.on(CALL.windowToggleMaximize, (e) => {
+    const win = own(e)
+    if (!win) return
+    if (win.isMaximized()) win.unmaximize()
+    else win.maximize()
   })
-  ipcMain.on(CALL.windowClose, (_e, force?: boolean) => {
-    if (force) appState.closeConfirmed = true
-    appState.mainWindow?.close()
+  // Closing with unsaved text asks first. The renderer keeps its window's
+  // dirty flag current, so the common (clean) path closes with no round
+  // trip; only a dirty buffer costs a question. `force` is the renderer
+  // saying the user already answered it, for ITS window.
+  ipcMain.on(CALL.editorDirty, (e, d: boolean) => {
+    const r = windows.of(e.sender)
+    if (r) r.dirty = !!d
+  })
+  ipcMain.on(CALL.windowClose, (e, force?: boolean) => {
+    const r = windows.of(e.sender)
+    if (!r || r.win.isDestroyed()) return
+    if (force) r.closeConfirmed = true
+    r.win.close()
   })
   /**
    * BORDERLESS FULLSCREEN, NO TOPMOST (2026-09-03, third design).
@@ -334,9 +373,9 @@ export function registerWindowIpc(): void {
       }
     })
   }
-  const shroudRaise = (): void => {
+  // One shroud for the app, raised on the display of the window that asked.
+  const shroudRaise = (win: BrowserWindow | null): void => {
     if (E2E) return // it would cover the REAL display while the suite runs parked
-    const win = appState.mainWindow
     if (!win) return
     try {
       if (!fsShroud || fsShroud.isDestroyed()) {
@@ -374,7 +413,25 @@ export function registerWindowIpc(): void {
     if (shroudSafety) clearTimeout(shroudSafety)
     shroudSafety = setTimeout(shroudLift, 2500)
   }
-  ipcMain.on(CALL.windowFsShroud, (_e, up: boolean) => (up ? shroudRaise() : shroudLift()))
+  ipcMain.on(CALL.windowFsShroud, (e, up: boolean) => (up ? shroudRaise(own(e)) : shroudLift()))
+  // THE SHROUD NEVER KEEPS THE APP ALIVE (2026-10-29). It is a BrowserWindow,
+  // hidden rather than closed between uses, and a hidden window still counts
+  // against `window-all-closed`: once fullscreen had been used, closing the
+  // last Prism window could leave a process with nothing on screen. It goes
+  // when the last page window does (index.ts).
+  destroyShroud = (): void => {
+    if (shroudAnim) clearInterval(shroudAnim)
+    if (shroudSafety) clearTimeout(shroudSafety)
+    shroudAnim = null
+    shroudSafety = null
+    const w = fsShroud
+    fsShroud = null
+    try {
+      if (w && !w.isDestroyed()) w.destroy()
+    } catch {
+      /* gone is gone */
+    }
+  }
   /**
    * SQUARE CORNERS WHILE FULLSCREEN (2026-09-03). Windows 11 rounds every
    * top-level window, and a borderless cover is still just a window - the
@@ -386,49 +443,48 @@ export function registerWindowIpc(): void {
    * milliseconds under the shroud. The 1px DWM BORDER is not handled here:
    * it follows the window's state - see applyDwmBorder.
    */
-  const setCorners = (rounded: boolean): void => {
-    const win = appState.mainWindow
-    if (!win) return
+  const setCorners = (win: BrowserWindow, rounded: boolean): void => {
     try {
       setCornersRounded(hwndOf(win.getNativeWindowHandle()), rounded)
     } catch {
       /* rounded corners are cosmetic; the swap must not fail over them */
     }
   }
-  ipcMain.on(CALL.windowSetFullscreen, (_e, on: boolean) => {
-    const win = appState.mainWindow
-    if (!win || !!on === isFs()) return
+  ipcMain.on(CALL.windowSetFullscreen, (e, on: boolean) => {
+    const win = own(e)
+    if (!win || !!on === isFs(win)) return
+    const c = chromeOf(win)
     try {
       if (on) {
-        preFsBounds = win.getBounds()
-        preFsMaximized = win.isMaximized()
-        const disp = screen.getDisplayMatching(preFsBounds)
-        if (preFsMaximized) win.unmaximize()
+        c.preFsBounds = win.getBounds()
+        c.preFsMaximized = win.isMaximized()
+        const disp = screen.getDisplayMatching(c.preFsBounds)
+        if (c.preFsMaximized) win.unmaximize()
         win.setResizable(false)
         win.setBounds(disp.bounds)
-        setCorners(false)
+        setCorners(win, false)
       } else {
-        const back = preFsBounds
-        preFsBounds = null
+        const back = c.preFsBounds
+        c.preFsBounds = null
         const disp = screen.getDisplayMatching(back ?? win.getBounds())
         win.setResizable(true)
-        setCorners(true)
-        if (preFsMaximized) {
+        setCorners(win, true)
+        if (c.preFsMaximized) {
           win.setBounds(disp.workArea)
           win.maximize()
         } else if (back) {
           win.setBounds(back)
         }
-        preFsMaximized = false
+        c.preFsMaximized = false
         // The edge comes back WITH the window, not on the material
         // debounce behind it (owner: it used to arrive seconds late).
-        applyDwmBorder()
+        applyDwmBorder(win)
       }
     } catch {
-      preFsBounds = on ? preFsBounds : null
+      c.preFsBounds = on ? c.preFsBounds : null
     }
-    applyMaterial(isFs())
-    win.webContents.send(PUSH.windowFullscreen, isFs())
+    applyMaterial(win, isFs(win))
+    win.webContents.send(PUSH.windowFullscreen, isFs(win))
   })
   // Windows 11 composites acrylic and mica behind the window; CSS can't, since
   // backdrop-filter only sees the app's own pixels. The window background has
@@ -449,12 +505,14 @@ export function registerWindowIpc(): void {
   // material comes back only once the far side has been painted and lifted.
   // Registered once here, not per window: a rebuilt window (#265) would add
   // a second listener.
-  ipcMain.on(CALL.windowFsTransition, (_e, active: boolean) => {
-    fsTransition = !!active
-    applyMaterial(!!appState.mainWindow?.isFullScreen())
+  ipcMain.on(CALL.windowFsTransition, (e, active: boolean) => {
+    const win = own(e)
+    if (!win) return
+    chromeOf(win).fsTransition = !!active
+    applyMaterial(win, win.isFullScreen())
   })
-  ipcMain.on(CALL.windowMaterial, (_e, material: string, mode?: string) => {
-    if (!appState.mainWindow) return
+  ipcMain.on(CALL.windowMaterial, (e, material: string, mode?: string) => {
+    if (!own(e)) return
     const light = mode === 'light'
     wantedMaterial = { material, light }
     try {
@@ -462,10 +520,15 @@ export function registerWindowIpc(): void {
       // window's immersive theme, which Electron drives off nativeTheme. Told
       // nothing, a light acrylic style gets a dark frost under white surfaces.
       nativeTheme.themeSource = light ? 'light' : 'dark'
-      // Fullscreen keeps the window opaque whatever the style asks for.
-      applyMaterial(appState.mainWindow.isFullScreen())
+      // Fullscreen keeps a window opaque whatever the style asks for. Every
+      // window: the theme is the app's, whichever window changed it.
+      applyMaterialEverywhere()
     } catch {
       /* older Windows, or an unsupported value: the solid background stands */
     }
   })
 }
+
+/** The shroud's teardown, once `registerWindowIpc` has made it (see there). */
+let destroyShroud = (): void => {}
+export const releaseShroud = (): void => destroyShroud()

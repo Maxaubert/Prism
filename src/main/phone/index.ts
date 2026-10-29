@@ -15,7 +15,7 @@ import { forget as forgetPhone } from './pairing'
 import { writeAtomic } from '../latestWrite'
 import { userPaths } from '../paths'
 import type { PhoneState, FileMemoryPatch } from '@shared/types'
-import { E2E, sendToPage } from '../appState'
+import { E2E, windows } from '../appState'
 
 /**
  * Prism on your phone, main's side (stage 9c of the structure cleanup,
@@ -64,7 +64,8 @@ export function startPhoneService(opts: {
   }
   let phone: PhoneServer | null = null
   let phoneError = ''
-  const phoneChanged = (): void => sendToPage(PUSH.phoneChanged)
+  // Every window's Settings shows the phone (2026-10-29).
+  const phoneChanged = (): void => void windows.sendToAll(PUSH.phoneChanged)
   let pins: PhonePin[] = []
   // The window's Quick access pins (2026-10-14): fire-and-forget, kept here
   // for the drawer. Main never reads the renderer's storage itself.

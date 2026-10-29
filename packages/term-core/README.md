@@ -37,7 +37,9 @@ change here is an ordinary Prism PR.
 6. **The diagnostics log**: `startDiagnostics` wires it in one call (call it before any IPC is registered);
    a host without `diagLogDir` logs nothing. Read it with `npm run diag`. Pass `appMetrics` for the
    `memory` crumbs, and call the page's `noteDiagBackground(minimised)` so its beat slows while the window
-   is minimised (`watchWindow` slows main's watch to match from the window's own events).
+   is minimised (`watchWindow` slows main's watch to match from the window's own events). A host with
+   several windows calls `watchWindow` for each: every page beats on its own (keyed by its webContents id,
+   2026-10-29), the stack is asked of the page that went quiet, and a closed window is forgotten.
 7. A main-side file obeys "main never waits on the disk": a `*Sync` call is marked `// sync-ok: <reason>`.
 
 CSS: the core uses Tailwind utilities and the `--p-*` tokens Prism defines. A new token needed here is added there.

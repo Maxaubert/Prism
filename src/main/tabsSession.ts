@@ -1,7 +1,9 @@
 import { dirname, resolve } from 'path'
 import { grantDesktopDirectory } from './desktopAccess'
 import { browseDirectory, type BrowseRead } from './browse'
-import { tabsWriter, type SavedTabs } from './tabs'
+import { type SavedTabs } from './tabs'
+import { latestWriter } from './latestWrite'
+import { createSessionModel, type SavedBounds, type SessionEntry } from './session'
 import { userPaths } from './paths'
 import type { BrowseDirectory } from '@shared/browse'
 import type { OpenPayload } from '@shared/types'
@@ -20,9 +22,27 @@ export interface TabsSessionDeps {
 }
 
 export interface TabsSession {
-  restoreTabs(send: (payload: OpenPayload) => void, saved: SavedTabs): Promise<boolean>
-  saveTabs(state: SavedTabs): void
-  flushTabs(): void
+  restoreTabs(
+    send: (payload: OpenPayload) => void,
+    saved: SavedTabs,
+    mintId: (i: number) => string
+  ): Promise<boolean>
+  session: SessionStore
+}
+
+/** The session file's writer, one entry per window (session.ts), keyed by
+ *  each window page's webContents id. */
+export interface SessionStore {
+  seed(key: number, saved: SessionEntry | null): void
+  report(key: number, state: SavedTabs): void
+  bounds(key: number, bounds: SavedBounds): void
+  focus(key: number): void
+  rekey(from: number, to: number): void
+  /** A window closed: `others` are still open, or the app is `quitting`.
+   *  Written at once (the last close may be the quit). */
+  closed(key: number, how: { others: boolean; quitting: boolean }): void
+  flush(): void
+  primary(): SessionEntry | null
 }
 
 /** How long the restore waits for the folder an Explorer tab was showing
@@ -90,9 +110,12 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
    */
   async function restoreTabs(
     send: (payload: OpenPayload) => void,
-    saved: SavedTabs
+    saved: SavedTabs,
+    mintId: (i: number) => string
   ): Promise<boolean> {
-    const ids = saved.tabs.map((t, i) => t.id ?? `restored-${i}-${Date.now()}`)
+    // An id minted here is unique in the process (2026-10-29): two windows
+    // restoring in the same millisecond must never share one.
+    const ids = saved.tabs.map((t, i) => t.id ?? mintId(i))
     for (const [i, t] of saved.tabs.entries()) {
       // The SAVED root, not the file's folder: navigating into a subfolder and
       // reopening there used to leave the tab rooted at the subfolder, because
@@ -167,29 +190,61 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
     return pinnedSent
   }
 
-  /** Save on a delay, as the window state does: switching tabs with the arrow
-   *  keys fires this continuously and the disk need not hear about each one. */
-  let tabsTimer: NodeJS.Timeout | null = null
-  let tabsPending: SavedTabs | null = null
-  const tabsFile = tabsWriter(userPaths.tabs)
-  function saveTabs(state: SavedTabs): void {
-    tabsPending = state
-    if (tabsTimer) clearTimeout(tabsTimer)
-    tabsTimer = setTimeout(() => {
-      tabsTimer = null
-      if (tabsPending) void tabsFile.write(tabsPending)
+  /**
+   * THE SESSION, PER WINDOW (2026-10-29, session.ts): each window's strip and
+   * bounds, keyed by its page's webContents id. Saved on a delay, as before:
+   * switching tabs with the arrow keys fires this continuously and the disk
+   * need not hear about each one.
+   */
+  const model = createSessionModel()
+  let timer: NodeJS.Timeout | null = null
+  let dirty = false
+  const file = latestWriter(userPaths.tabs)
+  const later = (): void => {
+    dirty = true
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      if (!dirty) return
+      dirty = false
+      const doc = model.doc()
+      if (doc) void file.write(JSON.stringify(doc))
     }, 400)
   }
-
-  /** Close flushes the debounce: a report still in its 400ms window must not
-   *  die with the app. */
-  function flushTabs(): void {
-    if (tabsTimer) {
-      clearTimeout(tabsTimer)
-      tabsTimer = null
+  /** A close flushes the debounce: a report still in its 400ms window must
+   *  not die with the app. */
+  function flush(): void {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
     }
-    if (tabsPending) tabsFile.flushSync(tabsPending) // sync-ok: window close, which may be the quit; the last strip must be down
+    if (!dirty) return
+    dirty = false
+    const doc = model.doc()
+    if (doc) file.flushSync(JSON.stringify(doc)) // sync-ok: window close, which may be the quit; the last strip must be down
+  }
+  const session: SessionStore = {
+    seed: (key, saved) => model.seed(key, saved),
+    report(key, state) {
+      model.report(key, state)
+      later()
+    },
+    bounds(key, b) {
+      model.bounds(key, b)
+      later()
+    },
+    // Not written on its own: which window leads matters at the next write
+    // and at every close, and a focus is no reason to touch the disk.
+    focus: (key) => model.focus(key),
+    rekey: (from, to) => model.rekey(from, to),
+    closed(key, how) {
+      model.closed(key, how)
+      dirty = true
+      flush()
+    },
+    flush,
+    primary: () => model.primary()
   }
 
-  return { restoreTabs, saveTabs, flushTabs }
+  return { restoreTabs, session }
 }

@@ -41,9 +41,9 @@ import {
 import { fileKind } from '@shared/fileKind'
 import type { ArchiveListing } from '@shared/types'
 import { exists } from '../fsUtil'
-import { appState } from '../appState'
+import { windows } from '../appState'
 import { sevenExe } from '../bundledTools'
-import { openDialog } from '../dialogs'
+import { openDialog, type DialogOwner } from '../dialogs'
 import type { MainCtx } from './context'
 
 /** The archive bodies the phone's routes share with these handlers (#106):
@@ -96,9 +96,28 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
         ...(t0 !== undefined ? { ms: Math.round(performance.now() - t0) } : {})
       })
     }
-    if (appState.mainWindow && !appState.mainWindow.isDestroyed())
-      appState.mainWindow.webContents.send(PUSH.extractEvent, e)
+    // To the window that started the job (tab tear-off step 1, 2026-10-29):
+    // the extraction window is one modal, in the window that asked for it.
+    if (e.type === 'start' && beginning !== undefined) jobOwners.set(e.id, beginning)
+    const owner = jobOwners.get(e.id)
+    if (e.type === 'end') jobOwners.delete(e.id)
+    windows.sendTo(owner !== undefined ? windows.windowOf({ id: owner }) : windows.target(), PUSH.extractEvent, e)
   })
+  /** Which page each job belongs to (webContents id), and the page whose job
+   *  is being opened right now (`begin` says `start` synchronously). */
+  const jobOwners = new Map<string, number>()
+  let beginning: number | undefined
+  const beginJob = (
+    info: { archive: string; dest: string; asksPassword?: boolean },
+    who: DialogOwner
+  ): ExtractJob | null => {
+    beginning = who?.id
+    try {
+      return extractJobs.begin(info)
+    } finally {
+      beginning = undefined
+    }
+  }
   ipcMain.handle(CALL.extractCancel, (_e, id: string) =>
     typeof id === 'string' ? extractJobs.cancel(id) : false
   )
@@ -115,13 +134,14 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    * error lives. So a refusal opens the window straight into its error,
    * and the five routes keep one way of saying no.
    */
-  const refused = (zip: unknown, dest: unknown): { ok: false; reason: 'failed' } => {
-    extractJobs
-      .begin({
+  const refused = (zip: unknown, dest: unknown, who: DialogOwner): { ok: false; reason: 'failed' } => {
+    beginJob(
+      {
         archive: typeof zip === 'string' ? basename(zip) : 'archive',
         dest: typeof dest === 'string' ? dest : ''
-      })
-      ?.end('failed', 'failed')
+      },
+      who
+    )?.end('failed', 'failed')
     return { ok: false, reason: 'failed' }
   }
   /** What the engines hand a job: its progress, its child, its question. */
@@ -144,9 +164,10 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     entries: string[],
     destDir: string,
     pw: string,
-    asksPassword: boolean
+    asksPassword: boolean,
+    who: DialogOwner
   ): Promise<ExtractToResult> {
-    const job = extractJobs.begin({ archive: basename(zip), dest: destDir, asksPassword })
+    const job = beginJob({ archive: basename(zip), dest: destDir, asksPassword }, who)
     if (!job) return BUSY
     try {
       // A .7z/.rar/.iso is not a zip: adm-zip cannot read one, so dragging a
@@ -174,7 +195,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
   ipcMain.handle(
     CALL.archiveExtractTo,
     (
-      _e,
+      e,
       zip: string,
       entries: string[],
       destDir: string,
@@ -185,9 +206,9 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
       // main made, and extracting out of it reads it; the destination is
       // still a folder the tab may write to.
       if (!archiveReadOk(zip) || !Array.isArray(entries) || !insideDesktop(destDir))
-        return refused(zip, destDir)
+        return refused(zip, destDir, e.sender)
       const pw = typeof password === 'string' ? password : ''
-      return membersOut(zip, entries, destDir, pw, !!asksPassword)
+      return membersOut(zip, entries, destDir, pw, !!asksPassword, e.sender)
     }
   )
 
@@ -201,15 +222,15 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    */
   ipcMain.handle(
     CALL.archiveExtractMembersPicked,
-    async (_e, zip: string, entries: string[], password?: string) => {
-      if (!archiveReadOk(zip) || !Array.isArray(entries)) return refused(zip, '')
-      const r = await openDialog({ properties: ['openDirectory', 'createDirectory'] })
+    async (e, zip: string, entries: string[], password?: string) => {
+      if (!archiveReadOk(zip) || !Array.isArray(entries)) return refused(zip, '', e.sender)
+      const r = await openDialog({ properties: ['openDirectory', 'createDirectory'] }, e.sender)
       if (r.canceled || !r.filePaths.length) return { ok: false, reason: 'cancelled' }
       const destDir = r.filePaths[0]
       const pw = typeof password === 'string' ? password : ''
       // The archive panel is the only caller, and it asks for a password
       // and tries again.
-      const out = await membersOut(zip, entries, destDir, pw, true)
+      const out = await membersOut(zip, entries, destDir, pw, true, e.sender)
       return out.ok ? { ok: true, dest: destDir, written: out.written } : out
     }
   )
@@ -219,7 +240,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    * (#300): the read-only note's Extract here. Answers the extracted copy,
    * so it can be opened where editing can start.
    */
-  ipcMain.handle(CALL.archiveMemberOut, async (_e, path: string) => {
+  ipcMain.handle(CALL.archiveMemberOut, async (e, path: string) => {
     const outer = typeof path === 'string' ? await container(path) : null
     if (!outer || !insideDesktop(outer)) return { ok: false }
     const r = await archives.resolve(path, { enterLast: false })
@@ -235,7 +256,8 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
       [r.place.entry.path],
       dest,
       archivePasswords.get(r.place.real) ?? '',
-      false
+      false,
+      e.sender
     )
     return out.ok ? { ok: true, path: (await exists(landing)) ? landing : null } : { ok: false }
   })
@@ -509,21 +531,24 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
   ipcMain.handle(
     CALL.archiveExtractAll,
     async (
-      _e,
+      e,
       p: string,
       here?: boolean
     ): Promise<ExtractAllResult> => {
-      if (!archiveOk(p)) return refused(p, '')
+      if (!archiveOk(p)) return refused(p, '', e.sender)
       let parent = dirname(p)
       if (!here) {
         // The dialog IS the consent: it is why the destination does not have
         // to be inside a root. "Extract here" needs none, because the
         // archive's own folder already is one.
-        const r = await openDialog({
-          properties: ['openDirectory', 'createDirectory'],
-          defaultPath: dirname(p),
-          buttonLabel: 'Extract here'
-        })
+        const r = await openDialog(
+          {
+            properties: ['openDirectory', 'createDirectory'],
+            defaultPath: dirname(p),
+            buttonLabel: 'Extract here'
+          },
+          e.sender
+        )
         if (r.canceled || !r.filePaths.length) return { ok: false, reason: 'cancelled' }
         parent = r.filePaths[0]
       }
@@ -532,11 +557,11 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
       // one this job made. `landingDir` gives up after "name (99)", and
       // extracting into a folder that was already there would make the
       // clean-up a delete of somebody's files.
-      if (await exists(dest)) return refused(p, parent)
+      if (await exists(dest)) return refused(p, parent, e.sender)
       // Opened AFTER the dialog: the window is for the work, not for the
       // question. It names the folder that was chosen, which is where the
       // result lands whether or not the one-folder rule unwraps it.
-      const job = extractJobs.begin({ archive: basename(p), dest: parent })
+      const job = beginJob({ archive: basename(p), dest: parent }, e.sender)
       if (!job) return BUSY
       const made = new Made()
       try {
@@ -579,19 +604,19 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
   ipcMain.handle(
     CALL.archiveExtractDir,
     async (
-      _e,
+      e,
       p: string,
       entry: string,
       here?: boolean
     ): Promise<ExtractDirResult> => {
       // A copy out of a nested archive reads a temp copy main made (#300).
       if (!(here ? archiveOk(p) : archiveReadOk(p)) || typeof entry !== 'string' || !entry) {
-        return here ? refused(p, '') : { ok: false, reason: 'failed' }
+        return here ? refused(p, '', e.sender) : { ok: false, reason: 'failed' }
       }
       // `here` writes beside the archive, where the user can see it, so it
       // is a job with the window (#166). The temp copy that "Copy folder"
       // puts on the clipboard is not, and stays silent.
-      const job = here ? extractJobs.begin({ archive: basename(p), dest: dirname(p) }) : null
+      const job = here ? beginJob({ archive: basename(p), dest: dirname(p) }, e.sender) : null
       if (here && !job) return BUSY
       const made = new Made()
       /** Say how it ended, to the window and to the caller, in one place. */

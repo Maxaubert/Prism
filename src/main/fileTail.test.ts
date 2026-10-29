@@ -6,6 +6,8 @@ import {
   readTail,
   startTail,
   stopAllTails,
+  stopTail,
+  stopTailsOf,
   TAIL_BACKLOG_MAX,
   TAIL_CHUNK,
   TAIL_SKIP_TO,
@@ -91,6 +93,19 @@ describe('following a file that grows', () => {
     // The text already there is NOT re-sent: the offset is where the reader
     // had got to, not the start of the file.
     expect(seen.map((e) => e.text).join('')).toBe('second\n')
+  })
+
+  it('two windows follow one file, and one stopping leaves the other live (2026-10-29)', async () => {
+    const p = file('shared.log', 'first\n')
+    const a: TailEvent[] = []
+    const b: TailEvent[] = []
+    await startTail(p, 6, (e) => a.push(e), 'w1')
+    await startTail(p, 6, (e) => b.push(e), 'w2')
+    stopTailsOf('w1')
+    stopTail(p, 'w3') // nobody's: changes nothing
+    appendFileSync(p, 'second\n')
+    await waitFor(b, (s) => s.some((e) => e.text.includes('second')))
+    expect(a).toEqual([])
   })
 
   it('catches up on anything written between the read and the follow', async () => {

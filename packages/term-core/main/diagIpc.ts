@@ -15,7 +15,9 @@ import type { IpcMainLike } from './ipcLike'
 export interface DiagIpcDeps {
   ipcMain: IpcMainLike
   log: DiagLog
-  watch?: { beat(): void; pageStall(startAt: number, ms: number): void }
+  /** Each page's beat and stalls, named by its sender's id when the event has
+   *  one (several windows in one process, 2026-10-29). */
+  watch?: { beat(page?: number): void; pageStall(startAt: number, ms: number, page?: number): void }
   /** Show a folder in Explorer. Under --e2e the host records instead. */
   openFolder(dir: string): void
   wall?: () => number
@@ -56,22 +58,36 @@ export function pageLine(
   return { k, at: when, fields }
 }
 
+/** The page an IPC event came from: its sender's webContents id, if it says. */
+function pageOf(e: unknown): number | undefined {
+  const id = (e as { sender?: { id?: unknown } } | null)?.sender?.id
+  return typeof id === 'number' ? id : undefined
+}
+
 export function registerDiagIpc(deps: DiagIpcDeps): void {
   const { ipcMain, log } = deps
   const wall = deps.wall ?? Date.now
 
-  ipcMain.on(DGCH.batch, (_e: unknown, batch: unknown) => {
+  ipcMain.on(DGCH.batch, (e: unknown, batch: unknown) => {
     if (!Array.isArray(batch)) return
     const verbose = log.verbose()
+    const page = pageOf(e)
     for (const raw of batch.slice(0, MAX_BATCH)) {
       const line = pageLine(raw, wall(), verbose)
       if (!line) continue
       log.writeAt('page', line.k, line.at, line.fields)
-      if (line.k === 'page-stall' && typeof line.fields.ms === 'number') deps.watch?.pageStall(line.at, line.fields.ms)
+      if (line.k === 'page-stall' && typeof line.fields.ms === 'number') {
+        if (page === undefined) deps.watch?.pageStall(line.at, line.fields.ms)
+        else deps.watch?.pageStall(line.at, line.fields.ms, page)
+      }
     }
   })
 
-  ipcMain.on(DGCH.beat, () => deps.watch?.beat())
+  ipcMain.on(DGCH.beat, (e: unknown) => {
+    const page = pageOf(e)
+    if (page === undefined) deps.watch?.beat()
+    else deps.watch?.beat(page)
+  })
 
   ipcMain.handle(DGCH.info, () => ({ verbose: log.verbose(), dir: log.dir }))
 

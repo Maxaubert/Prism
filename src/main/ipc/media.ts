@@ -16,6 +16,7 @@ import { exists } from '../fsUtil'
 import { MEDIA_SCHEME } from '../mediaProtocol'
 import { ffmpegTools, fluidTools } from '../bundledTools'
 import { openDialog } from '../dialogs'
+import { windows } from '../appState'
 import type { MainCtx, ReadyCtx } from './context'
 
 /** Subtitles, the audio sidecar, peaks and probes, MIDI, video conversion, documents. */
@@ -44,14 +45,17 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
    * readable - it can sit outside every root, and the root wall would
    * otherwise refuse the file the user just chose.
    */
-  ipcMain.handle(CALL.subsPick, async (_e, near?: string): Promise<SubTrack | null> => {
-    const r = await openDialog({
-      properties: ['openFile'],
-      ...(typeof near === 'string' && (await exists(dirname(near)))
-        ? { defaultPath: dirname(near) }
-        : {}),
-      filters: [{ name: 'Subtitles', extensions: ['srt', 'vtt', 'ass', 'ssa'] }]
-    })
+  ipcMain.handle(CALL.subsPick, async (e, near?: string): Promise<SubTrack | null> => {
+    const r = await openDialog(
+      {
+        properties: ['openFile'],
+        ...(typeof near === 'string' && (await exists(dirname(near)))
+          ? { defaultPath: dirname(near) }
+          : {}),
+        filters: [{ name: 'Subtitles', extensions: ['srt', 'vtt', 'ass', 'ssa'] }]
+      },
+      e.sender
+    )
     if (r.canceled || !r.filePaths.length) return null
     const p = r.filePaths[0]
     pickedSubs.add(p)
@@ -180,6 +184,33 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
    *  from the moment it asks, so a cancel during the probe is no longer lost
    *  (review, 2026-10-16, see convertWaiters.ts). */
   const converting = createConvertWaiters(cancelConversion)
+  /**
+   * WHAT EACH WINDOW IS STILL WAITING FOR (tab tear-off step 1, 2026-10-29):
+   * a page that closes never sends its cancel, so its asks are cancelled
+   * here when it goes, or a film nobody can see goes on converting. Counted
+   * per source: settled by the page's own cancel or by the answer.
+   */
+  const pageAsks = new Map<number, Map<string, number>>()
+  const asksOf = (sender: Electron.WebContents): Map<string, number> => {
+    let asks = pageAsks.get(sender.id)
+    if (!asks) {
+      const id = sender.id
+      asks = new Map()
+      pageAsks.set(id, asks)
+      sender.once('destroyed', () => {
+        for (const [source, n] of pageAsks.get(id) ?? [])
+          for (let i = 0; i < n; i += 1) converting.cancel(source)
+        pageAsks.delete(id)
+      })
+    }
+    return asks
+  }
+  const settle = (page: number, source: string): void => {
+    const asks = pageAsks.get(page)
+    const n = asks?.get(source) ?? 0
+    if (n > 1) asks?.set(source, n - 1)
+    else asks?.delete(source)
+  }
   ipcMain.handle(
     CALL.videoConvert,
     async (e, p: string): Promise<ConvertResult> => {
@@ -191,6 +222,8 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
       // that cancel and leave a whole re-encode running for nobody (review,
       // 2026-10-16). The probe is the shared one the player already asked.
       const ask = converting.join(p)
+      const mine = asksOf(e.sender)
+      mine.set(p, (mine.get(p) ?? 0) + 1)
       try {
         const info = await probeCached(p)
         const plan = planConversion(info, extname(p))
@@ -202,7 +235,11 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
           convertDir(),
           plan,
           info?.duration ?? 0,
-          (pct) => e.sender.send(PUSH.videoProgress, { path: p, pct })
+          // To EVERY window, by path (2026-10-29): a second window opening
+          // the same film joins this job and must see it move too, and a
+          // window that has closed is never sent to (a throw here would land
+          // in ffmpeg's stdout handler, uncaught).
+          (pct) => void windows.sendToAll(PUSH.videoProgress, { path: p, pct })
         )
         if (!converting.started(ask, handle.out)) return { error: 'cancelled' }
         const out = await handle.done
@@ -213,13 +250,15 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
         return { error: err instanceof Error ? err.message : 'conversion failed' }
       } finally {
         converting.done(ask)
+        settle(e.sender.id, p)
       }
     }
   )
   // Nobody is waiting for this any more: the viewer moved on to another
   // file while a whole film was being re-encoded behind it (2026-08-28).
-  ipcMain.on(CALL.videoCancel, (_e, source: string) => {
+  ipcMain.on(CALL.videoCancel, (e, source: string) => {
     if (typeof source !== 'string') return
+    settle(e.sender.id, source)
     converting.cancel(source)
   })
 

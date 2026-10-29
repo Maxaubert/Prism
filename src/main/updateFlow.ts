@@ -4,7 +4,16 @@ import { hasOtherExplorerWindows } from './explorerWindow'
 import { installUpdate, updateCalls, watchForUpdates, type UpdateInfo } from './update'
 import { previewUpdate, runPreviewInstall, wantsPreview } from 'prism-term-core/main/updatePreview'
 import pkg from '../../package.json'
-import { E2E, appState, sendToPage } from './appState'
+import { E2E, appState, windows } from './appState'
+
+/** The offer and its progress are every window's (2026-10-29): each title
+ *  bar carries the update chip. */
+const sendToPage = (channel: string, ...args: unknown[]): void => void windows.sendToAll(channel, ...args)
+/** The close question pre-answered (or taken back) for every window at once:
+ *  the install's quit closes them all. */
+const confirmAllCloses = (on: boolean): void => {
+  for (const r of windows.all()) r.closeConfirmed = on
+}
 
 // THE UPDATE FLOW (stage 9c of the structure cleanup, 2026-10-12, out of
 // index.ts): the offer main remembers, the check that makes one, and the
@@ -98,11 +107,13 @@ export function startUpdates(preferencesOwner: string): void {
     // waited (2026-08-28). The renderer settles the question first and this
     // refuses until it has; then the quit is pre-answered, like any other
     // route the user has already agreed to.
-    if (appState.editorDirty) return false
+    // ANY window's unsaved text (2026-10-29): the quit closes every one.
+    if (windows.anyDirty()) return false
     const canInstall = async (): Promise<boolean> => {
-      if (!(await hasOtherExplorerWindows(preferencesOwner))) return !appState.editorDirty
-      if (appState.mainWindow)
-        await dialog.showMessageBox(appState.mainWindow, {
+      if (!(await hasOtherExplorerWindows(preferencesOwner))) return !windows.anyDirty()
+      const owner = windows.target()?.win
+      if (owner)
+        await dialog.showMessageBox(owner, {
           type: 'info',
           message: 'Close the other Prism windows before installing the update.',
           detail: 'This keeps their open files safe.',
@@ -112,7 +123,7 @@ export function startUpdates(preferencesOwner: string): void {
     }
     if (appState.installingUpdate || !(await canInstall())) return false
     appState.installingUpdate = true
-    appState.closeConfirmed = true
+    confirmAllCloses(true)
     const run = new AbortController()
     updateRun = run
     const ok = await installUpdate(
@@ -127,7 +138,7 @@ export function startUpdates(preferencesOwner: string): void {
     // for the rest of the session: the next Alt+F4 over unsaved text would
     // close over the top of it without asking.
     if (!ok) {
-      appState.closeConfirmed = false
+      confirmAllCloses(false)
       appState.installingUpdate = false
     }
     return ok
