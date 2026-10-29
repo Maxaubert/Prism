@@ -7,6 +7,13 @@ import {
   type SetStateAction
 } from 'react'
 import { addExplorerTab, isPinnedExplorer, navigateBrowse, type TabState } from '../lib/tabs/tabs'
+import { inTime } from '../lib/inTime'
+
+/** How long the folder a request carries may take before the window lands on
+ *  what it has (Home): well inside the helper's 45 s patience, so a sleeping
+ *  network share never opens File Explorer on top of Prism (review,
+ *  2026-10-29). A local folder answers in milliseconds. */
+const FOLDER_LIMIT_MS = 5000
 
 /** A shortcut opens the browser without repurposing any project.
  *  A request from Windows' folder verb (#393) carries a folder: the browser
@@ -35,7 +42,7 @@ export function useWinEOpen(
           latest.current.exitFullscreen()
           const pinned = latest.current.state.tabs.find(isPinnedExplorer)
           if (pinned) {
-            const there = path ? await window.prism.browseDirectory(pinned.id, path) : null
+            const there = path ? await inTime(window.prism.browseDirectory(pinned.id, path), FOLDER_LIMIT_MS) : null
             if (!live) return
             setState((current) => ({
               ...current,
@@ -51,7 +58,7 @@ export function useWinEOpen(
             }))
           } else {
             const id = nextId()
-            let directory = path ? await window.prism.browseDirectory(id, path) : null
+            let directory = path ? await inTime(window.prism.browseDirectory(id, path), FOLDER_LIMIT_MS) : null
             if (!directory) {
               const home = (await window.prism.browseLocations()).find(
                 (place) => place.name === 'Home'

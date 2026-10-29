@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'crypto'
 import { spawn } from 'child_process'
-import { acknowledgeWinE, announceWinE, browseRequest, createWinERequests, winERequest } from './winERequests'
+import {
+  WIN_E_FIRST,
+  acknowledgeWinE,
+  announceWinE,
+  browseRequest,
+  createWinERequests,
+  winERequest
+} from './winERequests'
 
 const id = 'a1234567-1234-4567-89ab-123456789abc'
 afterEach(() => vi.useRealTimers())
@@ -34,10 +41,74 @@ describe('Win+E launch handoff', () => {
     expect(dispatch).not.toHaveBeenCalled()
     expect(ack).not.toHaveBeenCalled()
     requests.restored()
-    expect(dispatch).toHaveBeenCalledWith(id)
+    expect(dispatch).toHaveBeenCalledWith(id, WIN_E_FIRST, null)
     requests.ready(id)
     requests.ready(id)
     expect(ack).toHaveBeenCalledExactlyOnceWith(id)
+  })
+  // Tab tear-off step 2 (2026-10-29): a Win+E while Prism runs opens a new
+  // window in this process, and the request is THAT window's alone.
+  it('a request named for its own window waits for that window and only it may answer', () => {
+    const dispatch = vi.fn(),
+      ack = vi.fn(async () => {})
+    const requests = createWinERequests(dispatch, ack, vi.fn())
+    // The first window is up and restored: a request for another window is
+    // not its to take.
+    requests.listen()
+    requests.restored()
+    expect(requests.enqueue(id, id)).toBe(true)
+    expect(dispatch).not.toHaveBeenCalled()
+    // A retransmitted token never opens a second window.
+    expect(requests.enqueue(id, id)).toBe(false)
+    requests.listen(id)
+    expect(dispatch).not.toHaveBeenCalled()
+    requests.restored(id)
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith(id, id, null)
+    // The first window's page cannot answer it, nor can the first window's
+    // reload take it back.
+    requests.ready(id)
+    requests.reload()
+    expect(ack).not.toHaveBeenCalled()
+    requests.ready(id, id)
+    expect(ack).toHaveBeenCalledExactlyOnceWith(id)
+  })
+  it("one window's reload resends only its own requests, and a forgotten host takes none", () => {
+    const other = 'b1234567-1234-4567-89ab-123456789abc'
+    const dispatch = vi.fn()
+    const drop = vi.fn()
+    const requests = createWinERequests(dispatch, vi.fn(async () => {}), vi.fn(), drop)
+    for (const host of [id, other]) {
+      requests.listen(host)
+      requests.restored(host)
+      requests.enqueue(host, host)
+    }
+    expect(dispatch).toHaveBeenCalledTimes(2)
+    requests.reload(id)
+    requests.listen(id)
+    requests.restored(id)
+    expect(dispatch).toHaveBeenCalledTimes(3)
+    expect(dispatch).toHaveBeenLastCalledWith(id, id, null)
+    // A host whose window went takes its requests with it: each pipe is let
+    // go so the helper falls back at once (review, 2026-10-29), not after
+    // its 45 s patience, and nothing is sent to a window that is not there.
+    requests.reload(other)
+    requests.forget(other)
+    expect(drop).toHaveBeenCalledExactlyOnceWith(other)
+    requests.listen(other)
+    requests.restored(other)
+    expect(dispatch).toHaveBeenCalledTimes(3)
+    // The other window's request is untouched.
+    requests.ready(id, id)
+    expect(drop).toHaveBeenCalledTimes(1)
+  })
+  it('the folder a request carries travels with it, and a retransmission cannot change it (#393)', () => {
+    const dispatch = vi.fn()
+    const requests = createWinERequests(dispatch, vi.fn(async () => {}), vi.fn(), vi.fn())
+    expect(requests.enqueue(id, id, 'C:\\first')).toBe(true)
+    expect(requests.enqueue(id, id, 'D:\\other')).toBe(false)
+    requests.listen(id)
+    requests.restored(id)
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith(id, id, 'C:\\first')
   })
   it('deduplicates pending requests and replays only after reload is ready', () => {
     const dispatch = vi.fn(),
@@ -59,13 +130,28 @@ describe('Win+E launch handoff', () => {
   it('expires unacknowledged requests and rejects unsolicited replies', () => {
     vi.useFakeTimers()
     const ack = vi.fn(async () => {})
-    const requests = createWinERequests(vi.fn(), ack, vi.fn())
+    const drop = vi.fn()
+    const requests = createWinERequests(vi.fn(), ack, vi.fn(), drop)
     requests.restored()
     requests.listen()
     requests.enqueue(id)
     vi.advanceTimersByTime(45001)
+    // The expired request's pipe is let go, not held for the process's life.
+    expect(drop).toHaveBeenCalledExactlyOnceWith(id)
     requests.ready(id)
     expect(ack).not.toHaveBeenCalled()
+  })
+  it('an answered request keeps its pipe for the ready line', () => {
+    const drop = vi.fn()
+    const ack = vi.fn(async () => {})
+    const requests = createWinERequests(vi.fn(), ack, vi.fn(), drop)
+    requests.restored()
+    requests.listen()
+    requests.enqueue(id)
+    requests.ready(id)
+    requests.forget(WIN_E_FIRST)
+    expect(ack).toHaveBeenCalledExactlyOnceWith(id)
+    expect(drop).not.toHaveBeenCalled()
   })
 })
 

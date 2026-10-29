@@ -50,6 +50,10 @@ export interface WindowRecord<W extends PageWindow = PageWindow> {
   /** The renderer flags it was made with (`--prism-setup`, `--prism-demo`):
    *  the first window's only, carried by its crash rebuild. */
   readonly launchFlags: readonly string[]
+  /** The Win+E or folder-verb request this window was opened for while
+   *  Prism ran (step 2, 2026-10-29): its page answers that request, and only
+   *  it. Null for every other window. A crash rebuild carries it. */
+  readonly winE: string | null
   /** What its page restores when it first listens (and after a reload, when
    *  it never reported a strip of its own). */
   seed: WindowSeed
@@ -76,6 +80,7 @@ export interface AddOptions {
   first?: boolean
   seed?: WindowSeed
   launchFlags?: readonly string[]
+  winE?: string | null
 }
 
 export interface WindowRegistry<W extends PageWindow = PageWindow> {
@@ -163,6 +168,7 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
         key: options.key ?? `w${serial}`,
         first: !!options.first,
         launchFlags: options.launchFlags ?? [],
+        winE: options.winE ?? null,
         seed: options.seed ?? { kind: 'none' },
         reported: null,
         dirty: false,

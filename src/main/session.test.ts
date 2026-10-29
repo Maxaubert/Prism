@@ -66,6 +66,35 @@ describe('the session file, one entry per window (2026-10-29)', () => {
     expect(doc.tabs.map((t) => t.root)).toEqual(['D:\\b'])
   })
 
+  // Tab tear-off step 2 (review, 2026-10-29): one Win+E press, a browse and
+  // a restart must not trade the main window's strip for one Explorer.
+  it('a Win+E window focused last still comes back below an ordinary window', () => {
+    const m = createSessionModel()
+    m.report(1, strip('C:\\a', 'C:\\b', 'C:\\c'))
+    m.minor(2)
+    m.report(2, strip('D:\\wine'))
+    m.focus(1)
+    m.focus(2)
+    m.closed(1, { others: true, quitting: true })
+    m.closed(2, { others: false, quitting: true })
+    expect(m.doc()!.tabs.map((t) => t.root)).toEqual(['C:\\a', 'C:\\b', 'C:\\c'])
+    expect(m.doc()!.windows).toHaveLength(2)
+    // A crash rebuild keeps the rank.
+    m.rekey(2, 7)
+    m.focus(7)
+    expect(m.primary()!.tabs.map((t) => t.root)).toEqual(['C:\\a', 'C:\\b', 'C:\\c'])
+  })
+
+  it('a Win+E window closed last of all is what comes back', () => {
+    const m = createSessionModel()
+    m.report(1, strip('C:\\a'))
+    m.minor(2)
+    m.report(2, strip('D:\\wine'))
+    m.closed(1, { others: true, quitting: false })
+    m.closed(2, { others: false, quitting: false })
+    expect(m.doc()!.tabs.map((t) => t.root)).toEqual(['D:\\wine'])
+  })
+
   it('a window that never reported is not what comes back', () => {
     const m = createSessionModel()
     m.report(1, strip('C:\\a'))
