@@ -15686,6 +15686,9 @@ async function zipRestoreScenario(fixtures) {
 function winEHelper(id) {
   const lines = []
   let text = ''
+  /** When Prism let go of the pipe (ms since the epoch), the helper's cue
+   *  to fall back to File Explorer unless the ready line came first. */
+  const pipe = { closedAt: 0 }
   const server = createServer((socket) => {
     socket.on('data', (chunk) => {
       text += chunk.toString('utf8')
@@ -15695,9 +15698,10 @@ function winEHelper(id) {
         text = text.slice(at + 1)
       }
     })
+    socket.on('close', () => (pipe.closedAt = Date.now()))
     socket.on('error', () => {})
   })
-  return new Promise((resolve) => server.listen(`\\\\.\\pipe\\PrismWinE.${id}`, () => resolve({ lines, server })))
+  return new Promise((resolve) => server.listen(`\\\\.\\pipe\\PrismWinE.${id}`, () => resolve({ lines, server, pipe })))
 }
 
 async function folderOpenScenario(fixtures) {
@@ -15840,6 +15844,106 @@ async function folderOpenRunningScenario(fixtures) {
     await app?.close().catch(() => {})
     for (const server of servers) server.close()
     seedPreferences(PROFILE, { 'prism.newtab.mode': 'folder', 'prism.newtab.folder': join(ROOT, '.e2e', 'fixtures') })
+  }
+}
+
+/**
+ * WIN+E WHILE PRISM RUNS, THE RISKY PATHS (step 2 review, 2026-10-29):
+ * - two presses at once: two requests pending and two windows loading
+ *   together, each answered by its own window;
+ * - a window closed before it answers lets go of the helper's pipe at once
+ *   (it opened File Explorer 45 s later, with no visible cause);
+ * - a Win+E window focused last never becomes what the next cold start
+ *   opens: the first window's strip leads the session file after a quit.
+ */
+async function winERunningEdgesScenario(fixtures) {
+  console.log('Win+E while Prism runs: two at once, a window closed before it answers, the session after a quit')
+  const dir = join(fixtures, 'folderopen', 'a folder & more')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'inside.txt'), 'here\n')
+  writeTabs({ active: 0, tabs: [explorerTab('fixture-explorer', fixtures, fixtures, true)] })
+  const servers = []
+  let app
+  try {
+    app = await startApp({ env: NO_INDEX })
+    const win = await app.firstWindow()
+    await win.waitForLoadState('domcontentloaded')
+    await offscreen(app)
+    ok(
+      await until(async () => (await e2eWindows(app)).some((w) => w.first && w.restored), 15000),
+      'Prism is up: one window, restored'
+    )
+    // Two presses at once.
+    const pair = []
+    for (let i = 0; i < 2; i++) {
+      const id = randomUUID()
+      const helper = await winEHelper(id)
+      servers.push(helper.server)
+      pair.push({ id, ...helper })
+    }
+    await Promise.all(pair.map(({ id }) => winELaunch(id, dir)))
+    let list = []
+    ok(
+      await until(async () => {
+        list = await e2eWindows(app)
+        await offscreen(app)
+        return pair.every(({ id }) => list.some((w) => w.winE === id))
+      }, 20000),
+      `two presses at once: a window for each (${list.length} windows)`
+    )
+    for (const [i, { id, lines }] of pair.entries())
+      ok(
+        await until(() => lines.includes(id), 20000),
+        `press ${i + 1}: answered by its own window (${lines.map((l) => l.replace(id, '<id>')).join(' / ')})`
+      )
+    // A window closed before it answers. Closed from main the moment main
+    // holds it, before its page can load; if the page still won the race the
+    // check says so rather than passing on nothing.
+    const id = randomUUID()
+    const helper = await winEHelper(id)
+    servers.push(helper.server)
+    const launched = winELaunch(id, dir)
+    let closedAt = 0
+    await until(async () => {
+      closedAt = await app
+        .evaluate(({ BrowserWindow }, request) => {
+          const r = globalThis.__e2eWindows().find((w) => w.winE === request)
+          if (!r) return 0
+          BrowserWindow.fromId(r.id)?.destroy()
+          return Date.now()
+        }, id)
+        .catch(() => 0)
+      return closedAt > 0
+    }, 15000, 20)
+    await launched
+    ok(closedAt > 0, 'a window closed before it answers: main held one for the request')
+    ok(
+      await until(() => helper.pipe.closedAt > 0, 5000, 50),
+      `a window closed before it answers: the helper's pipe is let go at once (${helper.pipe.closedAt ? helper.pipe.closedAt - closedAt + ' ms' : 'still open'}; ${helper.lines.includes(id) ? 'the page had answered first' : 'unanswered'})`
+    )
+    // The session after a quit: a Win+E window focused LAST still ranks
+    // below the first window. The windows are unfocusable under --e2e, so the
+    // focus is main's own event, as Windows would send it.
+    const { id: lastId } = pair[1]
+    await app.evaluate(({ BrowserWindow }, request) => {
+      const r = globalThis.__e2eWindows().find((w) => w.winE === request)
+      if (r) BrowserWindow.fromId(r.id)?.emit('focus')
+    }, lastId)
+    await sleep(700) // tabs.json saves on a 400ms debounce
+    await app.close().catch(() => {})
+    app = null
+    const saved = sessionFile()
+    ok(
+      (saved?.windows?.length ?? 0) >= 3,
+      `the quit keeps every window's entry (${saved?.windows?.length ?? 'no file'})`
+    )
+    ok(
+      !!saved?.tabs?.some((t) => t.id === 'fixture-explorer'),
+      `a Win+E window focused last does not lead the session file (${(saved?.tabs ?? []).map((t) => t.root).join(', ')})`
+    )
+  } finally {
+    await app?.close().catch(() => {})
+    for (const server of servers) server.close()
   }
 }
 
@@ -16617,6 +16721,7 @@ await run(phoneDocsScenario)
 await run(phoneExplorerScenario)
 await run(folderOpenScenario)
 await run(folderOpenRunningScenario)
+await run(winERunningEdgesScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(deleteAgainScenario)
