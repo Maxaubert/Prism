@@ -1,4 +1,5 @@
-import type { BrowserWindow, WebContents } from 'electron'
+import type { BrowserWindow } from 'electron'
+import { createWindowRegistry } from './windowRegistry'
 
 /**
  * What more than one part of main needs to know about the app right now
@@ -7,20 +8,20 @@ import type { BrowserWindow, WebContents } from 'electron'
  * handlers moved into their own files, each of them needed the same answer,
  * so the answer lives here and nowhere else. Plain fields, read and written
  * in place: a module that copied one out would be holding a stale value.
+ *
+ * The window is no longer one of them (tab tear-off step 1, 2026-10-29):
+ * every Prism window, its unsaved flag and its restore state are in
+ * `windows` below (windowRegistry.ts).
  */
 export const appState = {
-  /** The window, or null while there is none (between a crash and its
-   *  rebuild, or before the first one). */
-  mainWindow: null as BrowserWindow | null,
-  /** The renderer's editor holds unsaved text. Mirrored here so `close` can ask. */
-  editorDirty: false,
-  /** The user has answered the "unsaved changes" question: let the close through. */
-  closeConfirmed: false,
   /** An update is installing: the quit it ends in is already agreed to. */
   installingUpdate: false,
   /** `before-quit` has fired (or the window gave up): nothing new is started. */
   appQuitting: false
 }
+
+/** Every Prism window of this process (windowRegistry.ts). */
+export const windows = createWindowRegistry<BrowserWindow>()
 
 /**
  * The e2e's window never takes the foreground (2026-08-28).
@@ -32,13 +33,3 @@ export const appState = {
  * the window is created unfocusable and shown inactive.
  */
 export const E2E = process.argv.includes('--e2e')
-
-/** Tell the page something, when there is a page (the IPC's push side). */
-export function sendToPage(channel: string, ...args: unknown[]): void {
-  appState.mainWindow?.webContents.send(channel, ...args)
-}
-
-/** Did this message come from THE window's page (not a preview's frame, not a
- *  window that has since been replaced). */
-export const isMainSender = (sender: WebContents): boolean =>
-  sender === appState.mainWindow?.webContents

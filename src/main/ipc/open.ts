@@ -16,6 +16,7 @@ export function registerOpenIpc(): void {
   if (E2E) ipcMain.handle(CALL.e2eSlowIpc, () => new Promise((r) => setTimeout(() => r(true), 600)))
 
   // Choose a folder WITHOUT opening it - the Settings picker.
-  ipcMain.handle(CALL.dialogPickFolder, () => pickFolder())
-  ipcMain.handle(CALL.dialogPickFiles, () => pickFiles())
+  // Owned by the window that asked (tab tear-off step 1, 2026-10-29).
+  ipcMain.handle(CALL.dialogPickFolder, (e) => pickFolder(e.sender))
+  ipcMain.handle(CALL.dialogPickFiles, (e) => pickFiles(e.sender))
 }

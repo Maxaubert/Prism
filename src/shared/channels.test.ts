@@ -37,7 +37,7 @@ describe('the IPC channel table', () => {
 
   it('is the only spelling in main and the preload', () => {
     const bare =
-      /(?:ipcMain\.(?:handle|on|once|removeListener|removeHandler)|ipcRenderer\.(?:invoke|send|sendSync|on|removeListener)|\.send|sendToPage)\(\s*'[a-z0-9-]+:/g
+      /(?:ipcMain\.(?:handle|on|once|removeListener|removeHandler)|ipcRenderer\.(?:invoke|send|sendSync|on|removeListener)|\.send|sendToPage|sendToAll|sendToTabOwner)\(\s*'[a-z0-9-]+:/g
     expect(main.match(bare) ?? []).toEqual([])
     expect(preload.match(bare) ?? []).toEqual([])
   })

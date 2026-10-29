@@ -44,8 +44,8 @@ export function withDetails(listing: DirListing, details: ReadonlyMap<string, Fi
 
 export interface ExplorerListingDeps {
   cache: ListingCache
-  /** To the main window's page. */
-  send: (channel: typeof PUSH.browseDetails, payload: BrowseDetails) => void
+  /** To the page of the window that owns the tab (2026-10-29). */
+  send: (tabId: string, channel: typeof PUSH.browseDetails, payload: BrowseDetails) => void
   /** Local fixed drive: what the read ahead may touch. */
   localFixed: (path: string) => boolean
   /** E2E only: hold every names read this long (`PRISM_E2E_LIST_DELAY`). */
@@ -100,7 +100,7 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
         [...read.listing.folders, ...read.listing.files].map((f) => f.path),
         (files, done) => {
           for (const f of files) known.set(f.path, f)
-          send(PUSH.browseDetails, { path: read.path, files, done })
+          send(tabId, PUSH.browseDetails, { path: read.path, files, done })
         },
         { live }
       ).then((finished) => {

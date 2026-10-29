@@ -3,6 +3,47 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Several windows in one process (tab tear-off step 1, owner, 2026-10-29)
+
+Owner, 2026-10-29: tabs drag out into windows of their own (spec and plan:
+`docs/superpowers/specs/2026-10-29-tab-tearoff-design.md`). Step 1 is the foundation, with NO visible change
+while one window is open: Prism can hold several windows in ONE process. Owner's choices that hold it:
+**windows close one by one, and starting Prism with none open gives ONE window, the tabs of the last window
+closed** (as today with one window).
+
+- **The registry** (`src/main/windowRegistry.ts`, `windows` in `appState.ts`) replaces `appState.mainWindow`,
+  `isMainSender` and `sendToPage`. Each window has its own unsaved-text flag and close answer, restore state,
+  generation and the strip it last reported. A push goes to the SENDER (paste progress, a tail's chunks, an
+  extraction's events, a dialog's owner), to the tab's OWNER (a listing's details), or to EVERY window (folder
+  changes, video convert progress by path, the update offer, preferences, the phone). A send to a page that has
+  gone is dropped, never thrown. Files from outside go to the window focused last (else the oldest).
+- **Window controls act on the sender's window**: close, minimise, maximise, the borderless fullscreen (its
+  state per window), the fullscreen transition, material, corners and the DWM border (`windowChrome.ts`). One
+  shroud, on the asking window's display; a theme change re-applies to every window. The shroud is destroyed
+  when the last page window closes, so a hidden cover never keeps the process alive.
+- **Only the session's first window reads the saved strip**, structurally: it is the only window made with the
+  `saved` seed. Any other window starts with what it is handed (nothing, for now). A window's reload or crash
+  rebuild restores ITS OWN last reported tabs, never another's. Main-minted tab ids and the renderer's
+  (`tab-w<n>-...`, `--prism-window`) are unique across windows.
+- **A window's close releases its tabs' main-side state**: grants, folder watch, listing runs, searches, its
+  tails (one tail per path per window) and its video conversions, unless a tab is marked mid-move
+  (`windows.markMoving`, for step 3) or the window is being replaced by its own crash rebuild.
+- **The session file** (`tabs.json`, `src/main/session.ts`) keeps one entry per window (strip and bounds);
+  the top-level `tabs` / `active` / `bounds` are the entry a cold start opens, so an older reader still reads it.
+  A window closed while others stay open takes its entry with it; the last one keeps its own; a quit with several
+  open keeps them all and the one focused last leads. A v1 file is one window; its bounds still come from
+  `window-state.json`, which is read and no longer written.
+- **New windows never inherit `--prism-setup`, `--prism-demo` or `--win-e`** from the process; under `--e2e`
+  every window is offscreen, unfocusable and (after the first) transparent from the start. The diagnostics core
+  keeps a beat per page (`packages/term-core/main/stallWatch.ts`), so one window's beats never hide another's hang.
+- Not yet (steps 2 to 4): Win+E in process (`explorerWindow.ts` still starts a second Prism), the tear-off
+  gesture, attaching into another window. The 2026-08-23 "inside its own row only" rule still stands until step 3.
+- Held by `windowRegistry.test.ts`, `session.test.ts`, `fileTail.test.ts`; e2e `twoWindows` (each window's own
+  buttons act on it, both save, the second's X closes only it, its close releases its tabs) and
+  `lastClosedRestore` (close the first, then the second: the relaunch is one window with the second's tab). The
+  harness parks EVERY window and finds the main one through `__e2eMainWindow` (`mainWin`), never
+  `getAllWindows()[0]`.
+
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 
 Owner decision 2026-10-26 (spec: `docs/superpowers/specs/2026-10-26-explorer-only-design.md`, release
