@@ -15681,27 +15681,31 @@ async function zipRestoreScenario(fixtures) {
  * in a new one when the strip is empty. The pipe here is the helper's
  * stand-in; nothing is registered with Windows.
  */
+/** The helper's stand-in: its pipe for request `id`, and every line Prism
+ *  writes down it ("<id> started", then "<id>" once the folder shows). */
+function winEHelper(id) {
+  const lines = []
+  let text = ''
+  const server = createServer((socket) => {
+    socket.on('data', (chunk) => {
+      text += chunk.toString('utf8')
+      let at
+      while ((at = text.indexOf('\n')) >= 0) {
+        lines.push(text.slice(0, at))
+        text = text.slice(at + 1)
+      }
+    })
+    socket.on('error', () => {})
+  })
+  return new Promise((resolve) => server.listen(`\\\\.\\pipe\\PrismWinE.${id}`, () => resolve({ lines, server })))
+}
+
 async function folderOpenScenario(fixtures) {
   console.log('a folder opened from another app lands in the Explorer (#393)')
   const dir = join(fixtures, 'folderopen', 'a folder & more')
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'inside.txt'), 'here\n')
-  const helper = (id) => {
-    const lines = []
-    let text = ''
-    const server = createServer((socket) => {
-      socket.on('data', (chunk) => {
-        text += chunk.toString('utf8')
-        let at
-        while ((at = text.indexOf('\n')) >= 0) {
-          lines.push(text.slice(0, at))
-          text = text.slice(at + 1)
-        }
-      })
-      socket.on('error', () => {})
-    })
-    return new Promise((resolve) => server.listen(`\\\\.\\pipe\\PrismWinE.${id}`, () => resolve({ lines, server })))
-  }
+  const helper = winEHelper
   for (const [label, tabs] of [
     ['the pinned Explorer', { active: 0, tabs: [explorerTab('fixture-explorer', fixtures, fixtures, true)] }],
     ['an empty strip', { active: 0, tabs: [] }]
@@ -15724,6 +15728,118 @@ async function folderOpenScenario(fixtures) {
       await app?.close().catch(() => {})
       server.close()
     }
+  }
+}
+
+/** Prism's own MAIN processes on the e2e profile: an electron.exe whose
+ *  command line names the profile and that is no Chromium child (those carry
+ *  `--type=`). The retired Win+E windows were one each (their profiles sat
+ *  under this one). -1 when PowerShell cannot say. */
+function prismMainCount() {
+  try {
+    return (
+      Number(
+        powershell(
+          `(Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object { $_.CommandLine -like '*${PROFILE_NAME}*' -and $_.CommandLine -notlike '*--type=*' } | Measure-Object).Count`
+        ).trim()
+      ) || 0
+    )
+  } catch {
+    return -1
+  }
+}
+
+/** A second launch carrying a Win+E request, the way the helper starts
+ *  Prism (`--win-e=<id>`, and `--browse=<folder>` from the folder verb): it
+ *  hands the request to the running Prism and exits. */
+async function winELaunch(id, browse) {
+  const child = spawn(
+    electronPath,
+    [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', `--win-e=${id}`, ...(browse ? [`--browse=${browse}`] : [])],
+    { stdio: 'ignore' }
+  )
+  await new Promise((done) => {
+    child.on('exit', done)
+    setTimeout(done, 6000) // it should quit on its own; never hang the suite
+  })
+}
+
+/**
+ * WIN+E WHILE PRISM RUNS OPENS A WINDOW IN THE SAME PROCESS (tab tear-off
+ * step 2, 2026-10-29; review finding #12). It used to start a whole second
+ * Prism on a profile of its own (`explorerWindow.ts`, retired). Now the
+ * running Prism opens a new window: the folder verb's at the folder it
+ * names, a plain Win+E's at "Folder for new tabs". Its page answers the
+ * helper as the second process's did ("started" at once, the id once the
+ * folder shows), there is never a second Prism process, and the first
+ * window keeps its own folder. The cold start's route is folderOpen's.
+ */
+async function folderOpenRunningScenario(fixtures) {
+  console.log('Win+E and the folder verb while Prism runs open a window in the same process')
+  const dir = join(fixtures, 'folderopen', 'a folder & more')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'inside.txt'), 'here\n')
+  const newTabs = join(fixtures, 'folderopen', 'new tabs here')
+  mkdirSync(newTabs, { recursive: true })
+  writeFileSync(join(newTabs, 'fresh.txt'), 'new\n')
+  // A plain Win+E's window lands at the folder for new tabs; put back after.
+  seedPreferences(PROFILE, { 'prism.newtab.mode': 'folder', 'prism.newtab.folder': newTabs })
+  writeTabs({ active: 0, tabs: [explorerTab('fixture-explorer', fixtures, fixtures, true)] })
+  const servers = []
+  let app
+  try {
+    app = await startApp({ env: NO_INDEX })
+    const win = await app.firstWindow()
+    await win.waitForLoadState('domcontentloaded')
+    await offscreen(app)
+    ok(
+      await until(async () => (await e2eWindows(app)).some((w) => w.first && w.restored), 15000),
+      'Prism is up: one window, restored'
+    )
+    ok(await until(() => prismMainCount() === 1, 8000, 500), `one Prism process to begin with (${prismMainCount()})`)
+    for (const [label, browse, expected] of [
+      ['the folder verb', dir, dir],
+      ['a plain Win+E', null, newTabs]
+    ]) {
+      const id = randomUUID()
+      const { lines, server } = await winEHelper(id)
+      servers.push(server)
+      const before = (await e2eWindows(app)).length
+      const appeared = app.waitForEvent('window', { timeout: 20000 }).catch(() => null)
+      await winELaunch(id, browse)
+      const page = await appeared
+      ok(!!page, `${label}: a new window opened in the running Prism`)
+      if (!page) continue
+      await page.waitForLoadState('domcontentloaded').catch(() => {})
+      await offscreen(app)
+      let list = []
+      ok(
+        await until(async () => {
+          list = await e2eWindows(app)
+          return list.length === before + 1
+        }, 10000),
+        `${label}: one window more (${list.length})`
+      )
+      ok(list.some((w) => w.winE === id && !w.first), `${label}: main holds it as the window for this request`)
+      ok(
+        await until(async () => (await zipWhere(page).catch(() => '')).toLowerCase() === expected.toLowerCase(), 20000),
+        `${label}: the new window shows ${basename(expected)} (${await zipWhere(page).catch(() => '?')})`
+      )
+      ok(
+        await until(async () => lines.includes(id), 15000),
+        `${label}: the helper got started and ready (${lines.map((l) => l.replace(id, '<id>')).join(' / ')})`
+      )
+      ok(lines[0] === `${id} started`, `${label}: "started" came first`)
+      ok(await until(() => prismMainCount() === 1, 8000, 500), `${label}: still ONE Prism process, no second one (${prismMainCount()})`)
+      ok(
+        (await zipWhere(win).catch(() => '')).toLowerCase() === fixtures.toLowerCase(),
+        `${label}: the first window keeps its own folder (${await zipWhere(win).catch(() => '?')})`
+      )
+    }
+  } finally {
+    await app?.close().catch(() => {})
+    for (const server of servers) server.close()
+    seedPreferences(PROFILE, { 'prism.newtab.mode': 'folder', 'prism.newtab.folder': join(ROOT, '.e2e', 'fixtures') })
   }
 }
 
@@ -16500,6 +16616,7 @@ await run(phoneHlsScenario)
 await run(phoneDocsScenario)
 await run(phoneExplorerScenario)
 await run(folderOpenScenario)
+await run(folderOpenRunningScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(deleteAgainScenario)

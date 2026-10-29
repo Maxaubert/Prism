@@ -36,13 +36,47 @@ closed** (as today with one window).
 - **New windows never inherit `--prism-setup`, `--prism-demo` or `--win-e`** from the process; under `--e2e`
   every window is offscreen, unfocusable and (after the first) transparent from the start. The diagnostics core
   keeps a beat per page (`packages/term-core/main/stallWatch.ts`), so one window's beats never hide another's hang.
-- Not yet (steps 2 to 4): Win+E in process (`explorerWindow.ts` still starts a second Prism), the tear-off
-  gesture, attaching into another window. The 2026-08-23 "inside its own row only" rule still stands until step 3.
+- Step 2 (Win+E in process) is the next entry. Not yet (steps 3 and 4): the tear-off gesture, attaching into
+  another window. The 2026-08-23 "inside its own row only" rule still stands until step 3.
 - Held by `windowRegistry.test.ts`, `session.test.ts`, `fileTail.test.ts`; e2e `twoWindows` (each window's own
   buttons act on it, both save, the second's X closes only it, its close releases its tabs) and
   `lastClosedRestore` (close the first, then the second: the relaunch is one window with the second's tab). The
   harness parks EVERY window and finds the main one through `__e2eMainWindow` (`mainWin`), never
   `getAllWindows()[0]`.
+
+## Win+E in process (tab tear-off step 2, owner, 2026-10-29)
+
+Owner, 2026-10-29: review finding #12 ("Win+E and the folder handler open a window in the running process
+instead of starting a second Prism"), approved through the tear-off plan (spec section 2, plan step 2). Until
+now a Win+E press or a folder-verb open while Prism ran started a WHOLE SECOND PRISM (`explorerWindow.ts`)
+on a Chromium profile of its own under `<userData>/explorer-windows/<uuid>`, with read-only preferences, a
+read-only listing cache, its own diagnostics log, and an update install that refused while it lived.
+
+- **While Prism runs, a request opens a NEW WINDOW of this process** (`second-instance` with
+  `--win-e=<uuid>`, and `--browse=<folder>` from the folder verb): File Explorer's own behaviour, and what
+  the second process gave. The window opens on one Explorer tab: at the folder the request names, else, for
+  a plain Win+E, at "Folder for new tabs" when that names a folder, else Home ("Ask" is Home too: a window
+  cannot ask before it is there). It is seeded with nothing, so it never restores a copy of the saved strip,
+  and its session entry follows step 1's rules (its own entry; the last window closed is what comes back).
+- **Its page answers the helper exactly as the second process's did**: "<id> started" down the held pipe the
+  moment main has the request, the id once that window's folder browser shows (`winE:ready`). Each request
+  NAMES ITS WINDOW (`winERequests.ts`: a cold start's is the first window's, `WIN_E_FIRST`; one while Prism
+  runs is the window made for it, `winE` on its registry record), so listening, restored and a reload are per
+  window: one window loading never resets another's request, and only the page it went to can answer it. A
+  retransmitted token opens nothing more. A crash rebuild of that window carries its request.
+- **A cold start keeps today's behaviour**: the request is the first window's (its pinned Explorer, or a new
+  one), and so is one that arrives while the first window is still being made. During an install or a quit
+  a request is not answered, so the helper opens File Explorer.
+- **Retired**: `explorerWindow.ts` and its test, `--explorer-window`, `extraWindowOwner` and its branches (the
+  read-only preference and listing-cache use, the skipped Win+E resume and folder-handler repair, the marker
+  files), and the update guard for child processes (`hasOtherExplorerWindows`): the install now asks only
+  that NO window holds unsaved text. The old profiles are removed once, off the startup path
+  (`oldExplorerWindows.ts`, uuid-named folders only, after the first answer plus 5 s).
+- Held by `winERequests.test.ts` (per-window hosts), `oldExplorerWindows.test.ts`, and the e2e
+  `folderOpenRunning`: with Prism running, the folder verb and a plain Win+E each open one window more in
+  the SAME process (one Prism main process on the e2e profile, counted from the process list), the stand-in
+  helper gets "started" then the id, the new window shows the asked folder (or the folder for new tabs), and
+  the first window keeps its own. The cold start stays `folderOpen`'s.
 
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 
@@ -3061,7 +3095,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   one fact stored in userData is the YES (`folders-on`), for the startup repair. The uninstaller
   undoes it in NSIS (`build/installer/folders.nsh`), and keeps it across an upgrade. Held by the
   helper's self-tests (`npm run test:win-e`), `folderHandler.test.ts`, `browseRequest` in
-  `winERequests.test.ts`, and the e2e `folderOpen`.
+  `winERequests.test.ts`, and the e2e `folderOpen` (cold start) and `folderOpenRunning` (while Prism runs:
+  a new window of the same process, 2026-10-29).
 - **Opt-in file associations**: register Prism as the handler for chosen types, from Settings.
   Never hijack defaults silently. The installer offers EVERY viewable type
   (`build/installer/assoc.nsh`); the app itself just opens Windows' Default apps page, so that
