@@ -61,7 +61,6 @@ import type {
   OpenPayload,
   OpenWithApp,
   RenameResult,
-  SearchResult,
   MediaProbe,
   PhoneState,
   TailEvent,
@@ -224,9 +223,6 @@ const api = {
   /** Children of a folder for the sidebar tree; null if outside `root`. */
   listDir: (root: string, path: string): Promise<DirListing | null> =>
     ipcRenderer.invoke(CALL.dirList, root, path),
-  /** Name search under `root`: bounded, breadth-first, capped. */
-  searchTree: (root: string, query: string): Promise<SearchResult> =>
-    ipcRenderer.invoke(CALL.searchFiles, root, query),
   /** Rename a file in place. `onClash` decides what a taken name does: 'ask'
    *  reports the clash back so the user can choose. */
   renameFile: (path: string, name: string, onClash: OnClash): Promise<RenameResult> =>
@@ -360,9 +356,6 @@ const api = {
   /** Launch one of the apps `appsFor` listed (by its id). */
   openWith: (path: string, appId: string): Promise<boolean> =>
     ipcRenderer.invoke(CALL.fileOpenWith, path, appId),
-  /** Put the real file on the clipboard, so Ctrl+V in Explorer pastes it. */
-  copyFileToClipboard: (path: string): Promise<boolean> =>
-    ipcRenderer.invoke(CALL.fileCopyClip, path),
   /**
    * The PICTURE on the clipboard, not the file (2026-08-30).
    *

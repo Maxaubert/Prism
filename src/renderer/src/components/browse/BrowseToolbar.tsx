@@ -8,7 +8,7 @@ import { useFolderDrop } from './useFolderDrop'
 import { KindIcon } from '../icons/FileIcons'
 import { browsableArchive } from '@shared/archivePlace'
 import './archive.css'
-import { hiddenTitle, isClipped } from '../../lib/hiddenTitle'
+import { hiddenTitle, isClipped } from 'prism-term-core/renderer/lib/hiddenTitle'
 
 const crumbKey = (p: string): string => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
 

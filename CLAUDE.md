@@ -64,7 +64,7 @@ library manager, not an editor.
 ### Security walls (do not loosen without a decision)
 
 - **The root wall covers `fsmedia://` and `fsaudio://`** (2026-08-28): media is served only from a
-  root, an archive member main extracted on request, or something main made itself (a converted
+  folder the Explorer granted (`desktopAccess.ts`), an archive member main extracted on request, or something main made itself (a converted
   copy, a synthesised MIDI wav), each registered as handed over. A markdown document grants
   exactly the image files it names (`src/main/docImages.ts`). The app's OWN asset tree stays
   servable: pdf.js fetches cmaps, fonts, wasm and icc profiles over `fsmedia://` in the packaged

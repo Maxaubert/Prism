@@ -105,7 +105,7 @@ export function startUpdates(preferencesOwner: string): void {
         await dialog.showMessageBox(appState.mainWindow, {
           type: 'info',
           message: 'Close the other Prism windows before installing the update.',
-          detail: 'This keeps their open files and terminals safe.',
+          detail: 'This keeps their open files safe.',
           buttons: ['OK']
         })
       return false

@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { createHash } from 'crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createWindowPreferences } from './windowPreferences'
 
@@ -95,6 +96,24 @@ describe('preferences across independent windows', () => {
     expect(primary.seed({ 'prism.theme': 'dark' }).removed).toContain('prism.theme')
     expect(primary.load().values).not.toHaveProperty('prism.theme')
   })
+  it('deletes retired keys from the store and never loads them (2026-10-28)', async () => {
+    const owner = profile()
+    const writer = createWindowPreferences(owner, false)
+    writer.set({ key: 'prism.quickAccess', value: '["kept"]' })
+    writer.set({ key: 'prism.term.colourFormat', value: 'hex' })
+    await writer.idle()
+    // A retired key as an older Prism wrote it: same file naming, same shape.
+    const dir = join(owner, 'window-preferences')
+    const name = `${createHash('sha256').update('prism.term.shell').digest('hex')}.json`
+    writeFileSync(join(dir, name), JSON.stringify({ key: 'prism.term.shell', value: 'pwsh' }))
+    const store = createWindowPreferences(owner, false)
+    expect(store.load().values).toEqual({ 'prism.quickAccess': '["kept"]', 'prism.term.colourFormat': 'hex' })
+    expect(store.set({ key: 'prism.term.shell', value: 'cmd' })).toBe(false)
+    await store.idle()
+    expect(readdirSync(dir)).not.toContain(name)
+    expect(readdirSync(dir)).toHaveLength(2)
+  })
+
   it('rejects invalid keys and values and never seeds from a child profile', () => {
     const child = createWindowPreferences(profile(), true)
     expect(child.seed({ 'prism.theme': 'old' }).values).toEqual({})

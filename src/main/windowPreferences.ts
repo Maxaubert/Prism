@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'crypto'
 import { mkdirSync, readFileSync, readdirSync, watch, writeFileSync } from 'fs'
-import { mkdir, readFile, readdir, writeFile } from 'fs/promises'
+import { mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'
 import { basename, join } from 'path'
 import {
   validWindowPreferenceKey,
   type WindowPreferencesSnapshot
 } from '../shared/windowPreferences'
+import { RETIRED_PREF_KEYS } from '../shared/prefKeys'
 import { writeAtomic, writeAtomicSync } from './latestWrite'
 
 /**
@@ -109,6 +110,11 @@ export function createWindowPreferences(
   }
   // sync-ok: startup, the store is made before the first window and answers sendSync from memory
   memory = readAllSync()
+  /** Retired keys (prefKeys.ts) are refused by `parse`, so they never load;
+   *  their files go too, once per run and off the startup path (2026-10-28). */
+  const pruned = Promise.all(
+    RETIRED_PREF_KEYS.map((key) => rm(file(key), { force: true }).catch(() => {}))
+  ).then(() => {})
 
   /** Re-read the folder without blocking, keeping local changes made since. */
   let refreshing: Promise<WindowPreferencesSnapshot> | null = null
@@ -286,6 +292,7 @@ export function createWindowPreferences(
     },
     /** For tests: every pending write and the refresh in flight have finished. */
     async idle() {
+      await pruned
       while (running.size || refreshing) {
         await Promise.all([...running.values()])
         if (refreshing) await refreshing

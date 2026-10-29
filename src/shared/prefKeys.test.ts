@@ -1,19 +1,15 @@
 import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { PREF_KEYS, PREF_PREFIXES, WINDOW_LOCAL_KEYS } from './prefKeys'
+import { PREF_KEYS, PREF_PREFIXES, RETIRED_PREF_KEYS, WINDOW_LOCAL_KEYS, retiredPrefKey } from './prefKeys'
 import { validWindowPreferenceKey } from './windowPreferences'
 
 // A key is a user's saved setting: renamed, it is lost. These are the strings
 // as they shipped (2026-10-12); a change here is a change to what users keep.
 const SHIPPED: Record<string, 'shared' | 'window'> = {
-  'prism.sidebar': 'window',
-  'prism.sidebar.width': 'window',
   'prism.explorer.places': 'window',
   'prism.explorer.widths': 'window',
   'prism.settings.rail': 'window',
-  'prism.term.h': 'window',
-  'prism.term.w': 'window',
   'prism.onboarded': 'shared',
   'prism.code.wrap': 'shared',
   'prism.explorer.rememberFolders': 'shared',
@@ -31,12 +27,9 @@ const SHIPPED: Record<string, 'shared' | 'window'> = {
   'prism.sidebar.driveStyle': 'shared',
   'prism.slideshow.seconds': 'shared',
   'prism.sort': 'shared',
-  'prism.split.dir': 'shared',
   'prism.tabs.remember': 'shared',
-  'prism.term.dock': 'shared',
   'prism.transport.bg': 'shared',
   'prism.transport.style': 'shared',
-  'prism.tree.side': 'shared',
   'prism.tree.size': 'shared',
   'prism.window.tabWidth': 'shared',
   'prism.window.titleBar': 'shared',
@@ -66,6 +59,31 @@ const SHIPPED: Record<string, 'shared' | 'window'> = {
   'prism.viz.width': 'shared'
 }
 
+// Retired (2026-10-28): read by nothing since the terminal, the tree and the
+// project tabs went. Pinned as they shipped, so the cleanup deletes exactly
+// these and never a live key that shares their prefix.
+const RETIRED = [
+  'prism.sidebar',
+  'prism.sidebar.width',
+  'prism.split.dir',
+  'prism.tabs.confirmClose',
+  'prism.term.acrylic',
+  'prism.term.agentColor',
+  'prism.term.agentDoneColor',
+  'prism.term.agentIndicator',
+  'prism.term.agentQuestionColor',
+  'prism.term.custom',
+  'prism.term.dock',
+  'prism.term.font',
+  'prism.term.fontPct',
+  'prism.term.h',
+  'prism.term.opacity',
+  'prism.term.shell',
+  'prism.term.theme',
+  'prism.term.w',
+  'prism.tree.side'
+]
+
 /** Every source file under a folder, tests left out. */
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -88,19 +106,29 @@ describe('prefKeys', () => {
   it('derives the window-local list the sync used to spell out', () => {
     expect([...WINDOW_LOCAL_KEYS].sort()).toEqual(
       [
-        'prism.sidebar',
-        'prism.sidebar.width',
         'prism.explorer.places',
         'prism.explorer.widths',
-        'prism.settings.rail',
-        'prism.term.h',
-        'prism.term.w'
+        'prism.settings.rail'
       ].sort()
     )
     for (const [key, scope] of Object.entries(PREF_KEYS))
       expect(validWindowPreferenceKey(key), key).toBe(scope === 'shared')
     for (const prefix of Object.keys(PREF_PREFIXES))
       expect(validWindowPreferenceKey(`${prefix}item`)).toBe(false)
+  })
+
+  it('retires exactly the dead keys, and none of them syncs', () => {
+    expect([...RETIRED_PREF_KEYS]).toEqual(RETIRED)
+    for (const key of RETIRED) {
+      expect(key in PREF_KEYS, key).toBe(false)
+      expect(retiredPrefKey(key)).toBe(true)
+      expect(validWindowPreferenceKey(key), key).toBe(false)
+    }
+    // Live keys that only look like the retired ones.
+    for (const key of ['prism.term.colourFormat', 'prism.tree.size', 'prism.sidebar.driveStyle']) {
+      expect(retiredPrefKey(key), key).toBe(false)
+      expect(validWindowPreferenceKey(key), key).toBe(true)
+    }
   })
 
   it('has every prism.* key the renderer and main name', () => {
@@ -117,6 +145,7 @@ describe('prefKeys', () => {
     const unknown = [...named].filter(
       (key) =>
         !(key in PREF_KEYS) &&
+        !retiredPrefKey(key) &&
         !Object.keys(PREF_PREFIXES).some((prefix) => key === prefix || key.startsWith(prefix)) &&
         key !== 'prism.'
     )

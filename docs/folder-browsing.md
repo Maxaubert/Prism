@@ -151,7 +151,8 @@ Duplicate saved tab IDs retain the first owner; later duplicates receive fresh r
 `listDir(path, true)` uses the existing bounded asynchronous listing pipeline without the viewer's
 file-kind and clutter filters. Tree and phone callers retain the default filtering behavior.
 
-`src/main/desktopAccess.ts` keeps desktop grants apart from `roots.ts`. A visited directory grants
+`src/main/desktopAccess.ts` holds the desktop grants (the old project roots, `roots.ts`, went
+2026-10-28). A visited directory grants
 itself and immediate entries, not every descendant of a drive. Explicit tree expansion, search
 results and discovered subtitle directories extend the relevant grants. Canonical path checks
 continue to reject implicit junction escapes. History and mounted/dirty content can retain access

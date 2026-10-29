@@ -42,6 +42,14 @@ describe('the IPC channel table', () => {
     expect(preload.match(bare) ?? []).toEqual([])
   })
 
+  it('carries no surface the desktop stopped using (2026-10-28)', () => {
+    // The sidebar tree's search (the phone has its own `searchHere`) and the
+    // one-file clipboard copy (the copy path is the multi-path call).
+    expect('searchFiles' in CALL).toBe(false)
+    expect(preload).not.toMatch(/\bsearchTree\b/)
+    expect(preload).not.toMatch(/\bcopyFileToClipboard\b/)
+  })
+
   it('leaves no entry one side has forgotten', () => {
     const sweep = (k: string): boolean => k.startsWith('sweepOverlay')
     for (const k of Object.keys(PUSH).filter((k) => !sweep(k))) {

@@ -79,8 +79,8 @@ describe('groupReleaseNotes', () => {
       'The update button opens a window with the patch notes, Cancel and Install'
     )
     expect(sections[1].entries).toEqual([
-      'A prompt survives the window getting narrower and wider again',
-      'Closing a tab that hosts an agent asks first, working or idle'
+      'A picture keeps its zoom when the window gets narrower and wider again',
+      'Closing the last tab closes the window, from every route'
     ])
     expect(sections[2].entries).toEqual(['Bump electron from 43.1.0 to 43.1.1'])
     const all = sections.flatMap((s) => s.entries)

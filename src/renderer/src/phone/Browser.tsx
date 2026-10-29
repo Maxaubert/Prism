@@ -5,6 +5,7 @@ import { THIS_PC, crumbs, fileFromHit, parentOf, samePath, stepFile } from './br
 import { formatBytes } from '../lib/format'
 import { narrowHits } from './narrow'
 import { PhoneViewer } from './PhoneViewer'
+import { searchHere } from './prismShim'
 import { placeUrl, readPlace } from './place'
 import { ROW_CLASS } from './rows'
 import { thumbUrl } from './api'
@@ -55,8 +56,8 @@ const RETRIES = 3
  * folder you are in, subfolders included, which is the only way to reach a file
  * more than a tap or two down on a phone that browses one level at a time.
  * The GRAMMAR IS THE DESKTOP'S - every word in any order, "a phrase", globs,
- * `ext:` and `-exclusions` - because the field calls `searchTree`, which the
- * server answers with the same `searchFiles` the sidebar's box does. It is
+ * `ext:` and `-exclusions` - because the field calls `searchHere`, which the
+ * server answers with the same `searchFiles` the desktop always used. It is
  * taught in one place (`shared/searchQuery`) and there is nothing here that
  * could teach it differently.
  */
@@ -153,7 +154,7 @@ export function Browser({
     let t: ReturnType<typeof setTimeout>
     const ask = (): void => {
       // The folder you are in, and everything below it.
-      void window.prism.searchTree(dir, query).then((r) => {
+      void searchHere(dir, query).then((r) => {
         if (!alive) return
         // A SUPERSEDED walk is not an answer (2026-09-08): main stops a
         // cancelled walk where it stands and answers with no hits, which is

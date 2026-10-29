@@ -33,7 +33,7 @@ import { divideRows, type DateDivider } from '../../lib/dateGroups'
 import { nextSort } from '../../lib/downloadsView'
 import { listKey, stepTo, type ListKey } from '../../lib/listKeys'
 import { nearerEscape } from '../../lib/nearerEscape'
-import { hiddenTitle } from '../../lib/hiddenTitle'
+import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
 import { createScrollSettle } from '../../lib/scrollSettle'
 
 const OVERSCAN = 12

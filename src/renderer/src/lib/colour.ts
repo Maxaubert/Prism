@@ -18,24 +18,14 @@ export function hexToRgb(hex: string): [number, number, number] {
 export const rgbToHex = (c: readonly number[]): string =>
   '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
 
-/** `a` moved `t` of the way to `b`, channel by channel. */
-export function mix(a: string, b: string, t: number): string {
-  const A = hexToRgb(a)
-  const B = hexToRgb(b)
-  return rgbToHex(A.map((v, i) => v + (B[i] - v) * t))
-}
-
-/** WCAG relative luminance, 0 (black) to 1 (white). */
-export function luminance(hex: string): number {
-  const [r, g, b] = hexToRgb(hex).map((v) => {
-    const c = v / 255
-    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-  })
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-
-/** WCAG contrast ratio of two colours, 1 to 21, in either order. */
-export function contrast(a: string, b: string): number {
-  const [x, y] = [luminance(a), luminance(b)]
-  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
-}
+/**
+ * The mix (`a` moved `t` of the way to `b`), WCAG luminance (0 black to 1
+ * white) and contrast (1 to 21, either order) are the core's (2026-10-28):
+ * this file had its own copy from when the core lived in another repo. Same
+ * maths; the core's mix also clamps each channel to 0-255.
+ */
+export {
+  mixHex as mix,
+  luminance,
+  contrastRatio as contrast
+} from 'prism-term-core/renderer/lib/colourMath'
