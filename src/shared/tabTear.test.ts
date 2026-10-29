@@ -15,6 +15,7 @@ import {
   rectOf,
   shouldTear,
   slotAt,
+  snapTarget,
   stripUnder,
   tearZone,
   validCarry,
@@ -88,6 +89,24 @@ describe('the tear (fully outside the strip)', () => {
     // The tab's left edge just short of the zone's end: still on.
     expect(shouldTear(at(plusRight + 114 - 1 + 57, 56), grab, tab, zone)).toBe(false)
     expect(shouldTear(at(plusRight + 114 + 57 + 16, 56), grab, tab, zone)).toBe(true)
+  })
+  it('a sideways tear past the + is never inside the snap target (review 2026-10-29: the window flickered)', () => {
+    // The strip runs on to the window controls, well past the zone.
+    const target = snapTarget(strip, zone)
+    expect(target).toEqual({ left: 0, top: 40, right: zone.right, bottom: 72 })
+    // The reviewer's point: a tear at (557, 56) is inside the whole strip's
+    // snap zone, but not inside the target's.
+    expect(shouldTear(at(557, 56), grab, tab, zone)).toBe(true)
+    expect(inside(at(557, 56), grow(strip, TEAR.snapMargin))).toBe(true)
+    expect(stripUnder(at(557, 56), [{ key: 0, rect: target }])).toBeNull()
+    // And so for every point and every grab: a tear can never snap straight back.
+    for (const g of [grab, { x: 2, y: 2 }, { x: 112, y: 30 }, { x: 57, y: 31 }])
+      for (let x = -200; x <= 1000; x += 4)
+        for (let y = -40; y <= 160; y += 3)
+          if (shouldTear(at(x, y), g, tab, zone)) expect(stripUnder(at(x, y), [{ key: 0, rect: target }])).toBeNull()
+  })
+  it('the snap target never reaches past a strip narrower than the zone', () => {
+    expect(snapTarget({ ...strip, right: 300 }, zone).right).toBe(300)
   })
   it('never tears inside the snap zone, whatever the grab (no flicker at the edge)', () => {
     // A press 2 DIP from the tab's top: the rect is fully out with the cursor

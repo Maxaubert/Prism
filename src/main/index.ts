@@ -41,7 +41,7 @@ import {
   insideDesktop
 } from './desktopAccess'
 import { browseWatcherOf } from './browseWatch'
-import { browseDirectory, browseLocations, type BrowseRead } from './browse'
+import { browseDirectory, browseLocations, browseWatch, type BrowseRead } from './browse'
 import { driveUsage, withUsedShare } from './driveUsage'
 import { phoneListed, phoneMay, phoneOnThisPc, phoneRelease } from './phone/phoneAccess'
 import { phonePlaces } from './phone/places'
@@ -1019,10 +1019,13 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   win.on('closed', () => {
     const rebuilding = rec.rebuilding
     const spare = rec.spare
+    // A tear in flight from or into this window ends (its tab goes back).
+    // FIRST, before the registry forgets the window (review 2026-10-29): the
+    // tab stops flying here, so the source's own close below releases it
+    // rather than leaving its grants and watch to nobody.
+    tear.gone(win)
     const released = windows.remove(win)
     const others = windows.count() > 0
-    // A tear in flight from or into this window ends (its tab goes back).
-    tear.gone(win)
     if (spare) {
       // The spare holds nothing of the session: no entry, nothing to release.
       // Made again later, unless the app is going.
@@ -1127,7 +1130,11 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   // The page itself, not a frame inside it: a document preview's iframe
   // loading is no reason to abandon a restore.
   win.webContents.on('did-start-navigation', (details) => {
-    if (details.isMainFrame && !details.isSameDocument) rec.gen += 1
+    if (!details.isMainFrame || details.isSameDocument) return
+    rec.gen += 1
+    // A source page reloading mid-tear can no longer end it (step 3): the
+    // page itself only, a preview's iframe loading ends nothing.
+    tear.lost(win)
   })
   // A shortcut press needs an immediate window even on a cold renderer load.
   // Its solid background is followed by the lightweight opening screen. The
@@ -1154,8 +1161,10 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     rec.restoreStarted = true
     // THE SPARE'S PAGE (step 3): nothing to restore, not even the home
     // Explorer, and no file from outside is ever drained into it. It is ready
-    // as soon as it listens; a tab torn off is handed to it then.
-    if (!rec.reported && rec.seed.kind === 'adopt') {
+    // as soon as it listens; a tab torn off is handed to it then. Asked of
+    // `spare`, not of `reported`: a drop only commits (and reports) once this
+    // page has drawn the tab (review 2026-10-29).
+    if (rec.spare && rec.seed.kind === 'adopt') {
       rec.restored = true
       event.sender.send(PUSH.openRestored)
       tear.listening(win)
@@ -1346,7 +1355,12 @@ const tear = createTearOff<BrowserWindow>({
       r.dirty = false
       sessionFile.closed(r.id, { others: true, quitting: false })
     }
-    if (!source.isDestroyed()) windows.noteTabOwner(tabId, source.webContents)
+    // Its folder watch stops (review 2026-10-29): the floating page's own stop
+    // comes after the tab is the source's again and is ignored, and the source
+    // starts one only if it shows the tab (a background tab it never shows
+    // kept a watch running for nobody).
+    void browseWatch(tabId, null, () => {})
+    if (source && !source.isDestroyed()) windows.noteTabOwner(tabId, source.webContents)
   },
   tell: (source, event) => void windows.sendTo(source, PUSH.tearEvent, event),
   spareSoon: () => spareSoon(),

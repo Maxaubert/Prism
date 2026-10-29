@@ -200,6 +200,9 @@ export function registerBrowseIpc(ctx: MainCtx): void {
       const owner = windows.ownerOf(tabId)
       if (owner && owner.id !== e.sender.id) return true
     }
+    // And a floating window the tab has already left (a snap back, a cancel)
+    // starts no watch for it: a late ask would run one for nobody.
+    if (path !== null && windows.of(e.sender)?.spare && !windows.isMoving(tabId)) return false
     windows.noteTabOwner(tabId, e.sender)
     // The watcher's set-up is timed (#322): it runs in main's thread, and a
     // network folder can make it slow. One per folder shown, so a quick one

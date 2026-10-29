@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createTearOff, type TearDeps, type TearWin } from './tearOff'
-import type { Bounds, Point, TabCarry, TearEvent, TearRequest } from '@shared/tabTear'
+import { TEAR, type Bounds, type Point, type TabCarry, type TearEvent, type TearRequest } from '@shared/tabTear'
 
 // Main's half of the tear-off (step 3, 2026-10-29), driven with fake windows
 // and a hand-turned clock: the loop, the snap back's dwell, the drop, the
@@ -60,6 +60,8 @@ const work = { x: 0, y: 0, width: 1920, height: 1040 }
 function rig(options: { e2e?: boolean; listening?: boolean } = {}) {
   let t = 0
   let timer: (() => void) | null = null
+  /** One-shot timers: when each is due. */
+  const timeouts: Array<{ at: number; fn: () => void } | null> = []
   let cursor: Point = { x: 0, y: 0 }
   const source = fakeWin('source', { x: 100, y: 100, width: 1200, height: 800 })
   const spare = fakeWin('spare', { x: -4000, y: -4000, width: 1000, height: 700 })
@@ -77,7 +79,7 @@ function rig(options: { e2e?: boolean; listening?: boolean } = {}) {
     moving: (id, on) => void (on ? moving.add(id) : moving.delete(id)),
     commit: (w) => log.push(`commit ${w.name}`),
     reveal: (w) => log.push(`reveal ${w.name}`),
-    release: (w, id, s) => log.push(`release ${w.name} ${id} to ${s.name}`),
+    release: (w, id, s) => log.push(`release ${w.name} ${id} to ${s?.name ?? 'nobody'}`),
     tell: (_s, e) => told.push(e),
     spareSoon: () => log.push('spare soon'),
     now: () => t,
@@ -87,6 +89,10 @@ function rig(options: { e2e?: boolean; listening?: boolean } = {}) {
     },
     stop: () => {
       timer = null
+    },
+    after: (fn, ms) => timeouts.push({ at: t + ms, fn }) - 1,
+    cancel: (h) => {
+      timeouts[h as number] = null
     }
   }
   const tear = createTearOff(deps)
@@ -114,6 +120,12 @@ function rig(options: { e2e?: boolean; listening?: boolean } = {}) {
       for (let left = ms; left > 0; left -= 8) {
         t += 8
         timer?.()
+        timeouts.forEach((o, i) => {
+          if (o && o.at <= t) {
+            timeouts[i] = null
+            o.fn()
+          }
+        })
       }
     },
     running: () => timer !== null
@@ -156,36 +168,88 @@ describe('tearing a tab off (one of several)', () => {
     expect(r.log).toEqual(['adopt spare t2'])
   })
 
-  it('drop: the floating window becomes a window, in front, and the next spare is made', () => {
+  it('drop: the floating window becomes a window, in front, and the next spare is made', async () => {
     const r = rig()
     r.tear.start(r.source, r.req())
     r.tear.adopted(r.spare, null)
     r.move({ x: 900, y: 600 }, 40)
-    expect(r.tear.end(r.source, 'drop')).toEqual({ committed: true })
-    expect(r.log).toEqual(['adopt spare t2', 'commit spare', 'reveal spare', 'spare soon'])
+    expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: true })
+    expect(r.log).toEqual(['adopt spare t2', 'commit spare', 'spare soon', 'reveal spare'])
     expect(r.moving.has('t2')).toBe(false)
     expect(r.running()).toBe(false)
     expect(r.tear.state()).toMatchObject({ phase: 'idle', commits: 1 })
   })
 
-  it('a drop before a slow window has drawn the tab still commits, and shows it when it has', () => {
+  it('a drop before a slow window has drawn the tab commits only once it has, and shows it then', async () => {
     const r = rig({ listening: false })
     r.tear.start(r.source, r.req())
-    expect(r.tear.end(r.source, 'drop')).toEqual({ committed: true })
-    expect(r.log).toEqual(['commit spare', 'spare soon'])
+    let answer: { committed: boolean } | null = null
+    void r.tear.end(r.source, 'drop').then((a) => (answer = a))
+    await Promise.resolve()
+    // Nothing committed yet (review 2026-10-29): the source still has the tab.
+    expect(answer).toBeNull()
+    expect(r.log).toEqual([])
+    expect(r.moving.has('t2')).toBe(true)
+    expect(r.tear.busy(r.spare)).toBe(true)
+    expect(r.tear.state()).toMatchObject({ phase: 'idle', waiting: true, commits: 0 })
     r.setListening(true)
     r.tear.listening(r.spare)
+    expect(r.log).toEqual(['adopt spare t2'])
     r.tear.adopted(r.spare, null)
-    expect(r.log).toEqual(['commit spare', 'spare soon', 'adopt spare t2', 'reveal spare'])
+    await Promise.resolve()
+    expect(answer).toEqual({ committed: true })
+    expect(r.log).toEqual(['adopt spare t2', 'commit spare', 'spare soon', 'reveal spare'])
     expect(r.spare.shown).toBe(true)
+    expect(r.moving.has('t2')).toBe(false)
     expect(r.tear.busy(r.spare)).toBe(false)
+    expect(r.tear.state()).toMatchObject({ waiting: false, commits: 1 })
   })
 
-  it('cancel: the floating window gives the tab back, and nothing is committed', () => {
+  it('a window that never draws the tab commits nothing: after 10 s the tab goes back', async () => {
+    const r = rig({ listening: false })
+    r.tear.start(r.source, r.req())
+    const answer = r.tear.end(r.source, 'drop')
+    r.move({ x: 0, y: 0 }, TEAR.lateDropMs - 8)
+    expect(r.tear.state().waiting).toBe(true)
+    r.move({ x: 0, y: 0 }, 8)
+    expect(await answer).toEqual({ committed: false })
+    expect(r.log).toEqual(['release spare t2 to source'])
+    expect(r.moving.has('t2')).toBe(false)
+    expect(r.tear.state()).toMatchObject({ waiting: false, commits: 0, cancels: 1 })
+    // A page that turns up after all is the spare's again: nothing happens.
+    r.tear.listening(r.spare)
+    r.tear.adopted(r.spare, null)
+    expect(r.log).toEqual(['release spare t2 to source'])
+    expect(r.spare.shown).toBe(false)
+  })
+
+  it('a slow window dying before it draws the tab commits nothing', async () => {
+    const r = rig({ listening: false })
+    r.tear.start(r.source, r.req())
+    const answer = r.tear.end(r.source, 'drop')
+    r.spare.gone = true
+    r.tear.gone(r.spare)
+    expect(await answer).toEqual({ committed: false })
+    expect(r.moving.has('t2')).toBe(false)
+    expect(r.log).toEqual([])
+  })
+
+  it('the source closing while a drop waits: the tab is nobody’s, and no longer moving', async () => {
+    const r = rig({ listening: false })
+    r.tear.start(r.source, r.req())
+    const answer = r.tear.end(r.source, 'drop')
+    // Electron's 'closed': not destroyed yet, but gone for the tear.
+    r.tear.gone(r.source)
+    expect(await answer).toEqual({ committed: false })
+    expect(r.log).toEqual(['release spare t2 to nobody'])
+    expect(r.moving.has('t2')).toBe(false)
+  })
+
+  it('cancel: the floating window gives the tab back, and nothing is committed', async () => {
     const r = rig()
     r.tear.start(r.source, r.req())
     r.tear.adopted(r.spare, null)
-    expect(r.tear.end(r.source, 'cancel')).toEqual({ committed: false })
+    expect(await r.tear.end(r.source, 'cancel')).toEqual({ committed: false })
     expect(r.log).toEqual(['adopt spare t2', 'release spare t2 to source'])
     expect(r.moving.has('t2')).toBe(false)
     // The page cancelled: it needs no word back.
@@ -201,20 +265,34 @@ describe('tearing a tab off (one of several)', () => {
     expect(r.tear.state().phase).toBe('idle')
   })
 
-  it('the source closing mid-tear hides the floating window again', () => {
+  it('the source closing mid-tear hides the floating window again, and the tab stops moving first', () => {
     const r = rig()
     r.tear.start(r.source, r.req())
-    r.source.gone = true
+    // Called from 'closed', before the window is destroyed and before it
+    // leaves the registry (review 2026-10-29): its close must release the tab.
     r.tear.gone(r.source)
-    expect(r.log.at(-1)).toBe('release spare t2 to source')
+    expect(r.log.at(-1)).toBe('release spare t2 to nobody')
+    expect(r.moving.has('t2')).toBe(false)
+    expect(r.told).toEqual([])
     expect(r.tear.state().phase).toBe('idle')
+  })
+
+  it('the source page going away (a reload) ends the tear; a fresh window loading does not', () => {
+    const r = rig()
+    r.tear.start(r.source, r.req())
+    r.tear.lost(r.spare)
+    expect(r.tear.state().phase).toBe('float')
+    r.tear.lost(r.source)
+    expect(r.tear.state().phase).toBe('idle')
+    expect(r.log.at(-1)).toBe('release spare t2 to source')
+    expect(r.running()).toBe(false)
   })
 })
 
 describe('the snap back (its own strip, plus 8 DIP, for 120 ms)', () => {
   // The source's content starts at (108, 100), so its strip is at
   // x 108..1292, y 140..172 on screen.
-  it('attaches after 120 ms over the strip', () => {
+  it('attaches after 120 ms over the strip', async () => {
     const r = rig()
     r.tear.start(r.source, r.req())
     r.tear.adopted(r.spare, null)
@@ -228,7 +306,7 @@ describe('the snap back (its own strip, plus 8 DIP, for 120 ms)', () => {
     expect(r.moving.has('t2')).toBe(false)
     expect(r.running()).toBe(false)
     // Main's part is over: the pointer-up that follows commits nothing.
-    expect(r.tear.end(r.source, 'drop')).toEqual({ committed: false })
+    expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: false })
     expect(r.tear.state()).toMatchObject({ attaches: 1, commits: 0 })
   })
 
@@ -246,19 +324,19 @@ describe('the snap back (its own strip, plus 8 DIP, for 120 ms)', () => {
 })
 
 describe('the only tab moves the whole window', () => {
-  it('follows the cursor with no second window, and a drop leaves it there', () => {
+  it('follows the cursor with no second window, and a drop leaves it there', async () => {
     const r = rig()
     r.move({ x: 400, y: 200 }, 0)
     r.tear.start(r.source, r.req(true))
     expect(r.log).toEqual([])
     r.move({ x: 1000, y: 500 }, 16)
     expect(r.source.bounds).toMatchObject({ x: 1000 - 58, y: 500 - 56, width: 1200, height: 800 })
-    expect(r.tear.end(r.source, 'drop')).toEqual({ committed: false })
+    expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: false })
     expect(r.source.bounds).toMatchObject({ x: 942, y: 444 })
     expect(r.tear.state().phase).toBe('idle')
   })
 
-  it('restores a maximized window to its normal size under the cursor, and cancel puts it back maximized', () => {
+  it('restores a maximized window to its normal size under the cursor, and cancel puts it back maximized', async () => {
     const r = rig()
     r.source.max = true
     r.move({ x: 960, y: 20 }, 0)
@@ -266,7 +344,7 @@ describe('the only tab moves the whole window', () => {
     expect(r.source.max).toBe(false)
     r.move({ x: 960, y: 300 }, 8)
     expect(r.source.bounds).toMatchObject({ width: 1200, height: 800, x: 960 - 58, y: 300 - 56 })
-    r.tear.end(r.source, 'cancel')
+    await r.tear.end(r.source, 'cancel')
     expect(r.source.max).toBe(true)
     expect(r.source.moves.at(-1)).toEqual({ x: 100, y: 100, width: 1200, height: 800 })
   })

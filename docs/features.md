@@ -116,16 +116,23 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
   - It **tears when its own rect is fully outside the strip** (the zone ends one tab width past the +), and the
     cursor is 12 DIP out (a guard for a grab at the tab's very edge, so a tear is never inside the snap zone).
     With a press in the middle of a 32 DIP tab, that is 16 DIP below the strip.
+    Carried sideways, it tears once it is fully past that grace too, even with the cursor still over the strip's
+    empty end.
   - The gap closes with the existing 170 ms slide, and a real Prism window appears under the cursor holding the
     tab at the same grab point in ITS strip. Until it is on screen a copy of the tab follows the pointer.
-  - **Snap back**: over its own strip (rect plus 8 DIP, tighter than the tear) for **120 ms**, the floating window
+  - **Snap back**: over its own strip (rect plus 8 DIP, tighter than the tear; the strip held to the tear zone,
+    `snapTarget`, so a tab torn sideways past the + is never over it at once, review 2026-10-29: the window
+    attached and tore again in a loop) for **120 ms**, the floating window
     goes, the tab is in the strip again at the slot under the pointer, in front, and reorders until release.
     The strips are hit-tested as a list (`stripUnder`): step 3 lists the source alone; step 4 (attach into ANY
     window, not built) lists every window's.
   - **Drop** while floating: the new window stays where it is and takes the focus. Released in the strip after a
     snap back: the tab is there, selected.
   - **Cancel**: Escape, a right-click, a lost pointer capture or the window losing focus put the tab back where
-    it was, the front tab as before, and the floating window hides. Nothing half-done is committed.
+    it was, the front tab as before, and the floating window hides. Nothing half-done is committed. A
+    right-click's own context menu does not open after it. The strip going away mid-drag (F11) cancels too, and
+    so does the source page reloading; the source window closing mid-drag releases the tab's grants and watch
+    (review 2026-10-29).
   - **The only tab** moves the WHOLE window instead (no second window); a maximized one comes off at its normal
     size under the cursor, like a title-bar drag, and a cancel puts it back where it was, maximized again.
   - **New window size and place**: the source's normal size, never maximized, at least half the work area when
@@ -141,7 +148,14 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
   with the theme's ground (`themeGround`), so the window is under the cursor in a frame or two. It is not a
   window of the session (`spare` on its registry record): never counted, never where files from outside go,
   never in the session file, its close releases nothing, and the last window of the session closing destroys
-  it. A snap back or a cancel makes the floating window the spare again.
+  it. A snap back or a cancel makes the floating window the spare again, and stops the folder watch the
+  floating page started (the source starts its own only if it shows the tab).
+- **No spare ready** (the first 2 s, and 2 s after each drop): a fresh window is made under the cursor, and a
+  copy of the tab follows the pointer inside the source until that window is on screen (outside the source
+  nothing does until then: a chip beyond the window would need a window of its own). A drop before its page
+  has drawn the tab commits NOTHING yet (review 2026-10-29: the tab's unsaved text was lost and the window
+  could stay hidden for good): the source holds the tab, and once the page has it the window commits, shows
+  and takes the focus; a page that never comes (10 s, `TEAR.lateDropMs`) or dies gives the tab back.
 - **What a moved tab keeps** (`lib/tabs/tabCarry.ts`, `tabCarry.test.ts`): it is the SAME tab, by the same id,
   rebuilt in the new page in the restore shape: its folder, history, selection, scroll, preview, the open file,
   the film's place and whether it played, its volume, mute and speed, a document's place, the archive
@@ -153,11 +167,13 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
 - **Under --e2e** nothing moves: the windows stay parked, main follows the page's pointer (`tabs:tear-point`)
   rather than the system cursor (Playwright's mouse is not it), and `__e2eTear` tells where the window would be.
   There is a spare only when a scenario asks (`PRISM_E2E_SPARE=1`).
-- Held by `tabTear.test.ts` (every number), `tearOff.test.ts` (the loop, the dwell, drop, cancel, the only tab,
-  a slow window), `windowRegistry.test.ts` (the spare), `tabCarry.test.ts`, and the e2e `tabTear` (written,
+- Held by `tabTear.test.ts` (every number, and that no tear is ever inside the snap target), `tearOff.test.ts`
+  (the loop, the dwell, drop, cancel, the only tab, a slow window's late drop, its failure, the source closing), `windowRegistry.test.ts` (the spare), `tabCarry.test.ts`, and the e2e `tabTear` (written,
   run before the PR): a click and a short pull tear nothing; a tear makes a window holding the same tab id, whose
   folder watch shows a new file in the NEW window, and the source strip lost it; a snap back over its own strip
-  makes no window; Escape mid-drag puts everything back; the only tab moves its window; unsaved text travels.
+  makes no window; Escape and a right-click mid-drag put everything back; a sideways tear past the + stays torn;
+  unsaved text travels; a drop on a fresh window (no spare) shows it holding the tab; the only tab moves its
+  window.
 - Not yet (step 4): attaching into ANOTHER window's strip, and closing a window emptied that way.
 
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)

@@ -4404,6 +4404,54 @@ async function tabTearScenario(fixtures) {
     ok(JSON.stringify(await ids(win)) === JSON.stringify(order), `the tab is back in its place (${await ids(win)})`)
     ok((await selected(win)) === 'tear-home', 'and the tab in front is the one that was')
 
+    // A RIGHT-CLICK MID-DRAG cancels the same way, and opens no menu.
+    await spareReady()
+    const order2 = await ids(win)
+    await carry(win, 'tear-d', 44, { release: false })
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'tab D tears off for a right-click')
+    const cancels2 = (await tearState()).cancels
+    await win.mouse.down({ button: 'right' })
+    ok(await until(async () => (await tearState()).cancels === cancels2 + 1, 3000), 'a right-click cancels the tear')
+    await win.mouse.up({ button: 'right' })
+    await win.mouse.up()
+    await sleep(400)
+    ok((await e2eWindows(app)).length === 2, 'no window was made')
+    ok(JSON.stringify(await ids(win)) === JSON.stringify(order2), `the tab is back in its place (${await ids(win)})`)
+    ok((await selected(win)) === 'tear-home', 'and the tab in front is the one that was')
+    ok((await win.locator('[role="menu"]').count()) === 0, 'and no context menu opened on the release')
+
+    // CARRIED SIDEWAYS WELL PAST THE +: it tears (one tab width of grace),
+    // and stays torn with the cursor still over the strip's empty end. The
+    // snap back is held to the tear zone, so it cannot attach and tear again
+    // over and over (review 2026-10-29: the window flickered).
+    await spareReady()
+    const plusBox = await win.locator(`${strip} [aria-label="New tab"]`).boundingBox()
+    const homeBox = await win.locator(`${strip} [data-tab-id="tear-home"]`).boundingBox()
+    const lane = await win.locator(strip).boundingBox()
+    const overX = plusBox.x + plusBox.width + homeBox.width * 1.5 + 40
+    if (overX < lane.x + lane.width - 10) {
+      const t0 = await tearState()
+      const y = homeBox.y + homeBox.height / 2
+      await win.mouse.move(homeBox.x + homeBox.width / 2, y)
+      await win.mouse.down()
+      await win.mouse.move(overX, y, { steps: 20 })
+      ok(await until(async () => (await tearState()).phase === 'float', 3000), 'carried sideways past the + and its grace, it tears')
+      for (let i = 0; i < 10; i++) {
+        await win.mouse.move(overX + (i % 2 ? 6 : -6), y)
+        await sleep(40)
+      }
+      const t1 = await tearState()
+      ok(
+        t1.phase === 'float' && t1.tears === t0.tears + 1 && t1.attaches === t0.attaches,
+        `and stays torn: no attach-and-tear loop (${JSON.stringify(t1)})`
+      )
+      await win.keyboard.press('Escape')
+      await win.mouse.up()
+      ok(await until(async () => (await tearState()).phase === 'idle', 3000), 'Escape puts it back')
+      await sleep(300)
+      ok((await selected(win)) === 'tear-home', 'in front again')
+    } else console.log(`  (the strip ends at ${lane.x + lane.width}, too narrow to carry a tab past ${overX}; skipped)`)
+
     // UNSAVED TEXT TRAVELS WITH ITS TAB.
     await spareReady()
     await win.locator(`${strip} [data-tab-id="tear-notes"] [role="tab"]`).click()
@@ -4432,6 +4480,50 @@ async function tabTearScenario(fixtures) {
     )
     ok(await until(async () => (await e2eWindows(app)).find((w) => w.key === notesKey)?.dirty === true, 3000), 'the new window holds it unsaved')
     ok(await until(async () => (await firstDirty()) === false, 3000), 'and the source no longer does')
+
+    // NO SPARE READY (it is made 2 s after each use): the tear makes a fresh
+    // window, and a drop the moment it tore comes before that page has
+    // loaded. Nothing commits until the page has drawn the tab; then the
+    // window is shown, holding it, and the source lets it go (review
+    // 2026-10-29: the tab used to vanish into a window that never showed).
+    await spareReady()
+    const beforeNew = await ids(win)
+    await win.locator(`${strip} [aria-label="New tab"]`).click()
+    await win.locator(`${strip} [aria-label="New tab"]`).click()
+    ok(await until(async () => (await ids(win)).length === beforeNew.length + 2, 5000), 'two more tabs in the source')
+    const extra = (await ids(win)).filter((id) => !beforeNew.includes(id))
+    const w0 = (await e2eWindows(app)).length
+    // The spare is used up by this one...
+    await carry(win, extra[0], 44, { release: false })
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'a new tab tears off into the spare')
+    await win.mouse.up()
+    ok(await until(async () => (await e2eWindows(app)).length === w0 + 1, 5000), 'and is a window of its own')
+    // ...so the next is a fresh window, dropped at once.
+    const ready = (await tearState()).spare?.ready === true
+    if (ready) console.log('  (a spare was ready again already: the fast path ran, not the fresh one)')
+    await carry(win, extra[1], 44, { release: false })
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'the next tab tears off with no spare ready')
+    await win.mouse.up()
+    const waited = (await tearState()).waiting
+    console.log(`  (the drop ${waited ? 'waited for the fresh page' : 'found the page ready'})`)
+    let freshList = []
+    ok(
+      await until(async () => {
+        freshList = await e2eWindows(app)
+        return freshList.some((w) => w.tabs.includes(extra[1]))
+      }, 15000),
+      `the fresh window holds the tab once its page has it (${JSON.stringify(freshList.map((w) => w.tabs))})`
+    )
+    ok(await until(async () => !(await ids(win)).includes(extra[1]), 5000), 'and the source let it go')
+    const freshRec = freshList.find((w) => w.tabs.includes(extra[1]))
+    const freshShown = await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.isVisible() ?? null, freshRec?.id)
+    ok(freshShown === true, `the fresh window is shown, not left hidden (${freshShown})`)
+    const freshPage = await pageOf(freshRec?.key)
+    ok(
+      !!freshPage && (await until(async () => JSON.stringify(await ids(freshPage)) === JSON.stringify([extra[1]]), 8000)),
+      'and its page shows that tab, by the same id'
+    )
+    ok((await tearState()).waiting === false, 'nothing is left waiting')
 
     // THE ONLY TAB MOVES ITS WHOLE WINDOW: no second window.
     const count = (await e2eWindows(app)).length
