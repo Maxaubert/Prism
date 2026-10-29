@@ -291,6 +291,9 @@ export function releaseTab(tabId: string): void {
   cancelBrowseSearch(tabId)
   if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId))
   releaseDesktop(tabId)
+  // Its owner entry too (review, 2026-10-29): kept, the registry's map grew
+  // with every tab ever browsed, and a window's close released them all again.
+  windows.forgetTab(tabId)
 }
 
 /** Opening a file inside a tab, a folder's listing and the tree search (the phone's, too). */
