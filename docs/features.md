@@ -1973,6 +1973,25 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   is the design question for Prism Explorer (#187). The `localStorage` preference shim
   (`lib/windowPreferences.ts`, a synchronous IPC per preference write) cost ~457 ms on a page
   RELOAD and nothing measurable on a cold start today; watch it.
+- **AN IDLE PRISM SPENDS NOTHING** (perf review, 2026-10-28; owner: "look for stall points, things that
+  use up too many resources"; findings in `research/prism/2026-10-28-performance-review.md`). The
+  window is never throttled (media keeps playing), so every timer the page owns runs at full rate all
+  day in a resident app. Now: the auto-hide chrome clock (`lib/autoHideChrome.ts`) runs only while
+  there is chrome to hide; once gone it re-rendered the image viewer ~9 times a second for ever
+  (`autoHideChrome.test.ts`); VideoView's 250 ms clock the same. A paused visualizer PARKS (no frame
+  at all) and is woken by play, a resize or a style change, where it asked for every frame to read a
+  rect (`lib/viz/vizGuards.ts` `idleFrame`). Image reads are CANCELLED when nobody wants them any more
+  (`lib/imageLoader.ts`, a signal per caller, aborted 50 ms after the last one goes so a warmed
+  neighbour is handed to the viewer that steps onto it; `imageLoader.test.ts`); the App's warm-up is
+  keyed on the neighbours' paths, not on `view`. The PDF finds its page by binary search, not a rect
+  read of every page per scroll (`pdf/pageAtLine.ts`), and its page refs are stable.
+  `useFolderBrowsing` returns one object while nothing in it changed (the App's capturing key and drag
+  listeners re-subscribed on every render). Logging stays as it was asked for ("keep logging as much as
+  possible"): MINIMISED, the page beats every 2.5 s and sends every 2 s rather than 500/250 ms
+  (`noteDiagBackground`, from main's window-state push), and main's `stallWatch` waits 10 s rather than
+  2 s before asking for the stack, so a hung page is still caught (`stallWatch.test.ts`, `diag.test.ts`).
+  And the `memory` crumb and `mem-high` finally run in Prism (`appMetrics` was never passed;
+  `src/main/diagWiring.test.ts`).
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

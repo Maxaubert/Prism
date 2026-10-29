@@ -100,12 +100,16 @@ export function ComicView({
 
   // The neighbours, so a page turn is instant. Both directions: a comic is
   // read forward, but going back a page must not stall either.
+  // A page left behind gives up its read (perf review, 2026-10-28); the one
+  // turned to is taken over by the viewer in the same commit.
   useEffect(() => {
     if (!pages) return
+    const stop = new AbortController()
     for (const d of [1, -1]) {
       const at = pages[page + d]
-      if (at) preloadImage(window.prism.mediaUrl(at))
+      if (at) preloadImage(window.prism.mediaUrl(at), stop.signal)
     }
+    return () => stop.abort()
   }, [pages, page])
 
   useEffect(() => {

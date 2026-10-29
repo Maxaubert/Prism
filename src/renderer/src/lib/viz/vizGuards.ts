@@ -21,3 +21,16 @@ export function wantsResume(state: AudioContextState, paused: boolean): boolean 
 export function drawLoopRuns(media: unknown): boolean {
   return media != null
 }
+
+/**
+ * What a paused visualizer does with the next frame (perf review, 2026-10-28).
+ * `draw` until the picture has settled, or when the canvas size or style
+ * changed under it; then `park`: no frame is asked for at all until something
+ * wakes it (play, a resize, a style or effect change). It used to ask for one
+ * every frame regardless, with a layout read in each, which in a window that
+ * is never throttled meant 60 wake-ups a second per paused audio tab, all day.
+ */
+export function idleFrame(paused: boolean, stillFrames: number, settleFrames: number, changed: boolean): 'draw' | 'park' {
+  if (!paused || stillFrames <= settleFrames) return 'draw'
+  return changed ? 'draw' : 'park'
+}
