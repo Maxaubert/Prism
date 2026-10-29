@@ -62,7 +62,10 @@ export const TEAR = {
   keepVisible: 48,
   /** A tear also needs the cursor this far out of the zone: more than the snap
    *  margin, so a tab torn off cannot be over the snap zone at that moment. */
-  tearGuard: 12
+  tearGuard: 12,
+  /** A drop before a fresh window's page has drawn the tab waits this long for
+   *  it; past that the window failed to load and the tab goes back. */
+  lateDropMs: 10000
 } as const
 
 export const rectOf = (b: Bounds): Rect => ({ left: b.x, top: b.y, right: b.x + b.width, bottom: b.y + b.height })
@@ -88,6 +91,24 @@ export const pastSlop = (dx: number, dy: number, slop: number = TEAR.slop): bool
  */
 export function tearZone(strip: Rect, plusRight: number, tabWidth: number): Rect {
   return { left: strip.left, top: strip.top, bottom: strip.bottom, right: plusRight + tabWidth }
+}
+
+/**
+ * The SNAP-BACK target main is handed (spec 1.4): the strip, but never further
+ * right than the tear zone. The strip itself runs on to the window controls, so
+ * a tab carried sideways past the + tears with the cursor still over the strip;
+ * snapping back over the WHOLE strip would attach it again 120 ms later, tear it
+ * on the next move, and so on (the window flickering, review 2026-10-29). Held
+ * to the zone, a tear (12 DIP out of the zone) is always outside the snap zone
+ * (8 DIP around this), whichever way the tab left.
+ */
+export function snapTarget(strip: Rect, zone: Rect): Rect {
+  return {
+    left: Math.max(strip.left, zone.left),
+    top: strip.top,
+    right: Math.min(strip.right, zone.right),
+    bottom: strip.bottom
+  }
 }
 
 /** Where the carried tab WOULD be if it followed the cursor freely: the rect
@@ -248,7 +269,8 @@ export interface TearRequest {
    *  new window's one tab is there, so the cursor holds it at `origin + grab`.
    *  The new page reports its own once it has drawn the tab. */
   origin: Point
-  /** The source's strip, client coordinates: the snap-back target. */
+  /** The snap-back target, client coordinates: the source's strip held to
+   *  the tear zone (`snapTarget`). */
   strip: Rect
   /** The cursor, client coordinates (the e2e's pointer; main polls the real one). */
   point: Point

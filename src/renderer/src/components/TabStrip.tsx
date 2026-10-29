@@ -7,6 +7,7 @@ import {
   pastSlop,
   shouldTear,
   slotAt as slotFor,
+  snapTarget,
   tearZone,
   type Point,
   type Rect,
@@ -67,6 +68,8 @@ interface Gesture {
   shown: boolean
   /** Settings never leaves its window. */
   tearable: boolean
+  /** Main attached it again just as the button came up: the drop is here. */
+  back: boolean
   pointerId: number
   el: HTMLElement
 }
@@ -268,11 +271,30 @@ export function TabStrip({
   useEffect(() => {
     cancelRef.current = cancel
   })
+  // THE STRIP GOING AWAY MID-DRAG ENDS IT (review 2026-10-29): F11 unmounts
+  // the strip (fullscreen has none), and with it every listener that could
+  // end the carry. Main moves its window until it hears, so it hears now.
+  useEffect(() => () => cancelRef.current(), [])
+  /** When a right-click cancelled a carry: the context menu its release
+   *  brings (Windows opens it on the button's release) is swallowed. */
+  const menuAfterCancel = useRef(0)
+  useEffect(() => {
+    const swallow = (e: Event): void => {
+      if (!menuAfterCancel.current || performance.now() - menuAfterCancel.current > 1500) return
+      menuAfterCancel.current = 0
+      e.preventDefault()
+      e.stopImmediatePropagation()
+    }
+    window.addEventListener('contextmenu', swallow, true)
+    return () => window.removeEventListener('contextmenu', swallow, true)
+  }, [])
   /** Fully out of the strip: main takes it from here (spec 1.3, 1.7). */
   const tearOut = (s: Gesture): void => {
     const how = tearRef.current?.out(
       s.id,
-      { grab: s.grab, origin: s.origin, strip: s.strip, point: s.pointer },
+      // The snap-back target is the strip held to the tear zone: a tab torn
+      // sideways past the + must not be over it at once (review 2026-10-29).
+      { grab: s.grab, origin: s.origin, strip: snapTarget(s.strip, s.zone), point: s.pointer },
       () => {
         if (g.current === s) cancelRef.current()
       }
@@ -323,6 +345,7 @@ export function TabStrip({
       tore: false,
       shown: false,
       tearable: !!tear && tabs[i]?.kind !== 'settings',
+      back: false,
       pointerId: e.pointerId,
       el: e.currentTarget
     }
@@ -334,8 +357,12 @@ export function TabStrip({
   const onTabPointerMove = (e: PointerEvent<HTMLDivElement>): void => {
     const s = g.current
     if (!s || s.phase === 'ending') return
-    // A right button pressed while carrying is a cancel (spec 1.6).
-    if (e.buttons & 2) return cancel()
+    // A right button pressed while carrying is a cancel (spec 1.6), and the
+    // menu its release would open is not wanted.
+    if (e.buttons & 2) {
+      menuAfterCancel.current = performance.now()
+      return cancel()
+    }
     s.pointer = { x: e.clientX, y: e.clientY }
     if (s.phase === 'press') {
       const dx = e.clientX - s.start.x
@@ -366,7 +393,15 @@ export function TabStrip({
       // Held as it is (the gap closed, the tab hidden) until main answers, so
       // a committed drop never shows the tab here again for a frame.
       s.phase = 'ending'
-      void (tearRef.current?.end(s.id, 'drop') ?? Promise.resolve(false)).finally(() => finish(s))
+      void (tearRef.current?.end(s.id, 'drop') ?? Promise.resolve(false))
+        .catch(() => false)
+        .then((committed) => {
+          finish(s)
+          // Main had attached it again a moment before the button came up
+          // (its word reached here after this drop): it was dropped in this
+          // strip, so it is selected there (spec 1.5, review 2026-10-29).
+          if (!committed && s.back) tearRef.current?.settled(s.id)
+        })
       return
     }
     const landed = dragging.current && was === 'strip' ? dropRef.current : null
@@ -391,7 +426,8 @@ export function TabStrip({
           s.shown = false
           tearRef.current?.attached(s.id)
           drawInStrip(s)
-        } else if (ev.kind === 'ended' && (s.phase === 'torn' || s.phase === 'window')) cancelRef.current()
+        } else if (ev.kind === 'attached' && s.phase === 'ending') s.back = true
+        else if (ev.kind === 'ended' && (s.phase === 'torn' || s.phase === 'window')) cancelRef.current()
       }),
     // drawInStrip reads only refs and setters.
     // eslint-disable-next-line react-hooks/exhaustive-deps

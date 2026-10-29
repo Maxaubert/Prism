@@ -37,7 +37,9 @@ import {
  * - The page's pointer-up ends it: a drop makes the floating window a window of
  *   the session (focused) and only THEN does the source let the tab go; a
  *   cancel (Escape, right-click, lost capture, blur) gives it back and puts a
- *   moved window where it was. Nothing half-done is ever committed.
+ *   moved window where it was. Nothing half-done is ever committed: a drop on
+ *   a fresh window whose page has not drawn the tab yet waits for it, and a
+ *   page that never comes (10 s) gives the tab back.
  *
  * In memory only: no disk, no process (syncCalls.test.ts, spawnCalls.test.ts).
  * Pure apart from what `TearDeps` hands it, so `tearOff.test.ts` drives it with
@@ -79,8 +81,9 @@ export interface TearDeps<W extends TearWin> {
   commit(win: W, carry: TabCarry): void
   /** Bring a committed window to the front, focused (never under --e2e). */
   reveal(win: W): void
-  /** The floating window gives the tab back to `source` and hides as the spare. */
-  release(win: W, tabId: string, source: W): void
+  /** The floating window gives the tab back to `source` and hides as the spare.
+   *  `source` is null when that window has closed: nobody has the tab now. */
+  release(win: W, tabId: string, source: W | null): void
   /** A word to the source page. */
   tell(source: W, event: TearEvent): void
   /** Make the next spare a moment from now. */
@@ -89,6 +92,22 @@ export interface TearDeps<W extends TearWin> {
   now?(): number
   every?(fn: () => void, ms: number): unknown
   stop?(handle: unknown): void
+  /** One-shot timer (the late drop's wait). */
+  after?(fn: () => void, ms: number): unknown
+  cancel?(handle: unknown): void
+}
+
+/** A drop that came before the floating page had drawn the tab (a fresh
+ *  window still loading): nothing is committed until it has. */
+interface Late<W> {
+  tabId: string
+  source: W
+  win: W
+  carry: TabCarry
+  sent: boolean
+  last: Bounds | null
+  timer: unknown
+  resolve(answer: { committed: boolean }): void
 }
 
 interface Floating<W> {
@@ -125,6 +144,8 @@ export interface TearState {
   /** Where the moving window is (or, under --e2e, would be). */
   bounds: Bounds | null
   shown: boolean
+  /** A drop is waiting for a fresh window's page to draw the tab. */
+  waiting: boolean
   /** Tears and their ends since the start, for the e2e's counts. */
   tears: number
   commits: number
@@ -140,9 +161,15 @@ export interface TearOff<W extends TearWin> {
   listening(win: W): void
   /** The floating page has drawn the tab; `tab` is where (client coordinates). */
   adopted(win: W, tab: Point | null): void
-  end(source: W, how: TearEnd): { committed: boolean }
-  /** A window has closed or crashed. */
+  /** A drop before the floating page has the tab answers once it has (or
+   *  has failed to load): only then is anything committed. */
+  end(source: W, how: TearEnd): Promise<{ committed: boolean }>
+  /** A window has closed or crashed. Called BEFORE it leaves the registry, so
+   *  a tab that was flying is not moving any more when its close releases. */
   gone(win: W): void
+  /** The source's page went away (a reload) while its window stays: it can
+   *  no longer end the tear, so main does. */
+  lost(win: W): void
   /** The spare in use, if any: it must not be destroyed or reused under the tear. */
   busy(win: W): boolean
   state(): TearState
@@ -156,11 +183,17 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
   const now = deps.now ?? (() => Date.now())
   const every = deps.every ?? ((fn: () => void, ms: number) => setInterval(fn, ms))
   const stopTimer = deps.stop ?? ((h: unknown) => clearInterval(h as NodeJS.Timeout))
+  const after = deps.after ?? ((fn: () => void, ms: number) => setTimeout(fn, ms))
+  const cancelTimer = deps.cancel ?? ((h: unknown) => clearTimeout(h as NodeJS.Timeout))
   let session: Session<W> | null = null
   let loop: unknown = null
   /** A drop that came before the floating page had the tab (a slow fresh
-   *  window): it is delivered and shown when the page catches up. */
-  let late: { win: W; carry: TabCarry; sent: boolean } | null = null
+   *  window): committed, shown and answered when the page has drawn it. */
+  let late: Late<W> | null = null
+  /** Windows that have closed. Electron's 'closed' comes before the window is
+   *  destroyed, so `isDestroyed` alone would still call it alive there. */
+  const dead = new WeakSet<W>()
+  const alive = (w: W): boolean => !dead.has(w) && !w.isDestroyed()
   const counts = { tears: 0, commits: 0, attaches: 0, cancels: 0 }
 
   const frame = (w: W): Point => {
@@ -196,12 +229,13 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
   const tick = (): void => {
     const s = session
     if (!s) return stopLoop()
-    if (s.source.isDestroyed()) return void finish('cancel', false)
+    if (!alive(s.source)) return void finish('cancel', false)
     if (s.kind === 'window') return place(s, s.source)
-    if (s.win.isDestroyed()) return void finish('cancel', false)
+    if (!alive(s.win)) return void finish('cancel', false)
     place(s, s.win)
     // THE SNAP BACK (spec 1.4): over a strip, with its margin, for 120 ms.
-    // One target for now: the source's own strip. Step 4 lists every window.
+    // One target for now: the source's own strip (held to the tear zone by
+    // the page, `snapTarget`). Step 4 lists every window.
     const p = cursorOf(s)
     const targets = [{ key: 0, rect: shift(s.strip, clientToScreen(s.source, { x: 0, y: 0 })) }]
     const over = stripUnder(p, targets)
@@ -219,12 +253,50 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     deps.log?.('tear-attach', { tab: s.tabId })
   }
   const showFloating = (s: Floating<W> & { last: Bounds | null }): void => {
-    if (s.shown || s.win.isDestroyed()) return
+    if (s.shown || !alive(s.win)) return
     s.shown = true
     // Placed BEFORE it shows, so it never flashes somewhere else first.
     if (s.last && !deps.e2e) s.win.setBounds(s.last)
     s.win.showInactive()
     deps.tell(s.source, { kind: 'shown', tabId: s.tabId })
+  }
+  /** The drop is committed: the floating window is a window of the session. */
+  const commit = (tabId: string, win: W, carry: TabCarry): void => {
+    counts.commits += 1
+    deps.commit(win, carry)
+    deps.moving(tabId, false)
+    deps.spareSoon()
+    deps.log?.('tear-end', { tab: tabId, how: 'drop' })
+  }
+  /** A tab that does not leave: the floating window gives it back (if it is
+   *  still there) and hides as the spare; the source has it again. */
+  const giveBack = (tabId: string, win: W, source: W): void => {
+    counts.cancels += 1
+    // Even when the source has gone: the floating window is the spare again,
+    // and main releases the tab with the source's close (`gone` first).
+    if (alive(win)) deps.release(win, tabId, alive(source) ? source : null)
+    deps.moving(tabId, false)
+    deps.log?.('tear-end', { tab: tabId, how: 'cancel' })
+  }
+  /** The late drop is over: the page drew the tab (`ok`), or the window failed
+   *  to load in time, or one of the two windows went. */
+  const settleLate = (ok: boolean): void => {
+    const l = late
+    if (!l) return
+    late = null
+    cancelTimer(l.timer)
+    if (ok && alive(l.win) && alive(l.source)) {
+      commit(l.tabId, l.win, l.carry)
+      if (l.last && !deps.e2e) l.win.setBounds(l.last)
+      l.win.showInactive()
+      deps.reveal(l.win)
+      l.resolve({ committed: true })
+      return
+    }
+    // "The new window failing to load commits nothing" (spec): the source
+    // still has the tab, with everything it carried.
+    giveBack(l.tabId, l.win, l.source)
+    l.resolve({ committed: false })
   }
   /** End the session; answers whether a drop committed. `fromPage`: the
    *  source page ended it (its pointer-up, its cancel); otherwise main did,
@@ -238,40 +310,35 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
       if (how === 'cancel') {
         counts.cancels += 1
         // Put back exactly: the place it was, and maximized if it was.
-        if (!s.source.isDestroyed()) {
+        if (alive(s.source)) {
           if (!deps.e2e) s.source.setBounds(s.before)
           if (s.wasMax) s.source.maximize()
         }
       }
-      if (!fromPage && !s.source.isDestroyed()) deps.tell(s.source, { kind: 'ended', tabId: s.tabId })
+      if (!fromPage && alive(s.source)) deps.tell(s.source, { kind: 'ended', tabId: s.tabId })
       deps.log?.('tear-end', { tab: s.tabId, how, only: true })
       return false
     }
-    if (how === 'drop' && !s.win.isDestroyed() && !s.source.isDestroyed()) {
-      counts.commits += 1
-      deps.commit(s.win, s.carry)
-      // Shown: to the front now. Not yet (a fresh window still loading): when
-      // its page has drawn the tab.
-      if (s.shown) deps.reveal(s.win)
-      else late = { win: s.win, carry: s.carry, sent: s.sent }
-      deps.moving(s.tabId, false)
-      deps.spareSoon()
-      deps.log?.('tear-end', { tab: s.tabId, how })
+    if (how === 'drop' && alive(s.win) && alive(s.source)) {
+      commit(s.tabId, s.win, s.carry)
+      deps.reveal(s.win)
       return true
     }
-    counts.cancels += 1
-    // The floating window hides as the spare again, even when the source has
-    // gone (a crash rebuild brings that window back with the tab in it).
-    if (!s.win.isDestroyed()) deps.release(s.win, s.tabId, s.source)
-    deps.moving(s.tabId, false)
-    if (!fromPage && !s.source.isDestroyed()) deps.tell(s.source, { kind: 'ended', tabId: s.tabId })
-    deps.log?.('tear-end', { tab: s.tabId, how: 'cancel' })
+    giveBack(s.tabId, s.win, s.source)
+    if (!fromPage && alive(s.source)) deps.tell(s.source, { kind: 'ended', tabId: s.tabId })
     return false
+  }
+  /** A window or its page has gone: whatever it was part of ends. */
+  const drop = (win: W, asFloating: boolean): void => {
+    if (late && (late.source === win || (asFloating && late.win === win))) settleLate(false)
+    const s = session
+    if (!s) return
+    if (s.source === win || (asFloating && s.kind === 'float' && s.win === win)) finish('cancel', false)
   }
 
   return {
     start(source, req) {
-      if (source.isDestroyed()) return false
+      if (!alive(source)) return false
       if (session) finish('cancel', false)
       counts.tears += 1
       const point = clientToScreen(source, req.point)
@@ -347,23 +414,44 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
         session.last = null
         place(session, win)
         showFloating(session)
-      } else if (late && late.win === win) {
-        late = null
-        if (!win.isDestroyed()) {
-          win.showInactive()
-          deps.reveal(win)
-        }
-      }
+      } else if (late && late.win === win) settleLate(true)
     },
     end(source, how) {
-      if (!session || session.source !== source) return { committed: false }
-      return { committed: finish(how, true) }
+      const s = session
+      if (!s || s.source !== source) return Promise.resolve({ committed: false })
+      // DROPPED BEFORE THE NEW WINDOW HAS THE TAB (a fresh window, its page
+      // still loading; review 2026-10-29): nothing is committed yet. The
+      // window stays where it was dropped, hidden, until its page has drawn
+      // the tab; then it commits, shows and takes the focus, and only then
+      // does the source let the tab go. A page that never comes commits
+      // nothing: the tab goes back, unsaved text and all.
+      if (how === 'drop' && s.kind === 'float' && !s.shown && alive(s.win) && alive(s.source)) {
+        stopLoop()
+        session = null
+        deps.log?.('tear-drop-waits', { tab: s.tabId })
+        return new Promise((resolve) => {
+          late = {
+            tabId: s.tabId,
+            source: s.source,
+            win: s.win,
+            carry: s.carry,
+            sent: s.sent,
+            last: s.last,
+            timer: after(() => settleLate(false), TEAR.lateDropMs),
+            resolve
+          }
+        })
+      }
+      return Promise.resolve({ committed: finish(how, true) })
     },
     gone(win) {
-      if (late?.win === win) late = null
-      const s = session
-      if (!s) return
-      if (s.source === win || (s.kind === 'float' && s.win === win)) finish('cancel', false)
+      dead.add(win)
+      drop(win, true)
+    },
+    lost(win) {
+      // Only as the source: a fresh floating window's page starting to load
+      // is how it begins, not a loss.
+      drop(win, false)
     },
     busy: (win) => (session?.kind === 'float' && session.win === win) || late?.win === win,
     state: () => ({
@@ -371,6 +459,7 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
       tabId: session?.tabId ?? null,
       bounds: session?.last ?? null,
       shown: session?.kind === 'float' ? session.shown : false,
+      waiting: late !== null,
       ...counts
     })
   }
