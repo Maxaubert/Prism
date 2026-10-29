@@ -40,6 +40,8 @@ export interface TailEvent {
 
 interface Watch {
   path: string
+  /** Its place in `watches`: the owner and the path. */
+  key: string
   offset: number
   timer: ReturnType<typeof setInterval>
   decoder: TextDecoder
@@ -55,7 +57,7 @@ const watches = new Map<string, Watch>()
  *  dozen idle tails cost nothing. */
 const POLL_MS = 500
 
-const key = (p: string): string => p.toLowerCase()
+const key = (p: string, owner = ''): string => `${owner}\u0000${p.toLowerCase()}`
 
 /** The most one poll reads (review, 2026-10-28). */
 export const TAIL_CHUNK = 4 * 1024 * 1024
@@ -121,7 +123,7 @@ async function pump(w: Watch, emit: (e: TailEvent) => void): Promise<void> {
   // The rest of a backlog follows at once, a chunk a turn, while it is still followed.
   if (more)
     setImmediate(() => {
-      if (watches.get(key(w.path)) === w) void pump(w, emit)
+      if (watches.get(w.key) === w) void pump(w, emit)
     })
 }
 
@@ -134,9 +136,13 @@ async function pump(w: Watch, emit: (e: TailEvent) => void): Promise<void> {
 export async function startTail(
   path: string,
   from: number,
-  emit: (e: TailEvent) => void
+  emit: (e: TailEvent) => void,
+  /** Who follows it (tab tear-off step 1, 2026-10-29): one tail per path PER
+   *  WINDOW, so one window's stop never freezes another's live log, and a
+   *  window that closes stops only its own (`stopTailsOf`). */
+  owner = ''
 ): Promise<boolean> {
-  stopTail(path)
+  stopTail(path, owner)
   try {
     const st = await stat(path)
     if (!st.isFile()) return false
@@ -149,12 +155,13 @@ export async function startTail(
     await fh.close().catch(() => {})
     const w: Watch = {
       path,
+      key: key(path, owner),
       offset,
       busy: false,
       decoder: new TextDecoder(decoderFor(sniffEncoding(head)), { fatal: false }),
       timer: setInterval(() => void pump(w, emit), POLL_MS)
     }
-    watches.set(key(path), w)
+    watches.set(w.key, w)
     // One read straight away, so anything written between the reader's own
     // read and this call is not silently lost.
     void pump(w, emit)
@@ -164,11 +171,20 @@ export async function startTail(
   }
 }
 
-export function stopTail(path: string): void {
-  const w = watches.get(key(path))
+export function stopTail(path: string, owner = ''): void {
+  const w = watches.get(key(path, owner))
   if (!w) return
   clearInterval(w.timer)
-  watches.delete(key(path))
+  watches.delete(w.key)
+}
+
+/** Every tail one owner (a window) follows, dropped: that window closed. */
+export function stopTailsOf(owner: string): void {
+  for (const [k, w] of watches)
+    if (k.startsWith(`${owner}\u0000`)) {
+      clearInterval(w.timer)
+      watches.delete(k)
+    }
 }
 
 /** Every tail, dropped. For quitting, and for a root wall that narrowed. */

@@ -124,7 +124,47 @@ describe('the page heartbeat', () => {
     // the stack was taken.
     w.beat()
     w.pageStall(gapStart, 3200)
-    expect(log.lines).toEqual([{ src: 'main', k: 'page-stack', fields: { stack: STACK, ms: 2000 } }])
+    expect(log.lines).toEqual([{ src: 'main', k: 'page-stack', fields: { stack: STACK, ms: 2000, page: 0 } }])
+  })
+
+  it('EVERY PAGE BEATS ON ITS OWN (2026-10-29): one window beating never hides another going quiet', async () => {
+    const collect = vi.fn((page: number) => Promise.resolve(page > 0 ? STACK : null))
+    const w = watch({ collectStack: collect })
+    w.beat(1)
+    w.beat(2)
+    // Page 1 keeps beating; page 2 stops.
+    for (let i = 0; i < 50; i += 1) {
+      await pass(50)
+      if (i % 10 === 0) w.beat(1)
+    }
+    expect(collect.mock.calls.map(([page]) => page)).toEqual([2])
+    // A closed page is no longer waited for.
+    w.forget(2)
+    w.beat(1)
+    for (let i = 0; i < 50; i += 1) {
+      await pass(50)
+      if (i % 10 === 0) w.beat(1)
+    }
+    expect(collect).toHaveBeenCalledTimes(1)
+  })
+
+  it("holds one stack per page: page B's gap never overwrites page A's, and B's unresponsive never writes A's", async () => {
+    const A = `${STACK}\n    at pageA (a.js:1:1)`
+    const collect = vi.fn((page: number) => Promise.resolve(page === 1 ? A : null))
+    const w = watch({ collectStack: collect })
+    w.beat(1)
+    w.beat(2)
+    const gapStart = wall
+    // Both go quiet: A answers a stack, B answers nothing.
+    for (let i = 0; i < 45; i += 1) await pass(50)
+    expect(collect.mock.calls.map(([page]) => page).sort()).toEqual([1, 2])
+    // B says it is unresponsive: no stack of its own, so nothing is written.
+    w.unresponsive(2)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(log.lines).toEqual([])
+    // A's stall still finds A's stack, tagged with its page.
+    w.pageStall(gapStart, 3200, 1)
+    expect(log.lines).toEqual([{ src: 'main', k: 'page-stack', fields: { stack: A, ms: 2000, page: 1 } }])
   })
 
   it('drops the stack when no stall covers it: a throttled timer is not a freeze', async () => {
@@ -153,7 +193,7 @@ describe('the page heartbeat', () => {
     w.beat()
     for (let i = 0; i < 45; i += 1) await pass(50)
     w.unresponsive()
-    expect(log.lines).toEqual([{ src: 'main', k: 'page-stack', fields: { stack: STACK, ms: 2000, unresponsive: true } }])
+    expect(log.lines).toEqual([{ src: 'main', k: 'page-stack', fields: { stack: STACK, ms: 2000, page: 0, unresponsive: true } }])
   })
 
   it("does not ask for the page's stack when it was MAIN that was blocked", async () => {

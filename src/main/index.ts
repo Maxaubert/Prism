@@ -41,9 +41,11 @@ import {
 import { createWindowPreferences } from './windowPreferences'
 import { forgetCanonical, listDir, searchFiles, toViewerFile, warmCanonical } from './dirList'
 import {
+  desktopClosed,
   grantDesktopDirectory,
   insideDesktop
 } from './desktopAccess'
+import { browseWatcherOf } from './browseWatch'
 import { browseDirectory, browseLocations, type BrowseRead } from './browse'
 import { driveUsage, withUsedShare } from './driveUsage'
 import { phoneListed, phoneMay, phoneOnThisPc, phoneRelease } from './phone/phoneAccess'
@@ -64,7 +66,9 @@ import { PhoneLog } from './phone/diag'
 import { Positions } from './positions'
 import { holders } from './holders'
 import { Thumbs } from './thumbs'
-import { readTabs } from './tabs'
+import { parseTabs, readSessionRaw, type SavedTabs } from './tabs'
+import { savedEntry, type SessionEntry } from './session'
+import type { WindowSeed } from './windowRegistry'
 import { userPaths } from './paths'
 import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnostics'
 import { withStackPolicy } from 'prism-term-core/main/diagIpc'
@@ -83,7 +87,8 @@ import { docKind } from './docConvert'
 import { createDocClient } from './docClient'
 import { createShellVerbSetting } from './shellVerbSetting'
 import { shapeOf, type TextShape } from './textFile'
-import { stopAllTails } from './fileTail'
+import { stopAllTails, stopTailsOf } from './fileTail'
+import { firstWindow } from './windowSize'
 import { readAsVtt, sidecarsFor } from './subtitles'
 import {
   setSevenExe,
@@ -103,7 +108,7 @@ import type {
   TextRead
 } from '@shared/types'
 import { exists } from './fsUtil'
-import { E2E, appState, sendToPage, isMainSender } from './appState'
+import { E2E, appState, windows } from './appState'
 import { createPathWall } from './pathWall'
 import { MEDIA_SCHEME, createMediaServer } from './mediaProtocol'
 import { heicToJpeg } from './heicClient'
@@ -111,10 +116,17 @@ import { ffmpegTools, sevenExe } from './bundledTools'
 import { registerArchiveIpc, type ArchiveBodies } from './ipc/archive'
 import { registerMediaIpc } from './ipc/media'
 import { registerPropsIpc } from './ipc/props'
-import { registerBrowseIpc, registerTreeIpc } from './ipc/browse'
+import { registerBrowseIpc, registerTreeIpc, releaseTab } from './ipc/browse'
 import { registerLinkIpc } from './ipc/links'
 import { installPermissionHandler } from './permissions'
-import { registerSaveCopyIpc, registerFilesIpc, registerShellIpc, registerMoveIpc, registerNewFilesIpc } from './ipc/files'
+import {
+  registerSaveCopyIpc,
+  registerFilesIpc,
+  registerShellIpc,
+  registerMoveIpc,
+  registerNewFilesIpc,
+  tailOwner
+} from './ipc/files'
 import { registerOpenIpc } from './ipc/open'
 import { registerPreferencesIpc, registerWinEIpc, registerSessionIpc } from './ipc/window'
 import { createTabsSession } from './tabsSession'
@@ -131,6 +143,7 @@ import {
   raise,
   readWindowState,
   registerWindowIpc,
+  releaseShroud,
   watchWindowState
 } from './windowChrome'
 
@@ -399,9 +412,8 @@ async function archiveRead(tabId: string, path: string, hops = 0): Promise<Brows
 }
 const explorerListings = createExplorerListings({
   cache: listingCache,
-  send: (channel, payload) => {
-    if (appState.mainWindow && !appState.mainWindow.isDestroyed()) appState.mainWindow.webContents.send(channel, payload)
-  },
+  // A tab's details to the window that owns the tab (2026-10-29).
+  send: (tabId, channel, payload) => windows.sendToTabOwner(tabId, channel, payload),
   localFixed: isLocalFixed,
   archive: archiveRead,
   // E2E only: the slow-folder hint is proved by holding every names read, and
@@ -409,8 +421,8 @@ const explorerListings = createExplorerListings({
   delayMs: process.argv.includes('--e2e') ? Number(process.env.PRISM_E2E_LIST_DELAY) || 0 : 0,
   detailsDelayMs: process.argv.includes('--e2e') ? Number(process.env.PRISM_E2E_DETAILS_DELAY) || 0 : 0
 })
-/** The tab strip across launches (tabsSession.ts). */
-const { restoreTabs, saveTabs, flushTabs } = createTabsSession({
+/** The tab strips across launches, one entry per window (tabsSession.ts). */
+const { restoreTabs, session: sessionFile } = createTabsSession({
   cachedListing: (path) => explorerListings.cachedAsync(path),
   archiveRead: (tabId, path) => archiveRead(tabId, path),
   buildPayload: (p, root) => buildPayload(p, root)
@@ -423,33 +435,59 @@ const preferencesReady = new Promise<void>((resolve) => {
 })
 /** The folder each Win+E request opens, when it came from the folder verb (#393). */
 const winEBrowse = new Map<string, string>()
+/** A cold start's Win+E lands in the session's FIRST window (2026-10-29). */
+const winEHost = (): BrowserWindow | null => windows.all().find((r) => r.first)?.win ?? null
 const winERequests = createWinERequests((id) =>
-  sendToPage(PUSH.winEOpen, { id, path: winEBrowse.get(id) ?? null })
+  windows.sendTo(winEHost(), PUSH.winEOpen, { id, path: winEBrowse.get(id) ?? null })
 )
+/** Files from outside that wait for the window they go to (the one focused
+ *  last, `windows.target()`) to restore. Only that window drains it: at the
+ *  end of its restore, when it gains the focus having restored (the window
+ *  they waited for may have lost it meanwhile, review 2026-10-29), and before
+ *  a later handoff's files, so arrival order holds. */
 let pendingOpen: Array<{ path: string; dir: boolean }> = []
 /** Second-instance handoffs, read one after another so they keep arrival order. */
 let handoffs: Promise<void> = Promise.resolve()
-let startupRestored = false
+/** A tab id main makes (a restored tab without one, the home Explorer) is
+ *  unique in the process: two windows can restore in the same millisecond. */
+let mintSeq = 0
+const mintTabId = (prefix: string): string => `${prefix}-${(mintSeq += 1)}-${Date.now()}`
+/** The session file as it was at startup (2026-10-29): the first window is
+ *  sized from it, and its restore reads its strip from it. */
+let sessionRaw: string | null = null
 /** Subtitle files the user chose in the dialog: reading those is allowed
  *  wherever they live, because choosing them in main's own dialog is the
  *  consent the root wall exists to ask for. */
 const pickedSubs = new Set<string>()
 
-async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
+async function sendOpen(target: { path: string; dir: boolean }, to: BrowserWindow | null): Promise<void> {
   // A FILE from outside goes to the Explorer tab (owner, 2026-09-22: "that file
   // opened in prism's explorer rather than as a project"). Nothing is built for
   // it: the Explorer grants its own folders per tab as it walks there. Same
   // channel as everything else, so it keeps its place behind the restore.
   if (!target.dir) {
     const explorerFile: OpenPayload = { explorerFile: target.path, files: [], index: -1, root: dirname(target.path) }
-    sendToPage(PUSH.openFile, explorerFile)
+    windows.sendTo(to, PUSH.openFile, explorerFile)
     return
   }
   // A FOLDER opens an Explorer tab at it (owner, 2026-10-26: no more projects).
   // Nothing is built for it either; the page makes the tab and grants the folder.
   if (!(await exists(target.path))) return
   const explorerFolder: OpenPayload = { explorerFolder: target.path, files: [], index: -1, root: target.path }
-  sendToPage(PUSH.openFile, explorerFolder)
+  windows.sendTo(to, PUSH.openFile, explorerFolder)
+}
+
+/** One drain at a time: a focus, a restore's end and a handoff can each ask
+ *  at once, and two loops shifting the queue could reorder the opens. */
+let draining: Promise<void> = Promise.resolve()
+/** The waiting files, to `win`, while it is still the window they go to. */
+function drainPending(win: BrowserWindow, live: () => boolean = () => true): Promise<void> {
+  const run = draining.then(async () => {
+    while (pendingOpen.length && live() && !win.isDestroyed() && windows.target()?.win === win)
+      await sendOpen(pendingOpen.shift()!, win)
+  })
+  draining = run.catch(() => {})
+  return run
 }
 
 /** The phone switch, its port and the paired phones (#104). */
@@ -512,8 +550,9 @@ function folderChanged(change: { root: string; dirs: string[] }): void {
   const tell = (): void => {
     if (told) return
     told = true
-    if (appState.mainWindow && !appState.mainWindow.isDestroyed())
-      appState.mainWindow.webContents.send(PUSH.dirChanged, change)
+    // To every window (2026-10-29): each page matches a change by path, so a
+    // tab watching that folder hears it wherever it lives.
+    windows.sendToAll(PUSH.dirChanged, change)
   }
   void folderSizes
     .invalidate(directories, tell)
@@ -571,7 +610,16 @@ const shellVerbSetting = createShellVerbSetting({
  * block is implied by the stronger one anyway.
  */
 let awakeId: number | null = null
-function keepAwake(on: boolean): void {
+/** The pages that are playing (2026-10-29): the block holds while ANY window
+ *  plays, so one window pausing never lets the screen sleep under another's
+ *  film. A window's close takes its own entry. */
+const playing = new Set<number>()
+function keepAwake(sender: { id: number }, on: boolean): void {
+  if (on) playing.add(sender.id)
+  else playing.delete(sender.id)
+  holdAwake(playing.size > 0)
+}
+function holdAwake(on: boolean): void {
   if (on) {
     if (awakeId === null || !powerSaveBlocker.isStarted(awakeId)) {
       awakeId = powerSaveBlocker.start('prevent-display-sleep')
@@ -618,23 +666,33 @@ const holdRecovery = E2E && process.env.PRISM_E2E_HOLD_RECOVERY === '1'
 let crashedAtStart = false
 /**
  * Which page a startup restore belongs to (#265, review). A restore is a
- * sequence of awaits that drains the shared `pendingOpen` and ends by setting
- * `startupRestored`; a page that dies part way through used to leave it
+ * sequence of awaits that drains the shared `pendingOpen` and ends by marking
+ * its page restored; a page that dies part way through used to leave it
  * running into the page that replaced it, taking files a second launch had
  * just queued, sending tabs the new page restores itself, and marking a page
- * restored that had not even asked. Every main-frame load and every new
- * window starts a new generation, and a run from an older one stops at its
- * next step and touches nothing shared.
+ * restored that had not even asked. Every main-frame load starts a new
+ * generation of ITS window (`gen` in the window registry, 2026-10-29: one
+ * window's load never cuts another's restore off), a window that has gone
+ * ends its own, and a run from an older one stops at its next step and
+ * touches nothing shared.
  */
-let pageGen = 0
 
 /** A fresh window in place of one whose page keeps dying. The new one is
  *  built FIRST: destroying the only window first would read as the last
- *  window closing, and the app would quit. */
-function recreateWindow(): void {
-  const old = appState.mainWindow
-  createWindow()
-  if (old && !old.isDestroyed()) old.destroy()
+ *  window closing, and the app would quit. It comes back with THAT window's
+ *  tabs, as its page last reported them (2026-10-29), never the saved strip
+ *  of another: a second window that crashes must not come back as a copy of
+ *  the first. */
+function recreateWindow(old: BrowserWindow): void {
+  const r = windows.recordOf(old)
+  const seed: WindowSeed = r?.reported ? { kind: 'tabs', tabs: r.reported } : (r?.seed ?? { kind: 'none' })
+  const bounds = old.isDestroyed() ? undefined : old.getNormalBounds()
+  const fresh = createWindow({ first: r?.first, seed, launchFlags: r?.launchFlags, bounds })
+  if (r) {
+    windows.handOver(old, fresh)
+    sessionFile.rekey(r.id, fresh.webContents.id)
+  }
+  if (!old.isDestroyed()) old.destroy()
 }
 
 /** Nothing left to try: say so (never under --e2e) and end the process, which
@@ -661,19 +719,31 @@ function giveUpWindow(): void {
  * are handed over (#265). Answers true when it STARTED a page (a new window or
  * a reload), since the files then wait in `pendingOpen` for the page to listen.
  * Raising a window whose page is gone, which is all this used to do, shows a
- * blank frame at best.
+ * blank frame at best. The window is the one files from outside go to (the
+ * one focused last, 2026-10-29); with none left, a new one opens the strip of
+ * the window closed last.
  */
 function ensureLivePage(): boolean {
-  if (!app.isReady()) return false // whenReady makes the window and drains the queue
+  if (!app.isReady() || !firstWindowMade) return false // whenReady makes the window and drains the queue
   if (appState.appQuitting || appState.installingUpdate) return false // a window now would only be taken away
-  if (!appState.mainWindow || appState.mainWindow.isDestroyed()) {
+  const target = windows.target()
+  if (!target) {
     logWindow('handoff', { window: 'none', action: 'create' })
-    createWindow()
+    const last = sessionFile.primary()
+    // WITHOUT the saved ids (review, 2026-10-29): the last window's close
+    // released them for good (releaseDesktop), so the same ids could never
+    // be granted their folders again. The restore mints new ones.
+    const tabs = last ? last.tabs.map((t) => ({ ...t, id: undefined })) : []
+    createWindow({
+      first: true,
+      seed: tabs.length ? { kind: 'tabs', tabs: { tabs, active: last!.active } } : { kind: 'none' }
+    })
     return true
   }
-  if (pageGone(appState.mainWindow)) {
+  if (pageGone(target.win)) {
     logWindow('handoff', { window: 'dead', action: 'reload' })
-    appState.mainWindow.webContents.reload()
+    target.restored = false
+    target.win.webContents.reload()
     return true
   }
   return false
@@ -713,17 +783,67 @@ function sweepOverlayFor(win: BrowserWindow): void {
 /** After the first frame is on screen, not in the race for it. */
 const SWEEP_OVERLAY_DELAY_MS = 400
 
-function createWindow(): void {
-  const remembered = readWindowState()
+/** How a window is made (2026-10-29: Prism has several in one process). */
+interface WindowOptions {
+  /** The session's first window, or its crash rebuild: the one a cold-start
+   *  Win+E lands in, and the e2e's main window. */
+  first?: boolean
+  /** Where its tabs come from (windowRegistry.ts `WindowSeed`). Only the cold
+   *  start's first window is made with `saved`. */
+  seed?: WindowSeed
+  /** `--prism-setup` / `--prism-demo`: the cold start's first window's only. */
+  launchFlags?: readonly string[]
+  /** Where it opens; the first window's come from the session file. */
+  bounds?: { x?: number; y?: number; width: number; height: number }
+  /** The saved entry of the session file, for the cold start's first window. */
+  saved?: SessionEntry | null
+}
+
+/** The first window of the session has been made (whenReady). */
+let firstWindowMade = false
+/** Windows made so far: each window's key (`w1`, `w2`, ...), the prefix of
+ *  the tab ids its page mints. */
+let windowSerial = 0
+/** `session-end` comes to every window; its last lines are written once. */
+let sessionEnded = false
+
+/** The renderer flags only the cold start's first window gets: setup runs the
+ *  guide, the demo its own (they ride in the page's argv). A later window
+ *  never inherits them from the process (2026-10-29). */
+function coldStartFlags(): string[] {
+  return [
+    ...(process.argv.includes('--setup') ? ['--prism-setup'] : []),
+    ...(process.argv.includes('--demo') ? ['--prism-demo'] : [])
+  ]
+}
+
+/** Where a window that is not the first opens: the size of the one focused
+ *  last, a step down and right of it, else Prism's first-run size. */
+function nextWindowBounds(): { x?: number; y?: number; width: number; height: number } {
+  const from = windows.target()?.win
+  if (from && !from.isDestroyed()) {
+    const b = from.getNormalBounds()
+    return { x: b.x + 32, y: b.y + 32, width: b.width, height: b.height }
+  }
+  return firstWindow(screen.getPrimaryDisplay().workArea)
+}
+
+function createWindow(options: WindowOptions = {}): BrowserWindow {
+  const first = !!options.first
+  const launchFlags = [...(options.launchFlags ?? [])]
+  const place = options.bounds ?? (options.saved !== undefined ? readWindowState(options.saved?.bounds ?? null) : nextWindowBounds())
+  const key = `w${(windowSerial += 1)}`
   const win = new BrowserWindow({
     title: 'Prism',
-    width: remembered.width,
-    height: remembered.height,
-    x: remembered.x,
-    y: remembered.y,
+    width: place.width,
+    height: place.height,
+    x: place.x,
+    y: place.y,
     minWidth: 560,
     minHeight: 400,
     show: false,
+    // Every window under --e2e, whoever made it (2026-10-29): offscreen and
+    // unfocusable, never placed from a cursor or a saved size.
     ...(E2E ? { x: -4000, y: -4000, focusable: false, skipTaskbar: true } : {}),
     // Not `frame: false`: DWM refuses to composite acrylic or mica behind a
     // frameless window, which is why a translucent style came out as a hole in
@@ -750,53 +870,67 @@ function createWindow(): void {
       backgroundThrottling: false,
       // Setup launches Prism with --setup so the guide runs even on a machine
       // that has seen it before. It rides in the renderer's own argv rather
-      // than an IPC message, so it is there before the first render.
+      // than an IPC message, so it is there before the first render. The
+      // first window's only (`coldStartFlags`).
       additionalArguments: [
-        ...(process.argv.includes('--setup') ? ['--prism-setup'] : []),
-        ...(process.argv.includes('--demo') ? ['--prism-demo'] : []),
+        ...launchFlags,
+        // The window's key: the prefix of every tab id its page mints, so
+        // ids are unique across windows (2026-10-29, sessionIds.ts).
+        `--prism-window=${key}`,
         // The page's clipboard is main's in-memory one under --e2e (#356);
         // the preload learns it here, since the renderer's argv is its own.
         ...(E2E ? ['--prism-e2e'] : [])
       ]
     }
   })
-  appState.mainWindow = win
-  pageGen++
+  const rec = windows.add(win, { key, first, seed: options.seed ?? { kind: 'none' }, launchFlags })
+  const page = rec.id
+  firstWindowMade = true
+  // The cold start's first window carries the saved entry until its page
+  // reports a strip of its own (session.ts `seed`).
+  if (options.saved) sessionFile.seed(page, options.saved)
+  // A window that is not the first is parked the moment it exists under
+  // --e2e, so nothing it shows can be seen (the harness parks every window).
+  if (E2E && !first) win.setOpacity(0)
   // The diagnostics log's watch (#322): this window's hang events, and its
-  // frame for the page's stack when the heartbeat stops. A rebuilt window
-  // (#265) is handed over the same way.
+  // frame for the page's stack when ITS heartbeat stops (each page beats on
+  // its own, 2026-10-29). A rebuilt window (#265) is handed over the same way.
   diag?.watchWindow(win)
   // Windows is shutting down or logging off: no will-quit is coming, so the
-  // log's last lines (those just before a hang at shutdown) are written here.
+  // log's last lines (those just before a hang at shutdown) are written here,
+  // once however many windows hear it.
   win.on('session-end', () => {
+    if (sessionEnded) return
+    sessionEnded = true
     diag?.log.write('main', 'session-end', {})
     diag?.log.flushSync() // sync-ok: shutdown, the process may be killed right after session-end
   })
   let shown = false
   const showWindow = (): void => {
-    if (shown) return
+    if (shown || win.isDestroyed()) return
     shown = true
     // Never reopened maximised (owner, 2026-10-11): see windowSize.ts.
-    if (E2E) appState.mainWindow?.showInactive()
-    else if (appState.mainWindow) raise(appState.mainWindow)
+    if (E2E) win.showInactive()
+    else raise(win)
     // No helper to warm (#189): the border program is compiled at build time
     // and started per change with no pipe, so this costs milliseconds and the
     // first frame no longer waits ~900 ms behind a PowerShell's stdin pipe.
-    applyDwmBorder()
+    applyDwmBorder(win)
   }
-  appState.mainWindow.once('ready-to-show', showWindow)
-  appState.mainWindow.webContents.once('dom-ready', showWindow)
+  win.once('ready-to-show', showWindow)
+  win.webContents.once('dom-ready', showWindow)
   // The native sweep box's target (#338), once this window has painted.
   win.webContents.once('did-finish-load', () => setTimeout(() => sweepOverlayFor(win), SWEEP_OVERLAY_DELAY_MS))
   guardWindow(win, {
     budget: windowBudget,
     log: logWindow,
     show: showWindow,
-    recreate: recreateWindow,
+    recreate: () => recreateWindow(win),
     giveUp: giveUpWindow,
     // The text the page held died with it; a close must not ask about it.
+    // THIS window's flag only (2026-10-29): another window's text is alive.
     stateLost: () => {
-      appState.editorDirty = false
+      rec.dirty = false
     },
     quitting: () => appState.appQuitting,
     held: () => holdRecovery
@@ -809,13 +943,56 @@ function createWindow(): void {
   }
   // The border follows maximize state; fullscreen changes call applyDwmBorder
   // themselves on the way out, and applyMaterial's debounce covers the rest.
-  appState.mainWindow.on('maximize', applyDwmBorder)
-  appState.mainWindow.on('unmaximize', applyDwmBorder)
-  watchWindowState(appState.mainWindow, flushTabs)
-  // Only THIS window's close clears it: a rebuilt window replaces the old one
-  // before the old one is destroyed (#265).
+  win.on('maximize', () => applyDwmBorder(win))
+  win.on('unmaximize', () => applyDwmBorder(win))
+  // Its bounds go into its own entry of the session file (session.ts).
+  watchWindowState(
+    win,
+    (bounds) => sessionFile.bounds(page, bounds),
+    // On main's thread only for the last window or the quit (the window
+    // closing is still counted here).
+    () => sessionFile.flush(windows.count() <= 1 || appState.appQuitting || appState.installingUpdate)
+  )
+  // Files from outside go to the window focused last.
+  win.on('focus', () => {
+    windows.focused(win)
+    sessionFile.focus(page)
+    // Files queued for a window still restoring when the focus moved here:
+    // this one has restored, so they open here now (review, 2026-10-29).
+    if (pendingOpen.length && rec.restored) void drainPending(win)
+  })
+  /**
+   * A WINDOW'S CLOSE LETS GO OF WHAT ITS TABS HELD (2026-10-29). Closing a
+   * window's last tab closes the window without a `browseRelease` per tab
+   * (useTabOps.ts), which was fine while that close ended the process. With
+   * other windows still open, every tab of the closed one would keep its
+   * folder grants, its folder watch, its listing's details run and its
+   * searches, and its tails and conversions would run on for nobody. So main
+   * releases them here, except a tab that is moving to another window
+   * (`windows.markMoving`, tab tear-off step 3), and except a window being
+   * replaced by its own crash rebuild, whose tabs live on in the new one.
+   */
   win.on('closed', () => {
-    if (appState.mainWindow === win) appState.mainWindow = null
+    const rebuilding = rec.rebuilding
+    const released = windows.remove(win)
+    const others = windows.count() > 0
+    if (!rebuilding) {
+      // The session file: a window closed while others stay open takes its
+      // entry with it; the last one keeps it (owner, 2026-10-29).
+      sessionFile.closed(page, { others, quitting: appState.appQuitting || appState.installingUpdate })
+      for (const tabId of released) releaseTab(tabId)
+    }
+    // Tails are keyed by the PAGE, not the tab: a crash rebuild's new page
+    // has a new id and starts its own, so the old page's stop here too
+    // (review, 2026-10-29), or each crash left a poller reading for nobody.
+    stopTailsOf(tailOwner({ id: page }))
+    if (playing.delete(page)) holdAwake(playing.size > 0)
+    // THE SHROUD NEVER KEEPS THE APP ALIVE: the last page window gone, the
+    // hidden fullscreen cover goes too, so `window-all-closed` can come.
+    if (!others) releaseShroud()
+    // Files that were waiting for this window go to the one now in front,
+    // once it has restored.
+    else if (pendingOpen.length && windows.target()?.restored) void drainPending(windows.target()!.win)
   })
   /**
    * Minimised, and focused, told to the page (2026-08-26).
@@ -824,29 +1001,32 @@ function createWindow(): void {
    * hidden, so `visibilitychange` never fires and `document.hidden` stays
    * false, and window blur in the page is not the same question as "another
    * application has the focus". The player's "pause in the background" setting
-   * needs both, so main - which does know - says so.
+   * needs both, so main - which does know - says so. THIS window's state, to
+   * this window's page (2026-10-29).
    */
-  const sayState = (): void =>
-    appState.mainWindow?.webContents.send(PUSH.windowState, {
-      minimised: appState.mainWindow.isMinimized(),
-      focused: appState.mainWindow.isFocused()
+  const sayState = (): void => {
+    if (win.isDestroyed()) return
+    windows.sendTo(win, PUSH.windowState, {
+      minimised: win.isMinimized(),
+      focused: win.isFocused()
     })
+  }
   // Listed one by one: BrowserWindow's overloads are per event name, so a loop
   // over a union of them has no single signature to match.
-  appState.mainWindow.on('minimize', sayState)
-  appState.mainWindow.on('restore', sayState)
-  appState.mainWindow.on('show', sayState)
-  appState.mainWindow.on('hide', sayState)
-  appState.mainWindow.on('focus', sayState)
-  appState.mainWindow.on('blur', sayState)
+  win.on('minimize', sayState)
+  win.on('restore', sayState)
+  win.on('show', sayState)
+  win.on('hide', sayState)
+  win.on('focus', sayState)
+  win.on('blur', sayState)
 
-  appState.mainWindow.on('enter-full-screen', () => {
-    sendToPage(PUSH.windowFullscreen, true)
-    applyMaterial(true)
+  win.on('enter-full-screen', () => {
+    windows.sendTo(win, PUSH.windowFullscreen, true)
+    applyMaterial(win, true)
   })
-  appState.mainWindow.on('leave-full-screen', () => {
-    sendToPage(PUSH.windowFullscreen, false)
-    applyMaterial(false)
+  win.on('leave-full-screen', () => {
+    windows.sendTo(win, PUSH.windowFullscreen, false)
+    applyMaterial(win, false)
   })
   /**
    * A window the page tried to open. Denied, and handed to the OS only when
@@ -859,13 +1039,13 @@ function createWindow(): void {
    * not a reason to trust it. Same test as the `shell:external` handler, and
    * for the same reason.
    */
-  appState.mainWindow.webContents.setWindowOpenHandler((d) => {
+  win.webContents.setWindowOpenHandler((d) => {
     if (/^https?:\/\//i.test(d.url)) openLink(d.url)
     return { action: 'deny' }
   })
   // A page cannot navigate the window away from the app either: the renderer
   // is Prism's own UI and nothing in it is a browser.
-  appState.mainWindow.webContents.on('will-navigate', (e, url) => {
+  win.webContents.on('will-navigate', (e, url) => {
     const dev = process.env['ELECTRON_RENDERER_URL']
     if (dev && url.startsWith(dev)) return
     if (url.startsWith('file://')) return
@@ -873,23 +1053,24 @@ function createWindow(): void {
     if (/^https?:\/\//i.test(url)) openLink(url)
   })
 
-  let restoreStarted = false
-  appState.mainWindow.webContents.on('did-start-loading', () => {
-    restoreStarted = false
-    startupRestored = false
-    winERequests.reload()
+  win.webContents.on('did-start-loading', () => {
+    rec.restoreStarted = false
+    rec.restored = false
+    // The Win+E queue is the first window's (a cold start's request lands there).
+    if (rec.first) winERequests.reload()
   })
   // The page itself, not a frame inside it: a document preview's iframe
   // loading is no reason to abandon a restore.
-  appState.mainWindow.webContents.on('did-start-navigation', (details) => {
-    if (details.isMainFrame && !details.isSameDocument) pageGen++
+  win.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) rec.gen += 1
   })
   // A shortcut press needs an immediate window even on a cold renderer load.
-  // Its solid background is followed by the lightweight opening screen.
-  if (winERequest(process.argv)) showWindow()
+  // Its solid background is followed by the lightweight opening screen. The
+  // first window's only: a later window never reads the process's argv.
+  if (first && winERequest(process.argv)) showWindow()
   const devUrl = process.env['ELECTRON_RENDERER_URL']
-  if (devUrl) void appState.mainWindow.loadURL(devUrl)
-  else void appState.mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  if (devUrl) void win.loadURL(devUrl)
+  else void win.loadFile(join(__dirname, '../renderer/index.html'))
 
   // Rebuild last session's strip, then deliver whatever the app was launched
   // with. Order matters: the launch file goes through the same arriving-file
@@ -898,42 +1079,56 @@ function createWindow(): void {
   // The lightweight loading shell can finish its document before App loads.
   // Start restore only once the renderer is actually listening for its files.
   const restoreWhenListening = (event: Electron.IpcMainEvent): void => {
-    if (!isMainSender(event.sender)) return
-    if (restoreStarted) {
-      if (startupRestored) event.sender.send(PUSH.openRestored)
+    // THIS window's page only (2026-10-29): every window has its own listener.
+    if (event.sender.id !== page || win.isDestroyed()) return
+    if (rec.restoreStarted) {
+      if (rec.restored) event.sender.send(PUSH.openRestored)
       return
     }
-    restoreStarted = true
-    const gen = pageGen
-    const stale = (): boolean => gen !== pageGen
+    rec.restoreStarted = true
+    const gen = rec.gen
+    const stale = (): boolean => gen !== rec.gen || win.isDestroyed()
     // SEQUENTIAL, and that is the whole point of the IIFE (2026-08-31). These
     // became async when listDir did, and firing them off together would let
     // the launch file race the restored tabs: the arriving-file rule folds a
     // file into a tab whose root already holds it, so a launch file that
     // arrives BEFORE its own restored tab spawns a duplicate instead.
     void (async () => {
+      // WHERE THIS PAGE'S TABS COME FROM (2026-10-29): the strip it reported
+      // last (a reload, a crash), else what the window was made with. Only
+      // the cold start's first window is made with the saved strip, so no
+      // other window can ever restore a copy of it.
+      const seed: WindowSeed = rec.reported ? { kind: 'tabs', tabs: rec.reported } : rec.seed
       // "Remember tabs" (owner, 2026-09-22), off: a COLD start opens only the
       // Explorer tab and what Prism was opened with. Once per process, so a
       // reload of the window in the same session still gets its tabs back; the
       // tabs are saved either way.
       const remember = windowPreferences.load().values['prism.tabs.remember'] !== 'off'
-      const skip = !remember && !coldRestoreDone
-      coldRestoreDone = true
+      const skip = seed.kind === 'saved' && !remember && !coldRestoreDone
+      if (seed.kind === 'saved') coldRestoreDone = true
       // A page back from more than one death in a row comes back without its
       // saved tabs (#265, review): one of them may be what kills it, and
       // restoring it at every recovery ends in the give-up, then the same
       // give-up at every later launch. The Explorer tab and the files handed
       // over still arrive; the log says the tabs were left out.
       const strained = windowBudget.strained(Date.now())
-      if (strained && !skip && !extraWindowOwner) logWindow('restore', { tabs: 'skipped', reason: 'repeated-deaths' })
+      if (strained && seed.kind !== 'none' && !skip && !extraWindowOwner)
+        logWindow('restore', { tabs: 'skipped', reason: 'repeated-deaths' })
       const send = (payload: OpenPayload): void => {
-        if (!stale()) sendToPage(PUSH.openFile, payload)
+        if (!stale()) windows.sendTo(win, PUSH.openFile, payload)
       }
+      // The strip, filtered (`parseTabs`: a root that has gone takes its tab).
+      const strip = (): SavedTabs | null => {
+        if (extraWindowOwner || skip || strained) return null
+        if (seed.kind === 'saved') return sessionRaw ? parseTabs(sessionRaw) : null
+        if (seed.kind === 'tabs') return parseTabs(JSON.stringify(seed.tabs))
+        return null
+      }
+      const saved = strip()
       // The home Explorer first when no pinned one was saved (#271): it is
       // the tab the window opens on, and a names-only read is 1 to 3 ms.
-      const saved = extraWindowOwner || skip || strained ? null : readTabs(userPaths.tabs())
       const sendHome = async (): Promise<void> => {
-        const id = `explorer-home-${Date.now()}`
+        const id = mintTabId('explorer-home')
         const homePath = app.getPath('home')
         const home =
           (await explorerListings.cachedAsync(homePath)) ?? (await browseDirectory(id, homePath, 'names'))
@@ -955,7 +1150,7 @@ function createWindow(): void {
       const pinnedSaved = !!saved?.tabs.some((t) => t.role === 'explorer' && t.pinned)
       if (!pinnedSaved) await sendHome()
       if (stale()) return
-      const pinnedSent = saved ? await restoreTabs(send, saved) : false
+      const pinnedSent = saved ? await restoreTabs(send, saved, (i) => mintTabId(`restored-${i}`)) : false
       if (stale()) return
       // A saved pinned Explorer whose folder has gone: the home one stands in.
       if (pinnedSaved && !pinnedSent) await sendHome()
@@ -965,27 +1160,35 @@ function createWindow(): void {
       // named ends up in front - the one a "prism a.jpg b.jpg" reader means.
       // New OS opens can arrive while a slow restore is still draining. Shift
       // the shared queue so those requests are preserved in arrival order too.
-      while (pendingOpen.length && !stale()) await sendOpen(pendingOpen.shift()!)
+      // Only the window they go to drains it (the one focused last).
+      await drainPending(win, () => !stale())
       if (stale()) return
-      winERequests.restored()
+      if (rec.first) winERequests.restored()
     })()
       .catch((error: unknown) => console.error('Could not restore the startup session:', error))
       .finally(() => {
         if (stale()) return
-        startupRestored = true
+        rec.restored = true
         // A handoff's paths are stat'ed awaited (2026-10-12), so one can land
         // in the queue just after the drain above ended: it opens now.
-        if (pendingOpen.length)
-          void (async () => {
-            while (pendingOpen.length && !stale()) await sendOpen(pendingOpen.shift()!)
-          })()
+        if (pendingOpen.length) void drainPending(win, () => !stale())
         // A genuinely empty or failed restore may show the ordinary empty state.
         // Until this signal, no tabs means the initial folders are still loading.
         if (!event.sender.isDestroyed()) event.sender.send(PUSH.openRestored)
       })
   }
   ipcMain.on(CALL.openListen, restoreWhenListening)
-  appState.mainWindow.once('closed', () => ipcMain.removeListener(CALL.openListen, restoreWhenListening))
+  win.once('closed', () => ipcMain.removeListener(CALL.openListen, restoreWhenListening))
+  return win
+}
+
+/** A window's page reported its strip: kept on its record (a crash rebuilds
+ *  it from this) and in its own entry of the session file. */
+function reportTabs(sender: Electron.WebContents, state: SavedTabs): void {
+  const r = windows.of(sender)
+  if (!r || r.win.isDestroyed()) return
+  r.reported = state && Array.isArray(state.tabs) ? state : { tabs: [], active: 0 }
+  sessionFile.report(r.id, r.reported)
 }
 
 /**
@@ -1031,7 +1234,7 @@ const ctx = {
   preferencesOwner,
   winERequests,
   shellVerbSetting,
-  saveTabs,
+  reportTabs,
   keepAwake
 }
 export type MainCtx = typeof ctx
@@ -1155,16 +1358,18 @@ if (!app.requestSingleInstanceLock()) {
       if (pathsFromArgv(argv).length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
       return
     }
-    // A new page restores and drains `pendingOpen` itself once it listens.
-    if (ensureLivePage()) startupRestored = false
+    // A new page restores and drains `pendingOpen` itself once it listens
+    // (a reload or a new window starts unrestored).
+    ensureLivePage()
     // The handoff is the case the foreground lock bites hardest: Prism has
     // been sitting in the background for an hour, and the file it is handed
     // must arrive in a window that is actually in front of you. Raised FIRST,
     // before the paths are even read, so the foreground-lock fix runs the
-    // instant the handoff arrives.
-    if (appState.mainWindow) {
-      if (E2E) appState.mainWindow.show()
-      else raise(appState.mainWindow)
+    // instant the handoff arrives. The window focused last (2026-10-29).
+    const front = windows.target()?.win
+    if (front) {
+      if (E2E) front.show()
+      else raise(front)
     }
     // The paths are stat'ed awaited (owner, 2026-10-12: main never waits on
     // the disk), one handoff after another so they keep arrival order. The
@@ -1179,12 +1384,15 @@ if (!app.requestSingleInstanceLock()) {
           if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
           return
         }
-        if (!startupRestored) pendingOpen.push(...paths)
-        else if (appState.mainWindow) {
+        const to = windows.target()
+        if (!to?.restored) pendingOpen.push(...paths)
+        else {
+          // Anything still queued goes first, so arrival order holds.
+          await drainPending(to.win).catch(() => {})
           // Awaited INSIDE the chain (2026-10-16): fired and forgotten, a
           // later handoff's opens could overtake this one's, and the wrong tab
           // ended up in front. One path that fails still lets the rest open.
-          for (const p of paths) await sendOpen(p).catch(() => {})
+          for (const p of paths) await sendOpen(p, to.win).catch(() => {})
         }
       })
       .catch(() => {
@@ -1274,8 +1482,8 @@ if (!app.requestSingleInstanceLock()) {
     }
     const stopPreferencesWatch = windowPreferences.watch((snapshot) => {
       rememberFolders(snapshot.values)
-      if (appState.mainWindow && !appState.mainWindow.isDestroyed())
-        appState.mainWindow.webContents.send(PUSH.windowPreferencesChanged, snapshot)
+      // Every window's page (2026-10-29): one store, every window shows it.
+      windows.sendToAll(PUSH.windowPreferencesChanged, snapshot)
     })
     app.once('will-quit', stopPreferencesWatch)
     app.once('will-quit', () => listingCache.flush())
@@ -1471,17 +1679,44 @@ if (!app.requestSingleInstanceLock()) {
 
     registerWindowIpc()
 
-    createWindow()
+    // THE SESSION'S FIRST WINDOW, and the only one that reads the saved strip
+    // (2026-10-29): the session file is read once, here, before it exists, so
+    // it opens at its saved size; its restore filters the strip from the same
+    // text when its page listens.
+    sessionRaw = readSessionRaw(userPaths.tabs()) // sync-ok: startup, before the first window (inside readSessionRaw)
+    createWindow({ first: true, seed: { kind: 'saved' }, launchFlags: coldStartFlags(), saved: savedEntry(sessionRaw) })
     void shellVerbSetting.status()
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (windows.count() === 0) ensureLivePage()
     })
+    // E2E only (tab tear-off step 1, 2026-10-29): the scenarios open a second
+    // window the way main makes any later one, find the session's FIRST
+    // window whatever order Electron lists them in (`getAllWindows()[0]` is
+    // no promise), and read what main still holds for a tab after its
+    // window has closed.
+    if (E2E)
+      Object.assign(globalThis, {
+        __e2eOpenWindow: (): number => createWindow({ seed: { kind: 'none' } }).id,
+        __e2eMainWindow: (): BrowserWindow | null => (windows.all().find((r) => r.first) ?? windows.oldest())?.win ?? null,
+        __e2eWindows: () =>
+          windows.all().map((r) => ({
+            id: r.win.id,
+            page: r.id,
+            key: r.key,
+            first: r.first,
+            dirty: r.dirty,
+            restored: r.restored,
+            tabs: (r.reported?.tabs ?? []).map((t) => t.id ?? '')
+          })),
+        __e2eTabHeld: (tabId: string) => ({ released: desktopClosed(tabId), watching: !!browseWatcherOf(tabId) })
+      })
   })
 
   app.on('window-all-closed', () => {
     // Nothing can be playing without a window, and a block that outlives the
     // thing it was held for is a laptop that never sleeps again.
-    keepAwake(false)
+    playing.clear()
+    holdAwake(false)
     stopAllTails()
     if (process.platform !== 'darwin') app.quit()
   })
