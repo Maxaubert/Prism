@@ -86,6 +86,14 @@ export function sessionTime(key: string): number {
   return marks.get(key)?.t ?? 0
 }
 
+/** The whole mark, if there is one: what a torn-off tab carries to its new
+ *  window (tab tear-off step 3), where `rememberTime`/`rememberPaused` put it
+ *  back. Undefined for a file not seen this session. */
+export function markOf(key: string): { t: number; paused: boolean } | undefined {
+  const m = marks.get(key)
+  return m ? { t: m.t, paused: m.paused } : undefined
+}
+
 export function forgetPaused(key: string): void {
   marks.delete(key)
 }

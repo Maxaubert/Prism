@@ -139,8 +139,11 @@ import {
   readWindowState,
   registerWindowIpc,
   releaseShroud,
+  themeGround,
   watchWindowState
 } from './windowChrome'
+import { createTearOff } from './tearOff'
+import { TEAR, validTearRequest, type Point } from '@shared/tabTear'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -812,6 +815,8 @@ interface WindowOptions {
   /** The Win+E or folder-verb request this window is opened for while Prism
    *  runs (step 2): its page answers it. */
   winE?: string | null
+  /** The tear-off's spare (step 3): hidden until a tab is torn off into it. */
+  spare?: boolean
 }
 
 /** The first window of the session has been made (whenReady). */
@@ -871,7 +876,8 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     icon: app.isPackaged
       ? join(process.resourcesPath, 'icon.ico')
       : join(__dirname, '../../build/icon.ico'),
-    backgroundColor: '#111318',
+    // The theme's own ground (step 3): the spare must never flash another.
+    backgroundColor: themeGround(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -898,7 +904,14 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
       ]
     }
   })
-  const rec = windows.add(win, { key, first, seed: options.seed ?? { kind: 'none' }, launchFlags, winE: options.winE })
+  const rec = windows.add(win, {
+    key,
+    first,
+    seed: options.seed ?? { kind: 'none' },
+    launchFlags,
+    winE: options.winE,
+    spare: options.spare
+  })
   const page = rec.id
   /** The Win+E requests this window's page answers, if any (`winEHostOf`). */
   const winEHost = winEHostOf(rec)
@@ -937,15 +950,26 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     // first frame no longer waits ~900 ms behind a PowerShell's stdin pipe.
     applyDwmBorder(win)
   }
-  win.once('ready-to-show', showWindow)
-  win.webContents.once('dom-ready', showWindow)
+  // The spare stays hidden: the tear shows it, inactive, under the cursor.
+  const showUnlessSpare = (): void => {
+    if (!rec.spare) showWindow()
+  }
+  win.once('ready-to-show', showUnlessSpare)
+  win.webContents.once('dom-ready', showUnlessSpare)
+  // The first spare, a moment after the first window has painted (#189:
+  // nothing on the startup path).
+  if (first && !firstSpareAsked) {
+    firstSpareAsked = true
+    win.webContents.once('did-finish-load', () => spareSoon())
+  }
   // The native sweep box's target (#338), once this window has painted.
   win.webContents.once('did-finish-load', () => setTimeout(() => sweepOverlayFor(win), SWEEP_OVERLAY_DELAY_MS))
   guardWindow(win, {
     budget: windowBudget,
     log: logWindow,
-    show: showWindow,
-    recreate: () => recreateWindow(win),
+    show: showUnlessSpare,
+    // A spare that keeps dying is simply made again later: it holds nothing.
+    recreate: () => (rec.spare ? replaceSpare(win) : recreateWindow(win)),
     giveUp: giveUpWindow,
     // The text the page held died with it; a close must not ask about it.
     // THIS window's flag only (2026-10-29): another window's text is alive.
@@ -994,9 +1018,16 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
    */
   win.on('closed', () => {
     const rebuilding = rec.rebuilding
+    const spare = rec.spare
     const released = windows.remove(win)
     const others = windows.count() > 0
-    if (!rebuilding) {
+    // A tear in flight from or into this window ends (its tab goes back).
+    tear.gone(win)
+    if (spare) {
+      // The spare holds nothing of the session: no entry, nothing to release.
+      // Made again later, unless the app is going.
+      if (others && !appState.appQuitting) spareSoon()
+    } else if (!rebuilding) {
       // The session file: a window closed while others stay open takes its
       // entry with it; the last one keeps it (owner, 2026-10-29).
       // A shutdown or log-off is a quit too: Windows closes the windows one
@@ -1016,8 +1047,13 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     stopTailsOf(tailOwner({ id: page }))
     if (playing.delete(page)) holdAwake(playing.size > 0)
     // THE SHROUD NEVER KEEPS THE APP ALIVE: the last page window gone, the
-    // hidden fullscreen cover goes too, so `window-all-closed` can come.
-    if (!others) releaseShroud()
+    // hidden fullscreen cover goes too, so `window-all-closed` can come. And
+    // so does the tear-off's spare (step 3): a hidden window must never keep
+    // Prism running with nothing on screen.
+    if (!others) {
+      releaseShroud()
+      dropSpare()
+    }
     // Files that were waiting for this window go to the one now in front,
     // once it has restored.
     else if (pendingOpen.length && windows.target()?.restored) void drainPending(windows.target()!.win)
@@ -1116,6 +1152,15 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
       return
     }
     rec.restoreStarted = true
+    // THE SPARE'S PAGE (step 3): nothing to restore, not even the home
+    // Explorer, and no file from outside is ever drained into it. It is ready
+    // as soon as it listens; a tab torn off is handed to it then.
+    if (!rec.reported && rec.seed.kind === 'adopt') {
+      rec.restored = true
+      event.sender.send(PUSH.openRestored)
+      tear.listening(win)
+      return
+    }
     const gen = rec.gen
     const stale = (): boolean => gen !== rec.gen || win.isDestroyed()
     // SEQUENTIAL, and that is the whole point of the IIFE (2026-08-31). These
@@ -1216,9 +1261,120 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
  *  it from this) and in its own entry of the session file. */
 function reportTabs(sender: Electron.WebContents, state: SavedTabs): void {
   const r = windows.of(sender)
-  if (!r || r.win.isDestroyed()) return
+  // The spare's strip is not the session's (step 3): the drop reports it.
+  if (!r || r.win.isDestroyed() || r.spare) return
   r.reported = state && Array.isArray(state.tabs) ? state : { tabs: [], active: 0 }
   sessionFile.report(r.id, r.reported)
+}
+
+/**
+ * TAB TEAR-OFF (step 3, owner, 2026-10-29; the gesture: src/main/tearOff.ts,
+ * the numbers: src/shared/tabTear.ts). One hidden SPARE window is kept warm
+ * (made ~2 s after startup and after each use) so a torn-off tab is in a real
+ * window under the cursor within a frame or two. Under --e2e there is a spare
+ * only when the scenario asks (`PRISM_E2E_SPARE=1`): a window appearing by
+ * itself 2 s in would change what every other scenario counts.
+ */
+const spareWanted = (): boolean => !E2E || process.env.PRISM_E2E_SPARE === '1'
+let spareTimer: NodeJS.Timeout | null = null
+/** The first window has asked for the first spare. */
+let firstSpareAsked = false
+function spareSoon(delay: number = TEAR.spareDelayMs): void {
+  if (!spareWanted() || spareTimer) return
+  spareTimer = setTimeout(() => {
+    spareTimer = null
+    if (appState.appQuitting || appState.installingUpdate || windows.count() === 0) return
+    const s = windows.spare()
+    if (s && !tear.busy(s.win)) return
+    createWindow({ spare: true, seed: { kind: 'adopt' } })
+  }, delay)
+}
+/** The spare, made now if there is none ready to take (a tear cannot wait). */
+function takeSpare(): BrowserWindow {
+  const s = windows.spare()
+  if (s && !tear.busy(s.win)) return s.win
+  return createWindow({ spare: true, seed: { kind: 'adopt' } })
+}
+/** A spare whose page keeps dying: gone, and made again later. */
+function replaceSpare(win: BrowserWindow): void {
+  if (!win.isDestroyed()) win.destroy()
+}
+/** No window of the session is left: the spare goes too, so the app can end. */
+function dropSpare(): void {
+  if (spareTimer) clearTimeout(spareTimer)
+  spareTimer = null
+  for (const r of windows.all()) if (r.spare && !r.win.isDestroyed()) r.win.destroy()
+}
+const tear = createTearOff<BrowserWindow>({
+  e2e: E2E,
+  cursor: () => screen.getCursorScreenPoint(),
+  workArea: (p) => screen.getDisplayNearestPoint(p).workArea,
+  takeSpare,
+  listening: (win) => !!windows.recordOf(win)?.restored,
+  adopt: (win, carry) => void windows.sendTo(win, PUSH.tabAdopt, carry),
+  moving: (tabId, on) => (on ? windows.markMoving(tabId) : windows.unmarkMoving(tabId)),
+  // The drop: the floating window is a window of the session from now on,
+  // with the tab it shows as its strip (its page reported it while it was
+  // still the spare, which the session ignores).
+  commit: (win, carry) => {
+    const r = windows.recordOf(win)
+    if (!r) return
+    r.spare = false
+    const t = carry.tab
+    r.reported = {
+      // Its one tab is its home (`applyCarry`).
+      tabs: [{ id: t.id, role: 'explorer', pinned: true, root: t.root, browse: t.browse, file: t.files[t.index]?.path }],
+      active: 0
+    }
+    sessionFile.report(r.id, r.reported)
+    windows.noteTabOwner(t.id, win.webContents)
+  },
+  reveal: (win) => {
+    if (win.isDestroyed()) return
+    if (E2E) win.showInactive()
+    else raise(win)
+    applyDwmBorder(win)
+  },
+  // The tab goes back: the floating page drops it, the window hides as the
+  // spare, and whatever it reported or asked for is the source's again.
+  release: (win, tabId, source) => {
+    windows.sendTo(win, PUSH.tabRelease, tabId)
+    if (!win.isDestroyed()) win.hide()
+    const r = windows.recordOf(win)
+    if (r) {
+      r.reported = null
+      r.dirty = false
+      sessionFile.closed(r.id, { others: true, quitting: false })
+    }
+    if (!source.isDestroyed()) windows.noteTabOwner(tabId, source.webContents)
+  },
+  tell: (source, event) => void windows.sendTo(source, PUSH.tearEvent, event),
+  spareSoon: () => spareSoon(),
+  log: (event, fields) => mainCrumb(event, fields)
+})
+const isPoint = (p: unknown): p is Point =>
+  !!p && Number.isFinite((p as Point).x) && Number.isFinite((p as Point).y)
+/** The tear's IPC: from the source page (tear, end, the e2e's pointer) and
+ *  from the floating one (it has drawn the tab). A spare never starts one. */
+function registerTearIpc(): void {
+  ipcMain.handle(CALL.tabTear, (e, req: unknown) => {
+    const r = windows.of(e.sender)
+    if (!r || r.spare || r.win.isDestroyed() || !validTearRequest(req)) return false
+    return tear.start(r.win, req)
+  })
+  ipcMain.handle(CALL.tabTearEnd, (e, how: unknown) => {
+    const r = windows.of(e.sender)
+    if (!r || (how !== 'drop' && how !== 'cancel')) return { committed: false }
+    return tear.end(r.win, how)
+  })
+  ipcMain.on(CALL.tabTearPoint, (e, p: unknown) => {
+    const r = windows.of(e.sender)
+    if (E2E && r && isPoint(p)) tear.point(r.win, p)
+  })
+  ipcMain.on(CALL.tabAdopted, (e, _id: unknown, tab: unknown) => {
+    const r = windows.of(e.sender)
+    if (r) tear.adopted(r.win, isPoint(tab) ? tab : null)
+  })
 }
 
 /**
@@ -1706,6 +1862,7 @@ if (!app.requestSingleInstanceLock()) {
     registerNewFilesIpc(ctx)
 
     registerWindowIpc()
+    registerTearIpc()
 
     // THE SESSION'S FIRST WINDOW, and the only one that reads the saved strip
     // (2026-10-29): the session file is read once, here, before it exists, so
@@ -1726,8 +1883,9 @@ if (!app.requestSingleInstanceLock()) {
       Object.assign(globalThis, {
         __e2eOpenWindow: (): number => createWindow({ seed: { kind: 'none' } }).id,
         __e2eMainWindow: (): BrowserWindow | null => (windows.all().find((r) => r.first) ?? windows.oldest())?.win ?? null,
+        // The session's windows: the tear-off's spare is not one (`__e2eTear`).
         __e2eWindows: () =>
-          windows.all().map((r) => ({
+          windows.all().filter((r) => !r.spare).map((r) => ({
             id: r.win.id,
             page: r.id,
             key: r.key,
@@ -1737,7 +1895,13 @@ if (!app.requestSingleInstanceLock()) {
             restored: r.restored,
             tabs: (r.reported?.tabs ?? []).map((t) => t.id ?? '')
           })),
-        __e2eTabHeld: (tabId: string) => ({ released: desktopClosed(tabId), watching: !!browseWatcherOf(tabId) })
+        __e2eTabHeld: (tabId: string) => ({ released: desktopClosed(tabId), watching: !!browseWatcherOf(tabId) }),
+        // The tear-off (step 3): its phase, where the moving window WOULD be
+        // (nothing moves under --e2e), its counts, and the spare.
+        __e2eTear: () => {
+          const s = windows.spare()
+          return { ...tear.state(), spare: s ? { page: s.id, key: s.key, ready: s.restored } : null }
+        }
       })
   })
 

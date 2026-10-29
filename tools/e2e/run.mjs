@@ -4229,6 +4229,231 @@ async function lastClosedRestoreScenario(fixtures) {
   }
 }
 
+// TAB TEAR-OFF (step 3, owner, 2026-10-29; spec
+// docs/superpowers/specs/2026-10-29-tab-tearoff-design.md section 1). Real
+// mouse input on the strip (Playwright's mouse.down/move/up), every point
+// inside the window: the rule is "fully outside the strip", not outside the
+// window. Nothing moves under --e2e (the windows stay parked); main keeps
+// where the floating window WOULD be (`__e2eTear`), and follows the page's
+// pointer instead of the system cursor. The scenario asks for the spare
+// (`PRISM_E2E_SPARE=1`), so the fast path is the one driven.
+async function tabTearScenario(fixtures) {
+  console.log('tabs: a tab pulled out of the strip becomes a window of its own')
+  const dirB = join(fixtures, 'tear-off-b')
+  const dirD = join(fixtures, 'tear-off-d')
+  const dirN = join(fixtures, 'tear-off-notes')
+  for (const d of [dirB, dirD, dirN]) {
+    rmSync(d, { recursive: true, force: true })
+    mkdirSync(d, { recursive: true })
+  }
+  writeFileSync(join(dirB, 'b1.txt'), 'b1')
+  writeFileSync(join(dirD, 'd1.txt'), 'd1')
+  const notes = join(dirN, 'notes.txt')
+  writeFileSync(notes, 'alpha\n')
+  // Four tabs: the home Explorer, two folders, and a text file in the viewer.
+  writeTabs({
+    active: 1,
+    tabs: [
+      explorerTab('tear-home', fixtures, fixtures, true),
+      explorerTab('tear-b', dirB, dirB, false),
+      explorerTab('tear-d', dirD, dirD, false),
+      {
+        ...explorerTab('tear-notes', dirN, dirN, false),
+        file: notes,
+        browse: { ...explorerTab('x', dirN).browse, surface: 'viewer', preview: false }
+      }
+    ]
+  })
+  const env = { PRISM_E2E_HOME: join(fixtures, 'code'), PRISM_E2E_SPARE: '1' }
+  const { app, win } = await launchWith(env, dirB, true)
+  const strip = '[role="tablist"]'
+  const ids = (page) => page.locator(`${strip} [data-tab-id]`).evaluateAll((els) => els.map((e) => e.getAttribute('data-tab-id')))
+  const selected = (page) =>
+    page.locator(`${strip} [data-tab-id]`).evaluateAll((els) =>
+      els.find((e) => e.querySelector('[role="tab"]')?.getAttribute('aria-selected') === 'true')?.getAttribute('data-tab-id') ?? null
+    )
+  const tearState = () => app.evaluate(() => globalThis.__e2eTear())
+  /** The Playwright page of a window, by the key main gave it. */
+  const pageOf = async (key) => {
+    for (const p of app.windows()) {
+      const k = await p.evaluate(() => window.prism.windowKey).catch(() => null)
+      if (k === key) return p
+    }
+    return null
+  }
+  /** Press a tab by its middle and move by (dx, dy), in steps; released unless asked. */
+  const carry = async (page, id, dy, { dx = 0, release = true, steps = 14 } = {}) => {
+    const b = await page.locator(`${strip} [data-tab-id="${id}"]`).boundingBox()
+    const x = b.x + b.width / 2
+    const y = b.y + b.height / 2
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    if (dx || dy) await page.mouse.move(x + dx, y + dy, { steps })
+    if (release) await page.mouse.up()
+    return { x, y, height: b.height }
+  }
+  const spareReady = async () => ok(await until(async () => (await tearState()).spare?.ready === true, 15000), 'the spare window is warm')
+  try {
+    await win.waitForSelector(`${strip} [data-tab-id="tear-notes"]`, { timeout: 15000 })
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    ok(JSON.stringify(await ids(win)) === '["tear-home","tear-b","tear-d","tear-notes"]', `four tabs to start (${await ids(win)})`)
+    ok((await e2eWindows(app)).length === 1, 'one window of the session (the spare is not one)')
+    await spareReady()
+
+    // A CLICK NEVER TEARS: a press and release on a tab picks it.
+    await carry(win, 'tear-d', 0)
+    ok(await until(async () => (await selected(win)) === 'tear-d', 3000), 'a click on a tab picks it')
+    ok((await tearState()).tears === 0, 'and tears nothing')
+    // A SHORT PULL does not either: half out of the strip and back.
+    const before = await ids(win)
+    await carry(win, 'tear-b', 20)
+    await sleep(300)
+    ok((await tearState()).tears === 0, 'a short pull below the strip tears nothing')
+    ok(JSON.stringify(await ids(win)) === JSON.stringify(before), 'and the strip is as it was')
+    ok((await e2eWindows(app)).length === 1, 'no window was made')
+
+    // THE TEAR: fully out of the strip, the tab is in a window of its own.
+    const spareKey = (await tearState()).spare?.key
+    const sourceSize = await mainWin(app, 'getNormalBounds')
+    await carry(win, 'tear-b', 44, { release: false })
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'pulled fully out, the tab tears off')
+    const floating = await tearState()
+    ok(floating.tabId === 'tear-b', `the floating window carries that tab (${floating.tabId})`)
+    ok(
+      !!floating.bounds && floating.bounds.width === sourceSize.width && floating.bounds.height === sourceSize.height,
+      `at the source's normal size (${JSON.stringify(floating.bounds)} vs ${JSON.stringify(sourceSize)})`
+    )
+    const torn = await pageOf(spareKey)
+    ok(!!torn, 'the floating window is the warm spare')
+    ok(
+      !!torn && (await until(async () => JSON.stringify(await ids(torn)) === '["tear-b"]', 5000)),
+      'and its page holds the same tab, by the same id'
+    )
+    ok(await until(async () => (await tearState()).shown === true, 5000), 'and it is shown under the pointer')
+    // It follows the pointer: main places it from the page's moves.
+    const firstAt = (await tearState()).bounds
+    await win.mouse.move(400, 300, { steps: 6 })
+    ok(
+      await until(async () => {
+        const b = (await tearState()).bounds
+        return !!b && !!firstAt && (b.x !== firstAt.x || b.y !== firstAt.y)
+      }, 2000),
+      'the floating window follows the pointer'
+    )
+    await win.mouse.up()
+    let list = []
+    ok(
+      await until(async () => {
+        list = await e2eWindows(app)
+        return list.length === 2
+      }, 5000),
+      `dropped, it stays: two windows (${JSON.stringify(list)})`
+    )
+    const newRec = list.find((w) => w.key === spareKey)
+    ok(JSON.stringify(newRec?.tabs) === '["tear-b"]', `the new window holds that tab (${newRec?.tabs})`)
+    ok(await until(async () => !(await ids(win)).includes('tear-b'), 3000), 'and the source strip lost it')
+    ok(!list.find((w) => w.first)?.tabs.includes('tear-b'), 'in main as well')
+    const placed = await app.evaluate(({ BrowserWindow }, id) => {
+      const w = BrowserWindow.fromId(id)
+      return w ? { x: w.getBounds().x, focusable: w.isFocusable() } : null
+    }, newRec?.id)
+    ok(!!placed && placed.x <= -3000 && placed.focusable === false, `under --e2e it stays parked and unfocusable (${JSON.stringify(placed)})`)
+    // THE SAME TAB, NOT A REOPENED ONE: its grants and its folder watch are
+    // still main's, now heard by the new window.
+    await torn.waitForSelector(FOLDER_LIST, { timeout: 10000 })
+    const held = await app.evaluate((_e, t) => globalThis.__e2eTabHeld(t), 'tear-b')
+    ok(held.released === false, `its grants were never let go (${JSON.stringify(held)})`)
+    ok(await until(async () => (await app.evaluate((_e, t) => globalThis.__e2eTabHeld(t), 'tear-b')).watching, 5000), 'its folder is watched')
+    writeFileSync(join(dirB, 'arrived-after-tear.txt'), 'new')
+    ok(
+      await until(async () => (await listRow(torn, 'arrived-after-tear.txt').count()) > 0, 10000),
+      'a file made in its folder appears in the NEW window'
+    )
+
+    // THE SNAP BACK: out, then back over its own strip, and released there.
+    await spareReady()
+    const stripBox = await win.locator(strip).boundingBox()
+    await win.locator(`${strip} [data-tab-id="tear-home"] [role="tab"]`).click()
+    const back = await carry(win, 'tear-d', 44, { release: false })
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'tab D tears off')
+    const attaches = (await tearState()).attaches
+    await win.mouse.move(back.x + 40, stripBox.y + stripBox.height / 2, { steps: 8 })
+    ok(
+      await until(async () => (await tearState()).attaches === attaches + 1, 3000),
+      'held over its own strip, it attaches again'
+    )
+    ok((await tearState()).phase === 'idle', 'the floating window is gone')
+    await win.mouse.up()
+    await sleep(400)
+    ok((await e2eWindows(app)).length === 2, 'no window was made')
+    ok((await ids(win)).includes('tear-d'), 'the tab is back in its strip')
+    ok(await until(async () => (await selected(win)) === 'tear-d', 3000), 'and selected')
+
+    // ESCAPE MID-DRAG: everything as it was.
+    await spareReady()
+    await win.locator(`${strip} [data-tab-id="tear-home"] [role="tab"]`).click()
+    const order = await ids(win)
+    await carry(win, 'tear-d', 44, { release: false })
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'tab D tears off again')
+    const cancels = (await tearState()).cancels
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await tearState()).cancels === cancels + 1, 3000), 'Escape cancels the tear')
+    await win.mouse.up()
+    await sleep(400)
+    ok((await e2eWindows(app)).length === 2, 'no window was made')
+    ok(JSON.stringify(await ids(win)) === JSON.stringify(order), `the tab is back in its place (${await ids(win)})`)
+    ok((await selected(win)) === 'tear-home', 'and the tab in front is the one that was')
+
+    // UNSAVED TEXT TRAVELS WITH ITS TAB.
+    await spareReady()
+    await win.locator(`${strip} [data-tab-id="tear-notes"] [role="tab"]`).click()
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    await win.locator('.cm-line').first().click()
+    await win.keyboard.press('Control+End')
+    await win.keyboard.type('travels')
+    const firstDirty = async () => (await e2eWindows(app)).find((w) => w.first)?.dirty
+    ok(await until(async () => (await firstDirty()) === true, 3000), 'the source holds unsaved text')
+    const notesKey = (await tearState()).spare?.key
+    await carry(win, 'tear-notes', 44, { release: false })
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'the edited tab tears off')
+    await win.mouse.up()
+    ok(
+      await until(async () => (await e2eWindows(app)).some((w) => w.key === notesKey && w.tabs.includes('tear-notes')), 5000),
+      'into a window of its own'
+    )
+    const notesPage = await pageOf(notesKey)
+    ok(
+      !!notesPage &&
+        (await until(
+          async () => (await notesPage.evaluate(() => document.querySelector('.cm-content')?.textContent ?? '')).includes('travels'),
+          8000
+        )),
+      'its editor there shows the unsaved text'
+    )
+    ok(await until(async () => (await e2eWindows(app)).find((w) => w.key === notesKey)?.dirty === true, 3000), 'the new window holds it unsaved')
+    ok(await until(async () => (await firstDirty()) === false, 3000), 'and the source no longer does')
+
+    // THE ONLY TAB MOVES ITS WHOLE WINDOW: no second window.
+    const count = (await e2eWindows(app)).length
+    const tears = (await tearState()).tears
+    await carry(torn, 'tear-b', 44, { release: false })
+    ok(await until(async () => (await tearState()).phase === 'window', 3000), "the window's only tab moves the window")
+    const moving = await tearState()
+    ok(moving.tears === tears + 1 && moving.tabId === 'tear-b', 'as a tear of that tab')
+    ok(!!moving.bounds, `main places the window under the pointer (${JSON.stringify(moving.bounds)})`)
+    await torn.mouse.up()
+    ok(await until(async () => (await tearState()).phase === 'idle', 3000), 'released, it stops')
+    ok((await e2eWindows(app)).length === count, 'and no window was made')
+    ok(JSON.stringify(await ids(torn)) === '["tear-b"]', 'the window still holds its tab')
+
+    // Nothing asks on the way out.
+    for (const p of app.windows()) await p.evaluate(() => window.prism.setDirty(false)).catch(() => {})
+  } finally {
+    await app.close().catch(() => {})
+    for (const d of [dirB, dirD, dirN]) rmSync(d, { recursive: true, force: true })
+  }
+}
+
 // SETTINGS AS THE LAST TAB (review, 2026-10-28): putting Settings away with
 // the gear when it is the only tab closes the window, like any last tab; it
 // used to leave an empty window with no tabs.
@@ -16636,6 +16861,7 @@ await run(tabsScenario)
 await run(tabsCloseLastScenario)
 await run(twoWindowsScenario)
 await run(lastClosedRestoreScenario)
+await run(tabTearScenario)
 await run(settingsLastTabScenario)
 await run(titleBarScenario)
 await run(moreMenuScenario)
