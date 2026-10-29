@@ -71,8 +71,27 @@ read-only listing cache, its own diagnostics log, and an update install that ref
   read-only preference and listing-cache use, the skipped Win+E resume and folder-handler repair, the marker
   files), and the update guard for child processes (`hasOtherExplorerWindows`): the install now asks only
   that NO window holds unsaved text. The old profiles are removed once, off the startup path
-  (`oldExplorerWindows.ts`, uuid-named folders only, after the first answer plus 5 s).
-- Held by `winERequests.test.ts` (per-window hosts), `oldExplorerWindows.test.ts`, and the e2e
+  (`oldExplorerWindows.ts`, uuid-named folders only, after the first answer plus 5 s; a folder that is a
+  junction or symlink is never walked).
+- **Review fixes (2026-10-29, the step-2 review)**:
+  - **A Win+E window ranks below an ordinary window** in the session file (`session.ts` `minor`): after a
+    quit with both open it is not what the next cold start opens, even when focused last, so one press, a
+    browse and a restart never trade a strip of ten tabs for one Explorer. Closed last of all, it still comes
+    back. A shutdown or log-off counts as a quit (`session-end`), so the windows Windows closes one by one keep
+    their entries. Interim default, chosen by the review fix: **the owner may still decide otherwise.**
+  - **A window closed before it answers lets go of the helper's pipe at once** (`winERequests.ts` `forget`
+    drops its requests, `dropWinE`), so the helper opens File Explorer then, as when the old second process
+    exited, not 45 s later. An expired request lets go of its pipe too.
+  - **The folder a request carries travels with the request** and goes with it; a retransmitted token cannot
+    change it.
+  - **The folder read is bounded at 5 s** (`useWinEOpen.ts`, `lib/inTime.ts`): a sleeping network share as
+    "Folder for new tabs" lands the window on Home and answers, rather than letting the helper open File
+    Explorer on top of Prism.
+- Held by `winERequests.test.ts` (per-window hosts, forget and expiry let go of the pipe, the folder travels
+  with its request), `session.test.ts` (the Win+E rank), `oldExplorerWindows.test.ts` (and the junction),
+  `inTime.test.ts`, the e2e `winERunningEdges` (two presses at once each answered by its own window, a window
+  closed before it answers lets go of the pipe, a Win+E window focused last does not lead the session file
+  after a quit), and the e2e
   `folderOpenRunning`: with Prism running, the folder verb and a plain Win+E each open one window more in
   the SAME process (one Prism main process on the e2e profile, counted from the process list), the stand-in
   helper gets "started" then the id, the new window shows the asked folder (or the folder for new tabs), and

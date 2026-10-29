@@ -15,6 +15,12 @@ import type { SavedTab, SavedTabs } from './tabs'
  *   exactly as the one window did before.
  * - Quitting with several open (an update's install, a shutdown) keeps them
  *   all; the one focused last is what comes back.
+ * - A WIN+E WINDOW RANKS BELOW AN ORDINARY ONE (tab tear-off step 2, review
+ *   2026-10-29): a window opened for a Win+E or a folder-verb press while
+ *   Prism ran (`minor`) is what comes back only when no ordinary window is
+ *   kept. Otherwise one press, a browse and a restart would replace a strip
+ *   of ten tabs with that window's one Explorer, the ten left in `windows`,
+ *   which nothing restores. Closed last of all, it still comes back.
  *
  * The file stays readable as the old one: the top-level `tabs`, `active` and
  * `bounds` ARE the entry a cold start opens, and `windows` lists every entry.
@@ -51,6 +57,7 @@ interface Entry {
   bounds?: SavedBounds
   focusedAt: number
   order: number
+  minor?: boolean
 }
 
 export interface SessionModel {
@@ -60,6 +67,8 @@ export interface SessionModel {
   report(key: number, state: SavedTabs): void
   bounds(key: number, bounds: SavedBounds): void
   focus(key: number): void
+  /** A Win+E window: it leads only when no ordinary window is kept. */
+  minor(key: number): void
   /** A crash rebuild: the new window's page takes the old one's entry. */
   rekey(from: number, to: number): void
   closed(key: number, how: { others: boolean; quitting: boolean }): void
@@ -84,7 +93,17 @@ export function createSessionModel(): SessionModel {
     [...entries.values()].filter((e) => e.tabs).sort((a, b) => a.order - b.order)
   const primaryEntry = (): Entry | null => {
     let best: Entry | null = null
-    for (const e of kept()) if (!best || e.focusedAt > best.focusedAt) best = e // the oldest wins a tie
+    // An ordinary window over a Win+E one, then the one focused last; the
+    // oldest wins a tie.
+    const rank = (e: Entry): [number, number] => [e.minor ? 0 : 1, e.focusedAt]
+    for (const e of kept()) {
+      if (!best) best = e
+      else {
+        const [a, fa] = rank(e)
+        const [b, fb] = rank(best)
+        if (a > b || (a === b && fa > fb)) best = e
+      }
+    }
     return best
   }
   const out = (e: Entry): SessionEntry => ({
@@ -112,6 +131,9 @@ export function createSessionModel(): SessionModel {
     },
     focus(key) {
       entry(key).focusedAt = ++focusSeq
+    },
+    minor(key) {
+      entry(key).minor = true
     },
     rekey(from, to) {
       const e = entries.get(from)

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -39,6 +39,17 @@ describe("the retired Win+E windows' profiles", () => {
     await removeOldExplorerWindows(owner)
     expect(existsSync(keep)).toBe(true)
     expect(existsSync(join(owner, OLD_EXPLORER_WINDOWS, id))).toBe(false)
+  })
+  // Review, 2026-10-29: a junction at the folder itself is never followed,
+  // or every uuid folder in its target (outside the profile) would go.
+  it('never walks the folder when it is a junction', async () => {
+    const owner = profile()
+    const elsewhere = profile()
+    mkdirSync(join(elsewhere, id), { recursive: true })
+    symlinkSync(elsewhere, join(owner, OLD_EXPLORER_WINDOWS), 'junction')
+    await removeOldExplorerWindows(owner)
+    expect(existsSync(join(elsewhere, id))).toBe(true)
+    expect(existsSync(join(owner, OLD_EXPLORER_WINDOWS))).toBe(true)
   })
   it('has nothing to do once they have gone', async () => {
     await expect(removeOldExplorerWindows(profile())).resolves.toBeUndefined()

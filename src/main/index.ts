@@ -425,8 +425,6 @@ const { restoreTabs, session: sessionFile } = createTabsSession({
 })
 // E2E only: a first run's home folder is a fixture, never the machine's own.
 if (process.argv.includes('--e2e') && process.env.PRISM_E2E_HOME) app.setPath('home', process.env.PRISM_E2E_HOME)
-/** The folder each Win+E request opens, when it came from the folder verb (#393). */
-const winEBrowse = new Map<string, string>()
 /** Where a new window opened for a plain Win+E lands: "Folder for new tabs"
  *  when it names a folder, else the home Explorer the window opens on (a
  *  window cannot ask for a folder before it is there, so "Ask" is Home too). */
@@ -444,9 +442,10 @@ function newTabFolder(): string | null {
  * page answers it (`winEHostOf`): the folder it carries, else the folder for
  * new tabs.
  */
-const winERequests = createWinERequests((id, host) => {
+// The folder verb's folder (#393) travels with its request, and goes with it.
+const winERequests = createWinERequests((id, host, browse) => {
   const to = windows.all().find((r) => winEHostOf(r) === host)
-  const path = winEBrowse.get(id) ?? (host === WIN_E_FIRST ? null : newTabFolder())
+  const path = browse ?? (host === WIN_E_FIRST ? null : newTabFolder())
   windows.sendTo(to, PUSH.winEOpen, { id, path })
 })
 /** A Win+E or folder-verb request while Prism runs: a new window for it. */
@@ -907,6 +906,9 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   // The cold start's first window carries the saved entry until its page
   // reports a strip of its own (session.ts `seed`).
   if (options.saved) sessionFile.seed(page, options.saved)
+  // A Win+E window never outranks an ordinary one at the next cold start
+  // (session.ts, review 2026-10-29); its crash rebuild keeps the rank.
+  if (options.winE) sessionFile.minor(page)
   // A window that is not the first is parked the moment it exists under
   // --e2e, so nothing it shows can be seen (the harness parks every window).
   if (E2E && !first) win.setOpacity(0)
@@ -997,7 +999,13 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     if (!rebuilding) {
       // The session file: a window closed while others stay open takes its
       // entry with it; the last one keeps it (owner, 2026-10-29).
-      sessionFile.closed(page, { others, quitting: appState.appQuitting || appState.installingUpdate })
+      // A shutdown or log-off is a quit too: Windows closes the windows one
+      // by one with no before-quit, and each would otherwise drop its entry,
+      // leaving only whichever closed last (review, 2026-10-29).
+      sessionFile.closed(page, {
+        others,
+        quitting: appState.appQuitting || appState.installingUpdate || sessionEnded
+      })
       for (const tabId of released) releaseTab(tabId)
       // Its Win+E state goes with it (a crash rebuild's window keeps it).
       if (winEHost) winERequests.forget(winEHost)
@@ -1347,19 +1355,18 @@ if (!app.requestSingleInstanceLock()) {
       // own File Explorer fallback opens instead.
       if (appState.installingUpdate || appState.appQuitting) return
       const browse = browseRequest(argv)
-      if (browse) winEBrowse.set(shortcutRequest, browse)
       // THE STARTING PROCESS'S FIRST WINDOW takes a request that arrives
       // before it is made, exactly as the cold start's own (the helper of a
       // second press while Prism is still starting).
       if (!firstWindowMade) {
-        winERequests.enqueue(shortcutRequest)
+        winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse)
         return
       }
       // A NEW WINDOW OF THIS PROCESS (tab tear-off step 2, 2026-10-29; it
       // was a whole second Prism). "started" goes down the helper's pipe at
       // once, and the id once that window's page shows the folder. A token
       // already pending (a retransmission) opens nothing more.
-      if (winERequests.enqueue(shortcutRequest, shortcutRequest)) openWinEWindow(shortcutRequest)
+      if (winERequests.enqueue(shortcutRequest, shortcutRequest, browse)) openWinEWindow(shortcutRequest)
       return
     }
     // `Prism.exe --preview-update` while Prism is already running (it is
@@ -1422,8 +1429,7 @@ if (!app.requestSingleInstanceLock()) {
   pendingOpen = pathsFromArgv(process.argv) // sync-ok: startup, before the first window
   const shortcutRequest = winERequest(process.argv)
   const browse = browseRequest(process.argv)
-  if (shortcutRequest && browse) winEBrowse.set(shortcutRequest, browse)
-  if (shortcutRequest) winERequests.enqueue(shortcutRequest)
+  if (shortcutRequest) winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse)
 
   let indexerStopped = false
   let stoppingIndexer = false

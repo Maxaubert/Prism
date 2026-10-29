@@ -45,6 +45,19 @@ export function announceWinE(id: string): void {
   socket.on('connect', () => socket.write(`${id} started\n`))
 }
 
+/**
+ * A request that will never be answered lets go of its pipe (review,
+ * 2026-10-29): its window closed before the folder showed, or it expired.
+ * The helper reads the close as no Prism and opens File Explorer AT ONCE,
+ * as it did when the old second process exited, rather than after its 45 s
+ * patience; and the handle is not held for the life of the process.
+ */
+export function dropWinE(id: string): void {
+  const open = held.get(id)
+  held.delete(id)
+  open?.destroy()
+}
+
 /** Connect only to a generated local pipe, never to a path supplied by argv. */
 export function acknowledgeWinE(id: string): Promise<void> {
   if (!UUID.test(id)) return Promise.resolve()
@@ -95,18 +108,22 @@ export function winEHostOf(r: { first: boolean; winE: string | null } | undefine
  * it.
  */
 export function createWinERequests(
-  dispatch: (id: string, host: string) => void,
+  dispatch: (id: string, host: string, browse: string | null) => void,
   acknowledge: (id: string) => Promise<void> = acknowledgeWinE,
-  announce: (id: string) => void = announceWinE
+  announce: (id: string) => void = announceWinE,
+  drop: (id: string) => void = dropWinE
 ): {
   /** False for a token that is invalid, already pending, or one too many:
-   *  a retransmitted token must never open a second window. */
-  enqueue: (id: string, host?: string) => boolean
+   *  a retransmitted token must never open a second window, nor change the
+   *  folder the first one carries. `browse` is the folder verb's folder
+   *  (#393), kept with the request and gone with it. */
+  enqueue: (id: string, host?: string, browse?: string | null) => boolean
   listen: (host?: string) => void
   restored: (host?: string) => void
   reload: (host?: string) => void
   ready: (id: string, host?: string) => void
-  /** The host's window has gone: its state goes (a request expires on its own). */
+  /** The host's window has gone: its state goes, and so do its requests,
+   *  each pipe let go so the helper falls back at once. */
   forget: (host: string) => void
 } {
   const hosts = new Map<string, { listening: boolean; restored: boolean }>()
@@ -119,23 +136,34 @@ export function createWinERequests(
     const h = hosts.get(host)
     return !!h && h.listening && h.restored
   }
-  const pending = new Map<string, { host: string; sent: boolean; timer: ReturnType<typeof setTimeout> }>()
+  const pending = new Map<
+    string,
+    { host: string; browse: string | null; sent: boolean; timer: ReturnType<typeof setTimeout> }
+  >()
   const flush = (): void => {
     for (const [id, request] of pending)
       if (!request.sent && live(request.host)) {
         request.sent = true
-        dispatch(id, request.host)
+        dispatch(id, request.host, request.browse)
       }
   }
+  /** A request that will not be answered: it goes, and its pipe with it. */
+  const abandon = (id: string): void => {
+    const request = pending.get(id)
+    if (!request) return
+    clearTimeout(request.timer)
+    pending.delete(id)
+    drop(id)
+  }
   return {
-    enqueue(id, host = WIN_E_FIRST) {
+    enqueue(id, host = WIN_E_FIRST, browse = null) {
       if (!UUID.test(id) || pending.has(id) || pending.size >= 8) return false
       // "started" goes to the helper now; the ready line when the browser shows.
       announce(id)
       // Kept as long as the helper's patience, which a cold start can need.
-      const timer = setTimeout(() => pending.delete(id), 45000)
+      const timer = setTimeout(() => abandon(id), 45000)
       timer.unref()
-      pending.set(id, { host, sent: false, timer })
+      pending.set(id, { host, browse, sent: false, timer })
       flush()
       return true
     },
@@ -164,6 +192,7 @@ export function createWinERequests(
     },
     forget(host) {
       hosts.delete(host)
+      for (const [id, request] of [...pending]) if (request.host === host) abandon(id)
     }
   }
 }

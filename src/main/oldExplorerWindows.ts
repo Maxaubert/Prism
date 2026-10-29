@@ -1,4 +1,4 @@
-import { readdir, rm, rmdir } from 'fs/promises'
+import { lstat, readdir, rm, rmdir } from 'fs/promises'
 import { join, resolve } from 'path'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -17,11 +17,15 @@ const OLD_MARKER = 'prism-window.json'
  * with nothing to do once they have gone. Only uuid-named profiles, and the
  * folder itself only when that left it empty: nothing else is touched. The
  * installer kills every Prism before an upgrade, so none is in use; a file
- * still locked is simply left for the next start.
+ * still locked is simply left for the next start. A folder that is a link
+ * (a junction or a symlink) is never walked: its uuid folders would be
+ * outside the profile (review, 2026-10-29).
  */
 export async function removeOldExplorerWindows(profile: string): Promise<void> {
   const root = join(resolve(profile), OLD_EXPLORER_WINDOWS)
   await rm(join(resolve(profile), OLD_MARKER), { force: true }).catch(() => {})
+  const kind = await lstat(root).catch(() => null)
+  if (!kind?.isDirectory() || kind.isSymbolicLink()) return
   const entries = await readdir(root, { withFileTypes: true }).catch(() => null)
   if (!entries) return
   for (const item of entries) {
