@@ -23,6 +23,28 @@ export function createChromeActivityClock(): ChromeActivityClock {
   }
 }
 
+/** Whether the hiding clock has anything to do: only while the chrome is up. */
+export const chromeClockRuns = (shown: boolean): boolean => shown
+
+/**
+ * One tick of the hiding clock. `gone`: the fade has run its length, take the
+ * element out. `fade`: idle long enough and not pinned, start the fade.
+ * `wait`: nothing yet. `pinned` is asked last, and only when idle, because it
+ * is a DOM query.
+ */
+export function chromeStep(
+  now: number,
+  leftAt: number,
+  lastActivity: number,
+  idle: number,
+  pinned: () => boolean
+): 'gone' | 'fade' | 'wait' {
+  if (leftAt) return now - leftAt >= CHROME_FADE ? 'gone' : 'wait'
+  if (now - lastActivity < idle) return 'wait'
+  if (pinned()) return 'wait'
+  return 'fade'
+}
+
 /**
  * Viewer chrome that gets out of the way, and comes back on movement.
  *
@@ -104,26 +126,32 @@ export function useAutoHideChrome(
   }, [clock])
 
   useEffect(() => {
+    // THE CLOCK RUNS ONLY WHILE THERE IS CHROME TO HIDE (perf review,
+    // 2026-10-28). It used to tick on after the fade, and with nothing checking
+    // `shown` every tick past the idle mark started another fade: an idle image
+    // viewer re-rendered about nine times a second, with a :hover query each
+    // time, for as long as it was mounted (and the warm tabs keep several
+    // mounted). Hidden, it schedules nothing; `wake` sets `shown`, which starts
+    // it again. Still a clock, not a one-shot timer: each tick asks what is
+    // true, so nothing can be left stuck on.
+    if (!chromeClockRuns(shown)) return
     // 60ms rather than 250: the fade's end has to be noticed within a frame or
     // two of it finishing, or the element lingers invisible for longer than it
     // took to fade.
     const t = window.setInterval(() => {
       const now = Date.now()
-      if (leftAt.current) {
-        if (now - leftAt.current >= CHROME_FADE) {
-          leftAt.current = 0
-          setShown(false)
-          setLeaving(false)
-        }
-        return
+      const step = chromeStep(now, leftAt.current, clock.lastActivity(), idle, () => isPinned.current())
+      if (step === 'gone') {
+        leftAt.current = 0
+        setShown(false)
+        setLeaving(false)
+      } else if (step === 'fade') {
+        leftAt.current = now
+        setLeaving(true)
       }
-      if (now - clock.lastActivity() < idle) return
-      if (isPinned.current()) return
-      leftAt.current = now
-      setLeaving(true)
     }, 60)
     return () => window.clearInterval(t)
-  }, [idle, clock])
+  }, [idle, clock, shown])
 
   // Held in a ref for the same reason `pinned` is: re-registering the window
   // listeners on every render is how one gets missed.

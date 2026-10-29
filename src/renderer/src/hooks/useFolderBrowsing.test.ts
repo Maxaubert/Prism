@@ -1,4 +1,4 @@
-import { createElement } from 'react'
+import { createElement, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { browseLocation, newBrowse } from '../lib/browse'
@@ -33,6 +33,26 @@ function restored(): Tab {
   browse.history[0].query = 'notes'
   return newTab({ root: browse.path, files: [], index: -1, browse }, 'restored')
 }
+
+describe('one browsing object while nothing changed (perf review, 2026-10-28)', () => {
+  it('hands back the same object on a render where nothing it holds changed', () => {
+    const tab = restored()
+    const seen: ReturnType<typeof useFolderBrowsing>[] = []
+    const noop = (): void => {}
+    function Probe(): null {
+      const [n, setN] = useState(0)
+      seen.push(useFolderBrowsing(tab, noop, 0))
+      // A render-phase update: the component renders again, hooks kept.
+      if (n === 0) setN(1)
+      return null
+    }
+    renderToStaticMarkup(createElement(Probe))
+    expect(seen).toHaveLength(2)
+    expect(seen[1]).toBe(seen[0])
+    expect(seen[1].cancelSearch).toBe(seen[0].cancelSearch)
+    expect(seen[1].searchState).toBe(seen[0].searchState)
+  })
+})
 
 describe('Explorer surface', () => {
   it('retains folder browsing and the saved search for Explorer', () => {

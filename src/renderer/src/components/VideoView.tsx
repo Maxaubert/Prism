@@ -206,7 +206,11 @@ export function VideoView({
   /** The clock. Hiding is decided from what is TRUE at the moment it fires -
    *  the element's own :hover included - so nothing can be left stuck on. */
   useEffect(() => {
-    lastWake.current = Date.now()
+    // Only while the controls are up (perf review, 2026-10-28): once hidden
+    // there is nothing for the clock to decide, and every way back
+    // (`showChrome`, a pause) sets `chromeOn`, which starts it again.
+    if (!chromeOn) return
+    if (!lastWake.current) lastWake.current = Date.now()
     const t = window.setInterval(() => {
       if (Date.now() - lastWake.current < CHROME_IDLE) return
       const el = video.current
@@ -218,7 +222,7 @@ export function VideoView({
       setChromeOn(false)
     }, 250)
     return () => window.clearInterval(t)
-  }, [video])
+  }, [video, chromeOn])
 
   const onMenuOpen = useCallback(
     (open: boolean) => {

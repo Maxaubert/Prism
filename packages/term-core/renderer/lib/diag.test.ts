@@ -1,6 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DiagApi, DiagPageLine } from '../../preload/diagApi'
-import { crumb, crumbsBefore, errorLine, loafLine, recentCrumbs, resetDiag, shortSrc, startDiag, time } from './diag'
+import {
+  crumb,
+  crumbsBefore,
+  errorLine,
+  loafLine,
+  noteDiagBackground,
+  recentCrumbs,
+  resetDiag,
+  shortSrc,
+  startDiag,
+  time
+} from './diag'
 
 function fakeApi(verbose = false): DiagApi & { batches: DiagPageLine[][]; beats: number } {
   const api = {
@@ -202,6 +213,39 @@ describe('time', () => {
     expect(slow).toBe('done')
     await vi.advanceTimersByTimeAsync(300)
     expect(api.batches.flat()).toEqual([expect.objectContaining({ k: 'sort-slow', ms: 80, n: 9000 })])
+    stop()
+  })
+})
+
+describe('the pace while minimised (perf review, 2026-10-28)', () => {
+  it('beats and sends slower in the background, and at once on the way back', async () => {
+    const api = fakeApi()
+    const stop = startDiag(api)
+    await vi.advanceTimersByTimeAsync(0)
+    noteDiagBackground(true)
+    crumb('minimised')
+    await vi.advanceTimersByTimeAsync(1900)
+    expect(api.beats).toBe(0)
+    expect(api.batches).toEqual([])
+    await vi.advanceTimersByTimeAsync(600)
+    expect(api.beats).toBe(1)
+    expect(api.batches).toHaveLength(1)
+    crumb('restored')
+    noteDiagBackground(false)
+    expect(api.beats).toBe(2)
+    expect(api.batches).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(api.beats).toBe(3)
+    stop()
+  })
+
+  it('sends a burst at once rather than dropping it at the slow pace', () => {
+    const api = fakeApi()
+    const stop = startDiag(api)
+    noteDiagBackground(true)
+    for (let i = 0; i < 150; i += 1) crumb('burst', { i })
+    expect(api.batches.length).toBeGreaterThan(0)
+    expect(api.batches.flat().some((l) => l.a === 'diag-dropped')).toBe(false)
     stop()
   })
 })

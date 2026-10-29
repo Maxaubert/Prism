@@ -43,6 +43,9 @@ export interface StallWatchDeps {
   canaryMs?: number
   canarySlowMs?: number
   beatGapMs?: number
+  /** The gap that counts while the window is in the background, where the
+   *  page beats slower (`background`). */
+  backgroundGapMs?: number
   /** How long a held stack waits for its stall. */
   stackKeepMs?: number
 }
@@ -62,6 +65,14 @@ export interface StallWatch {
    */
   suspend(): void
   resume(): void
+  /**
+   * The window was minimised (true) or came back (perf review, 2026-10-28).
+   * The page beats every 2.5 s rather than every 500 ms while it is in the
+   * background (`renderer/lib/diag`), so the gap that asks for its stack
+   * stretches to `backgroundGapMs`: a hung page is still caught, a slow beat
+   * is not taken for one. Coming back starts the gap afresh.
+   */
+  background(on: boolean): void
   stop(): void
 }
 
@@ -81,6 +92,8 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
   const canaryMs = deps.canaryMs ?? 5000
   const canarySlowMs = deps.canarySlowMs ?? 500
   const beatGapMs = deps.beatGapMs ?? 2000
+  const backgroundGapMs = deps.backgroundGapMs ?? 10_000
+  let inBackground = false
   const stackKeepMs = deps.stackKeepMs ?? 60_000
 
   let last = now()
@@ -129,7 +142,7 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
         // overlaps the stack, and the page is blamed for main's stall).
         if (lastBeat !== null) lastBeat = Math.min(n, lastBeat + late)
       }
-      if (lastBeat !== null && !askedThisGap && n - lastBeat >= beatGapMs) {
+      if (lastBeat !== null && !askedThisGap && n - lastBeat >= (inBackground ? backgroundGapMs : beatGapMs)) {
         askedThisGap = true
         void askStack(n - lastBeat)
       }
@@ -191,6 +204,16 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
       last = now()
       if (lastBeat !== null) lastBeat = now()
       askedThisGap = false
+    },
+    background: (on) => {
+      if (on === inBackground) return
+      inBackground = on
+      // Back in front: the page's next beat is up to a slow beat away, and
+      // must not read as a freeze against the short gap.
+      if (!on && lastBeat !== null) {
+        lastBeat = now()
+        askedThisGap = false
+      }
     },
     stop: () => {
       clearInterval(tick)

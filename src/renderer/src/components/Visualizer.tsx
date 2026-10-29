@@ -4,7 +4,7 @@ import { clamp } from '../lib/clamp'
 import { styleById } from '../lib/viz/styles'
 import { analyzeDrops } from '../lib/viz/drops'
 import { watchDrops } from '../lib/viz/dropWatch'
-import { drawLoopRuns, wantsResume } from '../lib/viz/vizGuards'
+import { drawLoopRuns, idleFrame, wantsResume } from '../lib/viz/vizGuards'
 import { getAudioContext, mediaGraph } from '../lib/audio'
 import { hexToRgb } from '../lib/colour'
 
@@ -54,8 +54,12 @@ export function Visualizer({
   const dropTimesRef = useRef<number[]>([])
   // Colour effect toggles, read live by the draw loop.
   const fxRef = useRef({ glow, cycle, move })
+  // The parked draw loop's wake-up (perf review, 2026-10-28): anything below
+  // that changes the picture has to bring a paused visualizer back to redraw.
+  const wakeRef = useRef<(() => void) | null>(null)
   useEffect(() => {
     fxRef.current = { glow, cycle, move }
+    wakeRef.current?.()
   }, [glow, cycle, move])
   // The draw loop reads the current style + theme + drop variant through refs so
   // switching any of them does not tear down and restart the loop. Synced in
@@ -66,15 +70,19 @@ export function Visualizer({
   const previewRef = useRef(previewBurst)
   useEffect(() => {
     styleRef.current = styleId
+    wakeRef.current?.()
   }, [styleId])
   useEffect(() => {
     themeRef.current = theme
+    wakeRef.current?.()
   }, [theme])
   useEffect(() => {
     dropStyleRef.current = dropStyle
+    wakeRef.current?.()
   }, [dropStyle])
   useEffect(() => {
     previewRef.current = previewBurst
+    wakeRef.current?.()
   }, [previewBurst])
 
   // Analyse the file for drops in the background while it plays. Decoding +
@@ -201,6 +209,22 @@ export function Visualizer({
     let idleH = 0
     const SETTLE_FRAMES = 45
 
+    /**
+     * Settled and paused, the loop PARKS (perf review, 2026-10-28): it asks
+     * for no frame at all, where it used to ask for every one just to read the
+     * canvas's size. Prism's window is never throttled, so that was the
+     * display's refresh rate per paused audio tab, all day. What it watched
+     * for now wakes it instead: play, a resize (a ResizeObserver), and a style,
+     * drop, preview or effect change (`wakeRef`, from the effects above).
+     */
+    let parked = false
+    const wake = (): void => {
+      if (!parked) return
+      parked = false
+      stillFrames = 0
+      raf = requestAnimationFrame(tick)
+    }
+
     const tick = (now: number): void => {
       const idle = !!media && media.paused
       if (idle && stillFrames > SETTLE_FRAMES) {
@@ -212,8 +236,9 @@ export function Visualizer({
           Math.round(r.width) !== idleW ||
           Math.round(r.height) !== idleH ||
           styleRef.current !== builtFor
-        if (!changed) {
-          raf = requestAnimationFrame(tick)
+        if (idleFrame(idle, stillFrames, SETTLE_FRAMES, changed) === 'park') {
+          parked = true
+          raf = 0
           return
         }
         idleW = Math.round(r.width)
@@ -332,7 +357,16 @@ export function Visualizer({
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
+    media?.addEventListener('play', wake)
+    const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(wake) : null
+    resized?.observe(canvas)
+    wakeRef.current = wake
+    return () => {
+      cancelAnimationFrame(raf)
+      media?.removeEventListener('play', wake)
+      resized?.disconnect()
+      if (wakeRef.current === wake) wakeRef.current = null
+    }
     // The palette's CONTENTS, not the array: a caller that builds a new array
     // each render would otherwise restart the loop on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps

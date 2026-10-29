@@ -11,6 +11,7 @@ import { PdfFindBar } from './PdfFindBar'
 import { LoadingState } from '../LoadingState'
 import { EDITOR, NAV_SURFACE, OVERLAY, isFormField } from '../../lib/focusGuards'
 import { clamp } from '../../lib/clamp'
+import { pageAtLine } from './pageAtLine'
 import '../../assets/pdf.css'
 
 // Prism's own PDF viewer: pdf.js pages in a continuous scroll, the app's chrome
@@ -352,9 +353,18 @@ export function PdfView({
 
   /* ---------- virtualization + current page ---------- */
 
-  const setWrapper = useCallback((n: number, el: HTMLDivElement | null) => {
-    if (el) wrappers.current.set(n, el)
-    else wrappers.current.delete(n)
+  // ONE ref callback for every page, kept for the document's life (perf
+  // review, 2026-10-28): an inline one per page is new every render, so each
+  // page change detached and re-attached the ref of every page in the
+  // document. The page number rides on the element; React 19 runs the returned
+  // cleanup when the page goes.
+  const wrapperRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return
+    const n = Number(el.dataset.page)
+    wrappers.current.set(n, el)
+    return () => {
+      if (wrappers.current.get(n) === el) wrappers.current.delete(n)
+    }
   }, [])
 
   useEffect(() => {
@@ -386,12 +396,8 @@ export function PdfView({
     const total = totalPages.current
     // The current page is the one crossing a line a third of the way down.
     const line = box.getBoundingClientRect().top + box.clientHeight / 3
-    let best = 1
-    wrappers.current.forEach((el, n) => {
-      const r = el.getBoundingClientRect()
-      if (r.top <= line && r.bottom >= line) best = n
-      else if (r.bottom < line && n > best) best = n
-    })
+    const els = wrappers.current
+    const best = pageAtLine(els.size, (n) => els.get(n)?.getBoundingClientRect().top ?? null, line)
     setPage(best)
     // Remember the PAGE, not the offset: the offset depends on the zoom and
     // on which pages are virtualized, so it means nothing on the way back in.
@@ -833,7 +839,7 @@ export function PdfView({
                 <div
                   key={n}
                   data-page={n}
-                  ref={(el) => setWrapper(n, el)}
+                  ref={wrapperRef}
                   /*
                    * FLOORED to whole pixels. A page laid out at a fractional
                    * width rounds up in the scroll box, and one rounded-up

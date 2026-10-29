@@ -729,36 +729,75 @@ export function useFolderBrowsing(
     },
     [archiveAsk]
   )
-  return {
-    folder,
-    location,
-    /** A place inside an archive asks for its password (#300). */
-    archiveAsk: archiveAsk && archiveAsk.tabId === id ? archiveAsk : null,
-    answerArchive,
-    /** The sort the folder is shown in (Downloads' own until picked, #285). */
-    sort,
-    downloads,
-    weekStart,
-    listing,
-    locations,
-    pending,
-    /** Where a navigation is going while its folder has not answered: the
-     *  address bar says so at once. */
-    pendingPath: waitingPath,
-    error: error ?? search.error,
-    searchState: search.state,
-    cancelSearch: search.cancel,
-    searchRange: search.requestRange,
-    navigate,
-    travel,
-    patch,
-    keepScroll,
-    searchFor,
-    showFolder,
-    openFile,
-    openSplit,
-    select,
-    togglePreview,
-    previewFile
-  }
+  const askHere = archiveAsk && archiveAsk.tabId === id ? archiveAsk : null
+  const shownError = error ?? search.error
+  const searchState = search.state
+  const cancelSearch = search.cancel
+  const searchRange = search.requestRange
+  // ONE OBJECT WHILE NOTHING IN IT CHANGED (perf review, 2026-10-28). A new
+  // literal every render made the App's drag-and-drop listeners and its
+  // capturing keydown re-subscribe on every render (both list `browsing` in
+  // their deps), and left nothing derived from it stable enough to memo.
+  return useMemo(
+    () => ({
+      folder,
+      location,
+      /** A place inside an archive asks for its password (#300). */
+      archiveAsk: askHere,
+      answerArchive,
+      /** The sort the folder is shown in (Downloads' own until picked, #285). */
+      sort,
+      downloads,
+      weekStart,
+      listing,
+      locations,
+      pending,
+      /** Where a navigation is going while its folder has not answered: the
+       *  address bar says so at once. */
+      pendingPath: waitingPath,
+      error: shownError,
+      searchState,
+      cancelSearch,
+      searchRange,
+      navigate,
+      travel,
+      patch,
+      keepScroll,
+      searchFor,
+      showFolder,
+      openFile,
+      openSplit,
+      select,
+      togglePreview,
+      previewFile
+    }),
+    [
+      folder,
+      location,
+      askHere,
+      answerArchive,
+      sort,
+      downloads,
+      weekStart,
+      listing,
+      locations,
+      pending,
+      waitingPath,
+      shownError,
+      searchState,
+      cancelSearch,
+      searchRange,
+      navigate,
+      travel,
+      patch,
+      keepScroll,
+      searchFor,
+      showFolder,
+      openFile,
+      openSplit,
+      select,
+      togglePreview,
+      previewFile
+    ]
+  )
 }
