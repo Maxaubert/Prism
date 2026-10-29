@@ -180,4 +180,25 @@ describe('the tear-off spare (step 3, 2026-10-29)', () => {
     // Its close now releases the tab it holds, like any window's.
     expect(r.remove(s.win)).toEqual(['t2'])
   })
+
+  it('the drop takes the tab out of the source at once: its close releases it no more', () => {
+    const r = createWindowRegistry()
+    const a = r.add(fakeWindow(), { first: true })
+    a.reported = { tabs: strip('t1', 't2', 't3').tabs, active: 2 }
+    r.noteTabOwner('t2', a.win.webContents)
+    const s = r.add(fakeWindow(), { spare: true })
+    r.markMoving('t2')
+    r.noteTabOwner('t2', s.win.webContents)
+    s.spare = false
+    s.reported = strip('t2')
+    expect(r.handTab('t2', a.win, s.win)?.tabs.map((t) => t.id)).toEqual(['t1', 't3'])
+    r.unmarkMoving('t2')
+    // The tab in front stays the one in front.
+    expect(a.reported).toMatchObject({ active: 1 })
+    expect(r.ownerOf('t2')).toBe(s)
+    // Before the source's page has reported its own strip again.
+    expect(r.remove(a.win)).toEqual(['t1', 't3'])
+    // A strip that never listed it is left alone.
+    expect(r.handTab('t9', s.win, s.win)).toBeNull()
+  })
 })

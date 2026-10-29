@@ -358,9 +358,23 @@ describe('under --e2e', () => {
     expect(r.spare.moves).toEqual([])
     r.tear.point(r.source, { x: 500, y: 300 })
     r.move({ x: 0, y: 0 }, 16) // the system cursor is ignored
-    // Screen = content origin (108, 100) + client (500, 300), less the hold.
-    expect(r.tear.state().bounds).toMatchObject({ x: 608 - 58, y: 400 - 56 })
+    // Read as if the window sat at the work area's top-left (the windows are
+    // parked off every display): its frame (8, 0) + client (500, 300), less
+    // the hold. Not the parked place, where every bound is held to an edge.
+    expect(r.tear.state().bounds).toMatchObject({ x: 508 - 58, y: 300 - 56 })
     expect(r.spare.moves).toEqual([])
+  })
+  it('follows the pointer from a window parked off every display', () => {
+    const r = rig({ e2e: true })
+    r.source.bounds = { x: -4000, y: -4000, width: 1200, height: 800 }
+    r.tear.start(r.source, r.req(false, { x: 300, y: 200 }))
+    r.tear.adopted(r.spare, null)
+    const first = r.tear.state().bounds
+    r.tear.point(r.source, { x: 400, y: 300 })
+    r.move({ x: 0, y: 0 }, 16)
+    const next = r.tear.state().bounds
+    expect(next).toMatchObject({ x: 408 - 58, y: 300 - 56 })
+    expect(next).not.toEqual(first)
   })
   it('snaps back from the page’s pointer too', () => {
     const r = rig({ e2e: true })

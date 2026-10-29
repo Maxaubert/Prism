@@ -143,6 +143,12 @@ export interface WindowRegistry<W extends PageWindow = PageWindow> {
   markMoving(tabId: string): void
   unmarkMoving(tabId: string): void
   isMoving(tabId: string): boolean
+  /** The drop (tab tear-off step 3): the tab is `to`'s now. It leaves
+   *  `from`'s reported strip AT ONCE, not when that page next reports: until
+   *  then `from`'s close would release the moved tab's grants and watch, a
+   *  crash rebuild would restore a copy of it, and the session file would hold
+   *  it twice. Answers `from`'s new strip, or null if it did not list the tab. */
+  handTab(tabId: string, from: W, to: W): SavedTabs | null
 }
 
 const contentsOf = <W extends PageWindow>(
@@ -275,7 +281,19 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
     anyDirty: () => registry.all().some((r) => r.dirty),
     markMoving: (tabId) => void moving.add(tabId),
     unmarkMoving: (tabId) => void moving.delete(tabId),
-    isMoving: (tabId) => moving.has(tabId)
+    isMoving: (tabId) => moving.has(tabId),
+    handTab(tabId, from, to) {
+      const b = registry.recordOf(to)
+      if (b && !b.spare) owners.set(tabId, b.id)
+      const a = registry.recordOf(from)
+      const was = a?.reported
+      if (!a || !was || !was.tabs.some((t) => t.id === tabId)) return null
+      const front = was.tabs[was.active]?.id
+      const tabs = was.tabs.filter((t) => t.id !== tabId)
+      const at = tabs.findIndex((t) => t.id === front)
+      a.reported = { tabs, active: at >= 0 ? at : Math.max(0, Math.min(was.active, tabs.length - 1)) }
+      return a.reported
+    }
   }
   return registry
 }

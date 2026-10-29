@@ -47,7 +47,8 @@ import {
  *
  * Under --e2e no window is ever moved: the windows stay parked offscreen and
  * the cursor is the page's pointer (`point`), since Playwright's mouse is not
- * the system cursor. Where a window WOULD go is kept for the e2e (`state`).
+ * the system cursor, read as if the window sat at the top-left of the display
+ * (`clientToScreen`). Where a window WOULD go is kept for the e2e (`state`).
  */
 
 /** What the tear needs of a BrowserWindow. */
@@ -77,8 +78,9 @@ export interface TearDeps<W extends TearWin> {
   adopt(win: W, carry: TabCarry): void
   /** The tab flies: its main-side state stays whoever closes. */
   moving(tabId: string, on: boolean): void
-  /** The drop: the floating window becomes a window of the session. */
-  commit(win: W, carry: TabCarry): void
+  /** The drop: the floating window becomes a window of the session, and the
+   *  tab is no longer `source`'s. */
+  commit(win: W, carry: TabCarry, source: W): void
   /** Bring a committed window to the front, focused (never under --e2e). */
   reveal(win: W): void
   /** The floating window gives the tab back to `source` and hides as the spare.
@@ -208,9 +210,17 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
   }
   /** The cursor: the system's, or under --e2e the page's pointer. */
   const cursorOf = (s: Session<W>): Point => (deps.e2e ? s.point : deps.cursor())
+  /** A page's client point on screen. Under --e2e the windows are parked
+   *  off every display (-4000), where every place a window would go is held
+   *  to the same display edge (`keepVisible`), so the e2e could never see it
+   *  follow: the page's pointer is read as if its window sat at the top-left
+   *  of the nearest work area instead. The real path is the content's place. */
   const clientToScreen = (w: W, p: Point): Point => {
     const c = w.getContentBounds()
-    return { x: c.x + p.x, y: c.y + p.y }
+    if (!deps.e2e) return { x: c.x + p.x, y: c.y + p.y }
+    const b = w.getBounds()
+    const a = deps.workArea({ x: b.x, y: b.y })
+    return { x: a.x + c.x - b.x + p.x, y: a.y + c.y - b.y + p.y }
   }
   const stopLoop = (): void => {
     if (loop !== null) stopTimer(loop)
@@ -261,9 +271,9 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     deps.tell(s.source, { kind: 'shown', tabId: s.tabId })
   }
   /** The drop is committed: the floating window is a window of the session. */
-  const commit = (tabId: string, win: W, carry: TabCarry): void => {
+  const commit = (tabId: string, win: W, carry: TabCarry, source: W): void => {
     counts.commits += 1
-    deps.commit(win, carry)
+    deps.commit(win, carry, source)
     deps.moving(tabId, false)
     deps.spareSoon()
     deps.log?.('tear-end', { tab: tabId, how: 'drop' })
@@ -286,7 +296,7 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     late = null
     cancelTimer(l.timer)
     if (ok && alive(l.win) && alive(l.source)) {
-      commit(l.tabId, l.win, l.carry)
+      commit(l.tabId, l.win, l.carry, l.source)
       if (l.last && !deps.e2e) l.win.setBounds(l.last)
       l.win.showInactive()
       deps.reveal(l.win)
@@ -320,7 +330,7 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
       return false
     }
     if (how === 'drop' && alive(s.win) && alive(s.source)) {
-      commit(s.tabId, s.win, s.carry)
+      commit(s.tabId, s.win, s.carry, s.source)
       deps.reveal(s.win)
       return true
     }
