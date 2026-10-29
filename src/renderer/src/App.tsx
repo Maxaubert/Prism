@@ -3,6 +3,7 @@ import { useWindowClose } from './hooks/useWindowClose'
 import { useFileOps } from './hooks/useFileOps'
 import { useAppKeys } from './hooks/useAppKeys'
 import { useTabOps } from './hooks/useTabOps'
+import { useTabTear } from './hooks/useTabTear'
 import { useExplorerArrival } from './hooks/useExplorerArrival'
 import { visitedDirectories } from './lib/visitedDirectories'
 import { tabCrumbs } from './lib/tabs/tabCrumbs'
@@ -619,6 +620,10 @@ export default function App(): JSX.Element {
     setAsk
   })
 
+  // A tab pulled out of the strip into a window of its own, and a tab handed
+  // to this window that way (tab tear-off step 3, hooks/useTabTear).
+  const tear = useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, syncDirty, open })
+
   // Tell main what is open, whenever it changes: persistence for next launch.
   const hadTabs = useRef(false)
   useEffect(() => {
@@ -1208,6 +1213,7 @@ export default function App(): JSX.Element {
     onPick: pickTab,
     onClose: closeOneTab,
     onNew: newTab,
+    tear,
     wash: washed
   }
   const askAnswers: AskAnswers = {

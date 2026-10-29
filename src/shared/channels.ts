@@ -30,6 +30,11 @@ export const PUSH = {
   updateProgress: 'update:progress',
   windowPreferencesChanged: 'window-preferences:changed',
   winEOpen: 'win-e:open',
+  /** Tab tear-off (step 3): the floating window's page takes a tab, or gives
+   *  it back; the source page hears how the tear goes. */
+  tabAdopt: 'tabs:adopt',
+  tabRelease: 'tabs:release',
+  tearEvent: 'tabs:tear-event',
   /** The native sweep box's answer (#338): is the box drawn natively. */
   sweepOverlayState: 'sweep-overlay:state'
 } as const
@@ -60,6 +65,12 @@ export const CALL = {
   dialogPickFiles: 'dialog:pick-files',
 
   tabsChanged: 'tabs:changed',
+  /** Tab tear-off (step 3): a tab left its strip, the tear ended, the e2e's
+   *  pointer, and the floating page has drawn the tab it was handed. */
+  tabTear: 'tabs:tear',
+  tabTearEnd: 'tabs:tear-end',
+  tabTearPoint: 'tabs:tear-point',
+  tabAdopted: 'tabs:adopted',
 
 
   posGet: 'pos:get',

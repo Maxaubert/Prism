@@ -15,3 +15,18 @@ export function archivePassword(archivePath: string): string | undefined {
 export function rememberArchivePassword(archivePath: string, password: string): void {
   passwords.set(key(archivePath), password)
 }
+
+/**
+ * The passwords given for archives a tab is in or has been in: what a torn-off
+ * tab carries to its new window (tab tear-off step 3), so a zip unlocked once
+ * is not asked about again there. An archive counts when one of `paths` is it
+ * or lies inside it.
+ */
+export function archivePasswordsUnder(paths: readonly string[]): Array<{ path: string; password: string }> {
+  const keys = paths.map(key)
+  const out: Array<{ path: string; password: string }> = []
+  for (const [archive, password] of passwords)
+    if (keys.some((p) => p === archive || p.startsWith(archive + '\\') || p.startsWith(archive + '/')))
+      out.push({ path: archive, password })
+  return out
+}

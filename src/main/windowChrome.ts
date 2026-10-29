@@ -206,6 +206,10 @@ export function applyMaterial(win: BrowserWindow, fullscreen: boolean): void {
   }, 80)
 }
 
+/** The solid ground of the current theme: what a new window paints before its
+ *  page has (the tear-off's spare, step 3), so it never flashes another colour. */
+export const themeGround = (): string => (wantedMaterial.light ? '#f7f7f9' : '#111318')
+
 /** The theme is the app's: a new one reaches every window at once. */
 function applyMaterialEverywhere(): void {
   for (const r of windows.all()) applyMaterial(r.win, r.win.isFullScreen())
