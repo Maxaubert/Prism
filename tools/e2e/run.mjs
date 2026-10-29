@@ -1708,7 +1708,6 @@ async function rowPasteScenario(fixtures) {
   const dir = join(fixtures, 'dragbox')
   const { app, win } = await launch(join(dir, 'anchor.txt'))
   const rowFor = (name) => listRow(win, name)
-  const rowCount = () => win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').count()
   const paste = () => win.locator('[role="menu"] [role="menuitem"]:has-text("Paste")').first()
   try {
     await toList(win, 45000)
@@ -1763,17 +1762,29 @@ async function rowPasteScenario(fixtures) {
     // The list SETTLED first (2026-10-28): under the full suite's load it was
     // still filling in (3 of 5 rows) when `before` was read, and the paste's
     // row then only made up for a row not drawn yet (3 -> 3).
-    let before = await rowCount()
+    // The FOLDER's count, from the status line, not the rows drawn
+    // (2026-10-29): the list draws only the rows that fit, and in the full
+    // suite the window was small enough that 3 of 5 fit, so a new row did
+    // not change how many were drawn (3 -> 3).
+    const itemCount = async () =>
+      Number(/(\d+) items?/.exec((await win.locator('.browse-status').textContent()) ?? '')?.[1] ?? -1)
+    let before = await itemCount()
     for (let still = 0, i = 0; still < 5 && i < 100; i += 1) {
       await sleep(100)
-      const n = await rowCount()
+      const n = await itemCount()
       still = n === before ? still + 1 : 0
       before = n
     }
     await paste().click()
-    await until(async () => (await rowCount()) > before, 20000, 100)
-    const after = await rowCount()
-    ok(after > before, `pasting on a file row lands in ITS folder (${before} -> ${after} rows)`)
+    await until(async () => (await itemCount()) > before, 20000, 100)
+    const after = await itemCount()
+    ok(before > 0 && after > before, `pasting on a file row lands in ITS folder (${before} -> ${after} items)`)
+    // AND IT NEVER BLINKS BACK (2026-10-29): the paste's row went when the job
+    // ended, a few ms before the refresh brought the real file, so the count
+    // read 6, 5, 6 (4 runs in 5). The row is held now until the listing has it.
+    let lowest = after
+    for (let t = Date.now(); Date.now() - t < 1500; ) lowest = Math.min(lowest, await itemCount())
+    ok(lowest >= after, `and the count never falls back while the listing catches up (lowest ${lowest})`)
     ok(
       await until(async () => (await rowFor('movable (2).txt').count()) === 1, 10000, 100),
       'and the pasted copy is in the list'

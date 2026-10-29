@@ -17,7 +17,10 @@ export function JobChip({ floating = false }: { floating?: boolean }): JSX.Eleme
   const jobs = useJobs()
   const s = chipSummary(jobs)
   if (!s) return null
-  const title = jobs.map((j) => `${j.label}${j.pct === null ? '' : ` ${Math.round(j.pct)}%`}`).join('\n')
+  const title = jobs
+    .filter((j) => !j.holding)
+    .map((j) => `${j.label}${j.pct === null ? '' : ` ${Math.round(j.pct)}%`}`)
+    .join('\n')
   return (
     <div
       data-job-chip
