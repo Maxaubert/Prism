@@ -214,6 +214,10 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
   ipcMain.handle(
     CALL.videoConvert,
     async (e, p: string): Promise<ConvertResult> => {
+      // Read once, while the page is alive (review, 2026-10-29): a window
+      // that closes mid-conversion leaves a destroyed sender, and reading its
+      // id in `finally` would throw out of the handler.
+      const page = e.sender.id
       if (!readable(p)) return { error: 'outside the folder' }
       const tools = ffmpegTools()
       if (!tools?.ffprobe) return { error: 'no decoder available' }
@@ -250,7 +254,7 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
         return { error: err instanceof Error ? err.message : 'conversion failed' }
       } finally {
         converting.done(ask)
-        settle(e.sender.id, p)
+        settle(page, p)
       }
     }
   )

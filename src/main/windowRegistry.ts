@@ -106,6 +106,8 @@ export interface WindowRegistry<W extends PageWindow = PageWindow> {
    *  reported it, else every window: a push nobody hears is a frozen tab). */
   sendToTabOwner(tabId: string, channel: string, ...args: unknown[]): void
   noteTabOwner(tabId: string, sender: { id: number }): void
+  /** A tab closed for good: its owner entry goes, so the map holds live tabs only. */
+  forgetTab(tabId: string): void
   ownerOf(tabId: string): WindowRecord<W> | undefined
   /** A crash rebuild: the new window takes over the old one's tabs. */
   handOver(from: W, to: W): void
@@ -218,6 +220,7 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
     noteTabOwner(tabId, sender) {
       if (typeof tabId === 'string' && tabId && records.has(sender.id)) owners.set(tabId, sender.id)
     },
+    forgetTab: (tabId) => void owners.delete(tabId),
     ownerOf(tabId) {
       const id = owners.get(tabId)
       const r = id === undefined ? undefined : records.get(id)

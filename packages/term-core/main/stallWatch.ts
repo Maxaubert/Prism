@@ -119,7 +119,10 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
     if (!p) pages.set(page, (p = { lastBeat: null, askedThisGap: false, inBackground: false }))
     return p
   }
-  let held: { stack: string; at: number; ms: number; heldAt: number; page: number } | null = null
+  /** The stack each quiet page answered, held until its stall arrives, one
+   *  per page (review, 2026-10-29): a single slot let page B's gap overwrite
+   *  page A's stack, and B's unresponsive write A's. */
+  const held = new Map<number, { stack: string; at: number; ms: number; heldAt: number }>()
   let canaryBusy = false
   let suspended = false
   /** Bumped at a resume: a canary stat that spanned the sleep is not timed. */
@@ -138,7 +141,7 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
     if (!collect) return Promise.resolve()
     return collect(page).then(
       (stack) => {
-        if (isStack(stack)) held = { stack, at: wall(), ms: Math.round(gapMs), heldAt: now(), page }
+        if (isStack(stack)) held.set(page, { stack, at: wall(), ms: Math.round(gapMs), heldAt: now() })
       },
       () => {}
     )
@@ -167,7 +170,7 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
           p.askedThisGap = true
           void askStack(n - p.lastBeat, page)
         }
-      if (held && n - held.heldAt > stackKeepMs) held = null
+      for (const [page, h] of held) if (n - h.heldAt > stackKeepMs) held.delete(page)
     })
   }, tickMs)
   tick.unref?.()
@@ -193,10 +196,12 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
   }, canaryMs)
   canary.unref?.()
 
-  const writeHeld = (extra: Record<string, unknown> = {}): void => {
-    if (!held) return
-    log.write('main', 'page-stack', { stack: held.stack, ms: held.ms, ...extra })
-    held = null
+  /** Page `page`'s held stack, written with the page it came from. */
+  const writeHeld = (page: number, extra: Record<string, unknown> = {}): void => {
+    const h = held.get(page)
+    if (!h) return
+    log.write('main', 'page-stack', { stack: h.stack, ms: h.ms, page, ...extra })
+    held.delete(page)
   }
 
   return {
@@ -207,21 +212,23 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
     },
     pageStall: (startAt, ms, page) =>
       safe(() => {
-        if (!held) return
-        // Another page's stall is not this stack's (2026-10-29).
-        if (page !== undefined && held.page !== page) return
-        if (held.at >= startAt - SLACK_MS && held.at <= startAt + ms + SLACK_MS) writeHeld()
+        // Another page's stall is not this stack's (2026-10-29); a stall
+        // that names no page may be any held stack it covers.
+        for (const [p, h] of [...held])
+          if ((page === undefined || p === page) && h.at >= startAt - SLACK_MS && h.at <= startAt + ms + SLACK_MS)
+            writeHeld(p)
       }),
     unresponsive: (page = 0) =>
       safe(() => {
-        if (held && held.page === page) return writeHeld({ unresponsive: true })
+        if (held.has(page)) return writeHeld(page, { unresponsive: true })
         // No beat gap seen yet (or no stack held): a hang the window reports
         // is real, so ask now and write what comes back.
         const beat = pages.get(page)?.lastBeat ?? null
-        void askStack(beat === null ? 0 : now() - beat, page).then(() => writeHeld({ unresponsive: true }))
+        void askStack(beat === null ? 0 : now() - beat, page).then(() => writeHeld(page, { unresponsive: true }))
       }),
     forget: (page) => {
       pages.delete(page)
+      held.delete(page)
     },
     suspend: () => {
       suspended = true

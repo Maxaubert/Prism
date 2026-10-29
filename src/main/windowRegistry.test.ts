@@ -111,6 +111,16 @@ describe('the window registry (tab tear-off step 1, 2026-10-29)', () => {
     expect(r.count()).toBe(0)
   })
 
+  it('a tab closed for good leaves the owner map, and is not released again with its window', () => {
+    const r = createWindowRegistry()
+    const a = fakeWindow()
+    r.add(a)
+    r.noteTabOwner('t1', a.webContents)
+    r.noteTabOwner('t2', a.webContents)
+    r.forgetTab('t1')
+    expect(r.remove(a)).toEqual(['t2'])
+  })
+
   it('a crash rebuild hands the tabs over and releases nothing', () => {
     const r = createWindowRegistry()
     const a = fakeWindow()

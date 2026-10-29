@@ -441,7 +441,10 @@ const winERequests = createWinERequests((id) =>
   windows.sendTo(winEHost(), PUSH.winEOpen, { id, path: winEBrowse.get(id) ?? null })
 )
 /** Files from outside that wait for the window they go to (the one focused
- *  last, `windows.target()`) to restore. Only that window drains it. */
+ *  last, `windows.target()`) to restore. Only that window drains it: at the
+ *  end of its restore, when it gains the focus having restored (the window
+ *  they waited for may have lost it meanwhile, review 2026-10-29), and before
+ *  a later handoff's files, so arrival order holds. */
 let pendingOpen: Array<{ path: string; dir: boolean }> = []
 /** Second-instance handoffs, read one after another so they keep arrival order. */
 let handoffs: Promise<void> = Promise.resolve()
@@ -474,9 +477,17 @@ async function sendOpen(target: { path: string; dir: boolean }, to: BrowserWindo
   windows.sendTo(to, PUSH.openFile, explorerFolder)
 }
 
+/** One drain at a time: a focus, a restore's end and a handoff can each ask
+ *  at once, and two loops shifting the queue could reorder the opens. */
+let draining: Promise<void> = Promise.resolve()
 /** The waiting files, to `win`, while it is still the window they go to. */
-async function drainPending(win: BrowserWindow, live: () => boolean = () => true): Promise<void> {
-  while (pendingOpen.length && live() && windows.target()?.win === win) await sendOpen(pendingOpen.shift()!, win)
+function drainPending(win: BrowserWindow, live: () => boolean = () => true): Promise<void> {
+  const run = draining.then(async () => {
+    while (pendingOpen.length && live() && !win.isDestroyed() && windows.target()?.win === win)
+      await sendOpen(pendingOpen.shift()!, win)
+  })
+  draining = run.catch(() => {})
+  return run
 }
 
 /** The phone switch, its port and the paired phones (#104). */
@@ -719,9 +730,13 @@ function ensureLivePage(): boolean {
   if (!target) {
     logWindow('handoff', { window: 'none', action: 'create' })
     const last = sessionFile.primary()
+    // WITHOUT the saved ids (review, 2026-10-29): the last window's close
+    // released them for good (releaseDesktop), so the same ids could never
+    // be granted their folders again. The restore mints new ones.
+    const tabs = last ? last.tabs.map((t) => ({ ...t, id: undefined })) : []
     createWindow({
       first: true,
-      seed: last && last.tabs.length ? { kind: 'tabs', tabs: { tabs: last.tabs, active: last.active } } : { kind: 'none' }
+      seed: tabs.length ? { kind: 'tabs', tabs: { tabs, active: last!.active } } : { kind: 'none' }
     })
     return true
   }
@@ -934,12 +949,17 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   watchWindowState(
     win,
     (bounds) => sessionFile.bounds(page, bounds),
-    () => sessionFile.flush()
+    // On main's thread only for the last window or the quit (the window
+    // closing is still counted here).
+    () => sessionFile.flush(windows.count() <= 1 || appState.appQuitting || appState.installingUpdate)
   )
   // Files from outside go to the window focused last.
   win.on('focus', () => {
     windows.focused(win)
     sessionFile.focus(page)
+    // Files queued for a window still restoring when the focus moved here:
+    // this one has restored, so they open here now (review, 2026-10-29).
+    if (pendingOpen.length && rec.restored) void drainPending(win)
   })
   /**
    * A WINDOW'S CLOSE LETS GO OF WHAT ITS TABS HELD (2026-10-29). Closing a
@@ -961,8 +981,11 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
       // entry with it; the last one keeps it (owner, 2026-10-29).
       sessionFile.closed(page, { others, quitting: appState.appQuitting || appState.installingUpdate })
       for (const tabId of released) releaseTab(tabId)
-      stopTailsOf(tailOwner({ id: page }))
     }
+    // Tails are keyed by the PAGE, not the tab: a crash rebuild's new page
+    // has a new id and starts its own, so the old page's stop here too
+    // (review, 2026-10-29), or each crash left a poller reading for nobody.
+    stopTailsOf(tailOwner({ id: page }))
     if (playing.delete(page)) holdAwake(playing.size > 0)
     // THE SHROUD NEVER KEEPS THE APP ALIVE: the last page window gone, the
     // hidden fullscreen cover goes too, so `window-all-closed` can come.
@@ -1364,6 +1387,8 @@ if (!app.requestSingleInstanceLock()) {
         const to = windows.target()
         if (!to?.restored) pendingOpen.push(...paths)
         else {
+          // Anything still queued goes first, so arrival order holds.
+          await drainPending(to.win).catch(() => {})
           // Awaited INSIDE the chain (2026-10-16): fired and forgotten, a
           // later handoff's opens could overtake this one's, and the wrong tab
           // ended up in front. One path that fails still lets the rest open.

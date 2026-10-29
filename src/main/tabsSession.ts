@@ -39,9 +39,12 @@ export interface SessionStore {
   focus(key: number): void
   rekey(from: number, to: number): void
   /** A window closed: `others` are still open, or the app is `quitting`.
-   *  Written at once (the last close may be the quit). */
+   *  Written at once: on main's thread only when it is the last window or
+   *  the quit, off it while other windows stay open. */
   closed(key: number, how: { others: boolean; quitting: boolean }): void
-  flush(): void
+  /** The debounce, written now: synchronously when `last` (the last window,
+   *  or the quit), off main otherwise. */
+  flush(last: boolean): void
   primary(): SessionEntry | null
 }
 
@@ -212,8 +215,10 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
     }, 400)
   }
   /** A close flushes the debounce: a report still in its 400ms window must
-   *  not die with the app. */
-  function flush(): void {
+   *  not die with the app. Only the LAST window's close (or the quit) writes
+   *  on main's thread (review, 2026-10-29): closing one of several windows on
+   *  a busy disk would be the 3.9 s tabs.json freeze of 2026-10-12 again. */
+  function flush(last: boolean): void {
     if (timer) {
       clearTimeout(timer)
       timer = null
@@ -221,7 +226,11 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
     if (!dirty) return
     dirty = false
     const doc = model.doc()
-    if (doc) file.flushSync(JSON.stringify(doc)) // sync-ok: window close, which may be the quit; the last strip must be down
+    if (!doc) return
+    const text = JSON.stringify(doc)
+    // sync-ok: the last window's close or the quit; the last strip must be down
+    if (last) file.flushSync(text)
+    else void file.write(text)
   }
   const session: SessionStore = {
     seed: (key, saved) => model.seed(key, saved),
@@ -240,7 +249,7 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
     closed(key, how) {
       model.closed(key, how)
       dirty = true
-      flush()
+      flush(!how.others || how.quitting)
     },
     flush,
     primary: () => model.primary()
