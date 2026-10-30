@@ -143,7 +143,7 @@ import {
   watchWindowState
 } from './windowChrome'
 import { createTearOff } from './tearOff'
-import { GHOST_PAGE, createTabGhost } from './tabGhost'
+import { GHOST_PAGE, ONE_FRAME, createTabGhost } from './tabGhost'
 import { TEAR, validStripReport, validTearRequest, type Point } from '@shared/tabTear'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
@@ -1527,6 +1527,12 @@ const tear = createTearOff<BrowserWindow>({
   // THE GHOST (owner, 2026-10-30): only the tab follows the cursor; the
   // floating window stays hidden until the drop.
   ghost: tabGhost,
+  // At the drop the ghost stays until the window just shown has drawn a frame
+  // (review 2026-10-30): hidden all through the drag, it has drawn nothing.
+  drawn: (win, fn) => {
+    if (win.isDestroyed()) return fn()
+    win.webContents.executeJavaScript(ONE_FRAME).then(fn, fn)
+  },
   // The only tab's window holds the pointer's capture: it goes clear rather
   // than hidden, and never under --e2e (its windows are already clear, parked).
   // By the addon when it can (review 2026-10-30): back, it is not layered any

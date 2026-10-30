@@ -8,7 +8,9 @@ import {
   grow,
   inside,
   rectOf,
+  setBoundsSure,
   shouldTear,
+  tabSize,
   validTabLook,
   type Bounds,
   type Dwell,
@@ -165,6 +167,11 @@ export interface TearDeps<W extends TearWin> {
     move(at: Bounds): void
     hide(): void
   }
+  /** `fn` once `win`, just shown, has drawn a frame on screen (or failed to):
+   *  the ghost stays up until then at a drop, so there is never a frame with
+   *  neither it nor the tab (review 2026-10-30). Without it the ghost goes at
+   *  once. */
+  drawn?(win: W, fn: () => void): void
   /** The only tab's moving window goes clear (and back): it holds the pointer,
    *  so it is never hidden. */
   fade?(win: W, out: boolean): void
@@ -188,6 +195,9 @@ interface Late<W> {
   carry: TabCarry
   sent: boolean
   last: Bounds | null
+  /** The ghost's turn while it waits at the drop point (null: it was not
+   *  up): it goes when the wait ends, unless a later tear has it since. */
+  ghost: number | null
   timer: unknown
   resolve(answer: { committed: boolean }): void
 }
@@ -400,12 +410,34 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
   }
 
   /* ----- THE GHOST (owner, 2026-10-30): only the tab follows the cursor ----- */
+  /** Bumped each time a tear shows or hides the ghost: a hide that waits (for
+   *  a window to draw, for a late drop) goes only if nothing has had the
+   *  ghost since. */
+  let ghostTurn = 0
+  /** The ghost goes: at once, or, given the window just shown at a drop, once
+   *  that window has drawn a frame on screen (at most `TEAR.drawnMs`). */
+  const ghostGo = (drawnBy: W | null): void => {
+    const turn = ++ghostTurn
+    if (!deps.ghost) return
+    if (!drawnBy || !deps.drawn) return deps.ghost.hide()
+    let done = false
+    let timer: unknown = null
+    const go = (): void => {
+      if (done) return
+      done = true
+      if (timer !== null) cancelTimer(timer)
+      if (turn === ghostTurn) deps.ghost?.hide()
+    }
+    timer = after(go, TEAR.drawnMs)
+    deps.drawn(drawnBy, go)
+  }
   const ghostAt = (s: Session<W>): Bounds => ghostBounds(cursorOf(s), s.grab, s.tab)
   /** Out of every strip: the ghost shows under the cursor. */
   const showGhost = (s: Float<W>): void => {
     if (s.ghost !== 'off' || s.over) return
     s.ghost = 'asked'
     s.gb = ghostAt(s)
+    ghostTurn += 1
     if (!deps.ghost) return
     deps.ghost.show({ label: s.label, size: s.tab, look: s.look }, s.gb, () => {
       if (session !== s || s.ghost !== 'asked') return
@@ -413,12 +445,13 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
       deps.tell(s.source, { kind: 'shown', tabId: s.tabId })
     })
   }
-  /** In a strip, dropped, or ended: the ghost goes at once. */
-  const hideGhost = (s: Float<W>): void => {
+  /** In a strip, or ended: the ghost goes at once. Dropped (`drawnBy`, the
+   *  window just shown): once that window has drawn. */
+  const hideGhost = (s: Float<W>, drawnBy: W | null = null): void => {
     if (s.ghost === 'off') return
     s.ghost = 'off'
     s.gb = null
-    deps.ghost?.hide()
+    ghostGo(drawnBy)
   }
   const moveGhost = (s: Float<W>): void => {
     if (s.ghost === 'off') return
@@ -634,16 +667,22 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     if (!l) return
     late = null
     cancelTimer(l.timer)
+    // The ghost waited at the drop point (review 2026-10-30: nothing was on
+    // screen until the page was ready); it goes now, unless a later tear has
+    // it since.
+    const ghost = l.ghost !== null && l.ghost === ghostTurn
     if (ok && alive(l.win) && alive(l.source)) {
       commit(l.tabId, l.win, l.carry, l.source)
-      if (l.last && !deps.e2e) l.win.setBounds(l.last)
+      if (l.last && !deps.e2e) setBoundsSure(l.win, l.last)
       l.win.showInactive()
       deps.reveal(l.win)
+      if (ghost) ghostGo(l.win)
       l.resolve({ committed: true })
       return
     }
     // "The new window failing to load commits nothing" (spec): the source
     // still has the tab, with everything it carried.
+    if (ghost) ghostGo(null)
     giveBack(l.tabId, l.win, l.source)
     l.resolve({ committed: false })
   }
@@ -699,12 +738,14 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     if (how === 'drop' && !o && alive(s.win) && alive(s.source)) {
       commit(s.tabId, s.win, s.carry, s.source)
       // Placed so its tab sits under the cursor where the ghost was, BEFORE
-      // it shows; then in front, and only then does the ghost go (no frame
-      // with neither).
+      // it shows (again if a jump to a display of another scale got it
+      // wrong); then in front, and the ghost goes only once it has drawn (a
+      // window hidden all through the drag has drawn nothing yet: no frame
+      // with neither, review 2026-10-30).
       place(s, s.win)
-      if (s.last && !deps.e2e) s.win.setBounds(s.last)
+      if (s.last && !deps.e2e) setBoundsSure(s.win, s.last)
       deps.reveal(s.win)
-      hideGhost(s)
+      hideGhost(s, s.win)
       return true
     }
     hideGhost(s)
@@ -736,7 +777,8 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
         source,
         grab: req.grab,
         origin: req.origin,
-        tab: req.size ?? { width: TEAR.tabWidth, height: TEAR.tabHeight },
+        // Held to a tab's size: the ghost above every app follows it.
+        tab: tabSize(req.size),
         label: req.label ?? labelOf(req.carry ?? null),
         look: validTabLook(req.look) ? req.look : undefined,
         dwell: null,
@@ -831,8 +873,11 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
       if (how === 'drop' && s.kind === 'float' && !s.over && !s.ready && alive(s.win) && alive(s.source)) {
         stopLoop()
         session = null
-        // The ghost goes at the drop; the window shows once its page is ready.
-        hideGhost(s)
+        // The ghost stays where it was dropped, holding the tab, until the
+        // window shows or the tab goes back (review 2026-10-30).
+        const ghost = s.ghost !== 'off' ? ghostTurn : null
+        s.ghost = 'off'
+        s.gb = null
         deps.log?.('tear-drop-waits', { tab: s.tabId })
         return new Promise((resolve) => {
           late = {
@@ -842,6 +887,7 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
             carry: s.carry,
             sent: s.sent,
             last: s.last,
+            ghost,
             timer: after(() => settleLate(false), TEAR.lateDropMs),
             resolve
           }

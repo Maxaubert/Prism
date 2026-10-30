@@ -1,4 +1,4 @@
-import { TEAR, validTabLook, type Bounds, type Size, type TabLook } from '@shared/tabTear'
+import { TEAR, setBoundsSure, tabSize, validTabLook, type Bounds, type Size, type TabLook } from '@shared/tabTear'
 
 /**
  * THE GHOST: THE TAB YOU ARE CARRYING, ON ITS OWN (owner, 2026-10-30, after
@@ -32,7 +32,9 @@ import { TEAR, validTabLook, type Bounds, type Size, type TabLook } from '@share
 export interface GhostWin {
   isDestroyed(): boolean
   isVisible(): boolean
+  getBounds(): Bounds
   setBounds(b: Bounds): void
+  setOpacity(o: number): void
   showInactive(): void
   hide(): void
   moveTop(): void
@@ -50,6 +52,9 @@ export interface TabGhostDeps<W extends GhostWin> {
   /** A light theme (the colours when the page sent none). */
   light?(): boolean
   log?(event: string, fields: Record<string, string | number | boolean>): void
+  /** One-shot timer (the wait for a first frame). */
+  after?(fn: () => void, ms: number): unknown
+  cancel?(handle: unknown): void
 }
 
 /** What a tear shows. */
@@ -72,8 +77,8 @@ export interface GhostState {
 export interface TabGhost {
   /** Make the window now if there is none (with the spare). */
   warm(): void
-  /** Show it at `at` with this face; `shown` once it is on screen (at once
-   *  when the face is the one it already has, else after its page has it). */
+  /** Show it at `at` with this face; `shown` once it is on screen with that
+   *  face drawn (its page painted it, then drew a frame shown). */
   show(face: GhostFace, at: Bounds, shown: () => void): void
   move(at: Bounds): void
   hide(): void
@@ -149,10 +154,11 @@ const PAINT = `(function (v) {
  *  literal in it, whatever it holds. */
 export function paintScript(face: GhostFace, base: string, light = false): string {
   const look = face.look && validTabLook(face.look) ? face.look : fallbackLook(light)
+  const size = tabSize(face.size)
   const paint: Paint = {
     label: Array.from(face.label).slice(0, TEAR.ghostLabelMax).join(''),
-    w: Math.max(1, Math.round(face.size.width)),
-    h: Math.max(1, Math.round(face.size.height)),
+    w: Math.max(1, Math.round(size.width)),
+    h: Math.max(1, Math.round(size.height)),
     pad: TEAR.ghostPad,
     ground: look.ground,
     base,
@@ -164,15 +170,26 @@ export function paintScript(face: GhostFace, base: string, light = false): strin
   return `${PAINT}(${JSON.stringify(paint)})`
 }
 
+/** Resolves once the page has drawn a frame on screen: the second
+ *  animation frame starts after the first has been handed to the screen. A
+ *  hidden window runs none, so only ask a shown one. Run through
+ *  `executeJavaScript`, which a page's CSP does not stop. */
+export const ONE_FRAME = `new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))`
+
 export function createTabGhost<W extends GhostWin>(deps: TabGhostDeps<W>): TabGhost {
+  const after = deps.after ?? ((fn: () => void, ms: number) => setTimeout(fn, ms))
+  const cancel = deps.cancel ?? ((h: unknown) => clearTimeout(h as NodeJS.Timeout))
   let win: W | null = null
   let ready = false
-  /** The script the page last ran: the same face again shows at once. */
+  /** The script the page last ran: the same face again needs no repaint. */
   let painted: string | null = null
   /** The show asked for and not hidden since. */
   let want: { script: string; shown: () => void } | null = null
   let at: Bounds | null = null
+  /** The window is shown (maybe still clear, waiting for its first frame). */
   let up = false
+  /** It is shown AND has drawn this face: `shown` has been called. */
+  let lit = false
   let lastFace: string | null = null
 
   const live = (): W | null => (win && !win.isDestroyed() ? win : null)
@@ -181,6 +198,7 @@ export function createTabGhost<W extends GhostWin>(deps: TabGhostDeps<W>): TabGh
     ready = false
     painted = null
     up = false
+    lit = false
     const made: W = deps.make(
       () => {
         if (win !== made) return
@@ -193,19 +211,45 @@ export function createTabGhost<W extends GhostWin>(deps: TabGhostDeps<W>): TabGh
         ready = false
         painted = null
         up = false
+        lit = false
       }
     )
     win = made
   }
+  /** Lit: opaque, and the tear is told it is on screen. */
+  const light = (g: W, w: { script: string; shown: () => void }): void => {
+    if (live() !== g || want !== w || !up || lit) return
+    if (!deps.e2e) g.setOpacity(1)
+    lit = true
+    w.shown()
+  }
+  /**
+   * On screen: placed BEFORE it shows (so it never flashes somewhere else
+   * first), shown CLEAR, and made opaque only once its page has drawn a frame
+   * on screen. A hidden window draws nothing, so Chromium would otherwise put
+   * up the surface it kept from the last time it was shown: the previous
+   * tab's label and colours for a frame or two (review 2026-10-30).
+   */
   const reveal = (w: { script: string; shown: () => void }): void => {
     const g = live()
     if (!g || want !== w || up) return
-    // Placed BEFORE it shows, so it never flashes somewhere else first.
-    if (at && !deps.e2e) g.setBounds(at)
+    if (at && !deps.e2e) setBoundsSure(g, at)
+    if (!deps.e2e) g.setOpacity(0)
     g.showInactive()
     if (!deps.e2e) g.moveTop()
     up = true
-    w.shown()
+    lit = false
+    let done = false
+    let timer: unknown = null
+    const go = (): void => {
+      if (done) return
+      done = true
+      if (timer !== null) cancel(timer)
+      light(g, w)
+    }
+    // A page that never draws (it should) still lights up.
+    timer = after(go, TEAR.drawnMs)
+    g.webContents.executeJavaScript(ONE_FRAME).then(go, go)
   }
   const flush = (): void => {
     const g = live()
@@ -222,6 +266,12 @@ export function createTabGhost<W extends GhostWin>(deps: TabGhostDeps<W>): TabGh
       () => deps.log?.('tear-ghost', { painted: false })
     )
   }
+  const off = (): void => {
+    const g = live()
+    if (g && up) g.hide()
+    up = false
+    lit = false
+  }
 
   return {
     warm: ensure,
@@ -230,7 +280,15 @@ export function createTabGhost<W extends GhostWin>(deps: TabGhostDeps<W>): TabGh
       at = { ...b }
       const script = paintScript(face, deps.base(), deps.light?.() ?? false)
       lastFace = face.label
-      if (want && want.script === script && up) return
+      if (want && want.script === script) {
+        // The same face asked for again (a tear while the last drop's ghost
+        // still waits to go): this caller is the one told.
+        want.shown = shown
+        if (lit) shown()
+        return
+      }
+      // Another face: whatever is on screen goes first, and comes back with it.
+      off()
       want = { script, shown }
       flush()
     },
@@ -245,9 +303,7 @@ export function createTabGhost<W extends GhostWin>(deps: TabGhostDeps<W>): TabGh
       want = null
       at = null
       lastFace = null
-      const g = live()
-      if (g && up) g.hide()
-      up = false
+      off()
     },
     destroy() {
       want = null
@@ -257,6 +313,7 @@ export function createTabGhost<W extends GhostWin>(deps: TabGhostDeps<W>): TabGh
       ready = false
       painted = null
       up = false
+      lit = false
       if (g) g.destroy()
     },
     state() {

@@ -82,7 +82,15 @@ export const TEAR = {
    *  window, for its shadow. */
   ghostPad: 20,
   /** A ghost's label is cut to this many characters. */
-  ghostLabelMax: 200
+  ghostLabelMax: 200,
+  /** The biggest tab a page may say it carries (review 2026-10-30): the
+   *  ghost sits above every app, so a page must not make it screen-sized.
+   *  The strip's widest tab is well inside this. */
+  tabMaxWidth: 400,
+  tabMaxHeight: 64,
+  /** What shows at the drop (or a ghost lit up) waits at most this long for
+   *  its page to draw a frame on screen. */
+  drawnMs: 250
 } as const
 
 export const rectOf = (b: Bounds): Rect => ({ left: b.x, top: b.y, right: b.x + b.width, bottom: b.y + b.height })
@@ -269,12 +277,31 @@ export function floatBounds(cursor: Point, grab: Point, size: Size, work: Bounds
  * round it for its shadow. Never held to the work area: it is the cursor's.
  */
 export function ghostBounds(cursor: Point, grab: Point, size: Size, pad: number = TEAR.ghostPad): Bounds {
+  const z = tabSize(size)
   return {
     x: Math.round(cursor.x - grab.x - pad),
     y: Math.round(cursor.y - grab.y - pad),
-    width: Math.round(size.width + pad * 2),
-    height: Math.round(size.height + pad * 2)
+    width: Math.round(z.width + pad * 2),
+    height: Math.round(z.height + pad * 2)
   }
+}
+
+/** The carried tab's size as main uses it: what the page said, held to a
+ *  tab's size (review 2026-10-30: the ghost above every app must never be
+ *  made screen-sized), or the default when it said nothing. */
+export function tabSize(z: Size | undefined): Size {
+  if (!z) return { width: TEAR.tabWidth, height: TEAR.tabHeight }
+  return { width: clamp(z.width, 1, TEAR.tabMaxWidth), height: clamp(z.height, 1, TEAR.tabMaxHeight) }
+}
+
+/** Set bounds, and once more if they did not come out as asked: Electron
+ *  converts DIP to pixels with the display the window is on NOW, so a jump
+ *  to a display of another scale lands at the wrong size or place the first
+ *  time (review 2026-10-30). */
+export function setBoundsSure(w: { setBounds(b: Bounds): void; getBounds(): Bounds }, b: Bounds): void {
+  w.setBounds(b)
+  const got = w.getBounds()
+  if (got.x !== b.x || got.y !== b.y || got.width !== b.width || got.height !== b.height) w.setBounds(b)
 }
 
 /**

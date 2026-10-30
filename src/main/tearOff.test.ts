@@ -70,6 +70,8 @@ interface RigOptions {
   foreign?: Bounds
   /** The ghost's page has not loaded yet: it shows when `ghostReady()` is called. */
   slowGhost?: boolean
+  /** A window shown at a drop says it has drawn only when `drawnReady()` is called. */
+  drawn?: boolean
 }
 function rig(options: RigOptions = {}) {
   let t = 0
@@ -99,6 +101,8 @@ function rig(options: RigOptions = {}) {
     moves: [] as Bounds[],
     pending: null as (() => void) | null
   }
+  /** Windows shown at a drop, waiting to say they have drawn. */
+  const drawnWaits: Array<() => void> = []
   const within = (p: Point, b: Bounds): boolean =>
     p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height
   const deps: TearDeps<FakeWin> = {
@@ -149,6 +153,7 @@ function rig(options: RigOptions = {}) {
         log.push('ghost hide')
       }
     },
+    drawn: options.drawn ? (_w, fn) => void drawnWaits.push(fn) : undefined,
     fade: (w, out) => log.push(`fade ${w.name} ${out ? 'out' : 'in'}`),
     closeEmptied: (w) => log.push(`close ${w.name}`),
     now: () => t,
@@ -185,6 +190,8 @@ function rig(options: RigOptions = {}) {
     ghost,
     /** The ghost's page has loaded: a show asked for goes on screen. */
     ghostReady: () => ghost.pending?.(),
+    /** The window shown at a drop has drawn a frame on screen. */
+    drawnReady: () => drawnWaits.splice(0).forEach((fn) => fn()),
     setOtherStrip: (r: StripReport | null) => (otherStrip = r),
     /** The system's order changes (a window focused or closed elsewhere). */
     setFront: (f: Array<'source' | 'other'>) => (front = [...f]),
@@ -317,6 +324,64 @@ describe('tearing a tab off (one of several)', () => {
     expect(r.tear.state()).toMatchObject({ phase: 'idle', commits: 1, shown: false, ghost: null })
   })
 
+  it('the ghost stays up after the drop until the window just shown has drawn (review 2026-10-30)', async () => {
+    const r = rig({ drawn: true })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move({ x: 900, y: 600 }, 40)
+    expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: true })
+    expect(r.log.at(-1)).toBe('reveal spare')
+    expect(r.ghost.shown).toBe(true)
+    r.drawnReady()
+    expect(r.log.at(-1)).toBe('ghost hide')
+    expect(r.ghost.shown).toBe(false)
+  })
+
+  it('a window that never says it drew: the ghost goes after a short while all the same', async () => {
+    const r = rig({ drawn: true })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    await r.tear.end(r.source, 'drop')
+    r.move({ x: 0, y: 0 }, TEAR.drawnMs - 8)
+    expect(r.ghost.shown).toBe(true)
+    r.move({ x: 0, y: 0 }, 8)
+    expect(r.ghost.shown).toBe(false)
+    // The frame that comes late hides nothing more.
+    r.drawnReady()
+    expect(r.log.filter((x) => x === 'ghost hide')).toHaveLength(1)
+  })
+
+  it('a tear while the last drop still waits to hide the ghost: that wait hides nothing', async () => {
+    const r = rig({ drawn: true })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    await r.tear.end(r.source, 'drop')
+    r.tear.start(r.source, r.req())
+    expect(r.log.at(-1)).toBe('ghost show x')
+    r.drawnReady()
+    r.move({ x: 0, y: 0 }, TEAR.drawnMs + 8)
+    expect(r.ghost.shown).toBe(true)
+    expect(r.log).not.toContain('ghost hide')
+  })
+
+  it('a late drop that fails while a later tear has the ghost leaves that ghost up', async () => {
+    const r = rig({ listening: false })
+    r.tear.start(r.source, r.req())
+    const answer = r.tear.end(r.source, 'drop')
+    r.tear.start(r.source, r.req())
+    r.move({ x: 0, y: 0 }, TEAR.lateDropMs)
+    expect(await answer).toEqual({ committed: false })
+    expect(r.log).toEqual(['ghost show x', 'ghost show x', 'release spare t2 to source'])
+    expect(r.ghost.shown).toBe(true)
+  })
+
+  it('a page saying its tab is huge gets a tab-sized ghost (review 2026-10-30)', () => {
+    const r = rig()
+    r.tear.start(r.source, { ...r.req(), size: { width: 1e5, height: 1e5 } })
+    expect(r.ghost.at?.width).toBe(TEAR.tabMaxWidth + 2 * TEAR.ghostPad)
+    expect(r.ghost.at?.height).toBe(TEAR.tabMaxHeight + 2 * TEAR.ghostPad)
+  })
+
   it('a drop before a slow window has drawn the tab commits only once it has, and shows it then', async () => {
     const r = rig({ listening: false })
     r.tear.start(r.source, r.req())
@@ -324,20 +389,23 @@ describe('tearing a tab off (one of several)', () => {
     void r.tear.end(r.source, 'drop').then((a) => (answer = a))
     await Promise.resolve()
     // Nothing committed yet (review 2026-10-29): the source still has the tab.
-    // The ghost goes at the drop all the same.
+    // The ghost stays where it was dropped, holding it (review 2026-10-30:
+    // nothing was on screen until the page was ready).
     expect(answer).toBeNull()
-    expect(r.log).toEqual(['ghost show x', 'ghost hide'])
-    expect(r.ghost.shown).toBe(false)
+    expect(r.log).toEqual(['ghost show x'])
+    expect(r.ghost.shown).toBe(true)
+    r.move({ x: 1500, y: 900 }, 40)
+    expect(r.ghost.moves).toEqual([])
     expect(r.moving.has('t2')).toBe(true)
     expect(r.tear.busy(r.spare)).toBe(true)
-    expect(r.tear.state()).toMatchObject({ phase: 'idle', waiting: true, commits: 0 })
+    expect(r.tear.state()).toMatchObject({ phase: 'idle', waiting: true, commits: 0, ghost: null })
     r.setListening(true)
     r.tear.listening(r.spare)
-    expect(r.log).toEqual(['ghost show x', 'ghost hide', 'adopt spare t2'])
+    expect(r.log).toEqual(['ghost show x', 'adopt spare t2'])
     r.tear.adopted(r.spare, null)
     await Promise.resolve()
     expect(answer).toEqual({ committed: true })
-    expect(r.log).toEqual(['ghost show x', 'ghost hide', 'adopt spare t2', 'commit spare', 'spare soon', 'reveal spare'])
+    expect(r.log).toEqual(['ghost show x', 'adopt spare t2', 'commit spare', 'spare soon', 'reveal spare', 'ghost hide'])
     expect(r.spare.shown).toBe(true)
     expect(r.moving.has('t2')).toBe(false)
     expect(r.tear.busy(r.spare)).toBe(false)
