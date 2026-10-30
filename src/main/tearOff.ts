@@ -563,6 +563,10 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     // Placed BEFORE it shows, so it never flashes somewhere else first.
     if (s.last && !deps.e2e) s.win.setBounds(s.last)
     s.win.showInactive()
+    // And IN FRONT (owner, 2026-10-30: "you just see your cursor"): a hidden
+    // window shows where it sat in the stacking, under the source and every
+    // window raised since it was hidden, so it moved unseen behind them.
+    if (!deps.e2e) deps.raise?.(s.win)
     deps.tell(s.source, { kind: 'shown', tabId: s.tabId })
   }
   /** The drop is committed: the floating window is a window of the session. */
