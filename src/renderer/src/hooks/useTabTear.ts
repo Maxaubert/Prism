@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import type { OpenPayload } from '@shared/types'
-import type { Point, Rect, TearEnd } from '@shared/tabTear'
-import { closeTab, type TabState } from '../lib/tabs/tabs'
+import type { Point, Rect, Size, TearEnd } from '@shared/tabTear'
+import { closeTab, newTab, type TabState } from '../lib/tabs/tabs'
 import { applyCarry, buffersLeaving, carryOf, ownedBufferKeys } from '../lib/tabs/tabCarry'
 import { forgetTabVolume, setTabRate, setTabVolume, tabRate, tabVolume } from '../lib/tabs/tabVolume'
 import { markOf, rememberPaused, rememberTime } from '../lib/playState'
@@ -29,6 +29,13 @@ import { visitedDirectories } from '../lib/visitedDirectories'
  * In the FLOATING window (the spare): `tabs:adopt` rebuilds the tab under its
  * SAME id with what it carried, and says where it drew it; `tabs:release`
  * gives it back (a snap back or a cancel), and the window is empty again.
+ *
+ * In ANY OTHER WINDOW (step 4, owner 2026-10-29): `tabs:merge` is a tab
+ * dropped into this strip from another window. It is rebuilt the same way,
+ * under its same id, at the slot the strip had open for it, selected; it is
+ * not this window's home (this window has its own). The only tab of a window
+ * merges the same way: its source page lets it go (`end`, committed) and main
+ * closes the emptied window.
  */
 
 export interface StripTear {
@@ -36,7 +43,11 @@ export interface StripTear {
    *  window of its own follows the cursor), 'window' (this window follows: it
    *  is the only tab), or null (it cannot leave: Settings). `refused` is
    *  called if main turns the tear down after all. */
-  out(id: string, at: { grab: Point; origin: Point; strip: Rect; point: Point }, refused: () => void): 'float' | 'window' | null
+  out(
+    id: string,
+    at: { grab: Point; origin: Point; strip: Rect; point: Point; size: Size; label: string },
+    refused: () => void
+  ): 'float' | 'window' | null
   /** Main attached it to this strip again (the snap back). */
   attached(id: string): void
   /** The gesture ended after a tear: answers whether a drop committed. */
@@ -94,10 +105,6 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
           .then((ok) => {
             if (!ok) refused()
           }, refused)
-      if (s.tabs.length === 1) {
-        ask(true)
-        return 'window'
-      }
       const carry = carryOf(tab, {
         buffers: buffers.current,
         owners: bufferOwners.current,
@@ -112,6 +119,12 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
           return d ? { path: d.path, listing: d.listing } : null
         }
       })
+      // The only tab moves its window; it carries itself too, since it can
+      // merge into another window's strip (step 4).
+      if (s.tabs.length === 1) {
+        ask(true, carry)
+        return 'window'
+      }
       // The tab leaves the strip at once: a neighbour takes the front (its
       // right, else its left), so this window never shows a second copy.
       if (s.activeId === id) {
@@ -182,6 +195,35 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
         window.setTimeout(look, 0)
       }),
     [buffers, bufferOwners, syncDirty, open]
+  )
+  // ANOTHER WINDOW'S TAB DROPPED INTO THIS STRIP (step 4): the same tab, by
+  // its same id, at the slot the strip had open, in front. Not the home: this
+  // window has its own (`ensurePinnedExplorer` keeps one).
+  useEffect(
+    () =>
+      window.prism.onTabMerge(({ carry, at }) => {
+        const id = carry.tab.id
+        const payload = applyCarry(carry, {
+          setLevel: setTabVolume,
+          setRate: setTabRate,
+          rememberTime,
+          rememberPaused,
+          rememberDocPos,
+          rememberPassword: rememberArchivePassword
+        })
+        const keys = carry.buffers.map((b) => b.path.toLowerCase())
+        for (const b of carry.buffers) buffers.current.set(b.path.toLowerCase(), { path: b.path, text: b.text })
+        if (keys.length) bufferOwners.current.set(id, new Set(keys))
+        syncDirty()
+        if (payload.listing) visitedDirectories.remember(payload.listing)
+        const tab = newTab({ ...payload, pinned: false }, id)
+        setTabState((st) => {
+          const rest = st.tabs.filter((t) => t.id !== id)
+          const i = Math.max(0, Math.min(at ?? rest.length, rest.length))
+          return { tabs: [...rest.slice(0, i), tab, ...rest.slice(i)], activeId: id }
+        })
+      }),
+    [buffers, bufferOwners, syncDirty, setTabState]
   )
   useEffect(
     () =>

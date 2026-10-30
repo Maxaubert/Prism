@@ -36,8 +36,8 @@ closed** (as today with one window).
 - **New windows never inherit `--prism-setup`, `--prism-demo` or `--win-e`** from the process; under `--e2e`
   every window is offscreen, unfocusable and (after the first) transparent from the start. The diagnostics core
   keeps a beat per page (`packages/term-core/main/stallWatch.ts`), so one window's beats never hide another's hang.
-- Step 2 (Win+E in process) and step 3 (the tear-off gesture) are the next entries. Not yet (step 4): attaching
-  into another window. The 2026-08-23 "inside its own row only" rule is SUPERSEDED by step 3 (2026-10-29).
+- Step 2 (Win+E in process), step 3 (the tear-off gesture) and step 4 (attaching into any window) are the next
+  entries. The 2026-08-23 "inside its own row only" rule is SUPERSEDED by step 3 (2026-10-29).
 - Held by `windowRegistry.test.ts`, `session.test.ts`, `fileTail.test.ts`; e2e `twoWindows` (each window's own
   buttons act on it, both save, the second's X closes only it, its close releases its tabs) and
   `lastClosedRestore` (close the first, then the second: the relaunch is one window with the second's tab). The
@@ -124,8 +124,7 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
     `snapTarget`, so a tab torn sideways past the + is never over it at once, review 2026-10-29: the window
     attached and tore again in a loop) for **120 ms**, the floating window
     goes, the tab is in the strip again at the slot under the pointer, in front, and reorders until release.
-    The strips are hit-tested as a list (`stripUnder`): step 3 lists the source alone; step 4 (attach into ANY
-    window, not built) lists every window's.
+    Every Prism window's strip takes it the same way since step 4 (the next entry).
   - **Drop** while floating: the new window stays where it is and takes the focus. Released in the strip after a
     snap back: the tab is there, selected.
   - **Cancel**: Escape, a right-click, a lost pointer capture or the window losing focus put the tab back where
@@ -174,7 +173,65 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
   makes no window; Escape and a right-click mid-drag put everything back; a sideways tear past the + stays torn;
   unsaved text travels; a drop on a fresh window (no spare) shows it holding the tab; the only tab moves its
   window.
-- Not yet (step 4): attaching into ANOTHER window's strip, and closing a window emptied that way.
+- Attaching into ANOTHER window's strip, and closing a window emptied that way: step 4, the next entry.
+
+## Attach into any window (tab tear-off step 4, owner, 2026-10-29)
+
+Owner, 2026-10-29 (spec section 1, points 4, 5 and 7; plan step 4): "a tab can be dropped into ANY window's tab
+bar", approved as: a torn tab hovering over ANY Prism window's strip attaches there LIVE, release commits it
+there, moving away tears it off again, and the ONLY tab's window move merges into another window's strip and
+the emptied window closes on release.
+
+- **Over another window's strip** (its target and margin exactly as the source's own: the strip held to its
+  tear zone, plus 8 DIP, `attachRects` in `src/shared/tabTear.ts`) for **120 ms**, the tab attaches there,
+  live: the floating window hides, and that strip opens a gap at the slot under the cursor (its neighbours
+  slide with the 170 ms slide) and draws the tab in it, sliding along as the cursor moves. Main tells that page
+  where the tab is (`tabs:hover`, every tick the cursor moved; the pointer is still the source's, whose strip
+  holds the capture), and the page tells main the slot (`tabs:hover-slot`).
+- **Released there**: the tab is in that strip at that slot, selected, that window in front (focused). It is
+  the SAME tab, moved exactly as a tear moves it: the same id, everything it carried (`tabCarry.ts`), its
+  main-side state untouched, `handTab` at the commit (the source's record and session entry lose it at once,
+  the target's list it at once), nothing released. The source lets it go only after the commit, as in step 3.
+  It is not that window's home (that window has its own). The floating window is the spare again.
+- **Moving away again tears it off again**, by the tear's own rule and hysteresis: fully outside that strip's
+  tear zone (one carried-tab width past its +), the cursor 12 DIP out. The gap closes with the slide, the
+  floating window is back under the cursor, and the same 120 ms dwell takes it in again. The two zones cannot
+  meet, so it never flickers between the two.
+- **The only tab** (its whole window follows): over another window's strip it attaches the same way, and its
+  own window goes CLEAR, not hidden (it holds the pointer's capture). Released there, the tab is that window's
+  and the emptied window closes, asking nothing (its unsaved text went with the tab). The tab stays marked
+  moving until that window has left the registry, so its close releases nothing. Torn out again, the window is
+  back; a cancel puts it back where it was, maximized if it was.
+- **Every cancel still restores exactly** (Escape, a right-click, a lost capture, the window losing focus): the
+  gap closes, the tab is back in its own strip at its place, the front tab as before, no window made, the other
+  window as it was.
+- **Z-order**: the windows are hit-tested front to back, the one focused most recently in front (main cannot
+  read Windows' own order), and among windows never focused (the e2e's) the newest; a window's body hides every
+  strip behind it. A window the cursor stays over for **750 ms** (`TEAR.raiseMs`, Chrome's number: a pass on
+  the way somewhere else raises nothing) comes to the front WITHOUT the focus (`moveTop`; the source would
+  cancel on losing it), with the floating window kept above it, and is in front for the hit test from then on.
+  Interim number, chosen by the build: **the owner may still decide otherwise.**
+- **Every window reports its strip** (`tabs:strip`: the strip's rect and the +'s right edge, client
+  coordinates; null when there is none, fullscreen or no tabs), when it changes and never while a tab is carried
+  in it or hovers over it. Main keeps it on the window's record (`strip`), cleared when the page reloads. A
+  minimized, hidden, still-restoring window or the spare is never a target; a target that closes, reloads or
+  loses its strip mid-hover lets the tab go on flying.
+- **Under --e2e** the same page-pointer mapping as step 3; since every window is parked at the same place, a
+  window other than the source is a target only once the e2e says where it pretends to be (`__e2eTearAt`, an
+  offset from where the source is read). `__e2eFocused` gives the unfocusable windows a focus order,
+  `__e2eStrip` reads a window's report; nothing is raised under --e2e.
+- Held by `tearOff.test.ts` (live attach and the hover it sends, the slot the drop lands at, tearing out again
+  and not flickering, a cancel there, a strip behind a window's body and the 750 ms raise, overlapping strips,
+  no strip, a target going away, a drop before the floating page had the tab, the only tab clear and merged and
+  its window closed with the tab moving until it has gone, its cancel, no carry, the e2e placement),
+  `tabTear.test.ts` (`attachRects` and its hysteresis, the request and the strip report), and the e2e
+  `tabAttach`: a tab torn from window 1 attaches live into window 2's strip (the floating window hidden, the
+  tab drawn, the slot between its two tabs, its neighbour making room), dropped it lands there by the same id,
+  selected, window 1 lost it, no window made, its grants kept and its folder watch showing a new file in window
+  2; hovering and pulling away tears it off again; Escape over window 2 restores window 1 exactly; a third
+  window's only tab over window 2's strip, cancelled, changes nothing, and dropped, merges at the end and its
+  window closes (and leaves the session file); with the strips overlapping, the newer window takes the tab
+  until window 1 is focused last, and then its own strip does.
 
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 

@@ -1,3 +1,4 @@
+import type { StripReport } from '@shared/tabTear'
 import type { SavedTabs } from './tabs'
 
 /**
@@ -86,6 +87,10 @@ export interface WindowRecord<W extends PageWindow = PageWindow> {
    * shows still belongs to the window it came from).
    */
   spare: boolean
+  /** Where its tab strip is, as its page reported it last (tab tear-off step
+   *  4: a carried tab hovering over it attaches there). Null: no strip on
+   *  screen (fullscreen, no tabs, a page still loading). */
+  strip: StripReport | null
 }
 
 export interface AddOptions {
@@ -205,7 +210,8 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
         restored: false,
         focusedAt: 0,
         rebuilding: false,
-        spare: !!options.spare
+        spare: !!options.spare,
+        strip: null
       }
       records.set(record.id, record)
       return record

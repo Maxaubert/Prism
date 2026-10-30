@@ -17,6 +17,10 @@ import type { DirListing, ViewerFile } from './types'
  *   `ghostRect` (the 0.4x pull) while it is still attached.
  * - Main asks `stripUnder` and `dwellStep` for the snap back, and places the
  *   floating window with `floatSize` and `floatBounds`.
+ * - Step 4 (attach into ANY window, owner 2026-10-29): every window reports
+ *   its strip (`StripReport`); main asks `attachRects` where another window's
+ *   strip takes a tab and where the tab tears out of it again, and brings a
+ *   window to the front after `raiseMs` under the cursor.
  */
 
 export interface Rect {
@@ -65,7 +69,15 @@ export const TEAR = {
   tearGuard: 12,
   /** A drop before a fresh window's page has drawn the tab waits this long for
    *  it; past that the window failed to load and the tab goes back. */
-  lateDropMs: 10000
+  lateDropMs: 10000,
+  /** Step 4: a window the carried tab stays over this long (anywhere on it) is
+   *  brought to the front, without the focus, so a strip under another window
+   *  can be reached. Chrome's tab drag waits 750 ms; Prism the same, so a pass
+   *  across a window on the way somewhere else raises nothing. */
+  raiseMs: 750,
+  /** A carried tab's size when the page did not say. */
+  tabWidth: 114,
+  tabHeight: 32
 } as const
 
 export const rectOf = (b: Bounds): Rect => ({ left: b.x, top: b.y, right: b.x + b.width, bottom: b.y + b.height })
@@ -166,8 +178,9 @@ export interface StripTarget<K = number> {
 
 /**
  * The strip the cursor is over, with the snap margin (spec 1.4): the first in
- * the list wins, so the caller lists them front-most first. Step 3 lists only
- * the source window's; step 4 lists every window's.
+ * the list wins, so the caller lists them front-most first. Main (step 4)
+ * walks the windows front to back itself, since a window's body also hides the
+ * strips behind it; this stays the one-list question.
  */
 export function stripUnder<K>(p: Point, targets: ReadonlyArray<StripTarget<K>>, margin: number = TEAR.snapMargin): StripTarget<K> | null {
   for (const t of targets) if (inside(p, grow(t.rect, margin))) return t
@@ -206,6 +219,28 @@ export function floatSize(normal: Size, maximized: boolean, work: Bounds, inset:
   const w = maximized ? Math.max(normal.width, work.width / 2) : normal.width
   const h = maximized ? Math.max(normal.height, work.height / 2) : normal.height
   return { width: Math.round(Math.min(w, maxW)), height: Math.round(Math.min(h, maxH)) }
+}
+
+/**
+ * A window's strip as its page reports it (step 4), client coordinates: the
+ * strip, and the right edge of its + button. Main keeps the last one per
+ * window; a window with no strip (fullscreen, no tabs) reports null.
+ */
+export interface StripReport {
+  strip: Rect
+  plusRight: number
+}
+
+/**
+ * ANOTHER WINDOW'S STRIP AS A TARGET (step 4, owner 2026-10-29): the same two
+ * rects the source's own strip has. A carried tab ATTACHES once the cursor has
+ * stayed over `snap` (plus the 8 DIP margin) for the dwell, and TEARS OUT again
+ * once it is fully outside `zone` with the cursor 12 DIP out (the tear's own
+ * hysteresis; the zone ends one carried-tab width past the +).
+ */
+export function attachRects(r: StripReport, tabWidth: number): { snap: Rect; zone: Rect } {
+  const zone = tearZone(r.strip, r.plusRight, tabWidth)
+  return { snap: snapTarget(r.strip, zone), zone }
 }
 
 /**
@@ -261,8 +296,13 @@ export interface TearRequest {
   tabId: string
   /** The window's only tab: the WHOLE window follows the cursor (spec 1.7). */
   only: boolean
-  /** The tab and its state, for the new window. Absent for `only`. */
+  /** The tab and its state, for the new window. For `only` too since step 4:
+   *  the only tab can merge into another window's strip. */
   carry?: TabCarry
+  /** The carried tab's size (another window's strip judges the tear-out by
+   *  it) and its label (that strip draws it while it hovers there). */
+  size?: Size
+  label?: string
   /** Where the press is inside the tab. */
   grab: Point
   /** Where a window's FIRST tab sits in its strip (client coordinates): the
@@ -279,11 +319,35 @@ export interface TearRequest {
 /** How a tear ended, as the source page says it. */
 export type TearEnd = 'drop' | 'cancel'
 
-/** Main's word to the source page during a tear. */
+/** Main's word to the source page during a tear. `over`: the tab is in
+ *  ANOTHER window's strip now (step 4), so no chip follows the pointer here;
+ *  `off`: it tore out of that strip again. */
 export type TearEvent =
   | { kind: 'shown'; tabId: string }
   | { kind: 'attached'; tabId: string }
   | { kind: 'ended'; tabId: string }
+  | { kind: 'over'; tabId: string }
+  | { kind: 'off'; tabId: string }
+
+/**
+ * Step 4: what a window's strip is told while a carried tab hovers over it
+ * (client coordinates of THAT window). It opens a gap at the slot under the
+ * cursor and draws the tab there; null ends the hover.
+ */
+export interface TabHover {
+  tabId: string
+  point: Point
+  grab: Point
+  size: Size
+  label: string
+}
+
+/** Step 4: the drop into another window's strip, to that window's page. `at`
+ *  is the slot its strip last reported (null: the end). */
+export interface TabMerge {
+  carry: TabCarry
+  at: number | null
+}
 
 /** A carry is plausible enough to relay: main reads only the id and the root. */
 export function validCarry(c: unknown): c is TabCarry {
@@ -304,10 +368,24 @@ const validPoint = (p: unknown): p is Point => !!p && finite((p as Point).x) && 
 const validRect = (r: unknown): r is Rect =>
   !!r && finite((r as Rect).left) && finite((r as Rect).top) && finite((r as Rect).right) && finite((r as Rect).bottom)
 
+const validSize = (z: unknown): z is Size =>
+  !!z && finite((z as Size).width) && finite((z as Size).height) && (z as Size).width > 0 && (z as Size).height > 0
+
 /** The page's request, checked before main acts on it. */
 export function validTearRequest(r: unknown): r is TearRequest {
   const q = r as TearRequest | null
   if (!q || typeof q.tabId !== 'string' || !q.tabId || typeof q.only !== 'boolean') return false
   if (!validPoint(q.grab) || !validPoint(q.origin) || !validPoint(q.point) || !validRect(q.strip)) return false
-  return q.only || (validCarry(q.carry) && q.carry.tab.id === q.tabId)
+  if (q.size !== undefined && !validSize(q.size)) return false
+  if (q.label !== undefined && typeof q.label !== 'string') return false
+  // The only tab's carry is optional (without one its window moves and merges
+  // nowhere); a carry that is sent must be the tab's own.
+  if (q.carry !== undefined && !(validCarry(q.carry) && q.carry.tab.id === q.tabId)) return false
+  return q.only || q.carry !== undefined
+}
+
+/** A page's strip report (step 4), checked: null is a window with no strip. */
+export function validStripReport(r: unknown): r is StripReport {
+  const q = r as StripReport | null
+  return !!q && validRect(q.strip) && finite(q.plusRight)
 }

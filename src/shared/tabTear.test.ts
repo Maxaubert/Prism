@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   TEAR,
+  attachRects,
   band,
   dwellStep,
   floatBounds,
@@ -19,6 +20,7 @@ import {
   stripUnder,
   tearZone,
   validCarry,
+  validStripReport,
   validTearRequest,
   type TabCarry
 } from './tabTear'
@@ -265,5 +267,39 @@ describe('what main accepts from a page', () => {
     expect(validTearRequest({ ...base, only: true, grab: { x: NaN, y: 0 } })).toBe(false)
     expect(validTearRequest({ ...base, only: true, strip: { left: 0 } })).toBe(false)
     expect(validTearRequest({ ...base, only: true, origin: undefined })).toBe(false)
+  })
+  it('step 4: the only tab may carry itself too, with a size and a label; a carry must be its own', () => {
+    expect(validTearRequest({ ...base, only: true, carry, size: { width: 100, height: 32 }, label: 'x' })).toBe(true)
+    expect(validTearRequest({ ...base, only: true, carry: { ...carry, tab: { ...carry.tab, id: 'other' } } })).toBe(false)
+    expect(validTearRequest({ ...base, only: true, size: { width: 0, height: 32 } })).toBe(false)
+    expect(validTearRequest({ ...base, only: true, label: 3 })).toBe(false)
+  })
+  it('a strip report is a rect and the right edge of its +', () => {
+    expect(validStripReport({ strip, plusRight: 300 })).toBe(true)
+    expect(validStripReport({ strip, plusRight: NaN })).toBe(false)
+    expect(validStripReport({ strip: { left: 0 }, plusRight: 3 })).toBe(false)
+    expect(validStripReport(null)).toBe(false)
+  })
+})
+
+describe('another window as a target (step 4)', () => {
+  const report = { strip, plusRight }
+  it('takes the tab over the same rect as its own strip, and lets it go by the same rule', () => {
+    const { snap, zone: z } = attachRects(report, tab.width)
+    expect(z).toEqual(zone)
+    expect(snap).toEqual(snapTarget(strip, zone))
+  })
+  it('never tears the tab out at a point that would take it again (the hysteresis holds)', () => {
+    const { snap, zone: z } = attachRects(report, tab.width)
+    for (let y = strip.top - 80; y <= strip.bottom + 80; y += 1)
+      for (let x = -60; x <= 900; x += 7) {
+        const p = at(x, y)
+        if (shouldTear(p, grab, tab, z)) expect(inside(p, grow(snap, TEAR.snapMargin))).toBe(false)
+      }
+  })
+  it('raises a window after 750 ms, as Chrome does', () => {
+    expect(TEAR.raiseMs).toBe(750)
+    expect(dwellStep(dwellStep(null, 'w', 0, TEAR.raiseMs).dwell, 'w', 749, TEAR.raiseMs).fire).toBe(false)
+    expect(dwellStep(dwellStep(null, 'w', 0, TEAR.raiseMs).dwell, 'w', 750, TEAR.raiseMs).fire).toBe(true)
   })
 })
