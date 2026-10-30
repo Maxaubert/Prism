@@ -43,6 +43,11 @@ opt-in real-engine test (`PRISM_INDEXER_INTEGRATION=1`). The `bundled-indexer` C
 job additionally installs the service on a disposable Windows runner, checks its
 ACLs, queries it from a temporary nonadministrator account, and uninstalls it.
 The privileged lifecycle test refuses to run on a developer desktop.
+Its first wait is for the runner's first full NTFS index, up to 300 s in 15 s ES
+attempts (2026-10-30): ES reports a `-timeout` that ran out while the database was
+still loading as "Error 8: Everything IPC not found", the same text as a missing
+window, and the old single 120 s wait failed 16 CI runs that way (passes took
+77-114 s). On a timeout the test now says which of the two it was.
 
 The optional Explorer test `a ready existing index` exercises an already-running
 local index read-only when `PRISM_E2E_EXISTING_INDEX=1`; it verifies visible search
