@@ -1,5 +1,19 @@
 import { useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { isPinnedExplorer, tabLabels, type Tab } from '../lib/tabs/tabs'
+import {
+  freeRect,
+  ghostRect,
+  pastSlop,
+  shouldTear,
+  slotAt as slotFor,
+  snapTarget,
+  tearZone,
+  type Point,
+  type Rect,
+  type TearEvent
+} from '@shared/tabTear'
+import type { StripTear } from '../hooks/useTabTear'
 import { pinnedRoots, plusMenuList, recentRoots, togglePin } from '@renderer/lib/recentRoots'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/drag/dragDrop'
 import { ContextMenu } from './ContextMenu'
@@ -16,9 +30,49 @@ import { PATHS } from './icons/paths'
  * chrome never shifts under you when a second folder opens. It goes only when
  * there is nothing open at all, where EmptyState is already offering the way in.
  */
-/** How far the pointer must travel before a press becomes a drag rather than
- *  a click on the tab. */
-const DRAG_SLOP = 4
+/** The slide that opens and closes the gap a carried tab leaves (#71). With
+ *  reduced motion the neighbours simply land in their new places: the gap
+ *  still says where the tab would go, without the travel. */
+const SLIDE =
+  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ? 'transform 0ms'
+    : 'transform 170ms cubic-bezier(.23,1,.32,1)'
+
+/**
+ * One carried tab, as the gesture knows it (tab tear-off step 3, 2026-10-29).
+ * A ref, not state: pointer events come faster than renders, and every
+ * decision is made from the latest one. `press` until the pointer has
+ * travelled (a click), `strip` while it slides and pulls in its row, `torn`
+ * once it has left the strip for a window of its own, `window` when it is the
+ * window's only tab and the whole window follows, `ending` while a drop waits
+ * for main's answer.
+ */
+interface Gesture {
+  id: string
+  from: number
+  size: { width: number; height: number }
+  laneTop: number
+  /** The press inside the tab. */
+  grab: Point
+  /** The strip and the zone the tab must leave entirely to tear. */
+  strip: Rect
+  zone: Rect
+  /** Where a strip's FIRST tab sits: the new window's one tab is there. */
+  origin: Point
+  start: Point
+  pointer: Point
+  phase: 'press' | 'strip' | 'torn' | 'window' | 'ending'
+  /** It left the strip at least once: its end is the tear's to settle. */
+  tore: boolean
+  /** Main has the floating window on screen: the chip here can go. */
+  shown: boolean
+  /** Settings never leaves its window. */
+  tearable: boolean
+  /** Main attached it again just as the button came up: the drop is here. */
+  back: boolean
+  pointerId: number
+  el: HTMLElement
+}
 
 /** The pin on a + menu row (#99): outlined while the folder is only history,
  *  filled once it is pinned. One path, two fills, so the two states line up. */
@@ -53,6 +107,7 @@ export function TabStrip({
   onDropIntoTab,
   onReorder,
   onOpenRecent,
+  tear,
   wash,
   inTitleRow = false
 }: {
@@ -73,6 +128,9 @@ export function TabStrip({
   onReorder: (id: string, toIndex: number) => void
   /** Open a folder from the + menu's list of places Prism has been. */
   onOpenRecent: (path: string) => void
+  /** Tearing a tab off into a window of its own (step 3, hooks/useTabTear).
+   *  Without it a tab only slides in its row, as before. */
+  tear?: StripTear
   /** Whether the style's light reaches the strip. Follows the title bar, so
    *  the setup's mode wipe does not tear between the two rows. */
   wash: boolean
@@ -86,10 +144,19 @@ export function TabStrip({
   // drawing a hairline - the tab lifts out and its neighbours slide across to
   // open the gap it would drop into, which is what "picked up" looks like.
   // Reordering is a POINTER drag, not an HTML5 one (owner, 2026-08-23): a
-  // system drag goes anywhere on screen and carries an OS snapshot; a tab
-  // should slide left and right inside its own row and nowhere else. The
-  // strip keeps its HTML5 handlers for FILES dropped onto it - that is a
-  // different gesture with a different meaning.
+  // system drag goes anywhere on screen and carries an OS snapshot. The strip
+  // keeps its HTML5 handlers for FILES dropped onto it - that is a different
+  // gesture with a different meaning.
+  // THE TAB COMES OFF (tab tear-off step 3, owner, 2026-10-29: "if the tab is
+  // dragged outside of the tab border where it's fully outside then it's a
+  // new window otherwise it snaps to the tab bar"). This replaces the
+  // 2026-08-23 rule that a tab "should slide left and right inside its own row
+  // and nowhere else". Out of the strip it pulls at 0.4x; fully out (its own
+  // rect clear of the strip, one tab width of grace past the +) it tears, and
+  // a real window under the cursor holds it, moved by main. Back over this
+  // strip for 120 ms, it attaches again. Escape, a right-click, a lost capture
+  // or the window losing focus put everything back. The numbers:
+  // src/shared/tabTear.ts; the rules: docs/features.md.
   // While ANY drag is in flight the strip stops being a window-drag handle.
   // The empty space after the + is the natural place to drop a folder, but it
   // is app-region drag: Chromium hands presses there to the OS, so no
@@ -124,29 +191,47 @@ export function TabStrip({
     null
   )
   const [dropAt, setDropAt] = useState<number | null>(null)
+  /** The slot the pointer-up lands in, as of the LAST move (state lags). */
+  const dropRef = useRef<number | null>(null)
+  const setDrop = (at: number | null): void => {
+    dropRef.current = at
+    setDropAt(at)
+  }
+  /** What the carried tab looks like this frame: its phase, and the copy that
+   *  follows the pointer (the ghost), drawn above everything (a portal), so a
+   *  tab pulled out of the strip is never clipped by it. */
   const [carry, setCarry] = useState<{
     id: string
     from: number
     width: number
-    dx: number
-    /** True once the press travelled past the slop: only THEN is it a drag. */
-    live: boolean
+    phase: Gesture['phase']
+    /** The copy following the pointer: while it slides and pulls, and as the
+     *  chip until main's window is on screen. */
+    ghost: Rect | null
+    /** Off the strip's line: the ghost wears a ground and a shadow. */
+    lifted: boolean
   } | null>(null)
+  const g = useRef<Gesture | null>(null)
   // The tab boundaries as they were when the drag STARTED. Asking which tab
   // sits under the pointer cannot work once they animate: the neighbour
   // slides out from under the cursor, the answer flips back, and the strip
   // judders. Frozen geometry has no feedback loop.
   const lanes = useRef<Array<{ left: number; width: number; mid: number }>>([])
   const strip = useRef<HTMLDivElement>(null)
-  const startX = useRef(0)
+  const plus = useRef<HTMLButtonElement>(null)
   /** True once the press has travelled far enough to BE a drag: a plain click
    *  must still switch tabs. */
   const dragging = useRef(false)
   /** Whatever had the keyboard before the drag: a shell, a tree row, the
    *  search box. Dragging a tab is not leaving it. */
   const heldFocus = useRef<HTMLElement | null>(null)
+  /** The latest `tear`, for listeners made once. */
+  const tearRef = useRef(tear)
+  useEffect(() => {
+    tearRef.current = tear
+  }, [tear])
   const endDrag = (): void => {
-    setDropAt(null)
+    setDrop(null)
     setCarry(null)
     lanes.current = []
     const el = heldFocus.current
@@ -154,12 +239,84 @@ export function TabStrip({
     if (el && document.contains(el)) requestAnimationFrame(() => el.focus())
   }
   /** The slot a point is asking for, from the frozen lanes. */
-  const slotAt = (x: number): number => {
-    const at = lanes.current.findIndex((l) => x < l.mid)
-    return at === -1 ? lanes.current.length : at
+  const slotAt = (x: number): number => slotFor(lanes.current.map((l) => l.mid), x)
+  /** The gesture is over: nothing listens to the pointer any more. Cleared
+   *  BEFORE the capture goes, so the lost capture that follows is not a cancel. */
+  const finish = (s: Gesture): void => {
+    if (g.current === s) g.current = null
+    try {
+      if (s.el.hasPointerCapture(s.pointerId)) s.el.releasePointerCapture(s.pointerId)
+    } catch {
+      /* the element has gone */
+    }
+    endDrag()
+  }
+  /** Draw the carried tab where it is in its row (sliding, pulled). */
+  const drawInStrip = (s: Gesture): void => {
+    const ghost = ghostRect(s.pointer, s.grab, s.size, s.strip, s.laneTop)
+    setCarry((c) => (c ? { ...c, phase: 'strip', ghost, lifted: Math.abs(ghost.top - s.laneTop) > 0.5 } : c))
+    // The CARRIED tab's own centre decides, not the pointer: it is what the
+    // eye is following, and it keeps a grab near an edge honest.
+    setDrop(slotAt(ghost.left + s.size.width / 2))
+  }
+  /** Escape, a right-click, a lost capture, the window losing focus: put
+   *  everything back, and close the floating window (spec 1.6). */
+  const cancel = (): void => {
+    const s = g.current
+    if (!s || s.phase === 'ending') return
+    finish(s)
+    if (s.tore) void tearRef.current?.end(s.id, 'cancel')
+  }
+  const cancelRef = useRef(cancel)
+  useEffect(() => {
+    cancelRef.current = cancel
+  })
+  // THE STRIP GOING AWAY MID-DRAG ENDS IT (review 2026-10-29): F11 unmounts
+  // the strip (fullscreen has none), and with it every listener that could
+  // end the carry. Main moves its window until it hears, so it hears now.
+  useEffect(() => () => cancelRef.current(), [])
+  /** When a right-click cancelled a carry: the context menu its release
+   *  brings (Windows opens it on the button's release) is swallowed. */
+  const menuAfterCancel = useRef(0)
+  useEffect(() => {
+    const swallow = (e: Event): void => {
+      if (!menuAfterCancel.current || performance.now() - menuAfterCancel.current > 1500) return
+      menuAfterCancel.current = 0
+      e.preventDefault()
+      e.stopImmediatePropagation()
+    }
+    window.addEventListener('contextmenu', swallow, true)
+    return () => window.removeEventListener('contextmenu', swallow, true)
+  }, [])
+  /** Fully out of the strip: main takes it from here (spec 1.3, 1.7). */
+  const tearOut = (s: Gesture): void => {
+    const how = tearRef.current?.out(
+      s.id,
+      // The snap-back target is the strip held to the tear zone: a tab torn
+      // sideways past the + must not be over it at once (review 2026-10-29).
+      { grab: s.grab, origin: s.origin, strip: snapTarget(s.strip, s.zone), point: s.pointer },
+      () => {
+        if (g.current === s) cancelRef.current()
+      }
+    )
+    if (!how) {
+      // It cannot leave (Settings): it stays a slide in its row.
+      s.tearable = false
+      return drawInStrip(s)
+    }
+    s.phase = how === 'float' ? 'torn' : 'window'
+    s.tore = true
+    s.shown = false
+    // The gap closes behind it with the same slide that opened it.
+    setDrop(null)
+    setCarry((c) =>
+      c
+        ? { ...c, phase: s.phase, ghost: how === 'float' ? freeRect(s.pointer, s.grab, s.size) : null, lifted: true }
+        : c
+    )
   }
   const onTabPointerDown = (e: PointerEvent<HTMLDivElement>, id: string, i: number): void => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || g.current) return
     // The X is not a handle: capturing the pointer here would swallow its
     // own click and close nothing.
     if ((e.target as HTMLElement).closest('[data-tab-close]')) return
@@ -168,42 +325,148 @@ export function TabStrip({
       el.getBoundingClientRect()
     )
     lanes.current = boxes.map((b) => ({ left: b.left, width: b.width, mid: b.left + b.width / 2 }))
-    startX.current = e.clientX
+    const box = boxes[i]
+    const sb = strip.current?.getBoundingClientRect()
+    if (!box || !sb) return
+    const stripRect = { left: sb.left, top: sb.top, right: sb.right, bottom: sb.bottom }
+    const p = { x: e.clientX, y: e.clientY }
+    g.current = {
+      id,
+      from: i,
+      size: { width: box.width, height: box.height },
+      laneTop: box.top,
+      grab: { x: e.clientX - box.left, y: e.clientY - box.top },
+      strip: stripRect,
+      zone: tearZone(stripRect, plus.current?.getBoundingClientRect().right ?? sb.right, box.width),
+      origin: { x: boxes[0].left, y: boxes[0].top },
+      start: p,
+      pointer: p,
+      phase: 'press',
+      tore: false,
+      shown: false,
+      tearable: !!tear && tabs[i]?.kind !== 'settings',
+      back: false,
+      pointerId: e.pointerId,
+      el: e.currentTarget
+    }
     dragging.current = false
-    setCarry({ id, from: i, width: boxes[i]?.width ?? 0, dx: 0, live: false })
-    setDropAt(i)
+    setCarry({ id, from: i, width: box.width, phase: 'press', ghost: null, lifted: false })
+    setDrop(i)
     e.currentTarget.setPointerCapture(e.pointerId)
   }
   const onTabPointerMove = (e: PointerEvent<HTMLDivElement>): void => {
-    if (!carry) return
-    const raw = e.clientX - startX.current
-    if (!dragging.current && Math.abs(raw) < DRAG_SLOP) return
-    dragging.current = true
-    // Clamped to the row: the tab cannot be carried out of the strip, which
-    // is the whole point of doing this with the pointer.
-    const lane = lanes.current[carry.from]
-    const box = strip.current?.getBoundingClientRect()
-    const dx =
-      lane && box
-        ? Math.max(box.left - lane.left, Math.min(raw, box.right - (lane.left + lane.width)))
-        : raw
-    setCarry((c) => (c ? { ...c, dx, live: true } : c))
-    // The CARRIED tab's own centre decides, not the pointer: it is what the
-    // eye is following, and it keeps a grab near an edge honest.
-    if (lane) setDropAt(slotAt(lane.mid + dx))
+    const s = g.current
+    if (!s || s.phase === 'ending') return
+    // A right button pressed while carrying is a cancel (spec 1.6), and the
+    // menu its release would open is not wanted.
+    if (e.buttons & 2) {
+      menuAfterCancel.current = performance.now()
+      return cancel()
+    }
+    s.pointer = { x: e.clientX, y: e.clientY }
+    if (s.phase === 'press') {
+      const dx = e.clientX - s.start.x
+      // A drag starts past the slop along the row, or once the pointer has
+      // left the strip: a wobble up and down inside it is still a click.
+      const out = e.clientY < s.strip.top || e.clientY > s.strip.bottom
+      if (Math.abs(dx) < 4 && !(out && pastSlop(dx, e.clientY - s.start.y))) return
+      s.phase = 'strip'
+      dragging.current = true
+    }
+    if (s.phase === 'torn' || s.phase === 'window') {
+      // Main follows the system cursor itself; under --e2e it is told this.
+      window.prism.tabTearPoint(e.clientX, e.clientY)
+      if (s.phase === 'torn' && !s.shown) {
+        const ghost = freeRect(s.pointer, s.grab, s.size)
+        setCarry((c) => (c ? { ...c, ghost } : c))
+      }
+      return
+    }
+    if (s.tearable && shouldTear(s.pointer, s.grab, s.size, s.zone)) return tearOut(s)
+    drawInStrip(s)
   }
-  const onTabPointerUp = (e: PointerEvent<HTMLDivElement>): void => {
-    if (!carry) return
-    e.currentTarget.releasePointerCapture(e.pointerId)
-    const landed = dragging.current ? dropAt : null
-    const id = carry.id
-    endDrag()
-    if (landed !== null) onReorder(id, landed)
+  const onTabPointerUp = (): void => {
+    const s = g.current
+    if (!s || s.phase === 'ending') return
+    const was = s.phase
+    if (was === 'torn' || was === 'window') {
+      // Held as it is (the gap closed, the tab hidden) until main answers, so
+      // a committed drop never shows the tab here again for a frame.
+      s.phase = 'ending'
+      void (tearRef.current?.end(s.id, 'drop') ?? Promise.resolve(false))
+        .catch(() => false)
+        .then((committed) => {
+          finish(s)
+          // Main had attached it again a moment before the button came up
+          // (its word reached here after this drop): it was dropped in this
+          // strip, so it is selected there (spec 1.5, review 2026-10-29).
+          if (!committed && s.back) tearRef.current?.settled(s.id)
+        })
+      return
+    }
+    const landed = dragging.current && was === 'strip' ? dropRef.current : null
+    finish(s)
+    if (landed !== null) onReorder(s.id, landed)
+    // Torn and snapped back, then dropped here: in this strip, selected.
+    if (s.tore) tearRef.current?.settled(s.id)
   }
-  /** How far a tab slides to open the gap: everything between the carried
-   *  tab's old slot and the one under the pointer shifts by its width. */
+  // How the tear goes, from main (spec 1.3, 1.4).
+  useEffect(
+    () =>
+      window.prism.onTearEvent((ev: TearEvent) => {
+        const s = g.current
+        if (!s || s.id !== ev.tabId) return
+        if (ev.kind === 'shown' && s.phase === 'torn') {
+          s.shown = true
+          setCarry((c) => (c ? { ...c, ghost: null } : c))
+        } else if (ev.kind === 'attached' && s.phase === 'torn') {
+          // Back over this strip: it is a slide in its row again, at the slot
+          // under the pointer, in front.
+          s.phase = 'strip'
+          s.shown = false
+          tearRef.current?.attached(s.id)
+          drawInStrip(s)
+        } else if (ev.kind === 'attached' && s.phase === 'ending') s.back = true
+        else if (ev.kind === 'ended' && (s.phase === 'torn' || s.phase === 'window')) cancelRef.current()
+      }),
+    // drawInStrip reads only refs and setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+  // While a tab is carried, the keyboard and the window can end it (spec 1.6).
+  const carrying = carry !== null
+  useEffect(() => {
+    if (!carrying) return
+    const key = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || !g.current) return
+      // Escape is the carry's alone while it lasts: not fullscreen's, not a
+      // panel's.
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      cancelRef.current()
+    }
+    const blur = (): void => cancelRef.current()
+    const menu = (e: Event): void => {
+      if (!g.current) return
+      e.preventDefault()
+      cancelRef.current()
+    }
+    window.addEventListener('keydown', key, true)
+    window.addEventListener('blur', blur)
+    window.addEventListener('contextmenu', menu, true)
+    return () => {
+      window.removeEventListener('keydown', key, true)
+      window.removeEventListener('blur', blur)
+      window.removeEventListener('contextmenu', menu, true)
+    }
+  }, [carrying])
+  /** The gap: torn off, the tabs after it close up; carried in the row,
+   *  everything between its old slot and the one under it shifts by its width. */
+  const torn = carry?.phase === 'torn'
   const slide = (i: number): number => {
-    if (!carry || dropAt === null || i === carry.from) return 0
+    if (!carry || i === carry.from) return 0
+    if (torn) return i > carry.from ? -carry.width : 0
+    if (dropAt === null) return 0
     if (dropAt > carry.from && i > carry.from && i < dropAt) return -carry.width
     if (dropAt <= carry.from && i >= dropAt && i < carry.from) return carry.width
     return 0
@@ -252,7 +515,7 @@ export function TabStrip({
       // painting it again was a second see-through coat, the opaque bar the
       // owner saw on glass (#294).
       className={`${dragInFlight ? 'no-drag' : 'drag'} p-styled-font flex ${inTitleRow ? 'min-w-0 flex-1' : 'h-8 shrink-0 border-b border-[var(--p-divider)] bg-[var(--p-tabs)]'} items-stretch gap-0 overflow-x-auto pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
-        carry?.live ? 'cursor-grabbing [&_*]:cursor-grabbing' : ''
+        carry && carry.phase !== 'press' ? 'cursor-grabbing [&_*]:cursor-grabbing' : ''
       } ${wash && !inTitleRow ? 'p-wash' : ''}`}
     >
       {tabs.map((t, i) => {
@@ -297,15 +560,17 @@ export function TabStrip({
                     'text-[var(--p-text)]'
                   : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
             }`}
+            data-tab-id={t.id}
             style={{
-              transform: `translateX(${carry?.id === t.id ? carry.dx : slide(i)}px)`,
-              zIndex: carry?.id === t.id ? 5 : undefined,
-              // What you carry is a COPY - Chromium's own drag snapshot - so
-              // the tab you picked up stays exactly where it was, solid, and
+              transform: carry && carry.id !== t.id ? `translateX(${slide(i)}px)` : undefined,
+              // What you carry is a COPY (the ghost, drawn above everything,
+              // so a tab pulled out of the strip is never clipped by it); the
+              // tab itself keeps its place, unseen, holding the pointer, and
               // the strip only really rearranges when the drop lands. The
-              // neighbours sliding open the gap are the preview.
-              transition:
-                carry && carry.id !== t.id ? 'transform 170ms cubic-bezier(.23,1,.32,1)' : undefined
+              // neighbours sliding open the gap are the preview. When the
+              // whole window follows (its only tab), the tab is just there.
+              opacity: carry?.id === t.id && carry.phase !== 'press' && carry.phase !== 'window' ? 0 : undefined,
+              transition: carry && carry.id !== t.id ? SLIDE : undefined
             }}
             // The WHOLE tab is the click target, not just the label: the
             // padding, the icon slot and the slack around a short name all
@@ -373,7 +638,10 @@ export function TabStrip({
             onPointerDown={(e) => onTabPointerDown(e, t.id, i)}
             onPointerMove={onTabPointerMove}
             onPointerUp={onTabPointerUp}
-            onPointerCancel={() => carry && endDrag()}
+            onPointerCancel={cancel}
+            onLostPointerCapture={() => {
+              if (g.current && g.current.phase !== 'ending') cancel()
+            }}
           >
             {/* The active mark: an accent rule along the top. */}
             {on && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
@@ -427,7 +695,13 @@ export function TabStrip({
         )
       })}
       <button
+        ref={plus}
         className="no-drag my-1 grid w-7 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
+        // The + closes up behind a torn-off tab like the tabs do.
+        style={{
+          transform: torn && carry ? `translateX(${-carry.width}px)` : undefined,
+          transition: carry ? `${SLIDE}, background-color 150ms, color 150ms` : undefined
+        }}
         title="New Explorer tab (Ctrl+T). Right-click for recent folders"
         aria-label="New tab"
         onClick={onNew}
@@ -443,6 +717,17 @@ export function TabStrip({
           <path d="M12 6v12m6-6H6" />
         </svg>
       </button>
+      {carry?.ghost &&
+        createPortal(
+          <TabGhost
+            rect={carry.ghost}
+            lifted={carry.lifted}
+            tab={tabs[carry.from]}
+            label={labels[carry.from] ?? ''}
+            active={tabs[carry.from]?.id === activeId}
+          />,
+          document.body
+        )}
       {tabMenu && (
         <ContextMenu
           x={tabMenu.x}
@@ -470,6 +755,55 @@ export function TabStrip({
           })}
         />
       )}
+    </div>
+  )
+}
+
+/**
+ * THE CARRIED TAB'S COPY (tab tear-off step 3): the tab's own face, following
+ * the pointer above everything. In its row it is the tab, nothing added; off
+ * the row's line (pulled, or the chip before main's window is up) it takes
+ * the strip's ground and a soft shadow, so it reads as lifted rather than as
+ * text loose over the page.
+ */
+function TabGhost({
+  rect,
+  lifted,
+  tab,
+  label,
+  active
+}: {
+  rect: Rect
+  lifted: boolean
+  tab: Tab | undefined
+  label: string
+  active: boolean
+}): JSX.Element | null {
+  if (!tab) return null
+  return (
+    <div
+      aria-hidden
+      data-tab-ghost
+      className={`p-styled-font pointer-events-none fixed z-[1000] flex items-center gap-1.5 overflow-hidden px-2.5 text-[12px] ${
+        active ? 'text-[var(--p-text)]' : 'text-[var(--p-dim)]'
+      }`}
+      style={{
+        left: rect.left,
+        top: rect.top,
+        width: rect.right - rect.left,
+        height: rect.bottom - rect.top,
+        background: lifted ? 'var(--p-tabs)' : undefined,
+        // The place token (DESIGN.md `rounded.place`): lifted, it is a small
+        // object of its own; on the row, flush like every tab.
+        borderRadius: lifted ? 4 : 0,
+        boxShadow: lifted ? '0 8px 24px rgba(0,0,0,.28), 0 0 0 1px var(--p-divider)' : 'none',
+        // Immediate feedback: the lift reads in 120 ms, decelerating.
+        transition: 'box-shadow 120ms cubic-bezier(.16,1,.3,1), border-radius 120ms cubic-bezier(.16,1,.3,1)'
+      }}
+    >
+      {active && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
+      <TabKindIcon kind={tab.kind === 'settings' ? 'settings' : 'explorer'} solid={active} />
+      <span className="min-w-0 truncate">{label}</span>
     </div>
   )
 }

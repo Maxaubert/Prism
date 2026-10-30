@@ -191,6 +191,18 @@ export function registerBrowseIpc(ctx: MainCtx): void {
     if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId), requestId)
   })
   ipcMain.handle(CALL.browseWatch, async (e, tabId: string, path: string | null) => {
+    // A tab torn off or snapped back (step 3, 2026-10-29) is shown by two
+    // pages for a moment: the one it leaves stops watching as the one it
+    // reaches starts, in no promised order. Only the page that has the tab
+    // now may stop its watch; another's stop is a page letting go of a view
+    // it no longer has.
+    if (path === null && typeof tabId === 'string') {
+      const owner = windows.ownerOf(tabId)
+      if (owner && owner.id !== e.sender.id) return true
+    }
+    // And a floating window the tab has already left (a snap back, a cancel)
+    // starts no watch for it: a late ask would run one for nobody.
+    if (path !== null && windows.of(e.sender)?.spare && !windows.isMoving(tabId)) return false
     windows.noteTabOwner(tabId, e.sender)
     // The watcher's set-up is timed (#322): it runs in main's thread, and a
     // network folder can make it slow. One per folder shown, so a quick one
