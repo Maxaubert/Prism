@@ -10,6 +10,18 @@ Owner's choices (2026-10-29): a LIVE window follows the cursor; a tab can be dro
 window's tab bar; dragging a window's ONLY tab moves the whole window; windows close one by one,
 and starting Prism with none open gives ONE window (the tabs of the last window closed, as today).
 
+**Changed 2026-10-30** (owner, after trying it by hand: "i dont wanna be carrying a full window ...
+actually let it just be the tab you're carrying, that's how file explorer does it"): ONLY THE TAB
+follows the cursor, as a tab-sized ghost window; the new window stays hidden until the drop.
+
+**Changed again 2026-10-30** (owner, after trying it by hand: "theres a slight issue where it
+switches focus like which tab is in focus as soon as you drag it out, i want those switches to
+happen when you drop it. also if you drag it to a new window and wanna remerge when you then drag
+a tab from a single tab window you just drag the window it should be the tab you drag"): the
+selection changes only when a drop commits, and a window's ONLY tab is carried as a tab too (its
+window moves only when it is dropped outside every strip). This replaces the 2026-10-29 choice
+that the only tab moves the whole window.
+
 This replaces the 2026-08-23 decision that a tab "should slide left and right inside its own row
 and nowhere else" (TabStrip.tsx). Study behind it: a read-only code map (25 single-window
 assumptions, checked by a skeptic) and research on Chrome's tab_drag_controller, WinUI TabView,
@@ -25,28 +37,40 @@ All distances in DIP (Prism runs at 225% on the owner's display).
    resistance (0.4x), so it visibly pulls against the bar: "pull further and it comes off".
 3. **Tear.** The tab tears when its own rect is FULLY outside the strip rect (the owner's rule:
    "fully outside the tab border"), in practice about 24 DIP below or above the strip. Past the
-   + button, one tab width of grace. The tab leaves the strip at once (the gap closes with the
-   existing 170 ms slide) and a real Prism window appears under the cursor, holding the tab at the
-   same grab point in ITS strip, and follows the cursor.
+   + button, one tab width of grace. The tab's slot empties (the gap closes with the existing
+   170 ms slide) and ONLY THE TAB follows the cursor (2026-10-30): a tab-sized ghost, the tab as
+   the strip draws it, lifted, held at the same grab point, in a tiny window of its own that never
+   takes the focus or the pointer and sits above every app. The real Prism window is taken at once
+   and stays hidden, and empty, until the drop. The source keeps the tab in front (if it was) and
+   its page on screen all through the drag (2026-10-30): nothing switches until a drop commits.
 4. **Snap back.** Coming back over any Prism window's strip (its rect plus 8 DIP: a tighter zone
-   than the tear, so the edge cannot flicker) for 120 ms attaches the tab live: the floating window
+   than the tear, so the edge cannot flicker) for 120 ms attaches the tab live: the ghost
    goes, the tab slides into that strip at the slot under the cursor, and reorders there until
-   release. Its own strip included.
-5. **Drop.** Released while floating: the new window stays where it is and takes focus. Released
-   attached: the tab is in that strip, selected, that window in front.
+   release. Its own strip included; there, it changes no selection (2026-10-30).
+5. **Drop.** The tab is packed again at the drop (it stayed live in the source: a film went on
+   playing) and that is what goes. Released while floating: the new window is handed the tab,
+   placed so its tab sits under the cursor where the ghost was, and shown in front and focused
+   once its page has drawn it; the ghost goes. Released attached to another strip: the tab is in
+   that strip, selected, that window in front. Only then does the source's neighbour take the
+   front (its right, else its left).
 6. **Cancel.** Escape, right-click, a lost capture or the window losing focus (Alt+Tab, a UAC
-   prompt) put the tab back where it was, selected as before, and close the floating window. Nothing
-   half-done is ever committed.
-7. **The only tab.** Past the tear point the WHOLE window follows the cursor instead (no second
-   window); over another window's strip it attaches there and the emptied window closes. A
-   maximized single-tab window restores to its normal size under the cursor, like a title-bar drag.
+   prompt) change nothing (the tab never left, the selection never changed) and hide the ghost.
+   Nothing half-done is ever committed.
+7. **The only tab** (2026-10-30). Carried as a tab like any other: the ghost follows, its window
+   stays where it is. Over another window's strip it attaches there, and dropped there it merges
+   and the emptied window closes. Dropped outside every strip, the window itself is moved so its
+   tab sits under the drop point (exactly where a new window would go; a maximized one restores
+   to its normal size first) and comes to the front; no window is made. A snap back or a cancel
+   changes nothing.
 8. **New window size and place.** The source window's normal (restored) size, never maximized,
    clamped to the display under the cursor (10 DIP inset; at least half the work area when the
    source was maximized). The source keeps its own state (maximized stays maximized).
 9. **No flash, no lag.** One hidden spare window is kept warm (made ~2 s after startup and after
-   each use) with the theme's background colour, so the window is under the cursor within a frame
-   or two. Main moves it (8 ms polling of the cursor, size passed each time for mixed-DPI moves),
-   never the renderer over IPC. If no spare is ready, a floating tab chip shows until it is.
+   each use) with the theme's background colour, and the ghost's window with it, so the tab is
+   under the cursor at once. Main moves the ghost (8 ms polling of the cursor, size passed each
+   time for mixed-DPI moves), never the renderer over IPC. If no spare is ready, the ghost still
+   follows. Every drop waits for the floating page to draw the tab before anything commits (a warm
+   spare's in a frame or two, a fresh one's once it has loaded), the ghost holding the drop point.
 
 What a moved tab keeps: its folder, history, selection, scroll, preview, the open file and its
 position (video time, play state, volume and speed), unsaved text, and in main everything keyed by
@@ -88,7 +112,8 @@ pure helper with unit tests.
 Scenarios: no tear from a click or a short pull; tear at the threshold makes a window holding the
 same tab (and the folder watch still works there: a new file appears); the source strip lost it;
 snap back over its own strip; attach into another window's strip at the right slot; Escape mid-drag
-restores everything; the only tab moves the window and merges; unsaved text travels with the tab;
+restores everything; the selection changes only at a committed drop; the only tab is carried as a
+tab, moves its window when dropped outside and merges into another strip; unsaved text travels with the tab;
 the second window's X closes only it; closing windows one by one and relaunching opens one window
 with the last-closed window's tabs; tear-off during a slow cold restore loses no tab; a Win+E press
 while running opens a window in the same process (no second Prism process). The harness gets a

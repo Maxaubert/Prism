@@ -70,7 +70,7 @@ import { withStackPolicy } from 'prism-term-core/main/diagIpc'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
 import { diagWindowEvent } from './diagWindow'
 import { mainCrumb } from './diagCrumb'
-import { initSweepOverlay, loadSweepAddon, sweepDirs, type SweepOverlay } from './sweepOverlay'
+import { initSweepOverlay, loadSweepAddon, sweepDirs, type PrismSweep, type SweepLoad, type SweepOverlay } from './sweepOverlay'
 import { documentImages } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { probeMedia, type MediaInfo } from './ffmpeg'
@@ -143,7 +143,8 @@ import {
   watchWindowState
 } from './windowChrome'
 import { createTearOff } from './tearOff'
-import { TEAR, validTearRequest, type Point } from '@shared/tabTear'
+import { GHOST_PAGE, ONE_FRAME, createTabGhost } from './tabGhost'
+import { TEAR, validCarry, validStripReport, validTearRequest, type Point } from '@shared/tabTear'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -770,12 +771,16 @@ function ensureLivePage(): boolean {
  * every window after that gets its target the same way.
  */
 let sweepOverlay: SweepOverlay | null = null
+/** The addon as the sweep loaded it. The tab tear-off asks it the system's
+ *  window order too (`nativeWindows`), but never loads it itself: not on a
+ *  drag's path, and not when the sweep is off by flag. */
+let sweepLoaded: SweepLoad | null = null
 function sweepOverlayFor(win: BrowserWindow): void {
   if (win.isDestroyed()) return
   if (!sweepOverlay) {
     sweepOverlay = initSweepOverlay({
       // sync-ok: once, after the first window has painted; loading a native addon is synchronous anyway
-      load: () => loadSweepAddon(sweepDirs(app.isPackaged, process.resourcesPath, app.getAppPath()), existsSync),
+      load: () => (sweepLoaded = loadSweepAddon(sweepDirs(app.isPackaged, process.resourcesPath, app.getAppPath()), existsSync)),
       e2e: E2E,
       argv: process.argv,
       log: (fields) => mainCrumb('sweep-overlay', fields),
@@ -1123,6 +1128,8 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   win.webContents.on('did-start-loading', () => {
     rec.restoreStarted = false
     rec.restored = false
+    // Its strip comes back when the new page reports it.
+    rec.strip = null
     // This window's Win+E requests wait for its new page (a cold start's
     // lands in the first window, one while Prism runs in its own).
     if (winEHost) winERequests.reload(winEHost)
@@ -1293,6 +1300,9 @@ function spareSoon(delay: number = TEAR.spareDelayMs): void {
   spareTimer = setTimeout(() => {
     spareTimer = null
     if (appState.appQuitting || appState.installingUpdate || windows.count() === 0) return
+    // The ghost is made with it (owner, 2026-10-30), so the first tear shows
+    // the tab under the cursor at once.
+    tabGhost.warm()
     const s = windows.spare()
     if (s && !tear.busy(s.win)) return
     createWindow({ spare: true, seed: { kind: 'adopt' } })
@@ -1313,6 +1323,97 @@ function dropSpare(): void {
   if (spareTimer) clearTimeout(spareTimer)
   spareTimer = null
   for (const r of windows.all()) if (r.spare && !r.win.isDestroyed()) r.win.destroy()
+  tabGhost.destroy()
+}
+/**
+ * THE GHOST'S WINDOW (owner, 2026-10-30: "let it just be the tab you're
+ * carrying"; src/main/tabGhost.ts): tab-sized, frameless, transparent, never
+ * focused, never in the taskbar, never under the pointer, above every app.
+ * Its page is a fixed data: page with no script of its own and no preload,
+ * sandboxed; it may not navigate or open anything. Under --e2e it is parked
+ * and clear like every window.
+ */
+const tabGhost = createTabGhost<BrowserWindow>({
+  e2e: E2E,
+  base: themeGround,
+  light: () => themeGround() !== '#111318',
+  log: (event, fields) => mainCrumb(event, fields),
+  make: (ready, gone) => {
+    const w = new BrowserWindow({
+      show: false,
+      frame: false,
+      // Opaque: a transparent window draws nothing with DirectComposition off
+      // (owner, 2026-10-30: "right now there's nothing"). See-through by its
+      // opacity (TEAR.ghostOpacity).
+      backgroundColor: themeGround(),
+      width: TEAR.tabWidth + TEAR.ghostPad * 2,
+      height: TEAR.tabHeight + TEAR.ghostPad * 2,
+      ...(E2E ? { x: -4000, y: -4000 } : {}),
+      focusable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      hasShadow: false,
+      roundedCorners: false,
+      thickFrame: false,
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        spellcheck: false,
+        backgroundThrottling: false,
+        devTools: false
+      }
+    })
+    w.setAlwaysOnTop(true, 'screen-saver')
+    w.setIgnoreMouseEvents(true)
+    w.setMenu(null)
+    if (E2E) w.setOpacity(0)
+    w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    w.webContents.on('will-navigate', (e) => e.preventDefault())
+    w.webContents.once('did-finish-load', ready)
+    w.webContents.on('render-process-gone', () => {
+      gone()
+      if (!w.isDestroyed()) w.destroy()
+    })
+    w.once('closed', gone)
+    void w.loadURL(GHOST_PAGE).catch(() => {})
+    return w
+  }
+})
+/**
+ * THE SYSTEM'S WINDOWS, FOR THE TEAR (step 4, review 2026-10-30): which of
+ * Prism's windows is really in front, and whether another app's window covers
+ * a point, from the native addon (native/sweep/zorder.h). Without it (not
+ * loaded yet, an older build, --e2e) the tear falls back to Prism's own order
+ * of focus and raises, and cannot see other apps.
+ */
+const nativeWindows = (): PrismSweep | null =>
+  !E2E && sweepLoaded && 'addon' in sweepLoaded ? sweepLoaded.addon : null
+const hwnds = new WeakMap<BrowserWindow, Buffer>()
+/** A window the tear made clear by the addon, and whether that made it layered. */
+const fadedByAddon = new WeakMap<BrowserWindow, boolean>()
+function hwndOf(win: BrowserWindow): Buffer {
+  let h = hwnds.get(win)
+  if (!h) hwnds.set(win, (h = win.getNativeWindowHandle()))
+  return h
+}
+/** `wins` front to back as the system stacks them (those not on screen, such
+ *  as one on another virtual desktop, left out), or null when unknown. */
+function systemOrder(wins: BrowserWindow[]): BrowserWindow[] | null {
+  const a = nativeWindows()
+  if (!a?.zOrder) return null
+  try {
+    const order = a.zOrder(wins.map(hwndOf))
+    if (!Array.isArray(order)) return null
+    return order.filter((i) => Number.isInteger(i) && i >= 0 && i < wins.length).map((i) => wins[i])
+  } catch {
+    return null
+  }
 }
 const tear = createTearOff<BrowserWindow>({
   e2e: E2E,
@@ -1349,9 +1450,11 @@ const tear = createTearOff<BrowserWindow>({
     else raise(win)
     applyDwmBorder(win)
   },
-  // The tab goes back: the floating page drops it, the window hides as the
-  // spare, and whatever it reported or asked for is the source's again.
+  // The tab goes back (a drop whose floating page never drew it): the
+  // floating page drops it, the window hides as the spare, and whatever it
+  // reported or asked for is the source's again.
   release: (win, tabId, source) => {
+    if (source && !source.isDestroyed()) windows.noteTabOwner(tabId, source.webContents)
     windows.sendTo(win, PUSH.tabRelease, tabId)
     if (!win.isDestroyed()) win.hide()
     const r = windows.recordOf(win)
@@ -1360,15 +1463,119 @@ const tear = createTearOff<BrowserWindow>({
       r.dirty = false
       sessionFile.closed(r.id, { others: true, quitting: false })
     }
-    // Its folder watch stops (review 2026-10-29): the floating page's own stop
-    // comes after the tab is the source's again and is ignored, and the source
-    // starts one only if it shows the tab (a background tab it never shows
-    // kept a watch running for nobody).
-    void browseWatch(tabId, null, () => {})
-    if (source && !source.isDestroyed()) windows.noteTabOwner(tabId, source.webContents)
+    // The source kept the tab on screen all through the drag (owner,
+    // 2026-10-30): if it is still its front tab, the folder watch the
+    // floating page started goes on for it (the floating page's own stop
+    // comes after the tab is the source's again and is ignored). Otherwise it
+    // stops (review 2026-10-29: a background tab the source never shows kept
+    // a watch running for nobody).
+    const shown = source && !source.isDestroyed() ? windows.recordOf(source)?.reported : null
+    if (shown?.tabs[shown.active]?.id !== tabId) void browseWatch(tabId, null, () => {})
   },
   tell: (source, event) => void windows.sendTo(source, PUSH.tearEvent, event),
   spareSoon: () => spareSoon(),
+  // STEP 4: ANY WINDOW'S STRIP TAKES THE TAB (owner, 2026-10-29). The
+  // windows that can, front to back: shown, restored, not minimized, not the
+  // spare; as the system stacks them (the addon), else the one focused or
+  // raised most recently in front, and among windows never focused (the
+  // e2e's) the newest, as a new window opens on top.
+  windowsFront: () => {
+    const wins = windows
+      .all()
+      .filter((r) => !r.spare && r.restored && !r.win.isDestroyed() && r.win.isVisible() && !r.win.isMinimized())
+      .reverse()
+      .sort((a, b) => b.frontAt - a.frontAt)
+      .map((r) => r.win)
+    return systemOrder(wins) ?? wins
+  },
+  covered: (p, win) => {
+    const a = nativeWindows()
+    if (!a?.coveredAt || win.isDestroyed()) return false
+    try {
+      const q = screen.dipToScreenPoint(p)
+      return a.coveredAt(q.x, q.y, hwndOf(win)) === true
+    } catch {
+      return false
+    }
+  },
+  // Only a page that has restored its tabs takes one (review 2026-10-30): a
+  // page reloading mid-drag reports its strip as its first tab mounts.
+  stripOf: (win) => {
+    const r = windows.recordOf(win)
+    return r?.restored && !win.isDestroyed() && win.isVisible() && !win.isMinimized() ? r.strip : null
+  },
+  name: (win) => windows.recordOf(win)?.key ?? '',
+  hover: (win, hover) => void windows.sendTo(win, PUSH.tabHover, hover),
+  // The drop into another window's strip: that window has the tab from now on
+  // (its record lists it at once, so its close releases it; its page reports
+  // the real order next), and the source's record and entry lose it at the
+  // same moment, exactly as a tear's commit does.
+  merge: (target, carry, source, at) => {
+    const r = windows.recordOf(target)
+    if (!r) return
+    const t = carry.tab
+    const left = windows.handTab(t.id, source, target)
+    const src = windows.recordOf(source)
+    if (left && src) sessionFile.report(src.id, left)
+    const tabs = (r.reported?.tabs ?? []).filter((x) => x.id !== t.id)
+    const i = Math.max(0, Math.min(at ?? tabs.length, tabs.length))
+    tabs.splice(i, 0, { id: t.id, role: 'explorer', root: t.root, browse: t.browse, file: t.files[t.index]?.path })
+    r.reported = { tabs, active: i }
+    sessionFile.report(r.id, r.reported)
+    windows.sendTo(target, PUSH.tabMerge, { carry, at })
+  },
+  // To the front WITHOUT the focus: the source holds the pointer, and its
+  // window losing the focus would cancel the carry.
+  raise: (win) => {
+    if (!win.isDestroyed()) win.moveTop()
+  },
+  raised: (win) => windows.raised(win),
+  // THE GHOST (owner, 2026-10-30): only the tab follows the cursor; the
+  // floating window stays hidden until the drop.
+  ghost: tabGhost,
+  // At the drop the ghost stays until the window just shown has drawn a frame
+  // (review 2026-10-30): hidden all through the drag, it has drawn nothing.
+  drawn: (win, fn) => {
+    if (win.isDestroyed()) return fn()
+    win.webContents.executeJavaScript(ONE_FRAME).then(fn, fn)
+  },
+  // The only tab's window while a drop restores and moves it (review
+  // 2026-10-30: no restore animation to its old place, no frame at the new
+  // size before it has drawn). By the addon only: back, it is not layered any
+  // more, where Electron's setOpacity leaves it layered for good and a
+  // layered window loses its Mica or acrylic. Without it the move just shows.
+  fade: (win, out) => {
+    const a = nativeWindows()
+    if (!a?.setAlpha || !a.unlayer || win.isDestroyed()) return
+    try {
+      if (out) {
+        const added = a.setAlpha(hwndOf(win), 0)
+        fadedByAddon.set(win, added || fadedByAddon.get(win) === true)
+        return
+      }
+      if (!fadedByAddon.has(win)) return
+      a.setAlpha(hwndOf(win), 255)
+      if (fadedByAddon.get(win)) a.unlayer(hwndOf(win))
+      fadedByAddon.delete(win)
+    } catch {
+      // The addon failed: never leave the window clear (layered then, but seen).
+      fadedByAddon.delete(win)
+      if (!out && !win.isDestroyed()) win.setOpacity(1)
+    }
+  },
+  // Its tab went into another window: nothing is left in it, and its text went
+  // with the tab, so it closes asking nothing. After this turn, so the page's
+  // answer to its drop goes out first.
+  closeEmptied: (win) => {
+    const r = windows.recordOf(win)
+    if (r) {
+      r.closeConfirmed = true
+      r.dirty = false
+    }
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.close()
+    }, 0)
+  },
   log: (event, fields) => mainCrumb(event, fields)
 })
 const isPoint = (p: unknown): p is Point =>
@@ -1381,10 +1588,12 @@ function registerTearIpc(): void {
     if (!r || r.spare || r.win.isDestroyed() || !validTearRequest(req)) return false
     return tear.start(r.win, req)
   })
-  ipcMain.handle(CALL.tabTearEnd, (e, how: unknown) => {
+  // A drop brings the tab as it is now (packed at the drop, owner
+  // 2026-10-30: the source kept it on screen all through the drag).
+  ipcMain.handle(CALL.tabTearEnd, (e, how: unknown, carry: unknown) => {
     const r = windows.of(e.sender)
     if (!r || (how !== 'drop' && how !== 'cancel')) return { committed: false }
-    return tear.end(r.win, how)
+    return tear.end(r.win, how, validCarry(carry) ? carry : undefined)
   })
   ipcMain.on(CALL.tabTearPoint, (e, p: unknown) => {
     const r = windows.of(e.sender)
@@ -1393,6 +1602,16 @@ function registerTearIpc(): void {
   ipcMain.on(CALL.tabAdopted, (e, _id: unknown, tab: unknown) => {
     const r = windows.of(e.sender)
     if (r) tear.adopted(r.win, isPoint(tab) ? tab : null)
+  })
+  // Step 4: every window's strip, for the hit test, and the slot a strip has
+  // open for a tab hovering over it.
+  ipcMain.on(CALL.tabStrip, (e, report: unknown) => {
+    const r = windows.of(e.sender)
+    if (r) r.strip = validStripReport(report) ? report : null
+  })
+  ipcMain.on(CALL.tabHoverSlot, (e, id: unknown, slot: unknown) => {
+    const r = windows.of(e.sender)
+    if (r && typeof id === 'string' && typeof slot === 'number') tear.slot(r.win, id, slot)
   })
 }
 
@@ -1919,7 +2138,31 @@ if (!app.requestSingleInstanceLock()) {
         // (nothing moves under --e2e), its counts, and the spare.
         __e2eTear: () => {
           const s = windows.spare()
-          return { ...tear.state(), spare: s ? { page: s.id, key: s.key, ready: s.restored } : null }
+          return {
+            ...tear.state(),
+            spare: s ? { page: s.id, key: s.key, ready: s.restored, visible: !s.win.isDestroyed() && s.win.isVisible() } : null,
+            // The ghost's own window (owner, 2026-10-30): made, loaded, shown
+            // (parked and clear), and where it would be.
+            ghostWin: tabGhost.state()
+          }
+        },
+        // The label the ghost's page shows, read back from its document.
+        __e2eGhostLabel: () => tabGhost.label(),
+        // Step 4: where a parked window pretends to be (an offset from the
+        // work area's top-left, so it can be a target), a focus order (the
+        // e2e's windows are unfocusable, so none is ever focused by itself),
+        // and the strip a window reported.
+        __e2eTearAt: (id: number, at: Point | null) => {
+          const w = BrowserWindow.fromId(id)
+          if (w) tear.e2eAt(w, at)
+        },
+        __e2eFocused: (id: number) => {
+          const w = BrowserWindow.fromId(id)
+          if (w) windows.focused(w)
+        },
+        __e2eStrip: (id: number) => {
+          const w = BrowserWindow.fromId(id)
+          return w ? (windows.recordOf(w)?.strip ?? null) : null
         }
       })
   })

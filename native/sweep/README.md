@@ -10,7 +10,8 @@ Measurements: `C:\Users\Admin\Documents\Claude\research\prism\2026-10-09-native-
 |---|---|
 | `box.h` | The box's integer geometry (Explorer's `_SetVisualLoc`): pure, self-tested by the build |
 | `overlay.h`, `overlay.cc` | The one native thread, the D3D11 + DComp device, one topmost target per window |
-| `sweep.cc` | The JS surface main calls (`src/main/sweepOverlay.ts`), and `selfTest()` |
+| `zorder.h`, `zorder.cc` | The tab tear-off's window order (`zOrder`, `coveredAt`): the system's stacking of Prism's windows, and whether another app's window covers a point above one. On main's JS thread, synchronous, user32 plus `DwmGetWindowAttribute` resolved at run time; never the sweep's thread |
+| `sweep.cc` | The JS surface main calls (`src/main/sweepOverlay.ts`, `src/main/index.ts` for the tear-off), and `selfTest()` |
 | `binding.gyp` | node-gyp, MSVC, `/MT`, `/W4 /WX` |
 
 Built by `npm run build:sweep` (`tools/build-sweep.mjs`) into `vendor/sweep/prism_sweep.node`,

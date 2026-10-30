@@ -30,7 +30,7 @@ import type { SweepBegin, SweepEnd, SweepState, SweepUpdate } from '@shared/swee
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
-import type { TabCarry, TearEnd, TearEvent, TearRequest } from '@shared/tabTear'
+import type { StripReport, TabCarry, TabHover, TabMerge, TearEnd, TearEvent, TearRequest } from '@shared/tabTear'
 import type { FolderHandlerStatus } from '@shared/folderHandler'
 import type { DriveDetails, MediaProps, TextProps } from '@shared/props'
 import type {
@@ -182,12 +182,13 @@ const api = {
     active: number
   ): void => ipcRenderer.send(CALL.tabsChanged, { tabs, active }),
   /* ----- tab tear-off (step 3, 2026-10-29; src/main/tearOff.ts) ----- */
-  /** A carried tab left its strip: main takes it into a floating window, or
-   *  moves this window when it is the only tab. */
+  /** A carried tab left its strip: main carries it (only the tab follows the
+   *  cursor, the only tab of a window included). */
   tabTear: (req: TearRequest): Promise<boolean> => ipcRenderer.invoke(CALL.tabTear, req),
-  /** The tear ended here: a drop answers whether the new window took the tab
-   *  (only then does this strip let it go). */
-  tabTearEnd: (how: TearEnd): Promise<{ committed: boolean }> => ipcRenderer.invoke(CALL.tabTearEnd, how),
+  /** The tear ended here: a drop (with the tab as it is now) answers whether
+   *  another window took the tab (only then does this strip let it go). */
+  tabTearEnd: (how: TearEnd, carry?: TabCarry): Promise<{ committed: boolean }> =>
+    ipcRenderer.invoke(CALL.tabTearEnd, how, carry),
   /** The pointer during a tear, under --e2e only: Playwright's mouse is not
    *  the system cursor main polls. A no-op otherwise. */
   tabTearPoint: (x: number, y: number): void => {
@@ -202,6 +203,15 @@ const api = {
   /** The tab handed over is drawn; `tab` is where its strip put it. */
   tabAdopted: (id: string, tab: { x: number; y: number } | null): void =>
     ipcRenderer.send(CALL.tabAdopted, id, tab),
+  /* ----- attach into any window (step 4, 2026-10-29) ----- */
+  /** Where this window's strip is (null: none on screen), for main's hit test. */
+  tabStrip: (report: StripReport | null): void => ipcRenderer.send(CALL.tabStrip, report),
+  /** A tab carried in another window hovers over this strip (null: no more). */
+  onTabHover: subscribe<TabHover | null>(PUSH.tabHover),
+  /** The slot this strip has open for it. */
+  tabHoverSlot: (id: string, slot: number): void => ipcRenderer.send(CALL.tabHoverSlot, id, slot),
+  /** ...and it is dropped here. */
+  onTabMerge: subscribe<TabMerge>(PUSH.tabMerge),
   /** Where you had got to in a film, kept ONCE on the PC by file path
    *  (#118): the phone reads and writes the same store over /api/pos, so a
    *  film left at minute 40 here opens at minute 40 there. Seconds, or null. */

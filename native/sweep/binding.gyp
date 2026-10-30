@@ -14,7 +14,7 @@
   "targets": [
     {
       "target_name": "prism_sweep",
-      "sources": ["sweep.cc", "overlay.cc"],
+      "sources": ["sweep.cc", "overlay.cc", "zorder.cc"],
       "defines": ["UNICODE", "_UNICODE", "WIN32_LEAN_AND_MEAN", "NOMINMAX", "NAPI_VERSION=8"],
       "libraries": ["d3d11.lib", "dxgi.lib", "dcomp.lib", "user32.lib"],
       "win_delay_load_hook": "true",

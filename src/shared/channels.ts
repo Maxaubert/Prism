@@ -35,6 +35,10 @@ export const PUSH = {
   tabAdopt: 'tabs:adopt',
   tabRelease: 'tabs:release',
   tearEvent: 'tabs:tear-event',
+  /** Step 4: a carried tab hovers over this window's strip (or no more), and
+   *  is dropped into it. */
+  tabHover: 'tabs:hover',
+  tabMerge: 'tabs:merge',
   /** The native sweep box's answer (#338): is the box drawn natively. */
   sweepOverlayState: 'sweep-overlay:state'
 } as const
@@ -71,6 +75,10 @@ export const CALL = {
   tabTearEnd: 'tabs:tear-end',
   tabTearPoint: 'tabs:tear-point',
   tabAdopted: 'tabs:adopted',
+  /** Step 4: where this window's strip is, and the slot it has open for a
+   *  carried tab hovering over it. */
+  tabStrip: 'tabs:strip',
+  tabHoverSlot: 'tabs:hover-slot',
 
 
   posGet: 'pos:get',
