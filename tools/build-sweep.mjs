@@ -76,6 +76,10 @@ if (!Array.isArray(failures)) fail('selfTest() did not return a list')
 if (failures.length) fail(`self-test failed:\n  ${failures.join('\n  ')}`)
 const probe = mod.exports.probe()
 if (typeof probe?.build !== 'number' || typeof probe?.clock !== 'boolean') fail('probe() answered nothing usable')
+// The tear-off's window order (zorder.cc): a null window is never found.
+const order = mod.exports.zOrder([Buffer.alloc(8)])
+if (!Array.isArray(order) || order.length !== 0) fail('zOrder() of a null window answered something')
+if (mod.exports.coveredAt(0, 0, Buffer.alloc(8)) !== false) fail('coveredAt() of a null window was not false')
 console.log(
   `Sweep addon: built for Node ${nodeVersion}, imports ${deps.join(', ')}, self-test passed (Windows build ${probe.build}, compositor clock ${probe.clock ? 'yes' : 'no'})`
 )

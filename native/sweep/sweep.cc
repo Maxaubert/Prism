@@ -13,6 +13,7 @@
 
 #include "box.h"
 #include "overlay.h"
+#include "zorder.h"
 
 namespace prism_sweep {
 namespace {
@@ -268,6 +269,59 @@ napi_value JsConfigure(napi_env env, napi_callback_info info) {
   return Undefined(env);
 }
 
+// zOrder([hwnd, ...]) -> the indexes of those on screen, front to back (the
+// tab tear-off's hit test, zorder.h).
+napi_value JsZOrder(napi_env env, napi_callback_info info) {
+  napi_value argv[1];
+  napi_value arr;
+  napi_create_array(env, &arr);
+  bool isArray = false;
+  if (Args(env, info, argv, 1) < 1 || napi_is_array(env, argv[0], &isArray) != napi_ok || !isArray) return arr;
+  uint32_t len = 0;
+  napi_get_array_length(env, argv[0], &len);
+  std::vector<HWND> wins;
+  for (uint32_t i = 0; i < len && i < 256; i++) {
+    napi_value v;
+    if (napi_get_element(env, argv[0], i, &v) != napi_ok) return arr;
+    wins.push_back(GetHwnd(env, v));  // a bad one is null: never matched
+  }
+  const std::vector<int> order = ZOrder(wins);
+  for (uint32_t i = 0; i < order.size(); i++) napi_set_element(env, arr, i, Num(env, order[i]));
+  return arr;
+}
+
+// coveredAt(x, y, hwnd) -> another app's window above it takes the pointer at
+// that physical screen point.
+napi_value JsCoveredAt(napi_env env, napi_callback_info info) {
+  napi_value argv[3];
+  if (Args(env, info, argv, 3) < 3) return Bool(env, false);
+  double x, y;
+  if (napi_get_value_double(env, argv[0], &x) != napi_ok || napi_get_value_double(env, argv[1], &y) != napi_ok)
+    return Bool(env, false);
+  if (!(x >= -kMaxCoord && x <= kMaxCoord && y >= -kMaxCoord && y <= kMaxCoord)) return Bool(env, false);
+  const HWND h = GetHwnd(env, argv[2]);
+  return Bool(env, CoveredAt(POINT{static_cast<LONG>(x), static_cast<LONG>(y)}, h));
+}
+
+// setAlpha(hwnd, alpha) -> true when this call made the window layered.
+napi_value JsSetAlpha(napi_env env, napi_callback_info info) {
+  napi_value argv[2];
+  if (Args(env, info, argv, 2) < 2) return Bool(env, false);
+  const HWND h = GetHwnd(env, argv[0]);
+  double a;
+  if (!h || napi_get_value_double(env, argv[1], &a) != napi_ok || !(a >= 0 && a <= 255)) return Bool(env, false);
+  return Bool(env, SetAlpha(h, static_cast<BYTE>(a)));
+}
+
+// unlayer(hwnd): the layered style off again (after setAlpha(hwnd, 255)).
+napi_value JsUnlayer(napi_env env, napi_callback_info info) {
+  napi_value argv[1];
+  if (Args(env, info, argv, 1) < 1) return Undefined(env);
+  const HWND h = GetHwnd(env, argv[0]);
+  if (h) Unlayer(h);
+  return Undefined(env);
+}
+
 void Cleanup(void*) { Shutdown(250); }
 
 napi_value Init(napi_env env, napi_value exports) {
@@ -278,7 +332,8 @@ napi_value Init(napi_env env, napi_value exports) {
   const Fn fns[] = {{"probe", JsProbe},   {"attach", JsAttach},     {"status", JsStatus},
                     {"begin", JsBegin},   {"update", JsUpdate},     {"end", JsEnd},
                     {"detach", JsDetach}, {"shutdown", JsShutdown}, {"stats", JsStats},
-                    {"selfTest", JsSelfTest}, {"configure", JsConfigure}};
+                    {"selfTest", JsSelfTest}, {"configure", JsConfigure}, {"zOrder", JsZOrder},
+                    {"coveredAt", JsCoveredAt}, {"setAlpha", JsSetAlpha}, {"unlayer", JsUnlayer}};
   for (const auto& f : fns) {
     napi_value fn;
     napi_create_function(env, f.name, NAPI_AUTO_LENGTH, f.cb, nullptr, &fn);

@@ -105,6 +105,7 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
           .then((ok) => {
             if (!ok) refused()
           }, refused)
+      const only = s.tabs.length === 1
       const carry = carryOf(tab, {
         buffers: buffers.current,
         owners: bufferOwners.current,
@@ -114,14 +115,19 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
         mark: markOf,
         docPos: sessionDocPos,
         passwords: archivePasswordsUnder,
+        // The only tab's drag mostly just moves its window: it carries no
+        // folder listing (a large folder's would be cloned at the start of
+        // every such drag and held by main all through it; review
+        // 2026-10-30). Merged into another window, that window lists it.
         listing: (p) => {
+          if (only) return null
           const d = visitedDirectories.peek(p)
           return d ? { path: d.path, listing: d.listing } : null
         }
       })
       // The only tab moves its window; it carries itself too, since it can
       // merge into another window's strip (step 4).
-      if (s.tabs.length === 1) {
+      if (only) {
         ask(true, carry)
         return 'window'
       }

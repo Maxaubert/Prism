@@ -49,11 +49,17 @@ import {
  *   MERGED into that window at its slot, selected, that window in front; the
  *   only tab's emptied window closes. Its state moves exactly as in a tear:
  *   the same id, what it carried, `handTab` at the commit, nothing released.
- * - Windows are hit-tested FRONT TO BACK, the one focused most recently in
- *   front (ties: the newest), and a window's body hides the strips behind it.
- *   A window the cursor stays over for 750 ms (`TEAR.raiseMs`, Chrome's
- *   number) is brought to the front without the focus (the source keeps the
- *   pointer), so a strip under another window can be reached.
+ * - Windows are hit-tested FRONT TO BACK, as the system stacks them (asked
+ *   again every tick; without the native addon, the one focused or raised
+ *   most recently in front, ties the newest), and a window's body hides the
+ *   strips behind it. ANOTHER APP'S window hides them too (`covered`, review
+ *   2026-10-30): a strip under a browser takes nothing, and a tab in a strip
+ *   tears out of it where something in front of that window is under the
+ *   cursor. A window the cursor stays over for 750 ms (`TEAR.raiseMs`,
+ *   Chrome's number) is brought to the front without the focus (the source
+ *   keeps the pointer), so a strip under another window can be reached; a
+ *   tab that then goes back to its source, or a cancel, brings the source
+ *   (still focused) to the front again.
  * - The page's pointer-up ends it: a drop makes the floating window a window of
  *   the session (focused) and only THEN does the source let the tab go; a
  *   cancel (Escape, right-click, lost capture, blur) gives it back, closes any
@@ -117,9 +123,14 @@ export interface TearDeps<W extends TearWin> {
   spareSoon(): void
   /* ----- step 4: attach into any window (all optional: without them only the
    * source's own strip is a target, as in step 3) ----- */
-  /** The session's windows that can take a tab (shown, restored, not the
-   *  spare), the one focused most recently first, ties newest first. */
+  /** The session's windows that can take a tab (shown, restored, not
+   *  minimized, not the spare), front to back as the system stacks them, else
+   *  the one focused or raised most recently first, ties newest first. Asked
+   *  every tick: the order and the windows change under a drag. */
   windowsFront?(): W[]
+  /** A window of another app, in front of `win`, is under that screen point
+   *  (it hides `win` there). Never under --e2e. */
+  covered?(p: Point, win: W): boolean
   /** The strip a window's page reported last, or null (none on screen). */
   stripOf?(win: W): StripReport | null
   /** A window's name, for the e2e and the log. */
@@ -131,6 +142,9 @@ export interface TearDeps<W extends TearWin> {
   merge?(target: W, carry: TabCarry, source: W, at: number | null): void
   /** To the front without the focus (never under --e2e). */
   raise?(win: W): void
+  /** It came to the front without the focus, for the order `windowsFront`
+   *  answers when the system's cannot be read (under --e2e too). */
+  raised?(win: W): void
   /** The floating window hides while the tab is in another window's strip. */
   hide?(win: W): void
   /** The only tab's moving window goes clear (and back): it holds the pointer,
@@ -187,10 +201,13 @@ interface Common<W> {
   dwell: Dwell<W> | null
   /** In another window's strip now. */
   over: Over<W> | null
-  /** The windows front to back as this tear knows them (a raise reorders). */
+  /** The windows front to back, as of this tick. */
   z: W[]
   /** Which window the cursor has stayed over, for the raise. */
   rdwell: Dwell<W> | null
+  /** A window was raised above the source: a tab going back to it brings it
+   *  to the front again. */
+  lifted: boolean
 }
 interface Floating<W> extends Common<W> {
   kind: 'float'
@@ -376,18 +393,48 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     const r = deps.stripOf?.(w)
     return r ? shift(attachRects(r, s.tab.width).snap, clientToScreen(w, { x: 0, y: 0 })) : null
   }
+  /** Another app's window in front of `w` is under the point. */
+  const covered = (p: Point, w: W): boolean => !deps.e2e && !!deps.covered?.(p, w)
+  /** The windows front to back, as of now: the system's order (a raise is in
+   *  it), and only those that can still take a tab (a page reloading, a
+   *  window minimized under the drag are not). The source always counts. */
+  const refresh = (s: Session<W>): void => {
+    if (!deps.windowsFront) return
+    const z = [...deps.windowsFront()]
+    if (!z.includes(s.source)) z.unshift(s.source)
+    s.z = z
+  }
   /** The window whose strip is under the cursor, front to back: a window's
-   *  body hides every strip behind it. */
+   *  body hides every strip behind it, and so does another app's window. */
   const stripHit = (s: Session<W>, p: Point): W | null => {
     for (const w of candidates(s)) {
       const snap = snapOf(s, w)
-      if (snap && inside(p, grow(snap, TEAR.snapMargin))) return w
+      if (snap && inside(p, grow(snap, TEAR.snapMargin)) && !covered(p, w)) return w
       if (inside(p, screenRect(w))) return null
     }
     return null
   }
-  /** The window the cursor is over, front-most. */
-  const windowHit = (s: Session<W>, p: Point): W | null => candidates(s).find((w) => inside(p, screenRect(w))) ?? null
+  /** The window the cursor is over, front-most; none where another app's
+   *  window is in front of it. */
+  const windowHit = (s: Session<W>, p: Point): W | null => {
+    const w = candidates(s).find((x) => inside(p, screenRect(x))) ?? null
+    return w && !covered(p, w) ? w : null
+  }
+  /** Something in front of `w` is under the point: one of the session's
+   *  windows, or another app's. */
+  const hidden = (s: Session<W>, w: W, p: Point): boolean => {
+    for (const x of candidates(s)) {
+      if (x === w) break
+      if (inside(p, screenRect(x))) return true
+    }
+    return covered(p, w)
+  }
+  /** Bring a window to the front without the focus (only the bookkeeping
+   *  under --e2e, where nothing is on screen). */
+  const lift = (w: W): void => {
+    if (!deps.e2e) deps.raise?.(w)
+    deps.raised?.(w)
+  }
 
   /** THE RAISE (step 4): a window the cursor stays over for 750 ms comes to
    *  the front, without the focus, and is in front for the hit test too. */
@@ -403,8 +450,9 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     s.rdwell = null
     s.z = [under, ...s.z.filter((w) => w !== under)]
     counts.raises += 1
+    lift(under)
+    if (under !== s.source) s.lifted = true
     if (!deps.e2e) {
-      deps.raise?.(under)
       // What moves with the cursor stays above it.
       if (s.kind === 'float') {
         if (s.shown) deps.raise?.(s.win)
@@ -457,12 +505,15 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     deps.log?.('tear-off-again', { tab: s.tabId, win: nameOf(o.win) ?? '' })
   }
   /** In another window's strip: it slides along it, and tears out again
-   *  fully outside its zone (the same rule and hysteresis as the tear). */
+   *  fully outside its zone (the same rule and hysteresis as the tear), or
+   *  where something in front of that window is under the cursor (its strip
+   *  does not show there: review 2026-10-30). */
   const hoverStep = (s: Session<W>, o: Over<W>, p: Point): void => {
-    const r = alive(o.win) ? deps.stripOf?.(o.win) : null
+    const r = alive(o.win) && s.z.includes(o.win) ? deps.stripOf?.(o.win) : null
     if (!r) return leave(s)
     const client = screenToClient(o.win, p)
     if (shouldTear(client, s.grab, s.tab, attachRects(r, s.tab.width).zone)) return leave(s)
+    if (hidden(s, o.win, p)) return leave(s)
     sendHover(s, o, client)
   }
 
@@ -476,8 +527,10 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
       place(s, s.win)
     }
     const p = cursorOf(s)
+    refresh(s)
+    if (s.over) hoverStep(s, s.over, p)
     raiseStep(s, p)
-    if (s.over) return hoverStep(s, s.over, p)
+    if (s.over) return
     // THE SNAP BACK (spec 1.4): over a strip, with its margin, for 120 ms.
     // The source's own (held to the tear zone by the page, `snapTarget`)
     // gives the tab back to it; any other window's takes it (step 4).
@@ -489,10 +542,16 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
       if (s.kind === 'float') attach(s)
     } else enter(s, hit)
   }
-  const attach = (s: Floating<W> & { point: Point }): void => {
+  /** The tab is the source's again after a window was raised above it: the
+   *  source, which still has the focus, comes back to the front. */
+  const unbury = (s: Session<W>): void => {
+    if (s.lifted && alive(s.source)) lift(s.source)
+  }
+  const attach = (s: Floating<W> & { point: Point; last: Bounds | null }): void => {
     stopLoop()
     session = null
     counts.attaches += 1
+    unbury(s)
     deps.release(s.win, s.tabId, s.source)
     deps.moving(s.tabId, false)
     deps.tell(s.source, { kind: 'attached', tabId: s.tabId })
@@ -598,6 +657,7 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
       return true
     }
     giveBack(s.tabId, s.win, s.source)
+    unbury(s)
     if (!fromPage && alive(s.source)) deps.tell(s.source, { kind: 'ended', tabId: s.tabId })
     return false
   }
@@ -630,6 +690,7 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
         over: null,
         z,
         rdwell: null,
+        lifted: false,
         point,
         last: null
       }

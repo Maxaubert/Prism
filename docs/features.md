@@ -205,12 +205,22 @@ the emptied window closes on release.
 - **Every cancel still restores exactly** (Escape, a right-click, a lost capture, the window losing focus): the
   gap closes, the tab is back in its own strip at its place, the front tab as before, no window made, the other
   window as it was.
-- **Z-order**: the windows are hit-tested front to back, the one focused most recently in front (main cannot
-  read Windows' own order), and among windows never focused (the e2e's) the newest; a window's body hides every
-  strip behind it. A window the cursor stays over for **750 ms** (`TEAR.raiseMs`, Chrome's number: a pass on
-  the way somewhere else raises nothing) comes to the front WITHOUT the focus (`moveTop`; the source would
-  cancel on losing it), with the floating window kept above it, and is in front for the hit test from then on.
-  Interim number, chosen by the build: **the owner may still decide otherwise.**
+- **Z-order** (review 2026-10-30): the windows are hit-tested front to back AS WINDOWS STACKS THEM, asked
+  every tick (the native addon's `zOrder`, `native/sweep/zorder.h`; a window on another virtual desktop is not
+  on screen). Without the addon (not loaded, an older build, --e2e) the order is Prism's own: the window focused
+  or raised most recently in front (`frontAt`), and among windows never focused (the e2e's) the newest. A
+  window's body hides every strip behind it, and so does ANOTHER APP'S window (`coveredAt`): a strip under a
+  browser takes nothing and raises nothing, and a tab hovering in a strip tears out of it where anything in front
+  of that window is under the cursor. A window the cursor stays over for **750 ms** (`TEAR.raiseMs`, Chrome's
+  number: a pass on the way somewhere else raises nothing) comes to the front WITHOUT the focus (`moveTop`; the
+  source would cancel on losing it), with the floating window kept above it, and is in front for the hit test
+  from then on, the next tear included. A tab that goes back to its source after a raise, or a cancel, brings
+  the source (still focused) to the front again. Interim number, chosen by the build: **the owner may still
+  decide otherwise.**
+- **The only tab's window goes clear by the addon** (`setAlpha`, then `unlayer` once it is back): Electron's
+  `setOpacity` leaves a window layered for good, and a layered window loses its Mica or acrylic. Without the
+  addon, `setOpacity` as before. Its drag carries no folder listing (a large folder's was cloned at the start of
+  every such drag, review 2026-10-30); merged, the target lists the folder itself.
 - **Every window reports its strip** (`tabs:strip`: the strip's rect and the +'s right edge, client
   coordinates; null when there is none, fullscreen or no tabs), when it changes and never while a tab is carried
   in it or hovers over it. Main keeps it on the window's record (`strip`), cleared when the page reloads. A
@@ -231,7 +241,12 @@ the emptied window closes on release.
   2; hovering and pulling away tears it off again; Escape over window 2 restores window 1 exactly; a third
   window's only tab over window 2's strip, cancelled, changes nothing, and dropped, merges at the end and its
   window closes (and leaves the session file); with the strips overlapping, the newer window takes the tab
-  until window 1 is focused last, and then its own strip does.
+  until window 1 is focused last, and then its own strip does. Since the review (2026-10-30): a right-click over
+  window 2 cancels and restores; window 2 hidden mid-hover lets the tab go, takes nothing hidden and takes it
+  again shown; window 2 reloading mid-hover lets it go and takes it again only once restored. `tearOff.test.ts`
+  holds the rest: another app's window over a strip or coming over the hovered one, a window in front ending the
+  hover, the system's order changing mid-drag, a window that stops taking tabs, a raise outliving the tear, the
+  source brought back to the front on a cancel or a snap back after a raise, and the e2e's bookkeeping raise.
 
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 

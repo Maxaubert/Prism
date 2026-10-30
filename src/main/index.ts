@@ -70,7 +70,7 @@ import { withStackPolicy } from 'prism-term-core/main/diagIpc'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
 import { diagWindowEvent } from './diagWindow'
 import { mainCrumb } from './diagCrumb'
-import { initSweepOverlay, loadSweepAddon, sweepDirs, type SweepOverlay } from './sweepOverlay'
+import { initSweepOverlay, loadSweepAddon, sweepDirs, type PrismSweep, type SweepLoad, type SweepOverlay } from './sweepOverlay'
 import { documentImages } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { probeMedia, type MediaInfo } from './ffmpeg'
@@ -770,12 +770,16 @@ function ensureLivePage(): boolean {
  * every window after that gets its target the same way.
  */
 let sweepOverlay: SweepOverlay | null = null
+/** The addon as the sweep loaded it. The tab tear-off asks it the system's
+ *  window order too (`nativeWindows`), but never loads it itself: not on a
+ *  drag's path, and not when the sweep is off by flag. */
+let sweepLoaded: SweepLoad | null = null
 function sweepOverlayFor(win: BrowserWindow): void {
   if (win.isDestroyed()) return
   if (!sweepOverlay) {
     sweepOverlay = initSweepOverlay({
       // sync-ok: once, after the first window has painted; loading a native addon is synchronous anyway
-      load: () => loadSweepAddon(sweepDirs(app.isPackaged, process.resourcesPath, app.getAppPath()), existsSync),
+      load: () => (sweepLoaded = loadSweepAddon(sweepDirs(app.isPackaged, process.resourcesPath, app.getAppPath()), existsSync)),
       e2e: E2E,
       argv: process.argv,
       log: (fields) => mainCrumb('sweep-overlay', fields),
@@ -1316,6 +1320,36 @@ function dropSpare(): void {
   spareTimer = null
   for (const r of windows.all()) if (r.spare && !r.win.isDestroyed()) r.win.destroy()
 }
+/**
+ * THE SYSTEM'S WINDOWS, FOR THE TEAR (step 4, review 2026-10-30): which of
+ * Prism's windows is really in front, and whether another app's window covers
+ * a point, from the native addon (native/sweep/zorder.h). Without it (not
+ * loaded yet, an older build, --e2e) the tear falls back to Prism's own order
+ * of focus and raises, and cannot see other apps.
+ */
+const nativeWindows = (): PrismSweep | null =>
+  !E2E && sweepLoaded && 'addon' in sweepLoaded ? sweepLoaded.addon : null
+const hwnds = new WeakMap<BrowserWindow, Buffer>()
+function hwndOf(win: BrowserWindow): Buffer {
+  let h = hwnds.get(win)
+  if (!h) hwnds.set(win, (h = win.getNativeWindowHandle()))
+  return h
+}
+/** `wins` front to back as the system stacks them (those not on screen, such
+ *  as one on another virtual desktop, left out), or null when unknown. */
+function systemOrder(wins: BrowserWindow[]): BrowserWindow[] | null {
+  const a = nativeWindows()
+  if (!a?.zOrder) return null
+  try {
+    const order = a.zOrder(wins.map(hwndOf))
+    if (!Array.isArray(order)) return null
+    return order.filter((i) => Number.isInteger(i) && i >= 0 && i < wins.length).map((i) => wins[i])
+  } catch {
+    return null
+  }
+}
+/** A window the tear made clear by the addon, and whether that made it layered. */
+const fadedByAddon = new WeakMap<BrowserWindow, boolean>()
 const tear = createTearOff<BrowserWindow>({
   e2e: E2E,
   cursor: () => screen.getCursorScreenPoint(),
@@ -1372,18 +1406,35 @@ const tear = createTearOff<BrowserWindow>({
   tell: (source, event) => void windows.sendTo(source, PUSH.tearEvent, event),
   spareSoon: () => spareSoon(),
   // STEP 4: ANY WINDOW'S STRIP TAKES THE TAB (owner, 2026-10-29). The
-  // windows that can, front to back: shown, restored, not the spare; the one
-  // focused most recently in front (main cannot read the system's z-order),
-  // and among windows never focused (the e2e's) the newest, as a new window
-  // opens on top.
-  windowsFront: () =>
-    windows
+  // windows that can, front to back: shown, restored, not minimized, not the
+  // spare; as the system stacks them (the addon), else the one focused or
+  // raised most recently in front, and among windows never focused (the
+  // e2e's) the newest, as a new window opens on top.
+  windowsFront: () => {
+    const wins = windows
       .all()
       .filter((r) => !r.spare && r.restored && !r.win.isDestroyed() && r.win.isVisible() && !r.win.isMinimized())
       .reverse()
-      .sort((a, b) => b.focusedAt - a.focusedAt)
-      .map((r) => r.win),
-  stripOf: (win) => windows.recordOf(win)?.strip ?? null,
+      .sort((a, b) => b.frontAt - a.frontAt)
+      .map((r) => r.win)
+    return systemOrder(wins) ?? wins
+  },
+  covered: (p, win) => {
+    const a = nativeWindows()
+    if (!a?.coveredAt || win.isDestroyed()) return false
+    try {
+      const q = screen.dipToScreenPoint(p)
+      return a.coveredAt(q.x, q.y, hwndOf(win)) === true
+    } catch {
+      return false
+    }
+  },
+  // Only a page that has restored its tabs takes one (review 2026-10-30): a
+  // page reloading mid-drag reports its strip as its first tab mounts.
+  stripOf: (win) => {
+    const r = windows.recordOf(win)
+    return r?.restored && !win.isDestroyed() && win.isVisible() && !win.isMinimized() ? r.strip : null
+  },
   name: (win) => windows.recordOf(win)?.key ?? '',
   hover: (win, hover) => void windows.sendTo(win, PUSH.tabHover, hover),
   // The drop into another window's strip: that window has the tab from now on
@@ -1409,13 +1460,36 @@ const tear = createTearOff<BrowserWindow>({
   raise: (win) => {
     if (!win.isDestroyed()) win.moveTop()
   },
+  raised: (win) => windows.raised(win),
   hide: (win) => {
     if (!win.isDestroyed()) win.hide()
   },
   // The only tab's window holds the pointer's capture: it goes clear rather
   // than hidden, and never under --e2e (its windows are already clear, parked).
+  // By the addon when it can (review 2026-10-30): back, it is not layered any
+  // more, where Electron's setOpacity leaves it layered for good and a layered
+  // window loses its Mica or acrylic.
   fade: (win, out) => {
-    if (!E2E && !win.isDestroyed()) win.setOpacity(out ? 0 : 1)
+    if (E2E || win.isDestroyed()) return
+    const a = nativeWindows()
+    if (a?.setAlpha && a.unlayer) {
+      try {
+        if (out) {
+          const added = a.setAlpha(hwndOf(win), 0)
+          fadedByAddon.set(win, added || fadedByAddon.get(win) === true)
+          return
+        }
+        if (fadedByAddon.has(win)) {
+          a.setAlpha(hwndOf(win), 255)
+          if (fadedByAddon.get(win)) a.unlayer(hwndOf(win))
+          fadedByAddon.delete(win)
+          return
+        }
+      } catch {
+        // The addon failed: Electron's way below.
+      }
+    }
+    win.setOpacity(out ? 0 : 1)
   },
   // Its tab went into another window: nothing is left in it, and its text went
   // with the tab, so it closes asking nothing. After this turn, so the page's
