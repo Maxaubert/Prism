@@ -44,14 +44,14 @@ import { visitedDirectories } from '../lib/visitedDirectories'
  */
 
 export interface StripTear {
-  /** The carried tab left its strip. Answers 'float' (main carries it from
-   *  here) or null (it cannot leave: Settings). `refused` is called if main
+  /** The carried tab left its strip. Answers true (main carries it from
+   *  here) or false (it cannot leave: Settings). `refused` is called if main
    *  turns the tear down after all. */
   out(
     id: string,
     at: { grab: Point; origin: Point; strip: Rect; point: Point; size: Size; label: string; look?: TabLook },
     refused: () => void
-  ): 'float' | null
+  ): boolean
   /** The gesture ended after a tear: answers whether a drop committed. */
   end(id: string, how: TearEnd): Promise<boolean>
 }
@@ -114,7 +114,7 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
     (id, at, refused) => {
       const s = tabStateNow.current
       const tab = s.tabs.find((t) => t.id === id)
-      if (!tab || tab.kind === 'settings') return null
+      if (!tab || tab.kind === 'settings') return false
       const only = s.tabs.length === 1
       // What the tear sends is light (no listing): the drop sends the tab as
       // it is then, and that is what goes.
@@ -123,7 +123,7 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
       }, refused)
       // NOTHING ELSE CHANGES HERE (owner, 2026-10-30): the tab stays in front
       // if it was, until a drop commits.
-      return 'float'
+      return true
     },
     [tabStateNow, pack]
   )

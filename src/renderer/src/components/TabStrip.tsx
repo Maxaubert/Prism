@@ -304,7 +304,7 @@ export function TabStrip({
   })
   // THE STRIP GOING AWAY MID-DRAG ENDS IT (review 2026-10-29): F11 unmounts
   // the strip (fullscreen has none), and with it every listener that could
-  // end the carry. Main moves its window until it hears, so it hears now.
+  // end the carry. Main carries the ghost until it hears, so it hears now.
   useEffect(() => () => cancelRef.current(), [])
   /** When a right-click cancelled a carry: the context menu its release
    *  brings (Windows opens it on the button's release) is swallowed. */
@@ -321,7 +321,7 @@ export function TabStrip({
   }, [])
   /** Fully out of the strip: main takes it from here (spec 1.3, 1.7). */
   const tearOut = (s: Gesture): void => {
-    const how = tearRef.current?.out(
+    const took = tearRef.current?.out(
       s.id,
       // The snap-back target is the strip held to the tear zone: a tab torn
       // sideways past the + must not be over it at once (review 2026-10-29).
@@ -341,7 +341,7 @@ export function TabStrip({
         if (g.current === s) cancelRef.current()
       }
     )
-    if (!how) {
+    if (!took) {
       // It cannot leave (Settings): it stays a slide in its row.
       s.tearable = false
       return drawInStrip(s)
@@ -633,13 +633,25 @@ export function TabStrip({
       e.preventDefault()
       cancelRef.current()
     }
+    // Dropped, while main settles the drop (a fresh window can take seconds):
+    // the pointer's capture went with the release, so no click, wheel or drag
+    // may reach the page either; the drop already packed the tab as it was
+    // (review 2026-10-30: a folder opened meanwhile was lost with the tab).
+    const pointer = (e: Event): void => {
+      if (g.current?.phase !== 'ending') return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+    }
+    const POINTER = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'auxclick', 'wheel', 'dragstart'] as const
     window.addEventListener('keydown', key, true)
     window.addEventListener('blur', blur)
     window.addEventListener('contextmenu', menu, true)
+    for (const t of POINTER) window.addEventListener(t, pointer, { capture: true, passive: false })
     return () => {
       window.removeEventListener('keydown', key, true)
       window.removeEventListener('blur', blur)
       window.removeEventListener('contextmenu', menu, true)
+      for (const t of POINTER) window.removeEventListener(t, pointer, { capture: true })
     }
   }, [carrying])
   /** The gap: torn off, the tabs after it close up; carried in the row,
