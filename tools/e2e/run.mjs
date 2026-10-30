@@ -4744,6 +4744,52 @@ async function tabAttachScenario(fixtures) {
     ok((await selected(win)) === front1, 'and the tab in front is the one that was')
     ok((await e2eWindows(app)).length === 2, 'no window was made')
 
+    // A RIGHT-CLICK OVER WINDOW 2 cancels as well (review 2026-10-30).
+    await spareReady()
+    await tearOff(win, 'att-b')
+    ok(await until(async () => (await tearState()).shown === true, 5000), 'tab B tears off for a right-click over window 2')
+    await win.mouse.move(over.x, over.y, { steps: 10 })
+    ok(await until(async () => (await tearState()).over === two.key, 3000), 'over window 2 it attaches')
+    ok(await until(async () => (await incoming(win2)) === 1, 3000), 'window 2 draws it')
+    const rc0 = (await tearState()).cancels
+    await win.mouse.down({ button: 'right' })
+    ok(await until(async () => (await tearState()).cancels === rc0 + 1, 3000), 'a right-click there cancels it')
+    await win.mouse.up({ button: 'right' })
+    await win.mouse.up()
+    await sleep(400)
+    ok(await until(async () => (await incoming(win2)) === 0, 3000), "window 2's gap closes")
+    ok(JSON.stringify(await ids(win2)) === JSON.stringify(w2now), `window 2 is as it was (${await ids(win2)})`)
+    ok(JSON.stringify(await ids(win)) === JSON.stringify(order1), `window 1 has the tab back (${await ids(win)})`)
+
+    // WINDOW 2 HIDDEN UNDER THE DRAG (review 2026-10-30): the tab tears out of
+    // its strip, a hidden window takes nothing, and shown again it takes it.
+    await spareReady()
+    await tearOff(win, 'att-b')
+    ok(await until(async () => (await tearState()).shown === true, 5000), 'tab B tears off again')
+    await win.mouse.move(over.x, over.y, { steps: 10 })
+    ok(await until(async () => (await tearState()).over === two.key, 3000), 'over window 2 it attaches')
+    const h0 = await tearState()
+    await app.evaluate(({ BrowserWindow }, i) => BrowserWindow.fromId(i)?.hide(), two.id)
+    ok(
+      await until(async () => {
+        const s = await tearState()
+        return s.over === null && s.leaves === h0.leaves + 1 && s.shown === true
+      }, 3000),
+      'window 2 hidden: the tab tears out of its strip, the floating window back'
+    )
+    await win.mouse.move(over.x + 2, over.y, { steps: 2 })
+    await sleep(500)
+    ok((await tearState()).enters === h0.enters, 'a hidden window takes nothing')
+    await app.evaluate(({ BrowserWindow }, i) => BrowserWindow.fromId(i)?.showInactive(), two.id)
+    ok(await until(async () => (await tearState()).over === two.key, 3000), 'shown again, it takes the tab')
+    const hc0 = (await tearState()).cancels
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await tearState()).cancels === hc0 + 1, 3000), 'Escape cancels it')
+    await win.mouse.up()
+    await sleep(400)
+    ok(await until(async () => (await incoming(win2)) === 0, 3000), "window 2's gap closes")
+    ok(JSON.stringify(await ids(win)) === JSON.stringify(order1), `window 1 has the tab back (${await ids(win)})`)
+
     // THE ONLY TAB: a third window's one tab over window 2's strip; Escape
     // first (everything stays), then a drop (it merges, the window closes).
     const win3 = await openSecondWindow(app)
@@ -4825,6 +4871,41 @@ async function tabAttachScenario(fixtures) {
     await win.mouse.up()
     await sleep(400)
     ok((await ids(win)).includes('att-b'), 'tab B is in window 1')
+
+    // WINDOW 2 RELOADS UNDER THE HOVER (review 2026-10-30): the tab tears out
+    // of its strip, and the reloaded page takes it only once it has restored
+    // its tabs. Window 2 focused last, so it is in front of window 1 again.
+    await app.evaluate((_e, i) => globalThis.__e2eFocused(i), two.id)
+    const w2kept = await ids(win2)
+    await spareReady()
+    const pulled3 = await tearOff(win, 'att-b')
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'tab B tears off for the reload')
+    await win.mouse.move(pulled3.x, stripY, { steps: 8 })
+    ok(await until(async () => (await tearState()).over === two.key, 3000), 'window 2, focused last, takes it')
+    const r0 = await tearState()
+    await app.evaluate(({ BrowserWindow }, i) => BrowserWindow.fromId(i)?.webContents.reload(), two.id)
+    ok(
+      await until(async () => {
+        const s = await tearState()
+        return s.leaves === r0.leaves + 1 && s.shown === true
+      }, 3000),
+      'window 2 reloading: the tab tears out of its strip'
+    )
+    ok(
+      await until(async () => (await tearState()).over === two.key, 15000),
+      'restored, it takes the tab again'
+    )
+    ok(
+      await until(async () => JSON.stringify(await ids(win2)) === JSON.stringify(w2kept), 5000),
+      `with every tab it had back first (${await ids(win2)})`
+    )
+    const rl0 = (await tearState()).cancels
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await tearState()).cancels === rl0 + 1, 3000), 'Escape cancels it')
+    await win.mouse.up()
+    await sleep(400)
+    ok((await ids(win)).includes('att-b'), 'tab B is in window 1 again')
+    ok(JSON.stringify(await ids(win2)) === JSON.stringify(w2kept), 'window 2 is as it was')
 
     // Nothing asks on the way out.
     for (const p of app.windows()) await p.evaluate(() => window.prism.setDirty(false)).catch(() => {})

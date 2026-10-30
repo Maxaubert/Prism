@@ -46,6 +46,17 @@ export interface PrismSweep {
   end(hwnd: Buffer): void
   detach(hwnd: Buffer): void
   shutdown(timeoutMs: number): boolean
+  /** The tab tear-off's window order (native/sweep/zorder.h): the given
+   *  windows on screen, front to back, as indexes. Optional: an addon built
+   *  before it has none. */
+  zOrder?(hwnds: Buffer[]): number[]
+  /** Another app's window above `hwnd` takes the pointer at that physical
+   *  screen point. */
+  coveredAt?(x: number, y: number, hwnd: Buffer): boolean
+  /** The only tab's window clear (0) or back (255); true when this call made
+   *  it layered, so `unlayer` takes the style off once it is back. */
+  setAlpha?(hwnd: Buffer, alpha: number): boolean
+  unlayer?(hwnd: Buffer): void
   stats(): {
     frames: number
     commits: number

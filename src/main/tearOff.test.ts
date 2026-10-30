@@ -65,6 +65,8 @@ interface RigOptions {
   otherStrip?: StripReport | null
   /** Front to back, by name (default: the source, then the other). */
   front?: Array<'source' | 'other'>
+  /** Another app's window, in front of every Prism window, over this rect. */
+  foreign?: Bounds
 }
 function rig(options: RigOptions = {}) {
   let t = 0
@@ -83,6 +85,11 @@ function rig(options: RigOptions = {}) {
   const moving = new Set<string>()
   let listening = options.listening ?? true
   const byName = { source, other }
+  /** The system's order: asked every tick, a raise moves a window up. */
+  let front: Array<'source' | 'other'> = [...(options.front ?? ['source', 'other'])]
+  let foreign: Bounds | null = options.foreign ?? null
+  const within = (p: Point, b: Bounds): boolean =>
+    p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height
   const deps: TearDeps<FakeWin> = {
     e2e: !!options.e2e,
     cursor: () => cursor,
@@ -96,8 +103,12 @@ function rig(options: RigOptions = {}) {
     release: (w, id, s) => log.push(`release ${w.name} ${id} to ${s?.name ?? 'nobody'}`),
     tell: (_s, e) => told.push(e),
     spareSoon: () => log.push('spare soon'),
-    windowsFront: () =>
-      options.other ? (options.front ?? ['source', 'other']).map((n) => byName[n]).filter((w) => !w.gone) : [source],
+    windowsFront: () => (options.other ? front.map((n) => byName[n]).filter((w) => !w.gone) : [source]),
+    covered: (p) => !!foreign && within(p, foreign),
+    raised: (w) => {
+      log.push(`raised ${w.name}`)
+      if (w === source || w === other) front = [w.name as 'source' | 'other', ...front.filter((n) => n !== w.name)]
+    },
     stripOf: (w) => (w === other ? otherStrip : null),
     name: (w) => w.name,
     hover: (w, h) => void hovers.push({ win: w.name, hover: h }),
@@ -141,6 +152,10 @@ function rig(options: RigOptions = {}) {
     other,
     hovers,
     setOtherStrip: (r: StripReport | null) => (otherStrip = r),
+    /** The system's order changes (a window focused or closed elsewhere). */
+    setFront: (f: Array<'source' | 'other'>) => (front = [...f]),
+    front: () => [...front],
+    setForeign: (b: Bounds | null) => (foreign = b),
     log,
     told,
     moving,
@@ -511,7 +526,7 @@ describe('attaching into another window (step 4)', () => {
     r.move({ x: 1500, y: 700 }, 360)
     expect(r.tear.state()).toMatchObject({ raises: 1, front: 'other' })
     // Without the focus, and the floating window stays above it.
-    expect(r.log.slice(-2)).toEqual(['raise other', 'raise spare'])
+    expect(r.log.slice(-3)).toEqual(['raise other', 'raised other', 'raise spare'])
     r.move({ x: 800, y: 516 }, 128)
     expect(r.tear.state().over).toBe('other')
   })
@@ -629,6 +644,124 @@ describe('step 4 under --e2e', () => {
     r.move({ x: 0, y: 0 }, 128)
     expect(r.tear.state().over).toBe('other')
     expect(r.hovers.at(-1)?.hover?.point).toEqual({ x: 92, y: 16 })
+    expect(r.log).not.toContain('raise other')
+  })
+})
+
+// REVIEW 2026-10-30: the order is the system's, asked every tick; another
+// app's window hides what is under it; a raise outlives the tear.
+describe('what is really in front (step 4 review)', () => {
+  const overStrip = { x: 1500, y: 216 }
+  it('a strip under another app’s window takes nothing and raises nothing', () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 }, foreign: { x: 1300, y: 0, width: 620, height: 1040 } })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move(overStrip, 1000)
+    expect(r.tear.state()).toMatchObject({ over: null, enters: 0, raises: 0, shown: true })
+    // That app gone, the same place takes it.
+    r.setForeign(null)
+    r.move(overStrip, 128)
+    expect(r.tear.state().over).toBe('other')
+  })
+
+  it('another app’s window coming over the strip it is in: it tears out', () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move(overStrip, 128)
+    expect(r.tear.state().over).toBe('other')
+    r.setForeign({ x: 1450, y: 0, width: 200, height: 1040 })
+    r.move(overStrip, 8)
+    expect(r.tear.state()).toMatchObject({ over: null, leaves: 1, shown: true })
+    expect(r.hovers.at(-1)).toEqual({ win: 'other', hover: null })
+  })
+
+  it('in a strip, onto a window in front of it: it tears out there, and that window is not raised behind it', () => {
+    // The other window behind the source: its strip shows right of x 1300.
+    const r = rig({
+      other: { x: 700, y: 500, width: 1000, height: 500 },
+      otherStrip: { strip: { left: 0, top: 0, right: 984, bottom: 32 }, plusRight: 800 },
+      front: ['source', 'other']
+    })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move({ x: 1500, y: 516 }, 128)
+    expect(r.tear.state().over).toBe('other')
+    // Still in its zone, but over the source's body, which hides it there.
+    r.move({ x: 1250, y: 516 }, 8)
+    expect(r.tear.state()).toMatchObject({ over: null, leaves: 1 })
+    r.move({ x: 1250, y: 516 }, 1000)
+    expect(r.tear.state()).toMatchObject({ over: null, raises: 0, front: 'source' })
+  })
+
+  it('follows the system’s order as it changes under the drag', () => {
+    const r = rig({ other: { x: 700, y: 500, width: 1000, height: 500 }, front: ['source', 'other'] })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move({ x: 800, y: 516 }, 400)
+    expect(r.tear.state().over).toBeNull()
+    r.setFront(['other', 'source'])
+    r.move({ x: 800, y: 516 }, 128)
+    expect(r.tear.state()).toMatchObject({ over: 'other', front: 'other' })
+  })
+
+  it('a window that stops taking tabs under the drag (reloading, minimized) lets it go', () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move(overStrip, 128)
+    expect(r.tear.state().over).toBe('other')
+    r.setFront(['source'])
+    r.move(overStrip, 8)
+    expect(r.tear.state()).toMatchObject({ over: null, leaves: 1 })
+    r.move(overStrip, 400)
+    expect(r.tear.state()).toMatchObject({ over: null, enters: 1 })
+  })
+
+  it('a raise outlives the tear, and a cancel after one brings the focused source to the front again', async () => {
+    const r = rig({ other: { x: 700, y: 500, width: 1000, height: 500 }, front: ['source', 'other'] })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move({ x: 1500, y: 700 }, 760)
+    expect(r.tear.state()).toMatchObject({ raises: 1, front: 'other' })
+    expect(r.front()).toEqual(['other', 'source'])
+    expect(await r.tear.end(r.source, 'cancel')).toEqual({ committed: false })
+    expect(r.log.slice(-2)).toEqual(['raise source', 'raised source'])
+    expect(r.front()).toEqual(['source', 'other'])
+  })
+
+  it('a tab that goes back to its source after a raise brings the source to the front', () => {
+    const r = rig({ other: { x: 700, y: 500, width: 1000, height: 500 }, front: ['source', 'other'] })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move({ x: 1500, y: 700 }, 760)
+    expect(r.front()).toEqual(['other', 'source'])
+    // The source's strip (y 140..172) where the other window does not cover it.
+    r.move({ x: 300, y: 150 }, 128)
+    expect(r.told.at(-1)).toEqual({ kind: 'attached', tabId: 't2' })
+    expect(r.front()).toEqual(['source', 'other'])
+  })
+
+  it('a drop after a raise leaves the order as it is', async () => {
+    const r = rig({ other: { x: 700, y: 500, width: 1000, height: 500 }, front: ['source', 'other'] })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move({ x: 1500, y: 700 }, 760)
+    expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: true })
+    expect(r.log).not.toContain('raised source')
+  })
+
+  it('under --e2e a raise is only bookkeeping', () => {
+    const r = rig({ e2e: true, other: { x: -4000, y: -4000, width: 1000, height: 500 }, front: ['source', 'other'] })
+    r.source.bounds = { x: -4000, y: -4000, width: 1200, height: 800 }
+    r.tear.e2eAt(r.other, { x: 600, y: 400 })
+    r.tear.start(r.source, r.req(false, { x: 300, y: 200 }))
+    r.tear.adopted(r.spare, null)
+    // The source at (0, 0) frame 8: the page's (1492, 600) is the screen's (1500, 600).
+    r.tear.point(r.source, { x: 1492, y: 600 })
+    r.move({ x: 0, y: 0 }, 760)
+    expect(r.tear.state()).toMatchObject({ raises: 1, front: 'other' })
+    expect(r.log).toContain('raised other')
     expect(r.log).not.toContain('raise other')
   })
 })

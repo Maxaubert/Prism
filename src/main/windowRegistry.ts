@@ -76,6 +76,11 @@ export interface WindowRecord<W extends PageWindow = PageWindow> {
   restored: boolean
   /** Order of focus (0: never focused). */
   focusedAt: number
+  /** Order of coming to the front: focused, or raised under a carried tab
+   *  (tab tear-off step 4, review 2026-10-30), on the same counter as
+   *  `focusedAt` (0: neither). The tear's front-to-back order when the system's
+   *  cannot be read. */
+  frontAt: number
   /** Being replaced by a crash rebuild: its close releases nothing. */
   rebuilding: boolean
   /**
@@ -121,6 +126,8 @@ export interface WindowRegistry<W extends PageWindow = PageWindow> {
   windowOf(sender: { id: number } | null | undefined): W | null
   isPrismPage(sender: { id: number } | null | undefined): boolean
   focused(win: W): void
+  /** Brought to the front without the focus (a carried tab's raise). */
+  raised(win: W): void
   /** Where files from outside go: the window focused last (else the oldest). */
   target(): WindowRecord<W> | undefined
   /** The oldest live window (the e2e's "main" window). */
@@ -209,6 +216,7 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
         restoreStarted: false,
         restored: false,
         focusedAt: 0,
+        frontAt: 0,
         rebuilding: false,
         spare: !!options.spare,
         strip: null
@@ -239,7 +247,11 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
     isPrismPage: (sender) => !!registry.windowOf(sender),
     focused(win) {
       const r = registry.recordOf(win)
-      if (r) r.focusedAt = ++focusSeq
+      if (r) r.frontAt = r.focusedAt = ++focusSeq
+    },
+    raised(win) {
+      const r = registry.recordOf(win)
+      if (r) r.frontAt = ++focusSeq
     },
     target() {
       let best: WindowRecord<W> | undefined
@@ -283,6 +295,7 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
       a.rebuilding = true
       for (const [tab, owner] of owners) if (owner === a.id) owners.set(tab, b.id)
       b.focusedAt = a.focusedAt
+      b.frontAt = a.frontAt
     },
     anyDirty: () => registry.all().some((r) => r.dirty),
     markMoving: (tabId) => void moving.add(tabId),
