@@ -155,6 +155,11 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
   look with the tear (`look` on `tabs:tear`; one that fails the check is dropped, never the tear). Over another
   window's strip it hides (that strip draws the tab), and comes back when the tab tears out again; a snap back,
   a drop and every cancel hide it at once. The ONLY tab still moves its whole window (no ghost).
+  Review 2026-10-30: at a drop the ghost stays until the window just shown has drawn a frame (at most
+  250 ms, `TEAR.drawnMs`), so no frame shows neither; a late drop keeps it at the drop point until the
+  window shows or the tab goes back. The ghost itself shows clear and turns opaque only after its own first
+  frame (never the previous tab's face), a window jumping to a display of another scale is placed twice
+  (`setBoundsSure`), and the tab size a page sends is held to 400 x 64 DIP (`tabSize`).
 - **How it is built**: the strip keeps the pointer (its capture holds outside the window) and decides the tear;
   then ONE call (`tabs:tear`) and main owns the move (`src/main/tearOff.ts`): it shows the ghost and moves it
   every 8 ms from `screen.getCursorScreenPoint` (`ghostBounds`, in DIP, the size passed each time for
@@ -172,7 +177,8 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
   the source until the ghost is on screen. A drop before its page
   has drawn the tab commits NOTHING yet (review 2026-10-29: the tab's unsaved text was lost and the window
   could stay hidden for good): the source holds the tab, and once the page has it the window commits, shows
-  and takes the focus; a page that never comes (10 s, `TEAR.lateDropMs`) or dies gives the tab back.
+  and takes the focus; a page that never comes (10 s, `TEAR.lateDropMs`) or dies gives the tab back. The
+  ghost waits at the drop point all that time.
 - **What a moved tab keeps** (`lib/tabs/tabCarry.ts`, `tabCarry.test.ts`): it is the SAME tab, by the same id,
   rebuilt in the new page in the restore shape: its folder, history, selection, scroll, preview, the open file,
   the film's place and whether it played, its volume, mute and speed, a document's place, the archive

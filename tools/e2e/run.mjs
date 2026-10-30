@@ -4310,12 +4310,12 @@ async function tabTearScenario(fixtures) {
   const spareReady = async () => ok(await until(async () => (await tearState()).spare?.ready === true, 15000), 'the spare window is warm')
   /** The ghost's own window: shown (parked and clear), and its would-be place. */
   const ghostUp = async () => (await tearState()).ghostWin?.visible === true
-  const ghostGone = async (what) =>
+  const ghostGone = async (what, ms = 3000) =>
     ok(
       await until(async () => {
         const t = await tearState()
         return t.ghostWin?.visible === false && t.ghost === null
-      }, 3000),
+      }, ms),
       `${what}: the ghost is hidden (${JSON.stringify((await tearState()).ghostWin)})`
     )
   try {
@@ -4558,8 +4558,12 @@ async function tabTearScenario(fixtures) {
     ok(await until(async () => (await tearState()).phase === 'float', 3000), 'the next tab tears off with no spare ready')
     ok(await until(ghostUp, 3000), 'the ghost follows it all the same (it does not wait for the window)')
     await win.mouse.up()
-    const waited = (await tearState()).waiting
-    await ghostGone('the late drop')
+    const atDrop = await tearState()
+    const waited = atDrop.waiting
+    // While the drop waits, the ghost stays where it was dropped, holding the
+    // tab (review 2026-10-30): read in one go, so never a race.
+    ok(!atDrop.waiting || atDrop.ghostWin?.visible === true, `the ghost holds the tab while the drop waits (${JSON.stringify(atDrop.ghostWin)})`)
+    await ghostGone('the late drop', 15000)
     console.log(`  (the drop ${waited ? 'waited for the fresh page' : 'found the page ready'})`)
     // A window OTHER than the source: until the drop commits, the source
     // still lists the tab, and is not the window this is about.

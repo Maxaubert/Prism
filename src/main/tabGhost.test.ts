@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { GHOST_HTML, GHOST_PAGE, createTabGhost, paintScript, type GhostWin } from './tabGhost'
-import type { Bounds } from '@shared/tabTear'
+import { GHOST_HTML, GHOST_PAGE, ONE_FRAME, createTabGhost, paintScript, type GhostWin } from './tabGhost'
+import { TEAR, type Bounds } from '@shared/tabTear'
 
 // THE GHOST'S WINDOW (owner, 2026-10-30: "let it just be the tab you're
 // carrying, that's how file explorer does it"): its page, what it is handed,
@@ -10,25 +10,36 @@ interface FakeGhost extends GhostWin {
   visible: boolean
   moves: Bounds[]
   scripts: string[]
-  /** Settle the page's pending scripts (true: it painted). */
+  /** Settle the page's scripts pending now (true: it painted, or drew). */
   run(ok?: boolean): Promise<void>
   log: string[]
   gone: boolean
+  /** What getBounds answers the next time (a jump across scales). */
+  skew: Bounds | null
 }
 function fakeGhost(): FakeGhost {
   const waiting: Array<(v: unknown) => void> = []
+  let bounds: Bounds = { x: 0, y: 0, width: 154, height: 72 }
   const g: FakeGhost = {
     visible: false,
     moves: [],
     scripts: [],
     log: [],
     gone: false,
+    skew: null,
     isDestroyed: () => g.gone,
     isVisible: () => g.visible,
+    getBounds: () => {
+      const b = g.skew ?? bounds
+      g.skew = null
+      return { ...b }
+    },
     setBounds: (b) => {
+      bounds = { ...b }
       g.moves.push({ ...b })
       g.log.push('bounds')
     },
+    setOpacity: (o) => g.log.push(`opacity ${o}`),
     showInactive: () => {
       g.visible = true
       g.log.push('show')
@@ -60,6 +71,8 @@ function rig(e2e = false) {
   const made: FakeGhost[] = []
   let ready: (() => void) | null = null
   let gone: (() => void) | null = null
+  /** One-shot timers, run by hand. */
+  const timers: Array<{ fn: () => void; ms: number } | null> = []
   const ghost = createTabGhost<FakeGhost>({
     e2e,
     base: () => '#111318',
@@ -69,9 +82,21 @@ function rig(e2e = false) {
       const g = fakeGhost()
       made.push(g)
       return g
+    },
+    after: (fn, ms) => timers.push({ fn, ms }) - 1,
+    cancel: (h) => {
+      timers[h as number] = null
     }
   })
-  return { ghost, made, loaded: () => ready?.(), closed: () => gone?.() }
+  return {
+    ghost,
+    made,
+    loaded: () => ready?.(),
+    closed: () => gone?.(),
+    /** Every timer due runs. */
+    elapse: () => timers.splice(0).forEach((t) => t?.fn()),
+    timers: () => timers.filter(Boolean)
+  }
 }
 
 const face = { label: 'Photos', size: { width: 114, height: 32 } }
@@ -102,10 +127,17 @@ describe('the ghost page', () => {
     expect(v.ground).not.toContain('url')
     expect(v.base).toBe('#111318')
   })
+
+  it('holds a huge tab from a page to a tab size (review 2026-10-30)', () => {
+    const js = paintScript({ ...face, size: { width: 1e5, height: 1e5 } }, '#111318')
+    const v = JSON.parse(js.slice(js.lastIndexOf('})(') + 3, -1))
+    expect(v.w).toBe(TEAR.tabMaxWidth)
+    expect(v.h).toBe(TEAR.tabMaxHeight)
+  })
 })
 
 describe('the ghost window', () => {
-  it('is made warm, and shows only once its page has the face, placed first', async () => {
+  it('is made warm, shows only once its page has the face, placed first, and clear until it has drawn', async () => {
     const r = rig()
     r.ghost.warm()
     expect(r.made).toHaveLength(1)
@@ -117,10 +149,62 @@ describe('the ghost window', () => {
     expect(r.made[0].scripts).toHaveLength(1)
     expect(r.made[0].visible).toBe(false)
     await r.made[0].run()
-    expect(r.made[0].log).toEqual(['bounds', 'show', 'top'])
+    // Placed, shown CLEAR, in front; and waiting for a frame on screen.
+    expect(r.made[0].log).toEqual(['bounds', 'opacity 0', 'show', 'top'])
+    expect(r.made[0].scripts.at(-1)).toBe(ONE_FRAME)
+    expect(shown).toBe(0)
+    await r.made[0].run()
+    expect(r.made[0].log).toEqual(['bounds', 'opacity 0', 'show', 'top', 'opacity 1'])
     expect(r.made[0].moves).toEqual([at])
     expect(shown).toBe(1)
+    expect(r.timers()).toHaveLength(0)
     expect(r.ghost.state()).toMatchObject({ made: true, ready: true, visible: true, bounds: at, label: 'Photos' })
+  })
+
+  it('a new face never shows the last one: painted hidden, opaque only after a frame of its own (review 2026-10-30)', async () => {
+    const r = rig()
+    r.ghost.warm()
+    r.loaded()
+    r.ghost.show(face, at, () => {})
+    await r.made[0].run()
+    await r.made[0].run()
+    r.ghost.hide()
+    r.made[0].log.length = 0
+    let music = false
+    r.ghost.show({ ...face, label: 'Music' }, at, () => (music = true))
+    expect(r.made[0].visible).toBe(false)
+    await r.made[0].run()
+    expect(r.made[0].log).toEqual(['bounds', 'opacity 0', 'show', 'top'])
+    expect(music).toBe(false)
+    await r.made[0].run()
+    expect(r.made[0].log.at(-1)).toBe('opacity 1')
+    expect(music).toBe(true)
+  })
+
+  it('a page that never says it drew still lights up, after a while', async () => {
+    const r = rig()
+    r.ghost.warm()
+    r.loaded()
+    let shown = false
+    r.ghost.show(face, at, () => (shown = true))
+    await r.made[0].run()
+    expect(r.timers()).toEqual([expect.objectContaining({ ms: TEAR.drawnMs })])
+    r.elapse()
+    expect(shown).toBe(true)
+    expect(r.made[0].log.at(-1)).toBe('opacity 1')
+    // The frame that comes late changes nothing.
+    await r.made[0].run()
+    expect(r.made[0].log.filter((x) => x === 'opacity 1')).toHaveLength(1)
+  })
+
+  it('placed again when a jump to a display of another scale got it wrong (review 2026-10-30)', async () => {
+    const r = rig()
+    r.ghost.warm()
+    r.loaded()
+    r.ghost.show(face, at, () => {})
+    r.made[0].skew = { x: 178, y: 133, width: 68, height: 32 }
+    await r.made[0].run()
+    expect(r.made[0].moves).toEqual([at, at])
   })
 
   it('follows the moves while shown, the size passed every time', async () => {
@@ -135,26 +219,51 @@ describe('the ghost window', () => {
     expect(r.made[0].moves.at(-1)).toEqual({ x: 410, y: 300, width: 154, height: 72 })
   })
 
-  it('the same face again shows at once (no repaint); a hide before the paint shows nothing', async () => {
+  it('the same face again needs no repaint; a hide before the paint shows nothing', async () => {
     const r = rig()
     r.ghost.warm()
     r.loaded()
     r.ghost.show(face, at, () => {})
     await r.made[0].run()
+    await r.made[0].run()
     r.ghost.hide()
     expect(r.made[0].visible).toBe(false)
     let again = false
     r.ghost.show(face, at, () => (again = true))
+    // Shown again with no paint, lit after a frame.
+    expect(r.made[0].visible).toBe(true)
+    await r.made[0].run()
     expect(again).toBe(true)
-    expect(r.made[0].scripts).toHaveLength(1)
+    expect(r.made[0].scripts.filter((s) => s !== ONE_FRAME)).toHaveLength(1)
     r.ghost.hide()
     let other = false
     r.ghost.show({ ...face, label: 'Music' }, at, () => (other = true))
     r.ghost.hide()
     await r.made[0].run()
+    await r.made[0].run()
     expect(other).toBe(false)
     expect(r.made[0].visible).toBe(false)
     expect(r.ghost.state()).toMatchObject({ visible: false, bounds: null, label: null })
+  })
+
+  it('asked again while still up (the last drop waits to hide it): the same face answers at once, another goes first', async () => {
+    const r = rig()
+    r.ghost.warm()
+    r.loaded()
+    r.ghost.show(face, at, () => {})
+    await r.made[0].run()
+    await r.made[0].run()
+    let same = false
+    r.ghost.show(face, at, () => (same = true))
+    expect(same).toBe(true)
+    r.made[0].log.length = 0
+    let other = false
+    r.ghost.show({ ...face, label: 'Music' }, at, () => (other = true))
+    expect(r.made[0].log).toEqual(['hide'])
+    await r.made[0].run()
+    await r.made[0].run()
+    expect(other).toBe(true)
+    expect(r.made[0].visible).toBe(true)
   })
 
   it('a page that did not paint shows nothing', async () => {
@@ -177,12 +286,15 @@ describe('the ghost window', () => {
     expect(r.made).toHaveLength(2)
   })
 
-  it('under --e2e it shows and hides, parked, and is never moved', async () => {
+  it('under --e2e it shows and hides, parked and clear, and is never moved', async () => {
     const r = rig(true)
     r.ghost.warm()
     r.loaded()
-    r.ghost.show(face, at, () => {})
+    let shown = false
+    r.ghost.show(face, at, () => (shown = true))
     await r.made[0].run()
+    await r.made[0].run()
+    expect(shown).toBe(true)
     r.ghost.move({ x: 1, y: 2, width: 154, height: 72 })
     expect(r.made[0].moves).toEqual([])
     expect(r.made[0].log).toEqual(['show'])
