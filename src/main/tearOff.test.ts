@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createTearOff, type TearDeps, type TearWin } from './tearOff'
-import { TEAR, type Bounds, type Point, type TabCarry, type TearEvent, type TearRequest } from '@shared/tabTear'
+import { TEAR, type Bounds, type Point, type StripReport, type TabCarry, type TabHover, type TearEvent, type TearRequest } from '@shared/tabTear'
 
 // Main's half of the tear-off (step 3, 2026-10-29), driven with fake windows
 // and a hand-turned clock: the loop, the snap back's dwell, the drop, the
@@ -57,7 +57,16 @@ const carry: TabCarry = {
 }
 const work = { x: 0, y: 0, width: 1920, height: 1040 }
 
-function rig(options: { e2e?: boolean; listening?: boolean } = {}) {
+interface RigOptions {
+  e2e?: boolean
+  listening?: boolean
+  /** Step 4: another window of the session, and its strip report. */
+  other?: Bounds
+  otherStrip?: StripReport | null
+  /** Front to back, by name (default: the source, then the other). */
+  front?: Array<'source' | 'other'>
+}
+function rig(options: RigOptions = {}) {
   let t = 0
   let timer: (() => void) | null = null
   /** One-shot timers: when each is due. */
@@ -65,10 +74,15 @@ function rig(options: { e2e?: boolean; listening?: boolean } = {}) {
   let cursor: Point = { x: 0, y: 0 }
   const source = fakeWin('source', { x: 100, y: 100, width: 1200, height: 800 })
   const spare = fakeWin('spare', { x: -4000, y: -4000, width: 1000, height: 700 })
+  const other = fakeWin('other', options.other ?? { x: 1400, y: 200, width: 500, height: 600 })
+  const hovers: Array<{ win: string; hover: TabHover | null }> = []
+  let otherStrip: StripReport | null =
+    options.otherStrip === undefined ? { strip: { left: 0, top: 0, right: 484, bottom: 32 }, plusRight: 200 } : options.otherStrip
   const log: string[] = []
   const told: TearEvent[] = []
   const moving = new Set<string>()
   let listening = options.listening ?? true
+  const byName = { source, other }
   const deps: TearDeps<FakeWin> = {
     e2e: !!options.e2e,
     cursor: () => cursor,
@@ -82,6 +96,19 @@ function rig(options: { e2e?: boolean; listening?: boolean } = {}) {
     release: (w, id, s) => log.push(`release ${w.name} ${id} to ${s?.name ?? 'nobody'}`),
     tell: (_s, e) => told.push(e),
     spareSoon: () => log.push('spare soon'),
+    windowsFront: () =>
+      options.other ? (options.front ?? ['source', 'other']).map((n) => byName[n]).filter((w) => !w.gone) : [source],
+    stripOf: (w) => (w === other ? otherStrip : null),
+    name: (w) => w.name,
+    hover: (w, h) => void hovers.push({ win: w.name, hover: h }),
+    merge: (w, c, src, at) => log.push(`merge ${c.tab.id} into ${w.name} from ${src.name} at ${at ?? 'end'}`),
+    raise: (w) => log.push(`raise ${w.name}`),
+    hide: (w) => {
+      w.shown = false
+      log.push(`hide ${w.name}`)
+    },
+    fade: (w, out) => log.push(`fade ${w.name} ${out ? 'out' : 'in'}`),
+    closeEmptied: (w) => log.push(`close ${w.name}`),
     now: () => t,
     every: (fn) => {
       timer = fn
@@ -96,10 +123,12 @@ function rig(options: { e2e?: boolean; listening?: boolean } = {}) {
     }
   }
   const tear = createTearOff(deps)
-  const req = (only = false, point: Point = { x: 300, y: 120 }): TearRequest => ({
+  const req = (only = false, point: Point = { x: 300, y: 120 }, withCarry = !only): TearRequest => ({
     tabId: 't2',
     only,
-    carry: only ? undefined : carry,
+    carry: withCarry ? carry : undefined,
+    size: { width: 100, height: 32 },
+    label: 'x',
     grab: { x: 50, y: 16 },
     origin: { x: 0, y: 40 },
     strip: { left: 0, top: 40, right: 1184, bottom: 72 },
@@ -109,6 +138,9 @@ function rig(options: { e2e?: boolean; listening?: boolean } = {}) {
     tear,
     source,
     spare,
+    other,
+    hovers,
+    setOtherStrip: (r: StripReport | null) => (otherStrip = r),
     log,
     told,
     moving,
@@ -382,5 +414,221 @@ describe('under --e2e', () => {
     r.tear.point(r.source, { x: 300, y: 60 })
     r.move({ x: 0, y: 0 }, 128)
     expect(r.told.at(-1)).toEqual({ kind: 'attached', tabId: 't2' })
+  })
+})
+
+// STEP 4: ANY WINDOW'S STRIP TAKES THE TAB (owner, 2026-10-29). The other
+// window's content starts at (1408, 200); its strip report is x 0..484, y
+// 0..32 with the + ending at 200, so with a 100 DIP tab its target is x
+// 1408..1708 on screen (the + plus one tab), y 200..232, and the tab tears
+// out of it once the cursor is 12 DIP clear of that and the tab fully out.
+describe('attaching into another window (step 4)', () => {
+  const overStrip = { x: 1500, y: 216 }
+  it('after 120 ms over its strip the tab is in it, live: the floating window hides, the strip is told where', async () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move({ x: 1350, y: 600 }, 40)
+    r.move(overStrip, 112)
+    expect(r.tear.state().over).toBeNull()
+    r.move(overStrip, 16)
+    expect(r.tear.state()).toMatchObject({ phase: 'float', over: 'other', enters: 1 })
+    expect(r.log).toContain('hide spare')
+    expect(r.told.at(-1)).toEqual({ kind: 'over', tabId: 't2' })
+    expect(r.hovers.at(-1)).toEqual({
+      win: 'other',
+      hover: { tabId: 't2', point: { x: 92, y: 16 }, grab: { x: 50, y: 16 }, size: { width: 100, height: 32 }, label: 'x' }
+    })
+    // It slides along: every move is told, an unmoved cursor is not.
+    const n = r.hovers.length
+    r.move({ x: 1560, y: 214 }, 8)
+    r.move({ x: 1560, y: 214 }, 24)
+    expect(r.hovers.length).toBe(n + 1)
+    expect(r.hovers.at(-1)?.hover?.point).toEqual({ x: 152, y: 14 })
+    // Its strip says where the gap is; the drop lands there.
+    r.tear.slot(r.other, 't2', 1)
+    expect(r.tear.state().slot).toBe(1)
+    expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: true })
+    expect(r.log.slice(-3)).toEqual(['release spare t2 to other', 'merge t2 into other from source at 1', 'reveal other'])
+    expect(r.moving.has('t2')).toBe(false)
+    expect(r.running()).toBe(false)
+    expect(r.tear.state()).toMatchObject({ phase: 'idle', merges: 1, commits: 0 })
+  })
+
+  it('fully out of that strip it tears off again: the gap closes, the floating window is back, and it does not flicker', () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move(overStrip, 128)
+    expect(r.tear.state().over).toBe('other')
+    // 13 below the strip: the tab (grabbed 16 down) still overlaps it.
+    r.move({ x: 1500, y: 245 }, 40)
+    expect(r.tear.state().over).toBe('other')
+    r.move({ x: 1500, y: 260 }, 8)
+    expect(r.tear.state()).toMatchObject({ over: null, leaves: 1, shown: true })
+    expect(r.hovers.at(-1)).toEqual({ win: 'other', hover: null })
+    expect(r.told.slice(-2)).toEqual([
+      { kind: 'off', tabId: 't2' },
+      { kind: 'shown', tabId: 't2' }
+    ])
+    expect(r.spare.shown).toBe(true)
+    // Held there, it never takes the tab again by itself.
+    r.move({ x: 1500, y: 260 }, 400)
+    expect(r.tear.state()).toMatchObject({ over: null, enters: 1 })
+    // Back over it, the same dwell again.
+    r.move(overStrip, 128)
+    expect(r.tear.state()).toMatchObject({ over: 'other', enters: 2 })
+  })
+
+  it('a cancel over it closes the gap and gives the tab back to the source', async () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move(overStrip, 128)
+    expect(await r.tear.end(r.source, 'cancel')).toEqual({ committed: false })
+    expect(r.hovers.at(-1)).toEqual({ win: 'other', hover: null })
+    expect(r.log.at(-1)).toBe('release spare t2 to source')
+    expect(r.log.some((l) => l.startsWith('merge'))).toBe(false)
+    expect(r.moving.has('t2')).toBe(false)
+    expect(r.tear.state()).toMatchObject({ cancels: 1, merges: 0 })
+  })
+
+  it('a window in front hides the strips behind it, until the cursor has stayed 750 ms over the one behind', () => {
+    // The other window under the source's lower right: its strip at y 500..532
+    // is covered by the source's body (x 100..1300, y 100..900) up to x 1300.
+    const r = rig({ other: { x: 700, y: 500, width: 1000, height: 500 }, front: ['source', 'other'] })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    expect(r.tear.state().front).toBe('source')
+    r.move({ x: 800, y: 516 }, 400)
+    expect(r.tear.state()).toMatchObject({ over: null, raises: 0 })
+    // Over the part of it that shows: a pass raises nothing...
+    r.move({ x: 1500, y: 700 }, 400)
+    r.move({ x: 1200, y: 700 }, 16)
+    r.move({ x: 1500, y: 700 }, 400)
+    expect(r.tear.state()).toMatchObject({ raises: 0, front: 'source' })
+    // ...750 ms there brings it to the front, and its whole strip is open.
+    r.move({ x: 1500, y: 700 }, 360)
+    expect(r.tear.state()).toMatchObject({ raises: 1, front: 'other' })
+    // Without the focus, and the floating window stays above it.
+    expect(r.log.slice(-2)).toEqual(['raise other', 'raise spare'])
+    r.move({ x: 800, y: 516 }, 128)
+    expect(r.tear.state().over).toBe('other')
+  })
+
+  it('the window in front takes it when two strips overlap', () => {
+    const r = rig({ other: { x: 100, y: 100, width: 1200, height: 800 }, front: ['other', 'source'] })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    // Both strips are here (the source's at y 140..172, the other's at 100..132).
+    r.move({ x: 300, y: 135 }, 128)
+    expect(r.tear.state().over).toBe('other')
+    expect(r.told.some((e) => e.kind === 'attached')).toBe(false)
+  })
+
+  it('a window with no strip on screen takes nothing', () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 }, otherStrip: null })
+    r.tear.start(r.source, r.req())
+    r.move(overStrip, 400)
+    expect(r.tear.state()).toMatchObject({ over: null, enters: 0 })
+  })
+
+  it('the strip it hovers in going away (reloaded, off the screen, closed): it tears out and flies on', () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
+    r.tear.start(r.source, r.req())
+    r.tear.adopted(r.spare, null)
+    r.move(overStrip, 128)
+    r.tear.lost(r.other)
+    expect(r.tear.state()).toMatchObject({ phase: 'float', over: null, shown: true })
+    r.move(overStrip, 128)
+    expect(r.tear.state().over).toBe('other')
+    r.setOtherStrip(null)
+    r.move(overStrip, 8)
+    expect(r.tear.state()).toMatchObject({ phase: 'float', over: null })
+    r.setOtherStrip({ strip: { left: 0, top: 0, right: 484, bottom: 32 }, plusRight: 200 })
+    r.move(overStrip, 128)
+    expect(r.tear.state().over).toBe('other')
+    r.other.gone = true
+    r.tear.gone(r.other)
+    expect(r.tear.state()).toMatchObject({ phase: 'float', over: null })
+  })
+
+  it('dropped there before the floating page had drawn the tab, it merges all the same', async () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 }, listening: false })
+    r.tear.start(r.source, r.req())
+    r.move(overStrip, 128)
+    expect(r.tear.state().over).toBe('other')
+    expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: true })
+    expect(r.tear.state()).toMatchObject({ waiting: false, merges: 1 })
+    // The slow page turning up later is handed nothing.
+    r.setListening(true)
+    r.tear.listening(r.spare)
+    expect(r.log.some((l) => l.startsWith('adopt'))).toBe(false)
+  })
+})
+
+describe('the only tab over another window (step 4)', () => {
+  const overStrip = { x: 1500, y: 216 }
+  it('its window goes clear while the tab is in that strip, and comes back when it tears out', () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
+    r.tear.start(r.source, r.req(true, undefined, true))
+    r.move(overStrip, 128)
+    expect(r.tear.state()).toMatchObject({ phase: 'window', over: 'other' })
+    expect(r.log).toContain('fade source out')
+    r.move({ x: 1500, y: 300 }, 8)
+    expect(r.tear.state().over).toBeNull()
+    expect(r.log.at(-1)).toBe('fade source in')
+  })
+
+  it('a drop merges it there and closes the emptied window; the tab stays moving until that window has gone', async () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
+    r.tear.start(r.source, r.req(true, undefined, true))
+    r.move(overStrip, 128)
+    expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: true })
+    expect(r.log.slice(-3)).toEqual(['merge t2 into other from source at end', 'close source', 'reveal other'])
+    expect(r.moving.has('t2')).toBe(true)
+    r.tear.gone(r.source)
+    expect(r.moving.has('t2')).toBe(true)
+    r.move({ x: 0, y: 0 }, 8)
+    expect(r.moving.has('t2')).toBe(false)
+  })
+
+  it('a cancel there puts everything back: clear no more, where it was, maximized if it was', async () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
+    r.source.max = true
+    r.tear.start(r.source, r.req(true, undefined, true))
+    r.move(overStrip, 128)
+    expect(await r.tear.end(r.source, 'cancel')).toEqual({ committed: false })
+    expect(r.log.slice(-1)).toEqual(['fade source in'])
+    expect(r.hovers.at(-1)).toEqual({ win: 'other', hover: null })
+    expect(r.source.max).toBe(true)
+    expect(r.source.moves.at(-1)).toEqual({ x: 100, y: 100, width: 1200, height: 800 })
+    expect(r.moving.has('t2')).toBe(false)
+  })
+
+  it('without a carry it moves its window and merges nowhere', () => {
+    const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
+    r.tear.start(r.source, r.req(true))
+    r.move(overStrip, 400)
+    expect(r.tear.state()).toMatchObject({ phase: 'window', over: null, enters: 0 })
+  })
+})
+
+describe('step 4 under --e2e', () => {
+  it('a parked window is a target only where the e2e says it is, from the page pointer', () => {
+    const r = rig({ e2e: true, other: { x: -4000, y: -4000, width: 500, height: 600 } })
+    r.source.bounds = { x: -4000, y: -4000, width: 1200, height: 800 }
+    r.tear.start(r.source, r.req(false, { x: 300, y: 200 }))
+    r.tear.adopted(r.spare, null)
+    // The other window pretends to sit at (1400, 200); the source at (0, 0),
+    // its frame 8: the page's (1492, 216) is the screen's (1500, 216).
+    r.tear.point(r.source, { x: 1492, y: 216 })
+    r.move({ x: 0, y: 0 }, 200)
+    expect(r.tear.state().over).toBeNull()
+    r.tear.e2eAt(r.other, { x: 1400, y: 200 })
+    r.move({ x: 0, y: 0 }, 128)
+    expect(r.tear.state().over).toBe('other')
+    expect(r.hovers.at(-1)?.hover?.point).toEqual({ x: 92, y: 16 })
+    expect(r.log).not.toContain('raise other')
   })
 })

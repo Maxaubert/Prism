@@ -143,7 +143,7 @@ import {
   watchWindowState
 } from './windowChrome'
 import { createTearOff } from './tearOff'
-import { TEAR, validTearRequest, type Point } from '@shared/tabTear'
+import { TEAR, validStripReport, validTearRequest, type Point } from '@shared/tabTear'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -1123,6 +1123,8 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   win.webContents.on('did-start-loading', () => {
     rec.restoreStarted = false
     rec.restored = false
+    // Its strip comes back when the new page reports it.
+    rec.strip = null
     // This window's Win+E requests wait for its new page (a cold start's
     // lands in the first window, one while Prism runs in its own).
     if (winEHost) winERequests.reload(winEHost)
@@ -1369,6 +1371,65 @@ const tear = createTearOff<BrowserWindow>({
   },
   tell: (source, event) => void windows.sendTo(source, PUSH.tearEvent, event),
   spareSoon: () => spareSoon(),
+  // STEP 4: ANY WINDOW'S STRIP TAKES THE TAB (owner, 2026-10-29). The
+  // windows that can, front to back: shown, restored, not the spare; the one
+  // focused most recently in front (main cannot read the system's z-order),
+  // and among windows never focused (the e2e's) the newest, as a new window
+  // opens on top.
+  windowsFront: () =>
+    windows
+      .all()
+      .filter((r) => !r.spare && r.restored && !r.win.isDestroyed() && r.win.isVisible() && !r.win.isMinimized())
+      .reverse()
+      .sort((a, b) => b.focusedAt - a.focusedAt)
+      .map((r) => r.win),
+  stripOf: (win) => windows.recordOf(win)?.strip ?? null,
+  name: (win) => windows.recordOf(win)?.key ?? '',
+  hover: (win, hover) => void windows.sendTo(win, PUSH.tabHover, hover),
+  // The drop into another window's strip: that window has the tab from now on
+  // (its record lists it at once, so its close releases it; its page reports
+  // the real order next), and the source's record and entry lose it at the
+  // same moment, exactly as a tear's commit does.
+  merge: (target, carry, source, at) => {
+    const r = windows.recordOf(target)
+    if (!r) return
+    const t = carry.tab
+    const left = windows.handTab(t.id, source, target)
+    const src = windows.recordOf(source)
+    if (left && src) sessionFile.report(src.id, left)
+    const tabs = (r.reported?.tabs ?? []).filter((x) => x.id !== t.id)
+    const i = Math.max(0, Math.min(at ?? tabs.length, tabs.length))
+    tabs.splice(i, 0, { id: t.id, role: 'explorer', root: t.root, browse: t.browse, file: t.files[t.index]?.path })
+    r.reported = { tabs, active: i }
+    sessionFile.report(r.id, r.reported)
+    windows.sendTo(target, PUSH.tabMerge, { carry, at })
+  },
+  // To the front WITHOUT the focus: the source holds the pointer, and its
+  // window losing the focus would cancel the carry.
+  raise: (win) => {
+    if (!win.isDestroyed()) win.moveTop()
+  },
+  hide: (win) => {
+    if (!win.isDestroyed()) win.hide()
+  },
+  // The only tab's window holds the pointer's capture: it goes clear rather
+  // than hidden, and never under --e2e (its windows are already clear, parked).
+  fade: (win, out) => {
+    if (!E2E && !win.isDestroyed()) win.setOpacity(out ? 0 : 1)
+  },
+  // Its tab went into another window: nothing is left in it, and its text went
+  // with the tab, so it closes asking nothing. After this turn, so the page's
+  // answer to its drop goes out first.
+  closeEmptied: (win) => {
+    const r = windows.recordOf(win)
+    if (r) {
+      r.closeConfirmed = true
+      r.dirty = false
+    }
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.close()
+    }, 0)
+  },
   log: (event, fields) => mainCrumb(event, fields)
 })
 const isPoint = (p: unknown): p is Point =>
@@ -1393,6 +1454,16 @@ function registerTearIpc(): void {
   ipcMain.on(CALL.tabAdopted, (e, _id: unknown, tab: unknown) => {
     const r = windows.of(e.sender)
     if (r) tear.adopted(r.win, isPoint(tab) ? tab : null)
+  })
+  // Step 4: every window's strip, for the hit test, and the slot a strip has
+  // open for a tab hovering over it.
+  ipcMain.on(CALL.tabStrip, (e, report: unknown) => {
+    const r = windows.of(e.sender)
+    if (r) r.strip = validStripReport(report) ? report : null
+  })
+  ipcMain.on(CALL.tabHoverSlot, (e, id: unknown, slot: unknown) => {
+    const r = windows.of(e.sender)
+    if (r && typeof id === 'string' && typeof slot === 'number') tear.slot(r.win, id, slot)
   })
 }
 
@@ -1920,6 +1991,22 @@ if (!app.requestSingleInstanceLock()) {
         __e2eTear: () => {
           const s = windows.spare()
           return { ...tear.state(), spare: s ? { page: s.id, key: s.key, ready: s.restored } : null }
+        },
+        // Step 4: where a parked window pretends to be (an offset from the
+        // work area's top-left, so it can be a target), a focus order (the
+        // e2e's windows are unfocusable, so none is ever focused by itself),
+        // and the strip a window reported.
+        __e2eTearAt: (id: number, at: Point | null) => {
+          const w = BrowserWindow.fromId(id)
+          if (w) tear.e2eAt(w, at)
+        },
+        __e2eFocused: (id: number) => {
+          const w = BrowserWindow.fromId(id)
+          if (w) windows.focused(w)
+        },
+        __e2eStrip: (id: number) => {
+          const w = BrowserWindow.fromId(id)
+          return w ? (windows.recordOf(w)?.strip ?? null) : null
         }
       })
   })

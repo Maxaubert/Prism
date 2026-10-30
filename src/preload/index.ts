@@ -30,7 +30,7 @@ import type { SweepBegin, SweepEnd, SweepState, SweepUpdate } from '@shared/swee
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
-import type { TabCarry, TearEnd, TearEvent, TearRequest } from '@shared/tabTear'
+import type { StripReport, TabCarry, TabHover, TabMerge, TearEnd, TearEvent, TearRequest } from '@shared/tabTear'
 import type { FolderHandlerStatus } from '@shared/folderHandler'
 import type { DriveDetails, MediaProps, TextProps } from '@shared/props'
 import type {
@@ -202,6 +202,15 @@ const api = {
   /** The tab handed over is drawn; `tab` is where its strip put it. */
   tabAdopted: (id: string, tab: { x: number; y: number } | null): void =>
     ipcRenderer.send(CALL.tabAdopted, id, tab),
+  /* ----- attach into any window (step 4, 2026-10-29) ----- */
+  /** Where this window's strip is (null: none on screen), for main's hit test. */
+  tabStrip: (report: StripReport | null): void => ipcRenderer.send(CALL.tabStrip, report),
+  /** A tab carried in another window hovers over this strip (null: no more). */
+  onTabHover: subscribe<TabHover | null>(PUSH.tabHover),
+  /** The slot this strip has open for it. */
+  tabHoverSlot: (id: string, slot: number): void => ipcRenderer.send(CALL.tabHoverSlot, id, slot),
+  /** ...and it is dropped here. */
+  onTabMerge: subscribe<TabMerge>(PUSH.tabMerge),
   /** Where you had got to in a film, kept ONCE on the PC by file path
    *  (#118): the phone reads and writes the same store over /api/pos, so a
    *  film left at minute 40 here opens at minute 40 there. Seconds, or null. */
