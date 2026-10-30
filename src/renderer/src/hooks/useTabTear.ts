@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import type { OpenPayload } from '@shared/types'
 import type { Point, Rect, Size, TabLook, TearEnd } from '@shared/tabTear'
-import { closeTab, newTab, type TabState } from '../lib/tabs/tabs'
+import { closeTab, newTab, type Tab, type TabState } from '../lib/tabs/tabs'
 import { applyCarry, buffersLeaving, carryOf, ownedBufferKeys } from '../lib/tabs/tabCarry'
 import { forgetTabVolume, setTabRate, setTabVolume, tabRate, tabVolume } from '../lib/tabs/tabVolume'
 import { markOf, rememberPaused, rememberTime } from '../lib/playState'
@@ -15,22 +15,25 @@ import { visitedDirectories } from '../lib/visitedDirectories'
  * (TabStrip.tsx) runs the gesture; this is what it does to the tabs.
  *
  * In the SOURCE window:
- * - `out`: the carried tab has left the strip. Its state is packed
- *   (lib/tabs/tabCarry.ts) and handed to main, which hands it to a hidden
- *   floating window and shows only the tab (the ghost, owner 2026-10-30)
- *   under the cursor; the tab stays in this strip's state, hidden, until the
- *   drop, and
- *   if it was in front a neighbour takes the front. The window's ONLY tab
- *   moves the whole window instead (spec 1.7).
- * - `attached`: main snapped it back over this strip: it is in front again.
- * - `end`: a drop the new window took: the tab leaves, WITHOUT a
- *   `browseRelease` (its grants, watch and listings in main are the new
- *   window's now), taking its unsaved text with it. A cancel, or a drop main
- *   did not take: everything as it was, the front as before.
+ * - `out`: the carried tab has left the strip, and main carries it: only the
+ *   tab (the ghost, owner 2026-10-30) follows the cursor, the window's ONLY
+ *   tab too (owner, 2026-10-30: "it should be the tab you drag"). The tab
+ *   stays in this strip's state, IN FRONT IF IT WAS, its page on screen, all
+ *   through the drag (owner, 2026-10-30: "i want those switches to happen
+ *   when you drop it"); only its slot in the strip is empty.
+ * - `end`: a drop is sent with the tab packed NOW (lib/tabs/tabCarry.ts): it
+ *   stayed live here, so a film went on playing, and that is what the other
+ *   window takes. A drop another window took: the tab leaves, WITHOUT a
+ *   `browseRelease` (its grants, watch and listings in main are that
+ *   window's now), taking its unsaved text with it, and only THEN does a
+ *   neighbour take the front (its right, else its left). A cancel, a snap
+ *   back, a drop main did not take, or the only tab's window moved: nothing
+ *   changes, the front included.
  *
- * In the FLOATING window (the spare): `tabs:adopt` rebuilds the tab under its
- * SAME id with what it carried, and says where it drew it; `tabs:release`
- * gives it back (a snap back or a cancel), and the window is empty again.
+ * In the FLOATING window (the spare): `tabs:adopt` (at the drop) rebuilds the
+ * tab under its SAME id with what it carried, and says where it drew it;
+ * `tabs:release` gives it back (a drop whose window failed), and the window is
+ * empty again.
  *
  * In ANY OTHER WINDOW (step 4, owner 2026-10-29): `tabs:merge` is a tab
  * dropped into this strip from another window. It is rebuilt the same way,
@@ -41,21 +44,16 @@ import { visitedDirectories } from '../lib/visitedDirectories'
  */
 
 export interface StripTear {
-  /** The carried tab left its strip. Answers how it goes on: 'float' (the
-   *  tab flies on its own, its window shown at the drop), 'window' (this
-   *  window follows: it is the only tab), or null (it cannot leave: Settings). `refused` is
-   *  called if main turns the tear down after all. */
+  /** The carried tab left its strip. Answers 'float' (main carries it from
+   *  here) or null (it cannot leave: Settings). `refused` is called if main
+   *  turns the tear down after all. */
   out(
     id: string,
     at: { grab: Point; origin: Point; strip: Rect; point: Point; size: Size; label: string; look?: TabLook },
     refused: () => void
-  ): 'float' | 'window' | null
-  /** Main attached it to this strip again (the snap back). */
-  attached(id: string): void
+  ): 'float' | null
   /** The gesture ended after a tear: answers whether a drop committed. */
   end(id: string, how: TearEnd): Promise<boolean>
-  /** It came back and was dropped in this strip: selected, and done. */
-  settled(id: string): void
 }
 
 export interface TabTearDeps {
@@ -68,15 +66,8 @@ export interface TabTearDeps {
 }
 
 export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, syncDirty, open }: TabTearDeps): StripTear {
-  /** The tab being carried, and what was in front before it left. */
-  const session = useRef<{ id: string; prevActive: string | null } | null>(null)
-
-  const front = useCallback((id: string | null) => {
-    if (!id) return
-    setTabState((s) => (s.tabs.some((t) => t.id === id) ? { ...s, activeId: id } : s))
-  }, [setTabState])
-
-  /** The drop committed: the tab is the new window's now. */
+  /** The drop committed: the tab is another window's now, and only now does
+   *  a neighbour take the front (`closeTab`: its right, else its left). */
   const detach = useCallback(
     (id: string) => {
       const s = tabStateNow.current
@@ -95,20 +86,13 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
     [tabStateNow, buffers, bufferOwners, syncDirty, setTabState]
   )
 
-  const out = useCallback<StripTear['out']>(
-    (id, at, refused) => {
-      const s = tabStateNow.current
-      const tab = s.tabs.find((t) => t.id === id)
-      if (!tab || tab.kind === 'settings') return null
-      if (session.current?.id !== id) session.current = { id, prevActive: s.activeId }
-      const ask = (only: boolean, carry?: ReturnType<typeof carryOf>): void =>
-        void window.prism
-          .tabTear({ tabId: id, only, ...(carry ? { carry } : {}), ...at })
-          .then((ok) => {
-            if (!ok) refused()
-          }, refused)
-      const only = s.tabs.length === 1
-      const carry = carryOf(tab, {
+  /** The tab and its state as they are now. `listing`: the folder on screen
+   *  goes too, for the other window's first frame; never the only tab's (a
+   *  large folder's listing was cloned at every such drag, review 2026-10-30:
+   *  merged, the other window lists it itself). */
+  const pack = useCallback(
+    (tab: Tab, listing: boolean) =>
+      carryOf(tab, {
         buffers: buffers.current,
         owners: bufferOwners.current,
         level: tabVolume,
@@ -117,58 +101,47 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
         mark: markOf,
         docPos: sessionDocPos,
         passwords: archivePasswordsUnder,
-        // The only tab's drag mostly just moves its window: it carries no
-        // folder listing (a large folder's would be cloned at the start of
-        // every such drag and held by main all through it; review
-        // 2026-10-30). Merged into another window, that window lists it.
         listing: (p) => {
-          if (only) return null
+          if (!listing) return null
           const d = visitedDirectories.peek(p)
           return d ? { path: d.path, listing: d.listing } : null
         }
-      })
-      // The only tab moves its window; it carries itself too, since it can
-      // merge into another window's strip (step 4).
-      if (only) {
-        ask(true, carry)
-        return 'window'
-      }
-      // The tab leaves the strip at once: a neighbour takes the front (its
-      // right, else its left), so this window never shows a second copy.
-      if (s.activeId === id) {
-        const i = s.tabs.findIndex((t) => t.id === id)
-        front((s.tabs[i + 1] ?? s.tabs[i - 1])?.id ?? null)
-      }
-      ask(false, carry)
-      return 'float'
-    },
-    [tabStateNow, buffers, bufferOwners, front]
+      }),
+    [buffers, bufferOwners]
   )
 
-  const attached = useCallback((id: string) => front(id), [front])
+  const out = useCallback<StripTear['out']>(
+    (id, at, refused) => {
+      const s = tabStateNow.current
+      const tab = s.tabs.find((t) => t.id === id)
+      if (!tab || tab.kind === 'settings') return null
+      const only = s.tabs.length === 1
+      // What the tear sends is light (no listing): the drop sends the tab as
+      // it is then, and that is what goes.
+      void window.prism.tabTear({ tabId: id, only, carry: pack(tab, false), ...at }).then((ok) => {
+        if (!ok) refused()
+      }, refused)
+      // NOTHING ELSE CHANGES HERE (owner, 2026-10-30): the tab stays in front
+      // if it was, until a drop commits.
+      return 'float'
+    },
+    [tabStateNow, pack]
+  )
 
   const end = useCallback<StripTear['end']>(
     async (id, how) => {
-      const answer = await window.prism.tabTearEnd(how).catch(() => ({ committed: false }))
-      const was = session.current
-      session.current = null
+      const s = tabStateNow.current
+      const tab = how === 'drop' ? s.tabs.find((t) => t.id === id) : undefined
+      const carry = tab && tab.kind !== 'settings' ? pack(tab, s.tabs.length > 1) : undefined
+      const answer = await window.prism.tabTearEnd(how, carry).catch(() => ({ committed: false }))
       if (how === 'drop' && answer.committed) {
         detach(id)
         return true
       }
-      // Nothing half-done: back where it was, the front as before.
-      front(was?.prevActive ?? null)
+      // Nothing half-done, and nothing to put back: nothing changed.
       return false
     },
-    [detach, front]
-  )
-
-  const settled = useCallback(
-    (id: string) => {
-      session.current = null
-      front(id)
-    },
-    [front]
+    [tabStateNow, pack, detach]
   )
 
   // THE FLOATING WINDOW'S SIDE: take the tab, with what it carried, under its
@@ -252,5 +225,5 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
     [tabStateNow, buffers, bufferOwners, syncDirty, setTabState]
   )
 
-  return useMemo(() => ({ out, attached, end, settled }), [out, attached, end, settled])
+  return useMemo(() => ({ out, end }), [out, end])
 }

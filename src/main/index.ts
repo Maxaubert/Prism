@@ -144,7 +144,7 @@ import {
 } from './windowChrome'
 import { createTearOff } from './tearOff'
 import { GHOST_PAGE, ONE_FRAME, createTabGhost } from './tabGhost'
-import { TEAR, validStripReport, validTearRequest, type Point } from '@shared/tabTear'
+import { TEAR, validCarry, validStripReport, validTearRequest, type Point } from '@shared/tabTear'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -1413,8 +1413,6 @@ function systemOrder(wins: BrowserWindow[]): BrowserWindow[] | null {
     return null
   }
 }
-/** A window the tear made clear by the addon, and whether that made it layered. */
-const fadedByAddon = new WeakMap<BrowserWindow, boolean>()
 const tear = createTearOff<BrowserWindow>({
   e2e: E2E,
   cursor: () => screen.getCursorScreenPoint(),
@@ -1450,9 +1448,11 @@ const tear = createTearOff<BrowserWindow>({
     else raise(win)
     applyDwmBorder(win)
   },
-  // The tab goes back: the floating page drops it, the window hides as the
-  // spare, and whatever it reported or asked for is the source's again.
+  // The tab goes back (a drop whose floating page never drew it): the
+  // floating page drops it, the window hides as the spare, and whatever it
+  // reported or asked for is the source's again.
   release: (win, tabId, source) => {
+    if (source && !source.isDestroyed()) windows.noteTabOwner(tabId, source.webContents)
     windows.sendTo(win, PUSH.tabRelease, tabId)
     if (!win.isDestroyed()) win.hide()
     const r = windows.recordOf(win)
@@ -1461,12 +1461,14 @@ const tear = createTearOff<BrowserWindow>({
       r.dirty = false
       sessionFile.closed(r.id, { others: true, quitting: false })
     }
-    // Its folder watch stops (review 2026-10-29): the floating page's own stop
-    // comes after the tab is the source's again and is ignored, and the source
-    // starts one only if it shows the tab (a background tab it never shows
-    // kept a watch running for nobody).
-    void browseWatch(tabId, null, () => {})
-    if (source && !source.isDestroyed()) windows.noteTabOwner(tabId, source.webContents)
+    // The source kept the tab on screen all through the drag (owner,
+    // 2026-10-30): if it is still its front tab, the folder watch the
+    // floating page started goes on for it (the floating page's own stop
+    // comes after the tab is the source's again and is ignored). Otherwise it
+    // stops (review 2026-10-29: a background tab the source never shows kept
+    // a watch running for nobody).
+    const shown = source && !source.isDestroyed() ? windows.recordOf(source)?.reported : null
+    if (shown?.tabs[shown.active]?.id !== tabId) void browseWatch(tabId, null, () => {})
   },
   tell: (source, event) => void windows.sendTo(source, PUSH.tearEvent, event),
   spareSoon: () => spareSoon(),
@@ -1535,33 +1537,6 @@ const tear = createTearOff<BrowserWindow>({
     if (win.isDestroyed()) return fn()
     win.webContents.executeJavaScript(ONE_FRAME).then(fn, fn)
   },
-  // The only tab's window holds the pointer's capture: it goes clear rather
-  // than hidden, and never under --e2e (its windows are already clear, parked).
-  // By the addon when it can (review 2026-10-30): back, it is not layered any
-  // more, where Electron's setOpacity leaves it layered for good and a layered
-  // window loses its Mica or acrylic.
-  fade: (win, out) => {
-    if (E2E || win.isDestroyed()) return
-    const a = nativeWindows()
-    if (a?.setAlpha && a.unlayer) {
-      try {
-        if (out) {
-          const added = a.setAlpha(hwndOf(win), 0)
-          fadedByAddon.set(win, added || fadedByAddon.get(win) === true)
-          return
-        }
-        if (fadedByAddon.has(win)) {
-          a.setAlpha(hwndOf(win), 255)
-          if (fadedByAddon.get(win)) a.unlayer(hwndOf(win))
-          fadedByAddon.delete(win)
-          return
-        }
-      } catch {
-        // The addon failed: Electron's way below.
-      }
-    }
-    win.setOpacity(out ? 0 : 1)
-  },
   // Its tab went into another window: nothing is left in it, and its text went
   // with the tab, so it closes asking nothing. After this turn, so the page's
   // answer to its drop goes out first.
@@ -1587,10 +1562,12 @@ function registerTearIpc(): void {
     if (!r || r.spare || r.win.isDestroyed() || !validTearRequest(req)) return false
     return tear.start(r.win, req)
   })
-  ipcMain.handle(CALL.tabTearEnd, (e, how: unknown) => {
+  // A drop brings the tab as it is now (packed at the drop, owner
+  // 2026-10-30: the source kept it on screen all through the drag).
+  ipcMain.handle(CALL.tabTearEnd, (e, how: unknown, carry: unknown) => {
     const r = windows.of(e.sender)
     if (!r || (how !== 'drop' && how !== 'cancel')) return { committed: false }
-    return tear.end(r.win, how)
+    return tear.end(r.win, how, validCarry(carry) ? carry : undefined)
   })
   ipcMain.on(CALL.tabTearPoint, (e, p: unknown) => {
     const r = windows.of(e.sender)

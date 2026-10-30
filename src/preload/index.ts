@@ -182,12 +182,13 @@ const api = {
     active: number
   ): void => ipcRenderer.send(CALL.tabsChanged, { tabs, active }),
   /* ----- tab tear-off (step 3, 2026-10-29; src/main/tearOff.ts) ----- */
-  /** A carried tab left its strip: main takes it into a floating window, or
-   *  moves this window when it is the only tab. */
+  /** A carried tab left its strip: main carries it (only the tab follows the
+   *  cursor, the only tab of a window included). */
   tabTear: (req: TearRequest): Promise<boolean> => ipcRenderer.invoke(CALL.tabTear, req),
-  /** The tear ended here: a drop answers whether the new window took the tab
-   *  (only then does this strip let it go). */
-  tabTearEnd: (how: TearEnd): Promise<{ committed: boolean }> => ipcRenderer.invoke(CALL.tabTearEnd, how),
+  /** The tear ended here: a drop (with the tab as it is now) answers whether
+   *  another window took the tab (only then does this strip let it go). */
+  tabTearEnd: (how: TearEnd, carry?: TabCarry): Promise<{ committed: boolean }> =>
+    ipcRenderer.invoke(CALL.tabTearEnd, how, carry),
   /** The pointer during a tear, under --e2e only: Playwright's mouse is not
    *  the system cursor main polls. A no-op otherwise. */
   tabTearPoint: (x: number, y: number): void => {
