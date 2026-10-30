@@ -380,10 +380,12 @@ export interface TabCarry {
 /** What a tear asks of main (`tabs:tear`). */
 export interface TearRequest {
   tabId: string
-  /** The window's only tab: the WHOLE window follows the cursor (spec 1.7). */
+  /** The window's only tab: carried as a tab like any other (owner,
+   *  2026-10-30); a drop outside every strip moves its window (spec 1.7). */
   only: boolean
-  /** The tab and its state, for the new window. For `only` too since step 4:
-   *  the only tab can merge into another window's strip. */
+  /** The tab and its state (the listing left out: the drop sends the tab as
+   *  it is then, `tabs:tear-end`, and that is what goes). For `only` too since
+   *  step 4: the only tab can merge into another window's strip. */
   carry?: TabCarry
   /** The carried tab's size (another window's strip judges the tear-out by
    *  it) and its label (that strip draws it while it hovers there). */
@@ -468,8 +470,8 @@ export function validTearRequest(r: unknown): r is TearRequest {
   if (!validPoint(q.grab) || !validPoint(q.origin) || !validPoint(q.point) || !validRect(q.strip)) return false
   if (q.size !== undefined && !validSize(q.size)) return false
   if (q.label !== undefined && typeof q.label !== 'string') return false
-  // The only tab's carry is optional (without one its window moves and merges
-  // nowhere); a carry that is sent must be the tab's own.
+  // The only tab's carry is optional (without one it merges nowhere); a carry
+  // that is sent must be the tab's own.
   if (q.carry !== undefined && !(validCarry(q.carry) && q.carry.tab.id === q.tabId)) return false
   return q.only || q.carry !== undefined
 }

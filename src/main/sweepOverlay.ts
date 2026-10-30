@@ -53,8 +53,10 @@ export interface PrismSweep {
   /** Another app's window above `hwnd` takes the pointer at that physical
    *  screen point. */
   coveredAt?(x: number, y: number, hwnd: Buffer): boolean
-  /** The only tab's window clear (0) or back (255); true when this call made
-   *  it layered, so `unlayer` takes the style off once it is back. */
+  /** A window clear (0) or back (255); true when this call made it layered,
+   *  so `unlayer` takes the style off once it is back. Unused since
+   *  2026-10-30 (the only tab is carried as a ghost, its window never goes
+   *  clear); kept in the addon for a later use. */
   setAlpha?(hwnd: Buffer, alpha: number): boolean
   unlayer?(hwnd: Buffer): void
   stats(): {
