@@ -54,9 +54,8 @@ export interface PrismSweep {
    *  screen point. */
   coveredAt?(x: number, y: number, hwnd: Buffer): boolean
   /** A window clear (0) or back (255); true when this call made it layered,
-   *  so `unlayer` takes the style off once it is back. Unused since
-   *  2026-10-30 (the only tab is carried as a ghost, its window never goes
-   *  clear); kept in the addon for a later use. */
+   *  so `unlayer` takes the style off once it is back. The tear's only-tab
+   *  window while a drop restores and moves it (review 2026-10-30). */
   setAlpha?(hwnd: Buffer, alpha: number): boolean
   unlayer?(hwnd: Buffer): void
   stats(): {

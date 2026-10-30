@@ -71,6 +71,8 @@ interface RigOptions {
   slowGhost?: boolean
   /** A window shown at a drop says it has drawn only when `drawnReady()` is called. */
   drawn?: boolean
+  /** The window can go clear (the addon). */
+  fade?: boolean
 }
 function rig(options: RigOptions = {}) {
   let t = 0
@@ -161,6 +163,9 @@ function rig(options: RigOptions = {}) {
       }
     },
     drawn: options.drawn ? (_w, fn) => void drawnWaits.push(fn) : undefined,
+    fade: options.fade
+      ? (w, out) => log.push(`fade ${w.name} ${out ? 'out' : 'in'} max=${w.max} moved=${w.moves.length}`)
+      : undefined,
     closeEmptied: (w) => log.push(`close ${w.name}`),
     now: () => t,
     every: (fn) => {
@@ -598,7 +603,7 @@ describe('the only tab is carried as a tab, its window stays (owner, 2026-10-30)
     // Exactly where a new window would go (`floatBounds`, held by its tab),
     // once, and to the front.
     expect(r.source.moves).toEqual([{ x: 942, y: 444, width: 1200, height: 800 }])
-    expect(r.log.slice(-2)).toEqual(['ghost hide', 'reveal source'])
+    expect(r.log.slice(-2)).toEqual(['reveal source', 'ghost hide'])
     expect(r.tear.state()).toMatchObject({ phase: 'idle', moves: 1, moved: { x: 942, y: 444 }, commits: 0, cancels: 0 })
     expect(r.spare.shown).toBe(false)
     expect(r.moving.has('t2')).toBe(false)
@@ -632,6 +637,45 @@ describe('the only tab is carried as a tab, its window stays (owner, 2026-10-30)
     expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: false })
     expect(r.source.moves).toEqual([])
     expect(r.tear.state()).toMatchObject({ attaches: 1, moves: 0 })
+  })
+
+  it('a drop outside: the window goes clear before it is restored and moved, and the ghost holds the drop point until it has drawn there (review 2026-10-30)', async () => {
+    const r = rig({ drawn: true, fade: true })
+    r.source.max = true
+    r.tear.start(r.source, r.req(true))
+    r.move({ x: 960, y: 300 }, 16)
+    expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: false })
+    // Clear while still maximized and unmoved; restored, moved and in front
+    // while clear; the ghost still up.
+    expect(r.log.slice(1)).toEqual(['fade source out max=true moved=0', 'reveal source'])
+    expect(r.source.max).toBe(false)
+    expect(r.source.moves).toHaveLength(1)
+    expect(r.ghost.shown).toBe(true)
+    // Drawn at its new place: it shows again, and the ghost goes with it.
+    r.drawnReady()
+    expect(r.log.slice(-2)).toEqual(['fade source in max=false moved=1', 'ghost hide'])
+    expect(r.ghost.shown).toBe(false)
+  })
+
+  it('a window that never says it drew comes back and the ghost goes after a short while all the same', async () => {
+    const r = rig({ drawn: true, fade: true })
+    r.tear.start(r.source, r.req(true))
+    r.move({ x: 960, y: 300 }, 16)
+    await r.tear.end(r.source, 'drop')
+    expect(r.ghost.shown).toBe(true)
+    r.move({ x: 960, y: 300 }, TEAR.drawnMs + 8)
+    expect(r.log.slice(-2)).toEqual(['fade source in max=false moved=1', 'ghost hide'])
+  })
+
+  it('under --e2e nothing goes clear and nothing moves', async () => {
+    const r = rig({ e2e: true, fade: true })
+    r.tear.start(r.source, r.req(true))
+    r.tear.point(r.source, { x: 500, y: 400 })
+    r.move({ x: 0, y: 0 }, 16)
+    await r.tear.end(r.source, 'drop')
+    expect(r.log.some((l) => l.startsWith('fade'))).toBe(false)
+    expect(r.source.moves).toEqual([])
+    expect(r.tear.state().moves).toBe(1)
   })
 })
 
@@ -862,6 +906,49 @@ describe('the only tab over another window (step 4)', () => {
     expect(r.source.moves).toEqual([])
     expect(r.moving.has('t2')).toBe(false)
     expect(r.log.some((l) => l.startsWith('close') || l.startsWith('merge'))).toBe(false)
+  })
+
+  it('its own window, in front and over the other strip (maximized), hides nothing: the tab merges there, and that window comes to the front at once (review 2026-10-30)', async () => {
+    // The other window lies wholly under the source (x 100..1300, y 100..900),
+    // its strip at y 200..232; the source, focused, is in front.
+    const r = rig({ other: { x: 300, y: 200, width: 500, height: 600 }, front: ['source', 'other'] })
+    r.source.max = true
+    r.tear.start(r.source, r.req(true, undefined, true))
+    expect(r.tear.state().front).toBe('source')
+    r.move({ x: 400, y: 216 }, 128)
+    expect(r.tear.state()).toMatchObject({ over: 'other', enters: 1, raises: 1, front: 'other' })
+    // Raised before the ghost goes, so the tab that strip draws is on screen.
+    expect(r.log.slice(-3)).toEqual(['raise other', 'raised other', 'ghost hide'])
+    expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: true })
+    expect(r.log).toContain('merge t2 into other from source at end')
+    expect(r.log).toContain('close source')
+    expect(r.source.moves).toEqual([])
+  })
+
+  it('a cancel after that brings its own window back to the front', async () => {
+    const r = rig({ other: { x: 300, y: 200, width: 500, height: 600 }, front: ['source', 'other'] })
+    r.tear.start(r.source, r.req(true, undefined, true))
+    r.move({ x: 400, y: 216 }, 128)
+    expect(r.tear.state().over).toBe('other')
+    expect(await r.tear.end(r.source, 'cancel')).toEqual({ committed: false })
+    expect(r.log.slice(-2)).toEqual(['raise source', 'raised source'])
+    expect(r.front()[0]).toBe('source')
+  })
+
+  it('over the body of a window its own window covers, 750 ms raises that one', () => {
+    const r = rig({ other: { x: 300, y: 200, width: 500, height: 600 }, front: ['source', 'other'] })
+    r.tear.start(r.source, r.req(true, undefined, true))
+    r.move({ x: 500, y: 600 }, 400)
+    expect(r.tear.state().raises).toBe(0)
+    r.move({ x: 500, y: 600 }, 400)
+    expect(r.tear.state()).toMatchObject({ raises: 1, front: 'other' })
+  })
+
+  it('a tab of several: the source’s body still hides the strip behind it', () => {
+    const r = rig({ other: { x: 300, y: 200, width: 500, height: 600 }, front: ['source', 'other'] })
+    r.tear.start(r.source, r.req())
+    r.move({ x: 400, y: 216 }, 400)
+    expect(r.tear.state()).toMatchObject({ over: null, enters: 0, raises: 0 })
   })
 
   it('without a carry it moves its window and merges nowhere', () => {

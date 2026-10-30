@@ -159,8 +159,11 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
     window's strip it attaches there live, exactly like any torn tab, and dropped there it MERGES (step 4). Dropped
     outside every strip, the source window ITSELF is moved (`setBounds`, its normal size; a maximized one is
     restored first) so its tab sits under the drop point, exactly where a new torn window would go
-    (`floatBounds`), and brought to the front; no window is made and the spare stays the spare. Back over its
-    own strip, or any cancel: nothing changes.
+    (`floatBounds`), and brought to the front; no window is made and the spare stays the spare. It is clear
+    (the addon's `setAlpha`) while it is restored and moved, and the ghost holds the drop point until it has
+    drawn there (review 2026-10-30: the ghost went first, and a maximized one played its restore to its old
+    place). Back over its own strip, or any cancel: nothing changes. Held by `tearOff.test.ts` and the tabTear
+    scenario (drop, snap back, Escape, blur).
   - **New window size and place**: the source's normal size, never maximized, at least half the work area when
     the source was maximized, never more than the work area less 10 DIP a side; its top never above the work
     area and 48 DIP of it always on the display. The source keeps its own state.
@@ -266,7 +269,10 @@ the emptied window closes on release.
   ghost is back under the cursor, and the same 120 ms dwell takes it in again. The two zones cannot
   meet, so it never flickers between the two.
 - **The only tab** (carried as a tab since 2026-10-30, its window staying where it is): over another window's
-  strip it attaches the same way, the ghost hidden. Released there, the tab is that window's and the emptied
+  strip it attaches the same way, the ghost hidden. Its own window hides no strip behind it while its tab is
+  carried, and the window whose strip it enters comes to the front at once (review 2026-10-30: focused, it was
+  in front of every other, so a maximized one could merge nowhere on its own monitor; tabAttach drags one over
+  window 2 with its own window in front). Released there, the tab is that window's and the emptied
   window closes, asking nothing (its unsaved text went with the tab). The tab stays marked moving until that
   window has left the registry, so its close releases nothing. Torn out again, the ghost is back; a cancel
   changes nothing.
@@ -285,8 +291,8 @@ the emptied window closes on release.
   from then on, the next tear included. A tab that goes back to its source after a raise, or a cancel, brings
   the source (still focused) to the front again. Interim number, chosen by the build: **the owner may still
   decide otherwise.**
-- **The only tab's window no longer goes clear** (2026-10-30: it stays put under the ghost). The fade and its
-  wiring in main are gone; the addon keeps `setAlpha` / `unlayer` (unused). Its drag carries no folder listing
+- **The only tab's window no longer goes clear during the drag** (2026-10-30: it stays put under the ghost);
+  only a drop that moves it does (above). Its drag carries no folder listing
   (a large folder's was cloned at the start of every such drag, review 2026-10-30); merged, the target lists
   the folder itself.
 - **Every window reports its strip** (`tabs:strip`: the strip's rect and the +'s right edge, client

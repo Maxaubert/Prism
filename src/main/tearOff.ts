@@ -59,6 +59,11 @@ import {
  *   Dropped outside every strip, THAT window is moved (normal size, a
  *   maximized one restored) so its tab sits under the drop point, exactly
  *   where a new window would go, and brought to the front; no window is made.
+ *   It is clear while it moves, and the ghost holds the drop point until it
+ *   has drawn there. That window hides no strip behind it while its tab is
+ *   carried (review 2026-10-30: a maximized one could merge nowhere on its
+ *   own monitor): a strip under it takes the tab, and its window comes to
+ *   the front at once so the tab it draws is seen.
  * - Over the source's own strip (its rect plus 8 DIP) for 120 ms, the tab
  *   attaches again: the ghost hides, and the strip carries on as a reorder.
  * - STEP 4, OVER ANY OTHER WINDOW'S STRIP (spec 1.4, 1.7) for the same 120 ms,
@@ -182,6 +187,9 @@ export interface TearDeps<W extends TearWin> {
    *  neither it nor the tab (review 2026-10-30). Without it the ghost goes at
    *  once. */
   drawn?(win: W, fn: () => void): void
+  /** A window clear (`out`) or back: the only tab's window while a drop
+   *  restores and moves it (never called under --e2e). */
+  fade?(win: W, out: boolean): void
   /** The only tab merged away: its emptied window closes, asking nothing. */
   closeEmptied?(win: W): void
   log?(event: string, fields: Record<string, string | number | boolean>): void
@@ -431,22 +439,30 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
    *  a window to draw, for a drop's wait) goes only if nothing has had the
    *  ghost since. */
   let ghostTurn = 0
-  /** The ghost goes: at once, or, given the window just shown at a drop, once
-   *  that window has drawn a frame on screen (at most `TEAR.drawnMs`). */
-  const ghostGo = (drawnBy: W | null): void => {
-    const turn = ++ghostTurn
-    if (!deps.ghost) return
-    if (!drawnBy || !deps.drawn) return deps.ghost.hide()
+  /** `fn` once `win` has drawn a frame on screen (at most `TEAR.drawnMs`
+   *  from now), or at once without a way to tell. */
+  const whenDrawn = (win: W, fn: () => void): void => {
+    if (!deps.drawn) return fn()
     let done = false
     let timer: unknown = null
     const go = (): void => {
       if (done) return
       done = true
       if (timer !== null) cancelTimer(timer)
-      if (turn === ghostTurn) deps.ghost?.hide()
+      fn()
     }
     timer = after(go, TEAR.drawnMs)
-    deps.drawn(drawnBy, go)
+    deps.drawn(win, go)
+  }
+  /** The ghost goes: at once, or, given the window just shown at a drop, once
+   *  that window has drawn a frame on screen (at most `TEAR.drawnMs`). */
+  const ghostGo = (drawnBy: W | null): void => {
+    const turn = ++ghostTurn
+    if (!deps.ghost) return
+    if (!drawnBy || !deps.drawn) return deps.ghost.hide()
+    whenDrawn(drawnBy, () => {
+      if (turn === ghostTurn) deps.ghost?.hide()
+    })
   }
   const ghostAt = (s: Session<W>): Bounds => ghostBounds(cursorOf(s), s.grab, s.tab)
   /** Out of every strip: the ghost shows under the cursor. */
@@ -505,20 +521,26 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     if (!z.includes(s.source)) z.unshift(s.source)
     s.z = z
   }
+  /** The only tab's own window: it stays where it is under the drag, but
+   *  the eye is on the ghost, so its body hides no strip behind it and is
+   *  never the window under the cursor (review 2026-10-30: focused, it was in
+   *  front of every other, and a maximized one could merge into nothing on
+   *  its monitor). Its own strip still takes the tab back. */
+  const clear = (s: Session<W>, w: W): boolean => s.kind === 'window' && w === s.source
   /** The window whose strip is under the cursor, front to back: a window's
    *  body hides every strip behind it, and so does another app's window. */
   const stripHit = (s: Session<W>, p: Point): W | null => {
     for (const w of candidates(s)) {
       const snap = snapOf(s, w)
       if (snap && inside(p, grow(snap, TEAR.snapMargin)) && !covered(p, w)) return w
-      if (inside(p, screenRect(w))) return null
+      if (!clear(s, w) && inside(p, screenRect(w))) return null
     }
     return null
   }
   /** The window the cursor is over, front-most; none where another app's
    *  window is in front of it. */
   const windowHit = (s: Session<W>, p: Point): W | null => {
-    const w = candidates(s).find((x) => inside(p, screenRect(x))) ?? null
+    const w = candidates(s).find((x) => !clear(s, x) && inside(p, screenRect(x))) ?? null
     return w && !covered(p, w) ? w : null
   }
   /** Something in front of `w` is under the point: one of the session's
@@ -526,7 +548,7 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
   const hidden = (s: Session<W>, w: W, p: Point): boolean => {
     for (const x of candidates(s)) {
       if (x === w) break
-      if (inside(p, screenRect(x))) return true
+      if (!clear(s, x) && inside(p, screenRect(x))) return true
     }
     return covered(p, w)
   }
@@ -537,24 +559,28 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     deps.raised?.(w)
   }
 
+  /** To the front without the focus, and in front for the hit test too. */
+  const raiseNow = (s: Session<W>, w: W): void => {
+    s.rdwell = null
+    s.z = [w, ...s.z.filter((x) => x !== w)]
+    counts.raises += 1
+    lift(w)
+    if (w !== s.source) s.lifted = true
+    deps.log?.('tear-raise', { tab: s.tabId, win: nameOf(w) ?? '' })
+  }
   /** THE RAISE (step 4): a window the cursor stays over for 750 ms comes to
-   *  the front, without the focus, and is in front for the hit test too. The
-   *  ghost stays above it: it is above every app. */
+   *  the front. The ghost stays above it: it is above every app. */
   const raiseStep = (s: Session<W>, p: Point): void => {
     const under = s.over ? s.over.win : windowHit(s, p)
+    // In front already. (Under the only tab's own window it is not: that one
+    // hides it on screen, if not from the hit test.)
     if (!under || candidates(s)[0] === under) {
       s.rdwell = null
       return
     }
     const step = dwellStep(s.rdwell, under, now(), TEAR.raiseMs)
     s.rdwell = step.dwell
-    if (!step.fire) return
-    s.rdwell = null
-    s.z = [under, ...s.z.filter((w) => w !== under)]
-    counts.raises += 1
-    lift(under)
-    if (under !== s.source) s.lifted = true
-    deps.log?.('tear-raise', { tab: s.tabId, win: nameOf(under) ?? '' })
+    if (step.fire) raiseNow(s, under)
   }
 
   const sendHover = (s: Session<W>, o: Over<W>, client: Point): void => {
@@ -570,6 +596,13 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     s.over = o
     s.dwell = null
     counts.enters += 1
+    // The only tab's own window lies over that strip here: the strip's window
+    // comes to the front at once, so the tab it draws is on screen when the
+    // ghost goes.
+    const z = candidates(s)
+    if (s.kind === 'window' && z.indexOf(s.source) < z.indexOf(w) && inside(cursorOf(s), screenRect(s.source))) {
+      raiseNow(s, w)
+    }
     hideGhost(s)
     deps.tell(s.source, { kind: 'over', tabId: s.tabId })
     sendHover(s, o, screenToClient(w, cursorOf(s)))
@@ -708,9 +741,15 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
   }
   /** THE ONLY TAB DROPPED OUTSIDE EVERY STRIP (owner, 2026-10-30): its own
    *  window goes where a new window would, its tab under the drop point, at
-   *  its normal size (a maximized one restored first), and to the front. */
-  const moveWindow = (s: OnlyTab<W>): void => {
+   *  its normal size (a maximized one restored first), and to the front.
+   *  It is clear while it is restored and moved, and the ghost holds the tab
+   *  at the drop point until the window has drawn there (review 2026-10-30:
+   *  the ghost went first, and a maximized window played its restore to its
+   *  old place before it jumped). `ghostUp`: the ghost was asked for. */
+  const moveWindow = (s: OnlyTab<W>, ghostUp: boolean): void => {
     const w = s.source
+    const fade = !deps.e2e && !!deps.fade
+    if (fade) deps.fade?.(w, true)
     if (w.isMaximized()) w.unmaximize()
     // Held by its frame as it is now, restored.
     s.last = null
@@ -720,6 +759,11 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     moved = b
     if (b && !deps.e2e) setBoundsSure(w, b)
     deps.reveal(w)
+    const turn = ghostUp ? ++ghostTurn : null
+    whenDrawn(w, () => {
+      if (fade && alive(w)) deps.fade?.(w, false)
+      if (turn !== null && turn === ghostTurn) deps.ghost?.hide()
+    })
     deps.log?.('tear-end', { tab: s.tabId, how: 'move', only: true })
   }
   /** End the session; answers whether a drop committed (the tab left the
@@ -739,11 +783,15 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     }
     // Any gap it had opened in another strip closes.
     if (o && alive(o.win)) deps.hover?.(o.win, null)
-    hideGhost(s)
     if (s.kind === 'window' && how === 'drop' && !o && alive(s.source)) {
-      moveWindow(s)
+      // The ghost goes once the moved window has drawn (`moveWindow`).
+      const up = s.ghost !== 'off'
+      s.ghost = 'off'
+      s.gb = null
+      moveWindow(s, up)
       return false
     }
+    hideGhost(s)
     // Nothing was handed anywhere and nothing moved: the source has the tab,
     // in front if it was, exactly as before the drag.
     counts.cancels += 1

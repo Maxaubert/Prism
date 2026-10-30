@@ -1395,6 +1395,8 @@ const tabGhost = createTabGhost<BrowserWindow>({
 const nativeWindows = (): PrismSweep | null =>
   !E2E && sweepLoaded && 'addon' in sweepLoaded ? sweepLoaded.addon : null
 const hwnds = new WeakMap<BrowserWindow, Buffer>()
+/** A window the tear made clear by the addon, and whether that made it layered. */
+const fadedByAddon = new WeakMap<BrowserWindow, boolean>()
 function hwndOf(win: BrowserWindow): Buffer {
   let h = hwnds.get(win)
   if (!h) hwnds.set(win, (h = win.getNativeWindowHandle()))
@@ -1536,6 +1538,30 @@ const tear = createTearOff<BrowserWindow>({
   drawn: (win, fn) => {
     if (win.isDestroyed()) return fn()
     win.webContents.executeJavaScript(ONE_FRAME).then(fn, fn)
+  },
+  // The only tab's window while a drop restores and moves it (review
+  // 2026-10-30: no restore animation to its old place, no frame at the new
+  // size before it has drawn). By the addon only: back, it is not layered any
+  // more, where Electron's setOpacity leaves it layered for good and a
+  // layered window loses its Mica or acrylic. Without it the move just shows.
+  fade: (win, out) => {
+    const a = nativeWindows()
+    if (!a?.setAlpha || !a.unlayer || win.isDestroyed()) return
+    try {
+      if (out) {
+        const added = a.setAlpha(hwndOf(win), 0)
+        fadedByAddon.set(win, added || fadedByAddon.get(win) === true)
+        return
+      }
+      if (!fadedByAddon.has(win)) return
+      a.setAlpha(hwndOf(win), 255)
+      if (fadedByAddon.get(win)) a.unlayer(hwndOf(win))
+      fadedByAddon.delete(win)
+    } catch {
+      // The addon failed: never leave the window clear (layered then, but seen).
+      fadedByAddon.delete(win)
+      if (!out && !win.isDestroyed()) win.setOpacity(1)
+    }
   },
   // Its tab went into another window: nothing is left in it, and its text went
   // with the tab, so it closes asking nothing. After this turn, so the page's
