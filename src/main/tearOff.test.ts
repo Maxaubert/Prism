@@ -192,6 +192,9 @@ describe('tearing a tab off (one of several)', () => {
     expect(r.spare.shown).toBe(false)
     r.tear.adopted(r.spare, { x: 0, y: 40 })
     expect(r.spare.shown).toBe(true)
+    // In front of everything as it shows, without the focus (it moved unseen
+    // behind the source: owner, 2026-10-30).
+    expect(r.log.at(-1)).toBe('raise spare')
     expect(r.told).toEqual([{ kind: 'shown', tabId: 't2' }])
     r.move({ x: 900, y: 600 }, 16)
     expect(r.spare.bounds).toMatchObject({ x: 842, y: 544, width: 1200, height: 800 })
@@ -221,7 +224,7 @@ describe('tearing a tab off (one of several)', () => {
     r.tear.adopted(r.spare, null)
     r.move({ x: 900, y: 600 }, 40)
     expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: true })
-    expect(r.log).toEqual(['adopt spare t2', 'commit spare', 'spare soon', 'reveal spare'])
+    expect(r.log).toEqual(['adopt spare t2', 'raise spare', 'commit spare', 'spare soon', 'reveal spare'])
     expect(r.moving.has('t2')).toBe(false)
     expect(r.running()).toBe(false)
     expect(r.tear.state()).toMatchObject({ phase: 'idle', commits: 1 })
@@ -297,7 +300,7 @@ describe('tearing a tab off (one of several)', () => {
     r.tear.start(r.source, r.req())
     r.tear.adopted(r.spare, null)
     expect(await r.tear.end(r.source, 'cancel')).toEqual({ committed: false })
-    expect(r.log).toEqual(['adopt spare t2', 'release spare t2 to source'])
+    expect(r.log).toEqual(['adopt spare t2', 'raise spare', 'release spare t2 to source'])
     expect(r.moving.has('t2')).toBe(false)
     // The page cancelled: it needs no word back.
     expect(r.told.filter((e) => e.kind === 'ended')).toEqual([])
