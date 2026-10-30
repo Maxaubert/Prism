@@ -13,6 +13,7 @@ import {
   type Rect,
   type StripReport,
   type TabHover,
+  type TabLook,
   type TearEvent
 } from '@shared/tabTear'
 import type { StripTear } from '../hooks/useTabTear'
@@ -24,6 +25,34 @@ import { TabKindIcon } from './icons/TabKindIcon'
 import { useTabWidth } from '../lib/tabs/tabWidthPrefs'
 import { Icon } from './icons/Icon'
 import { PATHS } from './icons/paths'
+
+/**
+ * HOW THE CARRIED TAB LOOKS, for the ghost that follows the cursor (owner,
+ * 2026-10-30: "let it just be the tab you're carrying"). The ghost is a page
+ * of its own with none of the theme, so the tab's colours go with the tear,
+ * resolved: a probe inside the tab wears the tokens the strip's lifted copy
+ * wears (TabGhost below) and the browser answers each as a plain colour.
+ */
+function tabLookOf(el: HTMLElement): TabLook | undefined {
+  try {
+    const probe = document.createElement('span')
+    probe.style.cssText =
+      'position:absolute;visibility:hidden;pointer-events:none;background-color:var(--p-tabs);color:var(--p-text);border:1px solid var(--p-divider);outline:1px solid var(--p-accent-hi)'
+    el.appendChild(probe)
+    const cs = getComputedStyle(probe)
+    const look = {
+      ground: cs.backgroundColor,
+      ink: cs.color,
+      edge: cs.borderTopColor,
+      accent: cs.outlineColor,
+      font: getComputedStyle(el).fontFamily
+    }
+    probe.remove()
+    return look
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * The open tabs, as a row under the title bar.
@@ -66,7 +95,9 @@ interface Gesture {
   phase: 'press' | 'strip' | 'torn' | 'window' | 'ending'
   /** It left the strip at least once: its end is the tear's to settle. */
   tore: boolean
-  /** Main has the floating window on screen: the chip here can go. */
+  /** Main has the ghost on screen (owner, 2026-10-30: only the tab follows
+   *  the cursor), or the tab is in another window's strip: the chip here can
+   *  go. */
   shown: boolean
   /** Settings never leaves its window. */
   tearable: boolean
@@ -209,7 +240,7 @@ export function TabStrip({
     width: number
     phase: Gesture['phase']
     /** The copy following the pointer: while it slides and pulls, and as the
-     *  chip until main's window is on screen. */
+     *  chip until main's ghost is on screen. */
     ghost: Rect | null
     /** Off the strip's line: the ghost wears a ground and a shadow. */
     lifted: boolean
@@ -263,7 +294,7 @@ export function TabStrip({
     setDrop(slotAt(ghost.left + s.size.width / 2))
   }
   /** Escape, a right-click, a lost capture, the window losing focus: put
-   *  everything back, and close the floating window (spec 1.6). */
+   *  everything back, and hide the ghost (spec 1.6). */
   const cancel = (): void => {
     const s = g.current
     if (!s || s.phase === 'ending') return
@@ -305,7 +336,9 @@ export function TabStrip({
         strip: snapTarget(s.strip, s.zone),
         point: s.pointer,
         size: s.size,
-        label: tabLabels(tabs)[s.from] ?? ''
+        label: tabLabels(tabs)[s.from] ?? '',
+        // The ghost draws it as this strip does (main checks each value).
+        look: tabLookOf(s.el)
       },
       () => {
         if (g.current === s) cancelRef.current()
@@ -442,7 +475,7 @@ export function TabStrip({
         else if (ev.kind === 'ended' && (s.phase === 'torn' || s.phase === 'window')) cancelRef.current()
         // In ANOTHER window's strip (step 4): that strip draws it, so no
         // chip follows the pointer here; torn out of it again, the chip is
-        // back until the floating window shows.
+        // back until the ghost shows.
         else if (ev.kind === 'over' && s.phase === 'torn') {
           s.shown = true
           setCarry((c) => (c ? { ...c, ghost: null } : c))
@@ -933,7 +966,7 @@ export function TabStrip({
 /**
  * THE CARRIED TAB'S COPY (tab tear-off step 3): the tab's own face, following
  * the pointer above everything. In its row it is the tab, nothing added; off
- * the row's line (pulled, or the chip before main's window is up) it takes
+ * the row's line (pulled, or the chip before main's ghost is up) it takes
  * the strip's ground and a soft shadow, so it reads as lifted rather than as
  * text loose over the page.
  */
