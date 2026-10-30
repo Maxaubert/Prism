@@ -197,11 +197,11 @@ async function smoke(service: boolean): Promise<void> {
         )
         console.error('Indexer diagnostic', args, diagnostic.stdout)
       } catch (failure) {
-        const failed = failure as { status?: number; stdout?: string; stderr?: string }
+        const failed = failure as { code?: number | string; stdout?: string; stderr?: string }
         console.error(
           'Indexer diagnostic failed',
           args,
-          failed.status,
+          failed.code,
           String(failed.stdout ?? '').slice(0, 1000),
           String(failed.stderr ?? '').slice(0, 1000)
         )
