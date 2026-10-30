@@ -90,7 +90,8 @@ exit $LASTEXITCODE
   # BOUNDED (2026-09-28, MEASURED): with -Wait this step once hung for over an
   # hour with no output at all, since the logs are only printed after the
   # child exits and the job had no time limit. The smoke's own vitest limit is
-  # 4 minutes; past 10 the child is killed, and its logs are printed either way.
+  # 8 minutes (2026-10-30: a 300 s first-index wait); past 10 the child is
+  # killed, and its logs are printed either way.
   $child = Start-Process -FilePath (Get-Command powershell.exe).Source -Credential $credential -LoadUserProfile -WindowStyle Hidden -WorkingDirectory $testRoot -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $wrapper + '"')) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
   $finished = $child.WaitForExit(600000)
   if (!$finished) { & taskkill.exe /PID $child.Id /T /F | Out-Null }
