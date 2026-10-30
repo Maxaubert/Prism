@@ -4247,7 +4247,16 @@ async function lastClosedRestoreScenario(fixtures) {
 // window. Nothing moves under --e2e (the windows stay parked); main keeps
 // where the floating window WOULD be (`__e2eTear`), and follows the page's
 // pointer instead of the system cursor. The scenario asks for the spare
-// (`PRISM_E2E_SPARE=1`), so the fast path is the one driven.
+// (`PRISM_E2E_SPARE=1`), so the fast path is the one driven. Since 2026-10-30
+// only the tab follows the cursor (owner: "let it just be the tab you're
+// carrying, that's how file explorer does it"): a tab-sized GHOST window,
+// parked and clear like every window here, shows and hides for real and keeps
+// where it would be; the floating window stays hidden, and empty, until the
+// drop. Since then too (owner, 2026-10-30: "i want those switches to happen
+// when you drop it"): the source keeps the dragged tab in front, its page on
+// screen, until a drop commits; and a window's ONLY tab is carried the same
+// way, its window moved only by a drop outside every strip ("it should be the
+// tab you drag").
 async function tabTearScenario(fixtures) {
   console.log('tabs: a tab pulled out of the strip becomes a window of its own')
   const dirB = join(fixtures, 'tear-off-b')
@@ -4304,6 +4313,16 @@ async function tabTearScenario(fixtures) {
     return { x, y, height: b.height }
   }
   const spareReady = async () => ok(await until(async () => (await tearState()).spare?.ready === true, 15000), 'the spare window is warm')
+  /** The ghost's own window: shown (parked and clear), and its would-be place. */
+  const ghostUp = async () => (await tearState()).ghostWin?.visible === true
+  const ghostGone = async (what, ms = 3000) =>
+    ok(
+      await until(async () => {
+        const t = await tearState()
+        return t.ghostWin?.visible === false && t.ghost === null
+      }, ms),
+      `${what}: the ghost is hidden (${JSON.stringify((await tearState()).ghostWin)})`
+    )
   try {
     await win.waitForSelector(`${strip} [data-tab-id="tear-notes"]`, { timeout: 15000 })
     await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
@@ -4326,8 +4345,19 @@ async function tabTearScenario(fixtures) {
     // THE TEAR: fully out of the strip, the tab is in a window of its own.
     const spareKey = (await tearState()).spare?.key
     const sourceSize = await mainWin(app, 'getNormalBounds')
+    ok(await until(async () => (await tearState()).ghostWin?.ready === true, 10000), 'the ghost is warm with the spare')
+    ok((await tearState()).ghostWin?.visible === false, 'and hidden before any tear')
+    const tabLabel = ((await win.locator(`${strip} [data-tab-id="tear-b"] [role="tab"]`).textContent()) ?? '').trim()
+    const tabBox = await win.locator(`${strip} [data-tab-id="tear-b"]`).boundingBox()
+    // Tab B in front, showing its folder, before it is torn off.
+    await win.locator(`${strip} [data-tab-id="tear-b"] [role="tab"]`).click()
+    ok(await until(async () => (await selected(win)) === 'tear-b', 3000), 'tab B is in front before the tear')
+    ok(await until(async () => (await listRow(win, 'b1.txt').count()) > 0, 10000), 'showing its folder')
     await carry(win, 'tear-b', 44, { release: false })
     ok(await until(async () => (await tearState()).phase === 'float', 3000), 'pulled fully out, the tab tears off')
+    // THE SELECTION CHANGES ONLY AT THE DROP (owner, 2026-10-30).
+    ok((await selected(win)) === 'tear-b', `during the drag the source keeps the dragged tab selected (${await selected(win)})`)
+    ok((await listRow(win, 'b1.txt').count()) > 0, 'and its page on screen')
     const floating = await tearState()
     ok(floating.tabId === 'tear-b', `the floating window carries that tab (${floating.tabId})`)
     ok(
@@ -4336,21 +4366,35 @@ async function tabTearScenario(fixtures) {
     )
     const torn = await pageOf(spareKey)
     ok(!!torn, 'the floating window is the warm spare')
+    ok(!!torn && (await ids(torn)).length === 0, 'handed nothing during the drag: the tab is live in the source')
+    // ONLY THE TAB FOLLOWS THE CURSOR (owner, 2026-10-30): the ghost shows,
+    // the floating window stays hidden.
+    ok(await until(async () => (await tearState()).shown === true, 5000), 'the ghost shows under the pointer')
+    const up = await tearState()
+    ok(up.ghostWin?.visible === true, `its own window is shown, parked (${JSON.stringify(up.ghostWin)})`)
     ok(
-      !!torn && (await until(async () => JSON.stringify(await ids(torn)) === '["tear-b"]', 5000)),
-      'and its page holds the same tab, by the same id'
+      !!up.ghost && Math.abs(up.ghost.width - tabBox.width) <= 1 && Math.abs(up.ghost.height - tabBox.height) <= 1,
+      `the tab's own size (${JSON.stringify(up.ghost)} for a ${tabBox.width}x${tabBox.height} tab)`
     )
-    ok(await until(async () => (await tearState()).shown === true, 5000), 'and it is shown under the pointer')
+    ok(up.spare?.visible === false, `the floating window stays hidden during the drag (${JSON.stringify(up.spare)})`)
+    const painted = await app.evaluate(() => globalThis.__e2eGhostLabel())
+    ok(painted === tabLabel, `the ghost draws the tab's label (${JSON.stringify(painted)} vs ${JSON.stringify(tabLabel)})`)
     // It follows the pointer: main places it from the page's moves.
     const firstAt = (await tearState()).bounds
+    const ghostAt = (await tearState()).ghost
     await win.mouse.move(400, 300, { steps: 6 })
     ok(
       await until(async () => {
-        const b = (await tearState()).bounds
-        return !!b && !!firstAt && (b.x !== firstAt.x || b.y !== firstAt.y)
+        const t = await tearState()
+        const b = t.bounds
+        const g = t.ghost
+        return !!b && !!firstAt && (b.x !== firstAt.x || b.y !== firstAt.y) && !!g && !!ghostAt && (g.x !== ghostAt.x || g.y !== ghostAt.y)
       }, 2000),
-      'the floating window follows the pointer'
+      'the ghost follows the pointer, and so does where the window would go'
     )
+    const followed = await tearState()
+    ok(followed.ghostWin?.visible === true && followed.spare?.visible === false, 'still only the ghost on screen')
+    ok((await selected(win)) === 'tear-b', 'and the source still has the dragged tab in front')
     await win.mouse.up()
     let list = []
     ok(
@@ -4362,6 +4406,18 @@ async function tabTearScenario(fixtures) {
     )
     const newRec = list.find((w) => w.key === spareKey)
     ok(JSON.stringify(newRec?.tabs) === '["tear-b"]', `the new window holds that tab (${newRec?.tabs})`)
+    ok(
+      !!torn && (await until(async () => JSON.stringify(await ids(torn)) === '["tear-b"]', 5000)),
+      'and its page holds the same tab, by the same id'
+    )
+    ok(
+      await until(async () => (await selected(win)) === 'tear-d', 3000),
+      `only now does the source's neighbour take the front (${await selected(win)})`
+    )
+    ok(await until(async () => (await listRow(win, 'd1.txt').count()) > 0, 10000), 'its page showing')
+    await ghostGone('dropped')
+    const newShown = await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.isVisible() ?? null, newRec?.id)
+    ok(newShown === true, `and the new window is shown (${newShown})`)
     ok(await until(async () => !(await ids(win)).includes('tear-b'), 3000), 'and the source strip lost it')
     ok(!list.find((w) => w.first)?.tabs.includes('tear-b'), 'in main as well')
     const placed = await app.evaluate(({ BrowserWindow }, id) => {
@@ -4393,27 +4449,37 @@ async function tabTearScenario(fixtures) {
       await until(async () => (await tearState()).attaches === attaches + 1, 3000),
       'held over its own strip, it attaches again'
     )
-    ok((await tearState()).phase === 'idle', 'the floating window is gone')
+    ok((await tearState()).phase === 'idle', 'the carry is the strip\'s again')
+    await ghostGone('snapped back')
     await win.mouse.up()
     await sleep(400)
     ok((await e2eWindows(app)).length === 2, 'no window was made')
     ok((await ids(win)).includes('tear-d'), 'the tab is back in its strip')
-    ok(await until(async () => (await selected(win)) === 'tear-d', 3000), 'and selected')
+    ok((await selected(win)) === 'tear-home', `and the front is as it was: a snap back changes no selection (${await selected(win)})`)
 
-    // ESCAPE MID-DRAG: everything as it was.
+    // ESCAPE MID-DRAG: everything as it was. Tab D in front this time: it
+    // stays in front all through the drag, and the cancel changes nothing.
     await spareReady()
-    await win.locator(`${strip} [data-tab-id="tear-home"] [role="tab"]`).click()
+    await win.locator(`${strip} [data-tab-id="tear-d"] [role="tab"]`).click()
+    ok(await until(async () => (await selected(win)) === 'tear-d', 3000), 'tab D in front')
     const order = await ids(win)
     await carry(win, 'tear-d', 44, { release: false })
     ok(await until(async () => (await tearState()).phase === 'float', 3000), 'tab D tears off again')
     const cancels = (await tearState()).cancels
+    ok(await until(ghostUp, 3000), 'the ghost is up')
+    ok((await selected(win)) === 'tear-d', `the source keeps it selected (${await selected(win)})`)
+    ok((await listRow(win, 'd1.txt').count()) > 0, 'and its page on screen')
     await win.keyboard.press('Escape')
     ok(await until(async () => (await tearState()).cancels === cancels + 1, 3000), 'Escape cancels the tear')
+    await ghostGone('Escape')
     await win.mouse.up()
     await sleep(400)
     ok((await e2eWindows(app)).length === 2, 'no window was made')
     ok(JSON.stringify(await ids(win)) === JSON.stringify(order), `the tab is back in its place (${await ids(win)})`)
-    ok((await selected(win)) === 'tear-home', 'and the tab in front is the one that was')
+    ok((await selected(win)) === 'tear-d', 'and the tab in front is the one that was')
+    ok((await listRow(win, 'd1.txt').count()) > 0, 'its page still on screen')
+    await win.locator(`${strip} [data-tab-id="tear-home"] [role="tab"]`).click()
+    ok(await until(async () => (await selected(win)) === 'tear-home', 3000), 'the home tab in front again')
 
     // A RIGHT-CLICK MID-DRAG cancels the same way, and opens no menu.
     await spareReady()
@@ -4421,8 +4487,11 @@ async function tabTearScenario(fixtures) {
     await carry(win, 'tear-d', 44, { release: false })
     ok(await until(async () => (await tearState()).phase === 'float', 3000), 'tab D tears off for a right-click')
     const cancels2 = (await tearState()).cancels
+    ok(await until(ghostUp, 3000), 'the ghost is up')
+    ok((await selected(win)) === 'tear-home', 'a tab in the background stays there: the front does not change during the drag')
     await win.mouse.down({ button: 'right' })
     ok(await until(async () => (await tearState()).cancels === cancels2 + 1, 3000), 'a right-click cancels the tear')
+    await ghostGone('a right-click')
     await win.mouse.up({ button: 'right' })
     await win.mouse.up()
     await sleep(400)
@@ -4514,8 +4583,14 @@ async function tabTearScenario(fixtures) {
     if (ready) console.log('  (a spare was ready again already: the fast path ran, not the fresh one)')
     await carry(win, extra[1], 44, { release: false })
     ok(await until(async () => (await tearState()).phase === 'float', 3000), 'the next tab tears off with no spare ready')
+    ok(await until(ghostUp, 3000), 'the ghost follows it all the same (it does not wait for the window)')
     await win.mouse.up()
-    const waited = (await tearState()).waiting
+    const atDrop = await tearState()
+    const waited = atDrop.waiting
+    // While the drop waits, the ghost stays where it was dropped, holding the
+    // tab (review 2026-10-30): read in one go, so never a race.
+    ok(!atDrop.waiting || atDrop.ghostWin?.visible === true, `the ghost holds the tab while the drop waits (${JSON.stringify(atDrop.ghostWin)})`)
+    await ghostGone('the late drop', 15000)
     console.log(`  (the drop ${waited ? 'waited for the fresh page' : 'found the page ready'})`)
     // A window OTHER than the source: until the drop commits, the source
     // still lists the tab, and is not the window this is about.
@@ -4545,24 +4620,470 @@ async function tabTearScenario(fixtures) {
     )
     ok((await tearState()).waiting === false, 'nothing is left waiting')
 
-    // THE ONLY TAB MOVES ITS WHOLE WINDOW: no second window.
+    // THE ONLY TAB IS CARRIED AS A TAB (owner, 2026-10-30: "it should be the
+    // tab you drag"): the ghost follows, its window stays where it is, and a
+    // drop outside every strip moves that window so its tab sits under the
+    // drop point; no second window.
+    // (That its window stays put during the drag, and where a real move puts
+    // it, are tearOff.test.ts's: under --e2e no window is ever moved.)
     const count = (await e2eWindows(app)).length
-    const tears = (await tearState()).tears
+    const t0 = await tearState()
+    const tornFrame = await app.evaluate(({ BrowserWindow }, id) => {
+      const w = BrowserWindow.fromId(id)
+      const b = w.getBounds()
+      const c = w.getContentBounds()
+      return { x: c.x - b.x, y: c.y - b.y }
+    }, newRec?.id)
+    const tornTab = await torn.locator(`${strip} [data-tab-id="tear-b"]`).boundingBox()
     await carry(torn, 'tear-b', 44, { release: false })
-    ok(await until(async () => (await tearState()).phase === 'window', 3000), "the window's only tab moves the window")
+    ok(await until(async () => (await tearState()).phase === 'window', 3000), "the window's only tab tears off")
     const moving = await tearState()
-    ok(moving.tears === tears + 1 && moving.tabId === 'tear-b', 'as a tear of that tab')
-    ok(!!moving.bounds, `main places the window under the pointer (${JSON.stringify(moving.bounds)})`)
+    ok(moving.tears === t0.tears + 1 && moving.tabId === 'tear-b', 'as a tear of that tab')
+    ok(await until(ghostUp, 3000), 'its ghost follows the pointer, as for any torn tab')
+    ok(await until(async () => (await tearState()).shown === true, 3000), 'and is on screen')
+    ok((await tearState()).spare?.visible !== true, `no other window shows (${JSON.stringify((await tearState()).spare)})`)
+    await torn.mouse.move(300, 260, { steps: 6 })
+    await sleep(300)
+    const during = await tearState()
+    ok(!!during.bounds && !!during.ghost, `main works out where the window would go, and moves the ghost (${JSON.stringify(during.bounds)})`)
+    ok(during.moves === t0.moves, 'and nothing was moved yet')
+    ok((await selected(torn)) === 'tear-b', 'still showing its tab')
     await torn.mouse.up()
     ok(await until(async () => (await tearState()).phase === 'idle', 3000), 'released, it stops')
+    const dropped = await tearState()
+    ok(dropped.moves === t0.moves + 1, `dropped outside every strip, its window is moved (${dropped.moves})`)
+    // Its tab (frame, then its place in the strip) lands exactly where the
+    // ghost drew it at the drop: two different sums, one answer.
+    const landed = dropped.moved && { x: dropped.moved.x + tornFrame.x + tornTab.x, y: dropped.moved.y + tornFrame.y + tornTab.y }
+    ok(
+      !!landed && !!during.ghost && Math.abs(landed.x - during.ghost.x) <= 1 && Math.abs(landed.y - during.ghost.y) <= 1,
+      `to where its tab sits under the drop point, where the ghost was (${JSON.stringify(landed)} vs ${JSON.stringify(during.ghost)})`
+    )
+    await ghostGone('the only tab dropped')
     ok((await e2eWindows(app)).length === count, 'and no window was made')
     ok(JSON.stringify(await ids(torn)) === '["tear-b"]', 'the window still holds its tab')
+    ok((await selected(torn)) === 'tear-b', 'in front')
+    // Escape mid-drag: nothing moves, nothing changes.
+    await carry(torn, 'tear-b', 44, { release: false })
+    ok(await until(async () => (await tearState()).phase === 'window', 3000), 'the only tab tears off again')
+    const c1 = (await tearState()).cancels
+    await torn.keyboard.press('Escape')
+    ok(await until(async () => (await tearState()).cancels === c1 + 1, 3000), 'Escape cancels it')
+    await torn.mouse.up()
+    await ghostGone('the only tab, Escape')
+    ok((await tearState()).moves === dropped.moves, 'its window was not moved')
+    ok(JSON.stringify(await ids(torn)) === '["tear-b"]' && (await selected(torn)) === 'tear-b', 'and still holds its tab, in front')
+    // ITS SNAP BACK: out, then back over its own strip, and released there.
+    const tornStrip = await torn.locator(strip).boundingBox()
+    const home = await carry(torn, 'tear-b', 44, { release: false })
+    ok(await until(async () => (await tearState()).phase === 'window', 3000), 'the only tab tears off for a snap back')
+    ok(await until(ghostUp, 3000), 'its ghost follows')
+    const a1 = (await tearState()).attaches
+    await torn.mouse.move(home.x + 20, tornStrip.y + tornStrip.height / 2, { steps: 8 })
+    ok(await until(async () => (await tearState()).attaches === a1 + 1, 3000), 'held over its own strip, it attaches again')
+    await ghostGone('the only tab snapped back')
+    await torn.mouse.up()
+    await sleep(300)
+    ok((await tearState()).moves === dropped.moves, 'its window was not moved')
+    ok(JSON.stringify(await ids(torn)) === '["tear-b"]' && (await selected(torn)) === 'tear-b', 'it still holds its tab, in front')
+    // THE WINDOW LOSING THE FOCUS cancels it (spec 1.6): nothing moves.
+    await carry(torn, 'tear-b', 44, { release: false })
+    ok(await until(async () => (await tearState()).phase === 'window', 3000), 'the only tab tears off once more')
+    const c2 = (await tearState()).cancels
+    await torn.evaluate(() => window.dispatchEvent(new Event('blur')))
+    ok(await until(async () => (await tearState()).cancels === c2 + 1, 3000), 'the window losing the focus cancels it')
+    await torn.mouse.up()
+    await ghostGone('the only tab, blur')
+    ok((await tearState()).moves === dropped.moves, 'its window was not moved')
+    ok(JSON.stringify(await ids(torn)) === '["tear-b"]' && (await selected(torn)) === 'tear-b', 'and it still holds its tab, in front')
 
     // Nothing asks on the way out.
     for (const p of app.windows()) await p.evaluate(() => window.prism.setDirty(false)).catch(() => {})
   } finally {
     await app.close().catch(() => {})
     for (const d of [dirB, dirD, dirN]) rmSync(d, { recursive: true, force: true })
+  }
+}
+
+// ATTACH INTO ANY WINDOW (tab tear-off step 4, owner, 2026-10-29; spec
+// section 1, points 4, 5 and 7). A torn tab over ANOTHER Prism window's strip
+// attaches there live (that strip opens a gap at the slot under it), a drop
+// commits it there, moving away tears it off again, Escape puts everything
+// back, and a window's only tab dropped there merges and its window closes.
+// Every window is parked at the same place, so main is told where window 2
+// PRETENDS to be (`__e2eTearAt`, an offset from where the source is read), and
+// the source page's pointer is aimed at window 2's strip through that offset:
+// the same page-pointer mapping as tabTear.
+async function tabAttachScenario(fixtures) {
+  console.log('tabs: a torn tab attaches into another window')
+  const dirA = join(fixtures, 'attach-a')
+  const dirB = join(fixtures, 'attach-b')
+  for (const d of [dirA, dirB]) {
+    rmSync(d, { recursive: true, force: true })
+    mkdirSync(d, { recursive: true })
+  }
+  writeFileSync(join(dirA, 'a1.txt'), 'a1')
+  writeFileSync(join(dirB, 'b1.txt'), 'b1')
+  writeTabs({
+    active: 0,
+    tabs: [
+      explorerTab('att-home', fixtures, fixtures, true),
+      explorerTab('att-a', dirA, dirA, false),
+      explorerTab('att-b', dirB, dirB, false)
+    ]
+  })
+  const env = { PRISM_E2E_HOME: join(fixtures, 'code'), PRISM_E2E_SPARE: '1' }
+  const { app, win } = await launchWith(env, dirA, true)
+  const strip = '[role="tablist"]'
+  const ids = (page) => page.locator(`${strip} [data-tab-id]`).evaluateAll((els) => els.map((e) => e.getAttribute('data-tab-id')))
+  const selected = (page) =>
+    page.locator(`${strip} [data-tab-id]`).evaluateAll((els) =>
+      els.find((e) => e.querySelector('[role="tab"]')?.getAttribute('aria-selected') === 'true')?.getAttribute('data-tab-id') ?? null
+    )
+  const tearState = () => app.evaluate(() => globalThis.__e2eTear())
+  const held = (id) => app.evaluate((_e, t) => globalThis.__e2eTabHeld(t), id)
+  /** A window's frame: where its page's (0, 0) is inside it. */
+  const frameOf = (id) =>
+    app.evaluate(({ BrowserWindow }, i) => {
+      const w = BrowserWindow.fromId(i)
+      const b = w.getBounds()
+      const c = w.getContentBounds()
+      return { x: c.x - b.x, y: c.y - b.y }
+    }, id)
+  // Window 2 pretends to sit here, relative to where a source is read.
+  const OFF = { x: 120, y: 260 }
+  /** A point in window 2's page, as a point in `fromId`'s page (unplaced: read at 0, 0). */
+  const aim = async (fromId, toId, p) => {
+    const [f, t] = [await frameOf(fromId), await frameOf(toId)]
+    return { x: p.x + OFF.x + t.x - f.x, y: p.y + OFF.y + t.y - f.y }
+  }
+  /** Press a tab by its middle and pull it fully out of the strip (not released). */
+  const tearOff = async (page, id) => {
+    const b = await page.locator(`${strip} [data-tab-id="${id}"]`).boundingBox()
+    const x = b.x + b.width / 2
+    const y = b.y + b.height / 2
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x, y + 44, { steps: 14 })
+    return { x, y: y + 44 }
+  }
+  const spareReady = async () => ok(await until(async () => (await tearState()).spare?.ready === true, 15000), 'the spare window is warm')
+  const incoming = (page) => page.locator('[data-tab-incoming]').count()
+  try {
+    await win.waitForSelector(`${strip} [data-tab-id="att-b"]`, { timeout: 15000 })
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    // WINDOW 2, with two tabs of its own.
+    const win2 = await openSecondWindow(app)
+    await win2.waitForSelector(`${strip} [data-tab-role]`, { timeout: 10000 })
+    await win2.locator(`${strip} [aria-label="New tab"]`).click()
+    ok(await until(async () => (await ids(win2)).length === 2, 5000), 'window 2 has two tabs')
+    const list0 = await e2eWindows(app)
+    const one = list0.find((w) => w.first)
+    const two = list0.find((w) => !w.first)
+    ok(!!one && !!two, 'two windows of the session')
+    await app.evaluate((_e, [i, at]) => globalThis.__e2eTearAt(i, at), [two.id, OFF])
+    let reported = null
+    ok(
+      await until(async () => !!(reported = await app.evaluate((_e, i) => globalThis.__e2eStrip(i), two.id)), 5000),
+      `every window reports its strip to main (${JSON.stringify(reported)})`
+    )
+    const view = await win.evaluate(() => ({ w: innerWidth, h: innerHeight }))
+    ok(view.h > OFF.y + 140 && view.w > OFF.x + 400, `window 1 is big enough to aim at window 2's strip through it (${JSON.stringify(view)})`)
+    await spareReady()
+    const spareKey = (await tearState()).spare?.key
+
+    // INTO WINDOW 2'S STRIP, at the slot between its two tabs. Tab A in front
+    // of window 1: it stays in front there until the drop (owner, 2026-10-30).
+    const w2tabs = await ids(win2)
+    const second = await win2.locator(`${strip} [data-tab-id="${w2tabs[1]}"]`).boundingBox()
+    const between = { x: second.x + 6, y: second.y + second.height / 2 }
+    await win.locator(`${strip} [data-tab-id="att-a"] [role="tab"]`).click()
+    ok(await until(async () => (await selected(win)) === 'att-a', 3000), 'tab A in front of window 1')
+    const w2front = await selected(win2)
+    await tearOff(win, 'att-a')
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'tab A tears off window 1')
+    ok(await until(async () => (await tearState()).shown === true, 5000), 'only its ghost follows the pointer')
+    const t0 = await tearState()
+    ok(t0.ghostWin?.visible === true && t0.spare?.visible === false, `the ghost shown, the floating window hidden (${JSON.stringify({ g: t0.ghostWin, s: t0.spare })})`)
+    const at = await aim(one.id, two.id, between)
+    await win.mouse.move(at.x, at.y, { steps: 10 })
+    ok(await until(async () => (await tearState()).over === two.key, 3000), "held over window 2's strip, it attaches there, live")
+    const live = await tearState()
+    ok(live.phase === 'float' && live.enters === t0.enters + 1 && live.attaches === t0.attaches, `as a hover in that strip, not a snap back (${JSON.stringify(live)})`)
+    ok(live.shown === false && live.ghost === null, 'the ghost has gone: that strip draws the tab')
+    ok(await until(async () => (await tearState()).ghostWin?.visible === false, 3000), 'its window hidden')
+    const floatingVisible = await app.evaluate(
+      ({ BrowserWindow }, page) => BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w.webContents.id === page)?.isVisible() ?? null,
+      live.spare?.page
+    )
+    ok(floatingVisible === false, `hidden, not just moved (${floatingVisible})`)
+    ok(await until(async () => (await incoming(win2)) === 1, 3000), "window 2's strip draws the tab")
+    ok(await until(async () => (await tearState()).slot === 1, 3000), `at the slot under the pointer (${(await tearState()).slot})`)
+    const gap = await win2
+      .locator(`${strip} [data-tab-id="${w2tabs[1]}"]`)
+      .evaluate((el) => getComputedStyle(el).transform)
+    ok(/matrix\(1, 0, 0, 1, (?!0[,)])[\d.]+/.test(gap), `and its neighbour makes room (${gap})`)
+    ok((await ids(win)).includes('att-a'), `window 1 still holds it until the drop (${await ids(win)})`)
+    ok((await selected(win)) === 'att-a', `in front there still (${await selected(win)})`)
+    ok((await selected(win2)) === w2front, "and window 2's front has not changed either")
+    await win.mouse.up()
+    ok(
+      await until(async () => JSON.stringify(await ids(win2)) === JSON.stringify([w2tabs[0], 'att-a', w2tabs[1]]), 5000),
+      `dropped, it lands in window 2 at that slot, by the same id (${await ids(win2)})`
+    )
+    ok(await until(async () => (await selected(win2)) === 'att-a', 3000), 'selected there')
+    ok(await until(async () => !(await ids(win)).includes('att-a'), 3000), 'window 1 lost it')
+    ok(await until(async () => (await selected(win)) === 'att-b', 3000), `and only now does its neighbour take window 1's front (${await selected(win)})`)
+    let list = await e2eWindows(app)
+    ok(list.length === 2, `no window was made (${list.length})`)
+    ok(list.find((w) => w.key === two.key)?.tabs.includes('att-a') && !list.find((w) => w.first)?.tabs.includes('att-a'), 'in main as well')
+    ok(await until(async () => (await incoming(win2)) === 0, 3000), 'and the gap is filled, not drawn twice')
+    const after1 = await tearState()
+    ok(after1.merges === t0.merges + 1 && after1.phase === 'idle', `one merge (${JSON.stringify(after1)})`)
+    ok(after1.spare?.key === spareKey, 'the floating window is the spare again')
+    ok(after1.ghostWin?.visible === false && after1.ghost === null, 'and the ghost is hidden')
+    // THE SAME TAB: its grants were never let go, and its folder watch works
+    // in window 2.
+    ok((await held('att-a')).released === false, 'its grants were never let go')
+    ok(await until(async () => (await listRow(win2, 'a1.txt').count()) > 0, 10000), 'window 2 shows its folder')
+    ok(await until(async () => (await held('att-a')).watching, 5000), 'its folder is watched')
+    writeFileSync(join(dirA, 'arrived-after-attach.txt'), 'new')
+    ok(
+      await until(async () => (await listRow(win2, 'arrived-after-attach.txt').count()) > 0, 10000),
+      'a file made in its folder appears in window 2'
+    )
+
+    // HOVER, THEN AWAY AGAIN: it tears off again (the same hysteresis).
+    await spareReady()
+    const w2now = await ids(win2)
+    // What window 1 looks like before this carry: Escape must give exactly this back.
+    const order1 = await ids(win)
+    const front1 = await selected(win)
+    await tearOff(win, 'att-b')
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'tab B tears off window 1')
+    ok(await until(async () => (await tearState()).shown === true, 5000), 'its ghost follows the pointer')
+    const t1 = await tearState()
+    const end = await win2.locator(`${strip} [data-tab-id="${w2now[0]}"]`).boundingBox()
+    const first = { x: end.x + 6, y: end.y + end.height / 2 }
+    const over = await aim(one.id, two.id, first)
+    await win.mouse.move(over.x, over.y, { steps: 10 })
+    ok(await until(async () => (await tearState()).over === two.key, 3000), "over window 2's strip it attaches")
+    ok(await until(async () => (await incoming(win2)) === 1, 3000), 'and window 2 draws it')
+    ok(await until(async () => (await tearState()).ghostWin?.visible === false, 3000), 'the ghost hides there')
+    await win.mouse.move(over.x, over.y + 70, { steps: 8 })
+    ok(
+      await until(async () => {
+        const s = await tearState()
+        return s.over === null && s.leaves === t1.leaves + 1 && s.phase === 'float' && s.shown === true
+      }, 3000),
+      'pulled away again, it tears off again, the ghost back'
+    )
+    const again = await tearState()
+    ok(again.ghostWin?.visible === true && again.spare?.visible === false, `its window shown again, the floating window still hidden (${JSON.stringify({ g: again.ghostWin, s: again.spare })})`)
+    ok(await until(async () => (await incoming(win2)) === 0, 3000), "and window 2's gap closes")
+    // ESCAPE OVER WINDOW 2: everything back where it was.
+    await win.mouse.move(over.x, over.y, { steps: 8 })
+    ok(await until(async () => (await tearState()).over === two.key, 3000), 'back over window 2, it attaches again')
+    const c0 = (await tearState()).cancels
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await tearState()).cancels === c0 + 1, 3000), 'Escape cancels it there')
+    ok(await until(async () => (await tearState()).ghostWin?.visible === false, 3000), 'and the ghost stays hidden')
+    await win.mouse.up()
+    await sleep(400)
+    ok((await tearState()).phase === 'idle', 'the carry is over')
+    ok(await until(async () => (await incoming(win2)) === 0, 3000), "window 2's gap closes")
+    ok(JSON.stringify(await ids(win2)) === JSON.stringify(w2now), `window 2 is as it was (${await ids(win2)})`)
+    ok(JSON.stringify(await ids(win)) === JSON.stringify(order1), `window 1 has the tab back in its place (${await ids(win)})`)
+    ok((await selected(win)) === front1, 'and the tab in front is the one that was')
+    ok((await e2eWindows(app)).length === 2, 'no window was made')
+
+    // A RIGHT-CLICK OVER WINDOW 2 cancels as well (review 2026-10-30).
+    await spareReady()
+    await tearOff(win, 'att-b')
+    ok(await until(async () => (await tearState()).shown === true, 5000), 'tab B tears off for a right-click over window 2')
+    await win.mouse.move(over.x, over.y, { steps: 10 })
+    ok(await until(async () => (await tearState()).over === two.key, 3000), 'over window 2 it attaches')
+    ok(await until(async () => (await incoming(win2)) === 1, 3000), 'window 2 draws it')
+    const rc0 = (await tearState()).cancels
+    await win.mouse.down({ button: 'right' })
+    ok(await until(async () => (await tearState()).cancels === rc0 + 1, 3000), 'a right-click there cancels it')
+    await win.mouse.up({ button: 'right' })
+    await win.mouse.up()
+    await sleep(400)
+    ok(await until(async () => (await incoming(win2)) === 0, 3000), "window 2's gap closes")
+    ok(JSON.stringify(await ids(win2)) === JSON.stringify(w2now), `window 2 is as it was (${await ids(win2)})`)
+    ok(JSON.stringify(await ids(win)) === JSON.stringify(order1), `window 1 has the tab back (${await ids(win)})`)
+
+    // WINDOW 2 HIDDEN UNDER THE DRAG (review 2026-10-30): the tab tears out of
+    // its strip, a hidden window takes nothing, and shown again it takes it.
+    await spareReady()
+    await tearOff(win, 'att-b')
+    ok(await until(async () => (await tearState()).shown === true, 5000), 'tab B tears off again')
+    await win.mouse.move(over.x, over.y, { steps: 10 })
+    ok(await until(async () => (await tearState()).over === two.key, 3000), 'over window 2 it attaches')
+    const h0 = await tearState()
+    await app.evaluate(({ BrowserWindow }, i) => BrowserWindow.fromId(i)?.hide(), two.id)
+    ok(
+      await until(async () => {
+        const s = await tearState()
+        return s.over === null && s.leaves === h0.leaves + 1 && s.shown === true
+      }, 3000),
+      'window 2 hidden: the tab tears out of its strip, the ghost back'
+    )
+    await win.mouse.move(over.x + 2, over.y, { steps: 2 })
+    await sleep(500)
+    ok((await tearState()).enters === h0.enters, 'a hidden window takes nothing')
+    await app.evaluate(({ BrowserWindow }, i) => BrowserWindow.fromId(i)?.showInactive(), two.id)
+    ok(await until(async () => (await tearState()).over === two.key, 3000), 'shown again, it takes the tab')
+    const hc0 = (await tearState()).cancels
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await tearState()).cancels === hc0 + 1, 3000), 'Escape cancels it')
+    await win.mouse.up()
+    await sleep(400)
+    ok(await until(async () => (await incoming(win2)) === 0, 3000), "window 2's gap closes")
+    ok(JSON.stringify(await ids(win)) === JSON.stringify(order1), `window 1 has the tab back (${await ids(win)})`)
+
+    // THE ONLY TAB: a third window's one tab over window 2's strip; Escape
+    // first (everything stays), then a drop (it merges, the window closes).
+    const win3 = await openSecondWindow(app)
+    await win3.waitForSelector(`${strip} [data-tab-role]`, { timeout: 10000 })
+    list = await e2eWindows(app)
+    const three = list.find((w) => w.key !== one.key && w.key !== two.key)
+    ok(list.length === 3 && !!three && three.tabs.length === 1, `a third window with one tab (${JSON.stringify(list.map((w) => w.tabs))})`)
+    const only = three.tabs[0]
+    const w2before = await ids(win2)
+    const last = await win2.locator(`${strip} [data-tab-id="${w2before.at(-1)}"]`).boundingBox()
+    const atEnd = { x: last.x + last.width - 4, y: last.y + last.height / 2 }
+    const aimed = await aim(three.id, two.id, atEnd)
+    // Carried as a tab (owner, 2026-10-30: "it should be the tab you drag"):
+    // the ghost follows, its window stays. That window is in front (the
+    // newest), and every parked window is read at the same place, so it lies
+    // over window 2's strip, as a maximized one would on screen: its body
+    // hides nothing while its tab is carried (review 2026-10-30), and window 2
+    // comes to the front as the tab enters its strip.
+    await tearOff(win3, only)
+    ok(await until(async () => (await tearState()).phase === 'window', 3000), 'the only tab tears off')
+    ok((await tearState()).front === three.key, `its own window is in front (${(await tearState()).front})`)
+    ok(await until(async () => (await tearState()).shown === true, 5000), 'its ghost follows the pointer')
+    ok((await tearState()).ghostWin?.visible === true, 'the ghost window shown')
+    const rz0 = (await tearState()).raises
+    await win3.mouse.move(aimed.x, aimed.y, { steps: 10 })
+    ok(await until(async () => (await tearState()).over === two.key, 3000), "over window 2's strip, under its own window, its tab attaches there")
+    ok((await tearState()).raises === rz0 + 1 && (await tearState()).front === two.key, `and window 2 comes to the front (${(await tearState()).front})`)
+    ok(await until(async () => (await tearState()).ghostWin?.visible === false, 3000), 'the ghost hides: that strip draws the tab')
+    ok(await until(async () => (await incoming(win2)) === 1, 3000), 'window 2 draws it')
+    ok((await tearState()).moves === 0, 'and no window was moved')
+    await win3.keyboard.press('Escape')
+    ok(await until(async () => (await tearState()).phase === 'idle', 3000), 'Escape ends it')
+    await win3.mouse.up()
+    await sleep(400)
+    ok(await until(async () => (await incoming(win2)) === 0, 3000), "window 2's gap closes")
+    ok(JSON.stringify(await ids(win2)) === JSON.stringify(w2before), 'window 2 is as it was')
+    ok(JSON.stringify(await ids(win3)) === JSON.stringify([only]), 'the third window keeps its tab')
+    ok((await selected(win3)) === only, 'in front')
+    ok((await e2eWindows(app)).length === 3, 'and stays open')
+    ok((await tearState()).moves === 0, 'and was not moved')
+    const m0 = (await tearState()).merges
+    await tearOff(win3, only)
+    ok(await until(async () => (await tearState()).phase === 'window', 3000), 'the only tab tears off again')
+    ok(await until(async () => (await tearState()).shown === true, 5000), 'the ghost follows it')
+    await win3.mouse.move(aimed.x, aimed.y, { steps: 10 })
+    ok(await until(async () => (await tearState()).over === two.key, 3000), "and attaches to window 2's strip")
+    ok(await until(async () => (await tearState()).ghostWin?.visible === false, 3000), 'the ghost hidden there')
+    ok(await until(async () => (await tearState()).slot === w2before.length, 3000), `at the end (${(await tearState()).slot})`)
+    await win3.mouse.up()
+    ok(
+      await until(async () => JSON.stringify(await ids(win2)) === JSON.stringify([...w2before, only]), 5000),
+      `dropped, it is window 2's, by the same id (${await ids(win2)})`
+    )
+    ok(await until(async () => (await selected(win2)) === only, 3000), 'selected there')
+    ok(await until(async () => (await e2eWindows(app)).length === 2, 5000), 'and its emptied window closed')
+    ok((await tearState()).merges === m0 + 1, 'one merge')
+    ok((await tearState()).moves === 0, 'no window was moved')
+    ok((await tearState()).ghostWin?.visible === false, 'and the ghost is hidden')
+    ok((await held(only)).released === false, "the merged tab's grants were never let go")
+    ok(
+      await until(() => {
+        const s = sessionFile()
+        return s?.windows?.length === 2 && s.windows.some((w) => w.tabs.some((t) => t.id === only))
+      }, 5000),
+      'the session file has it in window 2, and no entry for the closed window'
+    )
+
+    // OVERLAPPING WINDOWS: the one focused most recently wins. Window 2 now
+    // pretends to sit exactly over window 1, strip over strip.
+    await app.evaluate((_e, [i, at]) => globalThis.__e2eTearAt(i, at), [two.id, { x: 0, y: 0 }])
+    await spareReady()
+    const homeBox = await win.locator(`${strip} [data-tab-id="att-home"]`).boundingBox()
+    const stripY = homeBox.y + homeBox.height / 2
+    let z0 = await tearState()
+    const pulled = await tearOff(win, 'att-b')
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'tab B tears off for the overlap')
+    await win.mouse.move(pulled.x, stripY, { steps: 8 })
+    ok(
+      await until(async () => (await tearState()).over === two.key, 3000),
+      'focused last (and the newer), window 2 is in front: its strip takes the tab'
+    )
+    ok((await tearState()).attaches === z0.attaches, 'not the source strip under it')
+    await win.keyboard.press('Escape')
+    await win.mouse.up()
+    ok(await until(async () => (await tearState()).phase === 'idle', 3000), 'Escape puts it back')
+    await app.evaluate((_e, i) => globalThis.__e2eFocused(i), one.id)
+    await spareReady()
+    z0 = await tearState()
+    const pulled2 = await tearOff(win, 'att-b')
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'tab B tears off again')
+    ok((await tearState()).front === one.key, `window 1, focused last, is in front (${(await tearState()).front})`)
+    await win.mouse.move(pulled2.x, stripY, { steps: 8 })
+    ok(
+      await until(async () => (await tearState()).attaches === z0.attaches + 1, 3000),
+      'so its own strip takes the tab back'
+    )
+    ok((await tearState()).enters === z0.enters, 'and window 2 was not entered')
+    await win.mouse.up()
+    await sleep(400)
+    ok((await ids(win)).includes('att-b'), 'tab B is in window 1')
+
+    // WINDOW 2 RELOADS UNDER THE HOVER (review 2026-10-30): the tab tears out
+    // of its strip, and the reloaded page takes it only once it has restored
+    // its tabs. Window 2 focused last, so it is in front of window 1 again.
+    await app.evaluate((_e, i) => globalThis.__e2eFocused(i), two.id)
+    const w2kept = await ids(win2)
+    await spareReady()
+    const pulled3 = await tearOff(win, 'att-b')
+    ok(await until(async () => (await tearState()).phase === 'float', 3000), 'tab B tears off for the reload')
+    await win.mouse.move(pulled3.x, stripY, { steps: 8 })
+    ok(await until(async () => (await tearState()).over === two.key, 3000), 'window 2, focused last, takes it')
+    const r0 = await tearState()
+    await app.evaluate(({ BrowserWindow }, i) => BrowserWindow.fromId(i)?.webContents.reload(), two.id)
+    ok(
+      await until(async () => {
+        const s = await tearState()
+        return s.leaves === r0.leaves + 1 && s.shown === true
+      }, 3000),
+      'window 2 reloading: the tab tears out of its strip'
+    )
+    ok(
+      await until(async () => (await tearState()).over === two.key, 15000),
+      'restored, it takes the tab again'
+    )
+    ok(
+      await until(async () => JSON.stringify(await ids(win2)) === JSON.stringify(w2kept), 5000),
+      `with every tab it had back first (${await ids(win2)})`
+    )
+    const rl0 = (await tearState()).cancels
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await tearState()).cancels === rl0 + 1, 3000), 'Escape cancels it')
+    await win.mouse.up()
+    await sleep(400)
+    ok((await ids(win)).includes('att-b'), 'tab B is in window 1 again')
+    ok(JSON.stringify(await ids(win2)) === JSON.stringify(w2kept), 'window 2 is as it was')
+
+    // Nothing asks on the way out.
+    for (const p of app.windows()) await p.evaluate(() => window.prism.setDirty(false)).catch(() => {})
+  } finally {
+    await app.close().catch(() => {})
+    for (const d of [dirA, dirB]) rmSync(d, { recursive: true, force: true })
   }
 }
 
@@ -16974,6 +17495,7 @@ await run(tabsCloseLastScenario)
 await run(twoWindowsScenario)
 await run(lastClosedRestoreScenario)
 await run(tabTearScenario)
+await run(tabAttachScenario)
 await run(settingsLastTabScenario)
 await run(titleBarScenario)
 await run(moreMenuScenario)

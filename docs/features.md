@@ -36,8 +36,8 @@ closed** (as today with one window).
 - **New windows never inherit `--prism-setup`, `--prism-demo` or `--win-e`** from the process; under `--e2e`
   every window is offscreen, unfocusable and (after the first) transparent from the start. The diagnostics core
   keeps a beat per page (`packages/term-core/main/stallWatch.ts`), so one window's beats never hide another's hang.
-- Step 2 (Win+E in process) and step 3 (the tear-off gesture) are the next entries. Not yet (step 4): attaching
-  into another window. The 2026-08-23 "inside its own row only" rule is SUPERSEDED by step 3 (2026-10-29).
+- Step 2 (Win+E in process), step 3 (the tear-off gesture) and step 4 (attaching into any window) are the next
+  entries. The 2026-08-23 "inside its own row only" rule is SUPERSEDED by step 3 (2026-10-29).
 - Held by `windowRegistry.test.ts`, `session.test.ts`, `fileTail.test.ts`; e2e `twoWindows` (each window's own
   buttons act on it, both save, the second's X closes only it, its close releases its tabs) and
   `lastClosedRestore` (close the first, then the second: the relaunch is one window with the second's tab). The
@@ -103,8 +103,10 @@ Owner, 2026-10-29: "the tabs should be able to be dragged out of the tab bar and
 far away and you drop the tab you get two windows instead of one window with two tabs. I guess if the tab is
 dragged outside of the tab border where it's fully outside then it's a new window otherwise it snaps to the tab
 bar. make sure to do this carefully since this is often something that can feel bad but needs to feel
-intuitive." Owner's choices the same day: a LIVE window follows the cursor; dragging a window's ONLY tab moves
-the whole window. Spec section 1 is the contract (`docs/superpowers/specs/2026-10-29-tab-tearoff-design.md`).
+intuitive." Owner's choices the same day: a LIVE window follows the cursor (since 2026-10-30 only the tab does:
+"The ghost", below); dragging a window's ONLY tab moves the whole window (REPLACED 2026-10-30: the only tab is
+carried as a tab too, "The only tab", below). Spec section 1 is the contract
+(`docs/superpowers/specs/2026-10-29-tab-tearoff-design.md`).
 **This SUPERSEDES the 2026-08-23 rule** that a tab "should slide left and right inside its own row and nowhere
 else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can also leave it.
 
@@ -118,63 +120,211 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
     With a press in the middle of a 32 DIP tab, that is 16 DIP below the strip.
     Carried sideways, it tears once it is fully past that grace too, even with the cursor still over the strip's
     empty end.
-  - The gap closes with the existing 170 ms slide, and a real Prism window appears under the cursor holding the
-    tab at the same grab point in ITS strip. Until it is on screen a copy of the tab follows the pointer.
+  - The gap closes with the existing 170 ms slide, and **only the tab follows the cursor** (the ghost, below),
+    held at the same grab point as in the strip. The new window is taken at once and stays hidden, and empty,
+    until the drop. Until the ghost is on screen a copy of the tab follows the pointer inside the source.
+  - **The front changes only at the drop** (owner, 2026-10-30, after trying it by hand: "theres a slight issue
+    where it switches focus like which tab is in focus as soon as you drag it out, i want those switches to
+    happen when you drop it"). All through the drag the source keeps the dragged tab in front (if it was) and
+    its page on screen; only its slot in the strip is empty. A drop that COMMITS elsewhere (a new window, or
+    another window's strip) is when the source's neighbour takes the front (its right, else its left, as a
+    close does) and the other window selects the tab; the source switches only once that window has it, so
+    nothing flickers. A cancel, a snap back, a drop in its own strip or a failed drop change no selection at
+    all, and the source's record and session entry keep the tab in front until the commit (`handTab`).
+    Because the tab stays live in the source (a film goes on playing, a playlist moves on), the drop packs it
+    AGAIN and sends it with the drop (`tabs:tear-end`), and that is what the other window gets; the floating
+    window is handed the tab only then, so it never plays a second copy while hidden. No key reaches the page
+    while a tab is torn off (Escape cancels; the rest are swallowed, so Ctrl+W or a step in the folder cannot
+    change the tab under the drag).
   - **Snap back**: over its own strip (rect plus 8 DIP, tighter than the tear; the strip held to the tear zone,
     `snapTarget`, so a tab torn sideways past the + is never over it at once, review 2026-10-29: the window
-    attached and tore again in a loop) for **120 ms**, the floating window
-    goes, the tab is in the strip again at the slot under the pointer, in front, and reorders until release.
-    The strips are hit-tested as a list (`stripUnder`): step 3 lists the source alone; step 4 (attach into ANY
-    window, not built) lists every window's.
-  - **Drop** while floating: the new window stays where it is and takes the focus. Released in the strip after a
-    snap back: the tab is there, selected.
-  - **Cancel**: Escape, a right-click, a lost pointer capture or the window losing focus put the tab back where
-    it was, the front tab as before, and the floating window hides. Nothing half-done is committed. A
+    attached and tore again in a loop) for **120 ms**, the ghost
+    goes, the tab is in the strip again at the slot under the pointer, and reorders until release, the front
+    as it was.
+    Every Prism window's strip takes it the same way since step 4 (the next entry).
+  - **Drop** while floating: the new window is handed the tab, placed so its tab sits under the cursor where
+    the ghost was, shown in front and focused once its page has drawn the tab (the ghost holds the drop point
+    until then), and the ghost goes. Released in the strip after a snap back: a reorder like any other, the
+    front as it was (2026-10-30; it used to select the tab).
+  - **Cancel**: Escape, a right-click, a lost pointer capture or the window losing focus change nothing (the tab
+    never left the source, and the front never changed), and the ghost hides (the floating window never showed
+    and was never handed the tab). Nothing half-done is committed. A
     right-click's own context menu does not open after it. The strip going away mid-drag (F11) cancels too, and
     so does the source page reloading; the source window closing mid-drag releases the tab's grants and watch
     (review 2026-10-29).
-  - **The only tab** moves the WHOLE window instead (no second window); a maximized one comes off at its normal
-    size under the cursor, like a title-bar drag, and a cancel puts it back where it was, maximized again.
+  - **The only tab is carried as a tab** (owner, 2026-10-30: "also if you drag it to a new window and wanna
+    remerge when you then drag a tab from a single tab window you just drag the window it should be the tab you
+    drag"; this REPLACES the 2026-10-29 choice that the only tab moved the whole window, and its fade). The
+    ghost follows the cursor and the window stays where it is (maximized too) all through the drag. Over another
+    window's strip it attaches there live, exactly like any torn tab, and dropped there it MERGES (step 4). Dropped
+    outside every strip, the source window ITSELF is moved (`setBounds`, its normal size; a maximized one is
+    restored first) so its tab sits under the drop point, exactly where a new torn window would go
+    (`floatBounds`), and brought to the front; no window is made and the spare stays the spare. It is clear
+    (the addon's `setAlpha`) while it is restored and moved, and the ghost holds the drop point until it has
+    drawn there (review 2026-10-30: the ghost went first, and a maximized one played its restore to its old
+    place). Back over its own strip, or any cancel: nothing changes. Held by `tearOff.test.ts` and the tabTear
+    scenario (drop, snap back, Escape, blur).
   - **New window size and place**: the source's normal size, never maximized, at least half the work area when
     the source was maximized, never more than the work area less 10 DIP a side; its top never above the work
     area and 48 DIP of it always on the display. The source keeps its own state.
   - Settings never leaves its window (it slides in its row only).
+- **The ghost** (owner, 2026-10-30, after trying the live window by hand: "i dont wanna be carrying a full
+  window ... actually let it just be the tab you're carrying, that's how file explorer does it"). While a torn
+  tab is outside every strip, ONLY a tab-sized ghost follows the cursor: the tab as the strip draws it (the solid
+  folder, its label, the strip's ground and the theme's ink, the accent rule), never a window preview, at
+  slightly lower opacity (`TEAR.ghostOpacity`, 0.85; owner, 2026-10-30: "you want it to be the tab still but
+  just slightly lower opacity"). Its window is exactly the tab and OPAQUE, see-through only by its window's
+  opacity: the first build was a transparent window with a shadow, and with DirectComposition off (Prism's
+  video fix) it drew nothing ("right now there's nothing"). It is its own tiny native window (`src/main/tabGhost.ts`): frameless,
+  unfocusable, out of the taskbar, click-through (`setIgnoreMouseEvents`), always on top at `screen-saver`
+  level (never hidden behind the source, the bug the live window had), shown INACTIVE, placed before it shows,
+  made warm with the spare. Its page is a fixed data: page with a CSP allowing no script and no fetch, no
+  preload, sandboxed, no navigation; the label goes in as `textContent` inside one JSON value and the colours
+  as checked CSS colours (`validTabLook`), so a folder name can never be markup. The strip sends its computed
+  look with the tear (`look` on `tabs:tear`; one that fails the check is dropped, never the tear). Over another
+  window's strip it hides (that strip draws the tab), and comes back when the tab tears out again; a snap back,
+  a drop and every cancel hide it at once. Since 2026-10-30 the ONLY tab has its ghost too (above).
+  Review 2026-10-30: at a drop the ghost stays until the window just shown has drawn a frame (at most
+  250 ms, `TEAR.drawnMs`), so no frame shows neither; a late drop keeps it at the drop point until the
+  window shows or the tab goes back. The ghost itself shows clear and takes its opacity only after its own first
+  frame (never the previous tab's face), a window jumping to a display of another scale is placed twice
+  (`setBoundsSure`), and the tab size a page sends is held to 400 x 64 DIP (`tabSize`).
 - **How it is built**: the strip keeps the pointer (its capture holds outside the window) and decides the tear;
-  then ONE call (`tabs:tear`) and main owns the window (`src/main/tearOff.ts`): it places the window hidden,
-  shows it INACTIVE (the source keeps the pointer) once its page has drawn the tab, and moves it every 8 ms
-  from `screen.getCursorScreenPoint`, passing the size each time for mixed-DPI moves; never from the
-  renderer's events over IPC. In memory only (`syncCalls`, `spawnCalls` stay green).
+  then ONE call (`tabs:tear`) and main owns the move (`src/main/tearOff.ts`): it shows the ghost and moves it
+  every 8 ms from `screen.getCursorScreenPoint` (`ghostBounds`, in DIP, the size passed each time for
+  mixed-DPI moves; never from the renderer's events over IPC), and works out every tick where the hidden
+  floating window (or, the only tab, its own window) goes (`floatBounds`), placing it there only at the drop.
+  Nothing else moves during the drag. In memory only (`syncCalls`, `spawnCalls` stay green).
 - **The spare**: one hidden window is kept warm (made 2 s after the first window has loaded and after each use)
   with the theme's ground (`themeGround`), so the window is under the cursor in a frame or two. It is not a
   window of the session (`spare` on its registry record): never counted, never where files from outside go,
   never in the session file, its close releases nothing, and the last window of the session closing destroys
-  it. A snap back or a cancel makes the floating window the spare again, and stops the folder watch the
-  floating page started (the source starts its own only if it shows the tab).
-- **No spare ready** (the first 2 s, and 2 s after each drop): a fresh window is made under the cursor, and a
-  copy of the tab follows the pointer inside the source until that window is on screen (outside the source
-  nothing does until then: a chip beyond the window would need a window of its own). A drop before its page
-  has drawn the tab commits NOTHING yet (review 2026-10-29: the tab's unsaved text was lost and the window
-  could stay hidden for good): the source holds the tab, and once the page has it the window commits, shows
-  and takes the focus; a page that never comes (10 s, `TEAR.lateDropMs`) or dies gives the tab back.
+  it. A snap back or a cancel leaves it the spare (it was never handed the tab); a drop whose page never drew
+  the tab gives it back, and the folder watch that page started goes on for the source if the source shows
+  the tab, else stops.
+- **No spare ready** (the first 2 s, and 2 s after each drop): a fresh window is made, hidden; the ghost follows
+  the cursor all the same (it does not wait for the window), and a copy of the tab follows the pointer inside
+  the source until the ghost is on screen. Every drop commits NOTHING until the floating page has drawn the
+  tab (review 2026-10-29: the tab's unsaved text was lost and the window could stay hidden for good; since
+  2026-10-30 the page is handed the tab at the drop, so a warm spare takes a frame or two, a fresh one until
+  it has loaded): the source holds the tab, and once the page has it the window commits, shows and takes the
+  focus; a page that never comes (10 s, `TEAR.lateDropMs`) or dies gives the tab back. The ghost waits at the
+  drop point all that time.
 - **What a moved tab keeps** (`lib/tabs/tabCarry.ts`, `tabCarry.test.ts`): it is the SAME tab, by the same id,
   rebuilt in the new page in the restore shape: its folder, history, selection, scroll, preview, the open file,
   the film's place and whether it played, its volume, mute and speed, a document's place, the archive
   passwords given for it, the listing on screen, and its unsaved text (the new window holds it, and its close
   asks). In main nothing moves: everything keyed by the id (grants, the folder watch, listings) stays, the tab
-  is marked moving (`windows.markMoving`) while it flies, and the source lets it go only after the drop has
-  committed, without a `browseRelease`. Only the page that has a tab may stop its folder watch (two pages show
+  is marked moving (`windows.markMoving`) from the drop until the commit (two pages have it then), and the
+  source lets it go only after the drop has committed, without a `browseRelease`. Only the page that has a tab may stop its folder watch (two pages show
   it for a moment). The new window's one tab is its home.
 - **Under --e2e** nothing moves: the windows stay parked, main follows the page's pointer (`tabs:tear-point`)
   rather than the system cursor (Playwright's mouse is not it), and `__e2eTear` tells where the window would be.
-  There is a spare only when a scenario asks (`PRISM_E2E_SPARE=1`).
-- Held by `tabTear.test.ts` (every number, and that no tear is ever inside the snap target), `tearOff.test.ts`
-  (the loop, the dwell, drop, cancel, the only tab, a slow window's late drop, its failure, the source closing), `windowRegistry.test.ts` (the spare), `tabCarry.test.ts`, and the e2e `tabTear` (written,
-  run before the PR): a click and a short pull tear nothing; a tear makes a window holding the same tab id, whose
-  folder watch shows a new file in the NEW window, and the source strip lost it; a snap back over its own strip
-  makes no window; Escape and a right-click mid-drag put everything back; a sideways tear past the + stays torn;
-  unsaved text travels; a drop on a fresh window (no spare) shows it holding the tab; the only tab moves its
-  window.
-- Not yet (step 4): attaching into ANOTHER window's strip, and closing a window emptied that way.
+  There is a spare only when a scenario asks (`PRISM_E2E_SPARE=1`). The ghost is parked and clear like every
+  window and never moved, but it really shows and hides: `__e2eTear` gives `shown`, its would-be `ghost`
+  bounds, `ghostWin` (made, loaded, visible) and `spare.visible`; `__e2eGhostLabel` reads its label back.
+- Held by `tabTear.test.ts` (every number, and that no tear is ever inside the snap target; `ghostBounds`,
+  `validTabLook`), `tearOff.test.ts` (the loop, the dwell, drop, cancel, the only tab carried as a tab and its
+  window moved only by a drop outside, a slow window's late drop, its failure, the source closing; nothing
+  handed to the floating window before the drop and the drop's own carry handed then; the ghost shown at the
+  tear, following, hidden in a strip, on a snap back, at the drop after the window shows, on every cancel, a
+  slow ghost, the spare never shown or moved during the drag), `tabGhost.test.ts` (its page has no script, the
+  label is data, when it shows),
+  `windowRegistry.test.ts` (the spare), `tabCarry.test.ts`, and the e2e `tabTear` (written,
+  run before the PR): a click and a short pull tear nothing; the ghost shows after the tear, tab-sized, with
+  the tab's label, and follows the pointer while the floating window stays hidden and empty; all through the
+  drag the source keeps the dragged tab selected with its folder on screen, and only after the drop does its
+  neighbour take the front; a tear makes a window holding the same tab id, whose folder watch shows a new file
+  in the NEW window, and the source strip lost it; a snap back over its own strip makes no window and changes
+  no selection; Escape (the dragged tab in front) and a right-click (a background tab) mid-drag change
+  nothing, the front included; a sideways tear past the + stays torn; unsaved text travels; a drop on a fresh
+  window (no spare) shows it holding the tab; the only tab shows the ghost while its window stays put, and a
+  drop outside moves its window to where a new window would go (`moved`, `moves` in `__e2eTear`), while
+  Escape moves nothing. The ghost is hidden after a drop (the new window shown), a snap back, Escape, a
+  right-click and the late drop.
+- Attaching into ANOTHER window's strip, and closing a window emptied that way: step 4, the next entry.
+
+## Attach into any window (tab tear-off step 4, owner, 2026-10-29)
+
+Owner, 2026-10-29 (spec section 1, points 4, 5 and 7; plan step 4): "a tab can be dropped into ANY window's tab
+bar", approved as: a torn tab hovering over ANY Prism window's strip attaches there LIVE, release commits it
+there, moving away tears it off again, and the ONLY tab's window move merges into another window's strip and
+the emptied window closes on release.
+
+- **Over another window's strip** (its target and margin exactly as the source's own: the strip held to its
+  tear zone, plus 8 DIP, `attachRects` in `src/shared/tabTear.ts`) for **120 ms**, the tab attaches there,
+  live: the ghost hides (owner, 2026-10-30; the floating window is hidden all through the drag), and that
+  strip opens a gap at the slot under the cursor (its neighbours
+  slide with the 170 ms slide) and draws the tab in it, sliding along as the cursor moves. Main tells that page
+  where the tab is (`tabs:hover`, every tick the cursor moved; the pointer is still the source's, whose strip
+  holds the capture), and the page tells main the slot (`tabs:hover-slot`).
+- **Released there**: the tab is in that strip at that slot, selected, that window in front (focused). It is
+  the SAME tab, moved exactly as a tear moves it: the same id, everything it carried (`tabCarry.ts`), its
+  main-side state untouched, `handTab` at the commit (the source's record and session entry lose it at once,
+  the target's list it at once), nothing released. The source lets it go only after the commit, as in step 3.
+  It is not that window's home (that window has its own). The floating window was never handed the tab: it
+  is the spare still. The source's front changes only now (2026-10-30, above).
+- **Moving away again tears it off again**, by the tear's own rule and hysteresis: fully outside that strip's
+  tear zone (one carried-tab width past its +), the cursor 12 DIP out. The gap closes with the slide, the
+  ghost is back under the cursor, and the same 120 ms dwell takes it in again. The two zones cannot
+  meet, so it never flickers between the two.
+- **The only tab** (carried as a tab since 2026-10-30, its window staying where it is): over another window's
+  strip it attaches the same way, the ghost hidden. Its own window hides no strip behind it while its tab is
+  carried, and the window whose strip it enters comes to the front at once (review 2026-10-30: focused, it was
+  in front of every other, so a maximized one could merge nowhere on its own monitor; tabAttach drags one over
+  window 2 with its own window in front). Released there, the tab is that window's and the emptied
+  window closes, asking nothing (its unsaved text went with the tab). The tab stays marked moving until that
+  window has left the registry, so its close releases nothing. Torn out again, the ghost is back; a cancel
+  changes nothing.
+- **Every cancel still restores exactly** (Escape, a right-click, a lost capture, the window losing focus): the
+  gap closes, the tab is back in its own strip at its place, the front tab as before, no window made, the other
+  window as it was.
+- **Z-order** (review 2026-10-30): the windows are hit-tested front to back AS WINDOWS STACKS THEM, asked
+  every tick (the native addon's `zOrder`, `native/sweep/zorder.h`; a window on another virtual desktop is not
+  on screen). Without the addon (not loaded, an older build, --e2e) the order is Prism's own: the window focused
+  or raised most recently in front (`frontAt`), and among windows never focused (the e2e's) the newest. A
+  window's body hides every strip behind it, and so does ANOTHER APP'S window (`coveredAt`): a strip under a
+  browser takes nothing and raises nothing, and a tab hovering in a strip tears out of it where anything in front
+  of that window is under the cursor. A window the cursor stays over for **750 ms** (`TEAR.raiseMs`, Chrome's
+  number: a pass on the way somewhere else raises nothing) comes to the front WITHOUT the focus (`moveTop`; the
+  source would cancel on losing it), the ghost above it (it is above every app), and is in front for the hit test
+  from then on, the next tear included. A tab that goes back to its source after a raise, or a cancel, brings
+  the source (still focused) to the front again. Interim number, chosen by the build: **the owner may still
+  decide otherwise.**
+- **The only tab's window no longer goes clear during the drag** (2026-10-30: it stays put under the ghost);
+  only a drop that moves it does (above). Its drag carries no folder listing
+  (a large folder's was cloned at the start of every such drag, review 2026-10-30); merged, the target lists
+  the folder itself.
+- **Every window reports its strip** (`tabs:strip`: the strip's rect and the +'s right edge, client
+  coordinates; null when there is none, fullscreen or no tabs), when it changes and never while a tab is carried
+  in it or hovers over it. Main keeps it on the window's record (`strip`), cleared when the page reloads. A
+  minimized, hidden, still-restoring window or the spare is never a target; a target that closes, reloads or
+  loses its strip mid-hover lets the tab go on flying.
+- **Under --e2e** the same page-pointer mapping as step 3; since every window is parked at the same place, a
+  window other than the source is a target only once the e2e says where it pretends to be (`__e2eTearAt`, an
+  offset from where the source is read). `__e2eFocused` gives the unfocusable windows a focus order,
+  `__e2eStrip` reads a window's report; nothing is raised under --e2e.
+- Held by `tearOff.test.ts` (live attach and the hover it sends, the slot the drop lands at, tearing out again
+  and not flickering, a cancel there, a strip behind a window's body and the 750 ms raise, overlapping strips,
+  no strip, a target going away, a drop before the floating page had the tab, the only tab's ghost hidden there
+  and merged and its window closed with the tab moving until it has gone, its cancel moving nothing, no carry,
+  the e2e placement),
+  `tabTear.test.ts` (`attachRects` and its hysteresis, the request and the strip report), and the e2e
+  `tabAttach`: a tab torn from window 1 attaches live into window 2's strip (the ghost and the floating window
+  hidden, the tab drawn, the slot between its two tabs, its neighbour making room), window 1 keeping it in front
+  all the while, dropped it lands there by the same id, selected, window 1 lost it and only then gives its
+  front to the neighbour, no window made, its grants kept and its folder watch showing a new file in window
+  2; hovering hides the ghost and pulling away tears it off again with the ghost back (the floating window
+  still hidden); Escape over window 2 restores window 1 exactly; a third
+  window's only tab (window 2 in front of it) shows its ghost, which hides over window 2's strip; cancelled
+  there it changes nothing, and dropped it merges at the end, selected, and its window closes (and leaves the
+  session file), no window moved; with the strips overlapping, window 2 (focused last) takes the tab until
+  window 1 is focused last, and then its own strip does. Since the review (2026-10-30): a right-click over
+  window 2 cancels and restores; window 2 hidden mid-hover lets the tab go, takes nothing hidden and takes it
+  again shown; window 2 reloading mid-hover lets it go and takes it again only once restored. `tearOff.test.ts`
+  holds the rest: another app's window over a strip or coming over the hovered one, a window in front ending the
+  hover, the system's order changing mid-drag, a window that stops taking tabs, a raise outliving the tear, the
+  source brought back to the front on a cancel or a snap back after a raise, and the e2e's bookkeeping raise.
 
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 

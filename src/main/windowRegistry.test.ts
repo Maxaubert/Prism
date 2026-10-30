@@ -100,6 +100,22 @@ describe('the window registry (tab tear-off step 1, 2026-10-29)', () => {
     expect(r.target()?.win).toBe(b)
   })
 
+  it('a raise under a carried tab moves a window up the front order, never the focus order', () => {
+    const r = createWindowRegistry()
+    const a = fakeWindow()
+    const b = fakeWindow()
+    const ra = r.add(a)
+    const rb = r.add(b)
+    r.focused(a)
+    r.raised(b)
+    // Files from outside still go to the window focused last...
+    expect(r.target()?.win).toBe(a)
+    // ...while the tear sees the raised one in front.
+    expect(rb.frontAt).toBeGreaterThan(ra.frontAt)
+    r.focused(a)
+    expect(ra.frontAt).toBeGreaterThan(rb.frontAt)
+  })
+
   it("a window's close answers its tabs to release, except one mid-move", () => {
     const r = createWindowRegistry()
     const a = fakeWindow()
