@@ -1342,8 +1342,10 @@ const tabGhost = createTabGhost<BrowserWindow>({
     const w = new BrowserWindow({
       show: false,
       frame: false,
-      transparent: true,
-      backgroundColor: '#00000000',
+      // Opaque: a transparent window draws nothing with DirectComposition off
+      // (owner, 2026-10-30: "right now there's nothing"). See-through by its
+      // opacity (TEAR.ghostOpacity).
+      backgroundColor: themeGround(),
       width: TEAR.tabWidth + TEAR.ghostPad * 2,
       height: TEAR.tabHeight + TEAR.ghostPad * 2,
       ...(E2E ? { x: -4000, y: -4000 } : {}),

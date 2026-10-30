@@ -154,7 +154,7 @@ describe('the ghost window', () => {
     expect(r.made[0].scripts.at(-1)).toBe(ONE_FRAME)
     expect(shown).toBe(0)
     await r.made[0].run()
-    expect(r.made[0].log).toEqual(['bounds', 'opacity 0', 'show', 'top', 'opacity 1'])
+    expect(r.made[0].log).toEqual(['bounds', 'opacity 0', 'show', 'top', 'opacity 0.85'])
     expect(r.made[0].moves).toEqual([at])
     expect(shown).toBe(1)
     expect(r.timers()).toHaveLength(0)
@@ -177,7 +177,7 @@ describe('the ghost window', () => {
     expect(r.made[0].log).toEqual(['bounds', 'opacity 0', 'show', 'top'])
     expect(music).toBe(false)
     await r.made[0].run()
-    expect(r.made[0].log.at(-1)).toBe('opacity 1')
+    expect(r.made[0].log.at(-1)).toBe('opacity 0.85')
     expect(music).toBe(true)
   })
 
@@ -191,10 +191,10 @@ describe('the ghost window', () => {
     expect(r.timers()).toEqual([expect.objectContaining({ ms: TEAR.drawnMs })])
     r.elapse()
     expect(shown).toBe(true)
-    expect(r.made[0].log.at(-1)).toBe('opacity 1')
+    expect(r.made[0].log.at(-1)).toBe('opacity 0.85')
     // The frame that comes late changes nothing.
     await r.made[0].run()
-    expect(r.made[0].log.filter((x) => x === 'opacity 1')).toHaveLength(1)
+    expect(r.made[0].log.filter((x) => x === 'opacity 0.85')).toHaveLength(1)
   })
 
   it('placed again when a jump to a display of another scale got it wrong (review 2026-10-30)', async () => {

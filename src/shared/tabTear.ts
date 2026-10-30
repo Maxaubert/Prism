@@ -78,9 +78,14 @@ export const TEAR = {
   /** A carried tab's size when the page did not say. */
   tabWidth: 114,
   tabHeight: 32,
-  /** THE GHOST (owner, 2026-10-30): room around the tab in its own small
-   *  window, for its shadow. */
-  ghostPad: 20,
+  /** THE GHOST (owner, 2026-10-30): its window is the tab itself, no room
+   *  around it. A transparent window draws nothing here (Prism turns
+   *  DirectComposition off), so the ghost is opaque and see-through by its
+   *  window's opacity instead ("the tab still but just slightly lower
+   *  opacity", owner, 2026-10-30). */
+  ghostPad: 0,
+  /** How see-through the carried tab is. */
+  ghostOpacity: 0.85,
   /** A ghost's label is cut to this many characters. */
   ghostLabelMax: 200,
   /** The biggest tab a page may say it carries (review 2026-10-30): the
