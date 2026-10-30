@@ -4,10 +4,12 @@ import {
   dwellStep,
   floatBounds,
   floatSize,
+  ghostBounds,
   grow,
   inside,
   rectOf,
   shouldTear,
+  validTabLook,
   type Bounds,
   type Dwell,
   type Point,
@@ -16,6 +18,7 @@ import {
   type StripReport,
   type TabCarry,
   type TabHover,
+  type TabLook,
   type TearEnd,
   type TearEvent,
   type TearRequest
@@ -29,23 +32,29 @@ import {
  * with the cursor outside the window) and decides the TEAR; from that moment
  * main owns the window. One IPC (`tabs:tear`), then:
  *
- * - A tab of several: the warm spare (or a fresh window if there is none) is
- *   sized and placed while hidden, handed the tab, and shown INACTIVE once its
- *   page has drawn it, so the source keeps the pointer. Main moves it every
- *   8 ms from the cursor (`screen.getCursorScreenPoint`), the size passed each
- *   time for a mixed-DPI move; never from the renderer's events over IPC.
+ * - A tab of several: ONLY THE TAB follows the cursor (owner, 2026-10-30: "i
+ *   dont wanna be carrying a full window ... actually let it just be the tab
+ *   you're carrying, that's how file explorer does it"): a tab-sized GHOST
+ *   window (tabGhost.ts), held at the same grab point as in the strip, above
+ *   every app and never focused, so the source keeps the pointer. Main moves
+ *   it every 8 ms from the cursor (`screen.getCursorScreenPoint`), the size
+ *   passed each time for a mixed-DPI move; never from the renderer's events
+ *   over IPC. The warm spare (or a fresh window if there is none) is handed
+ *   the tab at the tear and stays HIDDEN all through the drag; where it would
+ *   go is worked out every tick, and it is placed there, so its tab sits under
+ *   the cursor where the ghost was, only at the drop.
  * - The window's only tab: the WHOLE window follows instead (spec 1.7); a
  *   maximized one is restored to its normal size under the cursor first.
  * - Over the source's own strip (its rect plus 8 DIP) for 120 ms, the tab
- *   attaches again: the floating window gives it back and hides as the spare,
- *   and the strip carries on as a reorder.
+ *   attaches again: the ghost hides, the floating window gives the tab back
+ *   (it is the spare again), and the strip carries on as a reorder.
  * - STEP 4, OVER ANY OTHER WINDOW'S STRIP (spec 1.4, 1.7) for the same 120 ms,
- *   the tab attaches THERE, live: the floating window hides (the only tab's
- *   window goes clear instead: it holds the pointer, so it must not hide), and
+ *   the tab attaches THERE, live: the ghost hides (the only tab's window goes
+ *   clear instead: it holds the pointer, so it must not hide), and
  *   that strip opens a gap at the slot under the cursor and draws the tab in
  *   it (`hover`, every tick the cursor moves). Fully out of that strip again
  *   (the tear's own rule and hysteresis, `attachRects`), it tears off again:
- *   the floating window is back under the cursor. Released there, the tab is
+ *   the ghost is back under the cursor. Released there, the tab is
  *   MERGED into that window at its slot, selected, that window in front; the
  *   only tab's emptied window closes. Its state moves exactly as in a tear:
  *   the same id, what it carried, `handTab` at the commit, nothing released.
@@ -61,8 +70,9 @@ import {
  *   tab that then goes back to its source, or a cancel, brings the source
  *   (still focused) to the front again.
  * - The page's pointer-up ends it: a drop makes the floating window a window of
- *   the session (focused) and only THEN does the source let the tab go; a
- *   cancel (Escape, right-click, lost capture, blur) gives it back, closes any
+ *   the session (placed, shown, focused, the ghost gone) and only THEN does
+ *   the source let the tab go; a cancel (Escape, right-click, lost capture,
+ *   blur, a window closing) hides the ghost, gives the tab back, closes any
  *   gap it had opened in another strip, and puts a moved window where it was.
  *   Nothing half-done is ever committed: a drop on a fresh window whose page
  *   has not drawn the tab yet waits for it, and a page that never comes (10 s)
@@ -111,7 +121,8 @@ export interface TearDeps<W extends TearWin> {
   /** The drop: the floating window becomes a window of the session, and the
    *  tab is no longer `source`'s. */
   commit(win: W, carry: TabCarry, source: W): void
-  /** Bring a committed window to the front, focused (never under --e2e). */
+  /** Show a committed window and bring it to the front, focused (under
+   *  --e2e only shown). */
   reveal(win: W): void
   /** The floating window gives the tab back and hides as the spare. `to` is
    *  who has the tab now: the source, the window it merged into, or null when
@@ -145,8 +156,15 @@ export interface TearDeps<W extends TearWin> {
   /** It came to the front without the focus, for the order `windowsFront`
    *  answers when the system's cannot be read (under --e2e too). */
   raised?(win: W): void
-  /** The floating window hides while the tab is in another window's strip. */
-  hide?(win: W): void
+  /** THE GHOST (owner, 2026-10-30): the tab-sized window that follows the
+   *  cursor while the tab is outside every strip. `shown` once it is on
+   *  screen (the source's own chip can go then). Without one the source's
+   *  chip follows the pointer inside its window. */
+  ghost?: {
+    show(face: { label: string; size: Size; look?: TabLook }, at: Bounds, shown: () => void): void
+    move(at: Bounds): void
+    hide(): void
+  }
   /** The only tab's moving window goes clear (and back): it holds the pointer,
    *  so it is never hidden. */
   fade?(win: W, out: boolean): void
@@ -194,9 +212,10 @@ interface Common<W> {
   origin: Point
   /** The moving window's size. */
   size: { width: number; height: number }
-  /** The carried tab's own size and label. */
+  /** The carried tab's own size, label and look. */
   tab: Size
   label: string
+  look: TabLook | undefined
   /** Which strip the cursor has stayed over, and since when. */
   dwell: Dwell<W> | null
   /** In another window's strip now. */
@@ -217,8 +236,10 @@ interface Floating<W> extends Common<W> {
   sent: boolean
   /** Its page has drawn the tab. */
   ready: boolean
-  /** It is on screen now (it hides while the tab is in another strip). */
-  shown: boolean
+  /** The ghost: off (in a strip, or ended), asked for, or on screen. */
+  ghost: 'off' | 'asked' | 'up'
+  /** Where the ghost is (or, under --e2e, would be). */
+  gb: Bounds | null
 }
 interface Moving<W> extends Common<W> {
   kind: 'window'
@@ -228,14 +249,19 @@ interface Moving<W> extends Common<W> {
   faded: boolean
 }
 type Session<W> = (Floating<W> | Moving<W>) & { point: Point; last: Bounds | null }
+type Float<W> = Floating<W> & { point: Point; last: Bounds | null }
 
 /** What the e2e reads (`__e2eTear`). */
 export interface TearState {
   phase: 'idle' | 'float' | 'window'
   tabId: string | null
-  /** Where the moving window is (or, under --e2e, would be). */
+  /** Where the moving window is (or, under --e2e, would be). For a tab of
+   *  several: where the hidden floating window goes at the drop. */
   bounds: Bounds | null
+  /** What follows the cursor is on screen: the ghost (a tab of several). */
   shown: boolean
+  /** Where the ghost is (or would be) while it is asked for; null otherwise. */
+  ghost: Bounds | null
   /** A drop is waiting for a fresh window's page to draw the tab. */
   waiting: boolean
   /** The window whose strip the tab is in now (step 4), by name. */
@@ -366,10 +392,40 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     const b = floatBounds(p, hold(s, w), s.size, deps.workArea(p))
     if (same(s.last, b)) return
     s.last = b
-    // Under --e2e the window stays parked; `last` is where it would go.
+    // The floating window is hidden all through the drag: `last` is where it
+    // goes at the drop. Under --e2e no window moves.
     // Size passed every time: a move across displays of different scales
     // must not resize it (Electron can, on Windows).
-    if (!deps.e2e) w.setBounds(b)
+    if (s.kind === 'window' && !deps.e2e) w.setBounds(b)
+  }
+
+  /* ----- THE GHOST (owner, 2026-10-30): only the tab follows the cursor ----- */
+  const ghostAt = (s: Session<W>): Bounds => ghostBounds(cursorOf(s), s.grab, s.tab)
+  /** Out of every strip: the ghost shows under the cursor. */
+  const showGhost = (s: Float<W>): void => {
+    if (s.ghost !== 'off' || s.over) return
+    s.ghost = 'asked'
+    s.gb = ghostAt(s)
+    if (!deps.ghost) return
+    deps.ghost.show({ label: s.label, size: s.tab, look: s.look }, s.gb, () => {
+      if (session !== s || s.ghost !== 'asked') return
+      s.ghost = 'up'
+      deps.tell(s.source, { kind: 'shown', tabId: s.tabId })
+    })
+  }
+  /** In a strip, dropped, or ended: the ghost goes at once. */
+  const hideGhost = (s: Float<W>): void => {
+    if (s.ghost === 'off') return
+    s.ghost = 'off'
+    s.gb = null
+    deps.ghost?.hide()
+  }
+  const moveGhost = (s: Float<W>): void => {
+    if (s.ghost === 'off') return
+    const b = ghostAt(s)
+    if (same(s.gb, b)) return
+    s.gb = b
+    deps.ghost?.move(b)
   }
 
   /** The windows the cursor can be over, front to back: never the window
@@ -452,12 +508,9 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     counts.raises += 1
     lift(under)
     if (under !== s.source) s.lifted = true
-    if (!deps.e2e) {
-      // What moves with the cursor stays above it.
-      if (s.kind === 'float') {
-        if (s.shown) deps.raise?.(s.win)
-      } else deps.raise?.(s.source)
-    }
+    // What moves with the cursor stays above it (the ghost is above every
+    // app already).
+    if (!deps.e2e && s.kind === 'window') deps.raise?.(s.source)
     deps.log?.('tear-raise', { tab: s.tabId, win: nameOf(under) ?? '' })
   }
 
@@ -474,12 +527,9 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     s.over = o
     s.dwell = null
     counts.enters += 1
-    if (s.kind === 'float') {
-      if (s.shown) {
-        s.shown = false
-        deps.hide?.(s.win)
-      }
-    } else if (!s.faded) {
+    // That strip draws the tab in its gap: the ghost goes.
+    if (s.kind === 'float') hideGhost(s)
+    else if (!s.faded) {
       s.faded = true
       if (!deps.e2e) deps.fade?.(s.source, true)
     }
@@ -497,7 +547,7 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     counts.leaves += 1
     if (alive(o.win)) deps.hover?.(o.win, null)
     deps.tell(s.source, { kind: 'off', tabId: s.tabId })
-    if (s.kind === 'float') showFloating(s)
+    if (s.kind === 'float') showGhost(s)
     else if (s.faded) {
       s.faded = false
       if (!deps.e2e) deps.fade?.(s.source, false)
@@ -525,6 +575,7 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     else {
       if (!alive(s.win)) return void finish('cancel', false)
       place(s, s.win)
+      moveGhost(s)
     }
     const p = cursorOf(s)
     refresh(s)
@@ -547,27 +598,16 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
   const unbury = (s: Session<W>): void => {
     if (s.lifted && alive(s.source)) lift(s.source)
   }
-  const attach = (s: Floating<W> & { point: Point; last: Bounds | null }): void => {
+  const attach = (s: Float<W>): void => {
     stopLoop()
     session = null
     counts.attaches += 1
+    hideGhost(s)
     unbury(s)
     deps.release(s.win, s.tabId, s.source)
     deps.moving(s.tabId, false)
     deps.tell(s.source, { kind: 'attached', tabId: s.tabId })
     deps.log?.('tear-attach', { tab: s.tabId })
-  }
-  const showFloating = (s: Floating<W> & { last: Bounds | null }): void => {
-    if (s.shown || !s.ready || s.over || !alive(s.win)) return
-    s.shown = true
-    // Placed BEFORE it shows, so it never flashes somewhere else first.
-    if (s.last && !deps.e2e) s.win.setBounds(s.last)
-    s.win.showInactive()
-    // And IN FRONT (owner, 2026-10-30: "you just see your cursor"): a hidden
-    // window shows where it sat in the stacking, under the source and every
-    // window raised since it was hidden, so it moved unseen behind them.
-    if (!deps.e2e) deps.raise?.(s.win)
-    deps.tell(s.source, { kind: 'shown', tabId: s.tabId })
   }
   /** The drop is committed: the floating window is a window of the session. */
   const commit = (tabId: string, win: W, carry: TabCarry, source: W): void => {
@@ -636,6 +676,7 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     session = null
     const o = s.over
     if (o && how === 'drop' && s.carry && alive(o.win) && alive(s.source)) {
+      if (s.kind === 'float') hideGhost(s)
       merge(s, o, s.carry)
       return true
     }
@@ -657,9 +698,16 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     }
     if (how === 'drop' && !o && alive(s.win) && alive(s.source)) {
       commit(s.tabId, s.win, s.carry, s.source)
+      // Placed so its tab sits under the cursor where the ghost was, BEFORE
+      // it shows; then in front, and only then does the ghost go (no frame
+      // with neither).
+      place(s, s.win)
+      if (s.last && !deps.e2e) s.win.setBounds(s.last)
       deps.reveal(s.win)
+      hideGhost(s)
       return true
     }
+    hideGhost(s)
     giveBack(s.tabId, s.win, s.source)
     unbury(s)
     if (!fromPage && alive(s.source)) deps.tell(s.source, { kind: 'ended', tabId: s.tabId })
@@ -690,6 +738,7 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
         origin: req.origin,
         tab: req.size ?? { width: TEAR.tabWidth, height: TEAR.tabHeight },
         label: req.label ?? labelOf(req.carry ?? null),
+        look: validTabLook(req.look) ? req.look : undefined,
         dwell: null,
         over: null,
         z,
@@ -729,7 +778,8 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
           strip: req.strip,
           sent: false,
           ready: false,
-          shown: false
+          ghost: 'off',
+          gb: null
         }
         session = s
         deps.moving(req.tabId, true)
@@ -738,6 +788,8 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
           s.sent = true
           deps.adopt(win, carry)
         }
+        // Only the tab follows the cursor, from this moment.
+        showGhost(s)
       }
       deps.log?.('tear-start', { tab: req.tabId, only: req.only })
       loop = every(tick, TEAR.tickMs)
@@ -758,11 +810,11 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
     adopted(win, tab) {
       if (session?.kind === 'float' && session.win === win) {
         // Its own strip, as drawn: the cursor holds THAT tab from now on.
+        // It stays hidden until the drop (the ghost is what follows).
         if (tab) session.origin = tab
         session.ready = true
         session.last = null
         place(session, win)
-        showFloating(session)
       } else if (late && late.win === win) settleLate(true)
     },
     end(source, how) {
@@ -779,6 +831,8 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
       if (how === 'drop' && s.kind === 'float' && !s.over && !s.ready && alive(s.win) && alive(s.source)) {
         stopLoop()
         session = null
+        // The ghost goes at the drop; the window shows once its page is ready.
+        hideGhost(s)
         deps.log?.('tear-drop-waits', { tab: s.tabId })
         return new Promise((resolve) => {
           late = {
@@ -826,7 +880,8 @@ export function createTearOff<W extends TearWin>(deps: TearDeps<W>): TearOff<W> 
         phase: s?.kind ?? 'idle',
         tabId: s?.tabId ?? null,
         bounds: s?.last ?? null,
-        shown: s?.kind === 'float' ? s.shown : false,
+        shown: s?.kind === 'float' ? s.ghost === 'up' : false,
+        ghost: s?.kind === 'float' && s.gb ? { ...s.gb } : null,
         waiting: late !== null,
         over: nameOf(s?.over?.win),
         slot: s?.over?.slot ?? null,

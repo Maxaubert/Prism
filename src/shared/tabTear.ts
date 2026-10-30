@@ -77,7 +77,12 @@ export const TEAR = {
   raiseMs: 750,
   /** A carried tab's size when the page did not say. */
   tabWidth: 114,
-  tabHeight: 32
+  tabHeight: 32,
+  /** THE GHOST (owner, 2026-10-30): room around the tab in its own small
+   *  window, for its shadow. */
+  ghostPad: 20,
+  /** A ghost's label is cut to this many characters. */
+  ghostLabelMax: 200
 } as const
 
 export const rectOf = (b: Bounds): Rect => ({ left: b.x, top: b.y, right: b.x + b.width, bottom: b.y + b.height })
@@ -256,6 +261,55 @@ export function floatBounds(cursor: Point, grab: Point, size: Size, work: Bounds
   return { x, y, width: size.width, height: size.height }
 }
 
+/**
+ * THE GHOST'S PLACE (owner, 2026-10-30: "let it just be the tab you're
+ * carrying, that's how file explorer does it"): the tab-sized window that
+ * follows the cursor while a torn tab is outside every strip, held at the same
+ * grab point as in the strip (so it does not jump at the tear), with `pad`
+ * round it for its shadow. Never held to the work area: it is the cursor's.
+ */
+export function ghostBounds(cursor: Point, grab: Point, size: Size, pad: number = TEAR.ghostPad): Bounds {
+  return {
+    x: Math.round(cursor.x - grab.x - pad),
+    y: Math.round(cursor.y - grab.y - pad),
+    width: Math.round(size.width + pad * 2),
+    height: Math.round(size.height + pad * 2)
+  }
+}
+
+/**
+ * How the carried tab looks, as the source page's theme draws it (the ghost
+ * is a page of its own with none of the app's styles). Computed colours and
+ * the tab's font family; main checks each (`validTabLook`) before the ghost
+ * uses them, so nothing but a colour or a font name gets in.
+ */
+export interface TabLook {
+  /** The strip's ground (--p-tabs), the tab's ink, its edge and accent rule. */
+  ground: string
+  ink: string
+  edge: string
+  accent: string
+  font: string
+}
+
+const COLOUR = /^(?:#[0-9a-f]{3,8}|transparent|(?:rgba?|hsla?|color|lab|lch|oklab|oklch)\([0-9a-z.,%\s/+-]*\))$/i
+const FONT = /^[\w\s,"'.-]+$/
+/** A computed CSS colour (no `url(`, no second value). */
+export const validColour = (c: unknown): c is string => typeof c === 'string' && c.length <= 80 && COLOUR.test(c)
+export function validTabLook(l: unknown): l is TabLook {
+  const q = l as TabLook | null
+  return (
+    !!q &&
+    validColour(q.ground) &&
+    validColour(q.ink) &&
+    validColour(q.edge) &&
+    validColour(q.accent) &&
+    typeof q.font === 'string' &&
+    q.font.length <= 200 &&
+    FONT.test(q.font)
+  )
+}
+
 /** The tab the slot is asked for: the lane whose middle is right of `x`. */
 export function slotAt(mids: readonly number[], x: number): number {
   const at = mids.findIndex((m) => x < m)
@@ -303,6 +357,10 @@ export interface TearRequest {
    *  it) and its label (that strip draws it while it hovers there). */
   size?: Size
   label?: string
+  /** How it looks, for the ghost that follows the cursor (owner, 2026-10-30).
+   *  One that fails `validTabLook` is dropped (the ghost's own colours), never
+   *  the tear. */
+  look?: TabLook
   /** Where the press is inside the tab. */
   grab: Point
   /** Where a window's FIRST tab sits in its strip (client coordinates): the

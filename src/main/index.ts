@@ -143,6 +143,7 @@ import {
   watchWindowState
 } from './windowChrome'
 import { createTearOff } from './tearOff'
+import { GHOST_PAGE, createTabGhost } from './tabGhost'
 import { TEAR, validStripReport, validTearRequest, type Point } from '@shared/tabTear'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
@@ -1299,6 +1300,9 @@ function spareSoon(delay: number = TEAR.spareDelayMs): void {
   spareTimer = setTimeout(() => {
     spareTimer = null
     if (appState.appQuitting || appState.installingUpdate || windows.count() === 0) return
+    // The ghost is made with it (owner, 2026-10-30), so the first tear shows
+    // the tab under the cursor at once.
+    tabGhost.warm()
     const s = windows.spare()
     if (s && !tear.busy(s.win)) return
     createWindow({ spare: true, seed: { kind: 'adopt' } })
@@ -1319,7 +1323,66 @@ function dropSpare(): void {
   if (spareTimer) clearTimeout(spareTimer)
   spareTimer = null
   for (const r of windows.all()) if (r.spare && !r.win.isDestroyed()) r.win.destroy()
+  tabGhost.destroy()
 }
+/**
+ * THE GHOST'S WINDOW (owner, 2026-10-30: "let it just be the tab you're
+ * carrying"; src/main/tabGhost.ts): tab-sized, frameless, transparent, never
+ * focused, never in the taskbar, never under the pointer, above every app.
+ * Its page is a fixed data: page with no script of its own and no preload,
+ * sandboxed; it may not navigate or open anything. Under --e2e it is parked
+ * and clear like every window.
+ */
+const tabGhost = createTabGhost<BrowserWindow>({
+  e2e: E2E,
+  base: themeGround,
+  light: () => themeGround() !== '#111318',
+  log: (event, fields) => mainCrumb(event, fields),
+  make: (ready, gone) => {
+    const w = new BrowserWindow({
+      show: false,
+      frame: false,
+      transparent: true,
+      backgroundColor: '#00000000',
+      width: TEAR.tabWidth + TEAR.ghostPad * 2,
+      height: TEAR.tabHeight + TEAR.ghostPad * 2,
+      ...(E2E ? { x: -4000, y: -4000 } : {}),
+      focusable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      hasShadow: false,
+      roundedCorners: false,
+      thickFrame: false,
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        spellcheck: false,
+        backgroundThrottling: false,
+        devTools: false
+      }
+    })
+    w.setAlwaysOnTop(true, 'screen-saver')
+    w.setIgnoreMouseEvents(true)
+    w.setMenu(null)
+    if (E2E) w.setOpacity(0)
+    w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    w.webContents.on('will-navigate', (e) => e.preventDefault())
+    w.webContents.once('did-finish-load', ready)
+    w.webContents.on('render-process-gone', () => {
+      gone()
+      if (!w.isDestroyed()) w.destroy()
+    })
+    w.once('closed', gone)
+    void w.loadURL(GHOST_PAGE).catch(() => {})
+    return w
+  }
+})
 /**
  * THE SYSTEM'S WINDOWS, FOR THE TEAR (step 4, review 2026-10-30): which of
  * Prism's windows is really in front, and whether another app's window covers
@@ -1461,9 +1524,9 @@ const tear = createTearOff<BrowserWindow>({
     if (!win.isDestroyed()) win.moveTop()
   },
   raised: (win) => windows.raised(win),
-  hide: (win) => {
-    if (!win.isDestroyed()) win.hide()
-  },
+  // THE GHOST (owner, 2026-10-30): only the tab follows the cursor; the
+  // floating window stays hidden until the drop.
+  ghost: tabGhost,
   // The only tab's window holds the pointer's capture: it goes clear rather
   // than hidden, and never under --e2e (its windows are already clear, parked).
   // By the addon when it can (review 2026-10-30): back, it is not layered any
@@ -2064,8 +2127,16 @@ if (!app.requestSingleInstanceLock()) {
         // (nothing moves under --e2e), its counts, and the spare.
         __e2eTear: () => {
           const s = windows.spare()
-          return { ...tear.state(), spare: s ? { page: s.id, key: s.key, ready: s.restored } : null }
+          return {
+            ...tear.state(),
+            spare: s ? { page: s.id, key: s.key, ready: s.restored, visible: !s.win.isDestroyed() && s.win.isVisible() } : null,
+            // The ghost's own window (owner, 2026-10-30): made, loaded, shown
+            // (parked and clear), and where it would be.
+            ghostWin: tabGhost.state()
+          }
         },
+        // The label the ghost's page shows, read back from its document.
+        __e2eGhostLabel: () => tabGhost.label(),
         // Step 4: where a parked window pretends to be (an offset from the
         // work area's top-left, so it can be a target), a focus order (the
         // e2e's windows are unfocusable, so none is ever focused by itself),

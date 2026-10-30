@@ -10,6 +10,11 @@ Owner's choices (2026-10-29): a LIVE window follows the cursor; a tab can be dro
 window's tab bar; dragging a window's ONLY tab moves the whole window; windows close one by one,
 and starting Prism with none open gives ONE window (the tabs of the last window closed, as today).
 
+**Changed 2026-10-30** (owner, after trying it by hand: "i dont wanna be carrying a full window ...
+actually let it just be the tab you're carrying, that's how file explorer does it"): ONLY THE TAB
+follows the cursor, as a tab-sized ghost window; the new window stays hidden until the drop. The
+only tab still moves its whole window.
+
 This replaces the 2026-08-23 decision that a tab "should slide left and right inside its own row
 and nowhere else" (TabStrip.tsx). Study behind it: a read-only code map (25 single-window
 assumptions, checked by a skeptic) and research on Chrome's tab_drag_controller, WinUI TabView,
@@ -26,16 +31,19 @@ All distances in DIP (Prism runs at 225% on the owner's display).
 3. **Tear.** The tab tears when its own rect is FULLY outside the strip rect (the owner's rule:
    "fully outside the tab border"), in practice about 24 DIP below or above the strip. Past the
    + button, one tab width of grace. The tab leaves the strip at once (the gap closes with the
-   existing 170 ms slide) and a real Prism window appears under the cursor, holding the tab at the
-   same grab point in ITS strip, and follows the cursor.
+   existing 170 ms slide) and ONLY THE TAB follows the cursor (2026-10-30): a tab-sized ghost, the
+   tab as the strip draws it, lifted, held at the same grab point, in a tiny window of its own that
+   never takes the focus or the pointer and sits above every app. The real Prism window is handed
+   the tab at once and stays hidden until the drop.
 4. **Snap back.** Coming back over any Prism window's strip (its rect plus 8 DIP: a tighter zone
-   than the tear, so the edge cannot flicker) for 120 ms attaches the tab live: the floating window
+   than the tear, so the edge cannot flicker) for 120 ms attaches the tab live: the ghost
    goes, the tab slides into that strip at the slot under the cursor, and reorders there until
    release. Its own strip included.
-5. **Drop.** Released while floating: the new window stays where it is and takes focus. Released
+5. **Drop.** Released while floating: the new window is placed so its tab sits under the cursor
+   where the ghost was, shown in front and focused, and the ghost goes. Released
    attached: the tab is in that strip, selected, that window in front.
 6. **Cancel.** Escape, right-click, a lost capture or the window losing focus (Alt+Tab, a UAC
-   prompt) put the tab back where it was, selected as before, and close the floating window. Nothing
+   prompt) put the tab back where it was, selected as before, and hide the ghost. Nothing
    half-done is ever committed.
 7. **The only tab.** Past the tear point the WHOLE window follows the cursor instead (no second
    window); over another window's strip it attaches there and the emptied window closes. A
@@ -44,9 +52,10 @@ All distances in DIP (Prism runs at 225% on the owner's display).
    clamped to the display under the cursor (10 DIP inset; at least half the work area when the
    source was maximized). The source keeps its own state (maximized stays maximized).
 9. **No flash, no lag.** One hidden spare window is kept warm (made ~2 s after startup and after
-   each use) with the theme's background colour, so the window is under the cursor within a frame
-   or two. Main moves it (8 ms polling of the cursor, size passed each time for mixed-DPI moves),
-   never the renderer over IPC. If no spare is ready, a floating tab chip shows until it is.
+   each use) with the theme's background colour, and the ghost's window with it, so the tab is
+   under the cursor at once. Main moves the ghost (8 ms polling of the cursor, size passed each
+   time for mixed-DPI moves), never the renderer over IPC. If no spare is ready, the ghost still
+   follows, and a drop waits for the fresh window's page before anything commits.
 
 What a moved tab keeps: its folder, history, selection, scroll, preview, the open file and its
 position (video time, play state, volume and speed), unsaved text, and in main everything keyed by

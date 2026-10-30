@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { createTearOff, type TearDeps, type TearWin } from './tearOff'
-import { TEAR, type Bounds, type Point, type StripReport, type TabCarry, type TabHover, type TearEvent, type TearRequest } from '@shared/tabTear'
+import { TEAR, type Bounds, type Point, type StripReport, type TabCarry, type TabHover, type TabLook, type TearEvent, type TearRequest } from '@shared/tabTear'
 
 // Main's half of the tear-off (step 3, 2026-10-29), driven with fake windows
 // and a hand-turned clock: the loop, the snap back's dwell, the drop, the
-// cancel, the only tab moving its window.
+// cancel, the only tab moving its window. Since 2026-10-30 only the tab (the
+// ghost) follows the cursor; the floating window stays hidden until the drop.
 
 interface FakeWin extends TearWin {
   name: string
@@ -67,6 +68,8 @@ interface RigOptions {
   front?: Array<'source' | 'other'>
   /** Another app's window, in front of every Prism window, over this rect. */
   foreign?: Bounds
+  /** The ghost's page has not loaded yet: it shows when `ghostReady()` is called. */
+  slowGhost?: boolean
 }
 function rig(options: RigOptions = {}) {
   let t = 0
@@ -88,6 +91,14 @@ function rig(options: RigOptions = {}) {
   /** The system's order: asked every tick, a raise moves a window up. */
   let front: Array<'source' | 'other'> = [...(options.front ?? ['source', 'other'])]
   let foreign: Bounds | null = options.foreign ?? null
+  /** The ghost, as main's window would be. */
+  const ghost = {
+    shown: false,
+    at: null as Bounds | null,
+    face: null as { label: string; look?: TabLook } | null,
+    moves: [] as Bounds[],
+    pending: null as (() => void) | null
+  }
   const within = (p: Point, b: Bounds): boolean =>
     p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height
   const deps: TearDeps<FakeWin> = {
@@ -114,9 +125,29 @@ function rig(options: RigOptions = {}) {
     hover: (w, h) => void hovers.push({ win: w.name, hover: h }),
     merge: (w, c, src, at) => log.push(`merge ${c.tab.id} into ${w.name} from ${src.name} at ${at ?? 'end'}`),
     raise: (w) => log.push(`raise ${w.name}`),
-    hide: (w) => {
-      w.shown = false
-      log.push(`hide ${w.name}`)
+    ghost: {
+      show: (face, at, shown) => {
+        log.push(`ghost show ${face.label}`)
+        ghost.at = { ...at }
+        ghost.face = { label: face.label, look: face.look }
+        const up = (): void => {
+          ghost.pending = null
+          ghost.shown = true
+          shown()
+        }
+        if (options.slowGhost) ghost.pending = up
+        else up()
+      },
+      move: (at) => {
+        ghost.at = { ...at }
+        ghost.moves.push({ ...at })
+      },
+      hide: () => {
+        ghost.shown = false
+        ghost.at = null
+        ghost.pending = null
+        log.push('ghost hide')
+      }
     },
     fade: (w, out) => log.push(`fade ${w.name} ${out ? 'out' : 'in'}`),
     closeEmptied: (w) => log.push(`close ${w.name}`),
@@ -151,6 +182,9 @@ function rig(options: RigOptions = {}) {
     spare,
     other,
     hovers,
+    ghost,
+    /** The ghost's page has loaded: a show asked for goes on screen. */
+    ghostReady: () => ghost.pending?.(),
     setOtherStrip: (r: StripReport | null) => (otherStrip = r),
     /** The system's order changes (a window focused or closed elsewhere). */
     setFront: (f: Array<'source' | 'other'>) => (front = [...f]),
@@ -180,25 +214,74 @@ function rig(options: RigOptions = {}) {
 }
 
 describe('tearing a tab off (one of several)', () => {
-  it('hands the tab to the spare, places it under the cursor and moves it from main', () => {
+  it('hands the tab to the hidden spare, and only the tab (the ghost) follows the cursor', () => {
     const r = rig()
     r.move({ x: 500, y: 400 }, 0)
     expect(r.tear.start(r.source, r.req())).toBe(true)
     expect(r.moving.has('t2')).toBe(true)
-    expect(r.log).toEqual(['adopt spare t2'])
-    // Placed while hidden: the cursor holds the first tab's grab point
-    // (frame 8 + origin 0 + grab 50, origin 40 + grab 16).
-    expect(r.spare.bounds).toMatchObject({ x: 500 - 58, y: 400 - 56, width: 1200, height: 800 })
-    expect(r.spare.shown).toBe(false)
-    r.tear.adopted(r.spare, { x: 0, y: 40 })
-    expect(r.spare.shown).toBe(true)
-    // In front of everything as it shows, without the focus (it moved unseen
-    // behind the source: owner, 2026-10-30).
-    expect(r.log.at(-1)).toBe('raise spare')
+    expect(r.log).toEqual(['adopt spare t2', 'ghost show x'])
+    // THE GHOST (owner, 2026-10-30: "let it just be the tab you're
+    // carrying"): the tab's own size with its shadow's room, held at the same
+    // grab point as in the strip (50, 16), so it does not jump at the tear.
+    expect(r.ghost.at).toEqual({ x: 500 - 50 - 20, y: 400 - 16 - 20, width: 140, height: 72 })
     expect(r.told).toEqual([{ kind: 'shown', tabId: 't2' }])
+    // Where the window WOULD go: the cursor holds the first tab's grab point
+    // (frame 8 + origin 0 + grab 50, origin 40 + grab 16). It is not moved.
+    expect(r.tear.state().bounds).toMatchObject({ x: 500 - 58, y: 400 - 56, width: 1200, height: 800 })
+    r.tear.adopted(r.spare, { x: 0, y: 40 })
+    // It stays hidden all through the drag, and is never raised.
+    expect(r.spare.shown).toBe(false)
+    expect(r.log).not.toContain('raise spare')
     r.move({ x: 900, y: 600 }, 16)
-    expect(r.spare.bounds).toMatchObject({ x: 842, y: 544, width: 1200, height: 800 })
-    expect(r.tear.state()).toMatchObject({ phase: 'float', tabId: 't2', shown: true })
+    expect(r.ghost.at).toEqual({ x: 830, y: 564, width: 140, height: 72 })
+    expect(r.tear.state()).toMatchObject({
+      phase: 'float',
+      tabId: 't2',
+      shown: true,
+      ghost: { x: 830, y: 564, width: 140, height: 72 },
+      bounds: { x: 842, y: 544, width: 1200, height: 800 }
+    })
+    expect(r.spare.moves).toEqual([])
+    expect(r.spare.shown).toBe(false)
+  })
+
+  it('moves the ghost only when the cursor moves', () => {
+    const r = rig()
+    r.move({ x: 500, y: 400 }, 0)
+    r.tear.start(r.source, r.req())
+    r.move({ x: 600, y: 400 }, 8)
+    r.move({ x: 600, y: 400 }, 80)
+    expect(r.ghost.moves).toEqual([{ x: 530, y: 364, width: 140, height: 72 }])
+  })
+
+  it('a ghost whose page is not ready yet shows once it is; the source keeps its chip until then', () => {
+    const r = rig({ slowGhost: true })
+    r.tear.start(r.source, r.req())
+    expect(r.tear.state().shown).toBe(false)
+    expect(r.told).toEqual([])
+    r.ghostReady()
+    expect(r.tear.state().shown).toBe(true)
+    expect(r.told).toEqual([{ kind: 'shown', tabId: 't2' }])
+  })
+
+  it('a ghost that comes after its tear has ended says nothing', async () => {
+    const r = rig({ slowGhost: true })
+    r.tear.start(r.source, r.req())
+    const late = r.ghost.pending
+    expect(await r.tear.end(r.source, 'cancel')).toEqual({ committed: false })
+    expect(r.log).toContain('ghost hide')
+    late?.()
+    expect(r.told).toEqual([])
+  })
+
+  it('draws the tab with the look its strip sent, and its own colours for one that fails the check', () => {
+    const look: TabLook = { ground: 'rgb(26, 29, 33)', ink: 'rgb(227, 230, 234)', edge: 'rgba(255, 255, 255, 0.07)', accent: 'rgb(106, 127, 153)', font: '"Segoe UI", sans-serif' }
+    const r = rig()
+    r.tear.start(r.source, { ...r.req(), look })
+    expect(r.ghost.face).toEqual({ label: 'x', look })
+    const bad = rig()
+    bad.tear.start(bad.source, { ...bad.req(), look: { ...look, ground: 'url(https://example.com/x.png)' } })
+    expect(bad.ghost.face).toEqual({ label: 'x', look: undefined })
   })
 
   it('takes the new page’s own tab place once it has drawn it', () => {
@@ -206,28 +289,32 @@ describe('tearing a tab off (one of several)', () => {
     r.move({ x: 500, y: 400 }, 0)
     r.tear.start(r.source, r.req())
     r.tear.adopted(r.spare, { x: 40, y: 44 })
-    expect(r.spare.bounds).toMatchObject({ x: 500 - 98, y: 400 - 60 })
+    expect(r.tear.state().bounds).toMatchObject({ x: 500 - 98, y: 400 - 60 })
   })
 
   it('waits for a fresh window’s page before handing the tab over', () => {
     const r = rig({ listening: false })
     r.tear.start(r.source, r.req())
-    expect(r.log).toEqual([])
+    expect(r.log).toEqual(['ghost show x'])
     r.setListening(true)
     r.tear.listening(r.spare)
-    expect(r.log).toEqual(['adopt spare t2'])
+    expect(r.log).toEqual(['ghost show x', 'adopt spare t2'])
   })
 
-  it('drop: the floating window becomes a window, in front, and the next spare is made', async () => {
+  it('drop: the floating window is placed where the ghost was, shown in front, then the ghost goes', async () => {
     const r = rig()
     r.tear.start(r.source, r.req())
     r.tear.adopted(r.spare, null)
     r.move({ x: 900, y: 600 }, 40)
+    expect(r.spare.moves).toEqual([])
     expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: true })
-    expect(r.log).toEqual(['adopt spare t2', 'raise spare', 'commit spare', 'spare soon', 'reveal spare'])
+    expect(r.log).toEqual(['adopt spare t2', 'ghost show x', 'commit spare', 'spare soon', 'reveal spare', 'ghost hide'])
+    // Its tab under the cursor: placed once, before it shows.
+    expect(r.spare.moves).toEqual([{ x: 842, y: 544, width: 1200, height: 800 }])
+    expect(r.ghost.shown).toBe(false)
     expect(r.moving.has('t2')).toBe(false)
     expect(r.running()).toBe(false)
-    expect(r.tear.state()).toMatchObject({ phase: 'idle', commits: 1 })
+    expect(r.tear.state()).toMatchObject({ phase: 'idle', commits: 1, shown: false, ghost: null })
   })
 
   it('a drop before a slow window has drawn the tab commits only once it has, and shows it then', async () => {
@@ -237,18 +324,20 @@ describe('tearing a tab off (one of several)', () => {
     void r.tear.end(r.source, 'drop').then((a) => (answer = a))
     await Promise.resolve()
     // Nothing committed yet (review 2026-10-29): the source still has the tab.
+    // The ghost goes at the drop all the same.
     expect(answer).toBeNull()
-    expect(r.log).toEqual([])
+    expect(r.log).toEqual(['ghost show x', 'ghost hide'])
+    expect(r.ghost.shown).toBe(false)
     expect(r.moving.has('t2')).toBe(true)
     expect(r.tear.busy(r.spare)).toBe(true)
     expect(r.tear.state()).toMatchObject({ phase: 'idle', waiting: true, commits: 0 })
     r.setListening(true)
     r.tear.listening(r.spare)
-    expect(r.log).toEqual(['adopt spare t2'])
+    expect(r.log).toEqual(['ghost show x', 'ghost hide', 'adopt spare t2'])
     r.tear.adopted(r.spare, null)
     await Promise.resolve()
     expect(answer).toEqual({ committed: true })
-    expect(r.log).toEqual(['adopt spare t2', 'commit spare', 'spare soon', 'reveal spare'])
+    expect(r.log).toEqual(['ghost show x', 'ghost hide', 'adopt spare t2', 'commit spare', 'spare soon', 'reveal spare'])
     expect(r.spare.shown).toBe(true)
     expect(r.moving.has('t2')).toBe(false)
     expect(r.tear.busy(r.spare)).toBe(false)
@@ -263,13 +352,13 @@ describe('tearing a tab off (one of several)', () => {
     expect(r.tear.state().waiting).toBe(true)
     r.move({ x: 0, y: 0 }, 8)
     expect(await answer).toEqual({ committed: false })
-    expect(r.log).toEqual(['release spare t2 to source'])
+    expect(r.log).toEqual(['ghost show x', 'ghost hide', 'release spare t2 to source'])
     expect(r.moving.has('t2')).toBe(false)
     expect(r.tear.state()).toMatchObject({ waiting: false, commits: 0, cancels: 1 })
     // A page that turns up after all is the spare's again: nothing happens.
     r.tear.listening(r.spare)
     r.tear.adopted(r.spare, null)
-    expect(r.log).toEqual(['release spare t2 to source'])
+    expect(r.log).toEqual(['ghost show x', 'ghost hide', 'release spare t2 to source'])
     expect(r.spare.shown).toBe(false)
   })
 
@@ -281,7 +370,7 @@ describe('tearing a tab off (one of several)', () => {
     r.tear.gone(r.spare)
     expect(await answer).toEqual({ committed: false })
     expect(r.moving.has('t2')).toBe(false)
-    expect(r.log).toEqual([])
+    expect(r.log).toEqual(['ghost show x', 'ghost hide'])
   })
 
   it('the source closing while a drop waits: the tab is nobody’s, and no longer moving', async () => {
@@ -291,7 +380,7 @@ describe('tearing a tab off (one of several)', () => {
     // Electron's 'closed': not destroyed yet, but gone for the tear.
     r.tear.gone(r.source)
     expect(await answer).toEqual({ committed: false })
-    expect(r.log).toEqual(['release spare t2 to nobody'])
+    expect(r.log).toEqual(['ghost show x', 'ghost hide', 'release spare t2 to nobody'])
     expect(r.moving.has('t2')).toBe(false)
   })
 
@@ -300,7 +389,8 @@ describe('tearing a tab off (one of several)', () => {
     r.tear.start(r.source, r.req())
     r.tear.adopted(r.spare, null)
     expect(await r.tear.end(r.source, 'cancel')).toEqual({ committed: false })
-    expect(r.log).toEqual(['adopt spare t2', 'raise spare', 'release spare t2 to source'])
+    expect(r.log).toEqual(['adopt spare t2', 'ghost show x', 'ghost hide', 'release spare t2 to source'])
+    expect(r.ghost.shown).toBe(false)
     expect(r.moving.has('t2')).toBe(false)
     // The page cancelled: it needs no word back.
     expect(r.told.filter((e) => e.kind === 'ended')).toEqual([])
@@ -313,6 +403,7 @@ describe('tearing a tab off (one of several)', () => {
     r.move({ x: 1, y: 1 })
     expect(r.told.at(-1)).toEqual({ kind: 'ended', tabId: 't2' })
     expect(r.tear.state().phase).toBe('idle')
+    expect(r.ghost.shown).toBe(false)
   })
 
   it('the source closing mid-tear hides the floating window again, and the tab stops moving first', () => {
@@ -321,9 +412,9 @@ describe('tearing a tab off (one of several)', () => {
     // Called from 'closed', before the window is destroyed and before it
     // leaves the registry (review 2026-10-29): its close must release the tab.
     r.tear.gone(r.source)
-    expect(r.log.at(-1)).toBe('release spare t2 to nobody')
+    expect(r.log.slice(-2)).toEqual(['ghost hide', 'release spare t2 to nobody'])
     expect(r.moving.has('t2')).toBe(false)
-    expect(r.told).toEqual([])
+    expect(r.told).toEqual([{ kind: 'shown', tabId: 't2' }])
     expect(r.tear.state().phase).toBe('idle')
   })
 
@@ -352,7 +443,9 @@ describe('the snap back (its own strip, plus 8 DIP, for 120 ms)', () => {
     expect(r.told.some((e) => e.kind === 'attached')).toBe(false)
     r.move({ x: 600, y: 178 }, 16)
     expect(r.told.at(-1)).toEqual({ kind: 'attached', tabId: 't2' })
-    expect(r.log.at(-1)).toBe('release spare t2 to source')
+    // The ghost goes: the strip draws the tab again.
+    expect(r.log.slice(-2)).toEqual(['ghost hide', 'release spare t2 to source'])
+    expect(r.ghost.shown).toBe(false)
     expect(r.moving.has('t2')).toBe(false)
     expect(r.running()).toBe(false)
     // Main's part is over: the pointer-up that follows commits nothing.
@@ -378,7 +471,9 @@ describe('the only tab moves the whole window', () => {
     const r = rig()
     r.move({ x: 400, y: 200 }, 0)
     r.tear.start(r.source, r.req(true))
+    // The owner's earlier choice stands: no ghost, the window itself.
     expect(r.log).toEqual([])
+    expect(r.ghost.at).toBeNull()
     r.move({ x: 1000, y: 500 }, 16)
     expect(r.source.bounds).toMatchObject({ x: 1000 - 58, y: 500 - 56, width: 1200, height: 800 })
     expect(await r.tear.end(r.source, 'drop')).toEqual({ committed: false })
@@ -413,6 +508,8 @@ describe('under --e2e', () => {
     // the hold. Not the parked place, where every bound is held to an edge.
     expect(r.tear.state().bounds).toMatchObject({ x: 508 - 58, y: 300 - 56 })
     expect(r.spare.moves).toEqual([])
+    // The ghost's would-be place, from the same pointer (its window parks it).
+    expect(r.tear.state().ghost).toEqual({ x: 508 - 50 - 20, y: 300 - 16 - 20, width: 140, height: 72 })
   })
   it('follows the pointer from a window parked off every display', () => {
     const r = rig({ e2e: true })
@@ -442,7 +539,7 @@ describe('under --e2e', () => {
 // out of it once the cursor is 12 DIP clear of that and the tab fully out.
 describe('attaching into another window (step 4)', () => {
   const overStrip = { x: 1500, y: 216 }
-  it('after 120 ms over its strip the tab is in it, live: the floating window hides, the strip is told where', async () => {
+  it('after 120 ms over its strip the tab is in it, live: the ghost hides, the strip is told where', async () => {
     const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
     r.tear.start(r.source, r.req())
     r.tear.adopted(r.spare, null)
@@ -451,7 +548,9 @@ describe('attaching into another window (step 4)', () => {
     expect(r.tear.state().over).toBeNull()
     r.move(overStrip, 16)
     expect(r.tear.state()).toMatchObject({ phase: 'float', over: 'other', enters: 1 })
-    expect(r.log).toContain('hide spare')
+    expect(r.log.at(-1)).toBe('ghost hide')
+    expect(r.tear.state()).toMatchObject({ shown: false, ghost: null })
+    expect(r.spare.shown).toBe(false)
     expect(r.told.at(-1)).toEqual({ kind: 'over', tabId: 't2' })
     expect(r.hovers.at(-1)).toEqual({
       win: 'other',
@@ -473,7 +572,7 @@ describe('attaching into another window (step 4)', () => {
     expect(r.tear.state()).toMatchObject({ phase: 'idle', merges: 1, commits: 0 })
   })
 
-  it('fully out of that strip it tears off again: the gap closes, the floating window is back, and it does not flicker', () => {
+  it('fully out of that strip it tears off again: the gap closes, the ghost is back, and it does not flicker', () => {
     const r = rig({ other: { x: 1400, y: 200, width: 500, height: 600 } })
     r.tear.start(r.source, r.req())
     r.tear.adopted(r.spare, null)
@@ -489,7 +588,9 @@ describe('attaching into another window (step 4)', () => {
       { kind: 'off', tabId: 't2' },
       { kind: 'shown', tabId: 't2' }
     ])
-    expect(r.spare.shown).toBe(true)
+    expect(r.ghost.shown).toBe(true)
+    expect(r.ghost.at).toEqual({ x: 1430, y: 224, width: 140, height: 72 })
+    expect(r.spare.shown).toBe(false)
     // Held there, it never takes the tab again by itself.
     r.move({ x: 1500, y: 260 }, 400)
     expect(r.tear.state()).toMatchObject({ over: null, enters: 1 })
@@ -528,8 +629,10 @@ describe('attaching into another window (step 4)', () => {
     // ...750 ms there brings it to the front, and its whole strip is open.
     r.move({ x: 1500, y: 700 }, 360)
     expect(r.tear.state()).toMatchObject({ raises: 1, front: 'other' })
-    // Without the focus, and the floating window stays above it.
-    expect(r.log.slice(-3)).toEqual(['raise other', 'raised other', 'raise spare'])
+    // Without the focus; the ghost is above every app already, and the
+    // hidden floating window is never raised.
+    expect(r.log.slice(-2)).toEqual(['raise other', 'raised other'])
+    expect(r.log).not.toContain('raise spare')
     r.move({ x: 800, y: 516 }, 128)
     expect(r.tear.state().over).toBe('other')
   })

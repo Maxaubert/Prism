@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import type { OpenPayload } from '@shared/types'
-import type { Point, Rect, Size, TearEnd } from '@shared/tabTear'
+import type { Point, Rect, Size, TabLook, TearEnd } from '@shared/tabTear'
 import { closeTab, newTab, type TabState } from '../lib/tabs/tabs'
 import { applyCarry, buffersLeaving, carryOf, ownedBufferKeys } from '../lib/tabs/tabCarry'
 import { forgetTabVolume, setTabRate, setTabVolume, tabRate, tabVolume } from '../lib/tabs/tabVolume'
@@ -16,8 +16,10 @@ import { visitedDirectories } from '../lib/visitedDirectories'
  *
  * In the SOURCE window:
  * - `out`: the carried tab has left the strip. Its state is packed
- *   (lib/tabs/tabCarry.ts) and handed to main, which shows it in a floating
- *   window; the tab stays in this strip's state, hidden, until the drop, and
+ *   (lib/tabs/tabCarry.ts) and handed to main, which hands it to a hidden
+ *   floating window and shows only the tab (the ghost, owner 2026-10-30)
+ *   under the cursor; the tab stays in this strip's state, hidden, until the
+ *   drop, and
  *   if it was in front a neighbour takes the front. The window's ONLY tab
  *   moves the whole window instead (spec 1.7).
  * - `attached`: main snapped it back over this strip: it is in front again.
@@ -39,13 +41,13 @@ import { visitedDirectories } from '../lib/visitedDirectories'
  */
 
 export interface StripTear {
-  /** The carried tab left its strip. Answers how it goes on: 'float' (a
-   *  window of its own follows the cursor), 'window' (this window follows: it
-   *  is the only tab), or null (it cannot leave: Settings). `refused` is
+  /** The carried tab left its strip. Answers how it goes on: 'float' (the
+   *  tab flies on its own, its window shown at the drop), 'window' (this
+   *  window follows: it is the only tab), or null (it cannot leave: Settings). `refused` is
    *  called if main turns the tear down after all. */
   out(
     id: string,
-    at: { grab: Point; origin: Point; strip: Rect; point: Point; size: Size; label: string },
+    at: { grab: Point; origin: Point; strip: Rect; point: Point; size: Size; label: string; look?: TabLook },
     refused: () => void
   ): 'float' | 'window' | null
   /** Main attached it to this strip again (the snap back). */
