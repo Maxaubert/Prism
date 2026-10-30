@@ -4364,8 +4364,8 @@ async function tabTearScenario(fixtures) {
     const up = await tearState()
     ok(up.ghostWin?.visible === true, `its own window is shown, parked (${JSON.stringify(up.ghostWin)})`)
     ok(
-      !!up.ghost && Math.abs(up.ghost.width - (tabBox.width + 40)) <= 1 && Math.abs(up.ghost.height - (tabBox.height + 40)) <= 1,
-      `tab-sized, with room for its shadow (${JSON.stringify(up.ghost)} for a ${tabBox.width}x${tabBox.height} tab)`
+      !!up.ghost && Math.abs(up.ghost.width - tabBox.width) <= 1 && Math.abs(up.ghost.height - tabBox.height) <= 1,
+      `the tab's own size (${JSON.stringify(up.ghost)} for a ${tabBox.width}x${tabBox.height} tab)`
     )
     ok(up.spare?.visible === false, `the floating window stays hidden during the drag (${JSON.stringify(up.spare)})`)
     const painted = await app.evaluate(() => globalThis.__e2eGhostLabel())

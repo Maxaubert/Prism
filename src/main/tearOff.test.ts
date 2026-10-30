@@ -230,7 +230,7 @@ describe('tearing a tab off (one of several)', () => {
     // THE GHOST (owner, 2026-10-30: "let it just be the tab you're
     // carrying"): the tab's own size with its shadow's room, held at the same
     // grab point as in the strip (50, 16), so it does not jump at the tear.
-    expect(r.ghost.at).toEqual({ x: 500 - 50 - 20, y: 400 - 16 - 20, width: 140, height: 72 })
+    expect(r.ghost.at).toEqual({ x: 500 - 50, y: 400 - 16, width: 100, height: 32 })
     expect(r.told).toEqual([{ kind: 'shown', tabId: 't2' }])
     // Where the window WOULD go: the cursor holds the first tab's grab point
     // (frame 8 + origin 0 + grab 50, origin 40 + grab 16). It is not moved.
@@ -240,12 +240,12 @@ describe('tearing a tab off (one of several)', () => {
     expect(r.spare.shown).toBe(false)
     expect(r.log).not.toContain('raise spare')
     r.move({ x: 900, y: 600 }, 16)
-    expect(r.ghost.at).toEqual({ x: 830, y: 564, width: 140, height: 72 })
+    expect(r.ghost.at).toEqual({ x: 850, y: 584, width: 100, height: 32 })
     expect(r.tear.state()).toMatchObject({
       phase: 'float',
       tabId: 't2',
       shown: true,
-      ghost: { x: 830, y: 564, width: 140, height: 72 },
+      ghost: { x: 850, y: 584, width: 100, height: 32 },
       bounds: { x: 842, y: 544, width: 1200, height: 800 }
     })
     expect(r.spare.moves).toEqual([])
@@ -258,7 +258,7 @@ describe('tearing a tab off (one of several)', () => {
     r.tear.start(r.source, r.req())
     r.move({ x: 600, y: 400 }, 8)
     r.move({ x: 600, y: 400 }, 80)
-    expect(r.ghost.moves).toEqual([{ x: 530, y: 364, width: 140, height: 72 }])
+    expect(r.ghost.moves).toEqual([{ x: 550, y: 384, width: 100, height: 32 }])
   })
 
   it('a ghost whose page is not ready yet shows once it is; the source keeps its chip until then', () => {
@@ -577,7 +577,7 @@ describe('under --e2e', () => {
     expect(r.tear.state().bounds).toMatchObject({ x: 508 - 58, y: 300 - 56 })
     expect(r.spare.moves).toEqual([])
     // The ghost's would-be place, from the same pointer (its window parks it).
-    expect(r.tear.state().ghost).toEqual({ x: 508 - 50 - 20, y: 300 - 16 - 20, width: 140, height: 72 })
+    expect(r.tear.state().ghost).toEqual({ x: 508 - 50, y: 300 - 16, width: 100, height: 32 })
   })
   it('follows the pointer from a window parked off every display', () => {
     const r = rig({ e2e: true })
@@ -657,7 +657,7 @@ describe('attaching into another window (step 4)', () => {
       { kind: 'shown', tabId: 't2' }
     ])
     expect(r.ghost.shown).toBe(true)
-    expect(r.ghost.at).toEqual({ x: 1430, y: 224, width: 140, height: 72 })
+    expect(r.ghost.at).toEqual({ x: 1450, y: 244, width: 100, height: 32 })
     expect(r.spare.shown).toBe(false)
     // Held there, it never takes the tab again by itself.
     r.move({ x: 1500, y: 260 }, 400)

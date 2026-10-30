@@ -145,8 +145,11 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
 - **The ghost** (owner, 2026-10-30, after trying the live window by hand: "i dont wanna be carrying a full
   window ... actually let it just be the tab you're carrying, that's how file explorer does it"). While a torn
   tab is outside every strip, ONLY a tab-sized ghost follows the cursor: the tab as the strip draws it (the solid
-  folder, its label, the strip's ground and the theme's ink, the accent rule, lifted with a soft shadow), never
-  a window preview. It is its own tiny native window (`src/main/tabGhost.ts`): frameless, transparent,
+  folder, its label, the strip's ground and the theme's ink, the accent rule), never a window preview, at
+  slightly lower opacity (`TEAR.ghostOpacity`, 0.85; owner, 2026-10-30: "you want it to be the tab still but
+  just slightly lower opacity"). Its window is exactly the tab and OPAQUE, see-through only by its window's
+  opacity: the first build was a transparent window with a shadow, and with DirectComposition off (Prism's
+  video fix) it drew nothing ("right now there's nothing"). It is its own tiny native window (`src/main/tabGhost.ts`): frameless,
   unfocusable, out of the taskbar, click-through (`setIgnoreMouseEvents`), always on top at `screen-saver`
   level (never hidden behind the source, the bug the live window had), shown INACTIVE, placed before it shows,
   made warm with the spare. Its page is a fixed data: page with a CSP allowing no script and no fetch, no
@@ -157,7 +160,7 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
   a drop and every cancel hide it at once. The ONLY tab still moves its whole window (no ghost).
   Review 2026-10-30: at a drop the ghost stays until the window just shown has drawn a frame (at most
   250 ms, `TEAR.drawnMs`), so no frame shows neither; a late drop keeps it at the drop point until the
-  window shows or the tab goes back. The ghost itself shows clear and turns opaque only after its own first
+  window shows or the tab goes back. The ghost itself shows clear and takes its opacity only after its own first
   frame (never the previous tab's face), a window jumping to a display of another scale is placed twice
   (`setBoundsSure`), and the tab size a page sends is held to 400 x 64 DIP (`tabSize`).
 - **How it is built**: the strip keeps the pointer (its capture holds outside the window) and decides the tear;

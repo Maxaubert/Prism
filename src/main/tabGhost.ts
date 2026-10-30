@@ -9,7 +9,7 @@ import { TEAR, setBoundsSure, tabSize, validTabLook, type Bounds, type Size, typ
  * folder icon, its label, the theme's ground and ink, lifted with a soft
  * shadow). The full window stays hidden under the drag and shows at the drop.
  *
- * The window never takes the focus or the pointer (frameless, transparent,
+ * The window never takes the focus or the pointer (frameless, opaque but see-through,
  * unfocusable, out of the taskbar, click-through) and sits above every app
  * (`screen-saver`), so it can never be hidden behind the source the way a
  * shown-inactive spare was. Main moves it from the tear's 8 ms loop, in DIP,
@@ -100,18 +100,18 @@ export const fallbackLook = (light: boolean): TabLook =>
     : { ground: '#1a1d23', ink: '#e8e9ec', edge: 'rgba(255, 255, 255, 0.10)', accent: '#60a5fa', font: 'Segoe UI Variable, Segoe UI, sans-serif' }
 
 /**
- * The page: transparent, no script of its own, nothing loaded from anywhere.
+ * The page: no script of its own, nothing loaded from anywhere.
  * The tab: the strip's TabGhost lifted (TabStrip.tsx): 12 px text, the icon
  * and a gap of 6, padding 10, the accent rule along the top, radius 4.
  */
 export const GHOST_HTML = `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <style>
-html,body{margin:0;padding:0;background:transparent;overflow:hidden;user-select:none;cursor:default}
+html,body{margin:0;padding:0;background:#1a1d23;overflow:hidden;user-select:none;cursor:default}
 #t{position:fixed;left:${TEAR.ghostPad}px;top:${TEAR.ghostPad}px;width:${TEAR.tabWidth}px;height:${TEAR.tabHeight}px;box-sizing:border-box;
-display:flex;align-items:center;gap:6px;padding:0 10px;overflow:hidden;border-radius:4px;font-size:12px;
+display:flex;align-items:center;gap:6px;padding:0 10px;overflow:hidden;font-size:12px;
 font-family:'Segoe UI Variable','Segoe UI',sans-serif;color:#e8e9ec;background:#1a1d23;
-box-shadow:0 8px 24px rgba(0,0,0,.28),0 0 0 1px rgba(255,255,255,.1)}
+box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
 #m{position:absolute;left:0;right:0;top:0;height:2px;background:#60a5fa}
 #i{flex:none;width:14px;height:14px}
 #l{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -145,7 +145,8 @@ const PAINT = `(function (v) {
   s.fontFamily = v.font + ", 'Segoe UI Variable', 'Segoe UI', sans-serif";
   s.backgroundColor = v.base;
   s.backgroundImage = 'linear-gradient(' + v.ground + ', ' + v.ground + ')';
-  s.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.28), 0 0 0 1px ' + v.edge;
+  s.boxShadow = 'inset 0 0 0 1px ' + v.edge;
+  document.body.style.backgroundColor = v.base;
   m.style.backgroundColor = v.accent;
   return true;
 })`
@@ -219,8 +220,9 @@ export function createTabGhost<W extends GhostWin>(deps: TabGhostDeps<W>): TabGh
   /** Lit: opaque, and the tear is told it is on screen. */
   const light = (g: W, w: { script: string; shown: () => void }): void => {
     if (live() !== g || want !== w || !up || lit) return
-    if (!deps.e2e) g.setOpacity(1)
+    if (!deps.e2e) g.setOpacity(TEAR.ghostOpacity)
     lit = true
+    deps.log?.('tear-ghost', { shown: true, x: at?.x ?? 0, y: at?.y ?? 0, w: at?.width ?? 0, h: at?.height ?? 0 })
     w.shown()
   }
   /**
