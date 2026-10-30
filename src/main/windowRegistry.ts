@@ -35,7 +35,13 @@ export interface PageContents {
  *  made with `saved`, which is the only route to the saved strip on disk: a
  *  test, torn-off or Win+E window cannot read it by mistake (the skeptic's
  *  `coldRestoreDone` trap, 2026-10-29). */
-export type WindowSeed = { kind: 'saved' } | { kind: 'tabs'; tabs: SavedTabs } | { kind: 'none' }
+export type WindowSeed =
+  | { kind: 'saved' }
+  | { kind: 'tabs'; tabs: SavedTabs }
+  | { kind: 'none' }
+  /** The tear-off's spare (step 3): nothing at all, not even the home
+   *  Explorer; its one tab is handed over when a tab is torn off. */
+  | { kind: 'adopt' }
 
 export interface WindowRecord<W extends PageWindow = PageWindow> {
   readonly win: W
@@ -71,6 +77,15 @@ export interface WindowRecord<W extends PageWindow = PageWindow> {
   focusedAt: number
   /** Being replaced by a crash rebuild: its close releases nothing. */
   rebuilding: boolean
+  /**
+   * THE TEAR-OFF'S SPARE (step 3, 2026-10-29): a hidden window kept warm for
+   * the next tab pulled out of a strip, and the floating window while that tab
+   * is still being carried. It is not a window of the session until a drop
+   * makes it one: never counted, never the one files from outside go to,
+   * never in the session file, and its close releases nothing (the tab it
+   * shows still belongs to the window it came from).
+   */
+  spare: boolean
 }
 
 export interface AddOptions {
@@ -81,14 +96,19 @@ export interface AddOptions {
   seed?: WindowSeed
   launchFlags?: readonly string[]
   winE?: string | null
+  spare?: boolean
 }
 
 export interface WindowRegistry<W extends PageWindow = PageWindow> {
   add(win: W, options?: AddOptions): WindowRecord<W>
   /** Forget a window; answers the tab ids it held (to release, unless mid-move). */
   remove(win: W): string[]
+  /** Every live window, the spare included (pushes reach it too). */
   all(): Array<WindowRecord<W>>
+  /** The session's windows: the spare is not one. */
   count(): number
+  /** The spare, if one is made (live). */
+  spare(): WindowRecord<W> | undefined
   /** The record of a sender (a top-level Prism page), or undefined. */
   of(sender: { id: number } | null | undefined): WindowRecord<W> | undefined
   recordOf(win: W): WindowRecord<W> | undefined
@@ -118,10 +138,17 @@ export interface WindowRegistry<W extends PageWindow = PageWindow> {
   handOver(from: W, to: W): void
   anyDirty(): boolean
   /** Tab tear-off (step 3): a tab in flight between windows keeps its main
-   *  state when the window it leaves closes. Unused until then. */
+   *  state when the window it leaves closes, and only while it flies may the
+   *  floating window (a spare) own it. */
   markMoving(tabId: string): void
   unmarkMoving(tabId: string): void
   isMoving(tabId: string): boolean
+  /** The drop (tab tear-off step 3): the tab is `to`'s now. It leaves
+   *  `from`'s reported strip AT ONCE, not when that page next reports: until
+   *  then `from`'s close would release the moved tab's grants and watch, a
+   *  crash rebuild would restore a copy of it, and the session file would hold
+   *  it twice. Answers `from`'s new strip, or null if it did not list the tab. */
+  handTab(tabId: string, from: W, to: W): SavedTabs | null
 }
 
 const contentsOf = <W extends PageWindow>(
@@ -177,7 +204,8 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
         restoreStarted: false,
         restored: false,
         focusedAt: 0,
-        rebuilding: false
+        rebuilding: false,
+        spare: !!options.spare
       }
       records.set(record.id, record)
       return record
@@ -188,10 +216,11 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
       const ids = tabIdsOf(r)
       records.delete(r.id)
       for (const [tab, owner] of owners) if (owner === r.id) owners.delete(tab)
-      return r.rebuilding ? [] : ids.filter((id) => !moving.has(id))
+      return r.rebuilding || r.spare ? [] : ids.filter((id) => !moving.has(id))
     },
     all: () => [...records.values()].filter(live),
-    count: () => registry.all().length,
+    count: () => registry.all().filter((r) => !r.spare).length,
+    spare: () => registry.all().find((r) => r.spare),
     of: (sender) => (sender ? records.get(sender.id) : undefined),
     recordOf: (win) => {
       for (const r of records.values()) if (r.win === win) return r
@@ -208,10 +237,13 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
     },
     target() {
       let best: WindowRecord<W> | undefined
-      for (const r of registry.all()) if (!best || r.focusedAt > best.focusedAt) best = r // insertion order: the oldest wins a tie
+      for (const r of registry.all()) {
+        if (r.spare) continue
+        if (!best || r.focusedAt > best.focusedAt) best = r // insertion order: the oldest wins a tie
+      }
       return best
     },
-    oldest: () => registry.all()[0],
+    oldest: () => registry.all().find((r) => !r.spare),
     sendTo: (to, channel, ...args) => send(contentsOf(to), channel, args),
     sendToAll(channel, ...args) {
       let n = 0
@@ -224,7 +256,12 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
       registry.sendToAll(channel, ...args)
     },
     noteTabOwner(tabId, sender) {
-      if (typeof tabId === 'string' && tabId && records.has(sender.id)) owners.set(tabId, sender.id)
+      if (typeof tabId !== 'string' || !tabId) return
+      const r = records.get(sender.id)
+      // A spare owns a tab only while that tab flies: a late request from a
+      // floating window the tab has already left never takes it back.
+      if (!r || (r.spare && !moving.has(tabId))) return
+      owners.set(tabId, sender.id)
     },
     forgetTab: (tabId) => void owners.delete(tabId),
     ownerOf(tabId) {
@@ -244,7 +281,19 @@ export function createWindowRegistry<W extends PageWindow = PageWindow>(): Windo
     anyDirty: () => registry.all().some((r) => r.dirty),
     markMoving: (tabId) => void moving.add(tabId),
     unmarkMoving: (tabId) => void moving.delete(tabId),
-    isMoving: (tabId) => moving.has(tabId)
+    isMoving: (tabId) => moving.has(tabId),
+    handTab(tabId, from, to) {
+      const b = registry.recordOf(to)
+      if (b && !b.spare) owners.set(tabId, b.id)
+      const a = registry.recordOf(from)
+      const was = a?.reported
+      if (!a || !was || !was.tabs.some((t) => t.id === tabId)) return null
+      const front = was.tabs[was.active]?.id
+      const tabs = was.tabs.filter((t) => t.id !== tabId)
+      const at = tabs.findIndex((t) => t.id === front)
+      a.reported = { tabs, active: at >= 0 ? at : Math.max(0, Math.min(was.active, tabs.length - 1)) }
+      return a.reported
+    }
   }
   return registry
 }

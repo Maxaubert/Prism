@@ -134,3 +134,71 @@ describe('the window registry (tab tear-off step 1, 2026-10-29)', () => {
     expect(r.ownerOf('t1')?.win).toBe(b)
   })
 })
+
+describe('the tear-off spare (step 3, 2026-10-29)', () => {
+  it('is not a window of the session: not counted, never the target or the oldest', () => {
+    const r = createWindowRegistry()
+    const spare = r.add(fakeWindow(), { spare: true, seed: { kind: 'adopt' } })
+    expect(r.count()).toBe(0)
+    expect(r.target()).toBeUndefined()
+    expect(r.oldest()).toBeUndefined()
+    const a = r.add(fakeWindow(), { first: true })
+    expect(r.count()).toBe(1)
+    expect(r.target()).toBe(a)
+    expect(r.oldest()).toBe(a)
+    expect(r.spare()).toBe(spare)
+    // Pushes still reach it: its page keeps the theme and the preferences.
+    expect(r.all()).toContain(spare)
+    expect(r.sendToAll('x:y')).toBe(2)
+  })
+
+  it('owns a tab only while that tab flies, and its close releases nothing', () => {
+    const r = createWindowRegistry()
+    const a = r.add(fakeWindow(), { first: true })
+    a.reported = strip('t1', 't2')
+    const s = r.add(fakeWindow(), { spare: true })
+    r.noteTabOwner('t2', a.win.webContents)
+    // A late request from a floating window the tab has left: ignored.
+    r.noteTabOwner('t2', s.win.webContents)
+    expect(r.ownerOf('t2')).toBe(a)
+    r.markMoving('t2')
+    r.noteTabOwner('t2', s.win.webContents)
+    expect(r.ownerOf('t2')).toBe(s)
+    expect(r.remove(s.win)).toEqual([])
+  })
+
+  it('becomes an ordinary window when the drop makes it one', () => {
+    const r = createWindowRegistry()
+    r.add(fakeWindow(), { first: true })
+    const s = r.add(fakeWindow(), { spare: true })
+    r.markMoving('t2')
+    r.noteTabOwner('t2', s.win.webContents)
+    s.spare = false
+    r.unmarkMoving('t2')
+    expect(r.count()).toBe(2)
+    expect(r.spare()).toBeUndefined()
+    // Its close now releases the tab it holds, like any window's.
+    expect(r.remove(s.win)).toEqual(['t2'])
+  })
+
+  it('the drop takes the tab out of the source at once: its close releases it no more', () => {
+    const r = createWindowRegistry()
+    const a = r.add(fakeWindow(), { first: true })
+    a.reported = { tabs: strip('t1', 't2', 't3').tabs, active: 2 }
+    r.noteTabOwner('t2', a.win.webContents)
+    const s = r.add(fakeWindow(), { spare: true })
+    r.markMoving('t2')
+    r.noteTabOwner('t2', s.win.webContents)
+    s.spare = false
+    s.reported = strip('t2')
+    expect(r.handTab('t2', a.win, s.win)?.tabs.map((t) => t.id)).toEqual(['t1', 't3'])
+    r.unmarkMoving('t2')
+    // The tab in front stays the one in front.
+    expect(a.reported).toMatchObject({ active: 1 })
+    expect(r.ownerOf('t2')).toBe(s)
+    // Before the source's page has reported its own strip again.
+    expect(r.remove(a.win)).toEqual(['t1', 't3'])
+    // A strip that never listed it is left alone.
+    expect(r.handTab('t9', s.win, s.win)).toBeNull()
+  })
+})

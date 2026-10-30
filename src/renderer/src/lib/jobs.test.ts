@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   chipSummary,
   endJob,
+  LAND_HOLD_MS,
   landingIn,
   landingReader,
   landJob,
@@ -138,10 +139,38 @@ describe('landing items (owner, 2026-10-28: a paste shows its rows)', () => {
     expect(into()).not.toBe(first)
     expect(into()[0].pct).toBe(60)
   })
-  it('a finished job lands nothing more', () => {
-    const id = startJob('paste', 'Copying')
-    landJob(id, 'C:/into', [{ path: 'C:/into/a.bin', name: 'a.bin', isFolder: false }])
-    endJob(id)
-    expect(landingIn(listJobs(), 'C:/into')).toEqual([])
+  it('a finished job keeps its rows until the listing can catch up, off the chip (2026-10-29)', () => {
+    vi.useFakeTimers()
+    try {
+      const id = startJob('paste', 'Copying')
+      landJob(id, 'C:/into', [{ path: 'C:/into/a.bin', name: 'a.bin', isFolder: false }])
+      vi.advanceTimersByTime(MIN_SHOW_MS + 10)
+      endJob(id)
+      // Ended past its minimum: the rows stay, the chip has nothing to show.
+      expect(landingIn(listJobs(), 'C:/into').map((r) => r.name)).toEqual(['a.bin'])
+      expect(chipSummary(listJobs())).toBeNull()
+      vi.advanceTimersByTime(LAND_HOLD_MS)
+      expect(landingIn(listJobs(), 'C:/into')).toEqual([])
+      expect(listJobs()).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a quick finished job still shows on the chip for its minimum, rows held longer', () => {
+    vi.useFakeTimers()
+    try {
+      const id = startJob('paste', 'Copying')
+      landJob(id, 'C:/into', [{ path: 'C:/into/a.bin', name: 'a.bin', isFolder: false }])
+      endJob(id)
+      expect(chipSummary(listJobs())?.pct).toBe(100)
+      vi.advanceTimersByTime(MIN_SHOW_MS)
+      expect(chipSummary(listJobs())).toBeNull()
+      expect(landingIn(listJobs(), 'C:/into')).toHaveLength(1)
+      vi.advanceTimersByTime(LAND_HOLD_MS)
+      expect(listJobs()).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
