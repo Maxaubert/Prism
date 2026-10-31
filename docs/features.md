@@ -427,13 +427,18 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the 2026-10-16 fix brought the ring back but not the picture. Now the next picture is decoded
   off-screen first (`lib/imageReady` `readyImage`: a huge one becomes its bitmap, an ordinary one is
   decoded by a detached element), and only then replaces the last, which stands in under the ring and
-  the dim (`switching`) meanwhile. The canvas takes its bitmap before the paint (`useLayoutEffect`). An
-  early decode that refuses still swaps, so the element's own error says why. `imageReady.test.ts`.
+  the dim (`switching`) meanwhile. The canvas takes its bitmap before the paint (`useLayoutEffect`), and
+  an `<img>` decoded ahead draws with `decoding="sync"`, so neither shows a blank frame. An early decode
+  that refuses still swaps, so the element's own error says why. Stepping past a picture drops its
+  hidden decode; stepping back to the one still on screen does not decode it again. e2e
+  `imageHugeSwap` (arrows across 42 MP both ways, watching every frame) and `imageReady.test.ts`.
 - **MAIN TYPES EVERY PICTURE FILEKIND LISTS** (#31, 2026-08-05 review, fixed 2026-10-31). fsmedia://'s
   type table was a second list beside `fileKind`, and they drifted: `.ico` went out as octet-stream and
   missed the whole-buffer fast path that is gated on `image/`. The image half of `mime.ts` is now built
   from `fileKind`'s `imageExtensions()`: Chromium's own formats keep their types (`NATIVE_IMAGE`), and what
-  main converts is typed as the copy it serves (PNG from ffmpeg, JPEG from a HEIC or a raw's preview).
+  main converts is typed as the copy it would serve (PNG from ffmpeg, JPEG from a HEIC or a raw's
+  preview); `mediaProtocol` answers those with its own type before it reads the table, so on the wire
+  only `.ico` changed.
   TIFF and JPEG XL stay viewable: the review found them dead, but they have decoded through the bundled
   ffmpeg since 2026-08-24 (`imageDecode.ts`; the bundled build lists `libjxl` and `tiff`). `mime.test.ts`
   fails on any image extension nothing can draw.
