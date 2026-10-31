@@ -8786,6 +8786,20 @@ async function sidebarPlacesScenario(fixtures) {
     await pinRow('Pinned', 'pintoo').dragTo(places.locator('section[aria-label="Quick access"] .quick-access-pin').first(), { targetPosition: { x: 20, y: 3 } })
     await sleep(400)
     ok(JSON.stringify(await quickOrder()) === JSON.stringify(quickNow) && JSON.stringify(await pinnedOrder()) === '["pinme","pintoo"]', 'a pin dragged onto Quick access stays where it was')
+    // A drag reorders Quick access too: its first row onto the third row's
+    // top half lands before the third, so the second row leads.
+    const quickPin = (i) => places.locator('section[aria-label="Quick access"] .quick-access-pin').nth(i)
+    const q0 = await quickOrder()
+    await quickPin(0).dragTo(quickPin(2), { targetPosition: { x: 20, y: 3 } })
+    const q1 = [q0[1], q0[0], ...q0.slice(2)]
+    ok(await until(async () => JSON.stringify(await quickOrder()) === JSON.stringify(q1), 5000), `a drag reorders Quick access (${await quickOrder()}, want ${q1})`)
+    ok(JSON.stringify(await pinnedOrder()) === '["pinme","pintoo"]', 'and leaves Pinned as it was')
+    // A drag onto the LAST row's bottom half takes a pin to the section's end.
+    const lastQuick = quickPin(q1.length - 1)
+    const lastBox = await lastQuick.boundingBox()
+    await quickPin(0).dragTo(lastQuick, { targetPosition: { x: 20, y: Math.max(1, Math.floor(lastBox.height) - 3) } })
+    const q2 = [...q1.slice(1), q1[0]]
+    ok(await until(async () => JSON.stringify(await quickOrder()) === JSON.stringify(q2), 5000), `a drag onto the last row's bottom half moves a pin to the end (${await quickOrder()}, want ${q2})`)
     // A drive's menu offers to pin it; pinned, it is a Pinned row.
     await c.click({ button: 'right' })
     ok((await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).count()) === 1, 'a drive offers Pin to Quick access')
