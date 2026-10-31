@@ -5,6 +5,8 @@ import type { Ask } from './asks'
 import { DeleteDialog } from './DeleteDialog'
 import { DeleteManyDialog } from './DeleteManyDialog'
 import { FileChangedDialog } from './FileChangedDialog'
+import { FolderIconDialog } from './FolderIconDialog'
+import { folderIconOf, readFolderIcons, type FolderIconChoice } from '../lib/folderIcons'
 import { MoveClashDialog } from './MoveClashDialog'
 import { NameTakenDialog } from './NameTakenDialog'
 import { NoticeDialog } from './NoticeDialog'
@@ -29,6 +31,8 @@ export interface AskAnswers {
   forceCloseTab: (id: string) => void
   answerReload: (path: string, reload: boolean) => void
   runInstall: () => void
+  /** Give the paths a folder icon, or (null) their default again. */
+  setFolderIcon: (paths: string[], icon: FolderIconChoice | null) => void
 }
 
 /**
@@ -122,6 +126,22 @@ export function AskDialogs({
           onKeepBoth={() => a.runRename(ask.path, ask.name, 'keep-both')}
         />
       )
+    case 'folder-icon': {
+      const now = ask.paths.length === 1 ? folderIconOf(readFolderIcons(), ask.paths[0]) : undefined
+      const answer = (icon: FolderIconChoice | null): void => {
+        a.setFolderIcon(ask.paths, icon)
+        a.dismiss()
+      }
+      return (
+        <FolderIconDialog
+          name={ask.name}
+          current={now && 'set' in now ? now.set : undefined}
+          onPick={(set) => answer({ set })}
+          onReset={() => answer(null)}
+          onCancel={a.dismiss}
+        />
+      )
+    }
     case 'failed':
       return <NoticeDialog title="That didn't work" message={ask.message} onClose={a.dismiss} />
   }

@@ -13,3 +13,6 @@ export type Ask =
   // back to those buffers is gone, even though the window stays open.
   | { kind: 'close-tab'; id: string; names: readonly string[] }
   | { kind: 'file-changed'; path: string; name: string }
+  // Change icon... on folder rows or a sidebar pin (2026-10-31): one pick
+  // applies to every path. `name` is the folder's, or "3 folders".
+  | { kind: 'folder-icon'; paths: string[]; name: string }

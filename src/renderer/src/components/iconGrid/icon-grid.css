@@ -1,0 +1,72 @@
+/* THE FOLDER ICON PICKER'S GRID (2026-10-31). Fixed cells, nothing sized from
+   content, and `contain: strict` on the scroller, so a scroll restyles and
+   lays out only the rows that come and go. */
+.icon-grid {
+  position: relative;
+  height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  contain: strict;
+  border-radius: 8px;
+  background: var(--p-bg);
+  border: 1px solid var(--p-divider);
+  outline: none;
+}
+.icon-grid-space {
+  position: relative;
+  width: 100%;
+}
+.icon-grid-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  height: 40px;
+  will-change: transform;
+}
+.icon-grid-cell {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 6px;
+  color: var(--p-text-soft);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: default;
+}
+.icon-grid-cell:hover {
+  background: var(--p-hover);
+  color: var(--p-text);
+}
+/* The folder's icon now: a quiet ring in the accent. */
+.icon-grid-cell[data-current] {
+  box-shadow: inset 0 0 0 1.5px var(--p-accent);
+  color: var(--p-text);
+}
+/* The keyboard's cell, seen only while the grid has the focus: a fill, no
+   ring (#272, no focus boxes). */
+.icon-grid:focus .icon-grid-cell[data-active] {
+  background: var(--p-hover-hi);
+  color: var(--p-text);
+}
+.folder-icon-search {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--p-divider);
+  background: var(--p-bg);
+  color: var(--p-text);
+  padding: 6px 10px;
+  font-size: 12.5px;
+  outline: none;
+}
+.folder-icon-search:focus {
+  border-color: var(--p-text-soft);
+}
+.folder-icon-status {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--p-dim);
+}

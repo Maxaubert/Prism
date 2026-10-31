@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { AskDialogs, type AskAnswers } from './AskDialogs'
 import type { Ask } from './asks'
 import { DeleteDialog } from './DeleteDialog'
+import { FolderIconDialog } from './FolderIconDialog'
 import { NoticeDialog } from './NoticeDialog'
 import { UnsavedDialog } from './UnsavedDialog'
 
@@ -20,7 +21,8 @@ const answers = (): AskAnswers => ({
   discardTabBuffers: vi.fn(),
   forceCloseTab: vi.fn(),
   answerReload: vi.fn(),
-  runInstall: vi.fn()
+  runInstall: vi.fn(),
+  setFolderIcon: vi.fn()
 })
 
 interface El {
@@ -74,5 +76,18 @@ describe('AskDialogs', () => {
     const a = answers()
     draw({ kind: 'clash', path: 'C:/a', name: 'b', suggestion: 'b (2)' }, 'over', a)?.props.onKeepBoth?.()
     expect(a.runRename).toHaveBeenCalledWith('C:/a', 'b', 'keep-both')
+  })
+
+  it('the folder icon picker sets every path, or resets them, then clears the ask', () => {
+    const a = answers()
+    const ask: Ask = { kind: 'folder-icon', paths: ['C:/a', 'C:/b'], name: '2 folders' }
+    const el = draw(ask, 'under', a) as El & { props: { onPick: (n: string) => void; onReset: () => void } }
+    expect(el.type).toBe(FolderIconDialog)
+    expect(draw(ask, 'over')).toBeNull()
+    el.props.onPick('camera')
+    expect(a.setFolderIcon).toHaveBeenLastCalledWith(['C:/a', 'C:/b'], { set: 'camera' })
+    el.props.onReset()
+    expect(a.setFolderIcon).toHaveBeenLastCalledWith(['C:/a', 'C:/b'], null)
+    expect(a.dismiss).toHaveBeenCalledTimes(2)
   })
 })
