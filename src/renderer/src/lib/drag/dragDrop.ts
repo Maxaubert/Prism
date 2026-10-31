@@ -85,6 +85,21 @@ export function getNative(): NativeDragRecord | null {
   return native
 }
 
+/**
+ * What a drag over a target carries, as far as a DRAGOVER can tell (#103):
+ * the in-app payload, or, for a drag Windows carries while Prism's own OS drag
+ * is recorded, that record's files. A dragover cannot read the dropped paths
+ * (Chromium hides them until the drop), and while the record is set the drag
+ * Windows carries is Prism's own, so a target can refuse itself and its own
+ * folder the way it does for the in-app carry.
+ */
+export function overPayload(dt: DataTransfer | null): DragPayload | null {
+  const inside = dragPayload(dt)
+  if (inside) return inside
+  if (!windowsDrag(dt) || native?.cargo.kind !== 'files') return null
+  return { kind: 'files', paths: [...native.cargo.paths] }
+}
+
 /** A drag Windows carries (Explorer, another app, or Prism after the hand-off),
  *  not Prism's in-app carry. Its drop is chosen by `ownDrop`, and its targets
  *  show 'copy': Electron's OS drag offers copy and link, never move, and a

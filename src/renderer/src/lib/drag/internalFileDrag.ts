@@ -3,7 +3,7 @@ import { baseName } from '@shared/path'
 import { dragBadgePlace } from './dragBadgePlace'
 import { buildDragRow } from './dragRow'
 import { DRAG_MIME, endNative, getDrag, setDrag, setNative } from './dragDrop'
-import { requestOf } from './dragOut'
+import { isReady, noteReady, requestOf } from './dragOut'
 import { pointerOut } from './edge'
 import { QUICK_ACCESS_PIN_MIME } from '../quickAccess'
 
@@ -32,6 +32,8 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
     } | null = null
     let frame = 0
     let suppressClick = false
+    /** A hand-off was asked for and the button has not come up since. */
+    let handing = false
 
     const send = (type: string, target: Element): boolean => {
       if (!carry) return false
@@ -109,6 +111,8 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
         if (delta) el.scrollTop += delta
         break
       }
+      // Parked on the edge (a maximized window) while main finished preparing.
+      if (pointerOut(carry.x, carry.y, window.innerWidth, window.innerHeight) && handOff()) return
       hover()
       frame = requestAnimationFrame(tick)
     }
@@ -137,19 +141,33 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
      * Ctrl+Tab). When the pointer leaves with the button held, the carry ends
      * quietly, no drop, and main starts Windows' own drag with the same cargo:
      * Explorer, a browser, Discord, another Prism window, or back into this
-     * one. If main refuses (a member not extracted yet, over the budget), the
-     * carry simply ended: a release outside the window did nothing anyway.
-     * Pins never hand off; they carry an order, not files.
+     * one. ONLY A CARGO MAIN ALREADY SAID YES TO hands off (the press's
+     * `drag:prepare`, `isReady`): with nothing that can leave (the archive
+     * view's members, a member still extracting or over the budget, a path
+     * main refused) the carry stays, so touching the edge, or the last 2 px of
+     * a maximized window, never ends the drag for nothing. Pins never hand
+     * off; they carry an order, not files. Answers whether it handed off.
      */
-    const handOff = (): void => {
-      if (!carry || carry.pin) return
+    const handOff = (): boolean => {
+      if (!carry || carry.pin) return false
       const request = requestOf(getDrag())
+      if (!request || !isReady(request)) return false
       end(false)
-      if (request) void window.prism.dragOut(request).catch(() => {})
+      handing = true
+      void window.prism.dragOut(request).catch(() => {})
+      return true
+    }
+    /** The button came up after the hand-off: if main has not started the
+     *  OS drag yet, it must not (it would drop at once where the pointer is). */
+    const released = (): void => {
+      if (!handing) return
+      handing = false
+      window.prism.dragOutCancel()
     }
     const down = (event: MouseEvent): void => {
       pressed = event.button === 0
       suppressClick = false
+      handing = false
     }
     const start = (event: DragEvent): void => {
       if (
@@ -208,22 +226,32 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       // The press of a file drag warms its icon in main, so a hand-off at the
       // edge starts at once (#103). Members prepare on their own press
       // (BrowseList), where the extraction has the most time.
-      if (payload?.kind === 'files') void window.prism.dragPrepare({ kind: 'files', paths: payload.paths }).catch(() => {})
+      if (payload?.kind === 'files') {
+        const req = { kind: 'files' as const, paths: payload.paths }
+        void window.prism
+          .dragPrepare(req)
+          .then((r) => noteReady(req, r.ok))
+          .catch(() => noteReady(req, false))
+      }
       hover()
       frame = requestAnimationFrame(tick)
     }
     const move = (event: MouseEvent): void => {
-      if (!carry) return
+      if (!carry) {
+        if (!(event.buttons & 1)) released()
+        return
+      }
       if (!(event.buttons & 1)) return end(false)
       carry.x = event.clientX
       carry.y = event.clientY
       carry.ctrl = event.ctrlKey
       carry.shift = event.shiftKey
-      if (pointerOut(carry.x, carry.y, window.innerWidth, window.innerHeight)) return handOff()
+      if (pointerOut(carry.x, carry.y, window.innerWidth, window.innerHeight) && handOff()) return
       hover()
     }
     const up = (event: MouseEvent): void => {
       pressed = false
+      if (event.button === 0) released()
       if (!carry || event.button !== 0) return
       carry.x = event.clientX
       carry.y = event.clientY

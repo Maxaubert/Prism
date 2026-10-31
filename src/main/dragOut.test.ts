@@ -122,6 +122,52 @@ describe('drag out of Prism, main (#103)', () => {
     expect(sent[0].channel).toBe('start')
   })
 
+  it('a release while the checks run starts no drag: it would drop at once', async () => {
+    let letGo: () => void = () => {}
+    const gate = new Promise<void>((r) => (letGo = r))
+    const files = new Map([['C:\\root\\a.txt', 'file' as const]])
+    const { d, started, sent } = setup({
+      kindOf: async (p) => {
+        await gate
+        return files.get(p)
+      }
+    })
+    const asked = d.out({ id: 4 }, { kind: 'files', paths: ['C:\\root\\a.txt'] })
+    // Another page's release cancels nothing here.
+    d.cancel({ id: 5 })
+    d.cancel({ id: 4 })
+    letGo()
+    expect(await asked).toEqual({ ok: false, reason: 'cancelled' })
+    expect(started).toHaveLength(0)
+    expect(sent).toHaveLength(0)
+    expect(d.inFlight()).toBeNull()
+    // The next hand-off from that page is not cancelled by the old release.
+    const again = d.out({ id: 4 }, { kind: 'files', paths: ['C:\\root\\a.txt'] })
+    expect((await again).ok).toBe(true)
+    expect(started).toHaveLength(1)
+  })
+
+  it('a release after a real drag started does nothing; under --e2e it ends the fake', async () => {
+    const real = setup()
+    await real.d.out({ id: 1 }, { kind: 'files', paths: ['C:\\root\\a.txt'] })
+    real.d.cancel({ id: 1 })
+    expect(real.sent.map((s) => s.channel)).toEqual(['start', 'end'])
+    const fake = setup({ e2e: true })
+    await fake.d.out({ id: 2 }, { kind: 'files', paths: ['C:\\root\\a.txt'] })
+    fake.d.cancel({ id: 9 })
+    expect(fake.d.inFlight()).not.toBeNull()
+    fake.d.cancel({ id: 2 })
+    expect(fake.d.inFlight()).toBeNull()
+    expect(fake.sent.map((s) => s.channel)).toEqual(['start', 'end'])
+  })
+
+  it('the press answers ok only for walled files that exist (the edge hands off only then)', async () => {
+    const { d } = setup()
+    expect(await d.prepare({ kind: 'files', paths: ['C:\\root\\a.txt'] })).toEqual({ ok: true })
+    expect(await d.prepare({ kind: 'files', paths: ['C:\\root\\a.txt', 'C:\\Windows\\win.ini'] })).toEqual({ ok: false, reason: 'refused' })
+    expect(await d.prepare({ kind: 'files', paths: ['C:\\root\\gone.txt'] })).toEqual({ ok: false, reason: 'failed' })
+  })
+
   it('is quiet while a drag runs and a moment after (the lag profiler skips it)', async () => {
     const { d, tick } = setup({ e2e: true })
     expect(d.quiet()).toBe(false)
@@ -179,6 +225,29 @@ describe('drag out of Prism, main (#103)', () => {
       expect(extracted).toHaveLength(2)
     })
 
+    it('a zip changed since the press carries no stale copy: not ready until pressed again', async () => {
+      let sig = 'sig1'
+      const { m, extracted } = members({ 'C:\\root\\z.zip\\a.txt': member('a.txt', 10) })
+      const s = setup({ members: { ...m, signature: async () => sig } })
+      s.files.set('C:\\temp\\a.txt', 'file')
+      expect(await s.d.prepare(req(['a.txt']))).toEqual({ ok: true })
+      sig = 'sig2'
+      expect(await s.d.out({ id: 1 }, req(['a.txt']))).toEqual({ ok: false, reason: 'not-ready' })
+      expect(s.started).toHaveLength(0)
+      expect(await s.d.prepare(req(['a.txt']))).toEqual({ ok: true })
+      expect(extracted).toHaveLength(2)
+      expect((await s.d.out({ id: 1 }, req(['a.txt']))).ok).toBe(true)
+    })
+
+    it('a folder is extracted at its listed size (the cap counts it)', async () => {
+      const { m } = members({ 'C:\\root\\z.zip\\docs': member('docs', 123, true) })
+      const extractDir = vi.fn(async (_r: string, entry: string) => `C:\\temp\\${entry}`)
+      const s = setup({ members: { ...m, extractDir } })
+      s.files.set('C:\\temp\\docs', 'dir')
+      expect(await s.d.prepare(req(['docs']))).toEqual({ ok: true })
+      expect(extractDir).toHaveBeenCalledWith('C:\\root\\z.zip', 'docs', 123)
+    })
+
     it('over 64 MB or 64 members nothing is extracted and nothing hands off', async () => {
       const big = members({ 'C:\\root\\z.zip\\big.bin': member('big.bin', 65 * 1024 * 1024) })
       const s = setup({ members: big.m })
@@ -192,10 +261,15 @@ describe('drag out of Prism, main (#103)', () => {
       expect(many.extracted).toEqual([])
     })
 
-    it('refuses a place that is not the member the cargo names', async () => {
+    it('refuses a place that is not the member the cargo names, before it stats the archive', async () => {
       const { m } = members({ 'C:\\root\\z.zip\\a.txt': member('other.txt', 1) })
-      const s = setup({ members: m })
+      const signature = vi.fn(async () => 'sig1')
+      const s = setup({ members: { ...m, signature } })
       expect(await s.d.prepare(req(['a.txt']))).toEqual({ ok: false, reason: 'refused' })
+      expect(signature).not.toHaveBeenCalled()
+      // Nor does the edge stat an archive it never prepared.
+      expect(await s.d.out({ id: 1 }, { ...req(['a.txt']), archive: 'C:\\Windows\\x.zip' })).toEqual({ ok: false, reason: 'not-ready' })
+      expect(signature).not.toHaveBeenCalled()
       const { m: m2 } = members({})
       expect(await setup({ members: m2 }).d.prepare(req(['a.txt']))).toEqual({ ok: false, reason: 'refused' })
     })

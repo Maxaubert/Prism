@@ -1,8 +1,8 @@
 import { useEffect, useState, type DragEvent } from 'react'
 import {
   DRAG_MIME,
-  dragIncludesPath,
   dragPayload,
+  overPayload,
   ownDrop,
   setDrag,
   windowsDrag,
@@ -36,10 +36,13 @@ export function useFolderDrop(onDropInto?: (directory: string, payload: DragPayl
         if (!accepts(event)) return
         event.preventDefault()
         event.stopPropagation()
+        // Prism's own rows refuse themselves and their own folder, carried
+        // in the window or back from its OS drag alike (#103).
+        const seen = overPayload(event.dataTransfer)
         if (
           !onDropInto ||
-          dragIncludesPath(event.dataTransfer, target) ||
-          insideSource(directory, dragPayload(event.dataTransfer))
+          (seen?.kind === 'files' && seen.paths.some((source) => samePath(source, target))) ||
+          insideSource(directory, seen)
         ) {
           event.dataTransfer.dropEffect = 'none'
           setHovered(null)

@@ -38,7 +38,7 @@ export interface NativeDragRecord {
 
 export type DragOutResult =
   | { ok: true; token: number }
-  | { ok: false; reason: 'busy' | 'refused' | 'missing' | 'not-ready' | 'failed' }
+  | { ok: false; reason: 'busy' | 'refused' | 'missing' | 'not-ready' | 'failed' | 'cancelled' }
 
 export type DragPrepareResult = { ok: true } | { ok: false; reason: 'refused' | 'budget' | 'failed' }
 

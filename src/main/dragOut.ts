@@ -73,7 +73,8 @@ export interface DragOutDeps<S, I extends IconLike> {
     resolve: (place: string) => Promise<ResolvedMember | null>
     signature: (real: string) => Promise<string | null>
     extractFile: (place: string) => Promise<string | null>
-    extractDir: (real: string, entry: string) => Promise<string | null>
+    /** A folder, listed at `size` bytes, into the run's member folder. */
+    extractDir: (real: string, entry: string, size: number) => Promise<string | null>
   }
 }
 
@@ -92,6 +93,15 @@ export function createDragOut<S, I extends IconLike>(deps: DragOutDeps<S, I>) {
   const icons = new Map<string, I>()
   /** archive + entry to its temp copy, with the container's state it came from. */
   const copies = new Map<string, { sig: string; path: string }>()
+  /**
+   * A hand-off waiting on its checks, per page. `out` awaits stats and an icon
+   * before `startDrag`, and a release in that gap must not start a drag:
+   * Chromium's drag source drops at once when the button is already up,
+   * wherever the pointer is. The page says so (`cancel`), and `out` looks
+   * right before it starts.
+   */
+  const pending = new Map<number, number>()
+  let gen = 0
 
   const iconKey = (p: string, kind: 'file' | 'dir'): string => {
     if (kind === 'dir') return '<dir>'
@@ -111,14 +121,22 @@ export function createDragOut<S, I extends IconLike>(deps: DragOutDeps<S, I>) {
     return deps.appIcon()
   }
 
-  /** The temp copies of these members, or null when any one is not ready. */
-  const memberPaths = (archive: string, entries: string[]): string[] | null => {
+  /** The temp copies of these members made from the container's state `sig`,
+   *  or null when any one is not ready (never made, or made from an older zip). */
+  const memberPaths = (archive: string, entries: string[], sig: string | null): string[] | null => {
     const map = new Map<string, string>()
     for (const e of entries) {
       const hit = copies.get(memberKey(archive, e))
-      if (hit) map.set(e, hit.path)
+      if (hit && sig !== null && hit.sig === sig) map.set(e, hit.path)
     }
     return nativePaths(entries, map)
+  }
+  /** Did a press prepare anything from this archive. The page names it, so it
+   *  is stat'ed only when main made copies from it itself. */
+  const preparedFrom = (archive: string): boolean => {
+    const prefix = memberKey(archive, '')
+    for (const k of copies.keys()) if (k.startsWith(prefix)) return true
+    return false
   }
 
   const end = (record: NativeDragRecord): void => {
@@ -129,6 +147,34 @@ export function createDragOut<S, I extends IconLike>(deps: DragOutDeps<S, I>) {
     deps.broadcast('end', { token: record.token })
   }
 
+  /** Start (or, under --e2e, record) the OS drag on checked paths. */
+  const start = (sender: S, r: DragOutRequest, paths: string[], icon: I): DragOutResult => {
+    const record: NativeDragRecord = {
+      token: ++token,
+      paths,
+      cargo: r.kind === 'files' ? { kind: 'files', paths: r.paths } : { kind: 'members', archive: r.archive, entries: r.entries },
+      source: deps.senderId(sender)
+    }
+    flight = record
+    deps.pin(paths, Infinity)
+    deps.broadcast('start', record)
+    if (deps.e2e) {
+      // THE HARD GUARD: never startDrag under --e2e. The test (or the
+      // page's release, `cancel`) ends it.
+      deps.record?.({ record, iconEmpty: icon.isEmpty(), file: paths[0] })
+      return { ok: true, token: record.token }
+    }
+    try {
+      // On Windows this is DoDragDrop: it returns when the button is released.
+      deps.startDrag(sender, { file: paths[0], files: paths, icon })
+    } catch {
+      end(record)
+      return { ok: false, reason: 'failed' }
+    }
+    end(record)
+    return { ok: true, token: record.token }
+  }
+
   return {
     /**
      * The press: warm the icon, and extract archive members within the
@@ -137,16 +183,15 @@ export function createDragOut<S, I extends IconLike>(deps: DragOutDeps<S, I>) {
     async prepare(req: unknown): Promise<DragPrepareResult> {
       if (!validRequest(req)) return { ok: false, reason: 'refused' }
       if (req.kind === 'files') {
+        if (!req.paths.every((p) => deps.readable(p))) return { ok: false, reason: 'refused' }
         const first = req.paths[0]
-        if (!deps.readable(first)) return { ok: false, reason: 'refused' }
         const kind = await deps.kindOf(first)
-        if (kind) await iconFor(first, kind)
+        if (!kind) return { ok: false, reason: 'failed' }
+        await iconFor(first, kind)
         return { ok: true }
       }
       const m = deps.members
       if (!m) return { ok: false, reason: 'refused' }
-      const sig = await m.signature(req.archive)
-      if (!sig) return { ok: false, reason: 'failed' }
       const items: Array<ResolvedMember & { place: string }> = []
       for (const [i, place] of req.places.entries()) {
         const r = await m.resolve(place)
@@ -155,6 +200,10 @@ export function createDragOut<S, I extends IconLike>(deps: DragOutDeps<S, I>) {
           return { ok: false, reason: 'refused' }
         items.push({ ...r, place })
       }
+      // Only now, every place resolved inside the wall to this very archive,
+      // is the page's archive path stat'ed.
+      const sig = await m.signature(req.archive)
+      if (!sig) return { ok: false, reason: 'failed' }
       const ready = new Set<string>()
       for (const it of items) {
         const hit = copies.get(memberKey(req.archive, it.entry))
@@ -164,11 +213,11 @@ export function createDragOut<S, I extends IconLike>(deps: DragOutDeps<S, I>) {
       if (!plan) return { ok: false, reason: 'budget' }
       for (const it of items) {
         if (!plan.includes(it.entry)) continue
-        const out = await (it.dir ? m.extractDir(it.real, it.entry) : m.extractFile(it.place)).catch(() => null)
+        const out = await (it.dir ? m.extractDir(it.real, it.entry, it.size) : m.extractFile(it.place)).catch(() => null)
         if (!out) return { ok: false, reason: 'failed' }
         copies.set(memberKey(req.archive, it.entry), { sig, path: out })
       }
-      const first = memberPaths(req.archive, req.entries)?.[0]
+      const first = memberPaths(req.archive, req.entries, sig)?.[0]
       if (first) await iconFor(first, items[0].dir ? 'dir' : 'file')
       return { ok: true }
     },
@@ -178,39 +227,47 @@ export function createDragOut<S, I extends IconLike>(deps: DragOutDeps<S, I>) {
       if (flight) return { ok: false, reason: 'busy' }
       if (!validRequest(req)) return { ok: false, reason: 'refused' }
       const r = req as DragOutRequest
-      const paths = r.kind === 'files' ? r.paths : memberPaths(r.archive, r.entries)
-      if (!paths) return { ok: false, reason: 'not-ready' }
-      if (!paths.every((p) => deps.readable(p))) return { ok: false, reason: 'refused' }
-      const kinds = await Promise.all(paths.map((p) => deps.kindOf(p)))
-      if (kinds.some((k) => !k)) return { ok: false, reason: 'missing' }
-      // Checked again: another request may have started one while this one stat'ed.
-      if (flight) return { ok: false, reason: 'busy' }
-      const icon = await iconFor(paths[0], kinds[0]!)
-      if (flight) return { ok: false, reason: 'busy' }
-      const record: NativeDragRecord = {
-        token: ++token,
-        paths,
-        cargo: r.kind === 'files' ? { kind: 'files', paths: r.paths } : { kind: 'members', archive: r.archive, entries: r.entries },
-        source: deps.senderId(sender)
-      }
-      flight = record
-      deps.pin(paths, Infinity)
-      deps.broadcast('start', record)
-      if (deps.e2e) {
-        // THE HARD GUARD: never startDrag under --e2e. The test ends it.
-        deps.record?.({ record, iconEmpty: icon.isEmpty(), file: paths[0] })
-        return { ok: true, token: record.token }
-      }
+      const page = deps.senderId(sender)
+      const mine = ++gen
+      pending.set(page, mine)
       try {
-        // On Windows this is DoDragDrop: it returns when the button is released.
-        deps.startDrag(sender, { file: paths[0], files: paths, icon })
-      } catch {
-        end(record)
-        return { ok: false, reason: 'failed' }
+        let paths: string[] | null
+        if (r.kind === 'files') paths = r.paths
+        else {
+          // A copy made from an older state of the zip is not the member now.
+          const m = deps.members
+          const sig = m && preparedFrom(r.archive) ? await m.signature(r.archive) : null
+          paths = memberPaths(r.archive, r.entries, sig)
+        }
+        if (!paths) return { ok: false, reason: 'not-ready' }
+        if (!paths.every((p) => deps.readable(p))) return { ok: false, reason: 'refused' }
+        const kinds = await Promise.all(paths.map((p) => deps.kindOf(p)))
+        if (kinds.some((k) => !k)) return { ok: false, reason: 'missing' }
+        // Checked again: another request may have started one while this one stat'ed.
+        if (flight) return { ok: false, reason: 'busy' }
+        const icon = await iconFor(paths[0], kinds[0]!)
+        if (flight) return { ok: false, reason: 'busy' }
+        // Released while the checks ran: no drag, it would drop at once.
+        if (pending.get(page) !== mine) return { ok: false, reason: 'cancelled' }
+        pending.delete(page)
+        return start(sender, r, paths, icon)
+      } finally {
+        if (pending.get(page) === mine) pending.delete(page)
       }
-      end(record)
-      return { ok: true, token: record.token }
     },
+
+    /**
+     * The page saw the button come up after it asked for a hand-off. Before
+     * `startDrag` this stops the hand-off; once a real drag runs, Windows owns
+     * the release and this does nothing. Under --e2e it IS the release that
+     * ends the recorded drag.
+     */
+    cancel(sender: S): void {
+      const page = deps.senderId(sender)
+      pending.delete(page)
+      if (deps.e2e && flight && flight.source === page) end(flight)
+    },
+
 
     /** The drag in flight, if any. */
     inFlight: (): NativeDragRecord | null => flight,
@@ -220,10 +277,11 @@ export function createDragOut<S, I extends IconLike>(deps: DragOutDeps<S, I>) {
       if (flight) end(flight)
     },
 
-    /** Under --e2e: a record for any paths, as if a drag had left a window. */
-    startFake(paths: string[], source = -1): NativeDragRecord | null {
+    /** Under --e2e: a record for any paths, as if a drag had left a window
+     *  (members' cargo too, for a drop back that extracts). */
+    startFake(paths: string[], source = -1, cargo?: NativeDragRecord['cargo']): NativeDragRecord | null {
       if (!deps.e2e || flight) return null
-      const record: NativeDragRecord = { token: ++token, paths, cargo: { kind: 'files', paths }, source }
+      const record: NativeDragRecord = { token: ++token, paths, cargo: cargo ?? { kind: 'files', paths }, source }
       flight = record
       deps.broadcast('start', record)
       return record

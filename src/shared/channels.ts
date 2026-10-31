@@ -111,6 +111,8 @@ export const CALL = {
    *  the window's edge starts the OS drag. */
   dragPrepare: 'drag:prepare',
   dragOut: 'drag:out',
+  /** The release came before main started the hand-off: do not start it. */
+  dragOutCancel: 'drag:out-cancel',
   fileStat: 'file:stat',
   fileHash: 'file:hash',
   fileHashCancel: 'file:hash-cancel',

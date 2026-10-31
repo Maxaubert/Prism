@@ -19,6 +19,7 @@ import { typeLabel } from '../../lib/typeLabel'
 import { browseParent } from '../../lib/browse'
 import { useFileCut } from '../../lib/fileClipboard'
 import { DRAG_MIME, setDrag } from '../../lib/drag/dragDrop'
+import { noteReady } from '../../lib/drag/dragOut'
 import { SweepBand } from './SweepBand'
 import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
 import { OverlayScrollbar } from './OverlayScrollbar'
@@ -889,7 +890,13 @@ export function BrowseList(props: Props): JSX.Element {
                       // most), while the pointer travels to the edge.
                       if (event.button !== 0 || !props.archive) return
                       const cargo = memberCargo(entry.path)
-                      if (cargo) void window.prism.dragPrepare({ kind: 'members', ...cargo }).catch(() => {})
+                      if (!cargo) return
+                      // Its answer is what lets the edge hand off (`isReady`).
+                      const req = { kind: 'members' as const, ...cargo }
+                      void window.prism
+                        .dragPrepare(req)
+                        .then((r) => noteReady(req, r.ok))
+                        .catch(() => noteReady(req, false))
                     }}
                     onDragStart={(event) => {
                       // A row inside a multi-selection carries all of it,

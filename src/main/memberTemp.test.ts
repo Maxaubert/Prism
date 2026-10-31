@@ -107,6 +107,37 @@ describe('the member temp folder (#300)', () => {
     expect(await temp.evict(() => false, 0)).toEqual([a.path])
   })
 
+  it('pins only its own copies, and drops pins that ran out (#103: the map stays small)', async () => {
+    const a = await temp.ensure(container, 'a', writer('x', { n: 0 }))
+    if (!a.ok) throw new Error('unpack')
+    // A drag of the user's own files pins nothing here.
+    temp.pin([join(box, 'mine.txt'), 'C:\\Users\\x\\photo.jpg'], Infinity)
+    expect(temp.pinCount()).toBe(0)
+    temp.pin([a.path], 1000, 0)
+    expect(temp.pinCount()).toBe(1)
+    // Any later pin sweeps the ones that ran out.
+    temp.pin([], Infinity, 2000)
+    expect(temp.pinCount()).toBe(0)
+  })
+
+  it('a folder member is counted at its listed size, and evicted whole (#103)', async () => {
+    const folder = async (dir: string): Promise<{ ok: true; path: string }> => {
+      const p = join(dir, 'docs')
+      mkdirSync(join(p, 'inner'), { recursive: true })
+      writeFileSync(join(p, 'inner', 'f.txt'), 'x')
+      return { ok: true, path: p }
+    }
+    const d = await temp.ensure(container, 'docs/', folder, 5000)
+    if (!d.ok) throw new Error('unpack')
+    expect(d.path.startsWith(temp.dir)).toBe(true)
+    expect(temp.bytes()).toBe(5000)
+    // Asked again for the same state of the zip, it is reused: no new folder.
+    const again = await temp.ensure(container, 'docs/', folder, 5000)
+    expect(again.ok && again.path).toBe(d.path)
+    expect(await temp.evict(() => false, 1000)).toEqual([d.path])
+    expect(existsSync(d.path)).toBe(false)
+  })
+
   it('startup removes dead runs only, and the quit removes this one', async () => {
     const root = join(box, 'prism-members')
     mkdirSync(join(root, '111-1'), { recursive: true })
