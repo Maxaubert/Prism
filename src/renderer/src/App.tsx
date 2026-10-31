@@ -770,6 +770,8 @@ export default function App(): JSX.Element {
     entry: BrowseEntry
     /** Several marked rows, when the press was on one of them (#257). */
     paths?: string[]
+    /** Which of `paths` are folders, from the rows (search rows included). */
+    folders?: string[]
     canPaste?: boolean
     apps?: OpenWithApp[] | null
   } | null>(null)
@@ -1501,8 +1503,8 @@ export default function App(): JSX.Element {
                       setRefreshKey((key) => key + 1)
                     })
                 }}
-                onContextMenu={(event, entry, _source, paths) =>
-                  setBrowseMenu({ x: event.clientX, y: event.clientY, entry, paths })
+                onContextMenu={(event, entry, _source, paths, folders) =>
+                  setBrowseMenu({ x: event.clientX, y: event.clientY, entry, paths, folders })
                 }
                 previewEnabled={active.browse.preview}
                 previewVisible={previewSlide.out}
@@ -1771,8 +1773,14 @@ export default function App(): JSX.Element {
               properties: (entry) => setBrowseProps(entry),
               changeIcon: (paths) =>
                 changeFolderIcon(paths, paths.length === 1 ? browseMenu.entry.name : `${paths.length} folders`),
+              // The marked rows say which are folders (search results are
+              // not in the folder's listing: review of the folder icons).
               isFolder: (() => {
-                const folders = new Set(browsing.listing?.folders.map((f) => f.path.toLowerCase()))
+                const folders = new Set(
+                  (browseMenu.folders ?? browsing.listing?.folders.map((f) => f.path) ?? []).map((p) =>
+                    p.toLowerCase()
+                  )
+                )
                 return (path: string) => folders.has(path.toLowerCase())
               })()
             })}

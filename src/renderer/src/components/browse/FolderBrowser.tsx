@@ -625,7 +625,10 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
               e,
               entry,
               source,
-              many && marked?.has(entry.path) ? markedPaths() : undefined
+              many && marked?.has(entry.path) ? markedPaths() : undefined,
+              many && marked?.has(entry.path)
+                ? markedEntries.filter((m) => m.isFolder).map((m) => m.path)
+                : undefined
             ))
         }
         message={message}
