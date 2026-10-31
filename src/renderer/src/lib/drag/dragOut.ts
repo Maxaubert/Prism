@@ -8,6 +8,34 @@ import type { DragPayload } from './dragDrop'
  * `internalFileDrag.ts` wire them.
  */
 
+/**
+ * WHAT MAIN SAID YES TO (#103). The carry hands off at the edge only a cargo
+ * whose press `drag:prepare` answered ok: a member still extracting, one over
+ * the budget, or a path main refused keeps the in-app carry instead of ending
+ * it for nothing. Keyed by the request, the last few kept.
+ */
+const READY_KEEP = 8
+const ready: string[] = []
+
+export function requestKey(r: DragOutRequest): string {
+  return JSON.stringify(r.kind === 'files' ? ['f', r.paths] : ['m', r.archive, r.entries])
+}
+
+/** Remember main's answer to a press's prepare. */
+export function noteReady(r: DragOutRequest, ok: boolean): void {
+  const key = requestKey(r)
+  const at = ready.indexOf(key)
+  if (at >= 0) ready.splice(at, 1)
+  if (!ok) return
+  ready.push(key)
+  if (ready.length > READY_KEEP) ready.shift()
+}
+
+/** Did main answer ok for exactly this cargo. */
+export function isReady(r: DragOutRequest): boolean {
+  return ready.includes(requestKey(r))
+}
+
 /** The request main gets for an in-app payload, or null when it cannot leave
  *  the window (members with no places, an empty cargo). */
 export function requestOf(payload: DragPayload | null): DragOutRequest | null {

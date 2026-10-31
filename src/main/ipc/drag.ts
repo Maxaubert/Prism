@@ -18,7 +18,7 @@ const trimEntry = (e: string): string => e.replace(/\\/g, '/').replace(/^\/+|\/+
  * passes the root wall (`readable`), members are main's own temp copies.
  */
 export function registerDragIpc(ctx: MainCtx, bodies: ArchiveBodies): DragOut {
-  const { readable, archives, memberTemp, wall } = ctx
+  const { readable, archives, memberTemp } = ctx
   // The app's own icon, the fallback when a file has none: read once, async,
   // from the executable (createFromPath would read the disk on main).
   let appIcon: Electron.NativeImage | null = null
@@ -73,14 +73,13 @@ export function registerDragIpc(ctx: MainCtx, bodies: ArchiveBodies): DragOut {
         memberTemp.touch(out.path)
         return out.path
       },
-      async extractDir(real, entry) {
-        const out = await bodies.extractDirTemp(real, entry)
-        if (out) wall.grantExtracted(out)
-        return out
-      }
+      // Into the run's member folder (#103): no temp folder outlives the run.
+      extractDir: (real, entry, size) => bodies.extractDirTemp(real, entry, size)
     }
   })
   ipcMain.handle(CALL.dragPrepare, (_e, req: unknown) => dragOut.prepare(req))
   ipcMain.handle(CALL.dragOut, (e, req: unknown) => dragOut.out(e.sender, req))
+  // The button came up after the page asked for a hand-off (see `cancel`).
+  ipcMain.on(CALL.dragOutCancel, (e) => dragOut.cancel(e.sender))
   return dragOut
 }

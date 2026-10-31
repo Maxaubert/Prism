@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NativeDragRecord } from '@shared/dragOut'
-import { ownDropFrom, requestOf } from './dragOut'
+import { isReady, noteReady, ownDropFrom, requestOf } from './dragOut'
 
 const record = (paths: string[], cargo?: NativeDragRecord['cargo']): NativeDragRecord => ({
   token: 1,
@@ -30,6 +30,22 @@ describe('drops back into Prism (#103)', () => {
   it('members come back as members: the temp copies extract from the archive again', () => {
     const r = record(['C:\\temp\\run\\h1\\a.txt'], { kind: 'members', archive: 'C:\\z.zip', entries: ['docs/a.txt'] })
     expect(ownDropFrom(['C:\\temp\\run\\h1\\a.txt'], r)).toEqual({ kind: 'members', archive: 'C:\\z.zip', entries: ['docs/a.txt'] })
+  })
+
+  it('the edge hands off only a cargo whose press main answered ok (isReady)', () => {
+    const files = { kind: 'files' as const, paths: ['C:\\a\\x.txt'] }
+    const zip = { kind: 'members' as const, archive: 'C:\\z.zip', entries: ['a'], places: ['C:\\z.zip\\a'] }
+    expect(isReady(files)).toBe(false)
+    noteReady(files, true)
+    expect(isReady(files)).toBe(true)
+    expect(isReady({ kind: 'files', paths: ['C:\\a\\x.txt', 'C:\\a\\y.txt'] })).toBe(false)
+    noteReady(zip, false)
+    expect(isReady(zip)).toBe(false)
+    noteReady(zip, true)
+    expect(isReady(zip)).toBe(true)
+    // A later refusal (over the budget now) takes the yes back.
+    noteReady(zip, false)
+    expect(isReady(zip)).toBe(false)
   })
 
   it('nothing dropped is nothing', () => {

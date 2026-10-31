@@ -212,7 +212,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
 /** Explorer's verbs, Open with, the clipboard and paste, file icons, restore. */
 export function registerShellIpc(ctx: MainCtx): void {
-  const { readable, shellVerbSetting, textShape, written } = ctx
+  const { movable, readable, shellVerbSetting, textShape, written } = ctx
   // "Open file" / "Open in Prism" in File Explorer's own context menu
   // (HKCU only).
   ipcMain.handle(CALL.shellVerbStatus, () => shellVerbSetting.status())
@@ -339,8 +339,10 @@ export function registerShellIpc(ctx: MainCtx): void {
    * A drop from Explorer, the desktop or another app onto a Prism folder used
    * to MOVE them, though the payload said "never moved, only copied in". It is
    * the paste engine on the dropped paths: the rows land with their bars,
-   * names never collide, a folder never lands inside itself. The sources may
-   * be anywhere (Windows handed them over); the destination is walled.
+   * names never collide, a folder never lands inside itself. Both ends are
+   * walled: the drop browses each source's folder first (`onBrowseDropInto`),
+   * so a source is inside the wall, and one that is not is refused (a page
+   * could otherwise copy any file on disk into a granted folder and read it).
    */
   ipcMain.handle(CALL.fileCopyInto, async (e, destDir: string, paths: unknown, jobId?: string): Promise<PasteResult> => {
     if (typeof destDir !== 'string' || !insideDesktop(destDir)) {
@@ -348,6 +350,7 @@ export function registerShellIpc(ctx: MainCtx): void {
     }
     const src = Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string' && !!p) : []
     if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
+    if (!src.every(movable)) return { pasted: 0, failed: 0, refused: true, paths: [] }
     return runPaste(e.sender, destDir, src, false, jobId)
   })
 

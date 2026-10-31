@@ -299,6 +299,9 @@ const api = {
   /** The window's edge: main starts Windows' own drag with this cargo, and
    *  answers when it ends (never under --e2e: a fake records it). */
   dragOut: (req: DragOutRequest): Promise<DragOutResult> => ipcRenderer.invoke(CALL.dragOut, req),
+  /** The button came up after a hand-off was asked for: main starts no drag
+   *  (one started now would drop at once, wherever the pointer is). */
+  dragOutCancel: (): void => ipcRenderer.send(CALL.dragOutCancel),
   /** An OS drag left a Prism window (any of them), and ended. */
   onNativeDragStart: subscribe<NativeDragRecord>(PUSH.dragNativeStart),
   onNativeDragEnd: subscribe<{ token: number }>(PUSH.dragNativeEnd),

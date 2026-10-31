@@ -111,6 +111,7 @@ import { ffmpegTools, sevenExe } from './bundledTools'
 import { registerArchiveIpc, type ArchiveBodies } from './ipc/archive'
 import { registerDragIpc } from './ipc/drag'
 import type { DragOut } from './dragOut'
+import type { NativeDragRecord } from '@shared/dragOut'
 import { clearFakeDrags, fakeDragCalls } from './e2eDragOut'
 import { registerMediaIpc } from './ipc/media'
 import { registerPropsIpc } from './ipc/props'
@@ -2114,7 +2115,7 @@ if (!app.requestSingleInstanceLock()) {
           calls: fakeDragCalls,
           clear: clearFakeDrags,
           end: () => d.endFake(),
-          start: (paths: string[]) => d.startFake(paths),
+          start: (paths: string[], cargo?: NativeDragRecord['cargo']) => d.startFake(paths, -1, cargo),
           inFlight: () => d.inFlight(),
           prepared: () => d.preparedCopies()
         }
