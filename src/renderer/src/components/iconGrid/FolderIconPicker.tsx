@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState, type JSX } from
 import { fuzzyFilter } from '../../lib/fuzzy'
 import { loadFolderIconSet, useFolderIconSet } from '../../lib/folderIconSetLoad'
 import { IconGrid } from './IconGrid'
+import { enterPick } from './gridMath'
 import { ICON_GRID_LABEL, ICON_SEARCH_LABEL, iconStatus } from './pickerText'
 
 /**
@@ -73,8 +74,8 @@ export function FolderIconPicker({
             // The deferred list may be a key behind; Enter picks the best
             // hit of what the field says now.
             if (!set) return
-            const pick =
-              query === deferred && active >= 0 ? icons[active] : set.icons[fuzzyFilter(set.hay, query)[0]]
+            const at = enterPick({ query, deferred, active, best: (q) => fuzzyFilter(set.hay, q)[0] })
+            const pick = !at ? undefined : 'list' in at ? icons[at.list] : set.icons[at.set]
             if (pick) onPick(pick.name)
           }
         }}
