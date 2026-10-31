@@ -394,6 +394,21 @@ drag only (PR 1), the built-in set and the picker (PR 2), icons from a file (PR 
   `lib/folderIcons.test.ts`, `dialogs/FolderIconDialog.test.ts`, `dialogs/AskDialogs.test.ts` and the e2e
   `folderIconFile` (under `--e2e` main never shows the dialog: `PRISM_E2E_PICK_ICON` is the pick and
   `globalThis.__e2eIconDialog` what it would have opened with).
+- **From a file..., the review (2026-10-31)**: main reads a picture's size from its HEADER, by content not
+  name (`src/shared/pictureSize.ts`), and refuses one over 8,192 px a side before the page decodes it ("That
+  picture is over 8,192 pixels wide or tall, too big for an icon."), since a decode is full size and a
+  40,000 px PNG of one colour would want gigabytes. Bytes that are no PNG, JPEG, GIF, BMP, WEBP or ICO are
+  not a picture whatever the name; only the table's own extensions count (`.constructor` is no kind). Only a
+  pick that reads as a picture moves the remembered folder. An offline last folder is given 1.5 s, then the
+  dialog opens on Pictures. A list of the copies that main could not read in full (an antivirus holding one)
+  drops NO entry; only a complete list drops the ones whose copy is gone. Saving a copy that is there makes
+  it fresh again (the one-minute grace another window's prune gives), a copy is written beside its name and
+  renamed into place (no window reads half of one), and every change that leaves a picture unnamed prunes:
+  a set, a reset, a move or paste that replaces a folder, an undo or a redo. Held by
+  `src/shared/pictureSize.test.ts`, `src/main/folderIconFiles.test.ts`, `lib/folderIconFiles.test.ts`,
+  `lib/folderIcons.files.test.ts` and the e2e `folderIconFile` (a PNG that will not decode, a 40,000 px PNG,
+  JPG, GIF, BMP, WEBP and ICO through the real decoders, a 2:1 picture kept centred, and a reset whose copy
+  goes, the grace cut to 0 by `PRISM_E2E_ICON_FRESH_MS`).
 
 ## Drag files out of Prism (#103, owner, 2026-10-31)
 
