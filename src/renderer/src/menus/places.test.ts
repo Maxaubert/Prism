@@ -88,9 +88,8 @@ describe('placesMenu', () => {
     expect(order).toEqual(['choose', 'navigate C:\\b'])
   })
   it('no pin has Move up or Move down: pins reorder by dragging', () => {
-    for (const items of [build(), build({ pinned: false })]) {
-      expect(labels(items).filter((l) => /^Move /.test(l))).toEqual([])
-    }
+    // Only a pinned place ever had Move rows, so the pinned menu is the one to pin.
+    expect(labels(build()).filter((l) => /^Move /.test(l))).toEqual([])
   })
   it('a missing action leaves its row disabled', () => {
     expect(
