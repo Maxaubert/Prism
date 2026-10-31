@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type JSX,
@@ -20,16 +21,10 @@ import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slid
 import { isTypingTarget } from '../lib/focusGuards'
 import { clamp } from '../lib/clamp'
 import { imageStillLoading } from '../lib/imageLoading'
+import { isHugeImage, readyImage, type ReadyImage } from '../lib/imageReady'
 
-// Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
-// measured at 2.3s of hard freeze for a 384 MP PNG, during which nothing paints
-// (so the loading spinner never appeared and navigation appeared to hang).
-// createImageBitmap does the same work entirely off-thread, so such images are
-// decoded to a display-sized bitmap and shown on a canvas instead.
-const CANVAS_PATH_PIXELS = 40_000_000
-// Longest edge of that bitmap. Sharp at a step or two of zoom while staying cheap
-// to rasterize: measured, 4096 cost ~550ms of raster on display, 2560 ~200ms.
-const MAX_EDGE = 2560
+// Pictures past 40 MP are decoded off-thread to a display-sized bitmap and
+// shown on a canvas: the reasons and the numbers are in lib/imageReady.
 // The smallest the longest on-screen edge may go when zooming out: below this
 // a picture is a speck, not a picture. See `zoomFloor`.
 const MIN_EDGE = 64
@@ -112,9 +107,13 @@ export function ImageView({
   const [panning, setPanning] = useState(false)
   const [failed, setFailed] = useState(false)
   const [loaded, setLoaded] = useState(false)
-  const [img, setImg] = useState<LoadedImage | null>(null)
+  /** The picture on screen, already decoded when it got here (#28): a new
+   *  object per swap, so the canvas repaints even when the same file comes
+   *  back. */
+  const [shown, setShown] = useState<ReadyImage | null>(null)
+  const img = shown?.img ?? null
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const huge = !!img && img.width * img.height > CANVAS_PATH_PIXELS
+  const huge = !!img && isHugeImage(img)
   /** The huge picture whose bitmap is on the canvas: until it is THIS one,
    *  the spinner shows (review, 2026-10-16, lib/imageLoading). */
   const [paintedHuge, setPaintedHuge] = useState<LoadedImage | null>(null)
@@ -206,7 +205,12 @@ export function ImageView({
    * previous picture while the new one decodes - which is the point: swapping
    * only when the replacement exists means arrowing through a folder never
    * shows an empty window. Everything that IS per-file (zoom, pan, rotation,
-   * the failure flag) is reset here, since a remount is no longer doing it. */
+   * the failure flag) is reset here, since a remount is no longer doing it.
+   *
+   * "Ready" means DRAWABLE, not fetched (#28): crossing between an ordinary
+   * picture and a huge one swaps the <img> for the canvas or back, and the
+   * new element sat blank for the whole decode. `readyImage` decodes first,
+   * off-screen, so the swap lands on a picture. */
   useEffect(() => {
     let alive = true
     // Both of these settle asynchronously, with the load: setting them straight
@@ -221,10 +225,16 @@ export function ImageView({
     // holding an arrow through big photos no longer fetches every one in full.
     const stop = new AbortController()
     loadImage(url, stop.signal)
-      .then((r) => {
-        if (!alive) return
+      .then((r) => (alive ? readyImage(r) : null))
+      .then((ready) => {
+        if (!ready) return
+        if (!alive) {
+          ready.bitmap?.close()
+          return
+        }
         setFailed(false)
-        setImg(r)
+        setShown(ready)
+        setNatural(ready.natural)
         setShownUrl(url)
         setZoom(1)
         setTx(0)
@@ -238,44 +248,32 @@ export function ImageView({
     }
   }, [url])
 
-  // Very large images: decode off the main thread, downscaled, straight into the
-  // canvas. Keeps the UI responsive (and the spinner painting) throughout.
-  useEffect(() => {
-    if (!img || !huge) return
-    let alive = true
-    let bitmap: ImageBitmap | null = null
-    const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height))
-    createImageBitmap(img.blob, {
-      resizeWidth: Math.max(1, Math.round(img.width * scale)),
-      resizeHeight: Math.max(1, Math.round(img.height * scale)),
-      resizeQuality: 'high'
-    })
-      .then((bmp) => {
-        bitmap = bmp
-        const c = canvasRef.current
-        if (!alive || !c) {
-          bmp.close()
-          return
-        }
-        c.width = bmp.width
-        c.height = bmp.height
-        // bitmaprenderer hands the bitmap over without copying it.
-        const ctx = c.getContext('bitmaprenderer')
-        if (ctx) {
-          ctx.transferFromImageBitmap(bmp)
-        } else {
-          c.getContext('2d')?.drawImage(bmp, 0, 0)
-          bmp.close()
-        }
-        setLoaded(true)
-        setPaintedHuge(img)
-      })
-      .catch(() => alive && setFailed(true))
-    return () => {
-      alive = false
-      bitmap?.close()
+  // Very large images: their bitmap was decoded off the main thread, downscaled,
+  // before the swap (lib/imageReady). It goes onto the canvas in the same commit
+  // that mounts it, ahead of the paint, so the canvas is never seen empty.
+  useLayoutEffect(() => {
+    const bmp = shown?.bitmap
+    if (!bmp) return
+    const c = canvasRef.current
+    // A bitmap already handed over (StrictMode runs this twice) is detached
+    // and reads 0 wide; transferring it again would throw.
+    if (c && bmp.width) {
+      c.width = bmp.width
+      c.height = bmp.height
+      // bitmaprenderer hands the bitmap over without copying it.
+      const ctx = c.getContext('bitmaprenderer')
+      if (ctx) {
+        ctx.transferFromImageBitmap(bmp)
+      } else {
+        c.getContext('2d')?.drawImage(bmp, 0, 0)
+        bmp.close()
+      }
+      setLoaded(true)
+      setPaintedHuge(shown.img)
     }
-  }, [img, huge])
+    // Closing a transferred bitmap is a no-op; an unpainted one is freed.
+    return () => bmp.close()
+  }, [shown])
 
   const reset = useCallback(() => {
     setZoom(1)
