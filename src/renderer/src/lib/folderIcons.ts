@@ -1,6 +1,7 @@
 import { isInside, pathKey } from '@shared/path'
 import { createPref } from './prefs/createPref'
 import { preloadFolderIconSet } from './folderIconSetLoad'
+import { onFirstFolderIconFiles, preloadFolderIconFiles } from './folderIconFiles'
 
 /**
  * FOLDER ICONS (owner, 2026-10-31: "allow the user to pick folder icons both
@@ -130,10 +131,49 @@ export function followFolderIcons(moves: ReadonlyArray<{ from: string; to: strin
   if (next !== map) pref.set(next)
 }
 
+/** The kept pictures the map names (a picture from a file, PR 3). */
+export function iconFileIds(map: FolderIconMap): string[] {
+  const ids = new Set<string>()
+  for (const icon of map.values()) if ('file' in icon) ids.add(icon.file)
+  return [...ids]
+}
+
+const hasFiles = new WeakMap<FolderIconMap, boolean>()
+const anyFile = (map: FolderIconMap): boolean => {
+  let v = hasFiles.get(map)
+  if (v === undefined) {
+    v = iconFileIds(map).length > 0
+    hasFiles.set(map, v)
+  }
+  return v
+}
+
+/** The map without the pictures main no longer has (`have`): userData was
+ *  cleared, so those folders draw their default again. Same object when none. */
+export function withoutMissingFiles(map: FolderIconMap, have: ReadonlyMap<string, string>): FolderIconMap {
+  let next: Map<string, FolderIconChoice> | null = null
+  for (const [key, icon] of map) {
+    if ('file' in icon && !have.has(icon.file)) (next ??= new Map(map)).delete(key)
+  }
+  return next ?? map
+}
+
+// Main's list of kept pictures, the first time it lands: an entry whose copy
+// is gone is dropped (spec 2.4, "Prism's copy is gone").
+onFirstFolderIconFiles((have) => {
+  const map = pref.get()
+  const next = withoutMissingFiles(map, have)
+  if (next !== map) pref.set(next)
+})
+
 /** The whole map, rendering again when it changes (any window). */
 export function useFolderIcons(): FolderIconMap {
   const map = pref.use()
-  // A stored built-in icon wants the glyph data: fetched at idle, once.
-  if (map.size) preloadFolderIconSet()
+  // A stored built-in icon wants the glyph data: fetched at idle, once; a
+  // picture from a file wants main's kept copies.
+  if (map.size) {
+    preloadFolderIconSet()
+    if (anyFile(map)) preloadFolderIconFiles()
+  }
   return map
 }

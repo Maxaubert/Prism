@@ -33,6 +33,9 @@ export interface AskAnswers {
   runInstall: () => void
   /** Give the paths a folder icon, or (null) their default again. */
   setFolderIcon: (paths: string[], icon: FolderIconChoice | null) => void
+  /** "From a file..." in the folder icon picker: App picks, keeps and sets
+   *  the picture, or says why not; the picker stays until then. */
+  folderIconFromFile: (ask: Extract<Ask, { kind: 'folder-icon' }>) => void
 }
 
 /**
@@ -138,6 +141,7 @@ export function AskDialogs({
           current={now && 'set' in now ? now.set : undefined}
           onPick={(set) => answer({ set })}
           onReset={() => answer(null)}
+          onFromFile={() => a.folderIconFromFile(ask)}
           onCancel={a.dismiss}
         />
       )
