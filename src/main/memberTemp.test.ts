@@ -86,6 +86,27 @@ describe('the member temp folder (#300)', () => {
     expect(existsSync(a.path) && existsSync(b.path)).toBe(true)
   })
 
+  it('a file a drag out carries is never evicted until its pin runs out (#103)', async () => {
+    const big = async (dir: string): Promise<{ ok: true; path: string }> => {
+      const p = join(dir, 'f.bin')
+      writeFileSync(p, Buffer.alloc(1000))
+      return { ok: true, path: p }
+    }
+    const a = await temp.ensure(container, 'a', big)
+    const b = await temp.ensure(container, 'b', big)
+    if (!a.ok || !b.ok) throw new Error('unpack')
+    temp.touch(b.path)
+    temp.pin([a.path], Infinity)
+    expect(await temp.evict(() => false, 1000)).toEqual([b.path])
+    expect(existsSync(a.path)).toBe(true)
+    // Pinned for 60 s after the drag: past that it follows the normal eviction.
+    temp.pin([a.path], Date.now() + 60_000)
+    expect(temp.pinned(a.path)).toBe(true)
+    expect(temp.pinned(a.path, Date.now() + 61_000)).toBe(false)
+    temp.pin([a.path], Date.now() - 1)
+    expect(await temp.evict(() => false, 0)).toEqual([a.path])
+  })
+
   it('startup removes dead runs only, and the quit removes this one', async () => {
     const root = join(box, 'prism-members')
     mkdirSync(join(root, '111-1'), { recursive: true })

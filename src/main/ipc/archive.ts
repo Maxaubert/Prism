@@ -55,6 +55,8 @@ export interface ArchiveBodies {
   ) => Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }>
   listArchiveWalled: (p: string, password?: string) => Promise<ArchiveListing>
   extractMemberWalled: (p: string, entry: string, password?: string) => Promise<MemberExtractResult>
+  /** A folder of an archive extracted whole to temp (granted to reads), or null. */
+  extractDirTemp: (p: string, entry: string) => Promise<string | null>
 }
 
 /** Extraction jobs, the archive verbs and comics. Answers the bodies the
@@ -601,22 +603,20 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    * flat pile and never the folder you right-clicked. This hands back one
    * real directory with the shape intact, which is what gets copied.
    */
-  ipcMain.handle(
-    CALL.archiveExtractDir,
-    async (
-      e,
+  const extractDir = async (
+      who: DialogOwner,
       p: string,
       entry: string,
       here?: boolean
     ): Promise<ExtractDirResult> => {
       // A copy out of a nested archive reads a temp copy main made (#300).
       if (!(here ? archiveOk(p) : archiveReadOk(p)) || typeof entry !== 'string' || !entry) {
-        return here ? refused(p, '', e.sender) : { ok: false, reason: 'failed' }
+        return here ? refused(p, '', who) : { ok: false, reason: 'failed' }
       }
       // `here` writes beside the archive, where the user can see it, so it
       // is a job with the window (#166). The temp copy that "Copy folder"
       // puts on the clipboard is not, and stays silent.
-      const job = here ? beginJob({ archive: basename(p), dest: dirname(p) }, e.sender) : null
+      const job = here ? beginJob({ archive: basename(p), dest: dirname(p) }, who) : null
       if (here && !job) return BUSY
       const made = new Made()
       /** Say how it ended, to the window and to the caller, in one place. */
@@ -741,7 +741,15 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
         return fail('failed')
       }
     }
+  ipcMain.handle(CALL.archiveExtractDir, (e, p: string, entry: string, here?: boolean) =>
+    extractDir(e.sender, p, entry, here)
   )
+  /** A folder of an archive as a temp copy, for a drag out of Prism (#103):
+   *  the same silent route as "Copy" on a folder. */
+  const extractDirTemp = async (p: string, entry: string): Promise<string | null> => {
+    const r = await extractDir(null, p, entry, false)
+    return r.ok ? r.path : null
+  }
   ipcMain.handle(
     CALL.archiveRename,
     async (
@@ -775,5 +783,5 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
       return false
     }
   })
-  return { openComicWalled, listArchiveWalled, extractMemberWalled }
+  return { openComicWalled, listArchiveWalled, extractMemberWalled, extractDirTemp }
 }

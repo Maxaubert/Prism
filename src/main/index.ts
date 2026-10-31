@@ -109,6 +109,9 @@ import { MEDIA_SCHEME, createMediaServer } from './mediaProtocol'
 import { heicToJpeg } from './heicClient'
 import { ffmpegTools, sevenExe } from './bundledTools'
 import { registerArchiveIpc, type ArchiveBodies } from './ipc/archive'
+import { registerDragIpc } from './ipc/drag'
+import type { DragOut } from './dragOut'
+import { clearFakeDrags, fakeDragCalls } from './e2eDragOut'
 import { registerMediaIpc } from './ipc/media'
 import { registerPropsIpc } from './ipc/props'
 import { registerBrowseIpc, registerTreeIpc, releaseTab } from './ipc/browse'
@@ -517,6 +520,8 @@ function drainPending(win: BrowserWindow, live: () => boolean = () => true): Pro
  * RECORDED on `globalThis.__e2eOpenedLinks` for the e2e to read, and nothing
  * outside the app is started.
  */
+/** The drag out of Prism (#103, ipc/drag.ts), once the handlers exist. */
+let dragOut: DragOut | null = null
 const e2eOpenedLinks: string[] = []
 /** Folders Settings > Diagnostics asked Explorer to show, recorded the same
  *  way under --e2e (#322): a test run never opens an Explorer window. */
@@ -1726,7 +1731,9 @@ if (!app.requestSingleInstanceLock()) {
   // logging as much as possible"): the profile says what JavaScript did, the
   // trace what Electron and Chromium did when JavaScript sat idle
   // (lagProfiler.ts, nativeTrace.ts). Nothing is written without a lag.
-  startLagProfiler({ log: diag.log, enabled: () => true })
+  // An OS drag out of Prism (#103) is Windows' modal loop on main: a lag
+  // during it, or just after, is the drag, not a stall to profile.
+  startLagProfiler({ log: diag.log, enabled: () => true, quiet: () => dragOut?.quiet() ?? false })
   // contentTracing refuses to start before ready ("cannot be used before app
   // is ready", e2e diagLog), so the trace starts there; the profile above
   // covers the moments before it.
@@ -2097,6 +2104,22 @@ if (!app.requestSingleInstanceLock()) {
     registerShellIpc(ctx)
     registerMoveIpc(ctx, ready)
     archiveBodies = registerArchiveIpc(ctx)
+    dragOut = registerDragIpc(ctx, archiveBodies)
+    // The e2e's view of the drag out (#103): what main would have handed
+    // startDrag, ending the recorded drag, and a record for any paths.
+    if (E2E) {
+      const d = dragOut
+      Object.assign(globalThis, {
+        __e2eDragOut: {
+          calls: fakeDragCalls,
+          clear: clearFakeDrags,
+          end: () => d.endFake(),
+          start: (paths: string[]) => d.startFake(paths),
+          inFlight: () => d.inFlight(),
+          prepared: () => d.preparedCopies()
+        }
+      })
+    }
     registerNewFilesIpc(ctx)
 
     registerWindowIpc()

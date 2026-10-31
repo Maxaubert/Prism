@@ -55,6 +55,9 @@ export class MemberTemp {
   readonly dir: string
   private readonly made = new Map<string, Held>()
   private readonly inflight = new Map<string, Promise<Unpacked<string>>>()
+  /** Files a drag out of Prism carries (#103): never evicted until the time
+   *  given (Infinity while the drag is in flight). */
+  private readonly pins = new Map<string, number>()
   private clock = 0
 
   constructor(root: string, pid = process.pid, launch = Date.now()) {
@@ -141,6 +144,25 @@ export class MemberTemp {
       if (held.file.toLowerCase() === resolve(p).toLowerCase()) held.used = ++this.clock
   }
 
+  /**
+   * Keep these files until `until` (ms since epoch; Infinity while an OS drag
+   * carries them). A browser reads an upload lazily, so the drag out pins its
+   * temp copies for 60 s after it ends (#103). A later pin replaces an earlier.
+   */
+  pin(files: readonly string[], until: number): void {
+    for (const f of files) this.pins.set(resolve(f).toLowerCase(), until)
+  }
+
+  /** Is `file` pinned at `now`. */
+  pinned(file: string, now = Date.now()): boolean {
+    const key = resolve(file).toLowerCase()
+    const until = this.pins.get(key)
+    if (until === undefined) return false
+    if (until > now) return true
+    this.pins.delete(key)
+    return false
+  }
+
   /** Bytes the run's folder holds. */
   bytes(): number {
     let n = 0
@@ -160,7 +182,7 @@ export class MemberTemp {
     const gone: string[] = []
     for (const [dir, h] of order) {
       if (total <= cap) break
-      if (held(h.file)) continue
+      if (held(h.file) || this.pinned(h.file)) continue
       try {
         await rm(dir, { recursive: true, force: true })
         this.made.delete(dir)
