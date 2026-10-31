@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { clearFileCut, fileCutPaths, fileClipboardReady } from '../lib/fileClipboard'
 import { endJob, startJob } from '../lib/jobs'
+import { followFolderIcons } from '../lib/folderIcons'
 
 /** What main answers a paste with. */
 export type PasteResult = Awaited<ReturnType<Window['prism']['pasteInto']>>
@@ -27,6 +28,13 @@ export function pasteMessage(r: PasteResult, refused: string = PASTE_MESSAGES.re
   return null
 }
 
+/** What a cut and paste moved, from where to where. Main answers what landed
+ *  in the cut's order, so the two pair up only when all of it landed. */
+export function pasteMoves(cut: readonly string[], r: PasteResult): Array<{ from: string; to: string }> {
+  if (!r.moved || r.failed || r.paths.length !== cut.length) return []
+  return cut.map((from, i) => ({ from, to: r.paths[i] }))
+}
+
 /**
  * Paste the clipboard's files into a folder: a move when they were cut here
  * and the clipboard still holds them (main checks), a copy otherwise. The
@@ -46,7 +54,11 @@ export function useFilePaste(
       const job = startJob('paste', cut.length ? 'Moving' : 'Copying')
       try {
         const result = await window.prism.pasteInto(directory, cut.length ? cut : undefined, job)
-        if (result.moved) clearFileCut(cut)
+        if (result.moved) {
+          clearFileCut(cut)
+          // A cut and paste is a move: folder icons follow (D9).
+          followFolderIcons(pasteMoves(cut, result))
+        }
         const said = pasteMessage(result, refused)
         if (said) onError(said)
         onPasted(result, directory)

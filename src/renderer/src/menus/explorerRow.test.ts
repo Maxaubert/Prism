@@ -33,6 +33,8 @@ const menu = (over: Partial<ExplorerRowMenuContext>): ExplorerRowMenuContext => 
   askDelete: vi.fn(),
   askDeleteMany: vi.fn(),
   properties: vi.fn(),
+  changeIcon: vi.fn(),
+  isFolder: () => false,
   ...over
 })
 
@@ -66,11 +68,36 @@ describe('explorerRowMenu', () => {
       'Copy path',
       'Paste',
       'Pin to Quick access',
+      'Change icon...',
       'Rename',
       'Show in File Explorer',
       'Properties',
       'Delete'
     ])
+  })
+  it('Change icon... on a folder asks for that folder; a file has none', () => {
+    const ctx = menu({ entry: folder })
+    explorerRowMenu(ctx)
+      .find((i) => i.label === 'Change icon...')
+      ?.onPick?.()
+    expect(ctx.changeIcon).toHaveBeenCalledWith([folder.path])
+    expect(labels(menu({ entry: file }))).not.toContain('Change icon...')
+    expect(labels(menu({ entry: folder, changeIcon: undefined }))).not.toContain('Change icon...')
+  })
+  it('several marked folders get one Change icon for all; a file among them hides it', () => {
+    const paths = ['C:\\a\\x', 'C:\\a\\y']
+    const ctx = menu({ paths, isFolder: () => true })
+    const items = explorerRowMenu(ctx)
+    expect(items.map((i) => i.label)).toEqual([
+      'Cut 2 items',
+      'Copy 2 items',
+      'Change icon for 2 folders...',
+      'Delete 2 items'
+    ])
+    items[2].onPick?.()
+    expect(ctx.changeIcon).toHaveBeenCalledWith(paths)
+    const mixed = menu({ paths, isFolder: (p) => p.endsWith('x') })
+    expect(labels(mixed)).toEqual(['Cut 2 items', 'Copy 2 items', 'Delete 2 items'])
   })
   it('a pinned row offers Unpin', () => {
     const items = explorerRowMenu(menu({ entry: folder, pinned: true }))

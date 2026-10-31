@@ -22,6 +22,8 @@ import { DRAG_MIME, setDrag } from '../../lib/drag/dragDrop'
 import { noteReady } from '../../lib/drag/dragOut'
 import { SweepBand } from './SweepBand'
 import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
+import { FolderGlyph } from '../icons/FolderGlyph'
+import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
 import { OverlayScrollbar } from './OverlayScrollbar'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import { bandBox, nearestRow, rowsInBox } from '../../lib/marquee'
@@ -161,6 +163,9 @@ export function BrowseList(props: Props): JSX.Element {
   // (#257), Large the Explorer's old one, Small a step under Medium.
   const sizeId = useExplorerSize()
   const look = explorerRow(sizeId)
+  // Folder icons (2026-10-31): one read for the list; with none set a row
+  // does no lookup at all, and file rows never do.
+  const folderIcons = useFolderIcons()
   const rowHeight = look.height
   const scroller = useRef<HTMLDivElement>(null)
   const columnScroller = useRef<HTMLDivElement>(null)
@@ -955,7 +960,16 @@ export function BrowseList(props: Props): JSX.Element {
                   >
                     <span className="browse-column-name browse-name">
                       {entry.isFolder ? (
-                        <FolderIcon color="var(--p-tree-folder)" />
+                        (() => {
+                          const own = folderIconOf(folderIcons, entry.path)
+                          const folder = <FolderIcon color="var(--p-tree-folder)" />
+                          // A picked glyph wears the folder colour (D4).
+                          return own ? (
+                            <FolderGlyph icon={own} size={look.icon} color="var(--p-tree-folder)" fallback={folder} />
+                          ) : (
+                            folder
+                          )
+                        })()
                       ) : (
                         entry.file && (
                           // A marked row is a tint, so its icon keeps its own

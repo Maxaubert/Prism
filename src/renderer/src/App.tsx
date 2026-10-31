@@ -113,6 +113,7 @@ import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import { landJob, updateJob, updateLanding } from './lib/jobs'
+import { setFolderIcons } from './lib/folderIcons'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { nextTabId } from './lib/sessionIds'
 
@@ -1217,6 +1218,9 @@ export default function App(): JSX.Element {
     tear,
     wash: washed
   }
+  /** Change icon... (folder icons, 2026-10-31): the picker for these paths. */
+  const changeFolderIcon = (paths: string[], name: string): void =>
+    setAsk({ kind: 'folder-icon', paths, name })
   const askAnswers: AskAnswers = {
     dismiss: () => setAsk(null),
     unsavedNames,
@@ -1233,7 +1237,8 @@ export default function App(): JSX.Element {
     discardTabBuffers,
     forceCloseTab,
     answerReload: (path, reload) => setReloadAnswer({ path, reload }),
-    runInstall
+    runInstall,
+    setFolderIcon: setFolderIcons
   }
 
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
@@ -1393,6 +1398,7 @@ export default function App(): JSX.Element {
                 onPinQuickAccessPaths={(paths, beforePath) =>
                   void pinQuickAccessPaths(paths, beforePath)
                 }
+                onChangeFolderIcon={changeFolderIcon}
                 placesVisible={placesVisible}
                 placesSliding={panelSliding}
                 placesPeek={peekPhase}
@@ -1762,7 +1768,13 @@ export default function App(): JSX.Element {
               askDelete: (entry) =>
                 setAsk({ kind: 'delete', path: entry.path, name: entry.name, isFolder: entry.isFolder }),
               askDeleteMany: (paths) => setAsk({ kind: 'delete-many', paths }),
-              properties: (entry) => setBrowseProps(entry)
+              properties: (entry) => setBrowseProps(entry),
+              changeIcon: (paths) =>
+                changeFolderIcon(paths, paths.length === 1 ? browseMenu.entry.name : `${paths.length} folders`),
+              isFolder: (() => {
+                const folders = new Set(browsing.listing?.folders.map((f) => f.path.toLowerCase()))
+                return (path: string) => folders.has(path.toLowerCase())
+              })()
             })}
         />
       )}

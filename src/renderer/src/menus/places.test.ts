@@ -33,13 +33,14 @@ const build = (over: Partial<PlacesMenuContext> = {}): ReturnType<typeof placesM
     onProperties: vi.fn(),
     onMoveQuickAccess: vi.fn(),
     onPinQuickAccessPaths: vi.fn(),
+    onChangeIcon: vi.fn(),
     ...over
   })
 const labels = (items: ReturnType<typeof placesMenu>): string[] => items.map((i) => i.label)
 const disabled = (items: ReturnType<typeof placesMenu>): string[] =>
   items.filter((i) => i.disabled).map((i) => i.label)
 
-const PIN_ROWS = ['Unpin from Quick access', 'Move up', 'Move down']
+const PIN_ROWS = ['Unpin from Quick access', 'Move up', 'Move down', 'Change icon...']
 
 describe('placesMenu', () => {
   it('a pinned folder (Quick access or Pinned) has the pin rows', () => {
@@ -71,7 +72,7 @@ describe('placesMenu', () => {
     expect(onNavigate).not.toHaveBeenCalled()
   })
   it('a drive that is not pinned offers the pin instead', () => {
-    const items = build({ pin: folder('D:\\'), pinned: false, index: -1 })
+    const items = build({ pin: folder('D:\\'), pinned: false, index: -1, onChangeIcon: undefined })
     expect(labels(items)).toEqual([
       'Open',
       'Open in new tab',
@@ -114,9 +115,18 @@ describe('placesMenu', () => {
           onMoveQuickAccess: undefined
         })
       )
-    ).toEqual(['Open in new tab', ...PIN_ROWS])
+    ).toEqual(['Open in new tab', 'Unpin from Quick access', 'Move up', 'Move down'])
     expect(disabled(build({ pinned: false, onPinQuickAccessPaths: undefined }))).toEqual([
       'Pin to Quick access'
     ])
+  })
+  it('Change icon... is a pin row option, and asks for that pin', () => {
+    const onChangeIcon = vi.fn()
+    build({ onChangeIcon })
+      .find((i) => i.label === 'Change icon...')
+      ?.onPick?.()
+    expect(onChangeIcon).toHaveBeenCalledTimes(1)
+    // A This PC drive's menu is given no onChangeIcon (BrowsePlaces).
+    expect(labels(build({ onChangeIcon: undefined }))).not.toContain('Change icon...')
   })
 })
