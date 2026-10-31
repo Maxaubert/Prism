@@ -11605,6 +11605,285 @@ async function dragLabelScenario(fixtures) {
   }
 }
 
+/* ---------- DRAG OUT OF PRISM (#103) ----------
+ * An OS drag is a modal loop in main that only a real release ends, so the
+ * e2e NEVER starts one: under --e2e main records what it would have handed
+ * `startDrag` (e2eDragOut.ts), and these read that record. The pointer
+ * leaves the window through Playwright's own mouse (a negative clientX), the
+ * same moves Chromium sends while the button is held past the edge.
+ */
+const dragFake = {
+  calls: (app) => app.evaluate(() => globalThis.__e2eDragOut?.calls() ?? null),
+  clear: (app) => app.evaluate(() => globalThis.__e2eDragOut?.clear()),
+  end: (app) => app.evaluate(() => globalThis.__e2eDragOut?.end()),
+  start: (app, paths) => app.evaluate((_e, p) => globalThis.__e2eDragOut?.start(p) ?? null, paths),
+  prepared: (app) => app.evaluate(() => globalThis.__e2eDragOut?.prepared() ?? [])
+}
+
+/** Press on `el`, carry it inside the window, then out past the left edge.
+ *  Answers whether the row was carried and whether it is still carried after. */
+async function carryOut(win, el, { beforeLeave } = {}) {
+  const box = await el.boundingBox()
+  if (!box) return { carried: false, after: false }
+  const from = { x: Math.round(box.x + Math.min(24, box.width / 2)), y: Math.round(box.y + box.height / 2) }
+  await win.mouse.move(from.x, from.y)
+  await win.mouse.down()
+  await win.mouse.move(from.x + 60, from.y + 30, { steps: 8 })
+  await sleep(150)
+  const carried = await win.evaluate(() => !!document.querySelector('[data-file-drag-badge]'))
+  if (beforeLeave) await beforeLeave()
+  await win.mouse.move(-20, from.y + 30, { steps: 10 })
+  await sleep(300)
+  const after = await win.evaluate(() => !!document.querySelector('[data-file-drag-badge]'))
+  await win.mouse.up()
+  await sleep(200)
+  return { carried, after }
+}
+
+async function dragOutRowScenario(fixtures) {
+  console.log('drag out of Prism: Explorer rows (#103)')
+  const dir = join(fixtures, 'dragout-rows')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'folder'), { recursive: true })
+  for (const n of ['a.txt', 'b.txt', 'c.txt', 'anchor.txt']) writeFileSync(join(dir, n), `drag out ${n}\n`)
+  const { app, win } = await launch(join(dir, 'anchor.txt'))
+  try {
+    await toList(win)
+    await listRow(win, 'a.txt').waitFor({ timeout: 10000 })
+    await sleep(400)
+    ok((await dragFake.calls(app)) !== null, 'main has the drag-out fake under --e2e')
+    await dragFake.clear(app)
+    const name = (n) => listRow(win, n).locator('.browse-name-text')
+
+    /* ---------- one row ---------- */
+    const one = await carryOut(win, name('a.txt'))
+    ok(one.carried, 'a row is carried inside the window first')
+    ok(!one.after, 'at the window edge the carried row goes (the carry ended quietly)')
+    let calls = await dragFake.calls(app)
+    ok(calls.length === 1, `main was asked for one OS drag (${calls.length})`)
+    ok(calls[0]?.paths?.length === 1 && calls[0].paths[0].toLowerCase() === join(dir, 'a.txt').toLowerCase(), `with the row's path (${calls[0]?.paths})`)
+    ok(calls[0]?.iconEmpty === false, 'and an icon that is not empty')
+    ok(calls[0]?.cargo?.kind === 'files', 'the cargo is files')
+    await dragFake.end(app)
+    for (const n of ['a.txt', 'b.txt', 'c.txt']) ok(existsSync(join(dir, n)), `no file moved (${n})`)
+
+    /* ---------- a three-row selection ---------- */
+    await dragFake.clear(app)
+    await name('a.txt').click()
+    await name('b.txt').click({ modifiers: ['Control'] })
+    await name('c.txt').click({ modifiers: ['Control'] })
+    await sleep(200)
+    const three = await carryOut(win, name('b.txt'))
+    ok(three.carried && !three.after, 'a selection is carried, then handed off at the edge')
+    calls = await dragFake.calls(app)
+    const got = (calls[0]?.paths ?? []).map((p) => basename(p).toLowerCase()).sort()
+    ok(calls.length === 1 && got.join(',') === 'a.txt,b.txt,c.txt', `the OS drag carries all three (${got})`)
+    await dragFake.end(app)
+    for (const n of ['a.txt', 'b.txt', 'c.txt']) ok(existsSync(join(dir, n)), `still no file moved (${n})`)
+
+    /* ---------- inside the window nothing changed ---------- */
+    // The in-app carry still drops onto a folder (a move), the old way.
+    await dragFake.clear(app)
+    await win.locator('[data-testid="browse-list"] .browse-row').first().click()
+    await name('c.txt').dragTo(listRow(win, 'folder'))
+    await until(async () => existsSync(join(dir, 'folder', 'c.txt')), 8000, 100)
+    ok(existsSync(join(dir, 'folder', 'c.txt')) && !existsSync(join(dir, 'c.txt')), 'a drop on a folder inside the window still moves')
+    ok((await dragFake.calls(app)).length === 0, 'and starts no OS drag')
+  } finally {
+    await dragFake.end(app).catch(() => {})
+    await app.close()
+  }
+}
+
+async function dragOutMemberScenario(fixtures) {
+  console.log('drag out of Prism: archive members (#103)')
+  const dir = join(fixtures, 'dragout-zip')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'anchor.txt'), 'stay')
+  const AdmZip = (await import('adm-zip')).default
+  const zip = new AdmZip()
+  const bytes = Buffer.from('carried out of the zip by an OS drag')
+  zip.addFile('small.txt', bytes)
+  // Over the 64 MB budget by its listed size; zeros, so the fixture is tiny.
+  zip.addFile('big.bin', Buffer.alloc(65 * 1024 * 1024))
+  const zipPath = join(dir, 'members.zip')
+  zip.writeZip(zipPath)
+  const { app, win } = await launch(join(dir, 'anchor.txt'))
+  try {
+    await inZip(win, zipPath)
+    const member = (n) => win.locator('[data-testid="browse-list"] .browse-row', { hasText: n }).first().locator('.browse-name-text')
+    await member('small.txt').waitFor({ timeout: 10000 })
+    await dragFake.clear(app)
+
+    /* ---------- a small member: extracted on the press, handed off ---------- */
+    const r = await carryOut(win, member('small.txt'), {
+      beforeLeave: () => until(async () => (await dragFake.prepared(app)).some((p) => /small\.txt$/i.test(p)), 8000, 100)
+    })
+    ok(r.carried && !r.after, 'a member is carried, then handed off at the edge')
+    const calls = await dragFake.calls(app)
+    const p = calls[0]?.paths?.[0] ?? ''
+    ok(calls.length === 1 && /small\.txt$/i.test(p), `the OS drag carries the member's temp copy (${p})`)
+    ok(/[\\/]prism-members[\\/]/i.test(p), "under the run's member folder")
+    ok(existsSync(p) && readFileSync(p).equals(bytes), "with the member's own bytes")
+    ok(calls[0]?.cargo?.kind === 'members' && calls[0].cargo.entries?.[0] === 'small.txt', 'and the cargo is the member')
+    await dragFake.end(app)
+
+    /* ---------- over the budget: no hand-off, the in-app drag still works ---------- */
+    await dragFake.clear(app)
+    const big = await carryOut(win, member('big.bin'), { beforeLeave: () => sleep(1200) })
+    ok(big.carried, 'an over-budget member is still carried inside the window')
+    ok((await dragFake.calls(app)).length === 0, 'and no OS drag is asked for (nothing was extracted)')
+    ok(!(await dragFake.prepared(app)).some((x) => /big\.bin$/i.test(x)), 'the press extracted nothing over 64 MB')
+    rmSync(join(dir, 'big.bin'), { force: true })
+    await throughTheWindow(win, 'an over-budget member dropped on a folder', 'members.zip', () =>
+      member('big.bin').dragTo(win.locator(`.browse-crumb button[data-crumb-path="${dir.replace(/\\/g, '\\\\')}"]`))
+    )
+    ok(existsSync(join(dir, 'big.bin')), 'dropped on a folder it extracts there, as before')
+  } finally {
+    await dragFake.end(app).catch(() => {})
+    await app.close()
+  }
+}
+
+async function dragOutViewerScenario(fixtures) {
+  console.log('drag out of Prism: the open file (#103)')
+  const dir = join(fixtures, 'dragout-viewer')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const pic = join(dir, 'pic.png')
+  copyFileSync(join(ROOT, 'build', 'icon.png'), pic)
+  const { app, win } = await launch(pic)
+  try {
+    await win.waitForSelector('[data-image-layer] img', { timeout: 15000 })
+    await sleep(600)
+    await dragFake.clear(app)
+    const layer = win.locator('[data-image-layer]')
+
+    /* ---------- the picture at fit ---------- */
+    const r = await carryOut(win, layer)
+    ok(r.carried && !r.after, 'the picture at fit is carried, then handed off at the edge')
+    let calls = await dragFake.calls(app)
+    ok(calls.length === 1 && calls[0].paths[0]?.toLowerCase() === pic.toLowerCase(), `the OS drag carries the open file (${calls[0]?.paths})`)
+    await dragFake.end(app)
+
+    /* ---------- the file name in the viewer's toolbar ---------- */
+    await dragFake.clear(app)
+    const crumb = win.locator('.browse-viewer-toolbar .browse-file-crumb').first()
+    const c = await carryOut(win, crumb)
+    ok(c.carried && !c.after, "the file's name in the toolbar is a drag handle too")
+    calls = await dragFake.calls(app)
+    ok(calls.length === 1 && calls[0].paths[0]?.toLowerCase() === pic.toLowerCase(), `and hands off the open file (${calls[0]?.paths})`)
+    await dragFake.end(app)
+
+    /* ---------- zoomed in, a press pans and drags nothing ---------- */
+    await dragFake.clear(app)
+    await win.locator('[data-image-layer]').hover()
+    for (let i = 0; i < 3; i++) await win.keyboard.press('+')
+    await sleep(400)
+    const zoomed = await carryOut(win, layer)
+    ok(!zoomed.carried, 'zoomed in, the same press pans: nothing is carried')
+    ok((await dragFake.calls(app)).length === 0, 'and no OS drag is asked for')
+    ok(existsSync(pic), 'the picture is where it was')
+  } finally {
+    await dragFake.end(app).catch(() => {})
+    await app.close()
+  }
+}
+
+async function dropBackScenario(fixtures) {
+  console.log('drops into Prism: copy from Windows, move for its own (#103)')
+  // No OS drag here either: the drop side is simulated. Real File objects
+  // (a hidden input filled by Playwright, so webUtils.getPathForFile knows
+  // their paths) in a DataTransfer, dispatched on a folder row. The OS
+  // drag's record is main's own start message, sent through the fake.
+  const dir = join(fixtures, 'dropback')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'into'), { recursive: true })
+  const outside = join(dir, 'outside')
+  mkdirSync(outside, { recursive: true })
+  writeFileSync(join(dir, 'anchor.txt'), 'stay')
+  for (const n of ['mine.txt', 'theirs.txt', 'other.txt', 'decoy.txt']) writeFileSync(join(outside, n), `drop back ${n}\n`)
+  const { app, win } = await launch(join(dir, 'anchor.txt'))
+  /** Drop `paths` (real files) on the `into` row, as Windows delivers a drop. */
+  const drop = async (paths) => {
+    await win.evaluate(() => {
+      document.getElementById('e2e-drop-input')?.remove()
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.multiple = true
+      input.id = 'e2e-drop-input'
+      input.style.display = 'none'
+      document.body.append(input)
+    })
+    await win.setInputFiles('#e2e-drop-input', paths)
+    return win.evaluate(() => {
+      const input = document.getElementById('e2e-drop-input')
+      const dt = new DataTransfer()
+      for (const f of input.files) dt.items.add(f)
+      // What Electron's OS drag offers (copy and link); Explorer adds move.
+      dt.effectAllowed = 'copyLink'
+      const row =document.querySelector('[data-testid="browse-list"] [data-browse-path$="\\\\into" i]')
+      if (!row) return null
+      const r = row.getBoundingClientRect()
+      const opts = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 20, clientY: r.top + r.height / 2 }
+      row.dispatchEvent(new DragEvent('dragenter', opts))
+      // What the target says the drop would do, caught as it is set: a
+      // page-made DataTransfer does not keep it past its event.
+      let effect = null
+      Object.defineProperty(dt, 'dropEffect', {
+        configurable: true,
+        get: () => effect ?? 'none',
+        set: (v) => {
+          effect = v
+        }
+      })
+      const over = new DragEvent('dragover', opts)
+      row.dispatchEvent(over)
+      if (!over.defaultPrevented) effect = `${effect} (not taken)`
+      row.dispatchEvent(new DragEvent('drop', opts))
+      input.remove()
+      return { effect, files: dt.files.length }
+    })
+  }
+  try {
+    await toList(win)
+    await listRow(win, 'into').waitFor({ timeout: 10000 })
+    await sleep(400)
+
+    /* ---------- no record: from Windows, a COPY (D3) ---------- */
+    const d1 = await drop([join(outside, 'theirs.txt')])
+    ok(d1?.files === 1, `a real file is dropped (${JSON.stringify(d1)})`)
+    ok(d1?.effect === 'copy', `a drag Windows carries shows Copy (${d1?.effect})`)
+    await until(async () => existsSync(join(dir, 'into', 'theirs.txt')), 8000, 100)
+    ok(existsSync(join(dir, 'into', 'theirs.txt')), 'a file dropped from Windows lands in the folder')
+    ok(existsSync(join(outside, 'theirs.txt')), 'AS A COPY: the source stays where it was')
+
+    /* ---------- a matching record: Prism's own cargo, a MOVE (D4) ---------- */
+    const rec = await dragFake.start(app, [join(outside, 'mine.txt')])
+    ok(!!rec, 'the fake broadcast an OS drag record')
+    await sleep(300)
+    await drop([join(outside, 'mine.txt')])
+    await until(async () => existsSync(join(dir, 'into', 'mine.txt')), 8000, 100)
+    ok(existsSync(join(dir, 'into', 'mine.txt')) && !existsSync(join(outside, 'mine.txt')), "Prism's own drag dropped back MOVES the file")
+    await dragFake.end(app)
+    await sleep(1800) // past the renderer's grace for the end message
+
+    /* ---------- a record for OTHER paths: a COPY, never the recorded file ---------- */
+    await dragFake.start(app, [join(outside, 'decoy.txt')])
+    await sleep(300)
+    await drop([join(outside, 'other.txt')])
+    await until(async () => existsSync(join(dir, 'into', 'other.txt')), 8000, 100)
+    ok(existsSync(join(dir, 'into', 'other.txt')) && existsSync(join(outside, 'other.txt')), 'a drop that is not the recorded drag is a copy')
+    await sleep(500)
+    ok(existsSync(join(outside, 'decoy.txt')) && !existsSync(join(dir, 'into', 'decoy.txt')), 'and the recorded files never move (the old wrong-file move)')
+    await dragFake.end(app)
+  } finally {
+    await dragFake.end(app).catch(() => {})
+    await app.close()
+  }
+}
+
 async function dragScenario(fixtures) {
   console.log('drag and drop')
   // #70: a row dragged onto a folder MOVES; a member dragged out of an archive
@@ -17632,6 +17911,10 @@ await run(styleColoursScenario)
 await run(seeThroughScenario)
 await run(dragScenario)
 await run(dragLabelScenario)
+await run(dragOutRowScenario)
+await run(dragOutMemberScenario)
+await run(dragOutViewerScenario)
+await run(dropBackScenario)
 await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(marqueeEdgeScenario)
