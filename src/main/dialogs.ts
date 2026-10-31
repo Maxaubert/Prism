@@ -60,8 +60,9 @@ type E2eIconDialog = { defaultPath?: string; filters?: Electron.FileFilter[] }
 /**
  * A picture for a folder icon (folder icons from a file, 2026-10-31): the
  * open dialog, parented to the window that asked, on the folder of the last
- * pick (Pictures the first time, or when that folder is gone; D11). A pick
- * remembers its folder. Under `--e2e` it never shows a dialog: it answers
+ * pick (Pictures the first time, or when that folder is gone; D11). Only a
+ * pick that becomes a picture remembers its folder (`rememberIconDir`, review
+ * L2). Under `--e2e` it never shows a dialog: it answers
  * `PRISM_E2E_PICK_ICON` (unset or empty is a cancel) and records the options
  * it would have used in `globalThis.__e2eIconDialog`.
  */
@@ -84,6 +85,11 @@ export async function pickIconFile(sender?: DialogOwner): Promise<string | null>
     const r = await openDialog(opts, sender)
     picked = r.canceled || !r.filePaths.length ? null : r.filePaths[0]
   }
-  if (picked) await writeLastIconDir(userPaths.iconPicks(), dirname(picked)).catch(() => {})
   return picked
+}
+
+/** The pick was read as a picture: its folder is where the next one starts
+ *  (spec 2.4, "after every successful pick"). */
+export async function rememberIconDir(picked: string): Promise<void> {
+  await writeLastIconDir(userPaths.iconPicks(), dirname(picked)).catch(() => {})
 }

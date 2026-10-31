@@ -113,7 +113,7 @@ import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import { landJob, updateJob, updateLanding } from './lib/jobs'
-import { iconFileIds, readFolderIcons, setFolderIcons, type FolderIconChoice } from './lib/folderIcons'
+import { setFolderIcons, type FolderIconChoice } from './lib/folderIcons'
 import { keptFolderIconFile } from './lib/folderIconFiles'
 import { folderIconFromFile, ICON_REFUSED } from './lib/iconFromFile'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
@@ -1225,11 +1225,8 @@ export default function App(): JSX.Element {
   /** Change icon... (folder icons, 2026-10-31): the picker for these paths. */
   const changeFolderIcon = (paths: string[], name: string): void =>
     setAsk({ kind: 'folder-icon', paths, name })
-  /** Set (or reset) and let main remove the pictures no folder uses now. */
-  const setFolderIcon = (paths: string[], icon: FolderIconChoice | null): void => {
-    setFolderIcons(paths, icon)
-    void window.prism.pruneFolderIcons(iconFileIds(readFolderIcons())).catch(() => {})
-  }
+  /** Set (or reset); the store has main remove a picture no folder uses now. */
+  const setFolderIcon = (paths: string[], icon: FolderIconChoice | null): void => setFolderIcons(paths, icon)
   /** "From a file..." (2026-10-31): main's dialog, the 64 px copy kept, then
    *  the picker closes; a cancel leaves it up, a refusal says why. */
   const iconFileBusy = useRef(false)

@@ -14,13 +14,16 @@ const C = 'c'.repeat(64)
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
 
 let onDisk: Record<string, string> = {}
-const folderIconFiles = vi.fn(async () => ({ ...onDisk }))
+/** False: main could not read every copy (an antivirus held one). */
+let complete = true
+const folderIconFiles = vi.fn(async () => ({ files: { ...onDisk }, complete }))
 const holder = globalThis as unknown as { window?: { prism?: unknown } }
 let hadWindow = false
 
 beforeEach(() => {
   resetFolderIconFilesForTest()
   onDisk = { [A]: 'data:a' }
+  complete = true
   folderIconFiles.mockClear()
   hadWindow = !!holder.window
   holder.window ??= {} as never
@@ -53,6 +56,24 @@ describe('the kept icon pictures', () => {
     const late = vi.fn()
     onFirstFolderIconFiles(late)
     expect(late).not.toHaveBeenCalled()
+  })
+
+  it('a list main could not read in full tells nobody; the next complete one does (review M1)', async () => {
+    const first = vi.fn()
+    onFirstFolderIconFiles(first)
+    complete = false
+    preloadFolderIconFiles()
+    await flush()
+    expect(first).not.toHaveBeenCalled()
+    // What it has is drawn meanwhile.
+    expect(folderIconFilesNow()?.get(A)).toBe('data:a')
+    // A row wants the copy that was held: asked for again, now complete.
+    complete = true
+    onDisk[B] = 'data:b'
+    wantFolderIconFile(B)
+    await flush()
+    expect(first).toHaveBeenCalledTimes(1)
+    expect([...first.mock.calls[0][0].keys()].sort()).toEqual([A, B])
   })
 
   it('a picture another window kept is asked for once more, not on every row', async () => {

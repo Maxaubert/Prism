@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import type { IconList } from '@shared/folderIconFiles'
 
 /**
  * THE KEPT ICON PICTURES, AS DATA URLS (folder icons from a file, 2026-10-31).
@@ -8,17 +9,22 @@ import { useSyncExternalStore } from 'react'
  * some folder has a picture (`preloadFolderIconFiles`).
  *
  * A picture another window kept after this one loaded is fetched again once
- * (`wantFolderIconFile`). After the FIRST load, the caller learns which ids
- * main has, so an entry whose copy is gone (userData cleared) is dropped.
+ * (`wantFolderIconFile`). After the first COMPLETE load, the caller learns
+ * which ids main has, so an entry whose copy is gone (userData cleared) is
+ * dropped. A list main could not read in full (a copy an antivirus held,
+ * review M1) never drops anything: it draws what it has and waits for a
+ * complete one.
  */
 
 export type IconFileMap = ReadonlyMap<string, string>
 
-type Api = { folderIconFiles: () => Promise<Record<string, string>> }
+type Api = { folderIconFiles: () => Promise<IconList> }
 
 let files: IconFileMap | null = null
 /** Main's list has landed at least once (a kept picture alone is not that). */
 let loaded = false
+/** A COMPLETE list has landed, and the first-load callers were told. */
+let told = false
 let loading: Promise<IconFileMap> | null = null
 const asked = new Set<string>()
 const listeners = new Set<() => void>()
@@ -34,13 +40,15 @@ function fetchAll(): Promise<IconFileMap> {
   const bridge = api()
   if (!bridge) return Promise.resolve(files ?? new Map())
   loading = bridge.folderIconFiles().then(
-    (all) => {
-      const first = !loaded
+    (list) => {
       loaded = true
       // Keep what this window kept meanwhile (`keptFolderIconFile`).
-      files = new Map([...(files ?? []), ...Object.entries(all)])
+      files = new Map([...(files ?? []), ...Object.entries(list.files)])
       loading = null
-      if (first) for (const cb of firstLoad.splice(0)) cb(files)
+      if (list.complete && !told) {
+        told = true
+        for (const cb of firstLoad.splice(0)) cb(files)
+      }
       emit()
       return files
     },
@@ -71,9 +79,9 @@ export function keptFolderIconFile(id: string, url: string): void {
   emit()
 }
 
-/** Called once, with the ids main has, when the first load lands. */
+/** Called once, with the ids main has, when the first complete list lands. */
 export function onFirstFolderIconFiles(cb: (have: IconFileMap) => void): void {
-  if (loaded) return
+  if (told) return
   firstLoad.push(cb)
 }
 
@@ -93,6 +101,7 @@ export function useFolderIconFiles(): IconFileMap | null {
 export function resetFolderIconFilesForTest(): void {
   files = null
   loaded = false
+  told = false
   loading = null
   asked.clear()
   firstLoad.length = 0
