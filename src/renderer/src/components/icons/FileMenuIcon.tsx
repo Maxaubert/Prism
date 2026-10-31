@@ -23,8 +23,6 @@ const paths = {
   properties: 'M12 8.2v.01M12 11v5M3.8 12a8.2 8.2 0 1 0 16.4 0 8.2 8.2 0 0 0-16.4 0z',
   pin: PATHS.pin,
   unpin: 'M15 3l6 6-3 1-4 4M10 14l-6 6M3 3l18 18M9 8l4-4',
-  up: PATHS.arrowUp,
-  down: 'm6 14 6 6 6-6M12 20V4',
   'open-with': PATHS.openOut,
   'default-app': 'M12 3l8 5-8 5-8-5 8-5zM4 13l8 5 8-5',
   // The archive rows (#300): a tray with an arrow down into it, the
