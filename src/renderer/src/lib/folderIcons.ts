@@ -88,28 +88,39 @@ export function setFolderIcons(paths: readonly string[], icon: FolderIconChoice 
 
 /**
  * The icons FOLLOW a rename or move done in Prism (D9): every key equal to or
- * under a `from` becomes the same under its `to`. Returns the map unchanged
- * (same object) when nothing moved, so a caller can skip the write.
+ * under a `from` becomes the same under its `to`. What was ALREADY at a `to`
+ * goes first (review, 2026-10-31): a deleted folder keeps its entry for an
+ * undo, and a replace leaves the replaced one's, and either would otherwise
+ * dress the newcomer in the old folder's icon. The moves are one batch, read
+ * against the map as it was. Returns the map unchanged (same object) when
+ * nothing changed, so a caller can skip the write.
  */
 export function followMoves(
   map: FolderIconMap,
   moves: ReadonlyArray<{ from: string; to: string }>
 ): FolderIconMap {
   if (map.size === 0 || !moves.length) return map
-  let next: Map<string, FolderIconChoice> | null = null
-  for (const { from, to } of moves) {
-    const f = pathKey(from)
-    const t = pathKey(to)
-    if (!f || f === t) continue
-    const source: FolderIconMap = next ?? map
-    for (const [key, icon] of [...source]) {
-      if (key !== f && !isInside(f, key)) continue
-      next ??= new Map(map)
-      next.delete(key)
-      next.set(t + key.slice(f.length), icon)
+  const under = (root: string, key: string): boolean => key === root || isInside(root, key)
+  const pairs = moves
+    .map(({ from, to }) => ({ f: pathKey(from), t: pathKey(to) }))
+    .filter(({ f, t }) => f && t && f !== t)
+  if (!pairs.length) return map
+  const placed: Array<[string, FolderIconChoice]> = []
+  const gone = new Set<string>()
+  for (const [key, icon] of map) {
+    for (const { f, t } of pairs) {
+      if (under(f, key)) {
+        gone.add(key)
+        placed.push([t + key.slice(f.length), icon])
+      }
+      if (under(t, key)) gone.add(key)
     }
   }
-  return next ?? map
+  if (!gone.size) return map
+  const next = new Map(map)
+  for (const key of gone) next.delete(key)
+  for (const [key, icon] of placed) next.set(key, icon)
+  return next
 }
 
 /** After Prism renamed or moved something: its icons go with it. */
