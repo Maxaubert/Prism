@@ -34,3 +34,18 @@ export function idleFrame(paused: boolean, stillFrames: number, settleFrames: nu
   if (!paused || stillFrames <= settleFrames) return 'draw'
   return changed ? 'draw' : 'park'
 }
+
+/** How often a hidden visualizer looks to see whether it is shown again. */
+export const HIDDEN_POLL_MS = 250
+
+/**
+ * Whether the canvas is on screen at all (#15, 2026-10-31). The viewer stays
+ * mounted but `invisible` under Settings, so a song playing there kept its
+ * canvas repainting at the display's refresh for nobody: `visibility: hidden`
+ * does not slow requestAnimationFrame, and Prism's window is never throttled.
+ * A browser that cannot say counts as shown.
+ */
+export function canvasShown(canvas: { checkVisibility?: (opts?: Record<string, boolean>) => boolean }): boolean {
+  if (typeof canvas.checkVisibility !== 'function') return true
+  return canvas.checkVisibility({ visibilityProperty: true, checkVisibilityCSS: true })
+}
