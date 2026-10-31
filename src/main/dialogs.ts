@@ -61,9 +61,9 @@ type E2eIconDialog = { defaultPath?: string; filters?: Electron.FileFilter[] }
  * A picture for a folder icon (folder icons from a file, 2026-10-31): the
  * open dialog, parented to the window that asked, on the folder of the last
  * pick (Pictures the first time, or when that folder is gone; D11). A pick
- * remembers its folder. Under `--e2e` it answers `PRISM_E2E_PICK_ICON`
- * instead of showing a dialog, and records the options it would have used in
- * `globalThis.__e2eIconDialog`.
+ * remembers its folder. Under `--e2e` it never shows a dialog: it answers
+ * `PRISM_E2E_PICK_ICON` (unset or empty is a cancel) and records the options
+ * it would have used in `globalThis.__e2eIconDialog`.
  */
 export async function pickIconFile(sender?: DialogOwner): Promise<string | null> {
   const opts: Electron.OpenDialogOptions = {
@@ -73,7 +73,8 @@ export async function pickIconFile(sender?: DialogOwner): Promise<string | null>
     properties: ['openFile']
   }
   let picked: string | null
-  if (E2E && process.env.PRISM_E2E_PICK_ICON !== undefined) {
+  // Under --e2e there is never a real dialog: no PRISM_E2E_PICK_ICON is a cancel.
+  if (E2E) {
     ;(globalThis as { __e2eIconDialog?: E2eIconDialog }).__e2eIconDialog = {
       defaultPath: opts.defaultPath,
       filters: opts.filters
