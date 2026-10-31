@@ -1170,10 +1170,11 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   ONE pin store and order: a pin moves by drag only within its own section. **PINS REORDER BY
   DRAGGING ONLY** (owner, 2026-10-31: "remove the move up down. rely on just dragging instead.
   allow the user to pick folder icons both for the sidebar things and folders in general..."):
-  the place menu lost Move up and Move down, and there is no keyboard way to reorder (D1 of the
-  folder icons spec); a drop on the top half of a row lands before it, on the bottom half after
-  it, so the last row's bottom half (or the section heading) is the end. Held by `places.test.ts`
-  (no Move rows) and `sidebarPlaces` (a drag reorders Quick access and Pinned, reaches the end,
+  the place menu lost Move up and Move down, and there is no keyboard way to reorder: drag only,
+  as asked (if one is wanted later, Alt+Shift+Up / Down on a focused pin); a drop on the top half
+  of a row lands before it, on the bottom half after it, so the last row's bottom half (or the
+  section heading) is the end. Held by `places.test.ts` (no Move rows) and `sidebarPlaces` (a
+  drag reorders Quick access and Pinned, reaches the end by the last row and by the heading,
   never crosses sections). Sizes come
   from main (`driveUsage.ts`, `browse:drives`): `statfs` per drive, 1.5 s cap, a drive whose call
   is still out is not asked again; labels from ONE PowerShell CIM query, only when the drive set
