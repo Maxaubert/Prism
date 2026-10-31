@@ -93,6 +93,9 @@ export interface SessionLike {
 export interface LagProfilerDeps {
   log: DiagLog
   enabled(): boolean
+  /** A lag now is expected and needs no profile: an OS drag out of Prism
+   *  (#103) runs Windows' modal loop on main until the button is released. */
+  quiet?: () => boolean
   session?: () => SessionLike
   now?: () => number
   wall?: () => Date
@@ -228,6 +231,7 @@ export function startLagProfiler(deps: LagProfilerDeps): LagProfiler {
       ms >= LAG_PROFILE_MIN_MS &&
       fields?.afterDump !== true
     ) {
+      if (deps.quiet?.()) return write(src, k, { ...fields, duringDrag: true })
       let profile: string | null = null
       safe(() => {
         profile = onLag(ms)

@@ -19,6 +19,7 @@ import { typeLabel } from '../../lib/typeLabel'
 import { browseParent } from '../../lib/browse'
 import { useFileCut } from '../../lib/fileClipboard'
 import { DRAG_MIME, setDrag } from '../../lib/drag/dragDrop'
+import { noteReady } from '../../lib/drag/dragOut'
 import { SweepBand } from './SweepBand'
 import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
 import { OverlayScrollbar } from './OverlayScrollbar'
@@ -138,6 +139,23 @@ type Props = Pick<
 export function BrowseList(props: Props): JSX.Element {
   const cut = useFileCut()
   const folderDrop = useFolderDrop(props.loading ? undefined : props.onDropInto)
+  /** What a press or drag on this row carries inside an archive: the row, or
+   *  the whole selection when the row is in it, as members with their places. */
+  const memberCargo = (path: string): { archive: string; entries: string[]; places: string[] } | null => {
+    const archive = props.archive
+    if (!archive) return null
+    const all = props.marked
+    const paths = all && all.size > 1 && all.has(path) ? [...all] : [path]
+    const entries: string[] = []
+    const places: string[] = []
+    for (const p of paths) {
+      const inner = memberOf(archive, p)
+      if (!inner) continue
+      entries.push(inner)
+      places.push(p)
+    }
+    return entries.length ? { archive: archive.container, entries, places } : null
+  }
   const searching = !!props.query.trim()
   // The row is Settings > Style > Explorer size: Medium is the tree's own row
   // (#257), Large the Explorer's old one, Small a step under Medium.
@@ -865,6 +883,21 @@ export function BrowseList(props: Props): JSX.Element {
                       entry.isFolder ? entry.path : (browseParent(entry.path) ?? props.directory),
                       entry.path
                     )}
+                    onMouseDown={(event) => {
+                      // THE PRESS ON A MEMBER EXTRACTS IT (#103, D5): a drag
+                      // out of the window needs real files before it starts,
+                      // so main unpacks the cargo now (64 MB and 64 members at
+                      // most), while the pointer travels to the edge.
+                      if (event.button !== 0 || !props.archive) return
+                      const cargo = memberCargo(entry.path)
+                      if (!cargo) return
+                      // Its answer is what lets the edge hand off (`isReady`).
+                      const req = { kind: 'members' as const, ...cargo }
+                      void window.prism
+                        .dragPrepare(req)
+                        .then((r) => noteReady(req, r.ok))
+                        .catch(() => noteReady(req, false))
+                    }}
                     onDragStart={(event) => {
                       // A row inside a multi-selection carries all of it,
                       // the tree's rule.
@@ -873,12 +906,9 @@ export function BrowseList(props: Props): JSX.Element {
                       // Rows inside an archive are its MEMBERS (#300): dropped on
                       // a real folder they extract there, the archive view's own
                       // drag; dropped inside the same zip they move.
-                      const archive = props.archive
-                      const entries = archive
-                        ? paths.map((p) => memberOf(archive, p)).filter((p): p is string => !!p)
-                        : []
-                      if (archive && entries.length) {
-                        setDrag({ kind: 'members', archive: archive.container, entries })
+                      const cargo = memberCargo(entry.path)
+                      if (cargo) {
+                        setDrag({ kind: 'members', ...cargo })
                         event.dataTransfer.effectAllowed = 'copyMove'
                         event.dataTransfer.setData(DRAG_MIME, 'members')
                         return

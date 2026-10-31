@@ -20,6 +20,7 @@ import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
 import { isTypingTarget } from '../lib/focusGuards'
 import { clamp } from '../lib/clamp'
+import { fileDragProps } from '../lib/drag/fileDrag'
 import { imageStillLoading } from '../lib/imageLoading'
 import { isHugeImage, readyImage, type ReadyImage } from '../lib/imageReady'
 
@@ -39,6 +40,7 @@ const MAX_ZOOM = 40
 export function ImageView({
   url,
   path,
+  dragPath,
   name,
   onToggleFullscreen,
   onStep,
@@ -50,6 +52,9 @@ export function ImageView({
   url: string
   /** The file on disk. The menu's verbs act on this, not on the fsmedia url. */
   path?: string
+  /** The file a press at fit drags (#103, D6): out of the window to Windows,
+   *  or onto a folder inside it. Absent for an archive member. */
+  dragPath?: string
   name: string
   onToggleFullscreen: () => void
   /** The slideshow's step: the same route the arrows take, so it moves through
@@ -570,6 +575,9 @@ export function ImageView({
               // The e2e finds the picture's own layer by this (imageHugeSwap).
               data-image-layer
               onMouseDown={onImgDown}
+              // AT FIT A PRESS DRAGS THE PICTURE (#103, D6; owner, 2026-10-31);
+              // zoomed in, it pans as it always did (onImgDown stops the drag).
+              {...fileDragProps(zoom <= 1 ? dragPath : undefined)}
               // Fit <-> ACTUAL SIZE, not fit <-> double fit (2026-09-03): on a
               // tiny image 2x fit is thousands of times actual - the owner
               // double-clicked a near-1px view and landed at 200,000%. Actual

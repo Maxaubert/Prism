@@ -326,6 +326,70 @@ the emptied window closes on release.
   hover, the system's order changing mid-drag, a window that stops taking tabs, a raise outliving the tear, the
   source brought back to the front on a cancel or a snap back after a raise, and the e2e's bookkeeping raise.
 
+## Drag files out of Prism (#103, owner, 2026-10-31)
+
+Owner, 2026-10-31: approved the spec and plan (`2026-10-31-drag-out-spec.md`, kept with the session) with
+all its recommendations. Rows, a selection, archive members and the open file can be dragged into Explorer,
+a browser's upload box, Discord, another Prism window or any app that takes files.
+
+- **D1, the hand-off at the window's edge.** Inside the window the in-app carry is unchanged (the carried
+  row #327, the arrow #320, Ctrl+Tab). When the pointer leaves with the button held (or reaches the last
+  2 px of an edge, so a maximized window can hand off too: `lib/drag/edge.ts`), the carry ends quietly, no
+  drop, and main starts Windows' own drag (`webContents.startDrag`) with the same cargo. Pins never hand off
+  (they carry an order), tabs keep their own tear-off. ONLY A CARGO MAIN ALREADY SAID YES TO hands off (review,
+  2026-10-31): the press's `drag:prepare` answer (`isReady` in `lib/drag/dragOut.ts`). Nothing that can leave (a
+  member still extracting or over the budget, a path main refused) keeps the in-app carry at the edge, so the
+  2 px margin of a maximized window never ends a drag for nothing. A release that comes before main has started
+  the drag (`drag:out-cancel`) stops it: Chromium's drag source would drop at once wherever the pointer is.
+- **D2, out of Prism is a COPY only.** Electron's OS drag offers copy and link, never move; Windows' own
+  move-on-the-same-drive would need native code and was not chosen.
+- **D3, a drop from Windows onto a Prism folder is a COPY** (it MOVED until now, though the payload's own
+  comment said "never moved, only copied in"). `file:copy-into` runs the paste engine on the dropped paths:
+  the job chip, the landing rows, "name (2)" for a taken name, never a folder into itself. Every source must
+  pass the wall (`movable`); the drop browses each source's folder first. Two differences from the old move,
+  as a paste has them (review, 2026-10-31, for the owner to confirm): no undo entry (a paste records none),
+  and no clash question (the spec's 4.6 kept it; the paste engine's "name (2)" is what Explorer's own copy
+  does).
+- **D4, Prism window to Prism window MOVES**, like a drop inside one window. Every window holds main's
+  record of the OS drag in flight (`drag:native-start` / `drag:native-end`); a drop of Windows files is
+  Prism's own only when a record is set AND the dropped paths are its paths (`ownDrop`, `samePathSet`). A
+  stale payload can never match a drop, which is what moved the wrong file in the 2026-09-05 attempt. The
+  renderer keeps the record 1.5 s past the end message, since the drop and that message travel apart.
+  Members come back as members and extract from the archive (the job window). Targets show Copy for any
+  drag Windows carries; what the drop does is this rule, not the effect shown.
+- **D5, archive members are extracted on the PRESS**, at most 64 MB and 64 members (a folder is one, at its
+  listed size), into the run's member folder, files and folders alike (a folder took the "Copy folder"
+  route into a `prism-arcdir-` temp folder nothing removed, made by every press on a folder row: review,
+  2026-10-31). The 2 GB cap counts a folder at its listed size, the quit removes it. Reused while the
+  container is unchanged, and never carried once it changed (the copy names the zip's size and time); a locked archive uses its remembered password or prepares nothing. Over the budget
+  there is no hand-off and no message; the in-app drag still extracts onto a folder and Copy stays the way
+  out. Temp copies a drag carries are pinned against eviction while it runs and 60 s after
+  (`MemberTemp.pin`), since a browser reads an upload lazily.
+- **D6, the open file**: the picture at fit (a press that travels drags it; zoomed in, a press pans as
+  before) and the file's name in the viewer toolbar (every kind). No drag from the video picture. A member
+  of an archive open in the viewer is not draggable from the viewer (it is no file on disk).
+- **D7, the drag icon outside the window is the system's file icon** (`app.getFileIcon`, cached per
+  extension, warmed on the press; the app's icon, never an empty one, when there is none).
+- **The walls hold**: main checks every path against the root wall (`readable`) and stats it async before
+  `startDrag`; nothing new is granted; the page never names a temp path. The lag profiler writes no profile
+  for a lag during the drag's modal loop (`duringDrag`).
+- **The e2e never starts an OS drag** (a modal loop nothing would release): under `--e2e` main records what
+  it would hand `startDrag` (`e2eDragOut.ts`, read as `globalThis.__e2eDragOut`), a guard `dragOut.test.ts`
+  pins. Held by `dragOutRow`, `dragOutMember`, `dragOutViewer`, `dropBack` (real dropped files through a
+  hidden input; it failed on the old move), and the unit tests `src/main/dragOut.test.ts`,
+  `src/shared/dragOut.test.ts`, `lib/drag/dragOut.test.ts`, `lib/drag/edge.test.ts`, `memberTemp.test.ts`,
+  `lagProfiler.test.ts`.
+- **Held by the e2e as well** (review, 2026-10-31): the carry survives the 2 px margin, a release ends the
+  drag, pins never hand off, an over-budget member keeps the carry at the edge, a folder member lands in the
+  member folder and leaves no `prism-arcdir-` folder, and `dropBack` drops on a row, a tab (copy and move),
+  the window (its own file opens), a zip's folder (added, and moved for its own), its own folder (refused)
+  and a member record (extracted from the archive).
+- **Only a hand test proves** (task 1's spike, not run on 2026-10-31): that `startDrag` picks the drag up
+  mid-press after the in-app carry cancelled the browser drag, that it blocks until release with main still
+  answering, that a drop in Explorer is a copy (Shift too), a browser upload, Discord, a second Prism window
+  (a move) and back into the same window (a move). If the hand-off does not pick up, the fallback is a small
+  native `DoDragDrop`, which needs the owner's say.
+
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 
 Owner decision 2026-10-26 (spec: `docs/superpowers/specs/2026-10-26-explorer-only-design.md`, release

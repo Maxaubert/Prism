@@ -206,6 +206,17 @@ describe('startLagProfiler', () => {
     expect(log.lines).toEqual([{ k: 'main-lag', ms: 3000, afterDump: true }])
   })
 
+  it('writes no profile for a lag during an OS drag out of Prism (#103)', () => {
+    const calls: string[] = []
+    const log = fakeLog(tmpdir())
+    const p = startLagProfiler({ log, enabled: () => true, quiet: () => true, session: () => fakeSession(calls) })
+    calls.length = 0
+    log.write('main', 'main-lag', { ms: 4000 })
+    expect(calls).not.toContain('Profiler.stop')
+    p.stop()
+    expect(log.lines).toEqual([{ k: 'main-lag', ms: 4000, duringDrag: true }])
+  })
+
   it('stops its session when Detailed logging is turned off', () => {
     const calls: string[] = []
     let on = true

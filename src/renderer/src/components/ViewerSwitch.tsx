@@ -105,6 +105,7 @@ export function ViewerSwitch(props: ViewerSwitchProps): JSX.Element {
         <ImageView
           url={url}
           path={mode === 'member' ? undefined : file.path}
+          dragPath={mode === 'member' || file.member ? undefined : file.path}
           name={file.name}
           onToggleFullscreen={toggle}
           onStep={props.onStep}

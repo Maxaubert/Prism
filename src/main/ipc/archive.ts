@@ -55,6 +55,9 @@ export interface ArchiveBodies {
   ) => Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }>
   listArchiveWalled: (p: string, password?: string) => Promise<ArchiveListing>
   extractMemberWalled: (p: string, entry: string, password?: string) => Promise<MemberExtractResult>
+  /** A folder of an archive extracted whole into the run's member folder
+   *  (#103: cleaned at quit, counted by the cap at `size`), or null. */
+  extractDirTemp: (p: string, entry: string, size: number) => Promise<string | null>
 }
 
 /** Extraction jobs, the archive verbs and comics. Answers the bodies the
@@ -601,22 +604,23 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    * flat pile and never the folder you right-clicked. This hands back one
    * real directory with the shape intact, which is what gets copied.
    */
-  ipcMain.handle(
-    CALL.archiveExtractDir,
-    async (
-      e,
+  const extractDir = async (
+      who: DialogOwner,
       p: string,
       entry: string,
-      here?: boolean
+      here?: boolean,
+      /** An empty folder to extract into (the run's member folder, #103)
+       *  instead of a fresh `prism-arcdir-` folder in temp nothing removes. */
+      stage?: string
     ): Promise<ExtractDirResult> => {
       // A copy out of a nested archive reads a temp copy main made (#300).
       if (!(here ? archiveOk(p) : archiveReadOk(p)) || typeof entry !== 'string' || !entry) {
-        return here ? refused(p, '', e.sender) : { ok: false, reason: 'failed' }
+        return here ? refused(p, '', who) : { ok: false, reason: 'failed' }
       }
       // `here` writes beside the archive, where the user can see it, so it
       // is a job with the window (#166). The temp copy that "Copy folder"
       // puts on the clipboard is not, and stays silent.
-      const job = here ? beginJob({ archive: basename(p), dest: dirname(p) }, e.sender) : null
+      const job = here ? beginJob({ archive: basename(p), dest: dirname(p) }, who) : null
       if (here && !job) return BUSY
       const made = new Made()
       /** Say how it ended, to the window and to the caller, in one place. */
@@ -644,7 +648,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
          */
         const dir = here
           ? await mkdtemp(join(dirname(p), '.prism-extract-'))
-          : await mkdtemp(join(tmpdir(), 'prism-arcdir-'))
+          : (stage ?? (await mkdtemp(join(tmpdir(), 'prism-arcdir-'))))
         // The staging folder is this call's own, whole: it is what a
         // Cancel removes, and nothing else is.
         if (here) made.tree(dir)
@@ -709,7 +713,8 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
           return fail('failed')
         }
         if (!here) {
-          wall.grantExtracted(out1)
+          // The member folder is granted to reads already (memberTemp.owns).
+          if (!stage) wall.grantExtracted(out1)
           return { ok: true, path: out1 }
         }
         // `here` lands it beside the archive, which is inside a root, so it
@@ -741,7 +746,30 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
         return fail('failed')
       }
     }
+  ipcMain.handle(CALL.archiveExtractDir, (e, p: string, entry: string, here?: boolean) =>
+    extractDir(e.sender, p, entry, here)
   )
+  /**
+   * A folder of an archive as a temp copy, for a drag out of Prism (#103):
+   * the silent route "Copy" on a folder takes, but into the RUN'S MEMBER
+   * FOLDER, one slot per folder of one state of the zip. A press on a folder
+   * row runs this, so it must not leave a `prism-arcdir-` folder behind each
+   * time: the member folder is reused while the zip is unchanged, counted by
+   * the 2 GB cap at the folder's listed size, removed at quit.
+   */
+  const extractDirTemp = async (p: string, entry: string, size: number): Promise<string | null> => {
+    const clean = entry.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    const r = await memberTemp.ensure(
+      p,
+      `${clean}/`,
+      async (dir) => {
+        const out = await extractDir(null, p, clean, false, dir)
+        return out.ok ? { ok: true as const, path: out.path } : { ok: false as const, reason: 'failed' as const }
+      },
+      size
+    )
+    return r.ok ? r.path : null
+  }
   ipcMain.handle(
     CALL.archiveRename,
     async (
@@ -775,5 +803,5 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
       return false
     }
   })
-  return { openComicWalled, listArchiveWalled, extractMemberWalled }
+  return { openComicWalled, listArchiveWalled, extractMemberWalled, extractDirTemp }
 }

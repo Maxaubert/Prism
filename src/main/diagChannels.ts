@@ -61,7 +61,13 @@ export const LONG_WAIT_CHANNELS: readonly string[] = [
   // File copies with progress: a paste, and a move across drives, which is a
   // copy, last as long as the bytes do.
   CALL.filePasteInto,
+  CALL.fileCopyInto,
   CALL.fileMove,
+  // The OS drag out of Prism (#103): `drag:out` answers when the user lets
+  // go (DoDragDrop), and the press's member extraction is the silent copy
+  // route's 7-Zip or extractor, capped at 64 MB.
+  CALL.dragOut,
+  CALL.dragPrepare,
   // A duplicate is an async copy of a file that may be gigabytes.
   CALL.fileDuplicate,
   // Undoing a delete: a PowerShell child walks the Recycle Bin (20 s cap).

@@ -128,7 +128,8 @@ Filesmith's conventions.
   which each bundles at build time. A user with Filesmith does not need Prism, and vice versa.
 - **Renderer folders** (structure cleanup, 2026-10-12): every React hook (`use*.ts`) lives in
   `src/renderer/src/hooks/`, never in `lib/`. `lib/` groups by feature: `code/` (language,
-  lint, prefs, theme, jsonc), `pdf/`, `drag/`, `tabs/` (the tab model, crumbs, restore, volume,
+  lint, prefs, theme, jsonc), `pdf/`, `drag/` (the in-app carry, its drop payload, and the hand-off to
+  Windows' own drag at the window's edge with main's `dragOut.ts`, #103), `tabs/` (the tab model, crumbs, restore, volume,
   width), `prefs/` (`createPref` and the small pref stores), `viz/` (with `vizStore`),
   `themes/`. What belongs to no group stays flat in `lib/`.
 - **Single homes** (structure cleanup, 2026-10-12): one module per shared job. Use it, never a

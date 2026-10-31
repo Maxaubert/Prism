@@ -55,6 +55,9 @@ export class MemberTemp {
   readonly dir: string
   private readonly made = new Map<string, Held>()
   private readonly inflight = new Map<string, Promise<Unpacked<string>>>()
+  /** Files a drag out of Prism carries (#103): never evicted until the time
+   *  given (Infinity while the drag is in flight). */
+  private readonly pins = new Map<string, number>()
   private clock = 0
 
   constructor(root: string, pid = process.pid, launch = Date.now()) {
@@ -84,12 +87,15 @@ export class MemberTemp {
    * The member's file, unpacking it with `write` the first time. `write` is
    * handed the member's own empty folder and answers the file it wrote (an
    * extractor may name it itself) or why it could not. Concurrent asks for one
-   * member share one unpack.
+   * member share one unpack. A FOLDER member (a drag out of Prism, #103) is
+   * counted at `folderBytes`, its listed size: a directory's own stat says 0,
+   * and the cap must see what it holds.
    */
   async ensure<R extends string>(
     container: string,
     member: string,
-    write: (dir: string) => Promise<Unpacked<R>>
+    write: (dir: string) => Promise<Unpacked<R>>,
+    folderBytes = 0
   ): Promise<Unpacked<R | 'failed'>> {
     let info: { size: number; mtimeMs: number }
     try {
@@ -122,7 +128,8 @@ export class MemberTemp {
           await rm(dir, { recursive: true, force: true }).catch(() => {})
           return out.ok ? { ok: false, reason: 'failed' } : out
         }
-        this.made.set(dir, { file: out.path, bytes: got.size, used: ++this.clock })
+        const bytes = got.isDirectory() ? Math.max(0, folderBytes) : got.size
+        this.made.set(dir, { file: out.path, bytes, used: ++this.clock })
         return out
       } catch {
         await rm(dir, { recursive: true, force: true }).catch(() => {})
@@ -139,6 +146,33 @@ export class MemberTemp {
   touch(p: string): void {
     for (const held of this.made.values())
       if (held.file.toLowerCase() === resolve(p).toLowerCase()) held.used = ++this.clock
+  }
+
+  /**
+   * Keep these files until `until` (ms since epoch; Infinity while an OS drag
+   * carries them). A browser reads an upload lazily, so the drag out pins its
+   * temp copies for 60 s after it ends (#103). A later pin replaces an earlier.
+   * Only this run's own copies are kept (a drag of the user's own files pins
+   * nothing), and pins that ran out are dropped here, so the map stays small.
+   */
+  pin(files: readonly string[], until: number, now = Date.now()): void {
+    for (const [k, t] of this.pins) if (t <= now) this.pins.delete(k)
+    for (const f of files) if (this.owns(f)) this.pins.set(resolve(f).toLowerCase(), until)
+  }
+
+  /** How many pins are held (the tests read it). */
+  pinCount(): number {
+    return this.pins.size
+  }
+
+  /** Is `file` pinned at `now`. */
+  pinned(file: string, now = Date.now()): boolean {
+    const key = resolve(file).toLowerCase()
+    const until = this.pins.get(key)
+    if (until === undefined) return false
+    if (until > now) return true
+    this.pins.delete(key)
+    return false
   }
 
   /** Bytes the run's folder holds. */
@@ -160,7 +194,7 @@ export class MemberTemp {
     const gone: string[] = []
     for (const [dir, h] of order) {
       if (total <= cap) break
-      if (held(h.file)) continue
+      if (held(h.file) || this.pinned(h.file)) continue
       try {
         await rm(dir, { recursive: true, force: true })
         this.made.delete(dir)
