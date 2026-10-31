@@ -28,11 +28,12 @@ export function pasteMessage(r: PasteResult, refused: string = PASTE_MESSAGES.re
   return null
 }
 
-/** What a cut and paste moved, from where to where. Main answers what landed
- *  in the cut's order, so the two pair up only when all of it landed. */
-export function pasteMoves(cut: readonly string[], r: PasteResult): Array<{ from: string; to: string }> {
-  if (!r.moved || r.failed || r.paths.length !== cut.length) return []
-  return cut.map((from, i) => ({ from, to: r.paths[i] }))
+/** What a cut and paste moved, from where to where: main's own pairs, never
+ *  the renderer's cut list (review, 2026-10-31: a cut in File Explorer after
+ *  one in Prism is still a move, and pairing by index gave Z the icon of A). */
+export function pasteMoves(r: PasteResult): Array<{ from: string; to: string }> {
+  if (!r.moved || !r.from || r.from.length !== r.paths.length) return []
+  return r.from.map((from, i) => ({ from, to: r.paths[i] }))
 }
 
 /**
@@ -57,7 +58,7 @@ export function useFilePaste(
         if (result.moved) {
           clearFileCut(cut)
           // A cut and paste is a move: folder icons follow (D9).
-          followFolderIcons(pasteMoves(cut, result))
+          followFolderIcons(pasteMoves(result))
         }
         const said = pasteMessage(result, refused)
         if (said) onError(said)

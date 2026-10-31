@@ -443,6 +443,7 @@ export function registerShellIpc(ctx: MainCtx): void {
     let pasted = 0
     let failed = 0
     const paths: string[] = []
+    const from: string[] = []
     for (const [i, s] of src.entries()) {
       current = i
       itemDone = 0
@@ -482,6 +483,7 @@ export function registerShellIpc(ctx: MainCtx): void {
           await copyCounted(s, target, tick)
         }
         paths.push(target)
+        from.push(s)
         pasted += 1
         landed(i)
       } catch {
@@ -490,7 +492,7 @@ export function registerShellIpc(ctx: MainCtx): void {
     }
     if (unsaid >= 0) sayLanded(unsaid)
     await written(destDir, ...(moving ? src : []))
-    return { pasted, failed, paths, moved: moving }
+    return { pasted, failed, paths, from, moved: moving }
   }
 
   // The icon Windows itself shows for a file of this type - the user's own

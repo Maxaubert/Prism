@@ -22,14 +22,26 @@ describe('pasteMessage: one table for the Explorer and the tree', () => {
 })
 
 describe('pasteMoves: a cut and paste, for the folder icons to follow', () => {
-  it('pairs the cut with what landed, in order', () => {
-    expect(pasteMoves(['C:/a/x', 'C:/a/y'], answer({ moved: true, pasted: 2, paths: ['C:/b/x', 'C:/b/y (2)'] }))).toEqual([
+  it('pairs what main moved with where it landed, as main says', () => {
+    expect(
+      pasteMoves(answer({ moved: true, pasted: 2, from: ['C:/a/x', 'C:/a/y'], paths: ['C:/b/x', 'C:/b/y (2)'] }))
+    ).toEqual([
       { from: 'C:/a/x', to: 'C:/b/x' },
       { from: 'C:/a/y', to: 'C:/b/y (2)' }
     ])
   })
-  it('a copy, or a move that did not all land, moves nothing', () => {
-    expect(pasteMoves(['C:/a/x'], answer({ pasted: 1, paths: ['C:/b/x'] }))).toEqual([])
-    expect(pasteMoves(['C:/a/x', 'C:/a/y'], answer({ moved: true, pasted: 1, failed: 1, paths: ['C:/b/x'] }))).toEqual([])
+  it('a part that landed still carries its icon; a copy moves nothing', () => {
+    expect(pasteMoves(answer({ pasted: 1, from: ['C:/a/x'], paths: ['C:/b/x'] }))).toEqual([])
+    expect(
+      pasteMoves(answer({ moved: true, pasted: 1, failed: 1, from: ['C:/a/y'], paths: ['C:/b/y'] }))
+    ).toEqual([{ from: 'C:/a/y', to: 'C:/b/y' }])
+  })
+  it("never pairs by the renderer's own cut: another app's cut is not Prism's", () => {
+    // Prism cut A, then File Explorer cut Z and Prism pasted: main moved Z.
+    expect(pasteMoves(answer({ moved: true, pasted: 1, from: ['C:/elsewhere/Z'], paths: ['C:/dest/Z'] }))).toEqual([
+      { from: 'C:/elsewhere/Z', to: 'C:/dest/Z' }
+    ])
+    // An answer without the pairs (an older main) moves nothing.
+    expect(pasteMoves(answer({ moved: true, pasted: 1, paths: ['C:/dest/Z'] }))).toEqual([])
   })
 })
