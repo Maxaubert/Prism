@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { boostFactor, elementVolume, routable } from './audio'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { anyPlaying, boostFactor, elementVolume, routable } from './audio'
 
 describe('volume past 100%', () => {
   it('leaves everything to the element up to 100%', () => {
@@ -42,5 +42,79 @@ describe('what may be routed through Web Audio', () => {
   it('allows a CORS-clean element', () => {
     expect(routable(el('anonymous'))).toBe(true)
     expect(routable(el('use-credentials'))).toBe(true)
+  })
+})
+
+describe('the shared context sleeps when the last player lets go (#17)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete (document as unknown as { querySelectorAll?: unknown }).querySelectorAll
+  })
+
+  const setup = (playing: boolean[]): { suspend: ReturnType<typeof vi.fn> } => {
+    const suspend = vi.fn(() => Promise.resolve())
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        state = 'running'
+        suspend = suspend
+      }
+    )
+    // The setup's document cannot be replaced, only given the one call this reads.
+    const doc = document as unknown as { querySelectorAll?: unknown }
+    doc.querySelectorAll = () => playing.map((p) => ({ paused: !p }))
+    return { suspend }
+  }
+
+  it('suspends once nothing in the window is playing', async () => {
+    const { idleIfSilent, getAudioContext } = (vi.resetModules(), await import('./audio'))
+    const { suspend } = setup([false])
+    getAudioContext()
+    idleIfSilent()
+    expect(suspend).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves it running while another player still plays', async () => {
+    const { idleIfSilent, getAudioContext } = (vi.resetModules(), await import('./audio'))
+    const { suspend } = setup([false, true])
+    getAudioContext()
+    idleIfSilent()
+    expect(suspend).not.toHaveBeenCalled()
+  })
+
+  it('wakes a context whose suspend has not landed yet (review, 2026-10-31)', async () => {
+    // Chromium says 'suspended' only once suspend() resolves. A song unmounting
+    // as the next file's video auto-plays used to see 'running' here, skip the
+    // resume, and leave a boosted video silent once the suspend landed.
+    const { idleAudioContext, wakeAudioContext, contextAsleep, getAudioContext } =
+      (vi.resetModules(), await import('./audio'))
+    let land = (): void => {}
+    const resume = vi.fn(() => Promise.resolve())
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        state: AudioContextState = 'running'
+        suspend = (): Promise<void> => new Promise<void>((r) => (land = r))
+        resume = resume
+      }
+    )
+    getAudioContext()
+    idleAudioContext()
+    expect(contextAsleep()).toBe(true)
+    wakeAudioContext()
+    expect(resume).toHaveBeenCalledTimes(1)
+    land()
+    await Promise.resolve()
+    await Promise.resolve()
+    // Landed, and the state still says 'running': nothing pending, nothing to wake.
+    expect(contextAsleep()).toBe(false)
+    wakeAudioContext()
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
+  it('knows which players are playing', () => {
+    expect(anyPlaying([])).toBe(false)
+    expect(anyPlaying([{ paused: true }])).toBe(false)
+    expect(anyPlaying([{ paused: true }, { paused: false }])).toBe(true)
   })
 })
