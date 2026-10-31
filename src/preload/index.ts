@@ -29,6 +29,7 @@ import type {
 import type { SweepBegin, SweepEnd, SweepState, SweepUpdate } from '@shared/sweepOverlay'
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
+import type { DragOutRequest, DragOutResult, DragPrepareResult, NativeDragRecord } from '@shared/dragOut'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import type { StripReport, TabCarry, TabHover, TabMerge, TearEnd, TearEvent, TearRequest } from '@shared/tabTear'
 import type { FolderHandlerStatus } from '@shared/folderHandler'
@@ -288,6 +289,22 @@ const api = {
    *  a root. Nothing is ever written over: a taken name becomes "name (2)". */
   pasteInto: (dir: string, cut?: string[], jobId?: string): Promise<PasteResult> =>
     ipcRenderer.invoke(CALL.filePasteInto, dir, cut, jobId),
+  /** Copy these files into a folder on the paste engine (#103: a drop from
+   *  Windows is a copy, never a move). Same answer and progress as a paste. */
+  copyInto: (dir: string, paths: string[], jobId?: string): Promise<PasteResult> =>
+    ipcRenderer.invoke(CALL.fileCopyInto, dir, paths, jobId),
+  /** Drag out of Prism (#103). The press: main warms the icon and extracts
+   *  archive members (within 64 MB and 64 members) so the edge can hand off. */
+  dragPrepare: (req: DragOutRequest): Promise<DragPrepareResult> => ipcRenderer.invoke(CALL.dragPrepare, req),
+  /** The window's edge: main starts Windows' own drag with this cargo, and
+   *  answers when it ends (never under --e2e: a fake records it). */
+  dragOut: (req: DragOutRequest): Promise<DragOutResult> => ipcRenderer.invoke(CALL.dragOut, req),
+  /** The button came up after a hand-off was asked for: main starts no drag
+   *  (one started now would drop at once, wherever the pointer is). */
+  dragOutCancel: (): void => ipcRenderer.send(CALL.dragOutCancel),
+  /** An OS drag left a Prism window (any of them), and ended. */
+  onNativeDragStart: subscribe<NativeDragRecord>(PUSH.dragNativeStart),
+  onNativeDragEnd: subscribe<{ token: number }>(PUSH.dragNativeEnd),
   /** Byte progress of a running paste, 0-100, tagged with the job it belongs
    *  to since several can run at once. Only pastes big enough to measure
    *  ever report. */

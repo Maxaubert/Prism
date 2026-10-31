@@ -31,6 +31,8 @@ import { movedOn } from '../lib/fileOpsFollow'
 import { type UndoOps, undoEntry, redoEntry } from '../lib/undoApply'
 import type { DragPayload } from '../lib/drag/dragDrop'
 import { archivePassword } from '../lib/archivePass'
+import { endJob, startJob } from '../lib/jobs'
+import { PASTE_MESSAGES, pasteMessage } from './useFilePaste'
 import { browseParent } from '../lib/browse'
 import type { Ask } from '../dialogs/asks'
 import type { useArchiveActions } from '../components/browse/useArchiveActions'
@@ -39,6 +41,9 @@ import type { useArchiveActions } from '../components/browse/useArchiveActions'
 // unchanged): rename, new folder, delete, move and the drops that move, and
 // undo and redo over them (the inverse table is `undoApply.ts`). App holds
 // the undo stack's state and draws the questions these raise (AskDialogs).
+
+/** What a drop says when its folder cannot take files. */
+const DROP_REFUSED = 'This folder is not available for dropping files.'
 
 export interface FileOpsDeps {
   active: Tab | null
@@ -475,10 +480,35 @@ export function useFileOps({
     flashUndo(`Redid ${describeUndo(step.entry)}`)
     queueUndo(step.entry, () => applyRedo(step.entry))
   }, [applyRedo, flashUndo, queueUndo, setUndoState, undoState])
+  /**
+   * FILES FROM WINDOWS ARE COPIED IN (#103, D3; owner, 2026-10-31). A drop
+   * from Explorer, the desktop or another app used to MOVE them, though the
+   * payload always said "only copied in". It is the paste engine on the
+   * dropped paths: the job chip, the landing rows, names that never collide.
+   */
+  const copyIn = useCallback(
+    async (paths: string[], dest: string): Promise<void> => {
+      const job = startJob('paste', 'Copying')
+      try {
+        const result = await window.prism.copyInto(dest, paths, job)
+        const said = pasteMessage(result, DROP_REFUSED)
+        if (said) setAsk({ kind: 'failed', message: said })
+        setRefreshKey((n) => n + 1)
+      } catch {
+        setAsk({ kind: 'failed', message: PASTE_MESSAGES.threw })
+      } finally {
+        endJob(job)
+      }
+    },
+    [setAsk, setRefreshKey]
+  )
   const onDropInto = useCallback(
     (dest: string, payload: DragPayload): void => {
       if (payload.kind === 'files') {
-        void runMove(payload.paths, dest, 'ask')
+        // From Windows: a copy. Prism's own rows, in this window or back from
+        // an OS drag that left a Prism window (D4): a move.
+        if (payload.external) void copyIn(payload.paths, dest)
+        else void runMove(payload.paths, dest, 'ask')
         return
       }
       // Members out of an archive: extracted where they were dropped, with the
@@ -496,7 +526,7 @@ export function useFileOps({
           if (r.ok) setRefreshKey((n) => n + 1)
         })
     },
-    [runMove, setRefreshKey]
+    [copyIn, runMove, setRefreshKey]
   )
   const onBrowseDropInto = useCallback(
     (dest: string, payload: DragPayload, tabId = active?.id): void => {

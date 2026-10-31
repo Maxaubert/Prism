@@ -107,7 +107,7 @@ import { warmOf } from './lib/viewerCache'
  *  would throw the cache away every time somebody glanced at another window. */
 const WARM_COOLDOWN_MS = 60_000
 import { intendToPlay, wasPlaying } from './lib/playState'
-import { dragPayload, setDrag } from './lib/drag/dragDrop'
+import { ownDrop, setDrag } from './lib/drag/dragDrop'
 import { useInternalFileDrag } from './lib/drag/internalFileDrag'
 import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
@@ -1133,9 +1133,10 @@ export default function App(): JSX.Element {
       // one on the viewer means "show me this": a file opens here, a folder
       // is walked into. Archive members are not on disk, so they
       // are left to the archive view that owns them.
-      const inside = dragPayload(e.dataTransfer)
+      // Prism's own cargo back from an OS drag (#103) reads as the row it was.
+      const inside = ownDrop(e.dataTransfer)
       setDrag(null)
-      if (inside?.kind === 'files') {
+      if (inside?.kind === 'files' && !inside.external) {
         const first = inside.paths[0]
         if (!first) return
         void window.prism.statFile(first).then((st) => {
@@ -1334,6 +1335,7 @@ export default function App(): JSX.Element {
             directory={viewerDirectory}
             onDropInto={onBrowseDropInto}
             fileName={file?.name}
+            filePath={file && !file.member ? file.path : undefined}
             canBack={active.browse.cursor > 0}
             canForward={active.browse.cursor < active.browse.history.length - 1}
             onReturnToFolder={returnToFolder}

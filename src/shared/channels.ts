@@ -40,7 +40,11 @@ export const PUSH = {
   tabHover: 'tabs:hover',
   tabMerge: 'tabs:merge',
   /** The native sweep box's answer (#338): is the box drawn natively. */
-  sweepOverlayState: 'sweep-overlay:state'
+  sweepOverlayState: 'sweep-overlay:state',
+  /** Drag out of Prism (#103): an OS drag left a Prism window, or ended.
+   *  Every window hears both, so a drop back into any of them knows its own. */
+  dragNativeStart: 'drag:native-start',
+  dragNativeEnd: 'drag:native-end'
 } as const
 
 /** The page to main: `invoke`, `send` and `sendSync` in the preload, `handle`
@@ -100,6 +104,15 @@ export const CALL = {
   fileTailBytes: 'file:tailBytes',
   fileWrite: 'file:write',
   filePasteInto: 'file:paste-into',
+  /** Copy given files into a folder on the paste engine (#103: a drop from
+   *  Windows is a copy, D3). */
+  fileCopyInto: 'file:copy-into',
+  /** Drag out of Prism (#103): the press warms the icon and extracts members;
+   *  the window's edge starts the OS drag. */
+  dragPrepare: 'drag:prepare',
+  dragOut: 'drag:out',
+  /** The release came before main started the hand-off: do not start it. */
+  dragOutCancel: 'drag:out-cancel',
   fileStat: 'file:stat',
   fileHash: 'file:hash',
   fileHashCancel: 'file:hash-cancel',

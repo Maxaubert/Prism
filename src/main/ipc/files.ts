@@ -212,7 +212,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
 /** Explorer's verbs, Open with, the clipboard and paste, file icons, restore. */
 export function registerShellIpc(ctx: MainCtx): void {
-  const { readable, shellVerbSetting, textShape, written } = ctx
+  const { movable, readable, shellVerbSetting, textShape, written } = ctx
   // "Open file" / "Open in Prism" in File Explorer's own context menu
   // (HKCU only).
   ipcMain.handle(CALL.shellVerbStatus, () => shellVerbSetting.status())
@@ -320,10 +320,6 @@ export function registerShellIpc(ctx: MainCtx): void {
    * clipboards without this format retain the matching renderer mark fallback.
    */
   ipcMain.handle(CALL.filePasteInto, async (e, destDir: string, cut?: string[], jobId?: string): Promise<PasteResult> => {
-    // The progress goes to the window that pasted (2026-10-29), and to
-    // nobody once it has closed.
-    const sendToPage = (channel: typeof PUSH.pasteProgress, payload: unknown): void =>
-      void windows.sendTo(e.sender, channel, payload)
     if (typeof destDir !== 'string' || !insideDesktop(destDir)) {
       return { pasted: 0, failed: 0, refused: true, paths: [] }
     }
@@ -335,6 +331,41 @@ export function registerShellIpc(ctx: MainCtx): void {
       (Array.isArray(cut) &&
         cut.length === src.length &&
         cut.every((c) => src.some((f) => samePath(f, String(c)))))
+    return runPaste(e.sender, destDir, src, moving, jobId)
+  })
+
+  /**
+   * FILES DROPPED FROM WINDOWS ARE COPIED IN (#103, D3; owner, 2026-10-31).
+   * A drop from Explorer, the desktop or another app onto a Prism folder used
+   * to MOVE them, though the payload said "never moved, only copied in". It is
+   * the paste engine on the dropped paths: the rows land with their bars,
+   * names never collide, a folder never lands inside itself. Both ends are
+   * walled: the drop browses each source's folder first (`onBrowseDropInto`),
+   * so a source is inside the wall, and one that is not is refused (a page
+   * could otherwise copy any file on disk into a granted folder and read it).
+   */
+  ipcMain.handle(CALL.fileCopyInto, async (e, destDir: string, paths: unknown, jobId?: string): Promise<PasteResult> => {
+    if (typeof destDir !== 'string' || !insideDesktop(destDir)) {
+      return { pasted: 0, failed: 0, refused: true, paths: [] }
+    }
+    const src = Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string' && !!p) : []
+    if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
+    if (!src.every(movable)) return { pasted: 0, failed: 0, refused: true, paths: [] }
+    return runPaste(e.sender, destDir, src, false, jobId)
+  })
+
+  /** The paste engine: copy (or, for a cut, move) `src` into `destDir`. */
+  const runPaste = async (
+    sender: Electron.WebContents,
+    destDir: string,
+    src: string[],
+    moving: boolean,
+    jobId?: string
+  ): Promise<PasteResult> => {
+    // The progress goes to the window that pasted (2026-10-29), and to
+    // nobody once it has closed.
+    const sendToPage = (channel: typeof PUSH.pasteProgress, payload: unknown): void =>
+      void windows.sendTo(sender, channel, payload)
     const fs = await import('fs/promises')
     const job = typeof jobId === 'string' ? jobId : ''
     // THE LIST SHOWS WHAT IS LANDING (owner, 2026-10-28: "nothing happens and
@@ -460,7 +491,7 @@ export function registerShellIpc(ctx: MainCtx): void {
     if (unsaid >= 0) sayLanded(unsaid)
     await written(destDir, ...(moving ? src : []))
     return { pasted, failed, paths, moved: moving }
-  })
+  }
 
   // The icon Windows itself shows for a file of this type - the user's own
   // association (WinRAR, 7-Zip, Explorer's zip folder...). One fetch per

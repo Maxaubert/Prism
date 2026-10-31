@@ -18,7 +18,7 @@ import {
 } from '@shared/tabTear'
 import type { StripTear } from '../hooks/useTabTear'
 import { pinnedRoots, plusMenuList, recentRoots, togglePin } from '@renderer/lib/recentRoots'
-import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/drag/dragDrop'
+import { DRAG_MIME, dragPayload, ownDrop, setDrag, windowsDrag, type DragPayload } from '../lib/drag/dragDrop'
 import { ContextMenu } from './ContextMenu'
 import { plusButtonMenu, tabContextMenu } from '../menus/tabStrip'
 import { TabKindIcon } from './icons/TabKindIcon'
@@ -696,13 +696,11 @@ export function TabStrip({
         // Prism's own rows carry their paths in the drag payload, not as
         // files - a folder dragged out of the tree has to land here too, and
         // that is the natural way to open one beside what you have.
-        const inside = dragPayload(e.dataTransfer)
+        // From Windows or back from Prism's own OS drag alike (#103): the
+        // paths open, nothing moves.
+        const inside = ownDrop(e.dataTransfer)
         setDrag(null)
-        if (inside?.kind === 'files') {
-          for (const p of inside.paths) onDropFile(p)
-          return
-        }
-        for (const f of e.dataTransfer.files ?? []) onDropFile(window.prism.getDroppedPath(f))
+        if (inside?.kind === 'files') for (const p of inside.paths) onDropFile(p)
       }}
       // While a tab is genuinely being carried the whole strip wears the
       // closed hand, children included: a tab is made of a label button, an
@@ -812,7 +810,7 @@ export function TabStrip({
               }
               e.preventDefault()
               e.dataTransfer.dropEffect =
-                dragPayload(e.dataTransfer)?.kind === 'members' ? 'copy' : 'move'
+                windowsDrag(e.dataTransfer) || dragPayload(e.dataTransfer)?.kind === 'members' ? 'copy' : 'move'
               setFileDropTab(t.id)
             }}
             onDragLeave={(e) => {
@@ -822,15 +820,14 @@ export function TabStrip({
             onDrop={(e) => {
               e.preventDefault()
               e.stopPropagation()
-              const payload = dragPayload(e.dataTransfer)
-              const paths = payload ? [] : droppedPaths(e.dataTransfer)
+              // From Windows: never moved, only copied in (a tab inside a zip
+              // would otherwise bin the originals, review of #300; any folder,
+              // #103 D3). Prism's own cargo back from an OS drag moves (D4).
+              const payload = ownDrop(e.dataTransfer)
               setDrag(null)
               setFileDropTab(null)
-              if (t.kind === 'settings') return
-              if (payload) onDropIntoTab(t.id, payload)
-              // From Windows: never moved, only copied in (a tab inside a zip
-              // would otherwise bin the originals, review of #300).
-              else if (paths.length) onDropIntoTab(t.id, { kind: 'files', paths, external: true })
+              if (t.kind === 'settings' || !payload) return
+              onDropIntoTab(t.id, payload)
             }}
             onPointerDown={(e) => onTabPointerDown(e, t.id, i)}
             onPointerMove={onTabPointerMove}

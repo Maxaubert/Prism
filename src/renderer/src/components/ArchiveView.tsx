@@ -14,7 +14,7 @@ import { PATHS } from './icons/paths'
 import { Spinner } from './LoadingState'
 import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
-import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../lib/drag/dragDrop'
+import { DRAG_MIME, ownDrop, setDrag } from '../lib/drag/dragDrop'
 import { archivePassword } from '../lib/archivePass'
 import { useArchiveOps } from './archive/useArchiveOps'
 import { COL_PACKED, COL_SIZE, COL_TYPE, COL_WHEN, type Entry } from './archive/entry'
@@ -474,7 +474,7 @@ function ArchiveInner({
   const onDropInArchive = useCallback(
     (e: React.DragEvent, destFolder: string): void => {
       setDropTarget(null)
-      const payload = dragPayload(e.dataTransfer)
+      const payload = ownDrop(e.dataTransfer)
       setDrag(null)
       if (payload?.kind === 'members')
         return moveInside(
@@ -482,10 +482,9 @@ function ArchiveInner({
           { from: payload.archive, entries: payload.entries, dest: destFolder },
           () => setSel(emptySelection)
         )
-      // From the sidebar, or straight from Explorer.
-      const fromPrism = payload?.kind === 'files'
-      const paths = fromPrism ? payload.paths : droppedPaths(e.dataTransfer)
-      if (paths.length) addIn(file.path, paths, destFolder, fromPrism)
+      // From Prism (moved in), or straight from Explorer (copied in, #103).
+      if (payload?.kind === 'files' && payload.paths.length)
+        addIn(file.path, payload.paths, destFolder, !payload.external)
     },
     [addIn, moveInside, file.path]
   )
