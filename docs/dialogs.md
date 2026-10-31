@@ -36,7 +36,7 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
 | `ArchiveDeleteDialog` | Delete members from a zip, for good (Cancel is primary) | `archive/useArchiveOps.tsx` |
 | `ArchiveClashDialog` | Added files land on names the zip has: Keep both | `archive/useArchiveOps.tsx` |
 | `ArchiveFactsDialog` | A zip member's facts | `browse/useArchiveActions.tsx` |
-| `FolderIconDialog` | Icon for a folder (or N folders): search, a grid of the built-in icons, Cancel, Reset to default. A body that is a tool, so `Dialog`'s `wide` box | App (`folder-icon`): Change icon... on a folder row, marked folder rows, a sidebar pin |
+| `FolderIconDialog` | Icon for a folder (or N folders): search, a grid of the built-in icons, Cancel, Reset to default, From a file... (the picture's refusal is App's `failed` NoticeDialog, its text `ICON_REFUSED` in `lib/iconFromFile.ts`). A body that is a tool, so `Dialog`'s `wide` box | App (`folder-icon`): Change icon... on a folder row, marked folder rows, a sidebar pin |
 
 Not here, on purpose: forms and panels that are more than a question. `browse/BrowseRename.tsx`
 (the rename field in a dialog), `properties/PropertiesDialog.tsx`, `PhoneDialog.tsx`, the core's
