@@ -160,6 +160,10 @@ export function isMarkdown(name: string): boolean {
   return MARKDOWN.has(extOf(name))
 }
 
+/** Every extension Prism shows as a picture. Main's media types are built
+ *  from this list (#31), so a picture added here is typed there too. */
+export const imageExtensions = (): string[] => [...IMAGE]
+
 /** True for anything Prism can show (used to filter a folder listing). */
 export function isViewable(ext: string, name?: string): boolean {
   return fileKind(ext, name) !== 'other'

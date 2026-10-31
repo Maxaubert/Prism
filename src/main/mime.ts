@@ -1,5 +1,47 @@
 import { extname } from 'path'
-import { decodableImages } from './imageDecode'
+import { imageExtensions } from '@shared/fileKind'
+import { isHeic } from './heicClient'
+import { needsImageDecode } from './imageDecode'
+import { isRaw } from './rawPreview'
+
+/** The pictures Chromium draws itself, served as they are. */
+const NATIVE_IMAGE: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.jfif': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml',
+  '.avif': 'image/avif',
+  '.ico': 'image/x-icon'
+}
+
+/**
+ * The type of a picture, by the copy the renderer receives (#31).
+ *
+ * The image list is fileKind's, not a second one kept here: the two drifted
+ * once (2026-08-05 review), and `.ico` reached the renderer as octet-stream,
+ * missing the whole-buffer fast path. What main converts is typed as what it
+ * makes: PNG from ffmpeg (TIFF, JPEG XL, PSD...), JPEG from a HEIC or from a
+ * raw's embedded preview. A picture none of these can draw gets no type, and
+ * `mime.test.ts` fails on it.
+ *
+ * Those converted entries are bookkeeping, not what goes on the wire:
+ * mediaProtocol answers raw, HEIC and ffmpeg pictures itself, with the type
+ * of the copy it made, before it ever asks `mediaMime` (review, 2026-10-31).
+ * They are here so the parity test can tell "converted" from "nothing can
+ * draw this". In practice #31 changed one served type, `.ico`'s.
+ */
+function imageMime(e: string): string | undefined {
+  if (NATIVE_IMAGE[e]) return NATIVE_IMAGE[e]
+  // The predicates read a path's extension, and `extname('.tif')` is ''.
+  const file = `a${e}`
+  if (needsImageDecode(file)) return 'image/png'
+  if (isHeic(file) || isRaw(file)) return 'image/jpeg'
+  return undefined
+}
 
 /**
  * Every content type main serves, in one place (stage 9b of the structure
@@ -59,17 +101,13 @@ const MEDIA: Record<string, string> = {
   '.ape': 'audio/x-ape',
   '.wv': 'audio/x-wavpack',
   '.au': 'audio/basic',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.jfif': 'image/jpeg',
-  '.webp': 'image/webp',
-  // Decoded to PNG before they ever reach the renderer (imageDecode.ts).
-  ...Object.fromEntries(decodableImages().map((e) => [e, 'image/png'])),
-  '.bmp': 'image/bmp',
-  '.svg': 'image/svg+xml',
-  '.avif': 'image/avif',
+  // Every picture, from fileKind's list (#31): see `imageMime`.
+  ...Object.fromEntries(
+    imageExtensions().flatMap((e) => {
+      const type = imageMime(e)
+      return type ? [[e, type]] : []
+    })
+  ),
   '.pdf': 'application/pdf'
 }
 
