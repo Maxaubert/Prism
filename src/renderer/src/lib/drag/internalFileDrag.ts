@@ -2,7 +2,9 @@ import { useEffect } from 'react'
 import { baseName } from '@shared/path'
 import { dragBadgePlace } from './dragBadgePlace'
 import { buildDragRow } from './dragRow'
-import { DRAG_MIME, getDrag, setDrag } from './dragDrop'
+import { DRAG_MIME, endNative, getDrag, setDrag, setNative } from './dragDrop'
+import { requestOf } from './dragOut'
+import { pointerOut } from './edge'
 import { QUICK_ACCESS_PIN_MIME } from '../quickAccess'
 
 /** Chromium's native drag loop swallows Ctrl+Tab. Keep Prism cargo in the
@@ -129,6 +131,22 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       // A release over a file must not also select/open the drop destination.
       suppressClick = true
     }
+    /**
+     * THE HAND-OFF AT THE WINDOW'S EDGE (#103, D1; owner, 2026-10-31). Over
+     * the window the carry stays exactly as it is (the carried row, the arrow,
+     * Ctrl+Tab). When the pointer leaves with the button held, the carry ends
+     * quietly, no drop, and main starts Windows' own drag with the same cargo:
+     * Explorer, a browser, Discord, another Prism window, or back into this
+     * one. If main refuses (a member not extracted yet, over the budget), the
+     * carry simply ended: a release outside the window did nothing anyway.
+     * Pins never hand off; they carry an order, not files.
+     */
+    const handOff = (): void => {
+      if (!carry || carry.pin) return
+      const request = requestOf(getDrag())
+      end(false)
+      if (request) void window.prism.dragOut(request).catch(() => {})
+    }
     const down = (event: MouseEvent): void => {
       pressed = event.button === 0
       suppressClick = false
@@ -187,6 +205,10 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       }
       document.body.dataset.internalFileDrag = 'true'
       document.documentElement.dataset.internalFileDrag = 'true'
+      // The press of a file drag warms its icon in main, so a hand-off at the
+      // edge starts at once (#103). Members prepare on their own press
+      // (BrowseList), where the extraction has the most time.
+      if (payload?.kind === 'files') void window.prism.dragPrepare({ kind: 'files', paths: payload.paths }).catch(() => {})
       hover()
       frame = requestAnimationFrame(tick)
     }
@@ -197,6 +219,7 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       carry.y = event.clientY
       carry.ctrl = event.ctrlKey
       carry.shift = event.shiftKey
+      if (pointerOut(carry.x, carry.y, window.innerWidth, window.innerHeight)) return handOff()
       hover()
     }
     const up = (event: MouseEvent): void => {
@@ -229,6 +252,9 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       pressed = false
       end(false)
     }
+    // The OS drag in flight (#103), for a drop back into any Prism window.
+    const offStart = window.prism.onNativeDragStart((record) => setNative(record))
+    const offEnd = window.prism.onNativeDragEnd(({ token }) => endNative(token))
     window.addEventListener('mousedown', down, true)
     window.addEventListener('dragstart', start)
     window.addEventListener('mousemove', move, true)
@@ -239,6 +265,8 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
     window.addEventListener('blur', cancel)
     return () => {
       cancel()
+      offStart()
+      offEnd()
       window.removeEventListener('mousedown', down, true)
       window.removeEventListener('dragstart', start)
       window.removeEventListener('mousemove', move, true)

@@ -5,6 +5,7 @@ import { ContextMenu } from '../ContextMenu'
 import { BrowseIcon } from '../icons/BrowseIcon'
 import type { FolderBrowserProps } from './types'
 import { useFolderDrop } from './useFolderDrop'
+import { fileDragProps } from '../../lib/drag/fileDrag'
 import { KindIcon } from '../icons/FileIcons'
 import { browsableArchive } from '@shared/archivePlace'
 import './archive.css'
@@ -26,6 +27,9 @@ type Props = Pick<
 > & {
   /** Display the open file after its containing folder's navigable crumbs. */
   fileName?: string
+  /** The open file on disk: its name is a drag handle (#103, D6). Absent for
+   *  a member of an archive, which is no file on disk. */
+  filePath?: string
   /** File viewers return to their containing folder before travelling history. */
   onReturnToFolder?: () => void
   /** What sits after the address field: the Explorer's preview toggle and
@@ -217,7 +221,12 @@ export function BrowseToolbar(props: Props): JSX.Element {
             {props.fileName && (
               <span className="browse-crumb">
                 <BrowseIcon name="chevron" />
-                <span className="browse-file-crumb" aria-current="page" {...hiddenTitle(props.fileName)}>
+                <span
+                  className="browse-file-crumb"
+                  aria-current="page"
+                  {...hiddenTitle(props.fileName)}
+                  {...fileDragProps(props.filePath)}
+                >
                   {props.fileName}
                 </span>
               </span>

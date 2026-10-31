@@ -5,6 +5,7 @@ import {
   dragRowStyle,
   findRowIcon,
   parseColour,
+  rowHeight,
   selectedFill,
   type RowNode
 } from './dragRow'
@@ -151,5 +152,14 @@ describe('carriedName', () => {
     expect(carriedName('odd*', 'odd*')).toBe('odd*')
     expect(carriedName('notes.txt*', null)).toBe('notes.txt*')
     expect(carriedName('Documents', 'Documents')).toBe('Documents')
+  })
+})
+
+describe('rowHeight (#103)', () => {
+  it("is the source row's own height, or a row's when the source is no row", () => {
+    expect(rowHeight(31.6)).toBe(32)
+    expect(rowHeight(0)).toBe(26)
+    // The open picture dragged out of the viewer is no row.
+    expect(rowHeight(540)).toBe(26)
   })
 })

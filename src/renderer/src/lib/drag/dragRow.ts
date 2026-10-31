@@ -224,6 +224,13 @@ function pathNameOf(source: Element): string | null {
  * not a row with an icon (an archive member list, say) it is named by its
  * own path, else by `fallback`.
  */
+/** The carried row's height: the source row's, or 26 px when the source is
+ *  not a row (nothing, or taller than any row: the picture in the viewer). */
+export function rowHeight(h: number): number {
+  const r = Math.round(h)
+  return r > 0 && r <= 48 ? r : 26
+}
+
 export function buildDragRow(source: Element, fallback: string, count: number): DragRow {
   const row = source.closest('[draggable="true"]') ?? source
   const found = findRowIcon(row as unknown as RowNode & Element)
@@ -232,7 +239,9 @@ export function buildDragRow(source: Element, fallback: string, count: number): 
   const nameSeen = nameEl ? getComputedStyle(nameEl) : rowSeen
   const gapOf = found ? getComputedStyle((found.icon as Element).parentElement ?? row).columnGap : rowSeen.columnGap
   const metrics: RowMetrics = {
-    height: Math.round(row.getBoundingClientRect().height) || 26,
+    // A row's own height; the open picture or a file name dragged out of the
+    // viewer (#103) is no row, and carries one of the usual height.
+    height: rowHeight(row.getBoundingClientRect().height),
     padX: parseFloat(rowSeen.paddingRight) || 8,
     gap: parseFloat(gapOf) || 6,
     fontSize: rowSeen.fontSize,
