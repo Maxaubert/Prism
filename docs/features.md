@@ -334,7 +334,7 @@ different icons and the list needs to be optimized so it wont lag while scrollin
 searchable, or the user can also pick their own icon from a file, and it will remember the folder location of
 where the user picked an icon the last time". Approved the same day with every recommendation of the spec
 (`2026-10-31-folder-icons-spec.md`, kept with the session), D1 to D15. Built in three PRs: pins reorder by
-drag only (PR 1), the built-in set and the picker (PR 2, this entry), icons from a file (PR 3).
+drag only (PR 1), the built-in set and the picker (PR 2), icons from a file (PR 3); this entry holds both.
 
 - **The set (D2, D12, D14, D15)**: every Lucide icon (2,015, `lucide-static` 1.66.0, ISC with an MIT part for
   the Feather-derived ones, `THIRD-PARTY-NOTICES.md`), Prism's nine place glyphs first (`prism-home` ...
@@ -348,7 +348,7 @@ drag only (PR 1), the built-in set and the picker (PR 2, this entry), icons from
   folder colour in the Explorer and the search popup, in the row's ink in the sidebar (D4)**, as the Known
   Folder glyphs. Prism only (D6): nothing is written into the folder, File Explorer does not see it.
 - **Stored** in the shared pref `prism.folderIcons` (`lib/folderIcons.ts`), keyed by `pathKey`, `{ set }`
-  (and `{ file }` for PR 3); junk is dropped on parse. A list reads the map once a render, and with no icon set
+  or `{ file }` (a picture, by its hash); junk is dropped on parse. A list reads the map once a render, and with no icon set
   a row does no lookup at all.
 - **Change icon...** (D10) after the pin row on a folder row, and on every sidebar pin; never a This PC drive.
   With several marked rows it is `Change icon for N folders...` and sets them all (D13), and it is not offered
@@ -361,8 +361,7 @@ drag only (PR 1), the built-in set and the picker (PR 2, this entry), icons from
   `photo` finds it by its tag). **Keyboard**: Down from the field into the grid, arrows, Home / End,
   Ctrl+Home / Ctrl+End, PageUp / PageDown, Enter or Space; Up from the first row back to the field.
   **It does not lag**: fixed 40 px cells, rows placed by transform, `contain: strict`, React renders again
-  only when the band of rows changes (`useVirtualGrid`); about 120 cells in the DOM of 2,024. "From a
-  file..." comes with PR 3.
+  only when the band of rows changes (`useVirtualGrid`); about 120 cells in the DOM of 2,024.
 - **The icon follows a rename or move done in Prism (D9)**, the folder's own and every icon under it:
   `runRename` and `runMove` in `useFileOps.ts` (undo and redo go through them), and a cut and paste
   (`pasteMoves`, from the pairs MAIN moved: the renderer's own cut list is never trusted, since another app
@@ -380,6 +379,21 @@ drag only (PR 1), the built-in set and the picker (PR 2, this entry), icons from
   keyboard, Reset, relaunch, rename and undo, keys kept from the folder behind, Change icon for 2 folders,
   a cut and paste; the grid's scroll at under 34 ms a frame with a bounded DOM; a
   3,000-folder listing with 300 icons scrolling as it does with none).
+- **From a file... (D7, D11)**: the picker's third button. Main's open dialog, parented to the window, filter
+  "Pictures and icons" (PNG, JPG, GIF (first frame), BMP, WEBP, ICO, SVG), opens on the folder of the LAST pick
+  ("it will remember the folder location of where the user picked an icon the last time"): main keeps it in
+  `userData/icon-picks.json`, one folder for every window, Pictures the first time or when that folder is gone.
+  The page never gets a path to load (the root wall): main reads the file (at most 16 MB) and hands over its
+  bytes, the page draws them centred into 64 x 64 (aspect kept, an SVG on a blob URL where no script runs), main
+  keeps that PNG by its SHA-256 under `userData/folder-icons/`, and rows and pins draw it as an `<img>` from a
+  data URL, in its own colours. A cancel leaves the picker up; a file that is not a picture says "That file
+  isn't a picture Prism can use." and changes nothing. The source file can go (Prism has its copy); when
+  Prism's copy is gone the folder draws its default glyph, with no error, and the entry is dropped on the next
+  start. Copies no folder names are removed when an icon is reset or replaced. Held by
+  `src/main/folderIconFiles.test.ts`, `lib/iconFromFile.test.ts`, `lib/folderIconFiles.test.ts`,
+  `lib/folderIcons.test.ts`, `dialogs/FolderIconDialog.test.ts`, `dialogs/AskDialogs.test.ts` and the e2e
+  `folderIconFile` (under `--e2e` main never shows the dialog: `PRISM_E2E_PICK_ICON` is the pick and
+  `globalThis.__e2eIconDialog` what it would have opened with).
 
 ## Drag files out of Prism (#103, owner, 2026-10-31)
 

@@ -143,6 +143,9 @@ Filesmith's conventions.
   - a file written whole or not at all: `writeAtomic` / `writeAtomicSync` (quit only) in
     `src/main/latestWrite.ts`, beside `latestWriter`. Every state file goes through them.
   - userData paths: `src/main/paths.ts` (`userPaths.tabs()`, `.converted()`, `.comics()`, ...).
+    Folder icons from a file (2026-10-31): `.folderIcons()` (`folder-icons/<sha256>.png`, Prism's own
+    64 px copies) and `.iconPicks()` (`icon-picks.json`, `{ "lastDir" }`, the folder the last pick came
+    from), both read and written by `src/main/folderIconFiles.ts` with `fs/promises`.
   - a small newest-N cache: `src/main/lru.ts` (`createLru(max)`; `get` touches, `peek` does not).
   - colour maths on hex: `src/renderer/src/lib/colour.ts` (`hexToRgb` reads the first six digits,
     `rgbToHex`, `mix`, `luminance`, `contrast`); tests import it, never a copy. Computed CSS colours
@@ -200,6 +203,12 @@ Filesmith's conventions.
     modules there: `FileMenuIcon`, `BrowseIcon`, `PlaceIcon`, `TabKindIcon`, `propertyGlyphs`,
     `settingsIcons`, `transport`, `menuGlyphs` (`menuIcon`, `tickIf`), and `FileIcons`
     (`KindIcon`, `FolderIcon`, `iconColour`). The generated file-kind art stays `lib/iconPaths.ts`.
+  - a folder icon from a file (2026-10-31) never crosses the root wall: `folder-icons:pick` hands the
+    page the picked file's BYTES (at most 16 MB, the D7 kinds), never a path it could load; the page
+    draws a 64 px PNG (`lib/iconFromFile.ts`) and `folder-icons:save` keeps it only when its header
+    says PNG of at most 64 x 64; `folder-icons:custom` hands every copy over as a data URL (the CSP
+    allows `img-src data:`), cached by `lib/folderIconFiles.ts`; `folder-icons:prune` removes the
+    copies no entry names (a copy younger than a minute stays: another window may be storing it).
   - the root wall: `src/main/pathWall.ts` (`createPathWall`; `readable`, `editable`, `movable`,
     `archiveOk`, `archiveReadOk`, `comicOk`, `insideWall`, `mediaAllowed`, and the grants main
     makes itself). Every handler asks it; `pathWall.test.ts` pins each guard. Never loosen one.
@@ -218,9 +227,9 @@ Filesmith's conventions.
   - main's concerns out of index.ts: `windowChrome.ts` (window state, material, borderless
     fullscreen, DWM border, `raise`, the window:* messages), `tabsSession.ts` (restore, save,
     flush the strip), `updateFlow.ts` (the offer and update:*), `dialogs.ts` (parented native
-    dialogs, `pickFolder`, `pickFiles`), `phone/index.ts` (`startPhoneService`, pos:*).
+    dialogs, `pickFolder`, `pickFiles`, `pickIconFile`), `phone/index.ts` (`startPhoneService`, pos:*).
   - the IPC handlers, by area: `src/main/ipc/` (`window`, `open`, `files`, `browse`,
-    `props`, `media`, `archive`). Each is a `registerXIpc(ctx)` that index.ts's whenReady calls
+    `props`, `media`, `archive`, `folderIcons`). Each is a `registerXIpc(ctx)` that index.ts's whenReady calls
     in the order the handlers were always registered; `ctx` (`MainCtx`) is index.ts's shared
     state and helpers, `ready` (`ReadyCtx`) what whenReady makes. A new handler goes in its
     area's file, never back into index.ts. Prism has several windows in one process
