@@ -4,8 +4,8 @@ import { clamp } from '../lib/clamp'
 import { styleById } from '../lib/viz/styles'
 import { analyzeDrops } from '../lib/viz/drops'
 import { watchDrops } from '../lib/viz/dropWatch'
-import { drawLoopRuns, idleFrame, wantsResume } from '../lib/viz/vizGuards'
-import { getAudioContext, mediaGraph } from '../lib/audio'
+import { canvasShown, drawLoopRuns, HIDDEN_POLL_MS, idleFrame, wantsResume } from '../lib/viz/vizGuards'
+import { contextAsleep, getAudioContext, mediaGraph } from '../lib/audio'
 import { hexToRgb } from '../lib/colour'
 
 // Drives whichever visualizer style is selected. Owns the Web Audio graph and
@@ -134,7 +134,7 @@ export function Visualizer({
     // anywhere used to wake the context idleAudioContext had just put to
     // sleep, and the audio thread and device stayed up with nothing playing.
     const resume = (): void => {
-      if (wantsResume(ctx.state, media.paused)) void ctx.resume()
+      if (wantsResume(contextAsleep(), media.paused)) void ctx.resume()
     }
     media.addEventListener('play', resume)
     window.addEventListener('pointerdown', resume)
@@ -225,7 +225,22 @@ export function Visualizer({
       raf = requestAnimationFrame(tick)
     }
 
+    /**
+     * A hidden canvas paints nothing (#15, 2026-10-31): under Settings the
+     * viewer is kept mounted but invisible, and a playing song there used to
+     * repaint at the full refresh. The loop sleeps instead, looking again a
+     * few times a second, so the picture is back the moment Settings closes.
+     */
+    let sleep = 0
     const tick = (now: number): void => {
+      if (!canvasShown(canvas)) {
+        raf = 0
+        sleep = window.setTimeout(() => {
+          sleep = 0
+          raf = requestAnimationFrame(tick)
+        }, HIDDEN_POLL_MS)
+        return
+      }
       const idle = !!media && media.paused
       if (idle && stillFrames > SETTLE_FRAMES) {
         // Idle is not blind: a window resize or a style change still has to
@@ -363,6 +378,7 @@ export function Visualizer({
     wakeRef.current = wake
     return () => {
       cancelAnimationFrame(raf)
+      if (sleep) clearTimeout(sleep)
       media?.removeEventListener('play', wake)
       resized?.disconnect()
       if (wakeRef.current === wake) wakeRef.current = null
