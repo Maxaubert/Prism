@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
 import { rememberPaused, rememberTime, sessionTime } from '../lib/playState'
 import { positionToSave, resumeAt, RESUME_SAVE_STEP } from '../lib/resumePoint'
-import { applyVolume, idleAudioContext, wakeAudioContext } from '../lib/audio'
+import { applyVolume, idleIfSilent, wakeAudioContext } from '../lib/audio'
 import { setTabRate, setTabVolume, tabRate, tabVolume } from '../lib/tabs/tabVolume'
 import { forgetPlayer, reportPlaying } from '../lib/awake'
 import { readStored } from '../lib/storage'
@@ -157,6 +157,10 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   // mid-film would hold the screen awake for the rest of the session, and
   // there is no event on the way out that says "paused".
   useEffect(() => () => forgetPlayer(awakeKey), [awakeKey])
+  // Nor is it holding the audio device (#17): a player unmounted mid-song
+  // fires no pause we can hear, so the context is let go here as well. By
+  // now its element has left the page, so only the players still on it count.
+  useEffect(() => () => idleIfSilent(), [])
 
   /**
    * A NEW FILE is a new file (2026-08-28).
@@ -327,8 +331,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
       reportPlaying(awakeKey, false)
       // Nothing left playing anywhere in the window: let the audio thread and
       // its device clock go. Any route back in wakes it first.
-      if (![...document.querySelectorAll('video,audio')].some((m) => !(m as HTMLMediaElement).paused))
-        idleAudioContext()
+      idleIfSilent()
       if (resumeKey) rememberPaused(resumeKey, true)
       onPlayChange?.(false)
     },
