@@ -379,6 +379,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       onUnpinQuickAccess={props.onUnpinQuickAccess}
       onMoveQuickAccess={props.onMoveQuickAccess}
       onPinQuickAccessPaths={props.onPinQuickAccessPaths}
+      onChangeFolderIcon={props.onChangeFolderIcon}
       directory={props.directory}
       chosenPlace={chosenPlace}
       onChoosePlace={setChosenPlace}

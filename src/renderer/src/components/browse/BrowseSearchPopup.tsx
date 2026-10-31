@@ -1,6 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
+import { FolderGlyph } from '../icons/FolderGlyph'
+import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
 import { hitFolder, stepActive } from '@shared/searchSuggest'
 import { useSearchSuggestions, type Suggestion } from '../../hooks/useSearchSuggestions'
 import { BrowseIcon } from '../icons/BrowseIcon'
@@ -34,6 +36,7 @@ export function BrowseSearchPopup(props: {
   const field = useRef<HTMLInputElement>(null)
   const id = useId()
   const answer = useSearchSuggestions(props.tabId, props.directory, query)
+  const folderIcons = useFolderIcons()
   const hits = answer.hits
   // The marked row belongs to the list it was marked in, and to the words:
   // a new answer is a new list, and a letter typed is a new question even
@@ -161,7 +164,15 @@ export function BrowseSearchPopup(props: {
                 onClick={() => props.onPick(hit)}
               >
                 {hit.isFolder ? (
-                  <FolderIcon color="var(--p-tree-folder)" />
+                  (() => {
+                    const own = folderIconOf(folderIcons, hit.path)
+                    const folder = <FolderIcon color="var(--p-tree-folder)" />
+                    return own ? (
+                      <FolderGlyph icon={own} size={16} color="var(--p-tree-folder)" fallback={folder} />
+                    ) : (
+                      folder
+                    )
+                  })()
                 ) : (
                   hit.file && (
                     <KindIcon

@@ -1,4 +1,5 @@
 import { isInside } from '@shared/path'
+import { followFolderIcons } from '../lib/folderIcons'
 import {
   useCallback,
   useLayoutEffect,
@@ -155,6 +156,9 @@ export function useFileOps({
       setRefreshKey((n) => n + 1)
       // Unsaved text follows the file to its new name.
       rekeyBuffer(path, r.path)
+      // So does a folder's icon, and the icons under it (D9). An undo or redo
+      // renames through here too.
+      followFolderIcons([{ from: path, to: r.path }])
       // A rename that names a folder Ctrl+Shift+N just made folds into that
       // entry (#330), so one Ctrl+Z takes the folder away, Explorer's way.
       if (track !== false)
@@ -387,6 +391,9 @@ export function useFileOps({
           }
           setAsk(null)
           setRefreshKey((n) => n + 1)
+          // Folder icons go where their folders went (D9); undo and redo
+          // move through here too.
+          followFolderIcons(r.moved)
           if (track && r.moved.length)
             noteUndo({
               kind: 'move',

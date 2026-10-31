@@ -71,6 +71,8 @@ export interface FolderBrowserProps {
   onUnpinQuickAccess?: (path: string) => void
   onMoveQuickAccess?: (path: string, beforePath?: string) => void
   onPinQuickAccessPaths?: (paths: string[], beforePath?: string) => void
+  /** Change icon... on a sidebar pin (folder icons, 2026-10-31). */
+  onChangeFolderIcon?: (paths: string[], name: string) => void
   /** Whose list this is (the tab's id). The marks of several rows are this
    *  list's own, and one component serves every Explorer tab. */
   owner?: string

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PASTE_MESSAGES, pasteMessage, type PasteResult } from './useFilePaste'
+import { PASTE_MESSAGES, pasteMessage, pasteMoves, type PasteResult } from './useFilePaste'
 
 const answer = (r: Partial<PasteResult>): PasteResult => ({ pasted: 0, failed: 0, paths: [], ...r })
 
@@ -18,5 +18,18 @@ describe('pasteMessage: one table for the Explorer and the tree', () => {
       'Pasted 2, but 1 could not be copied.'
     )
     expect(pasteMessage(answer({ pasted: 2, paths: ['a', 'b'] }))).toBeNull()
+  })
+})
+
+describe('pasteMoves: a cut and paste, for the folder icons to follow', () => {
+  it('pairs the cut with what landed, in order', () => {
+    expect(pasteMoves(['C:/a/x', 'C:/a/y'], answer({ moved: true, pasted: 2, paths: ['C:/b/x', 'C:/b/y (2)'] }))).toEqual([
+      { from: 'C:/a/x', to: 'C:/b/x' },
+      { from: 'C:/a/y', to: 'C:/b/y (2)' }
+    ])
+  })
+  it('a copy, or a move that did not all land, moves nothing', () => {
+    expect(pasteMoves(['C:/a/x'], answer({ pasted: 1, paths: ['C:/b/x'] }))).toEqual([])
+    expect(pasteMoves(['C:/a/x', 'C:/a/y'], answer({ moved: true, pasted: 1, failed: 1, paths: ['C:/b/x'] }))).toEqual([])
   })
 })
