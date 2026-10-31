@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { boostFactor, elementVolume, routable } from './audio'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { anyPlaying, boostFactor, elementVolume, routable } from './audio'
 
 describe('volume past 100%', () => {
   it('leaves everything to the element up to 100%', () => {
@@ -42,5 +42,49 @@ describe('what may be routed through Web Audio', () => {
   it('allows a CORS-clean element', () => {
     expect(routable(el('anonymous'))).toBe(true)
     expect(routable(el('use-credentials'))).toBe(true)
+  })
+})
+
+describe('the shared context sleeps when the last player lets go (#17)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete (document as unknown as { querySelectorAll?: unknown }).querySelectorAll
+  })
+
+  const setup = (playing: boolean[]): { suspend: ReturnType<typeof vi.fn> } => {
+    const suspend = vi.fn(() => Promise.resolve())
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        state = 'running'
+        suspend = suspend
+      }
+    )
+    // The setup's document cannot be replaced, only given the one call this reads.
+    const doc = document as unknown as { querySelectorAll?: unknown }
+    doc.querySelectorAll = () => playing.map((p) => ({ paused: !p }))
+    return { suspend }
+  }
+
+  it('suspends once nothing in the window is playing', async () => {
+    const { idleIfSilent, getAudioContext } = (vi.resetModules(), await import('./audio'))
+    const { suspend } = setup([false])
+    getAudioContext()
+    idleIfSilent()
+    expect(suspend).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves it running while another player still plays', async () => {
+    const { idleIfSilent, getAudioContext } = (vi.resetModules(), await import('./audio'))
+    const { suspend } = setup([false, true])
+    getAudioContext()
+    idleIfSilent()
+    expect(suspend).not.toHaveBeenCalled()
+  })
+
+  it('knows which players are playing', () => {
+    expect(anyPlaying([])).toBe(false)
+    expect(anyPlaying([{ paused: true }])).toBe(false)
+    expect(anyPlaying([{ paused: true }, { paused: false }])).toBe(true)
   })
 })

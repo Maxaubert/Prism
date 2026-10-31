@@ -19,6 +19,25 @@ export function idleAudioContext(): void {
   if (ctx && ctx.state === 'running') void ctx.suspend()
 }
 
+/** Is any of these players playing? */
+export function anyPlaying(players: Iterable<{ readonly paused: boolean }>): boolean {
+  for (const m of players) if (!m.paused) return true
+  return false
+}
+
+/**
+ * Sleep the context when the LAST player lets go (#17, 2026-10-31).
+ *
+ * A pause was the only way in, and a player that goes away while playing -
+ * arrowing from a song to a photo, closing its tab - never says "paused":
+ * the element leaves the page first, and its handler goes with it. The
+ * context then ran, with silence, for the rest of the session. So a player
+ * that unmounts asks this too, and it looks at what is still on the page.
+ */
+export function idleIfSilent(): void {
+  if (!anyPlaying(document.querySelectorAll<HTMLMediaElement>('video,audio'))) idleAudioContext()
+}
+
 export function wakeAudioContext(): void {
   if (ctx && ctx.state === 'suspended') void ctx.resume()
 }
