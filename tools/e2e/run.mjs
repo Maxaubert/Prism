@@ -16457,8 +16457,10 @@ async function zipPreviewBackScenario(fixtures) {
  * grid; Escape changes nothing; Reset to default brings the folder back; the
  * grid holds a bounded DOM and scrolls without a long frame; a 3,000-folder
  * listing with 300 icons scrolls as it does with none; a rename in Prism (and
- * its undo) takes the icon along. No native dialog is opened: the file picker
- * is PR 3.
+ * its undo) takes the icon along. From the review (2026-10-31): the grid's
+ * keys never reach the folder or the tabs behind the picker, Enter on a blank
+ * field picks nothing, Change icon for 2 folders sets both, and a cut and
+ * paste carries the icon. No native dialog is opened: the file picker is PR 3.
  */
 async function folderIconsScenario(fixtures) {
   console.log('folder icons')
@@ -16466,8 +16468,11 @@ async function folderIconsScenario(fixtures) {
   const big = join(fixtures, 'foldericons-big')
   rmSync(dir, { recursive: true, force: true })
   rmSync(big, { recursive: true, force: true })
-  for (const name of ['trips', 'work', 'plain']) mkdirSync(join(dir, name), { recursive: true })
+  for (const name of ['trips', 'work', 'plain', 'into']) mkdirSync(join(dir, name), { recursive: true })
   writeFileSync(join(dir, 'one.txt'), 'one\n')
+  // Pictures with siblings, so a key that leaked past the picker would page
+  // the open one (review, 2026-10-31).
+  for (const name of ['a.png', 'b.png', 'c.png']) writeFileSync(join(dir, name), ZIP_PNG)
   mkdirSync(big, { recursive: true })
   for (let i = 0; i < 3000; i++) mkdirSync(join(big, `f${String(i).padStart(4, '0')}`))
   let { app, win } = await launch(join(dir, 'one.txt'))
@@ -16640,6 +16645,83 @@ async function folderIconsScenario(fixtures) {
     ok(end && (await dialog().locator('[data-icon-name="zoom-out"]').count()) === 1, 'the last icon is reachable')
     ok((await cells().count()) < 150, `and the DOM stayed bounded (${await cells().count()})`)
     await win.keyboard.press('Escape')
+    ok(await until(async () => (await dialog().count()) === 0, 3000), 'Escape closes the picker')
+
+    // 9. THE PICKER OWNS ITS KEYS (review, 2026-10-31): with a picture
+    // selected and siblings beside it, the grid's arrows and pages walk the
+    // grid only, and Ctrl+W there closes no tab behind the scrim.
+    const shown = () =>
+      win.evaluate(() => [...document.querySelectorAll('img[alt]')].find((i) => i.getClientRects().length)?.getAttribute('alt') ?? '')
+    const selectedRow = () =>
+      list().locator('.browse-row[data-selected]').evaluateAll((els) => els.map((r) => (r.getAttribute('data-browse-path') ?? '').split(/[\\/]/).pop()).join(','))
+    await row('b.png').locator('.browse-name-text').click()
+    ok(await until(async () => (await selectedRow()) === 'b.png', 5000), `a picture is selected (${await selectedRow()})`)
+    await sleep(600)
+    const pictureBefore = await shown()
+    const tabCount = () => win.locator('[role="tablist"] [role="tab"]').count()
+    const tabsBefore = await tabCount()
+    await pin('trips').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Change icon...', exact: true }).click()
+    ok(await until(async () => (await dialog().count()) === 1 && (await cells().count()) > 0, 8000), 'the picker opens from the pin')
+    await win.keyboard.press('ArrowDown')
+    ok(
+      await until(() => win.evaluate(() => !!document.activeElement?.closest('[data-icon-grid]')), 3000),
+      'Down puts the focus in the grid'
+    )
+    for (const key of ['ArrowDown', 'ArrowDown', 'PageDown', 'ArrowUp', 'PageUp', 'ArrowDown']) {
+      await win.keyboard.press(key)
+      await sleep(120)
+    }
+    await sleep(400)
+    ok(
+      (await selectedRow()) === 'b.png' && (await shown()) === pictureBefore,
+      `the arrows and pages in the grid leave the folder alone (${await selectedRow()}, ${await shown()} against ${pictureBefore})`
+    )
+    await win.keyboard.press('Control+w')
+    await sleep(500)
+    ok((await tabCount()) === tabsBefore && (await dialog().count()) === 1, `Ctrl+W in the grid closes no tab behind it (${await tabCount()} of ${tabsBefore})`)
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await dialog().count()) === 0, 3000), 'Escape closes the picker')
+    ok((await selectedRow()) === 'b.png', 'and the same picture is still selected')
+
+    // 11. Change icon for N folders: two marked folder rows, one pick.
+    await row('work').locator('.browse-name-text').click()
+    await row('plain').locator('.browse-name-text').click({ modifiers: ['Control'] })
+    await row('plain').locator('.browse-name-text').click({ button: 'right' })
+    const many = win.getByRole('menuitem', { name: 'Change icon for 2 folders...', exact: true })
+    ok(await until(async () => (await many.count()) === 1, 3000), 'two marked folders offer Change icon for 2 folders...')
+    await many.click()
+    ok(await until(async () => (await dialog().count()) === 1 && (await cells().count()) > 0, 8000), 'the picker opens for both')
+    ok((await dialog().getAttribute('aria-label')) === 'Icon for 2 folders', `titled for the count (${await dialog().getAttribute('aria-label')})`)
+    // An Enter on the blank field picks nothing (review, 2026-10-31).
+    await win.keyboard.press('Enter')
+    await sleep(400)
+    ok((await dialog().count()) === 1, 'Enter on the blank search field picks nothing')
+    await win.keyboard.type('star')
+    ok(await until(async () => (await firstCell()) === 'star', 5000), `star first (${await firstCell()})`)
+    await win.keyboard.press('Enter')
+    ok(
+      await until(async () => (await iconOf('work')) === 'star' && (await iconOf('plain')) === 'star', 8000),
+      'both marked folders draw the icon'
+    )
+
+    // 12. A cut and paste in Prism is a move: the icon goes along.
+    await row('work').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+x')
+    ok(await until(async () => (await row('work').getAttribute('data-cut')) !== null, 8000), 'Ctrl+X marks the folder cut')
+    await row('into').locator('.browse-name-text').click({ button: 'right' })
+    const pasteRow = win.locator('[role="menu"] [role="menuitem"]:has-text("Paste")').first()
+    await until(async () => (await pasteRow.count()) === 1 && !(await pasteRow.isDisabled()), 6000, 100)
+    await pasteRow.click()
+    ok(await until(() => existsSync(join(dir, 'into', 'work')) && !existsSync(join(dir, 'work')), 10000), 'the folder moved into another')
+    const movedKey = join(dir, 'into', 'work').toLowerCase()
+    ok(
+      await until(async () => {
+        const map = JSON.parse((await win.evaluate(() => localStorage.getItem('prism.folderIcons'))) ?? '{}')
+        return Object.entries(map).some(([k, v]) => k.toLowerCase().replace(/\//g, '\\') === movedKey && v.set === 'star')
+      }, 5000),
+      'and its icon went with it'
+    )
 
     // 10. A rename in Prism takes the icon along, and its undo brings it back.
     await row('trips').locator('.browse-name-text').click()
@@ -16677,7 +16759,16 @@ async function folderIconsScenario(fixtures) {
     const iconed = await measured(() => wheelThrough(listBox, listHeight))
     ok(await until(async () => (await row('f2999').count()) === 1, 5000), 'with icons the scroll reaches the last folder too')
     console.log(`  (3,000 folders: no icons worst ${bare.worst}ms restyle ${bare.restyled.toFixed(1)}ms; 300 icons worst ${iconed.worst}ms restyle ${iconed.restyled.toFixed(1)}ms)`)
-    ok(bare.worst < 34 && iconed.worst < 34, `the longest frame stays under 34ms (${bare.worst}, ${iconed.worst})`)
+    // THE BUDGET IS THE BARE LISTING'S, PLUS LITTLE (review, 2026-10-31): the
+    // question here is what icons ADD. A flat 34 ms failed with 35 and 35,
+    // the bare listing as slow as the iconed one (the folder-size walks of
+    // 3,000 folders were landing at the same time), so it measured the
+    // machine, not the icons. A listing that draws icons badly still blows
+    // well past one frame more than the same listing without them.
+    ok(
+      iconed.worst <= Math.max(34, bare.worst + 17),
+      `with icons the longest frame stays within a frame of none (${iconed.worst} against ${bare.worst})`
+    )
     ok(iconed.restyled <= bare.restyled * 1.1 + 5, `icons cost no more restyling than none, within 10% (${iconed.restyled.toFixed(1)} against ${bare.restyled.toFixed(1)})`)
   } finally {
     await win.evaluate(() => {

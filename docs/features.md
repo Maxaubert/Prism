@@ -365,13 +365,20 @@ drag only (PR 1), the built-in set and the picker (PR 2, this entry), icons from
   file..." comes with PR 3.
 - **The icon follows a rename or move done in Prism (D9)**, the folder's own and every icon under it:
   `runRename` and `runMove` in `useFileOps.ts` (undo and redo go through them), and a cut and paste
-  (`pasteMoves`). Changes made outside Prism are not followed; a deleted folder keeps its entry, so undoing
-  the delete brings the icon back.
+  (`pasteMoves`, from the pairs MAIN moved: the renderer's own cut list is never trusted, since another app
+  may have cut something else since). Changes made outside Prism are not followed; a deleted folder keeps its
+  entry, so undoing the delete brings the icon back. **What lands on a path drops the icon that path had**
+  (review, 2026-10-31): a folder renamed or moved onto the name of a deleted one, or replacing one, never
+  wears the old folder's icon or its sub-folders' (`followMoves`).
+- **The picker owns its keys** (review, 2026-10-31): any modal dialog with the focus does, in `useAppKeys`,
+  so the grid's arrows and pages never page the folder behind the scrim, and Ctrl+Z, Ctrl+W there do
+  nothing behind it. Enter on a blank search field with no active cell picks nothing.
 - Held by `lib/fuzzy.test.ts`, `lib/folderIcons.test.ts`, `lib/folderIconSet.test.ts`,
   `tools/lib/svgToPath.test.mjs`, `components/iconGrid/gridMath.test.ts`, `dialogs/FolderIconDialog.test.ts`,
   `dialogs/AskDialogs.test.ts`, `menus/explorerRow.test.ts`, `menus/places.test.ts`,
   `hooks/useFileOps.test.ts`, `hooks/useFilePaste.test.ts`, and the e2e `folderIcons` (picker, fuzzy,
-  keyboard, Reset, relaunch, rename and undo; the grid's scroll at under 34 ms a frame with a bounded DOM; a
+  keyboard, Reset, relaunch, rename and undo, keys kept from the folder behind, Change icon for 2 folders,
+  a cut and paste; the grid's scroll at under 34 ms a frame with a bounded DOM; a
   3,000-folder listing with 300 icons scrolling as it does with none).
 
 ## Drag files out of Prism (#103, owner, 2026-10-31)
