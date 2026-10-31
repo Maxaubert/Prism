@@ -421,6 +421,14 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the dim after 0.25 s), shows the ring over that stand-in and dims it to 35 % (`ImageView` `switching`).
   A quick or preloaded picture shows neither. e2e `previewSlowImage` (`PRISM_E2E_SLOW_MEDIA` makes one
   file answer 1.5 s late; it fails on the old viewer).
+- **MAIN TYPES EVERY PICTURE FILEKIND LISTS** (#31, 2026-08-05 review, fixed 2026-10-31). fsmedia://'s
+  type table was a second list beside `fileKind`, and they drifted: `.ico` went out as octet-stream and
+  missed the whole-buffer fast path that is gated on `image/`. The image half of `mime.ts` is now built
+  from `fileKind`'s `imageExtensions()`: Chromium's own formats keep their types (`NATIVE_IMAGE`), and what
+  main converts is typed as the copy it serves (PNG from ffmpeg, JPEG from a HEIC or a raw's preview).
+  TIFF and JPEG XL stay viewable: the review found them dead, but they have decoded through the bundled
+  ffmpeg since 2026-08-24 (`imageDecode.ts`; the bundled build lists `libjxl` and `tiff`). `mime.test.ts`
+  fails on any image extension nothing can draw.
 - **THE EXPLORER'S REFRESHES COST LESS** (owner, 2026-10-28: "do a review of the app look for bugs,
   lingering code that should be changed ... look for stall points, things that use up too many
   resources"; findings in research/prism/2026-10-28-performance-review.md). A refresh that brings a new
