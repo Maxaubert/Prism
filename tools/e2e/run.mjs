@@ -16460,7 +16460,8 @@ async function zipPreviewBackScenario(fixtures) {
  * its undo) takes the icon along. From the review (2026-10-31): the grid's
  * keys never reach the folder or the tabs behind the picker, Enter on a blank
  * field picks nothing, Change icon for 2 folders sets both, and a cut and
- * paste carries the icon. No native dialog is opened: the file picker is PR 3.
+ * paste carries the icon. No native dialog is opened (a picture from a file is
+ * folderIconFileScenario).
  */
 async function folderIconsScenario(fixtures) {
   console.log('folder icons')
@@ -16560,7 +16561,10 @@ async function folderIconsScenario(fixtures) {
       'the search field has the focus'
     )
     const buttons = await dialog().locator('button:not([role="option"])').allTextContents()
-    ok(JSON.stringify(buttons) === JSON.stringify(['Cancel', 'Reset to default']), `its buttons are Cancel, Reset to default (${buttons})`)
+    ok(
+      JSON.stringify(buttons) === JSON.stringify(['Cancel', 'Reset to default', 'From a file...']),
+      `its buttons are Cancel, Reset to default, From a file... (${buttons})`
+    )
 
     // 2. Fuzzy: cmra is camera first; photo finds camera by its tag.
     await win.keyboard.type('cmra')
@@ -16778,6 +16782,201 @@ async function folderIconsScenario(fixtures) {
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
     rmSync(big, { recursive: true, force: true })
+  }
+}
+
+/**
+ * FOLDER ICONS FROM A FILE (owner, 2026-10-31: "or the user can also pick
+ * their own icon from a file, and it will remember the folder location of
+ * where the user picked an icon the last time"). No native dialog: main
+ * answers `PRISM_E2E_PICK_ICON` (set in main's own environment between picks)
+ * and records the options it would have opened with in
+ * `globalThis.__e2eIconDialog`. From a file... on a folder row keeps a 64 px
+ * PNG under userData by its hash and the row and its pin draw it as an
+ * <img>; the first pick opens on Pictures and the next on the last pick's
+ * folder; an SVG works too; a cancel leaves the picker up; a text file says
+ * "That file isn't a picture Prism can use." and changes nothing; the source
+ * file can go; when Prism's own copy goes, the folder glyph is back with no
+ * error and the entry is dropped.
+ */
+async function folderIconFileScenario(fixtures) {
+  console.log('folder icons from a file')
+  const dir = join(fixtures, 'foldericonfile')
+  const picks = join(fixtures, 'foldericonfile-picks')
+  rmSync(dir, { recursive: true, force: true })
+  rmSync(picks, { recursive: true, force: true })
+  for (const name of ['art', 'other']) mkdirSync(join(dir, name), { recursive: true })
+  writeFileSync(join(dir, 'one.txt'), 'one\n')
+  mkdirSync(picks, { recursive: true })
+  const logo = join(picks, 'logo.png')
+  const badge = join(picks, 'badge.svg')
+  const notes = join(picks, 'notes.txt')
+  writeFileSync(logo, ZIP_PNG)
+  // viewBox only: no size of its own, so it fills the square.
+  writeFileSync(badge, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#e33"/></svg>')
+  writeFileSync(notes, 'not a picture\n')
+  let { app, win } = await launchWith({ PRISM_E2E_PICK_ICON: '' }, join(dir, 'one.txt'))
+  const list = () => win.locator('[data-testid="browse-list"]')
+  const row = (name) => list().locator(`[data-browse-path$="\\\\${name}" i]`).first()
+  const pictureOf = (name) => row(name).locator('.browse-name > img[data-folder-icon="file"]')
+  const ownIcon = (name) => row(name).locator('.browse-name > [data-folder-icon]')
+  const pin = (name) =>
+    win.locator(`.folder-browser .browse-places section[aria-label="Pinned"] .quick-access-pin[data-quick-access-path$="\\\\${name}" i]`)
+  const dialog = () => win.locator('[role="dialog"]:has([data-folder-icon-picker])')
+  const notice = () => win.locator(`[role="dialog"][aria-label="That didn't work"]`)
+  const stored = async () => JSON.parse((await win.evaluate(() => localStorage.getItem('prism.folderIcons'))) ?? '{}')
+  const userData = () => app.evaluate(({ app: a }) => a.getPath('userData'))
+  const pictures = () => app.evaluate(({ app: a }) => a.getPath('pictures'))
+  const pickAs = (path) =>
+    app.evaluate((_e, p) => {
+      process.env.PRISM_E2E_PICK_ICON = p
+    }, path)
+  const asked = () => app.evaluate(() => globalThis.__e2eIconDialog ?? null)
+  const toFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    for (let i = 0; i < 4 && (await row('art').count()) === 0; i++) {
+      if ((await row('foldericonfile').count()) === 1) {
+        await row('foldericonfile').dblclick()
+        await until(async () => (await row('art').count()) === 1, 8000)
+      } else {
+        await list().focus()
+        await win.keyboard.press('Alt+ArrowUp')
+        await sleep(800)
+      }
+    }
+    return (await row('art').count()) === 1
+  }
+  const changeIcon = async (name) => {
+    await row(name).locator('.browse-name-text').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Change icon...', exact: true }).click()
+    return until(async () => (await dialog().count()) === 1, 8000)
+  }
+  const fromFile = () => dialog().getByRole('button', { name: 'From a file...', exact: true }).click()
+  /** The PNG's width and height from its header. */
+  const pngSize = (file) => {
+    const b = readFileSync(file)
+    return b.subarray(1, 4).toString() === 'PNG' ? [b.readUInt32BE(16), b.readUInt32BE(20)] : null
+  }
+  try {
+    await win.evaluate(() => {
+      localStorage.removeItem('prism.folderIcons')
+      localStorage.removeItem('prism.quickAccess')
+    })
+    // A clean start: no kept copies, no last folder.
+    const data = await userData()
+    rmSync(join(data, 'folder-icons'), { recursive: true, force: true })
+    rmSync(join(data, 'icon-picks.json'), { force: true })
+    ok(await toFolder(), 'the Explorer shows the fixture folder')
+
+    // The picker has From a file... after Reset to default.
+    ok(await changeIcon('art'), 'Change icon... opens the picker')
+    const buttons = await dialog().locator('button:not([role="option"])').allTextContents()
+    ok(
+      JSON.stringify(buttons) === JSON.stringify(['Cancel', 'Reset to default', 'From a file...']),
+      `its buttons are Cancel, Reset to default, From a file... (${buttons})`
+    )
+
+    // A cancelled pick leaves the picker up and changes nothing.
+    await fromFile()
+    ok(await until(async () => (await asked()) !== null, 5000), 'From a file... asks main for a picture')
+    await sleep(500)
+    ok((await dialog().count()) === 1 && (await ownIcon('art').count()) === 0, 'a cancel leaves the picker up and the folder as it was')
+    // The first time, the dialog opens on Pictures.
+    const first = await asked()
+    ok(first.defaultPath === (await pictures()), `the first pick opens on Pictures (${first.defaultPath})`)
+    const exts = first.filters?.[0]?.extensions ?? []
+    ok(
+      JSON.stringify(exts) === JSON.stringify(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico', 'svg']),
+      `it offers PNG JPG GIF BMP WEBP ICO SVG (${exts})`
+    )
+
+    // A PNG: kept as Prism's own 64 px copy, the row draws it.
+    await pickAs(logo)
+    await fromFile()
+    ok(await until(async () => (await dialog().count()) === 0, 8000), 'a picked picture closes the picker')
+    ok(await until(async () => (await pictureOf('art').count()) === 1, 8000), 'the row draws the picture')
+    const map = await stored()
+    const artEntry = Object.values(map)[0] ?? {}
+    ok(Object.keys(map).length === 1 && /^[0-9a-f]{64}$/.test(artEntry.file ?? ''), `stored by its hash (${JSON.stringify(map)})`)
+    const artCopy = join(data, 'folder-icons', `${artEntry.file}.png`)
+    ok(existsSync(artCopy), 'Prism keeps its own copy under userData')
+    const size = existsSync(artCopy) ? pngSize(artCopy) : null
+    ok(size && size[0] === 64 && size[1] === 64, `a 64 x 64 PNG (${size})`)
+    const src = await pictureOf('art').getAttribute('src')
+    ok(src?.startsWith('data:image/png;base64,'), 'drawn from a data URL, never a path')
+    const drawn = await pictureOf('art').evaluate((img) => [img.getBoundingClientRect().width, img.naturalWidth])
+    ok(drawn[0] > 8 && drawn[0] <= 24 && drawn[1] === 64, `at the row's icon size (${drawn})`)
+
+    // Pinned, its sidebar row draws it too.
+    await row('art').locator('.browse-name-text').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    ok(await until(async () => (await pin('art').locator('img[data-folder-icon="file"]').count()) === 1, 5000), 'the pin draws the picture')
+
+    // The next pick opens on the last pick's folder; an SVG works too.
+    await pickAs(badge)
+    ok(await changeIcon('other'), 'the picker on another folder')
+    await fromFile()
+    ok(await until(async () => (await pictureOf('other').count()) === 1, 8000), 'an SVG picture is drawn too')
+    const second = await asked()
+    ok(second.defaultPath?.toLowerCase() === picks.toLowerCase(), `the next pick opens where the last one was (${second.defaultPath})`)
+    const svgSrc = await pictureOf('other').getAttribute('src')
+    ok(svgSrc !== src && svgSrc?.startsWith('data:image/png;'), 'kept as its own PNG')
+    const remembered = JSON.parse(readFileSync(join(data, 'icon-picks.json'), 'utf8'))
+    ok(remembered.lastDir?.toLowerCase() === picks.toLowerCase(), `main remembers the folder (${JSON.stringify(remembered)})`)
+
+    // A file that is not a picture says so and changes nothing.
+    await pickAs(notes)
+    ok(await changeIcon('other'), 'the picker again')
+    await fromFile()
+    ok(await until(async () => (await notice().count()) === 1, 8000), 'a text file brings up a notice')
+    const said = await notice().textContent()
+    ok(said?.includes("That file isn't a picture Prism can use."), `it says why (${said})`)
+    await notice().getByRole('button', { name: 'OK', exact: true }).click()
+    ok(await until(async () => (await notice().count()) === 0, 3000), 'OK closes it')
+    ok((await pictureOf('other').getAttribute('src')) === svgSrc, 'and the folder keeps its picture')
+    ok(Object.keys(await stored()).length === 2, 'nothing else changed')
+
+    // The source file can go: Prism's copy stays.
+    rmSync(logo, { force: true })
+    await app.close()
+    await sleep(900)
+    ;({ app, win } = await launch(join(dir, 'one.txt')))
+    ok(await toFolder(), 'after a relaunch')
+    ok(await until(async () => (await pictureOf('art').count()) === 1, 8000), 'with its source file gone, the row still draws the picture')
+    ok((await pin('art').locator('img[data-folder-icon="file"]').count()) === 1, 'and so does the pin')
+
+    // Prism's own copy gone: the folder glyph, no error, the entry dropped.
+    await app.close()
+    await sleep(900)
+    rmSync(artCopy, { force: true })
+    ;({ app, win } = await launch(join(dir, 'one.txt')))
+    ok(await toFolder(), 'relaunched without the copy')
+    ok(await until(async () => (await pictureOf('other').count()) === 1, 8000), 'another folder still draws its picture')
+    ok((await ownIcon('art').count()) === 0, 'the folder whose copy is gone draws the folder glyph')
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'with no error')
+    ok(
+      await until(async () => {
+        const m = await stored()
+        return Object.keys(m).length === 1 && Object.values(m)[0].file !== artEntry.file
+      }, 5000),
+      'and its entry is dropped'
+    )
+  } finally {
+    await win
+      .evaluate(() => {
+        localStorage.removeItem('prism.folderIcons')
+        localStorage.removeItem('prism.quickAccess')
+      })
+      .catch(() => {})
+    const data = await userData().catch(() => null)
+    await app.close().catch(() => {})
+    if (data) {
+      rmSync(join(data, 'folder-icons'), { recursive: true, force: true })
+      rmSync(join(data, 'icon-picks.json'), { force: true })
+    }
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(picks, { recursive: true, force: true })
   }
 }
 
@@ -18392,6 +18591,7 @@ await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(sidebarPlacesScenario)
 await run(folderIconsScenario)
+await run(folderIconFileScenario)
 await run(sidebarGroundScenario)
 await run(rightClickSelectScenario)
 await run(columnHeadersScenario)
