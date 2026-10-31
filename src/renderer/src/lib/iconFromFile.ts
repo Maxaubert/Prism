@@ -6,13 +6,15 @@ import { ICON_PX, type IconRefusal } from '@shared/folderIconFiles'
  * raster kinds and ICO, an `<img>` on a blob URL for SVG, where no script
  * runs), drawn centred into a 64 x 64 square with their aspect kept and a
  * transparent margin, and encoded as PNG for main to keep. A GIF gives its
- * first frame.
+ * first frame. A decode is full size, so main has already refused a picture
+ * over 8,192 px a side by its header (review M2).
  */
 
 /** What the user is told when a file cannot be an icon (a NoticeDialog). */
 export const ICON_REFUSED: Readonly<Record<IconRefusal, string>> = {
   'not-picture': "That file isn't a picture Prism can use.",
   'too-big': 'That picture is over 16 MB, too big for an icon.',
+  'too-large': 'That picture is over 8,192 pixels wide or tall, too big for an icon.',
   unreadable: "Prism couldn't read that file."
 }
 

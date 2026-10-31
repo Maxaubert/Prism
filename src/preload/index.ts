@@ -26,7 +26,7 @@ import type {
   ExtractToResult,
   MemberExtractResult
 } from '@shared/extraction'
-import type { IconPick, IconSave } from '@shared/folderIconFiles'
+import type { IconList, IconPick, IconSave } from '@shared/folderIconFiles'
 import type { SweepBegin, SweepEnd, SweepState, SweepUpdate } from '@shared/sweepOverlay'
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
@@ -175,8 +175,8 @@ const api = {
   pickFolderIcon: (): Promise<IconPick> => ipcRenderer.invoke(CALL.folderIconPick),
   /** Keep the 64 px PNG the page drew; its id and data URL. */
   saveFolderIcon: (png: Uint8Array): Promise<IconSave> => ipcRenderer.invoke(CALL.folderIconSave, png),
-  /** Every kept copy, `{ id: dataUrl }`. */
-  folderIconFiles: (): Promise<Record<string, string>> => ipcRenderer.invoke(CALL.folderIconFiles),
+  /** Every kept copy, `{ id: dataUrl }`, and whether every read worked. */
+  folderIconFiles: (): Promise<IconList> => ipcRenderer.invoke(CALL.folderIconFiles),
   /** Remove the kept copies not in `keep`. */
   pruneFolderIcons: (keep: string[]): Promise<number> => ipcRenderer.invoke(CALL.folderIconPrune, keep),
   /** Report the tab strip, for persistence only. The root wall is never

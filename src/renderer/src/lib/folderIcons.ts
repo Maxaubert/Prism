@@ -77,6 +77,25 @@ export function folderIconOf(map: FolderIconMap, path: string): FolderIconChoice
   return map.size === 0 ? undefined : map.get(pathKey(path))
 }
 
+type PruneApi = { pruneFolderIcons?: (keep: string[]) => Promise<number> }
+
+/**
+ * Store a change. When it leaves a kept picture that no entry names any more,
+ * main removes that copy (spec 2.4, "when an entry is reset or replaced"):
+ * a set, a reset, a move or paste that replaces a folder with an icon, an
+ * undo or a redo all come through here (review L3). Main keeps a copy saved
+ * in the last minute anyway, for a window that has not stored its choice yet.
+ */
+function store(next: FolderIconMap): void {
+  const before = pref.get()
+  pref.set(next)
+  const keep = iconFileIds(next)
+  const named = new Set(keep)
+  if (!iconFileIds(before).some((id) => !named.has(id))) return
+  const bridge = (globalThis as { window?: { prism?: PruneApi } }).window?.prism
+  void bridge?.pruneFolderIcons?.(keep).catch(() => {})
+}
+
 /** Give every path in `paths` this icon, or (null) its default again. */
 export function setFolderIcons(paths: readonly string[], icon: FolderIconChoice | null): void {
   const next = new Map(pref.get())
@@ -84,7 +103,7 @@ export function setFolderIcons(paths: readonly string[], icon: FolderIconChoice 
     if (icon) next.set(pathKey(p), icon)
     else next.delete(pathKey(p))
   }
-  pref.set(next)
+  store(next)
 }
 
 /**
@@ -128,7 +147,7 @@ export function followMoves(
 export function followFolderIcons(moves: ReadonlyArray<{ from: string; to: string }>): void {
   const map = pref.get()
   const next = followMoves(map, moves)
-  if (next !== map) pref.set(next)
+  if (next !== map) store(next)
 }
 
 /** The kept pictures the map names (a picture from a file, PR 3). */
@@ -158,8 +177,9 @@ export function withoutMissingFiles(map: FolderIconMap, have: ReadonlyMap<string
   return next ?? map
 }
 
-// Main's list of kept pictures, the first time it lands: an entry whose copy
-// is gone is dropped (spec 2.4, "Prism's copy is gone").
+// Main's list of kept pictures, the first time a COMPLETE one lands: an entry
+// whose copy is gone is dropped (spec 2.4, "Prism's copy is gone"). A list
+// main could not read in full never gets here (review M1).
 onFirstFolderIconFiles((have) => {
   const map = pref.get()
   const next = withoutMissingFiles(map, have)

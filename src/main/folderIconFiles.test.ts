@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'fs'
 import { createHash } from 'crypto'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -41,19 +41,44 @@ describe('readIconSource', () => {
     const r = await readIconSource(f)
     expect('bytes' in r && r.type).toBe('image/png')
     expect('bytes' in r && r.bytes.length).toBe(33)
+    // Measured by content: any of the kinds' headers (here a PNG's) passes.
     for (const [ext, type] of [
       ['jpg', 'image/jpeg'],
       ['jpeg', 'image/jpeg'],
       ['gif', 'image/gif'],
       ['bmp', 'image/bmp'],
       ['webp', 'image/webp'],
-      ['ico', 'image/x-icon'],
-      ['svg', 'image/svg+xml']
+      ['ico', 'image/x-icon']
     ]) {
-      writeFileSync(join(dir, `x.${ext}`), 'x')
+      writeFileSync(join(dir, `x.${ext}`), Buffer.from(png(10, 10)))
       const x = await readIconSource(join(dir, `x.${ext}`))
       expect('type' in x && x.type, ext).toBe(type)
     }
+    // SVG has no pixels of its own: not measured.
+    writeFileSync(join(dir, 'x.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>')
+    const svg = await readIconSource(join(dir, 'x.svg'))
+    expect('type' in svg && svg.type).toBe('image/svg+xml')
+  })
+
+  it("Object's own names are not picture kinds (review L1)", async () => {
+    for (const ext of ['constructor', 'toString', 'valueOf', '__proto__', 'hasOwnProperty']) {
+      writeFileSync(join(dir, `x.${ext}`), Buffer.from(png(10, 10)))
+      expect(await readIconSource(join(dir, `x.${ext}`)), ext).toEqual({ refused: 'not-picture' })
+    }
+  })
+
+  it('refuses a picture over 8,192 px a side by its header, before the page decodes it (review M2)', async () => {
+    writeFileSync(join(dir, 'wide.png'), Buffer.from(png(40_000, 40_000)))
+    expect(await readIconSource(join(dir, 'wide.png'))).toEqual({ refused: 'too-large' })
+    writeFileSync(join(dir, 'tall.jpg'), Buffer.from(png(10, 8193)))
+    expect(await readIconSource(join(dir, 'tall.jpg'))).toEqual({ refused: 'too-large' })
+    writeFileSync(join(dir, 'edge.png'), Buffer.from(png(8192, 8192)))
+    expect('bytes' in (await readIconSource(join(dir, 'edge.png')))).toBe(true)
+  })
+
+  it('a picture name over bytes that are no picture is refused', async () => {
+    writeFileSync(join(dir, 'fake.png'), 'just some words, not a picture at all')
+    expect(await readIconSource(join(dir, 'fake.png'))).toEqual({ refused: 'not-picture' })
   })
 
   it('refuses another kind, a folder, a missing file and one over 16 MB', async () => {
@@ -87,7 +112,22 @@ describe('saveIconPng', () => {
     const hash = createHash('sha256').update(bytes).digest('hex')
     expect(r).toEqual({ id: hash, url: `data:image/png;base64,${Buffer.from(bytes).toString('base64')}` })
     expect(await saveIconPng(icons(), bytes)).toEqual(r)
+    // Written beside it and renamed: no temporary file is left (review L5).
     expect(readdirSync(icons())).toEqual([`${hash}.png`])
+  })
+
+  it('saving a copy that is there makes it fresh again (review M3)', async () => {
+    const bytes = png(64, 64)
+    await saveIconPng(icons(), bytes)
+    const id = createHash('sha256').update(bytes).digest('hex')
+    const file = join(icons(), `${id}.png`)
+    const old = new Date(Date.now() - 5 * 60_000)
+    utimesSync(file, old, old)
+    await saveIconPng(icons(), bytes)
+    expect(Date.now() - statSync(file).mtimeMs).toBeLessThan(30_000)
+    // So another window's prune, which cannot name it yet, leaves it.
+    expect(await removeUnusedIcons(icons(), [])).toBe(0)
+    expect(readdirSync(icons())).toEqual([`${id}.png`])
   })
 
   it('refuses a PNG over 64 x 64 and what is not a PNG', async () => {
@@ -101,12 +141,26 @@ describe('saveIconPng', () => {
 
 describe('listIconFiles and removeUnusedIcons', () => {
   it('lists the copies as data URLs; a missing folder is none', async () => {
-    expect(await listIconFiles(join(dir, 'nope'))).toEqual({})
+    expect(await listIconFiles(join(dir, 'nope'))).toEqual({ files: {}, complete: true })
     const a = await saveIconPng(dir, png(8, 8))
     writeFileSync(join(dir, 'stray.txt'), 'x')
     const all = await listIconFiles(dir)
-    expect(Object.keys(all)).toEqual(['id' in a ? a.id : ''])
-    expect(Object.values(all)[0]).toMatch(/^data:image\/png;base64,/)
+    expect(all.complete).toBe(true)
+    expect(Object.keys(all.files)).toEqual(['id' in a ? a.id : ''])
+    expect(Object.values(all.files)[0]).toMatch(/^data:image\/png;base64,/)
+  })
+
+  it('a copy that cannot be read for another reason makes the list incomplete (review M1)', async () => {
+    const a = await saveIconPng(dir, png(8, 8))
+    // A copy main cannot read (here a folder by that name: EISDIR, as an
+    // antivirus scan's EBUSY or EPERM would be).
+    mkdirSync(join(dir, `${'e'.repeat(64)}.png`))
+    const all = await listIconFiles(dir)
+    expect(all.complete).toBe(false)
+    expect(Object.keys(all.files)).toEqual(['id' in a ? a.id : ''])
+    // A folder that cannot be listed (here a file): incomplete, never "none".
+    writeFileSync(join(dir, 'plain'), 'x')
+    expect(await listIconFiles(join(dir, 'plain'))).toEqual({ files: {}, complete: false })
   })
 
   it('removes the copies nobody uses, but not a fresh one or a stranger', async () => {
@@ -121,6 +175,19 @@ describe('listIconFiles and removeUnusedIcons', () => {
     expect(await removeUnusedIcons(dir, [ids[0], '../../evil'])).toBe(1)
     expect(readdirSync(dir).sort()).toEqual([`${ids[0]}.png`, `${ids[2]}.png`, 'keep-me.txt'].sort())
     expect(await removeUnusedIcons(join(dir, 'nope'), [])).toBe(0)
+  })
+
+  it('removes a stale half-written copy a crash left, not a fresh one', async () => {
+    const stale = `${'a'.repeat(64)}.0123456789ab.tmp`
+    const fresh = `${'b'.repeat(64)}.0123456789ab.tmp`
+    writeFileSync(join(dir, stale), 'x')
+    writeFileSync(join(dir, fresh), 'x')
+    const old = new Date(Date.now() - 5 * 60_000)
+    utimesSync(join(dir, stale), old, old)
+    expect(await removeUnusedIcons(dir, [])).toBe(1)
+    expect(readdirSync(dir)).toEqual([fresh])
+    // The grace period can be shortened (the e2e does).
+    expect(await removeUnusedIcons(dir, [], Date.now() + 1, 0)).toBe(1)
   })
 })
 
