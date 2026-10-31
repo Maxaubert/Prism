@@ -22,7 +22,8 @@ const answers = (): AskAnswers => ({
   forceCloseTab: vi.fn(),
   answerReload: vi.fn(),
   runInstall: vi.fn(),
-  setFolderIcon: vi.fn()
+  setFolderIcon: vi.fn(),
+  folderIconFromFile: vi.fn()
 })
 
 interface El {
@@ -89,5 +90,15 @@ describe('AskDialogs', () => {
     el.props.onReset()
     expect(a.setFolderIcon).toHaveBeenLastCalledWith(['C:/a', 'C:/b'], null)
     expect(a.dismiss).toHaveBeenCalledTimes(2)
+  })
+
+  it('From a file... hands App the ask and leaves the picker up', () => {
+    const a = answers()
+    const ask: Ask = { kind: 'folder-icon', paths: ['C:/a'], name: 'a' }
+    const el = draw(ask, 'under', a) as El & { props: { onFromFile: () => void } }
+    el.props.onFromFile()
+    expect(a.folderIconFromFile).toHaveBeenCalledWith(ask)
+    expect(a.setFolderIcon).not.toHaveBeenCalled()
+    expect(a.dismiss).not.toHaveBeenCalled()
   })
 })
