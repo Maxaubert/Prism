@@ -8,6 +8,17 @@ export function getAudioContext(): AudioContext {
 }
 
 /**
+ * Suspends still on their way (review, 2026-10-31). Chromium reports
+ * 'suspended' only once suspend() resolves, so a play that lands in between
+ * saw 'running', did nothing, and the suspend then landed on a playing,
+ * boosted film: silent until the next pause and play. Arrowing from a playing
+ * song to a video does exactly that (the song's unmount suspends, the video
+ * auto-plays). Calls on a context run in order, so a resume sent now still
+ * comes after the pending suspend and wins.
+ */
+let suspending = 0
+
+/**
  * Let the context sleep when nothing is playing through it (2026-08-28).
  *
  * A running AudioContext keeps an audio thread and a device clock alive; ours
@@ -16,7 +27,14 @@ export function getAudioContext(): AudioContext {
  * the visualizer's tap, a play event - resumes it first.
  */
 export function idleAudioContext(): void {
-  if (ctx && ctx.state === 'running') void ctx.suspend()
+  if (!ctx || ctx.state !== 'running') return
+  suspending++
+  void ctx.suspend().finally(() => suspending--)
+}
+
+/** Is the context asleep, or about to be? Either way a player has to wake it. */
+export function contextAsleep(): boolean {
+  return !!ctx && (ctx.state === 'suspended' || suspending > 0)
 }
 
 /** Is any of these players playing? */
@@ -39,7 +57,7 @@ export function idleIfSilent(): void {
 }
 
 export function wakeAudioContext(): void {
-  if (ctx && ctx.state === 'suspended') void ctx.resume()
+  if (ctx && contextAsleep()) void ctx.resume()
 }
 
 // loadPeaks lived here and pulled the WHOLE file into the page to decode it -
@@ -59,7 +77,10 @@ export function wakeAudioContext(): void {
  * The visualizer taps the same chain rather than building its own, for the
  * same reason.
  */
-const graphs = new WeakMap<HTMLMediaElement, { source: MediaElementAudioSourceNode; gain: GainNode }>()
+const graphs = new WeakMap<
+  HTMLMediaElement,
+  { source: MediaElementAudioSourceNode; gain: GainNode }
+>()
 
 /**
  * Is this element safe to route? A media resource fetched WITHOUT CORS taints
@@ -117,8 +138,8 @@ export function applyVolume(el: HTMLMediaElement, v: number, muted: boolean): vo
   const g = mediaGraph(el)
   if (!g) return
   g.gain.gain.value = muted ? 0 : factor
-  const ctx = getAudioContext()
   // Routed audio is silent while the context is suspended, which is the state
-  // it starts in until a gesture.
-  if (ctx.state === 'suspended') void ctx.resume()
+  // it starts in until a gesture (or about to be, with a suspend pending).
+  getAudioContext()
+  wakeAudioContext()
 }

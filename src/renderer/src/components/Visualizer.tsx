@@ -5,7 +5,7 @@ import { styleById } from '../lib/viz/styles'
 import { analyzeDrops } from '../lib/viz/drops'
 import { watchDrops } from '../lib/viz/dropWatch'
 import { canvasShown, drawLoopRuns, HIDDEN_POLL_MS, idleFrame, wantsResume } from '../lib/viz/vizGuards'
-import { getAudioContext, mediaGraph } from '../lib/audio'
+import { contextAsleep, getAudioContext, mediaGraph } from '../lib/audio'
 import { hexToRgb } from '../lib/colour'
 
 // Drives whichever visualizer style is selected. Owns the Web Audio graph and
@@ -134,7 +134,7 @@ export function Visualizer({
     // anywhere used to wake the context idleAudioContext had just put to
     // sleep, and the audio thread and device stayed up with nothing playing.
     const resume = (): void => {
-      if (wantsResume(ctx.state, media.paused)) void ctx.resume()
+      if (wantsResume(contextAsleep(), media.paused)) void ctx.resume()
     }
     media.addEventListener('play', resume)
     window.addEventListener('pointerdown', resume)

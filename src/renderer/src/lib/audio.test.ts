@@ -82,6 +82,36 @@ describe('the shared context sleeps when the last player lets go (#17)', () => {
     expect(suspend).not.toHaveBeenCalled()
   })
 
+  it('wakes a context whose suspend has not landed yet (review, 2026-10-31)', async () => {
+    // Chromium says 'suspended' only once suspend() resolves. A song unmounting
+    // as the next file's video auto-plays used to see 'running' here, skip the
+    // resume, and leave a boosted video silent once the suspend landed.
+    const { idleAudioContext, wakeAudioContext, contextAsleep, getAudioContext } =
+      (vi.resetModules(), await import('./audio'))
+    let land = (): void => {}
+    const resume = vi.fn(() => Promise.resolve())
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        state: AudioContextState = 'running'
+        suspend = (): Promise<void> => new Promise<void>((r) => (land = r))
+        resume = resume
+      }
+    )
+    getAudioContext()
+    idleAudioContext()
+    expect(contextAsleep()).toBe(true)
+    wakeAudioContext()
+    expect(resume).toHaveBeenCalledTimes(1)
+    land()
+    await Promise.resolve()
+    await Promise.resolve()
+    // Landed, and the state still says 'running': nothing pending, nothing to wake.
+    expect(contextAsleep()).toBe(false)
+    wakeAudioContext()
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
   it('knows which players are playing', () => {
     expect(anyPlaying([])).toBe(false)
     expect(anyPlaying([{ paused: true }])).toBe(false)

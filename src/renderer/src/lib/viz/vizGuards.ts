@@ -6,10 +6,11 @@
  * Wake the shared AudioContext only for a track that is playing. The
  * window-wide pointerdown used to resume it whatever the track was doing, so
  * any click undid idleAudioContext and left the audio thread and the device
- * running with nothing playing.
+ * running with nothing playing. `asleep` counts a suspend still pending
+ * (lib/audio's contextAsleep), since the state says 'running' until it lands.
  */
-export function wantsResume(state: AudioContextState, paused: boolean): boolean {
-  return state === 'suspended' && !paused
+export function wantsResume(asleep: boolean, paused: boolean): boolean {
+  return asleep && !paused
 }
 
 /**
@@ -30,7 +31,12 @@ export function drawLoopRuns(media: unknown): boolean {
  * every frame regardless, with a layout read in each, which in a window that
  * is never throttled meant 60 wake-ups a second per paused audio tab, all day.
  */
-export function idleFrame(paused: boolean, stillFrames: number, settleFrames: number, changed: boolean): 'draw' | 'park' {
+export function idleFrame(
+  paused: boolean,
+  stillFrames: number,
+  settleFrames: number,
+  changed: boolean
+): 'draw' | 'park' {
   if (!paused || stillFrames <= settleFrames) return 'draw'
   return changed ? 'draw' : 'park'
 }
@@ -45,7 +51,9 @@ export const HIDDEN_POLL_MS = 250
  * does not slow requestAnimationFrame, and Prism's window is never throttled.
  * A browser that cannot say counts as shown.
  */
-export function canvasShown(canvas: { checkVisibility?: (opts?: Record<string, boolean>) => boolean }): boolean {
+export function canvasShown(canvas: {
+  checkVisibility?: (opts?: Record<string, boolean>) => boolean
+}): boolean {
   if (typeof canvas.checkVisibility !== 'function') return true
   return canvas.checkVisibility({ visibilityProperty: true, checkVisibilityCSS: true })
 }

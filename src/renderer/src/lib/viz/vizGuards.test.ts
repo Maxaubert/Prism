@@ -3,9 +3,9 @@ import { canvasShown, drawLoopRuns, HIDDEN_POLL_MS, idleFrame, wantsResume } fro
 
 describe('when the visualizer spends anything', () => {
   it('resumes the audio context only for a playing track', () => {
-    expect(wantsResume('suspended', false)).toBe(true)
-    expect(wantsResume('suspended', true)).toBe(false)
-    expect(wantsResume('running', false)).toBe(false)
+    expect(wantsResume(true, false)).toBe(true)
+    expect(wantsResume(true, true)).toBe(false)
+    expect(wantsResume(false, false)).toBe(false)
   })
 
   it('runs no loop without an element', () => {
