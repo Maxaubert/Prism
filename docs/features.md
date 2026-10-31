@@ -2339,7 +2339,10 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   there is chrome to hide; once gone it re-rendered the image viewer ~9 times a second for ever
   (`autoHideChrome.test.ts`); VideoView's 250 ms clock the same. A paused visualizer PARKS (no frame
   at all) and is woken by play, a resize or a style change, where it asked for every frame to read a
-  rect (`lib/viz/vizGuards.ts` `idleFrame`). Image reads are CANCELLED when nobody wants them any more
+  rect (`lib/viz/vizGuards.ts` `idleFrame`). A HIDDEN visualizer sleeps too (#15, 2026-10-31): under
+  Settings the viewer stays mounted but invisible, and a playing song there repainted at the full
+  refresh for nobody; now the loop asks for no frame and looks again every 250 ms (`canvasShown`,
+  `vizGuards.test.ts`). Image reads are CANCELLED when nobody wants them any more
   (`lib/imageLoader.ts`, a signal per caller, aborted 50 ms after the last one goes so a warmed
   neighbour is handed to the viewer that steps onto it; `imageLoader.test.ts`); the App's warm-up is
   keyed on the neighbours' paths, not on `view`. The PDF finds its page by binary search, not a rect
@@ -2396,7 +2399,9 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   no one), and the convert cache touches on a hit, so the film you rewatch is
   not the one evicted. The HEIC utility process stands down after a minute
   idle instead of living as long as the app; the shared AudioContext suspends
-  when nothing is playing; the visualizer's frame loop stops once a paused
+  when nothing is playing, including when the last player goes away mid-song
+  (#17, 2026-10-31: an unmounted player fires no pause React hears, so
+  `useMediaControls` calls `idleIfSilent` on unmount; `audio.test.ts`); the visualizer's frame loop stops once a paused
   picture has settled; and a cross-volume move copies with `fs/promises`
   rather than `cpSync`, which blocked every window for as long as it took.
   **THE MAIN PROCESS NEVER WAITS ON THE DISK** (owner, 2026-10-12, after the tabs.json freeze:
