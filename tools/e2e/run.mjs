@@ -8805,6 +8805,10 @@ async function sidebarPlacesScenario(fixtures) {
     await quickPin(0).dragTo(lastQuick, { targetPosition: { x: 20, y: Math.max(1, Math.floor(lastBox.height) - 3) } })
     const q2 = [...q1.slice(1), q1[0]]
     ok(await until(async () => JSON.stringify(await quickOrder()) === JSON.stringify(q2), 5000), `a drag onto the last row's bottom half moves a pin to the end (${await quickOrder()}, want ${q2})`)
+    // A drop on the section's heading is the end too (no row under it).
+    await quickPin(0).dragTo(places.locator('section[aria-label="Quick access"] h2'))
+    const q3 = [...q2.slice(1), q2[0]]
+    ok(await until(async () => JSON.stringify(await quickOrder()) === JSON.stringify(q3), 5000), `a drag onto the heading moves a pin to the end (${await quickOrder()}, want ${q3})`)
     // A drive's menu offers to pin it; pinned, it is a Pinned row.
     await c.click({ button: 'right' })
     ok((await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).count()) === 1, 'a drive offers Pin to Quick access')
