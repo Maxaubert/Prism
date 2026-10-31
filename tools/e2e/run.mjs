@@ -16795,9 +16795,14 @@ async function folderIconsScenario(fixtures) {
  * PNG under userData by its hash and the row and its pin draw it as an
  * <img>; the first pick opens on Pictures and the next on the last pick's
  * folder; an SVG works too; a cancel leaves the picker up; a text file says
- * "That file isn't a picture Prism can use." and changes nothing; the source
- * file can go; when Prism's own copy goes, the folder glyph is back with no
- * error and the entry is dropped.
+ * "That file isn't a picture Prism can use." and changes nothing; so does a
+ * PNG that will not decode (review T2); a picture over 8,192 px a side is
+ * refused by its header (review M2); JPG, GIF, BMP, WEBP and ICO decode for
+ * real, a picture that is not square keeps its aspect, centred (review T1);
+ * a reset removes the copy no folder uses (review T3, the grace period cut
+ * to 0 by `PRISM_E2E_ICON_FRESH_MS`); the source file can go; when Prism's
+ * own copy goes, the folder glyph is back with no error and the entry is
+ * dropped.
  */
 async function folderIconFileScenario(fixtures) {
   console.log('folder icons from a file')
@@ -16805,7 +16810,8 @@ async function folderIconFileScenario(fixtures) {
   const picks = join(fixtures, 'foldericonfile-picks')
   rmSync(dir, { recursive: true, force: true })
   rmSync(picks, { recursive: true, force: true })
-  for (const name of ['art', 'other']) mkdirSync(join(dir, name), { recursive: true })
+  const kinds = ['jpg', 'gif', 'bmp', 'webp', 'ico']
+  for (const name of ['art', 'other', ...kinds.map((k) => `kind-${k}`)]) mkdirSync(join(dir, name), { recursive: true })
   writeFileSync(join(dir, 'one.txt'), 'one\n')
   mkdirSync(picks, { recursive: true })
   const logo = join(picks, 'logo.png')
@@ -16815,6 +16821,56 @@ async function folderIconFileScenario(fixtures) {
   // viewBox only: no size of its own, so it fills the square.
   writeFileSync(badge, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#e33"/></svg>')
   writeFileSync(notes, 'not a picture\n')
+  // A PNG header Prism measures (10 x 10) over bytes that never decode.
+  const broken = join(picks, 'broken.png')
+  writeFileSync(broken, Buffer.concat([ZIP_PNG.subarray(0, 33), Buffer.from('not the rest of a picture at all')]))
+  // A PNG whose header says 40,000 x 40,000: refused before any decode.
+  const vast = join(picks, 'vast.png')
+  const vastBytes = Buffer.from(ZIP_PNG)
+  vastBytes.writeUInt32BE(40000, 16)
+  vastBytes.writeUInt32BE(40000, 20)
+  writeFileSync(vast, vastBytes)
+  // A 24-bit BMP of 32 x 16 (bottom-up, rows of 96 bytes), one colour.
+  const bmp = (width, height, [r, g, b]) => {
+    const row = Math.ceil((width * 3) / 4) * 4
+    const out = Buffer.alloc(54 + row * height)
+    out.write('BM', 0, 'ascii')
+    out.writeUInt32LE(out.length, 2)
+    out.writeUInt32LE(54, 10)
+    out.writeUInt32LE(40, 14)
+    out.writeInt32LE(width, 18)
+    out.writeInt32LE(height, 22)
+    out.writeUInt16LE(1, 26)
+    out.writeUInt16LE(24, 28)
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) out.set([b, g, r], 54 + y * row + x * 3)
+    return out
+  }
+  writeFileSync(join(picks, 'wide.bmp'), bmp(32, 16, [0x20, 0x60, 0xe0]))
+  // An ICO with one 16 x 16 32-bit BMP entry (height doubled for the mask).
+  const ico = (() => {
+    const side = 16
+    const dib = Buffer.alloc(40 + side * side * 4 + side * 4)
+    dib.writeUInt32LE(40, 0)
+    dib.writeInt32LE(side, 4)
+    dib.writeInt32LE(side * 2, 8)
+    dib.writeUInt16LE(1, 12)
+    dib.writeUInt16LE(32, 14)
+    for (let i = 0; i < side * side; i++) dib.set([0x30, 0xc0, 0x30, 0xff], 40 + i * 4)
+    const head = Buffer.alloc(22)
+    head.writeUInt16LE(1, 2)
+    head.writeUInt16LE(1, 4)
+    head[6] = side
+    head[7] = side
+    head.writeUInt16LE(1, 10)
+    head.writeUInt16LE(32, 12)
+    head.writeUInt32LE(dib.length, 14)
+    head.writeUInt32LE(22, 18)
+    return Buffer.concat([head, dib])
+  })()
+  writeFileSync(join(picks, 'mark.ico'), ico)
+  // A 1 x 1 GIF.
+  writeFileSync(join(picks, 'dot.gif'), Buffer.from('R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=', 'base64'))
   let { app, win } = await launchWith({ PRISM_E2E_PICK_ICON: '' }, join(dir, 'one.txt'))
   const list = () => win.locator('[data-testid="browse-list"]')
   const row = (name) => list().locator(`[data-browse-path$="\\\\${name}" i]`).first()
@@ -16937,6 +16993,104 @@ async function folderIconFileScenario(fixtures) {
     ok((await pictureOf('other').getAttribute('src')) === svgSrc, 'and the folder keeps its picture')
     ok(Object.keys(await stored()).length === 2, 'nothing else changed')
 
+    /** Pick `file` for folder `name`: the notice's text, or null when the picture took. */
+    const pickFor = async (name, file) => {
+      await pickAs(file)
+      if (!(await changeIcon(name))) return 'no picker'
+      await fromFile()
+      const done = await until(async () => (await notice().count()) === 1 || (await dialog().count()) === 0, 8000)
+      if (!done) return 'nothing happened'
+      if ((await notice().count()) === 0) return null
+      const text = await notice().textContent()
+      await notice().getByRole('button', { name: 'OK', exact: true }).click()
+      await until(async () => (await notice().count()) === 0, 3000)
+      return text ?? ''
+    }
+
+    // A PNG whose header reads but whose picture never decodes: the page's
+    // own decode fails, and it says so (review T2).
+    const brokenSaid = await pickFor('other', broken)
+    ok(brokenSaid?.includes("That file isn't a picture Prism can use."), `a picture that will not decode says so (${brokenSaid})`)
+    // A picture too large to decode safely: refused by its header (review M2).
+    const vastSaid = await pickFor('other', vast)
+    ok(
+      vastSaid?.includes('That picture is over 8,192 pixels wide or tall, too big for an icon.'),
+      `a 40,000 px picture is refused before it is decoded (${vastSaid})`
+    )
+    ok((await pictureOf('other').getAttribute('src')) === svgSrc, 'and neither changed the folder')
+
+    // JPG, GIF, BMP, WEBP and ICO through the real decoders (review T1). The
+    // JPG and WEBP are the page's own canvas, 40 x 20, encoded by Chromium.
+    const encoded = await win.evaluate(async () => {
+      const c = document.createElement('canvas')
+      c.width = 40
+      c.height = 20
+      const ctx = c.getContext('2d')
+      const out = {}
+      for (const [type, colour] of [
+        ['image/jpeg', '#d02020'],
+        ['image/webp', '#8020c0']
+      ]) {
+        ctx.fillStyle = colour
+        ctx.fillRect(0, 0, 40, 20)
+        out[type] = c.toDataURL(type, 0.95).split(',')[1]
+      }
+      return out
+    })
+    writeFileSync(join(picks, 'wide.jpg'), Buffer.from(encoded['image/jpeg'], 'base64'))
+    writeFileSync(join(picks, 'wide.webp'), Buffer.from(encoded['image/webp'], 'base64'))
+    const sources = { jpg: 'wide.jpg', gif: 'dot.gif', bmp: 'wide.bmp', webp: 'wide.webp', ico: 'mark.ico' }
+    const kindSrcs = new Set([src, svgSrc])
+    for (const kind of kinds) {
+      const said = await pickFor(`kind-${kind}`, join(picks, sources[kind]))
+      ok(said === null, `a ${kind.toUpperCase()} is decoded and kept (${said ?? 'kept'})`)
+      ok(await until(async () => (await pictureOf(`kind-${kind}`).count()) === 1, 8000), `the ${kind.toUpperCase()} row draws it`)
+      const s = await pictureOf(`kind-${kind}`).getAttribute('src')
+      ok(s?.startsWith('data:image/png;base64,') && !kindSrcs.has(s), `as its own 64 px PNG (${kind})`)
+      kindSrcs.add(s)
+    }
+    /** Alpha at the top edge and the middle of a kept copy, read back by the page. */
+    const alphaOf = (name) =>
+      pictureOf(name).evaluate(async (img) => {
+        const pic = new Image()
+        pic.src = img.src
+        await pic.decode()
+        const c = document.createElement('canvas')
+        c.width = pic.naturalWidth
+        c.height = pic.naturalHeight
+        const ctx = c.getContext('2d')
+        ctx.drawImage(pic, 0, 0)
+        const at = (x, y) => ctx.getImageData(x, y, 1, 1).data[3]
+        return { size: [pic.naturalWidth, pic.naturalHeight], top: at(32, 4), middle: at(32, 32), left: at(2, 32) }
+      })
+    for (const kind of ['bmp', 'jpg']) {
+      // A 2:1 picture fills 64 x 32 at y 16: clear above, solid across.
+      const a = await alphaOf(`kind-${kind}`)
+      ok(
+        a.size[0] === 64 && a.size[1] === 64 && a.top === 0 && a.middle === 255 && a.left === 255,
+        `a picture that is not square keeps its aspect, centred (${kind}: ${JSON.stringify(a)})`
+      )
+    }
+
+    // A reset removes the copy no folder uses any more (review T3), with the
+    // grace period cut to nothing so it goes at once.
+    await app.evaluate(() => {
+      process.env.PRISM_E2E_ICON_FRESH_MS = '0'
+    })
+    const iconsDir = join(data, 'folder-icons')
+    const icoEntry = (await stored())[Object.keys(await stored()).find((k) => /kind-ico$/i.test(k))]
+    const icoCopy = join(iconsDir, `${icoEntry?.file}.png`)
+    ok(icoEntry?.file && existsSync(icoCopy), 'the ICO folder has its copy')
+    ok(await changeIcon('kind-ico'), 'the picker on the ICO folder')
+    await dialog().getByRole('button', { name: 'Reset to default', exact: true }).click()
+    ok(await until(async () => (await ownIcon('kind-ico').count()) === 0, 5000), 'Reset to default brings the folder glyph back')
+    ok(await until(async () => !existsSync(icoCopy), 5000), 'and main removes the copy no folder uses')
+    ok(existsSync(artCopy), 'while a copy a folder uses stays')
+    await app.evaluate(() => {
+      delete process.env.PRISM_E2E_ICON_FRESH_MS
+    })
+    const kept = Object.keys(await stored()).length
+
     // The source file can go: Prism's copy stays.
     rmSync(logo, { force: true })
     await app.close()
@@ -16958,9 +17112,9 @@ async function folderIconFileScenario(fixtures) {
     ok(
       await until(async () => {
         const m = await stored()
-        return Object.keys(m).length === 1 && Object.values(m)[0].file !== artEntry.file
+        return Object.keys(m).length === kept - 1 && !Object.values(m).some((v) => v.file === artEntry.file)
       }, 5000),
-      'and its entry is dropped'
+      'and its entry is dropped, the others kept'
     )
   } finally {
     await win
