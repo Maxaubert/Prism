@@ -15716,11 +15716,12 @@ async function imageHugeSwapScenario(fixtures) {
       }
       tick()
     })
+    // Up and Down page the folder; Left and Right do not (owner, 2026-09-01).
     for (const [key, want] of [
-      ['ArrowRight', 'canvas'],
-      ['ArrowLeft', 'img'],
-      ['ArrowRight', 'canvas'],
-      ['ArrowLeft', 'img']
+      ['ArrowDown', 'canvas'],
+      ['ArrowUp', 'img'],
+      ['ArrowDown', 'canvas'],
+      ['ArrowUp', 'img']
     ]) {
       await win.keyboard.press(key)
       ok(await until(async () => (await holds()) === want, 20000, 25), `${key} lands on the ${want} (${await holds()})`)
