@@ -3,11 +3,12 @@ import {
   DRAG_MIME,
   dragIncludesPath,
   dragPayload,
-  droppedPaths,
+  ownDrop,
   setDrag,
+  windowsDrag,
   type DragPayload
 } from '../../lib/drag/dragDrop'
-import { isInside } from '@shared/path'
+import { isInside, samePath } from '@shared/path'
 
 const insideSource = (directory: string, payload: DragPayload | null): boolean =>
   payload?.kind === 'files' &&
@@ -44,8 +45,11 @@ export function useFolderDrop(onDropInto?: (directory: string, payload: DragPayl
           setHovered(null)
           return
         }
+        // A drag Windows carries shows Copy (#103): Electron's OS drag offers
+        // copy and link, and a 'move' effect would be refused. What the drop
+        // DOES is Prism's own rule (`ownDrop`), not the effect shown.
         event.dataTransfer.dropEffect =
-          dragPayload(event.dataTransfer)?.kind === 'members' ? 'copy' : 'move'
+          windowsDrag(event.dataTransfer) || dragPayload(event.dataTransfer)?.kind === 'members' ? 'copy' : 'move'
         setHovered(target)
       },
       onDragLeave: (event: DragEvent<HTMLElement>): void => {
@@ -59,14 +63,17 @@ export function useFolderDrop(onDropInto?: (directory: string, payload: DragPayl
         if (!accepts(event)) return
         event.preventDefault()
         event.stopPropagation()
-        const payload = dragPayload(event.dataTransfer)
-        const self = dragIncludesPath(event.dataTransfer, target)
-        const paths = payload ? [] : droppedPaths(event.dataTransfer)
+        // In-app cargo, Prism's own cargo back from an OS drag (matched by its
+        // paths: a move), or files from Windows (`external`: a copy, #103 D3).
+        const payload = ownDrop(event.dataTransfer)
         setDrag(null)
         setHovered(null)
         event.currentTarget.closest<HTMLElement>('.browse-list')?.focus({ preventScroll: true })
-        if (payload && !self && !insideSource(directory, payload)) onDropInto?.(directory, payload)
-        else if (paths.length) onDropInto?.(directory, { kind: 'files', paths, external: true })
+        if (!payload) return
+        const own = !(payload.kind === 'files' && payload.external)
+        const self = payload.kind === 'files' && payload.paths.some((source) => samePath(source, target))
+        if (own && (self || insideSource(directory, payload))) return
+        onDropInto?.(directory, payload)
       }
     }
   }
