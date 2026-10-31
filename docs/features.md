@@ -326,6 +326,54 @@ the emptied window closes on release.
   hover, the system's order changing mid-drag, a window that stops taking tabs, a raise outliving the tear, the
   source brought back to the front on a cancel or a snap back after a raise, and the e2e's bookkeeping raise.
 
+## Folder icons (owner, 2026-10-31)
+
+Owner, 2026-10-31: "remove the move up down. rely on just dragging instead. allow the user to pick folder icons
+both for the sidebar things and folders in general. the user can pick from a set of built in icons. at least 300
+different icons and the list needs to be optimized so it wont lag while scrolling the list, should also be fuzzy
+searchable, or the user can also pick their own icon from a file, and it will remember the folder location of
+where the user picked an icon the last time". Approved the same day with every recommendation of the spec
+(`2026-10-31-folder-icons-spec.md`, kept with the session), D1 to D15. Built in three PRs: pins reorder by
+drag only (PR 1), the built-in set and the picker (PR 2, this entry), icons from a file (PR 3).
+
+- **The set (D2, D12, D14, D15)**: every Lucide icon (2,015, `lucide-static` 1.66.0, ISC with an MIT part for
+  the Feather-derived ones, `THIRD-PARTY-NOTICES.md`), Prism's nine place glyphs first (`prism-home` ...
+  `prism-usb`). `lucide-static` is a DEV dependency: `npm run icons:folders` (`tools/icons/folder-icons.mjs`,
+  shapes to one path by `tools/lib/svgToPath.mjs`) writes `lib/folderIconSet.ts`, at most 8 tags an icon, the
+  12 icons with filled dots keeping them. It is loaded by a dynamic import (`lib/folderIconSetLoad.ts`), its
+  own 450 KB chunk, never in the launch bundle; preloaded at idle once any folder has an icon. Drawn by `Icon`
+  at Prism's 1.7 stroke, not Lucide's 2.
+- **One icon per path (D3, D5)**, shown in the Explorer rows, the search popup rows and the sidebar pins
+  (folders, Known Folders, pinned files). Not tabs, breadcrumbs, the phone, drives or zip folders. **In the
+  folder colour in the Explorer and the search popup, in the row's ink in the sidebar (D4)**, as the Known
+  Folder glyphs. Prism only (D6): nothing is written into the folder, File Explorer does not see it.
+- **Stored** in the shared pref `prism.folderIcons` (`lib/folderIcons.ts`), keyed by `pathKey`, `{ set }`
+  (and `{ file }` for PR 3); junk is dropped on parse. A list reads the map once a render, and with no icon set
+  a row does no lookup at all.
+- **Change icon...** (D10) after the pin row on a folder row, and on every sidebar pin; never a This PC drive.
+  With several marked rows it is `Change icon for N folders...` and sets them all (D13), and it is not offered
+  when a file is among them. The search popup has no menu, so it only shows the icon.
+- **The picker** (`dialogs/FolderIconDialog.tsx`, body `components/iconGrid/`): "Icon for <name>", the search
+  field focused, a grid, a status line ("2,024 icons", "13 matches", "No icon matches"). One click or Enter
+  picks and closes (D8); Cancel and Escape change nothing; Reset to default takes the icon away. The icon it
+  has is marked and is the active cell on open. **Fuzzy** (`lib/fuzzy.ts`): every word must match; whole
+  name, then name prefix, then a name word, then a tag, then letters in order (`cmra` finds camera first,
+  `photo` finds it by its tag). **Keyboard**: Down from the field into the grid, arrows, Home / End,
+  Ctrl+Home / Ctrl+End, PageUp / PageDown, Enter or Space; Up from the first row back to the field.
+  **It does not lag**: fixed 40 px cells, rows placed by transform, `contain: strict`, React renders again
+  only when the band of rows changes (`useVirtualGrid`); about 120 cells in the DOM of 2,024. "From a
+  file..." comes with PR 3.
+- **The icon follows a rename or move done in Prism (D9)**, the folder's own and every icon under it:
+  `runRename` and `runMove` in `useFileOps.ts` (undo and redo go through them), and a cut and paste
+  (`pasteMoves`). Changes made outside Prism are not followed; a deleted folder keeps its entry, so undoing
+  the delete brings the icon back.
+- Held by `lib/fuzzy.test.ts`, `lib/folderIcons.test.ts`, `lib/folderIconSet.test.ts`,
+  `tools/lib/svgToPath.test.mjs`, `components/iconGrid/gridMath.test.ts`, `dialogs/FolderIconDialog.test.ts`,
+  `dialogs/AskDialogs.test.ts`, `menus/explorerRow.test.ts`, `menus/places.test.ts`,
+  `hooks/useFileOps.test.ts`, `hooks/useFilePaste.test.ts`, and the e2e `folderIcons` (picker, fuzzy,
+  keyboard, Reset, relaunch, rename and undo; the grid's scroll at under 34 ms a frame with a bounded DOM; a
+  3,000-folder listing with 300 icons scrolling as it does with none).
+
 ## Drag files out of Prism (#103, owner, 2026-10-31)
 
 Owner, 2026-10-31: approved the spec and plan (`2026-10-31-drag-out-spec.md`, kept with the session) with

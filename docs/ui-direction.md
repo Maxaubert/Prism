@@ -60,6 +60,10 @@ are gone (Aurora, Void and Frost kept, refined). The rules (`lib/theme.ts`, `lib
 - **A ZIP FOLLOWS THE FOLDER COLOUR**, not a hardcoded indigo (owner, 2026-09-20). `--p-tree-zip`
   IS `--p-tree-folder` and `--p-tree-zip-ink` is the better of white or near-black on it. In the
   app only, and in the MONOCHROME scheme only.
+- **A PICKED FOLDER ICON WEARS THE FOLDER COLOUR IN THE EXPLORER, THE ROW'S INK IN THE SIDEBAR**
+  (D4, owner, 2026-10-31, with the folder icons spec): a built-in glyph on an Explorer or search
+  popup row is `--p-tree-folder`, on a sidebar pin the dim ink of the Known Folder glyphs
+  (`.browse-place-icon`). No per-folder colour. Line glyphs at Prism's 1.7 stroke. `folderIcons` e2e.
 
 **ONE COLOUR PICKER, ALPHA ON EVERY COLOUR** (#249 rework, owner 2026-10-03: "the colour pickers
 should be the same for both apps, i need an input field for a color code and an alpha per colour
