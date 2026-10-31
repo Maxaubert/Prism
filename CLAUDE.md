@@ -93,7 +93,8 @@ library manager, not an editor.
   `adm-zip` (the archive viewer; pure JS), `exifr` (main-only, the photo's own EXIF). The app has
   no third-party native module. Prism's OWN addon is `native/sweep` (#338, the native sweep box;
   rules in its README), built from source by `npm run build:sweep` (dev dependency `node-gyp`,
-  MSVC, `/MT`).
+  MSVC, `/MT`). Lucide (`lucide-static`, the folder icons) is a BUILD-TIME dev dependency:
+  `npm run icons:folders` generates `lib/folderIconSet.ts`, a lazy chunk.
 - A feature decision is recorded in `docs/features.md` (the look in `docs/ui-direction.md`) in the
   file's voice: what the owner decided, the date and issue, and what test holds it.
 
