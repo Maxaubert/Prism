@@ -113,12 +113,15 @@ export interface FolderBrowserProps {
   onSearchRange?: (first: number) => void
   onPreviewToggle: () => void
   /** `paths` is every marked row when the row pressed is one of several
-   *  marked (#257): the menu then acts on all of them, as the marks say. */
+   *  marked (#257): the menu then acts on all of them, as the marks say.
+   *  `folders` is which of those are folders, from the rows themselves (a
+   *  search's rows are not the folder's listing). */
   onContextMenu?: (
     event: MouseEvent<HTMLElement>,
     entry: BrowseEntry,
     source?: 'more',
-    paths?: string[]
+    paths?: string[],
+    folders?: string[]
   ) => void
   onRename?: (entry: BrowseEntry) => void
   onCopy?: (entry: BrowseEntry) => void
