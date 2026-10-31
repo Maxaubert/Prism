@@ -421,6 +421,27 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the dim after 0.25 s), shows the ring over that stand-in and dims it to 35 % (`ImageView` `switching`).
   A quick or preloaded picture shows neither. e2e `previewSlowImage` (`PRISM_E2E_SLOW_MEDIA` makes one
   file answer 1.5 s late; it fails on the old viewer).
+- **THE LAST PICTURE STAYS UNTIL THE NEXT IS DRAWABLE** (#28, 2026-08-05 review, fixed 2026-10-31). Ready
+  meant fetched, so crossing between an ordinary picture and one past 40 MP swapped the `<img>` for an
+  empty canvas (or back) at once, and the stage sat blank for the whole decode, seconds on a big scan;
+  the 2026-10-16 fix brought the ring back but not the picture. Now the next picture is decoded
+  off-screen first (`lib/imageReady` `readyImage`: a huge one becomes its bitmap, an ordinary one is
+  decoded by a detached element), and only then replaces the last, which stands in under the ring and
+  the dim (`switching`) meanwhile. The canvas takes its bitmap before the paint (`useLayoutEffect`), and
+  an `<img>` decoded ahead draws with `decoding="sync"`, so neither shows a blank frame. An early decode
+  that refuses still swaps, so the element's own error says why. Stepping past a picture drops its
+  hidden decode; stepping back to the one still on screen does not decode it again. e2e
+  `imageHugeSwap` (arrows across 42 MP both ways, watching every frame) and `imageReady.test.ts`.
+- **MAIN TYPES EVERY PICTURE FILEKIND LISTS** (#31, 2026-08-05 review, fixed 2026-10-31). fsmedia://'s
+  type table was a second list beside `fileKind`, and they drifted: `.ico` went out as octet-stream and
+  missed the whole-buffer fast path that is gated on `image/`. The image half of `mime.ts` is now built
+  from `fileKind`'s `imageExtensions()`: Chromium's own formats keep their types (`NATIVE_IMAGE`), and what
+  main converts is typed as the copy it would serve (PNG from ffmpeg, JPEG from a HEIC or a raw's
+  preview); `mediaProtocol` answers those with its own type before it reads the table, so on the wire
+  only `.ico` changed.
+  TIFF and JPEG XL stay viewable: the review found them dead, but they have decoded through the bundled
+  ffmpeg since 2026-08-24 (`imageDecode.ts`; the bundled build lists `libjxl` and `tiff`). `mime.test.ts`
+  fails on any image extension nothing can draw.
 - **THE EXPLORER'S REFRESHES COST LESS** (owner, 2026-10-28: "do a review of the app look for bugs,
   lingering code that should be changed ... look for stall points, things that use up too many
   resources"; findings in research/prism/2026-10-28-performance-review.md). A refresh that brings a new
