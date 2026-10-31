@@ -22,5 +22,9 @@ export const userPaths = {
   thumbs: (): string => under('thumbs'),
   /** Converted copies and synthesised MIDI wavs. */
   converted: (): string => under('converted'),
-  comics: (): string => under('comics')
+  comics: (): string => under('comics'),
+  /** Folder icons from a file (2026-10-31): Prism's own 64 px copies, by hash. */
+  folderIcons: (): string => under('folder-icons'),
+  /** The folder the last icon was picked from (`{ "lastDir": ... }`). */
+  iconPicks: (): string => under('icon-picks.json')
 }

@@ -71,6 +71,13 @@ export const CALL = {
 
   dialogPickFolder: 'dialog:pick-folder',
   dialogPickFiles: 'dialog:pick-files',
+  /** Folder icons from a file (2026-10-31): pick one (its bytes, never a
+   *  path), keep the page's 64 px PNG, hand every kept copy over, and remove
+   *  the ones no folder uses. */
+  folderIconPick: 'folder-icons:pick',
+  folderIconSave: 'folder-icons:save',
+  folderIconFiles: 'folder-icons:custom',
+  folderIconPrune: 'folder-icons:prune',
 
   tabsChanged: 'tabs:changed',
   /** Tab tear-off (step 3): a tab left its strip, the tear ended, the e2e's

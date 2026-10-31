@@ -26,6 +26,7 @@ import type {
   ExtractToResult,
   MemberExtractResult
 } from '@shared/extraction'
+import type { IconPick, IconSave } from '@shared/folderIconFiles'
 import type { SweepBegin, SweepEnd, SweepState, SweepUpdate } from '@shared/sweepOverlay'
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
@@ -169,6 +170,15 @@ const api = {
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke(CALL.dialogPickFolder),
   /** Choose real files: the archive panel's "Add files". Empty when cancelled. */
   pickFiles: (): Promise<string[]> => ipcRenderer.invoke(CALL.dialogPickFiles),
+  /** Folder icons from a file (2026-10-31): the picked picture's bytes (never
+   *  its path), null when cancelled, or why it cannot be one. */
+  pickFolderIcon: (): Promise<IconPick> => ipcRenderer.invoke(CALL.folderIconPick),
+  /** Keep the 64 px PNG the page drew; its id and data URL. */
+  saveFolderIcon: (png: Uint8Array): Promise<IconSave> => ipcRenderer.invoke(CALL.folderIconSave, png),
+  /** Every kept copy, `{ id: dataUrl }`. */
+  folderIconFiles: (): Promise<Record<string, string>> => ipcRenderer.invoke(CALL.folderIconFiles),
+  /** Remove the kept copies not in `keep`. */
+  pruneFolderIcons: (keep: string[]): Promise<number> => ipcRenderer.invoke(CALL.folderIconPrune, keep),
   /** Report the tab strip, for persistence only. The root wall is never
    *  rebuilt from a snapshot (it raced payloads in flight). */
   tabsChanged: (
