@@ -27,8 +27,6 @@ export function needsImageDecode(path: string): boolean {
   return FFMPEG_IMAGES.has(extname(path).toLowerCase())
 }
 
-export const decodableImages = (): string[] => [...FFMPEG_IMAGES]
-
 /**
  * ffmpeg argv for "one frame of this, as PNG, on stdout".
  *

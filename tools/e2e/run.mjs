@@ -28,6 +28,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
+import { crc32 as zlibCrc32, deflateSync } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 import { homedir, tmpdir } from 'node:os'
 import { BIG, buildBigFixtures, buildFixtures, FFMPEG, OTHER_ROOT } from './fixtures.mjs'
@@ -15648,6 +15649,95 @@ async function previewSlowImageScenario(fixtures) {
   }
 }
 
+/** A grey PNG of `w` by `h`, built by hand: rows of zeros deflate to almost
+ *  nothing, so a 42 MP picture is a few tens of KB on disk. */
+function greyPng(w, h) {
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(zlibCrc32(body) >>> 0)
+    return Buffer.concat([len, body, crc])
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(w, 0)
+  ihdr.writeUInt32BE(h, 4)
+  ihdr[8] = 8 // bit depth
+  ihdr[9] = 0 // greyscale
+  const rows = Buffer.alloc((w + 1) * h, 0) // filter byte 0, black pixels
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(rows, { level: 9 })),
+    chunk('IEND', Buffer.alloc(0))
+  ])
+}
+
+/** CROSSING THE 40 MP LINE NEVER SHOWS AN EMPTY STAGE (#28, 2026-08-05 review).
+ *  Past 40 MP a picture is drawn on a canvas from an off-thread bitmap; below
+ *  it, by an <img>. Arrowing between the two used to swap the element the
+ *  moment the bytes landed, so the stage showed an empty canvas (or an <img>
+ *  with nothing decoded) for the whole decode. A watcher samples every frame
+ *  after the first picture: the layer in front must always hold a drawn one. */
+async function imageHugeSwapScenario(fixtures) {
+  console.log('crossing the 40 MP line never shows an empty stage')
+  const dir = join(fixtures, 'hugeswap')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  copyFileSync(join(ROOT, 'build', 'icon.png'), join(dir, 'a.png'))
+  writeFileSync(join(dir, 'b.png'), greyPng(7000, 6000)) // 42 MP
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'a.png'))
+  // What the visible picture layer holds right now. An unpainted canvas is
+  // still its 300x150 default: the bitmap sets its size when handed over.
+  const holds = () =>
+    win.evaluate(() => {
+      const layer = [...document.querySelectorAll('[data-image-layer]')].find((e) => e.getClientRects().length)
+      const c = layer?.querySelector('canvas')
+      if (c) return c.width === 300 && c.height === 150 ? 'blank-canvas' : 'canvas'
+      const img = layer?.querySelector('img')
+      if (img) return img.complete && img.naturalWidth > 0 ? 'img' : 'blank-img'
+      return 'none'
+    })
+  try {
+    ok(await until(async () => (await holds()) === 'img', 15000), `a.png is drawn (${await holds()})`)
+    await win.evaluate(() => {
+      globalThis.__blank = []
+      const tick = () => {
+        const layer = [...document.querySelectorAll('[data-image-layer]')].find((e) => e.getClientRects().length)
+        const c = layer?.querySelector('canvas')
+        const img = layer?.querySelector('img')
+        if (c) {
+          if (c.width === 300 && c.height === 150) globalThis.__blank.push('canvas')
+        } else if (img) {
+          if (!(img.complete && img.naturalWidth > 0)) globalThis.__blank.push('img')
+        } else globalThis.__blank.push('none')
+        globalThis.__watch = requestAnimationFrame(tick)
+      }
+      tick()
+    })
+    // Up and Down page the folder; Left and Right do not (owner, 2026-09-01).
+    for (const [key, want] of [
+      ['ArrowDown', 'canvas'],
+      ['ArrowUp', 'img'],
+      ['ArrowDown', 'canvas'],
+      ['ArrowUp', 'img']
+    ]) {
+      await win.keyboard.press(key)
+      ok(await until(async () => (await holds()) === want, 20000, 25), `${key} lands on the ${want} (${await holds()})`)
+      await sleep(300)
+    }
+    const blank = await win.evaluate(() => {
+      cancelAnimationFrame(globalThis.__watch)
+      return globalThis.__blank
+    })
+    ok(blank.length === 0, `no frame showed an empty stage (${blank.length}: ${[...new Set(blank)].join(', ')})`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 /** FULL VIEW KEEPS THE LIST'S ORDER, AND A DOCUMENT KEEPS THE ARROWS (owner,
  *  2026-10-28: in an Excel sheet "the arrow keys up and down navigate files
  *  while you're in it which it should not", and in full view "up goes down
@@ -17524,6 +17614,7 @@ await run(zipFolderScenario)
 await run(previewClearsScenario)
 await run(docArrowsScenario)
 await run(previewSlowImageScenario)
+await run(imageHugeSwapScenario)
 await run(menuOverPreviewScenario)
 await run(zipPreviewBackScenario)
 await run(comicScenario)
