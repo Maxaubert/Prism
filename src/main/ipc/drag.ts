@@ -20,14 +20,22 @@ const trimEntry = (e: string): string => e.replace(/\\/g, '/').replace(/^\/+|\/+
 export function registerDragIpc(ctx: MainCtx, bodies: ArchiveBodies): DragOut {
   const { readable, archives, memberTemp } = ctx
   // The app's own icon, the fallback when a file has none: read once, async,
-  // from the executable (createFromPath would read the disk on main).
+  // from the executable (createFromPath would read the disk on main). Read on
+  // the first press, never at startup: Chromium reads icons in a helper
+  // process, and one started at launch held up the lag trace's start (e2e
+  // diagLog, 2026-10-31).
   let appIcon: Electron.NativeImage | null = null
-  void app
-    .getFileIcon(process.execPath, { size: 'normal' })
-    .then((i) => {
-      if (!i.isEmpty()) appIcon = i
-    })
-    .catch(() => {})
+  let appIconAsked = false
+  const warmAppIcon = (): void => {
+    if (appIconAsked) return
+    appIconAsked = true
+    void app
+      .getFileIcon(process.execPath, { size: 'normal' })
+      .then((i) => {
+        if (!i.isEmpty()) appIcon = i
+      })
+      .catch(() => {})
+  }
   /** Never empty: Electron throws on an empty drag icon. One opaque pixel
    *  stands in until the app's icon has been read. */
   const PIXEL = nativeImage.createFromBuffer(
@@ -41,7 +49,10 @@ export function registerDragIpc(ctx: MainCtx, bodies: ArchiveBodies): DragOut {
         (s) => (s.isDirectory() ? 'dir' : 'file'),
         () => undefined
       ),
-    fileIcon: (p) => app.getFileIcon(p, { size: 'normal' }),
+    fileIcon: (p) => {
+      warmAppIcon()
+      return app.getFileIcon(p, { size: 'normal' })
+    },
     appIcon: () => appIcon ?? PIXEL,
     startDrag: (sender, item) => sender.startDrag(item),
     senderId: (sender) => sender.id,
