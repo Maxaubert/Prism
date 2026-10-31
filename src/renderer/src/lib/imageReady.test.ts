@@ -43,10 +43,10 @@ describe('the next picture is drawable before it replaces the last (#28)', () =>
       decode: () => decoded.promise,
       bitmap: () => Promise.reject(new Error('not this path'))
     }
-    const ready = readyImage(pic(400, 300), deps)
+    const ready = readyImage(pic(400, 300), undefined, deps)
     expect(await settled(ready)).toBe(false)
     decoded.open({ w: 400, h: 300 })
-    expect(await ready).toMatchObject({ bitmap: null, natural: { w: 400, h: 300 } })
+    expect(await ready).toMatchObject({ bitmap: null, natural: { w: 400, h: 300 }, decoded: true })
   })
 
   it('waits for a huge picture to be a bitmap, at most 2560 on its long edge', async () => {
@@ -59,7 +59,7 @@ describe('the next picture is drawable before it replaces the last (#28)', () =>
         return made.promise
       }
     }
-    const ready = readyImage(pic(16000, 4000), deps)
+    const ready = readyImage(pic(16000, 4000), undefined, deps)
     expect(await settled(ready)).toBe(false)
     expect(asked).toEqual({ w: 2560, h: 640 })
     const bmp = { width: 2560, height: 640, close: () => {} } as unknown as ImageBitmap
@@ -72,7 +72,7 @@ describe('the next picture is drawable before it replaces the last (#28)', () =>
       decode: () => Promise.reject(new Error('EncodingError')),
       bitmap: () => Promise.reject(new Error('not this path'))
     }
-    expect(await readyImage(pic(10, 10), deps)).toMatchObject({ bitmap: null, natural: null })
+    expect(await readyImage(pic(10, 10), undefined, deps)).toMatchObject({ bitmap: null, natural: null, decoded: false })
   })
 
   it('fails a huge picture whose bitmap cannot be made', async () => {
@@ -80,6 +80,21 @@ describe('the next picture is drawable before it replaces the last (#28)', () =>
       decode: () => Promise.reject(new Error('not this path')),
       bitmap: () => Promise.reject(new Error('too big'))
     }
-    await expect(readyImage(pic(10000, 10000), deps)).rejects.toThrow('too big')
+    await expect(readyImage(pic(10000, 10000), undefined, deps)).rejects.toThrow('too big')
+  })
+  it('hands the decode the signal, so stepping past a picture drops it', async () => {
+    let seen: AbortSignal | undefined
+    const deps: ReadyDeps = {
+      decode: (_url, signal) => {
+        seen = signal
+        return new Promise((_res, rej) => signal?.addEventListener('abort', () => rej(new Error('dropped'))))
+      },
+      bitmap: () => Promise.reject(new Error('not this path'))
+    }
+    const stop = new AbortController()
+    const ready = readyImage(pic(400, 300), stop.signal, deps)
+    expect(seen).toBe(stop.signal)
+    stop.abort()
+    expect(await ready).toMatchObject({ decoded: false })
   })
 })

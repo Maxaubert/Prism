@@ -27,6 +27,12 @@ const NATIVE_IMAGE: Record<string, string> = {
  * makes: PNG from ffmpeg (TIFF, JPEG XL, PSD...), JPEG from a HEIC or from a
  * raw's embedded preview. A picture none of these can draw gets no type, and
  * `mime.test.ts` fails on it.
+ *
+ * Those converted entries are bookkeeping, not what goes on the wire:
+ * mediaProtocol answers raw, HEIC and ffmpeg pictures itself, with the type
+ * of the copy it made, before it ever asks `mediaMime` (review, 2026-10-31).
+ * They are here so the parity test can tell "converted" from "nothing can
+ * draw this". In practice #31 changed one served type, `.ico`'s.
  */
 function imageMime(e: string): string | undefined {
   if (NATIVE_IMAGE[e]) return NATIVE_IMAGE[e]

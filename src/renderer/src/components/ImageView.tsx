@@ -126,6 +126,8 @@ export function ImageView({
    *  arrowing through quick pictures shows neither. */
   const [shownUrl, setShownUrl] = useState<string | null>(null)
   const switching = !!img && shownUrl !== url && !failed
+  /** The same two, for the load effect to read without re-running on them. */
+  const onScreen = useRef<{ url: string; img: LoadedImage } | null>(null)
 
   /* How big the stage is, measured rather than assumed (2026-08-28).
    *
@@ -224,14 +226,29 @@ export function ImageView({
     // Stepping past this picture gives up its read (perf review, 2026-10-28):
     // holding an arrow through big photos no longer fetches every one in full.
     const stop = new AbortController()
-    loadImage(url, stop.signal)
-      .then((r) => (alive ? readyImage(r) : null))
+    const next = async (): Promise<ReadyImage | 'same' | null> => {
+      const r = await loadImage(url, stop.signal)
+      if (!alive) return null
+      // Back to the picture still on screen before the next one was ready
+      // (A, B, back to A): it is already drawn, so it is not decoded again,
+      // which for a huge one was seconds and up to ~1.5 GB (review,
+      // 2026-10-31). Only the next picture's failure is cleared.
+      const cur = onScreen.current
+      if (cur && cur.url === url && cur.img === r) return 'same'
+      return readyImage(r, stop.signal)
+    }
+    next()
       .then((ready) => {
         if (!ready) return
+        if (ready === 'same') {
+          if (alive) setFailed(false)
+          return
+        }
         if (!alive) {
           ready.bitmap?.close()
           return
         }
+        onScreen.current = { url, img: ready.img }
         setFailed(false)
         setShown(ready)
         setNatural(ready.natural)
@@ -550,6 +567,8 @@ export function ImageView({
               the app leaking into the picture. */}
           {img && (
             <div
+              // The e2e finds the picture's own layer by this (imageHugeSwap).
+              data-image-layer
               onMouseDown={onImgDown}
               // Fit <-> ACTUAL SIZE, not fit <-> double fit (2026-09-03): on a
               // tiny image 2x fit is thousands of times actual - the owner
@@ -578,7 +597,10 @@ export function ImageView({
                   src={img.objectUrl}
                   alt={name}
                   draggable={false}
-                  decoding="async"
+                  // Decoded ahead (lib/imageReady), so drawing it in this
+                  // commit costs nothing and leaves no blank frame; below
+                  // 40 MP either way. Async only when that decode refused.
+                  decoding={shown?.decoded ? 'sync' : 'async'}
                   onLoad={(e) => {
                     setLoaded(true)
                     const el = e.currentTarget

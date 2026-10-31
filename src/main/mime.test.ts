@@ -25,13 +25,6 @@ describe('the media types main serves (#31)', () => {
     expect(mediaMime('C:/x/favicon.ICO')).toBe('image/x-icon')
   })
 
-  it('types what main converts as the copy it serves', () => {
-    expect(mediaMime('C:/x/scan.tiff')).toBe('image/png')
-    expect(mediaMime('C:/x/photo.jxl')).toBe('image/png')
-    expect(mediaMime('C:/x/phone.heic')).toBe('image/jpeg')
-    expect(mediaMime('C:/x/camera.cr2')).toBe('image/jpeg')
-  })
-
   it('keeps the native types', () => {
     expect(mediaMime('C:/x/a.png')).toBe('image/png')
     expect(mediaMime('C:/x/a.jfif')).toBe('image/jpeg')
