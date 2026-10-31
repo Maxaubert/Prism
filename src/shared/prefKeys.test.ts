@@ -15,6 +15,7 @@ const SHIPPED: Record<string, 'shared' | 'window'> = {
   'prism.explorer.rememberFolders': 'shared',
   'prism.explorer.side': 'shared',
   'prism.explorer.size': 'shared',
+  'prism.folderIcons': 'shared',
   'prism.newtab.folder': 'shared',
   'prism.newtab.mode': 'shared',
   'prism.newtab.show': 'shared',
