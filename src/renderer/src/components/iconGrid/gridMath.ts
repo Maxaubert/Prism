@@ -88,3 +88,36 @@ export function moveIndex(
       return undefined
   }
 }
+
+/** Is cell `index` in the rows [first, end) the DOM holds? `aria-activedescendant`
+ *  names it only then: after a wheel scroll the active cell may be gone. */
+export function drawnCell(index: number, columns: number, first: number, end: number, count: number): boolean {
+  if (index < 0 || index >= count) return false
+  const row = Math.floor(index / Math.max(1, columns))
+  return row >= first && row < end
+}
+
+/**
+ * What Enter in the search field picks: the active cell of the list on screen
+ * (`{ list }`), the best hit of what the field says now when the list is a
+ * key behind (`{ set }`, an index into the whole set), or nothing. A blank
+ * field with no active cell picks NOTHING (review, 2026-10-31): an Enter on
+ * open gave the folder the Home glyph, the set's first.
+ */
+export function enterPick({
+  query,
+  deferred,
+  active,
+  best
+}: {
+  query: string
+  deferred: string
+  active: number
+  /** The set index of the best hit for a query. */
+  best: (query: string) => number | undefined
+}): { list: number } | { set: number } | null {
+  if (query === deferred && active >= 0) return { list: active }
+  if (!query.trim()) return null
+  const hit = best(query)
+  return hit === undefined ? null : { set: hit }
+}

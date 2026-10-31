@@ -1,7 +1,7 @@
 import { memo, useEffect, useId, type JSX, type KeyboardEvent, type RefObject } from 'react'
 import { BuiltInIcon } from '../icons/FolderGlyph'
 import type { FolderIconDef } from '../../lib/folderIconSetLoad'
-import { moveIndex } from './gridMath'
+import { drawnCell, moveIndex } from './gridMath'
 import { useVirtualGrid } from './useVirtualGrid'
 import './icon-grid.css'
 
@@ -128,7 +128,11 @@ export function IconGrid({
       role="listbox"
       aria-label={label}
       tabIndex={0}
-      aria-activedescendant={active >= 0 && active < icons.length ? `${base}-${active}` : undefined}
+      // Only a drawn cell: a wheel scroll can take the active one out of
+      // the DOM, and an id that is not there points a reader at nothing.
+      aria-activedescendant={
+        drawnCell(active, grid.columns, grid.first, grid.end, icons.length) ? `${base}-${active}` : undefined
+      }
       className="icon-grid"
       data-icon-grid
       onKeyDown={onKeyDown}

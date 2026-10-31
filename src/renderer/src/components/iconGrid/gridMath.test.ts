@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cellOf, columnsFor, moveIndex, rowCount, scrollFor, visibleRows } from './gridMath'
+import { cellOf, columnsFor, drawnCell, enterPick, moveIndex, rowCount, scrollFor, visibleRows } from './gridMath'
 
 describe('icon grid maths', () => {
   it('columns from the width, never none', () => {
@@ -56,5 +56,28 @@ describe('icon grid maths', () => {
     expect(m(24, 'PageUp')).toBe(0)
     expect(m(3, 'x')).toBeUndefined()
     expect(moveIndex(0, 'ArrowRight', 10, 0, 8)).toBeUndefined()
+  })
+
+  it('a screen reader is pointed only at a cell that is drawn', () => {
+    // 10 columns, rows 3..8 in the DOM: cells 30..89.
+    expect(drawnCell(30, 10, 3, 9, 200)).toBe(true)
+    expect(drawnCell(89, 10, 3, 9, 200)).toBe(true)
+    expect(drawnCell(29, 10, 3, 9, 200)).toBe(false)
+    expect(drawnCell(90, 10, 3, 9, 200)).toBe(false)
+    expect(drawnCell(-1, 10, 3, 9, 200)).toBe(false)
+    expect(drawnCell(50, 10, 3, 9, 40)).toBe(false)
+  })
+
+  it('Enter in the field: the active cell, the best hit typed, and nothing on a blank field', () => {
+    const best = (q: string): number | undefined => (q === 'cam' ? 7 : 0)
+    // Typed and the list caught up: the active cell.
+    expect(enterPick({ query: 'cam', deferred: 'cam', active: 2, best })).toEqual({ list: 2 })
+    // A key behind: the best hit of what the field says now.
+    expect(enterPick({ query: 'cam', deferred: 'ca', active: 2, best })).toEqual({ set: 7 })
+    // Blank, nothing active: an Enter on open picks nothing (review: it used to give Home).
+    expect(enterPick({ query: '', deferred: '', active: -1, best })).toBeNull()
+    expect(enterPick({ query: '  ', deferred: '  ', active: -1, best })).toBeNull()
+    // Blank with the folder's icon active: Enter keeps it.
+    expect(enterPick({ query: '', deferred: '', active: 4, best })).toEqual({ list: 4 })
   })
 })
