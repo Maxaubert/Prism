@@ -421,6 +421,14 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the dim after 0.25 s), shows the ring over that stand-in and dims it to 35 % (`ImageView` `switching`).
   A quick or preloaded picture shows neither. e2e `previewSlowImage` (`PRISM_E2E_SLOW_MEDIA` makes one
   file answer 1.5 s late; it fails on the old viewer).
+- **THE LAST PICTURE STAYS UNTIL THE NEXT IS DRAWABLE** (#28, 2026-08-05 review, fixed 2026-10-31). Ready
+  meant fetched, so crossing between an ordinary picture and one past 40 MP swapped the `<img>` for an
+  empty canvas (or back) at once, and the stage sat blank for the whole decode, seconds on a big scan;
+  the 2026-10-16 fix brought the ring back but not the picture. Now the next picture is decoded
+  off-screen first (`lib/imageReady` `readyImage`: a huge one becomes its bitmap, an ordinary one is
+  decoded by a detached element), and only then replaces the last, which stands in under the ring and
+  the dim (`switching`) meanwhile. The canvas takes its bitmap before the paint (`useLayoutEffect`). An
+  early decode that refuses still swaps, so the element's own error says why. `imageReady.test.ts`.
 - **MAIN TYPES EVERY PICTURE FILEKIND LISTS** (#31, 2026-08-05 review, fixed 2026-10-31). fsmedia://'s
   type table was a second list beside `fileKind`, and they drifted: `.ico` went out as octet-stream and
   missed the whole-buffer fast path that is gated on `image/`. The image half of `mime.ts` is now built
