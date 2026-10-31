@@ -107,6 +107,34 @@ describe('folder icons store', () => {
     expect([...after.keys()].sort()).toEqual([pathKey('D:/a'), pathKey('D:/b')])
   })
 
+  it('a stale icon at the destination goes: what lands there brings its own, or none', () => {
+    // "Photos" was deleted (its entry kept for an undo), then "Old" renamed
+    // to "Photos": the newcomer must not wear the deleted folder's camera,
+    // nor its sub-folders' icons (review of the folder icons, 2026-10-31).
+    const before = map({ 'C:/Photos': { set: 'camera' }, 'C:/Photos/2024': { set: 'star' }, 'C:/Photography': { set: 'heart' } })
+    const after = followMoves(before, [{ from: 'C:/Old', to: 'C:/Photos' }])
+    expect(Object.fromEntries(after)).toEqual(Object.fromEntries(map({ 'C:/Photography': { set: 'heart' } })))
+    // A replace: the newcomer's own icon wins over the one it replaced.
+    const replaced = followMoves(map({ 'C:/a/x': { set: 'star' }, 'C:/b/x': { set: 'camera' } }), [
+      { from: 'C:/a/x', to: 'C:/b/x' }
+    ])
+    expect(Object.fromEntries(replaced)).toEqual(Object.fromEntries(map({ 'C:/b/x': { set: 'star' } })))
+  })
+
+  it('moves read the map as it was: a chain does not wipe what it just placed', () => {
+    const before = map({ 'C:/a': { set: 'star' }, 'C:/b': { set: 'heart' } })
+    const after = followMoves(before, [
+      { from: 'C:/a', to: 'C:/b' },
+      { from: 'C:/b', to: 'C:/c' }
+    ])
+    expect(Object.fromEntries(after)).toEqual(Object.fromEntries(map({ 'C:/b': { set: 'star' }, 'C:/c': { set: 'heart' } })))
+  })
+
+  it('a case-only rename keeps the icon', () => {
+    const before = map({ 'C:/Photos': { set: 'camera' } })
+    expect(followMoves(before, [{ from: 'C:/Photos', to: 'C:/photos' }])).toBe(before)
+  })
+
   it('followFolderIcons writes the moved keys to the pref', () => {
     setFolderIcons(['C:/a/b'], { set: 'star' })
     followFolderIcons([{ from: 'C:/a', to: 'C:/z' }])
