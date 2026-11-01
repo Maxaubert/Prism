@@ -5088,6 +5088,106 @@ async function tabAttachScenario(fixtures) {
   }
 }
 
+/** Every window close or app quit from here on is refused and counted, so a
+ *  check can see whether a key tried to put Prism away (#14). */
+async function catchCloses(app) {
+  await app.evaluate(({ app: a, BrowserWindow }) => {
+    globalThis.__e2eCloses = 0
+    const hold = (e) => {
+      e.preventDefault()
+      globalThis.__e2eCloses += 1
+    }
+    globalThis.__e2eCloseHold = hold
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.on('close', hold)
+    a.on('before-quit', hold)
+  })
+}
+const closesCaught = (app) => app.evaluate(() => globalThis.__e2eCloses ?? 0)
+/** Let the windows close again, so the scenario's own teardown works. */
+const releaseCloses = (app) =>
+  app.evaluate(({ app: a, BrowserWindow }) => {
+    const hold = globalThis.__e2eCloseHold
+    if (!hold) return
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.removeListener('close', hold)
+    a.removeListener('before-quit', hold)
+    globalThis.__e2eCloseHold = null
+  })
+
+// ESCAPE NEVER CLOSES PRISM (#14, owner, 2026-11-01: "escape should not
+// interact with app close"). In the plain viewer and the Explorer it does
+// nothing to the window; it still closes a context menu and a dialog, and it
+// cancels a rename, each without the window going.
+async function escapeKeepsOpenScenario(fixtures) {
+  console.log('escape: never closes Prism, still closes what is open')
+  const dir = join(fixtures, 'escape-open')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['one.txt', 'two.txt']) writeFileSync(join(dir, n), `escape ${n}\n`)
+  const { app, win } = await launch(join(dir, 'one.txt'))
+  const row = (suffix) => win.locator(`[data-testid="browse-list"] [data-browse-path$="${suffix}" i]`).first()
+  const press = async (times = 2) => {
+    for (let i = 0; i < times; i += 1) {
+      await win.keyboard.press('Escape')
+      await sleep(120)
+    }
+    await sleep(400)
+  }
+  try {
+    await win.waitForSelector('[role="tablist"] [data-tab-role]', { timeout: 10000 })
+    await sleep(800)
+    await catchCloses(app)
+
+    // THE PLAIN VIEWER: the file is open, nothing else is up.
+    await win.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : null))
+    await press(3)
+    ok((await closesCaught(app)) === 0, 'Escape in the plain viewer leaves the window open')
+
+    // THE EXPLORER LIST.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if (!(await row('two.txt').count())) await row('\\escape-open').dblclick()
+    ok(await until(async () => (await row('two.txt').count()) === 1, 10000), 'the Explorer shows the folder')
+    await row('two.txt').locator('.browse-name-text').click()
+    await win.locator('[data-testid="browse-list"]').focus()
+    await press(3)
+    ok((await closesCaught(app)) === 0, 'Escape in the Explorer leaves the window open')
+
+    // A CONTEXT MENU: Escape closes it, and only it.
+    await row('two.txt').locator('.browse-name-text').click({ button: 'right' })
+    ok(await until(async () => (await win.locator('[role="menu"]').count()) > 0, 5000), 'a right-click opens the menu')
+    await press(1)
+    ok(await until(async () => (await win.locator('[role="menu"]').count()) === 0, 3000), 'Escape closes the menu')
+    ok((await closesCaught(app)) === 0, 'and not the window')
+
+    // A RENAME: Escape cancels it, and the name stays.
+    await row('two.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('F2')
+    const name = win.locator('[role="dialog"] input[aria-label="New name"]')
+    ok(await until(async () => (await name.count()) === 1, 5000), 'F2 asks for a new name')
+    await name.fill('renamed.txt')
+    await press(1)
+    ok(await until(async () => (await name.count()) === 0, 3000), 'Escape cancels the rename')
+    ok(existsSync(join(dir, 'two.txt')) && !existsSync(join(dir, 'renamed.txt')), 'and the file keeps its name')
+    ok((await closesCaught(app)) === 0, 'and the window stays open')
+
+    // A DIALOG: Escape answers Cancel.
+    await row('two.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Delete')
+    const ask = win.getByRole('dialog', { name: 'Move to the Recycle Bin?' })
+    ok(await until(async () => (await ask.count()) === 1, 5000), 'Del asks to delete')
+    await press(1)
+    ok(await until(async () => (await ask.count()) === 0, 3000), 'Escape closes the dialog')
+    ok(existsSync(join(dir, 'two.txt')), 'and keeps the file')
+    // More Escapes, with the dialog gone, land on the app behind it.
+    await press(2)
+    ok((await closesCaught(app)) === 0, 'and the window stays open after every Escape')
+  } finally {
+    await releaseCloses(app).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 // SETTINGS AS THE LAST TAB (review, 2026-10-28): putting Settings away with
 // the gear when it is the only tab closes the window, like any last tab; it
 // used to leave an empty window with no tabs.
@@ -5113,6 +5213,19 @@ async function settingsLastTabScenario(fixtures) {
     }
     const left = await win.locator(`${strip} [data-tab-role]`).count()
     ok(left <= 1, `only Settings is left (${left} tab)`)
+    // ESCAPE NEVER CLOSES THE WINDOW (#14, owner, 2026-11-01): Escape on
+    // Settings as the last tab leaves it there, and the window open.
+    await catchCloses(app)
+    await win.keyboard.press('Escape')
+    await win.keyboard.press('Escape')
+    await sleep(500)
+    ok((await closesCaught(app)) === 0, 'Escape on Settings as the last tab does not close the window')
+    ok(
+      (await gear.getAttribute('aria-pressed')) === 'true' &&
+        (await win.locator(`${strip} [data-tab-role="settings"]`).count()) === 1,
+      'and Settings stays open'
+    )
+    await releaseCloses(app)
     await app.evaluate(({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && /index\.html/.test(x.webContents.getURL()))
       w?.once('close', (e) => {
@@ -18356,6 +18469,7 @@ await run(lastClosedRestoreScenario)
 await run(tabTearScenario)
 await run(tabAttachScenario)
 await run(settingsLastTabScenario)
+await run(escapeKeepsOpenScenario)
 await run(titleBarScenario)
 await run(moreMenuScenario)
 await run(updateWindowScenario)

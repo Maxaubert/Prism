@@ -287,7 +287,9 @@ export function useAppKeys({
           ;(document.activeElement as HTMLElement | null)?.blur()
           return
         }
-        // ESCAPE DOES NOT CLOSE THE WINDOW (owner, 2026-09-01). It used to,
+        // ESCAPE DOES NOT CLOSE THE WINDOW (owner, 2026-09-01), IN ANY STATE
+        // (#14, owner, 2026-11-01: "escape should not interact with app
+        // close"; Settings' own Escape obeys it too). It used to,
         // which is the image-viewer habit and wrong for this one: Prism is
         // RESIDENT and holds tabs and unsaved text, and a reflex
         // keystroke that puts all of that away is the same failure the close

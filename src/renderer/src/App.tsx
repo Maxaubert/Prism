@@ -31,6 +31,7 @@ import {
   closeTab,
   toggleSettingsTab,
   settingsCloseIsLast,
+  settingsEscapeCloses,
   sameRoot,
   type Tab,
   type TabState
@@ -185,11 +186,11 @@ export default function App(): JSX.Element {
       return st ? closeTab(s.tabs, st.id, s.activeId) : s
     })
   }, [])
-  /** Settings' own close (its X, Escape): the window goes with the last tab. */
+  /** Settings' Escape: it puts the page away only when another tab is left.
+   *  ESCAPE NEVER CLOSES THE WINDOW (#14, owner, 2026-11-01: "escape should
+   *  not interact with app close"); this used to close it from the last tab. */
   const putSettingsAway = useCallback(() => {
-    const now = tabStateNow.current
-    if (settingsCloseIsLast(now.tabs, now.activeId, false)) return window.prism.close()
-    closeSettingsTab()
+    if (settingsEscapeCloses(tabStateNow.current.tabs)) closeSettingsTab()
   }, [closeSettingsTab])
   /**
    * Show NOTHING in the active tab, without closing it (2026-09-02).

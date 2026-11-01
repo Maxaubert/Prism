@@ -17,6 +17,7 @@ import {
   openSettingsTab,
   toggleSettingsTab,
   settingsCloseIsLast,
+  settingsEscapeCloses,
   reorderTabs,
   tabLabels,
   type Tab
@@ -313,6 +314,14 @@ describe('the gear', () => {
     const two = [tabOf('C:\\a', ['C:\\a\\one.jpg']), settings('s')]
     expect(settingsCloseIsLast(two, 's', true)).toBe(false)
     expect(settingsCloseIsLast([tabOf('C:\\a', [])], null, false)).toBe(false)
+  })
+
+  it('never lets Escape close the window from Settings (#14, owner, 2026-11-01)', () => {
+    // "escape should not interact with app close": as the last tab Settings
+    // stays where it is; with another tab beside it, Escape puts it away.
+    expect(settingsEscapeCloses([settings('s')])).toBe(false)
+    expect(settingsEscapeCloses([tabOf('C:\\a', ['C:\\a\\one.jpg']), settings('s')])).toBe(true)
+    expect(settingsEscapeCloses([tabOf('C:\\a', [])])).toBe(false)
   })
 
   it('never makes a second settings tab', () => {

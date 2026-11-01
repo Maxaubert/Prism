@@ -338,6 +338,16 @@ export function settingsCloseIsLast(
   return !toggle || tabs[0].id === activeId
 }
 
+/**
+ * Does Escape on Settings put the page away? Only when another tab is left:
+ * ESCAPE NEVER CLOSES THE WINDOW (#14, owner, 2026-11-01: "escape should not
+ * interact with app close"). As the last tab Settings stays, and the window
+ * goes only by its X, the tab's X or Ctrl+W.
+ */
+export function settingsEscapeCloses(tabs: readonly Tab[]): boolean {
+  return tabs.some((t) => t.kind === 'settings') && tabs.length > 1
+}
+
 export interface TabState {
   tabs: Tab[]
   activeId: string | null
