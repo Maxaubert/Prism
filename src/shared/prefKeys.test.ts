@@ -27,6 +27,8 @@ const SHIPPED: Record<string, 'shared' | 'window'> = {
   'prism.pinnedRoots': 'shared',
   'prism.sidebar.driveStyle': 'shared',
   'prism.slideshow.seconds': 'shared',
+  // The I key's photo info card, on or off (#78, 2026-11-01).
+  'prism.photoInfo': 'shared',
   'prism.sort': 'shared',
   'prism.tabs.remember': 'shared',
   'prism.transport.bg': 'shared',

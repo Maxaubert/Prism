@@ -53,6 +53,7 @@ import type {
   PasteProgress,
   PasteResult,
   PhotoInfo,
+  SaveCopyResult,
   SubtitleTrack,
   WindowState
 } from '@shared/ipcTypes'
@@ -440,14 +441,16 @@ const api = {
   },
   /**
    * Save the picture as an ordinary PNG or JPEG. Main asks where, and that
-   * dialog is the consent that lets it land outside every root. Resolves with
-   * where it went, or null if the dialog was cancelled or the write failed.
+   * dialog is the consent that lets it land outside every root. The dialog
+   * opens in `source`'s folder when there is one (#78). Resolves with what
+   * happened: the path saved, a cancel, or a failure.
    */
   saveImageCopy: (
     bytes: ArrayBuffer,
     suggested: string,
-    format: 'png' | 'jpeg'
-  ): Promise<string | null> => ipcRenderer.invoke(CALL.imageSaveCopy, bytes, suggested, format),
+    format: 'png' | 'jpeg',
+    source?: string
+  ): Promise<SaveCopyResult> => ipcRenderer.invoke(CALL.imageSaveCopy, bytes, suggested, format, source),
   /** A multi-selection's copy: every file lands on the clipboard together. */
   copyFilesToClipboard: (paths: string[], cut = false): Promise<boolean> =>
     ipcRenderer.invoke(CALL.fileCopyClip, paths, cut),

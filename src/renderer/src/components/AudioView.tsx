@@ -10,14 +10,13 @@ import { VolumeReadout } from './VolumeReadout'
 import { StageNotice } from './StageNotice'
 import { useWaveform } from '../hooks/useWaveform'
 import type { TransportStyle } from '../lib/transport'
-import { resolveVizTheme } from '../lib/theme'
-import { useViz, WIDTHS } from '../lib/viz/vizStore'
+import { useMediaLook } from '../lib/viz/mediaLook'
 import { useDecodedSource } from '../hooks/useDecodedSource'
 import { wasPlaying, whenIntended } from '../lib/playState'
 import { useBackgroundPause } from '../hooks/useBackgroundPause'
 
 // The audio player: the chosen visualizer fills the window. Style, colour, and
-// framing all come from the shared vizStore (set in the app Settings window). The
+// framing all come from the host's MediaLook (#29; Prism's is its Settings window). The
 // filename stays in the title bar rather than on the glass. The <audio> element is
 // hidden and crossorigin so the visualizer's AnalyserNode can read its samples.
 
@@ -85,7 +84,8 @@ export function AudioView({
    *  mounted; its return detaches. */
   attach?: (el: HTMLMediaElement) => () => void
 }): JSX.Element {
-  const v = useViz()
+  const look = useMediaLook()
+  const v = look.viz
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   // See VolumeReadout: a timestamp, so every notch restarts one clock.
   const [volFlash, setVolFlash] = useState(0)
@@ -95,7 +95,7 @@ export function AudioView({
   const { src, synthesising, failed: synthFailed } = useDecodedSource(path, url)
   const peaks = useWaveform(path, !background && (transportStyle === 'wave' || transportStyle === 'wavebold'))
   const transportBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
-  const barFx = { palette: resolveVizTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
+  const barFx = { palette: look.resolveTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
   // A callback ref feeds both the controls hook (via the ref object) and the
   // visualizer (via state, so it re-renders once the element actually mounts).
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -247,13 +247,13 @@ export function AudioView({
               transform: 'translate(-50%, -50%)'
             }}
           >
-            <div className={`mx-auto h-full ${WIDTHS[v.width] ?? WIDTHS.full}`}>
+            <div className={`mx-auto h-full ${look.widthClass(v.width)}`}>
               <Visualizer
                 // A hidden tab draws nothing: the analyser and its animation
                 // frame are for a canvas somebody is looking at.
                 media={background ? null : mediaEl}
                 styleId={v.style}
-                theme={resolveVizTheme(v.theme)}
+                theme={look.resolveTheme(v.theme)}
                 dropStyle={v.drop}
                 previewBurst={v.preview}
                 glow={v.glow}

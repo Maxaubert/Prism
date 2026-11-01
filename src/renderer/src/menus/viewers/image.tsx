@@ -18,6 +18,10 @@ export interface ImageMenuContext {
   canSlideshow: boolean
   slideshow: boolean
   slideSecs: SlideSeconds
+  /** Whether the I key's photo info card is on (#78). */
+  photoInfo: boolean
+  /** Absent where the viewer has no card: the phone page (out of scope, #78). */
+  togglePhotoInfo?: () => void
   rotate: () => void
   copyImage: () => Promise<void>
   saveCopy: (format: 'png' | 'jpeg') => Promise<void>
@@ -48,6 +52,15 @@ export function imageMenu(ctx: ImageMenuContext): MenuItem[] {
   const copyPath = verbs.filter((item) => item.label === 'Copy path')
   return [
     { label: 'Rotate', icon: <FileMenuIcon name="rotate" />, onPick: () => ctx.rotate() },
+    // THE I KEY'S CARD HAS A ROW (#78, D7, owner 2026-11-01): without it the
+    // key cannot be found. A tick while it is on, no shortcut hint (the
+    // 2026-08-31 rule). Only for a picture that is a file: the card reads the
+    // photo from its path, which a comic page or an old-panel member lacks.
+    // Not on the phone: its page has no card (out of scope, #78), so it
+    // hands no toggle.
+    ...(path && ctx.togglePhotoInfo
+      ? [{ label: 'Photo info', icon: tickIf(ctx.photoInfo), onPick: () => ctx.togglePhotoInfo?.() }]
+      : []),
     // The pixels go to the OS clipboard and the copy through main's save
     // dialog: neither exists on the phone (#106), so the rows are left out
     // rather than offered and refused.

@@ -242,7 +242,7 @@ const implemented: Shim = {
   // they answer "did not happen" here without a warning, since PR 3 hides
   // them behind `capabilities` and until then a tap must not crash.
   copyImageToClipboard: () => false,
-  saveImageCopy: () => Promise.resolve(null),
+  saveImageCopy: () => Promise.resolve({ canceled: true as const }),
   // A phone has no window material: the theme paints and nothing else moves.
   setWindowMaterial: () => {},
   setAwake: () => {},

@@ -45,6 +45,10 @@ export interface PhotoInfo {
   dimensions?: string
 }
 
+/** What Save a copy did (#78): the name saved, a cancel, or a failure
+ *  (`reason: 'source'` when the target was the photo being viewed). */
+export type SaveCopyResult = { saved: string } | { canceled: true } | { failed: true; reason?: 'source' }
+
 /** A sidecar subtitle track beside a video. */
 export interface SubtitleTrack {
   path: string
