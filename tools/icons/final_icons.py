@@ -176,6 +176,15 @@ def _code_guide_at(d, n, box, col, hole=None):
     joined by grey. At 32px and up the snap moves an edge by a fraction of a
     pixel and nothing else.
 
+    ONE HEIGHT AND ONE PITCH, SNAPPED ONCE (review of #91, 2026-11-01). Snapping
+    each rung's top and bottom on its own let the edges fall where they would:
+    the rungs came out 2, 2 and 1 pixels at 16px, 4/3/4 at 32. So the height and
+    the step are snapped once and every rung is laid with the same two. The stack
+    hangs from the box's snapped FOOT, not its top: at 16px three 2px rungs and
+    two gaps are eight pixels in a seven-pixel box, and laid from the top the
+    third rung ran into the band with no row between. From the foot the extra
+    pixel goes up, the band keeps its clear row, and the spine spans the stack.
+
     `n` is the drawing's size in pixels: the frame's at the size it is built
     at, or 16 when svg.py records it, where every grid unit is one pixel and
     the snap is a whole unit. svg.py snaps at its own 16 for the same picture.
@@ -189,11 +198,15 @@ def _code_guide_at(d, n, box, col, hole=None):
     sx0, sx1 = snap(x0), snap(x0 + w * 0.13)
     if sx1 <= sx0:
         sx1 = sx0 + _px(n)
-    d.rounded_rectangle([g(n, sx0), g(n, snap(y0)), g(n, sx1), g(n, snap(y1))],
+    tall, step = max(snap(h * 0.26), _px(n)), snap(h * 0.37)
+    foot = snap(y1)
+    top = foot - 2 * step - tall
+    d.rounded_rectangle([g(n, sx0), g(n, top), g(n, sx1), g(n, foot)],
                         radius=g(n, w * 0.065), fill=col)
     rx = snap(x0 + w * 0.28)
     for i, wide in enumerate((0.62, 0.86, 0.48)):
-        ya, yb = snap(y0 + i * h * 0.37), snap(y0 + i * h * 0.37 + h * 0.26)
+        ya = top + i * step
+        yb = ya + tall
         d.rounded_rectangle([g(n, rx), g(n, ya), g(n, snap(x0 + w * (0.28 + wide * 0.72))), g(n, yb)],
                             radius=g(n, h * 0.07), fill=col)
 
@@ -483,7 +496,7 @@ def icon_for_ext(ext, size):
     only arrangement in which the band tells the truth, and this is it.
 
     CODE additionally picks up its language's mark where there is one, so a .py
-    is snakes and a .rs is a cog; the rest keep the stepped bars, which is most
+    is snakes and a .rs is a cog; the rest keep the indent guide, which is most
     of the 160 extensions the code kind covers.
     """
     kind = EXT_KIND[ext]
