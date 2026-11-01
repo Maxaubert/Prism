@@ -238,7 +238,10 @@ const serveMediaNow = createMediaServer({
   allowed: wall.mediaAllowed,
   warm: warmWall,
   ffmpeg: ffmpegTools,
-  heic: heicToJpeg
+  heic: heicToJpeg,
+  // A 500 leaves a line in the diag log (review of #23). `diag` is made at
+  // ready, before any page can ask for media.
+  onError: (fields) => diag?.log.write('main', 'media-500', fields)
 })
 // E2E only: a file whose name holds PRISM_E2E_SLOW_MEDIA answers 1.5 s late,
 // standing in for a slow conversion (a HEIC), so the preview's wait can be

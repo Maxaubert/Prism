@@ -26,6 +26,10 @@ export interface MediaServerDeps {
   ffmpeg: () => FfmpegTools | null
   /** A HEIC still as JPEG (heicClient.ts). */
   heic: (p: string, mtimeMs: number) => Promise<Buffer>
+  /** A 500's trace (review of #23, 2026-11-01): without it a broken wall,
+   *  warm or conversion shows only as media that will not play. index.ts
+   *  writes it to the diag log. */
+  onError?: (fields: { url: string; error: string }) => void
 }
 
 /** Past this a whole buffer is one IPC message, and tracing a 40 MB image
@@ -66,11 +70,17 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
   // THE HANDLER NEVER THROWS (#23, 2026-11-01): protocol.handle has no catch
   // of its own, so anything that throws below (a 0-byte file's ranged read
   // was one) is a 500 here, with no body. The wall is asked first inside, so
-  // a wall that throws serves nothing either.
+  // a wall that throws serves nothing either. What threw goes to `onError`,
+  // so the diag log keeps a trace of it.
   return async function serveMedia(request: Request): Promise<Response> {
     try {
       return await answer(request)
-    } catch {
+    } catch (e) {
+      try {
+        deps.onError?.({ url: request.url, error: e instanceof Error ? e.message : String(e) })
+      } catch {
+        /* a log that throws still answers the 500 */
+      }
       return new Response(null, { status: 500 })
     }
   }

@@ -114,6 +114,20 @@ describe('fsmedia://', () => {
     expect(res.status).toBe(500)
     expect(res.body).toBeNull()
   })
+
+  it('leaves a diag line for a 500, so media that will not play has a trace (review of #23)', async () => {
+    const lines: Array<{ url: string; error: string }> = []
+    const res = await createMediaServer({
+      allowed: () => {
+        throw new Error('wall broke')
+      },
+      ffmpeg: () => null,
+      heic: () => Promise.reject(new Error('no')),
+      onError: (fields) => lines.push(fields)
+    })(new Request(url(file)))
+    expect(res.status).toBe(500)
+    expect(lines).toEqual([{ url: url(file), error: 'wall broke' }])
+  })
 })
 
 // A picture main made (decoded TIFF/PSD, raw preview, HEIC) follows the same
