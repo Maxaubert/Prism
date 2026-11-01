@@ -12523,8 +12523,11 @@ async function dragScenario(fixtures) {
       )
       ok(existsSync(join(fixtures, 'zips', 'carry.txt')), `a member dragged out of the zip landed in the folder (${Date.now() - dropAt} ms)`)
       // A FOLDER dragged onto the tab strip opens as a tab of its own. The
-      // zip is behind us: the list is in the zips folder again. Walked to by
-      // its address, not Up: Up marks the zip it came out of, over the mark.
+      // zip is behind us: the list is in the zips folder again. Its address is
+      // the zip's parent, so this is the way out too: the zip is marked and
+      // its preview opens (#334). The extraction's landing mark must win that
+      // (`selectionMoved`): judged in the same commit, the way-out open took
+      // the selection back to the zip (1 run in 38).
       await zipGo(win, join(fixtures, 'zips'), async () => (await listRow(win, 'out').count()) === 1)
       await listRow(win, 'out').waitFor({ timeout: 10000 })
       // WHAT THE EXTRACTION WROTE IS MARKED (#70, #101): the drag's own
