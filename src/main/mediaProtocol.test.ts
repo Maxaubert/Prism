@@ -89,6 +89,21 @@ describe('fsmedia://', () => {
     expect(await res.text()).toBe('0123456789')
   })
 
+  it('serves several ranges as the whole file (200), never as the first one', async () => {
+    // A multipart answer is not made here; the RFC allows ignoring the header.
+    const res = await server()(new Request(url(file), { headers: { range: 'bytes=0-1,4-5' } }))
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('0123456789')
+  })
+
+  it('clamps a last byte too big to count, as a 206 (review of #23)', async () => {
+    const res = await server()(
+      new Request(url(file), { headers: { range: 'bytes=3-99999999999999999999' } })
+    )
+    expect(res.status).toBe(206)
+    expect(res.headers.get('content-range')).toBe('bytes 3-9/10')
+  })
+
   it('serves a 0-byte file empty, and a Range on it is a 416', async () => {
     const empty = join(dir, 'empty.mp4')
     writeFileSync(empty, '')
