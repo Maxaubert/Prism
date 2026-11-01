@@ -19,7 +19,8 @@ import { imageMenu } from '../menus/viewers/image'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import { saveCopyNote } from '../lib/saveCopyNote'
 import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
-import { inOverlay, isTypingTarget } from '../lib/focusGuards'
+import { isTypingTarget } from '../lib/focusGuards'
+import { photoInfoKeyToggles } from '../lib/photoInfoKey'
 import { photoInfoPref } from '../lib/photoInfoPref'
 import { PhotoInfoCard } from './image/PhotoInfoCard'
 import { clamp } from '../lib/clamp'
@@ -489,14 +490,14 @@ export function ImageView({
         case 'R': setRot((d) => (d + 90) % 360); break
         case 'f':
         case 'F': onToggleFullscreen(); break
-        // The photo info card (#78). Not over a menu or a dialog (the
-        // Properties window is one), and not as a chord. With the Explorer
-        // list focused it arrives only when the list's type-to-jump did not
-        // take the letter (the owner's rule for every letter: "taken only on
-        // a match, else the letter reaches the viewer"), as R and F do.
+        // The photo info card (#78): only the front viewer, never a chord,
+        // a repeat or over a menu or dialog (`photoInfoKey.ts`). With the
+        // Explorer list focused it arrives only when the list's type-to-jump
+        // did not take the letter (the owner's rule for every letter: "taken
+        // only on a match, else the letter reaches the viewer"), as R and F do.
         case 'i':
         case 'I':
-          if (infoPath && !e.ctrlKey && !e.altKey && !e.metaKey && !inOverlay(el)) togglePhotoInfo()
+          if (photoInfoKeyToggles(e, { offered: !!infoPath, target: el, stage: stageRef.current })) togglePhotoInfo()
           break
         // Project viewers retain pixel copy. Focused file rows and Explorer's
         // own file-copy shortcut keep their clipboard operation.
