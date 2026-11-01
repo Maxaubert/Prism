@@ -16,14 +16,22 @@
  * window; `register` is where the holders of #133 hook in once they land.
  * Pure parts - the argv, the key - are exported and tested; the class owns
  * the processes.
+ *
+ * A picture that can be clear (a PNG, a GIF, a WebP...) is a WebP WITH its
+ * alpha instead (#477, owner 2026-11-01: a checkerboard behind the clear
+ * parts, drawn by the tile). Its key ends `.webp`, so the black JPEGs cached
+ * before are never served again; photos keep the keys they had.
  */
 import { execFile } from './spawnWorker'
 import { createHash } from 'crypto'
 import { promises as fsp } from 'fs'
 import { join } from 'path'
 import { exists } from './fsUtil'
+import { thumbKeepsAlpha } from '@shared/thumbAlpha'
 
 export const THUMB_WIDTH = 320
+/** The tallest picture a WebP can hold (a JPEG holds 65535). */
+export const WEBP_MAX_PX = 16383
 /** A frame this far into a video: past the black leader most films open on. */
 export const VIDEO_SEEK_S = 3
 export const CACHE_MAX_BYTES = 200 * 1024 * 1024
@@ -35,15 +43,30 @@ const AT_ONCE = 4
 
 export type ThumbKind = 'image' | 'video'
 
-/** `<sha1 of path|size|mtime>.jpg`: a file changed on disk is a new key. */
+/** `<sha1 of path|size|mtime>.jpg`: a file changed on disk is a new key.
+ *  `.webp` for a picture that can be clear (#477). */
 export function thumbKey(path: string, size: number, mtimeMs: number): string {
-  return createHash('sha1').update(`${path.toLowerCase()}|${size}|${Math.floor(mtimeMs)}`).digest('hex') + '.jpg'
+  const hash = createHash('sha1').update(`${path.toLowerCase()}|${size}|${Math.floor(mtimeMs)}`).digest('hex')
+  return hash + (thumbKeepsAlpha(path) ? '.webp' : '.jpg')
+}
+
+/** A whole thumbnail in the cache folder, either kind; `.part` is not. */
+export function isThumbFile(name: string): boolean {
+  return name.endsWith('.jpg') || name.endsWith('.webp')
 }
 
 /** ffmpeg argv for one 320px JPEG of `file` at `out`. A video seeks first;
  *  `seek` 0 is the very first frame, the fallback for a clip shorter than
- *  the seek. `-frames:v 1` and a plain JPEG at quality 5 keep it small. */
+ *  the seek. `-frames:v 1` and a plain JPEG at quality 5 keep it small.
+ *  A picture that can be clear is a lossy WebP that keeps its alpha (#477):
+ *  libwebp takes the decoder's RGBA as it is, measured 2026-11-01 (a clear
+ *  corner stays alpha 0, where the JPEG made it black). WebP is chosen from
+ *  the extension alone, as `thumbKey` does, so a `.webp` key never holds a
+ *  JPEG. A WebP is at most 16383px tall, and at 320px wide a strip over ~51
+ *  times taller than wide passes that (a 40x4000 PNG is 320x32000, measured:
+ *  libwebp refused it), so its top 16383px are kept. */
 export function thumbArgs(file: string, kind: ThumbKind, out: string, seek = VIDEO_SEEK_S): string[] {
+  const alpha = thumbKeepsAlpha(file)
   return [
     '-hide_banner',
     '-loglevel',
@@ -56,15 +79,14 @@ export function thumbArgs(file: string, kind: ThumbKind, out: string, seek = VID
     '-frames:v',
     '1',
     '-vf',
-    `scale=${THUMB_WIDTH}:-2`,
-    '-q:v',
-    '5',
+    alpha ? `scale=${THUMB_WIDTH}:-2,crop=iw:'min(ih,${WEBP_MAX_PX})':0:0` : `scale=${THUMB_WIDTH}:-2`,
+    ...(alpha ? ['-c:v', 'libwebp', '-quality', '80'] : ['-q:v', '5']),
     // The muxer is NAMED, not read off the extension: the file is written
     // as `<key>.jpg.part` and renamed into place when whole, and ffmpeg
     // given a `.part` alone refuses for want of a format (measured: every
     // tile blank, the route 404 on a png it can decode).
     '-f',
-    'image2',
+    alpha ? 'webp' : 'image2',
     out
   ]
 }
@@ -128,7 +150,8 @@ export class Thumbs {
     private readonly register: (child: { kill(): unknown; once(event: 'close', fn: () => void): unknown }, file: string) => void = () => undefined
   ) {}
 
-  /** The JPEG's path, or null when the file cannot be thumbnailed. */
+  /** The thumbnail's path (a JPEG, or a WebP for a picture that can be
+   *  clear), or null when the file cannot be thumbnailed. */
   async get(file: string, kind: ThumbKind): Promise<string | null> {
     let st: { size: number; mtimeMs: number }
     try {
@@ -212,7 +235,7 @@ export class Thumbs {
   private async evict(): Promise<void> {
     let total: number | null = null
     try {
-      const names = (await fsp.readdir(this.dir)).filter((n) => n.endsWith('.jpg'))
+      const names = (await fsp.readdir(this.dir)).filter(isThumbFile)
       const entries: Array<{ name: string; size: number; mtimeMs: number }> = []
       for (let i = 0; i < names.length; i += SCAN_AT_ONCE) {
         const batch = await Promise.all(

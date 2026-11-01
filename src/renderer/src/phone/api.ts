@@ -5,6 +5,7 @@
  * tell "forgotten" (401) from "could not read the folder".
  */
 import { ROUTE, mediaPath, routePath } from '@shared/phoneWire'
+import { thumbKeepsAlpha } from '@shared/thumbAlpha'
 
 export const TOKEN_KEY = 'prism.phone.token'
 
@@ -43,9 +44,12 @@ export function apiUrl(path: string, params: Record<string, string> = {}): strin
   return s ? `${path}?${s}` : path
 }
 
-/** A tile's picture (#135): an `<img src>` carries no header either. */
+/** A tile's picture (#135): an `<img src>` carries no header either.
+ *  A picture that can be clear asks with `a=1` (#477): a NEW url, so the
+ *  black JPEG the phone cached for a day before the fix is not shown again.
+ *  The server ignores it; main picks the WebP by the extension itself. */
 export function thumbUrl(path: string): string {
-  return apiUrl(routePath(ROUTE.thumb), { path })
+  return apiUrl(routePath(ROUTE.thumb), thumbKeepsAlpha(path) ? { path, a: '1' } : { path })
 }
 
 /** `<video src>` cannot carry a header, so the token rides in the query. */
