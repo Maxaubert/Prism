@@ -34,8 +34,8 @@ strip and keeps desktop browsing separate from phone sharing.
   showing the file after its containing folder. Back, Backspace or a folder breadcrumb returns to
   the folder. Backspace inside an editor or text field still edits text.
 - Every Quick access default can be unpinned. Pin any file or folder from its context menu.
-  Drag pins to reorder them, or use Move up/Move down in the context
-  menu. Pin choices and order persist, including a deliberately empty list. File pins open the
+  Drag pins to reorder them, within their own section; the context menu has no Move up/Move down
+  (owner, 2026-10-31). Pin choices and order persist, including a deliberately empty list. File pins open the
   existing viewer; folder pins navigate. Pinning does not add phone shares.
 - Drag files or folders from Explorer or the project tree onto a folder, breadcrumb or drive.
   Starting a drag preserves the current selection and preview. Its label hangs just below and
