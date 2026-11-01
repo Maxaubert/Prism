@@ -12768,7 +12768,16 @@ async function dragZipRowScenario(fixtures) {
     const undid = await until(async () => /Undid/.test((await win.locator('body').textContent()) ?? ''), 6000, 100)
     ok(undid, `Ctrl+Z undid the add (${undid ? 'said so' : 'nothing said'})`)
     ok(await until(async () => !names().includes('a.txt'), 10000, 150), `it left the zip (${names()})`)
-    ok(await until(async () => existsSync(join(dir, 'a.txt')), 15000, 150), 'and the original came back from the Recycle Bin')
+    // As long as main gives the restore (its PowerShell has 20 s): on a busy
+    // PC it took past the old 15 s once and the file came back after.
+    ok(await until(async () => existsSync(join(dir, 'a.txt')), 22000, 150), 'and the original came back from the Recycle Bin')
+    // The undo is over only when its row is back in the LIST and marked (the
+    // inverse's last step). The file is on disk before the list has re-read:
+    // a drag aimed then measured the rows without a.txt, and the row a.txt
+    // pushed in moved everything down a row under the press: Ctrl carried
+    // anchor.txt (or a.txt) onto b.txt or a row before it, never b.txt onto
+    // the zip, so the word was '' or a duplicate's Copy and the zip got nothing.
+    ok(await until(async () => (await markedNames(win)).includes('a.txt'), 10000, 150), `and it is back in the list, marked (${await markedNames(win)})`)
     const w2 = await carryOver(win, name('b.txt'), listRow(win, 'box.zip'), { keys: ['Control'] })
     ok(w2 === 'Copy', `Ctrl over a zip row reads Copy (${w2})`)
     ok(await until(async () => names().includes('b.txt'), 10000, 150), 'Ctrl added it to the zip')
