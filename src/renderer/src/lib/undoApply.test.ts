@@ -145,3 +145,49 @@ describe('redoEntry', () => {
     )
   })
 })
+
+describe('what an undo or redo puts back is marked (#101)', () => {
+  const landing = (): UndoOps & { calls: string[]; landed: string[][] } => {
+    const ops = fakeOps() as UndoOps & { calls: string[]; landed: string[][] }
+    ops.landed = []
+    ops.land = (paths) => void ops.landed.push([...paths])
+    return ops
+  }
+  it('an undone move marks where each item came back to', async () => {
+    const ops = landing()
+    await undoEntry({ kind: 'move', items: [{ from: 'C:\\a\\x.txt', to: 'C:\\b\\x.txt' }] }, ops)
+    expect(ops.landed).toEqual([['C:\\a\\x.txt (2)']])
+  })
+  it('an undone rename and an undone delete mark what came back', async () => {
+    const ops = landing()
+    await undoEntry({ kind: 'rename', from: 'C:\\d\\old.txt', to: 'C:\\d\\new.txt' }, ops)
+    await undoEntry({ kind: 'trash', paths: ['C:\\d\\gone.txt'] }, ops)
+    expect(ops.landed).toEqual([['C:\\d\\old.txt'], ['C:\\d\\gone.txt']])
+  })
+  it('a redone move, duplicate and new folder mark what they made', async () => {
+    const ops = landing()
+    await redoEntry({ kind: 'move', items: [{ from: 'C:\\a\\x.txt', to: 'C:\\b\\x.txt' }] }, ops)
+    await redoEntry({ kind: 'duplicate', source: 'C:\\d\\a.txt', path: 'C:\\d\\a - Copy.txt' }, ops)
+    await redoEntry({ kind: 'mkdir', path: 'C:\\d\\New folder' }, ops)
+    expect(ops.landed).toEqual([['C:\\b\\x.txt (2)'], ['C:\\d\\a - Copy.txt'], ['C:\\d\\New folder']])
+  })
+  // A failed item never came back, so marking its old path would make the
+  // list wait the whole LAND_MARK_MS for a row that is not coming.
+  it('an undo or redo of a move marks only the items that really moved', async () => {
+    const ops = landing()
+    ops.move = vi.fn(async (paths: string[], dest: string) =>
+      paths[0].includes('stuck')
+        ? []
+        : paths.map((p) => ({ from: p, to: `${dest}\\${p.split('\\').pop()}` }))
+    )
+    const items = [
+      { from: 'C:\\a\\x.txt', to: 'C:\\b\\x.txt' },
+      { from: 'C:\\a\\stuck.txt', to: 'C:\\b\\stuck.txt' }
+    ]
+    const back = await undoEntry({ kind: 'move', items }, ops)
+    await redoEntry({ kind: 'move', items }, ops)
+    expect(ops.landed).toEqual([['C:\\a\\x.txt'], ['C:\\b\\x.txt']])
+    // The entry still names the stuck item where it is, as before.
+    expect(back && back.kind === 'move' ? back.items : null).toEqual(items)
+  })
+})

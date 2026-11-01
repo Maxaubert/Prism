@@ -5088,6 +5088,301 @@ async function tabAttachScenario(fixtures) {
   }
 }
 
+/** Every window close or app quit from here on is refused and counted, so a
+ *  check can see whether a key tried to put Prism away (#14). */
+async function catchCloses(app) {
+  await app.evaluate(({ app: a, BrowserWindow }) => {
+    globalThis.__e2eCloses = 0
+    const hold = (e) => {
+      e.preventDefault()
+      globalThis.__e2eCloses += 1
+    }
+    globalThis.__e2eCloseHold = hold
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.on('close', hold)
+    a.on('before-quit', hold)
+  })
+}
+const closesCaught = (app) => app.evaluate(() => globalThis.__e2eCloses ?? 0)
+/** Let the windows close again, so the scenario's own teardown works. */
+const releaseCloses = (app) =>
+  app.evaluate(({ app: a, BrowserWindow }) => {
+    const hold = globalThis.__e2eCloseHold
+    if (!hold) return
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.removeListener('close', hold)
+    a.removeListener('before-quit', hold)
+    globalThis.__e2eCloseHold = null
+  })
+
+// WHAT AN ACTION MAKES IS MARKED, EXPLORER'S WAY (#101). A paste, a
+// dropped move, Duplicate, Extract here (the folder it makes) and what an
+// undo puts back or a redo makes again: the rows that landed are selected
+// and scrolled into view.
+async function landingMarksScenario(fixtures) {
+  console.log('landing marks: what an action makes is selected and in view')
+  const dir = join(fixtures, 'landing-marks')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'into'), { recursive: true })
+  // Enough rows that the last one is off screen from the top of the list.
+  for (let i = 0; i < 80; i += 1) writeFileSync(join(dir, `f${String(i).padStart(2, '0')}.txt`), `row ${i}\n`)
+  copyFileSync(join(fixtures, 'zips', 'wrapped.zip'), join(dir, 'pack.zip'))
+  // Where the drops come from: outside the folder on screen.
+  const outside = join(fixtures, 'landing-marks-outside')
+  rmSync(outside, { recursive: true, force: true })
+  mkdirSync(outside, { recursive: true })
+  for (const n of ['win-copy.txt', 'own-move.txt']) writeFileSync(join(outside, n), `dropped ${n}\n`)
+  const { app, win } = await launch(join(dir, 'f00.txt'))
+  const list = '[data-testid="browse-list"]'
+  /** Drop real files on the list itself (the folder on screen), as Windows
+   *  delivers a drop: the same simulation as dropBackScenario's. */
+  const dropOnList = async (paths) => {
+    await win.evaluate(() => {
+      document.getElementById('e2e-drop-input')?.remove()
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.multiple = true
+      input.id = 'e2e-drop-input'
+      input.style.display = 'none'
+      document.body.append(input)
+    })
+    await win.setInputFiles('#e2e-drop-input', paths)
+    return win.evaluate((sel) => {
+      const input = document.getElementById('e2e-drop-input')
+      const dt = new DataTransfer()
+      for (const f of input.files) dt.items.add(f)
+      dt.effectAllowed = 'copyLink'
+      const el = document.querySelector(sel)
+      if (!el) return false
+      const r = el.getBoundingClientRect()
+      const opts = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 20, clientY: r.top + r.height / 2 }
+      el.dispatchEvent(new DragEvent('dragenter', opts))
+      el.dispatchEvent(new DragEvent('dragover', opts))
+      el.dispatchEvent(new DragEvent('drop', opts))
+      input.remove()
+      return true
+    }, list)
+  }
+  const row = (suffix) => win.locator(`${list} [data-browse-path$="${suffix}" i]`).first()
+  const marked = () =>
+    win.evaluate(
+      (l) =>
+        [...document.querySelectorAll(`${l} [data-browse-path][aria-selected="true"]`)].map(
+          (r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0]
+        ),
+      list
+    )
+  /** The row is drawn and inside the list's box. */
+  const inView = (name) =>
+    win.evaluate(
+      ([l, n]) => {
+        const box = document.querySelector(l)?.getBoundingClientRect()
+        const r = [...document.querySelectorAll(`${l} [data-browse-path]`)].find((x) =>
+          (x.getAttribute('data-browse-path') ?? '').toLowerCase().endsWith('\\' + n.toLowerCase())
+        )
+        if (!box || !r) return false
+        const b = r.getBoundingClientRect()
+        return b.top >= box.top - 1 && b.bottom <= box.bottom + 1
+      },
+      [list, name]
+    )
+  const toTop = () =>
+    win.evaluate((l) => {
+      const scroller = [...document.querySelectorAll(`${l}, ${l} *`)].find((e) => e.scrollHeight > e.clientHeight + 4)
+      if (scroller) scroller.scrollTop = 0
+    }, list)
+  const toEnd = () =>
+    win.evaluate((l) => {
+      const scroller = [...document.querySelectorAll(`${l}, ${l} *`)].find((e) => e.scrollHeight > e.clientHeight + 4)
+      if (scroller) scroller.scrollTop = scroller.scrollHeight
+    }, list)
+  const menuRow = async (suffix, label) => {
+    await row(suffix).locator('.browse-name-text').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.getByRole('menuitem', { name: new RegExp(`^${label}`) }).first().click()
+  }
+  const landed = async (names, what) => {
+    const want = JSON.stringify([...names].sort())
+    ok(
+      await until(async () => JSON.stringify((await marked()).sort()) === want, 15000, 100),
+      `${what}: marked (${JSON.stringify(await marked())})`
+    )
+    ok(await until(() => inView(names[0]), 3000, 100), `${what}: and in view`)
+  }
+  try {
+    await toList(win)
+    ok(await until(async () => (await row('f00.txt').count()) === 1, 10000), 'the Explorer shows the folder')
+
+    // DUPLICATE: the copy is marked.
+    await menuRow('f01.txt', 'Duplicate')
+    ok(await until(() => readdirSync(dir).some((n) => /^f01 .*copy.*\.txt$/i.test(n) || /^f01 \(\d\)\.txt$/i.test(n)), 8000), 'Duplicate makes a copy')
+    const copy = readdirSync(dir).find((n) => n.startsWith('f01') && n !== 'f01.txt')
+    await landed([copy], 'Duplicate')
+
+    // UNDO puts a deleted file back: marked, and scrolled to from the top.
+    const last = 'f79.txt'
+    await toEnd()
+    await sleep(300)
+    await row(last).locator('.browse-name-text').click()
+    await win.keyboard.press('Delete')
+    const ask = win.getByRole('dialog', { name: 'Move to the Recycle Bin?' })
+    ok(await until(async () => (await ask.count()) === 1, 5000), 'Del asks')
+    await win.getByRole('button', { name: /^(Delete|Move to the Recycle Bin|Yes)/ }).first().click()
+    ok(await until(() => !existsSync(join(dir, last)), 10000), `${last} goes to the Recycle Bin`)
+    await sleep(500)
+    await toTop()
+    await row('f00.txt').locator('.browse-name-text').click()
+    await sleep(300)
+    ok(!(await inView(last)), `with the list at its top, ${last} is out of view`)
+    await win.keyboard.press('Control+z')
+    // The Recycle Bin restore is a PowerShell call: seconds, more under load.
+    ok(await until(() => existsSync(join(dir, last)), 40000), 'Ctrl+Z puts it back')
+    await landed([last], 'what the undo put back')
+
+    // REDO makes it again: Duplicate undone, then redone, marks the new copy.
+    await toTop()
+    await sleep(300)
+    await menuRow('f02.txt', 'Duplicate')
+    ok(await until(() => readdirSync(dir).some((n) => n.startsWith('f02') && n !== 'f02.txt'), 8000), 'a second Duplicate')
+    const copy2 = readdirSync(dir).find((n) => n.startsWith('f02') && n !== 'f02.txt')
+    await landed([copy2], 'the second Duplicate')
+    await row('f00.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+z')
+    ok(await until(() => !existsSync(join(dir, copy2)), 10000), 'Ctrl+Z takes the copy away')
+    await sleep(500)
+    await row('f00.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+y')
+    ok(await until(() => readdirSync(dir).some((n) => n.startsWith('f02') && n !== 'f02.txt'), 10000), 'Ctrl+Y makes it again')
+    const copy3 = readdirSync(dir).find((n) => n.startsWith('f02') && n !== 'f02.txt')
+    await landed([copy3], 'what the redo made')
+
+    // A PASTE of two files: both marked.
+    await row('f03.txt').locator('.browse-name-text').click()
+    await row('f04.txt').locator('.browse-name-text').click({ modifiers: ['Control'] })
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'Ctrl+C copies two files')
+    await win.keyboard.press('Control+v')
+    ok(await until(() => existsSync(join(dir, 'f03 (2).txt')) && existsSync(join(dir, 'f04 (2).txt')), 15000), 'Ctrl+V pastes both')
+    await landed(['f03 (2).txt', 'f04 (2).txt'], 'the paste')
+
+    // A DROPPED MOVE into a folder, then undone: back where it was, marked.
+    await row('f05.txt').locator('.browse-name-text').dragTo(row('\\into').locator('.browse-name-text'))
+    const moved = await until(() => existsSync(join(dir, 'into', 'f05.txt')), 8000)
+    ok(moved, 'a drop moves f05 into the folder')
+    if (moved) {
+      await row('f00.txt').locator('.browse-name-text').click()
+      await win.keyboard.press('Control+z')
+      ok(await until(() => existsSync(join(dir, 'f05.txt')), 10000), 'Ctrl+Z moves it back')
+      await landed(['f05.txt'], 'the move undone')
+    }
+
+    // EXTRACT HERE: the folder it makes is marked.
+    await toEnd()
+    await sleep(300)
+    await menuRow('pack.zip', 'Extract here')
+    ok(await until(() => existsSync(join(dir, 'Collection')), 20000), 'Extract here makes its folder')
+    await landed(['Collection'], 'Extract here')
+
+    // A COPY DROPPED IN FROM WINDOWS onto the folder on screen (#103's copy):
+    // marked, and scrolled to (it sorts after f79).
+    await toTop()
+    await row('f00.txt').locator('.browse-name-text').click()
+    ok(await dropOnList([join(outside, 'win-copy.txt')]), 'a file from Windows is dropped on the list')
+    ok(await until(() => existsSync(join(dir, 'win-copy.txt')), 10000), 'the drop copies it into the folder on screen')
+    await landed(['win-copy.txt'], 'a copy dropped in from Windows')
+
+    // PRISM'S OWN DRAG DROPPED ON THE FOLDER ON SCREEN is a move, and the
+    // moved file is marked.
+    await toTop()
+    await row('f00.txt').locator('.browse-name-text').click()
+    ok(!!(await dragFake.start(app, [join(outside, 'own-move.txt')])), 'the fake broadcast an OS drag record')
+    await sleep(300)
+    ok(await dropOnList([join(outside, 'own-move.txt')]), "Prism's own file is dropped on the list")
+    ok(
+      await until(() => existsSync(join(dir, 'own-move.txt')) && !existsSync(join(outside, 'own-move.txt')), 10000),
+      'the drop moves it into the folder on screen'
+    )
+    await landed(['own-move.txt'], 'a move dropped on the folder on screen')
+    await dragFake.end(app)
+    await sleep(1800) // past the renderer's grace for the end message
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
+  }
+}
+
+// ESCAPE NEVER CLOSES PRISM (#14, owner, 2026-11-01: "escape should not
+// interact with app close"). In the plain viewer and the Explorer it does
+// nothing to the window; it still closes a context menu and a dialog, and it
+// cancels a rename, each without the window going.
+async function escapeKeepsOpenScenario(fixtures) {
+  console.log('escape: never closes Prism, still closes what is open')
+  const dir = join(fixtures, 'escape-open')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['one.txt', 'two.txt']) writeFileSync(join(dir, n), `escape ${n}\n`)
+  const { app, win } = await launch(join(dir, 'one.txt'))
+  const row = (suffix) => win.locator(`[data-testid="browse-list"] [data-browse-path$="${suffix}" i]`).first()
+  const press = async (times = 2) => {
+    for (let i = 0; i < times; i += 1) {
+      await win.keyboard.press('Escape')
+      await sleep(120)
+    }
+    await sleep(400)
+  }
+  try {
+    await win.waitForSelector('[role="tablist"] [data-tab-role]', { timeout: 10000 })
+    await sleep(800)
+    await catchCloses(app)
+
+    // THE PLAIN VIEWER: the file is open, nothing else is up.
+    await win.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : null))
+    await press(3)
+    ok((await closesCaught(app)) === 0, 'Escape in the plain viewer leaves the window open')
+
+    // THE EXPLORER LIST: the viewer steps back to its folder.
+    await toList(win)
+    ok(await until(async () => (await row('two.txt').count()) === 1, 10000), 'the Explorer shows the folder')
+    await row('two.txt').locator('.browse-name-text').click()
+    await win.locator('[data-testid="browse-list"]').focus()
+    await press(3)
+    ok((await closesCaught(app)) === 0, 'Escape in the Explorer leaves the window open')
+
+    // A CONTEXT MENU: Escape closes it, and only it.
+    await row('two.txt').locator('.browse-name-text').click({ button: 'right' })
+    ok(await until(async () => (await win.locator('[role="menu"]').count()) > 0, 5000), 'a right-click opens the menu')
+    await press(1)
+    ok(await until(async () => (await win.locator('[role="menu"]').count()) === 0, 3000), 'Escape closes the menu')
+    ok((await closesCaught(app)) === 0, 'and not the window')
+
+    // A RENAME: Escape cancels it, and the name stays.
+    await row('two.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('F2')
+    const name = win.locator('[role="dialog"] input[aria-label="New name"]')
+    ok(await until(async () => (await name.count()) === 1, 5000), 'F2 asks for a new name')
+    await name.fill('renamed.txt')
+    await press(1)
+    ok(await until(async () => (await name.count()) === 0, 3000), 'Escape cancels the rename')
+    ok(existsSync(join(dir, 'two.txt')) && !existsSync(join(dir, 'renamed.txt')), 'and the file keeps its name')
+    ok((await closesCaught(app)) === 0, 'and the window stays open')
+
+    // A DIALOG: Escape answers Cancel.
+    await row('two.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Delete')
+    const ask = win.getByRole('dialog', { name: 'Move to the Recycle Bin?' })
+    ok(await until(async () => (await ask.count()) === 1, 5000), 'Del asks to delete')
+    await press(1)
+    ok(await until(async () => (await ask.count()) === 0, 3000), 'Escape closes the dialog')
+    ok(existsSync(join(dir, 'two.txt')), 'and keeps the file')
+    // More Escapes, with the dialog gone, land on the app behind it.
+    await press(2)
+    ok((await closesCaught(app)) === 0, 'and the window stays open after every Escape')
+  } finally {
+    await releaseCloses(app).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 // SETTINGS AS THE LAST TAB (review, 2026-10-28): putting Settings away with
 // the gear when it is the only tab closes the window, like any last tab; it
 // used to leave an empty window with no tabs.
@@ -5113,6 +5408,19 @@ async function settingsLastTabScenario(fixtures) {
     }
     const left = await win.locator(`${strip} [data-tab-role]`).count()
     ok(left <= 1, `only Settings is left (${left} tab)`)
+    // ESCAPE NEVER CLOSES THE WINDOW (#14, owner, 2026-11-01): Escape on
+    // Settings as the last tab leaves it there, and the window open.
+    await catchCloses(app)
+    await win.keyboard.press('Escape')
+    await win.keyboard.press('Escape')
+    await sleep(500)
+    ok((await closesCaught(app)) === 0, 'Escape on Settings as the last tab does not close the window')
+    ok(
+      (await gear.getAttribute('aria-pressed')) === 'true' &&
+        (await win.locator(`${strip} [data-tab-role="settings"]`).count()) === 1,
+      'and Settings stays open'
+    )
+    await releaseCloses(app)
     await app.evaluate(({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && /index\.html/.test(x.webContents.getURL()))
       w?.once('close', (e) => {
@@ -18709,6 +19017,8 @@ await run(lastClosedRestoreScenario)
 await run(tabTearScenario)
 await run(tabAttachScenario)
 await run(settingsLastTabScenario)
+await run(escapeKeepsOpenScenario)
+await run(landingMarksScenario)
 await run(titleBarScenario)
 await run(moreMenuScenario)
 await run(updateWindowScenario)

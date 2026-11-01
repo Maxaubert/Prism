@@ -165,3 +165,34 @@ describe('the generated icon tables', () => {
     for (const n of ['dockerfile', '.gitignore']) expect(LANG_BY_NAME[n]).toBeDefined()
   })
 })
+
+/** The vertical extent of each subpath of a mark: every rounded rectangle
+ *  svg.py writes is `M x y`, then H/V runs and arcs whose last two numbers are
+ *  a point, so the y's are the M's, the V's and the arcs' ends. */
+function spans(d: string): Array<[number, number]> {
+  return d
+    .split(/(?=M)/)
+    .map((sub) => {
+      const ys: number[] = []
+      for (const [, op, args] of sub.matchAll(/([MVA])([^MHVAZ]*)/g)) {
+        const n = args.trim().split(/[\s,]+/).map(Number)
+        if (op === 'V') ys.push(n[0])
+        else ys.push(n[n.length - 1])
+      }
+      return [Math.min(...ys), Math.max(...ys)] as [number, number]
+    })
+}
+
+describe('the code mark is an indent guide with even rungs (#91)', () => {
+  // Review of #91 (2026-11-01): each rung's edges were snapped on their own,
+  // so at 16px the rungs came out 2, 2 and 1 pixels and the app's third was
+  // half the height of the others. One height, one step, snapped once.
+  it('three rungs of one height on one step, and a spine that spans them', () => {
+    const [spine, ...rungs] = spans(ICON_PATHS.code.mark)
+    expect(rungs).toHaveLength(3)
+    const heights = rungs.map(([a, b]) => b - a)
+    expect(new Set(heights).size).toBe(1)
+    expect(rungs[1][0] - rungs[0][0]).toBe(rungs[2][0] - rungs[1][0])
+    expect(spine).toEqual([rungs[0][0], rungs[2][1]])
+  })
+})

@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { clearFileCut, fileCutPaths, fileClipboardReady } from '../lib/fileClipboard'
 import { endJob, startJob } from '../lib/jobs'
 import { followFolderIcons } from '../lib/folderIcons'
+import { markLanded } from '../lib/landMarks'
 
 /** What main answers a paste with. */
 export type PasteResult = Awaited<ReturnType<Window['prism']['pasteInto']>>
@@ -63,6 +64,8 @@ export function useFilePaste(
         const said = pasteMessage(result, refused)
         if (said) onError(said)
         onPasted(result, directory)
+        // What landed is marked in the list, the first under the cursor (#101).
+        markLanded(result.paths ?? [])
       } catch {
         onError(PASTE_MESSAGES.threw)
       } finally {

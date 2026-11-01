@@ -17,6 +17,7 @@ import { ARCHIVE_COPY } from '../archive/archiveOps'
 import { useArchiveOps } from '../archive/useArchiveOps'
 import { BrowseRename } from './BrowseRename'
 import type { BrowseEntry } from './types'
+import { extractAll } from '../../lib/extractAll'
 
 const ICONS: Record<ArchiveRowId, FileMenuIconName> = {
   open: 'open',
@@ -123,7 +124,7 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
   const extractWhole = useCallback(
     (meta: ArchiveMeta, here: boolean, rows: string[]): void => {
       if (!meta.nested && !meta.inner) {
-        void window.prism.archiveExtractAll(meta.container, here).then((r) => {
+        void extractAll(meta.container, here).then((r) => {
           if (r.ok && here) flashDone()
         })
         return
@@ -253,9 +254,9 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
               case 'open-new-tab':
                 return latest.current.openNewTab(path, true)
               case 'extract-here':
-                return void window.prism.archiveExtractAll(path, true)
+                return void extractAll(path, true)
               case 'extract-to':
-                return void window.prism.archiveExtractAll(path, false)
+                return void extractAll(path, false)
               case 'add-files':
                 return void window.prism.pickFiles().then((paths) => {
                   if (!paths.length) return

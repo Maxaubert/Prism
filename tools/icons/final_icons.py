@@ -133,7 +133,8 @@ COLOURS = {
     # with the page colour shared they are told apart by the extension on the
     # band and by the language marks, not by the page. The treatments are kept
     # in `_code` and `_document` - the mockup rounds import them - but nothing
-    # ships through them any more.
+    # ships through them any more. (#91, 2026-11-01: the bars are no longer the
+    # same - code's mark is the indent guide, `_code_guide_at`.)
     "code": ("PY", PAGE),
     "comic": ("CBZ", (210, 96, 58)),
     "document": ("DOCX", PAGE),
@@ -156,6 +157,71 @@ def _code_bars_at(d, n, box, col, hole=None):
         y = y0 + i * h * 0.37
         d.rounded_rectangle([g(n, x0 + w * a), g(n, y), g(n, x0 + w * b), g(n, y + h * 0.26)],
                             radius=g(n, h * 0.07), fill=tuple(col))
+
+
+def _code_guide_at(d, n, box, col, hole=None):
+    """CODE: an indent guide with rungs (#91, 2026-11-01), the mark the app draws.
+
+    Since the set went uniform (#82) code and document shared the page colour,
+    and `_code_bars_at`'s three rounded bars were nearly `doc_lines`' three
+    rounded bars: magnified at 16px, a .adoc and a .docx were the same picture.
+    The app had already met that problem in one flat ink and answered it with
+    this guide - a vertical spine with rungs hanging off it reads as STRUCTURE
+    where full-width bars read as prose - so the .ico takes the same mark and
+    the third deliberate divergence in svg.py is closed.
+
+    CHECKED AT 16px FIRST. Every edge is put on the frame's own pixel grid
+    (`_on_px`), so at 16px the spine is one whole pixel and each rung two, with
+    a clean one-pixel gap between rungs, rather than three anti-aliased smudges
+    joined by grey. At 32px and up the snap moves an edge by a fraction of a
+    pixel and nothing else.
+
+    ONE HEIGHT AND ONE PITCH, SNAPPED ONCE (review of #91, 2026-11-01). Snapping
+    each rung's top and bottom on its own let the edges fall where they would:
+    the rungs came out 2, 2 and 1 pixels at 16px, 4/3/4 at 32. So the height and
+    the step are snapped once and every rung is laid with the same two. The stack
+    hangs from the box's snapped FOOT, not its top: at 16px three 2px rungs and
+    two gaps are eight pixels in a seven-pixel box, and laid from the top the
+    third rung ran into the band with no row between. From the foot the extra
+    pixel goes up, the band keeps its clear row, and the spine spans the stack.
+
+    `n` is the drawing's size in pixels: the frame's at the size it is built
+    at, or 16 when svg.py records it, where every grid unit is one pixel and
+    the snap is a whole unit. svg.py snaps at its own 16 for the same picture.
+    """
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+
+    def snap(k):
+        return _on_px(n, k)
+
+    sx0, sx1 = snap(x0), snap(x0 + w * 0.13)
+    if sx1 <= sx0:
+        sx1 = sx0 + _px(n)
+    tall, step = max(snap(h * 0.26), _px(n)), snap(h * 0.37)
+    foot = snap(y1)
+    top = foot - 2 * step - tall
+    d.rounded_rectangle([g(n, sx0), g(n, top), g(n, sx1), g(n, foot)],
+                        radius=g(n, w * 0.065), fill=col)
+    rx = snap(x0 + w * 0.28)
+    for i, wide in enumerate((0.62, 0.86, 0.48)):
+        ya = top + i * step
+        yb = ya + tall
+        d.rounded_rectangle([g(n, rx), g(n, ya), g(n, snap(x0 + w * (0.28 + wide * 0.72))), g(n, yb)],
+                            radius=g(n, h * 0.07), fill=col)
+
+
+def _px(n):
+    """One pixel of the frame, in grid units (sixteenths of the tile)."""
+    return 16.0 * S / n if n > 16 else 1.0
+
+
+def _on_px(n, k):
+    """`k` (grid units) on the frame's pixel grid. `n` is the drawing's pixel
+    size (`size * S`, since frames are drawn at S times and downsampled once),
+    or 16 for svg.py's recorder, where a unit is the pixel."""
+    step = _px(n)
+    return round(k / step) * step
 
 
 def _play_disc(d, n, box, col, hole=None):
@@ -182,7 +248,8 @@ def _play_disc(d, n, box, col, hole=None):
 
 PAGE_GLYPHS = {
     "audio": quarter,
-    "code": _code_bars_at,
+    # The indent guide since #91; `_code_bars_at` stays for the mockup rounds.
+    "code": _code_guide_at,
     "document": doc_lines,
     "image": dict((k, f) for k, _l, f in R14["image"][2])["hills"],
     "video": _play_disc,
@@ -429,7 +496,7 @@ def icon_for_ext(ext, size):
     only arrangement in which the band tells the truth, and this is it.
 
     CODE additionally picks up its language's mark where there is one, so a .py
-    is snakes and a .rs is a cog; the rest keep the stepped bars, which is most
+    is snakes and a .rs is a cog; the rest keep the indent guide, which is most
     of the 160 extensions the code kind covers.
     """
     kind = EXT_KIND[ext]
