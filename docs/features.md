@@ -17,16 +17,29 @@ jxl is getting pretty popular and very good", so JPEG, PNG, WebP, AVIF and JPEG 
 - **Next to its original, never over anything**: the format's extension, and a taken name, the original's own
   included (a JPEG of a .jpg), becomes "name (2).ext". The copy is made in a job folder in temp
   (`%TEMP%\prism-copies-*`, gone when the job ends, Cancel included: the AVIF muxer needs a file it can seek)
-  and copied into place with "fail if it exists"; a name taken in between moves on to the next. Only inside
+  and copied into place with "fail if it exists"; a name taken in between moves on to the next. The copy
+  writes to the final name, so a big one is visible, growing, while it copies; it is never over anything. Only inside
   the wall (`editable`): there is no dialog, so a copy lands only in a granted folder.
 - **One job**: the chip says "Saving JPEG copies", a bar by pictures done, and a small Cancel (x), the one
   part of the chip that takes a click. Cancel stops the running ffmpeg and starts no more; the copies made
   stay and are marked. The chip then says the DONE NOTE for 5 s, no bar: "Saved 37 copies", "Saved 37
   copies, 2 could not be read" (the owner's words, for any picture that could not be made), ", 1 skipped (not
   pictures)", "Stopped, saved 3 copies". What landed is marked in the list (`lib/landMarks.ts`).
+- **Nothing on the chip is hidden by an older paste** (review, 2026-11-01): the chip shows the oldest job
+  still working, so a note and a Cancel were out of sight while a paste ran, and the note timed out unseen.
+  A done note now leads the chip (a second note waits its turn, each gets its 5 s), and among live jobs one
+  with a Cancel leads (`lib/jobs.ts` `chipSummary`).
+- **"Not pictures" means not pictures** (review, 2026-11-01): a folder or a text file is skipped. An SVG (a
+  picture the bundled ffmpeg cannot read), a picture outside the wall and one the disk will not stat are
+  counted as "could not be read".
 - **Encoded in main by the bundled ffmpeg** (`src/main/imageEncode.ts`), through the process worker, two at
-  a time. HEIC and camera RAW are decoded as the viewer decodes them (the libheif worker's JPEG, the camera's
-  embedded preview), everything else ffmpeg reads; an animated GIF or WebP gives its first frame; EXR and HDR
+  a time. HEIC and camera RAW are decoded as the viewer decodes them (libheif's JPEG, the camera's embedded
+  preview), but NOT through the viewer's own worker or caches (review, 2026-11-01): a batch of 400 put the
+  viewer's decodes in line behind its own (about 2 s each) and emptied the viewer's 6 HEIC and 4 RAW cached
+  pictures, so a batch has its own HEIC worker (`heicToJpegForCopy`, gone after a minute idle) and reads RAW
+  previews uncached (`readRawPreview`). Each decoded JPEG is deleted as soon as its copy is made, and a copy
+  that does not land as soon as it fails (400 HEICs had kept 1-2 GB in temp until the job ended). Everything
+  else ffmpeg reads; an animated GIF or WebP gives its first frame; EXR and HDR
   are tone-mapped as the viewer does. ffmpeg turns the picture by its EXIF orientation, so the copy stands as
   shown. **No metadata** (privacy, as the single save): container metadata and ffmpeg 9's per-frame EXIF
   (`sidedata` type 31) are dropped; without the second a PNG and a JPEG XL still carried the camera's EXIF
@@ -38,16 +51,25 @@ jxl is getting pretty popular and very good", so JPEG, PNG, WebP, AVIF and JPEG 
 - **The single Save a copy**: JPEG and PNG are still the canvas's; WebP, AVIF and JPEG XL are made in main
   from the canvas's PNG at the same quality (`saveCopy.ts` `transcode`). Its dialog filter names the format.
 - **Never freezes** (MEASURED, e2e `batchCopiesLoad`, 2026-11-01): 24 photos of 4032x3024 (140 MB) to JPEG
-  XL in 12.4 s, the page's longest frame 35 ms and main's longest answer 15 ms while it ran.
+  XL in 12.4 s, the page's longest frame 35 ms and main's longest answer 15 ms while it ran. On REAL
+  photos (review, 2026-11-01, `PRISM_E2E_COPIES_PHOTOS`): Windows' own 24 wallpaper photographs (23 MB,
+  mostly 3840x2400) in 8.7 s, longest frame 35 ms, main 6 ms; the same 24 as 4032x3024 HEICs (50 MB, the
+  iPhone case) in 24.4 s, longest frame 42 ms, main 16 ms; Cancel part way passed on both.
 - **Known limit**: ffmpeg does not merge an AVIF's alpha picture when it READS one, so a clear AVIF copied
   to another format loses its transparency.
 - **Held by** `imageCopy.test.ts`, `imageEncode.test.ts` (each format's argv, the EXIF drop, alpha, white
-  ground), `batchCopies.test.ts` (names, "name (2)", a race, skips, failures, Cancel, two at a time),
-  `saveCopy.test.ts` (the new formats), `jobs.test.ts` (Cancel, the note), `copiesNote.test.ts`,
-  `saveCopies.test.ts`, `menus/explorerRow.test.ts`, `menus/viewers/image.test.ts`, and e2e `batchCopies`
-  (each format: beside the original, turned, no EXIF, alpha, a white JPEG corner, a taken name untouched, the
-  note, the marks, nothing left in temp), `batchCopiesLoad` (24 photos, the stall times, Cancel) and
-  `imageSaveCopy` (WebP, AVIF, JPEG XL). Screenshots `save-copies-running.png`, `save-copies-done.png`.
+  ground), `imageEncode.ffmpeg.test.ts` (REAL encodes by the bundled ffmpeg: an animated GIF and WebP give
+  their first frame, EXR and HDR are tone-mapped, `probeAlpha`, the AVIF alpha picture), `copyJobs.test.ts`
+  (the HEIC and RAW route and its own decoders, the decoded JPEG dropped, "fail if it exists", the single
+  save's transcode, Cancel by job id), `batchCopies.test.ts` (names, "name (2)", a race, skips, failures, a
+  made file thrown away, Cancel, two at a time), `saveCopy.test.ts` (the new formats), `jobs.test.ts`
+  (Cancel, the note, neither behind a paste), `copiesNote.test.ts`, `saveCopies.test.ts`,
+  `menus/explorerRow.test.ts`, `menus/viewers/image.test.ts`, and e2e `batchCopies` (each format: beside the
+  original, turned, no EXIF, alpha, a white JPEG corner, a taken name untouched, the note, the marks, nothing
+  left in temp), `batchCopiesHeic` (two HEICs, `tools/e2e/assets/gradient.heic`, to JPEG: their size, their
+  picture, no EXIF, the SVG "could not be read", the job folder gone), `batchCopiesLoad` (24 photos, the
+  stall times, Cancel; `PRISM_E2E_COPIES_PHOTOS` runs it on a folder of real photos) and `imageSaveCopy`
+  (WebP, AVIF, JPEG XL). Screenshots `save-copies-running.png`, `save-copies-done.png`.
 
 ## Drag in the Explorer: move, copy, add, extract (#70, owner, 2026-11-01)
 
