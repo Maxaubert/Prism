@@ -11,7 +11,7 @@ import {
   addMembers,
   ARCHIVE_COPY,
   deleteMembers,
-  membersOut,
+  copyBetweenZips,
   renameMember,
   runWithPassword,
   type ArchiveFail,
@@ -62,7 +62,7 @@ export interface ArchiveOps {
   /** Members of ANOTHER zip copied into this one (#70 D9): out to temp,
    *  then added, the originals left in their zip. */
   copyBetween: (
-    from: { container: string; entries: string[]; places: string[] },
+    from: { container: string; entries: string[] },
     container: string,
     dest: string,
     base?: string
@@ -106,6 +106,8 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
         names: string[]
         move: boolean
         base?: string
+        /** The add is over, however it ended (a staged copy drops its folder). */
+        settled?: () => void
       }
     | {
         kind: 'move'
@@ -170,13 +172,15 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
       dest: string,
       keepBoth: boolean,
       move: boolean,
-      base?: string
+      base?: string,
+      settled?: () => void
     ): void => {
       void addMembers(window.prism, { container, paths, dest, keepBoth, move }).then((r) => {
         setClash(null)
-        if (r.kind === 'said') return setOops(r.message)
         if (r.kind === 'clash')
-          return setClash({ kind: 'add', container, paths, dest, names: r.names, move, base })
+          return setClash({ kind: 'add', container, paths, dest, names: r.names, move, base, settled })
+        settled?.()
+        if (r.kind === 'said') return setOops(r.message)
         if (r.undo) latest.current.noteUndo?.(r.undo)
         latest.current.refresh()
         // What landed is marked in the list showing it (#70, #101).
@@ -230,21 +234,16 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
   )
 
   const copyBetween = useCallback(
-    (
-      from: { container: string; entries: string[]; places: string[] },
-      container: string,
-      dest: string,
-      base?: string
-    ): void => {
-      void membersOut(window.prism, { ...from, password: archivePassword(from.container) }).then(
-        (out) => {
-          if (out.locked) setOops(ARCHIVE_COPY.copyLocked(out.locked))
-          else if (out.failed && !out.paths.length) setOops(ARCHIVE_COPY.copyFailed)
-          if (out.paths.length) add(container, out.paths, dest, false, false, base)
-        }
-      )
-    },
-    [add]
+    (from: { container: string; entries: string[] }, container: string, dest: string, base?: string): void =>
+      withPassword(from.container, from.entries[0]?.split('/').pop() || 'archive', (pw) =>
+        copyBetweenZips(
+          window.prism,
+          { ...from, password: pw },
+          container,
+          (paths) => new Promise<void>((settled) => add(container, paths, dest, false, false, base, settled))
+        )
+      ),
+    [add, withPassword]
   )
 
   const askDelete = useCallback(
@@ -298,10 +297,13 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
       {clash && (
         <ArchiveClashDialog
           names={clash.names}
-          onCancel={() => setClash(null)}
+          onCancel={() => {
+            if (clash.kind === 'add') clash.settled?.()
+            setClash(null)
+          }}
           onKeepBoth={() =>
             clash.kind === 'add'
-              ? add(clash.container, clash.paths, clash.dest, true, clash.move, clash.base)
+              ? add(clash.container, clash.paths, clash.dest, true, clash.move, clash.base, clash.settled)
               : runMoveInside(clash.container, clash.entries, clash.dest, true, clash.base, clash.after)
           }
         />

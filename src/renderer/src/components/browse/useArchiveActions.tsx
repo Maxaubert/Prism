@@ -209,7 +209,7 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
       if (payload.kind === 'members') {
         if (verb === 'zip-to-zip')
           return copyBetween(
-            { container: payload.archive, entries: payload.entries, places: payload.places ?? [] },
+            { container: payload.archive, entries: payload.entries },
             meta.container,
             inner,
             meta.base

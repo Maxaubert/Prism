@@ -24,6 +24,7 @@ import type {
   ExtractEvent,
   ExtractPickedResult,
   ExtractToResult,
+  StageResult,
   MemberExtractResult
 } from '@shared/extraction'
 import type { IconList, IconPick, IconSave } from '@shared/folderIconFiles'
@@ -501,6 +502,19 @@ const api = {
     asksPassword = false
   ): Promise<ExtractToResult> =>
     ipcRenderer.invoke(CALL.archiveExtractTo, zip, entries, destDir, password, asksPassword),
+
+  /** Members of one zip out to a staging folder main makes, through the
+   *  extraction window, on their way into another zip (#70 D9). `toZip`
+   *  only names the window's destination. Drop `dir` with `archiveUnstage`
+   *  once the add is over. */
+  archiveStageMembers: (
+    zip: string,
+    entries: string[],
+    password?: string,
+    toZip?: string
+  ): Promise<StageResult> => ipcRenderer.invoke(CALL.archiveStageMembers, zip, entries, password, toZip),
+  /** Remove a staging folder `archiveStageMembers` made (no other). */
+  archiveUnstage: (dir: string): Promise<boolean> => ipcRenderer.invoke(CALL.archiveUnstage, dir),
 
   /** Members out to a folder the user picks in main's dialog (the consent
    *  that lets it write outside every root). 'cancelled' is the dialog. */

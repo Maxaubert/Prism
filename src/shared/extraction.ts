@@ -39,6 +39,10 @@ export type ExtractToResult =
    *  "name (2)", so a drag's extraction marks what landed (#70, #101). */
   | { ok: true; written: number; paths: string[] }
   | ExtractFailure
+/** Members of one zip out to a staging folder main made, on their way into
+ *  another zip (#70 D9): `dir` is dropped by `archive:unstage` once the add
+ *  is over. */
+export type StageResult = { ok: true; dir: string; paths: string[] } | ExtractFailure
 /** Members out to a folder main's dialog asked for. */
 export type ExtractPickedResult = { ok: true; dest: string; written: number } | ExtractFailure
 /** The whole archive into a folder named after it. */

@@ -12856,6 +12856,24 @@ async function dragZipToZipScenario(fixtures) {
     ok(w1 === 'Copy', `a member over another zip's tab reads Copy (${w1})`)
     ok(await until(async () => names(b).includes('one.txt'), 15000, 150), `copied into zip B (${names(b)})`)
     ok(names(a).includes('one.txt'), 'and zip A is unchanged')
+    // A FOLDER member too, and nothing is left behind (#70 review,
+    // 2026-11-01): the copy stages in the run's member folder and drops the
+    // staging folder once added; it used to leave a prism-arcdir-* in temp.
+    const arcdirs = () => readdirSync(tmpdir()).filter((n) => n.startsWith('prism-arcdir-')).sort().join('|')
+    const stages = () => {
+      const root = join(tmpdir(), 'prism-members')
+      return existsSync(root)
+        ? readdirSync(root, { recursive: true }).filter((f) => /(^|[\\/])zipcopy-[^\\/]*$/.test(String(f))).length
+        : 0
+    }
+    const arcBefore = arcdirs()
+    await sleep(600)
+    const w2 = await carryOver(win, zipRow(win, '\\folder').first().locator('.browse-name-text'), tabB, { settle: 250 })
+    ok(w2 === 'Copy', `a folder member over another zip's tab reads Copy (${w2})`)
+    ok(await until(async () => names(b).includes('folder/two.txt'), 15000, 150), `the folder was copied into zip B whole (${names(b)})`)
+    ok(names(a).includes('folder/two.txt'), 'and zip A still has it')
+    ok(await until(async () => stages() === 0, 5000, 150), `the staging folder is gone (${stages()} left)`)
+    ok(arcdirs() === arcBefore, `and no prism-arcdir-* was left in temp (${arcdirs()})`)
   } finally {
     await app.close()
   }

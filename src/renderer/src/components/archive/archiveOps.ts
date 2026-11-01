@@ -16,7 +16,12 @@ export type ArchiveFail = ExtractFail
 /** Main's archive calls the runners use; `window.prism` in the app. */
 export type ArchiveIpc = Pick<
   Window['prism'],
-  'archiveAdd' | 'archiveDelete' | 'archiveRename' | 'trashFile' | 'archiveMember' | 'archiveExtractDir'
+  | 'archiveAdd'
+  | 'archiveDelete'
+  | 'archiveRename'
+  | 'trashFile'
+  | 'archiveStageMembers'
+  | 'archiveUnstage'
 >
 
 /** Every line the archive verbs say. One table, so a fix lands everywhere. */
@@ -34,9 +39,6 @@ export const ARCHIVE_COPY = {
   readOnly: "This archive can't be changed. Extract it to make changes.",
   moveEncrypted: "Prism can't rearrange a password-protected archive.",
   moveFailed: "Those couldn't be moved inside the archive.",
-  copyLocked: (n: number): string =>
-    `${n} of those ${n === 1 ? 'is' : 'are'} password protected. Open one first to unlock the archive, then drag again.`,
-  copyFailed: "Those couldn't be read from the other archive.",
   deleteTitle: (names: readonly string[]): string =>
     names.length > 1
       ? `Delete ${names.length} items from the archive?`
@@ -133,35 +135,28 @@ export async function addMembers(
 
 /**
  * ZIP A TO ZIP B IS A COPY (#70 D9; owner approved the spec "as recommended",
- * 2026-11-01). The members go out to temp first, the Copy verb's own route
- * (a file through its Explorer place, a folder through the folder route),
- * and the caller adds those copies to the other zip. Locked members are
- * counted apart: they need their archive unlocked first.
+ * 2026-11-01; review fix the same day). The members go out to a staging
+ * folder main makes in the run's member folder, through the extraction
+ * window (progress and Cancel at any size), then `add` puts them in the other
+ * zip, and the folder is dropped once the add is over, however it ended. A
+ * Cancel or a failure is the window's to show; `password` is the caller's to
+ * ask. It used to read file members past the preview limit with no window,
+ * and leave a temp folder behind per folder member.
  */
-export async function membersOut(
+export async function copyBetweenZips(
   ipc: ArchiveIpc,
-  from: { container: string; entries: string[]; places: string[]; password: string | undefined }
-): Promise<{ paths: string[]; locked: number; failed: number }> {
-  const paths: string[] = []
-  let locked = 0
-  let failed = 0
-  for (let i = 0; i < from.entries.length; i += 1) {
-    const place = from.places[i]
-    const file = place ? await ipc.archiveMember(place, from.password, true) : null
-    if (file?.ok) {
-      paths.push(file.path)
-      continue
-    }
-    if (file && (file.reason === 'password' || file.reason === 'aes')) {
-      locked += 1
-      continue
-    }
-    const dir = await ipc.archiveExtractDir(from.container, from.entries[i])
-    if (dir.ok) paths.push(dir.path)
-    else if (dir.reason === 'password' || dir.reason === 'aes') locked += 1
-    else failed += 1
+  from: { container: string; entries: string[]; password: string | undefined },
+  toZip: string,
+  add: (paths: string[]) => Promise<void>
+): Promise<ArchiveFail | 'ok'> {
+  const staged = await ipc.archiveStageMembers(from.container, from.entries, from.password, toZip)
+  if (!staged.ok) return staged.reason === 'password' ? 'password' : 'ok'
+  try {
+    if (staged.paths.length) await add(staged.paths)
+  } finally {
+    await ipc.archiveUnstage(staged.dir)
   }
-  return { paths, locked, failed }
+  return 'ok'
 }
 
 /** Delete members, one at a time, permanently. The answer is what to say,
