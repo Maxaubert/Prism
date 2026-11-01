@@ -285,10 +285,25 @@ export function moveMembers(
     const dest = norm(destFolder)
     const all = zip.getEntries().map((e) => norm(e.entryName))
     const lower = all.map((p) => p.toLowerCase())
-    /** A name in the zip, or a folder some member sits under. */
+    /** Folder entries (`docs/img/`, which Windows and 7-Zip write) by name. */
+    const dirs = new Set(
+      zip
+        .getEntries()
+        .filter((e) => e.isDirectory)
+        .map((e) => norm(e.entryName).toLowerCase())
+    )
+    /** A folder with nothing in it but its own entry. */
+    const emptyDir = (k: string): boolean => dirs.has(k) && !lower.some((p) => p.startsWith(k + '/'))
+    const isDir = (w: string): boolean =>
+      dirs.has(w.toLowerCase()) || lower.some((p) => p.startsWith(w.toLowerCase() + '/'))
+    /** A name in the zip, or a folder some member sits under. A FOLDER moved
+     *  onto an EMPTY folder of its name fills it, as Windows merges into it
+     *  (#70 review, 2026-11-01): an empty folder left by an older move used
+     *  to make the undo land "img (2)". */
     const taken = (path: string, except: string): boolean => {
       const k = path.toLowerCase()
       const x = except.toLowerCase()
+      if (isDir(except) && emptyDir(k)) return false
       return lower.some((p) => (p === k || p.startsWith(k + '/')) && p !== x && !p.startsWith(x + '/'))
     }
     const chosen = new Set<string>()
@@ -309,8 +324,7 @@ export function moveMembers(
           return
         }
         // "name (2)" inside the zip, the way the folder verbs spell it.
-        const dir = lower.some((p) => p.startsWith(w.toLowerCase() + '/'))
-        const ext = dir ? '' : (/\.[^.]*$/.exec(name)?.[0] ?? '')
+        const ext = isDir(w) ? '' : (/\.[^.]*$/.exec(name)?.[0] ?? '')
         const stem = ext ? name.slice(0, -ext.length) : name
         for (let n = 2; n < 1000 && clash(to); n += 1) to = joinIn(dest, `${stem} (${n})${ext}`)
       }
@@ -319,17 +333,30 @@ export function moveMembers(
     })
     // An archive is not the place to discover half a move happened.
     if (clashes.length) return { moved: [], clashes }
-    const moves: Array<{ from: string; to: string; data: Buffer }> = []
+    const moves: Array<{ entry: string; to: string; data: Buffer }> = []
     for (const e of zip.getEntries()) {
-      if (e.isDirectory) continue
       const p = norm(e.entryName)
-      // The dragged member itself, or anything beneath a dragged folder.
+      // The dragged member itself, or anything beneath a dragged folder; its
+      // folder entries too, or each stays behind as an empty ghost.
       const top = tops.find((t) => p === t.from || p.startsWith(t.from + '/'))
-      if (top) moves.push({ from: p, to: top.to + p.slice(top.from.length), data: e.getData() })
+      if (!top) continue
+      const to = top.to + p.slice(top.from.length)
+      moves.push(
+        e.isDirectory
+          ? { entry: e.entryName, to: `${to}/`, data: Buffer.alloc(0) }
+          : { entry: e.entryName, to, data: e.getData() }
+      )
     }
     if (!moves.length) return { moved: [], clashes: [] }
+    // The empty folder a folder fills goes, so its entry is not there twice.
+    for (const t of tops) {
+      const k = t.to.toLowerCase()
+      const ghost = zip.getEntries().find((e) => e.isDirectory && norm(e.entryName).toLowerCase() === k)
+      if (ghost && !moves.some((m) => m.entry === ghost.entryName)) zip.deleteEntry(ghost)
+    }
     for (const m of moves) {
-      zip.deleteFile(m.from)
+      // One entry each: deleteFile would take a folder's children with it.
+      zip.deleteEntry(m.entry)
       zip.addFile(m.to, m.data)
     }
     // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main

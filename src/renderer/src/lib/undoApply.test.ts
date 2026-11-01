@@ -317,4 +317,37 @@ describe('archive-move', () => {
     )
     expect(redo.fail).toHaveBeenCalledWith('1 of 1 could not be moved again inside the archive.')
   })
+
+  // THE REAL ZIP, WITH FOLDER ENTRIES (#70 review, 2026-11-01): Windows and
+  // 7-Zip write one per folder (`docs/img/`). The worker's own move answers
+  // here, so an empty folder left behind would show as "img (2)".
+  it('a folder moved out of its folder in a zip with folder entries comes back under its own name', async () => {
+    const { default: AdmZip } = await import('adm-zip')
+    const { mkdtempSync } = await import('fs')
+    const { tmpdir } = await import('os')
+    const { join } = await import('path')
+    const { moveMembers } = await import('../../../main/zipOps')
+    const zip = new AdmZip()
+    zip.addFile('docs/', Buffer.alloc(0))
+    zip.addFile('docs/img/', Buffer.alloc(0))
+    zip.addFile('docs/img/logo.png', Buffer.from([0x89, 0x50]))
+    const file = join(mkdtempSync(join(tmpdir(), 'prism-undo-zip-')), 'w.zip')
+    zip.writeZip(file)
+    const ops = fakeOps({
+      archiveMoveMembers: async (z: string, entries: string[], dest: string, keepBoth?: boolean, names?: string[]) =>
+        moveMembers(z, entries, dest, keepBoth, names) as never
+    })
+    // The drag: img out to the zip's root.
+    const r = moveMembers(file, ['docs/img'], '')
+    expect(r).toEqual({ moved: [{ from: 'docs/img', to: 'img' }], clashes: [] })
+    const back = await undoEntry({ kind: 'archive-move', zip: file, items: [{ from: 'docs/img', to: 'img' }] }, ops)
+    expect(back).toMatchObject({ items: [{ from: 'docs/img', to: 'img' }] })
+    expect(ops.fail).not.toHaveBeenCalled()
+    expect(
+      new AdmZip(file)
+        .getEntries()
+        .map((e) => e.entryName)
+        .sort()
+    ).toEqual(['docs/', 'docs/img/', 'docs/img/logo.png'])
+  })
 })
