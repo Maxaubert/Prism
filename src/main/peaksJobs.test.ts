@@ -1,13 +1,21 @@
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
+import { stat } from 'fs/promises'
 import { spawnStream } from './spawnWorker'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { cancelPeaks, loadPeaks } from './peaks'
 
 // The waveform's jobs (review, 2026-10-16): a fake ffmpeg per spawn, so the
 // test can see how many decodes run at once and which ones were killed.
 vi.mock('./spawnWorker', () => ({ spawnStream: vi.fn() }))
 vi.mock('./holders', () => ({ holders: { add: vi.fn() } }))
+// The cache key's stat (unit flakes, 2026-11-01). It was the REAL stat of a
+// path that does not exist, and two of them in flight answer in whatever
+// order the thread pool finishes them: on a busy CI runner the second file's
+// came back first, so it took the one decode slot, the test's "first" job
+// queued behind a fake ffmpeg nobody finished, and the test timed out at 5 s.
+// Here every stat misses at once, so the jobs reach the queue in the order
+// they were asked, which is what each test below means.
+vi.mock('fs/promises', () => ({ stat: vi.fn() }))
 
 interface Fake extends EventEmitter {
   stdout: PassThrough
@@ -17,9 +25,18 @@ interface Fake extends EventEmitter {
 }
 
 let procs: Fake[] = []
+let loadPeaks: typeof import('./peaks').loadPeaks
+let cancelPeaks: typeof import('./peaks').cancelPeaks
 
-beforeEach(() => {
+beforeEach(async () => {
   procs = []
+  vi.mocked(stat).mockImplementation(async () => {
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+  })
+  // A fresh queue per test: one test that left a decode running (a failure)
+  // held the one-at-a-time slot, and every test after it failed too.
+  vi.resetModules()
+  ;({ loadPeaks, cancelPeaks } = await import('./peaks'))
   vi.mocked(spawnStream).mockImplementation((() => {
     const p = new EventEmitter() as Fake
     p.stdout = new PassThrough()
@@ -35,8 +52,7 @@ beforeEach(() => {
 })
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 5))
-// A job spawns only after its real stat (the cache key) answers, which can
-// take far longer than a tick on a busy CI runner: wait for the spawn itself.
+// A job spawns a few awaits after it is asked: wait for the spawn itself.
 const spawned = (n: number): Promise<void> =>
   vi.waitFor(() => expect(procs).toHaveLength(n), { timeout: 4000, interval: 5 })
 const finish = (p: Fake): void => {
