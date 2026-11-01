@@ -526,7 +526,7 @@ export async function extractSevenTo(
   password = '',
   watch?: SevenWatch & { cancelled?: () => boolean }
 ): Promise<
-  | { ok: true; written: number }
+  | { ok: true; written: number; paths: string[] }
   | { ok: false; reason: MemberFail | 'cancelled'; message?: string }
 > {
   if (!(await exists(destDir))) return { ok: false, reason: 'failed' }
@@ -546,7 +546,7 @@ export async function extractSevenTo(
     if (!w || w.split('/').some((s) => s === '..') || /^[a-z]:/i.test(w)) continue
     filters.push(w, `${w}/*`)
   }
-  if (!filters.length) return { ok: true, written: 0 }
+  if (!filters.length) return { ok: true, written: 0, paths: [] }
   // ONE call into a staging folder, not one per member (2026-08-31). The
   // old loop spawned a 7-Zip per file and each re-opened the container:
   // dragging a 561-file folder out of a 2GB archive was hundreds of full
@@ -616,7 +616,7 @@ export async function extractSevenTo(
       landed.push(target)
       written += 1
     }
-    return { ok: true, written }
+    return { ok: true, written, paths: landed }
   } finally {
     await rm(stage, gone).catch(() => {})
   }

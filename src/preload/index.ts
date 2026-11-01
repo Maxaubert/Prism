@@ -478,13 +478,16 @@ const api = {
     destFolder: string,
     keepBoth?: boolean
   ): Promise<ArchiveAddResult> => ipcRenderer.invoke(CALL.archiveAdd, zip, srcPaths, destFolder, keepBoth),
-  /** Move members to another folder inside the same zip. */
+  /** Move members to another folder inside the same zip. A taken name is a
+   *  clash unless `keepBoth`; `names` lands each under that name (#70). */
   archiveMoveMembers: (
     zip: string,
     entries: string[],
-    destFolder: string
+    destFolder: string,
+    keepBoth?: boolean,
+    names?: string[]
   ): Promise<ArchiveMoveResult> =>
-    ipcRenderer.invoke(CALL.archiveMoveMembers, zip, entries, destFolder),
+    ipcRenderer.invoke(CALL.archiveMoveMembers, zip, entries, destFolder, keepBoth, names),
   /** Extract members OUT to a real folder, keeping the shape under a folder.
    *  The extraction window (#166) is main's to open; `asksPassword` says this
    *  caller will ask for a password and try again, so a `password` ending

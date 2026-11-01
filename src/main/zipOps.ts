@@ -261,47 +261,80 @@ export async function addToArchive(
   }
 }
 
-/** Move members to another folder INSIDE the same zip; folders move whole. */
+/**
+ * Move members to another folder INSIDE the same zip; folders move whole.
+ *
+ * A TAKEN NAME (#70 D7; owner approved the spec "as recommended",
+ * 2026-11-01) comes back as a clash with nothing written, the add's rule, so
+ * the renderer asks Keep both; `keepBoth` then lands it as "name (2)". It used
+ * to refuse the whole move with a bare 'failed'. `names` lands each dragged
+ * member under a name of the caller's (an undo puts the old name back). The
+ * answer names each dragged member's old and new path inside the zip (D8).
+ */
 export function moveMembers(
   zipPath: string,
   entryPaths: readonly string[],
-  destFolder: string
+  destFolder: string,
+  keepBoth = false,
+  names?: readonly string[]
 ): ArchiveMoveResult {
   try {
     // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
     const zip = new AdmZip(zipPath)
     if (encryptedIn(zip)) return 'encrypted'
     const dest = norm(destFolder)
-    // Dropping a folder on itself (or inside its own subtree) would nest its
-    // contents one level deeper every time; there is nothing to do instead.
-    const wanted = entryPaths.map(norm).filter((w) => dest !== w && !dest.startsWith(w + '/'))
+    const all = zip.getEntries().map((e) => norm(e.entryName))
+    const lower = all.map((p) => p.toLowerCase())
+    /** A name in the zip, or a folder some member sits under. */
+    const taken = (path: string, except: string): boolean => {
+      const k = path.toLowerCase()
+      const x = except.toLowerCase()
+      return lower.some((p) => (p === k || p.startsWith(k + '/')) && p !== x && !p.startsWith(x + '/'))
+    }
+    const chosen = new Set<string>()
+    const clashes: string[] = []
+    const tops: Array<{ from: string; to: string }> = []
+    entryPaths.forEach((raw, i) => {
+      const w = norm(raw)
+      // Dropping a folder on itself (or inside its own subtree) would nest its
+      // contents one level deeper every time; there is nothing to do instead.
+      if (!w || dest === w || dest.startsWith(w + '/')) return
+      const name = names?.[i] || w.slice(w.lastIndexOf('/') + 1)
+      let to = joinIn(dest, name)
+      if (to === w) return
+      const clash = (t: string): boolean => taken(t, w) || chosen.has(t.toLowerCase())
+      if (clash(to)) {
+        if (!keepBoth) {
+          clashes.push(name)
+          return
+        }
+        // "name (2)" inside the zip, the way the folder verbs spell it.
+        const dir = lower.some((p) => p.startsWith(w.toLowerCase() + '/'))
+        const ext = dir ? '' : (/\.[^.]*$/.exec(name)?.[0] ?? '')
+        const stem = ext ? name.slice(0, -ext.length) : name
+        for (let n = 2; n < 1000 && clash(to); n += 1) to = joinIn(dest, `${stem} (${n})${ext}`)
+      }
+      chosen.add(to.toLowerCase())
+      tops.push({ from: w, to })
+    })
+    // An archive is not the place to discover half a move happened.
+    if (clashes.length) return { moved: [], clashes }
     const moves: Array<{ from: string; to: string; data: Buffer }> = []
     for (const e of zip.getEntries()) {
       if (e.isDirectory) continue
       const p = norm(e.entryName)
-      for (const w of wanted) {
-        // The dragged member itself, or anything beneath a dragged folder.
-        const under = p === w || p.startsWith(w + '/')
-        if (!under) continue
-        const parent = w.includes('/') ? w.slice(0, w.lastIndexOf('/')) : ''
-        const rel = parent ? p.slice(parent.length + 1) : p
-        const to = dest ? `${dest}/${rel}` : rel
-        if (to !== p) moves.push({ from: p, to, data: e.getData() })
-        break
-      }
+      // The dragged member itself, or anything beneath a dragged folder.
+      const top = tops.find((t) => p === t.from || p.startsWith(t.from + '/'))
+      if (top) moves.push({ from: p, to: top.to + p.slice(top.from.length), data: e.getData() })
     }
-    if (!moves.length) return 'ok'
-    // A move onto a taken name is refused whole: an archive is not the place to
-    // discover half a move happened.
-    const existing = new Set(zip.getEntries().map((e) => norm(e.entryName).toLowerCase()))
-    if (moves.some((m) => existing.has(m.to.toLowerCase()))) return 'failed'
+    if (!moves.length) return { moved: [], clashes: [] }
     for (const m of moves) {
       zip.deleteFile(m.from)
       zip.addFile(m.to, m.data)
     }
     // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
     zip.writeZip(zipPath)
-    return 'ok'
+    return { moved: tops, clashes: [] }
   } catch {
     return 'failed'
   }

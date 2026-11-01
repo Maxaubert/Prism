@@ -122,8 +122,13 @@ export type ArchiveAddResult =
   | 'encrypted'
   | 'failed'
 
-/** Members moved to another folder inside the same zip. */
-export type ArchiveMoveResult = 'ok' | 'encrypted' | 'failed'
+/** Members moved to another folder inside the same zip (#70 D7, D8): each
+ *  dragged member's old and new name inside the zip, for the undo; or the
+ *  names already taken there, with nothing written (Keep both renames them). */
+export type ArchiveMoveResult =
+  | { moved: Array<{ from: string; to: string }>; clashes: string[] }
+  | 'encrypted'
+  | 'failed'
 
 /* ----- the progress pushes ----- */
 
