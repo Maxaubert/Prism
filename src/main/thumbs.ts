@@ -30,6 +30,8 @@ import { exists } from './fsUtil'
 import { thumbKeepsAlpha } from '@shared/thumbAlpha'
 
 export const THUMB_WIDTH = 320
+/** The tallest picture a WebP can hold (a JPEG holds 65535). */
+export const WEBP_MAX_PX = 16383
 /** A frame this far into a video: past the black leader most films open on. */
 export const VIDEO_SEEK_S = 3
 export const CACHE_MAX_BYTES = 200 * 1024 * 1024
@@ -58,9 +60,13 @@ export function isThumbFile(name: string): boolean {
  *  the seek. `-frames:v 1` and a plain JPEG at quality 5 keep it small.
  *  A picture that can be clear is a lossy WebP that keeps its alpha (#477):
  *  libwebp takes the decoder's RGBA as it is, measured 2026-11-01 (a clear
- *  corner stays alpha 0, where the JPEG made it black). */
+ *  corner stays alpha 0, where the JPEG made it black). WebP is chosen from
+ *  the extension alone, as `thumbKey` does, so a `.webp` key never holds a
+ *  JPEG. A WebP is at most 16383px tall, and at 320px wide a strip over ~51
+ *  times taller than wide passes that (a 40x4000 PNG is 320x32000, measured:
+ *  libwebp refused it), so its top 16383px are kept. */
 export function thumbArgs(file: string, kind: ThumbKind, out: string, seek = VIDEO_SEEK_S): string[] {
-  const alpha = kind === 'image' && thumbKeepsAlpha(file)
+  const alpha = thumbKeepsAlpha(file)
   return [
     '-hide_banner',
     '-loglevel',
@@ -73,7 +79,7 @@ export function thumbArgs(file: string, kind: ThumbKind, out: string, seek = VID
     '-frames:v',
     '1',
     '-vf',
-    `scale=${THUMB_WIDTH}:-2`,
+    alpha ? `scale=${THUMB_WIDTH}:-2,crop=iw:'min(ih,${WEBP_MAX_PX})':0:0` : `scale=${THUMB_WIDTH}:-2`,
     ...(alpha ? ['-c:v', 'libwebp', '-quality', '80'] : ['-q:v', '5']),
     // The muxer is NAMED, not read off the extension: the file is written
     // as `<key>.jpg.part` and renamed into place when whole, and ffmpeg
