@@ -191,3 +191,130 @@ describe('what an undo or redo puts back is marked (#101)', () => {
     expect(back && back.kind === 'move' ? back.items : null).toEqual(items)
   })
 })
+
+// A MOVE INSIDE A ZIP IS UNDOABLE (#70 D8; owner approved the spec "as
+// recommended", 2026-11-01): undo moves each member back to its old folder
+// under its old name, grouped by folder; redo moves them again.
+describe('archive-move', () => {
+  type Moved = Array<{ from: string; to: string }>
+  const zipOps = (
+    answer: (entries: string[], dest: string, names?: string[]) => unknown
+  ): UndoOps & { calls: string[]; landed: string[][] } => {
+    const ops = fakeOps({
+      archiveMoveMembers: async (
+        zip: string,
+        entries: string[],
+        dest: string,
+        keepBoth?: boolean,
+        names?: string[]
+      ) => {
+        ops.calls.push(`zipMove ${JSON.stringify([zip, entries, dest, keepBoth, names])}`)
+        return answer(entries, dest, names) as never
+      }
+    }) as UndoOps & { calls: string[]; landed: string[][] }
+    ops.landed = []
+    ops.land = (paths) => void ops.landed.push([...paths])
+    return ops
+  }
+  const moveBack = (
+    entries: string[],
+    dest: string,
+    names?: string[]
+  ): { moved: Moved; clashes: string[] } => ({
+    moved: entries.map((e, i) => ({
+      from: e,
+      to: `${dest ? dest + '/' : ''}${names?.[i] ?? e.split('/').pop()}`
+    })),
+    clashes: []
+  })
+
+  it('undo puts each member back in its old folder under its old name, one call per folder', async () => {
+    const ops = zipOps(moveBack)
+    const back = await undoEntry(
+      {
+        kind: 'archive-move',
+        zip: 'C:\\z.zip',
+        base: 'C:\\z.zip',
+        items: [
+          { from: 'a.txt', to: 'docs/a (2).txt' },
+          { from: 'img', to: 'docs/img' },
+          { from: 'x/b.txt', to: 'docs/b.txt' }
+        ]
+      },
+      ops
+    )
+    expect(ops.calls.filter((c) => c.startsWith('zipMove'))).toEqual([
+      'zipMove ["C:\\\\z.zip",["docs/a (2).txt","docs/img"],"",true,["a.txt","img"]]',
+      'zipMove ["C:\\\\z.zip",["docs/b.txt"],"x",true,["b.txt"]]'
+    ])
+    expect(ops.calls).toContain('refresh')
+    expect(back).toMatchObject({
+      items: [
+        { from: 'a.txt', to: 'docs/a (2).txt' },
+        { from: 'img', to: 'docs/img' },
+        { from: 'x/b.txt', to: 'docs/b.txt' }
+      ]
+    })
+    // What came back is marked where the Explorer shows it (#101).
+    expect(ops.landed).toEqual([['C:\\z.zip\\a.txt', 'C:\\z.zip\\img', 'C:\\z.zip\\x\\b.txt']])
+  })
+
+  it('redo moves them again, under the names they had', async () => {
+    const ops = zipOps(moveBack)
+    const again = await redoEntry(
+      {
+        kind: 'archive-move',
+        zip: 'C:\\z.zip',
+        base: 'C:\\z.zip',
+        items: [{ from: 'a.txt', to: 'docs/a (2).txt' }]
+      },
+      ops
+    )
+    expect(ops.calls[0]).toBe('zipMove ["C:\\\\z.zip",["a.txt"],"docs",true,["a (2).txt"]]')
+    expect(again).toMatchObject({ items: [{ from: 'a.txt', to: 'docs/a (2).txt' }] })
+    expect(ops.landed).toEqual([['C:\\z.zip\\docs\\a (2).txt']])
+  })
+
+  it('a member that is gone stays named where it was, and the undo says so', async () => {
+    const ops = zipOps((entries, dest, names) =>
+      moveBack(
+        entries.filter((e) => e !== 'docs/gone.txt'),
+        dest,
+        names?.filter((n) => n !== 'gone.txt')
+      )
+    )
+    const back = await undoEntry(
+      {
+        kind: 'archive-move',
+        zip: 'C:\\z.zip',
+        items: [
+          { from: 'a.txt', to: 'docs/a.txt' },
+          { from: 'gone.txt', to: 'docs/gone.txt' }
+        ]
+      },
+      ops
+    )
+    expect(back).toMatchObject({
+      items: [
+        { from: 'a.txt', to: 'docs/a.txt' },
+        { from: 'gone.txt', to: 'docs/gone.txt' }
+      ]
+    })
+    expect(ops.fail).toHaveBeenCalledWith('1 of 2 could not be moved back inside the archive.')
+  })
+
+  it('an archive that refuses the write moves nothing and says so', async () => {
+    const ops = zipOps(() => 'failed')
+    await undoEntry(
+      { kind: 'archive-move', zip: 'C:\\z.zip', items: [{ from: 'a.txt', to: 'docs/a.txt' }] },
+      ops
+    )
+    expect(ops.fail).toHaveBeenCalledWith('1 of 1 could not be moved back inside the archive.')
+    const redo = zipOps(() => 'encrypted')
+    await redoEntry(
+      { kind: 'archive-move', zip: 'C:\\z.zip', items: [{ from: 'a.txt', to: 'docs/a.txt' }] },
+      redo
+    )
+    expect(redo.fail).toHaveBeenCalledWith('1 of 1 could not be moved again inside the archive.')
+  })
+})
