@@ -15,23 +15,18 @@ beforeEach(() => {
 afterEach(clearHost)
 
 const folder = (path: string): QuickAccessPin => ({ path, label: path, isFolder: true })
-const a = folder('C:\\a')
 const b = folder('C:\\b')
-const c = folder('C:\\c')
 
 const build = (over: Partial<PlacesMenuContext> = {}): ReturnType<typeof placesMenu> =>
   placesMenu({
     pin: b,
     pinned: true,
-    siblings: [a, b, c],
-    index: 1,
     onChoose: vi.fn(),
     onNavigate: vi.fn(),
     onQuickAccessFile: vi.fn(),
     onOpenNewTab: vi.fn(),
     onUnpinQuickAccess: vi.fn(),
     onProperties: vi.fn(),
-    onMoveQuickAccess: vi.fn(),
     onPinQuickAccessPaths: vi.fn(),
     onChangeIcon: vi.fn(),
     ...over
@@ -40,7 +35,9 @@ const labels = (items: ReturnType<typeof placesMenu>): string[] => items.map((i)
 const disabled = (items: ReturnType<typeof placesMenu>): string[] =>
   items.filter((i) => i.disabled).map((i) => i.label)
 
-const PIN_ROWS = ['Unpin from Quick access', 'Move up', 'Move down', 'Change icon...']
+// A pin moves by dragging only (owner, 2026-10-31: "remove the move up down.
+// rely on just dragging instead"), so the menu has no Move rows.
+const PIN_ROWS = ['Unpin from Quick access', 'Change icon...']
 
 describe('placesMenu', () => {
   it('a pinned folder (Quick access or Pinned) has the pin rows', () => {
@@ -58,7 +55,7 @@ describe('placesMenu', () => {
     const onQuickAccessFile = vi.fn()
     const onNavigate = vi.fn()
     const file = { path: 'C:\\b.txt', label: 'b.txt', isFolder: false }
-    const items = build({ pin: file, siblings: [file], index: 0, onQuickAccessFile, onNavigate })
+    const items = build({ pin: file, onQuickAccessFile, onNavigate })
     expect(labels(items)).toEqual([
       'Open',
       'Open in new tab',
@@ -72,7 +69,7 @@ describe('placesMenu', () => {
     expect(onNavigate).not.toHaveBeenCalled()
   })
   it('a drive that is not pinned offers the pin instead', () => {
-    const items = build({ pin: folder('D:\\'), pinned: false, index: -1, onChangeIcon: undefined })
+    const items = build({ pin: folder('D:\\'), pinned: false, onChangeIcon: undefined })
     expect(labels(items)).toEqual([
       'Open',
       'Open in new tab',
@@ -91,31 +88,19 @@ describe('placesMenu', () => {
     items[0].onPick?.()
     expect(order).toEqual(['choose', 'navigate C:\\b'])
   })
-  it('the first row cannot move up, the last cannot move down', () => {
-    expect(disabled(build({ pin: a, index: 0 }))).toEqual(['Move up'])
-    expect(disabled(build({ pin: c, index: 2 }))).toEqual(['Move down'])
-  })
-  it('a pinned place missing from its section list (index -1) cannot move', () => {
-    expect(disabled(build({ index: -1 }))).toEqual(['Move up', 'Move down'])
-  })
-  it('moves land before the row above, or before the row after next', () => {
-    const onMoveQuickAccess = vi.fn()
-    const items = build({ onMoveQuickAccess })
-    items.find((i) => i.label === 'Move up')?.onPick?.()
-    expect(onMoveQuickAccess).toHaveBeenLastCalledWith('C:\\b', 'C:\\a')
-    items.find((i) => i.label === 'Move down')?.onPick?.()
-    expect(onMoveQuickAccess).toHaveBeenLastCalledWith('C:\\b', undefined)
+  it('no pin has Move up or Move down: pins reorder by dragging', () => {
+    // Only a pinned place ever had Move rows, so the pinned menu is the one to pin.
+    expect(labels(build()).filter((l) => /^Move /.test(l))).toEqual([])
   })
   it('a missing action leaves its row disabled', () => {
     expect(
       disabled(
         build({
           onOpenNewTab: undefined,
-          onUnpinQuickAccess: undefined,
-          onMoveQuickAccess: undefined
+          onUnpinQuickAccess: undefined
         })
       )
-    ).toEqual(['Open in new tab', 'Unpin from Quick access', 'Move up', 'Move down'])
+    ).toEqual(['Open in new tab', 'Unpin from Quick access'])
     expect(disabled(build({ pinned: false, onPinQuickAccessPaths: undefined }))).toEqual([
       'Pin to Quick access'
     ])
