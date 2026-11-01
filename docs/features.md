@@ -98,7 +98,8 @@ draws, so a tile matches what opens.
 - **Held by** `thumbAlpha.test.ts`, `thumbs.test.ts` (the key, the WebP argv and its height cap, `isThumbFile`),
   `server.test.ts` (`/api/thumb`'s type), `api.test.ts` (`a=1`), `thumbClass.test.ts`, and e2e `phone` (a
   PNG with black under its clear corners: the thumbnail's corner is alpha 0 and the tile's corner, read
-  back from a screenshot, is the checker's colour). Screenshot `phone-grid-clear.png`.
+  back from a screenshot, is the checker's colour, in the dark theme and again in light mode's pale pair).
+  Screenshots `phone-grid-clear.png`, `phone-grid-clear-light.png`.
 
 ## The I key's photo info card, and Save a copy tidied (#78, owner, 2026-11-01)
 

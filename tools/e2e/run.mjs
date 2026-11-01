@@ -13189,40 +13189,61 @@ async function phoneScenario(fixtures) {
       ok(thumbCorner?.[3] === 0, `the clear PNG's thumbnail keeps its alpha (corner ${JSON.stringify(thumbCorner)})`)
       // And what the tile SHOWS there is the viewer's checker: the pixels on
       // screen, read back from a screenshot of the tile.
-      const shot = await clearTile.screenshot().catch(() => null)
-      const seen = shot
-        ? await page.evaluate(async (b64) => {
-            const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))
-            const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
-            const c = document.createElement('canvas')
-            c.width = bmp.width
-            c.height = bmp.height
-            const g = c.getContext('2d')
-            g.drawImage(bmp, 0, 0)
-            const img = [...document.querySelectorAll('[data-phone-thumb].p-checker')][0]
-            const css = img ? getComputedStyle(img) : null
-            const rgb = (hex) => {
-              const h = hex.trim().replace('#', '')
-              return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16))
-            }
-            const root = getComputedStyle(document.documentElement)
-            return {
-              // Inside the clear band, past the tile's rounded corner (which
-              // shows the page behind it at the very edge).
-              px: [...g.getImageData(Math.round(bmp.width * 0.12), Math.round(bmp.height * 0.12), 1, 1).data].slice(0, 3),
-              a: rgb(root.getPropertyValue('--p-checker-a')),
-              b: rgb(root.getPropertyValue('--p-checker-b')),
-              bg: css?.backgroundImage ?? ''
-            }
-          }, shot.toString('base64'))
-        : null
+      const sampleTile = async () => {
+        const shot = await clearTile.screenshot().catch(() => null)
+        return shot
+          ? await page.evaluate(async (b64) => {
+              const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))
+              const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+              const c = document.createElement('canvas')
+              c.width = bmp.width
+              c.height = bmp.height
+              const g = c.getContext('2d')
+              g.drawImage(bmp, 0, 0)
+              const img = [...document.querySelectorAll('[data-phone-thumb].p-checker')][0]
+              const css = img ? getComputedStyle(img) : null
+              const rgb = (hex) => {
+                const h = hex.trim().replace('#', '')
+                return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16))
+              }
+              const root = getComputedStyle(document.documentElement)
+              return {
+                // Inside the clear band, past the tile's rounded corner (which
+                // shows the page behind it at the very edge).
+                px: [...g.getImageData(Math.round(bmp.width * 0.12), Math.round(bmp.height * 0.12), 1, 1).data].slice(0, 3),
+                a: rgb(root.getPropertyValue('--p-checker-a')),
+                b: rgb(root.getPropertyValue('--p-checker-b')),
+                bg: css?.backgroundImage ?? ''
+              }
+            }, shot.toString('base64'))
+          : null
+      }
       const near = (p, q) => !!p && !!q && p.every((v, i) => Math.abs(v - q[i]) <= 6)
+      const seen = await sampleTile()
       ok(
         !!seen && (near(seen.px, seen.a) || near(seen.px, seen.b)),
         `the clear tile's corner is the checker, not black (${JSON.stringify(seen?.px)} against ${JSON.stringify(seen?.a)} / ${JSON.stringify(seen?.b)})`
       )
       ok(!!seen && seen.bg.includes('linear-gradient'), 'the tile draws the checker pattern behind the picture')
       await page.screenshot({ path: join(SHOTS, 'phone-grid-clear.png') })
+      // And in light mode, the theme's PALE pair (index.css `[data-mode='light']`):
+      // the checker follows the theme, and a pale corner here is the checker's,
+      // since the dark-mode sample above already ruled out a baked-in colour.
+      const mode = await page.evaluate(() => {
+        const was = document.documentElement.dataset.mode ?? null
+        document.documentElement.dataset.mode = 'light'
+        return was
+      })
+      const light = await sampleTile()
+      ok(
+        !!light && near(light.a, [255, 255, 255]) && near(light.b, [230, 232, 238]) && (near(light.px, light.a) || near(light.px, light.b)),
+        `in light mode the clear tile's corner is the pale checker (${JSON.stringify(light?.px)} against ${JSON.stringify(light?.a)} / ${JSON.stringify(light?.b)})`
+      )
+      await page.screenshot({ path: join(SHOTS, 'phone-grid-clear-light.png') })
+      await page.evaluate((was) => {
+        if (was === null) delete document.documentElement.dataset.mode
+        else document.documentElement.dataset.mode = was
+      }, mode)
       // The photo tile next to it stays a plain JPEG over no checker.
       const photoChecker = await page.evaluate(() =>
         [...document.querySelectorAll('[data-phone-grid] [data-phone-file]')]
