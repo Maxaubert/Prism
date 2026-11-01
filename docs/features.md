@@ -18,24 +18,37 @@ differ.
   together are Windows' shortcut, which Prism does not make, so the plain rule holds.
 - **D2, a plain drag MOVES on the same drive and COPIES to another.** Drives by the path's root
   (`volumeOf` in `@shared/path`: `c:` or `\\srv\share`); a subst drive or a junction can guess wrong, which
-  only swaps a move for a copy. **D3**: a zip's drive is its OUTER file's.
+  only swaps a move for a copy. **D3**: a zip's drive is its OUTER file's. A selection from two drives (a
+  search's results) MOVES only when everything carried is on the target's drive, else it copies, so nothing
+  leaves another drive without Shift (review of #70, 2026-11-01: it read the first path only).
 - **D4, a copy is not on the undo stack**, as a paste and a drop from Windows are not. **D5**: a copy's taken
   names become "name (2)" (the paste engine), no question; a move keeps its question.
 - **Onto a folder row, the list, a crumb, a place, a pin or a tab**: moved (`runMove`) or copied (`copyIn`,
   the job chip and the landing marks). A copy into the folder it came from makes "name (2)" (G10); a move
-  there shows no-drop.
+  there shows no-drop. **A drop onto one of the carried rows shows no-drop, whatever the keys**, as Windows
+  does over the dragged items (review of #70, 2026-11-01): Ctrl is also the select toggle, and a Ctrl+click
+  that wandered a few pixels made "name (2)". A row that is not carried still means its folder.
 - **D6, onto a zip, its ROW in a folder or any place inside it: ADDED there.** A move bins the originals
   (decided 2026-08-22), a copy leaves them. `.zip` only: a 7z, rar or a zip inside a zip shows no-drop.
 - **Zip members onto a real folder are extracted** (a copy; Shift does nothing), and what the extraction
   wrote is marked (`ExtractToResult.paths`).
 - **Onto another folder of their own zip they MOVE.** **D7**: a taken name asks Keep both or Cancel
   (`ArchiveClashDialog`, the add's question; `moveMembers` reports the clash instead of a bare "could not be
-  moved"). **D8**: the move is on the undo stack (`archive-move`: Ctrl+Z moves each member back under its old
+  moved"). A folder's own entries (`docs/img/`, which Windows and 7-Zip write) move with it, and a folder
+  moved onto an EMPTY folder of its name fills it (review of #70, 2026-11-01: a left-behind entry made the
+  undo land "img (2)"). A name the page sends that is not valid refuses the move (`moveNames`), never a move
+  under the old one. **D8**: the move is on the undo stack (`archive-move`: Ctrl+Z moves each member back under its old
   name, Ctrl+Y again). This reverses the 2026-08-22 "archive-internal writes are not on the stack" for MOVES
   only; a rename or a delete inside a zip stays off it. **D10**: Ctrl inside the same zip is ignored, the word
   says Move.
-- **D9, onto ANOTHER zip they are COPIED**: out to temp by the Copy verb's route, then added; the originals
-  stay in their zip.
+- **D9, onto ANOTHER zip they are COPIED**, the originals staying in their zip: out through the
+  extraction window (progress and Cancel at any size) into a staging folder in the run's member folder
+  (`ZipStage`, `archive:stage-members`), added, and the folder dropped once the add is over, Keep both and
+  Cancel included (`archive:unstage`). Changed from the spec in review (2026-11-01): the spec's "the run's
+  member folder within the 64 MB / 64-member budget, the extraction window above it" became ONE route, the
+  window at every size, because the page cannot name main's temp paths and the first build's way round
+  that (the Copy verb's route) read past the preview limit with no window and left a `prism-arcdir-*`
+  folder in temp per folder member. Every other extraction route already shows the window, small ones too.
 - **G6, the hover tells the truth**: a read-only archive, members over the folder they are in, a folder over
   itself show no-drop and the drop says nothing. Main still has the final say (a zip over adm-zip's cap looks
   writable on hover and refuses with its message, as before).
@@ -43,15 +56,20 @@ differ.
   #103 (a move) is now the plain drag's answer, and Ctrl copies.
 - **D12, hovering a background tab for 0.6 s brings it to the front** (`lib/drag/hoverSwitch.ts`), in-app
   carry and Windows drags alike, never the tab in front or one being carried; the drop can then land in its
-  list. Folder rows do not spring open on hover (File Explorer's list does not).
+  list. Crossing the tab's own icon, label or close keeps the wait (`stillInside`). Folder rows do not spring
+  open on hover (File Explorer's list does not).
 - **D13, no right-drag menu**; **D14, one word, Move or Copy** (quiet chrome; an add says Move or Copy, an
-  extraction Copy). **D15**: #70's body is rewritten for the Explorer and the issue closes with the PR.
+  extraction Copy). A carried PIN shows no word: a reorder is not a file operation (review of #70,
+  2026-11-01; the carry keeping its effect had made "Move" appear under it). **D15**: #70's body is rewritten for the Explorer and the issue closes with the PR.
 - **Held by** `dropVerb.test.ts` (every row above as a table: keys, drives, shares, zips, read-only, own
-  folder), `path.test.ts` (`volumeOf`), `hoverSwitch.test.ts`, `zipOps.test.ts` (clashes, Keep both, pairs),
-  `archive.test.ts` (`paths`), `archiveOps.test.ts` (a copy leaves the originals, `membersOut`),
-  `undoApply.test.ts` (`archive-move`), and e2e `dragCopy`, `dragDrive` (skips without a second volume),
-  `dragZipRow`, `dragZipInside`, `dragZipToZip`, `dragHoverTab`, `dragReadOnly`, `drag` (the extraction is
-  marked) and `dropBack` (Ctrl on a drop from another window copies).
+  folder, a carried row, two drives), `path.test.ts` (`volumeOf`), `hoverSwitch.test.ts`, `zipOps.test.ts`
+  (clashes, Keep both, pairs, folder entries, an empty folder filled, `moveNames`), `zipStage.test.ts`, `archive.test.ts` (`paths`),
+  `archiveOps.test.ts` (a copy leaves the originals, `copyBetweenZips` drops its staging folder),
+  `undoApply.test.ts` (`archive-move`, and a real zip with folder entries undone), and e2e `dragCopy` (a
+  carried row refuses), `dragDrive` (skips without a second volume), `dragZipRow`, `dragZipInside`,
+  `dragZipToZip` (a folder member, nothing left in temp), `dragHoverTab` (crossing the tab), `dragReadOnly`,
+  `drag` (the extraction is marked), `dropBack` (Ctrl on a drop from another window copies) and
+  `sidebarPlaces` (a carried pin says nothing).
 
 ## Unit tests wait on events, never on clocks (release unit flakes, owner, 2026-11-01)
 
