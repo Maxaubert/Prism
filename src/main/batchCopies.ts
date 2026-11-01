@@ -1,5 +1,7 @@
 import { basename, dirname, join } from 'path'
+import { fileKind } from '@shared/fileKind'
 import { canCopyImage, copyExt, type CopyFormat } from '@shared/imageCopy'
+import { extOf } from '@shared/path'
 import type { SaveCopiesResult } from '@shared/ipcTypes'
 
 /**
@@ -13,9 +15,14 @@ import type { SaveCopiesResult } from '@shared/ipcTypes'
  *   taken between the pick and the write moves on to the next.
  * - One job: the chip's progress and Cancel. Cancel stops what is running and
  *   starts nothing more; the copies already made stay, and are marked.
- * - Rows that are not pictures (a folder, a text file, an SVG) are skipped and
- *   counted; a picture that cannot be read or written is counted as failed.
+ * - Rows that are not pictures (a folder, a text file) are skipped and
+ *   counted. A picture no copy can be made of is counted as failed ("could
+ *   not be read"): one that cannot be read, decoded or written, an SVG (a
+ *   drawing the bundled ffmpeg cannot read), one outside the wall, one the
+ *   disk will not stat (review, 2026-11-01: those were "not pictures").
  *   The done note says both.
+ * - A made file that does not land is thrown away at once (`discard`), so a
+ *   long job does not pile its failures up in temp.
  * - Two at a time: each encoder already uses several cores, and the PC this
  *   is built on is short of memory.
  *
@@ -31,13 +38,16 @@ export interface CopiesRequest {
 export interface CopiesDeps {
   /** May this file be read and a copy written beside it (the wall). */
   allowed: (p: string) => boolean
-  isFile: (p: string) => Promise<boolean>
+  /** A file, something else (a folder), or null when it cannot be stat'ed. */
+  entry: (p: string) => Promise<'file' | 'other' | null>
   /** Make `src` as `format` at `out` (decoding HEIC and RAW first). */
   convert: (src: string, out: string, format: CopyFormat, signal: AbortSignal) => Promise<boolean>
   exists: (p: string) => Promise<boolean>
   /** Put the made file at `target`, never over anything. */
   place: (made: string, target: string) => Promise<'ok' | 'taken' | 'failed'>
   written: (p: string) => Promise<void>
+  /** Throw away a made file that did not land (it may not exist). */
+  discard: (p: string) => Promise<void>
   /** `done` of `total` pictures are through (saved or failed). */
   progress: (done: number, total: number) => void
   /** A folder of this job's own, for the files being made. */
@@ -73,13 +83,19 @@ export async function saveCopies(req: CopiesRequest, deps: CopiesDeps): Promise<
   const { format } = req
   const { signal } = deps
   let skipped = 0
+  let failed = 0
   const work: string[] = []
   for (const p of req.paths) {
-    if (typeof p === 'string' && p && canCopyImage(p) && deps.allowed(p) && (await deps.isFile(p))) work.push(p)
-    else skipped += 1
+    if (typeof p !== 'string' || !p || fileKind(extOf(p)) !== 'image') {
+      skipped += 1
+      continue
+    }
+    const kind = canCopyImage(p) && deps.allowed(p) ? await deps.entry(p).catch(() => null) : null
+    if (kind === 'file') work.push(p)
+    else if (kind === 'other') skipped += 1
+    else failed += 1
   }
   const saved: Array<{ i: number; path: string }> = []
-  let failed = 0
   let done = 0
   // Names are picked one at a time, so two pictures that would make the same
   // name (x.png and x.gif as JPEG) never both pick it.
@@ -99,7 +115,7 @@ export async function saveCopies(req: CopiesRequest, deps: CopiesDeps): Promise<
     const src = work[i]
     const made = join(deps.tmp, `${i}.${copyExt(format)}`)
     const ok = await deps.convert(src, made, format, signal).catch(() => false)
-    if (signal.aborted) return // stopped, not failed
+    if (signal.aborted) return // stopped, not failed (the job's temp folder goes)
     let landed: string | null = null
     if (ok) {
       for (let tries = 0; tries < 5 && !landed; tries += 1) {
@@ -112,7 +128,10 @@ export async function saveCopies(req: CopiesRequest, deps: CopiesDeps): Promise<
     if (landed) {
       saved.push({ i, path: landed })
       await deps.written(landed).catch(() => {})
-    } else failed += 1
+    } else {
+      failed += 1
+      await deps.discard(made).catch(() => {})
+    }
     done += 1
     deps.progress(done, work.length)
   }

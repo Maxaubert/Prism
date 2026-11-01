@@ -15,7 +15,7 @@ function disk(files: string[], over: Partial<CopiesDeps> = {}): CopiesDeps & {
     placed,
     ticks,
     allowed: () => true,
-    isFile: async (p: string) => !p.endsWith('folder'),
+    entry: async (p: string) => (p.endsWith('folder') ? ('other' as const) : ('file' as const)),
     convert: vi.fn(async () => true),
     exists: async (p: string) => there.has(p.toLowerCase()),
     place: vi.fn(async (_tmp: string, target: string) => {
@@ -25,6 +25,7 @@ function disk(files: string[], over: Partial<CopiesDeps> = {}): CopiesDeps & {
       return 'ok' as const
     }),
     written: vi.fn(async () => {}),
+    discard: vi.fn(async () => {}),
     progress: (done: number, total: number) => void ticks.push([done, total]),
     tmp: 'T:\\job',
     signal: new AbortController().signal,
@@ -51,13 +52,15 @@ describe('Save copies as (#474)', () => {
     expect(await copyTarget('C:\\p\\c.gif', 'webp', new Set(['c:\\p\\c.webp']), async () => false)).toBe('C:\\p\\c (2).webp')
   })
 
-  it('copies every picture, skips the rest, and names what it saved in order', async () => {
+  it('copies every picture, skips what is not one, and names what it saved in order', async () => {
     const d = disk(['C:\\p\\a.jpg', 'C:\\p\\b.heic', 'C:\\p\\notes.txt', 'C:\\p\\logo.svg'])
     const r = await saveCopies(
       { paths: ['C:\\p\\a.jpg', 'C:\\p\\notes.txt', 'C:\\p\\b.heic', 'C:\\p\\logo.svg', 'C:\\p\\a folder'], format: 'webp' },
       d
     )
-    expect(r).toEqual({ saved: ['C:\\p\\a.webp', 'C:\\p\\b.webp'], failed: 0, skipped: 3, canceled: false })
+    // The SVG IS a picture, one no copy can be made of: it could not be read,
+    // never "not a picture" (review, 2026-11-01).
+    expect(r).toEqual({ saved: ['C:\\p\\a.webp', 'C:\\p\\b.webp'], failed: 1, skipped: 2, canceled: false })
     expect(d.convert).toHaveBeenCalledTimes(2)
     expect(d.written).toHaveBeenCalledWith('C:\\p\\a.webp')
     expect(d.ticks.at(-1)).toEqual([2, 2])
@@ -100,11 +103,31 @@ describe('Save copies as (#474)', () => {
     })
   })
 
-  it('a file outside the wall is skipped, never read', async () => {
+  it('a picture outside the wall is never read, and counted as one that could not be', async () => {
     const d = disk(['C:\\p\\a.jpg'], { allowed: () => false })
     const r = await saveCopies({ paths: ['C:\\p\\a.jpg'], format: 'png' }, d)
-    expect(r).toEqual({ saved: [], failed: 0, skipped: 1, canceled: false })
+    expect(r).toEqual({ saved: [], failed: 1, skipped: 0, canceled: false })
     expect(d.convert).not.toHaveBeenCalled()
+  })
+
+  it('a picture the disk will not even stat could not be read; a folder named like one is skipped', async () => {
+    const d = disk([], {
+      entry: async (p: string) => (p.includes('gone') ? null : p.includes('dir') ? 'other' : 'file')
+    })
+    const r = await saveCopies({ paths: ['C:\\p\\gone.jpg', 'C:\\p\\dir.png'], format: 'png' }, d)
+    expect(r).toEqual({ saved: [], failed: 1, skipped: 1, canceled: false })
+    expect(d.convert).not.toHaveBeenCalled()
+  })
+
+  it('a made file that does not land is thrown away at once, not kept until the job ends', async () => {
+    const d = disk(['C:\\p\\a.jpg', 'C:\\p\\b.jpg', 'C:\\p\\c.jpg'], { atOnce: 1 })
+    d.convert = vi.fn(async (src: string) => !src.includes('b.jpg'))
+    d.place = vi.fn(async (_m: string, target: string) => (target.includes('c.') ? ('failed' as const) : ('ok' as const)))
+    const r = await saveCopies({ paths: ['C:\\p\\a.jpg', 'C:\\p\\b.jpg', 'C:\\p\\c.jpg'], format: 'webp' }, d)
+    expect(r.saved).toEqual(['C:\\p\\a.webp'])
+    expect(d.discard).toHaveBeenCalledWith('T:\\job\\1.webp') // the half-made one
+    expect(d.discard).toHaveBeenCalledWith('T:\\job\\2.webp') // made, could not be placed
+    expect(d.discard).not.toHaveBeenCalledWith('T:\\job\\0.webp')
   })
 
   it('Cancel stops the job: what was made stays, nothing more starts, the stopped one is not a failure', async () => {
