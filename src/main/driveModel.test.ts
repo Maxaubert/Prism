@@ -112,7 +112,9 @@ describe.runIf(process.platform === 'win32')('driveModel', () => {
 
   it.skipIf(!!process.env.CI)('reads the system drive through the worker (this machine)', async () => {
     const system = `${(process.env.SystemDrive ?? 'C:').toUpperCase()}\\`
-    const facts = await createDriveModels()(system)
+    // The app's command on this machine, given the same 25 s as above.
+    const run = (): Promise<string | null> => powershellInWorker(MODEL_COMMAND, 25_000)
+    const facts = await createDriveModels({ run, now: Date.now })(system)
     expect(facts.fs).toBe('NTFS')
   }, 30_000)
 })
