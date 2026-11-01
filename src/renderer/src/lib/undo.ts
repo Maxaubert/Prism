@@ -21,6 +21,13 @@ export type UndoEntry =
   /** Files MOVED into an archive: the members went in and the originals went
    *  to the bin, so undo takes both halves back. */
   | { kind: 'archive-in'; zip: string; dest: string; entries: string[]; originals: string[] }
+  /** Members MOVED to another folder of the same zip (#70 D8; owner approved
+   *  the spec "as recommended", 2026-11-01): each dragged member's old and
+   *  new name inside the zip. Undo moves each back under its old name; redo
+   *  moves it again. Only moves: a rename or a delete inside a zip stays off
+   *  the stack (a delete is permanent anyway). `base` is the zip as the
+   *  Explorer spells it, for the landing marks. */
+  | { kind: 'archive-move'; zip: string; base?: string; items: Array<{ from: string; to: string }> }
   /** A NEW FOLDER (#330, Ctrl+Shift+N): undo bins it, and only while it is
    *  still empty; redo makes one of the same name in the same place. */
   | { kind: 'mkdir'; path: string }
@@ -90,6 +97,10 @@ export function describe(entry: UndoEntry): string {
       return `duplicating ${baseName(entry.path)}`
     case 'mkdir':
       return `making ${baseName(entry.path)}`
+    case 'archive-move':
+      return entry.items.length > 1
+        ? `moving ${entry.items.length} items inside ${baseName(entry.zip)}`
+        : `moving ${baseName(entry.items[0]?.to ?? '')} inside ${baseName(entry.zip)}`
     case 'archive-in':
       return entry.entries.length > 1
         ? `moving ${entry.entries.length} items into ${baseName(entry.zip)}`
