@@ -13207,7 +13207,9 @@ async function phoneScenario(fixtures) {
             }
             const root = getComputedStyle(document.documentElement)
             return {
-              px: [...g.getImageData(3, 3, 1, 1).data].slice(0, 3),
+              // Inside the clear band, past the tile's rounded corner (which
+              // shows the page behind it at the very edge).
+              px: [...g.getImageData(Math.round(bmp.width * 0.12), Math.round(bmp.height * 0.12), 1, 1).data].slice(0, 3),
               a: rgb(root.getPropertyValue('--p-checker-a')),
               b: rgb(root.getPropertyValue('--p-checker-b')),
               bg: css?.backgroundImage ?? ''
