@@ -16,7 +16,10 @@
  */
 export type ByteRange = { start: number; end: number }
 
-export function parseByteRange(header: string | null, total: number): ByteRange | 'unsatisfiable' | null {
+export function parseByteRange(
+  header: string | null,
+  total: number
+): ByteRange | 'unsatisfiable' | null {
   if (!header) return null
   const m = /^\s*bytes\s*=\s*(\d*)\s*-\s*(\d*)\s*$/i.exec(header)
   if (!m) return null

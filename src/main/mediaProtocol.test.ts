@@ -96,7 +96,9 @@ describe('fsmedia://', () => {
     expect(whole.status).toBe(200)
     expect(whole.headers.get('content-length')).toBe('0')
     expect(await whole.text()).toBe('')
-    const ranged = await server((p) => p === empty)(new Request(url(empty), { headers: { range: 'bytes=0-' } }))
+    const ranged = await server((p) => p === empty)(
+      new Request(url(empty), { headers: { range: 'bytes=0-' } })
+    )
     expect(ranged.status).toBe(416)
     expect(ranged.headers.get('content-range')).toBe('bytes */0')
   })
