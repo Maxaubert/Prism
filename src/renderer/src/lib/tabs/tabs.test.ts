@@ -307,13 +307,12 @@ describe('the gear', () => {
 
   it('knows when putting settings away would leave no tab, so the window closes (review, 2026-10-28)', () => {
     const only = [settings('s')]
-    expect(settingsCloseIsLast(only, 's', true)).toBe(true)
-    expect(settingsCloseIsLast(only, null, false)).toBe(true)
+    expect(settingsCloseIsLast(only, 's')).toBe(true)
     // The gear on settings not in view brings them forward; nothing closes.
-    expect(settingsCloseIsLast(only, null, true)).toBe(false)
+    expect(settingsCloseIsLast(only, null)).toBe(false)
     const two = [tabOf('C:\\a', ['C:\\a\\one.jpg']), settings('s')]
-    expect(settingsCloseIsLast(two, 's', true)).toBe(false)
-    expect(settingsCloseIsLast([tabOf('C:\\a', [])], null, false)).toBe(false)
+    expect(settingsCloseIsLast(two, 's')).toBe(false)
+    expect(settingsCloseIsLast([tabOf('C:\\a', [])], null)).toBe(false)
   })
 
   it('never lets Escape close the window from Settings (#14, owner, 2026-11-01)', () => {

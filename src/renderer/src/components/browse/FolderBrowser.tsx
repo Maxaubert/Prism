@@ -327,7 +327,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   useLayoutEffect(() => {
     landApply.current = landRows
   })
-  useEffect(() => landApply.current(),[landReq, entries, landing, props.directory, landTick])
+  useEffect(() => landApply.current(), [landReq, entries, landing, props.directory, landTick])
   // The deadline: mark what did arrive, or let the request go.
   useEffect(() => {
     if (!landReq) return
