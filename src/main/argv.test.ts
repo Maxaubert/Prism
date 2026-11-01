@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { pathsFromArgv, pathsFromArgvAsync } from './argv'
+import { argsAgainst, pathsFromArgv, pathsFromArgvAsync, secondLaunch } from './argv'
 
 /**
  * What the command line asked for.
@@ -95,5 +95,71 @@ describe('reading a handoff off the main thread (2026-10-12)', () => {
     })
     expect(await pathsFromArgvAsync(['prism.exe', ...many], [])).toHaveLength(32)
     expect(pathsFromArgv(['prism.exe', ...many], [])).toHaveLength(32)
+  })
+})
+
+// #21 (2026-11-01): a second instance's relative path is relative to ITS
+// shell, which Electron hands over as `workingDirectory`. Read against the
+// resident Prism's cwd, `prism photo.jpg` from D:\pics opened nothing, or an
+// unrelated photo.jpg that happened to sit where Prism was first started.
+describe('a path relative to the launching shell (#21)', () => {
+  it('resolves against the cwd it is given, and answers it absolute', async () => {
+    expect(await pathsFromArgvAsync(['prism.exe', 'a.jpg', 'sub'], [], dir)).toEqual([
+      { path: a, dir: false },
+      { path: sub, dir: true }
+    ])
+    expect(pathsFromArgv(['prism.exe', 'a.jpg'], [], dir)).toEqual([{ path: a, dir: false }])
+  })
+
+  it('never reads it against the resident process cwd', async () => {
+    // The same name in the folder Prism itself runs in must not be what opens.
+    const here = mkdtempSync(join(dir, 'shell-'))
+    expect(await pathsFromArgvAsync(['prism.exe', 'a.jpg'], [], here)).toEqual([])
+    expect(await pathsFromArgvAsync(['prism.exe', join('..', 'a.jpg')], [], here)).toEqual([
+      { path: a, dir: false }
+    ])
+  })
+
+  it('leaves an absolute path as it was', async () => {
+    expect(await pathsFromArgvAsync(['prism.exe', a], [], join(dir, 'sub'))).toEqual([{ path: a, dir: false }])
+  })
+
+  it('makes a relaunch command line absolute, switches untouched', () => {
+    expect(argsAgainst(['--e2e', 'a.jpg', a, '--user-data-dir=C:\\x'], dir)).toEqual([
+      '--e2e',
+      a,
+      a,
+      '--user-data-dir=C:\\x'
+    ])
+    // A one-dash name is a file, as it is to the readers above (review of #21).
+    expect(argsAgainst(['-clip.mp4'], dir)).toEqual([join(dir, '-clip.mp4')])
+  })
+})
+
+// The second-instance handler reads everything through secondLaunch (review
+// of #21, 2026-11-01): `cwd` defaults to this process's own, so a reader
+// called without the shell's folder would bring the bug back with the
+// typecheck still green. This pins all three readers to the folder given.
+describe('a second launch, read whole (#21)', () => {
+  it('reads every path and the relaunch against the shell folder, not this process cwd', async () => {
+    expect(process.cwd().toLowerCase()).not.toBe(dir.toLowerCase())
+    const launch = secondLaunch(['prism.exe', '--e2e', 'a.jpg', 'sub'], dir, [])
+    const want = [
+      { path: a, dir: false },
+      { path: sub, dir: true }
+    ]
+    expect(await launch.paths()).toEqual(want)
+    expect(launch.pathsNow()).toEqual(want)
+    expect(launch.relaunchArgs()).toEqual(['--e2e', a, sub])
+  })
+
+  it('treats a one-dash name as a file in both readers, so a relaunch passes it absolute', async () => {
+    // `-clip.mp4` opened on a handoff but went on relative in a quit's
+    // relaunch: the two readers disagreed on what a switch is.
+    const dash = join(dir, '-clip.mp4')
+    writeFileSync(dash, 'x')
+    const launch = secondLaunch(['prism.exe', '-clip.mp4'], dir, [])
+    expect(await launch.paths()).toEqual([{ path: dash, dir: false }])
+    expect(launch.relaunchArgs()).toEqual([dash])
   })
 })

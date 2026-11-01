@@ -30,7 +30,7 @@ import { tmpdir } from 'os'
 import {
   initDwmHelper
 } from './dwmHelper'
-import { pathsFromArgv, pathsFromArgvAsync } from './argv'
+import { pathsFromArgv, secondLaunch } from './argv'
 import { WIN_E_FIRST, browseRequest, createWinERequests, winERequest, winEHostOf } from './winERequests'
 import { removeOldExplorerWindows } from './oldExplorerWindows'
 import { createWindowPreferences } from './windowPreferences'
@@ -238,7 +238,10 @@ const serveMediaNow = createMediaServer({
   allowed: wall.mediaAllowed,
   warm: warmWall,
   ffmpeg: ffmpegTools,
-  heic: heicToJpeg
+  heic: heicToJpeg,
+  // A 500 leaves a line in the diag log (review of #23). `diag` is made at
+  // ready, before any page can ask for media.
+  onError: (fields) => diag?.log.write('main', 'media-500', fields)
 })
 // E2E only: a file whose name holds PRISM_E2E_SLOW_MEDIA answers 1.5 s late,
 // standing in for a slow conversion (a HEIC), so the preview's wait can be
@@ -1751,7 +1754,10 @@ if (!app.requestSingleInstanceLock()) {
   // Stalls table sees a scenario's last moments.
   // sync-ok: e2e only, the harness calls it just before app.exit
   if (E2E) Object.assign(globalThis, { __e2eDiagFlush: () => diag?.log.flushSync() })
-  app.on('second-instance', (_e, argv) => {
+  // `workingDirectory` is the SECOND process's cwd (#21): its relative paths
+  // are read against it, never against this process's own.
+  app.on('second-instance', (_e, argv, workingDirectory) => {
+    const launch = secondLaunch(argv, workingDirectory)
     const shortcutRequest = winERequest(argv)
     if (shortcutRequest) {
       // A window now would only be taken away: no answer, and the helper's
@@ -1784,7 +1790,7 @@ if (!app.requestSingleInstanceLock()) {
     if (appState.installingUpdate) return
     if (appState.appQuitting) {
       // sync-ok: quit, the relaunch must be decided before this process exits
-      if (pathsFromArgv(argv).length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
+      if (launch.pathsNow().length && !E2E) app.relaunch({ execPath: argv[0], args: launch.relaunchArgs() })
       return
     }
     // A new page restores and drains `pendingOpen` itself once it listens
@@ -1807,10 +1813,10 @@ if (!app.requestSingleInstanceLock()) {
     // front.
     handoffs = handoffs
       .then(async () => {
-        const paths = await pathsFromArgvAsync(argv)
+        const paths = await launch.paths()
         if (appState.installingUpdate) return
         if (appState.appQuitting) {
-          if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
+          if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: launch.relaunchArgs() })
           return
         }
         const to = windows.target()
