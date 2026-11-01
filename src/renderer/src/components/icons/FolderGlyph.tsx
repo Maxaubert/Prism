@@ -1,6 +1,7 @@
 import type { ComponentProps, JSX, ReactElement } from 'react'
 import type { FolderIconChoice } from '../../lib/folderIcons'
 import { useFolderIconSet, type FolderIconDef } from '../../lib/folderIconSetLoad'
+import { useFolderIconFiles, wantFolderIconFile } from '../../lib/folderIconFiles'
 import { Icon } from './Icon'
 
 /** One built-in icon, drawn by the line-glyph primitive at Prism's stroke
@@ -24,7 +25,10 @@ export function BuiltInIcon({
  * the search popup, the row's ink in the sidebar: D4) and says its name in
  * `data-folder-icon` for the e2e.
  *
- * Pictures from a file are PR 3; until then such an entry draws the default.
+ * A picture from a file (2026-10-31) is Prism's own 64 px copy, drawn as an
+ * `<img>` from its data URL at the row's icon size, in its own colours
+ * (`data-folder-icon="file"`). Until the copies have loaded, or when the copy
+ * is gone, the default is drawn.
  */
 export function FolderGlyph({
   icon,
@@ -41,6 +45,27 @@ export function FolderGlyph({
   fallback: ReactElement
 }): JSX.Element {
   const set = useFolderIconSet()
+  const files = useFolderIconFiles()
+  if (icon && 'file' in icon) {
+    const url = files?.get(icon.file)
+    if (!url) {
+      // Kept by another window after this one loaded: ask main once more.
+      if (files) wantFolderIconFile(icon.file)
+      return fallback
+    }
+    return (
+      <img
+        src={url}
+        alt=""
+        width={size}
+        height={size}
+        draggable={false}
+        className={['shrink-0 object-contain', className].filter(Boolean).join(' ')}
+        style={{ width: size, height: size }}
+        data-folder-icon="file"
+      />
+    )
+  }
   const def = icon && 'set' in icon ? set?.byName.get(icon.set) : undefined
   if (!def) return fallback
   return (
