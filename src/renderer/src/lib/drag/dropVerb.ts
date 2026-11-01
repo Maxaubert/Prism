@@ -55,6 +55,9 @@ export interface DropTarget {
   /** The folder (or zip, or place inside one) the drop lands in. */
   dir: string
   archive?: DropArchive | null
+  /** The row under the pointer, when the target is one: a drop onto any of
+   *  the carried rows is refused, as Windows refuses (#70 review). */
+  row?: string
 }
 
 /**
@@ -93,13 +96,18 @@ export function archiveTarget(
 const cleanInner = (p: string): string => p.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
 const innerParent = (p: string): string => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 
-/** Ctrl copies, Shift moves, otherwise the drive decides. An unknown volume
- *  counts as the same one. */
-function copies(source: string, dest: string, keys: DropKeys): boolean {
+/** Ctrl copies, Shift moves, otherwise the drive decides: a plain drag moves
+ *  only when EVERYTHING carried is on the target's drive, so nothing leaves
+ *  another drive without Shift (#70 review, 2026-11-01: it read the first
+ *  path only). An unknown volume counts as the same one. */
+function copies(sources: readonly string[], dest: string, keys: DropKeys): boolean {
   if (keys.ctrl !== keys.shift) return keys.ctrl
-  const from = volumeOf(source)
   const to = volumeOf(dest)
-  return !!from && !!to && from !== to
+  if (!to) return false
+  return sources.some((source) => {
+    const from = volumeOf(source)
+    return !!from && from !== to
+  })
 }
 
 /** Members of the zip this target is in. */
@@ -121,8 +129,11 @@ export function dropVerb({
 }): DropVerb {
   if (!payload) return 'none'
   const arc = target.archive ?? null
+  const row = target.row
   if (payload.kind === 'members') {
     if (!payload.entries.length) return 'none'
+    // Onto one of the carried rows: nothing, whatever the keys.
+    if (row && payload.places?.some((p) => samePath(p, row))) return 'none'
     if (!arc) return 'extract'
     if (arc.readOnly) return 'none'
     if (!ownZip(payload, arc)) return 'zip-to-zip'
@@ -137,14 +148,17 @@ export function dropVerb({
   if (payload.external) return arc ? (arc.readOnly ? 'none' : 'add-copy') : 'copy'
   const paths = payload.paths
   if (!paths.length) return 'none'
+  // Onto one of the carried rows: Windows shows no-drop there, and Ctrl is
+  // also the select toggle, so a Ctrl+click that wandered must not copy.
+  if (row && paths.some((p) => samePath(p, row))) return 'none'
   if (arc) {
     if (arc.readOnly) return 'none'
     // A zip cannot take itself, or a folder that holds it.
     if (paths.some((p) => isInside(p, arc.outer, { orEqual: true }))) return 'none'
-    return copies(paths[0], arc.outer, keys) ? 'add-copy' : 'add-move'
+    return copies(paths, arc.outer, keys) ? 'add-copy' : 'add-move'
   }
   if (paths.some((p) => isInside(p, target.dir, { orEqual: true }))) return 'none'
-  const copy = copies(paths[0], target.dir, keys)
+  const copy = copies(paths, target.dir, keys)
   // A move into the folder it is in does nothing; a copy there makes
   // "name (2)", Windows' duplicate (G10).
   if (!copy && paths.every((p) => samePath(parentDir(p), target.dir))) return 'none'
