@@ -69,6 +69,40 @@ describe('dropVerb: rows onto a real folder', () => {
     expect(dropVerb({ payload: files('C:\\work\\a.txt'), target: own, keys: CTRL })).toBe('copy')
   })
 
+  // #70 review (2026-11-01): a file row's target is the folder it is in, so
+  // Ctrl over a carried row read "copy into its own folder" and a Ctrl+click
+  // that wandered a few pixels made "name (2)". Windows shows no-drop over
+  // the dragged items themselves; so does Prism, whatever the keys.
+  it('refuses a drop onto any of the carried rows, Ctrl or not', () => {
+    const own = { dir: 'C:\\work', row: 'C:\\work\\a.txt' }
+    for (const keys of [NONE, CTRL, SHIFT, BOTH])
+      expect(dropVerb({ payload: files('C:\\work\\a.txt'), target: own, keys })).toBe('none')
+    const sibling = { dir: 'C:\\work', row: 'C:\\work\\b.txt' }
+    expect(dropVerb({ payload: files('C:\\work\\a.txt', 'C:\\work\\b.txt'), target: sibling, keys: CTRL })).toBe('none')
+    // A row that is not carried still means its folder: Ctrl duplicates.
+    const other = { dir: 'C:\\work', row: 'C:\\work\\c.txt' }
+    expect(dropVerb({ payload: files('C:\\work\\a.txt'), target: other, keys: CTRL })).toBe('copy')
+  })
+
+  it('refuses members dropped onto one of their own rows', () => {
+    const a = 'C:\\work\\a.zip'
+    const row = { dir: `${a}\\docs`, archive: zip(a, 'docs'), row: `${a}\\x.txt` }
+    expect(dropVerb({ payload: members(a, a, 'x.txt'), target: row, keys: CTRL })).toBe('none')
+  })
+
+  // #70 review (2026-11-01): the drive rule read the FIRST path only. A
+  // plain drag moves only when everything carried is on the target's drive;
+  // a selection with anything from another drive copies, so nothing leaves
+  // another drive without Shift.
+  it('a selection from two drives copies unless Shift', () => {
+    for (const payload of [files('C:\\work\\a.txt', 'D:\\b.txt'), files('D:\\b.txt', 'C:\\work\\a.txt')]) {
+      expect(dropVerb({ payload, target: into, keys: NONE })).toBe('copy')
+      expect(dropVerb({ payload, target: into, keys: SHIFT })).toBe('move')
+    }
+    const box = zip('C:\\work\\box.zip')
+    expect(dropVerb({ payload: files('C:\\work\\a.txt', 'D:\\b.txt'), target: { dir: box.base, archive: box }, keys: NONE })).toBe('add-copy')
+  })
+
   it('copies files from Windows in, whatever the keys (#103 D3)', () => {
     for (const keys of [NONE, CTRL, SHIFT, BOTH])
       expect(dropVerb({ payload: windows('C:\\work\\a.txt'), target: into, keys })).toBe('copy')

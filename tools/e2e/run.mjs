@@ -12651,6 +12651,18 @@ async function dragCopyScenario(fixtures) {
     ok(w1 === 'Copy', `Ctrl over a folder reads Copy (${w1})`)
     ok(await until(async () => existsSync(join(dir, 'into', 'a.txt')), 8000, 100), 'Ctrl+drag copied the file into the folder')
     ok(existsSync(join(dir, 'a.txt')), 'and the original stayed')
+    // Ctrl onto ITSELF, or onto another carried row: no-drop, nothing made
+    // (#70 review, 2026-11-01). Ctrl is the select toggle too, so a
+    // Ctrl+click that wandered a few pixels must not duplicate.
+    const self = await carryOver(win, name('a.txt'), name('a.txt'), { keys: ['Control'] })
+    ok(self === '', `Ctrl over its own row says nothing (${JSON.stringify(self)})`)
+    await name('a.txt').click()
+    await name('c.txt').click({ modifiers: ['Control'] })
+    const both = await carryOver(win, name('a.txt'), name('c.txt'), { keys: ['Control'] })
+    ok(both === '', `Ctrl over another carried row says nothing (${JSON.stringify(both)})`)
+    await sleep(800)
+    ok(!existsSync(join(dir, 'a (2).txt')) && !existsSync(join(dir, 'c (2).txt')), 'and neither drop made a copy')
+    await name('anchor.txt').click()
     // Ctrl onto its OWN folder: a duplicate, "a (2).txt", marked (G10).
     const w2 = await carryOver(win, name('a.txt'), await listSpace(win), { keys: ['Control'] })
     ok(w2 === 'Copy', `Ctrl over its own folder reads Copy (${w2})`)

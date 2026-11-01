@@ -41,7 +41,9 @@ export function useFolderDrop(
   return (directory: string, target = directory) => {
     const accepts = (event: DragEvent): boolean =>
       event.dataTransfer.types.includes(DRAG_MIME) || event.dataTransfer.types.includes('Files')
-    const dropTarget = { dir: directory, archive: archiveTarget(directory, meta) }
+    // `target` is the row's own path for a row (else 'list', 'strip' or the
+    // folder): a drop onto a carried row is refused (#70 review).
+    const dropTarget = { dir: directory, archive: archiveTarget(directory, meta), row: target }
     return {
       'data-folder-drop': directory,
       'data-drag-over': hovered === target || undefined,
