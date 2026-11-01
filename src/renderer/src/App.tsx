@@ -31,6 +31,7 @@ import {
   closeTab,
   toggleSettingsTab,
   settingsCloseIsLast,
+  settingsEscapeCloses,
   sameRoot,
   type Tab,
   type TabState
@@ -118,6 +119,7 @@ import { keptFolderIconFile } from './lib/folderIconFiles'
 import { folderIconFromFile, ICON_REFUSED } from './lib/iconFromFile'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { nextTabId } from './lib/sessionIds'
+import { markLanded } from './lib/landMarks'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
 // or dialog), routes by kind to a viewer, and pages through the folder. Video,
@@ -176,7 +178,7 @@ export default function App(): JSX.Element {
     const now = tabStateNow.current
     // Settings as the last tab: the gear closes the window, like any last
     // tab (review, 2026-10-28; it left an empty window).
-    if (settingsCloseIsLast(now.tabs, now.activeId, true)) return window.prism.close()
+    if (settingsCloseIsLast(now.tabs, now.activeId)) return window.prism.close()
     setTabState((s) =>
       toggleSettingsTab(s.tabs, s.activeId, `settings-${(settingsSeq.current += 1)}`)
     )
@@ -187,11 +189,11 @@ export default function App(): JSX.Element {
       return st ? closeTab(s.tabs, st.id, s.activeId) : s
     })
   }, [])
-  /** Settings' own close (its X, Escape): the window goes with the last tab. */
+  /** Settings' Escape: it puts the page away only when another tab is left.
+   *  ESCAPE NEVER CLOSES THE WINDOW (#14, owner, 2026-11-01: "escape should
+   *  not interact with app close"); this used to close it from the last tab. */
   const putSettingsAway = useCallback(() => {
-    const now = tabStateNow.current
-    if (settingsCloseIsLast(now.tabs, now.activeId, false)) return window.prism.close()
-    closeSettingsTab()
+    if (settingsEscapeCloses(tabStateNow.current.tabs)) closeSettingsTab()
   }, [closeSettingsTab])
   /**
    * Show NOTHING in the active tab, without closing it (2026-09-02).
@@ -1787,6 +1789,7 @@ export default function App(): JSX.Element {
                   if (copy) {
                     noteUndo({ kind: 'duplicate', source: path, path: copy })
                     setRefreshKey((key) => key + 1)
+                    markLanded([copy])
                   }
                 })
               },

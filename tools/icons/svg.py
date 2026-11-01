@@ -61,6 +61,7 @@ import pathlib
 import sys
 
 from final_icons import BOX as FINAL_BOX
+from final_icons import _code_guide_at
 from langs import BARE_ONLY, EXTS, MARKS
 from round12 import CHIP, CUT, PX0, PX1, PY0, PY1, on_page
 from round12 import lines as doc_lines
@@ -401,27 +402,6 @@ def _play_disc_svg(d, n, box, col, hole):
                (cx - s * 0.14, cy + s * 0.23)], fill=hole)
 
 
-def _code_guide(d, n, box, col, hole):
-    """CODE in-app: an indent guide with rungs, not the shipped stepped bars.
-
-    The .ico tells code from document with COLOUR - one bar in Prism's indigo.
-    In-app everything is painted in a single ink, so that difference cannot
-    survive, and code and document would both be three rounded bars in one
-    colour: the same smudge in a 14px tree row. A vertical spine with rungs
-    hanging off it is the same visual language - flat, geometric, knocked out
-    of the page - and reads as STRUCTURE where three full-width bars read as
-    prose. The third of the three deliberate divergences from the .ico, after
-    the clapperboard's stripe count and the comic splat.
-    """
-    x0, y0, x1, y1 = box
-    w, h = x1 - x0, y1 - y0
-    d.rounded_rectangle([x0, y0, x0 + w * 0.13, y1], radius=w * 0.065, fill=col)
-    for i, wide in enumerate((0.62, 0.86, 0.48)):
-        y = y0 + i * h * 0.37
-        d.rounded_rectangle([x0 + w * 0.28, y, x0 + w * (0.28 + wide * 0.72), y + h * 0.26],
-                            radius=h * 0.07, fill=col)
-
-
 def _comic_splat(d, n, box, col, hole):
     """COMIC in-app: the splat, which is the only part that survives one colour."""
     x0, y0, x1, y1 = box
@@ -433,7 +413,10 @@ def _comic_splat(d, n, box, col, hole):
 
 PAGE_GLYPHS = {
     "audio": quarter,
-    "code": _code_guide,
+    # THE .ico'S OWN MARK since #91 (2026-11-01): the indent guide the app
+    # drew alone is now what Explorer shows too, so it is replayed from
+    # final_icons rather than kept here as a third deliberate divergence.
+    "code": _code_guide_at,
     "comic": _comic_splat,
     "document": doc_lines,
     "image": dict((k, f) for k, _l, f in R14["image"][2])["hills"],
@@ -687,7 +670,7 @@ def ink_for(bg):
 
 # ------------------------------------------------------------- identity
 # A COLOUR IDENTITY IS FINER THAN AN ICON SHAPE, and that gap is the whole
-# reason this table exists. `.md` draws the code kind's stepped bars because it
+# reason this table exists. `.md` draws the code kind's indent guide because it
 # has no mark of its own, and `.docx` draws the same page as `.pdf` because both
 # are the document kind - so under a per-KIND colour scheme a README is coloured
 # as source and a Word file as a PDF. Neither is what the owner means by either
@@ -1039,7 +1022,7 @@ HEADER = """// Prism's own file icons on a 24x24 viewBox, monochrome or coloured
 // out of the band where MP3 fits easily.
 //
 // LANG_PATHS is a mark per language, laid on the code kind's page in place of
-// its stepped bars: two layers only, since the page, the fold and the band all
+// its indent guide: two layers only, since the page, the fold and the band all
 // come from the KIND. LANG_BY_EXT is the same table Explorer registers;
 // LANG_BY_NAME is the app doing what Explorer cannot, because Windows
 // associates on extension and `Dockerfile` has none.
@@ -1155,7 +1138,7 @@ def ts_source():
     ]
 
     L += ["// A mark per LANGUAGE, laid on the code kind's page in place of its",
-          "// stepped bars. Two layers only: the page, the fold and the band all",
+          "// indent guide. Two layers only: the page, the fold and the band all",
           "// come from the KIND, so a language changes the mark and nothing else.",
           "export const LANG_PATHS = {"]
     for name, d in langs_paths().items():

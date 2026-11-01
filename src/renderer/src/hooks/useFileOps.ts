@@ -37,6 +37,7 @@ import { PASTE_MESSAGES, pasteMessage } from './useFilePaste'
 import { browseParent } from '../lib/browse'
 import type { Ask } from '../dialogs/asks'
 import type { useArchiveActions } from '../components/browse/useArchiveActions'
+import { markLanded } from '../lib/landMarks'
 
 // THE FILE OPERATIONS (out of App.tsx, structure cleanup 2026-10-12,
 // unchanged): rename, new folder, delete, move and the drops that move, and
@@ -394,6 +395,9 @@ export function useFileOps({
           // Folder icons go where their folders went (D9); undo and redo
           // move through here too.
           followFolderIcons(r.moved)
+          // A drop or a move the user made lands marked (#101); an undo's
+          // or redo's moves are marked by the step, all at once.
+          if (track && r.moved.length) markLanded(r.moved.map((m) => m.to))
           if (track && r.moved.length)
             noteUndo({
               kind: 'move',
@@ -435,6 +439,7 @@ export function useFileOps({
       rename: (path, name) => runRename(path, name, 'keep-both', false),
       refresh: () => setRefreshKey((n) => n + 1),
       fail: (message) => setAsk({ kind: 'failed', message }),
+      land: markLanded,
       prism: window.prism
     }),
     [runMove, runRename, setAsk, setRefreshKey]
@@ -501,6 +506,7 @@ export function useFileOps({
         const said = pasteMessage(result, DROP_REFUSED)
         if (said) setAsk({ kind: 'failed', message: said })
         setRefreshKey((n) => n + 1)
+        markLanded(result.paths ?? [])
       } catch {
         setAsk({ kind: 'failed', message: PASTE_MESSAGES.threw })
       } finally {

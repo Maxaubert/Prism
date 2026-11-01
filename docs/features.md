@@ -499,6 +499,40 @@ a browser's upload box, Discord, another Prism window or any app that takes file
   (a move) and back into the same window (a move). If the hand-off does not pick up, the fallback is a small
   native `DoDragDrop`, which needs the owner's say.
 
+## What an action makes is marked, Explorer's way (#101, 2026-11-01)
+
+Issue #101: "One channel: whatever an action just created or moved is expanded to, marked, and put under the
+cursor." It was built for the tree sidebar on 2026-09-05 (`feat/101-landing-marks`, never merged) and the tree
+went with Explorer only (2026-10-26); this is the same rule in the Explorer's list.
+
+- **What lands marked**: a paste (`useFilePaste`), a copy dropped in from Windows and a dropped or menu move
+  (`useFileOps`), Extract here's folder (`lib/extractAll.ts`, every surface), Duplicate, and what an undo puts
+  back or a redo makes again (`undoApply.ts`'s `land`: a move back, a rename back, a file out of the Recycle
+  Bin, a duplicate or new folder made again).
+- **One channel**: `lib/landMarks.ts`. The list showing that folder marks the rows once the listing has every
+  one (a paste's progress rows do not count), the first under the cursor and scrolled into view
+  (`BrowseList` `revealPath`, a scroll only: the focus stays). Past 8 s it marks what did arrive. A move into
+  another folder marks nothing on screen, as in File Explorer.
+- **Quiet** (#263): marking previews and plays nothing. The issue's "exactly one file opens in the viewer" was
+  the tree's; in the Explorer a non-quiet pick previews and plays, so it is not done.
+- **Held by** `landMarks.test.ts`, `undoApply.test.ts` and e2e `landingMarks` (Duplicate, an undone delete
+  scrolled to from the top, redo, a paste of two, an undone drop move, Extract here).
+
+## Escape never closes Prism (#14, owner, 2026-11-01)
+
+Owner, 2026-11-01: "escape should not interact with app close". Escape never closes or quits Prism or a
+window, in any state: the viewer, the Explorer, fullscreen, Settings, a dialog, a menu, a rename. This
+REPLACES every older rule where an Escape could reach the window: the 2026-09-01 one already kept the plain
+viewer open, but Settings' Escape as the last tab still closed the window (2026-10-28), and that path is gone.
+
+- **It keeps its other jobs**: it closes a dialog (as Cancel) or a menu, cancels a rename or a tab tear,
+  leaves fullscreen, clears a search or the marks, and gives a focused document its keys back.
+- **Settings**: Escape puts the page away only when another tab is left (`settingsEscapeCloses`,
+  `tabs.test.ts`); as the last tab it stays. The gear, the tab's X, Ctrl+W and the window's X still close.
+- **Held by** e2e `escapeKeepsOpen` (the viewer and the Explorer stay open; a context menu, the rename
+  dialog and the delete question each close on Escape, and nothing closes the window) and `settingsLastTab`
+  (Escape on Settings as the last tab leaves it open).
+
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 
 Owner decision 2026-10-26 (spec: `docs/superpowers/specs/2026-10-26-explorer-only-design.md`, release
@@ -521,8 +555,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the first Explorer tab left (`closeTab`). Closing the last tab closes the window (`useTabOps`
   `forceCloseTab`, after the unsaved-text question) and leaves the strip saved, so the next launch restores
   it. `tabs.test.ts`, `tabStrip.test.ts`; e2e `tabs`. Settings as the last tab follows the same rule
-  (performance review, 2026-10-28): the gear or Settings' own close then closes the window, where it left an
-  empty one (`settingsCloseIsLast`, `tabs.test.ts`; e2e `settingsLastTab`).
+  (performance review, 2026-10-28): the gear then closes the window, where it left an empty one
+  (`settingsCloseIsLast`, `tabs.test.ts`; e2e `settingsLastTab`). Escape on it does not (#14, below).
 - **Entry points**: a file from argv, an association, a second instance or a drop opens in the home Explorer tab
   as before. A folder from argv, a drop or the shell verb opens an Explorer tab at it (or switches to a tab that
   already shows exactly that folder). The shell verb on folders now reads "Open in Prism"; `relabelVerb`
@@ -3401,6 +3435,19 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   indent guide with rungs rather than the stepped bars - a spine reads as structure where
   three full-width bars read as prose, which is the only way code and document stay apart
   when both are one colour.
+  **THE .ico's CODE IS THE INDENT GUIDE TOO** (#91, 2026-11-01). Once the set went uniform
+  (#82) the .ico had the same problem in its shared grey: magnified at 16px a `.adoc` and a
+  `.docx` were the same three bars. `final_icons._code_guide_at` now draws the app's guide,
+  checked at 16px first: every edge sits on the frame's own pixel grid, so the spine is one
+  whole pixel and the rungs keep a clean gap. `svg.py` replays that same function, so the
+  code divergence is CLOSED and only the comic splat remains (the clapperboard's retired with
+  the play disc). It changed the 77 code extensions with no language mark and
+  `prism-code.ico`; the in-app guide moved by the same snap (`iconPaths.ts`, code only).
+  **THE RUNGS ARE ONE HEIGHT** (review of #91, 2026-11-01). Snapping each rung's edges on
+  their own made them 2, 2 and 1 pixels at 16px (and the app's third rung half the others),
+  so the height and the step are snapped once and the stack hangs from the box's foot: laid
+  from the top, the third rung ran into the band with no row between. Held by
+  `iconPaths.test.ts` ("even rungs").
 - **THE ADDRESS BAR ANSWERS A RIGHT-CLICK** (2026-09-22, owner: "let me right click the url bar to
   get options to copy path or copy as text like file explorer"). Explorer's own three: Copy address,
   Copy address as text, Edit address, always for the FOLDER SHOWN, wherever on the bar you click

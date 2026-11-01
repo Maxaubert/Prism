@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { formatBytes } from '../../lib/format'
 import { BrowseIcon, PreviewGlyph } from '../icons/BrowseIcon'
 import { BrowseList } from './BrowseList'
@@ -17,6 +17,8 @@ import { sweepBase, sweepSelect } from '../../lib/marquee'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import { useLandingIn } from '../../lib/jobs'
+import { LAND_MARK_MS, clearLanded, planLanding, useLandRequest } from '../../lib/landMarks'
+import { pathKey } from '@shared/path'
 import { landingPcts, listedPaths, rowsKey, unlisted, withLanding } from './landingRows'
 import type { DirListing } from '@shared/types'
 import { useListingPrefetch } from '../../hooks/useListingPrefetch'
@@ -291,6 +293,48 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     setMarks({ key: marksKey, items })
     props.onSelect(primary, true)
   }
+  /**
+   * WHAT AN ACTION MADE IS MARKED (#101): a paste, a drop, Extract here,
+   * Duplicate, an undo or a redo asks through `lib/landMarks`, and the list
+   * showing that folder marks the rows once the listing has them all (a
+   * paste's progress rows do not count), the first under the cursor and
+   * scrolled into view. Quiet, as every mark is (#263).
+   */
+  const landReq = useLandRequest()
+  const [revealPath, setRevealPath] = useState<{ path: string; seq: number } | null>(null)
+  const [landTick, setLandTick] = useState(0)
+  const landApply = useRef<() => void>(() => {})
+  const landRows = (): void => {
+    if (!landReq) return
+    const real = new Map<string, string>()
+    for (const entry of entries)
+      if (!landing?.has(entry.path.toLowerCase())) real.set(pathKey(entry.path), entry.path)
+    const plan = planLanding(landReq, props.directory, (p) => real.has(pathKey(p)), Date.now())
+    if (!plan.apply) {
+      if (plan.expired) clearLanded(landReq.seq)
+      return
+    }
+    clearLanded(landReq.seq)
+    const select = plan.select.map((p) => real.get(pathKey(p)) ?? p)
+    const primary = select[0]
+    anchor.current = primary
+    setMarks(select.length > 1 ? { key: marksKey, items: new Set(select) } : null)
+    props.onSelect(primary, true)
+    setRevealPath({ path: primary, seq: landReq.seq })
+  }
+  // Mirrored after render (a ref is not written while rendering), and read
+  // by the effect below, which runs after this one.
+  useLayoutEffect(() => {
+    landApply.current = landRows
+  })
+  useEffect(() => landApply.current(), [landReq, entries, landing, props.directory, landTick])
+  // The deadline: mark what did arrive, or let the request go.
+  useEffect(() => {
+    if (!landReq) return
+    const wait = Math.max(0, landReq.at + LAND_MARK_MS - Date.now()) + 50
+    const t = setTimeout(() => setLandTick((n) => n + 1), wait)
+    return () => clearTimeout(t)
+  }, [landReq])
   /**
    * THE SEARCH POPUP (#267). Open on the search button or Ctrl+F, never over
    * something else in front (a question, the update window: one layer, one
@@ -609,6 +653,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         onSelect={pickOne}
         marked={marked}
         landing={landing}
+        revealPath={revealPath}
         onPick={pick}
         onSweep={swept}
         onExtend={extendTo}

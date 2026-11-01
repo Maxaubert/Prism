@@ -134,6 +134,9 @@ type Props = Pick<
   onToggleMark?: (path: string) => void
   onSelectAll?: () => void
   onClear?: () => boolean
+  /** Bring this row into view once per `seq` (#101: what an action just made
+   *  is marked and scrolled to). Scroll only: the focus stays where it is. */
+  revealPath?: { path: string; seq: number } | null
   /** A right press on the list's empty space (inside an archive, #300). */
   onEmptyContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void
 }
@@ -526,17 +529,22 @@ export function BrowseList(props: Props): JSX.Element {
   }
   /** Bring a row into view, stepping off a divider the way `toward` points;
    *  the row's entry, or null when it is not there to land on. */
-  const reveal = (index: number, toward: 1 | -1): { index: number; entry: BrowseEntry } | null => {
-    const node = scroller.current
-    if (!node) return null
-    while (index >= 0 && index < count && rowAt(index) === null) index += toward
-    if (index < 0 || index >= count) return null
+  /** Scroll so the row at `index` is in view (its divider too, at a group's
+   *  top), and hand the position up. */
+  const scrollToRow = (node: HTMLDivElement, index: number): void => {
     const top = (divided?.divider(index - 1) ? index - 1 : index) * rowHeight
     const visibleTop = node.scrollTop * scale
     if (top < visibleTop) node.scrollTop = top / scale
     else if (index * rowHeight + rowHeight > visibleTop + node.clientHeight)
       node.scrollTop = (index * rowHeight + rowHeight - node.clientHeight) / scale
     handUp(node.scrollTop)
+  }
+  const reveal = (index: number, toward: 1 | -1): { index: number; entry: BrowseEntry } | null => {
+    const node = scroller.current
+    if (!node) return null
+    while (index >= 0 && index < count && rowAt(index) === null) index += toward
+    if (index < 0 || index >= count) return null
+    scrollToRow(node, index)
     const entry = rowAt(index)
     if (!entry) return null
     requestAnimationFrame(() =>
@@ -544,6 +552,17 @@ export function BrowseList(props: Props): JSX.Element {
     )
     return { index, entry }
   }
+  // WHAT AN ACTION MADE COMES INTO VIEW (#101), once per request.
+  const revealedSeq = useRef(0)
+  useLayoutEffect(() => {
+    const want = props.revealPath
+    const node = scroller.current
+    if (!want || want.seq === revealedSeq.current || !node || props.loading) return
+    const index = indexOfPath(want.path)
+    if (index < 0) return
+    revealedSeq.current = want.seq
+    scrollToRow(node, index)
+  })
   const focusRow = (index: number): void => {
     const node = scroller.current
     if (!node) return
