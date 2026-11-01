@@ -145,3 +145,30 @@ describe('redoEntry', () => {
     )
   })
 })
+
+describe('what an undo or redo puts back is marked (#101)', () => {
+  const landing = (): UndoOps & { calls: string[]; landed: string[][] } => {
+    const ops = fakeOps() as UndoOps & { calls: string[]; landed: string[][] }
+    ops.landed = []
+    ops.land = (paths) => void ops.landed.push([...paths])
+    return ops
+  }
+  it('an undone move marks where each item came back to', async () => {
+    const ops = landing()
+    await undoEntry({ kind: 'move', items: [{ from: 'C:\\a\\x.txt', to: 'C:\\b\\x.txt' }] }, ops)
+    expect(ops.landed).toEqual([['C:\\a\\x.txt (2)']])
+  })
+  it('an undone rename and an undone delete mark what came back', async () => {
+    const ops = landing()
+    await undoEntry({ kind: 'rename', from: 'C:\\d\\old.txt', to: 'C:\\d\\new.txt' }, ops)
+    await undoEntry({ kind: 'trash', paths: ['C:\\d\\gone.txt'] }, ops)
+    expect(ops.landed).toEqual([['C:\\d\\old.txt'], ['C:\\d\\gone.txt']])
+  })
+  it('a redone move, duplicate and new folder mark what they made', async () => {
+    const ops = landing()
+    await redoEntry({ kind: 'move', items: [{ from: 'C:\\a\\x.txt', to: 'C:\\b\\x.txt' }] }, ops)
+    await redoEntry({ kind: 'duplicate', source: 'C:\\d\\a.txt', path: 'C:\\d\\a - Copy.txt' }, ops)
+    await redoEntry({ kind: 'mkdir', path: 'C:\\d\\New folder' }, ops)
+    expect(ops.landed).toEqual([['C:\\b\\x.txt (2)'], ['C:\\d\\a - Copy.txt'], ['C:\\d\\New folder']])
+  })
+})

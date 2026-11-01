@@ -16,6 +16,8 @@ export interface UndoOps {
   refresh: () => void
   /** Say that something did not work ("That didn't work"). */
   fail: (message: string) => void
+  /** What the step put back or made again, for the list to mark (#101). */
+  land?: (paths: readonly string[]) => void
   prism: Pick<
     typeof window.prism,
     | 'restoreFromBin'
@@ -47,17 +49,20 @@ export async function undoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       // after the mover has left, not before.
       if (entry.replaced?.length) await prism.restoreFromBin(entry.replaced)
       ops.refresh()
+      ops.land?.(items.map((it) => it.from))
       return { ...entry, items, replaced: undefined }
     }
     case 'rename': {
       const back = await ops.rename(entry.to, baseName(entry.from))
       if (entry.replaced) await prism.restoreFromBin([entry.replaced])
       ops.refresh()
+      if (back) ops.land?.([back])
       return back ? { ...entry, from: back, replaced: undefined } : entry
     }
     case 'trash': {
       const ok = await prism.restoreFromBin(entry.paths)
       ops.refresh()
+      if (ok) ops.land?.(entry.paths)
       if (!ok)
         ops.fail(
           'Windows would not give those back. They may have been emptied from the Recycle Bin.'
@@ -87,8 +92,9 @@ export async function undoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       for (const e of entry.entries) {
         if (!(await prism.archiveDelete(entry.zip, e))) stuck += 1
       }
-      if (entry.originals.length) await prism.restoreFromBin(entry.originals)
+      const back = entry.originals.length ? await prism.restoreFromBin(entry.originals) : false
       ops.refresh()
+      if (back) ops.land?.(entry.originals)
       if (stuck)
         ops.fail(`${stuck} of ${entry.entries.length} could not be taken back out of the archive.`)
       break
@@ -106,10 +112,12 @@ export async function redoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
         const [again] = await ops.move([it.from], parentDir(it.to))
         items.push(again ? { from: it.from, to: again.to } : it)
       }
+      ops.land?.(items.map((it) => it.to))
       return { ...entry, items }
     }
     case 'rename': {
       const again = await ops.rename(entry.from, baseName(entry.to))
+      if (again) ops.land?.([again])
       return again ? { ...entry, to: again } : entry
     }
     case 'trash':
@@ -125,6 +133,7 @@ export async function redoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
         ops.fail('That could not be duplicated again.')
         break
       }
+      ops.land?.([copy])
       return { ...entry, path: copy }
     }
     case 'mkdir': {
@@ -135,6 +144,7 @@ export async function redoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
         ops.fail('That folder could not be made again.')
         break
       }
+      ops.land?.([made])
       return { ...entry, path: made }
     }
     case 'archive-in': {
