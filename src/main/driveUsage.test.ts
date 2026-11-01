@@ -205,8 +205,11 @@ describe.runIf(process.platform === 'win32')('readLabels', () => {
     const later = Date.now() + 2 * DRIVE_TABLE_FRESH
     const one = readDriveTable(later)
     expect(readDriveTable(later)).toBe(one)
-    // What the table holds is the test above's to check: this one is the sharing.
-    await one
-    expect(await readLabels()).toBeInstanceOf(Map)
+    // What the table holds is the test above's to check: this one is the
+    // sharing. readLabels, asked while that answer is fresh, parses that same
+    // answer: the app's own read on the real machine, at no second query.
+    // (It answered a Map whatever happened: review, 2026-11-01.)
+    const answer = await one
+    expect(await readLabels()).toEqual(parseLabels(answer ?? ''))
   }, 30_000)
 })
