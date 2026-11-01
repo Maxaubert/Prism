@@ -323,7 +323,7 @@ export function createListingCache(options: ListingCacheOptions) {
   /** Listing writes in flight, which the start-up sweep leaves alone. */
   let pendingWrites = 0
   const writing = new Set<string>()
-  /** Those writes themselves, so `idle()` can wait for them. */
+  /** Those writes themselves, and a forget's delete, so `idle()` can wait for them. */
   const inflight = new Set<Promise<void>>()
   /** A Clear's delete in flight: writes wait for it, so it cannot take them. */
   let clearing: Promise<boolean> | null = null
@@ -459,7 +459,15 @@ export function createListingCache(options: ListingCacheOptions) {
     written.delete(key)
     unhold(key)
     index.delete(key)
-    if (!readOnly) rm(fileOf(key), { force: true }).catch(() => {})
+    if (readOnly) return
+    // Its delete is tracked like a write, so `idle()` waits for it too
+    // (review, 2026-11-01): the tests polled for the file to go.
+    const job = rm(fileOf(key), { force: true }).then(
+      () => {},
+      () => {}
+    )
+    inflight.add(job)
+    void job.finally(() => inflight.delete(job))
   }
 
   return {
@@ -687,8 +695,8 @@ export function createListingCache(options: ListingCacheOptions) {
       flushes += 1
       writeIndexSync() // sync-ok: quit flush
     },
-    /** For tests: every write has landed - a Clear, the listing writes, and
-     *  the index (a debounced one is written now). A test that ends with a
+    /** For tests: every write has landed - a Clear, the listing writes, a
+     *  forget's delete and the index (a debounced one is written now). A test that ends with a
      *  write in flight had its folder removed under it: EBUSY on the CI
      *  runner (2026-10-14). */
     async idle(): Promise<void> {
