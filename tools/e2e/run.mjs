@@ -19407,6 +19407,26 @@ async function imageSaveCopyScenario(fixtures) {
     ok(existsSync(png) && readFileSync(png).subarray(1, 4).toString('latin1') === 'PNG', 'the PNG is on disk')
     await noteGone()
 
+    // #474 (owner, 2026-11-01): the Explorer's five formats here too. WebP,
+    // AVIF and JPEG XL are made in main from the canvas's PNG, alpha kept.
+    for (const [label, ext, magic] of [
+      ['WebP', 'webp', (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP'],
+      ['AVIF', 'avif', (b) => b.subarray(4, 12).toString('latin1') === 'ftypavif'],
+      ['JPEG XL', 'jxl', (b) => (b[0] === 0xff && b[1] === 0x0a) || b.subarray(4, 8).toString('latin1') === 'JXL ']
+    ]) {
+      const to = join(dir, `out.${ext}`)
+      await saveTo(to)
+      await save(label)
+      ok((await until(async () => ((await note()) === `Saved out.${ext}` ? true : null), 20000)) === true, `the ${label} note names it (${await note()})`)
+      ok((await asked()) === join(dir, `clear.${ext}`), `the ${label} dialog would open on clear.${ext} (${await asked()})`)
+      ok(existsSync(to) && magic(readFileSync(to)), `the ${label} is on disk, and is one`)
+      if (HAS_FFMPEG && existsSync(to)) {
+        const facts = probeCopy(to)
+        ok(ext === 'avif' ? facts.length === 2 : /a/.test(facts[0].split(',')[2] ?? ''), `the ${label} keeps the alpha (${facts.join(' | ')})`)
+      }
+      await noteGone()
+    }
+
     // A read-only target: the failure is said.
     await saveTo(ro)
     await save('JPEG')
@@ -19435,6 +19455,264 @@ async function imageSaveCopyScenario(fixtures) {
     }).catch(() => {})
     await app.close()
     chmodSync(ro, 0o666)
+  }
+}
+
+/* ---------- SAVE COPIES AS (#474, owner 2026-11-01) ---------- */
+
+const FFPROBE = FFMPEG.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1')
+
+/** A JPEG with an EXIF orientation (6: turn right) and a maker's name, the
+ *  shape a phone writes, so the copies can be checked for both. */
+function withOrientationExif(jpeg, orientation, make) {
+  const name = Buffer.from(make + '\0', 'latin1')
+  const ifdLen = 2 + 2 * 12 + 4
+  const t = Buffer.alloc(8 + ifdLen + name.length)
+  t.write('II*\0', 0, 'latin1')
+  t.writeUInt32LE(8, 4)
+  t.writeUInt16LE(2, 8)
+  t.writeUInt16LE(0x010f, 10) // Make, ASCII
+  t.writeUInt16LE(2, 12)
+  t.writeUInt32LE(name.length, 14)
+  t.writeUInt32LE(8 + ifdLen, 18)
+  t.writeUInt16LE(0x0112, 22) // Orientation, SHORT
+  t.writeUInt16LE(3, 24)
+  t.writeUInt32LE(1, 26)
+  t.writeUInt16LE(orientation, 30)
+  t.writeUInt32LE(0, 34)
+  name.copy(t, 8 + ifdLen)
+  const body = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), t])
+  const head = Buffer.alloc(4)
+  head.writeUInt16BE(0xffe1, 0)
+  head.writeUInt16BE(body.length + 2, 2)
+  return Buffer.concat([jpeg.subarray(0, 2), head, body, jpeg.subarray(2)])
+}
+
+/** ffprobe's facts of a copy: its streams' size and pixel format. */
+const probeCopy = (file) =>
+  execFileSync(FFPROBE, ['-v', 'error', '-show_entries', 'stream=width,height,pix_fmt', '-of', 'csv=p=0', file], { windowsHide: true })
+    .toString()
+    .trim()
+    .split(/\r?\n/)
+
+/** The Explorer at `dir`, these rows marked (Ctrl+click), right-click, Save
+ *  copies as, `label`. */
+async function saveCopiesOf(win, names, label) {
+  const row = (n) => win.locator(`[data-testid="browse-list"] [data-browse-path$="\\\\${n}" i]`).first()
+  await row(names[0]).locator('.browse-name-text').click()
+  for (const n of names.slice(1)) await row(n).locator('.browse-name-text').click({ modifiers: ['Control'] })
+  await sleep(250)
+  await row(names[0]).locator('.browse-name-text').click({ button: 'right' })
+  await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+  await win.locator('[role="menu"] [role="menuitem"]:has-text("Save copies as")').hover()
+  const item = win.locator('[role="menuitem"]').filter({ hasText: new RegExp(`^${label}$`) })
+  await until(async () => (await item.count()) === 1, 4000)
+  await item.click({ timeout: 5000 })
+}
+
+const jobNote = (win) => win.locator('[data-job-note]').first().textContent({ timeout: 200 }).catch(() => null)
+const marked = (win) =>
+  win.evaluate(() =>
+    [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]')].map(
+      (r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0]
+    )
+  )
+/** Prism's job folders left in temp (`prism-copies-*`). */
+const copiesTemps = () => readdirSync(tmpdir()).filter((n) => n.startsWith('prism-copies-'))
+
+/**
+ * SAVE COPIES AS, EVERY FORMAT (#474; owner, 2026-11-01): a clear PNG, a
+ * phone JPEG turned by its EXIF and carrying a maker's name, and a text file,
+ * marked in the Explorer and saved as JPEG, PNG, WebP, AVIF and JPEG XL. Each
+ * copy is next to its original, under the format's extension, with its alpha
+ * where the format has one (JPEG: on white), standing the way the viewer
+ * shows it, and with no EXIF. A taken name becomes "name (2)" and the file
+ * there is untouched; the text file is skipped and the done note says so;
+ * what landed is what the list marks. Nothing is left in temp.
+ */
+async function batchCopiesScenario(fixtures) {
+  console.log('Save copies as, every format (#474)')
+  if (!HAS_FFMPEG) {
+    console.log('  (no ffmpeg: skipped)')
+    return
+  }
+  const dir = join(fixtures, 'batchcopies')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'clear.png'), clearPng())
+  const plain = join(dir, 'plain.jpg')
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0x3060c0:s=200x100', '-frames:v', '1', plain], { windowsHide: true })
+  writeFileSync(join(dir, 'phone.jpg'), withOrientationExif(readFileSync(plain), 6, 'SecretCam'))
+  rmSync(plain)
+  writeFileSync(join(dir, 'notes.txt'), 'not a picture\n')
+  // A name the JPEG copy would take, already there.
+  writeFileSync(join(dir, 'clear.jpg'), 'someone else\'s file')
+  const tempsBefore = copiesTemps().length
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  try {
+    await explorerAt(win, dir)
+    // The JPEG of phone.jpg would be phone.jpg itself: "phone (2).jpg".
+    const formats = [
+      ['JPEG', 'jpg', 'clear (2).jpg', 'phone (2).jpg'],
+      ['PNG', 'png', 'clear (2).png', 'phone.png'],
+      ['WebP', 'webp', 'clear.webp', 'phone.webp'],
+      ['AVIF', 'avif', 'clear.avif', 'phone.avif'],
+      ['JPEG XL', 'jxl', 'clear.jxl', 'phone.jxl']
+    ]
+    for (const [label, ext, clearName, phoneName] of formats) {
+      await saveCopiesOf(win, ['clear.png', 'phone.jpg', 'notes.txt'], label)
+      const note = await until(async () => {
+        const n = await jobNote(win)
+        return n && n.startsWith('Saved') ? n : null
+      }, 60000)
+      ok(note === 'Saved 2 copies, 1 skipped (not pictures)', `${label}: the done note (${note})`)
+      const clear = join(dir, clearName)
+      const phone = join(dir, phoneName)
+      ok(existsSync(clear) && existsSync(phone), `${label}: both copies are next to their originals (${clearName}, ${phoneName})`)
+      if (!existsSync(clear) || !existsSync(phone)) continue
+      const clearFacts = probeCopy(clear)
+      const phoneFacts = probeCopy(phone)
+      // The phone photo is 200x100 turned right by its EXIF: the copy stands 100x200.
+      ok(phoneFacts[0].startsWith('100,200'), `${label}: the copy stands as the viewer shows it (${phoneFacts[0]})`)
+      ok(!readFileSync(phone).includes('SecretCam'), `${label}: no EXIF in the copy (the maker's name is gone)`)
+      ok(!readFileSync(phone).includes(Buffer.from('Exif\0', 'latin1')), `${label}: no Exif block at all`)
+      if (ext === 'jpg') {
+        const corner = execFileSync(FFMPEG, ['-loglevel', 'error', '-i', clear, '-vf', 'format=rgb24,crop=1:1:0:0', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { windowsHide: true })
+        ok([...corner].every((v) => v > 240), `JPEG: the clear corner is white (${[...corner]})`)
+        ok(readFileSync(join(dir, 'clear.jpg'), 'utf8') === 'someone else\'s file', 'JPEG: the taken name\'s file is untouched')
+        ok(readFileSync(join(dir, 'phone.jpg')).includes('SecretCam'), 'JPEG: and so is the original phone.jpg')
+      } else if (ext === 'avif') {
+        // AVIF carries alpha as a second, grey picture.
+        ok(clearFacts.length === 2 && /gray/.test(clearFacts[1]), `AVIF: the alpha is its second picture (${clearFacts.join(' | ')})`)
+        ok(phoneFacts.length === 1, `AVIF: an opaque photo has none (${phoneFacts.join(' | ')})`)
+      } else {
+        ok(/a|pal8/.test(clearFacts[0].split(',')[2] ?? ''), `${label}: the alpha is kept (${clearFacts[0]})`)
+      }
+      if (ext === 'png') ok(readFileSync(join(dir, 'clear.png')).equals(clearPng()), 'PNG: the original is untouched (its copy is "clear (2).png")')
+      const marks = await until(async () => {
+        const m = await marked(win)
+        return m.length === 2 ? m : null
+      }, 10000)
+      ok(
+        !!marks && marks.includes(clearName) && marks.includes(phoneName),
+        `${label}: the list marks what landed (${marks ?? (await marked(win))})`
+      )
+      if (ext === 'jpg') await win.screenshot({ path: join(SHOTS, 'save-copies-done.png') })
+      ok(await until(async () => (await jobNote(win)) === null, 10000), `${label}: the note goes by itself`)
+    }
+    ok(copiesTemps().length === tempsBefore, `nothing is left in temp (${copiesTemps().join(', ')})`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * SAVE COPIES AS, A REAL-SIZE BATCH (#474: "measure on 20+ real-size photos
+ * that the job never freezes the UI"). 24 photos of 4032x3024 (a phone's 12
+ * MP, noisy so they weigh what photos weigh), Ctrl+A, JPEG XL. While it runs
+ * the page's frames and main's answers are timed: neither may stall. Then
+ * the same folder as AVIF, Cancel part way: the copies made stay, no more
+ * come, the note says it stopped, and nothing is left in temp.
+ */
+async function batchCopiesLoadScenario(fixtures) {
+  console.log('Save copies as, 24 real-size photos and Cancel (#474)')
+  if (!HAS_FFMPEG) {
+    console.log('  (no ffmpeg: skipped)')
+    return
+  }
+  const dir = join(fixtures, 'batchcopies-load')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  execFileSync(
+    FFMPEG,
+    ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=4032x3024:r=1,noise=alls=24:allf=t', '-frames:v', '24', '-q:v', '3', join(dir, 'IMG_%02d.jpg')],
+    { windowsHide: true }
+  )
+  writeFileSync(join(dir, 'notes.txt'), 'not a picture\n')
+  const photos = readdirSync(dir).filter((n) => n.endsWith('.jpg'))
+  const mb = photos.reduce((n, f) => n + statSync(join(dir, f)).size, 0) / 1048576
+  console.log(`  ${photos.length} photos, ${mb.toFixed(0)} MB`)
+  const tempsBefore = copiesTemps().length
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const copies = (ext) => readdirSync(dir).filter((n) => n.endsWith(`.${ext}`))
+  const markAll = async (label) => {
+    const row = win.locator('[data-testid="browse-list"] [data-browse-path$="\\\\IMG_01.jpg" i]').first()
+    await row.locator('.browse-name-text').click()
+    await win.keyboard.press('Control+a')
+    await sleep(300)
+    await row.locator('.browse-name-text').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] [role="menuitem"]:has-text("Save copies as")').hover()
+    const item = win.locator('[role="menuitem"]').filter({ hasText: new RegExp(`^${label}$`) })
+    await until(async () => (await item.count()) === 1, 4000)
+    await item.click({ timeout: 5000 })
+  }
+  try {
+    await explorerAt(win, dir)
+    // The page's longest frame while the job runs.
+    await win.evaluate(() => {
+      const w = window
+      w.__frames = { max: 0, n: 0, last: performance.now(), on: true }
+      const tick = (t) => {
+        const f = w.__frames
+        if (!f.on) return
+        f.max = Math.max(f.max, t - f.last)
+        f.n += 1
+        f.last = t
+        requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    const started = Date.now()
+    await markAll('JPEG XL')
+    // Main's longest answer, asked every 50 ms while the job runs.
+    let mainMax = 0
+    let note = null
+    while (Date.now() - started < 240000) {
+      const t = Date.now()
+      await app.evaluate(() => 1)
+      mainMax = Math.max(mainMax, Date.now() - t)
+      note = await jobNote(win)
+      if (note) break
+      await sleep(50)
+    }
+    const took = (Date.now() - started) / 1000
+    const { frameMax, frames } = await win.evaluate(() => {
+      window.__frames.on = false
+      return { frameMax: Math.round(window.__frames.max), frames: window.__frames.n }
+    })
+    ok(frames > took * 10, `the page drew all along (${frames} frames)`)
+    console.log(`  JPEG XL: ${photos.length} copies in ${took.toFixed(1)} s; longest frame ${frameMax} ms, longest main answer ${mainMax} ms`)
+    ok(note === `Saved ${photos.length} copies, 1 skipped (not pictures)`, `the done note (${note})`)
+    ok(copies('jxl').length === photos.length, `every photo has its copy (${copies('jxl').length})`)
+    ok(frameMax < 250, `the page never froze while it ran (longest frame ${frameMax} ms)`)
+    ok(mainMax < 250, `nor main (longest answer ${mainMax} ms)`)
+    ok(await until(async () => (await jobNote(win)) === null, 10000), 'the note goes')
+
+    // AVIF, then Cancel once a few have landed.
+    await markAll('AVIF')
+    ok(await until(async () => copies('avif').length >= 3, 120000), `copies land (${copies('avif').length})`)
+    const cancel = win.locator('[data-job-cancel]')
+    ok((await cancel.count()) === 1, 'the chip has a Cancel while it runs')
+    await win.screenshot({ path: join(SHOTS, 'save-copies-running.png') })
+    await cancel.click()
+    const stopped = await until(async () => {
+      const n = await jobNote(win)
+      return n && n.startsWith('Stopped') ? n : null
+    }, 20000)
+    const atStop = copies('avif').length
+    ok(!!stopped && new RegExp(`^Stopped, saved ${atStop} cop(y|ies), 1 skipped \\(not pictures\\)$`).test(stopped), `the note says it stopped, and what it saved (${stopped})`)
+    ok(atStop < photos.length, `Cancel stopped it short (${atStop} of ${photos.length})`)
+    ok((await win.locator('[data-job-cancel]').count()) === 0, 'and the Cancel is gone')
+    await sleep(3000)
+    ok(copies('avif').length === atStop, `no copy lands after Cancel (${copies('avif').length})`)
+    const marks = await marked(win)
+    ok(marks.length === atStop && marks.every((m) => m.endsWith('.avif')), `the copies made before Cancel are marked (${marks.length})`)
+    ok(await until(() => copiesTemps().length === tempsBefore, 10000), `nothing is left in temp (${copiesTemps().join(', ')})`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -19940,6 +20218,8 @@ await run(pasteProgressScenario)
 await run(propertiesWindowScenario)
 await run(photoInfoKeyScenario)
 await run(imageSaveCopyScenario)
+await run(batchCopiesScenario)
+await run(batchCopiesLoadScenario)
 await run(searchPopupScenario)
 await run(searchNavScenario)
 await run(phoneScenario)
