@@ -25,7 +25,7 @@ import {
   type TabState
 } from '../lib/tabs/tabs'
 import { fileKind } from '@shared/fileKind'
-import { baseName, extOf } from '@shared/path'
+import { baseName, extOf, pathKey } from '@shared/path'
 import { applyDetails, sameRows } from '../lib/listingMerge'
 import { downloadsPath, isDownloads, viewSort } from '../lib/downloadsView'
 import { browseLocation, browseParent } from '../lib/browse'
@@ -57,6 +57,20 @@ export function arrivalSelection(
   markedSince: boolean
 ): Tab[] {
   return markedSince ? [...tabs] : setBrowseLocation(tabs, tabId, { selected: filePath })
+}
+
+/**
+ * Whether the tab marks something else than `judged`, the row an open was
+ * decided on (#70, #101, #334). The way out of a zip opens the zip BECAUSE it
+ * is marked; a landing mark judged in the same commit runs first (the list's
+ * effect, a child's) and its quiet select counts before the open is asked, so
+ * the count of marks misses it. The tab's own selected path does not.
+ */
+export function selectionMoved(tabs: readonly Tab[], tabId: string, judged: string): boolean {
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return false
+  const now = browseLocation(tab.browse).selected
+  return !!now && pathKey(now) !== pathKey(judged)
 }
 
 /**
@@ -542,8 +556,10 @@ export function useFolderBrowsing(
     }
   }, [id, path, setState])
   // Tree paths share the same last-action-wins sequence as folder and preview opens.
+  // `judged`: the marked row this open was decided on (the way out of a zip);
+  // a tab that marks another by the time it lands keeps that one.
   const openFile = useCallback(
-    async (file: ViewerFile | string, full = true, play = true) => {
+    async (file: ViewerFile | string, full = true, play = true, judged: string | null = null) => {
       if (!id || !path) return
       const request = (serial.current.get(id) ?? 0) + 1
       serial.current.set(id, request)
@@ -592,7 +608,7 @@ export function useFolderBrowsing(
           parent ? navigateBrowse(s.tabs, id, parent) : s.tabs,
           id,
           filePath,
-          marksAtAsk !== (marked.current.get(id) ?? 0)
+          marksAtAsk !== (marked.current.get(id) ?? 0) || (judged !== null && selectionMoved(s.tabs, id, judged))
         ).map((t) =>
           t.id === id
             ? {
@@ -669,7 +685,9 @@ export function useFolderBrowsing(
       preview: previewOn,
       files: directoryListing.files
     })
-    if (file) void openFile(file, false, false)
+    // Judged on the zip being marked: a landing mark made in this same commit
+    // (an extraction's, #70) is not taken back (`selectionMoved`).
+    if (file) void openFile(file, false, false, selectedHere)
   }, [id, path, folder, directoryListing, waitingPath, selectedHere, previewOn, openFile])
   const select = useCallback(
     (selected: string | null, quiet = false) => {
