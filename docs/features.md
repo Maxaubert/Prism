@@ -71,6 +71,31 @@ differ.
   `drag` (the extraction is marked), `dropBack` (Ctrl on a drop from another window copies) and
   `sidebarPlaces` (a carried pin says nothing).
 
+## A clear picture's grid tile is the checker, not black (#477, owner, 2026-11-01)
+
+Owner, 2026-11-01, asked what goes behind the clear parts of a grid tile (a checkerboard, a theme
+colour, or thumbnails that keep the transparency): **"a checkerboard"**, the same faint one the viewer
+draws, so a tile matches what opens.
+
+- **The thumbnail keeps its alpha.** `src/main/thumbs.ts` made a 320px JPEG of everything, and a JPEG has
+  none: a PNG with black under its clear pixels (most) got a black tile. A picture whose FORMAT can be
+  clear (`src/shared/thumbAlpha.ts`: PNG, GIF, WebP, AVIF, JXL, TIFF, ICO, BMP, TGA, PSD, EXR, DDS, QOI,
+  SGI, JPEG 2000, XPM) is now a lossy WebP with alpha (libwebp, quality 80). Chosen by extension, never by
+  reading the file, so key, format and tile agree before anything is decoded. Photos, raws and videos
+  stay JPEGs with the keys they had: no cache growth for them. An opaque PNG's WebP measured SMALLER than
+  its JPEG (3.3 KB against 8.6 KB, a 1080p test card at 320px).
+- **The old black ones are made again.** The WebP's key ends `.webp`, so a cached `.jpg` of a PNG is never
+  served again (eviction counts both kinds and ages the old one out), and the phone asks with `a=1` on the
+  URL so the copy it cached for a day is not shown either. `/api/thumb` answers `image/webp` for one.
+- **The tile draws `.p-checker`** (the viewer's class, its theme's pair) behind a thumbnail that keeps alpha,
+  once it has arrived (`phone/thumbClass.ts`); until then the tile keeps its plain ground.
+- **Where thumbnails show**: only the phone's grid. The PC's preview pane and viewer already draw the
+  picture itself over `.p-checker` (`ImageView.tsx`); the Explorer has no picture tiles.
+- **Held by** `thumbAlpha.test.ts`, `thumbs.test.ts` (the key, the WebP argv, `isThumbFile`),
+  `server.test.ts` (`/api/thumb`'s type), `api.test.ts` (`a=1`), `thumbClass.test.ts`, and e2e `phone` (a
+  PNG with black under its clear corners: the thumbnail's corner is alpha 0 and the tile's corner, read
+  back from a screenshot, is the checker's colour). Screenshot `phone-grid-clear.png`.
+
 ## The I key's photo info card, and Save a copy tidied (#78, owner, 2026-11-01)
 
 Issue #78, the image pack. Owner, 2026-11-01, of the spec and plan
@@ -124,10 +149,11 @@ D1-D13 is the recommended one. Two of the three items were already built: the ch
   before; the temp copy itself is still refused as a target (`isPrismTempCopy`). `src/main/saveCopy.ts`, answered by
   `PRISM_E2E_SAVE_TO` under `--e2e` (`dialogs.ts` `saveCopyDialog`, never a native dialog).
 - **Not built**: D12, "Save copies as JPEG" over many files in the Explorer, is issue #474. D1 (the dark
-  checker stays faint) and D2 (grid tiles, below) are left as they are.
+  checker stays faint) is left as it is; D2 (grid tiles, below) is #477.
 - **D2, checked 2026-11-01**: a grid tile of a transparent PNG shows whatever colour sits UNDER the alpha.
   ffmpeg's 320px JPEG (`thumbs.ts`) drops the alpha, so a PNG whose clear pixels are black (most) gets a
-  black ground, white ones white. Measured with the thumbnail's own arguments on a 64px PNG. Its own issue.
+  black ground, white ones white. Measured with the thumbnail's own arguments on a 64px PNG. Its own issue,
+  #477, fixed with a checkerboard (above).
 - **Held by** `photoFacts.test.ts`, `photoInfoPref.test.ts`, `photoInfo.test.ts`, `heifExif.test.ts`,
   `iccName.test.ts`, `saveCopy.test.ts` (with the temp copy), `saveCopyNote.test.ts`, `photoInfoKey.test.ts`,
   `menus/viewers/image.test.ts`, and e2e `photoInfoKey` (the card's rows and corner, arrowing to a PNG with
@@ -2349,7 +2375,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   a square picture with the name under it on two lines, folders included; a tap opens as a
   row does. THE PICTURES ARE THUMBNAILS, not the files (owner pick over icon tiles): a grid
   of names is a list that saves scrolling, a grid of pictures is a photo app.
-  `src/main/thumbs.ts` renders a 320px JPEG with the bundled ffmpeg - the photo itself, HEIC
+  `src/main/thumbs.ts` renders a 320px JPEG (a WebP with alpha for a picture that can be clear, #477) with the bundled ffmpeg - the photo itself, HEIC
   and RAW and the ffmpeg-decoded formats included since that is the decoder they go through
   anyway, a frame three seconds into a video with the first frame as the fallback for a clip
   shorter than that - cached under `userData/thumbs` by path, size and mtime (`thumbKey`),
