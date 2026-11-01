@@ -84,6 +84,10 @@ draws, so a tile matches what opens.
   reading the file, so key, format and tile agree before anything is decoded. Photos, raws and videos
   stay JPEGs with the keys they had: no cache growth for them. An opaque PNG's WebP measured SMALLER than
   its JPEG (3.3 KB against 8.6 KB, a 1080p test card at 320px).
+- **A very tall strip is kept to its top.** A WebP is at most 16383px tall; at 320px wide a picture over
+  ~51 times taller than wide passes that (a 40x4000 sprite strip is 320x32000, and libwebp refused it, so
+  the tile was the plain icon). The WebP's filter crops to the top 16383px. Key and argv decide WebP from
+  the extension alone (one rule), so a `.webp` key never holds a JPEG.
 - **The old black ones are made again.** The WebP's key ends `.webp`, so a cached `.jpg` of a PNG is never
   served again (eviction counts both kinds and ages the old one out), and the phone asks with `a=1` on the
   URL so the copy it cached for a day is not shown either. `/api/thumb` answers `image/webp` for one.
@@ -91,7 +95,7 @@ draws, so a tile matches what opens.
   once it has arrived (`phone/thumbClass.ts`); until then the tile keeps its plain ground.
 - **Where thumbnails show**: only the phone's grid. The PC's preview pane and viewer already draw the
   picture itself over `.p-checker` (`ImageView.tsx`); the Explorer has no picture tiles.
-- **Held by** `thumbAlpha.test.ts`, `thumbs.test.ts` (the key, the WebP argv, `isThumbFile`),
+- **Held by** `thumbAlpha.test.ts`, `thumbs.test.ts` (the key, the WebP argv and its height cap, `isThumbFile`),
   `server.test.ts` (`/api/thumb`'s type), `api.test.ts` (`a=1`), `thumbClass.test.ts`, and e2e `phone` (a
   PNG with black under its clear corners: the thumbnail's corner is alpha 0 and the tile's corner, read
   back from a screenshot, is the checker's colour). Screenshot `phone-grid-clear.png`.
