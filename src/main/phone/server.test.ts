@@ -203,10 +203,12 @@ beforeEach(async () => {
     // A thumbnail for the png fixture and nothing else: the route is under
     // test, not ffmpeg.
     thumb: async (p) => {
-      if (!p.toLowerCase().endsWith('.png')) return null
-      const out = join(cache, 'thumb.jpg')
+      const clear = p.toLowerCase().endsWith('.png')
+      if (!clear && !p.toLowerCase().endsWith('.jpg')) return null
+      // A picture that can be clear is a WebP with its alpha (#477).
+      const out = join(cache, clear ? 'thumb.webp' : 'thumb.jpg')
       mkdirSync(cache, { recursive: true })
-      writeFileSync(out, 'jpegbytes')
+      writeFileSync(out, clear ? 'webpbytes' : 'jpegbytes')
       return out
     },
     positions: {
@@ -753,9 +755,14 @@ describe('PhoneServer', () => {
     const auth = { authorization: `Bearer ${token}` }
     const r = await fetch(url(`/api/thumb?path=${encodeURIComponent(pic)}`), { headers: auth })
     expect(r.status).toBe(200)
-    expect(r.headers.get('content-type')).toBe('image/jpeg')
+    expect(r.headers.get('content-type')).toBe('image/webp')
     expect(r.headers.get('cache-control')).toContain('max-age')
-    expect(await r.text()).toBe('jpegbytes')
+    expect(await r.text()).toBe('webpbytes')
+    const photo = join(dir, 'photo.jpg')
+    writeFileSync(photo, 'jpg')
+    const p = await fetch(url(`/api/thumb?path=${encodeURIComponent(photo)}`), { headers: auth })
+    expect(p.headers.get('content-type')).toBe('image/jpeg')
+    expect(await p.text()).toBe('jpegbytes')
     expect((await fetch(url(`/api/thumb?path=${encodeURIComponent(join(dir, 'clip.mp4'))}`), { headers: auth })).status).toBe(404)
     expect((await fetch(url(`/api/thumb?path=${encodeURIComponent(picOutside)}`), { headers: auth })).status).toBe(403)
   })
