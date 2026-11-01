@@ -73,6 +73,10 @@ export const NOTE_MS = 5000
 const store = createStore<readonly Job[]>([])
 let seq = 0
 const leaving = new Map<string, ReturnType<typeof setTimeout>>()
+/** When the last note queued has had its NOTE_MS on the chip: a second note
+ *  waits for the first, so each is shown for its whole time (review,
+ *  2026-11-01: a note counting down out of sight could be lost). */
+let notesFreeAt = 0
 
 /** Register a job; returns its id for update/end. With `cancel`, the chip
  *  offers a Cancel that calls it. */
@@ -213,9 +217,11 @@ export function endJob(id: string, note?: string): void {
   const shown = Date.now() - job.since
   if (note) {
     store.set(jobs.map((j) => (j.id === id ? { ...j, pct: 100, done: true, note, cancel: undefined } : j)))
+    const now = Date.now()
+    notesFreeAt = Math.max(now, notesFreeAt) + NOTE_MS
     leaving.set(
       id,
-      setTimeout(() => remove(id), NOTE_MS)
+      setTimeout(() => remove(id), notesFreeAt - now)
     )
     return
   }
@@ -256,6 +262,7 @@ export function resetJobs(): void {
   leaving.clear()
   for (const t of holdTimers.values()) clearTimeout(t)
   holdTimers.clear()
+  notesFreeAt = 0
   store.set([])
 }
 
@@ -267,6 +274,12 @@ export function resetJobs(): void {
  * on the first paste's 100% and then fell to 0 (owner, 2026-09-03). It is
  * shown only when nothing else is running. Pure, so the chip's arithmetic
  * is testable without React.
+ *
+ * Two exceptions (#474, review 2026-11-01), so nothing the chip has to SAY
+ * or OFFER is hidden behind an older paste: a DONE NOTE comes first (the
+ * oldest, its NOTE_MS runs in turn, see `endJob`), because "2 could not be
+ * read" is the report the owner asked for; and among live jobs, one that
+ * can be CANCELLED leads, because the chip's one click must reach it.
  */
 export function chipSummary(list: readonly Job[]): {
   label: string
@@ -279,7 +292,9 @@ export function chipSummary(list: readonly Job[]): {
 } | null {
   const shown = list.filter((j) => !j.holding)
   if (!shown.length) return null
-  const head = shown.find((j) => !j.done) ?? shown[0]
+  const live = shown.filter((j) => !j.done)
+  const head =
+    shown.find((j) => j.note) ?? live.find((j) => j.cancel) ?? live[0] ?? shown[0]
   if (head.note) return { label: head.note, pct: 100, more: shown.length - 1, note: true }
   return {
     label: head.label,
