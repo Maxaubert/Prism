@@ -34,7 +34,11 @@ export type ExtractFailure = {
   message?: string
 }
 /** Members out to a folder the caller named (`archive:extract-to`). */
-export type ExtractToResult = { ok: true; written: number } | ExtractFailure
+export type ExtractToResult =
+  /** `paths`: each top-level arrival as written, a taken name as its
+   *  "name (2)", so a drag's extraction marks what landed (#70, #101). */
+  | { ok: true; written: number; paths: string[] }
+  | ExtractFailure
 /** Members out to a folder main's dialog asked for. */
 export type ExtractPickedResult = { ok: true; dest: string; written: number } | ExtractFailure
 /** The whole archive into a folder named after it. */

@@ -188,18 +188,67 @@ describe('drag and drop (#70)', () => {
     expect(deleteMember(zipPath, 'here.txt')).toBe(true)
   })
 
-  it('moves a member into another folder inside the zip', () => {
-    expect(moveMembers(zipPath, ['readme.txt'], 'docs')).toBe('ok')
+  it('moves a member into another folder inside the zip, and names the pair', () => {
+    expect(moveMembers(zipPath, ['readme.txt'], 'docs')).toEqual({
+      moved: [{ from: 'readme.txt', to: 'docs/readme.txt' }],
+      clashes: []
+    })
     const paths = listArchive(zipPath).map((e) => e.path)
     expect(paths).toContain('docs/readme.txt')
     expect(paths).not.toContain('readme.txt')
   })
 
   it('moves a folder whole, keeping its shape', () => {
-    expect(moveMembers(zipPath, ['docs/img'], '')).toBe('ok')
+    expect(moveMembers(zipPath, ['docs/img'], '')).toEqual({
+      moved: [{ from: 'docs/img', to: 'img' }],
+      clashes: []
+    })
     const paths = listArchive(zipPath).map((e) => e.path)
     expect(paths).toContain('img/logo.png')
     expect(paths).not.toContain('docs/img/logo.png')
+  })
+
+  // #70 D7 (owner approved the spec "as recommended", 2026-11-01): a taken
+  // name asks Keep both, the add's question, instead of a bare refusal.
+  it('reports a taken name as a clash and writes nothing', () => {
+    const zip = new AdmZip(zipPath)
+    zip.addFile('docs/readme.txt', Buffer.from('already here'))
+    zip.writeZip(zipPath)
+    expect(moveMembers(zipPath, ['readme.txt'], 'docs')).toEqual({ moved: [], clashes: ['readme.txt'] })
+    expect(listArchive(zipPath).map((e) => e.path)).toContain('readme.txt')
+  })
+
+  it('a folder whose name is taken clashes too', () => {
+    const zip = new AdmZip(zipPath)
+    zip.addFile('other/img/x.png', Buffer.from([1]))
+    zip.writeZip(zipPath)
+    expect(moveMembers(zipPath, ['other/img'], 'docs')).toEqual({ moved: [], clashes: ['img'] })
+  })
+
+  it('Keep both lands a taken name as "name (2)"', () => {
+    const zip = new AdmZip(zipPath)
+    zip.addFile('docs/readme.txt', Buffer.from('already here'))
+    zip.addFile('docs/readme (2).txt', Buffer.from('and this'))
+    zip.writeZip(zipPath)
+    expect(moveMembers(zipPath, ['readme.txt'], 'docs', true)).toEqual({
+      moved: [{ from: 'readme.txt', to: 'docs/readme (3).txt' }],
+      clashes: []
+    })
+    const paths = listArchive(zipPath).map((e) => e.path)
+    expect(paths).toContain('docs/readme (3).txt')
+    expect(paths).toContain('docs/readme.txt')
+  })
+
+  it('lands each member under the name it is given (an undo puts the old name back)', () => {
+    expect(moveMembers(zipPath, ['docs/img'], '', false, ['pictures'])).toEqual({
+      moved: [{ from: 'docs/img', to: 'pictures' }],
+      clashes: []
+    })
+    expect(listArchive(zipPath).map((e) => e.path)).toContain('pictures/logo.png')
+  })
+
+  it('does nothing for members already where they are', () => {
+    expect(moveMembers(zipPath, ['docs/guide.md'], 'docs')).toEqual({ moved: [], clashes: [] })
   })
 
   it('carries the packed size and the time of each member, for the columns', () => {
