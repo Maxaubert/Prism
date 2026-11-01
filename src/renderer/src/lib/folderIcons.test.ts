@@ -5,9 +5,11 @@ import {
   folderIconOf,
   followFolderIcons,
   followMoves,
+  iconFileIds,
   parseFolderIcons,
   readFolderIcons,
   setFolderIcons,
+  withoutMissingFiles,
   type FolderIconChoice
 } from './folderIcons'
 
@@ -140,5 +142,26 @@ describe('folder icons store', () => {
     followFolderIcons([{ from: 'C:/a', to: 'C:/z' }])
     expect(folderIconOf(readFolderIcons(), 'C:/z/b')).toEqual({ set: 'star' })
     expect(JSON.parse(localStorage.getItem(FOLDER_ICONS_KEY) ?? '{}')).toEqual({ [pathKey('C:/z/b')]: { set: 'star' } })
+  })
+})
+
+describe('pictures from a file (PR 3)', () => {
+  const B = 'b'.repeat(64)
+
+  it('names each kept picture the map uses, once', () => {
+    const m = map({ 'C:/a': { file: HASH }, 'C:/b': { file: HASH }, 'C:/c': { file: B }, 'C:/d': { set: 'camera' } })
+    expect(iconFileIds(m).sort()).toEqual([HASH, B])
+    expect(iconFileIds(new Map())).toEqual([])
+  })
+
+  it('drops the entries whose copy main no longer has, and nothing else', () => {
+    const m = map({ 'C:/a': { file: HASH }, 'C:/c': { file: B }, 'C:/d': { set: 'camera' } })
+    const next = withoutMissingFiles(m, new Map([[B, 'data:']]))
+    expect([...next.keys()]).toEqual([pathKey('C:/c'), pathKey('C:/d')])
+    const all = new Map([
+      [HASH, 'data:'],
+      [B, 'data:']
+    ])
+    expect(withoutMissingFiles(m, all)).toBe(m)
   })
 })
