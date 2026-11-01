@@ -554,7 +554,7 @@ export function ImageView({
           the rest. ffmpeg cannot reach page 2, so this is honest about what
           it is: a note, not a picker. Scans and faxes arrive this way. */}
       {copyNote && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-[11.5px] text-white/90">
+        <div data-copy-note className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-[11.5px] text-white/90">
           {copyNote}
         </div>
       )}
