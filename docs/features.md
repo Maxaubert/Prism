@@ -3,6 +3,61 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## The I key's photo info card, and Save a copy tidied (#78, owner, 2026-11-01)
+
+Issue #78, the image pack. Owner, 2026-11-01, of the spec and plan
+(`docs/superpowers/specs/2026-11-01-image-pack-spec.md`): "Approve as recommended", so every decision
+D1-D13 is the recommended one. Two of the three items were already built: the checkerboard behind alpha
+(2026-09-03, below) and Save a copy (2026-08-31). What this adds:
+
+- **I shows a photo's facts on the stage** (D3: a card, not the Properties window, since the card stays up
+  while you arrow on). Top right (D4), clear of the control bar and the zoom readout. In order, each only
+  when the file has it: the pixels, megapixels and size on one line, Camera, Lens, Exposure, Taken, Colour,
+  Location (coordinates as text, nothing goes online, the 2026-10-12 rule). No camera data: the pixels line
+  and "No camera details in this file". It stays on while you arrow and fills in when main's read arrives,
+  never holding the picture up (keyed by the path, so an old answer never shows under the next photo). It
+  does not fade with the control bar, and it shows in fullscreen (D6). It only reads. No copy button (D9).
+  `components/image/PhotoInfoCard.tsx`.
+- **One wording for both places**: `lib/photoFacts.ts` builds the rows for the card AND the Properties
+  window, so they cannot disagree. Properties' Place group now lists Colour before Location, the card's
+  order.
+- **Remembered across launches** (D5): `lib/photoInfoPref.ts`, key `prism.photoInfo`, off until turned on.
+- **The picture's menu has a Photo info row** (D7), ticked while on, no shortcut hint, right after Rotate.
+  Only where the picture is a file (the card reads the photo from its path): not on a comic page or an
+  old-panel archive member (no path), and not on the phone (out of scope, the phone hands no toggle). A
+  member of a zip browsed as a folder (#300) is shown from its unpacked copy, which IS a file, so it has
+  the card too (the spec expected otherwise; the copy carries the photo's own EXIF, so the card is right).
+- **Where I does nothing**: while typing (the `isTypingTarget` guard, so a rename or the address field
+  takes the letter), over a menu or a dialog (the Properties window is one), as a chord, on a comic page.
+  **With the Explorer list focused** it follows the owner's rule for every letter (type-to-jump "taken
+  only on a match, else the letter reaches the viewer"): when no name starts with what was typed, I
+  toggles the card on the previewed photo, as R and F already do; when one does, the list jumps.
+- **The colour space is the ICC profile's name** (D8): "Display P3", "Adobe RGB (1998)". exifr's `icc: true`
+  for JPEG, PNG and TIFF; a HEIC's `colr` box (`prof` or `rICC`) through `heifExif.ts` and `iccName.ts`. No
+  profile: EXIF ColorSpace 1 still says "sRGB", and "uncalibrated" with none says nothing. An iPhone HEIC
+  that carries only `nclx` (coded numbers, no profile) has no Colour row: no row beats a wrong one.
+  MEASURED 2026-11-01: on four real JPEGs and PNGs the read stayed at one 64 KB chunk, or two (128 KB) for a
+  JPEG with no profile, where the search goes one chunk further.
+- **Save a copy** (D10, D11, D13 kept as they were: the copy carries NO metadata, so no GPS and no date
+  taken leave with it, which is the privacy win for an upload; no keyboard shortcut; JPEG quality 0.92 on a
+  white ground). Changed: the dialog opens IN THE PHOTO'S OWN FOLDER with its name filled in ("IMG_0412.jpg";
+  "name copy.png" when the same format would be the photo itself); the note says "Saved IMG_0412.jpg";
+  a failed write says "Could not save the copy" (it used to say nothing); a cancel still says nothing; a
+  target that IS the photo being viewed is refused ("A copy cannot replace the original") and the original
+  is never touched. An animated GIF or WebP saves its first frame. `src/main/saveCopy.ts`, answered by
+  `PRISM_E2E_SAVE_TO` under `--e2e` (`dialogs.ts` `saveCopyDialog`, never a native dialog).
+- **Not built**: D12, "Save copies as JPEG" over many files in the Explorer, is issue #474. D1 (the dark
+  checker stays faint) and D2 (grid tiles, below) are left as they are.
+- **D2, checked 2026-11-01**: a grid tile of a transparent PNG shows whatever colour sits UNDER the alpha.
+  ffmpeg's 320px JPEG (`thumbs.ts`) drops the alpha, so a PNG whose clear pixels are black (most) gets a
+  black ground, white ones white. Measured with the thumbnail's own arguments on a 64px PNG. Its own issue.
+- **Held by** `photoFacts.test.ts`, `photoInfoPref.test.ts`, `photoInfo.test.ts`, `heifExif.test.ts`,
+  `iccName.test.ts`, `saveCopy.test.ts`, `saveCopyNote.test.ts`, `menus/viewers/image.test.ts`, and e2e
+  `photoInfoKey` (the card's rows and corner, arrowing to a PNG with none, I off, the menu row and its tick,
+  a field keeping the letter, the Explorer list focused, a comic page) and `imageSaveCopy` (JPEG and PNG,
+  the folder and name the dialog would open on, the white corner, the note, a read-only target, the photo
+  itself, a cancel). Screenshots `photo-info.png`, `photo-info-preview.png`, `save-copy.png`.
+
 ## Unit tests wait on events, never on clocks (release unit flakes, owner, 2026-11-01)
 
 Owner, 2026-11-01: "Release runs flake on unit-test timeouts (listingCache, peaksJobs)": most release runs
@@ -3510,6 +3565,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   short list of verbs: the PICTURE's is Rotate, Copy image, and where the file is. Ticks are not
   icons (they say what is currently on), and the SIDEBAR keeps its glyphs - it sits among
   icon-led file rows and is the one menu long enough to need scanning.
+  **Photo info joined the picture's menu** (#78, owner 2026-11-01, D7): right after Rotate, a tick
+  while the I key's card is on, no shortcut hint; without the row the key cannot be found.
 - **The screen stays awake while something plays** (2026-08-30). Two hours of film is two hours
   of no input, which is exactly what the lock screen waits for. `lib/awake` COUNTS players
   rather than toggling, because the media deck keeps up to four mounted and a background tab
