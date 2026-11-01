@@ -71,7 +71,9 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       // The dispatched target sets the effect synchronously; TypeScript cannot
       // see that mutation and otherwise retains the preceding 'none' narrowing.
       const effect = carry.data.dropEffect as DataTransfer['dropEffect']
-      const action = effect === 'move' ? 'Move' : effect === 'copy' ? 'Copy' : ''
+      // A carried PIN says nothing (#70 review, 2026-11-01): a reorder is not
+      // a file operation, and its target's 'move' is only how it accepts.
+      const action = carry.pin ? '' : effect === 'move' ? 'Move' : effect === 'copy' ? 'Copy' : ''
       // The row stays the row; what the drop would do is said by it. Written
       // only when it changes: this runs every frame and every mouse move.
       if (action !== carry.action) {
@@ -184,6 +186,18 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       for (const type of event.dataTransfer.types)
         data.setData(type, event.dataTransfer.getData(type))
       data.effectAllowed = event.dataTransfer.effectAllowed
+      // Chromium drops a dropEffect set on a DataTransfer made outside a real
+      // drag (`new DataTransfer()` is not in drag mode), so the target's
+      // answer never reached the word under the row (found by #70's dragCopy
+      // e2e). The carry keeps the effect itself.
+      let dropEffect: DataTransfer['dropEffect'] = 'none'
+      Object.defineProperty(data, 'dropEffect', {
+        configurable: true,
+        get: () => dropEffect,
+        set: (v: DataTransfer['dropEffect']) => {
+          if (v === 'none' || v === 'copy' || v === 'move' || v === 'link') dropEffect = v
+        }
+      })
       event.preventDefault()
       const paths = pin ? [pin] : payload?.kind === 'files' ? payload.paths : payload!.entries
       // THE ROW IS PICKED UP, NOT A LABEL (#327): the pressed row's icon and

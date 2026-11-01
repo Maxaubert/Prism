@@ -583,6 +583,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         // The address commits at once; the rows follow when they answer.
         directory={props.pendingPath ?? props.directory}
         archiveChain={props.pendingPath ? undefined : props.listing ? (props.listing.archive?.chain ?? []) : undefined}
+        archive={props.pendingPath ? null : (props.listing?.archive ?? null)}
         // The preview toggle sits at the end of the row nearest the pane it
         // opens (#304): after the address with the pane on the right, before
         // the history buttons with it on the left.

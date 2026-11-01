@@ -50,6 +50,7 @@ export const LONG_WAIT_CHANNELS: readonly string[] = [
   CALL.archiveExtractMembersPicked,
   CALL.archiveExtractAll,
   CALL.archiveExtractDir,
+  CALL.archiveStageMembers,
   CALL.archiveMemberOut,
   // 7-Zip (only ever 7-Zip) unpacking every page of a comic.
   CALL.comicOpen,

@@ -23,7 +23,7 @@ import { replaceFile } from '../replaceFile'
 import { readTail, startTail, stopTail } from '../fileTail'
 import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from '../fileOps'
 import { appsForExt, argsFor, type AppCandidate } from '../openWith'
-import { addToArchive, archiveTooLarge, moveMembers } from '../archive'
+import { addToArchive, archiveTooLarge, moveMembers, moveNames } from '../archive'
 import { insideSelf, moveEntries } from '../moveOps'
 import { copyCounted, movePct, pastesIntoItself, pctOf, predictNames, walkSizes } from '../pasteCopy'
 import { fileKind, isMarkdown } from '@shared/fileKind'
@@ -628,12 +628,25 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
   )
   ipcMain.handle(
     CALL.archiveMoveMembers,
-    async (_e, zip: string, entries: string[], destFolder: string): Promise<ArchiveMoveResult> => {
-      if (!archiveOk(zip) || !Array.isArray(entries)) return 'failed'
+    async (
+      _e,
+      zip: string,
+      entries: string[],
+      destFolder: string,
+      keepBoth?: boolean,
+      names?: unknown
+    ): Promise<ArchiveMoveResult> => {
+      // A bad name refuses the move: never a move under other names.
+      const named = moveNames(names, Array.isArray(entries) ? entries.length : 0)
+      if (!archiveOk(zip) || !Array.isArray(entries) || named === null) return 'failed'
       if (archiveTooLarge((await stat(zip)).size)) return 'failed'
-      return moveMembers(zip, entries, typeof destFolder === 'string' ? destFolder : '').catch(
-        () => 'failed' as const
-      )
+      return moveMembers(
+        zip,
+        entries,
+        typeof destFolder === 'string' ? destFolder : '',
+        keepBoth === true,
+        named
+      ).catch(() => 'failed' as const)
     }
   )
 }

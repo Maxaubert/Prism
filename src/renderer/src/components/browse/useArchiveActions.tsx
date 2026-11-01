@@ -7,6 +7,7 @@ import { archivePassword } from '../../lib/archivePass'
 import { copyFilePaths } from '../../lib/fileClipboard'
 import { clipboardText } from '../../lib/clipboardText'
 import type { DragPayload } from '../../lib/drag/dragDrop'
+import type { DropVerb } from '../../lib/drag/dropVerb'
 import { formatBytes, formatWhen, savedPercent } from '../../lib/format'
 import type { UndoEntry } from '../../lib/undo'
 import type { MenuItem } from '../ContextMenu'
@@ -73,7 +74,10 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
   remove: (paths: string[], meta: ArchiveMeta) => void
   copy: (paths: string[], meta: ArchiveMeta, folders: ReadonlySet<string>) => void
   extractWhole: (meta: ArchiveMeta, here: boolean, rows: string[]) => void
-  drop: (dest: string, payload: DragPayload, meta: ArchiveMeta) => void
+  /** A drop on a place inside a zip, or on the zip itself, by the verb the
+   *  one drop rule chose (#70): add (moving or copying), move inside, or a
+   *  copy from another zip. */
+  drop: (dest: string, payload: DragPayload, meta: ArchiveMeta, verb: DropVerb) => void
   done: boolean
   dialogs: JSX.Element
 } {
@@ -85,7 +89,15 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
     refresh: () => latest.current.refresh(),
     noteUndo: (entry) => latest.current.noteUndo(entry)
   })
-  const { extract: extractMembers, addInto, askDelete, moveInside, rename: renameMember, say: setOops } = ops
+  const {
+    extract: extractMembers,
+    addInto,
+    askDelete,
+    moveInside,
+    copyBetween,
+    rename: renameMember,
+    say: setOops
+  } = ops
   const [renaming, setRenaming] = useState<{ meta: ArchiveMeta; inner: string; name: string } | null>(null)
   const [facts, setFacts] = useState<{ name: string; lines: Array<[string, string]> } | null>(null)
   const [done, setDone] = useState(false)
@@ -191,20 +203,29 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
   )
 
   const drop = useCallback(
-    (dest: string, payload: DragPayload, meta: ArchiveMeta): void => {
+    (dest: string, payload: DragPayload, meta: ArchiveMeta, verb: DropVerb): void => {
       const inner = memberOf(meta, dest) ?? ''
+      if (meta.readOnly) return setOops(ARCHIVE_COPY.readOnly)
       if (payload.kind === 'members') {
+        if (verb === 'zip-to-zip')
+          return copyBetween(
+            { container: payload.archive, entries: payload.entries },
+            meta.container,
+            inner,
+            meta.base
+          )
         return moveInside(meta.container, {
           from: payload.archive,
           entries: payload.entries,
           dest: inner,
-          readOnly: meta.readOnly
+          readOnly: meta.readOnly,
+          base: meta.base
         })
       }
-      if (meta.readOnly) return setOops(ARCHIVE_COPY.readOnly)
-      addInto(meta.container, payload.paths, inner, !payload.external)
+      // A move bins the originals once they are in; a copy leaves them.
+      addInto(meta.container, payload.paths, inner, verb === 'add-move' && !payload.external, meta.base)
     },
-    [addInto, moveInside, setOops]
+    [addInto, copyBetween, moveInside, setOops]
   )
 
   const memberFacts = (entry: BrowseEntry, meta: ArchiveMeta): void => {

@@ -13,7 +13,7 @@ import {
   renameMember,
   runZipJob
 } from './zipOps'
-import { sevenZipExe, validMemberName } from './zipShared'
+import { moveNames, sevenZipExe, validMemberName } from './zipShared'
 
 // The zip worker's own code (owner, 2026-10-12, zip work off the main process),
 // called directly: the behaviour moved, unchanged, from archive.ts.
@@ -150,6 +150,25 @@ describe('validMemberName', () => {
   })
 })
 
+// #70 review (2026-11-01): names the page sends for a move inside a zip are
+// checked, and a bad one REFUSES the move. It used to drop the list and move
+// under the old names, so an undo reported success for a different result.
+describe('moveNames', () => {
+  it('is undefined when no names are sent', () => {
+    expect(moveNames(undefined, 2)).toBeUndefined()
+  })
+  it('passes a list of good names, one per member', () => {
+    expect(moveNames(['a.txt', 'img (2)'], 2)).toEqual(['a.txt', 'img (2)'])
+  })
+  it("is null (refuse) for a bad name, a list that is not one per member, or not a list", () => {
+    expect(moveNames(['a.txt', '../x'], 2)).toBeNull()
+    expect(moveNames(['a.txt', 'b/c'], 2)).toBeNull()
+    expect(moveNames(['a.txt'], 2)).toBeNull()
+    expect(moveNames(['a.txt', 3], 2)).toBeNull()
+    expect(moveNames('a.txt', 1)).toBeNull()
+  })
+})
+
 describe('drag and drop (#70)', () => {
   it('adds real files and whole folders into the zip, under a folder', async () => {
     const src = mkdtempSync(join(tmpdir(), 'prism-add-'))
@@ -188,18 +207,138 @@ describe('drag and drop (#70)', () => {
     expect(deleteMember(zipPath, 'here.txt')).toBe(true)
   })
 
-  it('moves a member into another folder inside the zip', () => {
-    expect(moveMembers(zipPath, ['readme.txt'], 'docs')).toBe('ok')
+  it('moves a member into another folder inside the zip, and names the pair', () => {
+    expect(moveMembers(zipPath, ['readme.txt'], 'docs')).toEqual({
+      moved: [{ from: 'readme.txt', to: 'docs/readme.txt' }],
+      clashes: []
+    })
     const paths = listArchive(zipPath).map((e) => e.path)
     expect(paths).toContain('docs/readme.txt')
     expect(paths).not.toContain('readme.txt')
   })
 
   it('moves a folder whole, keeping its shape', () => {
-    expect(moveMembers(zipPath, ['docs/img'], '')).toBe('ok')
+    expect(moveMembers(zipPath, ['docs/img'], '')).toEqual({
+      moved: [{ from: 'docs/img', to: 'img' }],
+      clashes: []
+    })
     const paths = listArchive(zipPath).map((e) => e.path)
     expect(paths).toContain('img/logo.png')
     expect(paths).not.toContain('docs/img/logo.png')
+  })
+
+  // #70 D7 (owner approved the spec "as recommended", 2026-11-01): a taken
+  // name asks Keep both, the add's question, instead of a bare refusal.
+  it('reports a taken name as a clash and writes nothing', () => {
+    const zip = new AdmZip(zipPath)
+    zip.addFile('docs/readme.txt', Buffer.from('already here'))
+    zip.writeZip(zipPath)
+    expect(moveMembers(zipPath, ['readme.txt'], 'docs')).toEqual({ moved: [], clashes: ['readme.txt'] })
+    expect(listArchive(zipPath).map((e) => e.path)).toContain('readme.txt')
+  })
+
+  it('a folder whose name is taken clashes too', () => {
+    const zip = new AdmZip(zipPath)
+    zip.addFile('other/img/x.png', Buffer.from([1]))
+    zip.writeZip(zipPath)
+    expect(moveMembers(zipPath, ['other/img'], 'docs')).toEqual({ moved: [], clashes: ['img'] })
+  })
+
+  it('Keep both lands a taken name as "name (2)"', () => {
+    const zip = new AdmZip(zipPath)
+    zip.addFile('docs/readme.txt', Buffer.from('already here'))
+    zip.addFile('docs/readme (2).txt', Buffer.from('and this'))
+    zip.writeZip(zipPath)
+    expect(moveMembers(zipPath, ['readme.txt'], 'docs', true)).toEqual({
+      moved: [{ from: 'readme.txt', to: 'docs/readme (3).txt' }],
+      clashes: []
+    })
+    const paths = listArchive(zipPath).map((e) => e.path)
+    expect(paths).toContain('docs/readme (3).txt')
+    expect(paths).toContain('docs/readme.txt')
+  })
+
+  it('lands each member under the name it is given (an undo puts the old name back)', () => {
+    expect(moveMembers(zipPath, ['docs/img'], '', false, ['pictures'])).toEqual({
+      moved: [{ from: 'docs/img', to: 'pictures' }],
+      clashes: []
+    })
+    expect(listArchive(zipPath).map((e) => e.path)).toContain('pictures/logo.png')
+  })
+
+  // FOLDER ENTRIES MOVE WITH THEIR FOLDER (#70 review, 2026-11-01). Zips made
+  // by Windows or 7-Zip write a record per folder (`docs/img/`); one left
+  // behind was an empty ghost that made the undo land "img (2)".
+  describe('a zip with folder entries', () => {
+    let withDirs: string
+    const raw = (): string[] => new AdmZip(withDirs).getEntries().map((e) => e.entryName)
+    beforeEach(() => {
+      const zip = new AdmZip()
+      zip.addFile('docs/', Buffer.alloc(0))
+      zip.addFile('docs/img/', Buffer.alloc(0))
+      zip.addFile('docs/img/deep/', Buffer.alloc(0))
+      zip.addFile('docs/img/logo.png', Buffer.from([0x89, 0x50]))
+      zip.addFile('docs/img/deep/a.png', Buffer.from([1]))
+      zip.addFile('readme.txt', Buffer.from('hello'))
+      withDirs = join(mkdtempSync(join(tmpdir(), 'prism-archive-dirs-')), 'd.zip')
+      zip.writeZip(withDirs)
+    })
+
+    it('moves a folder with its folder entries, leaving no empty ghost', () => {
+      expect(moveMembers(withDirs, ['docs/img'], '')).toEqual({
+        moved: [{ from: 'docs/img', to: 'img' }],
+        clashes: []
+      })
+      expect(raw().sort()).toEqual(
+        ['docs/', 'img/', 'img/deep/', 'img/deep/a.png', 'img/logo.png', 'readme.txt'].sort()
+      )
+    })
+
+    it('undo (Keep both, the old name) puts the folder back under its own name', () => {
+      moveMembers(withDirs, ['docs/img'], '')
+      expect(moveMembers(withDirs, ['img'], 'docs', true, ['img'])).toEqual({
+        moved: [{ from: 'img', to: 'docs/img' }],
+        clashes: []
+      })
+      expect(raw().sort()).toEqual(
+        ['docs/', 'docs/img/', 'docs/img/deep/', 'docs/img/deep/a.png', 'docs/img/logo.png', 'readme.txt'].sort()
+      )
+    })
+
+    it('moves an empty folder, which is only its entry', () => {
+      const zip = new AdmZip(withDirs)
+      zip.addFile('empty/', Buffer.alloc(0))
+      zip.writeZip(withDirs)
+      expect(moveMembers(withDirs, ['empty'], 'docs')).toEqual({
+        moved: [{ from: 'empty', to: 'docs/empty' }],
+        clashes: []
+      })
+      expect(raw()).toContain('docs/empty/')
+      expect(raw()).not.toContain('empty/')
+    })
+
+    it('a folder moved onto an EMPTY folder of its name fills it, no question', () => {
+      const zip = new AdmZip(withDirs)
+      zip.addFile('img/', Buffer.alloc(0))
+      zip.writeZip(withDirs)
+      expect(moveMembers(withDirs, ['docs/img'], '')).toEqual({
+        moved: [{ from: 'docs/img', to: 'img' }],
+        clashes: []
+      })
+      expect(raw().filter((e) => e === 'img/')).toHaveLength(1)
+      expect(raw()).toContain('img/logo.png')
+    })
+
+    it('a file onto an empty folder of its name still asks', () => {
+      const zip = new AdmZip(withDirs)
+      zip.addFile('docs/readme.txt/', Buffer.alloc(0))
+      zip.writeZip(withDirs)
+      expect(moveMembers(withDirs, ['readme.txt'], 'docs')).toEqual({ moved: [], clashes: ['readme.txt'] })
+    })
+  })
+
+  it('does nothing for members already where they are', () => {
+    expect(moveMembers(zipPath, ['docs/guide.md'], 'docs')).toEqual({ moved: [], clashes: [] })
   })
 
   it('carries the packed size and the time of each member, for the columns', () => {

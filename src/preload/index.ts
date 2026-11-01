@@ -24,6 +24,7 @@ import type {
   ExtractEvent,
   ExtractPickedResult,
   ExtractToResult,
+  StageResult,
   MemberExtractResult
 } from '@shared/extraction'
 import type { IconList, IconPick, IconSave } from '@shared/folderIconFiles'
@@ -481,13 +482,16 @@ const api = {
     destFolder: string,
     keepBoth?: boolean
   ): Promise<ArchiveAddResult> => ipcRenderer.invoke(CALL.archiveAdd, zip, srcPaths, destFolder, keepBoth),
-  /** Move members to another folder inside the same zip. */
+  /** Move members to another folder inside the same zip. A taken name is a
+   *  clash unless `keepBoth`; `names` lands each under that name (#70). */
   archiveMoveMembers: (
     zip: string,
     entries: string[],
-    destFolder: string
+    destFolder: string,
+    keepBoth?: boolean,
+    names?: string[]
   ): Promise<ArchiveMoveResult> =>
-    ipcRenderer.invoke(CALL.archiveMoveMembers, zip, entries, destFolder),
+    ipcRenderer.invoke(CALL.archiveMoveMembers, zip, entries, destFolder, keepBoth, names),
   /** Extract members OUT to a real folder, keeping the shape under a folder.
    *  The extraction window (#166) is main's to open; `asksPassword` says this
    *  caller will ask for a password and try again, so a `password` ending
@@ -501,6 +505,19 @@ const api = {
     asksPassword = false
   ): Promise<ExtractToResult> =>
     ipcRenderer.invoke(CALL.archiveExtractTo, zip, entries, destDir, password, asksPassword),
+
+  /** Members of one zip out to a staging folder main makes, through the
+   *  extraction window, on their way into another zip (#70 D9). `toZip`
+   *  only names the window's destination. Drop `dir` with `archiveUnstage`
+   *  once the add is over. */
+  archiveStageMembers: (
+    zip: string,
+    entries: string[],
+    password?: string,
+    toZip?: string
+  ): Promise<StageResult> => ipcRenderer.invoke(CALL.archiveStageMembers, zip, entries, password, toZip),
+  /** Remove a staging folder `archiveStageMembers` made (no other). */
+  archiveUnstage: (dir: string): Promise<boolean> => ipcRenderer.invoke(CALL.archiveUnstage, dir),
 
   /** Members out to a folder the user picks in main's dialog (the consent
    *  that lets it write outside every root). 'cancelled' is the dialog. */

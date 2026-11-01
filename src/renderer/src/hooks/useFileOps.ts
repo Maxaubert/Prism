@@ -31,6 +31,7 @@ import { sessionTime, wasPaused, wasPlaying, rememberTime, rememberPaused } from
 import { movedOn } from '../lib/fileOpsFollow'
 import { type UndoOps, undoEntry, redoEntry } from '../lib/undoApply'
 import type { DragPayload } from '../lib/drag/dragDrop'
+import { archiveTarget, dropVerb, type DropKeys, type DropVerb } from '../lib/drag/dropVerb'
 import { archivePassword } from '../lib/archivePass'
 import { endJob, startJob } from '../lib/jobs'
 import { PASTE_MESSAGES, pasteMessage } from './useFilePaste'
@@ -68,14 +69,15 @@ export interface FileOpsDeps {
   buffers: RefObject<Map<string, { path: string; text: string }>>
   undoState: UndoState
   flashUndo: (text: string) => void
-  /** Only its `drop`: a drop into a zip takes the archive verbs. */
+  /** Only its `drop`: a drop into a zip takes the archive verbs, by the
+   *  verb the one drop rule chose (#70). */
   archiveActions: Pick<ReturnType<typeof useArchiveActions>, 'drop'>
 }
 
 export interface FileOps {
   redo: () => void
   undo: () => void
-  onDropIntoTab: (tabId: string, payload: DragPayload) => void
+  onDropIntoTab: (tabId: string, payload: DragPayload, keys?: DropKeys) => void
   runDelete: (path: string) => Promise<void>
   runDeleteMany: (paths: string[]) => Promise<void>
   runMove: (
@@ -90,7 +92,12 @@ export interface FileOps {
     onClash: OnClash,
     track?: boolean
   ) => Promise<string | null>
-  onBrowseDropInto: (dest: string, payload: DragPayload, tabId?: string | undefined) => void
+  onBrowseDropInto: (
+    dest: string,
+    payload: DragPayload,
+    keys?: DropKeys,
+    tabId?: string | undefined
+  ) => void
   makeNewFolder: (dir: string) => Promise<string | null>
 }
 
@@ -515,15 +522,22 @@ export function useFileOps({
     },
     [setAsk, setRefreshKey]
   )
+  /**
+   * A DROP ON A REAL FOLDER (#70), routed by the one drop rule (`dropVerb`,
+   * owner approved the spec "as recommended", 2026-11-01): a MOVE asks about
+   * taken names before it touches anything and goes on the undo stack; a
+   * COPY (Ctrl, another drive, files from Windows) is the paste engine, names
+   * never collide and, like a paste, it is not on the stack (D4, D5); zip
+   * members EXTRACT there, and what landed is marked (#101).
+   */
   const onDropInto = useCallback(
-    (dest: string, payload: DragPayload): void => {
+    (dest: string, payload: DragPayload, verb: DropVerb): void => {
       if (payload.kind === 'files') {
-        // From Windows: a copy. Prism's own rows, in this window or back from
-        // an OS drag that left a Prism window (D4): a move.
-        if (payload.external) void copyIn(payload.paths, dest)
-        else void runMove(payload.paths, dest, 'ask')
+        if (verb === 'copy') void copyIn(payload.paths, dest)
+        else if (verb === 'move') void runMove(payload.paths, dest, 'ask')
         return
       }
+      if (verb !== 'extract') return
       // Members out of an archive: extracted where they were dropped, with the
       // password the archive view already asked for, if it needed one.
       //
@@ -536,13 +550,20 @@ export function useFileOps({
       void window.prism
         .archiveExtractTo(payload.archive, payload.entries, dest, archivePassword(payload.archive))
         .then((r) => {
-          if (r.ok) setRefreshKey((n) => n + 1)
+          if (!r.ok) return
+          setRefreshKey((n) => n + 1)
+          markLanded(r.paths ?? [])
         })
     },
     [copyIn, runMove, setRefreshKey]
   )
   const onBrowseDropInto = useCallback(
-    (dest: string, payload: DragPayload, tabId = active?.id): void => {
+    (
+      dest: string,
+      payload: DragPayload,
+      keys: DropKeys = { ctrl: false, shift: false },
+      tabId = active?.id
+    ): void => {
       if (!tabId) return
       // A desktop drop explicitly chooses both ends, including a drive or a
       // breadcrumb the tab has not visited. These grants never widen phone roots.
@@ -565,11 +586,19 @@ export function useFileOps({
             })
             return
           }
-          // INTO A ZIP (#300): the destination's own answer says it is a
-          // place inside an archive, and the archive verbs take it.
+          // MAIN'S ANSWER DECIDES (#300, #70): the destination's own listing
+          // says whether it is a place inside an archive (and whether that is
+          // read-only), and the rule is asked again with it and the keys held
+          // at the drop, so the hover's word and the drop agree.
           const inside = results[0]?.listing.archive
-          if (inside) archiveActions.drop(dest, payload, inside)
-          else onDropInto(dest, payload)
+          const verb = dropVerb({
+            payload,
+            target: { dir: dest, archive: inside ? archiveTarget(dest, inside) : null },
+            keys
+          })
+          if (verb === 'none') return
+          if (inside) archiveActions.drop(dest, payload, inside, verb)
+          else onDropInto(dest, payload, verb)
         })
         .catch(() =>
           setAsk({
@@ -581,10 +610,10 @@ export function useFileOps({
     [active, onDropInto, archiveActions, setAsk]
   )
   const onDropIntoTab = useCallback(
-    (tabId: string, payload: DragPayload): void => {
+    (tabId: string, payload: DragPayload, keys?: DropKeys): void => {
       const target = moveTabs.current.find((tab) => tab.id === tabId)
       if (!target || target.kind === 'settings') return
-      onBrowseDropInto(target.browse.path, payload, target.id)
+      onBrowseDropInto(target.browse.path, payload, keys, target.id)
     },
     [onBrowseDropInto]
   )

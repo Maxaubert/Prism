@@ -16,7 +16,12 @@ export type ArchiveFail = ExtractFail
 /** Main's archive calls the runners use; `window.prism` in the app. */
 export type ArchiveIpc = Pick<
   Window['prism'],
-  'archiveAdd' | 'archiveDelete' | 'archiveRename' | 'trashFile'
+  | 'archiveAdd'
+  | 'archiveDelete'
+  | 'archiveRename'
+  | 'trashFile'
+  | 'archiveStageMembers'
+  | 'archiveUnstage'
 >
 
 /** Every line the archive verbs say. One table, so a fix lands everywhere. */
@@ -33,7 +38,7 @@ export const ARCHIVE_COPY = {
   otherArchive: 'That came from another archive. Extract it first, then add it here.',
   readOnly: "This archive can't be changed. Extract it to make changes.",
   moveEncrypted: "Prism can't rearrange a password-protected archive.",
-  moveFailed: "Those couldn't be moved inside the archive. A name may be taken.",
+  moveFailed: "Those couldn't be moved inside the archive.",
   deleteTitle: (names: readonly string[]): string =>
     names.length > 1
       ? `Delete ${names.length} items from the archive?`
@@ -90,28 +95,34 @@ export function runWithPassword(opts: {
 export type AddOutcome =
   | { kind: 'said'; message: string }
   | { kind: 'clash'; names: string[] }
-  | { kind: 'added'; undo: UndoEntry | null }
+  /** `entries`: each member's name inside the zip as written, for the
+   *  landing marks (#70, #101). */
+  | { kind: 'added'; entries: string[]; undo: UndoEntry | null }
 
 /**
  * Real files into a zip. A taken name stops it before anything is written
- * (the caller asks, then calls again with `keepBoth`). A drag of Prism's own
- * rows is a MOVE (owner, 2026-08-22): once the members are safely in, the
- * originals go to the Recycle Bin, and the undo entry takes both halves back.
- * Files from Windows are left alone: they were never Prism's to remove.
+ * (the caller asks, then calls again with `keepBoth`). A MOVE of Prism's own
+ * rows (owner, 2026-08-22; the plain drag on one drive since #70) bins the
+ * originals once the members are safely in, and the undo entry takes both
+ * halves back. A COPY (Ctrl, another drive, files from Windows, a zip's
+ * members from another zip) leaves them, and like a paste it is not on the
+ * undo stack (#70 D4).
  */
 export async function addMembers(
   ipc: ArchiveIpc,
-  add: { container: string; paths: string[]; dest: string; keepBoth: boolean; fromPrism: boolean }
+  add: { container: string; paths: string[]; dest: string; keepBoth: boolean; move: boolean }
 ): Promise<AddOutcome> {
   const r = await ipc.archiveAdd(add.container, add.paths, add.dest, add.keepBoth)
   if (r === 'encrypted') return { kind: 'said', message: ARCHIVE_COPY.addEncrypted }
   if (r === 'failed') return { kind: 'said', message: ARCHIVE_COPY.addFailed }
   if (r.clashes.length) return { kind: 'clash', names: r.clashes }
-  if (!add.fromPrism || !r.added.length) return { kind: 'added', undo: null }
+  const entries = r.added.map((a) => a.entry)
+  if (!add.move || !r.added.length) return { kind: 'added', entries, undo: null }
   const originals: string[] = []
   for (const a of r.added) if (await ipc.trashFile(a.src)) originals.push(a.src)
   return {
     kind: 'added',
+    entries,
     undo: {
       kind: 'archive-in',
       zip: add.container,
@@ -120,6 +131,32 @@ export async function addMembers(
       originals
     }
   }
+}
+
+/**
+ * ZIP A TO ZIP B IS A COPY (#70 D9; owner approved the spec "as recommended",
+ * 2026-11-01; review fix the same day). The members go out to a staging
+ * folder main makes in the run's member folder, through the extraction
+ * window (progress and Cancel at any size), then `add` puts them in the other
+ * zip, and the folder is dropped once the add is over, however it ended. A
+ * Cancel or a failure is the window's to show; `password` is the caller's to
+ * ask. It used to read file members past the preview limit with no window,
+ * and leave a temp folder behind per folder member.
+ */
+export async function copyBetweenZips(
+  ipc: ArchiveIpc,
+  from: { container: string; entries: string[]; password: string | undefined },
+  toZip: string,
+  add: (paths: string[]) => Promise<void>
+): Promise<ArchiveFail | 'ok'> {
+  const staged = await ipc.archiveStageMembers(from.container, from.entries, from.password, toZip)
+  if (!staged.ok) return staged.reason === 'password' ? 'password' : 'ok'
+  try {
+    if (staged.paths.length) await add(staged.paths)
+  } finally {
+    await ipc.archiveUnstage(staged.dir)
+  }
+  return 'ok'
 }
 
 /** Delete members, one at a time, permanently. The answer is what to say,

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   addMembers,
   ARCHIVE_COPY,
+  copyBetweenZips,
   deleteMembers,
   renameMember,
   runWithPassword,
@@ -14,7 +15,15 @@ function fakeIpc(over: Partial<ArchiveIpc>): ArchiveIpc {
   const no = (): never => {
     throw new Error('not expected')
   }
-  return { archiveAdd: no, archiveDelete: no, archiveRename: no, trashFile: no, ...over }
+  return {
+    archiveAdd: no,
+    archiveDelete: no,
+    archiveRename: no,
+    trashFile: no,
+    archiveStageMembers: no,
+    archiveUnstage: no,
+    ...over
+  }
 }
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
@@ -85,7 +94,7 @@ describe('addMembers', () => {
     paths: ['C:\\a.txt'],
     dest: 'in',
     keepBoth: false,
-    fromPrism: true
+    move: true
   }
 
   it('says why when main refuses', async () => {
@@ -129,6 +138,7 @@ describe('addMembers', () => {
     )
     expect(r).toEqual({
       kind: 'added',
+      entries: ['in/a.txt', 'in/b.txt'],
       undo: {
         kind: 'archive-in',
         zip: 'C:\\z.zip',
@@ -150,10 +160,122 @@ describe('addMembers', () => {
         }),
         trashFile
       }),
-      { ...add, fromPrism: false }
+      { ...add, move: false }
     )
-    expect(r).toEqual({ kind: 'added', undo: null })
+    expect(r).toEqual({ kind: 'added', entries: ['in/a.txt'], undo: null })
     expect(trashFile).not.toHaveBeenCalled()
+  })
+
+  // #70 D4 (owner approved the spec "as recommended", 2026-11-01): a Ctrl
+  // copy of Prism's own rows is an add that leaves them, and like a paste it
+  // is not on the undo stack.
+  it("a Ctrl copy of Prism's own rows leaves the originals and gives no undo", async () => {
+    const trashFile = vi.fn()
+    const r = await addMembers(
+      fakeIpc({
+        archiveAdd: async () => ({
+          added: [{ src: 'C:\\a.txt', entry: 'in/a.txt' }],
+          clashes: [],
+          failed: []
+        }),
+        trashFile
+      }),
+      { ...add, move: false }
+    )
+    expect(r).toMatchObject({ kind: 'added', undo: null })
+    expect(trashFile).not.toHaveBeenCalled()
+  })
+})
+
+// #70 D9 (owner approved the spec "as recommended", 2026-11-01; review fix
+// the same day): members of one zip copied into another go out to a staging
+// folder main makes, through the extraction window, and the folder goes as
+// soon as the add is over. The old route left temp folders behind and read
+// past the preview limit with no progress or Cancel.
+describe('copyBetweenZips', () => {
+  it('stages the members, adds what landed, then drops the staging folder', async () => {
+    const order: string[] = []
+    const ipc = fakeIpc({
+      archiveStageMembers: vi.fn(async (...args: unknown[]) => {
+        order.push(`stage ${JSON.stringify(args)}`)
+        return {
+          ok: true as const,
+          dir: 'T:\\run\\zipcopy-1',
+          paths: ['T:\\run\\zipcopy-1\\a.txt', 'T:\\run\\zipcopy-1\\docs']
+        }
+      }),
+      archiveUnstage: vi.fn(async (dir: string) => {
+        order.push(`unstage ${dir}`)
+        return true
+      })
+    })
+    const r = await copyBetweenZips(
+      ipc,
+      { container: 'C:\\a.zip', entries: ['a.txt', 'docs'], password: 'pw' },
+      'C:\\b.zip',
+      async (paths) => void order.push(`add ${JSON.stringify(paths)}`)
+    )
+    expect(r).toBe('ok')
+    expect(order).toEqual([
+      'stage ["C:\\\\a.zip",["a.txt","docs"],"pw","C:\\\\b.zip"]',
+      'add ["T:\\\\run\\\\zipcopy-1\\\\a.txt","T:\\\\run\\\\zipcopy-1\\\\docs"]',
+      'unstage T:\\run\\zipcopy-1'
+    ])
+  })
+
+  it('drops the staging folder even when the add throws', async () => {
+    const archiveUnstage = vi.fn(async () => true)
+    const ipc = fakeIpc({
+      archiveStageMembers: async () => ({
+        ok: true as const,
+        dir: 'T:\\s',
+        paths: ['T:\\s\\a.txt']
+      }),
+      archiveUnstage
+    })
+    await expect(
+      copyBetweenZips(
+        ipc,
+        { container: 'C:\\a.zip', entries: ['a.txt'], password: undefined },
+        'C:\\b.zip',
+        async () => {
+          throw new Error('add went wrong')
+        }
+      )
+    ).rejects.toThrow('add went wrong')
+    expect(archiveUnstage).toHaveBeenCalledExactlyOnceWith('T:\\s')
+  })
+
+  it('answers password for the caller to ask, and adds nothing', async () => {
+    const add = vi.fn()
+    const ipc = fakeIpc({
+      archiveStageMembers: async () => ({ ok: false, reason: 'password' }) as const
+    })
+    expect(
+      await copyBetweenZips(
+        ipc,
+        { container: 'C:\\a.zip', entries: ['a.txt'], password: undefined },
+        'C:\\b.zip',
+        add
+      )
+    ).toBe('password')
+    expect(add).not.toHaveBeenCalled()
+  })
+
+  it("a Cancel or a failure is the window's to show: nothing added, nothing more said", async () => {
+    const add = vi.fn()
+    for (const reason of ['cancelled', 'failed', 'busy', 'aes'] as const) {
+      const ipc = fakeIpc({ archiveStageMembers: async () => ({ ok: false, reason }) as const })
+      expect(
+        await copyBetweenZips(
+          ipc,
+          { container: 'C:\\a.zip', entries: ['a.txt'], password: undefined },
+          'C:\\b.zip',
+          add
+        )
+      ).toBe('ok')
+    }
+    expect(add).not.toHaveBeenCalled()
   })
 })
 
