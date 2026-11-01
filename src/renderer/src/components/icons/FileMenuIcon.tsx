@@ -25,8 +25,6 @@ const paths = {
   // Change icon... (folder icons, 2026-10-31): a square, a circle, a triangle.
   icon: 'M4 4h7v7H4zM17.5 4.2a3.3 3.3 0 1 1 0 6.6 3.3 3.3 0 0 1 0-6.6zM13.5 20l4-7 4 7zM4 13.5h7v6.5H4z',
   unpin: 'M15 3l6 6-3 1-4 4M10 14l-6 6M3 3l18 18M9 8l4-4',
-  up: PATHS.arrowUp,
-  down: 'm6 14 6 6 6-6M12 20V4',
   'open-with': PATHS.openOut,
   'default-app': 'M12 3l8 5-8 5-8-5 8-5zM4 13l8 5 8-5',
   // The archive rows (#300): a tray with an arrow down into it, the

@@ -25,7 +25,7 @@ whole-application accessibility assessment.
 
 | Surface | Behavior retained |
 | --- | --- |
-| Quick access and drive shortcuts | Pin/unpin/reorder manage shortcuts. These menus do not offer Delete or Rename for their underlying targets. |
+| Quick access and drive shortcuts | Pin/unpin manage shortcuts; reordering is by drag only (2026-10-31). These menus do not offer Delete or Rename for their underlying targets. |
 | Project tree | Project multi-selection, archive extraction, split directions and existing terminal sessions remain available. Quick access pinning stays in Explorer. |
 | Explorer | One replaceable preview beside the list. New terminal here creates a project tab; Open terminal here in a project stays in that project. |
 | Explorer action bar | Open as project requires a selected folder. File context menus may open the file's parent as a project with that file selected. |
