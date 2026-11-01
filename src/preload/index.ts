@@ -31,6 +31,7 @@ import type { IconList, IconPick, IconSave } from '@shared/folderIconFiles'
 import type { SweepBegin, SweepEnd, SweepState, SweepUpdate } from '@shared/sweepOverlay'
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
+import type { CopyFormat } from '@shared/imageCopy'
 import type { DragOutRequest, DragOutResult, DragPrepareResult, NativeDragRecord } from '@shared/dragOut'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import type { StripReport, TabCarry, TabHover, TabMerge, TearEnd, TearEvent, TearRequest } from '@shared/tabTear'
@@ -54,6 +55,7 @@ import type {
   PasteResult,
   PhotoInfo,
   SaveCopyResult,
+  SaveCopiesResult,
   SubtitleTrack,
   WindowState
 } from '@shared/ipcTypes'
@@ -448,9 +450,18 @@ const api = {
   saveImageCopy: (
     bytes: ArrayBuffer,
     suggested: string,
-    format: 'png' | 'jpeg',
+    format: CopyFormat,
     source?: string
   ): Promise<SaveCopyResult> => ipcRenderer.invoke(CALL.imageSaveCopy, bytes, suggested, format, source),
+  /**
+   * Save copies as (#474): each picture in `paths` as `format`, next to its
+   * original, as the job `jobId` (its progress comes as paste progress, the
+   * chip's one channel). Resolves when the job ends, Cancel included.
+   */
+  saveImageCopies: (paths: string[], format: CopyFormat, jobId: string): Promise<SaveCopiesResult> =>
+    ipcRenderer.invoke(CALL.imageSaveCopies, paths, format, jobId),
+  /** Stop a Save copies as job; the copies already made stay. */
+  cancelImageCopies: (jobId: string): Promise<boolean> => ipcRenderer.invoke(CALL.imageSaveCopiesCancel, jobId),
   /** A multi-selection's copy: every file lands on the clipboard together. */
   copyFilesToClipboard: (paths: string[], cut = false): Promise<boolean> =>
     ipcRenderer.invoke(CALL.fileCopyClip, paths, cut),
