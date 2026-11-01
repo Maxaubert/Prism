@@ -184,6 +184,18 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       for (const type of event.dataTransfer.types)
         data.setData(type, event.dataTransfer.getData(type))
       data.effectAllowed = event.dataTransfer.effectAllowed
+      // Chromium drops a dropEffect set on a DataTransfer made outside a real
+      // drag (`new DataTransfer()` is not in drag mode), so the target's
+      // answer never reached the word under the row (found by #70's dragCopy
+      // e2e). The carry keeps the effect itself.
+      let dropEffect: DataTransfer['dropEffect'] = 'none'
+      Object.defineProperty(data, 'dropEffect', {
+        configurable: true,
+        get: () => dropEffect,
+        set: (v: DataTransfer['dropEffect']) => {
+          if (v === 'none' || v === 'copy' || v === 'move' || v === 'link') dropEffect = v
+        }
+      })
       event.preventDefault()
       const paths = pin ? [pin] : payload?.kind === 'files' ? payload.paths : payload!.entries
       // THE ROW IS PICKED UP, NOT A LABEL (#327): the pressed row's icon and
