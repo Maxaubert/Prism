@@ -12,7 +12,9 @@ rule, in one pure function (`lib/drag/dropVerb.ts`) that every target asks on ho
 carried row) and the drop asks again with the keys held then, so the word shown and the thing done never
 differ.
 
-- **D1, Ctrl copies, Shift moves**, live: holding or letting go mid-drag changes the word. Ctrl and Shift
+- **D1, Ctrl copies, Shift moves**, live: holding or letting go mid-drag changes the word. The word itself
+  had never shown in the in-app carry: Chromium drops a `dropEffect` set on a `new DataTransfer()` (not in
+  drag mode), so the carry now keeps the effect itself (`internalFileDrag.ts`; found by `dragCopy`). Ctrl and Shift
   together are Windows' shortcut, which Prism does not make, so the plain rule holds.
 - **D2, a plain drag MOVES on the same drive and COPIES to another.** Drives by the path's root
   (`volumeOf` in `@shared/path`: `c:` or `\\srv\share`); a subst drive or a junction can guess wrong, which
