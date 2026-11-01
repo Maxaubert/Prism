@@ -1,5 +1,6 @@
+import { createHash } from 'crypto'
 import { describe, expect, it } from 'vitest'
-import { CacheBudget, THUMB_WIDTH, thumbArgs, thumbKey, toEvict } from './thumbs'
+import { CacheBudget, THUMB_WIDTH, WEBP_MAX_PX, isThumbFile, thumbArgs, thumbKey, toEvict } from './thumbs'
 
 describe('CacheBudget (2026-10-16: every thumbnail stat-scanned the whole cache)', () => {
   it('scans once to learn the total, then only past the ceiling', () => {
@@ -33,7 +34,16 @@ describe('thumbKey', () => {
     expect(thumbKey('C:\\a.png', 10, 5.7)).toBe(thumbKey('c:\\A.PNG', 10, 5.2))
     expect(thumbKey('C:\\a.png', 10, 5)).not.toBe(thumbKey('C:\\a.png', 11, 5))
     expect(thumbKey('C:\\a.png', 10, 5)).not.toBe(thumbKey('C:\\a.png', 10, 6000))
-    expect(thumbKey('C:\\a.png', 10, 5)).toMatch(/^[0-9a-f]{40}\.jpg$/)
+    expect(thumbKey('C:\\a.jpg', 10, 5)).toMatch(/^[0-9a-f]{40}\.jpg$/)
+  })
+
+  it('names a picture that can be clear a .webp, so the black JPEGs made before #477 are not served again', () => {
+    expect(thumbKey('C:\\a.png', 10, 5)).toMatch(/^[0-9a-f]{40}\.webp$/)
+    expect(thumbKey('C:\\a.gif', 10, 5)).toMatch(/^[0-9a-f]{40}\.webp$/)
+    expect(thumbKey('C:\\a.heic', 10, 5)).toMatch(/^[0-9a-f]{40}\.jpg$/)
+    expect(thumbKey('C:\\a.mp4', 10, 5)).toMatch(/^[0-9a-f]{40}\.jpg$/)
+    // A photo's key is the one it always had: its cached JPEG stays good.
+    expect(thumbKey('C:\\a.jpg', 10, 5)).toBe(createHash('sha1').update('c:\\a.jpg|10|5').digest('hex') + '.jpg')
   })
 })
 
@@ -52,6 +62,37 @@ describe('thumbArgs', () => {
     // The fallback for a clip shorter than the seek: the first frame.
     expect(thumbArgs('C:\\a.mkv', 'video', 'C:\\t\\y.jpg', 0)).not.toContain('-ss')
   })
+
+  it('keeps the alpha of a picture that can be clear: a WebP, never a JPEG (#477)', () => {
+    const png = thumbArgs('C:\\a.png', 'image', 'C:\\t\\x.webp.part')
+    expect(png[png.indexOf('-c:v') + 1]).toBe('libwebp')
+    expect(png[png.indexOf('-f') + 1]).toBe('webp')
+    expect(png).not.toContain('-q:v')
+    const photo = thumbArgs('C:\\a.jpg', 'image', 'C:\\t\\x.jpg.part')
+    expect(photo).not.toContain('libwebp')
+    expect(photo[photo.indexOf('-f') + 1]).toBe('image2')
+  })
+
+  it('caps a WebP thumbnail at the WebP 16383px height, so a very tall clear strip still gets one (#477)', () => {
+    // A 40x4000 sprite strip scales to 320x32000: libwebp refuses past
+    // 16383 ("Picture size is too large"), so the top of it is kept instead.
+    const png = thumbArgs('C:\\strip.png', 'image', 'C:\\t\\x.webp.part')
+    expect(png[png.indexOf('-vf') + 1]).toBe(`scale=${THUMB_WIDTH}:-2,crop=iw:'min(ih,${WEBP_MAX_PX})':0:0`)
+    expect(WEBP_MAX_PX).toBe(16383)
+    // A JPEG holds 65535, so a photo's filter is unchanged.
+    const photo = thumbArgs('C:\\a.jpg', 'image', 'C:\\t\\x.jpg.part')
+    expect(photo[photo.indexOf('-vf') + 1]).toBe(`scale=${THUMB_WIDTH}:-2`)
+  })
+
+  it('decides WebP from the extension alone, the same way the cache key does (#477)', () => {
+    // Were a clear format ever handed over as a video, the key would still
+    // say .webp, so the bytes must be a WebP too or /api/thumb mislabels them.
+    for (const kind of ['image', 'video'] as const) {
+      const args = thumbArgs('C:\\a.gif', kind, 'C:\\t\\x.webp.part')
+      expect(thumbKey('C:\\a.gif', 1, 1).endsWith('.webp')).toBe(true)
+      expect(args[args.indexOf('-f') + 1]).toBe('webp')
+    }
+  })
 })
 
 describe('toEvict', () => {
@@ -64,5 +105,14 @@ describe('toEvict', () => {
     expect(toEvict(entries, 200)).toEqual([])
     expect(toEvict(entries, 100)).toEqual(['old.jpg'])
     expect(toEvict(entries, 50)).toEqual(['old.jpg', 'mid.jpg'])
+  })
+})
+
+describe('isThumbFile', () => {
+  it('counts both kinds of thumbnail and nothing half-written', () => {
+    expect(isThumbFile('a.jpg')).toBe(true)
+    expect(isThumbFile('a.webp')).toBe(true)
+    expect(isThumbFile('a.webp.part')).toBe(false)
+    expect(isThumbFile('a.txt')).toBe(false)
   })
 })

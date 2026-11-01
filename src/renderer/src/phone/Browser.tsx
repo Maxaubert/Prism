@@ -9,6 +9,7 @@ import { searchHere } from './prismShim'
 import { placeUrl, readPlace } from './place'
 import { ROW_CLASS } from './rows'
 import { thumbUrl } from './api'
+import { thumbClass } from './thumbClass'
 import { readView, writeView, type PhoneView } from './view'
 import { Places } from './Places'
 import { FolderFill, Icon } from '../components/icons/Icon'
@@ -691,6 +692,7 @@ function TileName({ name }: { name: string }): JSX.Element {
 
 function Tile({ file }: { file: ViewerFile }): JSX.Element {
   const [failed, setFailed] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const pictured = (file.kind === 'image' || file.kind === 'video') && !failed
   return (
     <span className="relative grid aspect-square w-full place-items-center overflow-hidden rounded-md bg-[var(--p-hover)]">
@@ -700,8 +702,9 @@ function Tile({ file }: { file: ViewerFile }): JSX.Element {
           alt=""
           loading="lazy"
           decoding="async"
-          className="h-full w-full object-cover"
+          className={thumbClass(file.path, loaded)}
           data-phone-thumb
+          onLoad={() => setLoaded(true)}
           onError={() => setFailed(true)}
         />
       ) : (

@@ -13155,9 +13155,105 @@ async function phoneScenario(fixtures) {
       .catch(() => {})
     const thumbW = await page.evaluate(() => Math.max(0, ...[...document.querySelectorAll('[data-phone-thumb]')].map((i) => i.naturalWidth)))
     ok(thumbW > 0 && thumbW <= 320, `a picture tile's thumbnail arrives from the PC (${thumbW}px wide)`)
+    // A CLEAR PNG'S TILE IS THE CHECKER, NOT BLACK (#477, owner 2026-11-01:
+    // "a checkerboard"). The PNG stores black under its clear corners, as
+    // most do; the reload below lists it.
+    writeFileSync(join(fixtures, 'zz-clear.png'), clearPng())
     await page.reload()
     await page.waitForSelector('[data-phone-grid]', { timeout: 10000 })
     ok((await page.locator('[data-phone-view="grid"][aria-pressed="true"]').count()) === 1, 'and the grid is still the view after a reload')
+    {
+      const clearTile = page.locator('[data-phone-grid] [data-phone-file]:has-text("zz-clear.png") [data-phone-thumb]')
+      await clearTile.scrollIntoViewIfNeeded().catch(() => {})
+      await page
+        .waitForFunction(
+          () => {
+            const i = [...document.querySelectorAll('[data-phone-grid] [data-phone-file]')]
+              .find((t) => t.textContent?.includes('zz-clear.png'))
+              ?.querySelector('[data-phone-thumb]')
+            return !!i && i.naturalWidth > 0 && i.classList.contains('p-checker')
+          },
+          null,
+          { timeout: 15000 }
+        )
+        .catch(() => {})
+      // The thumbnail itself kept its alpha: its corner is clear, not black.
+      const thumbCorner = await clearTile.evaluate(async (img) => {
+        const c = document.createElement('canvas')
+        c.width = img.naturalWidth
+        c.height = img.naturalHeight
+        const g = c.getContext('2d')
+        g.drawImage(img, 0, 0)
+        return [...g.getImageData(1, 1, 1, 1).data]
+      }).catch(() => null)
+      ok(thumbCorner?.[3] === 0, `the clear PNG's thumbnail keeps its alpha (corner ${JSON.stringify(thumbCorner)})`)
+      // And what the tile SHOWS there is the viewer's checker: the pixels on
+      // screen, read back from a screenshot of the tile.
+      const sampleTile = async () => {
+        const shot = await clearTile.screenshot().catch(() => null)
+        return shot
+          ? await page.evaluate(async (b64) => {
+              const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))
+              const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+              const c = document.createElement('canvas')
+              c.width = bmp.width
+              c.height = bmp.height
+              const g = c.getContext('2d')
+              g.drawImage(bmp, 0, 0)
+              const img = [...document.querySelectorAll('[data-phone-thumb].p-checker')][0]
+              const css = img ? getComputedStyle(img) : null
+              const rgb = (hex) => {
+                // The build's CSS minifier shortens #ffffff to #fff.
+                const s = hex.trim().replace('#', '')
+                const h = s.length === 3 ? [...s].map((ch) => ch + ch).join('') : s
+                return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16))
+              }
+              const root = getComputedStyle(document.documentElement)
+              return {
+                // Inside the clear band, past the tile's rounded corner (which
+                // shows the page behind it at the very edge).
+                px: [...g.getImageData(Math.round(bmp.width * 0.12), Math.round(bmp.height * 0.12), 1, 1).data].slice(0, 3),
+                a: rgb(root.getPropertyValue('--p-checker-a')),
+                b: rgb(root.getPropertyValue('--p-checker-b')),
+                bg: css?.backgroundImage ?? ''
+              }
+            }, shot.toString('base64'))
+          : null
+      }
+      const near = (p, q) => !!p && !!q && p.every((v, i) => Math.abs(v - q[i]) <= 6)
+      const seen = await sampleTile()
+      ok(
+        !!seen && (near(seen.px, seen.a) || near(seen.px, seen.b)),
+        `the clear tile's corner is the checker, not black (${JSON.stringify(seen?.px)} against ${JSON.stringify(seen?.a)} / ${JSON.stringify(seen?.b)})`
+      )
+      ok(!!seen && seen.bg.includes('linear-gradient'), 'the tile draws the checker pattern behind the picture')
+      await page.screenshot({ path: join(SHOTS, 'phone-grid-clear.png') })
+      // And in light mode, the theme's PALE pair (index.css `[data-mode='light']`):
+      // the checker follows the theme, and a pale corner here is the checker's,
+      // since the dark-mode sample above already ruled out a baked-in colour.
+      const mode = await page.evaluate(() => {
+        const was = document.documentElement.dataset.mode ?? null
+        document.documentElement.dataset.mode = 'light'
+        return was
+      })
+      const light = await sampleTile()
+      ok(
+        !!light && near(light.a, [255, 255, 255]) && near(light.b, [230, 232, 238]) && (near(light.px, light.a) || near(light.px, light.b)),
+        `in light mode the clear tile's corner is the pale checker (${JSON.stringify(light?.px)} against ${JSON.stringify(light?.a)} / ${JSON.stringify(light?.b)})`
+      )
+      await page.screenshot({ path: join(SHOTS, 'phone-grid-clear-light.png') })
+      await page.evaluate((was) => {
+        if (was === null) delete document.documentElement.dataset.mode
+        else document.documentElement.dataset.mode = was
+      }, mode)
+      // The photo tile next to it stays a plain JPEG over no checker.
+      const photoChecker = await page.evaluate(() =>
+        [...document.querySelectorAll('[data-phone-grid] [data-phone-file]')]
+          .filter((t) => !/\.(png|gif|webp)\b/i.test(t.textContent ?? ''))
+          .some((t) => t.querySelector('[data-phone-thumb]')?.classList.contains('p-checker'))
+      )
+      ok(!photoChecker, 'no other kind of tile gets the checker')
+    }
     await page.click('[data-phone-view="list"]')
     await page.waitForSelector('[data-phone-file]:not([data-phone-grid] *)', { timeout: 5000 })
     await page.click('[data-phone-file]:has-text("one.png")')
@@ -13338,6 +13434,7 @@ async function phoneScenario(fixtures) {
       'the forgotten token is refused'
     )
   } finally {
+    rmSync(join(fixtures, 'zz-clear.png'), { force: true })
     await page?.close().catch(() => {})
     // Off again, or the profile's phone.json carries the switch into every
     // scenario after this one.

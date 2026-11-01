@@ -155,7 +155,8 @@ export interface PhoneDeps {
    *  refused streams) and, through `/api/diag`, what the phone's player
    *  saw. Optional so a test server without one logs nowhere. */
   log?: (line: string) => void
-  /** A thumbnail for the phone's grid (#135): the JPEG main made, or null
+  /** A thumbnail for the phone's grid (#135): the JPEG main made (a WebP
+   *  with alpha for a picture that can be clear, #477), or null
    *  when the file cannot be thumbnailed. Main decides the kind and the
    *  cache; the route decides the wall. */
   thumb: (path: string) => Promise<string | null>
@@ -588,9 +589,11 @@ export class PhoneServer {
       // file with no picture in it, which the tile draws as its icon.
       case ROUTE.thumb: {
         if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        const jpg = await this.deps.thumb(path)
-        if (!jpg) return void json(res, 404, { error: 'no thumbnail' })
-        return await this.sendFile(jpg, 'image/jpeg', res, 'private, max-age=86400')
+        const pic = await this.deps.thumb(path)
+        if (!pic) return void json(res, 404, { error: 'no thumbnail' })
+        // A WebP with alpha for a picture that can be clear (#477).
+        const type = pic.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg'
+        return await this.sendFile(pic, type, res, 'private, max-age=86400')
       }
       case ROUTE.stat: {
         if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
