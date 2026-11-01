@@ -23,7 +23,7 @@ import { exists } from './fsUtil'
 import { ZIP_WRITE_MAX } from '@shared/archiveLimits'
 import type { ArchiveEncryption, ArchiveMoveResult } from '@shared/ipcTypes'
 
-export { setSevenExe, sevenZipExe, validMemberName } from './zipShared'
+export { moveNames, setSevenExe, sevenZipExe, validMemberName } from './zipShared'
 export type { AddResult, ArchiveEntry, ArchiveStat, MemberFail } from './zipShared'
 
 // The simple archive integration (2026-08-22, #68): zip only, via adm-zip.

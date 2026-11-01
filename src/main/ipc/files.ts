@@ -21,7 +21,7 @@ import { replaceFile } from '../replaceFile'
 import { readTail, startTail, stopTail } from '../fileTail'
 import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from '../fileOps'
 import { appsForExt, argsFor, type AppCandidate } from '../openWith'
-import { addToArchive, archiveTooLarge, moveMembers, validMemberName } from '../archive'
+import { addToArchive, archiveTooLarge, moveMembers, moveNames } from '../archive'
 import { insideSelf, moveEntries } from '../moveOps'
 import { copyCounted, movePct, pastesIntoItself, pctOf, predictNames, walkSizes } from '../pasteCopy'
 import { fileKind, isMarkdown } from '@shared/fileKind'
@@ -645,12 +645,10 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
       keepBoth?: boolean,
       names?: unknown
     ): Promise<ArchiveMoveResult> => {
-      if (!archiveOk(zip) || !Array.isArray(entries)) return 'failed'
+      // A bad name refuses the move: never a move under other names.
+      const named = moveNames(names, Array.isArray(entries) ? entries.length : 0)
+      if (!archiveOk(zip) || !Array.isArray(entries) || named === null) return 'failed'
       if (archiveTooLarge((await stat(zip)).size)) return 'failed'
-      const named =
-        Array.isArray(names) && names.every((n) => typeof n === 'string' && validMemberName(n))
-          ? (names as string[])
-          : undefined
       return moveMembers(
         zip,
         entries,

@@ -63,6 +63,19 @@ export function validMemberName(name: string): boolean {
   )
 }
 
+/**
+ * The names a move inside a zip lands its members under (#70 D8: an undo
+ * puts the old names back). Undefined when none are sent; null REFUSES the
+ * move (#70 review, 2026-11-01): a list that is not one good name per member
+ * used to be dropped, moving under the old names while the undo reported
+ * success for a different result.
+ */
+export function moveNames(names: unknown, count: number): string[] | null | undefined {
+  if (names === undefined || names === null) return undefined
+  if (!Array.isArray(names) || names.length !== count) return null
+  return names.every((n) => typeof n === 'string' && validMemberName(n)) ? (names as string[]) : null
+}
+
 // AES-encrypted zips (7-Zip's and WinRAR's default) are beyond adm-zip, so
 // they go through 7-Zip - args-only execFile against a fixed path, the same
 // enumerated-exe rule the "Open in" menu holds to.

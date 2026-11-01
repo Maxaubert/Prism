@@ -13,7 +13,7 @@ import {
   renameMember,
   runZipJob
 } from './zipOps'
-import { sevenZipExe, validMemberName } from './zipShared'
+import { moveNames, sevenZipExe, validMemberName } from './zipShared'
 
 // The zip worker's own code (owner, 2026-10-12, zip work off the main process),
 // called directly: the behaviour moved, unchanged, from archive.ts.
@@ -147,6 +147,25 @@ describe('validMemberName', () => {
     for (const bad of ['a/b', 'a\\b', 'a:b', '..', '.', '', 'a*b', 'a|b']) {
       expect(validMemberName(bad)).toBe(false)
     }
+  })
+})
+
+// #70 review (2026-11-01): names the page sends for a move inside a zip are
+// checked, and a bad one REFUSES the move. It used to drop the list and move
+// under the old names, so an undo reported success for a different result.
+describe('moveNames', () => {
+  it('is undefined when no names are sent', () => {
+    expect(moveNames(undefined, 2)).toBeUndefined()
+  })
+  it('passes a list of good names, one per member', () => {
+    expect(moveNames(['a.txt', 'img (2)'], 2)).toEqual(['a.txt', 'img (2)'])
+  })
+  it("is null (refuse) for a bad name, a list that is not one per member, or not a list", () => {
+    expect(moveNames(['a.txt', '../x'], 2)).toBeNull()
+    expect(moveNames(['a.txt', 'b/c'], 2)).toBeNull()
+    expect(moveNames(['a.txt'], 2)).toBeNull()
+    expect(moveNames(['a.txt', 3], 2)).toBeNull()
+    expect(moveNames('a.txt', 1)).toBeNull()
   })
 })
 
