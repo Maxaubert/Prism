@@ -21,6 +21,8 @@ its timeout:
   `process` project, `groupOrder: 1`, one fork): `winERequests`, `moveOps`, `driveUsage`, `driveModel`. Beside
   300 files on four cores, PowerShell took 9 s to echo one line and on 2026-10-30 these failed together. A new
   test that starts a real PowerShell goes in that list. The held-pipe test waits on the helper's own lines.
+  The live drive reads (`driveUsage`, `driveModel`) give PowerShell 25 s (`powershellInWorker`'s optional
+  timeout) where the app keeps its 10 s kill: the worker and the parser are under test, not the machine.
 - **A test makes its own state**: the shared drive-query test made its own query instead of inheriting the
   previous test's, which failed with it.
 
