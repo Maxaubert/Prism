@@ -192,16 +192,41 @@ describe.runIf(process.platform === 'win32')('the held pipe (#350)', () => {
         look()
       })
     server.stdout.on('data', (chunk) => (output += String(chunk)))
-    const exited = new Promise((done) => server.on('exit', done))
+    let errors = ''
+    server.stderr.on('data', (chunk) => (errors += String(chunk)))
+    const exited = new Promise<void>((done) => server.on('exit', () => done()))
+    // Every wait is bounded and fails with its name (review, 2026-11-01): a
+    // helper that died before "listening", or never ended, ran the test out
+    // at 20 s with no reason given. One deadline for all the steps, inside
+    // the test's own timeout; a helper that exits early fails at once.
+    const deadline = Date.now() + 18_000
+    const step = (work: Promise<void>, what: string, exitIsTheGoal = false): Promise<void> =>
+      new Promise<void>((done, fail) => {
+        const said = (): string => `stdout: ${output.trim() || '(nothing)'}; stderr: ${errors.trim() || '(nothing)'}`
+        const quit = (): void => {
+          clearTimeout(timer)
+          fail(new Error(`the helper exited before ${what} (${said()})`))
+        }
+        const timer = setTimeout(() => {
+          server.off('exit', quit)
+          fail(new Error(`no ${what} by the deadline (${said()})`))
+        }, Math.max(0, deadline - Date.now()))
+        if (!exitIsTheGoal) server.once('exit', quit)
+        void work.then(() => {
+          clearTimeout(timer)
+          server.off('exit', quit)
+          done()
+        })
+      })
     try {
-      await said(/listening/)
+      await step(said(/listening/), '"listening"')
       announceWinE(token)
       // The hold is the point: the old socket closed a few ms after the
       // "started" line, so the wait starts once the helper has READ it.
-      await said(/^read /m)
+      await step(said(/^read /m), 'read of "started"')
       await new Promise((done) => setTimeout(done, 500))
       await acknowledgeWinE(token)
-      await exited // the helper ends when the pipe closes
+      await step(exited, 'exit after the close', true) // the helper ends when the pipe closes
     } finally {
       server.kill()
     }
