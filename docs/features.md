@@ -445,6 +445,25 @@ a browser's upload box, Discord, another Prism window or any app that takes file
   (a move) and back into the same window (a move). If the hand-off does not pick up, the fallback is a small
   native `DoDragDrop`, which needs the owner's say.
 
+## What an action makes is marked, Explorer's way (#101, 2026-11-01)
+
+Issue #101: "One channel: whatever an action just created or moved is expanded to, marked, and put under the
+cursor." It was built for the tree sidebar on 2026-09-05 (`feat/101-landing-marks`, never merged) and the tree
+went with Explorer only (2026-10-26); this is the same rule in the Explorer's list.
+
+- **What lands marked**: a paste (`useFilePaste`), a copy dropped in from Windows and a dropped or menu move
+  (`useFileOps`), Extract here's folder (`lib/extractAll.ts`, every surface), Duplicate, and what an undo puts
+  back or a redo makes again (`undoApply.ts`'s `land`: a move back, a rename back, a file out of the Recycle
+  Bin, a duplicate or new folder made again).
+- **One channel**: `lib/landMarks.ts`. The list showing that folder marks the rows once the listing has every
+  one (a paste's progress rows do not count), the first under the cursor and scrolled into view
+  (`BrowseList` `revealPath`, a scroll only: the focus stays). Past 8 s it marks what did arrive. A move into
+  another folder marks nothing on screen, as in File Explorer.
+- **Quiet** (#263): marking previews and plays nothing. The issue's "exactly one file opens in the viewer" was
+  the tree's; in the Explorer a non-quiet pick previews and plays, so it is not done.
+- **Held by** `landMarks.test.ts`, `undoApply.test.ts` and e2e `landingMarks` (Duplicate, an undone delete
+  scrolled to from the top, redo, a paste of two, an undone drop move, Extract here).
+
 ## Escape never closes Prism (#14, owner, 2026-11-01)
 
 Owner, 2026-11-01: "escape should not interact with app close". Escape never closes or quits Prism or a

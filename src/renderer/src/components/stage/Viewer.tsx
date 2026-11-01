@@ -7,6 +7,7 @@ import { MemberNote } from '../MemberNote'
 import type { TransportStyle } from '../../lib/transport'
 import { LoadingState } from '../LoadingState'
 import type { UndoEntry } from '../../lib/undo'
+import { extractAll } from '../../lib/extractAll'
 
 /** While the editor chunk arrives. `delayed-loader` keeps it invisible unless
  *  the wait is long enough to notice, so a warm cache shows nothing at all. */
@@ -130,8 +131,8 @@ export function Viewer({
           name={file.name}
           mtimeMs={file.mtimeMs}
           onOpen={() => onOpenArchive?.(file.path)}
-          onExtractHere={() => void window.prism.archiveExtractAll(file.path, true)}
-          onExtractTo={() => void window.prism.archiveExtractAll(file.path, false)}
+          onExtractHere={() => void extractAll(file.path, true)}
+          onExtractTo={() => void extractAll(file.path, false)}
         />
       )}
     />

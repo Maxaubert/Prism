@@ -117,6 +117,7 @@ import { landJob, updateJob, updateLanding } from './lib/jobs'
 import { setFolderIcons } from './lib/folderIcons'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { nextTabId } from './lib/sessionIds'
+import { markLanded } from './lib/landMarks'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
 // or dialog), routes by kind to a viewer, and pages through the folder. Video,
@@ -1764,6 +1765,7 @@ export default function App(): JSX.Element {
                   if (copy) {
                     noteUndo({ kind: 'duplicate', source: path, path: copy })
                     setRefreshKey((key) => key + 1)
+                    markLanded([copy])
                   }
                 })
               },

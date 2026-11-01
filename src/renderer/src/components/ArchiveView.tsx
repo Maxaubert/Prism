@@ -28,6 +28,7 @@ import { BrowseRename } from './browse/BrowseRename'
 import type { UndoEntry } from '../lib/undo'
 import { isTypingTarget } from '../lib/focusGuards'
 import { Icon } from './icons/Icon'
+import { extractAll as extractArchive } from '../lib/extractAll'
 
 // The inside of a zip (#68): Explorer-shaped, not a tree. You are always IN
 // one folder of the archive: clicking a folder walks into it, the breadcrumb
@@ -388,7 +389,7 @@ function ArchiveInner({
       // dialog is answered, feeds it, and turns it into the error when there
       // is one (7-Zip's own line included), so every route looks the same
       // because no route draws anything.
-      void window.prism.archiveExtractAll(file.path, here).then((r) => {
+      void extractArchive(file.path, here).then((r) => {
         if (r.ok) setJustDone(true)
       })
     },
