@@ -9,8 +9,10 @@ import { PATHS } from './paths'
 // will one day be fixed in one of them. A second copy belongs in `PATHS`.
 const ROOT = resolve(__dirname, '../..')
 
-// The generated file-kind art is emitted whole by tools/icons/svg.py.
-const GENERATED = new Set(['lib/iconPaths.ts'])
+// The generated file-kind art is emitted whole by tools/icons/svg.py, and the
+// built-in folder icons by tools/icons/folder-icons.mjs (Lucide repeats shapes
+// across icons and shares Feather's paths with some of Prism's).
+const GENERATED = new Set(['lib/iconPaths.ts', 'lib/folderIconSet.ts'])
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

@@ -379,6 +379,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       onUnpinQuickAccess={props.onUnpinQuickAccess}
       onMoveQuickAccess={props.onMoveQuickAccess}
       onPinQuickAccessPaths={props.onPinQuickAccessPaths}
+      onChangeFolderIcon={props.onChangeFolderIcon}
       directory={props.directory}
       chosenPlace={chosenPlace}
       onChoosePlace={setChosenPlace}
@@ -624,7 +625,10 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
               e,
               entry,
               source,
-              many && marked?.has(entry.path) ? markedPaths() : undefined
+              many && marked?.has(entry.path) ? markedPaths() : undefined,
+              many && marked?.has(entry.path)
+                ? markedEntries.filter((m) => m.isFolder).map((m) => m.path)
+                : undefined
             ))
         }
         message={message}

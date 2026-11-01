@@ -16469,6 +16469,342 @@ async function zipPreviewBackScenario(fixtures) {
 }
 
 /**
+ * FOLDER ICONS (owner, 2026-10-31: "allow the user to pick folder icons both
+ * for the sidebar things and folders in general. the user can pick from a set
+ * of built in icons. at least 300 different icons and the list needs to be
+ * optimized so it wont lag while scrolling the list, should also be fuzzy
+ * searchable"). Change icon... on a folder row opens the picker with the
+ * search focused; `cmra` finds camera first and `photo` finds it by its tag;
+ * Enter picks, and the Explorer row and the folder's pin draw it, in the
+ * folder colour and the row's ink; a relaunch keeps it; the keyboard walks the
+ * grid; Escape changes nothing; Reset to default brings the folder back; the
+ * grid holds a bounded DOM and scrolls without a long frame; a 3,000-folder
+ * listing with 300 icons scrolls as it does with none; a rename in Prism (and
+ * its undo) takes the icon along. From the review (2026-10-31): the grid's
+ * keys never reach the folder or the tabs behind the picker, Enter on a blank
+ * field picks nothing, Change icon for 2 folders sets both, and a cut and
+ * paste carries the icon. No native dialog is opened: the file picker is PR 3.
+ */
+async function folderIconsScenario(fixtures) {
+  console.log('folder icons')
+  const dir = join(fixtures, 'foldericons')
+  const big = join(fixtures, 'foldericons-big')
+  rmSync(dir, { recursive: true, force: true })
+  rmSync(big, { recursive: true, force: true })
+  for (const name of ['trips', 'work', 'plain', 'into']) mkdirSync(join(dir, name), { recursive: true })
+  writeFileSync(join(dir, 'one.txt'), 'one\n')
+  // Pictures with siblings, so a key that leaked past the picker would page
+  // the open one (review, 2026-10-31).
+  for (const name of ['a.png', 'b.png', 'c.png']) writeFileSync(join(dir, name), ZIP_PNG)
+  mkdirSync(big, { recursive: true })
+  for (let i = 0; i < 3000; i++) mkdirSync(join(big, `f${String(i).padStart(4, '0')}`))
+  let { app, win } = await launch(join(dir, 'one.txt'))
+  const list = () => win.locator('[data-testid="browse-list"]')
+  const row = (name) => list().locator(`[data-browse-path$="\\\\${name}" i]`).first()
+  const rowIcon = (name) => row(name).locator('.browse-name > svg').first()
+  const pin = (name) =>
+    win.locator(`.folder-browser .browse-places section[aria-label="Pinned"] .quick-access-pin[data-quick-access-path$="\\\\${name}" i]`)
+  const dialog = () => win.locator('[role="dialog"]:has([data-folder-icon-picker])')
+  const cells = () => dialog().locator('[data-icon-grid] [role="option"]')
+  /** The pinned Explorer tab, walked to `folder` (up, then into it). */
+  const toFolder = async (folder, first) => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    const leaf = basename(folder)
+    for (let i = 0; i < 4 && (await row(first).count()) === 0; i++) {
+      if ((await row(leaf).count()) === 1) {
+        await row(leaf).dblclick()
+        await until(async () => (await row(first).count()) === 1, 8000)
+      } else {
+        await list().focus()
+        await win.keyboard.press('Alt+ArrowUp')
+        await sleep(800)
+      }
+    }
+    return (await row(first).count()) === 1
+  }
+  /** A row's own icon name, null for the folder glyph. */
+  const iconOf = (name) => rowIcon(name).getAttribute('data-folder-icon', { timeout: 1000 }).catch(() => 'missing')
+  const changeIcon = async (name) => {
+    await row(name).locator('.browse-name-text').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Change icon...', exact: true }).click()
+    return until(async () => (await dialog().count()) === 1 && (await cells().count()) > 0, 8000)
+  }
+  const firstCell = () => cells().first().getAttribute('data-icon-name')
+  const status = () => dialog().locator('[data-icon-status]').textContent()
+  /** Frames and Blink's restyle time across `act` (panelDragScenario's way). */
+  const measured = async (act) => {
+    const cdp = await win.context().newCDPSession(win)
+    await cdp.send('Performance.enable')
+    const restyle = async () =>
+      ((await cdp.send('Performance.getMetrics')).metrics.find((m) => m.name === 'RecalcStyleDuration')?.value ?? 0) * 1000
+    await win.evaluate(() => {
+      window.__frames = []
+      let last = performance.now()
+      window.__ticking = true
+      const tick = (t) => {
+        window.__frames.push(t - last)
+        last = t
+        if (window.__ticking) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    const before = await restyle()
+    await act()
+    await sleep(200)
+    const frames = await win.evaluate(() => {
+      window.__ticking = false
+      return window.__frames.slice(1)
+    })
+    const restyled = (await restyle()) - before
+    await cdp.detach().catch(() => {})
+    return { worst: Math.round(Math.max(...frames)), frames: frames.length, restyled }
+  }
+  /** 60 wheel steps 16 ms apart over `box`, enough to cross `height` px. */
+  const wheelThrough = async (box, height) => {
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    const step = Math.ceil(height / 60) + 10
+    const sent = []
+    for (let i = 0; i < 60; i++) {
+      sent.push(win.mouse.wheel(0, step))
+      await sleep(16)
+    }
+    await Promise.all(sent)
+  }
+  try {
+    await win.evaluate(() => localStorage.removeItem('prism.folderIcons'))
+    ok(await toFolder(dir, 'trips'), 'the Explorer shows the fixture folder')
+
+    // 1. Change icon... on a folder row: the picker, its field focused.
+    ok(await changeIcon('trips'), 'Change icon... on a folder row opens the picker')
+    ok((await dialog().getAttribute('aria-label')) === 'Icon for trips', `it is titled for the folder (${await dialog().getAttribute('aria-label')})`)
+    ok(
+      await until(() => win.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search icons'), 3000),
+      'the search field has the focus'
+    )
+    const buttons = await dialog().locator('button:not([role="option"])').allTextContents()
+    ok(JSON.stringify(buttons) === JSON.stringify(['Cancel', 'Reset to default']), `its buttons are Cancel, Reset to default (${buttons})`)
+
+    // 2. Fuzzy: cmra is camera first; photo finds camera by its tag.
+    await win.keyboard.type('cmra')
+    ok(await until(async () => (await firstCell()) === 'camera', 5000), `cmra puts camera first (${await firstCell()})`)
+    ok(/match/.test(await status()), `the status counts matches (${await status()})`)
+    await dialog().locator('input[aria-label="Search icons"]').fill('photo')
+    ok(await until(async () => (await dialog().locator('[data-icon-name="camera"]').count()) === 1, 5000), 'photo finds camera by its tag')
+    await dialog().locator('input[aria-label="Search icons"]').fill('cmra')
+    ok(await until(async () => (await firstCell()) === 'camera', 5000), 'cmra again')
+
+    // 3. Enter picks and closes; the row draws camera in the folder colour.
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await dialog().count()) === 0, 5000), 'Enter picks and closes the picker')
+    ok(await until(async () => (await iconOf('trips')) === 'camera', 8000), 'the Explorer row draws camera')
+    const folderColour = await cssColour(win, 'var(--p-tree-folder)')
+    const drawn = await rowIcon('trips').evaluate((el) => getComputedStyle(el).color)
+    ok(drawn === folderColour, `in the folder colour (${drawn}, ${folderColour})`)
+    ok((await iconOf('plain')) === null, 'a folder with no icon keeps the folder glyph')
+    const stored = JSON.parse((await win.evaluate(() => localStorage.getItem('prism.folderIcons'))) ?? '{}')
+    ok(Object.values(stored).some((v) => v.set === 'camera') && Object.keys(stored).length === 1, `stored once, by path (${JSON.stringify(stored)})`)
+    // Pinned, its sidebar row draws the same, in the row's ink.
+    await row('trips').locator('.browse-name-text').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    ok(await until(async () => (await pin('trips').locator('svg[data-folder-icon="camera"]').count()) === 1, 5000), 'the pin draws camera too')
+    const ink = await pin('trips').locator('svg').first().evaluate((el) => getComputedStyle(el).color)
+    const dim = await cssColour(win, 'var(--p-dim)')
+    ok(ink === dim, `in the row's ink, as the Known Folder glyphs (${ink}, ${dim})`)
+    // The pin's own menu offers it; a drive's does not.
+    await pin('trips').click({ button: 'right' })
+    ok((await win.getByRole('menuitem', { name: 'Change icon...', exact: true }).count()) === 1, 'a pin offers Change icon...')
+    await win.keyboard.press('Escape')
+    await win.locator('.folder-browser .browse-places section[aria-label="This PC"] .browse-drive').first().click({ button: 'right' })
+    ok((await win.getByRole('menuitem', { name: 'Change icon...', exact: true }).count()) === 0, 'a drive does not')
+    await win.keyboard.press('Escape')
+
+    // 4. A relaunch keeps both.
+    await app.close()
+    await sleep(900)
+    ;({ app, win } = await launch(join(dir, 'one.txt')))
+    ok(await toFolder(dir, 'trips'), 'after a relaunch')
+    ok(await until(async () => (await iconOf('trips')) === 'camera', 8000), 'the row still draws camera')
+    ok((await pin('trips').locator('svg[data-folder-icon="camera"]').count()) === 1, 'and so does the pin')
+
+    // 5. The keyboard: Down into the grid, Right, Right, Enter picks the third.
+    ok(await changeIcon('work'), 'the picker again, on another folder')
+    ok(/^[\d,]+ icons$/.test(await status()), `unsearched, it counts the icons (${await status()})`)
+    const third = await cells().nth(2).getAttribute('data-icon-name')
+    await win.keyboard.press('ArrowDown')
+    await win.keyboard.press('ArrowRight')
+    await win.keyboard.press('ArrowRight')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await iconOf('work')) === third, 5000), `Down, Right, Right, Enter picks the third icon (${third})`)
+    // Its current icon is marked; Escape changes nothing.
+    ok(await changeIcon('work'), 'and again')
+    ok((await dialog().locator('[data-current]').getAttribute('data-icon-name')) === third, 'the icon it has is marked')
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await dialog().count()) === 0, 3000), 'Escape closes')
+    ok((await iconOf('work')) === third, 'with no change')
+
+    // 6. Reset to default: the folder glyph is back.
+    ok(await changeIcon('work'), 'once more')
+    await dialog().getByRole('button', { name: 'Reset to default', exact: true }).click()
+    ok(await until(async () => (await iconOf('work')) === null, 5000), 'Reset to default brings the folder glyph back')
+
+    // 7. THE GRID STAYS LIGHT: every icon, a bounded DOM, a smooth wheel.
+    ok(await changeIcon('plain'), 'the picker, for the scroll')
+    const total = Number((await status()).replace(/[^\d]/g, ''))
+    ok(total >= 2015, `it offers every icon (${total})`)
+    const inDom = await cells().count()
+    ok(inDom > 0 && inDom < 150, `the DOM holds ${inDom} cells of ${total}`)
+    const grid = dialog().locator('[data-icon-grid]')
+    const gridBox = await grid.boundingBox()
+    const height = await grid.evaluate((el) => el.scrollHeight)
+    await sleep(300)
+    const scroll = await measured(() => wheelThrough(gridBox, height))
+    console.log(`  (picker: worst frame ${scroll.worst}ms over ${scroll.frames} frames, restyle ${scroll.restyled.toFixed(1)}ms)`)
+    ok(scroll.worst < 34, `scrolling the grid, the longest frame is ${scroll.worst}ms`)
+    // Measured 54.6ms on the first run (2026-10-31, 266 frames); the budget
+    // leaves a busy machine room and still catches a grid that restyles all.
+    ok(scroll.restyled < 90, `style recalculation over the whole scroll ${scroll.restyled.toFixed(1)}ms`)
+    const end = await grid.evaluate((el) => el.scrollTop + el.clientHeight >= el.scrollHeight - 1)
+    ok(end && (await dialog().locator('[data-icon-name="zoom-out"]').count()) === 1, 'the last icon is reachable')
+    ok((await cells().count()) < 150, `and the DOM stayed bounded (${await cells().count()})`)
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await dialog().count()) === 0, 3000), 'Escape closes the picker')
+
+    // 9. THE PICKER OWNS ITS KEYS (review, 2026-10-31): with a picture
+    // selected and siblings beside it, the grid's arrows and pages walk the
+    // grid only, and Ctrl+W there closes no tab behind the scrim.
+    const shown = () =>
+      win.evaluate(() => [...document.querySelectorAll('img[alt]')].find((i) => i.getClientRects().length)?.getAttribute('alt') ?? '')
+    const selectedRow = () =>
+      list().locator('.browse-row[data-selected]').evaluateAll((els) => els.map((r) => (r.getAttribute('data-browse-path') ?? '').split(/[\\/]/).pop()).join(','))
+    await row('b.png').locator('.browse-name-text').click()
+    ok(await until(async () => (await selectedRow()) === 'b.png', 5000), `a picture is selected (${await selectedRow()})`)
+    await sleep(600)
+    const pictureBefore = await shown()
+    const tabCount = () => win.locator('[role="tablist"] [role="tab"]').count()
+    const tabsBefore = await tabCount()
+    await pin('trips').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Change icon...', exact: true }).click()
+    ok(await until(async () => (await dialog().count()) === 1 && (await cells().count()) > 0, 8000), 'the picker opens from the pin')
+    await win.keyboard.press('ArrowDown')
+    ok(
+      await until(() => win.evaluate(() => !!document.activeElement?.closest('[data-icon-grid]')), 3000),
+      'Down puts the focus in the grid'
+    )
+    for (const key of ['ArrowDown', 'ArrowDown', 'PageDown', 'ArrowUp', 'PageUp', 'ArrowDown']) {
+      await win.keyboard.press(key)
+      await sleep(120)
+    }
+    await sleep(400)
+    ok(
+      (await selectedRow()) === 'b.png' && (await shown()) === pictureBefore,
+      `the arrows and pages in the grid leave the folder alone (${await selectedRow()}, ${await shown()} against ${pictureBefore})`
+    )
+    await win.keyboard.press('Control+w')
+    await sleep(500)
+    ok((await tabCount()) === tabsBefore && (await dialog().count()) === 1, `Ctrl+W in the grid closes no tab behind it (${await tabCount()} of ${tabsBefore})`)
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await dialog().count()) === 0, 3000), 'Escape closes the picker')
+    ok((await selectedRow()) === 'b.png', 'and the same picture is still selected')
+
+    // 11. Change icon for N folders: two marked folder rows, one pick.
+    await row('work').locator('.browse-name-text').click()
+    await row('plain').locator('.browse-name-text').click({ modifiers: ['Control'] })
+    await row('plain').locator('.browse-name-text').click({ button: 'right' })
+    const many = win.getByRole('menuitem', { name: 'Change icon for 2 folders...', exact: true })
+    ok(await until(async () => (await many.count()) === 1, 3000), 'two marked folders offer Change icon for 2 folders...')
+    await many.click()
+    ok(await until(async () => (await dialog().count()) === 1 && (await cells().count()) > 0, 8000), 'the picker opens for both')
+    ok((await dialog().getAttribute('aria-label')) === 'Icon for 2 folders', `titled for the count (${await dialog().getAttribute('aria-label')})`)
+    // An Enter on the blank field picks nothing (review, 2026-10-31).
+    await win.keyboard.press('Enter')
+    await sleep(400)
+    ok((await dialog().count()) === 1, 'Enter on the blank search field picks nothing')
+    await win.keyboard.type('star')
+    ok(await until(async () => (await firstCell()) === 'star', 5000), `star first (${await firstCell()})`)
+    await win.keyboard.press('Enter')
+    ok(
+      await until(async () => (await iconOf('work')) === 'star' && (await iconOf('plain')) === 'star', 8000),
+      'both marked folders draw the icon'
+    )
+
+    // 12. A cut and paste in Prism is a move: the icon goes along.
+    await row('work').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+x')
+    ok(await until(async () => (await row('work').getAttribute('data-cut')) !== null, 8000), 'Ctrl+X marks the folder cut')
+    await row('into').locator('.browse-name-text').click({ button: 'right' })
+    const pasteRow = win.locator('[role="menu"] [role="menuitem"]:has-text("Paste")').first()
+    await until(async () => (await pasteRow.count()) === 1 && !(await pasteRow.isDisabled()), 6000, 100)
+    await pasteRow.click()
+    ok(await until(() => existsSync(join(dir, 'into', 'work')) && !existsSync(join(dir, 'work')), 10000), 'the folder moved into another')
+    const movedKey = join(dir, 'into', 'work').toLowerCase()
+    ok(
+      await until(async () => {
+        const map = JSON.parse((await win.evaluate(() => localStorage.getItem('prism.folderIcons'))) ?? '{}')
+        return Object.entries(map).some(([k, v]) => k.toLowerCase().replace(/\//g, '\\') === movedKey && v.set === 'star')
+      }, 5000),
+      'and its icon went with it'
+    )
+
+    // 10. A rename in Prism takes the icon along, and its undo brings it back.
+    await row('trips').locator('.browse-name-text').click()
+    await win.keyboard.press('F2')
+    const field = win.locator('[role="dialog"] input[aria-label="New name"]')
+    ok(await until(async () => (await field.count()) === 1, 5000), 'F2 asks for a new name')
+    await field.fill('journeys')
+    await field.press('Enter')
+    ok(await until(async () => (await iconOf('journeys')) === 'camera', 8000), 'the renamed folder keeps its icon')
+    await list().focus()
+    await win.keyboard.press('Control+z')
+    ok(await until(async () => (await iconOf('trips')) === 'camera', 8000), 'and its undo takes it back')
+
+    // 8. BIG LISTINGS: 3,000 folders scroll end to end as fast with 300 icons
+    // as with none.
+    ok(await toFolder(big, 'f0000'), 'the folder of 3,000 folders')
+    const listBox = await list().boundingBox()
+    const listHeight = await list().evaluate((el) => el.scrollHeight)
+    const top = () => list().evaluate((el) => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
+    await sleep(500)
+    const bare = await measured(() => wheelThrough(listBox, listHeight))
+    ok(await until(async () => (await row('f2999').count()) === 1, 5000), 'with no icons the scroll reaches the last folder')
+    // 300 icons, set the way another window would (a storage write and its
+    // event), then from the top again.
+    await win.evaluate((root) => {
+      const icons = {}
+      for (let i = 0; i < 3000; i += 10) icons[`${root}\\f${String(i).padStart(4, '0')}`.toLowerCase()] = { set: i % 20 ? 'camera' : 'star' }
+      const value = JSON.stringify(icons)
+      localStorage.setItem('prism.folderIcons', value)
+      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.folderIcons', newValue: value }))
+    }, big)
+    await top()
+    ok(await until(async () => (await iconOf('f0000')) === 'star', 8000), 'a folder of the 300 draws its icon')
+    await sleep(500)
+    const iconed = await measured(() => wheelThrough(listBox, listHeight))
+    ok(await until(async () => (await row('f2999').count()) === 1, 5000), 'with icons the scroll reaches the last folder too')
+    console.log(`  (3,000 folders: no icons worst ${bare.worst}ms restyle ${bare.restyled.toFixed(1)}ms; 300 icons worst ${iconed.worst}ms restyle ${iconed.restyled.toFixed(1)}ms)`)
+    // THE BUDGET IS THE BARE LISTING'S, PLUS LITTLE (review, 2026-10-31): the
+    // question here is what icons ADD. A flat 34 ms failed with 35 and 35,
+    // the bare listing as slow as the iconed one (the folder-size walks of
+    // 3,000 folders were landing at the same time), so it measured the
+    // machine, not the icons. A listing that draws icons badly still blows
+    // well past one frame more than the same listing without them.
+    ok(
+      iconed.worst <= Math.max(34, bare.worst + 17),
+      `with icons the longest frame stays within a frame of none (${iconed.worst} against ${bare.worst})`
+    )
+    ok(iconed.restyled <= bare.restyled * 1.1 + 5, `icons cost no more restyling than none, within 10% (${iconed.restyled.toFixed(1)} against ${bare.restyled.toFixed(1)})`)
+  } finally {
+    await win.evaluate(() => {
+      localStorage.removeItem('prism.folderIcons')
+      localStorage.removeItem('prism.quickAccess')
+    }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(big, { recursive: true, force: true })
+  }
+}
+
+/**
  * DRAGGING A PANEL EDGE IS SMOOTH (owner, 2026-10-12: "the UI is very
  * unresponsive like when I'm dragging the left sidebar or the right sidebar
  * with the preview ... very choppy, very laggy"). Every move used to keep the
@@ -18078,6 +18414,7 @@ await run(hotkeysScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(sidebarPlacesScenario)
+await run(folderIconsScenario)
 await run(sidebarGroundScenario)
 await run(rightClickSelectScenario)
 await run(columnHeadersScenario)

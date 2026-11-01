@@ -29,6 +29,10 @@ export interface PlacesMenuContext {
   onPinQuickAccessPaths?: (paths: string[], beforePath?: string) => void
   /** Opens the place's Properties (the panel knows whether it is a drive). */
   onProperties?: () => void
+  /** Change icon... (folder icons, 2026-10-31): given for a PIN row only
+   *  (Quick access, Pinned folders and files), never a This PC drive. The row
+   *  is offered only when this is. */
+  onChangeIcon?: () => void
 }
 
 export function placesMenu(ctx: PlacesMenuContext): MenuItem[] {
@@ -75,6 +79,16 @@ export function placesMenu(ctx: PlacesMenuContext): MenuItem[] {
             onPick: () => ctx.onPinQuickAccessPaths?.([pin.path])
           }
         ]),
+    // After the pin rows (D10).
+    ...(ctx.onChangeIcon
+      ? [
+          {
+            label: 'Change icon...',
+            icon: <FileMenuIcon name="icon" />,
+            onPick: () => ctx.onChangeIcon?.()
+          }
+        ]
+      : []),
     ...fileVerbs(pin.path)
       .filter((item) => item.label !== 'Copy path')
       .map((item) => ({ ...item, icon: <FileMenuIcon name="folder" /> })),

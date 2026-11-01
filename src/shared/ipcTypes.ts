@@ -69,6 +69,10 @@ export interface PasteResult {
   empty?: boolean
   /** What actually landed, new names and all, so the tree can select it. */
   paths: string[]
+  /** Where each of `paths` came from, in the same order: the pairs main
+   *  actually moved, so folder icons follow those and never the renderer's
+   *  own cut list (another app may have cut something else since). */
+  from?: string[]
   /** The paste was a MOVE: `cut` still matched the clipboard. */
   moved?: boolean
 }
