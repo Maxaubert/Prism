@@ -177,17 +177,59 @@ describe.runIf(process.platform === 'win32')('the held pipe (#350)', () => {
       windowsHide: true
     })
     let output = ''
+    // Each step waits on the helper's own word, never on a clock (release
+    // unit flakes, 2026-11-01): this polled 15 s for "listening" and then
+    // carried on regardless, and gave the close 5 s, so a PowerShell slow to
+    // start on a busy runner ran the test out at 20 s with no reason given.
+    const said = (line: RegExp): Promise<void> =>
+      new Promise((done) => {
+        const look = (): void => {
+          if (!line.test(output)) return
+          server.stdout.off('data', look)
+          done()
+        }
+        server.stdout.on('data', look)
+        look()
+      })
     server.stdout.on('data', (chunk) => (output += String(chunk)))
-    const exited = new Promise((done) => server.on('exit', done))
-    const until = async (test: () => boolean): Promise<void> => {
-      for (let i = 0; i < 300 && !test(); i++) await new Promise((done) => setTimeout(done, 50))
+    let errors = ''
+    server.stderr.on('data', (chunk) => (errors += String(chunk)))
+    const exited = new Promise<void>((done) => server.on('exit', () => done()))
+    // Every wait is bounded and fails with its name (review, 2026-11-01): a
+    // helper that died before "listening", or never ended, ran the test out
+    // at 20 s with no reason given. One deadline for all the steps, inside
+    // the test's own timeout; a helper that exits early fails at once.
+    const deadline = Date.now() + 18_000
+    const step = (work: Promise<void>, what: string, exitIsTheGoal = false): Promise<void> =>
+      new Promise<void>((done, fail) => {
+        const said = (): string => `stdout: ${output.trim() || '(nothing)'}; stderr: ${errors.trim() || '(nothing)'}`
+        const quit = (): void => {
+          clearTimeout(timer)
+          fail(new Error(`the helper exited before ${what} (${said()})`))
+        }
+        const timer = setTimeout(() => {
+          server.off('exit', quit)
+          fail(new Error(`no ${what} by the deadline (${said()})`))
+        }, Math.max(0, deadline - Date.now()))
+        if (!exitIsTheGoal) server.once('exit', quit)
+        void work.then(() => {
+          clearTimeout(timer)
+          server.off('exit', quit)
+          done()
+        })
+      })
+    try {
+      await step(said(/listening/), '"listening"')
+      announceWinE(token)
+      // The hold is the point: the old socket closed a few ms after the
+      // "started" line, so the wait starts once the helper has READ it.
+      await step(said(/^read /m), 'read of "started"')
+      await new Promise((done) => setTimeout(done, 500))
+      await acknowledgeWinE(token)
+      await step(exited, 'exit after the close', true) // the helper ends when the pipe closes
+    } finally {
+      server.kill()
     }
-    await until(() => output.includes('listening'))
-    announceWinE(token)
-    await new Promise((done) => setTimeout(done, 500))
-    await acknowledgeWinE(token)
-    await Promise.race([exited, new Promise((done) => setTimeout(done, 5000))])
-    server.kill()
     const lines = output.trim().split(/\r?\n/).slice(1)
     const reads = lines.filter((l) => l.startsWith('read '))
     const text = reads.map((l) => Buffer.from(l.split(' ')[2], 'base64').toString()).join('')

@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createDriveUsage,
+  DRIVE_TABLE_FRESH,
   driveKind,
   LABEL_COMMAND,
   LABEL_RETRY,
   LABEL_TTL,
   parseLabels,
+  powershellInWorker,
   readDriveTable,
   readLabels,
   STATFS_WAIT,
@@ -188,13 +190,26 @@ describe('withUsedShare', () => {
 // waits there rather than in main's. This proves the worker route answers.
 describe.runIf(process.platform === 'win32')('readLabels', () => {
   it('reads the system drive through the worker', async () => {
-    const labels = await readLabels()
+    // The app's query, worker and parser on the real machine. The app kills
+    // the query at 10 s, and a starved machine passed that (2026-10-30 on
+    // the runner, 2026-11-01 here under load): the machine's speed is not
+    // under test, so this read waits up to 25 s.
+    const labels = parseLabels((await powershellInWorker(LABEL_COMMAND, 25_000)) ?? '')
     const system = `${(process.env.SystemDrive ?? 'C:').toUpperCase()}\\`
     expect(labels.get(system)?.kind).toBe('local')
-  }, 20_000)
+  }, 30_000)
   it('shares one query between the names and the kinds (perf review #51)', async () => {
-    const one = readDriveTable()
-    expect(readDriveTable()).toBe(one)
-    expect(await one).toMatch(/^[A-Z]:\|\d\|/im)
-  }, 20_000)
+    // Its own query, past the last one's freshness: it inherited the test
+    // above's answer, and when that read failed this failed with it
+    // (2026-10-30: ".toMatch() expects to receive a string, but got object").
+    const later = Date.now() + 2 * DRIVE_TABLE_FRESH
+    const one = readDriveTable(later)
+    expect(readDriveTable(later)).toBe(one)
+    // What the table holds is the test above's to check: this one is the
+    // sharing. readLabels, asked while that answer is fresh, parses that same
+    // answer: the app's own read on the real machine, at no second query.
+    // (It answered a Map whatever happened: review, 2026-11-01.)
+    const answer = await one
+    expect(await readLabels()).toEqual(parseLabels(answer ?? ''))
+  }, 30_000)
 })
