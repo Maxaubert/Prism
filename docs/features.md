@@ -445,6 +445,21 @@ a browser's upload box, Discord, another Prism window or any app that takes file
   (a move) and back into the same window (a move). If the hand-off does not pick up, the fallback is a small
   native `DoDragDrop`, which needs the owner's say.
 
+## Escape never closes Prism (#14, owner, 2026-11-01)
+
+Owner, 2026-11-01: "escape should not interact with app close". Escape never closes or quits Prism or a
+window, in any state: the viewer, the Explorer, fullscreen, Settings, a dialog, a menu, a rename. This
+REPLACES every older rule where an Escape could reach the window: the 2026-09-01 one already kept the plain
+viewer open, but Settings' Escape as the last tab still closed the window (2026-10-28), and that path is gone.
+
+- **It keeps its other jobs**: it closes a dialog (as Cancel) or a menu, cancels a rename or a tab tear,
+  leaves fullscreen, clears a search or the marks, and gives a focused document its keys back.
+- **Settings**: Escape puts the page away only when another tab is left (`settingsEscapeCloses`,
+  `tabs.test.ts`); as the last tab it stays. The gear, the tab's X, Ctrl+W and the window's X still close.
+- **Held by** e2e `escapeKeepsOpen` (the viewer and the Explorer stay open; a context menu, the rename
+  dialog and the delete question each close on Escape, and nothing closes the window) and `settingsLastTab`
+  (Escape on Settings as the last tab leaves it open).
+
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 
 Owner decision 2026-10-26 (spec: `docs/superpowers/specs/2026-10-26-explorer-only-design.md`, release
@@ -467,8 +482,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the first Explorer tab left (`closeTab`). Closing the last tab closes the window (`useTabOps`
   `forceCloseTab`, after the unsaved-text question) and leaves the strip saved, so the next launch restores
   it. `tabs.test.ts`, `tabStrip.test.ts`; e2e `tabs`. Settings as the last tab follows the same rule
-  (performance review, 2026-10-28): the gear or Settings' own close then closes the window, where it left an
-  empty one (`settingsCloseIsLast`, `tabs.test.ts`; e2e `settingsLastTab`).
+  (performance review, 2026-10-28): the gear then closes the window, where it left an empty one
+  (`settingsCloseIsLast`, `tabs.test.ts`; e2e `settingsLastTab`). Escape on it does not (#14, below).
 - **Entry points**: a file from argv, an association, a second instance or a drop opens in the home Explorer tab
   as before. A folder from argv, a drop or the shell verb opens an Explorer tab at it (or switches to a tab that
   already shows exactly that folder). The shell verb on folders now reads "Open in Prism"; `relabelVerb`
