@@ -5,6 +5,7 @@ import { DEFAULT_TRANSPORT_BG, DEFAULT_TRANSPORT_STYLE, type TransportStyle } fr
 import { ImageView } from './ImageView'
 import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
+import { PrismMediaLook } from './PrismMediaLook'
 import { UnsupportedView } from './UnsupportedView'
 import { LoadingState } from './LoadingState'
 
@@ -83,22 +84,24 @@ export function ViewerSwitch(props: ViewerSwitchProps): JSX.Element {
   switch (file.kind) {
     case 'video':
       return (
-        <VideoView
-          url={url}
-          path={file.path}
-          onToggleFullscreen={toggle}
-          onAutoAdvance={props.onAutoAdvance ?? noop}
-          onStep={props.onStep ?? noop}
-          canStep={props.canStep ?? never}
-          transportStyle={transportStyle}
-          transportBg={props.transportBg ?? DEFAULT_TRANSPORT_BG}
-          background={props.background}
-          volumeKey={props.volumeKey}
-          fullscreen={props.fullscreen}
-          attach={props.attach}
-          audioTrack={props.audioTrack}
-          onAudioTrack={props.onAudioTrack}
-        />
+        <PrismMediaLook>
+          <VideoView
+            url={url}
+            path={file.path}
+            onToggleFullscreen={toggle}
+            onAutoAdvance={props.onAutoAdvance ?? noop}
+            onStep={props.onStep ?? noop}
+            canStep={props.canStep ?? never}
+            transportStyle={transportStyle}
+            transportBg={props.transportBg ?? DEFAULT_TRANSPORT_BG}
+            background={props.background}
+            volumeKey={props.volumeKey}
+            fullscreen={props.fullscreen}
+            attach={props.attach}
+            audioTrack={props.audioTrack}
+            onAudioTrack={props.onAudioTrack}
+          />
+        </PrismMediaLook>
       )
     case 'image':
       return (
@@ -115,20 +118,22 @@ export function ViewerSwitch(props: ViewerSwitchProps): JSX.Element {
       )
     case 'audio':
       return (
-        <AudioView
-          url={url}
-          path={file.path}
-          name={file.name}
-          fullscreen={props.fullscreen ?? false}
-          onToggleFullscreen={toggle}
-          onAutoAdvance={props.onAutoAdvance ?? noop}
-          onStep={props.onStep}
-          canStep={props.canStep}
-          transportStyle={transportStyle}
-          background={props.background}
-          volumeKey={props.volumeKey}
-          attach={props.attach}
-        />
+        <PrismMediaLook>
+          <AudioView
+            url={url}
+            path={file.path}
+            name={file.name}
+            fullscreen={props.fullscreen ?? false}
+            onToggleFullscreen={toggle}
+            onAutoAdvance={props.onAutoAdvance ?? noop}
+            onStep={props.onStep}
+            canStep={props.canStep}
+            transportStyle={transportStyle}
+            background={props.background}
+            volumeKey={props.volumeKey}
+            attach={props.attach}
+          />
+        </PrismMediaLook>
       )
     case 'pdf':
       return (
