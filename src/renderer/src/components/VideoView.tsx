@@ -10,7 +10,7 @@ import { VolumeReadout } from './VolumeReadout'
 import { IconFull } from './icons/transport'
 import { useWaveform } from '../hooks/useWaveform'
 import type { TransportStyle } from '../lib/transport'
-import { useViz } from '../lib/viz/vizStore'
+import { useMediaLook } from '../lib/viz/mediaLook'
 import { wasPlaying, whenIntended } from '../lib/playState'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { StageNotice } from './StageNotice'
@@ -19,7 +19,6 @@ import { videoHasFrame } from '../lib/copyImage'
 import type { AudioTrackOffer } from '@shared/types'
 import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
 import { useBackgroundPause } from '../hooks/useBackgroundPause'
-import { resolveVizTheme } from '../lib/theme'
 import { tapVerb } from '../lib/tapChrome'
 import { Icon } from './icons/Icon'
 
@@ -140,9 +139,10 @@ export function VideoView({
   const bandable =
     transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
   const bandPct = bandable ? Math.max(0, Math.min(100, transportBg)) : 0
-  const v = useViz()
+  const look = useMediaLook()
+  const v = look.viz
   const barFx = {
-    palette: resolveVizTheme(v.barTheme).palette,
+    palette: look.resolveTheme(v.barTheme).palette,
     glow: v.barGlow,
     cycle: v.barCycle,
     move: v.barMove

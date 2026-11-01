@@ -68,6 +68,40 @@ D1-D13 is the recommended one. Two of the three items were already built: the ch
   the folder and name the dialog would open on, the white corner, the note, a read-only target, the photo
   itself, a cancel). Screenshots `photo-info.png`, `photo-info-preview.png`, `save-copy.png`.
 
+## Media Range requests and second launches, read right (#23, #21, #25, owner, 2026-11-01)
+
+Owner, 2026-11-01, from the `/next` list: "Video/audio range requests: 'last N bytes' requests get the
+first bytes instead, there is no '416 range not satisfiable' error, and a 0-byte file crashes", and
+"Second launch ignores its folder: prism photo.jpg from another shell resolves the file against the wrong
+place".
+
+- **`fsmedia://` reads a Range per RFC 7233** (#23, `src/main/byteRange.ts`): `bytes=-N` is the LAST N
+  bytes (the whole file when N is longer), a start at or past the end and any range on a 0-byte file answer
+  416 with `Content-Range: bytes */<size>`, and a header it cannot read (another unit, last before first,
+  several ranges) is ignored: the whole file, 200. Several ranges used to get the first range as a 206; a
+  multipart answer is not made, and the media element never asks for one. A number too big to count exactly
+  (past 2^53) is clamped like any other, never ignored (review, 2026-11-01). A 0-byte file without a range
+  is an empty 200. The audio sidecar's `parseRange` reads through the same function, so it now also reads
+  `Bytes=` in any case and spaces around the spec, which it used to refuse with a 416.
+- **The handler never throws**: anything that throws inside `fsmedia://` is a 500 with no body, and a
+  `media-500` line in the diag log names the URL and the error (review, 2026-11-01), so media that will not
+  play leaves a trace. The wall is still asked first, before the file is touched, so a wall that throws
+  serves nothing.
+- **A second launch's paths are relative to ITS shell** (#21, `src/main/argv.ts`): `second-instance` hands
+  over the launching process's `workingDirectory`, and the handoff reads argv against it, awaited, and opens
+  absolute paths. A quit's relaunch passes the paths made absolute (`argsAgainst`), since the new Prism
+  starts in this process's folder. The handler reads all three through `secondLaunch` (review,
+  2026-11-01), so none can fall back on the resident cwd, and every reader takes only `--` as a switch: a
+  file named `-clip.mp4` is a file, in a handoff and in a relaunch.
+- **The close-time size save (#25) was already fixed** by the multi-window work (2026-10-29): the close
+  listener cancels the move/resize debounce and reports the bounds before the window goes
+  (`windowBounds.ts` `watchBounds`, called by `windowChrome.ts`), and the close flush writes on main's thread
+  for the last window or the quit (`tabsSession.ts`, `// sync-ok`).
+- **Held by** `byteRange.test.ts` (with the too-big numbers), `mediaProtocol.test.ts` (suffix, 416, 0-byte,
+  several ranges, the 500 and its diag line), `ffmpeg.test.ts` (the sidecar's reading), `argv.test.ts` (a
+  relative path read against the cwd it is given, `secondLaunch`'s three readers, the one-dash file) and
+  `windowBounds.test.ts` (the close reports at once, inside the wait, and never twice).
+
 ## Unit tests wait on events, never on clocks (release unit flakes, owner, 2026-11-01)
 
 Owner, 2026-11-01: "Release runs flake on unit-test timeouts (listingCache, peaksJobs)": most release runs
@@ -597,6 +631,28 @@ viewer open, but Settings' Escape as the last tab still closed the window (2026-
 - **Held by** e2e `escapeKeepsOpen` (the viewer and the Explorer stay open; a context menu, the rename
   dialog and the delete question each close on Escape, and nothing closes the window) and `settingsLastTab`
   (Escape on Settings as the last tab leaves it open).
+
+## The players take their look from the host (#29, owner, 2026-11-01)
+
+Owner, 2026-11-01: "AudioView/VideoView are wired to Prism's settings, which blocks moving the viewer into the
+shared prism-core package". The players no longer import Prism's viz store (`lib/viz/vizStore`) or app theme
+(`lib/theme`); they read a narrow context, `lib/viz/mediaLook.ts` (the visualizer and progress-bar settings, a
+scheme resolver, a stage width to its classes), and Prism installs its stores behind it
+(`components/PrismMediaLook`, wrapped round both players in `ViewerSwitch`, so the stage, the phone and an
+archive's preview all get it). Filesmith would install its own.
+
+- **No behaviour change**: the same settings, defaults and persistence; the accent scheme still resolves against
+  the live app style, at the same moment (the player's render).
+- **No package yet**: nothing is extracted. `playerPrefs` (loop, autoplay), `PlayerMenu`, `useWaveform` and the
+  `window.prism` calls still tie the players to Prism; they are the next step when `prism-core` happens.
+- **The players get exactly the 15 settings** `MediaVizSettings` names, copied field by field
+  (`lib/viz/prismMediaLook.ts`), so the store's own presets and removed themes never reach them, and a new field
+  fails to compile until Prism supplies it. **A Settings change reaches a playing player at once**: the provider
+  reads the store through `useViz()` (the subscribing hook), never a one-time `vizState()`.
+- **Held by** `components/mediaLook.test.ts` (nothing either player imports, at any depth and in any spelling,
+  is the store or the theme; the look is exactly the 15 store values, `resolveVizTheme` and `WIDTHS`; a player
+  with no host throws), `components/PrismMediaLook.test.ts` (a new store snapshot reaches the player under the
+  provider) and the player e2e.
 
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 
