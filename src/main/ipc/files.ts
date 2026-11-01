@@ -11,6 +11,7 @@ import type {
 } from '@shared/ipcTypes'
 import { basename, dirname, extname, join, resolve } from 'path'
 import { copyFile, readFile, stat, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
 import { execFile, launch } from '../spawnWorker'
 import { copyWindowsFiles, hasWindowsFiles, readWindowsFiles } from '../fileClipboard'
 import { insideDesktop } from '../desktopAccess'
@@ -61,7 +62,8 @@ export function registerSaveCopyIpc(ctx: MainCtx): void {
         {
           ask: (opts) => saveCopyDialog(opts, e.sender),
           write: (p, b) => writeFile(p, b),
-          written
+          written,
+          temp: tmpdir()
         }
       )
   )

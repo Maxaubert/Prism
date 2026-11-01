@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { copyDefaultPath, saveImageCopy, type SaveCopyDeps } from './saveCopy'
+import { copyDefaultPath, isPrismTempCopy, saveImageCopy, type SaveCopyDeps } from './saveCopy'
 
 const bytes = (): ArrayBuffer => new Uint8Array([1, 2, 3]).buffer
 
@@ -10,8 +10,12 @@ const deps = (answer: { canceled: boolean; filePath?: string }, write = vi.fn(()
 } => ({
   ask: vi.fn(() => Promise.resolve(answer)),
   write,
-  written: vi.fn(() => Promise.resolve())
+  written: vi.fn(() => Promise.resolve()),
+  temp: TEMP
 })
+
+const TEMP = 'C:\\Users\\me\\AppData\\Local\\Temp'
+const MEMBER = `${TEMP}\\prism-members\\4242-1700000000000\\0123abcd\\IMG_0412.jpg`
 
 describe('Save a copy (#78)', () => {
   it('opens in the photo\'s own folder with its name and the new extension', () => {
@@ -58,5 +62,29 @@ describe('Save a copy (#78)', () => {
     const d = deps({ canceled: false, filePath: 'C:\\a.png' })
     expect(await saveImageCopy({ bytes: new ArrayBuffer(0), suggested: 'a.png', format: 'png' }, d)).toEqual({ failed: true })
     expect(d.ask).not.toHaveBeenCalled()
+  })
+
+  // Review, 2026-11-01: a member of a zip browsed as a folder (#300) is shown
+  // from its unpacked copy in Prism's temp folder, which is removed at quit.
+  // A copy saved beside it was lost, so the dialog does not open there.
+  it('a temp copy (a zip member) is not where the dialog opens', async () => {
+    expect(isPrismTempCopy(MEMBER, TEMP)).toBe(true)
+    expect(isPrismTempCopy(`${TEMP}\\prism-zip-ab12\\a.png`, TEMP)).toBe(true)
+    expect(isPrismTempCopy(`${TEMP.toLowerCase()}\\PRISM-ARC-x\\a.png`, TEMP)).toBe(true)
+    // Someone's own file in Temp, or a folder merely named like ours elsewhere, is theirs.
+    expect(isPrismTempCopy(`${TEMP}\\holiday\\a.png`, TEMP)).toBe(false)
+    expect(isPrismTempCopy(`${TEMP}\\a.png`, TEMP)).toBe(false)
+    expect(isPrismTempCopy('D:\\prism-members\\a.png', TEMP)).toBe(false)
+    const d = deps({ canceled: false, filePath: 'C:\\out\\IMG_0412.png' })
+    const r = await saveImageCopy({ bytes: bytes(), suggested: 'IMG_0412.jpg', format: 'png', source: MEMBER }, d)
+    expect(r).toEqual({ saved: 'C:\\out\\IMG_0412.png' })
+    expect(d.ask).toHaveBeenCalledWith({ defaultPath: 'IMG_0412.png', filters: [{ name: 'PNG image', extensions: ['png'] }] })
+  })
+
+  it('the temp copy itself is still refused as a target', async () => {
+    const d = deps({ canceled: false, filePath: MEMBER })
+    const r = await saveImageCopy({ bytes: bytes(), suggested: 'IMG_0412.jpg', format: 'jpeg', source: MEMBER }, d)
+    expect(r).toEqual({ failed: true, reason: 'source' })
+    expect(d.write).not.toHaveBeenCalled()
   })
 })

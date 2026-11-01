@@ -1,4 +1,4 @@
-import { dirname, join } from 'path'
+import { dirname, isAbsolute, join, relative, resolve } from 'path'
 import { samePath } from '@shared/path'
 import type { SaveCopyResult } from '@shared/ipcTypes'
 
@@ -14,6 +14,12 @@ import type { SaveCopyResult } from '@shared/ipcTypes'
  *   read-only folder, a full disk) which used to say nothing either.
  * - It converts, it never edits: a target that IS the photo being viewed is
  *   refused, and the original is never touched.
+ * - NOT in a temp copy's folder (review, 2026-11-01): a member of a zip
+ *   browsed as a folder (#300) is shown from its unpacked copy under
+ *   `%TEMP%\prism-members`, removed at quit (`memberTemp.ts`), and a copy
+ *   saved beside it was lost. Any of Prism's own temp folders
+ *   (`%TEMP%\prism-*`: members, extracted archive files) opens the dialog
+ *   with the name alone, where Windows last saved, as before #78.
  */
 
 export interface SaveCopyRequest {
@@ -32,6 +38,18 @@ export interface SaveCopyDeps {
   }>
   write: (path: string, bytes: Buffer) => Promise<void>
   written: (path: string) => Promise<void>
+  /** The system temp folder (`os.tmpdir()`), where Prism's copies live. */
+  temp: string
+}
+
+/** Is `p` inside one of Prism's own temp folders (`<temp>\prism-*\...`),
+ *  which Prism removes, so nothing should be saved beside it. */
+export function isPrismTempCopy(p: string, temp: string): boolean {
+  if (!isAbsolute(p) || !temp) return false
+  const rel = relative(resolve(temp).toLowerCase(), resolve(p).toLowerCase())
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return false
+  const parts = rel.split(/[\\/]/)
+  return parts.length > 1 && parts[0].startsWith('prism-')
 }
 
 const extOf = (format: 'png' | 'jpeg'): string => (format === 'png' ? 'png' : 'jpg')
@@ -51,7 +69,12 @@ export async function saveImageCopy(req: SaveCopyRequest, deps: SaveCopyDeps): P
   const ext = extOf(req.format)
   const source = typeof req.source === 'string' && req.source ? req.source : undefined
   const r = await deps.ask({
-    defaultPath: copyDefaultPath(String(req.suggested ?? ''), req.format, source),
+    // A temp copy still guards the target below; it only stops saying where to open.
+    defaultPath: copyDefaultPath(
+      String(req.suggested ?? ''),
+      req.format,
+      source && !isPrismTempCopy(source, deps.temp) ? source : undefined
+    ),
     filters: [{ name: req.format === 'png' ? 'PNG image' : 'JPEG image', extensions: [ext] }]
   })
   if (r.canceled || !r.filePath) return { canceled: true }
