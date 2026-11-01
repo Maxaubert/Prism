@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DirListing } from '@shared/types'
 import {
   cacheKey,
@@ -47,11 +47,9 @@ function listing(dir: string, folders: number, files: number): DirListing {
 }
 
 // A write is waited for by `idle()`, never by a sleep: 60 ms was not enough
-// for a listing write on a busy CI runner (2026-10-30, 2026-11-01). A file
-// a forget deletes is fire-and-forget in the cache, so its going is waited
-// for by looking, bounded.
-const gone = (file: string): Promise<void> =>
-  vi.waitFor(() => expect(existsSync(file)).toBe(false), { timeout: 5000, interval: 10 })
+// for a listing write on a busy CI runner (2026-10-30, 2026-11-01). So is a
+// forget's delete (review, 2026-11-01): `idle()` waits for it too.
+const gone = (file: string): void => expect(existsSync(file)).toBe(false)
 
 describe('the stored form', () => {
   it('round-trips a listing, rebuilding paths, extensions and kinds', () => {
@@ -168,7 +166,7 @@ describe('the cache on disk', () => {
     cache.put('C:\\C', listing('C:\\C', 1, 0), 1)
     await cache.idle()
     expect(cache.entries().map((e) => e.path).sort()).toEqual(['C:\\B', 'C:\\C'])
-    await gone(join(dir, `${cacheKey('C:\\A')}.json`))
+    gone(join(dir, `${cacheKey('C:\\A')}.json`))
   })
 
   it('keeps pinned places past the budget', async () => {
@@ -276,9 +274,13 @@ describe('the cache on disk', () => {
     // Two changes in quick succession: the file ends with both.
     cache.put('C:\\B', listing('C:\\B', 1, 0), 1)
     const writing = cache.idle() // the index write for B starts now...
-    cache.drop('C:\\A') // ...and the drop comes while it runs
+    cache.drop('C:\\A') // ...and the drop comes while it runs:
+    // idle() writes the drop's index at once, not on the drop's 1 ms timer,
+    // so it reaches the write in flight and waits behind it (review,
+    // 2026-11-01: left to the timer, it could miss the write in flight).
+    const after = cache.idle()
     await writing
-    await cache.idle()
+    await after
     const last = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'))
     expect(last.entries.map((e: IndexEntry) => e.path)).toEqual(['C:\\B'])
     expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([])
@@ -320,7 +322,7 @@ describe('the cache on disk', () => {
     cache.drop('c:/a')
     await cache.idle()
     expect(cache.has('C:\\A')).toBe(false)
-    await gone(join(dir, `${cacheKey('C:\\A')}.json`))
+    gone(join(dir, `${cacheKey('C:\\A')}.json`))
   })
 
   it('a second window reads and never writes', async () => {
