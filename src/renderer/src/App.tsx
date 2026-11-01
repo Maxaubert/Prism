@@ -113,7 +113,9 @@ import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import { landJob, updateJob, updateLanding } from './lib/jobs'
-import { setFolderIcons } from './lib/folderIcons'
+import { setFolderIcons, type FolderIconChoice } from './lib/folderIcons'
+import { keptFolderIconFile } from './lib/folderIconFiles'
+import { folderIconFromFile, ICON_REFUSED } from './lib/iconFromFile'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { nextTabId } from './lib/sessionIds'
 
@@ -1223,6 +1225,27 @@ export default function App(): JSX.Element {
   /** Change icon... (folder icons, 2026-10-31): the picker for these paths. */
   const changeFolderIcon = (paths: string[], name: string): void =>
     setAsk({ kind: 'folder-icon', paths, name })
+  /** Set (or reset); the store has main remove a picture no folder uses now. */
+  const setFolderIcon = (paths: string[], icon: FolderIconChoice | null): void => setFolderIcons(paths, icon)
+  /** "From a file..." (2026-10-31): main's dialog, the 64 px copy kept, then
+   *  the picker closes; a cancel leaves it up, a refusal says why. */
+  const iconFileBusy = useRef(false)
+  const folderIconFromFileAnswer = (ask: Extract<Ask, { kind: 'folder-icon' }>): void => {
+    if (iconFileBusy.current) return
+    iconFileBusy.current = true
+    const settle = (next: Ask | null): void => setAsk((cur) => (cur === ask ? next : cur))
+    void folderIconFromFile(window.prism, keptFolderIconFile)
+      .then((r) => {
+        if (!r) return
+        if ('refused' in r) return settle({ kind: 'failed', message: r.refused })
+        setFolderIcon(ask.paths, { file: r.file })
+        settle(null)
+      })
+      .catch(() => settle({ kind: 'failed', message: ICON_REFUSED.unreadable }))
+      .finally(() => {
+        iconFileBusy.current = false
+      })
+  }
   const askAnswers: AskAnswers = {
     dismiss: () => setAsk(null),
     unsavedNames,
@@ -1240,7 +1263,8 @@ export default function App(): JSX.Element {
     forceCloseTab,
     answerReload: (path, reload) => setReloadAnswer({ path, reload }),
     runInstall,
-    setFolderIcon: setFolderIcons
+    setFolderIcon,
+    folderIconFromFile: folderIconFromFileAnswer
   }
 
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.

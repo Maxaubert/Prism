@@ -127,6 +127,7 @@ import {
   tailOwner
 } from './ipc/files'
 import { registerOpenIpc } from './ipc/open'
+import { registerFolderIconIpc } from './ipc/folderIcons'
 import { registerPreferencesIpc, registerWinEIpc, registerSessionIpc } from './ipc/window'
 import { createTabsSession } from './tabsSession'
 import { offerUpdate, startUpdates, updateOffered } from './updateFlow'
@@ -2093,6 +2094,7 @@ if (!app.requestSingleInstanceLock()) {
 
     startUpdates()
     registerOpenIpc()
+    registerFolderIconIpc()
     registerSaveCopyIpc(ctx)
     registerLinkIpc(ctx)
     installPermissionHandler()
