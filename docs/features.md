@@ -3,6 +3,74 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Save copies as: many pictures, five formats, one job (#474, owner, 2026-11-01)
+
+Split from #78 (D12): "400 iPhone HEICs and this site will not take them". Owner, 2026-11-01: select many
+pictures in the Explorer list, right-click, **Save copies as**, a format; the copies go NEXT TO EACH ORIGINAL;
+what lands is marked; one job with progress and Cancel on the job chip. Formats: "cant it offer more, i hear
+jxl is getting pretty popular and very good", so JPEG, PNG, WebP, AVIF and JPEG XL, and the picture's own
+**Save a copy** offers the same five, in the same order (`@shared/imageCopy.ts`, one list for both menus).
+
+- **The row** shows on several marked rows when at least one is a picture (an SVG is not: the bundled ffmpeg
+  cannot draw one), after Copy and before Delete (`menus/explorerRow.tsx`). Every marked path goes to main,
+  which skips the rest and counts them. Not on a single row: one picture has Save a copy in the viewer.
+- **Next to its original, never over anything**: the format's extension, and a taken name, the original's own
+  included (a JPEG of a .jpg), becomes "name (2).ext". The copy is made in a job folder in temp
+  (`%TEMP%\prism-copies-*`, gone when the job ends, Cancel included: the AVIF muxer needs a file it can seek)
+  and copied into place with "fail if it exists"; a name taken in between moves on to the next. The copy
+  writes to the final name, so a big one is visible, growing, while it copies; it is never over anything. Only inside
+  the wall (`editable`): there is no dialog, so a copy lands only in a granted folder.
+- **One job**: the chip says "Saving JPEG copies", a bar by pictures done, and a small Cancel (x), the one
+  part of the chip that takes a click. Cancel stops the running ffmpeg and starts no more; the copies made
+  stay and are marked. The chip then says the DONE NOTE for 5 s, no bar: "Saved 37 copies", "Saved 37
+  copies, 2 could not be read" (the owner's words, for any picture that could not be made), ", 1 skipped (not
+  pictures)", "Stopped, saved 3 copies". What landed is marked in the list (`lib/landMarks.ts`).
+- **Nothing on the chip is hidden by an older paste** (review, 2026-11-01): the chip shows the oldest job
+  still working, so a note and a Cancel were out of sight while a paste ran, and the note timed out unseen.
+  A done note now leads the chip (a second note waits its turn, each gets its 5 s), and among live jobs one
+  with a Cancel leads (`lib/jobs.ts` `chipSummary`).
+- **"Not pictures" means not pictures** (review, 2026-11-01): a folder or a text file is skipped. An SVG (a
+  picture the bundled ffmpeg cannot read), a picture outside the wall and one the disk will not stat are
+  counted as "could not be read".
+- **Encoded in main by the bundled ffmpeg** (`src/main/imageEncode.ts`), through the process worker, two at
+  a time. HEIC and camera RAW are decoded as the viewer decodes them (libheif's JPEG, the camera's embedded
+  preview), but NOT through the viewer's own worker or caches (review, 2026-11-01): a batch of 400 put the
+  viewer's decodes in line behind its own (about 2 s each) and emptied the viewer's 6 HEIC and 4 RAW cached
+  pictures, so a batch has its own HEIC worker (`heicToJpegForCopy`, gone after a minute idle) and reads RAW
+  previews uncached (`readRawPreview`). Each decoded JPEG is deleted as soon as its copy is made, and a copy
+  that does not land as soon as it fails (400 HEICs had kept 1-2 GB in temp until the job ended). Everything
+  else ffmpeg reads; an animated GIF or WebP gives its first frame; EXR and HDR
+  are tone-mapped as the viewer does. ffmpeg turns the picture by its EXIF orientation, so the copy stands as
+  shown. **No metadata** (privacy, as the single save): container metadata and ffmpeg 9's per-frame EXIF
+  (`sidedata` type 31) are dropped; without the second a PNG and a JPEG XL still carried the camera's EXIF
+  (MEASURED). **Alpha kept** where the format has it (AVIF as its second, grey picture); JPEG goes on white.
+- **Quality, no setting** (picked 2026-11-01 on a 4032x3024 photo): JPEG `-q:v 1` (its tables come closest to
+  the canvas's 0.92: 5.32 MB against libjpeg 92's 5.22 MB), PNG lossless, WebP 90, AVIF libaom crf 18, JPEG XL
+  distance 1 (libjxl's "visually lossless"). Times on that photo: JPEG 0.3 s, JXL 0.8 s, AVIF 1.0 s, WebP
+  1.2 s, PNG 1.9 s.
+- **The single Save a copy**: JPEG and PNG are still the canvas's; WebP, AVIF and JPEG XL are made in main
+  from the canvas's PNG at the same quality (`saveCopy.ts` `transcode`). Its dialog filter names the format.
+- **Never freezes** (MEASURED, e2e `batchCopiesLoad`, 2026-11-01): 24 photos of 4032x3024 (140 MB) to JPEG
+  XL in 12.4 s, the page's longest frame 35 ms and main's longest answer 15 ms while it ran. On REAL
+  photos (review, 2026-11-01, `PRISM_E2E_COPIES_PHOTOS`): Windows' own 24 wallpaper photographs (23 MB,
+  mostly 3840x2400) in 8.7 s, longest frame 35 ms, main 6 ms; the same 24 as 4032x3024 HEICs (50 MB, the
+  iPhone case) in 24.4 s, longest frame 42 ms, main 16 ms; Cancel part way passed on both.
+- **Known limit**: ffmpeg does not merge an AVIF's alpha picture when it READS one, so a clear AVIF copied
+  to another format loses its transparency.
+- **Held by** `imageCopy.test.ts`, `imageEncode.test.ts` (each format's argv, the EXIF drop, alpha, white
+  ground), `imageEncode.ffmpeg.test.ts` (REAL encodes by the bundled ffmpeg: an animated GIF and WebP give
+  their first frame, EXR and HDR are tone-mapped, `probeAlpha`, the AVIF alpha picture), `copyJobs.test.ts`
+  (the HEIC and RAW route and its own decoders, the decoded JPEG dropped, "fail if it exists", the single
+  save's transcode, Cancel by job id), `batchCopies.test.ts` (names, "name (2)", a race, skips, failures, a
+  made file thrown away, Cancel, two at a time), `saveCopy.test.ts` (the new formats), `jobs.test.ts`
+  (Cancel, the note, neither behind a paste), `copiesNote.test.ts`, `saveCopies.test.ts`,
+  `menus/explorerRow.test.ts`, `menus/viewers/image.test.ts`, and e2e `batchCopies` (each format: beside the
+  original, turned, no EXIF, alpha, a white JPEG corner, a taken name untouched, the note, the marks, nothing
+  left in temp), `batchCopiesHeic` (two HEICs, `tools/e2e/assets/gradient.heic`, to JPEG: their size, their
+  picture, no EXIF, the SVG "could not be read", the job folder gone), `batchCopiesLoad` (24 photos, the
+  stall times, Cancel; `PRISM_E2E_COPIES_PHOTOS` runs it on a folder of real photos) and `imageSaveCopy`
+  (WebP, AVIF, JPEG XL). Screenshots `save-copies-running.png`, `save-copies-done.png`.
+
 ## Drag in the Explorer: move, copy, add, extract (#70, owner, 2026-11-01)
 
 Owner, 2026-11-01: approved the spec and plan "as recommended", every decision D1-D15 as it recommended
@@ -123,7 +191,7 @@ D1-D13 is the recommended one. Two of the three items were already built: the ch
   own temp folders (`%TEMP%\prism-*`) opens the dialog with the name alone, where Windows last saved, as
   before; the temp copy itself is still refused as a target (`isPrismTempCopy`). `src/main/saveCopy.ts`, answered by
   `PRISM_E2E_SAVE_TO` under `--e2e` (`dialogs.ts` `saveCopyDialog`, never a native dialog).
-- **Not built**: D12, "Save copies as JPEG" over many files in the Explorer, is issue #474. D1 (the dark
+- **D12, "Save copies as JPEG" over many files in the Explorer**, is issue #474: built, see "Save copies as" above. D1 (the dark
   checker stays faint) and D2 (grid tiles, below) are left as they are.
 - **D2, checked 2026-11-01**: a grid tile of a transparent PNG shows whatever colour sits UNDER the alpha.
   ffmpeg's 320px JPEG (`thumbs.ts`) drops the alpha, so a PNG whose clear pixels are black (most) gets a

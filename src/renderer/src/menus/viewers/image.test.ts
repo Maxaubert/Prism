@@ -47,7 +47,8 @@ describe('the picture menu', () => {
       'Slideshow',
       'Show in File Explorer'
     ])
-    expect(labels(row(items, 'Save a copy').children ?? [])).toEqual(['PNG', 'JPEG'])
+    // The Explorer's Save copies as list, in its order (#474).
+    expect(labels(row(items, 'Save a copy').children ?? [])).toEqual(['JPEG', 'PNG', 'WebP', 'AVIF', 'JPEG XL'])
     expect(labels(row(items, 'Slideshow').children ?? [])).toEqual([
       '2 seconds',
       '3 seconds',

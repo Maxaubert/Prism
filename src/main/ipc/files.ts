@@ -7,10 +7,12 @@ import type {
   MoveOnClash,
   MoveResult,
   PasteResult,
+  SaveCopiesResult,
   SaveCopyResult
 } from '@shared/ipcTypes'
+import { isCopyFormat } from '@shared/imageCopy'
 import { basename, dirname, extname, join, resolve } from 'path'
-import { copyFile, readFile, stat, writeFile } from 'fs/promises'
+import { copyFile, readFile, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { execFile, launch } from '../spawnWorker'
 import { copyWindowsFiles, hasWindowsFiles, readWindowsFiles } from '../fileClipboard'
@@ -33,6 +35,9 @@ import { exists } from '../fsUtil'
 import { windows } from '../appState'
 import { saveCopyDialog } from '../dialogs'
 import { saveImageCopy } from '../saveCopy'
+import { saveCopies } from '../batchCopies'
+import { cancelCopies, convertForCopy, copiesTemp, dropTemp, endCopies, placeCopy, startCopies, transcodePng } from '../copyJobs'
+import { ffmpegTools } from '../bundledTools'
 import type { MainCtx, ReadyCtx } from './context'
 
 /** Whose tail it is: the page's webContents id (fileTail's `owner`). */
@@ -42,7 +47,7 @@ export const tailOwner = (sender: { id: number }): string => `page-${sender.id}`
 const PASTE_TICK_MS = 120
 
 export function registerSaveCopyIpc(ctx: MainCtx): void {
-  const { written } = ctx
+  const { editable, written } = ctx
   /**
    * Save the picture as an ordinary PNG or JPEG, somewhere the user picks.
    *
@@ -56,17 +61,59 @@ export function registerSaveCopyIpc(ctx: MainCtx): void {
    */
   ipcMain.handle(
     CALL.imageSaveCopy,
-    (e, bytes: ArrayBuffer, suggested: string, format: 'png' | 'jpeg', source?: string): Promise<SaveCopyResult> =>
+    (e, bytes: ArrayBuffer, suggested: string, format: unknown, source?: string): Promise<SaveCopyResult> =>
       saveImageCopy(
-        { bytes, suggested, format: format === 'png' ? 'png' : 'jpeg', source },
+        { bytes, suggested, format: isCopyFormat(format) ? format : 'png', source },
         {
           ask: (opts) => saveCopyDialog(opts, e.sender),
           write: (p, b) => writeFile(p, b),
+          transcode: (png, f) => transcodePng(ffmpegTools(), png, f),
           written,
           temp: tmpdir()
         }
       )
   )
+
+  /**
+   * SAVE COPIES AS (#474): the Explorer's selection, each picture next to
+   * its original. No dialog, so the copies stay INSIDE the wall: every
+   * source must be `editable` (a granted folder), which is where its copy
+   * lands. Progress rides the paste channel to the chip (`jobId`), one
+   * message per picture; `imageSaveCopiesCancel` stops it.
+   */
+  ipcMain.handle(
+    CALL.imageSaveCopies,
+    async (e, paths: unknown, format: unknown, jobId: unknown): Promise<SaveCopiesResult> => {
+      const list = Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string' && !!p) : []
+      if (!isCopyFormat(format)) return { saved: [], failed: 0, skipped: list.length, canceled: false }
+      const job = typeof jobId === 'string' ? jobId : ''
+      const stop = startCopies(job)
+      const tools = ffmpegTools()
+      const tmp = await copiesTemp().catch(() => null)
+      try {
+        return await saveCopies(
+          { paths: list, format },
+          {
+            allowed: (p) => editable(p),
+            entry: (p) => stat(p).then((s) => (s.isFile() ? 'file' : 'other'), () => null),
+            convert: (src, out, f, signal) => (tmp ? convertForCopy(tools, src, out, f, signal) : Promise.resolve(false)),
+            exists,
+            place: placeCopy,
+            written: (p) => written(p),
+            discard: (p) => rm(p, { force: true }),
+            progress: (done, total) =>
+              void windows.sendTo(e.sender, PUSH.pasteProgress, { jobId: job, pct: total ? Math.round((done / total) * 100) : 100 }),
+            tmp: tmp ?? tmpdir(),
+            signal: stop.signal
+          }
+        )
+      } finally {
+        endCopies(job)
+        if (tmp) await dropTemp(tmp)
+      }
+    }
+  )
+  ipcMain.handle(CALL.imageSaveCopiesCancel, (_e, jobId: unknown) => typeof jobId === 'string' && cancelCopies(jobId))
 }
 
 /** Rename, bin, read and save text, follow a growing file. */

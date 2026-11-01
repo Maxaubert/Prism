@@ -1,6 +1,7 @@
 import { dirname, isAbsolute, join, relative, resolve } from 'path'
 import { samePath } from '@shared/path'
 import type { SaveCopyResult } from '@shared/ipcTypes'
+import { copyExt, copyLabel, mainEncodes, type CopyFormat } from '@shared/imageCopy'
 
 /**
  * SAVE A COPY, THE STEPS (#78; owner, 2026-11-01, the image pack spec
@@ -20,13 +21,18 @@ import type { SaveCopyResult } from '@shared/ipcTypes'
  *   saved beside it was lost. Any of Prism's own temp folders
  *   (`%TEMP%\prism-*`: members, extracted archive files) opens the dialog
  *   with the name alone, where Windows last saved, as before #78.
+ * - FIVE FORMATS (#474; owner, 2026-11-01), the Explorer's "Save copies as"
+ *   list: JPEG and PNG as the canvas drew them, WebP, AVIF and JPEG XL made
+ *   here by ffmpeg from the canvas's PNG (`deps.transcode`), at the batch's
+ *   quality (`imageEncode.ts`).
  */
 
 export interface SaveCopyRequest {
+  /** The encoded copy for JPEG and PNG; a PNG for the formats main makes. */
   bytes: ArrayBuffer
   /** The picture's name, whose extension is replaced. */
   suggested: string
-  format: 'png' | 'jpeg'
+  format: CopyFormat
   /** The photo on disk, when it is a file: where the dialog opens. */
   source?: string
 }
@@ -37,6 +43,8 @@ export interface SaveCopyDeps {
     filePath?: string
   }>
   write: (path: string, bytes: Buffer) => Promise<void>
+  /** WebP, AVIF or JPEG XL from the canvas's PNG; null when it could not. */
+  transcode?: (png: Buffer, format: CopyFormat) => Promise<Buffer | null>
   written: (path: string) => Promise<void>
   /** The system temp folder (`os.tmpdir()`), where Prism's copies live. */
   temp: string
@@ -52,21 +60,19 @@ export function isPrismTempCopy(p: string, temp: string): boolean {
   return parts.length > 1 && parts[0].startsWith('prism-')
 }
 
-const extOf = (format: 'png' | 'jpeg'): string => (format === 'png' ? 'png' : 'jpg')
-
 /** "C:\pics\IMG_0412.jpg" for IMG_0412.HEIC saved as JPEG. */
-export function copyDefaultPath(suggested: string, format: 'png' | 'jpeg', source?: string): string {
+export function copyDefaultPath(suggested: string, format: CopyFormat, source?: string): string {
   const base = suggested.replace(/\.[^.]*$/, '')
-  const name = base + '.' + extOf(format)
+  const name = base + '.' + copyExt(format)
   if (!source) return name
   const at = join(dirname(source), name)
   // A PNG saved as PNG would be offered its own name, which is refused.
-  return samePath(at, source) ? join(dirname(source), `${base} copy.${extOf(format)}`) : at
+  return samePath(at, source) ? join(dirname(source), `${base} copy.${copyExt(format)}`) : at
 }
 
 export async function saveImageCopy(req: SaveCopyRequest, deps: SaveCopyDeps): Promise<SaveCopyResult> {
   if (!(req.bytes instanceof ArrayBuffer) || !req.bytes.byteLength) return { failed: true }
-  const ext = extOf(req.format)
+  const ext = copyExt(req.format)
   const source = typeof req.source === 'string' && req.source ? req.source : undefined
   const r = await deps.ask({
     // A temp copy still guards the target below; it only stops saying where to open.
@@ -75,12 +81,15 @@ export async function saveImageCopy(req: SaveCopyRequest, deps: SaveCopyDeps): P
       req.format,
       source && !isPrismTempCopy(source, deps.temp) ? source : undefined
     ),
-    filters: [{ name: req.format === 'png' ? 'PNG image' : 'JPEG image', extensions: [ext] }]
+    filters: [{ name: `${copyLabel(req.format)} image`, extensions: [ext] }]
   })
   if (r.canceled || !r.filePath) return { canceled: true }
   if (source && samePath(r.filePath, source)) return { failed: true, reason: 'source' }
+  let bytes: Buffer | null = Buffer.from(req.bytes)
+  if (mainEncodes(req.format)) bytes = deps.transcode ? await deps.transcode(bytes, req.format).catch(() => null) : null
+  if (!bytes) return { failed: true }
   try {
-    await deps.write(r.filePath, Buffer.from(req.bytes))
+    await deps.write(r.filePath, bytes)
   } catch {
     return { failed: true }
   }
