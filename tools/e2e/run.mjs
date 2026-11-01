@@ -8612,9 +8612,11 @@ async function rightClickSelectScenario(fixtures) {
  * Known Folders, each with its own glyph; Pinned is what the user pinned;
  * This PC is each drive with a bar whose used part is used / total (checked
  * against Node's own statfs of C:) and a free line. What the rows did before
- * still works: a click goes there, the menu pins, unpins and moves within a
- * section, Shift+F10 opens it, a drag reorders a section and cannot cross into
- * the other. Screenshots of the panel at Small, Medium and Large on a dark, a
+ * still works: a click goes there, the menu pins and unpins, Shift+F10 opens
+ * it. A pin moves by dragging only (owner, 2026-10-31; the menu has no Move
+ * rows): a drag reorders Quick access and Pinned, a drop on the last row's
+ * bottom half reaches the end, and a pin cannot cross into the other section.
+ * Screenshots of the panel at Small, Medium and Large on a dark, a
  * light and a see-through style, for the side by side with the mockup.
  *
  * THIS PC IN THREE LOOKS (owner, 2026-10-06, of the drive row mockups: "I want
@@ -8759,33 +8761,54 @@ async function sidebarPlacesScenario(fixtures) {
     ok(await until(async () => (await list.locator('[data-browse-path]').count()) === 0, 8000), 'the list is the empty folder')
     await c.click()
     ok(await until(async () => (await c.getAttribute('aria-current')) === 'location', 8000), 'a click on a drive opens it')
-    // The menu moves a pin within ITS section: pintoo up past pinme.
-    await pinRow('Pinned', 'pintoo').click({ button: 'right' })
-    ok((await win.getByRole('menuitem', { name: 'Move down', exact: true }).isDisabled()), 'the last Pinned row cannot move down')
-    await win.getByRole('menuitem', { name: 'Move up', exact: true }).click()
+    // A pin moves by dragging only (owner, 2026-10-31: "remove the move up
+    // down. rely on just dragging instead"): no place menu has Move rows.
     const pinnedOrder = async () => (await section('Pinned')).rows.map((r) => r.path.split('\\').pop())
-    ok(await until(async () => JSON.stringify(await pinnedOrder()) === '["pintoo","pinme"]', 5000), `Move up reorders Pinned (${await pinnedOrder()})`)
     const quickOrder = async () => (await section('Quick access')).rows.map((r) => r.known)
-    ok(JSON.stringify(await quickOrder()) === JSON.stringify(quick.rows.map((r) => r.known)), 'and leaves Quick access as it was')
-    // Move down on Quick access's first row moves it within Quick access.
-    const firstKnown = quick.rows[0].known
-    await places.locator('section[aria-label="Quick access"] .quick-access-pin').first().click({ button: 'right' })
-    ok(await win.getByRole('menuitem', { name: 'Move up', exact: true }).isDisabled(), 'the first Quick access row cannot move up')
-    await win.getByRole('menuitem', { name: 'Move down', exact: true }).click()
-    ok(await until(async () => (await quickOrder())[1] === firstKnown, 5000), `Move down moves it within Quick access (${await quickOrder()})`)
-    ok(JSON.stringify(await pinnedOrder()) === '["pintoo","pinme"]', 'Pinned is untouched by it')
+    for (const opener of [pinRow('Pinned', 'pintoo'), places.locator('section[aria-label="Quick access"] .quick-access-pin').first()]) {
+      await opener.click({ button: 'right' })
+      ok(await until(async () => (await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).count()) === 1, 3000), 'a pin opens its menu')
+      const moveRows = await win.getByRole('menuitem').filter({ hasText: /^\s*Move (up|down)\s*$/ }).count()
+      ok(moveRows === 0, `and it has no Move up or Move down (${moveRows})`)
+      await win.keyboard.press('Escape')
+    }
+    ok(JSON.stringify(await quickOrder()) === JSON.stringify(quick.rows.map((r) => r.known)), 'Quick access is as it was')
     // The keyboard: Shift+F10 on a focused place opens its menu.
     await places.locator('section[aria-label="Quick access"] .quick-access-pin').first().focus()
     await win.keyboard.press('Shift+F10')
     ok(await until(async () => (await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).count()) === 1, 3000), 'Shift+F10 opens a place menu')
     await win.keyboard.press('Escape')
-    // A drag reorders Pinned and cannot carry a pin into Quick access.
-    await pinRow('Pinned', 'pinme').dragTo(pinRow('Pinned', 'pintoo'), { targetPosition: { x: 20, y: 3 } })
-    ok(await until(async () => JSON.stringify(await pinnedOrder()) === '["pinme","pintoo"]', 5000), `a drag reorders Pinned (${await pinnedOrder()})`)
+    // A drag reorders Pinned and cannot carry a pin into Quick access. The
+    // pins were added pinme, pintoo: pintoo onto pinme's top half leads,
+    // then onto pinme's bottom half (the last row) goes back to the end.
+    ok(JSON.stringify(await pinnedOrder()) === '["pinme","pintoo"]', `Pinned starts in the order pinned (${await pinnedOrder()})`)
+    await pinRow('Pinned', 'pintoo').dragTo(pinRow('Pinned', 'pinme'), { targetPosition: { x: 20, y: 3 } })
+    ok(await until(async () => JSON.stringify(await pinnedOrder()) === '["pintoo","pinme"]', 5000), `a drag reorders Pinned (${await pinnedOrder()})`)
+    const pinmeBox = await pinRow('Pinned', 'pinme').boundingBox()
+    await pinRow('Pinned', 'pintoo').dragTo(pinRow('Pinned', 'pinme'), { targetPosition: { x: 20, y: Math.max(1, Math.floor(pinmeBox.height) - 3) } })
+    ok(await until(async () => JSON.stringify(await pinnedOrder()) === '["pinme","pintoo"]', 5000), `a drag onto the last Pinned row's bottom half moves a pin to the end (${await pinnedOrder()})`)
     const quickNow = await quickOrder()
     await pinRow('Pinned', 'pintoo').dragTo(places.locator('section[aria-label="Quick access"] .quick-access-pin').first(), { targetPosition: { x: 20, y: 3 } })
     await sleep(400)
     ok(JSON.stringify(await quickOrder()) === JSON.stringify(quickNow) && JSON.stringify(await pinnedOrder()) === '["pinme","pintoo"]', 'a pin dragged onto Quick access stays where it was')
+    // A drag reorders Quick access too: its first row onto the third row's
+    // top half lands before the third, so the second row leads.
+    const quickPin = (i) => places.locator('section[aria-label="Quick access"] .quick-access-pin').nth(i)
+    const q0 = await quickOrder()
+    await quickPin(0).dragTo(quickPin(2), { targetPosition: { x: 20, y: 3 } })
+    const q1 = [q0[1], q0[0], ...q0.slice(2)]
+    ok(await until(async () => JSON.stringify(await quickOrder()) === JSON.stringify(q1), 5000), `a drag reorders Quick access (${await quickOrder()}, want ${q1})`)
+    ok(JSON.stringify(await pinnedOrder()) === '["pinme","pintoo"]', 'and leaves Pinned as it was')
+    // A drag onto the LAST row's bottom half takes a pin to the section's end.
+    const lastQuick = quickPin(q1.length - 1)
+    const lastBox = await lastQuick.boundingBox()
+    await quickPin(0).dragTo(lastQuick, { targetPosition: { x: 20, y: Math.max(1, Math.floor(lastBox.height) - 3) } })
+    const q2 = [...q1.slice(1), q1[0]]
+    ok(await until(async () => JSON.stringify(await quickOrder()) === JSON.stringify(q2), 5000), `a drag onto the last row's bottom half moves a pin to the end (${await quickOrder()}, want ${q2})`)
+    // A drop on the section's heading is the end too (no row under it).
+    await quickPin(0).dragTo(places.locator('section[aria-label="Quick access"] h2'))
+    const q3 = [...q2.slice(1), q2[0]]
+    ok(await until(async () => JSON.stringify(await quickOrder()) === JSON.stringify(q3), 5000), `a drag onto the heading moves a pin to the end (${await quickOrder()}, want ${q3})`)
     // A drive's menu offers to pin it; pinned, it is a Pinned row.
     await c.click({ button: 'right' })
     ok((await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).count()) === 1, 'a drive offers Pin to Quick access')
