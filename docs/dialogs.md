@@ -34,7 +34,7 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
 | `NoticeDialog` | One line that did not work, one button | App (`failed`, "That didn't work"), `Sidebar.tsx` (Paste, Add to archive), `archive/useArchiveOps.tsx` ("Archive") |
 | `PasswordDialog` | The archive's password (again, when it was wrong) | `archive/useArchiveOps.tsx`, `ArchiveView.tsx`, `MemberGate.tsx`, App (Explorer inside a zip) |
 | `ArchiveDeleteDialog` | Delete members from a zip, for good (Cancel is primary) | `archive/useArchiveOps.tsx` |
-| `ArchiveClashDialog` | Added files land on names the zip has: Keep both | `archive/useArchiveOps.tsx` |
+| `ArchiveClashDialog` | Added files, or members moved inside a zip (#70 D7), land on names the zip has: Keep both | `archive/useArchiveOps.tsx` |
 | `ArchiveFactsDialog` | A zip member's facts | `browse/useArchiveActions.tsx` |
 | `FolderIconDialog` | Icon for a folder (or N folders): search, a grid of the built-in icons, Cancel, Reset to default, From a file... (the picture's refusal is App's `failed` NoticeDialog, its text `ICON_REFUSED` in `lib/iconFromFile.ts`). A body that is a tool, so `Dialog`'s `wide` box | App (`folder-icon`): Change icon... on a folder row, marked folder rows, a sidebar pin |
 

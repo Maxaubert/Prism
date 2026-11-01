@@ -25,7 +25,7 @@ describe('extracting out (#70)', () => {
   it('extracts members out to a real folder, keeping the shape under a folder', async () => {
     const out = mkdtempSync(join(tmpdir(), 'prism-out-'))
     const r = await extractTo(zipPath, ['docs'], out)
-    expect(r).toEqual({ ok: true, written: 2 })
+    expect(r).toEqual({ ok: true, written: 2, paths: [join(out, 'docs')] })
     expect(readFileSync(join(out, 'docs', 'guide.md'), 'utf8')).toBe('# guide')
     expect(existsSync(join(out, 'docs', 'img', 'logo.png'))).toBe(true)
   })
@@ -40,7 +40,8 @@ describe('extracting out (#70)', () => {
       .map((e) => e.path)
     expect(tops.sort()).toEqual(['docs', 'readme.txt'])
     const r = await extractTo(zipPath, tops, out)
-    expect(r).toEqual({ ok: true, written: 3 })
+    expect(r).toMatchObject({ ok: true, written: 3 })
+    expect(r.ok && [...r.paths].sort()).toEqual([join(out, 'docs'), join(out, 'readme.txt')])
     expect(existsSync(join(out, 'readme.txt'))).toBe(true)
     expect(existsSync(join(out, 'docs', 'guide.md'))).toBe(true)
     expect(existsSync(join(out, 'docs', 'img', 'logo.png'))).toBe(true)
@@ -50,8 +51,23 @@ describe('extracting out (#70)', () => {
     const crypto = join(__dirname, 'fixtures', 'crypto.zip')
     const out = mkdtempSync(join(tmpdir(), 'prism-out2-'))
     expect(await extractTo(crypto, ['secret.txt'], out)).toEqual({ ok: false, reason: 'password' })
-    expect(await extractTo(crypto, ['secret.txt'], out, 'letmein')).toEqual({ ok: true, written: 1 })
+    expect(await extractTo(crypto, ['secret.txt'], out, 'letmein')).toEqual({
+      ok: true,
+      written: 1,
+      paths: [join(out, 'secret.txt')]
+    })
     expect(readFileSync(join(out, 'secret.txt'), 'utf8')).toBe('top secret')
+  })
+
+  // #70: what landed is marked (#101), so the answer names each top-level
+  // arrival as written, after a taken name became "name (2)".
+  it('names what landed, a taken name as its "(2)"', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'prism-paths-'))
+    writeFileSync(join(out, 'readme.txt'), 'mine')
+    mkdirSync(join(out, 'docs'))
+    const r = await extractTo(zipPath, ['readme.txt', 'docs'], out)
+    expect(r.ok && [...r.paths].sort()).toEqual([join(out, 'docs'), join(out, 'readme (2).txt')])
+    expect(readFileSync(join(out, 'readme.txt'), 'utf8')).toBe('mine')
   })
 })
 
@@ -81,7 +97,7 @@ describe('extracting out, watched (#166)', () => {
     const r = await extractTo(zipPath, ['docs', 'readme.txt'], out, undefined, {
       onProgress: (pct, file) => seen.push([pct, file])
     })
-    expect(r).toEqual({ ok: true, written: 3 })
+    expect(r).toMatchObject({ ok: true, written: 3 })
     expect(seen.map(([p]) => p)).toEqual([33, 66, 100])
     expect(seen.map(([, f]) => f).sort()).toEqual(['docs/guide.md', 'docs/img/logo.png', 'readme.txt'])
   })
@@ -159,7 +175,7 @@ describe('extracting out, watched (#166)', () => {
     const z = join(mkdtempSync(join(tmpdir(), 'prism-defl-')), 'd.zip')
     zip.writeZip(z)
     const out = mkdtempSync(join(tmpdir(), 'prism-defl-out-'))
-    expect(await extractTo(z, ['log.txt'], out)).toEqual({ ok: true, written: 1 })
+    expect(await extractTo(z, ['log.txt'], out)).toMatchObject({ ok: true, written: 1 })
     expect(readFileSync(join(out, 'log.txt')).equals(body)).toBe(true)
   })
 })

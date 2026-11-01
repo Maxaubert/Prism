@@ -76,6 +76,23 @@ export function isInside(dir: string, p: string, opts: { orEqual?: boolean } = {
 }
 
 /**
+ * THE VOLUME A PATH IS ON (#70, the drive rule): a plain drag moves on the
+ * same volume and copies to another, Windows' way. A drive letter answers
+ * "c:", a share its root "\\srv\share", both lower-cased; a place inside a
+ * zip is on the zip file's drive. Anything else answers '' (callers treat
+ * an unknown volume as the same one). By the path's root only: a subst
+ * drive, a junction or a mounted folder can be on another volume than it
+ * looks, which at worst swaps a move for a copy, both safe.
+ */
+export function volumeOf(p: string): string {
+  const s = p.replace(/\//g, '\\')
+  const drive = /^([a-z]):/i.exec(s)
+  if (drive) return `${drive[1].toLowerCase()}:`
+  const share = /^\\\\([^\\]+)\\([^\\]+)/.exec(s)
+  return share ? `\\\\${share[1]}\\${share[2]}`.toLowerCase() : ''
+}
+
+/**
  * The one natural-order collator: "2.jpg" before "10.jpg". Hoisted, because
  * `localeCompare` with options builds a fresh collator on EVERY comparison
  * (23.3ms against 0.5ms sorting System32, 2026-08-31). Default sensitivity:

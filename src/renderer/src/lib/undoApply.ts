@@ -3,6 +3,7 @@
 // pure stack; this is the half with effects, which it reaches only through
 // `UndoOps`, so a test can drive it with fakes.
 
+import { placeOf } from '@shared/archivePlace'
 import { baseName, parentDir } from '@shared/path'
 import type { UndoEntry } from './undo'
 
@@ -27,7 +28,58 @@ export interface UndoOps {
     | 'duplicateFile'
     | 'newFolder'
     | 'archiveAdd'
+    | 'archiveMoveMembers'
   >
+}
+
+type ZipMove = Extract<UndoEntry, { kind: 'archive-move' }>
+
+/** The folder a name inside a zip is in, '' at its root. */
+const innerParent = (p: string): string => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
+
+/**
+ * Move each member of a zip move one way (#70 D8): `back` from where it went
+ * to where it was, else again. One call per destination folder, each member
+ * under the name it had there; a taken name lands as "name (2)" (undo never
+ * asks). The entry comes back naming where each member really is, and what
+ * moved is marked where the Explorer shows it.
+ */
+async function zipMoves(entry: ZipMove, ops: UndoOps, back: boolean): Promise<ZipMove> {
+  const groups = new Map<string, number[]>()
+  entry.items.forEach((it, i) => {
+    const dest = innerParent(back ? it.from : it.to)
+    groups.set(dest, [...(groups.get(dest) ?? []), i])
+  })
+  const items = entry.items.map((it) => ({ ...it }))
+  const landed: string[] = []
+  let stuck = 0
+  for (const [dest, indexes] of groups) {
+    const r = await ops.prism.archiveMoveMembers(
+      entry.zip,
+      indexes.map((i) => (back ? entry.items[i].to : entry.items[i].from)),
+      dest,
+      true,
+      indexes.map((i) => baseName(back ? entry.items[i].from : entry.items[i].to))
+    )
+    const moved = typeof r === 'object' ? r.moved : []
+    for (const i of indexes) {
+      const it = entry.items[i]
+      const done = moved.find((m) => m.from === (back ? it.to : it.from))
+      if (!done) {
+        stuck += 1
+        continue
+      }
+      items[i] = back ? { from: done.to, to: it.to } : { from: it.from, to: done.to }
+      landed.push(done.to)
+    }
+  }
+  ops.refresh()
+  if (entry.base && landed.length) ops.land?.(landed.map((p) => placeOf(entry.base as string, p)))
+  if (stuck)
+    ops.fail(
+      `${stuck} of ${entry.items.length} could not be moved ${back ? 'back' : 'again'} inside the archive.`
+    )
+  return { ...entry, items }
 }
 
 /** Reverse one action. Undo never asks: it puts things back beside whatever
@@ -86,6 +138,8 @@ export async function undoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       else if (r === 'failed') ops.fail('That folder could not be moved to the Recycle Bin.')
       break
     }
+    case 'archive-move':
+      return zipMoves(entry, ops, true)
     case 'archive-in': {
       // Both halves: the members leave the zip, the originals come back.
       // A folder member has no entry of its own, which deleteMember now
@@ -152,6 +206,8 @@ export async function redoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       ops.land?.([made])
       return { ...entry, path: made }
     }
+    case 'archive-move':
+      return zipMoves(entry, ops, false)
     case 'archive-in': {
       const r = await prism.archiveAdd(entry.zip, entry.originals, entry.dest, true)
       if (r === 'encrypted' || r === 'failed') {

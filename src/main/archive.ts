@@ -23,7 +23,7 @@ import { exists } from './fsUtil'
 import { ZIP_WRITE_MAX } from '@shared/archiveLimits'
 import type { ArchiveEncryption, ArchiveMoveResult } from '@shared/ipcTypes'
 
-export { setSevenExe, sevenZipExe, validMemberName } from './zipShared'
+export { moveNames, setSevenExe, sevenZipExe, validMemberName } from './zipShared'
 export type { AddResult, ArchiveEntry, ArchiveStat, MemberFail } from './zipShared'
 
 // The simple archive integration (2026-08-22, #68): zip only, via adm-zip.
@@ -114,13 +114,17 @@ export function addToArchive(
   return zip().edit('addToArchive', zipPath, [...srcPaths], destFolder, keepBoth)
 }
 
-/** Move members to another folder INSIDE the same zip; folders move whole. */
+/** Move members to another folder INSIDE the same zip; folders move whole.
+ *  A taken name is a clash unless `keepBoth`; `names` lands each under a
+ *  name of the caller's (an undo's, #70 D8). */
 export function moveMembers(
   zipPath: string,
   entryPaths: readonly string[],
-  destFolder: string
+  destFolder: string,
+  keepBoth = false,
+  names?: readonly string[]
 ): Promise<ArchiveMoveResult> {
-  return zip().edit('moveMembers', zipPath, [...entryPaths], destFolder)
+  return zip().edit('moveMembers', zipPath, [...entryPaths], destFolder, keepBoth, names ? [...names] : undefined)
 }
 
 /** Resolves once every edit of `zipPath` asked for so far has settled (no
@@ -256,7 +260,9 @@ export async function extractTo(
   destDir: string,
   password?: string,
   watch?: ExtractWatch
-): Promise<{ ok: true; written: number } | { ok: false; reason: MemberFail | 'cancelled' }> {
+): Promise<
+  { ok: true; written: number; paths: string[] } | { ok: false; reason: MemberFail | 'cancelled' }
+> {
   const made = new Made()
   try {
     if (!(await exists(destDir))) return { ok: false, reason: 'failed' }
@@ -270,6 +276,9 @@ export async function extractTo(
       wanted.find((w) => p === w || p.startsWith(w + '/'))
     const members = zip.getEntries().filter((e) => !e.isDirectory && hitOf(norm(e.entryName)) !== undefined)
     let written = 0
+    /** Each top-level arrival as written (#70, for the landing marks): a
+     *  file under its free name, a folder once however many land in it. */
+    const landed = new Map<string, string>()
     for (const e of members) {
       if (watch?.cancelled?.()) {
         await made.undo()
@@ -326,13 +335,15 @@ export async function extractTo(
       made.file(target)
       await writeFile(target, data)
       written += 1
+      const top = rel.split('/')[0]
+      if (!landed.has(top)) landed.set(top, rel.includes('/') ? resolve(base, top) : target)
       watch?.onProgress?.(Math.floor((written / members.length) * 100), p)
     }
     if (watch?.cancelled?.()) {
       await made.undo()
       return { ok: false, reason: 'cancelled' }
     }
-    return { ok: true, written }
+    return { ok: true, written, paths: [...landed.values()] }
   } catch {
     return { ok: false, reason: 'failed' }
   }

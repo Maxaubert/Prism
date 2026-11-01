@@ -9,6 +9,7 @@ import {
   FOCUS_TRUST_MS,
   focusNeedsRead,
   openFolderCrumb,
+  selectionMoved,
   useFolderBrowsing
 } from './useFolderBrowsing'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
@@ -143,6 +144,37 @@ describe('an open that lands after a sweep (#263)', () => {
     tab.browse.history[0].selected = 'C:\\project\\v3.mp4'
     const tabs = arrivalSelection([tab], tab.id, 'C:\\project\\v1.mp4', true)
     expect(browseLocation(tabs[0].browse).selected).toBe('C:\\project\\v3.mp4')
+  })
+})
+
+describe('the way out of a zip loses to a landing mark (#70, #101, #334)', () => {
+  // Out of a zip, the zip is marked and its preview comes back. A drag that
+  // extracted a member to the folder marks what landed. When both are judged
+  // in the same commit, the list's landing mark runs first (a child's effect)
+  // and the way-out open is asked after it: its count of marks then saw no
+  // change, and its landing took the selection back to the zip (the drag
+  // e2e, 1 in 38). The open judged on the zip being marked: once the tab
+  // marks something else, it is not the way out any more.
+  const zip = 'C:\\project\\dragzip.zip'
+  const carried = 'C:\\project\\carry.txt'
+
+  it('a mark that moved off the zip keeps its row', () => {
+    const tab = restored()
+    tab.browse.history[0].selected = carried
+    expect(selectionMoved([tab], tab.id, zip)).toBe(true)
+    const tabs = arrivalSelection([tab], tab.id, zip, selectionMoved([tab], tab.id, zip))
+    expect(browseLocation(tabs[0].browse).selected).toBe(carried)
+  })
+
+  it('still on the zip, the open takes it as before', () => {
+    const tab = restored()
+    tab.browse.history[0].selected = 'c:\\PROJECT\\dragzip.zip'
+    expect(selectionMoved([tab], tab.id, zip)).toBe(false)
+    expect(browseLocation(arrivalSelection([tab], tab.id, zip, false)[0].browse).selected).toBe(zip)
+  })
+
+  it('a tab that is gone moved nothing', () => {
+    expect(selectionMoved([], 'nobody', zip)).toBe(false)
   })
 })
 

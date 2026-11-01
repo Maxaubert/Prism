@@ -8,6 +8,7 @@ import { useFolderDrop } from './useFolderDrop'
 import { fileDragProps } from '../../lib/drag/fileDrag'
 import { KindIcon } from '../icons/FileIcons'
 import { browsableArchive } from '@shared/archivePlace'
+import type { ArchiveMeta } from '@shared/types'
 import './archive.css'
 import { hiddenTitle, isClipped } from 'prism-term-core/renderer/lib/hiddenTitle'
 
@@ -43,10 +44,13 @@ type Props = Pick<
    *  wear the archive icon. Before main has answered, a crumb named like an
    *  archive with more path after it is taken to be one. */
   archiveChain?: string[]
+  /** The listing's own archive (#70): a crumb inside it drops by its answer
+   *  (read-only, its real container), not a guess from the path. */
+  archive?: ArchiveMeta | null
 }
 
 export function BrowseToolbar(props: Props): JSX.Element {
-  const folderDrop = useFolderDrop(props.onDropInto)
+  const folderDrop = useFolderDrop(props.onDropInto, props.archive)
   const [editing, setEditing] = useState(false)
   /** The address bar's right-click menu (owner, 2026-09-22: "let me right
    *  click the url bar to get options to copy path or copy as text, like File

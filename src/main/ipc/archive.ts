@@ -12,7 +12,8 @@ import type {
   ExtractFail,
   ExtractFailure,
   ExtractToResult,
-  MemberExtractResult
+  MemberExtractResult,
+  StageResult
 } from '@shared/extraction'
 import { holders } from '../holders'
 import { userPaths } from '../paths'
@@ -45,6 +46,7 @@ import { windows } from '../appState'
 import { sevenExe } from '../bundledTools'
 import { openDialog, type DialogOwner } from '../dialogs'
 import type { MainCtx } from './context'
+import { ZipStage } from '../zipStage'
 
 /** The archive bodies the phone's routes share with these handlers (#106):
  *  no wall in them; each side checks its own. */
@@ -168,9 +170,10 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     destDir: string,
     pw: string,
     asksPassword: boolean,
-    who: DialogOwner
+    who: DialogOwner,
+    shownDest = destDir
   ): Promise<ExtractToResult> {
-    const job = beginJob({ archive: basename(zip), dest: destDir, asksPassword }, who)
+    const job = beginJob({ archive: basename(zip), dest: shownDest, asksPassword }, who)
     if (!job) return BUSY
     try {
       // A .7z/.rar/.iso is not a zip: adm-zip cannot read one, so dragging a
@@ -214,6 +217,39 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
       return membersOut(zip, entries, destDir, pw, !!asksPassword, e.sender)
     }
   )
+
+  /**
+   * ZIP A TO ZIP B (#70 D9; owner approved the spec "as recommended",
+   * 2026-11-01; review fix the same day): the members out to a staging
+   * folder in the run's member folder, through the extraction window, so a
+   * big copy has its progress and Cancel and leaves nothing behind. The page
+   * adds the answer's paths to the other zip, then drops the folder. The
+   * caller asks for a password and tries again.
+   */
+  const stage = new ZipStage(memberTemp.dir)
+  ipcMain.handle(
+    CALL.archiveStageMembers,
+    async (e, zip: string, entries: unknown, password?: string, toZip?: string): Promise<StageResult> => {
+      if (!archiveReadOk(zip) || !Array.isArray(entries) || !entries.every((x) => typeof x === 'string'))
+        return refused(zip, '', e.sender)
+      const dir = await stage.make()
+      const out = await membersOut(
+        zip,
+        entries as string[],
+        dir,
+        typeof password === 'string' ? password : '',
+        true,
+        e.sender,
+        typeof toZip === 'string' ? toZip : dir
+      )
+      if (!out.ok) {
+        await stage.drop(dir)
+        return out
+      }
+      return { ok: true, dir, paths: out.paths }
+    }
+  )
+  ipcMain.handle(CALL.archiveUnstage, (_e, dir: unknown) => stage.drop(dir))
 
   /**
    * Members OUT to a folder the user PICKS (2026-09-03, owner: "Extract

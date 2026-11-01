@@ -9114,6 +9114,11 @@ async function sidebarPlacesScenario(fixtures) {
     await quickPin(0).dragTo(lastQuick, { targetPosition: { x: 20, y: Math.max(1, Math.floor(lastBox.height) - 3) } })
     const q2 = [...q1.slice(1), q1[0]]
     ok(await until(async () => JSON.stringify(await quickOrder()) === JSON.stringify(q2), 5000), `a drag onto the last row's bottom half moves a pin to the end (${await quickOrder()}, want ${q2})`)
+    // A carried pin says no Move or Copy under it (#70 review, 2026-11-01):
+    // a reorder is not a file operation, and the word never showed for it.
+    const pinWord = await carryOver(win, quickPin(0), quickPin(1), { release: 'escape' })
+    ok(pinWord === '', `a carried pin shows no word under it (${JSON.stringify(pinWord)})`)
+    ok(JSON.stringify(await quickOrder()) === JSON.stringify(q2), 'and Escape left the order as it was')
     // A drop on the section's heading is the end too (no row under it).
     await quickPin(0).dragTo(places.locator('section[aria-label="Quick access"] h2'))
     const q3 = [...q2.slice(1), q2[0]]
@@ -12189,7 +12194,7 @@ async function dropBackScenario(fixtures) {
   const outside = join(dir, 'outside')
   mkdirSync(outside, { recursive: true })
   writeFileSync(join(dir, 'anchor.txt'), 'stay')
-  for (const n of ['mine.txt', 'theirs.txt', 'other.txt', 'decoy.txt', 'tabcopy.txt', 'tabmove.txt', 'zcopy.txt', 'zmove.txt', 'shown.txt', 'member.txt'])
+  for (const n of ['mine.txt', 'theirs.txt', 'other.txt', 'decoy.txt', 'tabcopy.txt', 'tabmove.txt', 'zcopy.txt', 'zmove.txt', 'shown.txt', 'member.txt', 'ctrlcopy.txt'])
     writeFileSync(join(outside, n), `drop back ${n}\n`)
   const AdmZip = (await import('adm-zip')).default
   const zipPath = join(dir, 'box.zip')
@@ -12204,7 +12209,7 @@ async function dropBackScenario(fixtures) {
   const INTO = '[data-testid="browse-list"] [data-browse-path$="\\\\into" i]'
   /** Drop `paths` (real files) on the element `target` names (the `into` row
    *  by default), as Windows delivers a drop. */
-  const drop = async (paths, target = INTO, overOnly = false) => {
+  const drop = async (paths, target = INTO, overOnly = false, ctrl = false) => {
     await win.evaluate(() => {
       document.getElementById('e2e-drop-input')?.remove()
       const input = document.createElement('input')
@@ -12215,7 +12220,7 @@ async function dropBackScenario(fixtures) {
       document.body.append(input)
     })
     await win.setInputFiles('#e2e-drop-input', paths)
-    return win.evaluate(([sel, only]) => {
+    return win.evaluate(([sel, only, withCtrl]) => {
       const input = document.getElementById('e2e-drop-input')
       const dt = new DataTransfer()
       for (const f of input.files) dt.items.add(f)
@@ -12224,7 +12229,7 @@ async function dropBackScenario(fixtures) {
       const row = sel === 'window' ? document.body : document.querySelector(sel)
       if (!row) return null
       const r = row.getBoundingClientRect()
-      const opts = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 20, clientY: r.top + r.height / 2 }
+      const opts = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 20, clientY: r.top + r.height / 2, ctrlKey: withCtrl }
       row.dispatchEvent(new DragEvent('dragenter', opts))
       // What the target says the drop would do, caught as it is set: a
       // page-made DataTransfer does not keep it past its event.
@@ -12242,7 +12247,7 @@ async function dropBackScenario(fixtures) {
       if (!only) row.dispatchEvent(new DragEvent('drop', opts))
       input.remove()
       return { effect, files: dt.files.length }
-    }, [target, overOnly])
+    }, [target, overOnly, ctrl])
   }
   /** Main's record of an OS drag, as if Prism's own drag had left a window. */
   const own = async (paths, cargo) => {
@@ -12276,6 +12281,15 @@ async function dropBackScenario(fixtures) {
     ok(existsSync(join(dir, 'into', 'mine.txt')) && !existsSync(join(outside, 'mine.txt')), "Prism's own drag dropped back MOVES the file")
     await dragFake.end(app)
     await sleep(1800) // past the renderer's grace for the end message
+
+    /* ---------- its own cargo with Ctrl held at the drop: a COPY (#70 D11) ---------- */
+    await own([join(outside, 'ctrlcopy.txt')])
+    await drop([join(outside, 'ctrlcopy.txt')], INTO, false, true)
+    await until(async () => existsSync(join(dir, 'into', 'ctrlcopy.txt')), 8000, 100)
+    ok(existsSync(join(dir, 'into', 'ctrlcopy.txt')), 'Ctrl on a drop from another Prism window lands the file')
+    await sleep(400)
+    ok(existsSync(join(outside, 'ctrlcopy.txt')), 'AS A COPY: the source stays where it was')
+    await ended()
 
     /* ---------- a record for OTHER paths: a COPY, never the recorded file ---------- */
     await dragFake.start(app, [join(outside, 'decoy.txt')])
@@ -12500,6 +12514,7 @@ async function dragScenario(fixtures) {
       // NOTHING while it extracted (#166): it is the same window now as every
       // other way of extracting.
       await inZip(win, join(fixtures, 'zips', 'dragzip.zip'))
+      const dropAt = Date.now()
       await throughTheWindow(win, 'a member dragged out onto a folder', 'dragzip.zip', () =>
         win
           .locator('[data-testid="browse-list"] .browse-row', { hasText: 'carry.txt' })
@@ -12507,12 +12522,26 @@ async function dragScenario(fixtures) {
           .locator('.browse-name-text')
           .dragTo(win.locator(`.browse-crumb button[data-crumb-path="${join(fixtures, 'zips').replace(/\\/g, '\\\\')}"]`))
       )
-      ok(existsSync(join(fixtures, 'zips', 'carry.txt')), 'a member dragged out of the zip landed in the folder')
-      rmSync(join(fixtures, 'zips', 'carry.txt'), { force: true })
+      ok(existsSync(join(fixtures, 'zips', 'carry.txt')), `a member dragged out of the zip landed in the folder (${Date.now() - dropAt} ms)`)
       // A FOLDER dragged onto the tab strip opens as a tab of its own. The
-      // zip is behind us: the list is in the zips folder again.
-      await win.locator('.browse-toolbar [aria-label="Up"]').click().catch(() => {})
+      // zip is behind us: the list is in the zips folder again. Its address is
+      // the zip's parent, so this is the way out too: the zip is marked and
+      // its preview opens (#334). The extraction's landing mark must win that
+      // (`selectionMoved`): judged in the same commit, the way-out open took
+      // the selection back to the zip (1 run in 38).
+      await zipGo(win, join(fixtures, 'zips'), async () => (await listRow(win, 'out').count()) === 1)
       await listRow(win, 'out').waitFor({ timeout: 10000 })
+      // WHAT THE EXTRACTION WROTE IS MARKED (#70, #101): the drag's own
+      // extraction names what landed, so the list showing it marks the row.
+      ok(
+        await until(
+          async () => (await markedNames(win)).includes('carry.txt'),
+          8000,
+          150
+        ),
+        `and the extracted file is marked in the list (${await markedNames(win)})`
+      )
+      rmSync(join(fixtures, 'zips', 'carry.txt'), { force: true })
       const tabsBefore = await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()
       // Aimed at the EMPTY space after the +, which is where a drop is
       // naturally made and where the window-drag region used to swallow it.
@@ -12535,6 +12564,403 @@ async function dragScenario(fixtures) {
   // the same breathing room the runner leaves between scenarios, or the next
   // launch forwards its file to a window that is already going away.
   await sleep(900)
+}
+
+/* ---------- DRAG IN THE EXPLORER: move, copy, add, extract (#70) ----------
+ * Owner approved the spec "as recommended", 2026-11-01
+ * (docs/superpowers/specs/2026-11-01-drag-move-spec.md). One rule
+ * everywhere, Windows' rule: a plain drag moves on the same drive and copies
+ * to another, Ctrl copies, Shift moves; onto a zip it adds; zip members
+ * extract, move inside their zip, or copy into another. Every drag below is a
+ * REAL press and travel (the in-app carry), and the word under the carried
+ * row is read mid-drag, then checked against what the drop really did. */
+
+/** The word under the carried row now ('' when it says nothing: no-drop). */
+const dragWord = (win) =>
+  win.evaluate(() => {
+    const e = document.querySelector('[data-file-drag-badge] [data-drag-effect]')
+    return e && !e.hidden ? (e.textContent ?? '') : ''
+  })
+
+/** The centre of a locator's row (or a point as given). */
+async function pointOf(target) {
+  if (typeof target?.boundingBox !== 'function') return target
+  const b = await target.boundingBox()
+  return b ? { x: b.x + Math.min(40, b.width / 2), y: b.y + b.height / 2 } : null
+}
+
+/**
+ * Press on `from`, hold `keys` (Control, Shift) once the press is down, and
+ * travel to `to`; answer the word there. `release`: 'drop' lets go,
+ * 'escape' cancels, 'hold' keeps the button (and the keys) down.
+ */
+async function carryOver(win, from, to, { keys = [], release = 'drop', settle = 300 } = {}) {
+  const a = await pointOf(from)
+  const b = await pointOf(to)
+  if (!a || !b) return null
+  await win.mouse.move(a.x, a.y)
+  await win.mouse.down()
+  for (const k of keys) await win.keyboard.down(k)
+  await win.mouse.move(a.x + 12, a.y + 8, { steps: 3 })
+  await win.mouse.move(b.x, b.y, { steps: 12 })
+  await sleep(settle)
+  const word = await dragWord(win)
+  if (release === 'drop') await win.mouse.up()
+  else if (release === 'escape') {
+    await win.keyboard.press('Escape')
+    await win.mouse.up()
+  }
+  if (release !== 'hold') for (const k of keys) await win.keyboard.up(k)
+  await sleep(200)
+  return word
+}
+
+/** The marked rows of the list (#101), by name. */
+const markedNames = (win) =>
+  win.evaluate(() =>
+    [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]')].map(
+      (r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0] ?? ''
+    )
+  )
+
+/** The empty space at the bottom of the list (the folder on screen). */
+async function listSpace(win) {
+  const box = await win.locator('[data-testid="browse-list"]').boundingBox()
+  return { x: box.x + box.width / 2, y: box.y + box.height - 24 }
+}
+
+/** A 7z of `files` ({ name: text }) at `path`, by the bundled 7-Zip. */
+function make7z(path, files) {
+  const src = `${path}.src`
+  rmSync(src, { recursive: true, force: true })
+  for (const [name, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(src, name)), { recursive: true })
+    writeFileSync(join(src, name), text)
+  }
+  execFileSync(join(ROOT, 'vendor', '7zip', '7z.exe'), ['a', '-t7z', path, join(src, '*')], { windowsHide: true, stdio: 'ignore' })
+  rmSync(src, { recursive: true, force: true })
+}
+
+async function dragCopyScenario(fixtures) {
+  console.log('drag: Ctrl copies, Shift moves, the word says which (#70)')
+  const dir = join(fixtures, 'dragcopy')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'into'), { recursive: true })
+  for (const n of ['anchor.txt', 'a.txt', 'b.txt', 'c.txt']) writeFileSync(join(dir, n), `drag copy ${n}\n`)
+  const { app, win } = await launch(join(dir, 'anchor.txt'))
+  const name = (n) => listRow(win, n).locator('.browse-name-text')
+  try {
+    await toList(win)
+    await listRow(win, 'a.txt').waitFor({ timeout: 10000 })
+    await sleep(400)
+    // Plain over the folder it is in: nothing to do, nothing said.
+    ok((await carryOver(win, name('a.txt'), await listSpace(win), { release: 'escape' })) === '', 'a plain drag over its own folder says nothing (no-drop)')
+    // Ctrl onto a folder: Copy, and the original stays.
+    const w1 = await carryOver(win, name('a.txt'), listRow(win, 'into'), { keys: ['Control'] })
+    ok(w1 === 'Copy', `Ctrl over a folder reads Copy (${w1})`)
+    ok(await until(async () => existsSync(join(dir, 'into', 'a.txt')), 8000, 100), 'Ctrl+drag copied the file into the folder')
+    ok(existsSync(join(dir, 'a.txt')), 'and the original stayed')
+    // Ctrl onto ITSELF, or onto another carried row: no-drop, nothing made
+    // (#70 review, 2026-11-01). Ctrl is the select toggle too, so a
+    // Ctrl+click that wandered a few pixels must not duplicate.
+    const self = await carryOver(win, name('a.txt'), name('a.txt'), { keys: ['Control'] })
+    ok(self === '', `Ctrl over its own row says nothing (${JSON.stringify(self)})`)
+    await name('a.txt').click()
+    await name('c.txt').click({ modifiers: ['Control'] })
+    const both = await carryOver(win, name('a.txt'), name('c.txt'), { keys: ['Control'] })
+    ok(both === '', `Ctrl over another carried row says nothing (${JSON.stringify(both)})`)
+    await sleep(800)
+    ok(!existsSync(join(dir, 'a (2).txt')) && !existsSync(join(dir, 'c (2).txt')), 'and neither drop made a copy')
+    await name('anchor.txt').click()
+    // Ctrl onto its OWN folder: a duplicate, "a (2).txt", marked (G10).
+    const w2 = await carryOver(win, name('a.txt'), await listSpace(win), { keys: ['Control'] })
+    ok(w2 === 'Copy', `Ctrl over its own folder reads Copy (${w2})`)
+    ok(await until(async () => existsSync(join(dir, 'a (2).txt')), 8000, 100), 'Ctrl onto its own folder made "a (2).txt"')
+    ok(await until(async () => (await markedNames(win)).includes('a (2).txt'), 8000, 150), `and the copy is marked (${await markedNames(win)})`)
+    // Ctrl let go mid-drag: Move, and it moves.
+    const w3 = await carryOver(win, name('b.txt'), listRow(win, 'into'), { keys: ['Control'], release: 'hold' })
+    ok(w3 === 'Copy', `with Ctrl held the word is Copy (${w3})`)
+    await win.keyboard.up('Control')
+    const at = await pointOf(listRow(win, 'into'))
+    await win.mouse.move(at.x + 2, at.y, { steps: 2 })
+    await sleep(300)
+    const w4 = await dragWord(win)
+    ok(w4 === 'Move', `Ctrl let go mid-drag turns it to Move (${w4})`)
+    await win.mouse.up()
+    ok(await until(async () => existsSync(join(dir, 'into', 'b.txt')) && !existsSync(join(dir, 'b.txt')), 8000, 100), 'and the drop moved it')
+    // Shift reads Move.
+    const w5 = await carryOver(win, name('c.txt'), listRow(win, 'into'), { keys: ['Shift'], release: 'escape' })
+    ok(w5 === 'Move', `Shift reads Move (${w5})`)
+    await sleep(300)
+    ok(existsSync(join(dir, 'c.txt')) && !existsSync(join(dir, 'into', 'c.txt')), 'and Escape dropped nothing')
+  } finally {
+    await app.close()
+  }
+}
+
+async function dragDriveScenario(fixtures) {
+  console.log('drag: another drive copies, Shift moves (#70 D2)')
+  if (process.env.CI) {
+    console.log('  skip  CI has one volume; the rule itself is held by dropVerb.test.ts')
+    return
+  }
+  const dir = join(fixtures, 'dragdrive')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'anchor.txt'), 'anchor\n')
+  writeFileSync(join(dir, 'far.txt'), 'goes nowhere\n')
+  const { app, win } = await launch(join(dir, 'anchor.txt'))
+  try {
+    await toList(win)
+    await listRow(win, 'far.txt').waitFor({ timeout: 10000 })
+    await sleep(400)
+    // A drive in the places panel other than the fixtures' own.
+    const home = fixtures.slice(0, 2).toUpperCase()
+    const drive = await win.evaluate((h) => {
+      const all = [...document.querySelectorAll('.browse-place[data-folder-drop]')].map((e) => e.getAttribute('data-folder-drop') ?? '')
+      return all.find((p) => /^[A-Z]:\\?$/i.test(p) && p.slice(0, 2).toUpperCase() !== h) ?? null
+    }, home)
+    if (!drive) {
+      console.log('  skip  this machine shows no second volume in the places panel')
+      return
+    }
+    const place = win.locator(`.browse-place[data-folder-drop="${drive.replace(/\\/g, '\\\\')}"]`).first()
+    const from = listRow(win, 'far.txt').locator('.browse-name-text')
+    const plain = await carryOver(win, from, place, { release: 'escape' })
+    ok(plain === 'Copy', `a plain drag onto ${drive} reads Copy (${plain})`)
+    const shift = await carryOver(win, from, place, { keys: ['Shift'], release: 'escape' })
+    ok(shift === 'Move', `Shift onto ${drive} reads Move (${shift})`)
+    const ctrl = await carryOver(win, from, place, { keys: ['Control'], release: 'escape' })
+    ok(ctrl === 'Copy', `Ctrl onto ${drive} reads Copy (${ctrl})`)
+    ok(existsSync(join(dir, 'far.txt')), 'and nothing was dropped')
+  } finally {
+    await app.close()
+  }
+}
+
+async function dragZipRowScenario(fixtures) {
+  console.log('drag: onto a zip row adds, a 7z row refuses (#70 D6)')
+  const AdmZip = (await import('adm-zip')).default
+  const dir = join(fixtures, 'dragziprow')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['anchor.txt', 'a.txt', 'b.txt', 'c.txt']) writeFileSync(join(dir, n), `zip row ${n}\n`)
+  const zipPath = join(dir, 'box.zip')
+  {
+    const z = new AdmZip()
+    z.addFile('keep.txt', Buffer.from('keep'))
+    z.writeZip(zipPath)
+  }
+  make7z(join(dir, 'locked.7z'), { 'note.txt': 'in a 7z\n' })
+  const names = () => new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+  const { app, win } = await launch(join(dir, 'anchor.txt'))
+  const name = (n) => listRow(win, n).locator('.browse-name-text')
+  try {
+    await toList(win)
+    await listRow(win, 'box.zip').waitFor({ timeout: 10000 })
+    await sleep(400)
+    const w1 = await carryOver(win, name('a.txt'), listRow(win, 'box.zip'))
+    ok(w1 === 'Move', `a row over a zip row reads Move (${w1})`)
+    ok(await until(async () => names().includes('a.txt'), 10000, 150), `dropped on the zip row, it was added (${names()})`)
+    ok(await until(async () => !existsSync(join(dir, 'a.txt')), 6000, 100), 'and the original went to the Recycle Bin')
+    await sleep(500)
+    await win.locator('[data-testid="browse-list"] .browse-row').first().click()
+    await win.keyboard.press('Control+z')
+    const undid = await until(async () => /Undid/.test((await win.locator('body').textContent()) ?? ''), 6000, 100)
+    ok(undid, `Ctrl+Z undid the add (${undid ? 'said so' : 'nothing said'})`)
+    ok(await until(async () => !names().includes('a.txt'), 10000, 150), `it left the zip (${names()})`)
+    // As long as main gives the restore (its PowerShell has 20 s): on a busy
+    // PC it took past the old 15 s once and the file came back after.
+    ok(await until(async () => existsSync(join(dir, 'a.txt')), 22000, 150), 'and the original came back from the Recycle Bin')
+    // The undo is over only when its row is back in the LIST and marked (the
+    // inverse's last step). The file is on disk before the list has re-read:
+    // a drag aimed then measured the rows without a.txt, and the row a.txt
+    // pushed in moved everything down a row under the press: Ctrl carried
+    // anchor.txt (or a.txt) onto b.txt or a row before it, never b.txt onto
+    // the zip, so the word was '' or a duplicate's Copy and the zip got nothing.
+    ok(await until(async () => (await markedNames(win)).includes('a.txt'), 10000, 150), `and it is back in the list, marked (${await markedNames(win)})`)
+    const w2 = await carryOver(win, name('b.txt'), listRow(win, 'box.zip'), { keys: ['Control'] })
+    ok(w2 === 'Copy', `Ctrl over a zip row reads Copy (${w2})`)
+    ok(await until(async () => names().includes('b.txt'), 10000, 150), 'Ctrl added it to the zip')
+    await sleep(500)
+    ok(existsSync(join(dir, 'b.txt')), 'and the original stayed')
+    const w3 = await carryOver(win, name('c.txt'), listRow(win, 'locked.7z'), { release: 'escape' })
+    ok(w3 === '', `a 7z row shows no-drop (${JSON.stringify(w3)})`)
+    ok((await win.locator('[data-testid="browse-list"] [data-browse-path$="locked.7z" i][data-drag-over]').count()) === 0, 'and is not marked as a target')
+  } finally {
+    await app.close()
+  }
+}
+
+async function dragZipInsideScenario(fixtures) {
+  console.log('drag: inside a zip, a move with Keep both, undo and marks (#70 D7, D8)')
+  const AdmZip = (await import('adm-zip')).default
+  const dir = join(fixtures, 'dragzipinside')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'anchor.txt'), 'anchor\n')
+  const zipPath = join(dir, 'inside.zip')
+  {
+    const z = new AdmZip()
+    z.addFile('top.txt', Buffer.from('the top one'))
+    z.addFile('other.txt', Buffer.from('the other one'))
+    z.addFile('docs/top.txt', Buffer.from('already in docs'))
+    z.addFile('sub/keep.txt', Buffer.from('keep'))
+    z.writeZip(zipPath)
+  }
+  const names = () => new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+  const { app, win } = await launch(join(dir, 'anchor.txt'))
+  const name = (suffix) => zipRow(win, suffix).first().locator('.browse-name-text')
+  try {
+    await inZip(win, zipPath)
+    await zipRow(win, 'other.txt').first().waitFor({ timeout: 10000 })
+    await sleep(400)
+    // A taken name asks Keep both (D7).
+    const w1 = await carryOver(win, name('top.txt'), zipRow(win, '\\docs').first())
+    ok(w1 === 'Move', `a member over a folder of its own zip reads Move (${w1})`)
+    await win.waitForSelector('[role="dialog"]:has-text("already in the archive")', { timeout: 8000 })
+    ok(true, 'a taken name asks')
+    await win.locator('[role="dialog"] button', { hasText: 'Keep both' }).click()
+    ok(await until(async () => names().includes('docs/top (2).txt') && !names().includes('top.txt'), 10000, 150), `Keep both moved it in as "top (2).txt" (${names()})`)
+    // A plain move, then undo and redo (D8).
+    await sleep(500)
+    const w2 = await carryOver(win, name('other.txt'), zipRow(win, '\\sub').first())
+    ok(w2 === 'Move', `reads Move (${w2})`)
+    ok(await until(async () => names().includes('sub/other.txt') && !names().includes('other.txt'), 10000, 150), 'the member moved inside the zip')
+    await zipRow(win, '\\sub').first().dblclick()
+    ok(await until(async () => (await markedNames(win)).includes('other.txt'), 8000, 150), `and it is marked where it landed (${await markedNames(win)})`)
+    await win.keyboard.press('Control+z')
+    ok(await until(async () => names().includes('other.txt') && !names().includes('sub/other.txt'), 10000, 150), `Ctrl+Z moved it back (${names()})`)
+    await win.keyboard.press('Control+y')
+    ok(await until(async () => names().includes('sub/other.txt') && !names().includes('other.txt'), 10000, 150), 'Ctrl+Y moved it again')
+  } finally {
+    await app.close()
+  }
+}
+
+async function dragZipToZipScenario(fixtures) {
+  console.log('drag: members of one zip into another are copied (#70 D9)')
+  const AdmZip = (await import('adm-zip')).default
+  const dir = join(fixtures, 'dragziptozip')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'beside the zips\n')
+  const a = join(dir, 'a.zip')
+  const b = join(dir, 'b.zip')
+  {
+    const z = new AdmZip()
+    z.addFile('one.txt', Buffer.from('from zip a'))
+    z.addFile('folder/two.txt', Buffer.from('a folder from zip a'))
+    z.writeZip(a)
+    const y = new AdmZip()
+    y.addFile('keep.txt', Buffer.from('keep'))
+    y.writeZip(b)
+  }
+  const names = (p) => new AdmZip(p).getEntries().map((e) => e.entryName)
+  writeTabs({ active: 0, tabs: [explorerTab('fixture-explorer', dir, a, true), explorerTab('zip-b', dir, b, false)] })
+  const app = await startApp({ env: NO_INDEX })
+  try {
+    const win = await app.firstWindow()
+    await offscreen(app)
+    ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('one.txt')), 15000), 'the first tab is inside zip A')
+    await sleep(400)
+    const tabB = win.locator(`[data-tab][data-folder-drop="${b.replace(/\\/g, '\\\\')}" i]`).first()
+    const w1 = await carryOver(win, zipRow(win, 'one.txt').first().locator('.browse-name-text'), tabB, { settle: 250 })
+    ok(w1 === 'Copy', `a member over another zip's tab reads Copy (${w1})`)
+    ok(await until(async () => names(b).includes('one.txt'), 15000, 150), `copied into zip B (${names(b)})`)
+    ok(names(a).includes('one.txt'), 'and zip A is unchanged')
+    // A FOLDER member too, and nothing is left behind (#70 review,
+    // 2026-11-01): the copy stages in the run's member folder and drops the
+    // staging folder once added; it used to leave a prism-arcdir-* in temp.
+    const arcdirs = () => readdirSync(tmpdir()).filter((n) => n.startsWith('prism-arcdir-')).sort().join('|')
+    const stages = () => {
+      const root = join(tmpdir(), 'prism-members')
+      return existsSync(root)
+        ? readdirSync(root, { recursive: true }).filter((f) => /(^|[\\/])zipcopy-[^\\/]*$/.test(String(f))).length
+        : 0
+    }
+    const arcBefore = arcdirs()
+    await sleep(600)
+    const w2 = await carryOver(win, zipRow(win, '\\folder').first().locator('.browse-name-text'), tabB, { settle: 250 })
+    ok(w2 === 'Copy', `a folder member over another zip's tab reads Copy (${w2})`)
+    ok(await until(async () => names(b).includes('folder/two.txt'), 15000, 150), `the folder was copied into zip B whole (${names(b)})`)
+    ok(names(a).includes('folder/two.txt'), 'and zip A still has it')
+    ok(await until(async () => stages() === 0, 5000, 150), `the staging folder is gone (${stages()} left)`)
+    ok(arcdirs() === arcBefore, `and no prism-arcdir-* was left in temp (${arcdirs()})`)
+  } finally {
+    await app.close()
+  }
+}
+
+async function dragHoverTabScenario(fixtures) {
+  console.log('drag: a background tab held 0.6 s comes to the front (#70 D12)')
+  const dir = join(fixtures, 'draghovertab')
+  const other = join(fixtures, 'draghovertab-other')
+  for (const d of [dir, other]) rmSync(d, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  mkdirSync(join(other, 'deep'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'here\n')
+  writeFileSync(join(dir, 'carried.txt'), 'carry me to the other tab\n')
+  writeFileSync(join(other, 'there.txt'), 'there\n')
+  writeTabs({ active: 0, tabs: [explorerTab('fixture-explorer', dir, dir, true), explorerTab('other', other, other, false)] })
+  const app = await startApp({ env: NO_INDEX })
+  try {
+    const win = await app.firstWindow()
+    await offscreen(app)
+    await listRow(win, 'carried.txt').waitFor({ timeout: 15000 })
+    await sleep(400)
+    const tab = win.locator(`[data-tab][data-folder-drop="${other.replace(/\\/g, '\\\\')}" i]`).first()
+    const selected = () => tab.locator('[role="tab"]').getAttribute('aria-selected')
+    ok((await selected()) === 'false', 'the other tab starts in the background')
+    // Held over the tab, short of 0.6 s: still in the background.
+    await carryOver(win, listRow(win, 'carried.txt').locator('.browse-name-text'), tab, { release: 'hold', settle: 250 })
+    ok((await selected()) === 'false', 'a quarter second over it does not switch')
+    // Wandering ACROSS the tab (its icon, label and close) keeps the wait
+    // going (#70 review, 2026-11-01): the carry's leave between its own
+    // parts used to restart it. 0.6 s after the tab was reached, but well
+    // under 0.6 s after the last crossing, it is in front.
+    await sleep(150)
+    const tb = await tab.boundingBox()
+    const cy = tb.y + tb.height / 2
+    await win.mouse.move(tb.x + 6, cy, { steps: 6 })
+    await win.mouse.move(tb.x + tb.width - 6, cy, { steps: 10 })
+    await win.mouse.move(tb.x + tb.width / 2, cy, { steps: 6 })
+    await sleep(350)
+    ok((await selected()) === 'true', 'held 0.6 s, crossing its icon and label, it comes to the front')
+    await listRow(win, 'deep').waitFor({ timeout: 8000 })
+    const deep = await pointOf(listRow(win, 'deep'))
+    await win.mouse.move(deep.x, deep.y, { steps: 10 })
+    await sleep(300)
+    const word = await dragWord(win)
+    ok(word === 'Move', `over a folder in its list it reads Move (${word})`)
+    await win.mouse.up()
+    ok(await until(async () => existsSync(join(other, 'deep', 'carried.txt')) && !existsSync(join(dir, 'carried.txt')), 8000, 100), 'dropped in that tab’s list, it moved there')
+  } finally {
+    await app.close()
+  }
+}
+
+async function dragReadOnlyScenario(fixtures) {
+  console.log('drag: a read-only archive shows no-drop and says nothing (#70 G6)')
+  const dir = join(fixtures, 'dragreadonly')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'anchor.txt'), 'anchor\n')
+  const seven = join(dir, 'locked.7z')
+  make7z(seven, { 'top.txt': 'at the top\n', 'inside/note.txt': 'in a 7z\n' })
+  const { app, win } = await launch(join(dir, 'anchor.txt'))
+  try {
+    await inZip(win, seven)
+    await zipRow(win, 'top.txt').first().waitFor({ timeout: 10000 })
+    await sleep(400)
+    const w = await carryOver(win, zipRow(win, 'top.txt').first().locator('.browse-name-text'), zipRow(win, '\\inside').first())
+    ok(w === '', `a member over a folder of a 7z shows no-drop (${JSON.stringify(w)})`)
+    await sleep(600)
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'and the drop says nothing')
+    ok((await zipRows(win)).some((p) => p.endsWith('top.txt')), 'and the member stayed where it was')
+  } finally {
+    await app.close()
+  }
 }
 
 /**
@@ -17974,9 +18400,9 @@ async function zipWritesScenario(fixtures) {
     ok(existsSync(addMe), 'and left the original where it was')
     // A Prism row dragged into the zip: added, its original binned, undoable.
     await win.screenshot({ path: join(SHOTS, 'zip-writes.png') })
-    // (A Prism row dropped on a zip's own row in the list - the tree's zip
-    // node took it - is not a gesture the Explorer has; the large write below
-    // is the same add.)
+    // (A Prism row dropped on a zip's own row in the list adds to it since
+    // #70 D6: dragZipRow holds that gesture. The large write below is the
+    // same add.)
     // A large write: 160 MB that does not compress, so the deflate and the
     // rewrite take a while. The page times a cheap IPC round trip throughout.
     const big = join(dir, 'big.bin')
@@ -19469,6 +19895,13 @@ await run(dragOutRowScenario)
 await run(dragOutMemberScenario)
 await run(dragOutViewerScenario)
 await run(dropBackScenario)
+await run(dragCopyScenario)
+await run(dragDriveScenario)
+await run(dragZipRowScenario)
+await run(dragZipInsideScenario)
+await run(dragZipToZipScenario)
+await run(dragHoverTabScenario)
+await run(dragReadOnlyScenario)
 await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(marqueeEdgeScenario)
