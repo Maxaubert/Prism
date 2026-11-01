@@ -567,6 +567,28 @@ viewer open, but Settings' Escape as the last tab still closed the window (2026-
   dialog and the delete question each close on Escape, and nothing closes the window) and `settingsLastTab`
   (Escape on Settings as the last tab leaves it open).
 
+## The players take their look from the host (#29, owner, 2026-11-01)
+
+Owner, 2026-11-01: "AudioView/VideoView are wired to Prism's settings, which blocks moving the viewer into the
+shared prism-core package". The players no longer import Prism's viz store (`lib/viz/vizStore`) or app theme
+(`lib/theme`); they read a narrow context, `lib/viz/mediaLook.ts` (the visualizer and progress-bar settings, a
+scheme resolver, a stage width to its classes), and Prism installs its stores behind it
+(`components/PrismMediaLook`, wrapped round both players in `ViewerSwitch`, so the stage, the phone and an
+archive's preview all get it). Filesmith would install its own.
+
+- **No behaviour change**: the same settings, defaults and persistence; the accent scheme still resolves against
+  the live app style, at the same moment (the player's render).
+- **No package yet**: nothing is extracted. `playerPrefs` (loop, autoplay), `PlayerMenu`, `useWaveform` and the
+  `window.prism` calls still tie the players to Prism; they are the next step when `prism-core` happens.
+- **The players get exactly the 15 settings** `MediaVizSettings` names, copied field by field
+  (`lib/viz/prismMediaLook.ts`), so the store's own presets and removed themes never reach them, and a new field
+  fails to compile until Prism supplies it. **A Settings change reaches a playing player at once**: the provider
+  reads the store through `useViz()` (the subscribing hook), never a one-time `vizState()`.
+- **Held by** `components/mediaLook.test.ts` (nothing either player imports, at any depth and in any spelling,
+  is the store or the theme; the look is exactly the 15 store values, `resolveVizTheme` and `WIDTHS`; a player
+  with no host throws), `components/PrismMediaLook.test.ts` (a new store snapshot reaches the player under the
+  provider) and the player e2e.
+
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 
 Owner decision 2026-10-26 (spec: `docs/superpowers/specs/2026-10-26-explorer-only-design.md`, release
