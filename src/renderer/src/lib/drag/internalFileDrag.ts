@@ -71,7 +71,9 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       // The dispatched target sets the effect synchronously; TypeScript cannot
       // see that mutation and otherwise retains the preceding 'none' narrowing.
       const effect = carry.data.dropEffect as DataTransfer['dropEffect']
-      const action = effect === 'move' ? 'Move' : effect === 'copy' ? 'Copy' : ''
+      // A carried PIN says nothing (#70 review, 2026-11-01): a reorder is not
+      // a file operation, and its target's 'move' is only how it accepts.
+      const action = carry.pin ? '' : effect === 'move' ? 'Move' : effect === 'copy' ? 'Copy' : ''
       // The row stays the row; what the drop would do is said by it. Written
       // only when it changes: this runs every frame and every mouse move.
       if (action !== carry.action) {
