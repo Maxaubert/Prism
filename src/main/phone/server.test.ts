@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs'
 import { request } from 'http'
 import { tmpdir } from 'os'
@@ -739,8 +739,10 @@ describe('PhoneServer', () => {
     expect((await fetch(url(playlistUrl))).status).toBe(404)
     expect((await fetch(url(playlistUrl.replace('index.m3u8', '1.m4s')))).status).toBe(404)
     expect((await fetch(url(playlistUrl.replace('index.m3u8', 'init.mp4')))).status).toBe(404)
-    await new Promise((r) => setTimeout(r, 60))
-    expect(existsSync(jobDir)).toBe(false)
+    // The route stops the job without waiting (a kill, then the folder's
+    // delete): its going is waited for, not slept for. 60 ms was not enough
+    // on a busy CI runner (2026-10-30).
+    await vi.waitFor(() => expect(existsSync(jobDir)).toBe(false), { timeout: 5000, interval: 10 })
   })
 
   it('/api/thumb answers the picture main made, walled, and 404 for a file with none', async () => {
