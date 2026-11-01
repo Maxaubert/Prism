@@ -101,12 +101,40 @@ describe('the players never reach into Prism settings stores (#29)', () => {
 describe("Prism's provider hands the views exactly what the stores hold", () => {
   const capture = (): MediaLook => prismMediaLook(vizState())
 
-  it('the viz settings are the store settings', () => {
-    const look = capture()
+  // Exactly the fields the players read: nothing dropped, and none of the
+  // store's own (presets, removed themes) carried along with them.
+  const FIELDS = [
+    'style',
+    'theme',
+    'height',
+    'pos',
+    'width',
+    'logo',
+    'drop',
+    'glow',
+    'cycle',
+    'move',
+    'barTheme',
+    'barGlow',
+    'barCycle',
+    'barMove',
+    'preview'
+  ] as const satisfies ReadonlyArray<keyof MediaLook['viz']>
+
+  it('the players get exactly the 15 viz settings, each the store value', () => {
     const s = vizState()
-    for (const k of Object.keys(look.viz) as Array<keyof MediaLook['viz']>) {
-      expect(look.viz[k]).toBe(s[k])
-    }
+    const look = capture()
+    expect(Object.keys(look.viz).sort()).toEqual([...FIELDS].sort())
+    for (const k of FIELDS) expect(look.viz[k], k).toBe(s[k])
+  })
+
+  it('a changed setting reaches the look with its new value', () => {
+    const s = vizState()
+    const changed = { ...s, height: s.height + 7, barTheme: 'changed-scheme', logo: !s.logo }
+    const look = prismMediaLook(changed)
+    expect(look.viz.height).toBe(s.height + 7)
+    expect(look.viz.barTheme).toBe('changed-scheme')
+    expect(look.viz.logo).toBe(!s.logo)
   })
 
   it('themes resolve through the app theme, accent included', () => {
