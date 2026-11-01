@@ -111,6 +111,7 @@ export function ViewerSwitch(props: ViewerSwitchProps): JSX.Element {
           onStep={props.onStep}
           canStep={props.canStep}
           fullscreen={props.fullscreen}
+          infoCard={mode === 'full'}
         />
       )
     case 'audio':
