@@ -30,7 +30,7 @@ import { tmpdir } from 'os'
 import {
   initDwmHelper
 } from './dwmHelper'
-import { argsAgainst, pathsFromArgv, pathsFromArgvAsync } from './argv'
+import { pathsFromArgv, secondLaunch } from './argv'
 import { WIN_E_FIRST, browseRequest, createWinERequests, winERequest, winEHostOf } from './winERequests'
 import { removeOldExplorerWindows } from './oldExplorerWindows'
 import { createWindowPreferences } from './windowPreferences'
@@ -1757,7 +1757,7 @@ if (!app.requestSingleInstanceLock()) {
   // `workingDirectory` is the SECOND process's cwd (#21): its relative paths
   // are read against it, never against this process's own.
   app.on('second-instance', (_e, argv, workingDirectory) => {
-    const relaunchArgs = (): string[] => argsAgainst(argv.slice(1), workingDirectory)
+    const launch = secondLaunch(argv, workingDirectory)
     const shortcutRequest = winERequest(argv)
     if (shortcutRequest) {
       // A window now would only be taken away: no answer, and the helper's
@@ -1790,8 +1790,7 @@ if (!app.requestSingleInstanceLock()) {
     if (appState.installingUpdate) return
     if (appState.appQuitting) {
       // sync-ok: quit, the relaunch must be decided before this process exits
-      if (pathsFromArgv(argv, undefined, workingDirectory).length && !E2E)
-        app.relaunch({ execPath: argv[0], args: relaunchArgs() })
+      if (launch.pathsNow().length && !E2E) app.relaunch({ execPath: argv[0], args: launch.relaunchArgs() })
       return
     }
     // A new page restores and drains `pendingOpen` itself once it listens
@@ -1814,10 +1813,10 @@ if (!app.requestSingleInstanceLock()) {
     // front.
     handoffs = handoffs
       .then(async () => {
-        const paths = await pathsFromArgvAsync(argv, undefined, workingDirectory)
+        const paths = await launch.paths()
         if (appState.installingUpdate) return
         if (appState.appQuitting) {
-          if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: relaunchArgs() })
+          if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: launch.relaunchArgs() })
           return
         }
         const to = windows.target()

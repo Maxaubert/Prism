@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { argsAgainst, pathsFromArgv, pathsFromArgvAsync } from './argv'
+import { argsAgainst, pathsFromArgv, pathsFromArgvAsync, secondLaunch } from './argv'
 
 /**
  * What the command line asked for.
@@ -131,5 +131,35 @@ describe('a path relative to the launching shell (#21)', () => {
       a,
       '--user-data-dir=C:\\x'
     ])
+    // A one-dash name is a file, as it is to the readers above (review of #21).
+    expect(argsAgainst(['-clip.mp4'], dir)).toEqual([join(dir, '-clip.mp4')])
+  })
+})
+
+// The second-instance handler reads everything through secondLaunch (review
+// of #21, 2026-11-01): `cwd` defaults to this process's own, so a reader
+// called without the shell's folder would bring the bug back with the
+// typecheck still green. This pins all three readers to the folder given.
+describe('a second launch, read whole (#21)', () => {
+  it('reads every path and the relaunch against the shell folder, not this process cwd', async () => {
+    expect(process.cwd().toLowerCase()).not.toBe(dir.toLowerCase())
+    const launch = secondLaunch(['prism.exe', '--e2e', 'a.jpg', 'sub'], dir, [])
+    const want = [
+      { path: a, dir: false },
+      { path: sub, dir: true }
+    ]
+    expect(await launch.paths()).toEqual(want)
+    expect(launch.pathsNow()).toEqual(want)
+    expect(launch.relaunchArgs()).toEqual(['--e2e', a, sub])
+  })
+
+  it('treats a one-dash name as a file in both readers, so a relaunch passes it absolute', async () => {
+    // `-clip.mp4` opened on a handoff but went on relative in a quit's
+    // relaunch: the two readers disagreed on what a switch is.
+    const dash = join(dir, '-clip.mp4')
+    writeFileSync(dash, 'x')
+    const launch = secondLaunch(['prism.exe', '-clip.mp4'], dir, [])
+    expect(await launch.paths()).toEqual([{ path: dash, dir: false }])
+    expect(launch.relaunchArgs()).toEqual([dash])
   })
 })
