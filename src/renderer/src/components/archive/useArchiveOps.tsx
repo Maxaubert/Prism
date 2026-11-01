@@ -1,5 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { placeOf } from '@shared/archivePlace'
 import { archivePassword, rememberArchivePassword } from '../../lib/archivePass'
+import { markLanded } from '../../lib/landMarks'
 import type { UndoEntry } from '../../lib/undo'
 import { ArchiveClashDialog } from '../../dialogs/ArchiveClashDialog'
 import { ArchiveDeleteDialog } from '../../dialogs/ArchiveDeleteDialog'
@@ -9,6 +11,7 @@ import {
   addMembers,
   ARCHIVE_COPY,
   deleteMembers,
+  membersOut,
   renameMember,
   runWithPassword,
   type ArchiveFail,
@@ -42,15 +45,27 @@ export interface ArchiveOps {
     dest: string | null,
     onDone?: () => void
   ) => void
-  /** Real files into the zip; a taken name asks Keep both first. */
-  addInto: (container: string, paths: string[], dest: string, fromPrism: boolean) => void
+  /** Real files into the zip; a taken name asks Keep both first. `move`
+   *  bins the originals once they are in (#70: a plain drag on one drive);
+   *  a copy leaves them. `base` is the zip as the Explorer spells it: what
+   *  landed is marked there (#101). */
+  addInto: (container: string, paths: string[], dest: string, move: boolean, base?: string) => void
   /** Members dragged to another folder of the same zip. A member from a
-   *  different archive is refused, and so is a read-only one. `after` runs
-   *  once they have moved. */
+   *  different archive is refused, and so is a read-only one. A taken name
+   *  asks Keep both (#70 D7); the move goes on the undo stack (D8) and lands
+   *  marked when `base` is known. `after` runs once they have moved. */
   moveInside: (
     container: string,
-    move: { from: string; entries: string[]; dest: string; readOnly?: boolean },
+    move: { from: string; entries: string[]; dest: string; readOnly?: boolean; base?: string },
     after?: () => void
+  ) => void
+  /** Members of ANOTHER zip copied into this one (#70 D9): out to temp,
+   *  then added, the originals left in their zip. */
+  copyBetween: (
+    from: { container: string; entries: string[]; places: string[] },
+    container: string,
+    dest: string,
+    base?: string
   ) => void
   /** Ask, then delete members for good. `after` runs once they are gone. */
   askDelete: (container: string, inners: string[], names: string[], after?: () => void) => void
@@ -81,13 +96,28 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
     names: string[]
     after?: () => void
   } | null>(null)
-  const [clash, setClash] = useState<{
-    container: string
-    paths: string[]
-    dest: string
-    names: string[]
-    fromPrism: boolean
-  } | null>(null)
+  /** A taken name, on the way in (an add) or inside the zip (a move). */
+  const [clash, setClash] = useState<
+    | {
+        kind: 'add'
+        container: string
+        paths: string[]
+        dest: string
+        names: string[]
+        move: boolean
+        base?: string
+      }
+    | {
+        kind: 'move'
+        container: string
+        entries: string[]
+        dest: string
+        names: string[]
+        base?: string
+        after?: () => void
+      }
+    | null
+  >(null)
 
   const withPassword = useCallback(
     (
@@ -139,42 +169,82 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
       paths: string[],
       dest: string,
       keepBoth: boolean,
-      fromPrism: boolean
+      move: boolean,
+      base?: string
     ): void => {
-      void addMembers(window.prism, { container, paths, dest, keepBoth, fromPrism }).then((r) => {
+      void addMembers(window.prism, { container, paths, dest, keepBoth, move }).then((r) => {
         setClash(null)
         if (r.kind === 'said') return setOops(r.message)
         if (r.kind === 'clash')
-          return setClash({ container, paths, dest, names: r.names, fromPrism })
+          return setClash({ kind: 'add', container, paths, dest, names: r.names, move, base })
         if (r.undo) latest.current.noteUndo?.(r.undo)
         latest.current.refresh()
+        // What landed is marked in the list showing it (#70, #101).
+        if (base) markLanded(r.entries.map((e) => placeOf(base, e)))
       })
     },
     []
   )
   const addInto = useCallback(
-    (container: string, paths: string[], dest: string, fromPrism: boolean): void =>
-      add(container, paths, dest, false, fromPrism),
+    (container: string, paths: string[], dest: string, move: boolean, base?: string): void =>
+      add(container, paths, dest, false, move, base),
     [add]
   )
 
+  const runMoveInside = useCallback(
+    (
+      container: string,
+      entries: string[],
+      dest: string,
+      keepBoth: boolean,
+      base?: string,
+      after?: () => void
+    ): void => {
+      void window.prism.archiveMoveMembers(container, entries, dest, keepBoth).then((r) => {
+        setClash(null)
+        if (r === 'encrypted' || r === 'failed')
+          return setOops(r === 'encrypted' ? ARCHIVE_COPY.moveEncrypted : ARCHIVE_COPY.moveFailed)
+        if (r.clashes.length)
+          return setClash({ kind: 'move', container, entries, dest, names: r.clashes, base, after })
+        if (!r.moved.length) return
+        after?.()
+        latest.current.noteUndo?.({ kind: 'archive-move', zip: container, base, items: r.moved })
+        latest.current.refresh()
+        if (base) markLanded(r.moved.map((m) => placeOf(base, m.to)))
+      })
+    },
+    []
+  )
   const moveInside = useCallback(
     (
       container: string,
-      move: { from: string; entries: string[]; dest: string; readOnly?: boolean },
+      move: { from: string; entries: string[]; dest: string; readOnly?: boolean; base?: string },
       after?: () => void
     ): void => {
       if (move.from.toLowerCase() !== container.toLowerCase())
         return setOops(ARCHIVE_COPY.otherArchive)
       if (move.readOnly) return setOops(ARCHIVE_COPY.readOnly)
-      void window.prism.archiveMoveMembers(container, move.entries, move.dest).then((r) => {
-        if (r === 'ok') {
-          after?.()
-          latest.current.refresh()
-        } else setOops(r === 'encrypted' ? ARCHIVE_COPY.moveEncrypted : ARCHIVE_COPY.moveFailed)
-      })
+      runMoveInside(container, move.entries, move.dest, false, move.base, after)
     },
-    []
+    [runMoveInside]
+  )
+
+  const copyBetween = useCallback(
+    (
+      from: { container: string; entries: string[]; places: string[] },
+      container: string,
+      dest: string,
+      base?: string
+    ): void => {
+      void membersOut(window.prism, { ...from, password: archivePassword(from.container) }).then(
+        (out) => {
+          if (out.locked) setOops(ARCHIVE_COPY.copyLocked(out.locked))
+          else if (out.failed && !out.paths.length) setOops(ARCHIVE_COPY.copyFailed)
+          if (out.paths.length) add(container, out.paths, dest, false, false, base)
+        }
+      )
+    },
+    [add]
   )
 
   const askDelete = useCallback(
@@ -229,7 +299,11 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
         <ArchiveClashDialog
           names={clash.names}
           onCancel={() => setClash(null)}
-          onKeepBoth={() => add(clash.container, clash.paths, clash.dest, true, clash.fromPrism)}
+          onKeepBoth={() =>
+            clash.kind === 'add'
+              ? add(clash.container, clash.paths, clash.dest, true, clash.move, clash.base)
+              : runMoveInside(clash.container, clash.entries, clash.dest, true, clash.base, clash.after)
+          }
         />
       )}
       {oops && <NoticeDialog title="Archive" message={oops} onClose={() => setOops(null)} />}
@@ -241,6 +315,7 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
     extract: extractMembers,
     addInto,
     moveInside,
+    copyBetween,
     askDelete,
     rename,
     say: setOops,

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   addMembers,
   ARCHIVE_COPY,
+  membersOut,
   deleteMembers,
   renameMember,
   runWithPassword,
@@ -14,7 +15,15 @@ function fakeIpc(over: Partial<ArchiveIpc>): ArchiveIpc {
   const no = (): never => {
     throw new Error('not expected')
   }
-  return { archiveAdd: no, archiveDelete: no, archiveRename: no, trashFile: no, ...over }
+  return {
+    archiveAdd: no,
+    archiveDelete: no,
+    archiveRename: no,
+    trashFile: no,
+    archiveMember: no,
+    archiveExtractDir: no,
+    ...over
+  }
 }
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
@@ -85,7 +94,7 @@ describe('addMembers', () => {
     paths: ['C:\\a.txt'],
     dest: 'in',
     keepBoth: false,
-    fromPrism: true
+    move: true
   }
 
   it('says why when main refuses', async () => {
@@ -129,6 +138,7 @@ describe('addMembers', () => {
     )
     expect(r).toEqual({
       kind: 'added',
+      entries: ['in/a.txt', 'in/b.txt'],
       undo: {
         kind: 'archive-in',
         zip: 'C:\\z.zip',
@@ -150,10 +160,70 @@ describe('addMembers', () => {
         }),
         trashFile
       }),
-      { ...add, fromPrism: false }
+      { ...add, move: false }
     )
-    expect(r).toEqual({ kind: 'added', undo: null })
+    expect(r).toEqual({ kind: 'added', entries: ['in/a.txt'], undo: null })
     expect(trashFile).not.toHaveBeenCalled()
+  })
+
+  // #70 D4 (owner approved the spec "as recommended", 2026-11-01): a Ctrl
+  // copy of Prism's own rows is an add that leaves them, and like a paste it
+  // is not on the undo stack.
+  it("a Ctrl copy of Prism's own rows leaves the originals and gives no undo", async () => {
+    const trashFile = vi.fn()
+    const r = await addMembers(
+      fakeIpc({
+        archiveAdd: async () => ({
+          added: [{ src: 'C:\\a.txt', entry: 'in/a.txt' }],
+          clashes: [],
+          failed: []
+        }),
+        trashFile
+      }),
+      { ...add, move: false }
+    )
+    expect(r).toMatchObject({ kind: 'added', undo: null })
+    expect(trashFile).not.toHaveBeenCalled()
+  })
+})
+
+// #70 D9: members of one zip copied into another go out to temp first (the
+// Copy verb's own route), then in.
+describe('membersOut', () => {
+  it('a file member through its place, a folder through the folder route', async () => {
+    const archiveMember = vi.fn(async (place: string) =>
+      place.endsWith('a.txt')
+        ? ({ ok: true, path: 'T:\\m\\a.txt', kind: 'text' } as const)
+        : ({ ok: false, reason: 'missing' } as const)
+    )
+    const archiveExtractDir = vi.fn(async () => ({ ok: true, path: 'T:\\m\\docs' }) as const)
+    const r = await membersOut(fakeIpc({ archiveMember, archiveExtractDir }), {
+      container: 'C:\\z.zip',
+      entries: ['a.txt', 'docs'],
+      places: ['C:\\z.zip\\a.txt', 'C:\\z.zip\\docs'],
+      password: undefined
+    })
+    expect(r).toEqual({ paths: ['T:\\m\\a.txt', 'T:\\m\\docs'], locked: 0, failed: 0 })
+    expect(archiveExtractDir).toHaveBeenCalledExactlyOnceWith('C:\\z.zip', 'docs')
+  })
+
+  it('counts locked members apart from ones that failed', async () => {
+    const r = await membersOut(
+      fakeIpc({
+        archiveMember: async () => ({ ok: false, reason: 'password' }) as const,
+        archiveExtractDir: async () => ({ ok: false, reason: 'failed' }) as const
+      }),
+      { container: 'C:\\z.zip', entries: ['a.txt'], places: ['C:\\z.zip\\a.txt'], password: undefined }
+    )
+    expect(r).toEqual({ paths: [], locked: 1, failed: 0 })
+    const gone = await membersOut(
+      fakeIpc({
+        archiveMember: async () => ({ ok: false, reason: 'missing' }) as const,
+        archiveExtractDir: async () => ({ ok: false, reason: 'failed' }) as const
+      }),
+      { container: 'C:\\z.zip', entries: ['x'], places: ['C:\\z.zip\\x'], password: undefined }
+    )
+    expect(gone).toEqual({ paths: [], locked: 0, failed: 1 })
   })
 })
 
