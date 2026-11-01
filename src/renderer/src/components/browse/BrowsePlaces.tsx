@@ -180,10 +180,6 @@ export function BrowsePlaces({
         }
       : {}
   const choose = (row: string, path: string): void => onChoosePlace?.({ row, path })
-  const menuList = menu ? sections[sectionOf(menu.pin.path)] : []
-  const menuIndex = menu
-    ? menuList.findIndex((pin) => sameQuickAccessPath(pin.path, menu.pin.path))
-    : -1
   const pinSection = (section: PinSection): JSX.Element | null => {
     const list = sections[section]
     // An empty section is not drawn at all (owner, 2026-10-06, of the empty
@@ -395,14 +391,11 @@ export function BrowsePlaces({
           items={placesMenu({
             pin: menu.pin,
             pinned: menu.pinned,
-            siblings: menuList,
-            index: menuIndex,
             onChoose: () => choose(menu.row, menu.pin.path),
             onNavigate,
             onQuickAccessFile,
             onOpenNewTab,
             onUnpinQuickAccess,
-            onMoveQuickAccess,
             onPinQuickAccessPaths,
             onProperties: onProperties
               ? () => {
