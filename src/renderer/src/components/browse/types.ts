@@ -2,6 +2,7 @@ import type { MouseEvent, ReactNode } from 'react'
 import type { ArchiveMeta, DirListing, ViewerFile } from '@shared/types'
 import type { QuickAccessPin } from '../../lib/quickAccess'
 import type { DragPayload } from '../../lib/drag/dragDrop'
+import type { DropKeys } from '../../lib/drag/dropVerb'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { BrowseDriveUsage, BrowseSearchResult, BrowseShortcut, BrowseSort } from '@shared/browse'
 import type { ListPending } from '../../hooks/usePendingHint'
@@ -140,7 +141,9 @@ export interface FolderBrowserProps {
   onProperties?: (entry: BrowseEntry, drive?: BrowseDriveUsage) => void
   /** Ctrl+Shift+C (#330): these full paths as text, one per line. */
   onCopyPathText?: (paths: string[]) => void
-  onDropInto?: (directory: string, payload: DragPayload) => void
+  /** A drop (#70): `keys` are the Ctrl and Shift held at the drop, read by
+   *  `dropVerb` again so the thing done is the word that was shown. */
+  onDropInto?: (directory: string, payload: DragPayload, keys: DropKeys) => void
   /** The strip's Extract here (`here`) and Extract to... inside an archive
    *  (#300). Without it there is no strip. */
   onArchiveExtract?: (archive: ArchiveMeta, here: boolean) => void

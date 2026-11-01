@@ -12,7 +12,7 @@ import {
   type ReactNode
 } from 'react'
 import type { ArchiveMeta } from '@shared/types'
-import { memberOf } from '@shared/archivePlace'
+import { browsableArchive, memberOf } from '@shared/archivePlace'
 import { formatBytes, formatWhen } from '../../lib/format'
 import { folderSizeCoverage, folderSizeLabel } from '../../lib/folderSize'
 import { typeLabel } from '../../lib/typeLabel'
@@ -143,7 +143,7 @@ type Props = Pick<
 
 export function BrowseList(props: Props): JSX.Element {
   const cut = useFileCut()
-  const folderDrop = useFolderDrop(props.loading ? undefined : props.onDropInto)
+  const folderDrop = useFolderDrop(props.loading ? undefined : props.onDropInto, props.archive)
   /** What a press or drag on this row carries inside an archive: the row, or
    *  the whole selection when the row is in it, as members with their places. */
   const memberCargo = (path: string): { archive: string; entries: string[]; places: string[] } | null => {
@@ -903,8 +903,14 @@ export function BrowseList(props: Props): JSX.Element {
                     data-join-up={joinUp || undefined}
                     data-join-down={joinDown || undefined}
                     draggable
+                    // A FOLDER takes a drop into itself; an ARCHIVE row too
+                    // (#70 D6): a .zip adds what is dropped on it, a 7z or a
+                    // rar shows no-drop (Prism cannot write them). Any other
+                    // file row means the folder it is in.
                     {...folderDrop(
-                      entry.isFolder ? entry.path : (browseParent(entry.path) ?? props.directory),
+                      entry.isFolder || browsableArchive(entry.name)
+                        ? entry.path
+                        : (browseParent(entry.path) ?? props.directory),
                       entry.path
                     )}
                     onMouseDown={(event) => {

@@ -14,7 +14,8 @@ import { PATHS } from './icons/paths'
 import { Spinner } from './LoadingState'
 import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
-import { DRAG_MIME, ownDrop, setDrag } from '../lib/drag/dragDrop'
+import { DRAG_MIME, overPayload, ownDrop, setDrag, windowsDrag, type DragPayload } from '../lib/drag/dragDrop'
+import { dropVerb, effectOf, type DropTarget } from '../lib/drag/dropVerb'
 import { archivePassword } from '../lib/archivePass'
 import { useArchiveOps } from './archive/useArchiveOps'
 import { COL_PACKED, COL_SIZE, COL_TYPE, COL_WHEN, type Entry } from './archive/entry'
@@ -190,6 +191,7 @@ function ArchiveInner({
     askDelete,
     addInto: addIn,
     moveInside,
+    copyBetween,
     say: setOops
   } = ops
 
@@ -471,31 +473,68 @@ function ArchiveInner({
     })
   }, [addIn, file.path, cwd])
 
-  /** A drop landed inside the archive: members rearrange, real files come in. */
+  /** A folder of this archive as the one drop rule sees it (#70). */
+  const dropTargetOf = useCallback(
+    (destFolder: string): DropTarget => ({
+      dir: file.path,
+      archive: {
+        container: file.path,
+        base: file.path,
+        outer: file.path,
+        inner: destFolder,
+        readOnly: !writable
+      }
+    }),
+    [file.path, writable]
+  )
+  /** A drop landed inside the archive, by the one drop rule (#70): members
+   *  rearrange or come in from another zip, real files are added, moved or
+   *  copied as the keys and the drive say. */
   const onDropInArchive = useCallback(
     (e: React.DragEvent, destFolder: string): void => {
       setDropTarget(null)
       const payload = ownDrop(e.dataTransfer)
       setDrag(null)
-      if (payload?.kind === 'members')
+      if (!payload) return
+      const verb = dropVerb({
+        payload,
+        target: dropTargetOf(destFolder),
+        keys: { ctrl: e.ctrlKey, shift: e.shiftKey }
+      })
+      if (verb === 'none') return
+      if (payload.kind === 'members') {
+        if (verb === 'zip-to-zip')
+          return copyBetween(
+            { container: payload.archive, entries: payload.entries, places: payload.places ?? [] },
+            file.path,
+            destFolder
+          )
         return moveInside(
           file.path,
           { from: payload.archive, entries: payload.entries, dest: destFolder },
           () => setSel(emptySelection)
         )
-      // From Prism (moved in), or straight from Explorer (copied in, #103).
-      if (payload?.kind === 'files' && payload.paths.length)
-        addIn(file.path, payload.paths, destFolder, !payload.external)
+      }
+      // From Prism (moved or copied in), or from Explorer (copied in, #103).
+      addIn(file.path, payload.paths, destFolder, verb === 'add-move')
     },
-    [addIn, moveInside, file.path]
+    [addIn, copyBetween, dropTargetOf, moveInside, file.path]
   )
   /** Everything a drop target needs, folder rows and the panel alike. */
   const dropProps = (dest: string): Record<string, unknown> => ({
     onDragOver: (e: React.DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
-      e.dataTransfer.dropEffect = 'move'
-      setDropTarget(dest)
+      const seen: DragPayload | null =
+        overPayload(e.dataTransfer) ??
+        (windowsDrag(e.dataTransfer) ? { kind: 'files', paths: [], external: true } : null)
+      const verb = dropVerb({
+        payload: seen,
+        target: dropTargetOf(dest),
+        keys: { ctrl: e.ctrlKey, shift: e.shiftKey }
+      })
+      e.dataTransfer.dropEffect = effectOf(verb, windowsDrag(e.dataTransfer))
+      setDropTarget(verb === 'none' ? null : dest)
     },
     onDragLeave: () => setDropTarget((t) => (t === dest ? null : t)),
     onDrop: (e: React.DragEvent) => {
