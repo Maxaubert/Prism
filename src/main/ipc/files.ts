@@ -12,7 +12,7 @@ import type {
 } from '@shared/ipcTypes'
 import { isCopyFormat } from '@shared/imageCopy'
 import { basename, dirname, extname, join, resolve } from 'path'
-import { copyFile, readFile, stat, writeFile } from 'fs/promises'
+import { copyFile, readFile, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { execFile, launch } from '../spawnWorker'
 import { copyWindowsFiles, hasWindowsFiles, readWindowsFiles } from '../fileClipboard'
@@ -95,11 +95,12 @@ export function registerSaveCopyIpc(ctx: MainCtx): void {
           { paths: list, format },
           {
             allowed: (p) => editable(p),
-            isFile: (p) => stat(p).then((s) => s.isFile(), () => false),
+            entry: (p) => stat(p).then((s) => (s.isFile() ? 'file' : 'other'), () => null),
             convert: (src, out, f, signal) => (tmp ? convertForCopy(tools, src, out, f, signal) : Promise.resolve(false)),
             exists,
             place: placeCopy,
             written: (p) => written(p),
+            discard: (p) => rm(p, { force: true }),
             progress: (done, total) =>
               void windows.sendTo(e.sender, PUSH.pasteProgress, { jobId: job, pct: total ? Math.round((done / total) * 100) : 100 }),
             tmp: tmp ?? tmpdir(),
