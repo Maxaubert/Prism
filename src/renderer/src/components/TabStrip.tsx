@@ -18,7 +18,9 @@ import {
 } from '@shared/tabTear'
 import type { StripTear } from '../hooks/useTabTear'
 import { pinnedRoots, plusMenuList, recentRoots, togglePin } from '@renderer/lib/recentRoots'
-import { DRAG_MIME, dragPayload, ownDrop, setDrag, windowsDrag, type DragPayload } from '../lib/drag/dragDrop'
+import { DRAG_MIME, overPayload, ownDrop, setDrag, windowsDrag, type DragPayload } from '../lib/drag/dragDrop'
+import { archiveTarget, dropVerb, effectOf, type DropKeys } from '../lib/drag/dropVerb'
+import { createHoverSwitch, type HoverSwitch } from '../lib/drag/hoverSwitch'
 import { ContextMenu } from './ContextMenu'
 import { plusButtonMenu, tabContextMenu } from '../menus/tabStrip'
 import { TabKindIcon } from './icons/TabKindIcon'
@@ -153,7 +155,7 @@ export function TabStrip({
   /** A file dropped on the strip opens in a new tab. */
   onDropFile: (path: string) => void
   /** Existing tabs receive cargo in their current folder without switching tabs. */
-  onDropIntoTab: (tabId: string, payload: DragPayload) => void
+  onDropIntoTab: (tabId: string, payload: DragPayload, keys: DropKeys) => void
   /** A tab dragged along the strip lands in front of `toIndex` (#70). */
   onReorder: (id: string, toIndex: number) => void
   /** Open a folder from the + menu's list of places Prism has been. */
@@ -195,11 +197,23 @@ export function TabStrip({
   // handle comes back the moment the drag ends.
   const [dragInFlight, setDragInFlight] = useState(false)
   const [fileDropTab, setFileDropTab] = useState<string | null>(null)
+  // A background tab held under a drag comes to the front (#70 D12).
+  const pickRef = useRef(onPick)
+  useEffect(() => {
+    pickRef.current = onPick
+  })
+  const hoverSwitch = useRef<HoverSwitch | null>(null)
+  useEffect(() => {
+    const sw = createHoverSwitch((id) => pickRef.current(id))
+    hoverSwitch.current = sw
+    return () => sw.clear()
+  }, [])
   useEffect(() => {
     const on = (): void => setDragInFlight(true)
     const off = (): void => {
       setDragInFlight(false)
       setFileDropTab(null)
+      hoverSwitch.current?.clear()
     }
     window.addEventListener('dragstart', on, true)
     window.addEventListener('dragenter', on, true)
@@ -809,13 +823,26 @@ export function TabStrip({
                 return
               }
               e.preventDefault()
-              e.dataTransfer.dropEffect =
-                windowsDrag(e.dataTransfer) || dragPayload(e.dataTransfer)?.kind === 'members' ? 'copy' : 'move'
-              setFileDropTab(t.id)
+              // The one drop rule (#70): the tab's folder, or a place inside
+              // a zip, read from its path; Ctrl and Shift as held now.
+              const seen: DragPayload | null =
+                overPayload(e.dataTransfer) ??
+                (windowsDrag(e.dataTransfer) ? { kind: 'files', paths: [], external: true } : null)
+              const verb = dropVerb({
+                payload: seen,
+                target: { dir: t.browse.path, archive: archiveTarget(t.browse.path) },
+                keys: { ctrl: e.ctrlKey, shift: e.shiftKey }
+              })
+              e.dataTransfer.dropEffect = effectOf(verb, windowsDrag(e.dataTransfer))
+              setFileDropTab(verb === 'none' ? null : t.id)
+              // Never the tab in front, never one being carried or torn.
+              hoverSwitch.current?.over(t.id === activeId || carry ? null : t.id)
             }}
             onDragLeave={(e) => {
-              if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget))
+              if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) {
                 setFileDropTab(null)
+                hoverSwitch.current?.clear()
+              }
             }}
             onDrop={(e) => {
               e.preventDefault()
@@ -826,8 +853,12 @@ export function TabStrip({
               const payload = ownDrop(e.dataTransfer)
               setDrag(null)
               setFileDropTab(null)
+              hoverSwitch.current?.clear()
               if (t.kind === 'settings' || !payload) return
-              onDropIntoTab(t.id, payload)
+              const keys = { ctrl: e.ctrlKey, shift: e.shiftKey }
+              const target = { dir: t.browse.path, archive: archiveTarget(t.browse.path) }
+              if (dropVerb({ payload, target, keys }) === 'none') return
+              onDropIntoTab(t.id, payload, keys)
             }}
             onPointerDown={(e) => onTabPointerDown(e, t.id, i)}
             onPointerMove={onTabPointerMove}
