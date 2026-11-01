@@ -103,6 +103,19 @@ describe('Range headers', () => {
     expect(parseRange('bytes=900-100', total)).toBeNull()
     expect(parseRange('bytes=abc-def', total)).toBeNull()
   })
+
+  // Since the reading moved to byteRange.ts (#23, 2026-11-01): the unit in
+  // any case and spaces around the spec are read, and several ranges are
+  // refused (the sidecar's 416) instead of serving the first.
+  it('reads the unit in any case and spaces around the spec', () => {
+    expect(parseRange('Bytes= 0-99 ', total)).toEqual({ start: 0, end: 99 })
+  })
+
+  it('refuses several ranges and a suffix of nothing', () => {
+    expect(parseRange('bytes=0-1,4-5', total)).toBeNull()
+    expect(parseRange('bytes=-0', total)).toBeNull()
+    expect(parseRange('bytes=1000-', total)).toBeNull()
+  })
 })
 
 describe('the ffmpeg command', () => {

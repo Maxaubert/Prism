@@ -71,6 +71,105 @@ differ.
   `drag` (the extraction is marked), `dropBack` (Ctrl on a drop from another window copies) and
   `sidebarPlaces` (a carried pin says nothing).
 
+## The I key's photo info card, and Save a copy tidied (#78, owner, 2026-11-01)
+
+Issue #78, the image pack. Owner, 2026-11-01, of the spec and plan
+(`docs/superpowers/specs/2026-11-01-image-pack-spec.md`): "Approve as recommended", so every decision
+D1-D13 is the recommended one. Two of the three items were already built: the checkerboard behind alpha
+(2026-09-03, below) and Save a copy (2026-08-31). What this adds:
+
+- **I shows a photo's facts on the stage** (D3: a card, not the Properties window, since the card stays up
+  while you arrow on). Top right (D4), clear of the control bar and the zoom readout. In order, each only
+  when the file has it: the pixels, megapixels and size on one line, Camera, Lens, Exposure, Taken, Colour,
+  Location (coordinates as text, nothing goes online, the 2026-10-12 rule). No camera data: the pixels line
+  and "No camera details in this file". It stays on while you arrow and fills in when main's read arrives,
+  never holding the picture up (keyed by the path, so an old answer never shows under the next photo). It
+  does not fade with the control bar, and it shows in fullscreen (D6). It only reads. No copy button (D9).
+  `components/image/PhotoInfoCard.tsx`.
+- **One wording for both places**: `lib/photoFacts.ts` builds the rows for the card AND the Properties
+  window, so they cannot disagree. Properties' Place group now lists Colour before Location, the card's
+  order.
+- **Remembered across launches** (D5): `lib/photoInfoPref.ts`, key `prism.photoInfo`, off until turned on.
+- **The picture's menu has a Photo info row** (D7), ticked while on, no shortcut hint, right after Rotate.
+  Only where the picture is a file (the card reads the photo from its path): not on a comic page or an
+  old-panel archive member (no path), and not on the phone (out of scope, the phone hands no toggle). A
+  member of a zip browsed as a folder (#300) is shown from its unpacked copy, which IS a file, so it has
+  the card too (the spec expected otherwise; the copy carries the photo's own EXIF, so the card is right).
+- **Where I does nothing**: while typing (the `isTypingTarget` guard, so a rename or the address field
+  takes the letter), over a menu or a dialog (the Properties window is one), as a chord, as a key repeat
+  (holding I counts once; the card flickered), on a comic page, and in any viewer that is not the one in
+  front. Review, 2026-11-01: every mounted picture listens on the window and up to four picture tabs stay
+  mounted (the hidden ones `inert`, as is the viewer behind a shut preview pane), so with two picture tabs
+  open the one setting flipped twice and I did nothing. Only a stage with no `[inert]` above it answers.
+  The guards are `lib/photoInfoKey.ts`, pinned by `photoInfoKey.test.ts`.
+  **With the Explorer list focused** it follows the owner's rule for every letter (type-to-jump "taken
+  only on a match, else the letter reaches the viewer"): when no name starts with what was typed, I
+  toggles the card on the previewed photo, as R and F already do; when one does, the list jumps.
+- **The colour space is the ICC profile's name** (D8): "Display P3", "Adobe RGB (1998)". exifr's `icc: true`
+  for JPEG, PNG and TIFF; a HEIC's `colr` box (`prof` or `rICC`) through `heifExif.ts` and `iccName.ts`. No
+  profile: EXIF ColorSpace 1 still says "sRGB", and "uncalibrated" with none says nothing. An iPhone HEIC
+  that carries only `nclx` (coded numbers, no profile) has no Colour row: no row beats a wrong one.
+  MEASURED 2026-11-01: on four real JPEGs and PNGs the read stayed at one 64 KB chunk, or two (128 KB) for a
+  JPEG with no profile, where the search goes one chunk further.
+- **Save a copy** (D10, D11, D13 kept as they were: the copy carries NO metadata, so no GPS and no date
+  taken leave with it, which is the privacy win for an upload; no keyboard shortcut; JPEG quality 0.92 on a
+  white ground). Changed: the dialog opens IN THE PHOTO'S OWN FOLDER with its name filled in ("IMG_0412.jpg";
+  "name copy.png" when the same format would be the photo itself); the note says "Saved IMG_0412.jpg";
+  a failed write says "Could not save the copy" (it used to say nothing); a cancel still says nothing; a
+  target that IS the photo being viewed is refused ("A copy cannot replace the original") and the original
+  is never touched. An animated GIF or WebP saves its first frame. **Not in a temp copy's folder**
+  (review, 2026-11-01): a member of a zip browsed as a folder (#300) is shown from its unpacked copy in
+  `%TEMP%\prism-members`, removed at quit, so a copy saved beside it was lost. A photo in any of Prism's
+  own temp folders (`%TEMP%\prism-*`) opens the dialog with the name alone, where Windows last saved, as
+  before; the temp copy itself is still refused as a target (`isPrismTempCopy`). `src/main/saveCopy.ts`, answered by
+  `PRISM_E2E_SAVE_TO` under `--e2e` (`dialogs.ts` `saveCopyDialog`, never a native dialog).
+- **Not built**: D12, "Save copies as JPEG" over many files in the Explorer, is issue #474. D1 (the dark
+  checker stays faint) and D2 (grid tiles, below) are left as they are.
+- **D2, checked 2026-11-01**: a grid tile of a transparent PNG shows whatever colour sits UNDER the alpha.
+  ffmpeg's 320px JPEG (`thumbs.ts`) drops the alpha, so a PNG whose clear pixels are black (most) gets a
+  black ground, white ones white. Measured with the thumbnail's own arguments on a 64px PNG. Its own issue.
+- **Held by** `photoFacts.test.ts`, `photoInfoPref.test.ts`, `photoInfo.test.ts`, `heifExif.test.ts`,
+  `iccName.test.ts`, `saveCopy.test.ts` (with the temp copy), `saveCopyNote.test.ts`, `photoInfoKey.test.ts`,
+  `menus/viewers/image.test.ts`, and e2e `photoInfoKey` (the card's rows and corner, arrowing to a PNG with
+  none, I off, the menu row and its tick, a field keeping the letter, the Explorer list focused, two picture
+  tabs open and a held I, a comic page) and `imageSaveCopy` (JPEG and PNG,
+  the folder and name the dialog would open on, the white corner, the note, a read-only target, the photo
+  itself, a cancel). Screenshots `photo-info.png`, `photo-info-preview.png`, `save-copy.png`.
+
+## Media Range requests and second launches, read right (#23, #21, #25, owner, 2026-11-01)
+
+Owner, 2026-11-01, from the `/next` list: "Video/audio range requests: 'last N bytes' requests get the
+first bytes instead, there is no '416 range not satisfiable' error, and a 0-byte file crashes", and
+"Second launch ignores its folder: prism photo.jpg from another shell resolves the file against the wrong
+place".
+
+- **`fsmedia://` reads a Range per RFC 7233** (#23, `src/main/byteRange.ts`): `bytes=-N` is the LAST N
+  bytes (the whole file when N is longer), a start at or past the end and any range on a 0-byte file answer
+  416 with `Content-Range: bytes */<size>`, and a header it cannot read (another unit, last before first,
+  several ranges) is ignored: the whole file, 200. Several ranges used to get the first range as a 206; a
+  multipart answer is not made, and the media element never asks for one. A number too big to count exactly
+  (past 2^53) is clamped like any other, never ignored (review, 2026-11-01). A 0-byte file without a range
+  is an empty 200. The audio sidecar's `parseRange` reads through the same function, so it now also reads
+  `Bytes=` in any case and spaces around the spec, which it used to refuse with a 416.
+- **The handler never throws**: anything that throws inside `fsmedia://` is a 500 with no body, and a
+  `media-500` line in the diag log names the URL and the error (review, 2026-11-01), so media that will not
+  play leaves a trace. The wall is still asked first, before the file is touched, so a wall that throws
+  serves nothing.
+- **A second launch's paths are relative to ITS shell** (#21, `src/main/argv.ts`): `second-instance` hands
+  over the launching process's `workingDirectory`, and the handoff reads argv against it, awaited, and opens
+  absolute paths. A quit's relaunch passes the paths made absolute (`argsAgainst`), since the new Prism
+  starts in this process's folder. The handler reads all three through `secondLaunch` (review,
+  2026-11-01), so none can fall back on the resident cwd, and every reader takes only `--` as a switch: a
+  file named `-clip.mp4` is a file, in a handoff and in a relaunch.
+- **The close-time size save (#25) was already fixed** by the multi-window work (2026-10-29): the close
+  listener cancels the move/resize debounce and reports the bounds before the window goes
+  (`windowBounds.ts` `watchBounds`, called by `windowChrome.ts`), and the close flush writes on main's thread
+  for the last window or the quit (`tabsSession.ts`, `// sync-ok`).
+- **Held by** `byteRange.test.ts` (with the too-big numbers), `mediaProtocol.test.ts` (suffix, 416, 0-byte,
+  several ranges, the 500 and its diag line), `ffmpeg.test.ts` (the sidecar's reading), `argv.test.ts` (a
+  relative path read against the cwd it is given, `secondLaunch`'s three readers, the one-dash file) and
+  `windowBounds.test.ts` (the close reports at once, inside the wait, and never twice).
+
 ## Unit tests wait on events, never on clocks (release unit flakes, owner, 2026-11-01)
 
 Owner, 2026-11-01: "Release runs flake on unit-test timeouts (listingCache, peaksJobs)": most release runs
@@ -600,6 +699,28 @@ viewer open, but Settings' Escape as the last tab still closed the window (2026-
 - **Held by** e2e `escapeKeepsOpen` (the viewer and the Explorer stay open; a context menu, the rename
   dialog and the delete question each close on Escape, and nothing closes the window) and `settingsLastTab`
   (Escape on Settings as the last tab leaves it open).
+
+## The players take their look from the host (#29, owner, 2026-11-01)
+
+Owner, 2026-11-01: "AudioView/VideoView are wired to Prism's settings, which blocks moving the viewer into the
+shared prism-core package". The players no longer import Prism's viz store (`lib/viz/vizStore`) or app theme
+(`lib/theme`); they read a narrow context, `lib/viz/mediaLook.ts` (the visualizer and progress-bar settings, a
+scheme resolver, a stage width to its classes), and Prism installs its stores behind it
+(`components/PrismMediaLook`, wrapped round both players in `ViewerSwitch`, so the stage, the phone and an
+archive's preview all get it). Filesmith would install its own.
+
+- **No behaviour change**: the same settings, defaults and persistence; the accent scheme still resolves against
+  the live app style, at the same moment (the player's render).
+- **No package yet**: nothing is extracted. `playerPrefs` (loop, autoplay), `PlayerMenu`, `useWaveform` and the
+  `window.prism` calls still tie the players to Prism; they are the next step when `prism-core` happens.
+- **The players get exactly the 15 settings** `MediaVizSettings` names, copied field by field
+  (`lib/viz/prismMediaLook.ts`), so the store's own presets and removed themes never reach them, and a new field
+  fails to compile until Prism supplies it. **A Settings change reaches a playing player at once**: the provider
+  reads the store through `useViz()` (the subscribing hook), never a one-time `vizState()`.
+- **Held by** `components/mediaLook.test.ts` (nothing either player imports, at any depth and in any spelling,
+  is the store or the theme; the look is exactly the 15 store values, `resolveVizTheme` and `WIDTHS`; a player
+  with no host throws), `components/PrismMediaLook.test.ts` (a new store snapshot reaches the player under the
+  provider) and the player e2e.
 
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 
@@ -3580,6 +3701,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   short list of verbs: the PICTURE's is Rotate, Copy image, and where the file is. Ticks are not
   icons (they say what is currently on), and the SIDEBAR keeps its glyphs - it sits among
   icon-led file rows and is the one menu long enough to need scanning.
+  **Photo info joined the picture's menu** (#78, owner 2026-11-01, D7): right after Rotate, a tick
+  while the I key's card is on, no shortcut hint; without the row the key cannot be found.
 - **The screen stays awake while something plays** (2026-08-30). Two hours of film is two hours
   of no input, which is exactly what the lock screen waits for. `lib/awake` COUNTS players
   rather than toggling, because the media deck keeps up to four mounted and a background tab

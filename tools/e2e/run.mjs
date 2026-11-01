@@ -16,6 +16,7 @@ import { createServer } from 'node:net'
 import electronPath from 'electron'
 import {
   appendFileSync,
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -19037,6 +19038,406 @@ async function propertiesWindowScenario(fixtures) {
   }
 }
 
+/* ---------- THE IMAGE PACK (#78, owner, 2026-11-01) ---------- */
+
+/** A PNG of `w` by `h` RGBA pixels, `px(x, y)` giving [r, g, b, a]. */
+function rgbaPng(w, h, px) {
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(zlibCrc32(body) >>> 0)
+    return Buffer.concat([len, body, crc])
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(w, 0)
+  ihdr.writeUInt32BE(h, 4)
+  ihdr[8] = 8
+  ihdr[9] = 6 // RGBA
+  const rows = Buffer.alloc((w * 4 + 1) * h)
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) Buffer.from(px(x, y)).copy(rows, y * (w * 4 + 1) + 1 + x * 4)
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(rows)),
+    chunk('IEND', Buffer.alloc(0))
+  ])
+}
+
+/** A transparent PNG: clear (black under the alpha, as most are) with an
+ *  opaque red square in the middle. */
+const clearPng = () => rgbaPng(64, 64, (x, y) => (x >= 16 && x < 48 && y >= 16 && y < 48 ? [220, 30, 30, 255] : [0, 0, 0, 0]))
+
+/**
+ * A camera's EXIF and a Display P3 ICC profile, spliced in after a real
+ * JPEG's SOI: what a phone writes, built by hand (the unit tests'
+ * `photoBytes.testkit.ts` in JS). Big-endian TIFF: IFD0 (Make, Model, the
+ * Exif pointer), then the Exif IFD (exposure, f-number, ISO, focal length).
+ */
+function withCameraExif(jpeg) {
+  const ascii = (s) => Buffer.from(s + '\0', 'latin1')
+  const make = ascii('Canon')
+  const model = ascii('Canon EOS R6')
+  // IFD0 at 8: 3 entries; its strings follow it; the Exif IFD after them.
+  const ifd0At = 8
+  const ifd0Len = 2 + 3 * 12 + 4
+  const makeAt = ifd0At + ifd0Len
+  const modelAt = makeAt + make.length
+  const exifAt = modelAt + model.length
+  const exifLen = 2 + 4 * 12 + 4
+  const ratAt = exifAt + exifLen // three rationals, 8 bytes each
+  const t = Buffer.alloc(ratAt + 24)
+  t.write('MM\0*', 0, 'latin1')
+  t.writeUInt32BE(ifd0At, 4)
+  const entry = (at, tag, type, count, value) => {
+    t.writeUInt16BE(tag, at)
+    t.writeUInt16BE(type, at + 2)
+    t.writeUInt32BE(count, at + 4)
+    if (type === 3) t.writeUInt16BE(value, at + 8)
+    else t.writeUInt32BE(value, at + 8)
+  }
+  t.writeUInt16BE(3, ifd0At)
+  entry(ifd0At + 2, 0x010f, 2, make.length, makeAt)
+  entry(ifd0At + 14, 0x0110, 2, model.length, modelAt)
+  entry(ifd0At + 26, 0x8769, 4, 1, exifAt)
+  make.copy(t, makeAt)
+  model.copy(t, modelAt)
+  t.writeUInt16BE(4, exifAt)
+  entry(exifAt + 2, 0x829a, 5, 1, ratAt) // 1/250
+  entry(exifAt + 14, 0x829d, 5, 1, ratAt + 8) // f/1.8
+  entry(exifAt + 26, 0x8827, 3, 1, 400) // ISO
+  entry(exifAt + 38, 0x920a, 5, 1, ratAt + 16) // 50mm
+  for (const [i, [n, d]] of [[1, 250], [18, 10], [50, 1]].entries()) {
+    t.writeUInt32BE(n, ratAt + i * 8)
+    t.writeUInt32BE(d, ratAt + i * 8 + 4)
+  }
+  // A version 2 ICC profile whose one tag is its name.
+  const name = Buffer.from('Display P3\0', 'latin1')
+  const icc = Buffer.alloc(144 + 12 + name.length)
+  icc.writeUInt32BE(icc.length, 0)
+  icc.writeUInt32BE(0x02100000, 8)
+  icc.write('mntrRGB XYZ ', 12, 'latin1')
+  icc.write('acsp', 36, 'latin1')
+  icc.writeUInt32BE(1, 128)
+  icc.write('desc', 132, 'latin1')
+  icc.writeUInt32BE(144, 136)
+  icc.writeUInt32BE(12 + name.length, 140)
+  icc.write('desc', 144, 'latin1')
+  icc.writeUInt32BE(name.length, 152)
+  name.copy(icc, 156)
+  const seg = (marker, body) => {
+    const h = Buffer.alloc(4)
+    h.writeUInt16BE(marker, 0)
+    h.writeUInt16BE(body.length + 2, 2)
+    return Buffer.concat([h, body])
+  }
+  return Buffer.concat([
+    jpeg.subarray(0, 2),
+    seg(0xffe1, Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), t])),
+    seg(0xffe2, Buffer.concat([Buffer.from('ICC_PROFILE\0', 'latin1'), Buffer.from([1, 1]), icc])),
+    jpeg.subarray(2)
+  ])
+}
+
+/** The card, when one is on screen (the preview pane's included). */
+const photoCard = (win) =>
+  win.evaluate(() => {
+    // The front viewer's: a warm tab behind it is inert, and draws its card too.
+    const el = [...document.querySelectorAll('[data-photo-info]')].find((e) => e.getClientRects().length && !e.closest('[inert]'))
+    if (!el) return null
+    const rows = Object.fromEntries(
+      [...el.querySelectorAll('[data-photo-info-row]')].map((r) => [r.getAttribute('data-photo-info-row'), r.querySelector('dd')?.textContent ?? ''])
+    )
+    return {
+      state: el.getAttribute('data-photo-info'),
+      line: el.querySelector('[data-photo-info-line]')?.textContent ?? '',
+      none: el.querySelector('[data-photo-info-none]')?.textContent ?? '',
+      rows
+    }
+  })
+const photoInfoStored = (win) => win.evaluate(() => localStorage.getItem('prism.photoInfo'))
+
+/** The picture's right-click menu, its rows' labels. */
+async function imageMenuRows(win) {
+  const layer = win.locator('[data-image-layer]').first()
+  await layer.click({ button: 'right' })
+  await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+  return win.locator('[role="menu"] [role="menuitem"]').evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()))
+}
+
+/**
+ * THE I KEY'S PHOTO INFO CARD (#78; owner, 2026-11-01, the image pack spec
+ * approved as recommended). A JPEG with a camera's EXIF and a Display P3
+ * profile: I shows the card with its rows; Down to a PNG with none, the card
+ * stays and says so; I hides it; the picture menu's Photo info row toggles
+ * it; typing in a field never toggles it; with the Explorer list focused and
+ * no name taking the letter, I toggles it in the preview pane; with two
+ * picture tabs open I toggles it once, and a held I counts once; a comic page
+ * (no file of its own) offers no row and I does nothing.
+ */
+async function photoInfoKeyScenario(fixtures) {
+  console.log('the I key photo info card (#78)')
+  if (!HAS_FFMPEG) {
+    console.log(`  (no ffmpeg found (tried ${FFMPEG}), so there is no JPEG to put EXIF in: skipped)`)
+    return
+  }
+  const dir = join(fixtures, 'photoinfo')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const raw = join(dir, 'raw.jpg')
+  execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x240', '-frames:v', '1', raw], { windowsHide: true, stdio: 'ignore' })
+  writeFileSync(join(dir, 'cam.jpg'), withCameraExif(readFileSync(raw)))
+  rmSync(raw, { force: true })
+  writeFileSync(join(dir, 'plain.png'), clearPng())
+  // The arrows step every file in the folder: the PNG comes straight after
+  // the JPEG, the text file last.
+  writeFileSync(join(dir, 'z-notes.txt'), 'beside the photos\n')
+  copyFileSync(join(fixtures, 'comics', 'story.cbz'), join(dir, 'story.cbz'))
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'cam.jpg'))
+  try {
+    await win.waitForSelector('[data-image-layer] img', { timeout: 15000 })
+    await sleep(500)
+    ok((await photoCard(win)) === null, 'no card until asked')
+
+    // 1. I shows it, with what the camera wrote.
+    await win.keyboard.press('i')
+    const card = await until(async () => {
+      const c = await photoCard(win)
+      return c?.state === 'ready' && c.rows.Camera ? c : null
+    }, 8000)
+    ok(card?.rows.Camera === 'Canon EOS R6', `I shows the card with the camera (${card?.rows.Camera})`)
+    ok(card?.rows.Exposure === '1/250s  f/1.8  ISO 400  50mm', `and the exposure (${card?.rows.Exposure})`)
+    ok(card?.rows.Colour === 'Display P3', `and the colour profile's name (${card?.rows.Colour})`)
+    ok(/^320 × 240 · 0\.1 MP · [\d.]+ (KB|B)$/.test(card?.line ?? ''), `the pixels line (${card?.line})`)
+    const box = await win.evaluate(() => {
+      const c = document.querySelector('[data-photo-info]')?.getBoundingClientRect()
+      const s = document.querySelector('[data-image-layer]')?.parentElement?.getBoundingClientRect()
+      return c && s ? { right: s.right - c.right, top: c.top - s.top } : null
+    })
+    ok(!!box && box.right >= 0 && box.right < 40 && box.top >= 0 && box.top < 40, `it sits in the stage's top-right corner (${JSON.stringify(box)})`)
+    ok((await photoInfoStored(win)) === '1', 'and is remembered')
+    await win.screenshot({ path: join(SHOTS, 'photo-info.png') })
+
+    // 2. Down to a PNG with no camera data: the card stays and says so.
+    await win.keyboard.press('ArrowDown')
+    ok(await until(async () => (await viewing(win)).includes('plain.png'), 8000), 'Down steps to the PNG')
+    const none = await until(async () => {
+      const c = await photoCard(win)
+      return c?.state === 'ready' && c.none ? c : null
+    }, 8000)
+    ok(none?.none === 'No camera details in this file', `the card stays and says there is nothing (${none?.none})`)
+    ok(!!none && !('Camera' in none.rows), 'with no camera row from the last photo')
+    ok(/^64 × 64 · /.test(none?.line ?? ''), `and this picture's pixels (${none?.line})`)
+
+    // 3. I hides it.
+    await win.keyboard.press('i')
+    ok(await until(async () => (await photoCard(win)) === null, 3000), 'I again hides it')
+    ok((await photoInfoStored(win)) === '0', 'and that is remembered too')
+
+    // 4. The menu's row: present, unticked, and it toggles.
+    let rows = await imageMenuRows(win)
+    ok(rows.includes('Photo info'), `the picture's menu has Photo info (${rows.join(', ')})`)
+    ok(rows.indexOf('Photo info') === rows.indexOf('Rotate') + 1, 'right after Rotate')
+    await win.locator('[role="menu"] [role="menuitem"]:has-text("Photo info")').click()
+    ok(await until(async () => (await photoCard(win)) !== null, 3000), 'the row turns the card on')
+    const ticked = async () => {
+      await win.locator('[data-image-layer]').first().click({ button: 'right' })
+      await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+      const t = await win.locator('[role="menu"] [role="menuitem"]:has-text("Photo info") svg').count()
+      return t
+    }
+    ok((await ticked()) === 1, 'and wears a tick while it is on')
+    await win.locator('[role="menu"] [role="menuitem"]:has-text("Photo info")').click()
+    ok(await until(async () => (await photoCard(win)) === null, 3000), 'picked again it turns the card off')
+
+    // 5. Never while typing: the Explorer's address field takes the letter.
+    await toList(win)
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    const field = win.locator('.browse-path-form input')
+    await field.waitFor({ timeout: 5000 })
+    await field.press('End')
+    await field.press('i')
+    await sleep(300)
+    ok((await photoInfoStored(win)) === '0', 'I typed in a field does not toggle the card')
+    await win.keyboard.press('Escape')
+
+    // 6. The Explorer list focused, cam.jpg previewed: no name starts with
+    // "i", so the list's type-to-jump does not take the letter and the
+    // viewer gets it, as R and F do (decision recorded in features.md).
+    // The pane is opened if this profile has it shut, and shut again after.
+    const paneShut = (await win.locator('.folder-browser[data-preview], .folder-browser [data-preview]').count()) === 0
+    if (paneShut) await win.locator('.folder-browser button[aria-label="Preview pane"]').click()
+    await listRow(win, 'cam.jpg').click()
+    await sleep(800)
+    const listHasFocus = await win.evaluate(() => !!document.activeElement?.closest('[data-testid="browse-list"]'))
+    await win.keyboard.press('i')
+    const inPreview = await until(async () => {
+      const c = await photoCard(win)
+      return c?.rows.Camera ? c : null
+    }, 8000)
+    ok(listHasFocus && !!inPreview, `with the list focused, I shows the card on the previewed photo (focus in list ${listHasFocus})`)
+    await win.screenshot({ path: join(SHOTS, 'photo-info-preview.png') })
+    await win.keyboard.press('i')
+    ok(await until(async () => (await photoCard(win)) === null, 3000), 'and I hides it again')
+    if (paneShut) await win.locator('.folder-browser button[aria-label="Preview pane"]').click()
+
+    // 6b. Two picture tabs (review, 2026-11-01): every mounted picture
+    // listens on the window and up to four stay mounted, so with two the
+    // setting flipped twice and I did nothing. Tab 1 views cam.jpg, tab 2
+    // plain.png; I on tab 2 toggles once. A held I (a key repeat) counts once.
+    const tabSel = '[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]'
+    const tabsBefore = await win.locator(tabSel).count()
+    const firstTab = await win.locator(tabSel).evaluateAll((els) => els.findIndex((e) => e.getAttribute('aria-selected') === 'true'))
+    await listRow(win, 'plain.png').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in new tab")').click()
+    ok(await until(async () => (await win.locator(tabSel).count()) === tabsBefore + 1, 5000), 'plain.png opens in a second tab')
+    await win.locator(tabSel).nth(firstTab).click()
+    await viewFile(win, 'cam.jpg')
+    await win.locator(tabSel).last().click()
+    ok(await until(async () => (await viewing(win)).includes('plain.png'), 8000), 'the second tab shows plain.png')
+    await sleep(500)
+    const pictures = await win.locator('[data-image-layer]').count()
+    ok(pictures >= 2, `two pictures are mounted (${pictures})`)
+    await win.keyboard.press('i')
+    const two = await until(async () => {
+      const c = await photoCard(win)
+      return c?.state === 'ready' ? c : null
+    }, 8000)
+    ok(!!two && /^64 × 64 · /.test(two.line), `with two picture tabs, I shows the card on the one in front (${two?.line})`)
+    ok((await photoInfoStored(win)) === '1', 'and the setting flipped once, to on')
+    await win.keyboard.down('i')
+    await win.keyboard.down('i')
+    await win.keyboard.down('i')
+    await win.keyboard.up('i')
+    ok(await until(async () => (await photoCard(win)) === null, 3000), 'a held I hides it')
+    await sleep(300)
+    ok((await photoInfoStored(win)) === '0', `and the repeats did not flip it back (${await photoInfoStored(win)})`)
+    await win.locator('[role="tablist"] [aria-label^="Close"]').last().click()
+    ok(await until(async () => (await win.locator(tabSel).count()) === tabsBefore, 5000), 'the second tab closes')
+
+    // 7. A comic page has no file of its own: no row, and I does nothing.
+    await viewFile(win, 'story.cbz', 30000)
+    await win.waitForSelector('[data-image-layer] img', { timeout: 20000 })
+    await sleep(500)
+    rows = await imageMenuRows(win)
+    ok(!rows.includes('Photo info') && rows.includes('Rotate'), `a comic page's menu has no Photo info (${rows.join(', ')})`)
+    await win.keyboard.press('Escape')
+    await win.keyboard.press('i')
+    await sleep(500)
+    ok((await photoCard(win)) === null && (await photoInfoStored(win)) === '0', 'and I does nothing there')
+  } finally {
+    // The profile is shared: leave the card off for the scenarios after.
+    await win.evaluate(() => localStorage.setItem('prism.photoInfo', '0')).catch(() => {})
+    await app.close()
+  }
+}
+
+/**
+ * SAVE A COPY, TIDIED (#78; owner, 2026-11-01). A transparent PNG saved as
+ * JPEG and as PNG through `PRISM_E2E_SAVE_TO` (never a native dialog): the
+ * dialog would have opened in the photo's own folder with its name, the files
+ * land, the JPEG's transparent corner is white, and the note names the file.
+ * A read-only target says "Could not save the copy"; the photo itself as the
+ * target is refused and left untouched; a cancel says nothing.
+ */
+async function imageSaveCopyScenario(fixtures) {
+  console.log('Save a copy (#78)')
+  const dir = join(fixtures, 'savecopy')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const src = join(dir, 'clear.png')
+  writeFileSync(src, clearPng())
+  const srcBytes = readFileSync(src)
+  writeFileSync(join(dir, 'notes.txt'), 'beside the picture\n')
+  const ro = join(dir, 'locked.jpg')
+  writeFileSync(ro, 'read-only')
+  chmodSync(ro, 0o444)
+  const { app, win } = await launchWith(NO_INDEX, src)
+  const saveTo = (p) =>
+    app.evaluate((_e, to) => {
+      process.env.PRISM_E2E_SAVE_TO = to
+    }, p)
+  const asked = () => app.evaluate(() => globalThis.__e2eSaveDialog?.defaultPath ?? null)
+  const note = () => win.locator('[data-copy-note]').first().textContent({ timeout: 200 }).catch(() => null)
+  const save = async (format) => {
+    await app.evaluate(() => {
+      globalThis.__e2eSaveDialog = undefined
+    })
+    await win.locator('[data-image-layer]').first().click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] [role="menuitem"]:has-text("Save a copy")').hover()
+    const item = win.locator('[role="menuitem"]').filter({ hasText: new RegExp(`^${format}$`) })
+    if (!(await until(async () => (await item.count()) === 1, 4000))) {
+      const seen = await win.locator('[role="menuitem"]').evaluateAll((els) => els.map((e) => `${(e.textContent ?? '').trim()}${e.disabled ? ' (disabled)' : ''}`))
+      console.log(`  (no ${format} row; the menu shows: ${seen.join(', ')})`)
+    }
+    await item.click({ timeout: 5000 })
+  }
+  const noteGone = () => until(async () => (await note()) === null, 5000)
+  try {
+    await win.waitForSelector('[data-image-layer] img', { timeout: 15000 })
+    await sleep(500)
+
+    // JPEG: the photo's folder and name, the file, a white corner, the name in the note.
+    const jpg = join(dir, 'out.jpg')
+    await saveTo(jpg)
+    await save('JPEG')
+    const said = await until(async () => {
+      const n = await note()
+      return n && n.startsWith('Saved') ? n : null
+    }, 8000)
+    ok(said === 'Saved out.jpg', `the note names the saved file (${said})`)
+    ok((await asked()) === join(dir, 'clear.jpg'), `the dialog would open in the photo's folder with its name (${await asked()})`)
+    ok(existsSync(jpg) && readFileSync(jpg).subarray(0, 2).equals(Buffer.from([0xff, 0xd8])), 'the JPEG is on disk')
+    if (HAS_FFMPEG) {
+      const corner = execFileSync(FFMPEG, ['-loglevel', 'error', '-i', jpg, '-vf', 'format=rgb24,crop=1:1:0:0', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { windowsHide: true })
+      ok(corner.length === 3 && [...corner].every((v) => v > 240), `the transparent corner is white in the JPEG (${[...corner]})`)
+    }
+    await noteGone()
+
+    // PNG: same folder; the same format would be the photo itself, so "copy".
+    const png = join(dir, 'out.png')
+    await saveTo(png)
+    await save('PNG')
+    ok((await until(async () => ((await note()) === 'Saved out.png' ? true : null), 8000)) === true, 'the PNG note names it')
+    ok((await asked()) === join(dir, 'clear copy.png'), `the PNG's suggested name is not the photo's own (${await asked()})`)
+    ok(existsSync(png) && readFileSync(png).subarray(1, 4).toString('latin1') === 'PNG', 'the PNG is on disk')
+    await noteGone()
+
+    // A read-only target: the failure is said.
+    await saveTo(ro)
+    await save('JPEG')
+    const failed = await until(async () => (await note()) ?? null, 8000)
+    ok(failed === 'Could not save the copy', `a write that fails says so (${failed})`)
+    ok(readFileSync(ro, 'utf8') === 'read-only', 'and the file there is untouched')
+    await noteGone()
+
+    // The photo itself: refused, untouched.
+    await saveTo(src)
+    await save('PNG')
+    const refused = await until(async () => (await note()) ?? null, 8000)
+    ok(refused === 'A copy cannot replace the original', `the photo itself is refused (${refused})`)
+    ok(readFileSync(src).equals(srcBytes), 'and the original is untouched')
+    await noteGone()
+
+    // A cancel says nothing.
+    await saveTo('')
+    await save('JPEG')
+    await sleep(1200)
+    ok((await note()) === null, 'a cancel says nothing')
+    await win.screenshot({ path: join(SHOTS, 'save-copy.png') })
+  } finally {
+    await app.evaluate(() => {
+      delete process.env.PRISM_E2E_SAVE_TO
+    }).catch(() => {})
+    await app.close()
+    chmodSync(ro, 0o666)
+  }
+}
+
 /**
  * A REAL QUIT, for the log's last line: the harness's `app.close()` is
  * `app.exit(0)`, which skips will-quit, where the log writes its queue and
@@ -19537,6 +19938,8 @@ await run(sizesKeptScenario)
 await run(explorerVerbsScenario)
 await run(pasteProgressScenario)
 await run(propertiesWindowScenario)
+await run(photoInfoKeyScenario)
+await run(imageSaveCopyScenario)
 await run(searchPopupScenario)
 await run(searchNavScenario)
 await run(phoneScenario)

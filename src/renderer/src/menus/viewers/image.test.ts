@@ -18,6 +18,8 @@ const ctx = (over: Partial<ImageMenuContext> = {}): ImageMenuContext => ({
   canSlideshow: true,
   slideshow: false,
   slideSecs: 5,
+  photoInfo: false,
+  togglePhotoInfo: vi.fn(),
   rotate: vi.fn(),
   copyImage: vi.fn(() => Promise.resolve()),
   saveCopy: vi.fn(() => Promise.resolve()),
@@ -38,6 +40,7 @@ describe('the picture menu', () => {
     const items = imageMenu(ctx())
     expect(labels(items)).toEqual([
       'Rotate',
+      'Photo info',
       'Copy image',
       'Copy path',
       'Save a copy',
@@ -76,8 +79,28 @@ describe('the picture menu', () => {
     ])
   })
 
-  it('the phone page: no clipboard, no save dialog, no Explorer', () => {
+  it('the phone page: no clipboard, no save dialog, no Explorer, no photo info', () => {
     host(false)
-    expect(labels(imageMenu(ctx()))).toEqual(['Rotate', 'Copy path', 'Slideshow'])
+    expect(labels(imageMenu(ctx({ togglePhotoInfo: undefined })))).toEqual(['Rotate', 'Copy path', 'Slideshow'])
+  })
+
+  // #78, D7 (owner, 2026-11-01): the I key's card has a row, so it can be found.
+  it('Photo info: ticked while the card is on, and a pick toggles it', () => {
+    host(true)
+    const toggle = vi.fn()
+    const off = row(imageMenu(ctx({ togglePhotoInfo: toggle })), 'Photo info')
+    const on = row(imageMenu(ctx({ photoInfo: true })), 'Photo info')
+    const ticked = (item: MenuItem): boolean => (item.icon?.props as { name?: string } | undefined)?.name === 'tick'
+    expect(ticked(off)).toBe(false)
+    expect(ticked(on)).toBe(true)
+    // No shortcut hint (the 2026-08-31 menu rule).
+    expect(off.hint).toBeUndefined()
+    off.onPick?.()
+    expect(toggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('no Photo info for a picture with no file of its own (a comic page, an old-panel member)', () => {
+    host(true)
+    expect(labels(imageMenu(ctx({ path: undefined })))).not.toContain('Photo info')
   })
 })
