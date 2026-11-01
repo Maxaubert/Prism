@@ -39,6 +39,12 @@ export interface ExplorerRowMenuContext {
   askDelete: (entry: BrowseEntry) => void
   askDeleteMany: (paths: string[]) => void
   properties: (entry: BrowseEntry) => void
+  /** Change icon... (folder icons, 2026-10-31): folders only, one or every
+   *  marked one. Absent, the row is not offered. */
+  changeIcon?: (paths: string[]) => void
+  /** Whether a marked path is a folder: with several marked, Change icon...
+   *  is offered only when every one is (D13). */
+  isFolder?: (path: string) => boolean
 }
 
 export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
@@ -63,6 +69,15 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
         hint: 'Ctrl+C',
         onPick: () => ctx.copyFiles(paths)
       },
+      ...(ctx.changeIcon && ctx.isFolder && paths.every((p) => ctx.isFolder?.(p))
+        ? [
+            {
+              label: `Change icon for ${paths.length} folders...`,
+              icon: <FileMenuIcon name="icon" />,
+              onPick: () => ctx.changeIcon?.(paths)
+            }
+          ]
+        : []),
       {
         label: `Delete ${n}`,
         icon: <FileMenuIcon name="delete" />,
@@ -137,6 +152,16 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
         else ctx.pinQuickAccess([{ path: entry.path, label: entry.name, isFolder: entry.isFolder }])
       }
     },
+    // After the pin row (D10): a folder's own icon, Prism's only.
+    ...(entry.isFolder && ctx.changeIcon
+      ? [
+          {
+            label: 'Change icon...',
+            icon: <FileMenuIcon name="icon" />,
+            onPick: () => ctx.changeIcon?.([entry.path])
+          }
+        ]
+      : []),
     ...(!entry.isFolder
       ? [
           {

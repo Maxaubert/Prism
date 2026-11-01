@@ -15,6 +15,8 @@ import { useDriveUsage } from '../../hooks/useDriveUsage'
 import { driveName, nearlyFull } from '../../lib/driveUsage'
 import { DriveBody } from './DriveRow'
 import { PlaceIcon } from '../icons/PlaceIcon'
+import { FolderGlyph } from '../icons/FolderGlyph'
+import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
 import { PeekPinButton } from '../PanelToggle'
 import type { BrowsePlace, FolderBrowserProps } from './types'
 import './quick-access.css'
@@ -32,6 +34,7 @@ type Props = Pick<
   | 'onUnpinQuickAccess'
   | 'onMoveQuickAccess'
   | 'onPinQuickAccessPaths'
+  | 'onChangeFolderIcon'
   | 'onDropInto'
   | 'onOpenNewTab'
   | 'readDrives'
@@ -75,6 +78,7 @@ export function BrowsePlaces({
   onUnpinQuickAccess,
   onMoveQuickAccess,
   onPinQuickAccessPaths,
+  onChangeFolderIcon,
   onDropInto,
   readDrives,
   onPin,
@@ -82,6 +86,8 @@ export function BrowsePlaces({
   onChoosePlace
 }: PlacesProps): JSX.Element {
   const folderDrop = useFolderDrop(onDropInto)
+  // One read of the icons for the whole panel (none set: no lookups at all).
+  const folderIcons = useFolderIcons()
   const pins =
     quickAccess ??
     places
@@ -295,19 +301,29 @@ export function BrowsePlaces({
               }}
               title={pin.path}
             >
-              {known ? (
-                <PlaceIcon name={known} />
-              ) : pin.isFolder ? (
-                <FolderIcon color="var(--p-tree-folder)" />
-              ) : (
-                <KindIcon
-                  kind={fileKind(ext, pin.label)}
-                  ext={ext}
-                  name={pin.label}
-                  size={18}
-                  color="var(--p-text-soft)"
-                />
-              )}
+              {(() => {
+                const fallback = known ? (
+                  <PlaceIcon name={known} />
+                ) : pin.isFolder ? (
+                  <FolderIcon color="var(--p-tree-folder)" />
+                ) : (
+                  <KindIcon
+                    kind={fileKind(ext, pin.label)}
+                    ext={ext}
+                    name={pin.label}
+                    size={18}
+                    color="var(--p-text-soft)"
+                  />
+                )
+                // A pin's own icon wears the row's ink, as the Known Folder
+                // glyphs do (D4).
+                const own = folderIconOf(folderIcons, pin.path)
+                return own ? (
+                  <FolderGlyph icon={own} size={16} className="browse-place-icon" fallback={fallback} />
+                ) : (
+                  fallback
+                )
+              })()}
               <span>{label}</span>
             </button>
           )
@@ -397,6 +413,11 @@ export function BrowsePlaces({
             onOpenNewTab,
             onUnpinQuickAccess,
             onPinQuickAccessPaths,
+            // A pin's row, never a This PC drive's (D5).
+            onChangeIcon:
+              onChangeFolderIcon && menu.row.startsWith('pin:')
+                ? () => onChangeFolderIcon([menu.pin.path], menu.pin.label)
+                : undefined,
             onProperties: onProperties
               ? () => {
                   const { pin } = menu

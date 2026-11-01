@@ -101,6 +101,33 @@ sits at `node_modules/<package>/LICENSE`.
   can be replaced there. Licence: `node_modules/libheif-js/LICENSE` inside the archive.
   https://github.com/catdad-experiments/libheif-js
 
+### Lucide icons 1.66.0 (ISC, with an MIT part for the icons derived from Feather)
+The built-in folder icons. Their path data is generated from `lucide-static` (a build-time
+dependency, not shipped as a package) into `src/renderer/src/lib/folderIconSet.ts` and compiled
+into the app as its own script chunk. https://lucide.dev
+
+> ISC License
+>
+> Copyright (c) 2026 Lucide Icons and Contributors
+>
+> Permission to use, copy, modify, and/or distribute this software for any purpose with or
+> without fee is hereby granted, provided that the above copyright notice and this permission
+> notice appear in all copies.
+>
+> THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+> SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+> AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+> WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
+> NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+> PERFORMANCE OF THIS SOFTWARE.
+
+The Lucide icons its licence lists as derived from the Feather project (airplay, alert-circle,
+the arrow and chevron icons, calendar, check, circle, clock, code, download, search and the rest
+of that list in `node_modules/lucide-static/LICENSE`) are also under the MIT licence
+below, "Copyright (c) 2013-present Cole Bemis" (Feather). A few of Prism's own line glyphs follow
+Feather's drawings too (the tab gear is Feather's `settings` path, rounded), so the same notice
+covers them.
+
 ## Build and test only, not shipped
 
 TypeScript, Vite, electron-vite, ESLint, Prettier, Vitest and

@@ -1,5 +1,5 @@
 import type { JSX, ReactNode } from 'react'
-import { DIALOG_BODY, DIALOG_TITLE, dialogButton } from './dialogLook'
+import { DIALOG_BODY, DIALOG_BOX, DIALOG_TITLE, dialogButton } from './dialogLook'
 import { Modal } from './Modal'
 
 // A small modal for the handful of questions Prism has to ask before touching a
@@ -19,15 +19,23 @@ export function Dialog({
   title,
   body,
   choices,
-  onCancel
+  onCancel,
+  wide = false
 }: {
   title: string
   body?: ReactNode
   choices: Choice[]
   onCancel: () => void
+  /** A body that is a tool, not a line (the folder icon picker). */
+  wide?: boolean
 }): JSX.Element {
   return (
-    <Modal label={title} focusKey={title} onCancel={onCancel}>
+    <Modal
+      label={title}
+      focusKey={title}
+      onCancel={onCancel}
+      className={wide ? DIALOG_BOX.replace('max-w-[420px]', 'max-w-[520px]') : DIALOG_BOX}
+    >
       <h2 className={DIALOG_TITLE}>{title}</h2>
       {body && <div className={DIALOG_BODY}>{body}</div>}
       <div className="mt-5 flex justify-end gap-2">

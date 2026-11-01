@@ -71,6 +71,8 @@ export interface FolderBrowserProps {
   onUnpinQuickAccess?: (path: string) => void
   onMoveQuickAccess?: (path: string, beforePath?: string) => void
   onPinQuickAccessPaths?: (paths: string[], beforePath?: string) => void
+  /** Change icon... on a sidebar pin (folder icons, 2026-10-31). */
+  onChangeFolderIcon?: (paths: string[], name: string) => void
   /** Whose list this is (the tab's id). The marks of several rows are this
    *  list's own, and one component serves every Explorer tab. */
   owner?: string
@@ -111,12 +113,15 @@ export interface FolderBrowserProps {
   onSearchRange?: (first: number) => void
   onPreviewToggle: () => void
   /** `paths` is every marked row when the row pressed is one of several
-   *  marked (#257): the menu then acts on all of them, as the marks say. */
+   *  marked (#257): the menu then acts on all of them, as the marks say.
+   *  `folders` is which of those are folders, from the rows themselves (a
+   *  search's rows are not the folder's listing). */
   onContextMenu?: (
     event: MouseEvent<HTMLElement>,
     entry: BrowseEntry,
     source?: 'more',
-    paths?: string[]
+    paths?: string[],
+    folders?: string[]
   ) => void
   onRename?: (entry: BrowseEntry) => void
   onCopy?: (entry: BrowseEntry) => void

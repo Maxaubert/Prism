@@ -1,6 +1,6 @@
 {
   "name": "prism",
-  "version": "0.124.1",
+  "version": "0.125.0",
   "description": "A fast, universal media viewer for Windows.",
   "author": "Max",
   "license": "MIT",
@@ -35,7 +35,8 @@
     "fetch:everything": "node tools/fetch-everything.mjs",
     "test:everything-bundle": "node tools/test-everything-bundle.mjs",
     "fetch:fluidsynth": "node tools/fetch-fluidsynth.mjs",
-    "diag": "node tools/diag.mjs"
+    "diag": "node tools/diag.mjs",
+    "icons:folders": "node tools/icons/folder-icons.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",
@@ -98,6 +99,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
+    "lucide-static": "1.66.0",
     "node-gyp": "^12.4.0",
     "playwright-core": "^1.62.1",
     "prettier": "^3.9.5",

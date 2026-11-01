@@ -30,7 +30,9 @@ Every file or folder menu reads top to bottom in the same groups:
    then Open in (a file).
 2. **The clipboard, together**: Cut, Copy, Copy path, Paste. A menu with fewer keeps the same
    order (a viewer's Copy image or Copy frame, then Copy path).
-3. **Changing it**: Pin / Unpin, Extract, Duplicate, Rename.
+3. **Changing it**: Pin / Unpin, Change icon... (a folder or a pin, 2026-10-31; with several
+   marked folders `Change icon for N folders...`, not offered when a file is marked), Extract,
+   Duplicate, Rename.
 4. **Where it is and its facts**: Show in File Explorer, then Properties.
 5. **Delete, always LAST**, on every menu that has it (Close tab is last on a tab, the same way).
 

@@ -22,6 +22,8 @@ const paths = {
   path: 'M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2',
   properties: 'M12 8.2v.01M12 11v5M3.8 12a8.2 8.2 0 1 0 16.4 0 8.2 8.2 0 0 0-16.4 0z',
   pin: PATHS.pin,
+  // Change icon... (folder icons, 2026-10-31): a square, a circle, a triangle.
+  icon: 'M4 4h7v7H4zM17.5 4.2a3.3 3.3 0 1 1 0 6.6 3.3 3.3 0 0 1 0-6.6zM13.5 20l4-7 4 7zM4 13.5h7v6.5H4z',
   unpin: 'M15 3l6 6-3 1-4 4M10 14l-6 6M3 3l18 18M9 8l4-4',
   'open-with': PATHS.openOut,
   'default-app': 'M12 3l8 5-8 5-8-5 8-5zM4 13l8 5 8-5',

@@ -110,6 +110,12 @@ export function useAppKeys({
       // is drawn outside the Explorer (over the whole window), and a chord
       // that reached the app behind it would change what is under it.
       if (el?.closest('[data-search-popup]')) return
+      // A MODAL DIALOG WITH THE FOCUS owns every key the same way (review of
+      // the folder icons, 2026-10-31): the icon picker's grid is a focusable
+      // list, not a field, and Up there paged the open file behind the scrim,
+      // Ctrl+Z undid a move behind it and Ctrl+W closed the tab under it.
+      // Escape is the dialog's own (data-owns-escape).
+      if (el?.closest('[role="dialog"][aria-modal="true"]')) return
       // A MENU ROW WITH THE FOCUS owns the plain keys (#272): More opened from
       // the keyboard puts the focus on its first row, and Down there walked
       // the list too, whose row then took the focus out of the
