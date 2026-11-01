@@ -125,6 +125,24 @@ describe('explorerRowMenu', () => {
     expect(items.map((i) => i.label)).toEqual(['Cut 3 items', 'Copy 3 items', 'Delete 3 items'])
     expect(items[2].danger).toBe(true)
   })
+  // #474 (owner, 2026-11-01): many pictures, one job, the five formats.
+  it('several marked rows with a picture among them: Save copies as, before Delete', () => {
+    const paths = ['C:\\a\\IMG_1.HEIC', 'C:\\a\\notes.txt', 'C:\\a\\IMG_2.jpg']
+    const ctx = menu({ paths, saveCopies: vi.fn() })
+    const items = explorerRowMenu(ctx)
+    expect(items.map((i) => i.label)).toEqual(['Cut 3 items', 'Copy 3 items', 'Save copies as', 'Delete 3 items'])
+    const row = items[2]
+    expect((row.children ?? []).map((c) => c.label)).toEqual(['JPEG', 'PNG', 'WebP', 'AVIF', 'JPEG XL'])
+    row.children?.[4].onPick?.()
+    // Every marked path goes: main skips what is not a picture and says so.
+    expect(ctx.saveCopies).toHaveBeenCalledWith(paths, 'jxl')
+  })
+  it('no picture among the marked rows, or a folder named like one: no Save copies as', () => {
+    const none = menu({ paths: ['C:\\a\\x.txt', 'C:\\a\\logo.svg', 'C:\\a\\clip.mp4'], saveCopies: vi.fn() })
+    expect(labels(none)).not.toContain('Save copies as')
+    const folders = menu({ paths: ['C:\\a\\trip.jpg', 'C:\\a\\y'], saveCopies: vi.fn(), isFolder: () => true })
+    expect(labels(folders)).not.toContain('Save copies as')
+  })
   it('one marked path is the single-row menu', () => {
     expect(labels(menu({ entry: folder, paths: [folder.path] }))[0]).toBe('Open')
   })

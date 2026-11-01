@@ -63,6 +63,9 @@ export const LONG_WAIT_CHANNELS: readonly string[] = [
   // copy, last as long as the bytes do.
   CALL.filePasteInto,
   CALL.fileCopyInto,
+  // Save copies as (#474): ffmpeg in the process worker, one picture after
+  // another, with the chip's progress and Cancel.
+  CALL.imageSaveCopies,
   CALL.fileMove,
   // The OS drag out of Prism (#103): `drag:out` answers when the user lets
   // go (DoDragDrop), and the press's member extraction is the silent copy
