@@ -20,7 +20,7 @@ import type { StripTear } from '../hooks/useTabTear'
 import { pinnedRoots, plusMenuList, recentRoots, togglePin } from '@renderer/lib/recentRoots'
 import { DRAG_MIME, overPayload, ownDrop, setDrag, windowsDrag, type DragPayload } from '../lib/drag/dragDrop'
 import { archiveTarget, dropVerb, effectOf, type DropKeys } from '../lib/drag/dropVerb'
-import { createHoverSwitch, type HoverSwitch } from '../lib/drag/hoverSwitch'
+import { createHoverSwitch, stillInside, type HoverSwitch } from '../lib/drag/hoverSwitch'
 import { ContextMenu } from './ContextMenu'
 import { plusButtonMenu, tabContextMenu } from '../menus/tabStrip'
 import { TabKindIcon } from './icons/TabKindIcon'
@@ -839,10 +839,12 @@ export function TabStrip({
               hoverSwitch.current?.over(t.id === activeId || carry ? null : t.id)
             }}
             onDragLeave={(e) => {
-              if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) {
-                setFileDropTab(null)
-                hoverSwitch.current?.clear()
-              }
+              if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return
+              // The carry's leave names no relatedTarget: crossing the tab's
+              // own icon, label or close is not leaving it (#70 review).
+              if (stillInside(e.currentTarget.getBoundingClientRect(), e.clientX, e.clientY)) return
+              setFileDropTab(null)
+              hoverSwitch.current?.clear()
             }}
             onDrop={(e) => {
               e.preventDefault()

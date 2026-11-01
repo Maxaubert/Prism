@@ -39,3 +39,19 @@ export function createHoverSwitch(pick: (id: string) => void, wait = HOVER_SWITC
     clear
   }
 }
+
+/**
+ * Whether a dragleave's point is still on the tab (#70 review, 2026-11-01).
+ * The in-app carry sends dragleave with no relatedTarget whenever the element
+ * under the pointer changes, so crossing the tab's icon, label or close button
+ * read as leaving and restarted the 0.6 s wait. A leave with no point (0, 0,
+ * as a drag that ended elsewhere sends) is a real one.
+ */
+export function stillInside(
+  box: { left: number; top: number; right: number; bottom: number },
+  x: number,
+  y: number
+): boolean {
+  if (x === 0 && y === 0) return false
+  return x >= box.left && x < box.right && y >= box.top && y < box.bottom
+}

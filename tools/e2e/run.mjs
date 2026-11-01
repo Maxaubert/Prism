@@ -12884,8 +12884,18 @@ async function dragHoverTabScenario(fixtures) {
     // Held over the tab, short of 0.6 s: still in the background.
     await carryOver(win, listRow(win, 'carried.txt').locator('.browse-name-text'), tab, { release: 'hold', settle: 250 })
     ok((await selected()) === 'false', 'a quarter second over it does not switch')
-    await sleep(700)
-    ok((await selected()) === 'true', 'held 0.6 s, it comes to the front')
+    // Wandering ACROSS the tab (its icon, label and close) keeps the wait
+    // going (#70 review, 2026-11-01): the carry's leave between its own
+    // parts used to restart it. 0.6 s after the tab was reached, but well
+    // under 0.6 s after the last crossing, it is in front.
+    await sleep(150)
+    const tb = await tab.boundingBox()
+    const cy = tb.y + tb.height / 2
+    await win.mouse.move(tb.x + 6, cy, { steps: 6 })
+    await win.mouse.move(tb.x + tb.width - 6, cy, { steps: 10 })
+    await win.mouse.move(tb.x + tb.width / 2, cy, { steps: 6 })
+    await sleep(350)
+    ok((await selected()) === 'true', 'held 0.6 s, crossing its icon and label, it comes to the front')
     await listRow(win, 'deep').waitFor({ timeout: 8000 })
     const deep = await pointOf(listRow(win, 'deep'))
     await win.mouse.move(deep.x, deep.y, { steps: 10 })
