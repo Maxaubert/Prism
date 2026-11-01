@@ -17,6 +17,7 @@ import { ContextMenu, type MenuItem } from './ContextMenu'
 import { LoadingState } from './LoadingState'
 import { imageMenu } from '../menus/viewers/image'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
+import { saveCopyNote } from '../lib/saveCopyNote'
 import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
 import { inOverlay, isTypingTarget } from '../lib/focusGuards'
 import { photoInfoPref } from '../lib/photoInfoPref'
@@ -449,13 +450,16 @@ export function ImageView({
         window.setTimeout(() => setCopyNote(null), 2200)
         return
       }
-      const where = await window.prism.saveImageCopy(bytes, name, format)
-      if (where) {
-        setCopyNote('Saved a copy')
-        window.setTimeout(() => setCopyNote(null), 1800)
+      // #78 (owner, 2026-11-01): the dialog opens in the photo's folder, the
+      // note names what was saved, and a failure says so. A cancel is silent.
+      const r = await window.prism.saveImageCopy(bytes, name, format, path)
+      const note = saveCopyNote(r)
+      if (note) {
+        setCopyNote(note)
+        window.setTimeout(() => setCopyNote(null), 'saved' in r ? 1800 : 2600)
       }
     },
-    [img, name]
+    [img, name, path]
   )
 
   const copyImage = useCallback(async (): Promise<void> => {

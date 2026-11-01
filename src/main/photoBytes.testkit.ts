@@ -136,7 +136,7 @@ const segment = (marker: number, body: Buffer): Buffer => {
 
 /** A JPEG of metadata segments only: SOI, APP1 Exif, APP2 ICC, EOI. */
 export function jpegWith(o: { tags?: CameraTags; icc?: Buffer }): Buffer {
-  const parts = [Buffer.from([0xff, 0xd8])]
+  const parts: Buffer[] = [Buffer.from([0xff, 0xd8])]
   if (o.tags) parts.push(segment(0xffe1, Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiffBlock(o.tags)])))
   if (o.icc) {
     parts.push(segment(0xffe2, Buffer.concat([Buffer.from('ICC_PROFILE\0', 'latin1'), Buffer.from([1, 1]), o.icc])))

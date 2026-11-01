@@ -38,6 +38,25 @@ export function saveDialog(
   return owner ? dialog.showSaveDialog(owner, opts) : dialog.showSaveDialog(opts)
 }
 
+/**
+ * Save a copy's dialog (#78). Under `--e2e` it never shows a dialog: it
+ * answers `PRISM_E2E_SAVE_TO` (unset or empty is a cancel), the same shape
+ * as `PRISM_E2E_PICK_FILES`, and records the options it would have opened
+ * with in `globalThis.__e2eSaveDialog`, so the e2e can see the folder.
+ */
+export async function saveCopyDialog(
+  opts: Electron.SaveDialogOptions,
+  sender?: DialogOwner
+): Promise<{ canceled: boolean; filePath?: string }> {
+  if (E2E) {
+    ;(globalThis as { __e2eSaveDialog?: Electron.SaveDialogOptions }).__e2eSaveDialog = opts
+    const to = process.env.PRISM_E2E_SAVE_TO
+    return to ? { canceled: false, filePath: to } : { canceled: true }
+  }
+  const r = await saveDialog(opts, sender)
+  return { canceled: r.canceled, filePath: r.filePath }
+}
+
 /** Choose a folder WITHOUT opening it - the Settings picker. */
 export async function pickFolder(sender?: DialogOwner): Promise<string | null> {
   const r = await openDialog({ properties: ['openDirectory'] }, sender)
