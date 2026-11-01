@@ -126,17 +126,62 @@ export function isHeif(file: string): boolean {
   return /\.(heic|heif|avif)$/i.test(file)
 }
 
+/** The `meta` box's children, or null when the file has no `meta`. */
+async function metaChildren(fh: FileHandle): Promise<Box[] | null> {
+  const { size } = await fh.stat()
+  const top = await children(fh, 0, size)
+  const meta = top.find((b) => b.kind === 'meta')
+  if (!meta) return null
+  // `meta` is a FullBox: four bytes of version and flags before its children.
+  return children(fh, meta.at + meta.headLen, meta.at + meta.size, 4)
+}
+
+/** A profile is kilobytes; anything claiming more is a misparse. */
+const ICC_MAX = 1 << 20
+
+/**
+ * The ICC profile a HEIC carries, or null (#78, D8, owner 2026-11-01): the
+ * first `colr` property of type `prof` (or `rICC`, the restricted kind) in
+ * `meta` > `iprp` > `ipco`. Many iPhone photos carry only `nclx` (the colour
+ * coded as numbers, no profile): those answer null, which is no Colour row
+ * rather than a guessed one. Box headers and the profile only.
+ */
+export async function heifIccProfile(file: string): Promise<Buffer | null> {
+  let fh: FileHandle | null = null
+  try {
+    fh = await open(file, 'r')
+    const kids = await metaChildren(fh)
+    const iprp = kids?.find((b) => b.kind === 'iprp')
+    if (!iprp) return null
+    const ipco = (await children(fh, iprp.at + iprp.headLen, iprp.at + iprp.size)).find((b) => b.kind === 'ipco')
+    if (!ipco) return null
+    for (const prop of await children(fh, ipco.at + ipco.headLen, ipco.at + ipco.size)) {
+      if (prop.kind !== 'colr') continue
+      const kind = Buffer.alloc(4)
+      await fh.read(kind, 0, 4, prop.at + prop.headLen)
+      const type = kind.toString('latin1')
+      if (type !== 'prof' && type !== 'rICC') continue
+      const len = prop.size - prop.headLen - 4
+      if (len <= 0 || len > ICC_MAX) return null
+      const icc = Buffer.alloc(len)
+      const { bytesRead } = await fh.read(icc, 0, len, prop.at + prop.headLen + 4)
+      return bytesRead === len ? icc : null
+    }
+    return null
+  } catch {
+    return null
+  } finally {
+    await fh?.close().catch(() => {})
+  }
+}
+
 /** The TIFF block from a HEIC's Exif item, or null if it has none. */
 export async function heifExifBlock(file: string): Promise<Buffer | null> {
   let fh: FileHandle | null = null
   try {
     fh = await open(file, 'r')
-    const { size } = await fh.stat()
-    const top = await children(fh, 0, size)
-    const meta = top.find((b) => b.kind === 'meta')
-    if (!meta) return null
-    // `meta` is a FullBox: four bytes of version and flags before its children.
-    const kids = await children(fh, meta.at + meta.headLen, meta.at + meta.size, 4)
+    const kids = await metaChildren(fh)
+    if (!kids) return null
     const iinf = kids.find((b) => b.kind === 'iinf')
     const iloc = kids.find((b) => b.kind === 'iloc')
     if (!iinf || !iloc) return null
