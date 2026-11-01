@@ -8,7 +8,8 @@ import {
   parentDir,
   pathKey,
   samePath,
-  trimSep
+  trimSep,
+  volumeOf
 } from './path'
 
 describe('trimSep', () => {
@@ -146,6 +147,31 @@ describe('isInside', () => {
   it('puts nothing inside an empty path, and an empty path inside nothing', () => {
     expect(isInside('', 'C:\\a')).toBe(false)
     expect(isInside('C:\\a', '')).toBe(false)
+  })
+})
+
+describe('volumeOf (#70, the drive rule)', () => {
+  it('reads a drive letter, either case, with or without a separator', () => {
+    expect(volumeOf('C:\\')).toBe('c:')
+    expect(volumeOf('c:')).toBe('c:')
+    expect(volumeOf('D:\\Photos\\a.jpg')).toBe('d:')
+    expect(volumeOf('d:/photos')).toBe('d:')
+  })
+
+  it('reads a share root as its volume', () => {
+    expect(volumeOf('\\\\srv\\share\\x')).toBe('\\\\srv\\share')
+    expect(volumeOf('\\\\SRV\\Share')).toBe('\\\\srv\\share')
+    expect(volumeOf('//srv/share/x')).toBe('\\\\srv\\share')
+  })
+
+  it("puts a place inside a zip on the zip file's drive", () => {
+    expect(volumeOf('E:\\Downloads\\a.zip\\inner\\b.txt')).toBe('e:')
+  })
+
+  it('answers empty for anything it cannot read', () => {
+    expect(volumeOf('')).toBe('')
+    expect(volumeOf('relative\\x')).toBe('')
+    expect(volumeOf('\\\\srv')).toBe('')
   })
 })
 
