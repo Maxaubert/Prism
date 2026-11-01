@@ -28,7 +28,12 @@ D1-D13 is the recommended one. Two of the three items were already built: the ch
   member of a zip browsed as a folder (#300) is shown from its unpacked copy, which IS a file, so it has
   the card too (the spec expected otherwise; the copy carries the photo's own EXIF, so the card is right).
 - **Where I does nothing**: while typing (the `isTypingTarget` guard, so a rename or the address field
-  takes the letter), over a menu or a dialog (the Properties window is one), as a chord, on a comic page.
+  takes the letter), over a menu or a dialog (the Properties window is one), as a chord, as a key repeat
+  (holding I counts once; the card flickered), on a comic page, and in any viewer that is not the one in
+  front. Review, 2026-11-01: every mounted picture listens on the window and up to four picture tabs stay
+  mounted (the hidden ones `inert`, as is the viewer behind a shut preview pane), so with two picture tabs
+  open the one setting flipped twice and I did nothing. Only a stage with no `[inert]` above it answers.
+  The guards are `lib/photoInfoKey.ts`, pinned by `photoInfoKey.test.ts`.
   **With the Explorer list focused** it follows the owner's rule for every letter (type-to-jump "taken
   only on a match, else the letter reaches the viewer"): when no name starts with what was typed, I
   toggles the card on the previewed photo, as R and F already do; when one does, the list jumps.
@@ -44,7 +49,11 @@ D1-D13 is the recommended one. Two of the three items were already built: the ch
   "name copy.png" when the same format would be the photo itself); the note says "Saved IMG_0412.jpg";
   a failed write says "Could not save the copy" (it used to say nothing); a cancel still says nothing; a
   target that IS the photo being viewed is refused ("A copy cannot replace the original") and the original
-  is never touched. An animated GIF or WebP saves its first frame. `src/main/saveCopy.ts`, answered by
+  is never touched. An animated GIF or WebP saves its first frame. **Not in a temp copy's folder**
+  (review, 2026-11-01): a member of a zip browsed as a folder (#300) is shown from its unpacked copy in
+  `%TEMP%\prism-members`, removed at quit, so a copy saved beside it was lost. A photo in any of Prism's
+  own temp folders (`%TEMP%\prism-*`) opens the dialog with the name alone, where Windows last saved, as
+  before; the temp copy itself is still refused as a target (`isPrismTempCopy`). `src/main/saveCopy.ts`, answered by
   `PRISM_E2E_SAVE_TO` under `--e2e` (`dialogs.ts` `saveCopyDialog`, never a native dialog).
 - **Not built**: D12, "Save copies as JPEG" over many files in the Explorer, is issue #474. D1 (the dark
   checker stays faint) and D2 (grid tiles, below) are left as they are.
@@ -52,9 +61,10 @@ D1-D13 is the recommended one. Two of the three items were already built: the ch
   ffmpeg's 320px JPEG (`thumbs.ts`) drops the alpha, so a PNG whose clear pixels are black (most) gets a
   black ground, white ones white. Measured with the thumbnail's own arguments on a 64px PNG. Its own issue.
 - **Held by** `photoFacts.test.ts`, `photoInfoPref.test.ts`, `photoInfo.test.ts`, `heifExif.test.ts`,
-  `iccName.test.ts`, `saveCopy.test.ts`, `saveCopyNote.test.ts`, `menus/viewers/image.test.ts`, and e2e
-  `photoInfoKey` (the card's rows and corner, arrowing to a PNG with none, I off, the menu row and its tick,
-  a field keeping the letter, the Explorer list focused, a comic page) and `imageSaveCopy` (JPEG and PNG,
+  `iccName.test.ts`, `saveCopy.test.ts` (with the temp copy), `saveCopyNote.test.ts`, `photoInfoKey.test.ts`,
+  `menus/viewers/image.test.ts`, and e2e `photoInfoKey` (the card's rows and corner, arrowing to a PNG with
+  none, I off, the menu row and its tick, a field keeping the letter, the Explorer list focused, two picture
+  tabs open and a held I, a comic page) and `imageSaveCopy` (JPEG and PNG,
   the folder and name the dialog would open on, the white corner, the note, a read-only target, the photo
   itself, a cancel). Screenshots `photo-info.png`, `photo-info-preview.png`, `save-copy.png`.
 
