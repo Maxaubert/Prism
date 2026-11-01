@@ -177,17 +177,34 @@ describe.runIf(process.platform === 'win32')('the held pipe (#350)', () => {
       windowsHide: true
     })
     let output = ''
+    // Each step waits on the helper's own word, never on a clock (release
+    // unit flakes, 2026-11-01): this polled 15 s for "listening" and then
+    // carried on regardless, and gave the close 5 s, so a PowerShell slow to
+    // start on a busy runner ran the test out at 20 s with no reason given.
+    const said = (line: RegExp): Promise<void> =>
+      new Promise((done) => {
+        const look = (): void => {
+          if (!line.test(output)) return
+          server.stdout.off('data', look)
+          done()
+        }
+        server.stdout.on('data', look)
+        look()
+      })
     server.stdout.on('data', (chunk) => (output += String(chunk)))
     const exited = new Promise((done) => server.on('exit', done))
-    const until = async (test: () => boolean): Promise<void> => {
-      for (let i = 0; i < 300 && !test(); i++) await new Promise((done) => setTimeout(done, 50))
+    try {
+      await said(/listening/)
+      announceWinE(token)
+      // The hold is the point: the old socket closed a few ms after the
+      // "started" line, so the wait starts once the helper has READ it.
+      await said(/^read /m)
+      await new Promise((done) => setTimeout(done, 500))
+      await acknowledgeWinE(token)
+      await exited // the helper ends when the pipe closes
+    } finally {
+      server.kill()
     }
-    await until(() => output.includes('listening'))
-    announceWinE(token)
-    await new Promise((done) => setTimeout(done, 500))
-    await acknowledgeWinE(token)
-    await Promise.race([exited, new Promise((done) => setTimeout(done, 5000))])
-    server.kill()
     const lines = output.trim().split(/\r?\n/).slice(1)
     const reads = lines.filter((l) => l.startsWith('read '))
     const text = reads.map((l) => Buffer.from(l.split(' ')[2], 'base64').toString()).join('')
