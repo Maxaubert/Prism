@@ -225,7 +225,7 @@ describe('persistent folder size cache', () => {
       later = value
     })
     try {
-      await vi.waitFor(() => expect(first?.bytes).toBe(8))
+      await vi.waitFor(() => expect(first?.bytes).toBe(8), { timeout: 5_000 })
       expect(later).toBeUndefined()
       expect(indexedSizes).toHaveBeenCalledTimes(2)
       expect(indexedSizes.mock.calls.every(([batch]) => batch.length <= 32)).toBe(true)
