@@ -3,6 +3,31 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Media Range requests and second launches, read right (#23, #21, #25, owner, 2026-11-01)
+
+Owner, 2026-11-01, from the `/next` list: "Video/audio range requests: 'last N bytes' requests get the
+first bytes instead, there is no '416 range not satisfiable' error, and a 0-byte file crashes", and
+"Second launch ignores its folder: prism photo.jpg from another shell resolves the file against the wrong
+place".
+
+- **`fsmedia://` reads a Range per RFC 7233** (#23, `src/main/byteRange.ts`): `bytes=-N` is the LAST N
+  bytes (the whole file when N is longer), a start at or past the end and any range on a 0-byte file answer
+  416 with `Content-Range: bytes */<size>`, and a header it cannot read (another unit, last before first,
+  several ranges) is ignored: the whole file, 200. A 0-byte file without a range is an empty 200. The audio
+  sidecar's `parseRange` reads through the same function.
+- **The handler never throws**: anything that throws inside `fsmedia://` is a 500 with no body. The wall is
+  still asked first, before the file is touched, so a wall that throws serves nothing.
+- **A second launch's paths are relative to ITS shell** (#21, `src/main/argv.ts`): `second-instance` hands
+  over the launching process's `workingDirectory`, and the handoff reads argv against it, awaited, and opens
+  absolute paths. A quit's relaunch passes the paths made absolute (`argsAgainst`), since the new Prism
+  starts in this process's folder.
+- **The close-time size save (#25) was already fixed** by the multi-window work (2026-10-29): the close
+  listener cancels the move/resize debounce and reports the bounds before the window goes
+  (`windowChrome.ts` `watchWindowState`), and the close flush writes on main's thread for the last window or
+  the quit (`tabsSession.ts`, `// sync-ok`).
+- **Held by** `byteRange.test.ts`, `mediaProtocol.test.ts` (suffix, 416, 0-byte, the 500) and
+  `argv.test.ts` (a relative path read against the cwd it is given, never the resident one's).
+
 ## Unit tests wait on events, never on clocks (release unit flakes, owner, 2026-11-01)
 
 Owner, 2026-11-01: "Release runs flake on unit-test timeouts (listingCache, peaksJobs)": most release runs
