@@ -1,6 +1,7 @@
 import { execFile } from './spawnWorker'
 import { existsSync } from 'fs'
 import { delimiter, dirname, join } from 'path'
+import { parseByteRange } from './byteRange'
 
 /**
  * The ffmpeg Prism bundles, and the arithmetic the audio sidecar is built on.
@@ -103,28 +104,12 @@ export function timeForByte(byte: number): number {
   return Math.floor(pcm / BYTES_PER_FRAME) / SIDECAR_RATE
 }
 
-/** Parse a Range header against a known total. null = no (or unusable) range. */
+/** Parse a Range header against a known total. null = no (or unusable) range:
+ *  the sidecar answers any header that is not a range it can serve with 416.
+ *  The reading itself is byteRange.ts, shared with fsmedia:// (#23). */
 export function parseRange(header: string | null, total: number): { start: number; end: number } | null {
-  if (!header) return null
-  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
-  if (!m) return null
-  if (!m[1] && !m[2]) return null
-  let start: number
-  let end: number
-  if (!m[1]) {
-    // "-N": the last N bytes.
-    const n = parseInt(m[2], 10)
-    if (!Number.isFinite(n) || n <= 0) return null
-    start = Math.max(0, total - n)
-    end = total - 1
-  } else {
-    start = parseInt(m[1], 10)
-    end = m[2] ? parseInt(m[2], 10) : total - 1
-  }
-  if (!Number.isFinite(start) || start < 0) return null
-  if (!Number.isFinite(end) || end >= total) end = total - 1
-  if (start > end) return null
-  return { start, end }
+  const r = parseByteRange(header, total)
+  return r && r !== 'unsatisfiable' ? r : null
 }
 
 /** Stream index standing for "whichever audio track comes first", for the

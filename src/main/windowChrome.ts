@@ -3,6 +3,7 @@ import { CALL, PUSH } from '@shared/channels'
 import { readFileSync } from 'fs'
 import { borderColourForWindow, hwndOf, setBorder, setCornersRounded } from './dwmHelper'
 import { restoredWindow, type WindowState } from './windowSize'
+import { watchBounds } from './windowBounds'
 import { userPaths } from './paths'
 import { E2E, windows } from './appState'
 import type { SavedBounds } from './session'
@@ -52,33 +53,14 @@ export function readWindowState(sessionBounds: SavedBounds | null): WindowState 
 
 /** Save on a delay: a drag fires this continuously, and the disk does not need
  *  to hear about every pixel of it. The bounds go into the window's own entry
- *  of the session file (`report`), written off main like the tab strip. */
+ *  of the session file (`report`), written off main like the tab strip. A
+ *  close reports at once (#25, `windowBounds.ts`), then flushes. */
 export function watchWindowState(
   win: BrowserWindow,
   report: (bounds: SavedBounds) => void,
   flush: () => void
 ): void {
-  let timer: NodeJS.Timeout | null = null
-  const save = (): void => {
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(() => {
-      if (win.isDestroyed() || win.isMinimized()) return
-      // getNormalBounds is the un-maximised size, which is what should come back
-      // when the window is restored.
-      report({ ...win.getNormalBounds(), maximised: win.isMaximized() })
-    }, 400)
-  }
-  // Listed one by one: BrowserWindow's overloads are per event name, so a loop
-  // over a union of them has no single signature to match.
-  win.on('resize', save)
-  win.on('move', save)
-  win.on('maximize', save)
-  win.on('unmaximize', save)
-  win.on('close', () => {
-    if (timer) clearTimeout(timer)
-    timer = null
-    if (!win.isDestroyed() && !win.isMinimized()) report({ ...win.getNormalBounds(), maximised: win.isMaximized() })
-  })
+  watchBounds(win, report)
   win.on('close', flush)
   // Every route out of the window ends here: the title bar's X, Alt+F4, the
   // taskbar, Ctrl+W on the last tab (never Escape, #14). Unsaved text stops
