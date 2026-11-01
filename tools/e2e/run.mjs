@@ -13203,7 +13203,9 @@ async function phoneScenario(fixtures) {
               const img = [...document.querySelectorAll('[data-phone-thumb].p-checker')][0]
               const css = img ? getComputedStyle(img) : null
               const rgb = (hex) => {
-                const h = hex.trim().replace('#', '')
+                // The build's CSS minifier shortens #ffffff to #fff.
+                const s = hex.trim().replace('#', '')
+                const h = s.length === 3 ? [...s].map((ch) => ch + ch).join('') : s
                 return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16))
               }
               const root = getComputedStyle(document.documentElement)
