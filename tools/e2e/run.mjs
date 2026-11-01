@@ -9113,6 +9113,11 @@ async function sidebarPlacesScenario(fixtures) {
     await quickPin(0).dragTo(lastQuick, { targetPosition: { x: 20, y: Math.max(1, Math.floor(lastBox.height) - 3) } })
     const q2 = [...q1.slice(1), q1[0]]
     ok(await until(async () => JSON.stringify(await quickOrder()) === JSON.stringify(q2), 5000), `a drag onto the last row's bottom half moves a pin to the end (${await quickOrder()}, want ${q2})`)
+    // A carried pin says no Move or Copy under it (#70 review, 2026-11-01):
+    // a reorder is not a file operation, and the word never showed for it.
+    const pinWord = await carryOver(win, quickPin(0), quickPin(1), { release: 'escape' })
+    ok(pinWord === '', `a carried pin shows no word under it (${JSON.stringify(pinWord)})`)
+    ok(JSON.stringify(await quickOrder()) === JSON.stringify(q2), 'and Escape left the order as it was')
     // A drop on the section's heading is the end too (no row under it).
     await quickPin(0).dragTo(places.locator('section[aria-label="Quick access"] h2'))
     const q3 = [...q2.slice(1), q2[0]]
