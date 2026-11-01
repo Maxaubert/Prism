@@ -1,11 +1,11 @@
 import { constants } from 'fs'
-import { copyFile, mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
+import { copyFile, mkdtemp, readFile, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { CopyFormat } from '@shared/imageCopy'
 import { encodeImage, type Encoder } from './imageEncode'
-import { heicToJpeg, isHeic } from './heicClient'
-import { isRaw, rawPreview } from './rawPreview'
+import { heicToJpegForCopy, isHeic } from './heicClient'
+import { isRaw, readRawPreview } from './rawPreview'
 
 /**
  * The real disk and encoder behind Save copies as and the single save's new
@@ -14,8 +14,17 @@ import { isRaw, rawPreview } from './rawPreview'
  * Every picture is made in a folder of the job's own under `%TEMP%`
  * (`prism-copies-*`, gone when the job ends, Cancel included), because the
  * AVIF muxer needs a file it can seek in, and then COPIED into place with
- * "fail if it exists": nothing half-written ever shows in the folder, and
- * nothing is ever written over.
+ * "fail if it exists": nothing is ever written over, and a copy that fails
+ * to encode never reaches the folder. The copy itself writes straight to the
+ * final name, so a big one is in the folder, growing, while it is copied
+ * (review, 2026-11-01: this said "nothing half-written ever shows", which a
+ * plain copy cannot promise; a rename into place could not refuse a taken
+ * name the same way).
+ *
+ * A HEIC or RAW is decoded to a JPEG beside its copy, and that JPEG goes as
+ * soon as the copy is made: 400 HEICs kept 1-2 GB of them in temp until the
+ * job ended (review, 2026-11-01). The decoders are the batch's own, never the
+ * viewer's: no cache, and no queue the viewer waits in.
  */
 
 /** A folder for one job's files. */
@@ -27,8 +36,9 @@ export const dropTemp = (dir: string): Promise<void> =>
 
 /**
  * Make `src` as `format` at `out`. HEIC and camera RAW are decoded the way
- * the viewer decodes them (the libheif worker; the camera's own full-size
- * preview), and ffmpeg encodes that; everything else ffmpeg reads itself.
+ * the viewer decodes them (libheif in a worker, the batch's own; the
+ * camera's own full-size preview), and ffmpeg encodes that; everything else
+ * ffmpeg reads itself.
  */
 export async function convertForCopy(
   tools: Encoder | null,
@@ -38,19 +48,18 @@ export async function convertForCopy(
   signal: AbortSignal
 ): Promise<boolean> {
   if (!tools) return false
-  let input = src
-  if (isHeic(src) || isRaw(src)) {
-    try {
-      const { mtimeMs } = await stat(src)
-      const jpeg = isHeic(src) ? await heicToJpeg(src, mtimeMs) : await rawPreview(src, mtimeMs)
-      input = `${out}.src.jpg`
-      await writeFile(input, jpeg)
-    } catch {
-      return false
-    }
+  if (!isHeic(src) && !isRaw(src)) return encodeImage(tools, src, out, format, signal)
+  const input = `${out}.src.jpg`
+  try {
+    const jpeg = isHeic(src) ? await heicToJpegForCopy(src) : await readRawPreview(src)
+    if (signal.aborted) return false
+    await writeFile(input, jpeg)
+    return await encodeImage(tools, input, out, format, signal)
+  } catch {
+    return false
+  } finally {
+    await rm(input, { force: true }).catch(() => {})
   }
-  if (signal.aborted) return false
-  return encodeImage(tools, input, out, format, signal)
 }
 
 /** Put the made file at `target` without ever writing over one there. */
