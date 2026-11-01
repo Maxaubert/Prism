@@ -67,6 +67,82 @@ describe('fsmedia://', () => {
     const big = await server()(new Request(url(file), { headers: { range: 'bytes=8-999' } }))
     expect(big.headers.get('content-range')).toBe('bytes 8-9/10')
   })
+
+  // #23 (2026-11-01): RFC 7233, and a handler that never throws.
+  it('serves a suffix Range as the last bytes', async () => {
+    const res = await server()(new Request(url(file), { headers: { range: 'bytes=-3' } }))
+    expect(res.status).toBe(206)
+    expect(res.headers.get('content-range')).toBe('bytes 7-9/10')
+    expect(res.headers.get('content-length')).toBe('3')
+    expect(await res.text()).toBe('789')
+  })
+
+  it('answers 416 with the size for a Range past the end', async () => {
+    const res = await server()(new Request(url(file), { headers: { range: 'bytes=10-' } }))
+    expect(res.status).toBe(416)
+    expect(res.headers.get('content-range')).toBe('bytes */10')
+  })
+
+  it('ignores a Range it cannot read and serves the whole file', async () => {
+    const res = await server()(new Request(url(file), { headers: { range: 'bytes=5-2' } }))
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('0123456789')
+  })
+
+  it('serves several ranges as the whole file (200), never as the first one', async () => {
+    // A multipart answer is not made here; the RFC allows ignoring the header.
+    const res = await server()(new Request(url(file), { headers: { range: 'bytes=0-1,4-5' } }))
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('0123456789')
+  })
+
+  it('clamps a last byte too big to count, as a 206 (review of #23)', async () => {
+    const res = await server()(
+      new Request(url(file), { headers: { range: 'bytes=3-99999999999999999999' } })
+    )
+    expect(res.status).toBe(206)
+    expect(res.headers.get('content-range')).toBe('bytes 3-9/10')
+  })
+
+  it('serves a 0-byte file empty, and a Range on it is a 416', async () => {
+    const empty = join(dir, 'empty.mp4')
+    writeFileSync(empty, '')
+    const whole = await server((p) => p === empty)(new Request(url(empty)))
+    expect(whole.status).toBe(200)
+    expect(whole.headers.get('content-length')).toBe('0')
+    expect(await whole.text()).toBe('')
+    const ranged = await server((p) => p === empty)(
+      new Request(url(empty), { headers: { range: 'bytes=0-' } })
+    )
+    expect(ranged.status).toBe(416)
+    expect(ranged.headers.get('content-range')).toBe('bytes */0')
+  })
+
+  it('answers 500 instead of throwing, and a wall that throws serves nothing', async () => {
+    const res = await createMediaServer({
+      allowed: () => {
+        throw new Error('wall broke')
+      },
+      ffmpeg: () => null,
+      heic: () => Promise.reject(new Error('no'))
+    })(new Request(url(file)))
+    expect(res.status).toBe(500)
+    expect(res.body).toBeNull()
+  })
+
+  it('leaves a diag line for a 500, so media that will not play has a trace (review of #23)', async () => {
+    const lines: Array<{ url: string; error: string }> = []
+    const res = await createMediaServer({
+      allowed: () => {
+        throw new Error('wall broke')
+      },
+      ffmpeg: () => null,
+      heic: () => Promise.reject(new Error('no')),
+      onError: (fields) => lines.push(fields)
+    })(new Request(url(file)))
+    expect(res.status).toBe(500)
+    expect(lines).toEqual([{ url: url(file), error: 'wall broke' }])
+  })
 })
 
 // A picture main made (decoded TIFF/PSD, raw preview, HEIC) follows the same
