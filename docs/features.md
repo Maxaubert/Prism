@@ -13,20 +13,29 @@ place".
 - **`fsmedia://` reads a Range per RFC 7233** (#23, `src/main/byteRange.ts`): `bytes=-N` is the LAST N
   bytes (the whole file when N is longer), a start at or past the end and any range on a 0-byte file answer
   416 with `Content-Range: bytes */<size>`, and a header it cannot read (another unit, last before first,
-  several ranges) is ignored: the whole file, 200. A 0-byte file without a range is an empty 200. The audio
-  sidecar's `parseRange` reads through the same function.
-- **The handler never throws**: anything that throws inside `fsmedia://` is a 500 with no body. The wall is
-  still asked first, before the file is touched, so a wall that throws serves nothing.
+  several ranges) is ignored: the whole file, 200. Several ranges used to get the first range as a 206; a
+  multipart answer is not made, and the media element never asks for one. A number too big to count exactly
+  (past 2^53) is clamped like any other, never ignored (review, 2026-11-01). A 0-byte file without a range
+  is an empty 200. The audio sidecar's `parseRange` reads through the same function, so it now also reads
+  `Bytes=` in any case and spaces around the spec, which it used to refuse with a 416.
+- **The handler never throws**: anything that throws inside `fsmedia://` is a 500 with no body, and a
+  `media-500` line in the diag log names the URL and the error (review, 2026-11-01), so media that will not
+  play leaves a trace. The wall is still asked first, before the file is touched, so a wall that throws
+  serves nothing.
 - **A second launch's paths are relative to ITS shell** (#21, `src/main/argv.ts`): `second-instance` hands
   over the launching process's `workingDirectory`, and the handoff reads argv against it, awaited, and opens
   absolute paths. A quit's relaunch passes the paths made absolute (`argsAgainst`), since the new Prism
-  starts in this process's folder.
+  starts in this process's folder. The handler reads all three through `secondLaunch` (review,
+  2026-11-01), so none can fall back on the resident cwd, and every reader takes only `--` as a switch: a
+  file named `-clip.mp4` is a file, in a handoff and in a relaunch.
 - **The close-time size save (#25) was already fixed** by the multi-window work (2026-10-29): the close
   listener cancels the move/resize debounce and reports the bounds before the window goes
-  (`windowChrome.ts` `watchWindowState`), and the close flush writes on main's thread for the last window or
-  the quit (`tabsSession.ts`, `// sync-ok`).
-- **Held by** `byteRange.test.ts`, `mediaProtocol.test.ts` (suffix, 416, 0-byte, the 500) and
-  `argv.test.ts` (a relative path read against the cwd it is given, never the resident one's).
+  (`windowBounds.ts` `watchBounds`, called by `windowChrome.ts`), and the close flush writes on main's thread
+  for the last window or the quit (`tabsSession.ts`, `// sync-ok`).
+- **Held by** `byteRange.test.ts` (with the too-big numbers), `mediaProtocol.test.ts` (suffix, 416, 0-byte,
+  several ranges, the 500 and its diag line), `ffmpeg.test.ts` (the sidecar's reading), `argv.test.ts` (a
+  relative path read against the cwd it is given, `secondLaunch`'s three readers, the one-dash file) and
+  `windowBounds.test.ts` (the close reports at once, inside the wait, and never twice).
 
 ## Unit tests wait on events, never on clocks (release unit flakes, owner, 2026-11-01)
 
