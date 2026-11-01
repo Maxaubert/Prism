@@ -8,6 +8,7 @@ import {
   landJob,
   listJobs,
   MIN_SHOW_MS,
+  NOTE_MS,
   resetJobs,
   startJob,
   updateJob,
@@ -172,5 +173,77 @@ describe('landing items (owner, 2026-10-28: a paste shows its rows)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('a job with Cancel and a done note (#474)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    resetJobs()
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('the chip offers the head job\'s Cancel while it runs', () => {
+    const stop = vi.fn()
+    const a = startJob('copies', 'Saving copies', stop)
+    const s = chipSummary(listJobs())
+    expect(s?.label).toBe('Saving copies')
+    s?.cancel?.()
+    expect(stop).toHaveBeenCalledTimes(1)
+    // A paste has no Cancel.
+    resetJobs()
+    startJob('paste', 'Copying')
+    expect(chipSummary(listJobs())?.cancel).toBeUndefined()
+    void a
+  })
+
+  it('a job that ends with a note says it on the chip, without a bar or Cancel, then leaves', () => {
+    const a = startJob('copies', 'Saving copies', vi.fn())
+    vi.advanceTimersByTime(MIN_SHOW_MS + 1)
+    endJob(a, 'Saved 37 copies, 2 could not be read')
+    const s = chipSummary(listJobs())
+    expect(s).toEqual({ label: 'Saved 37 copies, 2 could not be read', pct: 100, more: 0, note: true })
+    expect(s?.cancel).toBeUndefined()
+    vi.advanceTimersByTime(NOTE_MS - 1)
+    expect(listJobs()).toHaveLength(1)
+    vi.advanceTimersByTime(2)
+    expect(listJobs()).toHaveLength(0)
+  })
+
+  it('a note shows over a job still working, so a failure is never lost behind a paste (review, 2026-11-01)', () => {
+    const paste = startJob('paste', 'Copying')
+    updateJob(paste, 40)
+    const a = startJob('copies', 'Saving copies', vi.fn())
+    endJob(a, 'Saved 37 copies, 2 could not be read')
+    expect(chipSummary(listJobs())).toEqual({ label: 'Saved 37 copies, 2 could not be read', pct: 100, more: 1, note: true })
+    vi.advanceTimersByTime(NOTE_MS + 1)
+    expect(chipSummary(listJobs())).toEqual({ label: 'Copying', pct: 40, more: 0 })
+  })
+
+  it('a second note waits for the first: each is on the chip for its own NOTE_MS', () => {
+    const a = startJob('copies', 'Saving copies', vi.fn())
+    const b = startJob('copies', 'Saving copies', vi.fn())
+    endJob(a, 'Saved 3 copies')
+    vi.advanceTimersByTime(1000)
+    endJob(b, 'Saved 4 copies, 1 could not be read')
+    expect(chipSummary(listJobs())?.label).toBe('Saved 3 copies')
+    vi.advanceTimersByTime(NOTE_MS - 1000 + 1)
+    expect(chipSummary(listJobs())?.label).toBe('Saved 4 copies, 1 could not be read')
+    vi.advanceTimersByTime(NOTE_MS - 2)
+    expect(chipSummary(listJobs())?.label).toBe('Saved 4 copies, 1 could not be read')
+    vi.advanceTimersByTime(2)
+    expect(listJobs()).toHaveLength(0)
+  })
+
+  it('a job that can be cancelled leads the chip, so its Cancel is never behind an older paste', () => {
+    const paste = startJob('paste', 'Copying')
+    updateJob(paste, 10)
+    const stop = vi.fn()
+    startJob('copies', 'Saving copies', stop)
+    const s = chipSummary(listJobs())
+    expect(s?.label).toBe('Saving copies')
+    expect(s?.more).toBe(1)
+    s?.cancel?.()
+    expect(stop).toHaveBeenCalledTimes(1)
   })
 })

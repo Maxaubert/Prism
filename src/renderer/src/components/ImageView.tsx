@@ -18,6 +18,7 @@ import { LoadingState } from './LoadingState'
 import { imageMenu } from '../menus/viewers/image'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import { saveCopyNote } from '../lib/saveCopyNote'
+import type { CopyFormat } from '@shared/imageCopy'
 import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
 import { isTypingTarget } from '../lib/focusGuards'
 import { photoInfoKeyToggles } from '../lib/photoInfoKey'
@@ -444,8 +445,9 @@ export function ImageView({
   }, [slideshow])
 
   const saveCopy = useCallback(
-    async (format: 'png' | 'jpeg'): Promise<void> => {
-      const bytes = await encodeCopy(img?.blob ?? null, format)
+    async (format: CopyFormat): Promise<void> => {
+      // WebP, AVIF and JPEG XL are made in main from a lossless PNG (#474).
+      const bytes = await encodeCopy(img?.blob ?? null, format === 'jpeg' ? 'jpeg' : 'png')
       if (!bytes) {
         setCopyNote('That image is too large to save a copy of')
         window.setTimeout(() => setCopyNote(null), 2200)

@@ -12,6 +12,12 @@ import { chipSummary, useJobs } from '../lib/jobs'
  * click: a failure speaks through its own dialog, and a job that finishes
  * simply leaves (after the store's minimum showing, so a quick paste is
  * still seen).
+ *
+ * SAVE COPIES AS (#474; owner, 2026-11-01: "one job with progress and
+ * Cancel") added the two things a chip says beyond a bar: a small Cancel
+ * (x) on the right while a job that can stop runs, the one part of the chip
+ * that takes a click, and the job's DONE NOTE ("Saved 37 copies, 2 could not
+ * be read"), the whole line with no bar, for a few seconds after.
  */
 export function JobChip({ floating = false }: { floating?: boolean }): JSX.Element | null {
   const jobs = useJobs()
@@ -33,24 +39,53 @@ export function JobChip({ floating = false }: { floating?: boolean }): JSX.Eleme
     >
       {/* leading-none on the text: an inherited line-height centred the LINE
           BOX and left the glyphs sitting low beside a 3px bar. */}
-      <span className="max-w-[45%] shrink-0 truncate leading-none">{s.label}</span>
-      {/* No width transition: the fill only ever grows from 0, and an
+      <span
+        data-job-label
+        className={`${s.note ? 'min-w-0 flex-1' : 'max-w-[45%] shrink-0'} truncate leading-none`}
+        {...(s.note ? { 'data-job-note': '' } : {})}
+      >
+        {s.label}
+      </span>
+      {!s.note && (
+        <>
+          {/* No width transition: the fill only ever grows from 0, and an
           indeterminate job pulses the TRACK with an empty fill rather than
           showing a block the first real number would then shrink from. */}
-      <span
-        className={`block h-[3px] min-w-[40px] flex-1 overflow-hidden rounded-full bg-[var(--p-track)] ${
-          s.pct === null ? 'animate-pulse' : ''
-        }`}
-      >
-        <span
-          className="block h-full rounded-full bg-[var(--p-accent-solid)]"
-          style={{ width: s.pct === null ? '0%' : `${Math.max(1, s.pct)}%` }}
-        />
-      </span>
-      {s.pct !== null && (
-        <span className="w-[30px] shrink-0 text-right font-mono text-[10px] leading-none text-[var(--p-dim)]">
-          {Math.round(s.pct)}%
-        </span>
+          <span
+            className={`block h-[3px] min-w-[40px] flex-1 overflow-hidden rounded-full bg-[var(--p-track)] ${
+              s.pct === null ? 'animate-pulse' : ''
+            }`}
+          >
+            <span
+              className="block h-full rounded-full bg-[var(--p-accent-solid)]"
+              style={{ width: s.pct === null ? '0%' : `${Math.max(1, s.pct)}%` }}
+            />
+          </span>
+          {s.pct !== null && (
+            <span className="w-[30px] shrink-0 text-right font-mono text-[10px] leading-none text-[var(--p-dim)]">
+              {Math.round(s.pct)}%
+            </span>
+          )}
+        </>
+      )}
+      {s.cancel && (
+        <button
+          type="button"
+          data-job-cancel
+          aria-label="Cancel"
+          title="Cancel"
+          onClick={s.cancel}
+          className="pointer-events-auto -mr-1 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full text-[var(--p-dim)] hover:bg-[var(--p-track)] hover:text-[var(--p-text)]"
+        >
+          <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
+            <path
+              d="M1 1l6 6M7 1L1 7"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
       )}
       {s.more > 0 && (
         <span
