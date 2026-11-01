@@ -171,4 +171,23 @@ describe('what an undo or redo puts back is marked (#101)', () => {
     await redoEntry({ kind: 'mkdir', path: 'C:\\d\\New folder' }, ops)
     expect(ops.landed).toEqual([['C:\\b\\x.txt (2)'], ['C:\\d\\a - Copy.txt'], ['C:\\d\\New folder']])
   })
+  // A failed item never came back, so marking its old path would make the
+  // list wait the whole LAND_MARK_MS for a row that is not coming.
+  it('an undo or redo of a move marks only the items that really moved', async () => {
+    const ops = landing()
+    ops.move = vi.fn(async (paths: string[], dest: string) =>
+      paths[0].includes('stuck')
+        ? []
+        : paths.map((p) => ({ from: p, to: `${dest}\\${p.split('\\').pop()}` }))
+    )
+    const items = [
+      { from: 'C:\\a\\x.txt', to: 'C:\\b\\x.txt' },
+      { from: 'C:\\a\\stuck.txt', to: 'C:\\b\\stuck.txt' }
+    ]
+    const back = await undoEntry({ kind: 'move', items }, ops)
+    await redoEntry({ kind: 'move', items }, ops)
+    expect(ops.landed).toEqual([['C:\\a\\x.txt'], ['C:\\b\\x.txt']])
+    // The entry still names the stuck item where it is, as before.
+    expect(back && back.kind === 'move' ? back.items : null).toEqual(items)
+  })
 })

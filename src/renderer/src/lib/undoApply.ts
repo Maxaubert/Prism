@@ -40,16 +40,19 @@ export async function undoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       // Undo lands beside whatever appeared meanwhile, so the file may now
       // sit under a "(2)" name. The entry is corrected to where it REALLY
       // is, or a redo would move a stranger.
+      // Only what really came back is marked: a stuck item has no row to wait for.
       const items: Array<{ from: string; to: string }> = []
+      const landed: string[] = []
       for (const it of entry.items) {
         const [back] = await ops.move([it.to], parentDir(it.from))
         items.push(back ? { from: back.to, to: it.to } : it)
+        if (back) landed.push(back.to)
       }
       // The name is free again only now, so the replaced file comes back
       // after the mover has left, not before.
       if (entry.replaced?.length) await prism.restoreFromBin(entry.replaced)
       ops.refresh()
-      ops.land?.(items.map((it) => it.from))
+      ops.land?.(landed)
       return { ...entry, items, replaced: undefined }
     }
     case 'rename': {
@@ -108,11 +111,13 @@ export async function redoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
   switch (entry.kind) {
     case 'move': {
       const items: Array<{ from: string; to: string }> = []
+      const landed: string[] = []
       for (const it of entry.items) {
         const [again] = await ops.move([it.from], parentDir(it.to))
         items.push(again ? { from: it.from, to: again.to } : it)
+        if (again) landed.push(again.to)
       }
-      ops.land?.(items.map((it) => it.to))
+      ops.land?.(landed)
       return { ...entry, items }
     }
     case 'rename': {
