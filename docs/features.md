@@ -3,6 +3,31 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Unit tests wait on events, never on clocks (release unit flakes, owner, 2026-11-01)
+
+Owner, 2026-11-01: "Release runs flake on unit-test timeouts (listingCache, peaksJobs)": most release runs
+failed `npm test` on the first try and passed on a rerun. Each failure had a cause, and the TEST is fixed, not
+its timeout:
+
+- **A write is waited for, not slept for.** `listingCache.test.ts` read a listing back 60 ms after the put;
+  on the runner's disk it had not landed (`expected null not to be null`). It awaits `cache.idle()` now, which since the
+  review (2026-11-01) also waits for a forget's delete, so no listing test polls. `phone/server.test.ts` waits
+  for a stopped stream's folder by looking, bounded at 5 s (the HLS job's delete is not the cache's). Both reproduced first with a 150 ms delay on the write or the rm.
+- **No real disk where the order matters.** `peaksJobs.test.ts` keyed its jobs with the real stat of a
+  missing path, and two stats answer in thread-pool order: the second file took the one decode slot and the
+  test hung to 5 s. The stat is mocked to miss at once, and each test imports a fresh queue, since one failure
+  held the slot and failed every test after it.
+- **The real-PowerShell tests run last, one file at a time** (`vitest.config.ts` `PROCESS_TESTS`, the
+  `process` project, `groupOrder: 1`, one fork): `winERequests`, `moveOps`, `driveUsage`, `driveModel`. Beside
+  300 files on four cores, PowerShell took 9 s to echo one line and on 2026-10-30 these failed together. A new
+  test that starts a real PowerShell goes in that list, or says why not with `// process-ok: <reason>`;
+  `src/main/processTests.test.ts` holds it (review, 2026-11-01). The held-pipe test waits on the helper's
+  own lines, each wait bounded and failing with its name.
+  The live drive reads (`driveUsage`, `driveModel`) give PowerShell 25 s (`powershellInWorker`'s optional
+  timeout) where the app keeps its 10 s kill: the worker and the parser are under test, not the machine.
+- **A test makes its own state**: the shared drive-query test made its own query instead of inheriting the
+  previous test's, which failed with it.
+
 ## Several windows in one process (tab tear-off step 1, owner, 2026-10-29)
 
 Owner, 2026-10-29: tabs drag out into windows of their own (spec and plan:

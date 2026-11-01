@@ -81,14 +81,15 @@ export const LABEL_COMMAND =
  * The app's one process worker (`spawnWorker`, #441) since perf review #52
  * (2026-10-28): this booted a fresh worker isolate per call. Its stdout or
  * null; also the Properties window's drive model query (`driveModel.ts`).
+ * `timeoutMs` is the app's 10 s; only a test of the worker itself passes more.
  */
-export function powershellInWorker(command: string): Promise<string | null> {
+export function powershellInWorker(command: string, timeoutMs = 10_000): Promise<string | null> {
   return new Promise((resolve) => {
     try {
       execFile(
         powershell(),
         ['-NoProfile', '-NonInteractive', '-Command', command],
-        { windowsHide: true, timeout: 10_000 },
+        { windowsHide: true, timeout: timeoutMs },
         (error, stdout) => resolve(error ? null : String(stdout))
       )
     } catch {
