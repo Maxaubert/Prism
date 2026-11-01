@@ -5199,7 +5199,8 @@ async function landingMarksScenario(fixtures) {
     await sleep(300)
     ok(!(await inView(last)), `with the list at its top, ${last} is out of view`)
     await win.keyboard.press('Control+z')
-    ok(await until(() => existsSync(join(dir, last)), 15000), 'Ctrl+Z puts it back')
+    // The Recycle Bin restore is a PowerShell call: seconds, more under load.
+    ok(await until(() => existsSync(join(dir, last)), 40000), 'Ctrl+Z puts it back')
     await landed([last], 'what the undo put back')
 
     // REDO makes it again: Duplicate undone, then redone, marks the new copy.
