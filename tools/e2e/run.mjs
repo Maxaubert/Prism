@@ -18718,7 +18718,8 @@ function withCameraExif(jpeg) {
 /** The card, when one is on screen (the preview pane's included). */
 const photoCard = (win) =>
   win.evaluate(() => {
-    const el = [...document.querySelectorAll('[data-photo-info]')].find((e) => e.getClientRects().length)
+    // The front viewer's: a warm tab behind it is inert, and draws its card too.
+    const el = [...document.querySelectorAll('[data-photo-info]')].find((e) => e.getClientRects().length && !e.closest('[inert]'))
     if (!el) return null
     const rows = Object.fromEntries(
       [...el.querySelectorAll('[data-photo-info-row]')].map((r) => [r.getAttribute('data-photo-info-row'), r.querySelector('dd')?.textContent ?? ''])
@@ -18746,7 +18747,8 @@ async function imageMenuRows(win) {
  * profile: I shows the card with its rows; Down to a PNG with none, the card
  * stays and says so; I hides it; the picture menu's Photo info row toggles
  * it; typing in a field never toggles it; with the Explorer list focused and
- * no name taking the letter, I toggles it in the preview pane; a comic page
+ * no name taking the letter, I toggles it in the preview pane; with two
+ * picture tabs open I toggles it once, and a held I counts once; a comic page
  * (no file of its own) offers no row and I does nothing.
  */
 async function photoInfoKeyScenario(fixtures) {
@@ -18854,6 +18856,41 @@ async function photoInfoKeyScenario(fixtures) {
     await win.keyboard.press('i')
     ok(await until(async () => (await photoCard(win)) === null, 3000), 'and I hides it again')
     if (paneShut) await win.locator('.folder-browser button[aria-label="Preview pane"]').click()
+
+    // 6b. Two picture tabs (review, 2026-11-01): every mounted picture
+    // listens on the window and up to four stay mounted, so with two the
+    // setting flipped twice and I did nothing. Tab 1 views cam.jpg, tab 2
+    // plain.png; I on tab 2 toggles once. A held I (a key repeat) counts once.
+    const tabSel = '[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]'
+    const tabsBefore = await win.locator(tabSel).count()
+    const firstTab = await win.locator(tabSel).evaluateAll((els) => els.findIndex((e) => e.getAttribute('aria-selected') === 'true'))
+    await listRow(win, 'plain.png').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in new tab")').click()
+    ok(await until(async () => (await win.locator(tabSel).count()) === tabsBefore + 1, 5000), 'plain.png opens in a second tab')
+    await win.locator(tabSel).nth(firstTab).click()
+    await viewFile(win, 'cam.jpg')
+    await win.locator(tabSel).last().click()
+    ok(await until(async () => (await viewing(win)).includes('plain.png'), 8000), 'the second tab shows plain.png')
+    await sleep(500)
+    const pictures = await win.locator('[data-image-layer]').count()
+    ok(pictures >= 2, `two pictures are mounted (${pictures})`)
+    await win.keyboard.press('i')
+    const two = await until(async () => {
+      const c = await photoCard(win)
+      return c?.state === 'ready' ? c : null
+    }, 8000)
+    ok(!!two && /^64 × 64 · /.test(two.line), `with two picture tabs, I shows the card on the one in front (${two?.line})`)
+    ok((await photoInfoStored(win)) === '1', 'and the setting flipped once, to on')
+    await win.keyboard.down('i')
+    await win.keyboard.down('i')
+    await win.keyboard.down('i')
+    await win.keyboard.up('i')
+    ok(await until(async () => (await photoCard(win)) === null, 3000), 'a held I hides it')
+    await sleep(300)
+    ok((await photoInfoStored(win)) === '0', `and the repeats did not flip it back (${await photoInfoStored(win)})`)
+    await win.locator('[role="tablist"] [aria-label^="Close"]').last().click()
+    ok(await until(async () => (await win.locator(tabSel).count()) === tabsBefore, 5000), 'the second tab closes')
 
     // 7. A comic page has no file of its own: no row, and I does nothing.
     await viewFile(win, 'story.cbz', 30000)
