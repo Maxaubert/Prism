@@ -46,7 +46,8 @@ open in the tree they were the 47,816-row stall of #235). A new test may mkdtemp
 **A UNIT TEST WAITS ON EVENTS, NEVER ON A SLEEP** (2026-11-01, release unit flakes): wait for the
 write (`idle()`), the line, the condition (`vi.waitFor`, bounded), or fake the clock; a fixed sleep
 that "should be enough" is what failed most release runs on the first try. A test that starts a real
-PowerShell goes in `PROCESS_TESTS` (`vitest.config.ts`), which run last, one file at a time. The
+PowerShell goes in `PROCESS_TESTS` (`vitest.config.ts`), which run last, one file at a time
+(`src/main/processTests.test.ts` holds it). The
 record and each cause: `docs/features.md`, "Unit tests wait on events".
 
 **THE E2E NEVER TOUCHES THE OWNER'S CLIPBOARD** (#356, 2026-10-14): a screenshot taken during a
