@@ -30,7 +30,7 @@ import { tmpdir } from 'os'
 import {
   initDwmHelper
 } from './dwmHelper'
-import { pathsFromArgv, pathsFromArgvAsync } from './argv'
+import { argsAgainst, pathsFromArgv, pathsFromArgvAsync } from './argv'
 import { WIN_E_FIRST, browseRequest, createWinERequests, winERequest, winEHostOf } from './winERequests'
 import { removeOldExplorerWindows } from './oldExplorerWindows'
 import { createWindowPreferences } from './windowPreferences'
@@ -1751,7 +1751,10 @@ if (!app.requestSingleInstanceLock()) {
   // Stalls table sees a scenario's last moments.
   // sync-ok: e2e only, the harness calls it just before app.exit
   if (E2E) Object.assign(globalThis, { __e2eDiagFlush: () => diag?.log.flushSync() })
-  app.on('second-instance', (_e, argv) => {
+  // `workingDirectory` is the SECOND process's cwd (#21): its relative paths
+  // are read against it, never against this process's own.
+  app.on('second-instance', (_e, argv, workingDirectory) => {
+    const relaunchArgs = (): string[] => argsAgainst(argv.slice(1), workingDirectory)
     const shortcutRequest = winERequest(argv)
     if (shortcutRequest) {
       // A window now would only be taken away: no answer, and the helper's
@@ -1784,7 +1787,8 @@ if (!app.requestSingleInstanceLock()) {
     if (appState.installingUpdate) return
     if (appState.appQuitting) {
       // sync-ok: quit, the relaunch must be decided before this process exits
-      if (pathsFromArgv(argv).length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
+      if (pathsFromArgv(argv, undefined, workingDirectory).length && !E2E)
+        app.relaunch({ execPath: argv[0], args: relaunchArgs() })
       return
     }
     // A new page restores and drains `pendingOpen` itself once it listens
@@ -1807,10 +1811,10 @@ if (!app.requestSingleInstanceLock()) {
     // front.
     handoffs = handoffs
       .then(async () => {
-        const paths = await pathsFromArgvAsync(argv)
+        const paths = await pathsFromArgvAsync(argv, undefined, workingDirectory)
         if (appState.installingUpdate) return
         if (appState.appQuitting) {
-          if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
+          if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: relaunchArgs() })
           return
         }
         const to = windows.target()

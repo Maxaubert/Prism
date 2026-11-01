@@ -40,31 +40,52 @@ function ownFiles(): string[] {
   return mine
 }
 
-/** The argv entries worth a stat, in order: no switches, no repeats, none of
- *  the app's own files. Pure, so both readers below share it. */
-function candidates(argv: string[], ignore: string[]): string[] {
+/**
+ * RELATIVE TO THE SHELL THAT NAMED IT (#21, 2026-11-01). A second instance's
+ * argv is relative to ITS working directory, which Electron hands over with
+ * `second-instance`; read against the resident Prism's own cwd, `prism
+ * photo.jpg` from D:\pics opened nothing, or an unrelated photo.jpg that
+ * happened to sit where Prism was first started. So every reader takes the
+ * cwd the paths came from (this process's own at startup) and answers
+ * absolute paths. The app's own files are this process's, read against its
+ * own cwd.
+ */
+const here = (): string => process.cwd()
+
+/** The argv entries worth a stat, in order, absolute: no switches, no
+ *  repeats, none of the app's own files. Pure, so both readers below share it. */
+function candidates(argv: string[], ignore: string[], cwd: string): string[] {
   const out: string[] = []
   const seen = new Set<string>()
   const mine = new Set(ignore.filter(Boolean).map((p) => resolve(p).toLowerCase()))
   for (let i = 1; i < argv.length; i += 1) {
     const a = argv[i]
     if (a.startsWith('--')) continue
-    const key = resolve(a).toLowerCase()
+    const full = resolve(cwd, a)
+    const key = full.toLowerCase()
     if (seen.has(key) || mine.has(key)) continue
     seen.add(key)
-    out.push(a)
+    out.push(full)
   }
   return out
+}
+
+/** A relaunch's command line with its paths made absolute against the cwd
+ *  they were named in (#21): the relaunched Prism starts in THIS process's
+ *  folder, not the shell's. Switches pass through untouched. */
+export function argsAgainst(args: string[], cwd: string): string[] {
+  return args.map((a) => (a.startsWith('-') ? a : resolve(cwd, a)))
 }
 
 /** At startup, before the first window, and in a quit's
  *  relaunch decision. A handoff while Prism runs uses pathsFromArgvAsync. */
 export function pathsFromArgv(
   argv: string[],
-  ignore: string[] = ownFiles()
+  ignore: string[] = ownFiles(),
+  cwd: string = here()
 ): Array<{ path: string; dir: boolean }> {
   const out: Array<{ path: string; dir: boolean }> = []
-  for (const a of candidates(argv, ignore)) {
+  for (const a of candidates(argv, ignore, cwd)) {
     if (out.length >= ARGV_MAX) break
     try {
       const st = statSync(a) // sync-ok: startup argv (before the first window) and the quit relaunch only
@@ -78,13 +99,15 @@ export function pathsFromArgv(
 }
 
 /** The same answer, awaited: a second instance's handoff arrives while the
- *  user works (owner, 2026-10-12: main never waits on the disk). */
+ *  user works (owner, 2026-10-12: main never waits on the disk). A handoff
+ *  passes the second instance's `workingDirectory` as `cwd` (#21). */
 export async function pathsFromArgvAsync(
   argv: string[],
-  ignore: string[] = ownFiles()
+  ignore: string[] = ownFiles(),
+  cwd: string = here()
 ): Promise<Array<{ path: string; dir: boolean }>> {
   const out: Array<{ path: string; dir: boolean }> = []
-  for (const a of candidates(argv, ignore)) {
+  for (const a of candidates(argv, ignore, cwd)) {
     if (out.length >= ARGV_MAX) break
     try {
       const st = await stat(a)
