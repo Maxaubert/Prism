@@ -5125,8 +5125,42 @@ async function landingMarksScenario(fixtures) {
   // Enough rows that the last one is off screen from the top of the list.
   for (let i = 0; i < 80; i += 1) writeFileSync(join(dir, `f${String(i).padStart(2, '0')}.txt`), `row ${i}\n`)
   copyFileSync(join(fixtures, 'zips', 'wrapped.zip'), join(dir, 'pack.zip'))
+  // Where the drops come from: outside the folder on screen.
+  const outside = join(fixtures, 'landing-marks-outside')
+  rmSync(outside, { recursive: true, force: true })
+  mkdirSync(outside, { recursive: true })
+  for (const n of ['win-copy.txt', 'own-move.txt']) writeFileSync(join(outside, n), `dropped ${n}\n`)
   const { app, win } = await launch(join(dir, 'f00.txt'))
   const list = '[data-testid="browse-list"]'
+  /** Drop real files on the list itself (the folder on screen), as Windows
+   *  delivers a drop: the same simulation as dropBackScenario's. */
+  const dropOnList = async (paths) => {
+    await win.evaluate(() => {
+      document.getElementById('e2e-drop-input')?.remove()
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.multiple = true
+      input.id = 'e2e-drop-input'
+      input.style.display = 'none'
+      document.body.append(input)
+    })
+    await win.setInputFiles('#e2e-drop-input', paths)
+    return win.evaluate((sel) => {
+      const input = document.getElementById('e2e-drop-input')
+      const dt = new DataTransfer()
+      for (const f of input.files) dt.items.add(f)
+      dt.effectAllowed = 'copyLink'
+      const el = document.querySelector(sel)
+      if (!el) return false
+      const r = el.getBoundingClientRect()
+      const opts = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 20, clientY: r.top + r.height / 2 }
+      el.dispatchEvent(new DragEvent('dragenter', opts))
+      el.dispatchEvent(new DragEvent('dragover', opts))
+      el.dispatchEvent(new DragEvent('drop', opts))
+      input.remove()
+      return true
+    }, list)
+  }
   const row = (suffix) => win.locator(`${list} [data-browse-path$="${suffix}" i]`).first()
   const marked = () =>
     win.evaluate(
@@ -5246,9 +5280,33 @@ async function landingMarksScenario(fixtures) {
     await menuRow('pack.zip', 'Extract here')
     ok(await until(() => existsSync(join(dir, 'Collection')), 20000), 'Extract here makes its folder')
     await landed(['Collection'], 'Extract here')
+
+    // A COPY DROPPED IN FROM WINDOWS onto the folder on screen (#103's copy):
+    // marked, and scrolled to (it sorts after f79).
+    await toTop()
+    await row('f00.txt').locator('.browse-name-text').click()
+    ok(await dropOnList([join(outside, 'win-copy.txt')]), 'a file from Windows is dropped on the list')
+    ok(await until(() => existsSync(join(dir, 'win-copy.txt')), 10000), 'the drop copies it into the folder on screen')
+    await landed(['win-copy.txt'], 'a copy dropped in from Windows')
+
+    // PRISM'S OWN DRAG DROPPED ON THE FOLDER ON SCREEN is a move, and the
+    // moved file is marked.
+    await toTop()
+    await row('f00.txt').locator('.browse-name-text').click()
+    ok(!!(await dragFake.start(app, [join(outside, 'own-move.txt')])), 'the fake broadcast an OS drag record')
+    await sleep(300)
+    ok(await dropOnList([join(outside, 'own-move.txt')]), "Prism's own file is dropped on the list")
+    ok(
+      await until(() => existsSync(join(dir, 'own-move.txt')) && !existsSync(join(outside, 'own-move.txt')), 10000),
+      'the drop moves it into the folder on screen'
+    )
+    await landed(['own-move.txt'], 'a move dropped on the folder on screen')
+    await dragFake.end(app)
+    await sleep(1800) // past the renderer's grace for the end message
   } finally {
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
   }
 }
 
