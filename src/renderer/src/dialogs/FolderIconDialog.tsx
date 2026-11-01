@@ -8,13 +8,15 @@ import { FolderIconPicker } from '../components/iconGrid/FolderIconPicker'
  * from a set of built in icons"). Opened by "Change icon..." on a folder row
  * (one or several marked) or a sidebar pin. One click or Enter picks and
  * closes (D8); Reset to default takes the icon away; Cancel and Escape change
- * nothing. "From a file..." comes with icons from a file (PR 3).
+ * nothing. "From a file..." (2026-10-31) asks for a picture: PNG, JPG, GIF,
+ * BMP, WEBP, ICO or SVG (D7), the open dialog on the folder of the last pick.
  */
 export function FolderIconDialog({
   name,
   current,
   onPick,
   onReset,
+  onFromFile,
   onCancel
 }: {
   /** The folder's name, or "3 folders". */
@@ -23,6 +25,8 @@ export function FolderIconDialog({
   current?: string
   onPick: (icon: string) => void
   onReset: () => void
+  /** Pick a picture instead; the picker stays until it is kept. */
+  onFromFile: () => void
   onCancel: () => void
 }): JSX.Element {
   return (
@@ -33,7 +37,8 @@ export function FolderIconDialog({
       onCancel={onCancel}
       choices={[
         { label: 'Cancel', onPick: onCancel },
-        { label: 'Reset to default', onPick: onReset }
+        { label: 'Reset to default', onPick: onReset },
+        { label: 'From a file...', onPick: onFromFile }
       ]}
     />
   )
