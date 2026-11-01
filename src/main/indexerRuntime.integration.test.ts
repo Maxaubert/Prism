@@ -74,6 +74,7 @@ async function waitForDatabase(exe: string, instance: string): Promise<void> {
 async function smoke(service: boolean): Promise<void> {
   if (service && process.env.PRISM_INDEXER_TEST_REQUIRE_NONADMIN === '1') {
     const elevated = execFileSync(
+      // process-ok: gated to its own CI step (ci.yml), which runs this file alone
       'powershell.exe',
       [
         '-NoProfile',

@@ -13,9 +13,10 @@ const root = fileURLToPath(new URL('.', import.meta.url))
  * PowerShell took 9 s to answer a one-line echo, and on 2026-10-30 these
  * four failed together (the drive query passed the app's 10 s, the lock
  * holder had not started in 25 s). Alone on an idle runner they start in
- * about a second.
+ * about a second. `src/main/processTests.test.ts` holds the list: a test
+ * file that starts PowerShell is in it, or says why not (`// process-ok:`).
  */
-const PROCESS_TESTS = [
+export const PROCESS_TESTS = [
   'src/main/winERequests.test.ts',
   'src/main/moveOps.test.ts',
   'src/main/driveUsage.test.ts',
