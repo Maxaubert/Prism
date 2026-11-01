@@ -133,7 +133,8 @@ COLOURS = {
     # with the page colour shared they are told apart by the extension on the
     # band and by the language marks, not by the page. The treatments are kept
     # in `_code` and `_document` - the mockup rounds import them - but nothing
-    # ships through them any more.
+    # ships through them any more. (#91, 2026-11-01: the bars are no longer the
+    # same - code's mark is the indent guide, `_code_guide_at`.)
     "code": ("PY", PAGE),
     "comic": ("CBZ", (210, 96, 58)),
     "document": ("DOCX", PAGE),
@@ -156,6 +157,58 @@ def _code_bars_at(d, n, box, col, hole=None):
         y = y0 + i * h * 0.37
         d.rounded_rectangle([g(n, x0 + w * a), g(n, y), g(n, x0 + w * b), g(n, y + h * 0.26)],
                             radius=g(n, h * 0.07), fill=tuple(col))
+
+
+def _code_guide_at(d, n, box, col, hole=None):
+    """CODE: an indent guide with rungs (#91, 2026-11-01), the mark the app draws.
+
+    Since the set went uniform (#82) code and document shared the page colour,
+    and `_code_bars_at`'s three rounded bars were nearly `doc_lines`' three
+    rounded bars: magnified at 16px, a .adoc and a .docx were the same picture.
+    The app had already met that problem in one flat ink and answered it with
+    this guide - a vertical spine with rungs hanging off it reads as STRUCTURE
+    where full-width bars read as prose - so the .ico takes the same mark and
+    the third deliberate divergence in svg.py is closed.
+
+    CHECKED AT 16px FIRST. Every edge is put on the frame's own pixel grid
+    (`_on_px`), so at 16px the spine is one whole pixel and each rung two, with
+    a clean one-pixel gap between rungs, rather than three anti-aliased smudges
+    joined by grey. At 32px and up the snap moves an edge by a fraction of a
+    pixel and nothing else.
+
+    `n` is the drawing's size in pixels: the frame's at the size it is built
+    at, or 16 when svg.py records it, where every grid unit is one pixel and
+    the snap is a whole unit. svg.py snaps at its own 16 for the same picture.
+    """
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+
+    def snap(k):
+        return _on_px(n, k)
+
+    sx0, sx1 = snap(x0), snap(x0 + w * 0.13)
+    if sx1 <= sx0:
+        sx1 = sx0 + _px(n)
+    d.rounded_rectangle([g(n, sx0), g(n, snap(y0)), g(n, sx1), g(n, snap(y1))],
+                        radius=g(n, w * 0.065), fill=col)
+    rx = snap(x0 + w * 0.28)
+    for i, wide in enumerate((0.62, 0.86, 0.48)):
+        ya, yb = snap(y0 + i * h * 0.37), snap(y0 + i * h * 0.37 + h * 0.26)
+        d.rounded_rectangle([g(n, rx), g(n, ya), g(n, snap(x0 + w * (0.28 + wide * 0.72))), g(n, yb)],
+                            radius=g(n, h * 0.07), fill=col)
+
+
+def _px(n):
+    """One pixel of the frame, in grid units (sixteenths of the tile)."""
+    return 16.0 * S / n if n > 16 else 1.0
+
+
+def _on_px(n, k):
+    """`k` (grid units) on the frame's pixel grid. `n` is the drawing's pixel
+    size (`size * S`, since frames are drawn at S times and downsampled once),
+    or 16 for svg.py's recorder, where a unit is the pixel."""
+    step = _px(n)
+    return round(k / step) * step
 
 
 def _play_disc(d, n, box, col, hole=None):
@@ -182,7 +235,8 @@ def _play_disc(d, n, box, col, hole=None):
 
 PAGE_GLYPHS = {
     "audio": quarter,
-    "code": _code_bars_at,
+    # The indent guide since #91; `_code_bars_at` stays for the mockup rounds.
+    "code": _code_guide_at,
     "document": doc_lines,
     "image": dict((k, f) for k, _l, f in R14["image"][2])["hills"],
     "video": _play_disc,

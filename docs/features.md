@@ -3381,6 +3381,14 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   indent guide with rungs rather than the stepped bars - a spine reads as structure where
   three full-width bars read as prose, which is the only way code and document stay apart
   when both are one colour.
+  **THE .ico's CODE IS THE INDENT GUIDE TOO** (#91, 2026-11-01). Once the set went uniform
+  (#82) the .ico had the same problem in its shared grey: magnified at 16px a `.adoc` and a
+  `.docx` were the same three bars. `final_icons._code_guide_at` now draws the app's guide,
+  checked at 16px first: every edge sits on the frame's own pixel grid, so the spine is one
+  whole pixel and the rungs keep a clean gap. `svg.py` replays that same function, so the
+  code divergence is CLOSED and only the comic splat remains (the clapperboard's retired with
+  the play disc). It changed the 77 code extensions with no language mark and
+  `prism-code.ico`; the in-app guide moved by the same snap (`iconPaths.ts`, code only).
 - **THE ADDRESS BAR ANSWERS A RIGHT-CLICK** (2026-09-22, owner: "let me right click the url bar to
   get options to copy path or copy as text like file explorer"). Explorer's own three: Copy address,
   Copy address as text, Edit address, always for the FOLDER SHOWN, wherever on the bar you click
