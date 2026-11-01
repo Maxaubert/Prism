@@ -18,7 +18,9 @@ import { LoadingState } from './LoadingState'
 import { imageMenu } from '../menus/viewers/image'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
-import { isTypingTarget } from '../lib/focusGuards'
+import { inOverlay, isTypingTarget } from '../lib/focusGuards'
+import { photoInfoPref } from '../lib/photoInfoPref'
+import { PhotoInfoCard } from './image/PhotoInfoCard'
 import { clamp } from '../lib/clamp'
 import { fileDragProps } from '../lib/drag/fileDrag'
 import { imageStillLoading } from '../lib/imageLoading'
@@ -47,7 +49,8 @@ export function ImageView({
   canStep,
   status,
   chromeActivity,
-  fullscreen = false
+  fullscreen = false,
+  infoCard = false
 }: {
   url: string
   /** The file on disk. The menu's verbs act on this, not on the fsmedia url. */
@@ -72,6 +75,10 @@ export function ImageView({
   /** Fullscreen paints the stage black and shows no checkerboard: the same
    *  rule the film follows, for the same reason. */
   fullscreen?: boolean
+  /** The I key's photo info card (#78) is offered: the desktop's full view
+   *  and preview pane. Not the phone (out of scope), and never without a
+   *  `path`, since main reads the photo from its file. */
+  infoCard?: boolean
 }): JSX.Element {
   const stageRef = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -103,6 +110,11 @@ export function ImageView({
    */
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const [copyNote, setCopyNote] = useState<string | null>(null)
+  /** The photo info card (#78): on or off for every photo, remembered across
+   *  launches (D5). Offered only where a file can be read for it. */
+  const infoOn = photoInfoPref.use()
+  const infoPath = infoCard ? path : undefined
+  const togglePhotoInfo = useCallback(() => photoInfoPref.set(!photoInfoPref.get()), [])
   const [slideshow, setSlideshow] = useState(false)
   const [slideSecs, setSlideSecs] = useState<SlideSeconds>(() => loadSlideSeconds())
   const [zoom, setZoom] = useState(1)
@@ -473,6 +485,15 @@ export function ImageView({
         case 'R': setRot((d) => (d + 90) % 360); break
         case 'f':
         case 'F': onToggleFullscreen(); break
+        // The photo info card (#78). Not over a menu or a dialog (the
+        // Properties window is one), and not as a chord. With the Explorer
+        // list focused it arrives only when the list's type-to-jump did not
+        // take the letter (the owner's rule for every letter: "taken only on
+        // a match, else the letter reaches the viewer"), as R and F do.
+        case 'i':
+        case 'I':
+          if (infoPath && !e.ctrlKey && !e.altKey && !e.metaKey && !inOverlay(el)) togglePhotoInfo()
+          break
         // Project viewers retain pixel copy. Focused file rows and Explorer's
         // own file-copy shortcut keep their clipboard operation.
         case 'c':
@@ -493,7 +514,7 @@ export function ImageView({
     return () => window.removeEventListener('keydown', onKey)
     // oneToOne closes over the measured scale, which changes with the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoomCentered, reset, onToggleFullscreen, fitScale, rotFit, copyImage])
+  }, [zoomCentered, reset, onToggleFullscreen, fitScale, rotFit, copyImage, infoPath, togglePhotoInfo])
 
   const cursor = zoom > 1 ? (panning ? 'grabbing' : 'grab') : 'default'
 
@@ -505,6 +526,8 @@ export function ImageView({
       canSlideshow: !!(onStep && canStep),
       slideshow,
       slideSecs,
+      photoInfo: infoOn,
+      togglePhotoInfo: infoPath ? togglePhotoInfo : undefined,
       rotate: () => setRot((d) => (d + 90) % 360),
       copyImage,
       saveCopy,
@@ -530,6 +553,14 @@ export function ImageView({
         <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-[11.5px] text-white/90">
           {copyNote}
         </div>
+      )}
+      {infoPath && infoOn && (
+        <PhotoInfoCard
+          path={infoPath}
+          // The picture's own size once it is THIS picture's; while the next
+          // one decodes, the card takes the size from the file's metadata.
+          px={src && !switching && shownUrl === url ? { w: src.width, h: src.height } : null}
+        />
       )}
       {!!img?.pages && img.pages > 1 && (
         <div
