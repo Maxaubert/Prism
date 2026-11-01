@@ -546,8 +546,14 @@ archive's preview all get it). Filesmith would install its own.
   the live app style, at the same moment (the player's render).
 - **No package yet**: nothing is extracted. `playerPrefs` (loop, autoplay), `PlayerMenu`, `useWaveform` and the
   `window.prism` calls still tie the players to Prism; they are the next step when `prism-core` happens.
-- **Held by** `components/mediaLook.test.ts` (neither player imports the store or the theme; Prism's look is
-  the store's values, `resolveVizTheme` and `WIDTHS`; a player with no host throws) and the player e2e.
+- **The players get exactly the 15 settings** `MediaVizSettings` names, copied field by field
+  (`lib/viz/prismMediaLook.ts`), so the store's own presets and removed themes never reach them, and a new field
+  fails to compile until Prism supplies it. **A Settings change reaches a playing player at once**: the provider
+  reads the store through `useViz()` (the subscribing hook), never a one-time `vizState()`.
+- **Held by** `components/mediaLook.test.ts` (nothing either player imports, at any depth and in any spelling,
+  is the store or the theme; the look is exactly the 15 store values, `resolveVizTheme` and `WIDTHS`; a player
+  with no host throws), `components/PrismMediaLook.test.ts` (a new store snapshot reaches the player under the
+  provider) and the player e2e.
 
 ## Explorer only: no terminal, dictation or projects (owner, 2026-10-26)
 
