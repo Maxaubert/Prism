@@ -47,4 +47,15 @@ describe('parseByteRange', () => {
   it('takes the unit case-insensitively and spaces around the spec', () => {
     expect(parseByteRange('Bytes= 2-5 ', total)).toEqual({ start: 2, end: 5 })
   })
+
+  it('clamps a last byte or a suffix too big to count, rather than ignoring it (review of #23)', () => {
+    // RFC 7233: a last-byte past the end is the end; a suffix longer than the
+    // file is the whole file. Past 2^53 is still "past the end".
+    expect(parseByteRange('bytes=0-99999999999999999999', total)).toEqual({ start: 0, end: 9 })
+    expect(parseByteRange('bytes=3-99999999999999999999', total)).toEqual({ start: 3, end: 9 })
+    expect(parseByteRange('bytes=-99999999999999999999', total)).toEqual({ start: 0, end: 9 })
+    expect(parseByteRange('bytes=-99999999999999999999', 0)).toBe('unsatisfiable')
+    // A start that big is past any file there is: unsatisfiable.
+    expect(parseByteRange('bytes=99999999999999999999-', total)).toBe('unsatisfiable')
+  })
 })

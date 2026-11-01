@@ -13,6 +13,11 @@
  * - `null`: no header, or one this server does not read (another unit, a
  *   malformed spec, several ranges): the header is IGNORED and the whole file
  *   goes back (200), which the RFC allows.
+ *
+ * A number too big to count exactly (past 2^53, review of #23) is still only
+ * digits, so it is read as "past the end" and clamped like any other: a last
+ * byte that big is the file's end, a suffix that big the whole file, a start
+ * that big unsatisfiable. Ignoring it would break the clamping rule above.
  */
 export type ByteRange = { start: number; end: number }
 
@@ -28,14 +33,11 @@ export function parseByteRange(
   if (!first) {
     // "-N": the last N bytes.
     const n = Number(last)
-    if (!Number.isSafeInteger(n)) return null
     if (n === 0 || total <= 0) return 'unsatisfiable'
     return { start: Math.max(0, total - n), end: total - 1 }
   }
   const start = Number(first)
-  if (!Number.isSafeInteger(start)) return null
   let end = last ? Number(last) : total - 1
-  if (last && !Number.isSafeInteger(end)) return null
   // A last before the first is not a range at all: ignored, not refused.
   if (last && end < start) return null
   if (start >= total) return 'unsatisfiable'
