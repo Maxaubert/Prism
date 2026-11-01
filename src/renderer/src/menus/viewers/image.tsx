@@ -8,6 +8,7 @@ import { FileMenuIcon } from '../../components/icons/FileMenuIcon'
 import { fileVerbs } from '../fileVerbs'
 import { tickIf } from '../../components/icons/menuGlyphs'
 import { saveSlideSeconds, SLIDE_SECONDS, type SlideSeconds } from '../../lib/slideshow'
+import { COPY_FORMATS, type CopyFormat } from '@shared/imageCopy'
 
 export interface ImageMenuContext {
   /** The file on disk; absent for a picture with no path of its own. */
@@ -24,7 +25,7 @@ export interface ImageMenuContext {
   togglePhotoInfo?: () => void
   rotate: () => void
   copyImage: () => Promise<void>
-  saveCopy: (format: 'png' | 'jpeg') => Promise<void>
+  saveCopy: (format: CopyFormat) => Promise<void>
   setSlideshow: Dispatch<SetStateAction<boolean>>
   setSlideSecs: (n: SlideSeconds) => void
 }
@@ -81,18 +82,13 @@ export function imageMenu(ctx: ImageMenuContext): MenuItem[] {
             label: 'Save a copy',
             icon: <FileMenuIcon name="save" />,
             disabled: !img,
-            children: [
-              {
-                label: 'PNG',
-                icon: <FileMenuIcon name="image" />,
-                onPick: () => void ctx.saveCopy('png')
-              },
-              {
-                label: 'JPEG',
-                icon: <FileMenuIcon name="image" />,
-                onPick: () => void ctx.saveCopy('jpeg')
-              }
-            ]
+            // The Explorer's Save copies as list, so both menus match (#474;
+            // owner, 2026-11-01: WebP, AVIF and JPEG XL added).
+            children: COPY_FORMATS.map((f) => ({
+              label: f.label,
+              icon: <FileMenuIcon name="image" />,
+              onPick: () => void ctx.saveCopy(f.format)
+            }))
           }
         ]
       : []),
