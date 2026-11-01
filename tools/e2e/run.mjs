@@ -19608,12 +19608,75 @@ async function batchCopiesScenario(fixtures) {
 }
 
 /**
+ * SAVE COPIES AS, FROM AN IPHONE'S HEIC (#474; owner, 2026-11-01: "the real
+ * fix for 400 iPhone HEICs"; review the same day: the HEIC route had no test
+ * anywhere). Two HEICs (`assets/gradient.heic`, which carries an EXIF maker
+ * "SecretCam"), an SVG and a text file, marked and saved as JPEG: both HEICs
+ * get a JPEG beside them at their own size with no EXIF; the SVG is a picture
+ * no copy can be made of ("could not be read"), the text file is not a
+ * picture; and the job folder, which held the decoded JPEGs, is gone.
+ */
+async function batchCopiesHeicScenario(fixtures) {
+  console.log('Save copies as, from HEIC (#474)')
+  if (!HAS_FFMPEG) {
+    console.log('  (no ffmpeg: skipped)')
+    return
+  }
+  const dir = join(fixtures, 'batchcopies-heic')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const heic = readFileSync(join(HERE, 'assets', 'gradient.heic'))
+  ok(heic.includes('SecretCam'), 'the HEIC fixture carries its EXIF maker')
+  writeFileSync(join(dir, 'IMG_0412.HEIC'), heic)
+  writeFileSync(join(dir, 'IMG_0413.heic'), heic)
+  writeFileSync(join(dir, 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>')
+  writeFileSync(join(dir, 'notes.txt'), 'not a picture\n')
+  const tempsBefore = copiesTemps().length
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  try {
+    await explorerAt(win, dir)
+    const started = Date.now()
+    await saveCopiesOf(win, ['IMG_0412.HEIC', 'IMG_0413.heic', 'logo.svg', 'notes.txt'], 'JPEG')
+    const note = await until(async () => {
+      const n = await jobNote(win)
+      return n && n.startsWith('Saved') ? n : null
+    }, 60000)
+    console.log(`  2 HEICs as JPEG in ${((Date.now() - started) / 1000).toFixed(1)} s`)
+    ok(note === 'Saved 2 copies, 1 could not be read, 1 skipped (not pictures)', `the done note (${note})`)
+    for (const name of ['IMG_0412.jpg', 'IMG_0413.jpg']) {
+      const copy = join(dir, name)
+      ok(existsSync(copy), `${name} is beside its HEIC`)
+      if (!existsSync(copy)) continue
+      const facts = probeCopy(copy)
+      ok(facts[0].startsWith('640,480'), `${name}: the HEIC's own size (${facts[0]})`)
+      ok(!readFileSync(copy).includes('SecretCam'), `${name}: no EXIF maker in the copy`)
+      ok(!readFileSync(copy).includes(Buffer.from('Exif\0', 'latin1')), `${name}: no Exif block at all`)
+      // The gradient's top-left is dark, its right edge red: a real decode.
+      const px = execFileSync(FFMPEG, ['-loglevel', 'error', '-i', copy, '-vf', 'crop=1:1:639:0,format=rgb24', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { windowsHide: true })
+      ok(px[0] > 200 && px[1] < 60, `${name}: the picture is the HEIC's (top-right ${[...px]})`)
+    }
+    ok(readFileSync(join(dir, 'IMG_0412.HEIC')).equals(heic), 'the HEIC itself is untouched')
+    // The decoded JPEGs live in the job's folder (each one dropped as soon as
+    // its copy is made: copyJobs.test.ts), so the folder gone is all of them gone.
+    ok(await until(() => copiesTemps().length === tempsBefore, 10000), `no job folder, so no decoded JPEG, is left in temp (${copiesTemps().join(', ')})`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
  * SAVE COPIES AS, A REAL-SIZE BATCH (#474: "measure on 20+ real-size photos
  * that the job never freezes the UI"). 24 photos of 4032x3024 (a phone's 12
  * MP, noisy so they weigh what photos weigh), Ctrl+A, JPEG XL. While it runs
  * the page's frames and main's answers are timed: neither may stall. Then
  * the same folder as AVIF, Cancel part way: the copies made stay, no more
  * come, the note says it stopped, and nothing is left in temp.
+ *
+ * REAL PHOTOS (review, 2026-11-01: generated frames are not photos): with
+ * PRISM_E2E_COPIES_PHOTOS naming a folder, its pictures (JPEG, HEIC, any
+ * kind) are the batch instead, copied in as IMG_01.<ext> and on. Nothing of
+ * them is kept or shown; the folder is removed after.
  */
 async function batchCopiesLoadScenario(fixtures) {
   console.log('Save copies as, 24 real-size photos and Cancel (#474)')
@@ -19624,20 +19687,26 @@ async function batchCopiesLoadScenario(fixtures) {
   const dir = join(fixtures, 'batchcopies-load')
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
-  execFileSync(
-    FFMPEG,
-    ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=4032x3024:r=1,noise=alls=24:allf=t', '-frames:v', '24', '-q:v', '3', join(dir, 'IMG_%02d.jpg')],
-    { windowsHide: true }
-  )
+  const given = process.env.PRISM_E2E_COPIES_PHOTOS
+  if (given) {
+    const pics = readdirSync(given).filter((n) => /\.(jpe?g|heic|heif|png|webp|tiff?)$/i.test(n)).sort()
+    pics.forEach((n, i) => copyFileSync(join(given, n), join(dir, `IMG_${String(i + 1).padStart(2, '0')}${n.slice(n.lastIndexOf('.')).toLowerCase()}`)))
+  } else
+    execFileSync(
+      FFMPEG,
+      ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=4032x3024:r=1,noise=alls=24:allf=t', '-frames:v', '24', '-q:v', '3', join(dir, 'IMG_%02d.jpg')],
+      { windowsHide: true }
+    )
   writeFileSync(join(dir, 'notes.txt'), 'not a picture\n')
-  const photos = readdirSync(dir).filter((n) => n.endsWith('.jpg'))
+  const photos = readdirSync(dir).filter((n) => n.startsWith('IMG_'))
+  const first = photos.sort()[0]
   const mb = photos.reduce((n, f) => n + statSync(join(dir, f)).size, 0) / 1048576
   console.log(`  ${photos.length} photos, ${mb.toFixed(0)} MB`)
   const tempsBefore = copiesTemps().length
   const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
   const copies = (ext) => readdirSync(dir).filter((n) => n.endsWith(`.${ext}`))
   const markAll = async (label) => {
-    const row = win.locator('[data-testid="browse-list"] [data-browse-path$="\\\\IMG_01.jpg" i]').first()
+    const row = win.locator(`[data-testid="browse-list"] [data-browse-path$="\\\\${first}" i]`).first()
     await row.locator('.browse-name-text').click()
     await win.keyboard.press('Control+a')
     await sleep(300)
@@ -20219,6 +20288,7 @@ await run(propertiesWindowScenario)
 await run(photoInfoKeyScenario)
 await run(imageSaveCopyScenario)
 await run(batchCopiesScenario)
+await run(batchCopiesHeicScenario)
 await run(batchCopiesLoadScenario)
 await run(searchPopupScenario)
 await run(searchNavScenario)
