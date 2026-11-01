@@ -1,6 +1,7 @@
 import { isInside, pathKey } from '@shared/path'
 import { createPref } from './prefs/createPref'
 import { preloadFolderIconSet } from './folderIconSetLoad'
+import { onFirstFolderIconFiles, preloadFolderIconFiles } from './folderIconFiles'
 
 /**
  * FOLDER ICONS (owner, 2026-10-31: "allow the user to pick folder icons both
@@ -76,6 +77,25 @@ export function folderIconOf(map: FolderIconMap, path: string): FolderIconChoice
   return map.size === 0 ? undefined : map.get(pathKey(path))
 }
 
+type PruneApi = { pruneFolderIcons?: (keep: string[]) => Promise<number> }
+
+/**
+ * Store a change. When it leaves a kept picture that no entry names any more,
+ * main removes that copy (spec 2.4, "when an entry is reset or replaced"):
+ * a set, a reset, a move or paste that replaces a folder with an icon, an
+ * undo or a redo all come through here (review L3). Main keeps a copy saved
+ * in the last minute anyway, for a window that has not stored its choice yet.
+ */
+function store(next: FolderIconMap): void {
+  const before = pref.get()
+  pref.set(next)
+  const keep = iconFileIds(next)
+  const named = new Set(keep)
+  if (!iconFileIds(before).some((id) => !named.has(id))) return
+  const bridge = (globalThis as { window?: { prism?: PruneApi } }).window?.prism
+  void bridge?.pruneFolderIcons?.(keep).catch(() => {})
+}
+
 /** Give every path in `paths` this icon, or (null) its default again. */
 export function setFolderIcons(paths: readonly string[], icon: FolderIconChoice | null): void {
   const next = new Map(pref.get())
@@ -83,7 +103,7 @@ export function setFolderIcons(paths: readonly string[], icon: FolderIconChoice 
     if (icon) next.set(pathKey(p), icon)
     else next.delete(pathKey(p))
   }
-  pref.set(next)
+  store(next)
 }
 
 /**
@@ -127,13 +147,53 @@ export function followMoves(
 export function followFolderIcons(moves: ReadonlyArray<{ from: string; to: string }>): void {
   const map = pref.get()
   const next = followMoves(map, moves)
-  if (next !== map) pref.set(next)
+  if (next !== map) store(next)
 }
+
+/** The kept pictures the map names (a picture from a file, PR 3). */
+export function iconFileIds(map: FolderIconMap): string[] {
+  const ids = new Set<string>()
+  for (const icon of map.values()) if ('file' in icon) ids.add(icon.file)
+  return [...ids]
+}
+
+const hasFiles = new WeakMap<FolderIconMap, boolean>()
+const anyFile = (map: FolderIconMap): boolean => {
+  let v = hasFiles.get(map)
+  if (v === undefined) {
+    v = iconFileIds(map).length > 0
+    hasFiles.set(map, v)
+  }
+  return v
+}
+
+/** The map without the pictures main no longer has (`have`): userData was
+ *  cleared, so those folders draw their default again. Same object when none. */
+export function withoutMissingFiles(map: FolderIconMap, have: ReadonlyMap<string, string>): FolderIconMap {
+  let next: Map<string, FolderIconChoice> | null = null
+  for (const [key, icon] of map) {
+    if ('file' in icon && !have.has(icon.file)) (next ??= new Map(map)).delete(key)
+  }
+  return next ?? map
+}
+
+// Main's list of kept pictures, the first time a COMPLETE one lands: an entry
+// whose copy is gone is dropped (spec 2.4, "Prism's copy is gone"). A list
+// main could not read in full never gets here (review M1).
+onFirstFolderIconFiles((have) => {
+  const map = pref.get()
+  const next = withoutMissingFiles(map, have)
+  if (next !== map) pref.set(next)
+})
 
 /** The whole map, rendering again when it changes (any window). */
 export function useFolderIcons(): FolderIconMap {
   const map = pref.use()
-  // A stored built-in icon wants the glyph data: fetched at idle, once.
-  if (map.size) preloadFolderIconSet()
+  // A stored built-in icon wants the glyph data: fetched at idle, once; a
+  // picture from a file wants main's kept copies.
+  if (map.size) {
+    preloadFolderIconSet()
+    if (anyFile(map)) preloadFolderIconFiles()
+  }
   return map
 }
