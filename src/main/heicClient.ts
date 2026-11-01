@@ -29,15 +29,28 @@ interface Reply {
   error?: string
 }
 
-const pool = createWorkerPool<Reply>({
-  start: () => utilityProcess.fork(join(__dirname, 'heicWorker.js')) as PoolProc<Reply>,
-  settle: (m) => {
-    if (m.ok && m.data) return Buffer.from(m.data)
-    throw new Error(m.error ?? 'heic decode failed')
-  },
-  exitError: 'heic worker exited',
-  idleMs: HEIC_IDLE_MS
-})
+const heicPool = (): ReturnType<typeof createWorkerPool> =>
+  createWorkerPool<Reply>({
+    start: () => utilityProcess.fork(join(__dirname, 'heicWorker.js')) as PoolProc<Reply>,
+    settle: (m) => {
+      if (m.ok && m.data) return Buffer.from(m.data)
+      throw new Error(m.error ?? 'heic decode failed')
+    },
+    exitError: 'heic worker exited',
+    idleMs: HEIC_IDLE_MS
+  })
+
+const pool = heicPool()
+
+/**
+ * SAVE COPIES AS HAS ITS OWN DECODER (#474; review, 2026-11-01). A batch of
+ * 400 iPhone HEICs through the viewer's worker put every picture the viewer
+ * asked for in line behind the job's decodes (about 2 s each), and pushed the
+ * viewer's decoded pictures out of its 6-entry cache. So a batch decodes in a
+ * worker of its own, uncached (each picture is decoded once), which goes when
+ * it has been idle for a minute like the viewer's.
+ */
+const copyPool = heicPool()
 
 export async function heicToJpeg(filePath: string, mtimeMs: number): Promise<Buffer> {
   const key = `${filePath}|${mtimeMs}`
@@ -47,3 +60,7 @@ export async function heicToJpeg(filePath: string, mtimeMs: number): Promise<Buf
   cache.set(key, buf)
   return buf
 }
+
+/** A HEIC as JPEG for Save copies as: its own worker, nothing cached. */
+export const heicToJpegForCopy = (filePath: string): Promise<Buffer> =>
+  copyPool.call<Buffer>({ path: filePath })

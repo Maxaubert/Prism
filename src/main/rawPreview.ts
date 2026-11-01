@@ -82,6 +82,15 @@ export async function rawPreview(path: string, mtimeMs: number): Promise<Buffer>
   const key = `${path}|${mtimeMs}`
   const hit = cache.get(key) // a hit is a use: the newest again
   if (hit) return hit
+  const jpeg = await readRawPreview(path)
+  cache.set(key, jpeg)
+  return jpeg
+}
+
+/** The embedded preview, read now and NOT cached: Save copies as (#474;
+ *  review, 2026-11-01) reads each raw once, and a batch through the cache
+ *  pushed the viewer's four previews out of it. */
+export async function readRawPreview(path: string): Promise<Buffer> {
   // The size from the open handle, not a statSync first (owner, 2026-10-12,
   // main never waits on the disk). A missing file still throws, at the open.
   const fd = await open(path, 'r')
@@ -95,6 +104,5 @@ export async function rawPreview(path: string, mtimeMs: number): Promise<Buffer>
   }
   const jpeg = findJpeg(buf)
   if (!jpeg) throw new Error('no embedded preview in this raw file')
-  cache.set(key, jpeg)
   return jpeg
 }
