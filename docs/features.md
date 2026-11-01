@@ -3389,6 +3389,11 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   code divergence is CLOSED and only the comic splat remains (the clapperboard's retired with
   the play disc). It changed the 77 code extensions with no language mark and
   `prism-code.ico`; the in-app guide moved by the same snap (`iconPaths.ts`, code only).
+  **THE RUNGS ARE ONE HEIGHT** (review of #91, 2026-11-01). Snapping each rung's edges on
+  their own made them 2, 2 and 1 pixels at 16px (and the app's third rung half the others),
+  so the height and the step are snapped once and the stack hangs from the box's foot: laid
+  from the top, the third rung ran into the band with no row between. Held by
+  `iconPaths.test.ts` ("even rungs").
 - **THE ADDRESS BAR ANSWERS A RIGHT-CLICK** (2026-09-22, owner: "let me right click the url bar to
   get options to copy path or copy as text like file explorer"). Explorer's own three: Copy address,
   Copy address as text, Edit address, always for the FOLDER SHOWN, wherever on the bar you click

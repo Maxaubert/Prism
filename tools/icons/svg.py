@@ -670,7 +670,7 @@ def ink_for(bg):
 
 # ------------------------------------------------------------- identity
 # A COLOUR IDENTITY IS FINER THAN AN ICON SHAPE, and that gap is the whole
-# reason this table exists. `.md` draws the code kind's stepped bars because it
+# reason this table exists. `.md` draws the code kind's indent guide because it
 # has no mark of its own, and `.docx` draws the same page as `.pdf` because both
 # are the document kind - so under a per-KIND colour scheme a README is coloured
 # as source and a Word file as a PDF. Neither is what the owner means by either
@@ -1022,7 +1022,7 @@ HEADER = """// Prism's own file icons on a 24x24 viewBox, monochrome or coloured
 // out of the band where MP3 fits easily.
 //
 // LANG_PATHS is a mark per language, laid on the code kind's page in place of
-// its stepped bars: two layers only, since the page, the fold and the band all
+// its indent guide: two layers only, since the page, the fold and the band all
 // come from the KIND. LANG_BY_EXT is the same table Explorer registers;
 // LANG_BY_NAME is the app doing what Explorer cannot, because Windows
 // associates on extension and `Dockerfile` has none.
@@ -1138,7 +1138,7 @@ def ts_source():
     ]
 
     L += ["// A mark per LANGUAGE, laid on the code kind's page in place of its",
-          "// stepped bars. Two layers only: the page, the fold and the band all",
+          "// indent guide. Two layers only: the page, the fold and the band all",
           "// come from the KIND, so a language changes the mark and nothing else.",
           "export const LANG_PATHS = {"]
     for name, d in langs_paths().items():
