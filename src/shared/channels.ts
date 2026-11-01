@@ -184,6 +184,8 @@ export const CALL = {
   archiveList: 'archive:list',
   archiveExtractAll: 'archive:extract-all',
   archiveExtractDir: 'archive:extract-dir',
+  archiveStageMembers: 'archive:stage-members',
+  archiveUnstage: 'archive:unstage',
   archiveExtract: 'archive:extract',
   archiveRename: 'archive:rename',
   archiveMember: 'archive:member',

@@ -505,7 +505,7 @@ function ArchiveInner({
       if (payload.kind === 'members') {
         if (verb === 'zip-to-zip')
           return copyBetween(
-            { container: payload.archive, entries: payload.entries, places: payload.places ?? [] },
+            { container: payload.archive, entries: payload.entries },
             file.path,
             destFolder
           )
