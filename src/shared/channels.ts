@@ -140,6 +140,8 @@ export const CALL = {
 
   imagePhotoInfo: 'image:photo-info',
   imageSaveCopy: 'image:save-copy',
+  imageSaveCopies: 'image:save-copies',
+  imageSaveCopiesCancel: 'image:save-copies-cancel',
 
   clipboardHasFiles: 'clipboard:has-files',
 

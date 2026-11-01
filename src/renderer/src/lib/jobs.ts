@@ -23,7 +23,7 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import { createStore } from './store'
 
-export type JobKind = 'paste' | 'add'
+export type JobKind = 'paste' | 'add' | 'copies'
 
 export interface Job {
   id: string
@@ -43,6 +43,10 @@ export interface Job {
    *  item with its own progress, for the rows the list draws until each
    *  file is really there. */
   landing?: { dir: string; items: LandingItem[] }
+  /** Stops the job (#474, Save copies as): the chip shows a Cancel while it runs. */
+  cancel?: () => void
+  /** What the job did, said on the chip once it is over (#474). */
+  note?: string
 }
 
 /** One item a paste is copying, and how far it has got (0-100). */
@@ -62,15 +66,24 @@ export interface LandingItem {
  */
 export const MIN_SHOW_MS = 900
 
+/** How long a done note stays on the chip (#474: "Saved 37 copies, 2 could
+ *  not be read"). Long enough to read a line, and then it goes by itself. */
+export const NOTE_MS = 5000
+
 const store = createStore<readonly Job[]>([])
 let seq = 0
 const leaving = new Map<string, ReturnType<typeof setTimeout>>()
+/** When the last note queued has had its NOTE_MS on the chip: a second note
+ *  waits for the first, so each is shown for its whole time (review,
+ *  2026-11-01: a note counting down out of sight could be lost). */
+let notesFreeAt = 0
 
-/** Register a job; returns its id for update/end. */
-export function startJob(kind: JobKind, label: string): string {
+/** Register a job; returns its id for update/end. With `cancel`, the chip
+ *  offers a Cancel that calls it. */
+export function startJob(kind: JobKind, label: string, cancel?: () => void): string {
   seq += 1
   const id = `${kind}-${seq}`
-  store.set([...store.get(), { id, kind, label, pct: null, since: Date.now() }])
+  store.set([...store.get(), { id, kind, label, pct: null, since: Date.now(), ...(cancel ? { cancel } : {}) }])
   return id
 }
 
@@ -195,11 +208,23 @@ function remove(id: string): void {
   store.set(next)
 }
 
-export function endJob(id: string): void {
+/** The job is over. With `note`, the chip says it for NOTE_MS (no bar, no
+ *  Cancel) and then the job leaves. */
+export function endJob(id: string, note?: string): void {
   const jobs = store.get()
   const job = jobs.find((j) => j.id === id)
   if (!job || leaving.has(id)) return
   const shown = Date.now() - job.since
+  if (note) {
+    store.set(jobs.map((j) => (j.id === id ? { ...j, pct: 100, done: true, note, cancel: undefined } : j)))
+    const now = Date.now()
+    notesFreeAt = Math.max(now, notesFreeAt) + NOTE_MS
+    leaving.set(
+      id,
+      setTimeout(() => remove(id), notesFreeAt - now)
+    )
+    return
+  }
   if (job.landing) {
     const minLeft = Math.max(0, MIN_SHOW_MS - shown)
     store.set(
@@ -237,6 +262,7 @@ export function resetJobs(): void {
   leaving.clear()
   for (const t of holdTimers.values()) clearTimeout(t)
   holdTimers.clear()
+  notesFreeAt = 0
   store.set([])
 }
 
@@ -248,14 +274,34 @@ export function resetJobs(): void {
  * on the first paste's 100% and then fell to 0 (owner, 2026-09-03). It is
  * shown only when nothing else is running. Pure, so the chip's arithmetic
  * is testable without React.
+ *
+ * Two exceptions (#474, review 2026-11-01), so nothing the chip has to SAY
+ * or OFFER is hidden behind an older paste: a DONE NOTE comes first (the
+ * oldest, its NOTE_MS runs in turn, see `endJob`), because "2 could not be
+ * read" is the report the owner asked for; and among live jobs, one that
+ * can be CANCELLED leads, because the chip's one click must reach it.
  */
-export function chipSummary(
-  list: readonly Job[]
-): { label: string; pct: number | null; more: number } | null {
+export function chipSummary(list: readonly Job[]): {
+  label: string
+  pct: number | null
+  more: number
+  /** The head job's Cancel, while it runs (#474). */
+  cancel?: () => void
+  /** The label is a done note: no bar (#474). */
+  note?: true
+} | null {
   const shown = list.filter((j) => !j.holding)
   if (!shown.length) return null
-  const head = shown.find((j) => !j.done) ?? shown[0]
-  return { label: head.label, pct: head.pct, more: shown.length - 1 }
+  const live = shown.filter((j) => !j.done)
+  const head =
+    shown.find((j) => j.note) ?? live.find((j) => j.cancel) ?? live[0] ?? shown[0]
+  if (head.note) return { label: head.note, pct: 100, more: shown.length - 1, note: true }
+  return {
+    label: head.label,
+    pct: head.pct,
+    more: shown.length - 1,
+    ...(head.cancel && !head.done ? { cancel: head.cancel } : {})
+  }
 }
 
 export const useJobs = store.use

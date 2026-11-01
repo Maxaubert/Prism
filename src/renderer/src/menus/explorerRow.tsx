@@ -6,6 +6,7 @@
  * that answers nothing.
  */
 import type { OpenWithApp, ViewerFile } from '@shared/types'
+import { COPY_FORMATS, canCopyImage, type CopyFormat } from '@shared/imageCopy'
 import type { MenuItem } from '../components/ContextMenu'
 import { FileMenuIcon } from '../components/icons/FileMenuIcon'
 import type { BrowseEntry } from '../components/browse/types'
@@ -45,6 +46,8 @@ export interface ExplorerRowMenuContext {
   /** Whether a marked path is a folder: with several marked, Change icon...
    *  is offered only when every one is (D13). */
   isFolder?: (path: string) => boolean
+  /** Save copies as (#474): several marked rows. Absent, not offered. */
+  saveCopies?: (paths: string[], format: CopyFormat) => void
 }
 
 export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
@@ -75,6 +78,24 @@ export function explorerRowMenu(ctx: ExplorerRowMenuContext): MenuItem[] {
               label: `Change icon for ${paths.length} folders...`,
               icon: <FileMenuIcon name="icon" />,
               onPick: () => ctx.changeIcon?.(paths)
+            }
+          ]
+        : []),
+      // SAVE COPIES AS (#474; owner, 2026-11-01): many pictures saved as
+      // another format in one job, each copy next to its original. Offered
+      // when at least one marked row is a picture; every path goes, and main
+      // skips (and counts) the rest. The single picture's "Save a copy" has
+      // the same five formats.
+      ...(ctx.saveCopies && paths.some((p) => !ctx.isFolder?.(p) && canCopyImage(p))
+        ? [
+            {
+              label: 'Save copies as',
+              icon: <FileMenuIcon name="save" />,
+              children: COPY_FORMATS.map((f) => ({
+                label: f.label,
+                icon: <FileMenuIcon name="image" />,
+                onPick: () => ctx.saveCopies?.(paths, f.format)
+              }))
             }
           ]
         : []),

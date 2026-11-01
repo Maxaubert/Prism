@@ -49,6 +49,16 @@ export interface PhotoInfo {
  *  (`reason: 'source'` when the target was the photo being viewed). */
 export type SaveCopyResult = { saved: string } | { canceled: true } | { failed: true; reason?: 'source' }
 
+/** Save copies as (#474): what landed (in the order asked), the pictures that
+ *  could not be read or written, the rows that were not pictures, and
+ *  whether Cancel stopped it. */
+export interface SaveCopiesResult {
+  saved: string[]
+  failed: number
+  skipped: number
+  canceled: boolean
+}
+
 /** A sidecar subtitle track beside a video. */
 export interface SubtitleTrack {
   path: string

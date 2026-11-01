@@ -87,4 +87,41 @@ describe('Save a copy (#78)', () => {
     expect(r).toEqual({ failed: true, reason: 'source' })
     expect(d.write).not.toHaveBeenCalled()
   })
+
+  // #474 (owner, 2026-11-01): the single save offers the batch's five formats.
+  // WebP, AVIF and JPEG XL arrive as the canvas's PNG and main encodes them.
+  it('WebP, AVIF and JPEG XL are made in main from the PNG, and land under their own extension', async () => {
+    for (const [format, ext, name] of [
+      ['webp', 'webp', 'WebP image'],
+      ['avif', 'avif', 'AVIF image'],
+      ['jxl', 'jxl', 'JPEG XL image']
+    ] as const) {
+      const made = Buffer.from([9, 9])
+      const transcode = vi.fn(() => Promise.resolve(made))
+      const d = { ...deps({ canceled: false, filePath: `C:\\out\\a.${ext}` }), transcode }
+      const r = await saveImageCopy({ bytes: bytes(), suggested: 'a.HEIC', format, source: 'C:\\p\\a.HEIC' }, d)
+      expect(r).toEqual({ saved: `C:\\out\\a.${ext}` })
+      expect(d.ask).toHaveBeenCalledWith({ defaultPath: `C:\\p\\a.${ext}`, filters: [{ name, extensions: [ext] }] })
+      expect(transcode).toHaveBeenCalledWith(Buffer.from(bytes()), format)
+      expect(d.write).toHaveBeenCalledWith(`C:\\out\\a.${ext}`, made)
+    }
+  })
+
+  it('JPEG and PNG are written as the canvas made them', async () => {
+    const transcode = vi.fn(() => Promise.resolve(Buffer.from([1])))
+    const d = { ...deps({ canceled: false, filePath: 'C:\\out\\a.jpg' }), transcode }
+    await saveImageCopy({ bytes: bytes(), suggested: 'a.png', format: 'jpeg' }, d)
+    expect(transcode).not.toHaveBeenCalled()
+  })
+
+  it('an encode that fails says so, and writes nothing', async () => {
+    const d = { ...deps({ canceled: false, filePath: 'C:\\out\\a.avif' }), transcode: vi.fn(() => Promise.resolve(null)) }
+    expect(await saveImageCopy({ bytes: bytes(), suggested: 'a.png', format: 'avif' }, d)).toEqual({ failed: true })
+    expect(d.write).not.toHaveBeenCalled()
+  })
+
+  it('the same format as the photo is "name copy.ext" for the new formats too', () => {
+    expect(copyDefaultPath('a.webp', 'webp', 'D:\\x\\a.webp')).toBe('D:\\x\\a copy.webp')
+    expect(copyDefaultPath('a.JXL', 'jxl', 'D:\\x\\a.JXL')).toBe('D:\\x\\a copy.jxl')
+  })
 })
