@@ -1,6 +1,7 @@
 import { createReadStream } from 'fs'
 import { stat, readFile } from 'fs/promises'
 import { Readable } from 'node:stream'
+import { parseByteRange } from './byteRange'
 import type { FfmpegTools } from './ffmpeg'
 import { isHeic } from './heicClient'
 import { decodeImage, needsImageDecode, tiffPages } from './imageDecode'
@@ -62,7 +63,18 @@ export function madeImageBody(buf: Buffer): Buffer | ReadableStream<Uint8Array> 
  * serveMedia; becomes part of prism-core in Phase 1.
  */
 export function createMediaServer(deps: MediaServerDeps): (request: Request) => Promise<Response> {
+  // THE HANDLER NEVER THROWS (#23, 2026-11-01): protocol.handle has no catch
+  // of its own, so anything that throws below (a 0-byte file's ranged read
+  // was one) is a 500 here, with no body. The wall is asked first inside, so
+  // a wall that throws serves nothing either.
   return async function serveMedia(request: Request): Promise<Response> {
+    try {
+      return await answer(request)
+    } catch {
+      return new Response(null, { status: 500 })
+    }
+  }
+  async function answer(request: Request): Promise<Response> {
     let filePath: string
     try {
       filePath = decodeURIComponent(new URL(request.url).pathname).slice(1)
@@ -180,14 +192,17 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
     const body = (s: NodeJS.ReadableStream): ReadableStream =>
       Readable.toWeb(s as Readable) as unknown as ReadableStream
 
-    const range = request.headers.get('range')
-    const m = range ? /bytes=(\d*)-(\d*)/.exec(range) : null
-    if (m) {
-      let start = m[1] ? parseInt(m[1], 10) : 0
-      let end = m[2] ? parseInt(m[2], 10) : size - 1
-      if (!Number.isFinite(start) || start < 0) start = 0
-      if (!Number.isFinite(end) || end >= size) end = size - 1
-      if (start > end) start = end
+    // A 0-byte file has no byte to stream (end would be -1, #23): an empty
+    // answer, or a 416 for any range asked of it (below).
+    const range = parseByteRange(request.headers.get('range'), size)
+    if (range === 'unsatisfiable') {
+      return new Response(null, {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${size}`, 'Access-Control-Allow-Origin': '*' }
+      })
+    }
+    if (range) {
+      const { start, end } = range
       return new Response(body(open({ start, end })), {
         status: 206,
         headers: {
@@ -199,7 +214,7 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
         }
       })
     }
-    return new Response(body(open()), {
+    return new Response(size === 0 ? null : body(open()), {
       status: 200,
       headers: {
         'Content-Type': type,
