@@ -81,7 +81,8 @@ export function watchWindowState(
   })
   win.on('close', flush)
   // Every route out of the window ends here: the title bar's X, Alt+F4, the
-  // taskbar, Escape. Unsaved text stops all of them until the user answers.
+  // taskbar, Ctrl+W on the last tab (never Escape, #14). Unsaved text stops
+  // all of them until the user answers.
   // THIS window's text and THIS window's answer (2026-10-29): another
   // window's "discard" never lets this one's unsaved text through.
   win.on('close', (e) => {

@@ -176,7 +176,7 @@ export default function App(): JSX.Element {
     const now = tabStateNow.current
     // Settings as the last tab: the gear closes the window, like any last
     // tab (review, 2026-10-28; it left an empty window).
-    if (settingsCloseIsLast(now.tabs, now.activeId, true)) return window.prism.close()
+    if (settingsCloseIsLast(now.tabs, now.activeId)) return window.prism.close()
     setTabState((s) =>
       toggleSettingsTab(s.tabs, s.activeId, `settings-${(settingsSeq.current += 1)}`)
     )
