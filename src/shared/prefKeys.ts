@@ -27,6 +27,7 @@ export const PREF_KEYS = {
   'prism.newtab.mode': 'shared',
   'prism.newtab.show': 'shared',
   'prism.open.external': 'shared',
+  'prism.photoInfo': 'shared',
   'prism.pinnedRoots': 'shared',
   'prism.player.prefs': 'shared',
   'prism.quickAccess': 'shared',

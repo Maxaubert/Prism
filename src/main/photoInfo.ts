@@ -1,5 +1,6 @@
 import exifr from 'exifr'
-import { heifExifBlock, isHeif } from './heifExif'
+import { heifExifBlock, heifIccProfile, isHeif } from './heifExif'
+import { iccName } from './iccName'
 import type { PhotoInfo } from '@shared/ipcTypes'
 
 /**
@@ -47,35 +48,48 @@ const OPTS = {
   iptc: false
 } as const
 
+/** The same, plus the ICC profile, which is where a phone photo's real colour
+ *  space lives (#78, D8, owner 2026-11-01). A JPEG's APP2 and a PNG's iCCP
+ *  sit near the start, before the picture data, so it is one more small
+ *  segment, not a longer read. */
+const FILE_OPTS = { ...OPTS, icc: true } as const
+
 export async function photoInfo(file: string): Promise<PhotoInfo> {
   let tags: Record<string, unknown> | undefined
   try {
     // HEIC first, and not as a fallback: exifr's sniffer refuses a container
     // whose ftyp box is over 50 bytes, which every recent iPhone photo is.
     // See heifExif.ts - it hands over the TIFF block, which exifr is happy to
-    // parse once it is not being asked to recognise the container.
+    // parse once it is not being asked to recognise the container. Its colour
+    // profile is a `colr` box beside it, read the same way.
     if (isHeif(file)) {
-      const block = await heifExifBlock(file)
-      if (block) {
-        tags = (await exifr.parse(block, OPTS)) as Record<string, unknown> | undefined
-        return tags ? shape(tags) : {}
+      const [block, icc] = await Promise.all([heifExifBlock(file), heifIccProfile(file)])
+      const colour = icc ? iccName(icc) : null
+      if (block || colour) {
+        tags = block ? ((await exifr.parse(block, OPTS).catch(() => undefined)) as Record<string, unknown> | undefined) : undefined
+        const out = tags ? shape(tags) : {}
+        if (colour) out.colour = colour
+        return out
       }
     }
-    tags = (await exifr.parse(file, {
-      tiff: true,
-      exif: true,
-      gps: true,
-      // MakerNote is where a lot of lens names live, and it is also megabytes
-      // of vendor-specific binary. Off: a lens name is not worth the read.
-      makerNote: false,
-      xmp: false,
-      iptc: false
-    })) as Record<string, unknown> | undefined
+    tags = (await exifr.parse(file, FILE_OPTS)) as Record<string, unknown> | undefined
   } catch {
     // "Unknown file format" for an SVG, a truncated header, anything.
     return {}
   }
   return tags ? shape(tags) : {}
+}
+
+/** exifr's ProfileDescription: a string, or one entry per language for a
+ *  version 4 profile with several. */
+function profileName(v: unknown): string | null {
+  if (typeof v === 'string') return trim(v)
+  if (Array.isArray(v)) {
+    const entries = v.filter((e): e is { lang?: string; text?: string } => !!e && typeof e === 'object')
+    const en = entries.find((e) => e.lang === 'en') ?? entries[0]
+    return trim(en?.text)
+  }
+  return null
 }
 
 /** The tags Prism shows, from whatever exifr gave back. */
@@ -111,7 +125,11 @@ function shape(tags: Record<string, unknown>): PhotoInfo {
   // every iPhone writes because the real space lives in the ICC profile - a
   // row reading "Uncalibrated" on every phone photo teaches nothing, so there
   // is no row at all.
-  if (tags.ColorSpace === 1) out.colour = 'sRGB'
+  // The ICC profile's own name says it better, and is the only place a
+  // Display P3 photo says so at all (#78, D8, owner 2026-11-01).
+  const profile = profileName(tags.ProfileDescription)
+  if (profile) out.colour = profile
+  else if (tags.ColorSpace === 1) out.colour = 'sRGB'
 
   const lat = tags.latitude
   const lon = tags.longitude
