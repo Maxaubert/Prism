@@ -6,7 +6,8 @@ import type {
   BinIfEmptyResult,
   MoveOnClash,
   MoveResult,
-  PasteResult
+  PasteResult,
+  SaveCopyResult
 } from '@shared/ipcTypes'
 import { basename, dirname, extname, join, resolve } from 'path'
 import { copyFile, readFile, stat, writeFile } from 'fs/promises'
@@ -29,7 +30,8 @@ import { samePath } from '@shared/path'
 import type { OnClash, OpenWithApp, RenameResult, TextRead, WriteResult } from '@shared/types'
 import { exists } from '../fsUtil'
 import { windows } from '../appState'
-import { saveDialog } from '../dialogs'
+import { saveCopyDialog } from '../dialogs'
+import { saveImageCopy } from '../saveCopy'
 import type { MainCtx, ReadyCtx } from './context'
 
 /** Whose tail it is: the page's webContents id (fileTail's `owner`). */
@@ -47,34 +49,21 @@ export function registerSaveCopyIpc(ctx: MainCtx): void {
    * in the wall: main's own save dialog IS the consent, exactly as it is for
    * "Extract all" and for picking a subtitle file. The renderer hands over
    * bytes it encoded from the decoded picture; main never re-reads the
-   * source, so a HEIC or a camera RAW saves as easily as a PNG.
+   * source, so a HEIC or a camera RAW saves as easily as a PNG. The source
+   * path only says where the dialog opens and what it may not overwrite
+   * (#78, `saveCopy.ts`).
    */
   ipcMain.handle(
     CALL.imageSaveCopy,
-    async (
-      e,
-      bytes: ArrayBuffer,
-      suggested: string,
-      format: 'png' | 'jpeg'
-    ): Promise<string | null> => {
-      if (!(bytes instanceof ArrayBuffer) || !bytes.byteLength) return null
-      const ext = format === 'png' ? 'png' : 'jpg'
-      const r = await saveDialog(
+    (e, bytes: ArrayBuffer, suggested: string, format: 'png' | 'jpeg', source?: string): Promise<SaveCopyResult> =>
+      saveImageCopy(
+        { bytes, suggested, format: format === 'png' ? 'png' : 'jpeg', source },
         {
-          defaultPath: suggested.replace(/\.[^.]*$/, '') + '.' + ext,
-          filters: [{ name: format === 'png' ? 'PNG image' : 'JPEG image', extensions: [ext] }]
-        },
-        e.sender
+          ask: (opts) => saveCopyDialog(opts, e.sender),
+          write: (p, b) => writeFile(p, b),
+          written
+        }
       )
-      if (r.canceled || !r.filePath) return null
-      try {
-        await writeFile(r.filePath, Buffer.from(bytes))
-        await written(r.filePath)
-        return r.filePath
-      } catch {
-        return null
-      }
-    }
   )
 }
 
