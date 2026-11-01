@@ -120,6 +120,7 @@ import { folderIconFromFile, ICON_REFUSED } from './lib/iconFromFile'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { nextTabId } from './lib/sessionIds'
 import { markLanded } from './lib/landMarks'
+import { saveCopiesJob } from './lib/saveCopies'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
 // or dialog), routes by kind to a viewer, and pages through the folder. Video,
@@ -1809,7 +1810,9 @@ export default function App(): JSX.Element {
                   )
                 )
                 return (path: string) => folders.has(path.toLowerCase())
-              })()
+              })(),
+              // Save copies as (#474): one job on the chip, the copies marked.
+              saveCopies: (paths, format) => void saveCopiesJob(paths, format)
             })}
         />
       )}

@@ -8,6 +8,7 @@ import {
   landJob,
   listJobs,
   MIN_SHOW_MS,
+  NOTE_MS,
   resetJobs,
   startJob,
   updateJob,
@@ -172,5 +173,47 @@ describe('landing items (owner, 2026-10-28: a paste shows its rows)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('a job with Cancel and a done note (#474)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    resetJobs()
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('the chip offers the head job\'s Cancel while it runs', () => {
+    const stop = vi.fn()
+    const a = startJob('copies', 'Saving copies', stop)
+    const s = chipSummary(listJobs())
+    expect(s?.label).toBe('Saving copies')
+    s?.cancel?.()
+    expect(stop).toHaveBeenCalledTimes(1)
+    // A paste has no Cancel.
+    resetJobs()
+    startJob('paste', 'Copying')
+    expect(chipSummary(listJobs())?.cancel).toBeUndefined()
+    void a
+  })
+
+  it('a job that ends with a note says it on the chip, without a bar or Cancel, then leaves', () => {
+    const a = startJob('copies', 'Saving copies', vi.fn())
+    vi.advanceTimersByTime(MIN_SHOW_MS + 1)
+    endJob(a, 'Saved 37 copies, 2 could not be read')
+    const s = chipSummary(listJobs())
+    expect(s).toEqual({ label: 'Saved 37 copies, 2 could not be read', pct: 100, more: 0, note: true })
+    expect(s?.cancel).toBeUndefined()
+    vi.advanceTimersByTime(NOTE_MS - 1)
+    expect(listJobs()).toHaveLength(1)
+    vi.advanceTimersByTime(2)
+    expect(listJobs()).toHaveLength(0)
+  })
+
+  it('a note yields to a job still working', () => {
+    const a = startJob('copies', 'Saving copies')
+    startJob('paste', 'Copying')
+    endJob(a, 'Saved 2 copies')
+    expect(chipSummary(listJobs())?.label).toBe('Copying')
   })
 })
