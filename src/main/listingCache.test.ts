@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DirListing } from '@shared/types'
 import {
   cacheKey,
@@ -46,7 +46,12 @@ function listing(dir: string, folders: number, files: number): DirListing {
   }
 }
 
-const settle = (): Promise<void> => new Promise((done) => setTimeout(done, 60))
+// A write is waited for by `idle()`, never by a sleep: 60 ms was not enough
+// for a listing write on a busy CI runner (2026-10-30, 2026-11-01). A file
+// a forget deletes is fire-and-forget in the cache, so its going is waited
+// for by looking, bounded.
+const gone = (file: string): Promise<void> =>
+  vi.waitFor(() => expect(existsSync(file)).toBe(false), { timeout: 5000, interval: 10 })
 
 describe('the stored form', () => {
   it('round-trips a listing, rebuilding paths, extensions and kinds', () => {
@@ -131,7 +136,7 @@ describe('the cache on disk', () => {
     const one = createListingCache({ directory: dir, indexDelayMs: 1 })
     one.load()
     one.put('C:\\A', listing('C:\\A', 1, 2), 42)
-    await settle()
+    await one.idle()
     one.flush()
     expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([])
     const two = createListingCache({ directory: dir })
@@ -149,7 +154,7 @@ describe('the cache on disk', () => {
     cache.put('C:\\A', { ...listing('C:\\A', 0, 1), complete: false }, 1)
     cache.put('C:\\B', { folders: [], files: [], unreadable: true }, 1)
     cache.put('\\\\server\\share', listing('\\\\server\\share', 1, 1), 1)
-    await settle()
+    await cache.idle()
     expect(cache.entries()).toEqual([])
   })
 
@@ -159,11 +164,11 @@ describe('the cache on disk', () => {
     const cache = createListingCache({ directory: dir, maxFolders: 2, now: () => ++t })
     cache.put('C:\\A', listing('C:\\A', 1, 0), 1)
     cache.put('C:\\B', listing('C:\\B', 1, 0), 1)
-    await settle()
+    await cache.idle()
     cache.put('C:\\C', listing('C:\\C', 1, 0), 1)
-    await settle()
+    await cache.idle()
     expect(cache.entries().map((e) => e.path).sort()).toEqual(['C:\\B', 'C:\\C'])
-    expect(existsSync(join(dir, `${cacheKey('C:\\A')}.json`))).toBe(false)
+    await gone(join(dir, `${cacheKey('C:\\A')}.json`))
   })
 
   it('keeps pinned places past the budget', async () => {
@@ -179,7 +184,7 @@ describe('the cache on disk', () => {
     let t = 0
     const cache = createListingCache({ directory: join(box, 'cache'), now: () => ++t })
     cache.put('C:\\A', listing('C:\\A', 1, 2), 5)
-    await settle()
+    await cache.idle()
     const first = cache.entries()[0].savedAt
     cache.put('C:\\A', listing('C:\\A', 1, 2), 5)
     expect(cache.entries()[0].savedAt).toBe(first)
@@ -206,7 +211,7 @@ describe('the cache on disk', () => {
     const dir = join(box, 'cache')
     const cache = createListingCache({ directory: dir })
     cache.put('C:\\A', listing('C:\\A', 1, 0), 1)
-    await settle()
+    await cache.idle()
     writeFileSync(join(dir, `${cacheKey('C:\\A')}.json`), '{"v":1,')
     expect(await cache.readAsync('C:\\A')).toBeNull()
     expect(cache.has('C:\\A')).toBe(false)
@@ -216,7 +221,7 @@ describe('the cache on disk', () => {
     const dir = join(box, 'cache')
     const cache = createListingCache({ directory: dir })
     cache.put('C:\\A', listing('C:\\A', 1, 0), 1)
-    await settle()
+    await cache.idle()
     cache.flush()
     expect(existsSync(dir)).toBe(true)
     cache.setEnabled(false)
@@ -226,7 +231,7 @@ describe('the cache on disk', () => {
     expect(cache.read('C:\\B')).toBeNull()
     cache.setEnabled(true)
     cache.put('C:\\B', listing('C:\\B', 1, 0), 1)
-    await settle()
+    await cache.idle()
     expect(cache.read('C:\\B')).not.toBeNull()
   })
 
@@ -234,7 +239,7 @@ describe('the cache on disk', () => {
     const dir = join(box, 'cache')
     const one = createListingCache({ directory: dir, indexDelayMs: 1 })
     one.put('C:\\A', listing('C:\\A', 1, 0), 1)
-    await settle()
+    await one.idle()
     one.flush()
     // Written but never indexed, and a temporary from a write cut short.
     writeFileSync(join(dir, `${cacheKey('C:\\Lost')}.json`), '{}')
@@ -253,7 +258,7 @@ describe('the cache on disk', () => {
     const before = cache.generation
     expect(await cache.clear()).toBe(true)
     cache.put('C:\\A', listing('C:\\A', 1, 0), 1, before)
-    await settle()
+    await cache.idle()
     expect(cache.entries()).toEqual([])
     expect(existsSync(dir)).toBe(false)
     cache.put('C:\\A', listing('C:\\A', 1, 0), 1, cache.generation)
@@ -265,15 +270,14 @@ describe('the cache on disk', () => {
     let t = 0
     const cache = createListingCache({ directory: dir, indexDelayMs: 1, now: () => ++t })
     cache.put('C:\\A', listing('C:\\A', 1, 0), 1)
-    await settle()
     await cache.idle()
     const first = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'))
     expect(first.entries.map((e: IndexEntry) => e.path)).toEqual(['C:\\A'])
     // Two changes in quick succession: the file ends with both.
     cache.put('C:\\B', listing('C:\\B', 1, 0), 1)
-    await settle()
-    cache.drop('C:\\A')
-    await settle()
+    const writing = cache.idle() // the index write for B starts now...
+    cache.drop('C:\\A') // ...and the drop comes while it runs
+    await writing
     await cache.idle()
     const last = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'))
     expect(last.entries.map((e: IndexEntry) => e.path)).toEqual(['C:\\B'])
@@ -284,7 +288,7 @@ describe('the cache on disk', () => {
     const dir = join(box, 'cache')
     const cache = createListingCache({ directory: dir })
     cache.put('C:\\A', listing('C:\\A', 1, 2), 9)
-    await settle()
+    await cache.idle()
     const hit = await cache.readAsync('c:/a')
     expect(hit?.folderMtimeMs).toBe(9)
     expect(hit?.listing.files).toHaveLength(2)
@@ -299,11 +303,11 @@ describe('the cache on disk', () => {
     const dir = join(box, 'cache')
     const cache = createListingCache({ directory: dir })
     cache.put('C:\\A', listing('C:\\A', 1, 0), 1)
-    await settle()
+    await cache.idle()
     const cleared = cache.clear()
     cache.put('C:\\B', listing('C:\\B', 1, 0), 1, cache.generation)
     expect(await cleared).toBe(true)
-    await settle()
+    await cache.idle()
     expect(existsSync(join(dir, `${cacheKey('C:\\A')}.json`))).toBe(false)
     expect(cache.read('C:\\B')).not.toBeNull()
   })
@@ -312,18 +316,18 @@ describe('the cache on disk', () => {
     const dir = join(box, 'cache')
     const cache = createListingCache({ directory: dir })
     cache.put('C:\\A', listing('C:\\A', 1, 0), 1)
-    await settle()
+    await cache.idle()
     cache.drop('c:/a')
-    await settle()
+    await cache.idle()
     expect(cache.has('C:\\A')).toBe(false)
-    expect(existsSync(join(dir, `${cacheKey('C:\\A')}.json`))).toBe(false)
+    await gone(join(dir, `${cacheKey('C:\\A')}.json`))
   })
 
   it('a second window reads and never writes', async () => {
     const dir = join(box, 'cache')
     const writer = createListingCache({ directory: dir })
     writer.put('C:\\A', listing('C:\\A', 1, 0), 1)
-    await settle()
+    await writer.idle()
     writer.flush()
     const before = readFileSync(join(dir, 'index.json'), 'utf8')
     const reader = createListingCache({ directory: dir, readOnly: true })
