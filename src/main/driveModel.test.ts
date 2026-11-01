@@ -101,7 +101,12 @@ describe.runIf(process.platform === 'win32')('driveModel', () => {
   // job, not a fault in this code. So the live read below runs here only.
   it('runs its command in the worker and parses the answer', async () => {
     const answer = "'C|Disk|Model|NVMe|SSD|NTFS|Windows'"
-    const facts = await createDriveModels({ run: () => powershellInWorker(answer), now: Date.now })('C:\\')
+    // The app kills the query at 10 s, and PowerShell on a starved machine
+    // took that long to echo this one line (2026-11-01, 1 run in 20 under
+    // load): what is under test is the worker and the parser, not the
+    // machine's speed, so this one waits up to 25 s.
+    const run = (): Promise<string | null> => powershellInWorker(answer, 25_000)
+    const facts = await createDriveModels({ run, now: Date.now })('C:\\')
     expect(facts).toEqual({ model: 'Disk', bus: 'NVMe', media: 'SSD', fs: 'NTFS', label: 'Windows' })
   }, 30_000)
 
