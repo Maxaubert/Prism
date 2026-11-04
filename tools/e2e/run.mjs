@@ -17074,6 +17074,108 @@ async function docArrowsScenario(fixtures) {
   }
 }
 
+/**
+ * CTRL+F NEVER GOES FULLSCREEN (owner, 2026-11-04: "clicking ctrl f on a
+ * preview sometimes opens fullscreen and sometimes opens the find tool like it
+ * should. like pdf it opens fullscreen"). The viewers' plain F key read e.key
+ * and nothing else, so Ctrl+F was F wherever the Explorer had not claimed it
+ * first, and a picture warm in ANOTHER tab answered it over a PDF preview.
+ * Each of a PDF, a picture and a film in the Explorer's preview, with the
+ * focus in the list, in the preview and nowhere (body): never fullscreen, and
+ * the find that belongs to it opens (the PDF's own bar from the PDF, the
+ * Explorer's search otherwise). Launched with a picture open in a second tab,
+ * which is what a person has and what made the PDF case.
+ */
+async function ctrlFPreviewScenario(fixtures) {
+  console.log('Ctrl+F on a preview opens find, never fullscreen (2026-11-04)')
+  const dir = join(fixtures, 'ctrlf')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'notes\n')
+  copyFileSync(join(fixtures, 'sample.pdf'), join(dir, 'doc.pdf'))
+  copyFileSync(join(fixtures, 'one.png'), join(dir, 'pic.png'))
+  copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'film.mp4'))
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'pic.png'))
+  const fullscreen = async () => {
+    const shown = await win.evaluate(() => !!document.querySelector('[data-testid="folder-browser"]'))
+    const covers = await app.evaluate(({ BrowserWindow, screen }) => {
+      const w = globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]
+      const b = w.getBounds()
+      const d = screen.getDisplayMatching(b).bounds
+      return b.width >= d.width && b.height >= d.height && !w.isResizable()
+    })
+    return !shown || covers
+  }
+  const popup = () => win.locator('[data-search-popup]').count()
+  const pdfFind = () => win.locator('input[aria-label="Find in document"]').count()
+  const where = () =>
+    win.evaluate(() => {
+      const a = document.activeElement
+      if (!a || a === document.body) return 'body'
+      return `${a.tagName.toLowerCase()}${a.className && typeof a.className === 'string' ? '.' + a.className.split(' ')[0] : ''}`
+    })
+  const settle = async () => {
+    // Whatever opened, closed again, and out of fullscreen if a press put it there.
+    for (let i = 0; i < 3 && ((await popup()) || (await pdfFind())); i++) {
+      await win.keyboard.press('Escape')
+      await sleep(300)
+    }
+    if (await fullscreen()) {
+      await win.keyboard.press('F11')
+      await until(async () => !(await fullscreen()), 5000)
+      await sleep(600)
+    }
+  }
+  try {
+    await explorerAt(win, dir)
+    const row = (n) => listRow(win, n)
+    const cases = [
+      { name: 'doc.pdf', ready: '[data-browse-preview] [data-doc-scroller] [data-page="1"]', click: '[data-browse-preview] [data-page="1"]', own: true },
+      { name: 'pic.png', ready: '[data-browse-preview] img', click: '[data-browse-preview] img', own: false },
+      { name: 'film.mp4', ready: '[data-browse-preview] video', click: '[data-browse-preview] video', own: false }
+    ]
+    for (const c of cases) {
+      await row(c.name).click()
+      ok(await until(async () => (await win.locator(c.ready).count()) > 0, 15000), `${c.name}: previews`)
+      await sleep(800)
+      for (const at of ['list', 'preview', 'body']) {
+        if (at === 'list') await row(c.name).focus()
+        else if (at === 'preview') await win.locator(c.click).first().click({ position: { x: 20, y: 20 } })
+        else await win.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
+        await sleep(300)
+        const focus = await where()
+        await win.keyboard.press('Control+f')
+        await sleep(900)
+        const fs = await fullscreen()
+        ok(!fs, `${c.name}, focus in the ${at} (${focus}): Ctrl+F does not go fullscreen`)
+        // The PDF's own find from the PDF or from nowhere; from the list, the
+        // Explorer's search (the list is the Explorer's, docs/features.md).
+        const wantPdf = c.own && at !== 'list'
+        const opened = wantPdf
+          ? await until(async () => (await pdfFind()) === 1, 3000)
+          : await until(async () => (await popup()) === 1, 3000)
+        ok(
+          opened,
+          `${c.name}, focus in the ${at}: Ctrl+F opens ${wantPdf ? "the PDF's find bar" : "the Explorer's search"} (popup ${await popup()}, pdf find ${await pdfFind()})`
+        )
+        await settle()
+      }
+    }
+    // Plain F still toggles fullscreen, from the preview.
+    await row('pic.png').click()
+    await until(async () => (await win.locator('[data-browse-preview] img').count()) > 0, 10000)
+    await sleep(600)
+    await win.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
+    await win.keyboard.press('f')
+    ok(await until(fullscreen, 5000), 'plain F on a picture preview still goes fullscreen')
+    await win.keyboard.press('f')
+    ok(await until(async () => !(await fullscreen()), 5000), 'and plain F comes back out')
+    await win.screenshot({ path: join(SHOTS, 'ctrlf-preview.png') })
+  } finally {
+    await app.close()
+  }
+}
+
 async function previewClearsScenario(fixtures) {
   console.log('going into a folder clears the preview (#300 review)')
   const { dir } = await zipWorld(fixtures, 'previewclears')
@@ -20315,6 +20417,7 @@ await run(zipRestoreScenario)
 await run(zipLockedScenario)
 await run(zipFolderScenario)
 await run(previewClearsScenario)
+await run(ctrlFPreviewScenario)
 await run(docArrowsScenario)
 await run(previewSlowImageScenario)
 await run(imageHugeSwapScenario)

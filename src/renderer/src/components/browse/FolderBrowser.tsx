@@ -27,6 +27,7 @@ import type { FolderSizes } from '../../lib/folderSize'
 import { ArchiveStrip } from './ArchiveStrip'
 import { withinFolder, type PlaceRow } from '../../lib/placeMark'
 import { useActiveArea } from './useActiveArea'
+import { useFindFallback } from './useFindFallback'
 import { EDITOR, FIELD, OVERLAY, inOverlay } from '../../lib/focusGuards'
 import './browse.css'
 import './archive.css'
@@ -351,6 +352,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     returnFocus.current = focused instanceof HTMLElement && focused !== document.body ? focused : null
     setSearching({ owner: props.owner, directory: props.directory })
   }
+  // Ctrl+F from the preview pane or from nowhere (owner, 2026-11-04).
+  useFindFallback(shell, openSearch)
   const closeSearch = (refocus = true): void => {
     setSearching(null)
     const back = returnFocus.current

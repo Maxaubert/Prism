@@ -11,6 +11,7 @@ import { PdfFindBar } from './PdfFindBar'
 import { LoadingState } from '../LoadingState'
 import { EDITOR, NAV_SURFACE, OVERLAY, isFormField } from '../../lib/focusGuards'
 import { clamp } from '../../lib/clamp'
+import { isFullscreenKey } from '../../lib/fullscreenKey'
 import { pageAtLine } from './pageAtLine'
 import '../../assets/pdf.css'
 
@@ -671,9 +672,10 @@ export function PdfView({
         case 'P':
           fitTo('fit-page')
           break
+        // The BARE F only: Ctrl+F is find (owner, 2026-11-04, `fullscreenKey.ts`).
         case 'f':
         case 'F':
-          onToggleFullscreen()
+          if (isFullscreenKey(e)) onToggleFullscreen()
           break
       }
     }
