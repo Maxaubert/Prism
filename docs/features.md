@@ -3,6 +3,50 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Ctrl+F is find, never fullscreen (owner, 2026-11-04)
+
+Owner, 2026-11-04: "clicking ctrl f on a preview sometimes opens fullscreen and sometimes opens the find
+tool like it should. like pdf it opens fullscreen". **Ctrl+F never toggles fullscreen, anywhere; plain F
+still does.**
+
+- **The fullscreen key is the bare F** (`lib/fullscreenKey.ts`, `isFullscreenKey`: no Ctrl, Alt or Meta).
+  The image viewer, the PDF viewer and the media transport (`useMediaControls`) each read `e.key === 'f'`
+  alone, so Ctrl+F was F wherever the Explorer had not claimed the key first: a picture or a film in the
+  preview after a click on it (the focus on the page, outside the Explorer's shell). Every viewer asks the
+  helper now, never `e.key` alone.
+- **A hidden tab's picture answers no keys.** The PDF case: a picture warm in ANOTHER tab is still mounted
+  (behind an `inert` wrapper) and its window listener heard Ctrl+F over the PDF preview, so the PDF opened its
+  find bar AND the window went fullscreen. `ImageView` now yields when its stage is under `[inert]`, as
+  PdfView and CodeView already did.
+- **Which find opens** (owner, 2026-11-04, on that build: "if you click a file then ctrl f it opens the
+  normal search if you click escape on that then ctrl f it opens the find in the pdf. the normal search should
+  only appear if youre not on a searchable file or youre on a folder or you have nothing selected. otherwise
+  when find is available and your on that as the selected file or you just clicked the preview part it should
+  open find. so if you have a pdf open in preview and youre on a folder as selected file then find should only
+  open if you clicked the preview part."). One rule, `lib/findRoute.ts`:
+  - the SELECTED row is a file whose preview has a find (PDF, office and epub documents, markdown, text and
+    code): that find, from the list too;
+  - a folder, nothing selected, or a picture, film, song, archive or comic: the Explorer's search popup;
+  - from the PREVIEW (the focus in it, or, with the focus nowhere, the last click in it): its own find
+    whatever row is selected, so a PDF still previewed under a folder row opens its find only once clicked.
+  A find bar already open takes the keyboard back on Ctrl+F (from the list it stayed open and the typing
+  went to type-to-jump). F3 follows the same rule (it was the PDF's find from everywhere but the list). Typing in the Explorer's
+  own fields, an editor, a menu or a dialog keep their keys; the viewer on its own keeps its find as before.
+- **Why Escape changed it, and why it cannot now**: the answer depended on WHERE THE FOCUS HAPPENED TO BE.
+  From the list the Explorer's onKeyDown took Ctrl+F for its search; from anywhere else (the page, a tab
+  button, the preview) whichever viewer's window listener heard it opened its find. Closing a popup or a
+  find moves the focus (the PDF's find bar hands it to the page scroller on Escape), so the same selection
+  answered differently after an Escape. Now a viewer in the Explorer's preview answers a find key only when
+  it was pressed inside the preview (`lib/previewFind.ts`, `yieldsFindToExplorer`), and the Explorer routes
+  every other one (`browse/useFindRoute.ts`), handing it to the preview's viewer when the rule says its find.
+- **Held by** `fullscreenKey.test.ts`, `findRoute.test.ts` and e2e `ctrlFPreview` (the owner's own
+  click, Ctrl+F, Escape, Ctrl+F; a PDF, a markdown file, a code file, a picture and a film selected with the
+  focus in the list, nowhere and in the preview, each twice around an Escape; a folder and then nothing
+  selected with the PDF still previewed, from the list, nowhere and the clicked preview; Ctrl+F from the list
+  with the PDF's find already open focuses it; F3; a picture open
+  in a second tab; never fullscreen, plain F still goes fullscreen and back) and `hotkeys` (F3 on the PDF's
+  row opens its find, on a folder's row the folder search).
+
 ## Save copies as: many pictures, five formats, one job (#474, owner, 2026-11-01)
 
 Split from #78 (D12): "400 iPhone HEICs and this site will not take them". Owner, 2026-11-01: select many
@@ -1690,7 +1734,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   a terminal's own buttons when the tab has one, the preview toggle, the search button. The
   field: a chevron LEADS every name, the current folder bold, a long path keeps its end and
   fades its start. Search: the button or Ctrl+F in the Explorer (an editor's or a shell's
-  Ctrl+F is theirs) opens `BrowseSearchPopup`, portalled, centred, the help popup's blur and
+  Ctrl+F is theirs; since 2026-11-04 a selected PDF, document or text file opens ITS find, the
+  rule in "Ctrl+F is find, never fullscreen") opens `BrowseSearchPopup`, portalled, centred, the help popup's blur and
   no shadow. Main's SAME search in its own slot (`browseSuggest`, `suggestSlot`, 3 s) so it
   never stops the list's, keeping the BEST 200 by `nameRank`, not the first 200 (review of
   #268: the walk now spends its whole budget, and the index is asked for 5000 by name and
