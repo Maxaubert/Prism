@@ -59,5 +59,18 @@ export function openPreviewFind(
       new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
     )
   if (key === 'F3' && !send({ key: 'F3', code: 'F3', shiftKey: shift })) return
+  // A find bar ALREADY open stays open on the key (its viewer only sets
+  // "open" again), so the focus stayed where the key came from, the list,
+  // and typing went to its type-to-jump: the keyboard goes back into it. A
+  // bar the key opens focuses itself when it mounts.
+  const open = [
+    ...(surface
+      .closest(PREVIEW)
+      ?.querySelectorAll<HTMLInputElement>('input[aria-label="Find in document"]') ?? [])
+  ].find((el) => !el.closest('[inert]') && el.getClientRects().length > 0)
   send({ key: 'f', code: 'KeyF', ctrlKey: true })
+  if (open?.isConnected) {
+    open.focus()
+    open.select()
+  }
 }
