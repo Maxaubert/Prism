@@ -34,6 +34,7 @@ import { prismCodeTheme } from '../lib/code/codeTheme'
 import { setWrapPref, useWrapPref, wrapPref, wrapsFor, type WrapPref } from '../lib/code/codePrefs'
 import { reloadAction, stampChanged, touchesFile, type Stamp } from '../lib/fileReload'
 import { inNavSurface, isFormField } from '../lib/focusGuards'
+import { yieldsFindToExplorer } from '../lib/previewFind'
 import { landSave, saveTarget } from './codeSave'
 
 // Text and code, shown and edited in the same surface. There is no "edit mode"
@@ -589,7 +590,9 @@ export function CodeView({
         e.stopPropagation()
         void save()
       } else if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) {
-        if (inNavSurface(target)) return
+        // The Explorer routes a find key pressed outside its preview
+        // (lib/findRoute.ts, owner 2026-11-04).
+        if (inNavSurface(target) || yieldsFindToExplorer(host.current, target)) return
         e.preventDefault()
         e.stopPropagation()
         v.focus()

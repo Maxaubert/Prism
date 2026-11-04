@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react'
 import { NAV_SURFACE, isTextBox } from '../lib/focusGuards'
+import { yieldsFindToExplorer } from '../lib/previewFind'
 
 /**
  * Ctrl+F for a document viewer (DocView, MarkdownView): opens its find bar.
@@ -43,6 +44,9 @@ export function useFindShortcut(box: RefObject<HTMLElement | null>, onFind: () =
       const el = e.target as HTMLElement | null
       if (e.defaultPrevented || el?.closest(NAV_SURFACE)) return
       if (isTextBox(el)) return
+      // The Explorer routes a find key pressed outside its preview
+      // (lib/findRoute.ts, owner 2026-11-04).
+      if (yieldsFindToExplorer(box.current, el)) return
       if (!ownsFindKeys(box.current)) return
       e.preventDefault()
       e.stopPropagation()

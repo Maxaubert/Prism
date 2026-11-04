@@ -8115,13 +8115,24 @@ async function hotkeysScenario(fixtures) {
     ok(await back('charlie.txt'), 'explorer: and Ctrl+Z brings that back')
     await sleep(900)
 
-    // F3 with a PDF in the preview: the folder search, not the PDF's find.
+    // F3 FOLLOWS CTRL+F'S RULE (owner, 2026-11-04: "the normal search should
+    // only appear if youre not on a searchable file or youre on a folder or you
+    // have nothing selected"): the PDF's row selected, its find; a folder's row
+    // selected with the PDF still previewed, the folder search.
     await until(async () => (await exRow('echo.pdf').count()) === 1, 5000)
     await click('echo.pdf')
     await sleep(1500)
     await exRow('echo.pdf').focus()
     await win.keyboard.press('F3')
-    ok(await until(async () => (await win.locator('[data-search-popup]').count()) === 1, 5000), 'explorer: F3 opens the folder search')
+    ok(await until(async () => (await win.locator('input[aria-label="Find in document"]').count()) === 1, 5000), "explorer: F3 on the PDF's row opens the PDF's find")
+    ok((await win.locator('[data-search-popup]').count()) === 0, 'explorer: and not the folder search')
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    await click('golf')
+    await sleep(600)
+    await exRow('golf').focus()
+    await win.keyboard.press('F3')
+    ok(await until(async () => (await win.locator('[data-search-popup]').count()) === 1, 5000), "explorer: F3 on a folder's row opens the folder search")
     ok((await win.locator('input[aria-label="Find in document"]').count()) === 0, 'explorer: and the PDF find bar stays shut')
     // Nothing while typing in the search field.
     const marksBefore = (await exMarked()).length
@@ -10926,7 +10937,12 @@ async function explorerVerbsScenario(fixtures) {
  * over a blurred window; typing lists the likely names first, the arrows and
  * Enter open one, Escape puts it away and gives the focus back, and Show more
  * (or Ctrl+Enter) runs the list's full search. Ctrl+F in an editor or a shell
- * is still theirs, and the popup leaves when what is in front changes.
+ * is still theirs, and the popup leaves when what is in front changes. Ctrl+F
+ * opens it with a folder or nothing selected or a file with no find; a
+ * selected PDF, document or text file opens its own find instead (owner,
+ * 2026-11-04: "the normal search should only appear if youre not on a
+ * searchable file or youre on a folder or you have nothing selected"; e2e
+ * ctrlFPreview).
  */
 // A SEARCH ENDS WHEN YOU GO SOMEWHERE, AND BACK RETURNS TO IT (#281; owner,
 // 2026-10-04: "if you click into a folder from a search you're not in search
@@ -11130,7 +11146,7 @@ async function searchPopupScenario(fixtures) {
     await win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Back"]').click()
     ok(await until(async () => (await current()) === 'searchpop', 10000), 'and Back again returns to where the search began')
 
-    // CTRL+F from the Explorer; ESCAPE gives the focus back.
+    // CTRL+F from the Explorer (no file with a find selected); ESCAPE gives the focus back.
     await win.locator('[data-testid="browse-list"]').focus()
     await win.keyboard.press('Control+f')
     ok(await until(async () => (await popup.count()) === 1, 5000), 'Ctrl+F in the Explorer opens it')
@@ -17077,21 +17093,32 @@ async function docArrowsScenario(fixtures) {
 /**
  * CTRL+F NEVER GOES FULLSCREEN (owner, 2026-11-04: "clicking ctrl f on a
  * preview sometimes opens fullscreen and sometimes opens the find tool like it
- * should. like pdf it opens fullscreen"). The viewers' plain F key read e.key
- * and nothing else, so Ctrl+F was F wherever the Explorer had not claimed it
- * first, and a picture warm in ANOTHER tab answered it over a PDF preview.
- * Each of a PDF, a picture and a film in the Explorer's preview, with the
- * focus in the list, in the preview and nowhere (body): never fullscreen, and
- * the find that belongs to it opens (the PDF's own bar from the PDF, the
- * Explorer's search otherwise). Launched with a picture open in a second tab,
- * which is what a person has and what made the PDF case.
+ * should. like pdf it opens fullscreen"), AND WHICH FIND IT OPENS (owner, the
+ * same day, on that build: "the normal search should only appear if youre not
+ * on a searchable file or youre on a folder or you have nothing selected.
+ * otherwise when find is available and your on that as the selected file or
+ * you just clicked the preview part it should open find. so if you have a pdf
+ * open in preview and youre on a folder as selected file then find should only
+ * open if you clicked the preview part."). He saw the search first and, after
+ * an Escape, the PDF's find for the same selection: the same place must give
+ * the same answer every time (lib/findRoute.ts).
+ * A PDF, a markdown file and a code file selected: their own find from the
+ * list, from nowhere and from the preview, again after an Escape. A folder
+ * selected, or nothing, with the PDF still previewed: the Explorer's search
+ * from the list, the PDF's find once the preview is clicked. A picture and a
+ * film: the Explorer's search, and never fullscreen. F3 follows Ctrl+F.
+ * Launched with a picture open in a second tab, which is what a person has
+ * and what made the PDF go fullscreen.
  */
 async function ctrlFPreviewScenario(fixtures) {
-  console.log('Ctrl+F on a preview opens find, never fullscreen (2026-11-04)')
+  console.log("Ctrl+F opens the find the owner's rule names, never fullscreen (2026-11-04)")
   const dir = join(fixtures, 'ctrlf')
   rmSync(dir, { recursive: true, force: true })
-  mkdirSync(dir, { recursive: true })
+  mkdirSync(join(dir, 'sub'), { recursive: true })
+  writeFileSync(join(dir, 'sub', 'inside.txt'), 'inside\n')
   writeFileSync(join(dir, 'notes.txt'), 'notes\n')
+  writeFileSync(join(dir, 'readme.md'), '# Readme\n\nSome words to find.\n')
+  writeFileSync(join(dir, 'code.js'), 'const answer = 42\nconsole.log(answer)\n')
   copyFileSync(join(fixtures, 'sample.pdf'), join(dir, 'doc.pdf'))
   copyFileSync(join(fixtures, 'one.png'), join(dir, 'pic.png'))
   copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'film.mp4'))
@@ -17106,8 +17133,16 @@ async function ctrlFPreviewScenario(fixtures) {
     })
     return !shown || covers
   }
-  const popup = () => win.locator('[data-search-popup]').count()
-  const pdfFind = () => win.locator('input[aria-label="Find in document"]').count()
+  // What is open: the Explorer's search popup, or a find in the preview (the
+  // PDF's bar and DocFind share the label; the code editor's is .cm-search).
+  const opened = () =>
+    win.evaluate(() => {
+      const seen = (el) => !!el && el.getClientRects().length > 0 && !el.closest('[inert]')
+      const popup = !!document.querySelector('[data-search-popup]')
+      const doc = [...document.querySelectorAll('[data-browse-preview] input[aria-label="Find in document"]')].some(seen)
+      const code = [...document.querySelectorAll('[data-browse-preview] .cm-search')].some(seen)
+      return popup ? 'search' : doc ? 'doc-find' : code ? 'code-find' : 'none'
+    })
   const where = () =>
     win.evaluate(() => {
       const a = document.activeElement
@@ -17116,7 +17151,7 @@ async function ctrlFPreviewScenario(fixtures) {
     })
   const settle = async () => {
     // Whatever opened, closed again, and out of fullscreen if a press put it there.
-    for (let i = 0; i < 3 && ((await popup()) || (await pdfFind())); i++) {
+    for (let i = 0; i < 3 && (await opened()) !== 'none'; i++) {
       await win.keyboard.press('Escape')
       await sleep(300)
     }
@@ -17126,40 +17161,103 @@ async function ctrlFPreviewScenario(fixtures) {
       await sleep(600)
     }
   }
+  const row = (n) => listRow(win, n)
+  const focusAt = async (at, preview) => {
+    if (at === 'list') {
+      const sel = win.locator('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]')
+      if (await sel.count()) await sel.first().focus()
+      else await win.locator('[data-testid="browse-list"]').first().focus()
+    } else if (at === 'preview') await win.locator(preview).first().click({ position: { x: 20, y: 20 } })
+    else await win.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
+    await sleep(300)
+  }
+  // One press, from one place: never fullscreen, and the find the rule names.
+  const press = async (label, key, want) => {
+    const focus = await where()
+    await win.keyboard.press(key)
+    await until(async () => (await opened()) === want, 3000)
+    await sleep(want === 'none' ? 600 : 150)
+    const got = await opened()
+    ok(!(await fullscreen()), `${label} (${focus}): ${key} does not go fullscreen`)
+    ok(got === want, `${label} (${focus}): ${key} opens ${want} (${got})`)
+    await settle()
+  }
   try {
     await explorerAt(win, dir)
-    const row = (n) => listRow(win, n)
+    const pdfReady = '[data-browse-preview] [data-doc-scroller] [data-page="1"]'
+    const pdfClick = '[data-browse-preview] [data-page="1"]'
     const cases = [
-      { name: 'doc.pdf', ready: '[data-browse-preview] [data-doc-scroller] [data-page="1"]', click: '[data-browse-preview] [data-page="1"]', own: true },
-      { name: 'pic.png', ready: '[data-browse-preview] img', click: '[data-browse-preview] img', own: false },
-      { name: 'film.mp4', ready: '[data-browse-preview] video', click: '[data-browse-preview] video', own: false }
+      { name: 'doc.pdf', ready: pdfReady, click: pdfClick, find: 'doc-find' },
+      { name: 'readme.md', ready: '[data-browse-preview] [data-doc-scroller]', click: '[data-browse-preview] [data-doc-scroller]', find: 'doc-find' },
+      { name: 'code.js', ready: '[data-browse-preview] .cm-editor', click: '[data-browse-preview] .cm-content', find: 'code-find' },
+      { name: 'pic.png', ready: '[data-browse-preview] img', click: '[data-browse-preview] img', find: 'search' },
+      { name: 'film.mp4', ready: '[data-browse-preview] video', click: '[data-browse-preview] video', find: 'search' }
     ]
+    // THE OWNER'S OWN SEQUENCE, by the mouse alone: click the PDF's row,
+    // Ctrl+F, Escape, Ctrl+F. The same find both times.
+    await row('doc.pdf').click()
+    ok(await until(async () => (await win.locator(pdfReady).count()) > 0, 15000), 'doc.pdf: previews')
+    await sleep(800)
+    for (let i = 1; i <= 3; i++) {
+      const focus = await where()
+      await win.keyboard.press('Control+f')
+      await until(async () => (await opened()) !== 'none', 3000)
+      await sleep(150)
+      const got = await opened()
+      ok(got === 'doc-find', `the PDF's row clicked, Ctrl+F number ${i} (${focus}) opens the PDF's find (${got})`)
+      await win.keyboard.press('Escape')
+      await sleep(400)
+      await settle()
+    }
     for (const c of cases) {
       await row(c.name).click()
       ok(await until(async () => (await win.locator(c.ready).count()) > 0, 15000), `${c.name}: previews`)
       await sleep(800)
-      for (const at of ['list', 'preview', 'body']) {
-        if (at === 'list') await row(c.name).focus()
-        else if (at === 'preview') await win.locator(c.click).first().click({ position: { x: 20, y: 20 } })
-        else await win.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
-        await sleep(300)
-        const focus = await where()
-        await win.keyboard.press('Control+f')
-        await sleep(900)
-        const fs = await fullscreen()
-        ok(!fs, `${c.name}, focus in the ${at} (${focus}): Ctrl+F does not go fullscreen`)
-        // The PDF's own find from the PDF or from nowhere; from the list, the
-        // Explorer's search (the list is the Explorer's, docs/features.md).
-        const wantPdf = c.own && at !== 'list'
-        const opened = wantPdf
-          ? await until(async () => (await pdfFind()) === 1, 3000)
-          : await until(async () => (await popup()) === 1, 3000)
-        ok(
-          opened,
-          `${c.name}, focus in the ${at}: Ctrl+F opens ${wantPdf ? "the PDF's find bar" : "the Explorer's search"} (popup ${await popup()}, pdf find ${await pdfFind()})`
-        )
-        await settle()
+      for (const at of ['list', 'body', 'preview']) {
+        await focusAt(at, c.click)
+        await press(`${c.name} selected, focus in the ${at}`, 'Control+f', c.find)
+        // The owner's sequence: Escape out of what opened, then Ctrl+F again
+        // from the same place gives the same find.
+        await focusAt(at, c.click)
+        await press(`${c.name} selected, focus in the ${at}, again after Escape`, 'Control+f', c.find)
       }
+      // And straight after the Escape, without putting the focus anywhere.
+      await focusAt('list', c.click)
+      await press(`${c.name} selected, focus in the list, first`, 'Control+f', c.find)
+      await press(`${c.name} selected, wherever the Escape left the focus`, 'Control+f', c.find)
+      await focusAt('list', c.click)
+      await press(`${c.name} selected, focus in the list`, 'F3', c.find)
+    }
+    // A FOLDER selected with the PDF still in the preview: the Explorer's
+    // search from the list, the PDF's find only once the preview is clicked.
+    await row('doc.pdf').click()
+    ok(await until(async () => (await win.locator(pdfReady).count()) > 0, 15000), 'doc.pdf previews again')
+    await sleep(800)
+    await row('sub').click()
+    await sleep(800)
+    ok((await win.locator(pdfReady).count()) > 0, 'with the folder sub selected, the PDF is still in the preview')
+    for (let i = 0; i < 2; i++) {
+      await focusAt('list')
+      await press(`sub selected (PDF previewed), focus in the list, try ${i + 1}`, 'Control+f', 'search')
+      await focusAt('body')
+      await press(`sub selected (PDF previewed), focus nowhere, try ${i + 1}`, 'Control+f', 'search')
+      await focusAt('preview', pdfClick)
+      await press(`sub selected (PDF previewed), the preview clicked, try ${i + 1}`, 'Control+f', 'doc-find')
+      await row('sub').click()
+      await sleep(400)
+    }
+    await focusAt('list')
+    await press('sub selected (PDF previewed), focus in the list', 'F3', 'search')
+    // NOTHING selected (a click on the list's empty space keeps the preview).
+    const list = await win.locator('[data-testid="browse-list"]').boundingBox()
+    await win.mouse.click(list.x + list.width / 2, list.y + list.height - 12)
+    await sleep(600)
+    const marked = await win.locator('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]').count()
+    ok(marked === 0, `a click on the empty space selects nothing (${marked})`)
+    await press('nothing selected, focus in the list', 'Control+f', 'search')
+    if ((await win.locator(pdfReady).count()) > 0) {
+      await focusAt('preview', pdfClick)
+      await press('nothing selected, the PDF preview clicked', 'Control+f', 'doc-find')
     }
     // Plain F still toggles fullscreen, from the preview.
     await row('pic.png').click()

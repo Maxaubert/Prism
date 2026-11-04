@@ -27,7 +27,7 @@ import type { FolderSizes } from '../../lib/folderSize'
 import { ArchiveStrip } from './ArchiveStrip'
 import { withinFolder, type PlaceRow } from '../../lib/placeMark'
 import { useActiveArea } from './useActiveArea'
-import { useFindFallback } from './useFindFallback'
+import { useFindRoute } from './useFindRoute'
 import { EDITOR, FIELD, OVERLAY, inOverlay } from '../../lib/focusGuards'
 import './browse.css'
 import './archive.css'
@@ -352,8 +352,13 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     returnFocus.current = focused instanceof HTMLElement && focused !== document.body ? focused : null
     setSearching({ owner: props.owner, directory: props.directory })
   }
-  // Ctrl+F from the preview pane or from nowhere (owner, 2026-11-04).
-  useFindFallback(shell, openSearch)
+  // WHICH FIND Ctrl+F (and F3 from the list) opens: the selected row and
+  // where the key came from decide (lib/findRoute.ts, owner 2026-11-04).
+  const routeFind = useFindRoute(
+    shell,
+    !selected ? 'none' : selected.isFolder ? 'folder' : (selected.file?.kind ?? 'other'),
+    openSearch
+  )
   const closeSearch = (refocus = true): void => {
     setSearching(null)
     const back = returnFocus.current
@@ -489,7 +494,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           const focused =
             (at && (entries.find((entry) => entry.path === at) ?? [...(indexedRows?.values() ?? [])].find((entry) => entry?.path === at))) ||
             selected
-          if (common === 'search') openSearch()
+          if (common === 'search') routeFind(e)
           else if (common === 'copy-paths') {
             const paths = many ? markedPaths() : focused ? [focused.path] : []
             if (paths.length) props.onCopyPathText?.(paths)
@@ -541,7 +546,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         ) {
           e.preventDefault()
           e.stopPropagation()
-          openSearch()
+          // Typing in the Explorer's own fields is its search, as it was.
+          if (typing) openSearch()
+          else routeFind(e)
         } else if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey && e.key === 'Backspace') {
           e.preventDefault()
           e.stopPropagation()
