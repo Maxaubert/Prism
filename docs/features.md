@@ -29,7 +29,8 @@ still does.**
   - a folder, nothing selected, or a picture, film, song, archive or comic: the Explorer's search popup;
   - from the PREVIEW (the focus in it, or, with the focus nowhere, the last click in it): its own find
     whatever row is selected, so a PDF still previewed under a folder row opens its find only once clicked.
-  F3 follows the same rule (it was the PDF's find from everywhere but the list). Typing in the Explorer's
+  A find bar already open takes the keyboard back on Ctrl+F (from the list it stayed open and the typing
+  went to type-to-jump). F3 follows the same rule (it was the PDF's find from everywhere but the list). Typing in the Explorer's
   own fields, an editor, a menu or a dialog keep their keys; the viewer on its own keeps its find as before.
 - **Why Escape changed it, and why it cannot now**: the answer depended on WHERE THE FOCUS HAPPENED TO BE.
   From the list the Explorer's onKeyDown took Ctrl+F for its search; from anywhere else (the page, a tab
@@ -41,7 +42,8 @@ still does.**
 - **Held by** `fullscreenKey.test.ts`, `findRoute.test.ts` and e2e `ctrlFPreview` (the owner's own
   click, Ctrl+F, Escape, Ctrl+F; a PDF, a markdown file, a code file, a picture and a film selected with the
   focus in the list, nowhere and in the preview, each twice around an Escape; a folder and then nothing
-  selected with the PDF still previewed, from the list, nowhere and the clicked preview; F3; a picture open
+  selected with the PDF still previewed, from the list, nowhere and the clicked preview; Ctrl+F from the list
+  with the PDF's find already open focuses it; F3; a picture open
   in a second tab; never fullscreen, plain F still goes fullscreen and back) and `hotkeys` (F3 on the PDF's
   row opens its find, on a folder's row the folder search).
 

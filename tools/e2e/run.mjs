@@ -17209,6 +17209,19 @@ async function ctrlFPreviewScenario(fixtures) {
       await sleep(400)
       await settle()
     }
+    // The PDF's find already OPEN, the row clicked again: Ctrl+F from the
+    // list puts the keyboard back in that find (a press that did nothing
+    // left the typing to the list's type-to-jump).
+    await win.keyboard.press('Control+f')
+    await until(async () => (await opened()) === 'doc-find', 3000)
+    await row('doc.pdf').click()
+    await sleep(400)
+    const inBar = () =>
+      win.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Find in document')
+    ok((await opened()) === 'doc-find' && !(await inBar()), 'the PDF find stays open with the focus back in the list')
+    await win.keyboard.press('Control+f')
+    ok(await until(inBar, 3000), `Ctrl+F from the list with the PDF find open focuses that find (${await where()})`)
+    await settle()
     for (const c of cases) {
       await row(c.name).click()
       ok(await until(async () => (await win.locator(c.ready).count()) > 0, 15000), `${c.name}: previews`)
