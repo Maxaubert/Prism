@@ -3,6 +3,29 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Ctrl+F is find, never fullscreen (owner, 2026-11-04)
+
+Owner, 2026-11-04: "clicking ctrl f on a preview sometimes opens fullscreen and sometimes opens the find
+tool like it should. like pdf it opens fullscreen". **Ctrl+F never toggles fullscreen, anywhere; plain F
+still does.**
+
+- **The fullscreen key is the bare F** (`lib/fullscreenKey.ts`, `isFullscreenKey`: no Ctrl, Alt or Meta).
+  The image viewer, the PDF viewer and the media transport (`useMediaControls`) each read `e.key === 'f'`
+  alone, so Ctrl+F was F wherever the Explorer had not claimed the key first: a picture or a film in the
+  preview after a click on it (the focus on the page, outside the Explorer's shell). Every viewer asks the
+  helper now, never `e.key` alone.
+- **A hidden tab's picture answers no keys.** The PDF case: a picture warm in ANOTHER tab is still mounted
+  (behind an `inert` wrapper) and its window listener heard Ctrl+F over the PDF preview, so the PDF opened its
+  find bar AND the window went fullscreen. `ImageView` now yields when its stage is under `[inert]`, as
+  PdfView and CodeView already did.
+- **Which find opens**: the one that belongs to what you are looking at. From the PDF (or a document, the
+  code view) in the preview, or with the focus nowhere, its own find bar; from a picture or a film in the
+  preview, or nowhere, the Explorer's search popup (`browse/useFindFallback.ts`, which decides after the
+  key's dispatch so a viewer's own find still wins); from the list, the Explorer's search, as before.
+- **Held by** `fullscreenKey.test.ts` and e2e `ctrlFPreview` (a PDF, a picture and a film in the preview,
+  a picture open in a second tab, Ctrl+F with the focus in the list, in the preview and on the page: never
+  fullscreen, the right find opens; plain F still goes fullscreen and back).
+
 ## Save copies as: many pictures, five formats, one job (#474, owner, 2026-11-01)
 
 Split from #78 (D12): "400 iPhone HEICs and this site will not take them". Owner, 2026-11-01: select many

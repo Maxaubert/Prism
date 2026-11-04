@@ -6,6 +6,7 @@ import { setTabRate, setTabVolume, tabRate, tabVolume } from '../lib/tabs/tabVol
 import { forgetPlayer, reportPlaying } from '../lib/awake'
 import { readStored } from '../lib/storage'
 import { isFormField } from '../lib/focusGuards'
+import { isFullscreenKey } from '../lib/fullscreenKey'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
 // binds the media element's events + the keyboard. Video and audio use the same
@@ -291,7 +292,8 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
         case 'ArrowUp': e.preventDefault(); bumpVol(0.05); act(); break
         case 'ArrowDown': e.preventDefault(); bumpVol(-0.05); act(); break
         case 'm': toggleMute(); act(); break
-        case 'f': onFullscreen?.(); break
+        // The BARE F only: Ctrl+F is find (owner, 2026-11-04, `fullscreenKey.ts`).
+        case 'f': if (isFullscreenKey(e)) onFullscreen?.(); break
         // Frame step. PAUSES first, because stepping a playing video is a
         // request to look at one frame and the next timeupdate would take it
         // away again - every player does this. The step is the file's own

@@ -21,6 +21,7 @@ import { saveCopyNote } from '../lib/saveCopyNote'
 import type { CopyFormat } from '@shared/imageCopy'
 import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
 import { isTypingTarget } from '../lib/focusGuards'
+import { isFullscreenKey } from '../lib/fullscreenKey'
 import { photoInfoKeyToggles } from '../lib/photoInfoKey'
 import { photoInfoPref } from '../lib/photoInfoPref'
 import { PhotoInfoCard } from './image/PhotoInfoCard'
@@ -481,6 +482,11 @@ export function ImageView({
       const el = e.target as HTMLElement | null
       if (e.defaultPrevented) return
       if (isTypingTarget(el)) return
+      // A picture warm in ANOTHER tab is mounted behind an inert wrapper and
+      // still hears this window listener. It answered the keys of whatever
+      // was in front: Ctrl+F over a PDF preview put the window fullscreen
+      // (owner, 2026-11-04). Not on screen, not its keys.
+      if (stageRef.current?.closest('[inert]')) return
       switch (e.key) {
         case '+':
         case '=': zoomCentered(1.18); break
@@ -490,8 +496,9 @@ export function ImageView({
         case '1': oneToOne(); break
         case 'r':
         case 'R': setRot((d) => (d + 90) % 360); break
+        // The BARE F only: Ctrl+F is find (owner, 2026-11-04, `fullscreenKey.ts`).
         case 'f':
-        case 'F': onToggleFullscreen(); break
+        case 'F': if (isFullscreenKey(e)) onToggleFullscreen(); break
         // The photo info card (#78): only the front viewer, never a chord,
         // a repeat or over a menu or dialog (`photoInfoKey.ts`). With the
         // Explorer list focused it arrives only when the list's type-to-jump
