@@ -12,6 +12,7 @@ import { LoadingState } from '../LoadingState'
 import { EDITOR, NAV_SURFACE, OVERLAY, isFormField } from '../../lib/focusGuards'
 import { clamp } from '../../lib/clamp'
 import { isFullscreenKey } from '../../lib/fullscreenKey'
+import { yieldsFindToExplorer } from '../../lib/previewFind'
 import { pageAtLine } from './pageAtLine'
 import '../../assets/pdf.css'
 
@@ -619,7 +620,11 @@ export function PdfView({
       if (scroller.current?.closest('[inert]')) return
       const el = e.target as HTMLElement | null
       const typing = isFormField(el)
+      // In the Explorer's preview a find key from outside it is the
+      // Explorer's to route (lib/findRoute.ts, owner 2026-11-04).
+      const yieldFind = yieldsFindToExplorer(scroller.current, e.target)
       if ((e.key === 'f' || e.key === 'F') && e.ctrlKey) {
+        if (yieldFind) return
         if (e.defaultPrevented || el?.closest(`${NAV_SURFACE},${EDITOR},${OVERLAY}`)) return
         if (typing && !scroller.current?.contains(el)) return
         e.preventDefault()
@@ -629,7 +634,7 @@ export function PdfView({
       if (e.key === 'F3') {
         // The Explorer's list and the project tree take F3 for their own
         // search (#330); with the focus in the PDF, or nowhere, it is find.
-        if (e.defaultPrevented) return
+        if (e.defaultPrevented || yieldFind) return
         e.preventDefault()
         if (findOpen) stepFind(e.shiftKey ? -1 : 1)
         else setFindOpen(true)
