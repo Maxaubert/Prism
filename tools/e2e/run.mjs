@@ -12,7 +12,7 @@
 import { _electron as electron } from 'playwright-core'
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { createServer } from 'node:net'
+import { connect as netConnect, createServer } from 'node:net'
 import electronPath from 'electron'
 import {
   appendFileSync,
@@ -19670,6 +19670,399 @@ async function winERunningEdgesScenario(fixtures) {
   }
 }
 
+/* ----- startup, the hotkey, standby and the spare (owner, 2026-11-06) ----- */
+
+/** Every Prism process on the e2e profile: how many, and their memory (MB):
+ *  the private working set (Task Manager's Memory column) and private bytes. */
+function prismMemory() {
+  try {
+    const out = powershell(
+      `$ids = @(Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object { $_.CommandLine -like '*${PROFILE_NAME}*' } | ForEach-Object { [int]$_.ProcessId }); ` +
+        `$p = @(Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object { $ids -contains [int]$_.IDProcess }); ` +
+        `'{0} {1} {2}' -f $ids.Count, (($p | Measure-Object WorkingSetPrivate -Sum).Sum), (($p | Measure-Object PrivateBytes -Sum).Sum)`
+    ).trim()
+    const [n, ws, pb] = out.split(/\s+/).map(Number)
+    return { processes: n, privateWsMb: Math.round(ws / 1048576), privateMb: Math.round(pb / 1048576) }
+  } catch {
+    return { processes: -1, privateWsMb: -1, privateMb: -1 }
+  }
+}
+/** Chromium children of the e2e profile of one `--type` (renderer, gpu-process...). */
+const childCount = (type) => processCount('electron.exe', `*${PROFILE_NAME}*--type=${type}*`)
+/** CPU seconds a process has used so far (kernel + user), or -1. */
+function cpuSeconds(pid) {
+  try {
+    const out = powershell(`$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; [double]($p.KernelModeTime + $p.UserModeTime) / 1e7`).trim()
+    return Number(out)
+  } catch {
+    return -1
+  }
+}
+/** The hotkey pipe of the e2e profile (src/main/wakePipe.ts names it the same way). */
+const wakePipe = () =>
+  `\\\\.\\pipe\\PrismWake.${createHash('sha256').update(PROFILE.replace(/[\\/]+$/, '').toLowerCase(), 'utf8').digest('hex').slice(0, 24)}`
+/** A request over the hotkey pipe, as the helper sends it: Prism's answer. */
+const pipeRequest = (request) =>
+  new Promise((resolve) => {
+    const s = netConnect(wakePipe(), () => s.write(JSON.stringify(request) + '\n'))
+    let text = ''
+    s.on('data', (c) => (text += c.toString()))
+    s.on('close', () => resolve(text))
+    s.on('error', () => resolve('error'))
+  })
+/** The Close window button of a page's title bar. */
+const closeWindowButton = (win) => win.locator('[data-title-bar] [aria-label="Close window"]')
+
+/**
+ * STARTUP AND HOTKEY LOGGING (owner, 2026-11-06; the audit: "it doesn't record
+ * startup time or the hotkey path"). A cold start on a Win+E request writes a
+ * session line with the OS start of the process, the ms before it, and why;
+ * one `startup` line with every mark up to the helper told; `win-e` lines for
+ * the request. A press while it runs is a `second-instance` line and a warm
+ * `win-e`. A launch that loses the lock says so with its pid. A page-stall
+ * names its window. A real quit carries its reason.
+ */
+async function startupLogScenario(fixtures) {
+  console.log('the log says how a start went: session, startup, win-e, lock-lost, quit')
+  writeTabs({ active: 0, tabs: [explorerTab('fixture-explorer', fixtures, fixtures, true)] })
+  const id = randomUUID()
+  const helper = await winEHelper(id)
+  const servers = [helper.server]
+  let app
+  try {
+    app = await startApp({ args: [`--win-e=${id}`], env: NO_INDEX })
+    const win = await app.firstWindow()
+    await offscreen(app)
+    ok(await until(() => helper.lines.includes(id), 20000), 'the cold start answers its Win+E request')
+    const session = await diagHas((l) => l.k === 'session')
+    ok(
+      !!session && session.created > 0 && session.bootMs >= 0 && session.reason === 'win-e' && session.winE === id.slice(0, 8),
+      `the session line has the OS start, the boot ms and the reason (${JSON.stringify(session && { created: session.created, bootMs: session.bootMs, reason: session.reason, winE: session.winE })})`
+    )
+    const start = await diagHas((l) => l.k === 'startup' && l.reason === 'win-e')
+    const marks = ['ready', 'made', 'readyToShow', 'shown', 'listed', 'winEAck']
+    ok(
+      !!start && marks.every((m) => typeof start[m] === 'number') && start.from === 0 && !start.partial,
+      `one startup line with every mark as up-ms (${JSON.stringify(start && Object.fromEntries(['ready', 'made', 'readyToShow', 'shown', 'listed', 'restored', 'winEAck', 'shownMs', 'listedMs', 'winEMs'].map((k) => [k, start[k]])))})`
+    )
+    ok(!!start && start.made <= start.shown && start.shown <= start.winEAck, 'its marks are in order: made, shown, then the helper told')
+    const short = id.slice(0, 8)
+    ok(!!(await diagHas((l) => l.k === 'win-e' && l.ev === 'received' && l.id === short && l.path === 'cold' && l.via === 'argv')), 'the request is a received win-e line, cold, from argv')
+    ok(!!(await diagHas((l) => l.k === 'win-e' && l.ev === 'acked' && l.id === short && typeof l.ms === 'number')), 'and an acked line with its ms')
+    ok(!!(await diagHas((l) => l.k === 'win-e' && l.ev === 'shown' && l.id === short && typeof l.ms === 'number')), 'and a shown line with its ms')
+
+    // A PRESS WHILE IT RUNS: a second-instance line and a warm win-e line.
+    const id2 = randomUUID()
+    const helper2 = await winEHelper(id2)
+    servers.push(helper2.server)
+    await winELaunch(id2, null)
+    ok(await until(() => helper2.lines.includes(id2), 20000), 'a press while Prism runs is answered')
+    await offscreen(app)
+    ok(!!(await diagHas((l) => l.k === 'second-instance' && l.winE === id2.slice(0, 8))), 'it is a second-instance line naming the request')
+    ok(!!(await diagHas((l) => l.k === 'win-e' && l.ev === 'received' && l.id === id2.slice(0, 8) && l.path === 'warm')), 'and a warm received line')
+    const lost = await diagHas((l) => l.k === 'lock-lost' && l.winE === id2.slice(0, 8))
+    ok(!!lost && lost.pid > 0 && lost.pid !== session?.pid, `the process that lost the lock says so with its pid (${lost?.pid})`)
+
+    // A PAGE-STALL NAMES ITS WINDOW: a 1.2 s busy loop in the first window.
+    await win.evaluate(() =>
+      setTimeout(function startupLogBusy() {
+        const end = performance.now() + 1200
+        while (performance.now() < end) {
+          /* spin */
+        }
+      }, 0)
+    )
+    const stall = await diagHas((l) => l.k === 'page-stall' && l.ms >= 1000)
+    ok(!!stall && stall.win === 'w1' && stall.hidden === false, `a page-stall says which window, and that it was seen (${JSON.stringify(stall && { win: stall.win, hidden: stall.hidden })})`)
+
+    // A REAL QUIT: its reason.
+    await quitForLog(app)
+    app = null
+    const quit = readDiag().at(-1)
+    ok(quit?.k === 'quit' && quit.reason === 'user', `the quit line says why (${JSON.stringify(quit && { k: quit.k, reason: quit.reason })})`)
+  } finally {
+    await app?.close().catch(() => {})
+    for (const s of servers) s.close()
+  }
+}
+
+/**
+ * REPEAT PRESSES OPEN ONE WINDOW (owner, 2026-11-06; on Nov 5 four presses
+ * during one slow start opened four windows). Four presses at once while
+ * Prism runs: one new window, every helper answered. The same four at a cold
+ * start: the first window only. A press well after the window showed opens
+ * its own. Listing is held 1.5 s, so the window is still opening while the
+ * presses land, as on a cold disk.
+ */
+async function hotkeyRepeatScenario(fixtures) {
+  console.log('repeat Win+E presses while a window opens bring that window forward, opening no more')
+  writeTabs({ active: 0, tabs: [explorerTab('fixture-explorer', fixtures, fixtures, true)] })
+  const env = { ...NO_INDEX, PRISM_E2E_LIST_DELAY: '1500' }
+  const servers = []
+  const helpers = async (n) => {
+    const out = []
+    for (let i = 0; i < n; i++) {
+      const id = randomUUID()
+      const h = await winEHelper(id)
+      servers.push(h.server)
+      out.push({ id, ...h })
+    }
+    return out
+  }
+  let app
+  try {
+    // WHILE PRISM RUNS.
+    app = await startApp({ env })
+    const win = await app.firstWindow()
+    await win.waitForLoadState('domcontentloaded')
+    await offscreen(app)
+    ok(await until(async () => (await e2eWindows(app)).some((w) => w.first && w.restored), 20000), 'Prism is up')
+    const four = await helpers(4)
+    await Promise.all(four.map(({ id }, i) => sleep(i * 120).then(() => winELaunch(id, null))))
+    ok(
+      await until(() => four.every(({ id, lines }) => lines.includes(id)), 25000),
+      `every press is answered (${four.map(({ id, lines }) => (lines.includes(id) ? 'ready' : lines.length ? 'started' : 'nothing')).join(', ')})`
+    )
+    await offscreen(app)
+    const list = await e2eWindows(app)
+    ok(list.length === 2, `four presses opened ONE window (${list.length} windows)`)
+    const repeats = readDiag().filter((l) => l.k === 'win-e' && l.ev === 'repeat')
+    ok(repeats.length === 3, `three presses rode on the first (${repeats.map((r) => r.action).join(', ')})`)
+    // Well after it showed: a press opens its own window.
+    await sleep(1500)
+    const [later] = await helpers(1)
+    await winELaunch(later.id, null)
+    ok(await until(() => later.lines.includes(later.id), 20000), 'a press a while later is answered')
+    ok(await until(async () => (await e2eWindows(app)).length === 3, 5000), 'by a window of its own')
+    await app.close()
+    app = null
+    await sleep(900)
+
+    // AT A COLD START (the Nov 5 case).
+    const cold = await helpers(4)
+    app = await startApp({ args: [`--win-e=${cold[0].id}`], env })
+    await Promise.all(cold.slice(1).map(({ id }, i) => sleep(150 + i * 120).then(() => winELaunch(id, null))))
+    await app.firstWindow()
+    await offscreen(app)
+    ok(
+      await until(() => cold.every(({ id, lines }) => lines.includes(id)), 25000),
+      `every cold-start press is answered (${cold.map(({ id, lines }) => (lines.includes(id) ? 'ready' : lines.length ? 'started' : 'nothing')).join(', ')})`
+    )
+    await offscreen(app)
+    const coldList = await e2eWindows(app)
+    ok(coldList.length === 1, `four presses at a cold start opened ONE window (${coldList.length})`)
+  } finally {
+    await app?.close().catch(() => {})
+    for (const s of servers) s.close()
+  }
+}
+
+/**
+ * LOW-RAM STANDBY (owner, 2026-11-06: "maybe stay hidden in a mode that
+ * doesnt use much compute ram, but just a state that helps it launch a lot
+ * faster"). Closing the last window leaves the process with every page gone,
+ * under a memory bound and using no CPU; a Win+E press, then a plain second
+ * launch, each brings a window back fast; an explicit quit still quits; with
+ * "Keep Prism ready" off the last window's close quits as before. The numbers
+ * (RAM before and in standby, press to window and to folder, a cold start's
+ * for comparison) are printed for the record.
+ */
+async function standbyScenario(fixtures) {
+  console.log('standby: the last window closed leaves a light Prism that opens fast')
+  writeTabs({ active: 0, tabs: [explorerTab('fixture-explorer', fixtures, fixtures, true)] })
+  const env = { ...NO_INDEX, PRISM_E2E_STANDBY: '1' }
+  const servers = []
+  const helper = async () => {
+    const id = randomUUID()
+    const h = await winEHelper(id)
+    servers.push(h.server)
+    return { id, ...h }
+  }
+  /** A Win+E press: ms to the window shown (main's own line) and to the helper told. */
+  const press = async (app) => {
+    const h = await helper()
+    const t0 = Date.now()
+    const appeared = app.waitForEvent('window', { timeout: 20000 }).catch(() => null)
+    const launched = winELaunch(h.id, null)
+    const page = await appeared
+    const windowAt = Date.now()
+    await until(() => h.lines.includes(h.id), 20000, 10)
+    const ackAt = Date.now()
+    await launched
+    await offscreen(app)
+    const shown = readDiag().find((l) => l.k === 'win-e' && l.ev === 'shown' && l.id === h.id.slice(0, 8))
+    return { page, id: h.id, acked: h.lines.includes(h.id), windowMs: windowAt - t0, ackMs: ackAt - t0, shownInPrismMs: shown?.ms }
+  }
+  let app
+  try {
+    // A COLD START'S PRESS, for comparison (warm disk: the suite has run Prism).
+    const coldHelper = await helper()
+    const c0 = Date.now()
+    app = await startApp({ args: [`--win-e=${coldHelper.id}`], env })
+    await until(() => coldHelper.lines.includes(coldHelper.id), 30000, 10)
+    const coldAckMs = Date.now() - c0
+    const win = await app.firstWindow()
+    await offscreen(app)
+    ok(coldHelper.lines.includes(coldHelper.id), `a cold start answers its press (${coldAckMs} ms from launch to the helper told)`)
+    await sleep(3000)
+    const open = prismMemory()
+    console.log(`  (one window open: ${open.processes} processes, ${open.privateWsMb} MB private working set, ${open.privateMb} MB private bytes)`)
+
+    // THE LAST WINDOW CLOSES: the process stays, the pages go.
+    const child = app.process()
+    await closeWindowButton(win).click()
+    ok(await until(async () => (await app.evaluate(() => globalThis.__e2eStandby()).catch(() => null))?.on === true, 10000), 'closing the last window enters standby')
+    await sleep(500)
+    ok(child.exitCode === null, 'the process stays')
+    const st = await app.evaluate(() => globalThis.__e2eStandby())
+    ok(st.windows === 0, `no window is left, not even a hidden one (${st.windows})`)
+    ok(await until(() => childCount('renderer') === 0, 10000, 300), `no renderer process is left (${childCount('renderer')})`)
+    ok(!!(await diagHas((l) => l.k === 'standby' && l.ev === 'enter')), 'a standby line says it entered')
+    const rest = await diagHas((l) => l.k === 'standby' && l.ev === 'rest', 15000)
+    ok(!!rest, `and its memory once rested (${JSON.stringify(rest && { processes: rest.processes, privateMb: rest.privateMb, mainMb: rest.mainMb, gpuMb: rest.gpuMb })})`)
+    await sleep(2000)
+    const resting = prismMemory()
+    console.log(`  (standby: ${resting.processes} processes, ${resting.privateWsMb} MB private working set, ${resting.privateMb} MB private bytes)`)
+    ok(resting.privateWsMb > 0 && resting.privateWsMb < STANDBY_MAX_MB, `standby is under ${STANDBY_MAX_MB} MB private working set (${resting.privateWsMb} MB; ${open.privateWsMb} MB with one window)`)
+    const cpu0 = cpuSeconds(child.pid)
+    await sleep(10000)
+    const cpu1 = cpuSeconds(child.pid)
+    const cpuMs = Math.round((cpu1 - cpu0) * 1000)
+    ok(cpu0 >= 0 && cpuMs < 300, `resting, main used ${cpuMs} ms of CPU in 10 s`)
+
+    // A WIN+E PRESS WAKES IT.
+    const p1 = await press(app)
+    ok(!!p1.page && p1.acked, `a Win+E press opens a window from standby (window ${p1.windowMs} ms, folder up ${p1.ackMs} ms after the press; ${p1.shownInPrismMs} ms in Prism)`)
+    ok(p1.ackMs < WAKE_MAX_MS, `the folder is up within ${WAKE_MAX_MS} ms of the press (${p1.ackMs} ms; a cold start took ${coldAckMs} ms)`)
+    const wake = await diagHas((l) => l.k === 'startup' && l.reason === 'standby-wake')
+    ok(!!wake && typeof wake.shownMs === 'number' && typeof wake.winEMs === 'number', `a startup line times the wake (${JSON.stringify(wake && { shownMs: wake.shownMs, listedMs: wake.listedMs, winEMs: wake.winEMs })})`)
+    ok(!!(await diagHas((l) => l.k === 'win-e' && l.ev === 'received' && l.path === 'standby')), 'the press is a received line from standby')
+    ok((await app.evaluate(() => globalThis.__e2eStandby())).on === false, 'and standby is over')
+    const w = await e2eWindows(app)
+    ok(w.length === 1 && w[0].first, `one window, as a cold start's first (${JSON.stringify(w.map((x) => ({ first: x.first, winE: x.winE })))})`)
+
+    // OPTION (b), MEASURED FOR THE RECORD: one hidden window with its page kept.
+    await app.evaluate(({ BrowserWindow }) => {
+      for (const x of BrowserWindow.getAllWindows()) x.hide()
+    })
+    await sleep(4000)
+    const hidden = prismMemory()
+    const showMs = await app.evaluate(async ({ BrowserWindow }) => {
+      const x = BrowserWindow.getAllWindows()[0]
+      const t = Date.now()
+      x.showInactive()
+      await x.webContents.executeJavaScript('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))')
+      return Date.now() - t
+    })
+    console.log(`  (option b, one hidden window kept: ${hidden.processes} processes, ${hidden.privateWsMb} MB private working set, ${hidden.privateMb} MB private bytes; shown and drawn in ${showMs} ms)`)
+
+    // THE HELPER'S WAY (2026-11-06): the request over the hotkey pipe, no
+    // second Prism process at all.
+    await closeWindowButton(p1.page).click()
+    ok(await until(async () => (await app.evaluate(() => globalThis.__e2eStandby()))?.on === true, 10000), 'closed again: standby')
+    await sleep(6000) // rested and trimmed again
+    {
+      const h = await helper()
+      const t = Date.now()
+      const appearedP = app.waitForEvent('window', { timeout: 20000 }).catch(() => null)
+      const reply = await pipeRequest({ winE: h.id })
+      const pageP = await appearedP
+      const windowMs = Date.now() - t
+      await until(() => h.lines.includes(h.id), 20000, 10)
+      const ackMs = Date.now() - t
+      await offscreen(app)
+      ok(reply === 'ok\n' && !!pageP && h.lines.includes(h.id), `a press over the hotkey pipe wakes it with no second process (window ${windowMs} ms, folder up ${ackMs} ms after the press)`)
+      ok(ackMs < PIPE_WAKE_MAX_MS, `the folder is up within ${PIPE_WAKE_MAX_MS} ms of a pipe press (${ackMs} ms)`)
+      ok(!!(await diagHas((l) => l.k === 'second-instance' && l.via === 'pipe' && l.winE === h.id.slice(0, 8))), 'it is logged as a launch over the pipe')
+      ok((await pipeRequest({ winE: 'not-an-id' })) === 'no\n', 'a request that is not one is refused')
+      await closeWindowButton(pageP).click()
+      ok(await until(async () => (await app.evaluate(() => globalThis.__e2eStandby()))?.on === true, 10000), 'closed again: standby')
+    }
+
+    // A PLAIN SECOND LAUNCH WAKES IT TOO.
+    const t0 = Date.now()
+    const appeared = app.waitForEvent('window', { timeout: 20000 }).catch(() => null)
+    const second = spawn(electronPath, [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'], { stdio: 'ignore' })
+    const page2 = await appeared
+    await offscreen(app)
+    ok(!!page2, `a plain launch opens a window from standby (${Date.now() - t0} ms)`)
+    await new Promise((done) => {
+      second.on('exit', done)
+      setTimeout(done, 6000)
+    })
+    ok(!!(await diagHas((l) => l.k === 'startup' && l.reason === 'standby-wake' && l.via === 'launch')), 'timed as a wake from a launch')
+
+    // AN EXPLICIT QUIT STILL QUITS.
+    await quitForLog(app)
+    app = null
+    ok(await until(() => child.exitCode !== null, 10000, 100), 'a real quit ends the process')
+    const quit = readDiag().at(-1)
+    ok(quit?.k === 'quit' && quit.reason === 'user', `with its reason (${quit?.reason})`)
+    await sleep(900)
+
+    // "KEEP PRISM READY" OFF: the last window's close quits, as it always did.
+    seedPreferences(PROFILE, { 'prism.standby': 'off' })
+    app = await startApp({ env })
+    const win3 = await app.firstWindow()
+    await offscreen(app)
+    await win3.waitForSelector('[data-title-bar]', { timeout: 15000 })
+    await sleep(800)
+    const child3 = app.process()
+    await closeWindowButton(win3).click()
+    ok(await until(() => child3.exitCode !== null, 10000, 100), 'with Keep Prism ready off, closing the last window quits')
+    ok(readDiag().at(-1)?.reason === 'last-window', `the quit says so (${readDiag().at(-1)?.reason})`)
+    app = null
+  } finally {
+    await app?.close().catch(() => {})
+    for (const s of servers) s.close()
+    seedPreferences(PROFILE, { 'prism.standby': 'on' })
+  }
+}
+/** Standby's bound, from the measurement (2026-11-06; see standbyScenario's output). */
+const STANDBY_MAX_MB = Number(process.env.PRISM_E2E_STANDBY_MAX_MB) || 60
+/** A pipe press's bound to folder-up: no second process to start. */
+const PIPE_WAKE_MAX_MS = Number(process.env.PRISM_E2E_PIPE_WAKE_MAX_MS) || 600
+/** A wake's press to folder-up bound (the press's own second process included). */
+const WAKE_MAX_MS = Number(process.env.PRISM_E2E_WAKE_MAX_MS) || 1000
+
+/**
+ * THE SPARE IS MADE WHEN PRISM IS IDLE (owner, 2026-11-06; the audit: two of
+ * three real freezes were inside the spare's constructor, made on a startup
+ * timer). None during startup; none while the page is busy with input; one
+ * at the next quiet spell, ready; and no `window-slow` watchdog line for it
+ * (it is hidden on purpose). The tear-off itself is tabTear's and tabAttach's.
+ */
+async function spareScenario(fixtures) {
+  console.log('the spare is built when Prism is idle, never during startup')
+  writeTabs({ active: 0, tabs: [explorerTab('fixture-explorer', fixtures, fixtures, true)] })
+  let app
+  try {
+    app = await startApp({ env: { ...NO_INDEX, PRISM_E2E_SPARE: '1' } })
+    const win = await app.firstWindow()
+    await win.waitForLoadState('domcontentloaded')
+    await offscreen(app)
+    const tear = () => app.evaluate(() => globalThis.__e2eTear())
+    ok((await tear()).spare === null, 'no spare while the first window loads')
+    ok(await until(async () => (await e2eWindows(app)).some((w) => w.first && w.restored), 20000), 'the first window restored')
+    ok((await tear()).spare === null, 'nor the moment it has restored')
+    // Busy: input every 300 ms for 3 s.
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    const box = await win.locator(FOLDER_LIST).boundingBox()
+    for (let i = 0; i < 10; i++) {
+      await win.mouse.move(box.x + 20 + i * 5, box.y + 20 + i * 3)
+      await sleep(300)
+    }
+    ok((await tear()).spare === null, 'nor while the page has input')
+    const made = await until(async () => (await tear()).spare?.ready === true, 15000, 100)
+    ok(made, `a quiet spell later, the spare is made and ready (${JSON.stringify((await tear()).spare)})`)
+    await sleep(9000)
+    const slow = readDiag().filter((l) => l.k === 'window-slow' || l.k === 'spare-slow')
+    ok(slow.length === 0, `and no window-slow or spare-slow line about it (${JSON.stringify(slow)})`)
+  } finally {
+    await app?.close().catch(() => {})
+  }
+}
+
 /**
  * LOCKED, DAMAGED AND TEMP (#300): a ZipCrypto member asks once and again on a
  * wrong password; a damaged zip says so and keeps the list where it was;
@@ -21055,6 +21448,8 @@ function collectStalls(scenario) {
     // An operation's outcome is not a stall: its `ms` is how long the work
     // (or a clipboard write behind it) took, off every thread that matters.
     if (l.k === 'op') continue
+    // A launch's, a press's or standby's own timing is a measurement, not a stall.
+    if (l.k === 'win-e' || l.k === 'startup' || l.k === 'standby') continue
     if (!err && !(typeof l.ms === 'number' && l.ms >= 1000)) continue
     const made = scenario === 'diagLog' && (['page-stall', 'page-stack', 'page-error', 'page-rejection'].includes(l.k) || l.ch === 'e2e:slow-ipc' || (l.k === 'main-lag' && MADE_LAGS.has(l.t)))
     stalls.push({ scenario, kind: l.k === 'crumb' ? `crumb ${l.a}` : l.k, ms: typeof l.ms === 'number' ? l.ms : null, detail: stallDetail(l, said.get(l.profile)), expected: made })
@@ -21221,6 +21616,10 @@ await run(phoneExplorerScenario)
 await run(folderOpenScenario)
 await run(folderOpenRunningScenario)
 await run(winERunningEdgesScenario)
+await run(startupLogScenario)
+await run(hotkeyRepeatScenario)
+await run(standbyScenario)
+await run(spareScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(deleteAgainScenario)
