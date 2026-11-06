@@ -98,11 +98,25 @@ export function createOwnClipboard(
   used(id: string): void
   source(): PasteSource
   latest(): OwnCopy | null
+  unchanged(): boolean
 } {
   let latest: OwnCopy | null = null
+  // Every token Prism wrote this session (the last few): an OLDER copy's
+  // stuck write that lands after a newer copy began is Prism's own doing,
+  // not a copy made outside Prism (review, 2026-11-06).
+  const issued: string[] = []
+  /** Has the clipboard stayed as it was when the newest copy began, but for
+   *  Prism's own older writes landing late? */
+  const unchangedSince = (c: OwnCopy, v: ClipView): boolean => {
+    if (clipSignature(v) === c.before) return true
+    const tok = tokenOf(v)
+    return tok !== '' && tok !== c.id && issued.includes(tok)
+  }
   return {
     begin(paths, cut) {
       latest = { id: newId(), paths: [...paths], cut, at: now(), state: 'pending', before: clipSignature(view()) }
+      issued.push(latest.id)
+      if (issued.length > 32) issued.splice(0, issued.length - 32)
       return latest
     },
     settle(id, ok, reason) {
@@ -117,13 +131,14 @@ export function createOwnClipboard(
       if (!c) return { from: 'windows', why: 'no-prism-copy' }
       const v = view()
       const ours = tokenOf(v) === c.id
-      if (ours || (c.state !== 'ok' && clipSignature(v) === c.before)) {
+      if (ours || (c.state !== 'ok' && unchangedSince(c, v))) {
         if (c.used) return { from: 'prism', paths: [], cut: true, why: 'cut-already-pasted', copy: c.id }
         const why = ours ? 'clipboard-holds-it' : c.state === 'failed' ? 'write-failed' : 'write-pending'
         return { from: 'prism', paths: [...c.paths], cut: c.cut, why, copy: c.id }
       }
       return { from: 'windows', why: 'changed-outside' }
     },
-    latest: () => latest
+    latest: () => latest,
+    unchanged: () => !!latest && unchangedSince(latest, view())
   }
 }
