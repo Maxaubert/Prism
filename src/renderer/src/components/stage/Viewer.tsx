@@ -37,13 +37,16 @@ export function Viewer({
   background = false,
   volumeKey = '',
   onOpenArchive,
+  onOpenArchiveMember,
   note = false,
   readOnly = false
 }: {
   file: ViewerFile
   /** An archive's card asks to go in (#300): the Explorer walks into it, a
-   *  project's tree opens its node. */
+   *  project's tree opens its node. A folder row of the card goes in there (#483). */
   onOpenArchive?: (path: string) => void
+  /** A file row of the archive's card (#483): that member opens in the viewer. */
+  onOpenArchiveMember?: (path: string) => void
   /** Full view or a project: a member wears its read-only note (#300). The
    *  preview pane carries none (mockup 04). */
   note?: boolean
@@ -86,7 +89,7 @@ export function Viewer({
     const props = {
       onUndoable, refreshKey, onToggleFullscreen, fullscreen, transportStyle, transportBg,
       onOpenLocal, onAutoAdvance, onStep, canStep, onBuffer, onRenameSelf, getPending,
-      onExternalChange, reloadAnswer, background, volumeKey, onOpenArchive
+      onExternalChange, reloadAnswer, background, volumeKey, onOpenArchive, onOpenArchiveMember
     }
     const gate = (
       <MemberGate file={file} render={(real) => <Viewer {...props} file={real} readOnly />} />
@@ -133,6 +136,9 @@ export function Viewer({
           onOpen={() => onOpenArchive?.(file.path)}
           onExtractHere={() => void extractAll(file.path, true)}
           onExtractTo={() => void extractAll(file.path, false)}
+          onOpenRow={(row) =>
+            row.go === 'folder' ? onOpenArchive?.(row.path) : onOpenArchiveMember?.(row.path)
+          }
         />
       )}
     />

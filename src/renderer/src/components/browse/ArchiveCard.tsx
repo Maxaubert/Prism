@@ -5,6 +5,7 @@ import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
 import { FileMenuIcon } from '../icons/FileMenuIcon'
 import { fileKind } from '@shared/fileKind'
 import { extOf } from '@shared/path'
+import { cardRowTarget, type CardRowTarget } from './archiveCardRow'
 import './archive.css'
 
 /**
@@ -12,7 +13,8 @@ import './archive.css'
  * archive's row outside it, in place of the old panel. Its name and totals,
  * the neutral Open / Extract here / Extract to..., and the top of what is
  * inside ("Inside, in <the one top folder>" when that is all there is), with
- * Unpacked and Modified at the foot. Drawn from one `archive:summary`, which
+ * Unpacked and Modified at the foot. A row is a button (#483): a folder goes
+ * into the zip there, a file opens in the viewer (`archiveCardRow.ts`). Drawn from one `archive:summary`, which
  * main answers from the parse it keeps, so selecting a zip is instant.
  */
 export function ArchiveCard({
@@ -21,7 +23,8 @@ export function ArchiveCard({
   mtimeMs,
   onOpen,
   onExtractHere,
-  onExtractTo
+  onExtractTo,
+  onOpenRow
 }: {
   path: string
   name: string
@@ -29,6 +32,8 @@ export function ArchiveCard({
   onOpen: () => void
   onExtractHere: () => void
   onExtractTo: () => void
+  /** A row inside (#483): a folder is gone into, a file opens in the viewer. */
+  onOpenRow: (target: CardRowTarget) => void
 }): JSX.Element {
   const [summary, setSummary] = useState<{ path: string; got: ArchiveSummary } | null>(null)
   useEffect(() => {
@@ -84,7 +89,13 @@ export function ArchiveCard({
           <div className="archive-card-caption">{got.top ? `Inside, in ${got.top}` : 'Inside'}</div>
           <div className="archive-card-rows">
             {got.rows.map((row) => (
-              <div className="archive-card-row" key={row.name}>
+              <button
+                type="button"
+                className="archive-card-row"
+                key={row.name}
+                data-archive-row={row.name}
+                onClick={() => onOpenRow(cardRowTarget(path, got.top, row))}
+              >
                 {row.dir ? (
                   <FolderIcon color="var(--p-tree-folder)" />
                 ) : (
@@ -99,7 +110,7 @@ export function ArchiveCard({
                 )}
                 <span>{row.name}</span>
                 <span>{row.dir ? '' : formatBytes(row.size)}</span>
-              </div>
+              </button>
             ))}
           </div>
           <dl className="archive-card-facts">

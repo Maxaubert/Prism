@@ -684,6 +684,15 @@ export default function App(): JSX.Element {
     },
     [active, browsing]
   )
+  /** A file row of the archive card (#483): the member opens in full view, the
+   *  Explorer behind it at the folder inside the zip that holds it, as a
+   *  double-click on that row inside the zip does. */
+  const openArchiveMember = useCallback(
+    (path: string) => {
+      if (active) void browsing.openFile(path)
+    },
+    [active, browsing]
+  )
   const openBrowseSplit = browsing.openSplit
 
   const toggleFullscreen = useCallback(() => setFs(!fullscreen), [fullscreen, setFs])
@@ -1617,6 +1626,7 @@ export default function App(): JSX.Element {
                     onExternalChange={onExternalChange}
                     reloadAnswer={reloadAnswer}
                     onOpenArchive={openArchive}
+                    onOpenArchiveMember={openArchiveMember}
                     note={!browsing.folder}
                   />
                 </div>
@@ -1681,6 +1691,7 @@ export default function App(): JSX.Element {
                           onExternalChange={onExternalChange}
                           reloadAnswer={reloadAnswer}
                           onOpenArchive={openArchive}
+                          onOpenArchiveMember={openArchiveMember}
                           note={!browsing.folder}
                         />
                       </div>
