@@ -27,6 +27,7 @@ import { documentImages } from '../docImages'
 import { encodeText, fallbackShape, moveShapes } from '../textFile'
 import { replaceFile } from '../replaceFile'
 import { readTail, startTail, stopTail } from '../fileTail'
+import { restoreFromBin } from '../binRestore'
 import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from '../fileOps'
 import { appsForExt, argsFor, type AppCandidate } from '../openWith'
 import { addToArchive, archiveTooLarge, moveMembers, moveNames } from '../archive'
@@ -616,13 +617,20 @@ export function registerShellIpc(ctx: MainCtx): void {
     }
   })
 
-  // Undo's half of a delete: ask the shell for the items back. MoveHere
-  // rather than InvokeVerb, because the Restore verb's NAME is localised
-  // and the namespace move is not. Best effort: an item the user has since
-  // emptied simply is not there any more.
-  ipcMain.handle(CALL.fileRestore, async (_e, paths: string[]): Promise<boolean> => {
-    if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideDesktop(p)))
+  // Undo's half of a delete: the bin's own folder first (binRestore.ts, a
+  // few small reads), and only what that could not move from the shell.
+  // MoveHere rather than InvokeVerb, because the Restore verb's NAME is
+  // localised and the namespace move is not. Best effort: an item the user
+  // has since emptied simply is not there any more.
+  ipcMain.handle(CALL.fileRestore, async (_e, all: string[]): Promise<boolean> => {
+    if (!Array.isArray(all) || !all.length || !all.every((p) => insideDesktop(p)))
       return Promise.resolve(false)
+    const paths: string[] = []
+    for (const p of all) if (!(await restoreFromBin(p).catch(() => false))) paths.push(p)
+    if (!paths.length) {
+      await written(...all)
+      return true
+    }
     const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
     const script = [
       '$ErrorActionPreference = "SilentlyContinue"',
@@ -647,7 +655,7 @@ export function registerShellIpc(ctx: MainCtx): void {
         { windowsHide: true, timeout: 20000 },
         (err) => done(!err)
       )
-    }).finally(() => written(...paths))
+    }).finally(() => written(...all))
   })
 }
 
