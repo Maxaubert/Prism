@@ -117,7 +117,8 @@ tools without an explicit decision (rules in `docs/ui-direction.md`).
   Record and tests: `docs/features.md`.
 - Prism on your phone: a LAN page that browses the whole PC like the Explorer and plays what it
   finds (read-only, paired, the user's own network).
-- Resident single-instance app, update chip, Win+E replacement, opt-in file associations,
+- Resident single-instance app (the last window's close rests in a low-RAM standby, owner 2026-11-06;
+  "Keep Prism ready" off quits), update chip, Win+E replacement, opt-in file associations,
   opt-in "open folders from other apps" (Prism as Windows' folder handler, #393).
 - 18 themes on one wall, one colour picker with alpha (see `docs/ui-direction.md`).
 - **Out of scope (v1):** playlists / library / collections, editing, casting, streaming URLs,

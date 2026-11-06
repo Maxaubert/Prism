@@ -29,6 +29,14 @@ Windows Explorer. Held auto-repeat generates one request. Each distinct physical
 press gets an independent ACK worker, so a pending request never drops or blocks
 the next press. Thread creation happens on the dispatcher, outside the hook.
 
+A running Prism is asked first over its hotkey pipe (2026-11-06): `\\.\pipe\PrismWake.<24 hex of
+sha256(profile path, lower case, no trailing slash)>`, one JSON line `{"winE": "<UUID>", "browse"?:
+"<folder>"}`, answered `ok` or `no` (`Launcher.TryWake`; Prism's side is `src/main/wakePipe.ts`, and the
+self-test holds the name vector both sides share). On `ok` no Prism.exe is started; the UUID's own pipe
+still carries "started" and the ready line. No answer in 40 ms (connect) or 1.5 s (reply) and Prism is
+started as before. The log's lines carry the time zone, the started Prism's pid and CreateProcess ms, and
+when Prism said started.
+
 A 500 ms lifecycle check exits the hook if its registration changes or the target
 executable/application resources disappear. It runs on its own thread, never the
 hook's: its registry and file reads used to share the hook's thread, and a slow one
