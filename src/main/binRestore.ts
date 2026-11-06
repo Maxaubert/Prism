@@ -1,6 +1,7 @@
-import { readFile, readdir, rename, unlink } from 'fs/promises'
+import { lstat, readFile, readdir, rename, unlink } from 'fs/promises'
 import { extname, join, parse } from 'path'
 import { exists } from './fsUtil'
+import { execFile } from './spawnWorker'
 
 /**
  * UNDO'S RESTORE READS THE BIN ITSELF (2026-11-06). Undoing a delete used to
@@ -43,11 +44,34 @@ export function parseInfo(buf: Buffer): { path: string; deletedAt: bigint } | nu
   return path ? { path, deletedAt } : null
 }
 
-/** The bins a path's drive keeps, one per user folder this process can read. */
+/** The SID out of `whoami /user /fo csv /nh` ("pc\name","S-1-5-..."). */
+export function sidOf(out: string): string | null {
+  return /"(S-1-[\d-]+)"/.exec(out)?.[1] ?? null
+}
+
+let sid: Promise<string | null> | null = null
+/** This user's SID, asked once. Null when whoami could not say, and then
+ *  every restore goes the shell's way. */
+function ownSid(): Promise<string | null> {
+  sid ??= new Promise((resolve) => {
+    try {
+      const exe = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe')
+      execFile(exe, ['/user', '/fo', 'csv', '/nh'], { windowsHide: true, timeout: 5000 }, (error, stdout) =>
+        resolve(error ? null : sidOf(String(stdout)))
+      )
+    } catch {
+      resolve(null)
+    }
+  })
+  return sid
+}
+
+/** THIS USER'S bin on the path's drive, never another user's: a folder
+ *  another account could read (a FAT drive, loose ACLs) must not hand its
+ *  file back in place of ours. */
 async function binsOf(path: string): Promise<string[]> {
-  const top = join(parse(path).root, '$Recycle.Bin')
-  const users = await readdir(top).catch(() => [] as string[])
-  return users.map((u) => join(top, u))
+  const own = await ownSid()
+  return own ? [join(parse(path).root, '$Recycle.Bin', own)] : []
 }
 
 /**
@@ -73,8 +97,11 @@ export async function restoreFromBin(path: string, bins?: string[]): Promise<boo
     }
   }
   if (!best) return false
+  const item = join(best.dir, `$R${best.id}`)
+  // A link (or junction) in the bin is not a binned file: leave it alone.
+  if ((await lstat(item).catch(() => null))?.isSymbolicLink() !== false) return false
   try {
-    await rename(join(best.dir, `$R${best.id}`), path)
+    await rename(item, path)
   } catch {
     return false
   }
