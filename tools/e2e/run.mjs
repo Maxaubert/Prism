@@ -17495,6 +17495,22 @@ async function zipPreviewClicksScenario(fixtures) {
     const covered = await sampling
     ok(covered.length === 0, `nothing covers the card's controls while it comes up (${covered.slice(0, 4).join('; ')})`)
     ok(await shown(), 'the zip again, its card up')
+    // A window-drag region over the card would take its presses at the OS,
+    // where elementFromPoint and the e2e's mouse never see it.
+    const dragOver = await win.evaluate((sel) => {
+      const c = document.querySelector(sel)?.getBoundingClientRect()
+      if (!c) return ['no card']
+      const out = []
+      for (const el of document.querySelectorAll('*')) {
+        const s = getComputedStyle(el)
+        if ((s.getPropertyValue('app-region') || s.getPropertyValue('-webkit-app-region')) !== 'drag') continue
+        const r = el.getBoundingClientRect()
+        if (r.width && r.height && r.left < c.right && r.right > c.left && r.top < c.bottom && r.bottom > c.top)
+          out.push(`${el.tagName.toLowerCase()}.${[...el.classList].join('.')} ${Math.round(r.top)}-${Math.round(r.bottom)}`)
+      }
+      return out
+    }, card)
+    ok(dragOver.length === 0, `no window-drag region overlaps the card (${dragOver.slice(0, 3).join('; ')})`)
     await win.screenshot({ path: join(SHOTS, 'zip-preview-clicks.png') })
     // Extract here makes the top folder beside the zip.
     await press(verb('extract-here'))
@@ -17532,6 +17548,43 @@ async function zipPreviewClicksScenario(fixtures) {
     // Open goes into the zip.
     await press(verb('open'))
     ok(await until(async () => (await win.locator('[data-archive-strip]').count()) === 1, 10000), 'Open goes into the zip')
+    // SEVERAL TOP ENTRIES (no "in <top>"): the rows sit at the zip's root.
+    const flatDir = join(dir, 'flat')
+    mkdirSync(flatDir, { recursive: true })
+    const flat = new AdmZip()
+    flat.addFile('alpha/one.txt', Buffer.from('one\n'))
+    flat.addFile('beta/two.txt', Buffer.from('two\n'))
+    flat.addFile('root.txt', Buffer.from('at the root\n'))
+    flat.writeZip(join(flatDir, 'flat.zip'))
+    writeFileSync(join(flatDir, 'notes.txt'), 'beside the zip\n')
+    await explorerAt(win, flatDir)
+    const flatCard = async () => {
+      await zipRow(win, 'flat.zip').click()
+      ok(
+        await until(async () => /^Inside$/.test((await win.locator(`${card} .archive-card-caption`).textContent().catch(() => '')) ?? ''), 10000),
+        'a zip of several top entries previews "Inside" its root'
+      )
+    }
+    await flatCard()
+    await press(row('beta'))
+    ok(await until(async () => (await where()).endsWith('flat.zip\\beta'), 10000), `a root folder row goes into it (${await where()})`)
+    await win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Back"]').click()
+    ok(await until(async () => (await where()) === flatDir, 10000), 'Back comes out to the folder holding the flat zip')
+    await flatCard()
+    await press(row('root.txt'))
+    ok(await until(async () => /root\.txt/.test(await viewing(win)), 15000), `a root file row opens it (${await viewing(win)})`)
+    await toList(win)
+    // A ZIP INSIDE THE ZIP: its row goes into it, as a double-click does.
+    const { dir: worldDir } = await zipWorld(dir, 'world')
+    await explorerAt(win, worldDir)
+    await zipRow(win, 'Wind-0.2.2.zip').click()
+    ok(await until(async () => /Inside, in Wind/.test((await win.locator(card).textContent().catch(() => '')) ?? ''), 10000), 'the Wind zip previews as its card')
+    await press(row('nested.zip'))
+    ok(
+      await until(async () => (await where()).endsWith('Wind-0.2.2.zip\\Wind\\nested.zip'), 10000),
+      `a nested zip's row goes into it (${await where()})`
+    )
+    ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('nested.zip\\docs')), 10000), 'and lists what it holds')
   } finally {
     await app.close()
   }
