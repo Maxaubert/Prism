@@ -31,6 +31,7 @@ const SHIPPED: Record<string, 'shared' | 'window'> = {
   'prism.photoInfo': 'shared',
   'prism.sort': 'shared',
   'prism.tabs.remember': 'shared',
+  'prism.standby': 'shared',
   'prism.transport.bg': 'shared',
   'prism.transport.style': 'shared',
   'prism.tree.size': 'shared',

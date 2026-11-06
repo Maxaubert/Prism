@@ -8,6 +8,7 @@ import { setRememberFolders, useRememberFolders } from '../../lib/prefs/listingC
 import { setNewTabMode, useNewTabFolder, useNewTabMode } from '../../lib/prefs/newTabPrefs'
 import { setOpenMode, useOpenMode, type OpenMode } from '../../lib/prefs/openPrefs'
 import { setRememberTabs, useRememberTabs } from '../../lib/tabs/tabRestorePrefs'
+import { setStayReady, useStayReady } from '../../lib/prefs/standbyPrefs'
 import { setExplorerSide, useExplorerSide, type ExplorerSide } from '../../lib/prefs/explorerSidePrefs'
 import { TREE_SIDES } from '../../lib/prefs/treePrefs'
 import { visitedDirectories } from '../../lib/visitedDirectories'
@@ -109,6 +110,7 @@ function OpeningSection(): JSX.Element {
  */
 function StartsSection(): JSX.Element {
   const tabsOn = useRememberTabs()
+  const readyOn = useStayReady()
   const foldersOn = useRememberFolders()
   const [cleared, setCleared] = useState(false)
   const folders = appOpt('remember-folders')
@@ -116,6 +118,11 @@ function StartsSection(): JSX.Element {
     <SettingsSection id="starts" title={APP_SECTIONS.starts}>
       <SettingRow id="remember-tabs" {...row('remember-tabs')} tap>
         <Switch on={tabsOn} onChange={setRememberTabs} label={appOpt('remember-tabs').label} />
+      </SettingRow>
+      {/* Standby (owner, 2026-11-06): on, closing the last window leaves
+          Prism resting with little memory, so Win+E opens it fast. */}
+      <SettingRow id="stay-ready" {...row('stay-ready')} tap>
+        <Switch on={readyOn} onChange={setStayReady} label={appOpt('stay-ready').label} />
       </SettingRow>
       <SettingRow id="remember-folders" {...row('remember-folders')} tap>
         <button

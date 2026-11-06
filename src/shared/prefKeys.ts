@@ -36,6 +36,8 @@ export const PREF_KEYS = {
   'prism.slideshow.seconds': 'shared',
   'prism.sort': 'shared',
   'prism.tabs.remember': 'shared',
+  // Standby after the last window closes (owner, 2026-11-06); main reads it.
+  'prism.standby': 'shared',
   'prism.transport.bg': 'shared',
   'prism.transport.style': 'shared',
   'prism.tree.size': 'shared',

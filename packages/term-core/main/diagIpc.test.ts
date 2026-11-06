@@ -151,3 +151,29 @@ describe('withStackPolicy', () => {
     expect(out['Document-Policy']).toEqual([STACK_POLICY])
   })
 })
+
+describe('a page-stall says which window it came from (Prism, 2026-11-06)', () => {
+  it('adds the host page info to a stall, and only to a stall', () => {
+    const ipcMain = new FakeIpcMain()
+    const log = fakeLog(false)
+    const pageInfo = vi.fn((page: number) => (page === 9 ? { win: 'w2', hidden: true } : null))
+    registerDiagIpc({ ipcMain, log, openFolder: () => {}, wall: () => NOW, pageInfo })
+    ipcMain.emit(DGCH.batch, { sender: { id: 9 } }, [
+      { k: 'page-stall', at: NOW - 100, ms: 1000, scripts: [] },
+      { k: 'crumb', at: NOW, a: 'tab-open' }
+    ])
+    ipcMain.emit(DGCH.batch, { sender: { id: 3 } }, [{ k: 'page-stall', at: NOW - 100, ms: 900 }])
+    const stalls = log.lines.filter((l) => l.k === 'page-stall')
+    expect(stalls[0].fields).toMatchObject({ ms: 1000, win: 'w2', hidden: true })
+    expect(stalls[1].fields).toEqual({ ms: 900 })
+    expect(log.lines.find((l) => l.k === 'crumb')?.fields).toEqual({ a: 'tab-open' })
+  })
+
+  it('a host whose lookup throws still has its stall written', () => {
+    const ipcMain = new FakeIpcMain()
+    const log = fakeLog(false)
+    registerDiagIpc({ ipcMain, log, openFolder: () => {}, wall: () => NOW, pageInfo: () => { throw new Error('gone') } })
+    ipcMain.emit(DGCH.batch, { sender: { id: 1 } }, [{ k: 'page-stall', at: NOW, ms: 700 }])
+    expect(log.lines.map((l) => l.k)).toEqual(['page-stall'])
+  })
+})

@@ -31,14 +31,28 @@ export const AGENT = new Set(['agent-hook', 'agent-title', 'agent-mark', 'agent-
  * told the user something did not work (`error` or `warn`).
  */
 export const isProblem = (l) =>
-  PROBLEMS.has(l.k) ||
+  !hiddenStall(l) &&
+  (PROBLEMS.has(l.k) ||
   /-slow$/.test(l.k) ||
   (l.k === 'op' && l.ok === false && !l.canceled && !l.superseded) ||
-  (l.k === 'note' && (l.level === 'error' || l.level === 'warn'))
+  (l.k === 'note' && (l.level === 'error' || l.level === 'warn')))
+
+/**
+ * A stall in a window nobody could see (owner, 2026-11-06): the tear-off's
+ * hidden spare loading in the background, never something the owner sat
+ * through. Its line says `hidden` (and `win`, which window); still in
+ * `--all`, never a problem.
+ */
+export const hiddenStall = (l) => (l.k === 'page-stall' || l.k === 'window-slow') && l.hidden === true
+
+/** The launch and the hotkey's own lines (2026-11-06): how long a start or a
+ *  wake took, each Win+E press, standby and the quit's reason. Context. */
+export const LAUNCH = new Set(['session', 'startup', 'win-e', 'second-instance', 'standby', 'quit', 'lock-lost'])
 
 /** Context shown before a problem: the crumbs, the marks' moves, and every
  *  operation's outcome, so a note shows the operation it came from. */
-export const isContext = (l) => l.k === 'crumb' || l.k === 'op' || l.k === 'agent-mark' || l.k === 'agent-restore'
+export const isContext = (l) =>
+  l.k === 'crumb' || l.k === 'op' || l.k === 'agent-mark' || l.k === 'agent-restore' || LAUNCH.has(l.k)
 
 /** An `op` line, said briefly. */
 export function opSummary(l) {

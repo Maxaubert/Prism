@@ -45,6 +45,12 @@ export interface DiagnosticsDeps {
   appMetrics?: () => ProcessMetricLike[]
   /** Detailed logging until the owner switches it (`DiagLogOptions`). */
   verboseByDefault?: boolean
+  /** The host's own fields for the session line (Prism, 2026-11-06: when the
+   *  OS made the process, how long it took to get here, why it started). */
+  sessionFields?: Record<string, unknown>
+  /** Which window a page's line came from, for its `page-stall` lines
+   *  (`diagIpc`'s `pageInfo`): a stall in a hidden window is no problem. */
+  pageInfo?: (page: number) => Record<string, unknown> | null
 }
 
 /** The slice of a BrowserWindow the watch needs. */
@@ -63,14 +69,18 @@ export interface Diagnostics {
   log: DiagLog
   /** The window's hang events, and its frame for the page stack. */
   watchWindow(win: DiagWindow): void
-  /** The quit path: timers stopped, the queue written synchronously. */
-  stop(): void
+  /** The quit path: timers stopped, the queue written synchronously. The
+   *  `quit` line carries `reason` when the host gives one. */
+  stop(reason?: string): void
+  /** The host went to standby (no window, Prism 2026-11-06): the stall watch
+   *  is parked, so no timer wakes the process; false watches again. */
+  standby(on: boolean): void
 }
 
 export function startDiagnostics(deps: DiagnosticsDeps): Diagnostics {
   if (!deps.diagLogDir) {
     registerDiagIpc({ ipcMain: deps.ipcMain, log: NULL_DIAG_LOG, openFolder: () => {} })
-    return { log: NULL_DIAG_LOG, watchWindow: () => {}, stop: () => {} }
+    return { log: NULL_DIAG_LOG, watchWindow: () => {}, stop: () => {}, standby: () => {} }
   }
   const dir = deps.diagLogDir
   const log = createDiagLog({ dir, verboseByDefault: deps.verboseByDefault })
@@ -88,7 +98,8 @@ export function startDiagnostics(deps: DiagnosticsDeps): Diagnostics {
     cpus: cpu.length,
     cpu: cpu[0]?.model?.trim() ?? null,
     ramGb: Math.round(totalmem() / 1024 ** 3),
-    ...(deps.appInfo.e2e ? { e2e: true } : {})
+    ...(deps.appInfo.e2e ? { e2e: true } : {}),
+    ...(deps.sessionFields ?? {})
   })
 
   const timing = timeIpcMain(deps.ipcMain, log, { longWait: deps.longWaitChannels })
@@ -113,7 +124,7 @@ export function startDiagnostics(deps: DiagnosticsDeps): Diagnostics {
   const metrics = deps.appMetrics
   const mem: MemWatch | null = metrics ? startMemWatch({ log, metrics }) : null
   const unhook = hookCrashes({ log, process: deps.process, app: deps.app })
-  registerDiagIpc({ ipcMain: deps.ipcMain, log, watch, openFolder: deps.openFolder })
+  registerDiagIpc({ ipcMain: deps.ipcMain, log, watch, openFolder: deps.openFolder, pageInfo: deps.pageInfo })
 
   let power: EmitterLike | null = null
   const onSuspend = (): void => watch.suspend()
@@ -152,14 +163,15 @@ export function startDiagnostics(deps: DiagnosticsDeps): Diagnostics {
         }
       }
     },
-    stop: () => {
+    standby: (on) => watch.park(on),
+    stop: (reason) => {
       watch.stop()
       mem?.stop()
       power?.removeListener('suspend', onSuspend)
       power?.removeListener('resume', onResume)
       power = null
       unhook()
-      log.write('main', 'quit', {})
+      log.write('main', 'quit', reason ? { reason } : {})
       log.close()
       setDiagMain(null)
     }

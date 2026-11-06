@@ -41,3 +41,18 @@ describe('npm run diag shows failed operations and failure notes as problems (ow
     )
   })
 })
+
+describe('a stall nobody could see is no problem (owner, 2026-11-06)', () => {
+  it("a hidden window's page-stall or window-slow is not listed; a shown one is", () => {
+    expect(isProblem({ k: 'page-stall', ms: 1000, win: 'w2', hidden: true })).toBe(false)
+    expect(isProblem({ k: 'window-slow', event: 'watchdog', hidden: true })).toBe(false)
+    expect(isProblem({ k: 'page-stall', ms: 1000, win: 'w1', hidden: false })).toBe(true)
+    expect(isProblem({ k: 'page-stall', ms: 1000 })).toBe(true)
+  })
+
+  it('the launch, hotkey, standby and quit lines are context', () => {
+    for (const k of ['session', 'startup', 'win-e', 'second-instance', 'standby', 'quit', 'lock-lost'])
+      expect(isContext({ k })).toBe(true)
+    expect(isProblem({ k: 'raise-slow', ms: 400 })).toBe(true)
+  })
+})

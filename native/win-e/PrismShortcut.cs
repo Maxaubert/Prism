@@ -348,6 +348,7 @@ internal static class Launcher
                             return false;
                         }
                         started = true;
+                        Log.Write("Prism said started after " + clock.ElapsedMilliseconds + " ms");
                         deadline = clock.ElapsedMilliseconds + patience;
                         received = received.Substring(newline + 1);
                         byte[] rest = Encoding.UTF8.GetBytes(received);
@@ -369,7 +370,7 @@ internal static class Launcher
         {
             acknowledged = owner.IsOwned && owner.TargetExists && LaunchAndWait(delegate(string token)
             {
-                Native.StartDetached(owner.Exe, Program.Quote("--user-data-dir=" + owner.Profile) + " " + Program.Quote("--win-e=" + token), true);
+                Native.StartPrism(owner.Exe, Program.Quote("--user-data-dir=" + owner.Profile) + " " + Program.Quote("--win-e=" + token));
             }, 8000, 45000, out reason);
         }
         catch (Exception) { reason = "failed"; }
@@ -419,8 +420,8 @@ internal static class FolderOpen
                 if (owner.TargetExists)
                     acknowledged = Launcher.LaunchAndWait(delegate(string token)
                     {
-                        Native.StartDetached(owner.Exe, Program.Quote("--user-data-dir=" + owner.Profile) + " "
-                            + Program.Quote("--win-e=" + token) + " " + Program.Quote("--browse=" + path), true);
+                        Native.StartPrism(owner.Exe, Program.Quote("--user-data-dir=" + owner.Profile) + " "
+                            + Program.Quote("--win-e=" + token) + " " + Program.Quote("--browse=" + path));
                     }, 8000, 45000, out reason);
             }
         }
@@ -791,7 +792,9 @@ internal static class Log
     {
         var queue = lines;
         if (queue != null && !queue.IsAddingCompleted)
-            queue.TryAdd(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " pid " + Process.GetCurrentProcess().Id + " " + message);
+            // With its time zone (2026-11-06): Prism's diag.jsonl is UTC, and a line
+            // without one could not be laid beside it.
+            queue.TryAdd(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fffzzz") + " pid " + Process.GetCurrentProcess().Id + " " + message);
     }
 }
 
@@ -815,7 +818,7 @@ internal static class Native
         internal IntPtr process, thread;
         internal uint processId, threadId;
     }
-    internal static void StartDetached(string executable, string args, bool visible)
+    internal static uint StartDetached(string executable, string args, bool visible)
     {
         var startup = new StartupInfo { size = (uint)Marshal.SizeOf(typeof(StartupInfo)), flags = 1, show = (ushort)(visible ? 1 : 0) };
         ProcessInfo process;
@@ -824,6 +827,15 @@ internal static class Native
             throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
         CloseHandle(process.thread);
         CloseHandle(process.process);
+        return process.processId;
+    }
+    /** Prism started for a request, said in the log (2026-11-06): its pid and how long
+     *  CreateProcess itself took, so a slow cold start can be split. */
+    internal static void StartPrism(string executable, string args)
+    {
+        var clock = Stopwatch.StartNew();
+        uint pid = StartDetached(executable, args, true);
+        Log.Write("started Prism pid " + pid + " (CreateProcess " + clock.ElapsedMilliseconds + " ms)");
     }
     internal static Input[] MenuMaskInputs()
     {
