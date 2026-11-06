@@ -57,6 +57,36 @@ describe('startDiagnostics', () => {
     expect(existsSync(dir)).toBe(true)
   })
 
+  it("adds the host's session fields, a quit reason, and parks the watch in standby (Prism, 2026-11-06)", () => {
+    vi.useFakeTimers()
+    try {
+      const dir = join(mkdtempSync(join(tmpdir(), 'pt-diag-')), 'logs')
+      const d = startDiagnostics({
+        diagLogDir: dir,
+        ipcMain: new FakeIpcMain(),
+        process: new EventEmitter(),
+        app: new EventEmitter(),
+        appInfo: { name: 'Prism', version: '0.132.0' },
+        openFolder: () => {},
+        sessionFields: { created: 1234, bootMs: 380, reason: 'win-e' }
+      })
+      const running = vi.getTimerCount()
+      d.standby(true)
+      expect(vi.getTimerCount()).toBeLessThan(running)
+      d.standby(false)
+      expect(vi.getTimerCount()).toBe(running)
+      d.stop('user')
+      const lines = readFileSync(join(dir, 'diag.jsonl'), 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => JSON.parse(l) as Record<string, unknown>)
+      expect(lines[0]).toMatchObject({ k: 'session', created: 1234, bootMs: 380, reason: 'win-e' })
+      expect(lines.at(-1)).toMatchObject({ k: 'quit', reason: 'user' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('writes the memory crumb when the host passes its metrics (perf review, 2026-10-28)', () => {
     vi.useFakeTimers()
     try {

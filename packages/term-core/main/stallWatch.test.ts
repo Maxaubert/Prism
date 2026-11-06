@@ -289,3 +289,32 @@ describe('stop', () => {
     expect(log.lines).toEqual([])
   })
 })
+
+describe('standby (Prism, 2026-11-06)', () => {
+  it('parked, no timer runs and nothing is asked; unparked, the time parked is no lag', async () => {
+    let calls = 0
+    const w = watch({ canary: () => ((calls += 1), Promise.resolve()) })
+    w.beat(7)
+    w.park(true)
+    expect(vi.getTimerCount()).toBe(0)
+    // An hour parked, the clock running on.
+    await pass(3_600_000)
+    expect(calls).toBe(0)
+    w.park(false)
+    expect(vi.getTimerCount()).toBe(2)
+    await pass(50)
+    await pass(50)
+    expect(log.lines).toEqual([])
+    // Watching again: a real lag is still caught.
+    await pass(50, 300)
+    expect(log.lines.map((l) => l.k)).toEqual(['main-lag'])
+  })
+
+  it('a stopped watch is never started again by an unpark', () => {
+    const w = watch()
+    w.park(true)
+    w.stop()
+    w.park(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})

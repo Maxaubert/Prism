@@ -37,7 +37,7 @@ export type PhoneServerDeps = ConstructorParameters<typeof PhoneServer>[0]
 export function startPhoneService(opts: {
   deps: (hooks: PhoneHooks) => PhoneServerDeps
   hlsJobs: HlsJobs | null
-}): void {
+}): PhoneService {
   /**
    * PRISM ON YOUR PHONE (2026-09-06, #104). The server lives for as long as
    * the switch is on; the switch, the port it settled on and the paired
@@ -165,12 +165,37 @@ export function startPhoneService(opts: {
     }
     return phoneState(startArg(start))
   })
+  /** STANDBY (owner, 2026-11-06): the server rests with Prism's windows and
+   *  comes back with them. The switch is untouched: it stays on, and the
+   *  same port is asked for again at the wake. */
+  let resting = false
+  const service: PhoneService = {
+    rest: () => {
+      if (resting) return
+      resting = true
+      void stopPhone().then(() => opts.hlsJobs?.stopAll())
+    },
+    wake: () => {
+      if (!resting) return
+      resting = false
+      void phoneReady.then(() => {
+        if (phoneStore.on && !resting) void startPhone()
+      })
+    }
+  }
   app.on('will-quit', () => {
     void phone?.stop()
     // The server's stop kills them too; this covers jobs left by a server
     // that was already off, and an ffmpeg with no app is an orphan.
     void opts.hlsJobs?.stopAll()
   })
+  return service
+}
+
+/** The phone server's standby half (`standby.ts`). */
+export interface PhoneService {
+  rest(): void
+  wake(): void
 }
 
 /** Where you had got to in each film (#118): one store, by file path, that the

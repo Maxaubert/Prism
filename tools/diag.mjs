@@ -97,7 +97,8 @@ function summary(l) {
   switch (l.k) {
     case 'page-stall': {
       const s = (l.scripts ?? []).map((x) => `${x.fn ?? '?'} in ${x.src ?? '?'} (${x.invoker ?? '?'}) ${x.ms}ms`).join('; ')
-      return `${l.ms}ms, blocking ${l.blocking}ms${s ? `: ${s}` : ''}`
+      const where = l.win ? ` in ${l.win}${l.hidden ? ' (hidden)' : ''}` : ''
+      return `${l.ms}ms${where}, blocking ${l.blocking}ms${s ? `: ${s}` : ''}`
     }
     case 'main-lag': {
       const c = (l.inflight ?? []).map((x) => `${x.ch} ${x.ms}ms${x.done ? ' (ended)' : ''}`).join(', ')
