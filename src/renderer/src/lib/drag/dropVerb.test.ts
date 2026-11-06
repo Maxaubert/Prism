@@ -181,6 +181,29 @@ describe('dropVerb: zip members', () => {
       expect(dropVerb({ payload: members(a, a, 'x.txt'), target: { dir: b, archive: zip(b) }, keys })).toBe('zip-to-zip')
   })
 
+  it('out of the zip card (#483): extracted, copied into another zip, never moved in their own', () => {
+    const card = (...entries: string[]): DragPayload => ({ ...members(a, a, ...entries), card: true } as DragPayload)
+    expect(dropVerb({ payload: card('docs/x.txt'), target: { dir: 'C:\\work' }, keys: NONE })).toBe('extract')
+    expect(dropVerb({ payload: card('docs/x.txt'), target: { dir: 'C:\\work\\into' }, keys: SHIFT })).toBe('extract')
+    // Its own zip's row, and a place inside that zip: nothing, whatever the keys.
+    for (const keys of [NONE, CTRL, SHIFT]) {
+      expect(dropVerb({ payload: card('docs/x.txt'), target: { dir: a, archive: zip(a) }, keys })).toBe('none')
+      expect(dropVerb({ payload: card('x.txt'), target: { dir: `${a}\\docs`, archive: zip(a, 'docs') }, keys })).toBe('none')
+    }
+    // A member of a zip inside the zip, onto the zip that holds it: nothing.
+    const nested = `${a}\\Wind\\nested.zip`
+    const fromNested: DragPayload = {
+      kind: 'members',
+      archive: 'C:\\temp\\copy-of-nested.zip',
+      entries: ['docs/in.txt'],
+      places: [`${nested}\\docs\\in.txt`],
+      card: true
+    }
+    expect(dropVerb({ payload: fromNested, target: { dir: a, archive: zip(a) }, keys: NONE })).toBe('none')
+    const b = 'C:\\work\\b.zip'
+    expect(dropVerb({ payload: card('x.txt'), target: { dir: b, archive: zip(b) }, keys: NONE })).toBe('zip-to-zip')
+  })
+
   it('show no-drop over a read-only archive, their own or another (G6)', () => {
     const ro = zip(a, 'docs', { readOnly: true })
     expect(dropVerb({ payload: members(a, a, 'x.txt'), target: { dir: `${a}\\docs`, archive: ro }, keys: NONE })).toBe('none')

@@ -3,6 +3,7 @@ import type { ViewerFile } from '@shared/types'
 import { isTypingTarget } from '../lib/focusGuards'
 import { isExplorerTab, type Tab } from '../lib/tabs/tabs'
 import { copyFilePaths } from '../lib/fileClipboard'
+import { CARD_CHORDS } from '../components/browse/archiveCardNav'
 import { browseParent } from '../lib/browse'
 import type { useFolderBrowsing } from './useFolderBrowsing'
 import type { BrowseEntry } from '../components/browse/FolderBrowser'
@@ -131,6 +132,17 @@ export function useAppKeys({
         !e.metaKey &&
         !/^F\d+$/.test(e.key) &&
         e.key !== 'Escape'
+      )
+        return
+      // THE ZIP CARD'S LIST OWNS ITS PLAIN KEYS (#483): its arrows, Enter
+      // and Backspace walk the zip inside the preview, and F2 or Delete there
+      // must never rename or bin the zip behind it; nor may its Ctrl+C, X or
+      // V copy or cut the zip (the card's own chords, `CARD_CHORDS`).
+      if (
+        el?.closest('[data-archive-card-rows]') &&
+        !e.altKey &&
+        !e.metaKey &&
+        (!e.ctrlKey || (!e.shiftKey && CARD_CHORDS.has(e.key.toLowerCase())))
       )
         return
       const inBrowser = !!el?.closest('.folder-browser')

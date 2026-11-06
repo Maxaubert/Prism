@@ -204,21 +204,121 @@
   border-bottom: 1px solid var(--p-divider);
 }
 .archive-card-caption {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
   padding: 12px 18px 6px;
   color: var(--p-dim);
+}
+.archive-card-caption span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The way back up inside the card (#483): the toolbar's Up glyph, quiet,
+   no box until the pointer is on it. */
+.archive-card-up {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-left: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--p-radius-sm, 4px);
+  background: transparent;
+  color: var(--p-dim);
+}
+.archive-card-up:hover,
+.archive-card-up:focus-visible {
+  background-color: var(--p-hover);
+  color: var(--p-text);
+  outline: none;
+}
+.archive-card-up svg {
+  width: 14px;
+  height: 14px;
 }
 .archive-card-rows {
   flex: 1;
   min-height: 0;
   overflow: auto;
   padding: 0 10px 8px;
+  outline: none;
 }
+/* A row is the list's row in small (#483): the hover, and the selection's
+   tint and faint edge (browse.css); focus is the hover's fill, no ring
+   (#272). Rows off screen are not laid out, so a folder of a thousand
+   stays quick. */
 .archive-card-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   height: 26px;
   padding: 0 8px;
+  border: 0;
+  border-radius: var(--p-radius-sm, 4px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 26px;
+}
+.archive-card-row:hover,
+.archive-card-row:focus-visible {
+  background-color: var(--p-hover);
+  outline: none;
+}
+.archive-card-row[data-selected],
+.archive-card-row[data-selected]:hover {
+  --sel-top: inset 0 1px 0 var(--p-sel-line);
+  --sel-bottom: inset 0 -1px 0 var(--p-sel-line);
+  background-color: var(--p-sel-tint);
+  box-shadow:
+    inset 1px 0 0 var(--p-sel-line),
+    inset -1px 0 0 var(--p-sel-line),
+    var(--sel-top),
+    var(--sel-bottom);
+}
+/* NOT IN USE (#483; owner, 2026-11-06: "it should dim, still highlighted but
+   dimmed"): once the user acts anywhere else, the picked rows wear the list's
+   inactive selection (browse.css, #296), the dimmed tint and its edge. */
+.archive-card-rows[data-inactive] .archive-card-row[data-selected],
+.archive-card-rows[data-inactive] .archive-card-row[data-selected]:hover {
+  --sel-top: inset 0 1px 0 var(--p-sel-line-dim);
+  --sel-bottom: inset 0 -1px 0 var(--p-sel-line-dim);
+  background-color: var(--p-sel-tint-dim);
+  box-shadow:
+    inset 1px 0 0 var(--p-sel-line-dim),
+    inset -1px 0 0 var(--p-sel-line-dim),
+    var(--sel-top),
+    var(--sel-bottom);
+}
+/* A drop onto the card (#483): the place it lands wears the list's drop
+   hover (browse.css), a folder row or the rows' box. */
+.archive-card-rows[data-drag-over],
+.archive-card-row[data-drag-over] {
+  background: var(--p-hover-hi);
+  box-shadow: none;
+}
+.archive-card-row[data-selected][data-join-up] {
+  --sel-top: 0 0 0 transparent;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.archive-card-row[data-selected][data-join-down] {
+  --sel-bottom: 0 0 0 transparent;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.archive-card-more {
+  padding: 6px 8px;
+  color: var(--p-dim);
 }
 .archive-card-row span:nth-child(2) {
   flex: 1;

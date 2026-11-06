@@ -19,7 +19,7 @@ import {
   type CSSProperties,
   type JSX
 } from 'react'
-import type { OpenPayload, OpenWithApp } from '@shared/types'
+import type { OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
 import type { BrowseDriveUsage } from '@shared/browse'
 import { preloadImage } from './lib/imageLoader'
 import { neighbourImages } from './lib/warmNeighbours'
@@ -70,7 +70,7 @@ import { sortFilesOnce, useSort } from './lib/prefs/sortPrefs'
 import { useExplorerSide } from './lib/prefs/explorerSidePrefs'
 import { PreviewEmpty } from './components/browse/PreviewEmpty'
 import { PasswordDialog } from './dialogs/PasswordDialog'
-import { browsableArchive } from '@shared/archivePlace'
+import { browsableArchive, within } from '@shared/archivePlace'
 import { useArchiveActions } from './components/browse/useArchiveActions'
 import { clipboardText } from './lib/clipboardText'
 // The code editor for markdown's pencil, split out like every viewer chunk
@@ -684,6 +684,26 @@ export default function App(): JSX.Element {
     },
     [active, browsing]
   )
+  /**
+   * A FILE DOUBLE-CLICKED IN THE ZIP'S CARD (#483; owner, 2026-11-06: "on
+   * clicking an item in the zip preview opens it in main view dont do that i
+   * wanna use it while its in the preview"). The member opens in full view
+   * and the Explorer stays where it is, the zip still its selection: no walk
+   * into the zip. Coming back from the viewer returns to that folder with the
+   * card in the preview (`returnToFolder`), not into the zip.
+   */
+  const cardReturn = useRef<{ tabId: string; folder: string; zip: ViewerFile } | null>(null)
+  const openArchiveMember = useCallback(
+    (member: string, zip: ViewerFile) => {
+      if (!active) return
+      cardReturn.current = { tabId: active.id, folder: active.browse.path, zip }
+      const name = baseName(member)
+      const ext = extOf(name)
+      const opened: ViewerFile = { path: member, name, ext, kind: fileKind(ext, name), member: true }
+      void browsing.openFile(opened, true, true, null, true)
+    },
+    [active, browsing]
+  )
   const openBrowseSplit = browsing.openSplit
 
   const toggleFullscreen = useCallback(() => setFs(!fullscreen), [fullscreen, setFs])
@@ -765,10 +785,26 @@ export default function App(): JSX.Element {
     ? (browseParent(file.path) ?? active?.browse.path)
     : active?.browse.path
   const returnToFolder = useCallback(() => {
+    // Out of a member the zip's card opened (#483): the folder the Explorer
+    // never left, and the card back in the preview where it was.
+    const card = cardReturn.current
+    cardReturn.current = null
+    if (
+      card &&
+      active &&
+      file &&
+      card.tabId === active.id &&
+      sameRoot(card.folder, active.browse.path) &&
+      within(card.zip.path, file.path)
+    ) {
+      browsing.showFolder()
+      void browsing.openFile(card.zip, false, false, null, true)
+      return
+    }
     if (viewerDirectory && active && !sameRoot(viewerDirectory, active.browse.path))
       void browsing.navigate(viewerDirectory)
     else browsing.showFolder()
-  }, [viewerDirectory, active, browsing])
+  }, [viewerDirectory, active, browsing, file])
   const [browseMenu, setBrowseMenu] = useState<{
     x: number
     y: number
@@ -1617,6 +1653,10 @@ export default function App(): JSX.Element {
                     onExternalChange={onExternalChange}
                     reloadAnswer={reloadAnswer}
                     onOpenArchive={openArchive}
+                    onOpenArchiveMember={openArchiveMember}
+                    archiveCardMenu={archiveActions.cardMenu}
+                    archiveCardCopy={archiveActions.copy}
+                    archiveCardDrop={onBrowseDropInto}
                     note={!browsing.folder}
                   />
                 </div>
@@ -1681,6 +1721,10 @@ export default function App(): JSX.Element {
                           onExternalChange={onExternalChange}
                           reloadAnswer={reloadAnswer}
                           onOpenArchive={openArchive}
+                          onOpenArchiveMember={openArchiveMember}
+                          archiveCardMenu={archiveActions.cardMenu}
+                          archiveCardCopy={archiveActions.copy}
+                          archiveCardDrop={onBrowseDropInto}
                           note={!browsing.folder}
                         />
                       </div>

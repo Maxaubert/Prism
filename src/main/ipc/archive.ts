@@ -497,11 +497,13 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
     }
     return out
   })
-  /** What the archive card shows (#300): totals and the top of the tree. */
-  ipcMain.handle(CALL.archiveSummary, async (_e, path: string) => {
+  /** What the archive card shows (#300): totals and the top of the tree, or
+   *  (#483, `level`) exactly the folder the card has gone into. The same
+   *  wall: the outermost zip must be one the Explorer was granted. */
+  ipcMain.handle(CALL.archiveSummary, async (_e, path: string, level?: boolean) => {
     const outer = typeof path === 'string' ? await container(path) : null
     if (!outer || !insideDesktop(outer)) return { ok: false, reason: 'failed' }
-    return archives.summary(path)
+    return archives.summary(path, level === true)
   })
   /** A password the user typed for a container a listing asked about
    *  (#300): remembered for the session, as every archive password is. */

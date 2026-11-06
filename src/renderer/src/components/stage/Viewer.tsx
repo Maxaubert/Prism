@@ -2,6 +2,9 @@ import type { JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
 import { ViewerSwitch } from '../ViewerSwitch'
 import { ArchiveCard } from '../browse/ArchiveCard'
+import type { DragPayload } from '../../lib/drag/dragDrop'
+import type { DropKeys } from '../../lib/drag/dropVerb'
+import type { ArchiveCardCopy, ArchiveCardMenu } from '../browse/useArchiveActions'
 import { MemberGate } from '../MemberGate'
 import { MemberNote } from '../MemberNote'
 import type { TransportStyle } from '../../lib/transport'
@@ -37,6 +40,10 @@ export function Viewer({
   background = false,
   volumeKey = '',
   onOpenArchive,
+  onOpenArchiveMember,
+  archiveCardMenu,
+  archiveCardCopy,
+  archiveCardDrop,
   note = false,
   readOnly = false
 }: {
@@ -44,6 +51,15 @@ export function Viewer({
   /** An archive's card asks to go in (#300): the Explorer walks into it, a
    *  project's tree opens its node. */
   onOpenArchive?: (path: string) => void
+  /** A file double-clicked in the archive's card (#483): that member opens
+   *  in the viewer, the Explorer left where it is; `zip` is the card's own. */
+  onOpenArchiveMember?: (member: string, zip: ViewerFile) => void
+  /** The card's right-click rows (#483). */
+  archiveCardMenu?: ArchiveCardMenu
+  /** The card's Ctrl+C on its picked rows (#483). */
+  archiveCardCopy?: ArchiveCardCopy
+  /** A drop onto the card, into a place inside the zip (#483). */
+  archiveCardDrop?: (directory: string, payload: DragPayload, keys: DropKeys) => void
   /** Full view or a project: a member wears its read-only note (#300). The
    *  preview pane carries none (mockup 04). */
   note?: boolean
@@ -86,7 +102,8 @@ export function Viewer({
     const props = {
       onUndoable, refreshKey, onToggleFullscreen, fullscreen, transportStyle, transportBg,
       onOpenLocal, onAutoAdvance, onStep, canStep, onBuffer, onRenameSelf, getPending,
-      onExternalChange, reloadAnswer, background, volumeKey, onOpenArchive
+      onExternalChange, reloadAnswer, background, volumeKey, onOpenArchive, onOpenArchiveMember,
+      archiveCardMenu, archiveCardCopy, archiveCardDrop
     }
     const gate = (
       <MemberGate file={file} render={(real) => <Viewer {...props} file={real} readOnly />} />
@@ -133,6 +150,11 @@ export function Viewer({
           onOpen={() => onOpenArchive?.(file.path)}
           onExtractHere={() => void extractAll(file.path, true)}
           onExtractTo={() => void extractAll(file.path, false)}
+          onOpenMember={(member) => onOpenArchiveMember?.(member, file)}
+          menu={archiveCardMenu}
+          onCopyMembers={archiveCardCopy}
+          onDropInto={archiveCardDrop}
+          refreshKey={refreshKey}
         />
       )}
     />

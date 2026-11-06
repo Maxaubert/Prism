@@ -16,7 +16,15 @@ export type DragPayload =
   /** Members of one archive, dragged out of the archive view. `places` are
    *  their paths as the Explorer spells them (`C:\x.zip\a.txt`), one per
    *  entry: main resolves them to hand the members to Windows (#103). */
-  | { kind: 'members'; archive: string; entries: string[]; places?: string[] }
+  | {
+      kind: 'members'
+      archive: string
+      entries: string[]
+      places?: string[]
+      /** Carried out of the preview's zip card (#483): only ever extracted
+       *  (or copied into another zip), never moved inside its own zip. */
+      card?: true
+    }
 
 let current: DragPayload | null = null
 
