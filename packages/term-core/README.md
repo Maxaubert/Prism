@@ -40,6 +40,9 @@ change here is an ordinary Prism PR.
    is minimised (`watchWindow` slows main's watch to match from the window's own events). A host with
    several windows calls `watchWindow` for each: every page beats on its own (keyed by its webContents id,
    2026-10-29), the stack is asked of the page that went quiet, and a closed window is forgotten.
+   A page may write `op` (an operation's outcome: `op`, `ok`, counts, `reason`, `ms`) and `note` (a note the
+   user was shown: `text`, `op`, `title`, `level` error/warn/info) at every level (owner, 2026-11-06);
+   Prism's fields are listed in its `docs/features.md`, #484.
 7. A main-side file obeys "main never waits on the disk": a `*Sync` call is marked `// sync-ok: <reason>`.
 
 CSS: the core uses Tailwind utilities and the `--p-*` tokens Prism defines. A new token needed here is added there.

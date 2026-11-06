@@ -10788,6 +10788,125 @@ async function pasteProgressScenario(fixtures) {
   }
 }
 
+/**
+ * EVERY FILE OPERATION SAYS HOW IT WENT, AND PASTE NEVER WAITS ON WINDOWS
+ * (#484; owner, 2026-11-06: "i had some issues copying from zip to the main
+ * folder outside first i got the that didnt work, then it worked. make sure
+ * logs are always on so you can see what happened"). The owner's copy of a
+ * zip member sat 10 s on the PowerShell clipboard write and the two pastes
+ * after it landed nothing, and the log could only say which calls ran. Now:
+ * a member copied from the zip card and pasted in the folder lands, and the
+ * log holds an `op` line for the copy (count, zip member, how long, which
+ * way) and one for the paste (where, what landed). With the Windows write
+ * held for 5 s (`__e2eClipWrite`, the fake clipboard's delay), a paste
+ * straight after still lands at once, from Prism's own record. A file that
+ * vanished between copy and paste fails: the log has the failed paste with
+ * its reason, and the exact note the user was shown, and `npm run diag`
+ * lists both as problems.
+ */
+async function opOutcomeLogScenario(fixtures) {
+  console.log('every file operation logs its outcome; paste never waits on the Windows clipboard (#484)')
+  const AdmZip = (await import('adm-zip')).default
+  const dir = join(fixtures, 'opoutcomelog')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const zip = new AdmZip()
+  for (const n of ['alpha.txt', 'beta.txt', 'gamma.txt']) zip.addFile(n, Buffer.from(`${n} from the zip\n`))
+  zip.writeZip(join(dir, 'members.zip'))
+  writeFileSync(join(dir, 'notes.txt'), 'beside the zip\n')
+  writeFileSync(join(dir, 'gone.txt'), 'about to vanish\n')
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const card = '[data-browse-preview] [data-archive-card]'
+  const cardRow = (name) => win.locator(`${card} [data-archive-row="${name}"]`)
+  const ops = () => readDiag().filter((l) => l.k === 'op')
+  const opLine = (fn, ms = 10000) => until(() => ops().find(fn) ?? false, ms, 100)
+  const dialogText = async () => (await win.locator('[role="dialog"]').allTextContents().catch(() => [])).join(' | ')
+  const showCard = async (why) => {
+    await zipRow(win, 'members.zip').click()
+    ok(await until(async () => (await cardRow('beta.txt').count()) === 1, 15000), `${why}: the zip previews as its card`)
+    await sleep(300)
+  }
+  const pasteInFolder = async () => {
+    await listRow(win, 'notes.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+v')
+  }
+  try {
+    await explorerAt(win, dir)
+    await showCard('first')
+
+    // A MEMBER COPIED AND PASTED: it lands, and both ends are in the log.
+    await cardRow('alpha.txt').click()
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'Ctrl+C in the card puts the member on the clipboard')
+    await pasteInFolder()
+    ok(await until(() => existsSync(join(dir, 'alpha.txt')), 20000, 150), 'pasted in the folder, the member lands')
+    const copy = await opLine((l) => l.op === 'copy' && l.n === 1 && l.ok === true)
+    ok(
+      !!copy && copy.source === 'zip-member' && typeof copy.ms === 'number' && !!copy.via && /alpha\.txt$/.test(copy.paths?.[0] ?? ''),
+      `the log has the copy: one zip member, how long, which way (${JSON.stringify(copy)})`
+    )
+    const paste = await opLine((l) => l.op === 'paste' && l.landed === 1)
+    ok(
+      !!paste && paste.ok === true && paste.to === dir && paste.n === 1 && paste.failed === 0 && !!paste.source,
+      `the log has the paste: where to, one asked, one landed, where from (${JSON.stringify(paste)})`
+    )
+
+    // THE WINDOWS WRITE HELD FOR 5 s (#484's 10 s hang): paste does not wait.
+    await app.evaluate(() => {
+      globalThis.__e2eClipWrite = { delayMs: 5000 }
+    })
+    await showCard('before the slow copy')
+    await cardRow('beta.txt').click()
+    const pressed = Date.now()
+    await win.keyboard.press('Control+c')
+    await sleep(150)
+    await pasteInFolder()
+    const landedFast = await until(() => existsSync(join(dir, 'beta.txt')), 3500, 50)
+    ok(landedFast, `while the Windows write is slow, the paste lands the member at once (${Date.now() - pressed} ms after Ctrl+C)`)
+    const slowPaste = await opLine((l) => l.op === 'paste' && l.landed === 1 && l.why === 'write-pending')
+    ok(
+      !!slowPaste && slowPaste.source === 'prism',
+      `that paste came from Prism's own record, the write still pending (${JSON.stringify(ops().filter((l) => l.op === 'paste').at(-1))})`
+    )
+    const slowCopy = await opLine((l) => l.op === 'copy' && l.ok === true && l.ms >= 4500, 12000)
+    ok(!!slowCopy, `and the copy's line says how long the write took (${JSON.stringify(ops().filter((l) => l.op === 'copy').at(-1))})`)
+    await app.evaluate(() => {
+      delete globalThis.__e2eClipWrite
+    })
+
+    // A FILE THAT VANISHED between copy and paste: the paste fails, and the
+    // log says why and what the user was told.
+    await listRow(win, 'gone.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+c')
+    ok(!!(await opLine((l) => l.op === 'copy' && /gone\.txt$/.test(l.paths?.[0] ?? ''))), 'the copy of gone.txt is logged')
+    rmSync(join(dir, 'gone.txt'))
+    await sleep(400)
+    await pasteInFolder()
+    ok(
+      await until(async () => (await dialogText()).includes('Nothing could be pasted here.'), 10000),
+      `the user is told nothing could be pasted (${await dialogText()})`
+    )
+    const failed = await opLine((l) => l.op === 'paste' && l.ok === false)
+    ok(
+      !!failed && failed.failed === 1 && failed.landed === 0 && (failed.failures ?? []).some((f) => f.name === 'gone.txt' && f.reason === 'ENOENT'),
+      `the failed paste is logged with its reason (${JSON.stringify(failed)})`
+    )
+    const note = await until(() => readDiag().find((l) => l.k === 'note' && l.text === 'Nothing could be pasted here.') ?? false, 10000, 100)
+    ok(!!note && note.op === 'paste' && note.level === 'error', `and the note's exact text, from the paste (${JSON.stringify(note)})`)
+    await win.keyboard.press('Escape')
+
+    // `npm run diag` lists them as problems.
+    const out = execFileSync(process.execPath, [join(ROOT, 'tools', 'diag.mjs'), '--dir', DIAG_DIR], { encoding: 'utf8' })
+    ok(/op\s+paste FAILED/.test(out), `npm run diag shows the failed paste as a problem (${out.slice(-600)})`)
+    ok(/note\s+.*Nothing could be pasted here\./.test(out), 'and the note')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function explorerVerbsScenario(fixtures) {
   console.log('explorer verbs without the action row')
   const dir = join(fixtures, 'verbs')
@@ -20933,6 +21052,9 @@ function collectStalls(scenario) {
   const said = new Map(lines.filter((l) => l.k === 'lag-profile').map((l) => [l.profile, l]))
   for (const l of lines) {
     const err = DIAG_ERROR_KINDS.has(l.k)
+    // An operation's outcome is not a stall: its `ms` is how long the work
+    // (or a clipboard write behind it) took, off every thread that matters.
+    if (l.k === 'op') continue
     if (!err && !(typeof l.ms === 'number' && l.ms >= 1000)) continue
     const made = scenario === 'diagLog' && (['page-stall', 'page-stack', 'page-error', 'page-rejection'].includes(l.k) || l.ch === 'e2e:slow-ipc' || (l.k === 'main-lag' && MADE_LAGS.has(l.t)))
     stalls.push({ scenario, kind: l.k === 'crumb' ? `crumb ${l.a}` : l.k, ms: typeof l.ms === 'number' ? l.ms : null, detail: stallDetail(l, said.get(l.profile)), expected: made })
@@ -21083,6 +21205,7 @@ await run(placedTipsScenario)
 await run(sizesKeptScenario)
 await run(explorerVerbsScenario)
 await run(pasteProgressScenario)
+await run(opOutcomeLogScenario)
 await run(propertiesWindowScenario)
 await run(photoInfoKeyScenario)
 await run(imageSaveCopyScenario)
