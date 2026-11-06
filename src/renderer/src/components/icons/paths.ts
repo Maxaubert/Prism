@@ -24,8 +24,10 @@ export const PATHS = {
   tickWide: 'M4.5 12.5l5 5 10-11',
   /** A theme card's and the first run's chosen mark. */
   check: 'M5 13l4 4L19 7',
-  /** The tree's folder silhouette, drawn filled. */
-  folderFill: 'M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z',
+  /** The tree's folder silhouette, drawn filled. 17 units tall and 21 wide, so
+   *  it weighs as much as a file's 22.5-unit page beside it (owner, 2026-11-06:
+   *  the 13-unit folder read smaller than the file icons). */
+  folderFill: 'M1.5 3.5h7.2l2.4 3h11.4v14H1.5z',
   /** The rounded folder outline (a tab, Settings' Explorer rows). */
   folderRound:
     'M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z',
