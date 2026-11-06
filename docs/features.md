@@ -1203,6 +1203,14 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   Up or a crumb to the folder holding it marks the zip (the way out) and, with the pane on, its
   card returns (`lib/wayOutPreview.ts`, judged once per arrival in `useFolderBrowsing`). Only the
   way out, only a file row: out of a folder the pane stays empty. `zipPreviewBack` e2e.
+  THE CARD'S ROWS ARE CLICKED (#483; owner, 2026-11-06, of a zip whose card "nothing in the preview
+  panel responds to a click"): a row under "Inside" is a button with the list's hover. A folder (or
+  a zip inside the zip) goes into the zip at that folder, the Explorer walking there; a file opens
+  in full view, the Explorer behind it at the folder inside the zip that holds it, as a
+  double-click on that row inside the zip does (`browse/archiveCardRow.ts`, tested). Before, the
+  rows were static text drawn like rows. Open / Extract here / Extract to... were checked with
+  the owner's own zip and order (a PDF beside it previewed first): nothing covers them and each
+  does its work. `zipPreviewClicks` e2e (hit-test every frame, then a held click on each).
 - **Archive viewer** (2026-08-22, #68; since #300 the PHONE's only, the desktop's is above): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),
