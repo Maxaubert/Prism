@@ -51,6 +51,9 @@ export type ArchiveCardMenu = (
   open: (path: string) => void
 ) => MenuItem[]
 
+/** Ctrl+C in the zip card (#483): the picked rows, as the menu's Copy. */
+export type ArchiveCardCopy = (paths: string[], meta: ArchiveMeta, folders: ReadonlySet<string>) => void
+
 export interface ArchiveActionDeps {
   navigate: (path: string) => void
   openNewTab: (path: string, isFolder: boolean) => void

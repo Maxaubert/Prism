@@ -1210,7 +1210,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   to extract and so on"). The Explorer never moves for a click in the card. A click selects a row
   in the list's look; Ctrl toggles, Shift ranges from the last click; Up, Down, Enter and Backspace
   work in it (`browse/archiveCardNav.ts`, tested; the card's list owns its plain keys in
-  `useAppKeys`, so F2 or Delete never reach the zip). A double-click (or Enter) on a folder, or a
+  `useAppKeys`, so F2 or Delete never reach the zip; Ctrl+A picks every row, Ctrl+C copies the
+  picked members and Ctrl+X/V do nothing there, where they used to cut or copy the zip itself). A double-click (or Enter) on a folder, or a
   zip inside the zip, goes INTO it in the card: the caption says where ("Inside, in a\b"), an Up
   glyph before it and Backspace come back, and a long folder scrolls in the card (one
   `archive:summary` with `level`, up to 5,000 rows, off-screen rows not laid out). A double-click
@@ -1225,7 +1226,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   here / Extract to... on the card are unchanged, checked with the owner's own zip and order (a
   PDF beside it previewed first): nothing covers them and each does its work. `zipPreviewClicks`
   e2e (hit-test every frame, no window-drag region over the card, the clicks, keys and Up, a file
-  opened and back, two members dragged onto the list and a folder and a file onto a folder row,
+  opened and back, Ctrl+A and Ctrl+C then a paste landing only the member, two members dragged onto the list and a folder and a file onto a folder row,
   refused drops, the menus; a zip of several top entries; a zip inside a zip, its member dragged
   out).
 - **Archive viewer** (2026-08-22, #68; since #300 the PHONE's only, the desktop's is above): open a `.zip` onto its manifest - the archive's own

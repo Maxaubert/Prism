@@ -105,3 +105,8 @@ export function stepPick(order: readonly string[], was: CardPick, delta: number,
 export function cardCargo(was: CardPick, name: string): string[] {
   return was.marked.includes(name) ? was.marked : [name]
 }
+
+/** The Ctrl chords the card's list keeps for itself: Ctrl+A picks every row,
+ *  Ctrl+C copies the picked members, Ctrl+X and Ctrl+V are inert. Reaching
+ *  the app they acted on the ZIP behind the card (a cut of the zip). */
+export const CARD_CHORDS: ReadonlySet<string> = new Set(['a', 'c', 'x', 'v'])

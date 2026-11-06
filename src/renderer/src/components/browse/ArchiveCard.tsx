@@ -18,8 +18,9 @@ import { extOf, pathKey } from '@shared/path'
 import { DRAG_MIME, setDrag } from '../../lib/drag/dragDrop'
 import { noteReady } from '../../lib/drag/dragOut'
 import { ContextMenu, type MenuItem } from '../ContextMenu'
-import type { ArchiveCardMenu } from './useArchiveActions'
+import type { ArchiveCardCopy, ArchiveCardMenu } from './useArchiveActions'
 import {
+  CARD_CHORDS,
   NO_PICK,
   cardCaption,
   cardCargo,
@@ -65,7 +66,8 @@ export function ArchiveCard({
   onExtractHere,
   onExtractTo,
   onOpenMember,
-  menu
+  menu,
+  onCopyMembers
 }: {
   path: string
   name: string
@@ -78,6 +80,8 @@ export function ArchiveCard({
   onOpenMember?: (place: string) => void
   /** The right-click's rows for the picked rows (#483). */
   menu?: ArchiveCardMenu
+  /** Ctrl+C on the picked rows (#483): the zip's own member Copy. */
+  onCopyMembers?: ArchiveCardCopy
 }): JSX.Element {
   const [summary, setSummary] = useState<{ path: string; got: ArchiveSummary } | null>(null)
   useEffect(() => {
@@ -180,11 +184,27 @@ export function ArchiveCard({
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
-    if (e.ctrlKey || e.altKey || e.metaKey) return
     const claim = (): void => {
       e.preventDefault()
       e.stopPropagation()
     }
+    // THE CARD'S CHORDS (#483): they act on its picked rows, never on the
+    // zip behind it (`useAppKeys` leaves them here). Ctrl+A picks every row,
+    // Ctrl+C copies the members, Ctrl+X and Ctrl+V do nothing in a zip.
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && CARD_CHORDS.has(e.key.toLowerCase())) {
+      claim()
+      const key = e.key.toLowerCase()
+      if (key === 'a' && order.length)
+        setPick({ marked: order, anchor: order[0], cursor: pick.cursor ?? order[0] })
+      else if (key === 'c' && onCopyMembers && placeMeta && pick.marked.length) {
+        const byName = new Map(rows.map((r) => [r.name, r]))
+        const paths = pick.marked.map(placeOfRow)
+        const folders = new Set(pick.marked.filter((n) => byName.get(n)?.dir).map(placeOfRow))
+        onCopyMembers(paths, placeMeta, folders)
+      }
+      return
+    }
+    if (e.ctrlKey || e.altKey || e.metaKey) return
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       claim()
       const next = stepPick(order, pick, e.key === 'ArrowDown' ? 1 : -1, e.shiftKey)
