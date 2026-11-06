@@ -19570,7 +19570,8 @@ async function folderOpenRunningScenario(fixtures) {
 
 /**
  * WIN+E WHILE PRISM RUNS, THE RISKY PATHS (step 2 review, 2026-10-29):
- * - two presses at once: two requests pending and two windows loading
+ * - two presses at once (for two folders; the same place rides on one
+ *   window since 2026-11-06): two requests pending and two windows loading
  *   together, each answered by its own window;
  * - a window closed before it answers lets go of the helper's pipe at once
  *   (it opened File Explorer 45 s later, with no visible cause);
@@ -19602,7 +19603,12 @@ async function winERunningEdgesScenario(fixtures) {
       servers.push(helper.server)
       pair.push({ id, ...helper })
     }
-    await Promise.all(pair.map(({ id }) => winELaunch(id, dir)))
+    // Two FOLDERS (2026-11-06): two presses for the same place now ride on
+    // one window (hotkeyRepeat), so the two-windows-at-once path is two
+    // folder-verb opens of different folders.
+    const dir2 = join(fixtures, 'folderopen', 'another folder')
+    mkdirSync(dir2, { recursive: true })
+    await Promise.all(pair.map(({ id }, i) => winELaunch(id, i ? dir2 : dir)))
     let list = []
     ok(
       await until(async () => {
@@ -19623,7 +19629,10 @@ async function winERunningEdgesScenario(fixtures) {
     const id = randomUUID()
     const helper = await winEHelper(id)
     servers.push(helper.server)
-    const launched = winELaunch(id, dir)
+    // A third folder: a press for one just opened would ride on its window.
+    const dir3 = join(fixtures, 'folderopen', 'a third folder')
+    mkdirSync(dir3, { recursive: true })
+    const launched = winELaunch(id, dir3)
     let closedAt = 0
     await until(async () => {
       closedAt = await app
