@@ -3,6 +3,7 @@ import type { ArchiveMeta, ViewerFile } from '@shared/types'
 import { memberOf } from '@shared/archivePlace'
 import { baseName, parentDir } from '@shared/path'
 import { archiveMenuRows, type ArchiveRow, type ArchiveRowId } from '../../menus/archiveMenus'
+import { archiveCardMenuRows } from '../../menus/archiveCardMenu'
 import { archivePassword } from '../../lib/archivePass'
 import { copyFilePaths } from '../../lib/fileClipboard'
 import { clipboardText } from '../../lib/clipboardText'
@@ -33,6 +34,25 @@ const ICONS: Record<ArchiveRowId, FileMenuIconName> = {
   show: 'folder',
   properties: 'properties'
 }
+
+const menuItem = (row: ArchiveRow, onPick: () => void): MenuItem => ({
+  label: row.label,
+  hint: row.hint,
+  danger: row.danger,
+  icon: <FileMenuIcon name={ICONS[row.id]} />,
+  onPick
+})
+
+/** What the zip card's right-click is handed (#483): the picked rows as
+ *  places, which of them are folders, and what Open does there. */
+export type ArchiveCardMenu = (
+  target: { paths: string[]; folders: ReadonlySet<string> },
+  meta: ArchiveMeta,
+  open: (path: string) => void
+) => MenuItem[]
+
+/** Ctrl+C in the zip card (#483): the picked rows, as the menu's Copy. */
+export type ArchiveCardCopy = (paths: string[], meta: ArchiveMeta, folders: ReadonlySet<string>) => void
 
 export interface ArchiveActionDeps {
   navigate: (path: string) => void
@@ -70,6 +90,8 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
      *  and opens a file there, rather than walking the Explorer. */
     open?: (entry: BrowseEntry) => void
   ) => MenuItem[] | null
+  /** The zip card's rows (#483): the member verbs on what the card picked. */
+  cardMenu: ArchiveCardMenu
   rename: (entry: BrowseEntry, meta: ArchiveMeta) => void
   remove: (paths: string[], meta: ArchiveMeta) => void
   copy: (paths: string[], meta: ArchiveMeta, folders: ReadonlySet<string>) => void
@@ -253,13 +275,7 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
       open?: (entry: BrowseEntry) => void
     ): MenuItem[] | null => {
       const { entry } = target
-      const item = (row: ArchiveRow, onPick: () => void): MenuItem => ({
-        label: row.label,
-        hint: row.hint,
-        danger: row.danger,
-        icon: <FileMenuIcon name={ICONS[row.id]} />,
-        onPick
-      })
+      const item = menuItem
       // An archive's own row OUTSIDE it (mockup 02).
       if (!meta) {
         if (!entry?.file || entry.file.kind !== 'archive' || entry.file.member) return null
@@ -380,6 +396,31 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
     [addFiles, copy, extract, extractWhole, remove, rename, setOops]
   )
 
+  const cardMenu = useCallback<ArchiveCardMenu>(
+    ({ paths, folders }, meta, open) => {
+      if (!paths.length) return []
+      const context =
+        paths.length > 1
+          ? { kind: 'many' as const, count: paths.length, zip: meta.display }
+          : { kind: folders.has(paths[0]) ? ('folder' as const) : ('file' as const), zip: meta.display }
+      return archiveCardMenuRows(context).map((row) =>
+        menuItem(row, () => {
+          switch (row.id) {
+            case 'open':
+              return open(paths[0])
+            case 'extract-here':
+              return extract(meta, paths, true, folders)
+            case 'extract-to':
+              return extract(meta, paths, false, folders)
+            case 'copy':
+              return copy(paths, meta, folders)
+          }
+        })
+      )
+    },
+    [copy, extract]
+  )
+
   const dialogs = (
     <>
       {ops.dialogs}
@@ -400,5 +441,5 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
     </>
   )
 
-  return { menu, rename, remove, copy, extractWhole, drop, done, dialogs }
+  return { menu, cardMenu, rename, remove, copy, extractWhole, drop, done, dialogs }
 }

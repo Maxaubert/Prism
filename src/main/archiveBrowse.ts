@@ -57,6 +57,10 @@ import { AUTO_PREVIEW_BYTES, type MemberTemp } from './memberTemp'
  *  nothing, so past 64 MB it is the cheaper of the two. */
 export const SEVEN_LIST_BYTES = 64 * 1024 * 1024
 
+/** The most rows one archive card answer carries (#483); past it the card
+ *  says how many more there are. */
+export const CARD_ROWS = 5000
+
 /** Unpacks running at once. Each in-app one reads the WHOLE container (up to
  *  `SEVEN_LIST_BYTES`) and each 7-Zip one is a process, so arrowing through a
  *  zip with the preview open fired one per row, all at once (review of #300:
@@ -512,8 +516,16 @@ export function createArchiveBrowse(deps: ArchiveBrowseDeps) {
       }
       return result
     },
-    /** What the archive card shows (#300): totals and the top two levels. */
-    async summary(path: string): Promise<
+    /**
+     * What the archive card shows (#300): totals and one level. Asked for the
+     * archive itself, a lone top folder is gone into ("Inside, in <top>").
+     * With `level` (#483, the card browsing inside itself) it is exactly the
+     * level named: a folder, or a zip inside the zip.
+     */
+    async summary(
+      path: string,
+      level = false
+    ): Promise<
       | {
           ok: true
           meta: ArchiveMeta
@@ -521,23 +533,27 @@ export function createArchiveBrowse(deps: ArchiveBrowseDeps) {
            *  there is. */
           top: string | null
           rows: Array<{ name: string; dir: boolean; size: number }>
+          more: number
         }
       | { ok: false; reason: PlaceFail }
     > {
       const r = await resolvePlace(path)
       if (!r) return { ok: false, reason: 'failed' }
       if (!r.ok) return { ok: false, reason: r.reason }
-      let level = levelOf(r.place.parsed.entries, r.place.inner)
+      if (r.place.entry && !r.place.entry.dir) return { ok: false, reason: 'missing' }
+      let at = levelOf(r.place.parsed.entries, r.place.inner)
       let top: string | null = null
-      if (level.folders.length === 1 && !level.files.length) {
-        top = level.folders[0].name
-        level = levelOf(r.place.parsed.entries, level.folders[0].path)
+      if (!level && at.folders.length === 1 && !at.files.length) {
+        top = at.folders[0].name
+        at = levelOf(r.place.parsed.entries, at.folders[0].path)
       }
-      const rows = [
-        ...level.folders.sort(byName).map((f) => ({ name: f.name, dir: true, size: f.size })),
-        ...level.files.sort(byName).map((f) => ({ name: f.name, dir: false, size: f.size }))
-      ].slice(0, 200)
-      return { ok: true, meta: meta(r.place), top, rows }
+      const all = [
+        ...at.folders.sort(byName).map((f) => ({ name: f.name, dir: true, size: f.size })),
+        ...at.files.sort(byName).map((f) => ({ name: f.name, dir: false, size: f.size }))
+      ]
+      // The card's list scrolls (#483): a folder of thousands is one answer.
+      const rows = all.slice(0, CARD_ROWS)
+      return { ok: true, meta: meta(r.place), top, rows, more: all.length - rows.length }
     }
   }
 }

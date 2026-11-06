@@ -557,9 +557,17 @@ export function useFolderBrowsing(
   }, [id, path, setState])
   // Tree paths share the same last-action-wins sequence as folder and preview opens.
   // `judged`: the marked row this open was decided on (the way out of a zip);
-  // a tab that marks another by the time it lands keeps that one.
+  // a tab that marks another by the time it lands keeps that one. `keep`: the
+  // list's selection is left as it is (#483: a member opened from the zip's
+  // card, the zip staying the row picked behind the viewer).
   const openFile = useCallback(
-    async (file: ViewerFile | string, full = true, play = true, judged: string | null = null) => {
+    async (
+      file: ViewerFile | string,
+      full = true,
+      play = true,
+      judged: string | null = null,
+      keep = false
+    ) => {
       if (!id || !path) return
       const request = (serial.current.get(id) ?? 0) + 1
       serial.current.set(id, request)
@@ -608,7 +616,9 @@ export function useFolderBrowsing(
           parent ? navigateBrowse(s.tabs, id, parent) : s.tabs,
           id,
           filePath,
-          marksAtAsk !== (marked.current.get(id) ?? 0) || (judged !== null && selectionMoved(s.tabs, id, judged))
+          keep ||
+            marksAtAsk !== (marked.current.get(id) ?? 0) ||
+            (judged !== null && selectionMoved(s.tabs, id, judged))
         ).map((t) =>
           t.id === id
             ? {
