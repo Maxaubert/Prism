@@ -139,7 +139,24 @@ export const OP_CHANNELS: Record<string, { op: (a: unknown[]) => string; args: (
     // a[0] is the picture's bytes: never logged.
     args: (a) => defined({ name: str(a[1]), format: str(a[2]), from: str(a[3]) })
   },
-  [CALL.dragOut]: { op: () => 'drag-out', args: () => ({}) }
+  [CALL.dragOut]: { op: () => 'drag-out', args: () => ({}) },
+  // The press that extracts a zip's members ahead of a drag out (#103), and
+  // a member pulled out for a copy or a view: the first half of the owner's
+  // "copying from zip" (review, 2026-11-06).
+  [CALL.dragPrepare]: {
+    op: () => 'drag-prepare',
+    args: (a) => {
+      const req = (a[0] ?? {}) as { kind?: unknown; archive?: unknown; entries?: unknown; paths?: unknown }
+      return req.kind === 'members'
+        ? defined({ zip: str(req.archive), ...pathsField(req.entries) })
+        : defined({ ...pathsField(req.paths) })
+    }
+  },
+  [CALL.archiveExtract]: {
+    op: () => 'extract-member',
+    // a[2] is the password: never logged.
+    args: (a) => defined({ zip: str(a[0]), entry: str(a[1]) })
+  }
 }
 
 const reasonOf = (e: unknown): string => (e instanceof Error ? e.message : String(e)).slice(0, 200)

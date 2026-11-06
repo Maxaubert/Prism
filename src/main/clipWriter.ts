@@ -38,11 +38,20 @@ export interface ClipWrite {
 
 export function createClipWriter<R>(
   write: (req: R, signal: AbortSignal) => Promise<ClipAttempt>,
-  opts: { now?: () => number; retries?: number; retryable?: (reason: string | undefined) => boolean } = {}
+  opts: {
+    now?: () => number
+    retries?: number
+    retryable?: (reason: string | undefined) => boolean
+    /** Asked before a retry: false when a second write would do harm (the
+     *  clipboard changed outside Prism since the copy began, and the retry
+     *  would overwrite what the user copied there). */
+    retryIf?: (req: R) => boolean
+  } = {}
 ): { write(req: R): Promise<ClipWrite> } {
   const now = opts.now ?? Date.now
   const retries = opts.retries ?? 1
   const retryable = opts.retryable ?? (() => true)
+  const retryIf = opts.retryIf ?? (() => true)
   let running: { stop: AbortController; done: Promise<unknown> } | null = null
 
   const attempt = (req: R, signal: AbortSignal): Promise<ClipAttempt> =>
@@ -76,7 +85,7 @@ export function createClipWriter<R>(
           attempts += 1
           last = await attempt(req, stop.signal)
           if (stop.signal.aborted) return superseded(last.via, attempts)
-          if (last.ok || !retryable(last.reason) || attempts > retries) break
+          if (last.ok || !retryable(last.reason) || attempts > retries || !retryIf(req)) break
           first ??= last
         }
         return {

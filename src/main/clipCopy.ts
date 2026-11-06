@@ -20,5 +20,14 @@ export interface ClipRequest {
 export const clipWriter = createClipWriter<ClipRequest>(
   (r, signal) => copyWindowsFiles(r.paths, r.cut, r.text, r.token, signal),
   // A source that is gone will not be back for a second try.
-  { retryable: (reason) => reason !== 'Source no longer exists' && reason !== 'No files to copy' }
+  {
+    retryable: (reason) => reason !== 'Source no longer exists' && reason !== 'No files to copy',
+    // Retry only while this is still Prism's newest copy and nothing was
+    // copied outside Prism since it began: a retry 10 s on would otherwise
+    // overwrite what the user copied in another app meanwhile.
+    retryIf: (r) => {
+      const c = ownClip.latest()
+      return !!c && c.id === r.token && ownClip.unchanged()
+    }
+  }
 )

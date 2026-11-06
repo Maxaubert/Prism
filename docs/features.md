@@ -15,7 +15,7 @@ said what they answered or what the user was told.
   (`copy`, `cut`, `copy-address`, `paste`, `cut-paste`, `drop-copy`, `move`, `rename`, `trash`, `restore`,
   `new-folder`, `undo-new-folder`, `duplicate`, `save-text`, `save-copy`, `save-copies`, `zip-add`,
   `zip-move`, `zip-rename`, `zip-delete`, `zip-to-zip`, `extract-to`, `extract-here`, `extract-all`,
-  `extract-picked`, `extract-folder`, `member-out`, `drag-out`), `ok`, what it was asked (`n` and the first
+  `extract-picked`, `extract-folder`, `extract-member`, `member-out`, `drag-prepare`, `drag-out`), `ok`, what it was asked (`n` and the first
   five `paths`, `to`/`into`/`zip`), what `landed`, what `failed` with each item's reason (`failures`:
   ENOENT, EBUSY, "into itself"), `refused`/`empty`/`canceled`, and `ms`. A copy says where its files are
   (`source`: `disk` or `zip-member`), which way it reached the clipboard (`via`), in how many `attempts`,
@@ -36,7 +36,8 @@ said what they answered or what the user was told.
 - **Paste uses Prism's own copy** (`src/main/ownClipboard.ts`, `clipCopy.ts`): main records the newest
   copy (paths, cut) the moment it arrives and answers at once; the Windows write runs behind it
   (`clipWriter.ts`: one at a time, a newer copy stops the older write, one retry unless the source is
-  gone). A paste answers from the record when the clipboard holds Prism's token (`Prism.FileCopy`, in the
+  gone or the clipboard changed outside Prism meanwhile, which the retry would overwrite). An older
+  Prism copy's stuck write landing late counts as Prism's, not as "changed outside". A paste answers from the record when the clipboard holds Prism's token (`Prism.FileCopy`, in the
   same data object), or when the write is still running or failed and the clipboard has not changed since
   the copy began. Only a clipboard changed outside Prism is read from Windows. A cut moves once. The
   page's copies no longer queue behind each other (`lib/fileClipboard.ts`).

@@ -122,4 +122,21 @@ describe('Prism pastes its own copy (#484)', () => {
     own.begin(['C:\\a.txt'], false)
     expect(own.source()).toMatchObject({ from: 'prism', why: 'write-pending' })
   })
+  it('an OLDER Prism copy landing late (its stuck write ended after a newer copy began) is not "changed outside": the newest copy pastes (review, 2026-11-06)', () => {
+    const view = fakeView()
+    const own = createOwnClipboard(() => view)
+    const a = own.begin(['C:\\old.txt'], false)
+    own.begin(['C:\\new.txt'], false)
+    landed(view, a.id)
+    expect(own.source()).toMatchObject({ from: 'prism', paths: ['C:\\new.txt'], why: 'write-pending' })
+    expect(own.unchanged()).toBe(true)
+  })
+
+  it('a clipboard changed outside Prism after the copy began is not unchanged', () => {
+    const view = fakeView()
+    const own = createOwnClipboard(() => view)
+    own.begin(['C:\\a.txt'], false)
+    view.set(['text/plain'], 'copied in a browser since')
+    expect(own.unchanged()).toBe(false)
+  })
 })

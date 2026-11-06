@@ -156,6 +156,21 @@ describe('what an operation answered, as one log line (owner, 2026-11-06)', () =
     ])
   })
 
+  it('a drag out of a zip and a member pulled out for a copy are operations too (review, 2026-11-06)', () => {
+    const prep = OP_CHANNELS[CALL.dragPrepare]
+    expect(prep.op([{ kind: 'members', archive: 'C:\\z.zip', entries: ['a.txt'], places: ['a.txt'] }])).toBe('drag-prepare')
+    expect(prep.args([{ kind: 'members', archive: 'C:\\z.zip', entries: ['a.txt', 'b'], places: ['a.txt', 'b'] }])).toEqual({
+      zip: 'C:\\z.zip',
+      n: 2,
+      paths: ['a.txt', 'b']
+    })
+    expect(prep.args([{ kind: 'files', paths: ['C:\\a.txt'] }])).toEqual({ n: 1, paths: ['C:\\a.txt'] })
+    expect(opResult({ ok: false, reason: 'budget' })).toEqual({ ok: false, reason: 'budget' })
+    const member = OP_CHANNELS[CALL.archiveExtract]
+    expect(member.op(['C:\\z.zip', 'a.txt', 'hunter2'])).toBe('extract-member')
+    expect(JSON.stringify(member.args(['C:\\z.zip', 'a.txt', 'hunter2']))).not.toContain('hunter2')
+  })
+
   it('an extract here and an extract to a picked folder are told apart', () => {
     expect(OP_CHANNELS[CALL.archiveExtractAll].op(['C:\\z.zip', true])).toBe('extract-here')
     expect(OP_CHANNELS[CALL.archiveExtractAll].op(['C:\\z.zip'])).toBe('extract-all')

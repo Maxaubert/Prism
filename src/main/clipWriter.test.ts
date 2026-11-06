@@ -65,6 +65,18 @@ describe('the Windows clipboard write runs one at a time, newest wins (#484)', (
     expect(h.calls).toHaveLength(1)
   })
 
+  it('a failed write is not retried once the clipboard changed outside Prism: the retry would overwrite what the user copied since (review, 2026-11-06)', async () => {
+    const h = handWriter()
+    let changed = false
+    const w = createClipWriter<Req>(h.write, { now: () => 0, retryIf: () => !changed })
+    const done = w.write({ name: 'a' })
+    await tick()
+    changed = true
+    h.calls[0].answer({ ok: false, reason: 'timeout', via: PS })
+    expect(await done).toMatchObject({ ok: false, attempts: 1, reason: 'timeout' })
+    expect(h.calls).toHaveLength(1)
+  })
+
   it('a newer copy stops the one still writing, and only the newest reaches the clipboard', async () => {
     const h = handWriter()
     const w = createClipWriter<Req>(h.write, { now: () => 0 })
