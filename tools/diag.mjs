@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // READ THE DIAGNOSTICS LOG (#140): the newest problems (stalls, errors, slow
-// calls, marks), each with the crumbs that came just before it, so "it
+// calls, marks, failed file operations and the notes that said so), each with
+// the crumbs and operations that came just before it, so "it
 // stalled just now" is answered from the log rather than from memory.
 // Prism writes %APPDATA%\Prism\logs\diag.jsonl (the core's diagLog); schema in
 // packages/term-core/README.md.
@@ -17,34 +18,12 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { AGENT, isContext, isProblem, noteSummary, opSummary } from './lib/diagProblems.mjs'
 
 const APPS = { prism: 'Prism' }
-/** A problem is any of these, or an app's own `-slow` kind. */
-const PROBLEMS = new Set([
-  'main-lag',
-  'fs-slow',
-  'mem-high',
-  'ipc-slow',
-  'ipc-error',
-  'page-stall',
-  'page-stack',
-  'page-error',
-  'page-rejection',
-  'main-error',
-  'main-rejection',
-  'gone',
-  'unresponsive',
-  'logger-error',
-  'logger-dropped',
-  'mark'
-])
-/** The agent indicator's record (#152): not problems, the context for one. */
-const AGENT = new Set(['agent-hook', 'agent-title', 'agent-mark', 'agent-restore'])
 /** The crumbs and lines an agent timeline (`--agent`) shows beside them. */
 const AGENT_CRUMBS = new Set(['tab-open', 'tab-close', 'tab-switch', 'shell-spawn', 'shell-exit'])
 const inAgentTimeline = (l) => AGENT.has(l.k) || l.k === 'session' || l.k === 'quit' || l.k === 'mark' || (l.k === 'crumb' && AGENT_CRUMBS.has(l.a))
-/** Context shown before a problem: the crumbs, and the marks' moves. */
-const isContext = (l) => l.k === 'crumb' || l.k === 'agent-mark' || l.k === 'agent-restore'
 const CRUMBS_BEFORE = 5
 /** A crumb older than this before a problem says nothing about it. */
 const CRUMB_WINDOW_MS = 120_000
@@ -105,8 +84,6 @@ function readLines(dir) {
   return lines.sort((a, b) => a._ms - b._ms)
 }
 
-const isProblem = (l) => PROBLEMS.has(l.k) || /-slow$/.test(l.k)
-
 function clock(ms) {
   const d = new Date(ms)
   const p = (n, w = 2) => String(n).padStart(w, '0')
@@ -137,6 +114,10 @@ function summary(l) {
     case 'main-error':
     case 'main-rejection':
       return `${l.msg}${l.loc ? ` at ${l.loc}` : ''}${l.repeats ? ` (and ${l.repeats} more like it)` : ''}${l.stack ? `\n${indent(l.stack, 6)}` : ''}`
+    case 'op':
+      return opSummary(l)
+    case 'note':
+      return noteSummary(l)
     case 'mark':
       return l.note ? `"${l.note}"` : '(no note)'
     case 'crumb': {
@@ -209,7 +190,7 @@ function main() {
   const crumbs = all.filter(isContext)
   for (const p of problems) {
     console.log(`${clock(p._ms)}  ${String(p.src ?? '?').padEnd(4)}  ${p.k.padEnd(14)}  ${summary(p)}`)
-    const before = crumbs.filter((c) => c._ms <= p._ms && c._ms >= p._ms - CRUMB_WINDOW_MS).slice(-CRUMBS_BEFORE)
+    const before = crumbs.filter((c) => c !== p && c._ms <= p._ms && c._ms >= p._ms - CRUMB_WINDOW_MS).slice(-CRUMBS_BEFORE)
     for (const c of before) console.log(`      ${((c._ms - p._ms) / 1000).toFixed(1).padStart(6)}s  ${c.src}  ${summary(c)}`)
     console.log('')
   }

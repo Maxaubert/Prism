@@ -36,11 +36,13 @@ export function fakeFiles(): FakeClip['files'] {
   return clip.files
 }
 
-/** A file copy: the paths (and, for "Copy address", the path as text). */
-export function fakeCopyFiles(paths: string[], cut: boolean, text?: string): void {
+/** A file copy: the paths (and, for "Copy address", the path as text), and
+ *  Prism's own token under its format, as the real write puts it (#484). */
+export function fakeCopyFiles(paths: string[], cut: boolean, text?: string, token?: { format: string; id: string }): void {
   reset()
   clip.files = { paths: [...paths], cut }
   if (text) clip.text = text
+  if (token) clip.buffers.set(token.format, Buffer.from(token.id, 'utf8'))
 }
 
 export function fakeText(): string {

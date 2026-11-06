@@ -393,7 +393,7 @@ export default function App(): JSX.Element {
     (then: () => void): void =>
       void saveAll().then((failed) => {
         if (failed.length) {
-          setAsk({ kind: 'failed', message: `Couldn't save ${failed.map(baseName).join(', ')}.` })
+          setAsk({ kind: 'failed', message: `Couldn't save ${failed.map(baseName).join(', ')}.`, op: 'save-text' })
           return
         }
         setAsk(null)
@@ -840,7 +840,7 @@ export default function App(): JSX.Element {
   const [browseProps, setBrowseProps] = useState<(BrowseEntry & { drive?: BrowseDriveUsage }) | null>(null)
   const refreshFiles = useCallback(() => setRefreshKey((key) => key + 1), [])
   const reportPasteError = useCallback(
-    (message: string) => setAsk({ kind: 'failed', message }),
+    (message: string) => setAsk({ kind: 'failed', message, op: 'paste' }),
     []
   )
   const pasteFiles = useFilePaste(refreshFiles, reportPasteError)
@@ -916,6 +916,7 @@ export default function App(): JSX.Element {
       if (pins.some((pin) => pin === null))
         setAsk({
           kind: 'failed',
+          op: 'pin',
           message:
             'Some items could not be pinned. Check that they still exist and are accessible, then try again.'
         })
@@ -1276,11 +1277,11 @@ export default function App(): JSX.Element {
     void folderIconFromFile(window.prism, keptFolderIconFile)
       .then((r) => {
         if (!r) return
-        if ('refused' in r) return settle({ kind: 'failed', message: r.refused })
+        if ('refused' in r) return settle({ kind: 'failed', message: r.refused, op: 'folder-icon' })
         setFolderIcon(ask.paths, { file: r.file })
         settle(null)
       })
-      .catch(() => settle({ kind: 'failed', message: ICON_REFUSED.unreadable }))
+      .catch(() => settle({ kind: 'failed', message: ICON_REFUSED.unreadable, op: 'folder-icon' }))
       .finally(() => {
         iconFileBusy.current = false
       })

@@ -31,6 +31,10 @@ const PAGE_KINDS = new Set([
   'page-error',
   'page-rejection',
   'crumb',
+  // An operation's outcome and a note the user was shown (owner,
+  // 2026-11-06: "make sure logs are always on so you can see what happened").
+  'op',
+  'note',
   // The agent indicator's record (#152, `core/renderer/lib/agentDiag`).
   'agent-hook',
   'agent-title',

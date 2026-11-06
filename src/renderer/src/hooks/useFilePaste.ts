@@ -51,6 +51,8 @@ export function useFilePaste(
 ): (directory: string) => Promise<void> {
   return useCallback(
     async (directory: string): Promise<void> => {
+      // Main's answer to the newest copy, never the Windows clipboard write
+      // behind it (#484): main pastes from its own record of that copy.
       await fileClipboardReady()
       const cut = fileCutPaths()
       const job = startJob('paste', cut.length ? 'Moving' : 'Copying')
