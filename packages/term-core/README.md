@@ -45,6 +45,38 @@ change here is an ordinary Prism PR.
    Prism's fields are listed in its `docs/features.md`, #484.
 7. A main-side file obeys "main never waits on the disk": a `*Sync` call is marked `// sync-ok: <reason>`.
 
+## The log's kinds
+
+Every line is `{t, up, src, k, ...fields}`: `t` UTC ISO, `up` ms since the process began (`performance.now()`),
+`src` `main` or `page`. The core writes `session`, `quit`, `main-lag`, `fs-slow`, `ipc`/`ipc-slow`/`ipc-error`,
+`page-stack`, `gone`, `unresponsive`/`responsive`, `memory` crumbs and `mem-high`, `verbose`, `mark`; a page writes
+the kinds `diagIpc.ts` lets it (`page-stall`, `page-task`, `page-error`, `page-rejection`, `crumb`, `op`, `note`, an
+app's own `-slow`). `npm run diag` lists `PROBLEMS` and every `-slow` kind (`tools/lib/diagProblems.mjs`).
+
+Host fields and Prism's own kinds (owner, 2026-11-06; `docs/features.md` "Standby, the hotkey path and startup in
+the log"):
+
+- `session` + the host's `sessionFields`: Prism adds `created` (the OS start of the process, epoch ms), `bootMs`
+  (from it to this line), `reason` (`win-e`, `file`, `folder`, `plain`), `winE` (the request's first 8
+  characters), `browse`.
+- `quit` + `reason` when the host passes one to `stop(reason)`: `user`, `last-window`, `update`, `session-end`,
+  `gave-up`.
+- `page-stall` + the host's `pageInfo`: Prism adds `win` (the window's key, `w1`...), `hidden` (nobody could see
+  it; then not a problem), `spare`.
+- `standby(on)` parks the stall watch (its tick and canary timers stop). Prism writes `standby` lines: `ev`
+  `enter` (`failed` parts), `rest` (`trimmed`, `processes`, `privateMb`, `workingSetMb`, `mainMb`, `gpuMb`,
+  `pageMb`), `wake` (`why`, `restedMs`).
+- Prism's `startup` (one per launch or wake): `reason` (also `standby-wake`), `from`, the marks `ready`, `made`,
+  `readyToShow`, `shown`, `listed`, `restored`, `winEAck` as `up` ms, `shownMs`/`listedMs`/`winEMs` from `from`,
+  `partial` after 30 s, `winE`/`via` for a wake.
+- Prism's `win-e`: `ev` `received` (`path` cold/warm/standby, `via` argv/second-instance/pipe, `browse`),
+  `dispatched` (`host`, `ms`), `shown` (`ms` from received, `win`), `acked` (`ms`), `dropped` (`reason`
+  expired/window-closed), `repeat` (`action` follow/raise, `leader`), `pipe-error`. `id` is 8 characters.
+- Prism's `second-instance` (`via`, `winE`, `args`, `standby`), `lock-lost` (a process that lost the
+  single-instance lock: its `pid`, `created`, `bootMs`, `winE`), `session-end`, and the problems `raise-slow`
+  (`ms`, `showMs`, `focusMs`, `why`; over 200 ms), `spare-slow` (`phase` make/ready, `ms`, `gaveUp`) and
+  `window-make-slow` (`ms`, `win`, `spare`).
+
 CSS: the core uses Tailwind utilities and the `--p-*` tokens Prism defines. A new token needed here is added there.
 
 ## How Prism consumes it
