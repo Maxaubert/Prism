@@ -1210,7 +1210,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   double-click on that row inside the zip does (`browse/archiveCardRow.ts`, tested). Before, the
   rows were static text drawn like rows. Open / Extract here / Extract to... were checked with
   the owner's own zip and order (a PDF beside it previewed first): nothing covers them and each
-  does its work. `zipPreviewClicks` e2e (hit-test every frame, then a held click on each).
+  does its work. `zipPreviewClicks` e2e (hit-test every frame, no window-drag region over the
+  card, then a held click on each; also a zip of several top entries and a zip inside a zip).
 - **Archive viewer** (2026-08-22, #68; since #300 the PHONE's only, the desktop's is above): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),
