@@ -1402,7 +1402,8 @@ function reportTabs(sender: Electron.WebContents, state: SavedTabs): void {
 /**
  * TAB TEAR-OFF (step 3, owner, 2026-10-29; the gesture: src/main/tearOff.ts,
  * the numbers: src/shared/tabTear.ts). One hidden SPARE window is kept warm
- * (made ~2 s after startup and after each use) so a torn-off tab is in a real
+ * (made at the first quiet spell after startup and after each use, spareIdle.ts,
+ * 2026-11-06; it was a 2 s timer) so a torn-off tab is in a real
  * window under the cursor within a frame or two. Under --e2e there is a spare
  * only when the scenario asks (`PRISM_E2E_SPARE=1`): a window appearing by
  * itself 2 s in would change what every other scenario counts.
