@@ -17763,7 +17763,17 @@ async function zipPreviewClicksScenario(fixtures) {
     ok((await rowLook('README.md')) === dim, `dimmed, the list's inactive selection (${await rowLook('README.md')} vs ${dim})`)
     await cardRow('README.md').click()
     ok((await rowLook('README.md')) === full, `a click in the card brings the full tint back (${await rowLook('README.md')})`)
+    // A press on the card's bare head: in use, and the keyboard is in its rows
+    // (the look and the keys agree).
     await space()
+    await win.locator(`${card} .archive-card-head h2`).click()
+    ok((await rowLook('README.md')) === full, `a press on the card's head is in use too (${await rowLook('README.md')})`)
+    ok(
+      await win.evaluate(() => !!document.activeElement?.closest('[data-archive-card-rows]')),
+      "and the keyboard is in the card's rows"
+    )
+    await space()
+    ok((await rowLook('README.md')) === dim, `dimmed again after the list (${await rowLook('README.md')})`)
     await win.keyboard.press('Control+v')
     ok(await until(async () => existsSync(join(dir, 'README.md')), 20000, 150), 'Ctrl+V after a click on the empty space pastes the member into the folder')
     // The list's right-click Paste after it (the empty space has no menu
