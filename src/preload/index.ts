@@ -589,9 +589,10 @@ const api = {
    *  `force` is an explicit Open, past the automatic-preview limit. */
   archiveMember: (path: string, password?: string, force?: boolean): Promise<MemberAnswer> =>
     ipcRenderer.invoke(CALL.archiveMember, path, password, force),
-  /** The archive card: totals and the top of the tree (#300). */
-  archiveSummary: (path: string): Promise<ArchiveSummary> =>
-    ipcRenderer.invoke(CALL.archiveSummary, path),
+  /** The archive card: totals and the top of the tree (#300); with `level`,
+   *  exactly the folder (or zip inside the zip) the card went into (#483). */
+  archiveSummary: (path: string, level?: boolean): Promise<ArchiveSummary> =>
+    ipcRenderer.invoke(CALL.archiveSummary, path, level),
   /** A member out beside its archive, the read-only note's Extract here
    *  (#300): the extracted copy's path, to open where editing can start. */
   archiveMemberOut: (path: string): Promise<{ ok: boolean; path?: string | null }> =>

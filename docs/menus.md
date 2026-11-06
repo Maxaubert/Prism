@@ -55,6 +55,7 @@ File Explorer may move under a "More" flyout or go.
 |---|---|---|
 | Explorer list: a file, a folder, several marked rows | `explorerRow.tsx` `explorerRowMenu` | `App.tsx` (after `archiveActions.menu(...)`, which wins for zip rows) |
 | Explorer list: a zip, or anything inside one, or empty space inside one | `archiveMenus.ts` via `useArchiveActions.menu` | `App.tsx` |
+| The zip card in the preview pane: one picked row, several (#483) | `archiveCardMenu.ts` `archiveCardMenuRows` (a subset of `archiveMenuRows`), wired by `useArchiveActions.cardMenu` | `browse/ArchiveCard.tsx` |
 | Explorer left panel: Quick access, a pinned file, a drive | `places.tsx` `placesMenu` | `browse/BrowsePlaces.tsx` |
 | Explorer address bar | `addressBar.tsx` `addressBarMenu` | `browse/BrowseToolbar.tsx` |
 | A tab; the + button | `tabStrip.tsx` `tabContextMenu`, `plusButtonMenu` | `TabStrip.tsx` |
