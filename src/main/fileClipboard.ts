@@ -1,17 +1,29 @@
 import { execFile } from './spawnWorker'
 import { fakeCopyFiles, fakeFiles } from './e2eClipboard'
+import type { ClipAttempt } from './clipWriter'
+import { PRISM_COPY_FORMAT } from './ownClipboard'
 
 /** Under --e2e the file drop list is the in-memory one (#356), never the system's. */
 const E2E = process.argv.includes('--e2e')
 
+/** How long one PowerShell write may take before it is stopped. */
+export const CLIP_WRITE_TIMEOUT_MS = 10_000
+
 // One persistent Windows data object lets the receiving app choose files or
 // pixels. Separate clipboard writes would erase the preceding representation.
+// THE PHASES (#484): each step says so on stdout as it ends, so a write
+// stopped at its timeout tells the log where it hung (`phase`): `loaded`
+// (the WinForms assemblies, ~50 ms warm), `data` (the data object built),
+// `set` (SetDataObject returned; the clipboard has it). A hang after `set`
+// is the exit, Windows' clipboard flush.
 const writeClipboard = `
 $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+function Say($p) { [Console]::Out.WriteLine("phase:$p"); [Console]::Out.Flush() }
 $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Say 'loaded'
 $paths = [System.Collections.Specialized.StringCollection]::new()
 foreach ($path in $request.paths) {
   if (-not (Test-Path -LiteralPath $path)) { throw 'Source no longer exists' }
@@ -23,6 +35,13 @@ $data.SetFileDropList($paths)
 $effect = if ($request.cut) { 2 } else { 1 }
 $dropEffect = [System.IO.MemoryStream]::new([BitConverter]::GetBytes([uint32]$effect))
 $data.SetData('Preferred DropEffect', $dropEffect)
+# Prism's own token (#484): a paste in Prism that finds it knows the
+# clipboard holds Prism's newest copy, and reads nothing back.
+$token = $null
+if ($request.token) {
+  $token = [System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes([string]$request.token))
+  $data.SetData([string]$request.format, $token)
+}
 # "Copy address" (2026-09-22): the folder AND its path, in one data object,
 # as Explorer's own address bar does - a paste into Explorer takes the folder,
 # a paste into a text field takes the path.
@@ -40,26 +59,100 @@ try {
       # An unreadable image still copies as its original file.
     }
   }
+  Say 'data'
   [System.Windows.Forms.Clipboard]::SetDataObject($data, $true, 10, 100)
+  Say 'set'
 } finally {
   if ($bitmap) { $bitmap.Dispose() }
   if ($picture) { $picture.Dispose() }
+  if ($token) { $token.Dispose() }
   $dropEffect.Dispose()
 }
 `
 
-/** Paths are data over stdin, never interpolated into PowerShell source. */
-export function copyWindowsFiles(paths: string[], cut: boolean, text?: string): Promise<boolean> {
-  if (E2E) {
-    fakeCopyFiles(paths, cut, text)
-    return Promise.resolve(true)
+/** The last `phase:` a write said before it ended. */
+export function lastPhase(stdout: string): string | undefined {
+  const all = [...String(stdout ?? '').matchAll(/phase:(\w+)/g)]
+  return all.length ? all[all.length - 1][1] : undefined
+}
+
+/** Why a write failed, in a few words: the timeout, a stop, or PowerShell's
+ *  own error line ("Source no longer exists"). */
+export function writeFailure(
+  error: { code?: string | number; killed?: boolean; signal?: string | null; message?: string },
+  stderr: string
+): string {
+  if (error.code === 'ABORT_ERR') return 'superseded'
+  if (error.killed || error.signal) return 'timeout'
+  const lines = String(stderr ?? '')
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  // PowerShell's error record: the message comes before "At line:" and the rest.
+  const said = lines.find((s) => !/^(At line:|\+|CategoryInfo|FullyQualifiedErrorId)/.test(s))
+  return (said ?? error.message ?? 'failed').slice(0, 200)
+}
+
+/** Under --e2e: the harness may hold or fail the fake write
+ *  (`globalThis.__e2eClipWrite = { delayMs, fail }`), the e2e's way to be
+ *  #484's stuck PowerShell. */
+function e2eWrite(
+  paths: string[],
+  cut: boolean,
+  text: string | undefined,
+  token: string | undefined,
+  signal?: AbortSignal
+): Promise<ClipAttempt> {
+  const hook = (globalThis as { __e2eClipWrite?: { delayMs?: number; fail?: string } }).__e2eClipWrite
+  const land = (): ClipAttempt => {
+    if (hook?.fail) return { ok: false, reason: hook.fail, via: 'e2e-fake' }
+    fakeCopyFiles(paths, cut, text, token ? { format: PRISM_COPY_FORMAT, id: token } : undefined)
+    return { ok: true, phase: 'set', via: 'e2e-fake' }
   }
+  const delay = hook?.delayMs ?? 0
+  if (!delay) return Promise.resolve(land())
+  return new Promise((done) => {
+    const t = setTimeout(() => done(land()), delay)
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(t)
+        done({ ok: false, reason: 'superseded', via: 'e2e-fake' })
+      },
+      { once: true }
+    )
+  })
+}
+
+/** Paths are data over stdin, never interpolated into PowerShell source.
+ *  `token` is Prism's copy id (`ownClipboard`); `signal` stops the write. */
+export function copyWindowsFiles(
+  paths: string[],
+  cut: boolean,
+  text?: string,
+  token?: string,
+  signal?: AbortSignal
+): Promise<ClipAttempt> {
+  if (E2E) return e2eWrite(paths, cut, text, token, signal)
   return new Promise((done) => {
     execFile(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-STA', '-Command', writeClipboard],
-      { windowsHide: true, timeout: 10_000, input: JSON.stringify({ paths, cut, text: text ?? null }) },
-      (error) => done(!error)
+      {
+        windowsHide: true,
+        timeout: CLIP_WRITE_TIMEOUT_MS,
+        encoding: 'utf8',
+        signal,
+        input: JSON.stringify({ paths, cut, text: text ?? null, token: token ?? null, format: PRISM_COPY_FORMAT })
+      },
+      (error, stdout, stderr) => {
+        const phase = lastPhase(stdout)
+        done(
+          error
+            ? { ok: false, reason: writeFailure(error, stderr), via: 'powershell', ...(phase ? { phase } : {}) }
+            : { ok: true, via: 'powershell', ...(phase ? { phase } : {}) }
+        )
+      }
     )
   })
 }

@@ -308,7 +308,7 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
           }
         />
       )}
-      {oops && <NoticeDialog title="Archive" message={oops} onClose={() => setOops(null)} />}
+      {oops && <NoticeDialog title="Archive" message={oops} op="archive" onClose={() => setOops(null)} />}
     </>
   )
 

@@ -15,7 +15,11 @@ import { basename, dirname, extname, join, resolve } from 'path'
 import { copyFile, readFile, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { execFile, launch } from '../spawnWorker'
-import { copyWindowsFiles, hasWindowsFiles, readWindowsFiles } from '../fileClipboard'
+import { performance } from 'perf_hooks'
+import { hasWindowsFiles, readWindowsFiles } from '../fileClipboard'
+import { clipWriter, ownClip } from '../clipCopy'
+import type { PasteSource } from '../ownClipboard'
+import { copyLine, pasteLine, writeOp } from '../opLog'
 import { insideDesktop } from '../desktopAccess'
 import { container } from '../archiveBrowse'
 import { holders } from '../holders'
@@ -321,18 +325,45 @@ export function registerShellIpc(ctx: MainCtx): void {
   // pastes it). Electron's clipboard has no CF_HDROP; PowerShell does.
   // One path or a multi-selection's worth: every one must pass the wall
   // (roots, or an individually granted extracted member) or nothing copies.
-  ipcMain.handle(CALL.fileCopyClip, (_e, p: string | string[], cut = false): Promise<boolean> => {
+  //
+  // THE ANSWER IS "MAIN HAS IT", NOT "WINDOWS HAS IT" (#484). Prism's own
+  // record is made as the request arrives, and the answer goes back at once;
+  // the PowerShell write runs behind it (`clipWriter`: one at a time, newest
+  // wins, one retry), and its outcome is the copy's `op` line. A paste in
+  // Prism never waits on that write: it answers from the record
+  // (`ownClipboard`). The page's copies used to queue behind each other and
+  // its paste behind the write, so one stuck write held them all 10 s.
+  const startCopy = (paths: string[], cut: boolean, address?: string): void => {
+    const copy = ownClip.begin(paths, cut)
+    const kinds = paths.map((x) => (insideDesktop(x) ? ('disk' as const) : ('zip-member' as const)))
+    void clipWriter
+      .write({ paths, cut, text: address, token: copy.id })
+      .then((write) => {
+        ownClip.settle(copy.id, write.ok, write.reason)
+        writeOp(copyLine({ paths, cut, kinds, write, address: address !== undefined }))
+      })
+  }
+  ipcMain.handle(CALL.fileCopyClip, (_e, p: string | string[], cut = false): boolean => {
     const list = Array.isArray(p) ? p : [p]
-    if (!list.length || list.some((x) => !readable(x))) return Promise.resolve(false)
-    return copyWindowsFiles(list, cut === true)
+    if (!list.length || list.some((x) => !readable(x))) {
+      const shown = list.filter((x): x is string => typeof x === 'string')
+      writeOp(copyLine({ paths: shown, cut: cut === true, kinds: ['disk'], refused: true }))
+      return false
+    }
+    startCopy(list, cut === true)
+    return true
   })
 
   // The address bar's "Copy address" (2026-09-22): the folder as a file
   // drop AND its path as text, Explorer's own pair. Walled like the copy
   // above; the folder is the only thing put on the clipboard.
-  ipcMain.handle(CALL.fileCopyAddress, (_e, p: string): Promise<boolean> => {
-    if (typeof p !== 'string' || !insideDesktop(p)) return Promise.resolve(false)
-    return copyWindowsFiles([p], false, p)
+  ipcMain.handle(CALL.fileCopyAddress, (_e, p: string): boolean => {
+    if (typeof p !== 'string' || !insideDesktop(p)) {
+      writeOp(copyLine({ paths: typeof p === 'string' ? [p] : [], cut: false, kinds: ['disk'], address: true, refused: true }))
+      return false
+    }
+    startCopy([p], false, p)
+    return true
   })
 
   /**
@@ -348,7 +379,12 @@ export function registerShellIpc(ctx: MainCtx): void {
    *  row that would do nothing is never drawn (2026-09-02). Electron's own
    *  format list, not PowerShell: a presence check needs no paths, and a
    *  process per right-click made the row late (2026-10-16). */
-  ipcMain.handle(CALL.clipboardHasFiles, () => hasWindowsFiles(() => clipboard.availableFormats()))
+  //  Prism's own copy counts (#484): a copy whose Windows write is still
+  //  running has files to paste.
+  ipcMain.handle(CALL.clipboardHasFiles, () => {
+    const own = ownClip.source()
+    return (own.from === 'prism' && own.paths.length > 0) || hasWindowsFiles(() => clipboard.availableFormats())
+  })
 
 
   /**
@@ -358,18 +394,36 @@ export function registerShellIpc(ctx: MainCtx): void {
    * clipboards without this format retain the matching renderer mark fallback.
    */
   ipcMain.handle(CALL.filePasteInto, async (e, destDir: string, cut?: string[], jobId?: string): Promise<PasteResult> => {
-    if (typeof destDir !== 'string' || !insideDesktop(destDir)) {
-      return { pasted: 0, failed: 0, refused: true, paths: [] }
+    const t0 = performance.now()
+    const say = (result: PasteResult, moving: boolean, n: number, source?: PasteSource): PasteResult => {
+      writeOp(pasteLine({ to: String(destDir), result, source, moving, n, ms: performance.now() - t0 }))
+      return result
     }
-    const clipboard = await readWindowsFiles()
-    const src = clipboard.paths
-    if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
-    const moving =
-      clipboard.cut ??
-      (Array.isArray(cut) &&
-        cut.length === src.length &&
-        cut.every((c) => src.some((f) => samePath(f, String(c)))))
-    return runPaste(e.sender, destDir, src, moving, jobId)
+    if (typeof destDir !== 'string' || !insideDesktop(destDir)) {
+      return say({ pasted: 0, failed: 0, refused: true, paths: [] }, false, 0)
+    }
+    // Prism's own copy first (#484): it is what the user just copied here,
+    // and reading Windows' clipboard back is a PowerShell of its own.
+    const source = ownClip.source()
+    let src: string[]
+    let moving: boolean
+    if (source.from === 'prism') {
+      src = source.paths
+      moving = source.cut
+    } else {
+      const clipboard = await readWindowsFiles()
+      src = clipboard.paths
+      moving =
+        clipboard.cut ??
+        (Array.isArray(cut) &&
+          cut.length === src.length &&
+          cut.every((c) => src.some((f) => samePath(f, String(c)))))
+    }
+    if (!src.length) return say({ pasted: 0, failed: 0, empty: true, paths: [] }, moving, 0, source)
+    const result = await runPaste(e.sender, destDir, src, moving, jobId)
+    // A cut moves once: the record has nothing left to move.
+    if (source.from === 'prism' && moving && result.pasted) ownClip.used(source.copy)
+    return say(result, moving, src.length, source)
   })
 
   /**
@@ -482,6 +536,13 @@ export function registerShellIpc(ctx: MainCtx): void {
     let failed = 0
     const paths: string[] = []
     const from: string[] = []
+    // Why each one failed, for the `op` line (owner, 2026-11-06): the error's
+    // code (ENOENT, EBUSY, EPERM) or what Prism refused.
+    const failures: Array<{ name: string; reason: string }> = []
+    const failedWith = (s: string, reason: string): void => {
+      failed += 1
+      failures.push({ name: basename(s), reason })
+    }
     for (const [i, s] of src.entries()) {
       current = i
       itemDone = 0
@@ -489,7 +550,7 @@ export function registerShellIpc(ctx: MainCtx): void {
       // as failed (2026-10-16): it used to copy its own copy until the path
       // ran out, and a cut fell through to the same copy (pasteCopy.ts).
       if (pastesIntoItself(s, destDir)) {
-        failed += 1
+        failedWith(s, 'into itself')
         continue
       }
       try {
@@ -524,13 +585,14 @@ export function registerShellIpc(ctx: MainCtx): void {
         from.push(s)
         pasted += 1
         landed(i)
-      } catch {
-        failed += 1
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException | null)?.code
+        failedWith(s, typeof code === 'string' ? code : String((err as Error | null)?.message ?? err).slice(0, 120))
       }
     }
     if (unsaid >= 0) sayLanded(unsaid)
     await written(destDir, ...(moving ? src : []))
-    return { pasted, failed, paths, from, moved: moving }
+    return { pasted, failed, paths, from, moved: moving, ...(failures.length ? { failures } : {}) }
   }
 
   // The icon Windows itself shows for a file of this type - the user's own

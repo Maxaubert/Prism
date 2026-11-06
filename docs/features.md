@@ -3,6 +3,56 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Every file operation says how it went; paste never waits on Windows (#484, owner, 2026-11-06)
+
+Owner, 2026-11-06: "i had some issues copying from zip to the main folder outside first i got the that
+didnt work, then it worked. make sure logs are always on so you can see what happened". The log (always
+on since #322) said only which IPC calls ran and how long: at 18:12 a zip member's copy (`file:copy-clip`)
+took 10023 ms, its 10 s timeout, then two `file:paste-into` ran and the folder stayed at 3 entries. Nothing
+said what they answered or what the user was told.
+
+- **An `op` line for every file operation, at every logging level** (`src/main/opLog.ts`): the operation
+  (`copy`, `cut`, `copy-address`, `paste`, `cut-paste`, `drop-copy`, `move`, `rename`, `trash`, `restore`,
+  `new-folder`, `undo-new-folder`, `duplicate`, `save-text`, `save-copy`, `save-copies`, `zip-add`,
+  `zip-move`, `zip-rename`, `zip-delete`, `zip-to-zip`, `extract-to`, `extract-here`, `extract-all`,
+  `extract-picked`, `extract-folder`, `member-out`, `drag-out`), `ok`, what it was asked (`n` and the first
+  five `paths`, `to`/`into`/`zip`), what `landed`, what `failed` with each item's reason (`failures`:
+  ENOENT, EBUSY, "into itself"), `refused`/`empty`/`canceled`, and `ms`. A copy says where its files are
+  (`source`: `disk` or `zip-member`), which way it reached the clipboard (`via`), in how many `attempts`,
+  and on failure the `reason` (`timeout`, PowerShell's own line) and the `phase` it got to. A paste says
+  where its files came from (`source`: `prism` or `windows`, and `why`). `watchOps` wraps `ipcMain.handle`
+  for the channels in `OP_CHANNELS`; copy and paste write their own (`copyLine`, `pasteLine`). Never a
+  password, a file's text or a picture's bytes (`opLog.test.ts`).
+- **A `note` line for every failure note the user is shown** (`lib/noteLog.ts`): its exact `text`, the
+  `op` it came from, the dialog `title`, and `level` (`error` for "That didn't work" and the archive's
+  notices, both `NoticeDialog`; `warn` or `info` for a chip's done note, `jobs.ts endJob`; the extraction
+  window's failure). `npm run diag` lists failed ops and error/warn notes as problems, with the op lines
+  before them as context (`tools/lib/diagProblems.mjs`).
+- **Why the owner's pastes landed nothing**: the PowerShell write was stopped at 10 s with no files on the
+  clipboard, so the renderer's queued copy answered false, and both Ctrl+V (pressed during the wait, run
+  the moment it ended) read Windows' clipboard back (676 and 935 ms, a second PowerShell each), found no
+  file list and said "There are no files on the clipboard." No `dir-changed` followed either paste, and
+  the listing stayed at 3 entries; the retry 10 s later wrote in 387 ms and landed.
+- **Paste uses Prism's own copy** (`src/main/ownClipboard.ts`, `clipCopy.ts`): main records the newest
+  copy (paths, cut) the moment it arrives and answers at once; the Windows write runs behind it
+  (`clipWriter.ts`: one at a time, a newer copy stops the older write, one retry unless the source is
+  gone). A paste answers from the record when the clipboard holds Prism's token (`Prism.FileCopy`, in the
+  same data object), or when the write is still running or failed and the clipboard has not changed since
+  the copy began. Only a clipboard changed outside Prism is read from Windows. A cut moves once. The
+  page's copies no longer queue behind each other (`lib/fileClipboard.ts`).
+- **The write says where it hung**: the script prints `phase:loaded`, `data`, `set`; a timeout's line
+  carries the last one. Measured 2026-11-06: PowerShell start and the WinForms assemblies take 260 to
+  330 ms (6 runs), so the owner's 0.4 to 1.3 s copies spent the rest in `SetDataObject`, and the three
+  10 s copies (2026-11-04 19:29, 11-06 09:57 and 18:12, of 11 in the log) hung on the clipboard itself,
+  not the start. Electron's `clipboard.writeBuffer` cannot replace it: it names a custom format (no real
+  `CF_HDROP`), takes one format per write (no `Preferred DropEffect` beside it) and one path
+  (`FileNameW`). A native write would be a function in `native/sweep`; not built.
+- Held by `ownClipboard.test.ts`, `clipWriter.test.ts`, `opLog.test.ts`, `fileClipboard.test.ts` (main and
+  page), `noteLog.test.ts`, `tools/lib/diagProblems.test.mjs`, `diagIpc.test.ts`, and the e2e `opOutcomeLog`
+  (a zip member copied and pasted with both lines logged; the Windows write held 5 s by
+  `globalThis.__e2eClipWrite` and the paste landing at once from the record; a vanished source's failed
+  paste and its note in the log and in `npm run diag`).
+
 ## Ctrl+F is find, never fullscreen (owner, 2026-11-04)
 
 Owner, 2026-11-04: "clicking ctrl f on a preview sometimes opens fullscreen and sometimes opens the find

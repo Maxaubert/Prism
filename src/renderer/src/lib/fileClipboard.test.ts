@@ -10,27 +10,27 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('file clipboard across Explorer and project tabs', () => {
-  it('waits for queued copies before exposing the final cut mark to paste', async () => {
+  it('sends every copy to main AT ONCE: a slow one never holds the next (#484)', async () => {
     const releases: Array<(copied: boolean) => void> = []
     copy.mockImplementation(() => new Promise((resolve) => releases.push(resolve)))
     const clipboard = await import('./fileClipboard')
     const first = clipboard.copyFilePaths(['C:\\first.txt'], true)
     const second = clipboard.copyFilePaths(['C:\\second.txt'], true)
+    // Both are with main before either answers: main keeps the newest as
+    // Prism's own record, so a paste right after has the right files.
+    expect(copy).toHaveBeenCalledTimes(2)
     let ready = false
     void clipboard.fileClipboardReady().then(() => {
       ready = true
     })
-    await vi.waitFor(() => expect(copy).toHaveBeenCalledTimes(1))
-    expect(ready).toBe(false)
-    expect(clipboard.fileCutPaths()).toEqual([])
-    releases[0](true)
-    await first
-    await vi.waitFor(() => expect(copy).toHaveBeenCalledTimes(2))
-    expect(ready).toBe(false)
+    // The newest answers first; the older one answering later changes nothing.
     releases[1](true)
     await second
     await clipboard.fileClipboardReady()
     expect(ready).toBe(true)
+    expect(clipboard.fileCutPaths()).toEqual(['C:\\second.txt'])
+    releases[0](true)
+    await first
     expect(clipboard.fileCutPaths()).toEqual(['C:\\second.txt'])
   })
 

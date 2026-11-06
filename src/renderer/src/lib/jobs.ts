@@ -22,6 +22,7 @@
  */
 import { useMemo, useSyncExternalStore } from 'react'
 import { createStore } from './store'
+import { logNote } from './noteLog'
 
 export type JobKind = 'paste' | 'add' | 'copies'
 
@@ -216,6 +217,8 @@ export function endJob(id: string, note?: string): void {
   if (!job || leaving.has(id)) return
   const shown = Date.now() - job.since
   if (note) {
+    // The note goes to the diagnostics log as it is shown (owner, 2026-11-06).
+    logNote(note, { op: job.kind, title: job.label })
     store.set(jobs.map((j) => (j.id === id ? { ...j, pct: 100, done: true, note, cancel: undefined } : j)))
     const now = Date.now()
     notesFreeAt = Math.max(now, notesFreeAt) + NOTE_MS
