@@ -1443,7 +1443,8 @@ const spareIdle = createSpareIdle({
   log: (fields) => diag?.log.write('main', 'spare-slow', fields)
 })
 function spareSoon(): void {
-  spareIdle.want()
+  // No spare wanted (an e2e that did not ask): no wait polling for one.
+  if (spareWanted()) spareIdle.want()
 }
 /** The spare, made now if there is none ready to take (a tear cannot wait). */
 function takeSpare(): BrowserWindow {
@@ -2091,9 +2092,12 @@ if (!app.requestSingleInstanceLock()) {
       // request lands in it. Everything a cold start pays before this point
       // (the process, the modules, the session's set-up) is already done.
       if (resting) {
+        // Taken FIRST (review, 2026-11-06): a request refused here opens no
+        // window, and woken parts with no window to close would never rest
+        // again (window-all-closed cannot fire with none open).
+        if (!winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse)) return
         const wake = startup.begin('standby-wake', { winE: true, extra: { winE: shortId(shortcutRequest) } })
         standby.wake('win-e')
-        if (!winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse)) return
         launchOfRequest.set(shortcutRequest, wake)
         hotkeyOpening = { id: shortcutRequest, browse, ackedAt: null, closed: false, win: null }
         hotkeyOpening.win = openAsFirst({ winE: shortcutRequest, launch: wake })
