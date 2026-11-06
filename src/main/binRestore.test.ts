@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { parseInfo, restoreFromBin } from './binRestore'
+import { parseInfo, restoreFromBin, sidOf } from './binRestore'
 
 /** An `$I` record as Windows 8 and later write it. */
 function infoV2(path: string, deletedAt: bigint): Buffer {
@@ -93,5 +93,27 @@ describe('restoreFromBin', () => {
     writeFileSync(join(w.binDir, '$IEEE.txt'), infoV2(join(w.dir, 'gone.txt'), 1n))
     expect(await restoreFromBin(join(w.dir, 'gone.txt'), [w.binDir])).toBe(false)
     expect(await restoreFromBin(join(w.dir, 'never.txt'), [w.binDir])).toBe(false)
+  })
+
+  it('never moves a link out of the bin', async () => {
+    const w = world()
+    const p = join(w.dir, 'linked.txt')
+    const target = join(w.dir, 'elsewhere.txt')
+    writeFileSync(target, 'not binned')
+    writeFileSync(join(w.binDir, '$ILLL.txt'), infoV2(p, 1n))
+    try {
+      symlinkSync(target, join(w.binDir, '$RLLL.txt'), 'file')
+    } catch {
+      return // no right to make links here
+    }
+    expect(await restoreFromBin(p, [w.binDir])).toBe(false)
+    expect(existsSync(p)).toBe(false)
+  })
+})
+
+describe('sidOf', () => {
+  it("reads the SID out of whoami's csv", () => {
+    expect(sidOf('"desktop-1\\admin","S-1-5-21-111-222-333-1001"\r\n')).toBe('S-1-5-21-111-222-333-1001')
+    expect(sidOf('')).toBeNull()
   })
 })
