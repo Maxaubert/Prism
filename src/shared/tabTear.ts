@@ -60,7 +60,8 @@ export const TEAR = {
   inset: 10,
   /** How often main moves the floating window (about 120 Hz). */
   tickMs: 8,
-  /** The spare window is made this long after startup and after each use. */
+  /** Was the spare's startup timer; since 2026-11-06 the spare waits for a quiet spell instead
+   *  (src/main/spareIdle.ts `SPARE_QUIET_MS`). Kept for the record. */
   spareDelayMs: 2000,
   /** Of a floating window, this much always stays on the work area. */
   keepVisible: 48,
