@@ -279,6 +279,47 @@ internal sealed class Owner
 
 internal static class Launcher
 {
+    // THE HOTKEY PIPE (owner, 2026-11-06: "a state that helps it launch a lot faster").
+    // A running Prism (a window open, or resting in standby) listens on a pipe named for
+    // its profile (src/main/wakePipe.ts); a request handed over there costs no second
+    // Prism.exe, which used to start in full only to find the lock held and hand over.
+    // No one listening (Prism not running, or older than this) and the process is started
+    // as before. Same name on both sides: a shared test vector holds them together.
+    internal static string WakePipe(string profile)
+    {
+        string norm = Path.GetFullPath(profile).TrimEnd('\\', '/').ToLowerInvariant();
+        using (var sha = SHA256.Create())
+            return "PrismWake." + BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(norm))).Replace("-", "").ToLowerInvariant().Substring(0, 24);
+    }
+    internal static bool TryWake(string profile, string token, string browse)
+    {
+        var clock = Stopwatch.StartNew();
+        try
+        {
+            using (var pipe = new NamedPipeClientStream(".", WakePipe(profile), PipeDirection.InOut))
+            {
+                pipe.Connect(40);
+                var request = new Dictionary<string, string>();
+                request["winE"] = token;
+                if (browse != null) request["browse"] = browse;
+                byte[] line = Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(request) + "\n");
+                pipe.Write(line, 0, line.Length);
+                pipe.Flush();
+                var reply = new byte[8];
+                IAsyncResult read = pipe.BeginRead(reply, 0, reply.Length, null, null);
+                if (!read.AsyncWaitHandle.WaitOne(1500))
+                {
+                    Log.Write("running Prism did not answer its pipe in 1500 ms; starting one");
+                    return false;
+                }
+                int count = pipe.EndRead(read);
+                bool ok = count >= 2 && Encoding.UTF8.GetString(reply, 0, count).StartsWith("ok");
+                Log.Write((ok ? "handed to running Prism over its pipe" : "running Prism refused the request") + " (" + clock.ElapsedMilliseconds + " ms)");
+                return ok;
+            }
+        }
+        catch (Exception) { return false; }
+    }
     // Server exists before starting Prism, including when Electron routes this invocation
     // to an existing process. No ack means Explorer opens, even if Prism stays alive.
     //
@@ -370,7 +411,8 @@ internal static class Launcher
         {
             acknowledged = owner.IsOwned && owner.TargetExists && LaunchAndWait(delegate(string token)
             {
-                Native.StartPrism(owner.Exe, Program.Quote("--user-data-dir=" + owner.Profile) + " " + Program.Quote("--win-e=" + token));
+                if (!TryWake(owner.Profile, token, null))
+                    Native.StartPrism(owner.Exe, Program.Quote("--user-data-dir=" + owner.Profile) + " " + Program.Quote("--win-e=" + token));
             }, 8000, 45000, out reason);
         }
         catch (Exception) { reason = "failed"; }
@@ -420,8 +462,9 @@ internal static class FolderOpen
                 if (owner.TargetExists)
                     acknowledged = Launcher.LaunchAndWait(delegate(string token)
                     {
-                        Native.StartPrism(owner.Exe, Program.Quote("--user-data-dir=" + owner.Profile) + " "
-                            + Program.Quote("--win-e=" + token) + " " + Program.Quote("--browse=" + path));
+                        if (!Launcher.TryWake(owner.Profile, token, path))
+                            Native.StartPrism(owner.Exe, Program.Quote("--user-data-dir=" + owner.Profile) + " "
+                                + Program.Quote("--win-e=" + token) + " " + Program.Quote("--browse=" + path));
                     }, 8000, 45000, out reason);
             }
         }
@@ -895,6 +938,9 @@ internal static class SelfTests
             Check(owner.IsOwned && !owner.IsRunning, "isolated registration ownership");
             string[] parsed = Program.SplitCommand(owner.Command);
             Check(parsed.Length == 4 && parsed[2] == executable && parsed[3] == owner.Profile, "literal command path roundtrip");
+            // The hotkey pipe's name, the vector src/main/wakePipe.test.ts holds too.
+            Check(Launcher.WakePipe(@"C:\Users\Test\AppData\Roaming\Prism\") == "PrismWake.97cd806fc2bb27c3ec809b7c", "hotkey pipe named as Prism names it");
+            Check(!Launcher.TryWake(Path.Combine(directory, "no prism here"), Guid.NewGuid().ToString("D"), null), "no Prism listening: the request is not handed over");
             string weird = "C:\\folder with spaces\\";
             Check(Program.SplitCommand("helper.exe " + Program.Quote(weird))[1] == weird, "trailing backslash quoted safely");
             var other = new Owner(executable, Path.Combine(directory, "other profile"), key);

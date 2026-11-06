@@ -32,7 +32,8 @@ import { setFlagsFromString } from 'v8'
 import { runInNewContext } from 'vm'
 import { appendFile } from 'fs/promises'
 import {
-  initDwmHelper
+  initDwmHelper,
+  trimWorkingSets
 } from './dwmHelper'
 import { pathsFromArgv, secondLaunch } from './argv'
 import { WIN_E_FIRST, browseRequest, createWinERequests, shortId, winERequest, winEHostOf } from './winERequests'
@@ -40,6 +41,7 @@ import { bootFields, createStartupLog, launchReason, type Launch } from './start
 import { repeatOf, type HotkeyOpening } from './hotkeyRepeat'
 import { createSpareIdle } from './spareIdle'
 import { createStandby, lastWindowClosed, standbyWanted, type QuitReason } from './standby'
+import { startWakePipe, wakePipeName } from './wakePipe'
 import { removeOldExplorerWindows } from './oldExplorerWindows'
 import { createWindowPreferences } from './windowPreferences'
 import { forgetCanonical, listDir, searchFiles, toViewerFile, warmCanonical } from './dirList'
@@ -1787,7 +1789,16 @@ const standby = createStandby({
           restTimer = null
           if (!standby.on()) return
           collectGarbage()
-          diag?.log.write('main', 'standby', { ev: 'rest', ...memoryNow() })
+          // Every Prism process's working set emptied (the helper's --trim):
+          // what stays resident is what a resting Prism touches, which is
+          // almost nothing. Under --e2e `PRISM_E2E_NO_TRIM=1` measures without.
+          const trim = !(E2E && process.env.PRISM_E2E_NO_TRIM === '1')
+          if (trim) trimWorkingSets(process.execPath, app.getAppMetrics().map((m) => m.pid))
+          restTimer = setTimeout(() => {
+            restTimer = null
+            if (standby.on()) diag?.log.write('main', 'standby', { ev: 'rest', trimmed: trim, ...memoryNow() })
+          }, 2000)
+          restTimer.unref()
         }, 3000)
         restTimer.unref()
       },
@@ -2025,12 +2036,16 @@ if (!app.requestSingleInstanceLock()) {
   if (E2E) Object.assign(globalThis, { __e2eDiagFlush: () => diag?.log.flushSync() })
   // `workingDirectory` is the SECOND process's cwd (#21): its relative paths
   // are read against it, never against this process's own.
-  app.on('second-instance', (_e, argv, workingDirectory) => {
+  /** A launch handed to this process: a second Prism's arguments
+   *  (`second-instance`), or the Win+E helper's request over the hotkey pipe
+   *  (wakePipe.ts, 2026-11-06), which carries what that process would have. */
+  const onLaunch = (argv: string[], workingDirectory: string, via: 'second-instance' | 'pipe'): void => {
     noteActivity()
     const launch = secondLaunch(argv, workingDirectory)
     const shortcutRequest = winERequest(argv)
     const resting = standby.on()
     diag?.log.write('main', 'second-instance', {
+      via,
       ...(shortcutRequest ? { winE: shortId(shortcutRequest) } : {}),
       args: Math.max(0, argv.length - 1),
       ...(resting ? { standby: true } : {})
@@ -2044,7 +2059,7 @@ if (!app.requestSingleInstanceLock()) {
       winELine('received', {
         id: shortId(shortcutRequest),
         path: resting ? 'standby' : firstWindowMade ? 'warm' : 'cold',
-        via: 'second-instance',
+        via,
         ...(browse ? { browse: true } : {})
       })
       // A REPEAT PRESS (owner, 2026-11-06): while the window an earlier
@@ -2150,7 +2165,22 @@ if (!app.requestSingleInstanceLock()) {
       .catch(() => {
         /* a handoff that cannot be read opens nothing */
       })
-  })
+  }
+  app.on('second-instance', (_e, argv, workingDirectory) => onLaunch(argv, workingDirectory, 'second-instance'))
+  // The hotkey pipe, once the app is ready (a request before then goes the
+  // old way: the helper starts a Prism, which hands over).
+  void app.whenReady().then(() =>
+    startWakePipe({
+      name: wakePipeName(preferencesOwner),
+      exe: process.execPath,
+      onRequest: (argv) => {
+        if (appState.appQuitting || appState.installingUpdate) return false
+        onLaunch(argv, process.cwd(), 'pipe')
+        return true
+      },
+      log: (fields) => diag?.log.write('main', 'win-e', fields)
+    })
+  )
 
   pendingOpen = launchPaths
   const shortcutRequest = argvRequest
