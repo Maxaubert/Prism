@@ -1243,11 +1243,14 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   read-only archive (7z, rar, nested) or the zip itself show no-drop and do nothing. A press or
   the focus anywhere else dims the card's picked rows to the list's inactive selection
   (`--p-sel-tint-dim`, as #296) and takes the keyboard out of the card, so Ctrl+A, C and V and
-  the arrows are the list's again; a press in the card brings the full look back. The owner's
+  the arrows are the list's again; a press in the card brings the full look back. The full look
+  means the keyboard is in the card's rows: a press on its bare head or caption puts it there, and
+  its verbs (Open, Extract) act on the whole zip and leave it dimmed. The owner's
   paste waited on the copy: the log shows the card's Ctrl+C of a folder whose clipboard write
   (PowerShell) ran into its 10 s limit, and a paste waits for the copy before it. `zipPreviewClicks`
   e2e (a list file onto the card and onto a folder row of it, added, shown and marked, nothing
-  opened, no note; the dim tint against the list's token and back; Ctrl+C in the card, a click on
+  opened, no note; the dim tint against the list's token and back, a press on the card's head
+  in use with the keyboard in its rows; Ctrl+C in the card, a click on
   the list's empty space, Ctrl+V and a row's Paste; Ctrl+A then marks the list's rows).
 - **Archive viewer** (2026-08-22, #68; since #300 the PHONE's only, the desktop's is above): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the

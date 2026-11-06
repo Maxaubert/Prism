@@ -179,19 +179,25 @@ export function ArchiveCard({
   const list = useRef<HTMLDivElement>(null)
   const root = useRef<HTMLDivElement>(null)
 
-  // IN USE OR NOT: a press or the focus in the card makes it the one in use;
-  // anywhere else (a menu aside) dims it, and a press elsewhere takes the
-  // keyboard out of its list, so the list's keys are the list's again.
+  // IN USE OR NOT: the card is in use while the keyboard is in its rows, so
+  // the look and the keys always agree (a press on the card's bare parts
+  // hands the keyboard to its rows, below; its verbs act on the whole zip and
+  // leave it dimmed). Anywhere else (a menu aside) dims it, and a press
+  // elsewhere takes the keyboard out of the card, so the list's keys are the
+  // list's again.
   const [inUse, setInUse] = useState(false)
   useEffect(() => {
     const heard = (event: Event): void => {
       const target = event.target
       if (!(target instanceof Element) || target.closest('[role="menu"]')) return
-      const inside = !!root.current?.contains(target)
-      setInUse(inside)
+      if (event.type === 'focusin') {
+        setInUse(!!list.current?.contains(target))
+        return
+      }
+      if (root.current?.contains(target)) return
+      setInUse(false)
       const focused = document.activeElement
-      if (!inside && event.type === 'pointerdown' && focused instanceof HTMLElement && root.current?.contains(focused))
-        focused.blur()
+      if (focused instanceof HTMLElement && root.current?.contains(focused)) focused.blur()
     }
     document.addEventListener('pointerdown', heard, true)
     document.addEventListener('focusin', heard, true)
@@ -366,6 +372,14 @@ export function ArchiveCard({
         e.preventDefault()
         e.stopPropagation()
         setDrag(null)
+      }}
+      // A press on the card's bare parts (its head, caption, facts) makes it
+      // the one in use: the keyboard goes to its rows, not to nowhere.
+      onMouseDown={(e) => {
+        const target = e.target
+        if (!list.current || !(target instanceof Element) || target.closest('button, [data-archive-card-rows], [role="menu"]')) return
+        e.preventDefault()
+        list.current.focus({ preventScroll: true })
       }}
     >
       <div className="archive-card-head">
