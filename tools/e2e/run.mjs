@@ -17374,6 +17374,170 @@ async function previewClearsScenario(fixtures) {
 }
 
 /**
+ * THE ZIP CARD ANSWERS A CLICK (#483; owner, 2026-11-05: with a zip selected
+ * "nothing in the preview panel responds to a click", neither Open / Extract
+ * here / Extract to... nor the rows inside). Built to the owner's shape: a
+ * "download as zip" of a repo, one top folder holding .claude .git .github app
+ * docs scripts and six files, 837 files in about a hundred folders, tens of MB,
+ * with a PDF beside it previewed first and in between (the owner's log: pdf,
+ * zip, pdf, zip). The window is told it has the focus (the owner's has; the
+ * e2e's is unfocusable, and Chromium fires focus and blur only in a focused
+ * page). What is ON TOP at each control's centre is checked every frame from
+ * the press on the zip's row, then each is pressed there and held as a person
+ * holds a click. The verbs do their work; a folder row goes into the zip
+ * there and a file row opens that member in the viewer (owner, 2026-11-06).
+ */
+async function zipPreviewClicksScenario(fixtures) {
+  console.log('the zip card answers a click (#483)')
+  const AdmZip = (await import('adm-zip')).default
+  const dir = join(fixtures, 'zippreviewclicks')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const top = 'web-application-project'
+  const zip = new AdmZip()
+  let files = 0
+  const add = (name, body) => {
+    zip.addFile(`${top}/${name}`, Buffer.isBuffer(body) ? body : Buffer.from(body))
+    files++
+  }
+  for (const f of ['.gitattributes', '.gitignore', '.node-version', 'AGENTS.md', 'CLAUDE.md', 'README.md'])
+    add(f, `# ${f}\n`)
+  // 102 folders under the top one, the six top-level ones among them.
+  const folders = []
+  for (const f of ['.claude', '.git', '.github', 'app', 'docs', 'scripts'])
+    for (let i = 0; i < 17; i++) folders.push(i ? `${f}/sub${i}` : f)
+  // A few big members that do not compress, so the zip is tens of megabytes.
+  const noise = randomBytes(4 * 1024 * 1024)
+  let n = 0
+  while (files < 837) {
+    add(`${folders[n % folders.length]}/file-${n}.${n % 3 ? 'ts' : 'md'}`, n < 12 ? noise : `// member ${n}\n`.repeat(40))
+    n++
+  }
+  const zipName = 'W-13-studentmarkedet.zip'
+  zip.writeZip(join(dir, zipName))
+  writeFileSync(join(dir, 'notes.txt'), 'beside the zip\n')
+  copyFileSync(join(fixtures, 'sample.pdf'), join(dir, 'W-13-rapport.pdf'))
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const card = '[data-browse-preview] [data-archive-card]'
+  const verb = (name) => `${card} [data-archive-verb="${name}"]`
+  const row = (name) => `${card} [data-archive-row="${name}"]`
+  /** What is on top at the centre of `selector`, and whether it is (inside) it. */
+  const hit = (selector) =>
+    win.evaluate((sel) => {
+      const el = document.querySelector(sel)
+      if (!el) return { found: false, ok: false }
+      const r = el.getBoundingClientRect()
+      const x = r.left + r.width / 2
+      const y = r.top + r.height / 2
+      const on = document.elementFromPoint(x, y)
+      const chain = []
+      for (let p = on; p && chain.length < 4; p = p.parentElement)
+        chain.push(`${p.tagName.toLowerCase()}${[...p.classList].map((c) => '.' + c).join('')}`)
+      return {
+        found: true,
+        ok: !!on && (on === el || el.contains(on)) && !el.closest('[inert]'),
+        on: chain.join(' < '),
+        at: [Math.round(x), Math.round(y)]
+      }
+    }, selector)
+  /** A person's click at the control's centre: down, held, up. */
+  const press = async (selector) => {
+    const h = await hit(selector)
+    ok(h.ok, `${selector.slice(card.length + 1)}: a click at its centre lands on it (${h.on ?? 'not found'})`)
+    if (!h.found) return
+    await win.mouse.move(h.at[0], h.at[1])
+    await win.mouse.down()
+    await sleep(120)
+    await win.mouse.up()
+  }
+  const where = async () => (await win.locator('.browse-path').getAttribute('data-path')) ?? ''
+  const shown = () =>
+    until(async () => /Inside, in web-application-project/.test((await win.locator(card).textContent().catch(() => '')) ?? ''), 15000)
+  const pdfShown = () =>
+    until(async () => (await win.locator('[data-browse-preview] canvas').count()) > 0, 15000)
+  const pickZip = async (why) => {
+    await zipRow(win, zipName).click()
+    ok(await shown(), `${why}: the zip previews as its card, inside its one top folder`)
+    await sleep(300)
+  }
+  const backToZip = async (why) => {
+    await win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Back"]').click()
+    ok(await until(async () => (await where()) === dir, 10000), `${why}: Back comes out to the folder holding the zip`)
+    await pickZip(why)
+  }
+  try {
+    await explorerAt(win, dir)
+    await zipRow(win, 'W-13-rapport.pdf').click()
+    ok(await pdfShown(), 'the PDF beside the zip previews first')
+    await pickZip('after the PDF')
+    await zipRow(win, 'W-13-rapport.pdf').click()
+    ok(await pdfShown(), 'the PDF again')
+    // Every frame for three seconds from the press on the zip's row.
+    const sampling = win.evaluate(async (sels) => {
+      const out = []
+      const t0 = performance.now()
+      while (performance.now() - t0 < 3000) {
+        await new Promise((r) => requestAnimationFrame(r))
+        for (const sel of sels) {
+          const el = document.querySelector(sel)
+          if (!el) continue
+          const r = el.getBoundingClientRect()
+          const on = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+          if (!on || !(on === el || el.contains(on)) || el.closest('[inert]'))
+            out.push(`${Math.round(performance.now() - t0)} ms ${sel}: ${on?.tagName ?? 'nothing'}.${on?.className ?? ''}`)
+        }
+      }
+      return out
+    }, [verb('open'), verb('extract-here'), verb('extract-to'), row('app'), row('README.md')])
+    await zipRow(win, zipName).click()
+    const covered = await sampling
+    ok(covered.length === 0, `nothing covers the card's controls while it comes up (${covered.slice(0, 4).join('; ')})`)
+    ok(await shown(), 'the zip again, its card up')
+    await win.screenshot({ path: join(SHOTS, 'zip-preview-clicks.png') })
+    // Extract here makes the top folder beside the zip.
+    await press(verb('extract-here'))
+    ok(await until(async () => existsSync(join(dir, top, 'README.md')), 30000), 'Extract here unpacks the zip beside itself')
+    await until(async () => (await win.locator('[role="dialog"]').count()) === 0, 30000)
+    // Extract to... asks main's folder dialog (answered here) and unpacks there.
+    const elsewhere = join(dir, 'elsewhere')
+    mkdirSync(elsewhere, { recursive: true })
+    await answerFolderDialog(app, elsewhere)
+    await pickZip('after Extract here')
+    await press(verb('extract-to'))
+    ok(await until(async () => existsSync(join(elsewhere, top, 'README.md')), 30000), 'Extract to... unpacks it into the folder picked')
+    await until(async () => (await win.locator('[role="dialog"]').count()) === 0, 30000)
+    await pickZip('after Extract to...')
+    // A folder row goes into the zip at that folder.
+    await press(row('app'))
+    ok(
+      await until(async () => (await where()).endsWith(`${zipName}\\${top}\\app`), 10000),
+      `a folder row opens the zip at that folder (${await where()})`
+    )
+    ok(
+      await until(async () => (await zipRows(win)).some((p) => /\\app\\file-\d+\.(ts|md)$/.test(p)), 10000),
+      'and lists what that folder holds'
+    )
+    await backToZip('out of the folder')
+    // A file row opens that member in the viewer, the Explorer at its folder.
+    await press(row('README.md'))
+    ok(await until(async () => /README\.md/.test(await viewing(win)), 15000), `a file row opens that member in the viewer (${await viewing(win)})`)
+    await toList(win)
+    ok(
+      await until(async () => (await where()).endsWith(`${zipName}\\${top}`), 10000),
+      `back at the list, inside the zip's top folder (${await where()})`
+    )
+    await backToZip('out of the member')
+    // Open goes into the zip.
+    await press(verb('open'))
+    ok(await until(async () => (await win.locator('[data-archive-strip]').count()) === 1, 10000), 'Open goes into the zip')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
  * OUT OF A ZIP, ITS PREVIEW COMES BACK (#334; owner, 2026-10-09: "when you go
  * back again you should see the zip in the preview since the main view is now
  * just a different folder"). Going into a zip empties the pane (#300 review);
@@ -20534,6 +20698,7 @@ await run(previewSlowImageScenario)
 await run(imageHugeSwapScenario)
 await run(menuOverPreviewScenario)
 await run(zipPreviewBackScenario)
+await run(zipPreviewClicksScenario)
 await run(comicScenario)
 await run(folderArgScenario)
 await run(gearScenario)
