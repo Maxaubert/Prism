@@ -29,7 +29,7 @@ export const ROW_ORDER = [
   'style-theme', 'see-through', 'theme-edits', 'c-bg', 'c-chrome', 'c-accent', 'c-selection', 'c-text', 'c-folder-icon',
   'c-font', 'tree-size', 'title-bar', 'tab-width', 'c-edges', 'c-corners',
   'explorer-side', 'explorer-size', 'drive-style', 'newtab-mode', 'open-external',
-  'remember-tabs', 'remember-folders', 'win-e-shortcut', 'open-folders', 'explorer-verb', 'default-apps',
+  'remember-tabs', 'stay-ready', 'remember-folders', 'win-e-shortcut', 'open-folders', 'explorer-verb', 'default-apps',
   'viz-style', 'viz-colour', 'viz-glow', 'viz-cycle', 'viz-move',
   'transport-style', 'transport-bg', 'transport-colour', 'transport-glow', 'transport-cycle', 'transport-move',
   'diag-verbose', 'diag-folder', 'diag-mark',

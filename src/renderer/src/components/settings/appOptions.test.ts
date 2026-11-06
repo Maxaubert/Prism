@@ -59,6 +59,7 @@ describe("Prism's own settings rows", () => {
         "newtab-mode=prism.newtab.mode+prism.newtab.folder",
         "open-external=prism.open.external",
         "remember-tabs=prism.tabs.remember",
+        "stay-ready=prism.standby",
         "remember-folders=prism.explorer.rememberFolders",
         "win-e-shortcut=windows",
         "open-folders=windows",

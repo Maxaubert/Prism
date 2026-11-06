@@ -246,3 +246,44 @@ describe.runIf(process.platform === 'win32')('the held pipe (#350)', () => {
     expect(reads.length).toBeGreaterThanOrEqual(1)
   }, 20_000)
 })
+
+describe('repeat presses (owner, 2026-11-06: four presses opened four windows)', () => {
+  const second = 'b1234567-1234-4567-89ab-123456789abc'
+  const third = 'c1234567-1234-4567-89ab-123456789abc'
+  it('a press riding on one still opening hears started now and ready with it, and opens nothing', () => {
+    const dispatch = vi.fn()
+    const ack = vi.fn((id: string) => Promise.resolve(void id))
+    const announce = vi.fn()
+    const lines: Array<[string, Record<string, unknown>]> = []
+    const requests = createWinERequests(dispatch, ack, announce, vi.fn(), (ev, f) => lines.push([ev, f]))
+    requests.enqueue(id, id)
+    expect(requests.follow(second, id)).toBe(true)
+    expect(requests.follow(second, id)).toBe(false)
+    expect(announce).toHaveBeenCalledWith(second)
+    requests.listen(id)
+    requests.restored(id)
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    requests.ready(id, id)
+    expect(ack.mock.calls.map((c) => c[0])).toEqual([id, second])
+    expect(lines.map(([ev]) => ev)).toEqual(['repeat', 'dispatched', 'acked'])
+    expect(lines[0][1]).toEqual({ id: second.slice(0, 8), leader: id.slice(0, 8), action: 'follow' })
+  })
+
+  it('no leader pending: nothing to follow; a leader dropped drops its riders', () => {
+    const drop = vi.fn()
+    const requests = createWinERequests(vi.fn(), vi.fn(async () => {}), vi.fn(), drop)
+    expect(requests.follow(second, id)).toBe(false)
+    requests.enqueue(id, id)
+    requests.follow(third, id)
+    requests.forget(id)
+    expect(drop.mock.calls.map((c) => c[0])).toEqual([id, third])
+    expect(requests.pending(id)).toBe(false)
+  })
+
+  it('a press just after its window showed is answered at once', () => {
+    const ack = vi.fn((id: string) => Promise.resolve(void id))
+    const requests = createWinERequests(vi.fn(), ack, vi.fn())
+    requests.answer(second)
+    expect(ack).toHaveBeenCalledExactlyOnceWith(second)
+  })
+})

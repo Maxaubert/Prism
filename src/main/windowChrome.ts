@@ -7,6 +7,8 @@ import { watchBounds } from './windowBounds'
 import { userPaths } from './paths'
 import { E2E, windows } from './appState'
 import type { SavedBounds } from './session'
+import { diagMain } from 'prism-term-core/main/diagLog'
+import { performance } from 'perf_hooks'
 
 // THE WINDOW'S CHROME (stage 9c of the structure cleanup, 2026-10-12, out of
 // index.ts): where the window was last time, its translucency and the
@@ -210,15 +212,33 @@ function applyMaterialEverywhere(): void {
  * The brief always-on-top is the documented way past the lock, and it is
  * dropped in the same breath, so the window does not stay above others.
  */
-export function raise(win: BrowserWindow): void {
+export function raise(win: BrowserWindow, why = ''): void {
+  const t0 = performance.now()
   if (win.isMinimized()) win.restore()
   win.show()
-  if (E2E) return
-  const wasOnTop = win.isAlwaysOnTop()
-  win.setAlwaysOnTop(true)
-  win.focus()
-  win.setAlwaysOnTop(wasOnTop)
+  const shown = performance.now()
+  if (!E2E) {
+    const wasOnTop = win.isAlwaysOnTop()
+    win.setAlwaysOnTop(true)
+    win.focus()
+    win.setAlwaysOnTop(wasOnTop)
+  }
+  // TIMED (owner, 2026-11-06; the audit: a 2.3 s lag on 2026-11-01 sat inside
+  // `raise < showWindow`, the only stall that matched "pressed the hotkey and
+  // waited"). Over RAISE_SLOW_MS it is a `raise-slow` line, split into the
+  // show and the foreground dance.
+  const ms = performance.now() - t0
+  if (ms >= RAISE_SLOW_MS)
+    diagMain().write('main', 'raise-slow', {
+      ms: Math.round(ms),
+      showMs: Math.round(shown - t0),
+      focusMs: Math.round(performance.now() - shown),
+      ...(why ? { why } : {})
+    })
 }
+
+/** A raise this slow is said in the log. */
+export const RAISE_SLOW_MS = 200
 
 /**
  * THE DWM BORDER FOLLOWS THE WINDOW'S STATE (2026-09-03, owner). Windows 11

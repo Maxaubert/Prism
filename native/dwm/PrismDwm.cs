@@ -16,7 +16,14 @@
 //
 // Every attribute here is cosmetic, so it never fails loudly: a bad argument or
 // a window that has gone is skipped, and the exit code is always 0.
+//
+// STANDBY (owner, 2026-11-06): `PrismDwm.exe --trim <exe> <pid> [<pid> ...]`
+// empties the working set of each of Prism's own processes once it rests with
+// no window, so Task Manager shows what a resting Prism really needs. Only a
+// process whose image is `<exe>` (Prism's own, as main names it) is touched;
+// the pages stay committed and come back on first touch.
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 internal static class Program
@@ -24,9 +31,13 @@ internal static class Program
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
+    [DllImport("psapi.dll", EntryPoint = "EmptyWorkingSet")]
+    private static extern bool EmptyWorkingSet(IntPtr process);
+
     private static int Main(string[] args)
     {
         if (args.Length == 1 && args[0] == "--self-test") return SelfTest();
+        if (args.Length >= 3 && args[0] == "--trim") return Trim(args);
         for (int i = 0; i + 2 < args.Length; i += 3)
         {
             long hwnd;
@@ -44,6 +55,31 @@ internal static class Program
             catch
             {
                 // dwmapi missing or the window gone: cosmetic, so nothing to report.
+            }
+        }
+        return 0;
+    }
+
+    // Each pid whose image is args[1]: its working set emptied. Anything else,
+    // a pid gone or a process that will not open, is skipped.
+    private static int Trim(string[] args)
+    {
+        string exe = args[1];
+        for (int i = 2; i < args.Length; i++)
+        {
+            int pid;
+            if (!int.TryParse(args[i], out pid)) continue;
+            try
+            {
+                using (var p = Process.GetProcessById(pid))
+                {
+                    if (!string.Equals(p.MainModule.FileName, exe, StringComparison.OrdinalIgnoreCase)) continue;
+                    EmptyWorkingSet(p.Handle);
+                }
+            }
+            catch
+            {
+                // Gone, or not ours to open: nothing to trim.
             }
         }
         return 0;

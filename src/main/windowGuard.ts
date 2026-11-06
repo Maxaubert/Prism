@@ -35,6 +35,10 @@ export interface WindowGuardDeps {
   now?: () => number
   /** How long a window may go unshown before it is shown anyway. */
   showWithinMs?: number
+  /** A window that is hidden ON PURPOSE right now (the tear-off's spare): the
+   *  watchdog leaves it alone (owner, 2026-11-06: its `window-slow` 10.8 s
+   *  into every session was a false alarm; the spare's show does nothing). */
+  hiddenByDesign?: () => boolean
   /** How long a page may not answer before it is restarted. */
   hangMs?: number
 }
@@ -111,6 +115,8 @@ export function guardWindow(win: BrowserWindow, deps: WindowGuardDeps): void {
     if (win.isDestroyed()) return
     const gone = wc.isCrashed()
     if (win.isVisible() && !gone) return
+    // A hidden-by-design window whose page is alive is as it should be.
+    if (!gone && deps.hiddenByDesign?.()) return
     deps.log('watchdog', { shown: win.isVisible(), gone, url: url() })
     deps.show()
     if (gone) wc.reload()

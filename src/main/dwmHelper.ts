@@ -129,6 +129,21 @@ function send(hwnd: string, attribute: number, value: number): void {
   setImmediate(flush)
 }
 
+/**
+ * STANDBY'S TRIM (owner, 2026-11-06): the working sets of Prism's own
+ * processes (`pids`, all running `image`) emptied by the helper, from its
+ * worker like every change here. Committed memory is untouched; Windows
+ * pages it back in on first touch.
+ */
+export function trimWorkingSets(image: string, pids: number[]): void {
+  if (!exe || pids.length === 0) return
+  try {
+    spawner()?.postMessage({ exe, args: ['--trim', image, ...pids.map(String)] })
+  } catch {
+    /* a helper that cannot start trims nothing */
+  }
+}
+
 /** The HWND as a decimal string, from Electron's native handle buffer. */
 export function hwndOf(buf: Buffer): string {
   return (buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0))).toString()

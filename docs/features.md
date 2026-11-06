@@ -3,6 +3,73 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Standby, the hotkey path and startup in the log (owner, 2026-11-06)
+
+The audit (`research/prism/2026-11-06-logging-startup-stalls-audit.md`) found the log could not say where
+a slow Win+E went: no startup time, no hotkey line, a quit with no reason, two false alarms every launch.
+Closing the last window quit Prism, so every press was a cold start (0.6 s with a warm disk, 5.6 s truly
+cold, 3.77 s of it before Prism's code ran). The owner chose all four fixes, and for standby said: "maybe
+stay hidden in a mode that doesnt use much compute ram, but just a state that helps it launch a lot
+faster".
+
+- **Startup and the hotkey in the log, always on.** The `session` line has `created`
+  (`process.getCreationTime()`), `bootMs` (the OS start to that line) and `reason` (`win-e`, `file`,
+  `folder`, `plain`). One `startup` line per launch and per wake (`src/main/startupLog.ts`): `ready`,
+  `made`, `readyToShow`, `shown`, `listed`, `restored`, `winEAck` as `up` ms, and `shownMs`/`listedMs`/
+  `winEMs` from `from` (0, or when the wake began); `partial` after 30 s. A `win-e` line per request step
+  (`received` with `path` cold/warm/standby and `via` argv/second-instance/pipe, `dispatched`, `shown`,
+  `acked`, `dropped`, `repeat`), a `second-instance` line per handover, `quit` with its `reason` (`user`,
+  `last-window`, `update`, `session-end`, `gave-up`), `lock-lost` with the losing process's pid,
+  `raise-slow` over 200 ms (`windowChrome.ts raise`), `standby` (`enter`, `rest` with every process's
+  memory, `wake`), `spare-slow` and `window-make-slow`. A `page-stall` says its window (`win`) and
+  `hidden`; `npm run diag` lists no hidden window's stall as a problem (`tools/lib/diagProblems.mjs`). The
+  Win+E helper's `win-e.log` has the time zone on every line, the started Prism's pid and CreateProcess
+  ms, and when Prism said started. Kinds: `packages/term-core/README.md`.
+- **A repeat press brings the opening window forward** (`src/main/hotkeyRepeat.ts`): while a Win+E
+  request's window is opening, and for 1 s after its folder showed, another press for the same place
+  opens nothing; the helper is answered with the first (`winERequests.follow`) or at once (`answer`). A
+  folder-verb press for another folder is its own. The Nov 5 case (four presses, four windows) is one.
+- **The spare is made when Prism is idle** (`src/main/spareIdle.ts`): never on a startup timer, never in
+  standby; once a first window has restored, at the next 1.5 s with no input, page message or new window.
+  A constructor over 1.5 s or a page not ready in 15 s is `spare-slow` and the spare is given up for the
+  session (a tear then makes its window on the spot). The window watchdog leaves a window hidden by design
+  alone (`windowGuard.ts hiddenByDesign`): the spare's `window-slow` 10.8 s into every session is gone.
+- **Standby** (`src/main/standby.ts`): the last window's close leaves the MAIN PROCESS with every page
+  gone (no renderer, spare or ghost), the stall watch's timers and the sampling profiler stopped, the
+  phone server resting (its switch kept), main at low priority, V8 collected, and every Prism process's
+  working set emptied (`PrismDwm.exe --trim`). A Win+E press, a file or folder from Windows, or a plain
+  relaunch wakes it: the window opens as a cold start's first (its strip, its place) and is shown at once.
+  What still quits: an update, a log-off or shutdown (`session-end`, or the power monitor's `shutdown`
+  while resting), a window that gave up after repeated crashes, the e2e's quit, and the last window's
+  close with **Keep Prism ready** off (Settings > Explorer > When Prism starts, `prism.standby`, on by
+  default). There is no Quit menu item; one would be a chrome change to ask about.
+- **The hotkey reaches a running Prism over a pipe** (`src/main/wakePipe.ts`, `PrismShortcut.cs
+  Launcher.TryWake`): `\\.\pipe\PrismWake.<sha256 of the profile path, 24 hex>`, one JSON line
+  (`{"winE": id, "browse"?: folder}`) answered `ok` or `no`, held to `winERequest`/`browseRequest`. The
+  helper tries it for 40 ms and starts Prism.exe only when no one answers, so a press costs no second
+  Electron process. The request's own `PrismWinE.<id>` pipe still carries "started" and the ready line.
+- **Measured 2026-11-06 on this PC** (e2e `standby`, hidden desktop, NO_INDEX, warm disk). Memory is
+  every Prism process's private working set (Task Manager's Memory) and private bytes:
+
+  | State | Processes | Private WS | Private bytes | Press to folder up |
+  |---|---|---|---|---|
+  | One window open | 6 | 173-180 MB | 423-441 MB | |
+  | (a) standby, not trimmed | 5 | 119 MB | 372 MB | |
+  | (a) standby, trimmed (chosen) | 5 | 14-15 MB | 353-366 MB | 360-369 ms via a second Prism.exe, 269 ms via the pipe |
+  | (b) one hidden window kept | 6 | 114-122 MB | 530-541 MB | shown and drawn in 4-8 ms |
+  | Cold start (before) | | | | 499-521 ms (warm disk); 5.6 s truly cold (audit) |
+
+  Resting main used 0 ms of CPU in 10 s. In Prism the wake is 33 ms to the window shown, about 200 ms to
+  the folder listed and 250 ms to the helper told; the trim did not slow it (365 vs 369 ms). (a) was
+  chosen: an eighth of (b)'s memory, a press under 0.3 s, and on a cold disk no Electron start at all,
+  where (b) saves a further ~250 ms for 100 MB held all day. The GPU process keeps about 210 MB of
+  private bytes committed while resting; most of it is paged out, not resident.
+- Held by `startupLog.test.ts`, `hotkeyRepeat.test.ts`, `spareIdle.test.ts`, `standby.test.ts`,
+  `wakePipe.test.ts`, `winERequests.test.ts`, `windowGuard.test.ts`, the core's `stallWatch`/`diagIpc`/
+  `diagnostics` tests, `diagProblems.test.mjs`, the helper's self-test (the pipe's name vector), and the
+  e2e `startupLog`, `hotkeyRepeat`, `standby` (bounds: 60 MB resting, 1000 ms from a second-process press,
+  600 ms from a pipe press) and `spare`.
+
 ## Every file operation says how it went; paste never waits on Windows (#484, owner, 2026-11-06)
 
 Owner, 2026-11-06: "i had some issues copying from zip to the main folder outside first i got the that
@@ -3502,7 +3569,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the preview 26% of the row (322 of 1240; was 40%), capped at 630 instead of 720. A width the
   user dragged a panel to is unaffected. `windowSize.test.ts` holds the size.
 - **Resident single-instance model**: one process; opening another file hands off to the running
-  window so it appears instantly (mitigates Electron cold-start). The window is RAISED past
+  window so it appears instantly (mitigates Electron cold-start). Since 2026-11-06 the last window's
+  close leaves it in standby rather than quitting ("Standby, the hotkey path and startup in the log"). The window is RAISED past
   Windows' foreground lock when it appears and when a file is handed to it (2026-08-28):
   `show()` and `focus()` only ask, and a process that did not have the foreground can be
   refused - the window is drawn but not activated, and the user's first click is then spent

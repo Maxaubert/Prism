@@ -65,6 +65,16 @@ Filesmith's conventions.
   the first window exists is the first window's, as at a cold start. `explorerWindow.ts` (a second Prism on
   `<userData>/explorer-windows/<uuid>`) is gone; `oldExplorerWindows.ts` removes those profiles once, after
   the first answer. The update install checks only `windows.anyDirty()`.
+- **THE HOTKEY PIPE AND STANDBY** (owner, 2026-11-06; `docs/features.md` "Standby, the hotkey path and
+  startup in the log"). A running Prism listens on `\\.\pipe\PrismWake.<24 hex of sha256(the profile
+  path, lower case, no trailing slash)>` (`src/main/wakePipe.ts`). The helper (`Launcher.TryWake`) connects
+  for 40 ms, writes one JSON line `{"winE": "<UUID>", "browse"?: "<folder>"}` and reads `ok` or `no`; on
+  `ok` it starts no process, and the request goes through `onLaunch` exactly as a `second-instance` with
+  `--win-e`/`--browse` would. The request's own `PrismWinE.<UUID>` pipe is unchanged ("started", then the
+  id). No answer (no Prism, an older one, or 1.5 s without a reply) and the helper starts Prism.exe as
+  before. In standby (`src/main/standby.ts`) the process has no window; a request opens a window as a cold
+  start's FIRST (`openAsFirst`, host `WIN_E_FIRST`), shown at once. Repeat presses ride on the request
+  still opening (`winERequests.follow`, `hotkeyRepeat.ts`).
 - **SETTINGS DESCRIPTIONS ARE PLAIN WORDS** (2026-09-22, owner: "no symbols other than comma and
   dot, no mentioning of specific keys or tips, just a simple text description of what it does").
   Every hint on Prism's own pages was rewritten to that rule, the core's rows likewise in the core.
