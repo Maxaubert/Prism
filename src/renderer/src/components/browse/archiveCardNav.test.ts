@@ -3,12 +3,15 @@ import {
   NO_PICK,
   cardCaption,
   cardCargo,
+  cardDropKeys,
   cardGoesInto,
   cardUp,
   pickForMenu,
+  landedRows,
   pickRow,
   stepPick
 } from './archiveCardNav'
+import { archiveTarget, dropVerb } from '../../lib/drag/dropVerb'
 
 const zip = 'C:\\Users\\me\\Downloads\\W-13.zip'
 const order = ['app', 'docs', 'scripts', 'AGENTS.md', 'README.md']
@@ -86,3 +89,50 @@ describe('the card selection (#483)', () => {
     expect(cardCargo(two, 'README.md')).toEqual(['README.md'])
   })
 })
+
+describe('a drop onto the card (#483)', () => {
+  const here = `${zip}\\web`
+  const target = (readOnly = false) => ({
+    dir: here,
+    archive: archiveTarget(here, { container: zip, base: zip, outer: zip, readOnly })
+  })
+  const files = { kind: 'files' as const, paths: ['C:\\Users\\me\\Downloads\\notes.txt'] }
+  it('copies by default, Ctrl copies, Shift alone moves', () => {
+    expect(cardDropKeys(plain)).toEqual(ctrl)
+    expect(cardDropKeys(ctrl)).toEqual(ctrl)
+    expect(cardDropKeys(shift)).toEqual(shift)
+    expect(cardDropKeys({ ctrl: true, shift: true })).toEqual(ctrl)
+  })
+  it('a file beside the zip is added as a copy, on the same drive too', () => {
+    expect(dropVerb({ payload: files, target: target(), keys: cardDropKeys(plain) })).toBe('add-copy')
+    expect(dropVerb({ payload: files, target: target(), keys: cardDropKeys(shift) })).toBe('add-move')
+  })
+  it('a read-only archive takes nothing', () => {
+    expect(dropVerb({ payload: files, target: target(true), keys: cardDropKeys(plain) })).toBe('none')
+  })
+  it("the card's own members back onto it are refused quietly", () => {
+    const own = {
+      kind: 'members' as const,
+      archive: zip,
+      entries: ['web/README.md'],
+      places: [`${here}\\README.md`],
+      card: true as const
+    }
+    expect(dropVerb({ payload: own, target: target(), keys: cardDropKeys(plain) })).toBe('none')
+  })
+  it('the zip itself never goes into itself', () => {
+    const self = { kind: 'files' as const, paths: [zip] }
+    expect(dropVerb({ payload: self, target: target(), keys: cardDropKeys(plain) })).toBe('none')
+  })
+})
+
+describe('what landed in the card is marked (#483)', () => {
+  const here = `${zip}\\web`
+  it("names the rows the landed places are, in the rows' order", () => {
+    expect(landedRows(order, here, [`${here}\\README.md`, `${here}\\app`])).toEqual(['app', 'README.md'])
+  })
+  it('matches without regard to case and ignores another folder', () => {
+    expect(landedRows(order, here, [`${here.toUpperCase()}\\DOCS`, `${zip}\\README.md`])).toEqual(['docs'])
+  })
+})
+

@@ -12,10 +12,10 @@ import { archiveTarget, dropVerb, effectOf, type DropKeys } from '../../lib/drag
 
 /** What a drag over a target carries for the rule: Prism's cargo, or, for a
  *  drag Windows carries from elsewhere, files that are only ever copied in. */
-const seenOf = (dt: DataTransfer): DragPayload | null =>
+export const seenOf = (dt: DataTransfer): DragPayload | null =>
   overPayload(dt) ?? (windowsDrag(dt) ? { kind: 'files', paths: [], external: true } : null)
 
-const keysOf = (event: DragEvent): DropKeys => ({ ctrl: event.ctrlKey, shift: event.shiftKey })
+export const keysOf = (event: DragEvent): DropKeys => ({ ctrl: event.ctrlKey, shift: event.shiftKey })
 
 /**
  * Folder rows, list backgrounds, crumbs, places and pins share the same drop

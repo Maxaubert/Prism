@@ -285,6 +285,27 @@
     var(--sel-top),
     var(--sel-bottom);
 }
+/* NOT IN USE (#483; owner, 2026-11-06: "it should dim, still highlighted but
+   dimmed"): once the user acts anywhere else, the picked rows wear the list's
+   inactive selection (browse.css, #296), the dimmed tint and its edge. */
+.archive-card-rows[data-inactive] .archive-card-row[data-selected],
+.archive-card-rows[data-inactive] .archive-card-row[data-selected]:hover {
+  --sel-top: inset 0 1px 0 var(--p-sel-line-dim);
+  --sel-bottom: inset 0 -1px 0 var(--p-sel-line-dim);
+  background-color: var(--p-sel-tint-dim);
+  box-shadow:
+    inset 1px 0 0 var(--p-sel-line-dim),
+    inset -1px 0 0 var(--p-sel-line-dim),
+    var(--sel-top),
+    var(--sel-bottom);
+}
+/* A drop onto the card (#483): the place it lands wears the list's drop
+   hover (browse.css), a folder row or the rows' box. */
+.archive-card-rows[data-drag-over],
+.archive-card-row[data-drag-over] {
+  background: var(--p-hover-hi);
+  box-shadow: none;
+}
 .archive-card-row[data-selected][data-join-up] {
   --sel-top: 0 0 0 transparent;
   border-top-left-radius: 0;

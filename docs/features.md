@@ -1229,6 +1229,26 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   opened and back, Ctrl+A and Ctrl+C then a paste landing only the member, two members dragged onto the list and a folder and a file onto a folder row,
   refused drops, the menus; a zip of several top entries; a zip inside a zip, its member dragged
   out).
+  THE CARD TAKES DROPS AND HANDS THE KEYS BACK (#483; owner, 2026-11-06, trying the build: "i
+  then dragged it back in then it opened the zip in full view i think then a that didnt work
+  message. i also tried clicking a file in the preview then ctrl c and then i clicked in the main
+  view at empty space then hit paste but nothing happened, the highlighted file in the preview
+  didnt even go grey which it should when you click empty space it should dim, still highlighted
+  but dimmed"). A file or folder from the list or from Windows dropped on the card is ADDED to
+  the zip where the card is, onto a folder row into that folder (the Explorer's own drop into a
+  place inside the zip, #70: `addMembers`, Keep both on a clash); a plain drag COPIES there,
+  Shift alone moves (`cardDropKeys`). The card reads the zip again and marks what landed. The
+  card takes every drop over it: before, a drop there fell through to the window, which opens
+  what is dropped on the viewer (the e2e opened the dropped file full view). Its own members, a
+  read-only archive (7z, rar, nested) or the zip itself show no-drop and do nothing. A press or
+  the focus anywhere else dims the card's picked rows to the list's inactive selection
+  (`--p-sel-tint-dim`, as #296) and takes the keyboard out of the card, so Ctrl+A, C and V and
+  the arrows are the list's again; a press in the card brings the full look back. The owner's
+  paste waited on the copy: the log shows the card's Ctrl+C of a folder whose clipboard write
+  (PowerShell) ran into its 10 s limit, and a paste waits for the copy before it. `zipPreviewClicks`
+  e2e (a list file onto the card and onto a folder row of it, added, shown and marked, nothing
+  opened, no note; the dim tint against the list's token and back; Ctrl+C in the card, a click on
+  the list's empty space, Ctrl+V and a row's Paste; Ctrl+A then marks the list's rows).
 - **Archive viewer** (2026-08-22, #68; since #300 the PHONE's only, the desktop's is above): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),
