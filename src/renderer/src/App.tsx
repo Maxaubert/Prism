@@ -1655,6 +1655,7 @@ export default function App(): JSX.Element {
                     onOpenArchive={openArchive}
                     onOpenArchiveMember={openArchiveMember}
                     archiveCardMenu={archiveActions.cardMenu}
+                    archiveCardCopy={archiveActions.copy}
                     note={!browsing.folder}
                   />
                 </div>
@@ -1721,6 +1722,7 @@ export default function App(): JSX.Element {
                           onOpenArchive={openArchive}
                           onOpenArchiveMember={openArchiveMember}
                           archiveCardMenu={archiveActions.cardMenu}
+                          archiveCardCopy={archiveActions.copy}
                           note={!browsing.folder}
                         />
                       </div>

@@ -17669,6 +17669,29 @@ async function zipPreviewClicksScenario(fixtures) {
     ok(await until(async () => (await caption()) === `Inside, in ${top}\\docs`, 8000), `Open on a folder goes into it in the card (${await caption()})`)
     await explorerStays('after Open on a folder')
     await win.keyboard.press('Backspace')
+    ok(await until(async () => (await caption()) === `Inside, in ${top}`, 8000), 'Backspace out of docs')
+
+    // THE CARD'S CHORDS ARE ITS OWN: Ctrl+A picks every row, Ctrl+C copies
+    // the picked MEMBERS (never the zip behind them), Ctrl+X cuts nothing.
+    await cardRow('AGENTS.md').click()
+    await win.keyboard.press('Control+a')
+    ok((await picked()).join('|') === (await rowsShown()).join('|'), `Ctrl+A in the card selects every row (${(await picked()).length})`)
+    await explorerStays('after Ctrl+A in the card')
+    await cardRow('.gitattributes').click()
+    await win.keyboard.press('Control+x')
+    await sleep(300)
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'Ctrl+C in the card puts files on the clipboard')
+    const beforePaste = readdirSync(dir).sort().join('|')
+    await listRow(win, 'notes.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+v')
+    ok(await until(async () => existsSync(join(dir, '.gitattributes')), 20000, 150), 'pasted in the list, the picked member lands')
+    ok(
+      readdirSync(dir).filter((f) => !beforePaste.split('|').includes(f)).join('|') === '.gitattributes',
+      `and only it: the zip was never copied or cut (${readdirSync(dir).filter((f) => !beforePaste.split('|').includes(f))})`
+    )
+    ok(existsSync(zipPath), 'the zip is still there')
+    await pickZip('after the paste')
 
     // THE VERBS do their work.
     await press(verb('extract-here'))
