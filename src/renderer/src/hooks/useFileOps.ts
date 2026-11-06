@@ -157,7 +157,7 @@ export function useFileOps({
       if (!r.ok) {
         if (r.reason === 'clash')
           setAsk({ kind: 'clash', path, name, suggestion: r.suggestion ?? name })
-        else setAsk({ kind: 'failed', message: r.message ?? 'That could not be renamed.' })
+        else setAsk({ kind: 'failed', message: r.message ?? 'That could not be renamed.', op: 'rename' })
         return null
       }
       setAsk(null)
@@ -196,7 +196,7 @@ export function useFileOps({
     async (dir: string): Promise<string | null> => {
       const made = await window.prism.newFolder(dir)
       if (!made) {
-        setAsk({ kind: 'failed', message: 'A new folder could not be made here.' })
+        setAsk({ kind: 'failed', message: 'A new folder could not be made here.', op: 'new-folder' })
         return null
       }
       noteUndo({ kind: 'mkdir', path: made })
@@ -246,7 +246,7 @@ export function useFileOps({
       const held = releaseFiles([path])
       const ok = await trashWithRetry(path, held)
       if (!ok) {
-        setAsk({ kind: 'failed', message: 'That could not be moved to the Recycle Bin.' })
+        setAsk({ kind: 'failed', message: 'That could not be moved to the Recycle Bin.', op: 'trash' })
         return
       }
       setRefreshKey((n) => n + 1)
@@ -308,6 +308,7 @@ export function useFileOps({
       if (failed)
         setAsk({
           kind: 'failed',
+          op: 'trash',
           message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.`
         })
     },
@@ -415,6 +416,7 @@ export function useFileOps({
           if (r.failed.length)
             setAsk({
               kind: 'failed',
+              op: 'move',
               message: r.refused
                 ? 'Those can only be moved inside the folder Prism opened, and a tab\u2019s own folder cannot be moved.'
                 : r.busy.length
@@ -445,7 +447,7 @@ export function useFileOps({
       move: (paths, dest) => runMove(paths, dest, 'keep-both', false),
       rename: (path, name) => runRename(path, name, 'keep-both', false),
       refresh: () => setRefreshKey((n) => n + 1),
-      fail: (message) => setAsk({ kind: 'failed', message }),
+      fail: (message) => setAsk({ kind: 'failed', message, op: 'undo' }),
       land: markLanded,
       prism: window.prism
     }),
@@ -511,11 +513,11 @@ export function useFileOps({
       try {
         const result = await window.prism.copyInto(dest, paths, job)
         const said = pasteMessage(result, DROP_REFUSED)
-        if (said) setAsk({ kind: 'failed', message: said })
+        if (said) setAsk({ kind: 'failed', message: said, op: 'drop-copy' })
         setRefreshKey((n) => n + 1)
         markLanded(result.paths ?? [])
       } catch {
-        setAsk({ kind: 'failed', message: PASTE_MESSAGES.threw })
+        setAsk({ kind: 'failed', message: PASTE_MESSAGES.threw, op: 'drop-copy' })
       } finally {
         endJob(job)
       }
@@ -582,6 +584,7 @@ export function useFileOps({
           if (results.some((result) => !result || result.listing.unreadable)) {
             setAsk({
               kind: 'failed',
+              op: 'drop',
               message: 'The source or destination folder could not be opened.'
             })
             return
@@ -603,6 +606,7 @@ export function useFileOps({
         .catch(() =>
           setAsk({
             kind: 'failed',
+            op: 'drop',
             message: 'The source or destination folder could not be opened.'
           })
         )

@@ -210,7 +210,7 @@ export function useTabOps({
       void window.prism.browseDirectory(id, path).then((directory) => {
         if (!directory) {
           forgetRoot(path)
-          setAsk({ kind: 'failed', message: 'That folder is not there any more.' })
+          setAsk({ kind: 'failed', message: 'That folder is not there any more.', op: 'open-folder' })
           return
         }
         visitedDirectories.remember(directory)

@@ -147,6 +147,6 @@ export function AskDialogs({
       )
     }
     case 'failed':
-      return <NoticeDialog title="That didn't work" message={ask.message} onClose={a.dismiss} />
+      return <NoticeDialog title="That didn't work" message={ask.message} op={ask.op} onClose={a.dismiss} />
   }
 }

@@ -70,6 +70,7 @@ import { withStackPolicy } from 'prism-term-core/main/diagIpc'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
 import { diagWindowEvent } from './diagWindow'
 import { mainCrumb } from './diagCrumb'
+import { watchOps } from './opLog'
 import { initSweepOverlay, loadSweepAddon, sweepDirs, type PrismSweep, type SweepLoad, type SweepOverlay } from './sweepOverlay'
 import { documentImages } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
@@ -1731,6 +1732,11 @@ if (!app.requestSingleInstanceLock()) {
     // keeps the quiet default its scenarios measure against.
     verboseByDefault: !E2E
   })
+  // EVERY FILE OPERATION SAYS HOW IT WENT (owner, 2026-11-06: "make sure
+  // logs are always on so you can see what happened"): an `op` line per
+  // rename, move, trash, extract, zip write, save..., at every level. Here,
+  // before any channel is registered, like the timing above (opLog.ts).
+  watchOps(ipcMain)
   // A main-lag of 1 s or more carries a CPU profile (2026-10-12) and a
   // Chromium trace (2026-10-27), in every session (owner, 2026-10-27, "keep
   // logging as much as possible"): the profile says what JavaScript did, the

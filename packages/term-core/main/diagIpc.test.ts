@@ -56,6 +56,10 @@ describe('pageLine', () => {
       expect(pageLine({ k, at: NOW, id: 't1' }, NOW, false)?.k).toBe(k)
     expect(pageLine({ k: 'agent-anything', at: NOW }, NOW, false)).toBeNull()
   })
+  it("takes an operation's outcome and a note the user was shown, at the quiet level (owner, 2026-11-06)", () => {
+    expect(pageLine({ k: 'op', at: NOW, op: 'paste', ok: false }, NOW, false)?.k).toBe('op')
+    expect(pageLine({ k: 'note', at: NOW, text: 'Nothing could be pasted here.' }, NOW, false)?.k).toBe('note')
+  })
   it("takes an app's own -slow kind (Prism's sort-slow)", () => {
     expect(pageLine({ k: 'sort-slow', at: NOW, ms: 80 }, NOW, false)?.k).toBe('sort-slow')
   })

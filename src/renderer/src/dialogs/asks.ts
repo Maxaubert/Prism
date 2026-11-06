@@ -6,7 +6,7 @@ export type Ask =
   | { kind: 'delete-many'; paths: string[] }
   | { kind: 'move-clash'; paths: string[]; dest: string; names: string[] }
   | { kind: 'clash'; path: string; name: string; suggestion: string }
-  | { kind: 'failed'; message: string }
+  | { kind: 'failed'; message: string; op?: string }
   | { kind: 'close-dirty'; then?: 'install' }
   // Closing a TAB that holds unsaved text. Same three answers as the
   // window's, because the stake is the same: leave that tab and the only route

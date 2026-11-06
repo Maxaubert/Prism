@@ -89,6 +89,9 @@ export interface PasteResult {
   from?: string[]
   /** The paste was a MOVE: `cut` still matched the clipboard. */
   moved?: boolean
+  /** Why each failed item failed (ENOENT, EBUSY, "into itself"), for the
+   *  diagnostics log's `op` line (owner, 2026-11-06). */
+  failures?: Array<{ name: string; reason: string }>
 }
 
 /** What a move does with a name already taken at the destination. */

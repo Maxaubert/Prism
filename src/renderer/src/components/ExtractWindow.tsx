@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, type JSX, type RefObject } from 're
 import { createPortal } from 'react-dom'
 import { dispatch, failureText, fitPath, useExtraction } from '../lib/extraction'
 import { EXTRACT_WINDOW_ATTR } from '../lib/extractionGuard'
+import { logNote } from '../lib/noteLog'
 import { DIALOG_BOX, DIALOG_SCRIM, dialogButton } from './dialogLook'
 
 /**
@@ -189,6 +190,12 @@ export function ExtractWindow(): JSX.Element | null {
           ? 'Cancelling'
           : s.file
   useFittedLine(line, up, lineText, s.phase === 'running' || s.phase === 'leaving')
+  // What a failed extraction says goes to the diagnostics log (owner,
+  // 2026-11-06: "make sure logs are always on so you can see what happened").
+  const failedNote = failed ? `Couldn't extract ${s.archive}: ${lineText}` : ''
+  useEffect(() => {
+    if (failedNote) logNote(failedNote, { op: 'extract', level: 'error' })
+  }, [failedNote])
 
   if (s.phase === 'idle') return null
 
