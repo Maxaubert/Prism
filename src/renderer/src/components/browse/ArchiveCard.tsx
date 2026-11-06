@@ -15,8 +15,11 @@ import { FileMenuIcon } from '../icons/FileMenuIcon'
 import { BrowseIcon } from '../icons/BrowseIcon'
 import { fileKind } from '@shared/fileKind'
 import { extOf, pathKey } from '@shared/path'
-import { DRAG_MIME, setDrag } from '../../lib/drag/dragDrop'
+import { DRAG_MIME, ownDrop, setDrag, windowsDrag, type DragPayload } from '../../lib/drag/dragDrop'
 import { noteReady } from '../../lib/drag/dragOut'
+import { archiveTarget, dropVerb, effectOf, type DropKeys } from '../../lib/drag/dropVerb'
+import { clearLanded, useLandRequest } from '../../lib/landMarks'
+import { keysOf, seenOf } from './useFolderDrop'
 import { ContextMenu, type MenuItem } from '../ContextMenu'
 import type { ArchiveCardCopy, ArchiveCardMenu } from './useArchiveActions'
 import {
@@ -24,8 +27,10 @@ import {
   NO_PICK,
   cardCaption,
   cardCargo,
+  cardDropKeys,
   cardGoesInto,
   cardUp,
+  landedRows,
   pickForMenu,
   pickRow,
   stepPick,
@@ -57,6 +62,21 @@ const lastPlace = new Map<string, string>()
  * the list or a folder row they are extracted there (#70's drop, its landing
  * marks), never moved inside their own zip (`payload.card`). A right-click
  * has the zip's member verbs (`menus/archiveCardMenu.ts`).
+ *
+ * A DROP ONTO THE CARD ADDS TO THE ZIP (#483; owner, 2026-11-06: "i then
+ * dragged it back in then it opened the zip in full view"): files from the
+ * list or from Windows dropped on its rows go into the zip where the card is,
+ * onto a folder row into that folder, by #70's rule with a COPY for a plain
+ * drag (`cardDropKeys`); what landed is marked in the card. The card takes
+ * every drop over it, so nothing falls through to the window, which opens
+ * what is dropped on the viewer. Its own members, a read-only archive or the
+ * zip itself: no-drop, quietly.
+ *
+ * THE CARD IS IN USE OR NOT (#483; owner, same day: "it should dim, still
+ * highlighted but dimmed"): a press or the focus anywhere else dims its
+ * picked rows to the list's inactive selection and hands the keyboard back
+ * (the focus leaves the card's list), so Ctrl+A, C and V are the list's
+ * again; a press in the card brings the full look back.
  */
 export function ArchiveCard({
   path,
@@ -67,7 +87,9 @@ export function ArchiveCard({
   onExtractTo,
   onOpenMember,
   menu,
-  onCopyMembers
+  onCopyMembers,
+  onDropInto,
+  refreshKey
 }: {
   path: string
   name: string
@@ -82,6 +104,11 @@ export function ArchiveCard({
   menu?: ArchiveCardMenu
   /** Ctrl+C on the picked rows (#483): the zip's own member Copy. */
   onCopyMembers?: ArchiveCardCopy
+  /** A drop onto the card (#483): the Explorer's own drop into a place,
+   *  here a place inside the zip. */
+  onDropInto?: (directory: string, payload: DragPayload, keys: DropKeys) => void
+  /** Prism wrote somewhere: the card reads the zip again. */
+  refreshKey?: number
 }): JSX.Element {
   const [summary, setSummary] = useState<{ path: string; got: ArchiveSummary } | null>(null)
   useEffect(() => {
@@ -93,7 +120,7 @@ export function ArchiveCard({
     return () => {
       live = false
     }
-  }, [path])
+  }, [path, refreshKey])
   const got = summary?.path === path ? summary.got : null
   const meta = got?.ok ? got.meta : null
   const facts = meta
@@ -138,7 +165,7 @@ export function ArchiveCard({
     return () => {
       live = false
     }
-  }, [wantLevel, here, path, start])
+  }, [wantLevel, here, path, start, refreshKey])
   const view = !got?.ok ? null : atStart ? got : level?.here === here && level.got.ok ? level.got : null
   const rows: Row[] = view?.ok ? view.rows : []
   const order = rows.map((r) => r.name)
@@ -150,6 +177,89 @@ export function ArchiveCard({
   const setPick = (next: CardPick): void => setPicked({ here, pick: next })
   const [menuAt, setMenuAt] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const list = useRef<HTMLDivElement>(null)
+  const root = useRef<HTMLDivElement>(null)
+
+  // IN USE OR NOT: a press or the focus in the card makes it the one in use;
+  // anywhere else (a menu aside) dims it, and a press elsewhere takes the
+  // keyboard out of its list, so the list's keys are the list's again.
+  const [inUse, setInUse] = useState(false)
+  useEffect(() => {
+    const heard = (event: Event): void => {
+      const target = event.target
+      if (!(target instanceof Element) || target.closest('[role="menu"]')) return
+      const inside = !!root.current?.contains(target)
+      setInUse(inside)
+      const focused = document.activeElement
+      if (!inside && event.type === 'pointerdown' && focused instanceof HTMLElement && root.current?.contains(focused))
+        focused.blur()
+    }
+    document.addEventListener('pointerdown', heard, true)
+    document.addEventListener('focusin', heard, true)
+    return () => {
+      document.removeEventListener('pointerdown', heard, true)
+      document.removeEventListener('focusin', heard, true)
+    }
+  }, [])
+
+  // WHAT LANDED IN THE CARD'S PLACE is marked there, as the list marks it.
+  // (FolderBrowser's shape: the work is mirrored after render and run by the
+  // effect, once the rows the request names have arrived.)
+  const land = useLandRequest()
+  const orderKey = order.join('\n')
+  const landApply = useRef<() => void>(() => {})
+  useLayoutEffect(() => {
+    landApply.current = () => {
+      if (!land || pathKey(land.dir) !== pathKey(here)) return
+      const names = landedRows(order, here, land.paths)
+      if (!names.length || names.length < land.paths.length) return
+      clearLanded(land.seq)
+      setPicked({ here, pick: { marked: names, anchor: names[0], cursor: names[0] } })
+      list.current
+        ?.querySelector<HTMLElement>(`[data-archive-row="${CSS.escape(names[0])}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+    }
+  })
+  useEffect(() => landApply.current(), [land, here, orderKey])
+
+  // THE DROP: onto the card's place, or a folder row's. `row` is the row
+  // under the pointer, so a row refuses itself.
+  const [dropOn, setDropOn] = useState<string | null>(null)
+  const dropAt = (dest: string, row?: string) => {
+    const target = { dir: dest, archive: placeMeta ? archiveTarget(dest, placeMeta) : null, row }
+    const verbOf = (payload: DragPayload | null, keys: DropKeys) =>
+      onDropInto && placeMeta && target.archive ? dropVerb({ payload, target, keys: cardDropKeys(keys) }) : 'none'
+    return {
+      onDragOver: (e: DragEvent<HTMLElement>): void => {
+        // Taken here whatever it is: a refusal must not reach the window.
+        e.stopPropagation()
+        const verb = verbOf(seenOf(e.dataTransfer), keysOf(e))
+        e.dataTransfer.dropEffect = effectOf(verb, windowsDrag(e.dataTransfer))
+        setDropOn(verb === 'none' ? null : dest)
+        if (verb !== 'none') e.preventDefault()
+      },
+      onDragLeave: (e: DragEvent<HTMLElement>): void => {
+        if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) setDropOn(null)
+      },
+      onDrop: (e: DragEvent<HTMLElement>): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        setDropOn(null)
+        const payload = ownDrop(e.dataTransfer)
+        setDrag(null)
+        if (!payload || verbOf(payload, keysOf(e)) === 'none') return
+        onDropInto?.(dest, payload, cardDropKeys(keysOf(e)))
+      }
+    }
+  }
+  useEffect(() => {
+    const clear = (): void => setDropOn(null)
+    window.addEventListener('dragend', clear, true)
+    window.addEventListener('drop', clear, true)
+    return () => {
+      window.removeEventListener('dragend', clear, true)
+      window.removeEventListener('drop', clear, true)
+    }
+  }, [])
 
   /** Go to a place inside the zip, in the card. */
   const go = (to: string): void => {
@@ -242,7 +352,22 @@ export function ArchiveCard({
   }
 
   return (
-    <div className="archive-card" data-archive-card>
+    <div
+      ref={root}
+      className="archive-card"
+      data-archive-card
+      // Nothing dropped on the card falls through to the window (which opens
+      // what is dropped on the viewer); its rows say what they take.
+      onDragOver={(e) => {
+        e.stopPropagation()
+        e.dataTransfer.dropEffect = 'none'
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setDrag(null)
+      }}
+    >
       <div className="archive-card-head">
         <KindIcon kind="archive" ext={extOf(name)} name={name} color="var(--p-tree-zip)" size={48} bg="var(--p-bg)" />
         <div className="min-w-0">
@@ -289,7 +414,10 @@ export function ArchiveCard({
             aria-label={cardCaption(path, here)}
             tabIndex={0}
             data-archive-card-rows
+            data-inactive={!inUse || undefined}
+            data-drag-over={dropOn === here || undefined}
             onKeyDown={onKeyDown}
+            {...dropAt(here)}
           >
             {rows.map((row, i) => {
               const selected = marks.has(row.name)
@@ -297,6 +425,10 @@ export function ArchiveCard({
               // A run of selected rows is one block, the list's look (browse.css).
               const joinUp = selected && i > 0 && marks.has(rows[i - 1].name)
               const joinDown = selected && i + 1 < rows.length && marks.has(rows[i + 1].name)
+              const place = placeOfRow(row.name)
+              // A folder row takes a drop into itself; any other row means
+              // the card's place.
+              const drop = row.dir ? dropAt(place, place) : dropAt(here, place)
               return (
                 <button
                   type="button"
@@ -309,6 +441,8 @@ export function ArchiveCard({
                   className="archive-card-row"
                   key={row.name}
                   data-archive-row={row.name}
+                  data-drag-over={(row.dir && dropOn === place) || undefined}
+                  {...drop}
                   draggable
                   onClick={(e) => setPick(pickRow(order, pick, row.name, { ctrl: e.ctrlKey, shift: e.shiftKey }))}
                   onDoubleClick={() => activate(row)}
@@ -348,7 +482,9 @@ export function ArchiveCard({
                       name={row.name}
                       color={iconColour(kind)}
                       size={14}
-                      bg={selected ? 'var(--p-sel-tint-seen)' : 'var(--p-bg)'}
+                      bg={
+                        selected ? (inUse ? 'var(--p-sel-tint-seen)' : 'var(--p-sel-tint-dim-seen)') : 'var(--p-bg)'
+                      }
                     />
                   )}
                   <span>{row.name}</span>

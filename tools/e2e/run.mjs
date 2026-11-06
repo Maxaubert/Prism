@@ -17692,6 +17692,100 @@ async function zipPreviewClicksScenario(fixtures) {
     )
     ok(existsSync(zipPath), 'the zip is still there')
     await pickZip('after the paste')
+    // THE OWNER'S SECOND TRY (2026-11-06): "i tried dragging something out of
+    // zip that worked i then dragged it back in then it opened the zip in full
+    // view i think then a that didnt work message. i also tried clicking a file
+    // in the preview then ctrl c and then i clicked in the main view at empty
+    // space then hit paste but nothing happened, the highlighted file in the
+    // preview didnt even go grey which it should when you click empty space it
+    // should dim, still highlighted but dimmed".
+    const space = async () => {
+      const at = await listSpace(win)
+      await win.mouse.click(at.x, at.y)
+      await sleep(250)
+    }
+    const rowLook = (name) =>
+      win.evaluate((sel) => {
+        const el = document.querySelector(sel)
+        return el ? getComputedStyle(el).backgroundColor : ''
+      }, row(name))
+    /** A token's colour as the browser resolves it, inside the Explorer. */
+    const tokenColour = (token) =>
+      win.evaluate((t) => {
+        const probe = document.createElement('div')
+        probe.style.backgroundColor = `var(${t})`
+        document.querySelector('[data-testid="folder-browser"]').append(probe)
+        const c = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return c
+      }, token)
+    const dim = await tokenColour('--p-sel-tint-dim')
+    const full = await tokenColour('--p-sel-tint')
+    ok(dim && full && dim !== full, `the list's selection tints differ (full ${full}, dim ${dim})`)
+    const zipNames = () => new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+    const dialogText = async () => (await win.locator('[role="dialog"]').allTextContents().catch(() => [])).join(' | ')
+
+    // A FILE FROM THE LIST ONTO THE CARD is added to the zip, where the card is.
+    await pickZip('before a drop onto the card')
+    const w6 = await carryOver(win, listRow(win, 'notes.txt').locator('.browse-name-text'), cardRow('README.md'))
+    ok(w6 === 'Copy', `a list file over the card reads Copy (${JSON.stringify(w6)})`)
+    ok(
+      await until(async () => zipNames().includes(`${top}/notes.txt`), 20000, 150),
+      `dropped on the card, it is added to the zip in the card's folder (${zipNames().filter((n) => /notes/.test(n))})`
+    )
+    ok(existsSync(join(dir, 'notes.txt')), 'a copy: the file stays in the folder')
+    ok(await until(async () => (await rowsShown()).includes('notes.txt'), 10000), `the card shows it (${(await rowsShown()).slice(0, 12)})`)
+    ok(await until(async () => (await picked()).join('|') === 'notes.txt', 8000), `and marks it where it landed (${await picked()})`)
+    ok(!(await viewing(win)), `nothing opens in the viewer (${await viewing(win)})`)
+    ok((await dialogText()) === '', `and no note says it failed (${await dialogText()})`)
+    await explorerStays('after a drop onto the card')
+    // Onto a folder row of the card: into that folder.
+    const w7 = await carryOver(win, listRow(win, 'W-13-rapport.pdf').locator('.browse-name-text'), cardRow('docs'))
+    ok(w7 === 'Copy', `a list file over a folder row of the card reads Copy (${JSON.stringify(w7)})`)
+    ok(
+      await until(async () => zipNames().includes(`${top}/docs/W-13-rapport.pdf`), 20000, 150),
+      'dropped on the folder row, it is added into that folder of the zip'
+    )
+    await sleep(500)
+    ok(!(await viewing(win)), `nothing opens (${await viewing(win)})`)
+    ok((await dialogText()) === '', `no note (${await dialogText()})`)
+    ok(await shown(), 'the card stays where it was')
+
+    // FOCUS LEAVES THE CARD: its pick stays, dimmed; the list has the keys.
+    await cardRow('README.md').click()
+    ok((await picked()).join('|') === 'README.md', 'a card row picked')
+    ok((await rowLook('README.md')) === full, `with the card in use, the full tint (${await rowLook('README.md')})`)
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'Ctrl+C in the card puts the member on the clipboard')
+    await space()
+    ok(await shown(), "a click on the list's empty space leaves the card up")
+    ok((await picked()).join('|') === 'README.md', `and its pick stays (${await picked()})`)
+    ok((await rowLook('README.md')) === dim, `dimmed, the list's inactive selection (${await rowLook('README.md')} vs ${dim})`)
+    await cardRow('README.md').click()
+    ok((await rowLook('README.md')) === full, `a click in the card brings the full tint back (${await rowLook('README.md')})`)
+    await space()
+    await win.keyboard.press('Control+v')
+    ok(await until(async () => existsSync(join(dir, 'README.md')), 20000, 150), 'Ctrl+V after a click on the empty space pastes the member into the folder')
+    // The list's right-click Paste after it (the empty space has no menu
+    // outside a zip; a file row's Paste is its folder's).
+    await pickZip('after the paste from the card')
+    await cardRow('.gitignore').click()
+    await win.keyboard.press('Control+c')
+    await sleep(800)
+    await space()
+    await listRow(win, 'notes.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"] [role="menuitem"]', { timeout: 5000 })
+    await win.locator('[role="menu"] [role="menuitem"]', { hasText: /^Paste/ }).first().click()
+    ok(await until(async () => existsSync(join(dir, '.gitignore')), 20000, 150), 'right-click > Paste in the list pastes it too')
+    // Ctrl+A belongs to the list once it was clicked.
+    await pickZip('before Ctrl+A in the list')
+    await cardRow('AGENTS.md').click()
+    await space()
+    await win.keyboard.press('Control+a')
+    const listCount = await win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').count()
+    ok(await until(async () => (await markedNames(win)).length === listCount, 3000), `Ctrl+A in the list marks its rows (${(await markedNames(win)).length} of ${listCount})`)
+    ok((await picked()).join('|') === 'AGENTS.md' || !(await win.locator(card).count()), `and not the card's (${await picked()})`)
+    await pickZip('after Ctrl+A in the list')
 
     // THE VERBS do their work.
     await press(verb('extract-here'))

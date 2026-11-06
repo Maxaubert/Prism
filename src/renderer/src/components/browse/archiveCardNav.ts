@@ -1,4 +1,5 @@
 import { browsableArchive, innerOf, placeOf } from '@shared/archivePlace'
+import { pathKey } from '@shared/path'
 
 /**
  * THE ZIP CARD IS A SMALL BROWSER THAT STAYS IN THE PREVIEW (#483; owner,
@@ -110,3 +111,19 @@ export function cardCargo(was: CardPick, name: string): string[] {
  *  Ctrl+C copies the picked members, Ctrl+X and Ctrl+V are inert. Reaching
  *  the app they acted on the ZIP behind the card (a cut of the zip). */
 export const CARD_CHORDS: ReadonlySet<string> = new Set(['a', 'c', 'x', 'v'])
+
+/** A DROP ONTO THE CARD COPIES (#483; owner, 2026-11-06, of a file dragged
+ *  back onto the card: "dragged it back in"): the keys handed to the one drop
+ *  rule (#70) for a drop there. Shift alone moves, as everywhere; a plain
+ *  drag, Ctrl, or Ctrl+Shift copies, so a drag onto the zip in the preview
+ *  never takes the file away from the list beside it. */
+export function cardDropKeys(keys: { ctrl: boolean; shift: boolean }): { ctrl: boolean; shift: boolean } {
+  return keys.shift && !keys.ctrl ? { ctrl: false, shift: true } : { ctrl: true, shift: false }
+}
+
+/** Which of the card's rows `paths` name (#483): what landed there, marked
+ *  as the list marks what lands in it. */
+export function landedRows(order: readonly string[], here: string, paths: readonly string[]): string[] {
+  const want = new Set(paths.map(pathKey))
+  return order.filter((n) => want.has(pathKey(placeOf(here, n))))
+}
