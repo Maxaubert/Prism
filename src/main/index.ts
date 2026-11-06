@@ -26,12 +26,20 @@ import {
   rm,
   stat
 } from 'fs/promises'
-import { tmpdir } from 'os'
+import { getPriority, setPriority, tmpdir, constants as osConstants } from 'os'
+import { performance } from 'perf_hooks'
+import { setFlagsFromString } from 'v8'
+import { runInNewContext } from 'vm'
+import { appendFile } from 'fs/promises'
 import {
   initDwmHelper
 } from './dwmHelper'
 import { pathsFromArgv, secondLaunch } from './argv'
-import { WIN_E_FIRST, browseRequest, createWinERequests, winERequest, winEHostOf } from './winERequests'
+import { WIN_E_FIRST, browseRequest, createWinERequests, shortId, winERequest, winEHostOf } from './winERequests'
+import { bootFields, createStartupLog, launchReason, type Launch } from './startupLog'
+import { repeatOf, type HotkeyOpening } from './hotkeyRepeat'
+import { createSpareIdle } from './spareIdle'
+import { createStandby, lastWindowClosed, standbyWanted, type QuitReason } from './standby'
 import { removeOldExplorerWindows } from './oldExplorerWindows'
 import { createWindowPreferences } from './windowPreferences'
 import { forgetCanonical, listDir, searchFiles, toViewerFile, warmCanonical } from './dirList'
@@ -136,7 +144,8 @@ import {
   registerPositionsIpc,
   startPhoneService,
   type PhoneHooks,
-  type PhoneServerDeps
+  type PhoneServerDeps,
+  type PhoneService
 } from './phone'
 import {
   applyDwmBorder,
@@ -456,15 +465,52 @@ function newTabFolder(): string | null {
  * new tabs.
  */
 // The folder verb's folder (#393) travels with its request, and goes with it.
-const winERequests = createWinERequests((id, host, browse) => {
-  const to = windows.all().find((r) => winEHostOf(r) === host)
-  const path = browse ?? (host === WIN_E_FIRST ? null : newTabFolder())
-  windows.sendTo(to, PUSH.winEOpen, { id, path })
-})
+const winERequests = createWinERequests(
+  (id, host, browse) => {
+    const to = windows.all().find((r) => winEHostOf(r) === host)
+    const path = browse ?? (host === WIN_E_FIRST ? null : newTabFolder())
+    windows.sendTo(to, PUSH.winEOpen, { id, path })
+  },
+  undefined,
+  undefined,
+  undefined,
+  // EACH PRESS ON PRISM'S OWN TIMELINE (owner, 2026-11-06): received,
+  // handed to its window, answered (the helper told the folder is up) or
+  // dropped, and repeats that rode on an earlier press.
+  (ev, fields) => {
+    diag?.log.write('main', 'win-e', { ev, ...fields })
+    if (ev !== 'acked' || typeof fields.id !== 'string') return
+    for (const [id, l] of launchOfRequest)
+      if (shortId(id) === fields.id) {
+        l.mark('winEAck')
+        launchOfRequest.delete(id)
+      }
+    if (hotkeyOpening && shortId(hotkeyOpening.id) === fields.id) hotkeyOpening.ackedAt = Date.now()
+  }
+)
+/** The launch (or wake) each Win+E request is timed under (`startupLog.ts`). */
+const launchOfRequest = new Map<string, Launch>()
+/** When each pending Win+E request reached this process (ms), for its `shown` line. */
+const requestReceived = new Map<string, number>()
+/** The window the latest Win+E press is opening, for repeat presses
+ *  (`hotkeyRepeat.ts`; owner, 2026-11-06: four presses opened four windows). */
+let hotkeyOpening: (HotkeyOpening & { win: BrowserWindow | null }) | null = null
+/** One `win-e` line from main's own steps. */
+function winELine(ev: string, fields: Record<string, unknown>): void {
+  diag?.log.write('main', 'win-e', { ev, ...fields })
+}
+/** A repeat press brings forward the window the press before it is opening. */
+function raiseOpening(): void {
+  const w = hotkeyOpening?.win
+  if (!w || w.isDestroyed()) return
+  if (E2E) w.showInactive()
+  else raise(w, 'repeat')
+}
 /** A Win+E or folder-verb request while Prism runs: a new window for it. */
-function openWinEWindow(id: string): void {
+function openWinEWindow(id: string, browse: string | null): void {
   if (appState.appQuitting || appState.installingUpdate) return
-  createWindow({ seed: { kind: 'none' }, winE: id })
+  hotkeyOpening = { id, browse, ackedAt: null, closed: false, win: null }
+  hotkeyOpening.win = createWindow({ seed: { kind: 'none' }, winE: id })
 }
 /** Files from outside that wait for the window they go to (the one focused
  *  last, `windows.target()`) to restore. Only that window drains it: at the
@@ -669,6 +715,13 @@ const windowBudget = crashBudget()
  *  schema in Prism Terminal's docs/diagnostics.md). Started once the
  *  single-instance lock is won; null in a launch that only hands its file over. */
 let diag: Diagnostics | null = null
+/** Why this process is quitting, for the `quit` line (owner, 2026-11-06). */
+let quitReason: QuitReason | null = null
+/** The launch timings (startupLog.ts): one `startup` line per launch and wake. */
+const startup = createStartupLog({
+  write: (fields) => diag?.log.write('main', 'startup', fields),
+  up: () => Math.round(performance.now())
+})
 /** A watcher set-up this slow is said at the quiet level (#322). */
 const SLOW_SETUP_MS = 50
 /** A folder size scan this long is said at the quiet level (#322). */
@@ -733,6 +786,7 @@ function giveUpWindow(): void {
       `Prism's window stopped working several times in a row, so Prism has closed. Open it again to carry on. Details are in ${crashLogFile()}.`
     )
   appState.appQuitting = true
+  quitReason ??= 'gave-up'
   // The crash log is written off main now (2026-10-12): the last lines land
   // before the windows go, since the last window going quits the app.
   void crashLogSettled().finally(() => {
@@ -750,21 +804,13 @@ function giveUpWindow(): void {
  * one focused last, 2026-10-29); with none left, a new one opens the strip of
  * the window closed last.
  */
-function ensureLivePage(): boolean {
+function ensureLivePage(launch?: Launch): boolean {
   if (!app.isReady() || !firstWindowMade) return false // whenReady makes the window and drains the queue
   if (appState.appQuitting || appState.installingUpdate) return false // a window now would only be taken away
   const target = windows.target()
   if (!target) {
     logWindow('handoff', { window: 'none', action: 'create' })
-    const last = sessionFile.primary()
-    // WITHOUT the saved ids (review, 2026-10-29): the last window's close
-    // released them for good (releaseDesktop), so the same ids could never
-    // be granted their folders again. The restore mints new ones.
-    const tabs = last ? last.tabs.map((t) => ({ ...t, id: undefined })) : []
-    createWindow({
-      first: true,
-      seed: tabs.length ? { kind: 'tabs', tabs: { tabs, active: last!.active } } : { kind: 'none' }
-    })
+    openAsFirst({ launch })
     return true
   }
   if (pageGone(target.win)) {
@@ -774,6 +820,28 @@ function ensureLivePage(): boolean {
     return true
   }
   return false
+}
+
+/**
+ * A WINDOW AS A COLD START'S FIRST WOULD OPEN (owner, 2026-11-06): with no
+ * window left (standby, or a handoff to a windowless Prism), the next one
+ * opens where the window closed last was, with its strip ("Reopen tabs at
+ * start" off: the Explorer alone), and is the one a Win+E request lands in.
+ */
+function openAsFirst(opts: { winE?: string; launch?: Launch }): BrowserWindow {
+  const last = sessionFile.primary()
+  const remember = windowPreferences.load().values['prism.tabs.remember'] !== 'off'
+  // WITHOUT the saved ids (review, 2026-10-29): the last window's close
+  // released them for good (releaseDesktop), so the same ids could never
+  // be granted their folders again. The restore mints new ones.
+  const tabs = last && remember ? last.tabs.map((t) => ({ ...t, id: undefined })) : []
+  return createWindow({
+    first: true,
+    seed: tabs.length ? { kind: 'tabs', tabs: { tabs, active: last!.active } } : { kind: 'none' },
+    bounds: last?.bounds ? readWindowState(last.bounds) : undefined,
+    showNow: !!opts.winE,
+    launch: opts.launch
+  })
 }
 
 /**
@@ -833,6 +901,10 @@ interface WindowOptions {
   winE?: string | null
   /** The tear-off's spare (step 3): hidden until a tab is torn off into it. */
   spare?: boolean
+  /** Shown at once, before its page (a Win+E's window after a wake from standby). */
+  showNow?: boolean
+  /** The launch or wake this window is timed for (`startupLog.ts`). */
+  launch?: Launch
 }
 
 /** The first window of the session has been made (whenReady). */
@@ -869,6 +941,8 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   const launchFlags = [...(options.launchFlags ?? [])]
   const place = options.bounds ?? (options.saved !== undefined ? readWindowState(options.saved?.bounds ?? null) : nextWindowBounds())
   const key = `w${(windowSerial += 1)}`
+  noteActivity()
+  const made0 = performance.now()
   const win = new BrowserWindow({
     title: 'Prism',
     width: place.width,
@@ -929,6 +1003,17 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     spare: options.spare
   })
   const page = rec.id
+  const launch = options.launch
+  launch?.mark('made')
+  // How long the constructor itself took: the spare's froze for 9 minutes
+  // on 2026-11-01 (the audit). Said when it is slow, for any window.
+  const makeMs = Math.round(performance.now() - made0)
+  if (makeMs >= 1000) diag?.log.write('main', 'window-make-slow', { ms: makeMs, win: key, spare: !!options.spare })
+  // Anything the user does in any window holds the spare back (spareIdle.ts).
+  win.webContents.on('input-event', noteActivity)
+  win.webContents.on('ipc-message', (_e, channel) => {
+    if (!String(channel).startsWith('diag:')) noteActivity()
+  })
   /** The Win+E requests this window's page answers, if any (`winEHostOf`). */
   const winEHost = winEHostOf(rec)
   firstWindowMade = true
@@ -951,6 +1036,7 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   win.on('session-end', () => {
     if (sessionEnded) return
     sessionEnded = true
+    quitReason ??= 'session-end'
     diag?.log.write('main', 'session-end', {})
     diag?.log.flushSync() // sync-ok: shutdown, the process may be killed right after session-end
   })
@@ -960,7 +1046,15 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     shown = true
     // Never reopened maximised (owner, 2026-10-11): see windowSize.ts.
     if (E2E) win.showInactive()
-    else raise(win)
+    else raise(win, 'show')
+    launch?.mark('shown')
+    // A Win+E's window on screen: how long since its press reached Prism.
+    const req = rec.winE ?? (first ? hotkeyOpening?.id : undefined)
+    const got = req ? requestReceived.get(req) : undefined
+    if (req && got !== undefined) {
+      requestReceived.delete(req)
+      winELine('shown', { id: shortId(req), ms: Date.now() - got, win: key })
+    }
     // No helper to warm (#189): the border program is compiled at build time
     // and started per change with no pipe, so this costs milliseconds and the
     // first frame no longer waits ~900 ms behind a PowerShell's stdin pipe.
@@ -970,14 +1064,9 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   const showUnlessSpare = (): void => {
     if (!rec.spare) showWindow()
   }
+  win.once('ready-to-show', () => launch?.mark('readyToShow'))
   win.once('ready-to-show', showUnlessSpare)
   win.webContents.once('dom-ready', showUnlessSpare)
-  // The first spare, a moment after the first window has painted (#189:
-  // nothing on the startup path).
-  if (first && !firstSpareAsked) {
-    firstSpareAsked = true
-    win.webContents.once('did-finish-load', () => spareSoon())
-  }
   // The native sweep box's target (#338), once this window has painted.
   win.webContents.once('did-finish-load', () => setTimeout(() => sweepOverlayFor(win), SWEEP_OVERLAY_DELAY_MS))
   guardWindow(win, {
@@ -993,7 +1082,9 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
       rec.dirty = false
     },
     quitting: () => appState.appQuitting,
-    held: () => holdRecovery
+    held: () => holdRecovery,
+    // The spare is hidden on purpose: no watchdog false alarm (2026-11-06).
+    hiddenByDesign: () => rec.spare && !win.isDestroyed() && !win.isVisible()
   })
   // E2E only: the page dies as it commits, before anything has shown the
   // window, which is the shape of the 2026-10-03 failure. Once per process.
@@ -1035,6 +1126,7 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   win.on('closed', () => {
     const rebuilding = rec.rebuilding
     const spare = rec.spare
+    if (hotkeyOpening?.win === win) hotkeyOpening.closed = true
     // A tear in flight from or into this window ends (its tab goes back).
     // FIRST, before the registry forgets the window (review 2026-10-29): the
     // tab stops flying here, so the source's own close below releases it
@@ -1158,7 +1250,7 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   // Its solid background is followed by the lightweight opening screen. The
   // first window's from the process's argv (a later window never reads it),
   // a window opened for a request while Prism runs from that request.
-  if ((first && winERequest(process.argv)) || rec.winE) showWindow()
+  if ((first && winERequest(process.argv)) || rec.winE || options.showNow) showWindow()
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (devUrl) void win.loadURL(devUrl)
   else void win.loadFile(join(__dirname, '../renderer/index.html'))
@@ -1185,6 +1277,7 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     if (rec.spare && rec.seed.kind === 'adopt') {
       rec.restored = true
       event.sender.send(PUSH.openRestored)
+      spareIdle.ready()
       tear.listening(win)
       return
     }
@@ -1217,7 +1310,10 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
       if (strained && seed.kind !== 'none' && !skip)
         logWindow('restore', { tabs: 'skipped', reason: 'repeated-deaths' })
       const send = (payload: OpenPayload): void => {
-        if (!stale()) windows.sendTo(win, PUSH.openFile, payload)
+        if (stale()) return
+        windows.sendTo(win, PUSH.openFile, payload)
+        // The first folder this launch's window lists (startupLog.ts).
+        if (payload.listing) launch?.mark('listed')
       }
       // The strip, filtered (`parseTabs`: a root that has gone takes its tab).
       const strip = (): SavedTabs | null => {
@@ -1271,6 +1367,13 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
       .finally(() => {
         if (stale()) return
         rec.restored = true
+        launch?.mark('restored')
+        // Startup is over once a first window has restored: the spare may be
+        // made at the next quiet spell from now on (spareIdle.ts).
+        if (first) {
+          startupSettled = true
+          spareSoon()
+        }
         // A handoff's paths are stat'ed awaited (2026-10-12), so one can land
         // in the queue just after the drain above ended: it opens now.
         if (pendingOpen.length) void drainPending(win, () => !stale())
@@ -1303,21 +1406,41 @@ function reportTabs(sender: Electron.WebContents, state: SavedTabs): void {
  * itself 2 s in would change what every other scenario counts.
  */
 const spareWanted = (): boolean => !E2E || process.env.PRISM_E2E_SPARE === '1'
-let spareTimer: NodeJS.Timeout | null = null
-/** The first window has asked for the first spare. */
-let firstSpareAsked = false
-function spareSoon(delay: number = TEAR.spareDelayMs): void {
-  if (!spareWanted() || spareTimer) return
-  spareTimer = setTimeout(() => {
-    spareTimer = null
-    if (appState.appQuitting || appState.installingUpdate || windows.count() === 0) return
+/** Startup is over: a first window has restored (spareIdle.ts `settled`). */
+let startupSettled = false
+/** When anything last happened that a spare must not compete with. */
+let lastActivity = Date.now()
+function noteActivity(): void {
+  lastActivity = Date.now()
+}
+/**
+ * THE SPARE IS MADE WHEN PRISM IS IDLE (owner, 2026-11-06; spareIdle.ts):
+ * never on a startup timer, never in standby, and given up for the session
+ * when making it was slow or its page never got ready.
+ */
+const spareIdle = createSpareIdle({
+  now: Date.now,
+  lastActivity: () => lastActivity,
+  settled: () => startupSettled,
+  allowed: () => {
+    if (!spareWanted() || standby.on() || appState.appQuitting || appState.installingUpdate) return false
+    if (windows.count() === 0) return false
+    const s = windows.spare()
+    return !s || tear.busy(s.win)
+  },
+  make: () => {
     // The ghost is made with it (owner, 2026-10-30), so the first tear shows
     // the tab under the cursor at once.
     tabGhost.warm()
-    const s = windows.spare()
-    if (s && !tear.busy(s.win)) return
     createWindow({ spare: true, seed: { kind: 'adopt' } })
-  }, delay)
+  },
+  drop: () => {
+    for (const r of windows.all()) if (r.spare && !r.win.isDestroyed() && !tear.busy(r.win)) r.win.destroy()
+  },
+  log: (fields) => diag?.log.write('main', 'spare-slow', fields)
+})
+function spareSoon(): void {
+  spareIdle.want()
 }
 /** The spare, made now if there is none ready to take (a tear cannot wait). */
 function takeSpare(): BrowserWindow {
@@ -1331,8 +1454,7 @@ function replaceSpare(win: BrowserWindow): void {
 }
 /** No window of the session is left: the spare goes too, so the app can end. */
 function dropSpare(): void {
-  if (spareTimer) clearTimeout(spareTimer)
-  spareTimer = null
+  spareIdle.cancel()
   for (const r of windows.all()) if (r.spare && !r.win.isDestroyed()) r.win.destroy()
   tabGhost.destroy()
 }
@@ -1591,6 +1713,96 @@ const tear = createTearOff<BrowserWindow>({
 })
 const isPoint = (p: unknown): p is Point =>
   !!p && Number.isFinite((p as Point).x) && Number.isFinite((p as Point).y)
+/** The lag profiler (made with the log, once the lock is won): off in standby. */
+let lagProfiler: { rotate(): void } | null = null
+/** The phone server's standby half (made at ready). */
+let phoneService: PhoneService | null = null
+/** V8's own collector, asked for once (main runs without --expose-gc). */
+let collect: (() => void) | null | undefined
+function collectGarbage(): void {
+  if (collect === undefined) {
+    try {
+      setFlagsFromString('--expose-gc')
+      collect = runInNewContext('gc') as () => void
+    } catch {
+      collect = null
+    }
+  }
+  try {
+    collect?.()
+  } catch {
+    /* a collection that cannot run costs nothing but the memory */
+  }
+}
+/** Every Prism process's memory now, in MB: private bytes and working set. */
+function memoryNow(): Record<string, number> {
+  const out = { processes: 0, privateMb: 0, workingSetMb: 0, mainMb: 0, gpuMb: 0, pageMb: 0 }
+  for (const m of app.getAppMetrics()) {
+    const priv = (m.memory.privateBytes ?? m.memory.workingSetSize) / 1024
+    out.processes += 1
+    out.privateMb += priv
+    out.workingSetMb += m.memory.workingSetSize / 1024
+    if (m.type === 'Browser') out.mainMb += priv
+    else if (m.type === 'GPU') out.gpuMb += priv
+    else if (m.type === 'Tab') out.pageMb += priv
+  }
+  for (const k of Object.keys(out) as Array<keyof typeof out>) out[k] = Math.round(out[k])
+  return out
+}
+let restTimer: NodeJS.Timeout | null = null
+let priorityBefore: number | null = null
+/**
+ * STANDBY'S PARTS (standby.ts; owner, 2026-11-06: "a mode that doesnt use
+ * much compute ram"). In the order they rest; they wake in reverse.
+ */
+const standby = createStandby({
+  log: (fields) => diag?.log.write('main', 'standby', fields),
+  parts: [
+    // No hidden window survives: the spare, its ghost, and the wait for one.
+    { name: 'spare', sleep: () => dropSpare(), wake: () => {} },
+    // No watch timer wakes the process (20 a second otherwise).
+    { name: 'diag', sleep: () => diag?.standby(true), wake: () => diag?.standby(false) },
+    // Nor the sampling profiler (250 samples a second).
+    { name: 'profiler', sleep: () => lagProfiler?.rotate(), wake: () => lagProfiler?.rotate() },
+    // The phone server rests with the windows (its switch stays as it was).
+    { name: 'phone', sleep: () => phoneService?.rest(), wake: () => phoneService?.wake() },
+    // Low priority while resting: a press wakes it first, before any window.
+    {
+      name: 'priority',
+      sleep: () => {
+        priorityBefore = getPriority()
+        setPriority(osConstants.priority.PRIORITY_LOW)
+      },
+      wake: () => {
+        if (priorityBefore !== null) setPriority(priorityBefore)
+        priorityBefore = null
+      }
+    },
+    // The heap collected once the pages have gone, and the memory said.
+    {
+      name: 'heap',
+      sleep: () => {
+        if (restTimer) clearTimeout(restTimer)
+        restTimer = setTimeout(() => {
+          restTimer = null
+          if (!standby.on()) return
+          collectGarbage()
+          diag?.log.write('main', 'standby', { ev: 'rest', ...memoryNow() })
+        }, 3000)
+        restTimer.unref()
+      },
+      wake: () => {
+        if (restTimer) clearTimeout(restTimer)
+        restTimer = null
+      }
+    }
+  ]
+})
+if (E2E)
+  Object.assign(globalThis, {
+    __e2eStandby: () => ({ on: standby.on(), windows: BrowserWindow.getAllWindows().length, memory: memoryNow() })
+  })
+
 /** The tear's IPC: from the source page (tear, end, the e2e's pointer) and
  *  from the floating one (it has drawn the tab). A spare never starts one. */
 function registerTearIpc(): void {
@@ -1688,7 +1900,30 @@ export interface ReadyCtx {
 // Single instance: a second launch (opening another file) forwards its path to
 // the running window and focuses it, instead of spawning a rival process.
 if (!app.requestSingleInstanceLock()) {
-  app.quit()
+  /**
+   * A PROCESS THAT LOST THE LOCK SAYS SO (owner, 2026-11-06; the audit could
+   * not tell which of four presses' processes won, nor when). One line in the
+   * winner's log, appended whole (a single small write), then gone; the
+   * handoff itself is the winner's `second-instance`.
+   */
+  const created = bootFields(process.getCreationTime(), Date.now())
+  const lost = JSON.stringify({
+    t: new Date().toISOString(),
+    up: Math.round(performance.now()),
+    src: 'main',
+    k: 'lock-lost',
+    pid: process.pid,
+    ...(created ?? {}),
+    ...(winERequest(process.argv) ? { winE: shortId(winERequest(process.argv)!) } : {}),
+    ...(E2E ? { e2e: true } : {})
+  })
+  const quit = setTimeout(() => app.quit(), 300)
+  void appendFile(join(userPaths.logs(), 'diag.jsonl'), lost + '\n')
+    .catch(() => {})
+    .finally(() => {
+      clearTimeout(quit)
+      app.quit()
+    })
 } else {
   /**
    * CRASH DUMPS STAY ON THIS MACHINE (#265). The windowless Prism of
@@ -1699,6 +1934,11 @@ if (!app.requestSingleInstanceLock()) {
    * file over and exits (#189's fast path) never starts a crashpad_handler.
    */
   crashReporter.start({ uploadToServer: false })
+  // What this launch was handed, read once (sync-ok: startup, before the
+  // first window), for the session line's reason and the first window.
+  const launchPaths = pathsFromArgv(process.argv) // sync-ok: startup, before the first window
+  const argvRequest = winERequest(process.argv)
+  const coldReason = launchReason({ winE: !!argvRequest, paths: launchPaths })
   /**
    * THE DIAGNOSTICS LOG (#322; owner, 2026-10-07: "implement some robust
    * logging and debugging into the program especially to catch stalls for
@@ -1730,8 +1970,30 @@ if (!app.requestSingleInstanceLock()) {
     // Detailed logging until the owner switches it off (owner, 2026-10-27:
     // "keep logging as much as possible" while Prism is young). The e2e
     // keeps the quiet default its scenarios measure against.
-    verboseByDefault: !E2E
+    verboseByDefault: !E2E,
+    // HOW THIS PROCESS STARTED (owner, 2026-11-06): when the OS made it,
+    // how long it took to reach this line (the part of a cold start no
+    // Prism code saw: 3.77 s of the owner's 5.6 s on Nov 5), and why.
+    sessionFields: {
+      ...(bootFields(process.getCreationTime(), Date.now()) ?? {}),
+      reason: coldReason,
+      ...(argvRequest ? { winE: shortId(argvRequest) } : {}),
+      ...(browseRequest(process.argv) ? { browse: true } : {})
+    },
+    // Which window a page-stall came from, and whether anyone could see it.
+    pageInfo: (page) => {
+      const r = windows.all().find((x) => x.id === page)
+      if (!r) return null
+      return { win: r.key, hidden: r.win.isDestroyed() || !r.win.isVisible(), ...(r.spare ? { spare: true } : {}) }
+    }
   })
+  /** This cold launch, timed to its first window's folder (startupLog.ts). */
+  const coldLaunch = startup.begin(coldReason, { from: 0, winE: !!argvRequest })
+  if (argvRequest) {
+    launchOfRequest.set(argvRequest, coldLaunch)
+    requestReceived.set(argvRequest, Date.now())
+    winELine('received', { id: shortId(argvRequest), path: 'cold', via: 'argv', browse: !!browseRequest(process.argv) })
+  }
   // EVERY FILE OPERATION SAYS HOW IT WENT (owner, 2026-11-06: "make sure
   // logs are always on so you can see what happened"): an `op` line per
   // rename, move, trash, extract, zip write, save..., at every level. Here,
@@ -1744,7 +2006,8 @@ if (!app.requestSingleInstanceLock()) {
   // (lagProfiler.ts, nativeTrace.ts). Nothing is written without a lag.
   // An OS drag out of Prism (#103) is Windows' modal loop on main: a lag
   // during it, or just after, is the drag, not a stall to profile.
-  startLagProfiler({ log: diag.log, enabled: () => true, quiet: () => dragOut?.quiet() ?? false })
+  // Off in standby (2026-11-06): 250 samples a second of a thread doing nothing.
+  lagProfiler = startLagProfiler({ log: diag.log, enabled: () => !standby.on(), quiet: () => dragOut?.quiet() ?? false })
   // contentTracing refuses to start before ready ("cannot be used before app
   // is ready", e2e diagLog), so the trace starts there; the profile above
   // covers the moments before it.
@@ -1763,25 +2026,68 @@ if (!app.requestSingleInstanceLock()) {
   // `workingDirectory` is the SECOND process's cwd (#21): its relative paths
   // are read against it, never against this process's own.
   app.on('second-instance', (_e, argv, workingDirectory) => {
+    noteActivity()
     const launch = secondLaunch(argv, workingDirectory)
     const shortcutRequest = winERequest(argv)
+    const resting = standby.on()
+    diag?.log.write('main', 'second-instance', {
+      ...(shortcutRequest ? { winE: shortId(shortcutRequest) } : {}),
+      args: Math.max(0, argv.length - 1),
+      ...(resting ? { standby: true } : {})
+    })
     if (shortcutRequest) {
       // A window now would only be taken away: no answer, and the helper's
       // own File Explorer fallback opens instead.
       if (appState.installingUpdate || appState.appQuitting) return
       const browse = browseRequest(argv)
+      requestReceived.set(shortcutRequest, Date.now())
+      winELine('received', {
+        id: shortId(shortcutRequest),
+        path: resting ? 'standby' : firstWindowMade ? 'warm' : 'cold',
+        via: 'second-instance',
+        ...(browse ? { browse: true } : {})
+      })
+      // A REPEAT PRESS (owner, 2026-11-06): while the window an earlier
+      // press asked for is opening, or just after it showed its folder, this
+      // one brings THAT window forward and opens nothing.
+      const repeat = resting ? null : repeatOf(hotkeyOpening, browse, Date.now())
+      if (repeat === 'follow' && hotkeyOpening && winERequests.follow(shortcutRequest, hotkeyOpening.id)) {
+        requestReceived.delete(shortcutRequest)
+        raiseOpening()
+        return
+      }
+      if (repeat === 'raise') {
+        requestReceived.delete(shortcutRequest)
+        winERequests.answer(shortcutRequest)
+        raiseOpening()
+        return
+      }
       // THE STARTING PROCESS'S FIRST WINDOW takes a request that arrives
       // before it is made, exactly as the cold start's own (the helper of a
       // second press while Prism is still starting).
       if (!firstWindowMade) {
-        winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse)
+        if (winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse))
+          hotkeyOpening ??= { id: shortcutRequest, browse, ackedAt: null, closed: false, win: null }
+        return
+      }
+      // A WAKE FROM STANDBY (owner, 2026-11-06): the window opens as the cold
+      // start's first would (its strip, its place), shown at once, and the
+      // request lands in it. Everything a cold start pays before this point
+      // (the process, the modules, the session's set-up) is already done.
+      if (resting) {
+        const wake = startup.begin('standby-wake', { winE: true, extra: { winE: shortId(shortcutRequest) } })
+        standby.wake('win-e')
+        if (!winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse)) return
+        launchOfRequest.set(shortcutRequest, wake)
+        hotkeyOpening = { id: shortcutRequest, browse, ackedAt: null, closed: false, win: null }
+        hotkeyOpening.win = openAsFirst({ winE: shortcutRequest, launch: wake })
         return
       }
       // A NEW WINDOW OF THIS PROCESS (tab tear-off step 2, 2026-10-29; it
       // was a whole second Prism). "started" goes down the helper's pipe at
       // once, and the id once that window's page shows the folder. A token
       // already pending (a retransmission) opens nothing more.
-      if (winERequests.enqueue(shortcutRequest, shortcutRequest, browse)) openWinEWindow(shortcutRequest)
+      if (winERequests.enqueue(shortcutRequest, shortcutRequest, browse)) openWinEWindow(shortcutRequest, browse)
       return
     }
     // `Prism.exe --preview-update` while Prism is already running (it is
@@ -1800,8 +2106,13 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
     // A new page restores and drains `pendingOpen` itself once it listens
-    // (a reload or a new window starts unrestored).
-    ensureLivePage()
+    // (a reload or a new window starts unrestored). From standby, the parts
+    // come back first and the wake is timed like a launch.
+    if (resting) {
+      const wake = startup.begin('standby-wake', { extra: { via: 'launch' } })
+      standby.wake('launch')
+      ensureLivePage(wake)
+    } else ensureLivePage()
     // The handoff is the case the foreground lock bites hardest: Prism has
     // been sitting in the background for an hour, and the file it is handed
     // must arrive in a window that is actually in front of you. Raised FIRST,
@@ -1841,10 +2152,14 @@ if (!app.requestSingleInstanceLock()) {
       })
   })
 
-  pendingOpen = pathsFromArgv(process.argv) // sync-ok: startup, before the first window
-  const shortcutRequest = winERequest(process.argv)
+  pendingOpen = launchPaths
+  const shortcutRequest = argvRequest
   const browse = browseRequest(process.argv)
-  if (shortcutRequest) winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse)
+  if (shortcutRequest) {
+    winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse)
+    // The cold start's own press: a repeat while its window opens rides on it.
+    hotkeyOpening = { id: shortcutRequest, browse, ackedAt: null, closed: false, win: null }
+  }
 
   let indexerStopped = false
   let stoppingIndexer = false
@@ -1863,15 +2178,18 @@ if (!app.requestSingleInstanceLock()) {
     }
     killSidecars()
     cancelAllConversions()
+    const reason: QuitReason =
+      quitReason ?? (appState.installingUpdate ? 'update' : sessionEnded ? 'session-end' : 'user')
     // The quit is going ahead: the log's queue is written synchronously, so
     // its last lines land. LAST (review of #322): the shell, sidecar and
     // conversion teardown above is where a quit goes wrong (PT #127), and a
     // stopped log would hear nothing of it.
-    diag?.stop()
+    diag?.stop(reason)
     diag = null
   })
 
   app.whenReady().then(() => {
+    coldLaunch.mark('ready')
     // THE PAGE OPTS IN TO HAVING ITS STACK READ (#322): the diagnostics log
     // asks for it when the page's heartbeat stops (`collectJavaScriptCallStack`),
     // and the frame only answers for a document served with this
@@ -2099,7 +2417,7 @@ if (!app.requestSingleInstanceLock()) {
       // A throwaway e2e build must never raise the firewall prompt.
       loopbackOnly: E2E
     })
-    startPhoneService({ deps: phoneDeps, hlsJobs })
+    phoneService = startPhoneService({ deps: phoneDeps, hlsJobs })
 
     /** What the IPC handlers in ipc/ need that only exists now (`ReadyCtx`). */
     const ready: ReadyCtx = { positions, readTextWalled, probeCached, docHtmlOf }
@@ -2145,7 +2463,14 @@ if (!app.requestSingleInstanceLock()) {
     // it opens at its saved size; its restore filters the strip from the same
     // text when its page listens.
     sessionRaw = readSessionRaw(userPaths.tabs()) // sync-ok: startup, before the first window (inside readSessionRaw)
-    createWindow({ first: true, seed: { kind: 'saved' }, launchFlags: coldStartFlags(), saved: savedEntry(sessionRaw) })
+    const firstWin = createWindow({
+      first: true,
+      seed: { kind: 'saved' },
+      launchFlags: coldStartFlags(),
+      saved: savedEntry(sessionRaw),
+      launch: coldLaunch
+    })
+    if (hotkeyOpening && !hotkeyOpening.win) hotkeyOpening.win = firstWin
     void shellVerbSetting.status()
     app.on('activate', () => {
       if (windows.count() === 0) ensureLivePage()
@@ -2211,6 +2536,30 @@ if (!app.requestSingleInstanceLock()) {
     playing.clear()
     holdAwake(false)
     stopAllTails()
-    if (process.platform !== 'darwin') app.quit()
+    // STANDBY (owner, 2026-11-06; standby.ts): the last window's close
+    // leaves the process resting, unless a quit, an update, a log-off or
+    // the switch says it goes.
+    const next = lastWindowClosed({
+      quitting: appState.appQuitting,
+      installingUpdate: appState.installingUpdate,
+      sessionEnded,
+      wanted: standbyWanted(windowPreferences.load().values, E2E, process.env)
+    })
+    if (next.standby) {
+      standby.enter()
+      return
+    }
+    if (next.reason) quitReason ??= next.reason
+    app.quit()
   })
+  // Windows logging off or shutting down while Prism rests: no window is
+  // there to hear `session-end`, so the power monitor's word is taken.
+  void app.whenReady().then(() =>
+    powerMonitor.on('shutdown', () => {
+      sessionEnded = true
+      quitReason ??= 'session-end'
+      diag?.log.write('main', 'session-end', { standby: standby.on() })
+      diag?.log.flushSync() // sync-ok: shutdown, the process may be killed right after
+    })
+  )
 }

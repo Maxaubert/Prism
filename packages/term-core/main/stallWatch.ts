@@ -83,6 +83,13 @@ export interface StallWatch {
    * is not taken for one. Coming back starts the gap afresh.
    */
   background(on: boolean, page?: number): void
+  /**
+   * The app is in standby (Prism, 2026-11-06): no window, nothing to watch.
+   * Parked, the tick and the canary STOP (no timer wakes main 20 times a
+   * second for nobody); unparked, they start again with the clock afresh, so
+   * the time parked is neither a lag nor a missed beat.
+   */
+  park(on: boolean): void
   stop(): void
 }
 
@@ -147,7 +154,7 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
     )
   }
 
-  const tick = setInterval(() => {
+  const onTick = (): void =>
     safe(() => {
       const n = now()
       const late = Math.round(n - last - tickMs)
@@ -172,10 +179,8 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
         }
       for (const [page, h] of held) if (n - h.heldAt > stackKeepMs) held.delete(page)
     })
-  }, tickMs)
-  tick.unref?.()
 
-  const canary = setInterval(() => {
+  const onCanary = (): void => {
     if (canaryBusy) return
     canaryBusy = true
     const t0 = now()
@@ -193,8 +198,24 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
     } catch {
       done()
     }
-  }, canaryMs)
-  canary.unref?.()
+  }
+
+  let tick: ReturnType<typeof setInterval> | null = null
+  let canary: ReturnType<typeof setInterval> | null = null
+  const startTimers = (): void => {
+    tick = setInterval(onTick, tickMs)
+    tick.unref?.()
+    canary = setInterval(onCanary, canaryMs)
+    canary.unref?.()
+  }
+  const clearTimers = (): void => {
+    if (tick) clearInterval(tick)
+    if (canary) clearInterval(canary)
+    tick = canary = null
+  }
+  startTimers()
+  let parked = false
+  let stopped = false
 
   /** Page `page`'s held stack, written with the page it came from. */
   const writeHeld = (page: number, extra: Record<string, unknown> = {}): void => {
@@ -253,9 +274,21 @@ export function startStallWatch(deps: StallWatchDeps): StallWatch {
         p.askedThisGap = false
       }
     },
+    park: (on) => {
+      if (on === parked || stopped) return
+      parked = on
+      if (on) return clearTimers()
+      epoch += 1
+      last = now()
+      for (const p of pages.values()) {
+        if (p.lastBeat !== null) p.lastBeat = now()
+        p.askedThisGap = false
+      }
+      startTimers()
+    },
     stop: () => {
-      clearInterval(tick)
-      clearInterval(canary)
+      stopped = true
+      clearTimers()
     }
   }
 }

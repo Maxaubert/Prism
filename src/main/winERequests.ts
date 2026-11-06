@@ -107,11 +107,17 @@ export function winEHostOf(r: { first: boolean; winE: string | null } | undefine
  * resets another's request, and only the page the request went to may answer
  * it.
  */
+/** A request's id as the log names it: its first eight characters. */
+export const shortId = (id: string): string => id.slice(0, 8)
+
 export function createWinERequests(
   dispatch: (id: string, host: string, browse: string | null) => void,
   acknowledge: (id: string) => Promise<void> = acknowledgeWinE,
   announce: (id: string) => void = announceWinE,
-  drop: (id: string) => void = dropWinE
+  drop: (id: string) => void = dropWinE,
+  /** A `win-e` line (owner, 2026-11-06: each press on Prism's own timeline). */
+  log: (ev: string, fields: Record<string, unknown>) => void = () => {},
+  now: () => number = Date.now
 ): {
   /** False for a token that is invalid, already pending, or one too many:
    *  a retransmitted token must never open a second window, nor change the
@@ -125,6 +131,18 @@ export function createWinERequests(
   /** The host's window has gone: its state goes, and so do its requests,
    *  each pipe let go so the helper falls back at once. */
   forget: (host: string) => void
+  /**
+   * A REPEAT PRESS (owner, 2026-11-06: four presses opened four windows).
+   * `id` rides on `leader`, the request whose window is still opening: the
+   * helper hears "started" now and its ready line when the leader's does, and
+   * no window is opened for it. False when the leader is not pending.
+   */
+  follow: (id: string, leader: string) => boolean
+  /** A press that needs no window of its own (the one just opened is in
+   *  front): the helper is answered at once. */
+  answer: (id: string) => void
+  /** Still waiting for its window. */
+  pending: (id: string) => boolean
 } {
   const hosts = new Map<string, { listening: boolean; restored: boolean }>()
   const hostState = (host: string): { listening: boolean; restored: boolean } => {
@@ -138,22 +156,28 @@ export function createWinERequests(
   }
   const pending = new Map<
     string,
-    { host: string; browse: string | null; sent: boolean; timer: ReturnType<typeof setTimeout> }
+    { host: string; browse: string | null; sent: boolean; timer: ReturnType<typeof setTimeout>; at: number }
   >()
+  /** The presses riding on each pending request. */
+  const followers = new Map<string, string[]>()
   const flush = (): void => {
     for (const [id, request] of pending)
       if (!request.sent && live(request.host)) {
         request.sent = true
+        log('dispatched', { id: shortId(id), host: request.host === WIN_E_FIRST ? 'first' : 'own', ms: now() - request.at })
         dispatch(id, request.host, request.browse)
       }
   }
   /** A request that will not be answered: it goes, and its pipe with it. */
-  const abandon = (id: string): void => {
+  const abandon = (id: string, reason: string): void => {
     const request = pending.get(id)
     if (!request) return
     clearTimeout(request.timer)
     pending.delete(id)
     drop(id)
+    log('dropped', { id: shortId(id), reason, ms: now() - request.at })
+    for (const f of followers.get(id) ?? []) drop(f)
+    followers.delete(id)
   }
   return {
     enqueue(id, host = WIN_E_FIRST, browse = null) {
@@ -161,9 +185,9 @@ export function createWinERequests(
       // "started" goes to the helper now; the ready line when the browser shows.
       announce(id)
       // Kept as long as the helper's patience, which a cold start can need.
-      const timer = setTimeout(() => abandon(id), 45000)
+      const timer = setTimeout(() => abandon(id, 'expired'), 45000)
       timer.unref()
-      pending.set(id, { host, browse, sent: false, timer })
+      pending.set(id, { host, browse, sent: false, timer, at: now() })
       flush()
       return true
     },
@@ -186,13 +210,31 @@ export function createWinERequests(
       if (!request?.sent || request.host !== host || !live(host)) return
       clearTimeout(request.timer)
       pending.delete(id)
-      void acknowledge(id).catch(() => {
-        /* No reply lets the helper fall back. */
-      })
+      log('acked', { id: shortId(id), ms: now() - request.at })
+      const riders = followers.get(id) ?? []
+      followers.delete(id)
+      for (const f of [id, ...riders])
+        void acknowledge(f).catch(() => {
+          /* No reply lets the helper fall back. */
+        })
     },
     forget(host) {
       hosts.delete(host)
-      for (const [id, request] of [...pending]) if (request.host === host) abandon(id)
-    }
+      for (const [id, request] of [...pending]) if (request.host === host) abandon(id, 'window-closed')
+    },
+    follow(id, leader) {
+      if (!UUID.test(id) || pending.has(id) || !pending.has(leader)) return false
+      if ([...followers.values()].some((f) => f.includes(id))) return false
+      announce(id)
+      followers.set(leader, [...(followers.get(leader) ?? []), id])
+      log('repeat', { id: shortId(id), leader: shortId(leader), action: 'follow' })
+      return true
+    },
+    answer(id) {
+      if (!UUID.test(id)) return
+      log('repeat', { id: shortId(id), action: 'raise' })
+      void acknowledge(id).catch(() => {})
+    },
+    pending: (id) => pending.has(id)
   }
 }

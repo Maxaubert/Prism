@@ -21,6 +21,10 @@ export interface DiagIpcDeps {
   /** Show a folder in Explorer. Under --e2e the host records instead. */
   openFolder(dir: string): void
   wall?: () => number
+  /** Which window page `page` is, added to its `page-stall` lines (Prism,
+   *  2026-11-06: `win`, its key, and `hidden` when nobody can see it, so a
+   *  stall in the tear-off's hidden spare is not read as one you sat through). */
+  pageInfo?: (page: number) => Record<string, unknown> | null
 }
 
 /** The kinds a page may write. An app's own timing kinds end in `-slow`
@@ -79,6 +83,15 @@ export function registerDiagIpc(deps: DiagIpcDeps): void {
     for (const raw of batch.slice(0, MAX_BATCH)) {
       const line = pageLine(raw, wall(), verbose)
       if (!line) continue
+      if (line.k === 'page-stall' && page !== undefined && deps.pageInfo) {
+        let info: Record<string, unknown> | null
+        try {
+          info = deps.pageInfo(page)
+        } catch {
+          info = null
+        }
+        if (info) line.fields = { ...line.fields, ...info }
+      }
       log.writeAt('page', line.k, line.at, line.fields)
       if (line.k === 'page-stall' && typeof line.fields.ms === 'number') {
         if (page === undefined) deps.watch?.pageStall(line.at, line.fields.ms)
