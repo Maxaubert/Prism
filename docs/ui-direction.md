@@ -64,6 +64,10 @@ are gone (Aurora, Void and Frost kept, refined). The rules (`lib/theme.ts`, `lib
   (D4, owner, 2026-10-31, with the folder icons spec): a built-in glyph on an Explorer or search
   popup row is `--p-tree-folder`, on a sidebar pin the dim ink of the Known Folder glyphs
   (`.browse-place-icon`). No per-folder colour. Line glyphs at Prism's 1.7 stroke. `folderIcons` e2e.
+- **THE FOLDER IS AS BIG AS THE FILE BESIDE IT** (owner, 2026-11-06: "i feel like the folder icons
+  are smaller then the other icons"). The filled folder (`folderFill`) is 21 by 17 of its 24-unit
+  box, against a file page's 16.5 by 22.5; it was 19 by 13 and read about two thirds the size.
+  Checked by eye on the installed build ("Looks right").
 
 **ONE COLOUR PICKER, ALPHA ON EVERY COLOUR** (#249 rework, owner 2026-10-03: "the colour pickers
 should be the same for both apps, i need an input field for a color code and an alpha per colour
