@@ -17383,16 +17383,26 @@ async function previewClearsScenario(fixtures) {
  * zip, pdf, zip). The window is told it has the focus (the owner's has; the
  * e2e's is unfocusable, and Chromium fires focus and blur only in a focused
  * page). What is ON TOP at each control's centre is checked every frame from
- * the press on the zip's row, then each is pressed there and held as a person
- * holds a click. The verbs do their work; a folder row goes into the zip
- * there and a file row opens that member in the viewer (owner, 2026-11-06).
+ * the press on the zip's row, then each verb is pressed there and held as a
+ * person holds a click, and does its work.
+ *
+ * THE ROWS ARE A SMALL BROWSER THAT STAYS IN THE PREVIEW (owner, 2026-11-06,
+ * of rows that walked the Explorer into the zip: "on clicking an item in the
+ * zip preview opens it in main view dont do that i wanna use it while its in
+ * the preview, select files drag them into the main view to extract and so
+ * on"). A click selects (Ctrl toggles, Shift ranges) and the Explorer never
+ * moves; a double-click on a folder goes into it INSIDE the card (Up and
+ * Backspace come back), on a file opens the viewer with the Explorer still at
+ * the zip's folder; selected rows dragged onto the list or a folder row there
+ * are extracted into it, marked where they landed; the zip's own row and the
+ * card take nothing; a right-click has the zip's member verbs.
  */
 async function zipPreviewClicksScenario(fixtures) {
-  console.log('the zip card answers a click (#483)')
+  console.log('the zip card is a browser that stays in the preview (#483)')
   const AdmZip = (await import('adm-zip')).default
   const dir = join(fixtures, 'zippreviewclicks')
   rmSync(dir, { recursive: true, force: true })
-  mkdirSync(dir, { recursive: true })
+  mkdirSync(join(dir, 'target'), { recursive: true })
   const top = 'web-application-project'
   const zip = new AdmZip()
   let files = 0
@@ -17414,7 +17424,8 @@ async function zipPreviewClicksScenario(fixtures) {
     n++
   }
   const zipName = 'W-13-studentmarkedet.zip'
-  zip.writeZip(join(dir, zipName))
+  const zipPath = join(dir, zipName)
+  zip.writeZip(zipPath)
   writeFileSync(join(dir, 'notes.txt'), 'beside the zip\n')
   copyFileSync(join(fixtures, 'sample.pdf'), join(dir, 'W-13-rapport.pdf'))
   const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
@@ -17423,6 +17434,7 @@ async function zipPreviewClicksScenario(fixtures) {
   const card = '[data-browse-preview] [data-archive-card]'
   const verb = (name) => `${card} [data-archive-verb="${name}"]`
   const row = (name) => `${card} [data-archive-row="${name}"]`
+  const cardRow = (name) => win.locator(row(name))
   /** What is on top at the centre of `selector`, and whether it is (inside) it. */
   const hit = (selector) =>
     win.evaluate((sel) => {
@@ -17452,9 +17464,16 @@ async function zipPreviewClicksScenario(fixtures) {
     await sleep(120)
     await win.mouse.up()
   }
-  const where = async () => (await win.locator('.browse-path').getAttribute('data-path')) ?? ''
-  const shown = () =>
-    until(async () => /Inside, in web-application-project/.test((await win.locator(card).textContent().catch(() => '')) ?? ''), 15000)
+  const where = async () => (await win.locator('.browse-path').getAttribute('data-path').catch(() => '')) ?? ''
+  const caption = async () => ((await win.locator(`${card} .archive-card-caption`).textContent({ timeout: 1500 }).catch(() => '')) ?? '').trim()
+  const rowsShown = () =>
+    win.evaluate((c) => [...document.querySelectorAll(`${c} [data-archive-row]`)].map((r) => r.getAttribute('data-archive-row')), card)
+  const picked = () =>
+    win.evaluate(
+      (c) => [...document.querySelectorAll(`${c} [data-archive-row][aria-selected="true"]`)].map((r) => r.getAttribute('data-archive-row')),
+      card
+    )
+  const shown = () => until(async () => (await caption()) === `Inside, in ${top}`, 15000)
   const pdfShown = () =>
     until(async () => (await win.locator('[data-browse-preview] canvas').count()) > 0, 15000)
   const pickZip = async (why) => {
@@ -17462,10 +17481,19 @@ async function zipPreviewClicksScenario(fixtures) {
     ok(await shown(), `${why}: the zip previews as its card, inside its one top folder`)
     await sleep(300)
   }
-  const backToZip = async (why) => {
-    await win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Back"]').click()
-    ok(await until(async () => (await where()) === dir, 10000), `${why}: Back comes out to the folder holding the zip`)
-    await pickZip(why)
+  /** The Explorer is still at the folder holding the zip, the zip marked. */
+  const explorerStays = async (why) => {
+    ok((await where()) === dir, `${why}: the Explorer stays at the zip's folder (${await where()})`)
+    ok((await markedNames(win)).join('|') === zipName, `${why}: and the zip stays the selection (${await markedNames(win)})`)
+  }
+  const menuRowsOf = async (name) => {
+    await cardRow(name).click({ button: 'right' })
+    await win.waitForSelector('[role="menu"] [role="menuitem"]', { timeout: 5000 })
+    return menuLabels(win)
+  }
+  const closeMenu = async () => {
+    await win.keyboard.press('Escape')
+    await until(async () => (await win.locator('[role="menu"]').count()) === 0, 3000)
   }
   try {
     await explorerAt(win, dir)
@@ -17512,7 +17540,137 @@ async function zipPreviewClicksScenario(fixtures) {
     }, card)
     ok(dragOver.length === 0, `no window-drag region overlaps the card (${dragOver.slice(0, 3).join('; ')})`)
     await win.screenshot({ path: join(SHOTS, 'zip-preview-clicks.png') })
-    // Extract here makes the top folder beside the zip.
+
+    // A CLICK SELECTS, nothing moves.
+    await press(row('app'))
+    ok(await until(async () => (await picked()).join('|') === 'app', 3000), `a click selects the row (${await picked()})`)
+    await sleep(500)
+    ok(!(await viewing(win)), 'and nothing opens')
+    await explorerStays('a click on a folder row')
+    await cardRow('docs').click({ modifiers: ['Control'] })
+    ok((await picked()).join('|') === 'app|docs', `Ctrl+click adds a row (${await picked()})`)
+    await cardRow('app').click({ modifiers: ['Control'] })
+    ok((await picked()).join('|') === 'docs', `Ctrl+click on a selected row takes it out (${await picked()})`)
+    await cardRow('README.md').click({ modifiers: ['Shift'] })
+    const order = await rowsShown()
+    const range = order.slice(order.indexOf('app'), order.indexOf('README.md') + 1)
+    ok((await picked()).join('|') === range.join('|'), `Shift+click selects the range from the last click, Ctrl's on app (${await picked()})`)
+    await win.screenshot({ path: join(SHOTS, 'zip-card-picked.png') })
+    await cardRow('AGENTS.md').click()
+    ok((await picked()).join('|') === 'AGENTS.md', `a plain click is the selection alone again (${await picked()})`)
+    await explorerStays('after the picks')
+
+    // A DOUBLE-CLICK ON A FOLDER goes in INSIDE the card; Up and Backspace come back.
+    await cardRow('app').dblclick()
+    ok(await until(async () => (await caption()) === `Inside, in ${top}\\app`, 8000), `a double-click goes into the folder in the card (${await caption()})`)
+    ok(await until(async () => (await rowsShown()).some((r) => /^file-\d+\.(ts|md)$/.test(r)), 8000), 'and lists what it holds')
+    ok((await rowsShown()).includes('sub1'), 'its own folders too')
+    await explorerStays('inside a folder of the card')
+    const scrolls = await win.evaluate((c) => {
+      const box = document.querySelector(`${c} .archive-card-rows`)
+      return !!box && box.scrollHeight > box.clientHeight
+    }, card)
+    ok(scrolls, 'a long folder scrolls inside the card')
+    await win.screenshot({ path: join(SHOTS, 'zip-card-inside.png') })
+    await press(`${card} [data-archive-up]`)
+    ok(await until(async () => (await caption()) === `Inside, in ${top}`, 8000), `Up comes back out (${await caption()})`)
+    ok((await rowsShown()).includes('README.md'), 'to the rows it showed')
+    await cardRow('scripts').dblclick()
+    ok(await until(async () => (await caption()) === `Inside, in ${top}\\scripts`, 8000), 'into another folder')
+    await win.keyboard.press('Backspace')
+    ok(await until(async () => (await caption()) === `Inside, in ${top}`, 8000), `Backspace comes back out (${await caption()})`)
+    await explorerStays('after Backspace')
+    // Up from the one top folder shows the zip's root, that folder in it.
+    await press(`${card} [data-archive-up]`)
+    ok(await until(async () => (await caption()) === 'Inside', 8000), `Up from the top folder is the zip's root (${await caption()})`)
+    ok((await rowsShown()).join('|') === top, `holding the one folder (${await rowsShown()})`)
+    ok((await win.locator(`${card} [data-archive-up]`).count()) === 0, 'and there is no way further up')
+    await cardRow(top).dblclick()
+    ok(await until(async () => (await caption()) === `Inside, in ${top}`, 8000), 'and back in')
+    // Arrows walk the rows; Enter goes into a folder.
+    await cardRow('app').click()
+    await win.keyboard.press('ArrowDown')
+    ok((await picked()).join('|') === 'docs', `Down selects the next row (${await picked()})`)
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await caption()) === `Inside, in ${top}\\docs`, 8000), `Enter goes into it (${await caption()})`)
+    await win.keyboard.press('Backspace')
+    ok(await until(async () => (await caption()) === `Inside, in ${top}`, 8000), 'and Backspace out')
+    await explorerStays('after the keys')
+
+    // A DOUBLE-CLICK ON A FILE opens the viewer; the Explorer stays where it was.
+    await cardRow('README.md').dblclick()
+    ok(await until(async () => /README\.md/.test(await viewing(win)), 15000), `a double-click on a file opens it in the viewer (${await viewing(win)})`)
+    await toList(win)
+    ok(await until(async () => (await where()) === dir, 8000), `back at the list, the Explorer is still at the zip's folder (${await where()})`)
+    ok(await shown(), 'and the card is back in the preview')
+    ok((await markedNames(win)).join('|') === zipName, `the zip still selected (${await markedNames(win)})`)
+
+    // DRAG OUT: two selected files onto the list are extracted there, marked.
+    await cardRow('AGENTS.md').click()
+    await cardRow('CLAUDE.md').click({ modifiers: ['Control'] })
+    const w1 = await carryOver(win, cardRow('AGENTS.md'), await listSpace(win))
+    ok(w1 === 'Copy', `two members over the list read Copy (${w1})`)
+    ok(
+      await until(async () => existsSync(join(dir, 'AGENTS.md')) && existsSync(join(dir, 'CLAUDE.md')), 20000, 150),
+      'dropped on the list, both are extracted into the folder'
+    )
+    ok(
+      await until(async () => {
+        const m = await markedNames(win)
+        return m.includes('AGENTS.md') && m.includes('CLAUDE.md')
+      }, 8000, 150),
+      `and marked where they landed (${await markedNames(win)})`
+    )
+    // A folder and a file onto a folder row: extracted into that folder.
+    await pickZip('after the drop')
+    await cardRow('scripts').click()
+    await cardRow('.gitignore').click({ modifiers: ['Control'] })
+    const w2 = await carryOver(win, cardRow('scripts'), listRow(win, 'target'))
+    ok(w2 === 'Copy', `a folder and a file over a folder row read Copy (${w2})`)
+    ok(
+      await until(async () => existsSync(join(dir, 'target', '.gitignore')) && existsSync(join(dir, 'target', 'scripts')), 20000, 150),
+      'dropped on the folder row, both are extracted into it'
+    )
+    ok(readdirSync(join(dir, 'target', 'scripts'), { recursive: true }).some((f) => /file-\d+\./.test(String(f))), 'the folder with what it holds')
+    // Onto the zip's own row, or onto the card itself: nothing.
+    await pickZip('after the folder drop')
+    const before = readdirSync(dir).sort().join('|')
+    const entriesBefore = new AdmZip(zipPath).getEntries().length
+    const w3 = await carryOver(win, cardRow('README.md'), zipRow(win, zipName))
+    ok(w3 === '', `a member over its own zip's row says nothing (${JSON.stringify(w3)})`)
+    const w4 = await carryOver(win, cardRow('README.md'), cardRow('.node-version'))
+    ok(w4 === '', `a member over the card says nothing (${JSON.stringify(w4)})`)
+    await sleep(1000)
+    ok(readdirSync(dir).sort().join('|') === before, 'and nothing landed in the folder')
+    ok(new AdmZip(zipPath).getEntries().length === entriesBefore, 'nor changed in the zip')
+    await explorerStays('after the refused drops')
+
+    // RIGHT-CLICK: the zip's member verbs, on the selection.
+    const fileMenu = await menuRowsOf('.node-version')
+    ok(fileMenu.join('|') === ['Open', 'Extract this file', 'Extract this file to...', 'Copy file'].join('|'), `a file row's menu (${fileMenu.join(', ')})`)
+    ok((await picked()).join('|') === '.node-version', 'a right-click selects the row it is on')
+    await win.locator('[role="menu"] [role="menuitem"]', { hasText: 'Extract this file' }).first().click()
+    ok(await until(async () => existsSync(join(dir, '.node-version')), 20000, 150), 'Extract this file lands beside the zip')
+    await until(async () => (await win.locator('[role="dialog"]').count()) === 0, 30000)
+    await pickZip('after the menu')
+    const folderMenu = await menuRowsOf('docs')
+    ok(folderMenu.join('|') === ['Open', 'Extract this folder', 'Extract this folder to...', 'Copy folder'].join('|'), `a folder row's menu (${folderMenu.join(', ')})`)
+    await closeMenu()
+    await cardRow('docs').click()
+    await cardRow('app').click({ modifiers: ['Control'] })
+    const manyMenu = await menuRowsOf('app')
+    ok(manyMenu.join('|') === ['Copy 2 items', 'Extract 2 items here', 'Extract 2 items to...'].join('|'), `several rows' menu (${manyMenu.join(', ')})`)
+    ok((await picked()).join('|') === 'app|docs', 'a right-click inside the selection keeps it')
+    await closeMenu()
+    // Open from the menu goes into a folder in the card.
+    await cardRow('docs').click()
+    await menuRowsOf('docs')
+    await win.locator('[role="menu"] [role="menuitem"]', { hasText: 'Open' }).first().click()
+    ok(await until(async () => (await caption()) === `Inside, in ${top}\\docs`, 8000), `Open on a folder goes into it in the card (${await caption()})`)
+    await explorerStays('after Open on a folder')
+    await win.keyboard.press('Backspace')
+
+    // THE VERBS do their work.
     await press(verb('extract-here'))
     ok(await until(async () => existsSync(join(dir, top, 'README.md')), 30000), 'Extract here unpacks the zip beside itself')
     await until(async () => (await win.locator('[role="dialog"]').count()) === 0, 30000)
@@ -17525,29 +17683,10 @@ async function zipPreviewClicksScenario(fixtures) {
     ok(await until(async () => existsSync(join(elsewhere, top, 'README.md')), 30000), 'Extract to... unpacks it into the folder picked')
     await until(async () => (await win.locator('[role="dialog"]').count()) === 0, 30000)
     await pickZip('after Extract to...')
-    // A folder row goes into the zip at that folder.
-    await press(row('app'))
-    ok(
-      await until(async () => (await where()).endsWith(`${zipName}\\${top}\\app`), 10000),
-      `a folder row opens the zip at that folder (${await where()})`
-    )
-    ok(
-      await until(async () => (await zipRows(win)).some((p) => /\\app\\file-\d+\.(ts|md)$/.test(p)), 10000),
-      'and lists what that folder holds'
-    )
-    await backToZip('out of the folder')
-    // A file row opens that member in the viewer, the Explorer at its folder.
-    await press(row('README.md'))
-    ok(await until(async () => /README\.md/.test(await viewing(win)), 15000), `a file row opens that member in the viewer (${await viewing(win)})`)
-    await toList(win)
-    ok(
-      await until(async () => (await where()).endsWith(`${zipName}\\${top}`), 10000),
-      `back at the list, inside the zip's top folder (${await where()})`
-    )
-    await backToZip('out of the member')
     // Open goes into the zip.
     await press(verb('open'))
     ok(await until(async () => (await win.locator('[data-archive-strip]').count()) === 1, 10000), 'Open goes into the zip')
+
     // SEVERAL TOP ENTRIES (no "in <top>"): the rows sit at the zip's root.
     const flatDir = join(dir, 'flat')
     mkdirSync(flatDir, { recursive: true })
@@ -17558,33 +17697,37 @@ async function zipPreviewClicksScenario(fixtures) {
     flat.writeZip(join(flatDir, 'flat.zip'))
     writeFileSync(join(flatDir, 'notes.txt'), 'beside the zip\n')
     await explorerAt(win, flatDir)
-    const flatCard = async () => {
-      await zipRow(win, 'flat.zip').click()
-      ok(
-        await until(async () => /^Inside$/.test((await win.locator(`${card} .archive-card-caption`).textContent().catch(() => '')) ?? ''), 10000),
-        'a zip of several top entries previews "Inside" its root'
-      )
-    }
-    await flatCard()
-    await press(row('beta'))
-    ok(await until(async () => (await where()).endsWith('flat.zip\\beta'), 10000), `a root folder row goes into it (${await where()})`)
-    await win.locator('.folder-browser [data-testid="browse-toolbar"] button[aria-label="Back"]').click()
-    ok(await until(async () => (await where()) === flatDir, 10000), 'Back comes out to the folder holding the flat zip')
-    await flatCard()
-    await press(row('root.txt'))
-    ok(await until(async () => /root\.txt/.test(await viewing(win)), 15000), `a root file row opens it (${await viewing(win)})`)
+    await zipRow(win, 'flat.zip').click()
+    ok(await until(async () => (await caption()) === 'Inside', 10000), 'a zip of several top entries previews "Inside" its root')
+    await cardRow('beta').dblclick()
+    ok(await until(async () => (await caption()) === 'Inside, in beta', 8000), `a root folder is gone into in the card (${await caption()})`)
+    ok(await until(async () => (await rowsShown()).includes('two.txt'), 8000), 'listing what it holds')
+    ok((await where()) === flatDir, `the Explorer stays (${await where()})`)
+    await press(`${card} [data-archive-up]`)
+    ok(await until(async () => (await caption()) === 'Inside', 8000), 'Up is the root again')
+    await cardRow('root.txt').dblclick()
+    ok(await until(async () => /root\.txt/.test(await viewing(win)), 15000), `a root file opens in the viewer (${await viewing(win)})`)
     await toList(win)
-    // A ZIP INSIDE THE ZIP: its row goes into it, as a double-click does.
+    ok(await until(async () => (await where()) === flatDir, 8000), `and the Explorer is where it was (${await where()})`)
+
+    // A ZIP INSIDE THE ZIP is gone into in the card, as a double-click goes into it in the list.
     const { dir: worldDir } = await zipWorld(dir, 'world')
     await explorerAt(win, worldDir)
     await zipRow(win, 'Wind-0.2.2.zip').click()
-    ok(await until(async () => /Inside, in Wind/.test((await win.locator(card).textContent().catch(() => '')) ?? ''), 10000), 'the Wind zip previews as its card')
-    await press(row('nested.zip'))
+    ok(await until(async () => (await caption()) === 'Inside, in Wind', 10000), 'the Wind zip previews as its card')
+    await cardRow('nested.zip').dblclick()
     ok(
-      await until(async () => (await where()).endsWith('Wind-0.2.2.zip\\Wind\\nested.zip'), 10000),
-      `a nested zip's row goes into it (${await where()})`
+      await until(async () => (await caption()) === 'Inside, in Wind\\nested.zip', 10000),
+      `a nested zip is gone into in the card (${await caption()})`
     )
-    ok(await until(async () => (await zipRows(win)).some((p) => p.endsWith('nested.zip\\docs')), 10000), 'and lists what it holds')
+    ok(await until(async () => (await rowsShown()).includes('docs'), 10000), `and lists what it holds (${await rowsShown()})`)
+    ok((await where()) === worldDir, `the Explorer stays (${await where()})`)
+    // Its members drag out too, from the temp copy main reads the nested zip from.
+    await cardRow('docs').dblclick()
+    ok(await until(async () => (await rowsShown()).includes('inside-inner.txt'), 10000), 'a folder of the nested zip')
+    const w5 = await carryOver(win, cardRow('inside-inner.txt'), await listSpace(win))
+    ok(w5 === 'Copy', `a nested member over the list reads Copy (${w5})`)
+    ok(await until(async () => existsSync(join(worldDir, 'inside-inner.txt')), 20000, 150), 'and is extracted there')
   } finally {
     await app.close()
   }

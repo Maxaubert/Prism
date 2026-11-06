@@ -163,5 +163,7 @@ export type ArchiveSummary =
       /** The single top folder a "download as zip" makes, when that is all. */
       top: string | null
       rows: Array<{ name: string; dir: boolean; size: number }>
+      /** Rows past the answer's cap, not sent (#483). */
+      more: number
     }
   | { ok: false; reason: ExtractFail | 'missing' | 'deep' | 'nest-big' }

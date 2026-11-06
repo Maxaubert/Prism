@@ -1203,15 +1203,31 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   Up or a crumb to the folder holding it marks the zip (the way out) and, with the pane on, its
   card returns (`lib/wayOutPreview.ts`, judged once per arrival in `useFolderBrowsing`). Only the
   way out, only a file row: out of a folder the pane stays empty. `zipPreviewBack` e2e.
-  THE CARD'S ROWS ARE CLICKED (#483; owner, 2026-11-06, of a zip whose card "nothing in the preview
-  panel responds to a click"): a row under "Inside" is a button with the list's hover. A folder (or
-  a zip inside the zip) goes into the zip at that folder, the Explorer walking there; a file opens
-  in full view, the Explorer behind it at the folder inside the zip that holds it, as a
-  double-click on that row inside the zip does (`browse/archiveCardRow.ts`, tested). Before, the
-  rows were static text drawn like rows. Open / Extract here / Extract to... were checked with
-  the owner's own zip and order (a PDF beside it previewed first): nothing covers them and each
-  does its work. `zipPreviewClicks` e2e (hit-test every frame, no window-drag region over the
-  card, then a held click on each; also a zip of several top entries and a zip inside a zip).
+  THE CARD IS A SMALL BROWSER THAT STAYS IN THE PREVIEW (#483; owner, 2026-11-05, of a zip whose
+  card "nothing in the preview panel responds to a click"; then, 2026-11-06, REJECTING rows that
+  walked the Explorer into the zip: "on clicking an item in the zip preview opens it in main view
+  dont do that i wanna use it while its in the preview, select files drag them into the main view
+  to extract and so on"). The Explorer never moves for a click in the card. A click selects a row
+  in the list's look; Ctrl toggles, Shift ranges from the last click; Up, Down, Enter and Backspace
+  work in it (`browse/archiveCardNav.ts`, tested; the card's list owns its plain keys in
+  `useAppKeys`, so F2 or Delete never reach the zip). A double-click (or Enter) on a folder, or a
+  zip inside the zip, goes INTO it in the card: the caption says where ("Inside, in a\b"), an Up
+  glyph before it and Backspace come back, and a long folder scrolls in the card (one
+  `archive:summary` with `level`, up to 5,000 rows, off-screen rows not laid out). A double-click
+  on a file opens it in the viewer with the Explorer left at the zip's folder and the zip still
+  selected (`openFile`'s `keep`); Back from the viewer returns there with the card where it was,
+  never into the zip. Selected rows (files and folders) dragged onto the list or a folder row are
+  EXTRACTED there by #70's drop, landing marks included; onto their own zip, a place inside it, or
+  the card: nothing (`payload.card` in `dropVerb`). The press readies them for a hand-off to
+  Windows at the window's edge, as a member row does. A right-click has the zip's member verbs on
+  the selection (`menus/archiveCardMenu.ts`: Open, Extract this file/folder beside the zip,
+  Extract to..., Copy; no Rename, Delete or Show, which belong inside the zip). Open / Extract
+  here / Extract to... on the card are unchanged, checked with the owner's own zip and order (a
+  PDF beside it previewed first): nothing covers them and each does its work. `zipPreviewClicks`
+  e2e (hit-test every frame, no window-drag region over the card, the clicks, keys and Up, a file
+  opened and back, two members dragged onto the list and a folder and a file onto a folder row,
+  refused drops, the menus; a zip of several top entries; a zip inside a zip, its member dragged
+  out).
 - **Archive viewer** (2026-08-22, #68; since #300 the PHONE's only, the desktop's is above): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),

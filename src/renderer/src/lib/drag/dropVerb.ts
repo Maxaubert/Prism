@@ -135,6 +135,9 @@ export function dropVerb({
     // Onto one of the carried rows: nothing, whatever the keys.
     if (row && payload.places?.some((p) => samePath(p, row))) return 'none'
     if (!arc) return 'extract'
+    // Out of the zip card (#483), onto its own zip or anything inside the
+    // zip that holds it: nothing. The card extracts; it never rearranges.
+    if (payload.card && payload.places?.some((p) => within(arc.outer, p))) return 'none'
     if (arc.readOnly) return 'none'
     if (!ownZip(payload, arc)) return 'zip-to-zip'
     const dest = cleanInner(arc.inner)

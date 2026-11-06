@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
 import { ViewerSwitch } from '../ViewerSwitch'
 import { ArchiveCard } from '../browse/ArchiveCard'
+import type { ArchiveCardMenu } from '../browse/useArchiveActions'
 import { MemberGate } from '../MemberGate'
 import { MemberNote } from '../MemberNote'
 import type { TransportStyle } from '../../lib/transport'
@@ -38,15 +39,19 @@ export function Viewer({
   volumeKey = '',
   onOpenArchive,
   onOpenArchiveMember,
+  archiveCardMenu,
   note = false,
   readOnly = false
 }: {
   file: ViewerFile
   /** An archive's card asks to go in (#300): the Explorer walks into it, a
-   *  project's tree opens its node. A folder row of the card goes in there (#483). */
+   *  project's tree opens its node. */
   onOpenArchive?: (path: string) => void
-  /** A file row of the archive's card (#483): that member opens in the viewer. */
-  onOpenArchiveMember?: (path: string) => void
+  /** A file double-clicked in the archive's card (#483): that member opens
+   *  in the viewer, the Explorer left where it is; `zip` is the card's own. */
+  onOpenArchiveMember?: (member: string, zip: ViewerFile) => void
+  /** The card's right-click rows (#483). */
+  archiveCardMenu?: ArchiveCardMenu
   /** Full view or a project: a member wears its read-only note (#300). The
    *  preview pane carries none (mockup 04). */
   note?: boolean
@@ -89,7 +94,8 @@ export function Viewer({
     const props = {
       onUndoable, refreshKey, onToggleFullscreen, fullscreen, transportStyle, transportBg,
       onOpenLocal, onAutoAdvance, onStep, canStep, onBuffer, onRenameSelf, getPending,
-      onExternalChange, reloadAnswer, background, volumeKey, onOpenArchive, onOpenArchiveMember
+      onExternalChange, reloadAnswer, background, volumeKey, onOpenArchive, onOpenArchiveMember,
+      archiveCardMenu
     }
     const gate = (
       <MemberGate file={file} render={(real) => <Viewer {...props} file={real} readOnly />} />
@@ -136,9 +142,8 @@ export function Viewer({
           onOpen={() => onOpenArchive?.(file.path)}
           onExtractHere={() => void extractAll(file.path, true)}
           onExtractTo={() => void extractAll(file.path, false)}
-          onOpenRow={(row) =>
-            row.go === 'folder' ? onOpenArchive?.(row.path) : onOpenArchiveMember?.(row.path)
-          }
+          onOpenMember={(member) => onOpenArchiveMember?.(member, file)}
+          menu={archiveCardMenu}
         />
       )}
     />

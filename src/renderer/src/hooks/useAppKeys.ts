@@ -133,6 +133,10 @@ export function useAppKeys({
         e.key !== 'Escape'
       )
         return
+      // THE ZIP CARD'S LIST OWNS ITS PLAIN KEYS (#483): its arrows, Enter
+      // and Backspace walk the zip inside the preview, and F2 or Delete there
+      // must never rename or bin the zip behind it.
+      if (el?.closest('[data-archive-card-rows]') && !e.ctrlKey && !e.altKey && !e.metaKey) return
       const inBrowser = !!el?.closest('.folder-browser')
       if (inBrowser && e.altKey) return
       if (inBrowser && !e.ctrlKey && !e.altKey && e.key !== 'F11') return
