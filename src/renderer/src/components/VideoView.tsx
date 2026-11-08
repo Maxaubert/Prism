@@ -336,7 +336,10 @@ export function VideoView({
     () =>
       whenIntended(url, () => {
         const el = video.current
-        if (el && el.paused) void el.play().catch(() => undefined)
+        // Another tab's player of the same film hears this too (review of
+        // #491): it stays as it is, or the film sounds twice, once hidden.
+        if (el && el.paused && !el.closest('[aria-hidden="true"]'))
+          void el.play().catch(() => undefined)
       }),
     [url]
   )

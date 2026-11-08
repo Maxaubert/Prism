@@ -37,10 +37,10 @@ import { usePendingHint, type ListPending } from './usePendingHint'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import type { DirListing } from '@shared/types'
 
-function pauseTab(tabId: string): void {
+function pauseTab(tabId: string, which = 'video,audio'): void {
   for (const region of document.querySelectorAll<HTMLElement>('[data-player-tab]')) {
     if (region.dataset.playerTab !== tabId) continue
-    for (const media of region.querySelectorAll<HTMLMediaElement>('video,audio')) pauseQuietly(media)
+    for (const media of region.querySelectorAll<HTMLMediaElement>(which)) pauseQuietly(media)
   }
 }
 
@@ -549,9 +549,9 @@ export function useFolderBrowsing(
     setError(undefined)
     if (id) {
       serial.current.set(id, (serial.current.get(id) ?? 0) + 1)
-      // Only when the film goes off the screen (#491): with the pane open it
-      // carries on there, it is still being shown.
-      if (!active?.browse.preview) pauseTab(id)
+      // A film carries on in an open pane, it is still being shown (#491). A
+      // track stops as it always has: #491 is about films.
+      pauseTab(id, active?.browse.preview ? 'audio' : undefined)
       const cached = visitedDirectories.get(path)
       if (cached) setResult({ ...cached, tabId: id })
       setState((s) => ({ ...s, tabs: setBrowseSurface(s.tabs, id, 'folder') }))

@@ -354,8 +354,15 @@ export function useAppKeys({
         if (file?.kind === 'video') {
           // Nothing on screen to walk from: a film kept behind the list.
           if (browsing.folder && !active?.browse.preview) return
-          // A chord is the list's, in the list; over a film it does nothing.
-          if (e.ctrlKey || e.shiftKey || e.altKey) return
+          // A chord is the list's, in the list; over a film it does nothing,
+          // and a focused range would otherwise step on it (review of #492).
+          if (e.ctrlKey || e.shiftKey || e.altKey) {
+            if (onTransportSlider(el)) e.preventDefault()
+            return
+          }
+          // A menu open over the film has the keys (review of #492), whether
+          // or not it took the focus: a right-click does not move it.
+          if (document.querySelector('[data-owns-escape],[role="menu"]')) return
         }
         e.preventDefault()
         go(e.key === 'ArrowDown' ? 1 : -1)

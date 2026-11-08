@@ -4087,6 +4087,24 @@ async function filmKeysScenario(fixtures) {
     await sleep(500)
     ok((await viewing(win)).includes('a.mov') && (await volume()) === was, 'Ctrl+Down over a film neither walks nor changes the volume')
 
+    // AN OPEN MENU OVER THE FILM (review of #492): Up and Down are not the
+    // folder's while a menu is up, focused or not (a right-click leaves the
+    // focus where it was).
+    const menuHolds = async (what) => {
+      await win.keyboard.press('ArrowDown')
+      await sleep(700)
+      ok((await viewing(win)).includes('a.mov'), `${what}: Down does not walk the folder (${await viewing(win)})`)
+      await win.keyboard.press('Escape')
+      await sleep(300)
+    }
+    await win.locator('video').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 3000 })
+    await menuHolds('the right-click menu open')
+    await win.locator('video').hover()
+    await win.click('[aria-label="Player settings"]')
+    await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 3000 })
+    await menuHolds('the Player settings menu open')
+
     // FOCUS ON THE PLAYER'S OWN CONTROLS, a button.
     await focusMute(win, 'video')
     await win.keyboard.press('ArrowDown')
@@ -4101,6 +4119,9 @@ async function filmKeysScenario(fixtures) {
     await slider.waitFor({ timeout: 5000 })
     await slider.focus()
     const asked = await slider.inputValue()
+    await win.keyboard.press('Control+ArrowDown')
+    await sleep(300)
+    ok((await slider.inputValue()) === asked && (await viewing(win)).includes('b.mov'), `Ctrl+Down on the volume slider does nothing (${asked} -> ${await slider.inputValue()})`)
     await win.keyboard.press('ArrowUp')
     ok(await crumbIs('a.mov'), 'with the focus on the volume slider, Up walks')
     await sleep(300)
@@ -4277,6 +4298,71 @@ async function filmStartScenario(fixtures) {
     }
     await sleep(900)
   }
+  // A FILM NOBODY IS LOOKING AT STAYS SILENT (review of #491): a step behind
+  // the list, and the same film in another tab.
+  console.log('  -- a film nobody is looking at stays silent')
+  {
+    const quiet = filmFolder(fixtures, 'filmstart-quiet', ['A.mov', 'C.mov', 'E.mov'], { 'D.png': 'one.png', 'F.m4a': 'av/lossless.m4a' })
+    const sounding = (win) => win.evaluate(() => [...document.querySelectorAll('video,audio')].filter((v) => !v.paused).length)
+    const { app, win } = await launchWith({ ...NO_INDEX }, quiet)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await listRow(win, 'D.png').click({ position: { x: 30, y: 10 } })
+      await sleep(600)
+      const toggle = win.locator(PANE_TOGGLE).first()
+      if ((await toggle.getAttribute('aria-pressed')) === 'true') {
+        await toggle.click()
+        await sleep(700)
+      }
+      await viewFile(win, 'C.mov')
+      await win.waitForSelector('video', { timeout: 10000 })
+      await win.keyboard.press('ArrowDown')
+      await until(async () => (await viewing(win)).includes('D.png'), 8000)
+      await toList(win)
+      await sleep(500)
+      await win.evaluate(() => document.activeElement?.blur())
+      await win.keyboard.press('ArrowDown')
+      await sleep(2500)
+      ok((await sounding(win)) === 0, `a step behind the list starts nothing (${await sounding(win)} playing)`)
+      // Same film, another tab: a kept player that hears the other tab's intent
+      // would be the film twice, one of them hidden.
+      await viewFile(win, 'C.mov')
+      await win.waitForSelector('video', { timeout: 10000 })
+      await sleep(1500)
+      await toList(win)
+      await sleep(600)
+      ok((await sounding(win)) === 0, 'Back with the pane shut stops it')
+      await win.keyboard.press('Control+t')
+      await sleep(1500)
+      await explorerAt(win, quiet)
+      await sleep(800)
+      await viewFile(win, 'A.mov')
+      await win.waitForSelector('video', { timeout: 10000 })
+      await sleep(1200)
+      await win.keyboard.press('ArrowDown')
+      await sleep(2500)
+      ok((await sounding(win)) === 1, `a film the other tab holds: stepped onto, it plays once (${await sounding(win)} playing)`)
+      await toList(win)
+      await listRow(win, 'C.mov').dblclick()
+      await sleep(2500)
+      ok((await sounding(win)) === 1, `and picked, it plays once (${await sounding(win)} playing)`)
+      // A track played in full view stops on Back, pane open or not: only a
+      // film carries on in the pane.
+      await toList(win)
+      await paneOn(win, 'A.mov')
+      await listRow(win, 'F.m4a').dblclick()
+      await win.waitForSelector('audio', { state: 'attached', timeout: 10000 })
+      await until(() => win.evaluate(() => document.querySelector('audio')?.play().then(() => true, () => false)), 8000)
+      await sleep(800)
+      const tracking = await win.evaluate(() => !document.querySelector('audio').paused)
+      await toList(win)
+      await sleep(800)
+      ok(tracking && (await win.evaluate(() => document.querySelector('audio')?.paused ?? true)), `Back with the pane open stops a track (playing before: ${tracking})`)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
   // THE PLAYLIST: a film that ends hands over to one that plays.
   console.log('  -- a finished film hands over')
   {
@@ -4299,6 +4385,20 @@ async function filmStartScenario(fixtures) {
       })
       ok(await until(async () => (await viewing(win)).includes('B.mov'), 8000), 'the film ends and the next one is up')
       ok(await started(win, 'video'), `and the next one PLAYS (${JSON.stringify(await filmNow(win))})`)
+      // The same in the pane, by the pref it shares with full view.
+      await toList(win)
+      await paneOn(win, 'C.mov')
+      ok(await started(win, PANE_FILM), 'pane: the film it holds plays')
+      await win.evaluate((s) => {
+        const v = document.querySelector(s)
+        v.currentTime = Math.max(0, v.duration - 0.3)
+        return v.play()
+      }, PANE_FILM)
+      ok(await until(() => win.evaluate((s) => decodeURIComponent(document.querySelector(s)?.currentSrc ?? '').includes('D.mov'), PANE_FILM), 8000), 'pane: the film ends and the next one is up')
+      ok(await started(win, PANE_FILM), 'and it plays there too')
+      await win.evaluate((s) => document.querySelector(s)?.pause(), PANE_FILM)
+      await viewFile(win, 'A.mov')
+      await win.waitForSelector('video', { timeout: 10000 })
       await win.evaluate(() => document.querySelector('video')?.pause())
       await win.hover('video')
       await win.click('[aria-label="Player settings"]')

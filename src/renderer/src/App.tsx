@@ -752,10 +752,13 @@ export default function App(): JSX.Element {
       const next = Math.max(0, Math.min(view.files.length - 1, view.index + delta))
       if (next === view.index) return // already at the edge; not a navigation
       const target = view.files[next]
+      // Behind a shut list nothing is on screen (review of #491): a film stepped
+      // to there is a sound with no picture.
+      const shown = !browsing.folder || !!active.browse.preview
       // A STEP SHOWS A FILM, AND A FILM SHOWN STARTS (#491; owner, 2026-11-08:
       // "video dont always autopaly"), whichever way the step came, unless you
       // paused that film yourself. A track still waits for you.
-      if (target.kind === 'video') {
+      if (shown && target.kind === 'video') {
         const key = window.prism.mediaUrl(target.path)
         if (!heldPaused(key)) intendToPlay(key)
       }
@@ -763,6 +766,7 @@ export default function App(): JSX.Element {
       // pane walks on and the row stays behind (#492).
       if (
         browsing.folder &&
+        shown &&
         view.files[view.index]?.kind === 'video' &&
         browsing.listing?.files.some((f) => f.path === target.path)
       )
