@@ -1525,16 +1525,14 @@ async function arrowKeysScenario(fixtures) {
     const back = await at()
     ok(back < fwd, `and Left seeks it back (${fwd} -> ${back})`)
 
-    // Up and Down are the player's while a film is in front (the volume, as
-    // every player has taught); the folder is paged from the list, and from
-    // a viewer that is not a player.
+    // Up and Down walk the folder with a film in front (#492; owner,
+    // 2026-11-08), and never the volume. `filmKeys` holds it every way.
     const before = await selected()
     const volume = () => win.evaluate(() => document.querySelector('video')?.volume ?? -1)
     const loud = await volume()
     await win.keyboard.press('ArrowDown')
-    await sleep(900)
-    ok((await selected()) === before, `Down does not page the folder under a film (${before} -> ${await selected()})`)
-    ok((await volume()) < loud, `it turns the volume down (${loud} -> ${await volume()})`)
+    ok(await until(async () => (await selected()) !== before, 8000), `Down pages the folder under a film (${before} -> ${await selected()})`)
+    ok((await volume()) === loud, `and the volume did not move (${loud} -> ${await volume()})`)
   } finally {
     await app.close()
   }
@@ -3493,14 +3491,13 @@ async function formatsScenario(fixtures) {
     // every track sitting at 0:00; see the note below). The click recorded the intent to play and the keyboard's own
     // landing did not, so the two hands disagreed about what a pick means.
     // Opened on a PICTURE so the arrows belong to the folder from the first
-    // press: a freshly opened track keeps them for its own volume.
+    // press: a track keeps them for its own volume (a film no longer does, #492).
     const { app, win } = await launch(join(fixtures, 'two.png'))
     try {
       await win.waitForSelector('.browse-viewer-toolbar', { timeout: 10000 })
       await sleep(600)
       // The fixtures sort ..., sample.pdf, song.mp3, two.png: one step up from
-      // the picture is the track. (From a video the arrows would be the
-      // volume's, which is why the walk does not start in av/.)
+      // the picture is the track.
       await win.keyboard.press('ArrowUp')
       await win.waitForSelector('audio', { state: 'attached', timeout: 15000 })
       // The old rule here (a track arrowed onto PLAYS, as a click on its tree row
@@ -3995,6 +3992,319 @@ async function ownerWalk(fixtures) {
       const lines = await filmLines()
       ok(lines.some((l) => l.ev === 'no-picture' && l.ok === false && String(l.path).includes('19.35.45')), 'and the log has its no-picture line')
       ok(lines.some((l) => l.ev === 'to-live' && l.why === 'no-picture'), 'and the switch to live, with its reason')
+    } finally {
+      await app.close()
+    }
+  }
+}
+
+/** Copies of the portrait HEVC clip, in a folder of their own. */
+function filmFolder(fixtures, name, films, extra = {}) {
+  const dir = join(fixtures, name)
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of films) copyFileSync(join(fixtures, 'av', 'iphone-hevc.mov'), join(dir, n))
+  for (const [n, from] of Object.entries(extra)) copyFileSync(join(fixtures, from), join(dir, n))
+  return dir
+}
+const PANE_FILM = '[data-browse-preview] video'
+const PANE_TOGGLE = '[data-testid="folder-browser"] button[aria-label="Preview pane"]'
+/** Pick `first` with the pane open, whatever this profile left it as. */
+async function paneOn(win, first) {
+  await listRow(win, first).click({ position: { x: 30, y: 10 } })
+  await sleep(700)
+  if (!(await win.locator(PANE_FILM).count())) await win.locator(PANE_TOGGLE).first().click()
+  await win.waitForSelector(PANE_FILM, { timeout: 10000 })
+}
+/** Close the pane if this profile left it open, then pick `first`. */
+async function paneOff(win, first) {
+  await listRow(win, first).click({ position: { x: 30, y: 10 } })
+  await sleep(700)
+  if (await win.locator(PANE_FILM).count()) {
+    await win.locator(PANE_TOGGLE).first().click()
+    await sleep(800)
+  }
+}
+const pickedRow = (win) =>
+  win.evaluate(() => (document.querySelector('[data-browse-path][aria-selected="true"], .browse-row.is-selected')?.getAttribute('data-browse-path') ?? '').split('\\').pop())
+const started = (win, sel, ms = 12000) =>
+  until(async () => {
+    const f = await filmNow(win, sel)
+    return !!f && !f.paused && f.t > 0.15
+  }, ms)
+const stillPaused = async (win, sel) => {
+  await sleep(1500)
+  return (await filmNow(win, sel))?.paused === true
+}
+/** Press the film's own mute button, leaving the focus on the player's controls. */
+async function focusMute(win, sel) {
+  await win.locator(sel).hover({ timeout: 3000 })
+  await win.locator('[data-transport] button[title^="Mute"]').first().focus({ timeout: 3000 })
+}
+
+/**
+ * UP AND DOWN ON A FILM WALK THE FOLDER (#492; owner, 2026-11-08: "videos arent
+ * navigable with the arrow keys, up down arrows shoudl nvigate next file not
+ * adjust volume"). Wherever the film is shown and wherever the focus is, one
+ * press moves one file and never touches the volume. A track keeps them.
+ */
+async function filmKeysScenario(fixtures) {
+  console.log('Up and Down on a film walk the folder (#492)')
+  if (!existsSync(join(fixtures, 'av', 'iphone-hevc.mov'))) {
+    ok(false, 'the HEVC fixture was built')
+    return
+  }
+  const dir = filmFolder(fixtures, 'filmkeys', ['a.mov', 'b.mov', 'c.mov'], { 'd.mp3': 'song.mp3' })
+  const { app, win } = await launchWith({ ...NO_INDEX }, dir)
+  try {
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    const volume = (sel = 'video') => win.evaluate((s) => document.querySelector(s)?.volume ?? -1, sel)
+    const crumbIs = (n) => until(async () => (await viewing(win)).includes(n), 8000)
+
+    // FULL VIEW, focus on the page.
+    await viewFile(win, 'a.mov')
+    await win.waitForSelector('video', { timeout: 10000 })
+    await sleep(500)
+    const loud = await volume()
+    await win.keyboard.press('ArrowDown')
+    ok(await crumbIs('b.mov'), 'full view: Down goes to the next file')
+    await sleep(300)
+    ok((await volume()) === loud, `and the volume did not move (${loud} -> ${await volume()})`)
+    await win.keyboard.press('ArrowUp')
+    ok(await crumbIs('a.mov'), 'full view: Up goes to the previous file')
+
+    // Left and Right stay the seek.
+    await win.evaluate(() => { const v = document.querySelector('video'); v.pause(); v.currentTime = 0 })
+    await sleep(300)
+    await win.keyboard.press('ArrowRight')
+    await sleep(400)
+    ok(((await filmNow(win))?.t ?? 0) > 0, 'Right still seeks the film')
+    ok((await viewing(win)).includes('a.mov'), 'and does not change the file')
+
+    // A chord does neither.
+    const was = await volume()
+    await win.keyboard.press('Control+ArrowDown')
+    await sleep(500)
+    ok((await viewing(win)).includes('a.mov') && (await volume()) === was, 'Ctrl+Down over a film neither walks nor changes the volume')
+
+    // FOCUS ON THE PLAYER'S OWN CONTROLS, a button.
+    await focusMute(win, 'video')
+    await win.keyboard.press('ArrowDown')
+    ok(await crumbIs('b.mov'), 'with the focus on the mute button, Down walks')
+    await sleep(300)
+    ok((await volume()) === was, 'and the volume did not move')
+
+    // THE VOLUME SLIDER itself: a focused range must not step, must not eat it.
+    await win.locator('video').hover()
+    await win.locator('[data-transport] button[title^="Mute"]').first().hover()
+    const slider = win.locator('[data-transport] input[aria-label="Volume"]').first()
+    await slider.waitFor({ timeout: 5000 })
+    await slider.focus()
+    const asked = await slider.inputValue()
+    await win.keyboard.press('ArrowUp')
+    ok(await crumbIs('a.mov'), 'with the focus on the volume slider, Up walks')
+    await sleep(300)
+    ok((await win.locator('[data-transport] input[aria-label="Volume"]').first().inputValue().catch(() => asked)) === asked, 'and the slider did not step')
+    ok((await volume()) === was, 'and the volume did not move')
+    await win.mouse.move(5, 5)
+
+    // ONTO A TRACK: Up/Down are its volume, as before.
+    await win.keyboard.press('ArrowDown')
+    await crumbIs('b.mov')
+    await win.keyboard.press('ArrowDown')
+    ok(await crumbIs('c.mov'), 'Down reaches the last film')
+    await win.keyboard.press('ArrowDown')
+    ok(await crumbIs('d.mp3'), 'and Down from a film can land on a track')
+    await win.waitForSelector('audio', { state: 'attached', timeout: 10000 })
+    await sleep(500)
+    const song = await volume('audio')
+    await win.keyboard.press('ArrowDown')
+    await sleep(500)
+    ok((await viewing(win)).includes('d.mp3'), 'a track keeps its file on Down')
+    ok((await volume('audio')) < song, `and Down turns the track down (${song} -> ${await volume('audio')})`)
+
+    // THE PREVIEW PANE, focus on the list.
+    await toList(win)
+    await paneOn(win, 'a.mov')
+    await sleep(400)
+    const paneLoud = await volume(PANE_FILM)
+    await win.keyboard.press('ArrowDown')
+    ok(await until(async () => (await pickedRow(win)) === 'b.mov', 5000), `pane, list focus: Down picks the next row (${await pickedRow(win)})`)
+    await sleep(300)
+    ok((await volume(PANE_FILM)) === paneLoud, 'and the film did not also take the key for volume')
+
+    // THE PANE, focus on the film (a click on the picture).
+    await win.locator(PANE_FILM).click({ timeout: 3000 }).catch(() => {})
+    await sleep(300)
+    await win.keyboard.press('ArrowDown')
+    ok(await until(async () => (await pickedRow(win)) === 'c.mov', 5000), `pane, focus on the film: Down walks and the row follows (${await pickedRow(win)})`)
+    await sleep(300)
+    ok((await volume(PANE_FILM)) === paneLoud, 'and the volume did not move')
+
+    // THE PANE, focus on the player's controls.
+    await focusMute(win, PANE_FILM)
+    await win.keyboard.press('ArrowUp')
+    ok(await until(async () => (await pickedRow(win)) === 'b.mov', 5000), `pane, focus on a control: Up walks and the row follows (${await pickedRow(win)})`)
+    await sleep(300)
+    ok((await volume(PANE_FILM)) === paneLoud, 'and the volume did not move')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * A FILM SHOWN STARTS BY ITSELF (#491; owner, 2026-11-08: "video dont always
+ * autopaly at least not in preview"), every way of arriving at one, on either
+ * route. A film you paused yourself stays paused when you come back to it.
+ */
+async function filmStartScenario(fixtures) {
+  console.log('a film shown starts by itself (#491)')
+  if (!existsSync(join(fixtures, 'av', 'iphone-hevc.mov'))) {
+    ok(false, 'the HEVC fixture was built')
+    return
+  }
+  const dir = filmFolder(fixtures, 'filmstart', ['A.mov', 'B.mov', 'C.mov', 'D.mov', 'E.mov'])
+  for (const [how, env] of [['direct', {}], ['live', { PRISM_E2E_FORCE_LIVE: '1' }]]) {
+    console.log(`  -- ${how}`)
+    const { app, win } = await launchWith({ ...env, ...NO_INDEX }, dir)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      // THE PANE OPENED OVER A PICKED FILM (the toolbar button, then Space).
+      await paneOff(win, 'A.mov')
+      await win.locator(PANE_TOGGLE).first().click()
+      await win.waitForSelector(PANE_FILM, { timeout: 10000 })
+      ok(await started(win, PANE_FILM), `${how}: the pane opened over a film starts it (${JSON.stringify(await filmNow(win, PANE_FILM))})`)
+      await win.locator(PANE_TOGGLE).first().click()
+      await sleep(800)
+      await listRow(win, 'B.mov').click({ position: { x: 30, y: 10 } })
+      await sleep(500)
+      await win.keyboard.press('Space')
+      await win.waitForSelector(PANE_FILM, { timeout: 10000 })
+      ok(await started(win, PANE_FILM), `${how}: Space opening the pane starts it`)
+      // By the list.
+      await listRow(win, 'C.mov').click({ position: { x: 30, y: 10 } })
+      ok(await started(win, PANE_FILM), `${how}: a click on a row starts the film`)
+      await win.keyboard.press('ArrowDown')
+      ok(await started(win, PANE_FILM), `${how}: Down in the list starts the next film`)
+      // Quick steps: only the one that stays has to start.
+      await win.keyboard.press('ArrowUp')
+      await sleep(100)
+      await win.keyboard.press('ArrowUp')
+      ok(await started(win, PANE_FILM), `${how}: arrowing past a film starts the one that stays`)
+      // Focus on the film, not the list: the keys go through the player's side.
+      await win.locator(PANE_FILM).click({ timeout: 3000 }).catch(() => {})
+      await sleep(400)
+      await win.keyboard.press('ArrowDown')
+      ok(await started(win, PANE_FILM), `${how}: Down from the film itself starts the next one`)
+      ok((await pickedRow(win)) === 'C.mov', `${how}: and the list's row went with it (${await pickedRow(win)})`)
+      // Back from full view: the film carries on in the pane.
+      await listRow(win, 'D.mov').dblclick()
+      await win.waitForSelector('.browse-viewer-toolbar', { timeout: 8000 })
+      ok(await started(win, 'video'), `${how}: full view starts the double-clicked film`)
+      await win.keyboard.press('ArrowDown')
+      ok(await until(async () => (await viewing(win)).includes('E.mov'), 8000), `${how}: Down in full view steps`)
+      ok(await started(win, 'video'), `${how}: and the film it lands on starts`)
+      await win.keyboard.press('PageUp')
+      ok(await until(async () => (await viewing(win)).includes('D.mov'), 8000), `${how}: PageUp steps`)
+      ok(await started(win, 'video'), `${how}: and starts`)
+      await win.locator('.browse-viewer-toolbar [aria-label="Back"]').click()
+      await win.waitForSelector(FOLDER_LIST, { timeout: 8000 })
+      ok(await started(win, PANE_FILM), `${how}: Back to the list leaves it playing in the pane`)
+      const lines = (await filmLines()).filter((l) => l.ev === 'autostart')
+      ok(lines.some((l) => l.started === true && l.route === (how === 'live' ? 'live' : 'direct')), `${how}: the log has its autostart lines (${lines.length})`)
+      ok(!lines.some((l) => l.ok === false), `${how}: and none of them a failure (${JSON.stringify(lines.filter((l) => l.ok === false)).slice(0, 200)})`)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+  // RESCUED: the direct start the element refuses, and one that shows nothing.
+  console.log('  -- rescued to live')
+  {
+    const { app, win } = await launchWith({ PRISM_E2E_NO_PICTURE: 'D.mov', ...NO_INDEX }, dir)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await win.evaluate(() => {
+        const set = Element.prototype.setAttribute
+        Element.prototype.setAttribute = function (n, v) {
+          if (this.tagName === 'VIDEO' && n === 'src' && /[BC]\.mov/.test(decodeURIComponent(String(v))) && String(v).startsWith('fsmedia://local')) return set.call(this, n, 'fsmedia://local/C%3A%5Cnope.mov')
+          return set.call(this, n, v)
+        }
+      })
+      await paneOn(win, 'A.mov')
+      await listRow(win, 'B.mov').click({ position: { x: 30, y: 10 } })
+      ok(await until(async () => { const f = await filmNow(win, PANE_FILM); return f?.route === 'live' && !f.paused && f.t > 0.15 }, 15000), `the element refused it: live, and started (${JSON.stringify(await filmNow(win, PANE_FILM))})`)
+      await win.keyboard.press('ArrowDown')
+      ok(await until(async () => { const f = await filmNow(win, PANE_FILM); return f?.route === 'live' && !f.paused && f.t > 0.15 }, 15000), `refused, by Down: live, and started (${JSON.stringify(await filmNow(win, PANE_FILM))})`)
+      await win.keyboard.press('ArrowDown')
+      ok(await until(async () => { const f = await filmNow(win, PANE_FILM); return f?.route === 'live' && !f.paused && f.t > 0.15 }, 15000), `no picture, gone live by itself: started (${JSON.stringify(await filmNow(win, PANE_FILM))})`)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+  // A FILM YOU PAUSED STAYS PAUSED.
+  console.log('  -- a paused film stays paused')
+  {
+    const { app, win } = await launchWith({ ...NO_INDEX }, dir)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await paneOn(win, 'A.mov')
+      await listRow(win, 'B.mov').click({ position: { x: 30, y: 10 } })
+      ok(await started(win, PANE_FILM), 'B starts')
+      await win.locator(PANE_FILM).click({ timeout: 3000 })
+      await sleep(400)
+      ok((await filmNow(win, PANE_FILM))?.paused, 'a click on the picture pauses it')
+      // Step away and back with Up/Down from the film, not as a pick.
+      await win.keyboard.press('ArrowDown')
+      ok(await started(win, PANE_FILM), 'Down from it starts C')
+      await win.locator(PANE_FILM).click({ timeout: 3000 }).catch(() => {})
+      await sleep(400)
+      await win.keyboard.press('ArrowUp')
+      ok(await until(async () => (await pickedRow(win)) === 'B.mov', 5000), `Up comes back to B (${await pickedRow(win)})`)
+      ok(await stillPaused(win, PANE_FILM), 'and B, which you paused, stays paused')
+      // The pane closed and opened over it does not start it either.
+      await win.locator(PANE_TOGGLE).first().click()
+      await sleep(800)
+      await win.locator(PANE_TOGGLE).first().click()
+      await win.waitForSelector(PANE_FILM, { timeout: 10000 })
+      ok(await stillPaused(win, PANE_FILM), 'and closing and opening the pane over it leaves it paused')
+      // A real pick still plays, which is the rule since #139.
+      await listRow(win, 'B.mov').click({ position: { x: 30, y: 10 } })
+      ok(await started(win, PANE_FILM), 'a click on its row plays it (#139)')
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+  // THE PLAYLIST: a film that ends hands over to one that plays.
+  console.log('  -- a finished film hands over')
+  {
+    const { app, win } = await launchWith({ ...NO_INDEX }, dir)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await viewFile(win, 'A.mov')
+      await win.waitForSelector('video', { timeout: 10000 })
+      await win.hover('video')
+      await win.click('[aria-label="Player settings"]')
+      await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 5000 })
+      const box = win.locator('[role="menuitemcheckbox"]:has-text("Autoplay")').first()
+      if ((await box.getAttribute('aria-checked')) !== 'true') await box.click()
+      await win.keyboard.press('Escape')
+      await sleep(300)
+      await win.evaluate(() => {
+        const v = document.querySelector('video')
+        v.currentTime = Math.max(0, v.duration - 0.3)
+        return v.play()
+      })
+      ok(await until(async () => (await viewing(win)).includes('B.mov'), 8000), 'the film ends and the next one is up')
+      ok(await started(win, 'video'), `and the next one PLAYS (${JSON.stringify(await filmNow(win))})`)
+      await win.evaluate(() => document.querySelector('video')?.pause())
+      await win.hover('video')
+      await win.click('[aria-label="Player settings"]')
+      await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 5000 })
+      await win.locator('[role="menuitemcheckbox"]:has-text("Autoplay")').first().click()
+      await win.keyboard.press('Escape')
     } finally {
       await app.close()
     }
@@ -22488,6 +22798,8 @@ await run(convertScenario)
 await run(movHevcScenario)
 await run(movOwnerScenario)
 await run(movGuardScenario)
+await run(filmKeysScenario)
+await run(filmStartScenario)
 await run(sevenZipScenario)
 await run(documentScenario, 2000)
 await run(synthAndRawScenario)

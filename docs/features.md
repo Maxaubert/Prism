@@ -67,7 +67,8 @@ and the bar's 0:02 on a 3.43 s film was the length of the film before it, kept u
   film beats to it no longer reaches the log as a page-rejection.
 - **Always-on `film` lines** (`lib/filmDiag.ts`, `op: 'film'`, one per event): `route` (direct or live, and
   `why`), `first-frame` (`ms`), `error` (`code`, `message`), `no-picture`, `black`, `to-live` (`why`),
-  `live-open`, `live-error`; main adds `live-job` (`start`, `exit` with `code`, `kill`, `encoder-fallback`,
+  `live-open`, `live-error`, `autostart` (`started`, `route`, `ms`; `started: false` with `ok: false` is a film
+  that should have started and had not after 15 s on screen, `lib/liveRoute autostartCheck`); main adds `live-job` (`start`, `exit` with `code`, `kill`, `encoder-fallback`,
   `liveVideo.ts liveJobLine`). `npm run diag` lists a failed film as a problem (`diagProblems.mjs`).
 
 ## Standby, the hotkey path and startup in the log (owner, 2026-11-06)
@@ -3521,8 +3522,32 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   file it autoplays, the only times videos and audio shouldnt autoplay is when you open prism
   and a video is already in one of the tabs"). The Explorer's own opens never recorded the
   intent, so a film clicked or double-clicked there, a pin, a menu Open sat at 0:00.
-  `useFolderBrowsing.openFile` records it now unless told `play = false`: the preview TOGGLE
-  (it shows the selection, paused) and "Open full view" (it keeps what the pane was doing).
+  `useFolderBrowsing.openFile` records it now unless told `play = false`: "Open full view" (it
+  keeps what the pane was doing), and until 2026-11-08 the preview toggle (see the next entry).
+- **UP AND DOWN ON A FILM WALK THE FOLDER, AND A FILM SHOWN STARTS BY ITSELF** (owner, 2026-11-08,
+  #492 "videos arent navigable with the arrow keys, up down arrows shoudl nvigate next file not
+  adjust volume", #491 "video dont always autopaly at least not in preview"). Up/Down on a VIDEO
+  go to the previous and next file, in full view and in the pane, whether the focus is on the
+  list, the picture, a control on the bar or the volume slider (`useAppKeys` claims the key, and
+  VideoView passes `arrowsAreVolume: false` so the film's own listener never takes it). A TRACK
+  keeps them as volume, because the owner named videos. Left/Right stay the seek, and a Ctrl,
+  Shift or Alt chord over a film does nothing (in the list the chords are the list's). No new
+  volume shortcut: the wheel, the slider and M remain. In the pane the step moves the list's
+  selection too, or the row was left behind the film. WHY IT DID NOT ALWAYS START: only a PICK
+  recorded the intent to play (a row click or a list arrow, #139, #207), so a film shown any other
+  way sat at 0:00: a step that is not a pick (Up/Down from the player, PageUp/PageDown, full
+  view), the pane opening over a selected film (the toolbar button or Space), and the next film
+  in the playlist, because a film reaching its end fires `pause` just before `ended` and that
+  read as "you paused it" (`carriesOn`). Now each of those starts the film, on either route,
+  rescue included, UNLESS YOU PAUSED IT YOURSELF: `lib/playState` tells that pause (`held`) from
+  one the film's end or the app made (`pauseQuietly`, used when the list comes back or the pane
+  shuts). The list's Back leaves a film playing in the pane rather than stopping it, since it is
+  still shown. A list click or list arrow is a pick and plays even a paused film, as #139 and
+  #207 decided; a restored tab's film still sits paused (`playOnOpen`). The preview toggle
+  showing a film paused was not the owner's rule (#207 quotes the opposite: the only exception is
+  opening Prism with a film in a tab), so it was changed; say if it should be put back. Held by
+  the `filmKeys` and `filmStart` e2e, `playState.test.ts`, `liveRoute.test.ts`, and on the owner's
+  screen by `npm run diag`: an `autostart` line per film meant to start.
 - **MUTE, VOLUME AND SPEED CARRY TO THE NEXT FILE** (#207; owner, 2026-09-23: "if the user
   mutes audio or sets speed to be 0.5 and then clicks a new video, those settings should be
   kept ... maybe the user wants to just look at videos without audio, or dissect videos in
@@ -4140,7 +4165,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
 - **A frame step is a frame** (2026-08-30). It was a flat 1/30s that did not pause, so on 24fps
   film it moved 1.25 frames and landed between two of them, and during playback it was
   invisible. ffprobe reports `avg_frame_rate` now and the step pauses first.
-- **Up/Down are the volume when the tree does not want them** (2026-08-30). App preventDefaulted
+- **Up/Down are the volume when the tree does not want them** (2026-08-30; FOR A TRACK ONLY since
+  2026-11-08, #492: see "UP AND DOWN ON A FILM WALK THE FOLDER"). App preventDefaulted
   them unconditionally and `useMediaControls` yields on `defaultPrevented`, so the volume keys
   were dead everywhere - most obviously in fullscreen, where the sidebar is gone. The tree still
   gets first refusal.

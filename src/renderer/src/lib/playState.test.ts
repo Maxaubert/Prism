@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  forgetPaused,
-  intendToPlay,
-  rememberPaused,
-  rememberTime,
-  sessionTime,
-  wasPaused,
-  wasPlaying, whenIntended } from './playState'
+import { forgetPaused, intendToPlay, rememberPaused, rememberTime, sessionTime, wasPaused, wasPlaying, whenIntended, carriesOn, heldPaused, pauseQuietly, wasQuietPause } from './playState'
 
 beforeEach(() => {
   forgetPaused('a')
@@ -73,6 +66,45 @@ describe('session position', () => {
     forgetPaused('a')
     expect(wasPaused('a')).toBe(false)
     expect(sessionTime('a')).toBe(0)
+  })
+})
+
+describe('whether a pause was yours (#491)', () => {
+  beforeEach(() => forgetPaused('film'))
+
+  it('holds a film you paused', () => {
+    rememberPaused('film', true)
+    expect(heldPaused('film')).toBe(true)
+    expect(carriesOn('film')).toBe(false)
+  })
+  it('does not hold a film that ran out or that the app paused', () => {
+    rememberPaused('film', true, false)
+    expect(heldPaused('film')).toBe(false)
+    expect(carriesOn('film')).toBe(true)
+    expect(wasPlaying('film')).toBe(false)
+  })
+  it('lets go on a play or a pick', () => {
+    rememberPaused('film', true)
+    rememberPaused('film', false)
+    expect(heldPaused('film')).toBe(false)
+    rememberPaused('film', true)
+    intendToPlay('film')
+    expect(heldPaused('film')).toBe(false)
+  })
+  it('a file nobody started hands nothing on', () => {
+    expect(carriesOn('never-seen')).toBe(false)
+    expect(heldPaused('never-seen')).toBe(false)
+  })
+  it('a quiet pause is read once, and only when it really paused', () => {
+    const fake = { paused: false, pause(): void { fake.paused = true } }
+    const el = fake as unknown as HTMLMediaElement
+    pauseQuietly(el)
+    expect(fake.paused).toBe(true)
+    expect(wasQuietPause(el)).toBe(true)
+    expect(wasQuietPause(el)).toBe(false)
+    // Already paused: no event is coming, so nothing may be left waiting.
+    pauseQuietly(el)
+    expect(wasQuietPause(el)).toBe(false)
   })
 })
 

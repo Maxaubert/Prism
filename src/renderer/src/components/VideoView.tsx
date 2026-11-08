@@ -24,6 +24,7 @@ import { Icon } from './icons/Icon'
 import { attachLive } from '../lib/liveHls'
 import { isPlatformCodec, rescueLive } from '../lib/liveRoute'
 import { useFilmWatch } from '../hooks/useFilmWatch'
+import { useFilmAutostart } from '../hooks/useFilmAutostart'
 
 /** What a track is called in the picker: its own name if it has one, then the
  *  language, then what it actually is - "English - AC-3 5.1". A file that says
@@ -353,6 +354,9 @@ export function VideoView({
     resumeKey: url,
     resumePath: path,
     keys: !background,
+    // A film's Up and Down walk the folder on the PC (#492); the phone's page
+    // has no such walk, and a keyboard there keeps the volume.
+    arrowsAreVolume: !window.prism.capabilities.explorer,
     volumeKey,
     // What a frame actually is, for the . and , keys.
     fps: playable.fps,
@@ -508,6 +512,8 @@ export function VideoView({
     forcedNoPicture,
     onRescue: goLive
   })
+  // A film meant to start says whether it did (#491, lib/filmDiag `autostart`).
+  useFilmAutostart(video, { path, url, film: !attach && !!videoCodec && !!src, route: filmRoute })
 
   return (
     <div

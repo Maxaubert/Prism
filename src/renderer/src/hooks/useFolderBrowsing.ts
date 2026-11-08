@@ -29,7 +29,7 @@ import { baseName, extOf, pathKey } from '@shared/path'
 import { applyDetails, sameRows } from '../lib/listingMerge'
 import { downloadsPath, isDownloads, viewSort } from '../lib/downloadsView'
 import { browseLocation, browseParent } from '../lib/browse'
-import { intendToPlay } from '../lib/playState'
+import { heldPaused, intendToPlay, pauseQuietly } from '../lib/playState'
 import { wayOutPreview } from '../lib/wayOutPreview'
 import { useBrowseSearch } from './useBrowseSearch'
 import { createDirectoryRequests, directoryKey, visitedDirectories } from '../lib/visitedDirectories'
@@ -40,7 +40,7 @@ import type { DirListing } from '@shared/types'
 function pauseTab(tabId: string): void {
   for (const region of document.querySelectorAll<HTMLElement>('[data-player-tab]')) {
     if (region.dataset.playerTab !== tabId) continue
-    for (const media of region.querySelectorAll<HTMLMediaElement>('video,audio')) media.pause()
+    for (const media of region.querySelectorAll<HTMLMediaElement>('video,audio')) pauseQuietly(media)
   }
 }
 
@@ -549,12 +549,14 @@ export function useFolderBrowsing(
     setError(undefined)
     if (id) {
       serial.current.set(id, (serial.current.get(id) ?? 0) + 1)
-      pauseTab(id)
+      // Only when the film goes off the screen (#491): with the pane open it
+      // carries on there, it is still being shown.
+      if (!active?.browse.preview) pauseTab(id)
       const cached = visitedDirectories.get(path)
       if (cached) setResult({ ...cached, tabId: id })
       setState((s) => ({ ...s, tabs: setBrowseSurface(s.tabs, id, 'folder') }))
     }
-  }, [id, path, setState])
+  }, [id, path, setState, active?.browse.preview])
   // Tree paths share the same last-action-wins sequence as folder and preview opens.
   // `judged`: the marked row this open was decided on (the way out of a zip);
   // a tab that marks another by the time it lands keeps that one. `keep`: the
@@ -582,8 +584,9 @@ export function useFolderBrowsing(
       // 2026-09-03; the Explorer's row click, double-click, pins and menu never
       // did, so a film picked there sat at 0:00. Keyed by the media URL, which is
       // what the players ask `wasPlaying`. A restore never comes through here, and
-      // callers that only SHOW a file (the preview toggle, Open full view, an
-      // arrival App has already judged) pass `play = false`.
+      // callers that only SHOW a file (Open full view, an arrival App has already
+      // judged) pass `play = false`. The pane opening over a film starts it unless
+      // you had paused it (#491, `togglePreview`).
       const kind = fromTree ? fileKind(extOf(filePath)) : file.kind
       if (play && (kind === 'video' || kind === 'audio')) intendToPlay(window.prism.mediaUrl(filePath))
       const root =
@@ -700,7 +703,7 @@ export function useFolderBrowsing(
     if (file) void openFile(file, false, false, selectedHere)
   }, [id, path, folder, directoryListing, waitingPath, selectedHere, previewOn, openFile])
   const select = useCallback(
-    (selected: string | null, quiet = false) => {
+    (selected: string | null, quiet = false, play = true) => {
       // MARKING IS NOT PICKING (#263; owner, 2026-10-03: "when you multiselect
       // like this it picks a file so here this drag starts one of the videos,
       // and if the preview is not open it will open. it shouldnt, im just
@@ -716,7 +719,7 @@ export function useFolderBrowsing(
       if (id) serial.current.set(id, (serial.current.get(id) ?? 0) + 1)
       patch({ selected })
       const file = listing?.files.find((f) => f.path === selected)
-      if (file && active?.browse.preview) void openFile(file, false)
+      if (file && active?.browse.preview) void openFile(file, false, play)
       else if (id) pauseTab(id)
     },
     [id, patch, listing, active?.browse.preview, openFile]
@@ -731,7 +734,11 @@ export function useFolderBrowsing(
     setState((s) => ({ ...s, tabs: setBrowsePreview(s.tabs, id, preview) }))
     crumb('preview', { on: preview })
     const file = listing?.files.find((f) => f.path === location?.selected)
-    if (preview && file) void openFile(file, false, false)
+    // THE PANE OPENING OVER A FILM SHOWS IT PLAYING (#491; owner, 2026-11-08:
+    // "video dont always autopaly at least not in preview"), unless you had
+    // paused it. A track keeps waiting for you.
+    if (preview && file)
+      void openFile(file, false, file.kind === 'video' && !heldPaused(window.prism.mediaUrl(file.path)))
   }, [active, id, setState, listing, location?.selected, openFile])
   const openSplit = useCallback(
     (file: ViewerFile | string) => {

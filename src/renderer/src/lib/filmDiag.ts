@@ -14,6 +14,8 @@ import { record } from 'prism-term-core/renderer/lib/diag'
  * - `to-live`: a direct start handed over (`why` said by what happened)
  * - `live-open`: main's answer, `error` when it had none
  * - `live-error`: hls.js gave up after its retries (`detail`)
+ * - `autostart`: a film that was meant to start by itself: `started` true or
+ *   false, `route`, `ms`; false (with `ready`, `net`) is the problem line
  *
  * A failure is `ok: false`, which `npm run diag` lists as a problem.
  */

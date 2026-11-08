@@ -110,7 +110,7 @@ import { warmOf } from './lib/viewerCache'
  *  front. Coming back is the common case, so releasing on the very first blur
  *  would throw the cache away every time somebody glanced at another window. */
 const WARM_COOLDOWN_MS = 60_000
-import { intendToPlay, wasPlaying } from './lib/playState'
+import { carriesOn, heldPaused, intendToPlay } from './lib/playState'
 import { ownDrop, setDrag } from './lib/drag/dragDrop'
 import { useInternalFileDrag } from './lib/drag/internalFileDrag'
 import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
@@ -133,7 +133,7 @@ import { saveCopiesJob } from './lib/saveCopies'
 // There is deliberately no DOC kind-set here any more. Which keys a document
 // owns is a question about FOCUS, not about file kind: a pdf nobody has clicked
 // into has no more claim on Up/Down than a photo does. See docFocused() in
-// hooks/useAppKeys, beside PLAYABLE.
+// hooks/useAppKeys.
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
 
 export default function App(): JSX.Element {
@@ -751,10 +751,26 @@ export default function App(): JSX.Element {
       if (!active || !view) return
       const next = Math.max(0, Math.min(view.files.length - 1, view.index + delta))
       if (next === view.index) return // already at the edge; not a navigation
-      setRawIndex(active.files.indexOf(view.files[next]))
+      const target = view.files[next]
+      // A STEP SHOWS A FILM, AND A FILM SHOWN STARTS (#491; owner, 2026-11-08:
+      // "video dont always autopaly"), whichever way the step came, unless you
+      // paused that film yourself. A track still waits for you.
+      if (target.kind === 'video') {
+        const key = window.prism.mediaUrl(target.path)
+        if (!heldPaused(key)) intendToPlay(key)
+      }
+      // A film in the Explorer's pane steps by the list's own selection, or the
+      // pane walks on and the row stays behind (#492).
+      if (
+        browsing.folder &&
+        view.files[view.index]?.kind === 'video' &&
+        browsing.listing?.files.some((f) => f.path === target.path)
+      )
+        browsing.select(target.path, false, false)
+      else setRawIndex(active.files.indexOf(target))
       setHasNavigated(true)
     },
-    [active, setRawIndex, view]
+    [active, browsing, setRawIndex, view]
   )
 
   const file = view?.files[view.index] ?? null
@@ -1066,8 +1082,9 @@ export default function App(): JSX.Element {
       // open any more, so the file a finished video hands over to - and the
       // one the menu's Next reaches for while you are watching - has to say
       // "I was already playing" on its own behalf. Stepping away from a file
-      // you had PAUSED lands paused, which is the same rule.
-      if (file && wasPlaying(window.prism.mediaUrl(file.path)))
+      // you had PAUSED lands paused, which is the same rule; a file that ran
+      // to its end was not paused by anyone (#491).
+      if (file && carriesOn(window.prism.mediaUrl(file.path)))
         intendToPlay(window.prism.mediaUrl(next.path))
       setRawIndex(active.files.indexOf(next))
     },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BLACK_MS, NO_PICTURE_MS, SLOW_LOAD_MS, blackCheck, blackReadings, hevcMime, isPlatformCodec, pictureCheck, pictureRoute, rescueLive, routeWhy } from './liveRoute'
+import { AUTOSTART_MS, BLACK_MS, NO_PICTURE_MS, SLOW_LOAD_MS, autostartCheck, blackCheck, blackReadings, hevcMime, isPlatformCodec, pictureCheck, pictureRoute, rescueLive, routeWhy } from './liveRoute'
 
 /** A PC that answers `canPlayType` with `yes` for exactly these mimes. */
 const pc =
@@ -136,5 +136,20 @@ describe('rescueLive: the element has the last word', () => {
     expect(rescueLive({ ...blind, converted: true })).toBe(false)
     expect(rescueLive({ ...blind, converting: true })).toBe(false)
     expect(rescueLive({ ...blind, codec: null })).toBe(false)
+  })
+})
+
+describe('a film meant to start by itself (#491)', () => {
+  it('has started as soon as it is not paused', () => {
+    expect(autostartCheck({ paused: false, held: false, elapsedMs: 0 })).toBe('started')
+  })
+  it('waits while it is still in flight, even a long rescue', () => {
+    expect(autostartCheck({ paused: true, held: false, elapsedMs: AUTOSTART_MS - 1 })).toBe('wait')
+  })
+  it('has failed only when the bounded wait runs out', () => {
+    expect(autostartCheck({ paused: true, held: false, elapsedMs: AUTOSTART_MS })).toBe('failed')
+  })
+  it('is no failure when you paused it yourself', () => {
+    expect(autostartCheck({ paused: true, held: true, elapsedMs: AUTOSTART_MS * 2 })).toBe('held')
   })
 })
