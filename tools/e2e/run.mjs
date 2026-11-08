@@ -3716,7 +3716,7 @@ async function convertScenario(fixtures) {
  * any other PC this scenario has nothing to open and says so. Each film must
  * show a picture with time moving, whichever route it took.
  */
-async function movOwnerScenario() {
+async function movOwnerScenario(fixtures) {
   console.log('the owner’s own .mov films (local copies)')
   const dir = join(ROOT, '.e2e', 'owner-mov')
   let names = []
@@ -3733,7 +3733,13 @@ async function movOwnerScenario() {
   // without HEVC takes (forced), so the owner's own turns, HLG, PCM and
   // spatial-audio tracks are proven through the transcode too.
   for (const [mode, name] of names.flatMap((n) => [['as is', n], ['live', n]])) {
-    const file = join(dir, name)
+    // Each in a folder of its own: a sub-second Live Photo clip ends before
+    // it is looked at, and with autoplay on (an earlier scenario's setting)
+    // the player would already have moved on to the next film.
+    const own = join(fixtures, 'movowner', name.replace(/[^\w.-]/g, '_'))
+    mkdirSync(own, { recursive: true })
+    const file = join(own, name)
+    copyFileSync(join(dir, name), file)
     const { app, win } = await launchWith(mode === 'live' ? { PRISM_E2E_FORCE_LIVE: '1' } : {}, file)
     try {
       await win.waitForSelector('video', { timeout: 10000 })
