@@ -3541,14 +3541,18 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   ... ; its Cut and Copy act on the window's own selection), the zip card's. A PDF has no menu,
   in the window as in the pane. The menu is driven as in the pane (the pointer, or Up and Down
   between its rows once one has the focus, Enter or Space picks). While it is up, Space and Escape are the MENU'S: Escape in
-  the window or on the list closes the menu alone and the window stays; a press anywhere else, in
-  the window or the Explorer, closes it too. DECIDED: no row in these menus opens full view, so
-  none has to close the window; a row that asks something (Save a copy, Extract to...) opens main's
-  dialog over the Explorer as from the pane, and the window stays where it is. The `previewWindow`
-  e2e right-clicks the picture and the text in the window: the menu is in the window's document and
-  not the Explorer's, Copy image puts the pixels on the clipboard, Copy path the file shown, and
-  Escape (its own and the list's) and a press away close only the menu. `lib/ownWindow.test.ts`
-  fails on a viewer's `<ContextMenu` without `at`.
+  the window or on the list closes the menu alone and the window stays; a Space under the menu
+  (no row focused) does nothing, so a film never plays or pauses beneath it (review 2026-11-08,
+  `previewWindowKey`'s 'taken'); a press anywhere else, in the window or the Explorer, closes it
+  too. DECIDED: the only row that leaves the preview is the zip card's Open on a file, which opens
+  that member in full view exactly as its double-click does, and the window goes with the preview;
+  a row that asks something (Save a copy, Extract to...) opens main's dialog over the Explorer as
+  from the pane, and the window stays where it is. The `previewWindow` e2e right-clicks the
+  picture, the text and the film in the window: the menu is in the window's document and not the
+  Explorer's, Copy image puts the pixels on the clipboard, Copy path the file shown, Escape (its
+  own and the list's) and a press away (in the window or the Explorer) close only the menu, and a
+  Space under the film's menu neither closes the window nor plays the film.
+  `lib/ownWindow.test.ts` fails on a viewer's `<ContextMenu` without `at`.
 - **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
   renders only while it is in front, so walking to Settings or another folder
   stopped the film. Handing the sound to a second, hidden element was tried

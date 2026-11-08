@@ -17880,6 +17880,13 @@ async function previewWindowScenario(fixtures) {
     })
     ok(await until(async () => !(await menuState()).inWindow, 2000), 'a press away in the window closes the menu')
     ok(await isOpen(), 'and leaves the window')
+    // A press in the Explorer closes it too.
+    await rightClick('img')
+    await until(async () => (await menuState()).inWindow, 2000)
+    await win.evaluate(() =>
+      document.querySelector('[data-testid="browse-list"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+    )
+    ok(await until(async () => !(await menuState()).inWindow, 2000), "a press in the Explorer closes the window's menu")
     await rightClick('img')
     await until(async () => (await menuState()).inWindow, 2000)
     await listRow(win, 'bravo.png').focus()
@@ -17963,6 +17970,19 @@ async function previewWindowScenario(fixtures) {
       const v = window.__prismPreviewWindow.document.querySelector('[data-preview-window-body] video')
       for (const t of ['play', 'pause']) v.addEventListener(t, () => (window.__filmToggles += 1))
     })
+    // A menu up over the film (review 2026-11-08): Space is the menu's, so it
+    // neither closes the window nor plays the film under the menu.
+    ok(await rightClick('video'), 'the film is there to right-click')
+    ok(await until(async () => (await menuState()).inWindow, 2000), `a right-click on the film opens its menu in the window (${JSON.stringify(await menuState())})`)
+    await childKey(' ')
+    await sleep(300)
+    ok(
+      (await isOpen()) && (await win.evaluate(() => window.__filmToggles)) === 0,
+      `Space under the film's menu neither closes the window nor plays the film (open ${await isOpen()}, toggles ${await win.evaluate(() => window.__filmToggles)})`
+    )
+    await childKey('Escape')
+    ok(await until(async () => !(await menuState()).inWindow, 2000), "and Escape closes the film's menu")
+    await sleep(300)
     await childKey(' ')
     ok(await until(isShut, 3000), 'Space in the preview window closes it')
     ok((await win.evaluate(() => window.__filmToggles)) === 0, `and the film's Space did not play or pause it first (${await win.evaluate(() => window.__filmToggles)})`)
