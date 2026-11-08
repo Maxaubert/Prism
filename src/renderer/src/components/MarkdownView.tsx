@@ -195,18 +195,23 @@ export function MarkdownView({
   // them on arrival is what used to leave Up/Down dead while the user was only
   // paging through the folder from the sidebar. Escape gives them back.
 
+  // An in-page link looks in THIS document's own page (owner, 2026-11-08):
+  // the preview window draws it in another window, where this page's
+  // `document` holds none of its headings, and a README warm in another tab
+  // can have headings of the same names.
   const followAnchor = (fragment: string): void => {
+    const page = box.current
+    if (!page) return
     const raw = decodeURIComponent(fragment)
-    let target =
-      document.getElementById(raw) ??
-      document.getElementById(`user-content-${raw}`) ??
-      document.getElementById(slug(raw))
+    const byId = (id: string): HTMLElement | null =>
+      page.querySelector<HTMLElement>(`[id="${CSS.escape(id)}"]`)
+    let target = byId(raw) ?? byId(`user-content-${raw}`) ?? byId(slug(raw))
     if (!target) {
       // GitHub disambiguates duplicate headings as slug-1, slug-2...; our
       // headings share the plain slug, so the suffix picks among them here.
       const m = /^(.+)-(\d+)$/.exec(slug(raw))
       if (m) {
-        const twins = document.querySelectorAll(`[id="${CSS.escape(m[1])}"]`)
+        const twins = page.querySelectorAll(`[id="${CSS.escape(m[1])}"]`)
         target = (twins[Number(m[2])] as HTMLElement | undefined) ?? null
       }
     }

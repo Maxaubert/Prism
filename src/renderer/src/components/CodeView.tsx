@@ -34,6 +34,7 @@ import { prismCodeTheme } from '../lib/code/codeTheme'
 import { setWrapPref, useWrapPref, wrapPref, wrapsFor, type WrapPref } from '../lib/code/codePrefs'
 import { reloadAction, stampChanged, touchesFile, type Stamp } from '../lib/fileReload'
 import { inNavSurface, isFormField } from '../lib/focusGuards'
+import { listenOn, useViewerWindows } from '../lib/ownWindow'
 import { yieldsFindToExplorer } from '../lib/previewFind'
 import { landSave, saveTarget } from './codeSave'
 
@@ -132,6 +133,8 @@ export function CodeView({
   readOnly?: boolean
 }): JSX.Element {
   const host = useRef<HTMLDivElement>(null)
+  // Its own window too: the preview window draws it in another (`lib/ownWindow.ts`).
+  const wins = useViewerWindows(host)
   const view = useRef<EditorView | null>(null)
   // The text as it was read, so "dirty" means "differs from disk" rather than
   // "was typed in". Keyed by path: a slow read must not land in another file.
@@ -615,9 +618,8 @@ export function CodeView({
         v.contentDOM.blur()
       }
     }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [save, readOnly])
+    return listenOn(wins, 'keydown', onKey, true)
+  }, [save, readOnly, wins])
 
   // The menu's verbs, as callbacks: a ref may not be read while rendering, and
   // menuItems() runs in the render pass that draws the menu.

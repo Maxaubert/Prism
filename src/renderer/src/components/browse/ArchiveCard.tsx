@@ -20,6 +20,7 @@ import { noteReady } from '../../lib/drag/dragOut'
 import { archiveTarget, dropVerb, effectOf, type DropKeys } from '../../lib/drag/dropVerb'
 import { clearLanded, useLandRequest } from '../../lib/landMarks'
 import { keysOf, seenOf } from './useFolderDrop'
+import { isElement, isNode, listenOn, useViewerWindows } from '../../lib/ownWindow'
 import { ContextMenu, type MenuItem } from '../ContextMenu'
 import type { ArchiveCardCopy, ArchiveCardMenu } from './useArchiveActions'
 import {
@@ -186,26 +187,35 @@ export function ArchiveCard({
   // elsewhere takes the keyboard out of the card, so the list's keys are the
   // list's again.
   const [inUse, setInUse] = useState(false)
+  // The card's own window as well as the Explorer's: the preview window draws
+  // it in another, whose presses and focus never reach this page's document
+  // (`lib/ownWindow.ts`, 2026-11-08). Element tests that work across windows.
+  const wins = useViewerWindows(root)
   useEffect(() => {
     const heard = (event: Event): void => {
       const target = event.target
-      if (!(target instanceof Element) || target.closest('[role="menu"]')) return
+      if (!isElement(target) || target.closest('[role="menu"]')) return
       if (event.type === 'focusin') {
         setInUse(!!list.current?.contains(target))
         return
       }
       if (root.current?.contains(target)) return
       setInUse(false)
-      const focused = document.activeElement
-      if (focused instanceof HTMLElement && root.current?.contains(focused)) focused.blur()
+      const focused = root.current?.ownerDocument.activeElement
+      if (isElement(focused) && root.current?.contains(focused)) (focused as HTMLElement).blur()
     }
-    document.addEventListener('pointerdown', heard, true)
-    document.addEventListener('focusin', heard, true)
+    const docs = wins.map((w) => w.document)
+    for (const d of docs) {
+      d.addEventListener('pointerdown', heard, true)
+      d.addEventListener('focusin', heard, true)
+    }
     return () => {
-      document.removeEventListener('pointerdown', heard, true)
-      document.removeEventListener('focusin', heard, true)
+      for (const d of docs) {
+        d.removeEventListener('pointerdown', heard, true)
+        d.removeEventListener('focusin', heard, true)
+      }
     }
-  }, [])
+  }, [wins])
 
   // WHAT LANDED IN THE CARD'S PLACE is marked there, as the list marks it.
   // (FolderBrowser's shape: the work is mirrored after render and run by the
@@ -244,7 +254,7 @@ export function ArchiveCard({
         if (verb !== 'none') e.preventDefault()
       },
       onDragLeave: (e: DragEvent<HTMLElement>): void => {
-        if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) setDropOn(null)
+        if (!isNode(e.relatedTarget) || !e.currentTarget.contains(e.relatedTarget)) setDropOn(null)
       },
       onDrop: (e: DragEvent<HTMLElement>): void => {
         e.preventDefault()
@@ -259,13 +269,13 @@ export function ArchiveCard({
   }
   useEffect(() => {
     const clear = (): void => setDropOn(null)
-    window.addEventListener('dragend', clear, true)
-    window.addEventListener('drop', clear, true)
+    const unEnd = listenOn(wins, 'dragend', clear, true)
+    const unDrop = listenOn(wins, 'drop', clear, true)
     return () => {
-      window.removeEventListener('dragend', clear, true)
-      window.removeEventListener('drop', clear, true)
+      unEnd()
+      unDrop()
     }
-  }, [])
+  }, [wins])
 
   /** Go to a place inside the zip, in the card. */
   const go = (to: string): void => {
@@ -377,7 +387,7 @@ export function ArchiveCard({
       // the one in use: the keyboard goes to its rows, not to nowhere.
       onMouseDown={(e) => {
         const target = e.target
-        if (!list.current || !(target instanceof Element) || target.closest('button, [data-archive-card-rows], [role="menu"]')) return
+        if (!list.current || !isElement(target) || target.closest('button, [data-archive-card-rows], [role="menu"]')) return
         e.preventDefault()
         list.current.focus({ preventScroll: true })
       }}

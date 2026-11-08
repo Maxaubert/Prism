@@ -17624,6 +17624,12 @@ async function previewWindowScenario(fixtures) {
   writeFileSync(join(dir, 'charlie.txt'), 'the charlie text\n')
   copyFileSync(join(fixtures, 'one.png'), join(dir, 'alpha.png'))
   copyFileSync(join(fixtures, 'two.png'), join(dir, 'bravo.png'))
+  // After notes.txt in the list, so the arrows below walk the same rows.
+  copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'video.mp4'))
+  writeFileSync(
+    join(dir, 'story.md'),
+    `# Story\n\n[To the end](#the-end)\n\n${Array.from({ length: 160 }, (_, i) => `Paragraph ${i} of the long middle.`).join('\n\n')}\n\n## The end\n\n${Array.from({ length: 60 }, (_, i) => `Last words, ${i}.`).join('\n\n')}\n`
+  )
   const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
   let windowMode = false
   const wins = () => app.evaluate(() => globalThis.__e2ePreviewWindows?.() ?? [])
@@ -17670,7 +17676,9 @@ async function previewWindowScenario(fixtures) {
   const childKey = (key) =>
     win.evaluate((k) => {
       const w = window.__prismPreviewWindow
-      w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, code: k === ' ' ? 'Space' : k, bubbles: true, cancelable: true }))
+      // Where a real press in the window lands: its focused element, else its body.
+      const at = w.document.activeElement ?? w.document.body
+      at.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, code: k === ' ' ? 'Space' : k, bubbles: true, cancelable: true }))
     }, key)
   try {
     await explorerAt(win, dir)
@@ -17767,15 +17775,98 @@ async function previewWindowScenario(fixtures) {
     ok(walls.href === 'about:blank', `and its page goes nowhere (${walls.href})`)
     ok((await inside()) !== null, 'and it still shows the file')
 
-    // Space with the keyboard in the window itself closes it, faded out.
+    // ITS VIEWERS HEAR THEIR OWN WINDOW (owner, 2026-11-08: "Keys and in-page
+    // links don't work with focus inside the preview window ... fix that").
+    // The keys go to the window's own document, as a press with the keyboard
+    // in it would.
+    const imageLook = () =>
+      win.evaluate(() => {
+        const layer = window.__prismPreviewWindow?.document.querySelector('[data-preview-window-body] [style*="rotate("]')
+        return layer?.style.transform ?? ''
+      })
+    const rotOf = (t) => Number(/rotate\((-?\d+)deg\)/.exec(t)?.[1] ?? NaN)
+    const scaleOf = (t) => Number(/scale\(([\d.]+)\)/.exec(t)?.[1] ?? NaN)
+    const look0 = await imageLook()
+    await childKey('r')
+    ok(await until(async () => rotOf(await imageLook()) === (rotOf(look0) + 90) % 360, 2000), `R in the window turns its picture (${look0} -> ${await imageLook()})`)
+    await childKey('+')
+    ok(await until(async () => scaleOf(await imageLook()) > scaleOf(look0) * 1.1, 2000), `+ in the window zooms it (${look0} -> ${await imageLook()})`)
+    await childKey('0')
+    await childKey('r')
+    await childKey('r')
+    await childKey('r')
+    ok((await focusedRow()) === 'bravo.png' && (await isOpen()), `the picture's keys moved nothing in the list (${await focusedRow()})`)
+
+    // Markdown's in-page link scrolls the window's own document.
+    await pick('story.md')
+    const mdState = () =>
+      win.evaluate(() => {
+        const d = window.__prismPreviewWindow?.document
+        const scroller = d?.querySelector('[data-preview-window-body] [data-doc-scroller]')
+        const end = d?.getElementById('the-end')
+        if (!scroller || !end) return null
+        return {
+          top: Math.round(scroller.scrollTop),
+          endAt: Math.round(end.getBoundingClientRect().top - scroller.getBoundingClientRect().top),
+          height: Math.round(scroller.clientHeight)
+        }
+      })
+    ok(await until(async () => (await mdState()) !== null, 8000), `the markdown shows in the window (${JSON.stringify(await mdState())})`)
+    await sleep(300)
+    const mdBefore = await mdState()
+    await win.evaluate(() => {
+      const a = window.__prismPreviewWindow.document.querySelector('[data-preview-window-body] a[href="#the-end"]')
+      a.click()
+    })
+    ok(
+      await until(async () => {
+        const s = await mdState()
+        return !!s && s.top > mdBefore.top + 100 && s.endAt >= -2 && s.endAt < s.height / 2
+      }, 3000),
+      `its #link scrolls the window's own document to the heading (${JSON.stringify(mdBefore)} -> ${JSON.stringify(await mdState())})`
+    )
+    ok((await isOpen()) && (await focusedRow()) === 'story.md', 'and the window and the list stay put')
+
+    // A film's keys: M mutes it, the arrows are its own (seek), never the list's.
+    await pick('video.mp4')
+    const film = () =>
+      win.evaluate(() => {
+        const v = window.__prismPreviewWindow?.document.querySelector('[data-preview-window-body] video')
+        return v ? { muted: v.muted, t: v.currentTime, ready: v.readyState, dur: v.duration } : null
+      })
+    ok(await until(async () => (await film())?.ready >= 1, 8000), `the film is in the window (${JSON.stringify(await film())})`)
+    const muted0 = (await film()).muted
+    await childKey('m')
+    ok(await until(async () => (await film())?.muted === !muted0, 2000), `M in the window mutes its film (${muted0} -> ${(await film())?.muted})`)
+    await childKey('m')
+    ok(await until(async () => (await film())?.muted === muted0, 2000), 'and M again gives the sound back')
+    await win.evaluate(() => {
+      const v = window.__prismPreviewWindow.document.querySelector('[data-preview-window-body] video')
+      v.pause()
+      v.currentTime = 0
+    })
+    await sleep(200)
+    await childKey('ArrowRight')
+    ok(await until(async () => (await film())?.t > 0.5, 2000), `ArrowRight in the window seeks the film (${JSON.stringify(await film())})`)
+    ok((await focusedRow()) === 'video.mp4' && (await isOpen()), `and moves nothing in the list (${await focusedRow()})`)
+
+    // Space with the keyboard in the window itself closes it, faded out,
+    // a film's too (Space is the window's, never play and pause).
     const beforeClose = (await fades()).length
+    await win.evaluate(() => {
+      window.__filmToggles = 0
+      const v = window.__prismPreviewWindow.document.querySelector('[data-preview-window-body] video')
+      for (const t of ['play', 'pause']) v.addEventListener(t, () => (window.__filmToggles += 1))
+    })
     await childKey(' ')
     ok(await until(isShut, 3000), 'Space in the preview window closes it')
+    ok((await win.evaluate(() => window.__filmToggles)) === 0, `and the film's Space did not play or pause it first (${await win.evaluate(() => window.__filmToggles)})`)
     const closed = (await fades()).slice(beforeClose)
     ok(closed.some((f) => f.to === 0 && f.frames > 3), `it faded out (${JSON.stringify(closed)})`)
     ok(!(await pressed()) && !(await paneShown()), 'the preview is off, and no pane came instead')
 
     // Space again on the list, then Escape on the list.
+    await pick('bravo.png')
     await listRow(win, 'bravo.png').focus()
     await win.keyboard.press('Space')
     ok(await until(isOpen, 5000), 'Space opens it again')

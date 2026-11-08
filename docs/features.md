@@ -3511,6 +3511,25 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   does nothing in it (a menu would open in the Explorer behind). Wiring: `docs/architecture.md`.
   The `previewWindow` e2e drives it end to end; `src/main/previewWindow.test.ts`,
   `lib/previewWindowKeys.test.ts` hold the parts.
+  **ITS VIEWER ANSWERS ITS OWN KEYS AND LINKS** (owner, 2026-11-08: "Keys and in-page links
+  don't work with focus inside the preview window (image and video shortcuts, markdown #
+  links) fix that"). With the keyboard in the window, its viewer's keys work as in the pane:
+  the picture's R, + and -, 0, 1, I and Ctrl+C, a film's or a track's M, K, J, L, the digits,
+  `.` and `,`, `<` and `>`, Home and End, the PDF's zoom, fit, PageUp/PageDown and Ctrl+F, the
+  document and code finds (their highlights painted in the window), a comic's page turns, the
+  zip card's rows; a markdown #link scrolls the window's own document (external links still go
+  to the browser). The window's two keys come FIRST, whatever viewer is in it: Space and
+  Escape close it (a film's Space neither plays nor pauses it, the code view's Escape does not
+  stop at a blur), a field keeps both, the text editor keeps Space. The arrows in the window are
+  the viewer's own (a film seeks with Left and Right and sets its volume with Up and Down, a
+  comic turns its page, a document scrolls) and never move the list's selection; from the list
+  they stay the list's, and a letter its type-to-jump did not take still reaches the viewer, as
+  in the pane. Mouse drags (panning a zoomed picture, the film's bar and volume) work in it too.
+  The pane and full view are unchanged. Rule: a viewer listens through `lib/ownWindow.ts`
+  (`useViewerWindows` + `listenOn`: its own window and the Explorer's) and looks things up in
+  its own document; `lib/ownWindow.test.ts` fails on a viewer file that listens on, or looks
+  in, this page's `window` or `document` directly (`// own-window-ok: <reason>` excuses a line).
+  The `previewWindow` e2e presses R, +, M and ArrowRight and follows a #link in the window.
 - **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
   renders only while it is in front, so walking to Settings or another folder
   stopped the film. Handing the sound to a second, hidden element was tried
