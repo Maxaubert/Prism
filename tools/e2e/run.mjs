@@ -8220,6 +8220,17 @@ async function hotkeysScenario(fixtures) {
       return !!b && document.activeElement === b
     })
     ok(inPane, 'space: the keyboard is in the preview')
+    // A FILM IN THE PREVIEW HAS NO COG AND NO FULLSCREEN (owner, 2026-11-08):
+    // its controls are up (the play button is focused), and only full view's
+    // player carries those two.
+    const extras = await win.evaluate(() => {
+      const pane = document.querySelector('[data-browse-preview]')
+      return {
+        cog: !!pane?.querySelector('[aria-label="Player settings"]'),
+        full: !!pane?.querySelector('button[title="Fullscreen (F)"]')
+      }
+    })
+    ok(!extras.cog && !extras.full, `the film in the preview has no cog and no fullscreen button (${JSON.stringify(extras)})`)
     await win.keyboard.press('Space')
     await sleep(500)
     ok((await paneOn()) && (await paneFilm()), "space: Space in the preview leaves the pane open (it is the player's)")

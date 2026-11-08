@@ -3484,6 +3484,10 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   place. The area still paints its column once (no double coat on glass). The
   `previewSlideList` e2e samples every frame both ways, at three window sizes and with the
   sidebar on the right: the columns may change in one frame only.
+- **A FILM IN THE PREVIEW HAS NO COG AND NO FULLSCREEN BUTTON** (owner, 2026-11-08: "hide
+  settings and fullscreen buttons from the preview for videos"). The Explorer's preview, pane
+  or window, keeps play, the bar and the volume; the cog and fullscreen are full view's
+  (`Viewer`'s `preview`, `VideoView`). The `hotkeys` e2e checks the pane's film has neither.
 - **THE PREVIEW CAN OPEN IN ITS OWN WINDOW, QUICK LOOK STYLE** (owner, 2026-11-08: "build a
   setting to have a preview which opens as a separate window. just like apple does it, space
   opens and closes that too. it needs to animate and should not disappear on alt tab, only on
