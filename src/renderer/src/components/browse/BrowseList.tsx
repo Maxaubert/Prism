@@ -93,6 +93,7 @@ type Props = Pick<
   | 'onSearchRange'
   | 'onDropInto'
   | 'onPreviewToggle'
+  | 'covered'
 > & {
   entries: BrowseEntry[]
   indexedRows?: Map<number, BrowseEntry | null>
@@ -658,7 +659,12 @@ export function BrowseList(props: Props): JSX.Element {
       if (!own) return
       e.preventDefault()
       e.stopPropagation()
-      if (space === 'preview') props.onPreviewToggle?.()
+      // Something in front of the list (a menu opened with the mouse leaves
+      // the focus on its row, a question, Settings): the key is taken but
+      // nothing behind it changes.
+      const front =
+        props.covered || !!document.querySelector('[role="menu"], [role="dialog"][aria-modal="true"]')
+      if (space === 'preview' && !front) props.onPreviewToggle?.()
       if (space !== 'type') return
     }
     if (e.altKey || e.ctrlKey || e.metaKey) return
