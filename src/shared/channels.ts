@@ -44,7 +44,9 @@ export const PUSH = {
   /** Drag out of Prism (#103): an OS drag left a Prism window, or ended.
    *  Every window hears both, so a drop back into any of them knows its own. */
   dragNativeStart: 'drag:native-start',
-  dragNativeEnd: 'drag:native-end'
+  dragNativeEnd: 'drag:native-end',
+  /** The preview window (owner, 2026-11-08) closed by itself (Alt+F4 on it). */
+  previewWindowGone: 'preview-window:gone'
 } as const
 
 /** The page to main: `invoke`, `send` and `sendSync` in the preload, `handle`
@@ -236,6 +238,12 @@ export const CALL = {
   foldersStatus: 'folders:status',
   foldersSet: 'folders:set',
   winEReady: 'win-e:ready',
+
+  /** The preview window (owner, 2026-11-08, `src/main/previewWindow.ts`):
+   *  a one-time name for the page's `window.open`, then show and close it. */
+  previewWindowArm: 'preview-window:arm',
+  previewWindowShow: 'preview-window:show',
+  previewWindowClose: 'preview-window:close',
 
   sweepOverlayBegin: 'sweep-overlay:begin',
   sweepOverlayUpdate: 'sweep-overlay:update',
