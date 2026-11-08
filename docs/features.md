@@ -2145,7 +2145,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the pane on the right, the toolbar button's own `togglePreview` (same state, same
   persistence), with or without a row picked. Only from the list or a row: a field (the
   rename, the search), a button, the preview (a film there keeps Space for play/pause), a
-  dialog or a menu never reach it. Ctrl+Space still marks; an auto-repeat is taken and does
+  dialog or a menu never reach it, and while a menu (one opened with the mouse leaves the
+  focus on its row), a question or Settings is in front, Space on the list changes nothing. Ctrl+Space still marks; an auto-repeat is taken and does
   nothing; a space typed within the type-to-jump run's 700 ms is part of the name, as File
   Explorer reads it. Before this, Space with a row picked did nothing. `spaceKey` in
   `lib/listKeys.ts` (unit-tested) and the `hotkeys` e2e's "space:" checks hold it.
