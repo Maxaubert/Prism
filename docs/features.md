@@ -3543,7 +3543,10 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   one the film's end or the app made (`pauseQuietly`, used when the list comes back or the pane
   shuts). The list's Back leaves a film playing in the pane rather than stopping it, since it is
   still shown. A list click or list arrow is a pick and plays even a paused film, as #139 and
-  #207 decided; a restored tab's film still sits paused (`playOnOpen`). The preview toggle
+  #207 decided; a restored tab's film still sits paused (`playOnOpen`). What a film shown does
+  not reach (review of #491/#492, 2026-11-08): a step behind a shut list starts nothing, an
+  open menu keeps Up and Down from walking, and another tab holding the same film stays as it
+  is, so a film never sounds twice. Back still stops a track with the pane open. The preview toggle
   showing a film paused was not the owner's rule (#207 quotes the opposite: the only exception is
   opening Prism with a film in a tab), so it was changed; say if it should be put back. Held by
   the `filmKeys` and `filmStart` e2e, `playState.test.ts`, `liveRoute.test.ts`, and on the owner's
