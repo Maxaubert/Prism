@@ -92,6 +92,13 @@ Filesmith's conventions.
   `render-process-gone` and a main-frame navigation destroy it, and so does standby's `preview`
   part. Under --e2e it is unfocusable, off the desktop and clear (the fade runs on a recorded
   opacity, `__e2ePreviewWindows`, `__e2ePreviewFades`).
+  Review 2026-11-08: the child's OWN webContents gets the owner's walls (its window-open handler
+  denies all, handing web addresses to the browser; `will-navigate` is refused), since a
+  middle-click or a drop there never reaches the owner's handlers. Its focus counts as the
+  owner's in `windowState` (no "pause in background" for a click on its player). Each opening
+  mounts a fresh `PreviewWindow` (keyed), never one main already closed. A viewer measuring
+  itself makes its ResizeObserver from the element's own window (`lib/ownResizeObserver.ts`):
+  the Explorer's observer never reports an element of the child's document.
 - **SETTINGS DESCRIPTIONS ARE PLAIN WORDS** (2026-09-22, owner: "no symbols other than comma and
   dot, no mentioning of specific keys or tips, just a simple text description of what it does").
   Every hint on Prism's own pages was rewritten to that rule, the core's rows likewise in the core.
