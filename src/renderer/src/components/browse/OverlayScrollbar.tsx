@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type RefObject } from 'react'
+import { ownResizeObserver } from '../../lib/ownResizeObserver'
 
 /**
  * THE FILE LIST'S OWN SCROLLBAR (#267; owner, 2026-10-04: "the scrollbar is
@@ -51,7 +52,7 @@ export function OverlayScrollbar(props: { target: RefObject<HTMLElement | null> 
     }
     measure()
     list.addEventListener('scroll', onScroll, { passive: true })
-    const ro = new ResizeObserver(measure)
+    const ro = ownResizeObserver(list, measure)
     ro.observe(list)
     if (list.firstElementChild) ro.observe(list.firstElementChild)
     return () => {

@@ -27,6 +27,8 @@ export const PREF_KEYS = {
   'prism.newtab.mode': 'shared',
   'prism.newtab.show': 'shared',
   'prism.open.external': 'shared',
+  // Where the Explorer's preview opens: the panel or a window (owner, 2026-11-08).
+  'prism.preview.opens': 'shared',
   'prism.photoInfo': 'shared',
   'prism.pinnedRoots': 'shared',
   'prism.player.prefs': 'shared',

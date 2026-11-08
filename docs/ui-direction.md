@@ -5,6 +5,14 @@ The look and its rules (themes, colour picker, panels, toolbar), moved verbatim 
 
 ## UI direction
 
+- **THE PREVIEW WINDOW'S CHROME** (owner, 2026-11-08, the Quick Look style window,
+  `docs/features.md`): the quiet chrome of the app, nothing new. One 36px bar in `--p-side` with
+  the hairline `--p-divider` under it, the file's name in `--p-text-soft` at 13px, and the title
+  bar's own close button (the same classes and glyph); the file on `--p-bg` (opaque: the window
+  has no material, its ground is the theme's). It fades in and out over 160 ms with the body
+  zooming from 0.94 (out to 0.96), the panels' curve; reduced motion has no zoom and no fade.
+  `components/previewWindow/previewWindow.css`.
+
 Dark, quiet viewer chrome so the media is the star: near-black frameless window, a single
 indigo accent (`#5b5bd6`), minimal controls that fade when not needed. The Prism monogram +
 indigo tie it to the Filesmith family without copying its light utility look. Don't add a
@@ -68,6 +76,9 @@ are gone (Aurora, Void and Frost kept, refined). The rules (`lib/theme.ts`, `lib
   are smaller then the other icons"). The filled folder (`folderFill`) is 21 by 17 of its 24-unit
   box, against a file page's 16.5 by 22.5; it was 19 by 13 and read about two thirds the size.
   Checked by eye on the installed build ("Looks right").
+- **NO FILE COUNTER IN THE TITLE BAR** (owner, 2026-11-08: "remove this file number label in the
+  titlebar"). The "12 / 16" place in the folder is gone from the bar and the tab row; a document's
+  own page and find counters stay.
 
 **ONE COLOUR PICKER, ALPHA ON EVERY COLOUR** (#249 rework, owner 2026-10-03: "the colour pickers
 should be the same for both apps, i need an input field for a color code and an alpha per colour

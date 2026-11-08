@@ -10,6 +10,7 @@ import { setOpenMode, useOpenMode, type OpenMode } from '../../lib/prefs/openPre
 import { setRememberTabs, useRememberTabs } from '../../lib/tabs/tabRestorePrefs'
 import { setStayReady, useStayReady } from '../../lib/prefs/standbyPrefs'
 import { setExplorerSide, useExplorerSide, type ExplorerSide } from '../../lib/prefs/explorerSidePrefs'
+import { setPreviewOpensIn, usePreviewOpensIn, type PreviewOpensIn } from '../../lib/prefs/previewPrefs'
 import { TREE_SIDES } from '../../lib/prefs/treePrefs'
 import { visitedDirectories } from '../../lib/visitedDirectories'
 import { APP_SECTIONS, appOpt } from './appOptions'
@@ -32,12 +33,26 @@ function LayoutSection(): JSX.Element {
   const size = useExplorerSize()
   const drives = useDriveStyle()
   const side = useExplorerSide()
+  const previewIn = usePreviewOpensIn()
   return (
     <SettingsSection id="layout" title={APP_SECTIONS.layout}>
       {/* THE EXPLORER'S OWN SIDEBAR POSITION (#304). It moves the places panel;
           on the right the preview pane takes the left. */}
       <SettingRow id="explorer-side" {...row('explorer-side')}>
         <Segmented value={side} onChange={(v) => setExplorerSide(v as ExplorerSide)} options={TREE_SIDES} />
+      </SettingRow>
+      {/* WHERE THE PREVIEW OPENS (owner, 2026-11-08: "a preview which opens
+          as a separate window. just like apple does it"): the panel beside
+          the list, or a Quick Look style window over the Explorer. */}
+      <SettingRow id="preview-opens" {...row('preview-opens')}>
+        <Segmented
+          value={previewIn}
+          onChange={(v) => setPreviewOpensIn(v as PreviewOpensIn)}
+          options={[
+            { id: 'panel', name: 'Panel' },
+            { id: 'window', name: 'Window' }
+          ]}
+        />
       </SettingRow>
       {/* The Explorer's rows alone (owner, 2026-10-03): the rest of the app
           keeps Font size. */}

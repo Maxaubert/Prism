@@ -5755,7 +5755,7 @@ async function tabsScenario(fixtures) {
 const SETTINGS_PAGE_OF = {
   'style-theme': 'appearance', 'see-through': 'appearance', 'theme-edits': 'appearance', 'c-bg': 'appearance', 'c-accent': 'appearance', 'c-font': 'appearance',
   'tree-size': 'appearance', 'title-bar': 'appearance', 'tab-width': 'appearance', 'c-edges': 'appearance', 'c-corners': 'appearance',
-  'explorer-side': 'explorer', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer',
+  'explorer-side': 'explorer', 'preview-opens': 'explorer', 'explorer-size': 'explorer', 'drive-style': 'explorer', 'newtab-mode': 'explorer',
   'open-external': 'explorer', 'remember-tabs': 'explorer', 'remember-folders': 'explorer', 'explorer-verb': 'explorer', 'default-apps': 'explorer',
   'transport-bg': 'media', 'app-version': 'about',
   'diag-verbose': 'diagnostics', 'diag-folder': 'diagnostics', 'diag-mark': 'diagnostics'
@@ -8153,6 +8153,89 @@ async function hotkeysScenario(fixtures) {
     ok(await until(async () => /alpha\.txt/.test((await win.locator('[role="dialog"]').textContent().catch(() => '')) ?? ''), 5000), 'explorer: Alt+Enter opens Properties')
     await win.keyboard.press('Escape')
     await sleep(400)
+
+    // SPACE TOGGLES THE PREVIEW PANE (owner, 2026-11-08: "can you bind
+    // preview to space bar", then "Toggle the preview panel"): the toolbar
+    // button's own toggle, from the list only; a field, the search and the
+    // preview keep their Space.
+    const paneOn = async () =>
+      (await win.locator('button[aria-label="Preview pane"]').first().getAttribute('aria-pressed')) === 'true'
+    await click('alpha.txt')
+    ok(await paneOn(), 'space: the preview pane starts open')
+    await exRow('alpha.txt').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => !(await paneOn()), 3000), 'space: Space on the list hides the preview pane')
+    await sleep(500)
+    await win.keyboard.press('Space')
+    ok(await until(async () => await paneOn(), 3000), 'space: Space again shows it')
+    await sleep(500)
+    // A held Space flips the pane once: the repeats are taken and do nothing.
+    await exRow('alpha.txt').focus()
+    await win.keyboard.down('Space')
+    for (let i = 0; i < 4; i++) await win.keyboard.down('Space')
+    await win.keyboard.up('Space')
+    await sleep(500)
+    ok(!(await paneOn()), 'space: a held Space hides the pane once, the repeats do nothing')
+    await win.keyboard.press('Space')
+    ok(await until(async () => await paneOn(), 3000), 'space: and a fresh Space shows it again')
+    await sleep(500)
+    // A menu opened with the mouse leaves the focus on its row: Space then
+    // changes nothing behind the menu.
+    await exRow('alpha.txt').click({ button: 'right' })
+    ok(await until(async () => (await win.locator('[role="menu"]').count()) > 0, 3000), 'space: the row menu is open')
+    await win.keyboard.press('Space')
+    await sleep(500)
+    ok(await paneOn(), 'space: Space with a menu open leaves the pane alone')
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    await exRow('alpha.txt').focus()
+    await win.keyboard.press('F2')
+    ok(await until(async () => (await exRename.count()) === 1, 5000), 'space: F2 opens the rename field')
+    await win.keyboard.press('End')
+    await win.keyboard.press('Space')
+    await sleep(400)
+    const renameText = await exRename.inputValue()
+    ok(/ $/.test(renameText) && (await paneOn()), `space: Space in the rename field types a space and leaves the pane (${JSON.stringify(renameText)})`)
+    await win.keyboard.press('Escape')
+    await sleep(500)
+    ok(existsSync(join(dir, 'alpha.txt')), 'space: the rename was cancelled')
+    await click('golf')
+    await exRow('golf').focus()
+    await win.keyboard.press('F3')
+    ok(await until(async () => (await win.locator('[data-search-popup]').count()) === 1, 5000), 'space: F3 opens the folder search')
+    await win.keyboard.type('a')
+    await win.keyboard.press('Space')
+    await sleep(400)
+    const searchText = await win.evaluate(() => document.activeElement?.value ?? null)
+    ok(/a $/.test(searchText ?? '') && (await paneOn()), `space: Space in the search types a space and leaves the pane (${JSON.stringify(searchText)})`)
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    await click('delta.mp4')
+    ok(await until(paneFilm, 8000), 'space: the film is in the preview')
+    const inPane = await win.evaluate(() => {
+      const b = document.querySelector('[data-browse-preview] button[title="Play/Pause (Space)"]')
+      b?.focus()
+      return !!b && document.activeElement === b
+    })
+    ok(inPane, 'space: the keyboard is in the preview')
+    // A FILM IN THE PREVIEW HAS NO COG AND NO FULLSCREEN (owner, 2026-11-08):
+    // its controls are up (the play button is focused), and only full view's
+    // player carries those two.
+    const extras = await win.evaluate(() => {
+      const pane = document.querySelector('[data-browse-preview]')
+      return {
+        cog: !!pane?.querySelector('[aria-label="Player settings"]'),
+        full: !!pane?.querySelector('button[title="Fullscreen (F)"]')
+      }
+    })
+    ok(!extras.cog && !extras.full, `the film in the preview has no cog and no fullscreen button (${JSON.stringify(extras)})`)
+    await win.keyboard.press('Space')
+    await sleep(500)
+    ok((await paneOn()) && (await paneFilm()), "space: Space in the preview leaves the pane open (it is the player's)")
+    await win.evaluate(() => document.querySelectorAll('video,audio').forEach((v) => v.pause()))
+    await sleep(300)
 
     const exBefore = await tabs()
     await click('alpha.txt')
@@ -17406,6 +17489,362 @@ async function ctrlFPreviewScenario(fixtures) {
   }
 }
 
+/**
+ * THE LIST MOVES WITH THE PREVIEW'S SLIDE (owner, 2026-11-08: "can you make
+ * the main view content handle the animation better right now it flickers
+ * instead of the text in the file list like format, size etc handling the
+ * preview incoming properly"). Every frame of a Space toggle is sampled: the
+ * header's and the first row's cells may only move one way, and no column
+ * may go and come back (or come and go) inside one slide.
+ */
+async function previewSlideListScenario(fixtures) {
+  console.log('the list moves with the preview slide (owner, 2026-11-08)')
+  const dir = join(fixtures, 'previewslide')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
+  for (const n of ['a long enough file name to fill the column.txt', 'bravo.md', 'charlie.json', 'delta.log'])
+    writeFileSync(join(dir, n), `${n}\n`)
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const COLS = ['name', 'type', 'size', 'modified']
+  let sideSet = false
+  const sample = () =>
+    win.evaluate((cols) => {
+      const w = window
+      w.__slide = []
+      const cell = (root, c) => {
+        const el = root?.querySelector(`.browse-column-${c}`)
+        if (!el || getComputedStyle(el).display === 'none' || !el.getClientRects().length) return null
+        const r = el.getBoundingClientRect()
+        return { l: Math.round(r.left * 10) / 10, r: Math.round(r.right * 10) / 10 }
+      }
+      const tick = () => {
+        const head = document.querySelector('[data-testid="folder-browser"] .browse-columns')
+        const row = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path]')
+        const area = document.querySelector('.browse-list-area')
+        const pane = document.querySelector('[data-browse-preview]')
+        w.__slide.push({
+          t: Math.round(performance.now()),
+          sliding: !!document.querySelector('[data-preview-sliding]'),
+          area: Math.round(area?.getBoundingClientRect().width ?? 0),
+          pane: pane && pane.getClientRects().length ? Math.round(pane.getBoundingClientRect().width) : 0,
+          head: Object.fromEntries(cols.map((c) => [c, cell(head, c)])),
+          row: Object.fromEntries(cols.map((c) => [c, cell(row, c)]))
+        })
+        if (w.__slide.length < 90) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    }, COLS)
+  const samples = () => win.evaluate(() => window.__slide)
+  const paneOn = async () =>
+    (await win.locator('button[aria-label="Preview pane"]').first().getAttribute('aria-pressed')) === 'true'
+  /** What went wrong in one slide's frames, '' when it was smooth. The list's
+   *  layout (every cell's edges and whether it shows) may change in ONE frame,
+   *  the toggle's, and then stands still: no column comes and goes mid-slide,
+   *  nothing is re-laid out per frame, nothing lands late at the end. The old
+   *  code re-laid every frame and popped Date modified and Type in or out. */
+  const judge = (frames) => {
+    const bad = []
+    const changed = new Set()
+    for (const part of ['head', 'row']) {
+      for (const c of COLS) {
+        const seen = frames.map((f) => !!f[part][c])
+        const flips = seen.filter((s, i) => i > 0 && s !== seen[i - 1]).length
+        if (flips > 1) bad.push(`${part}.${c} came and went ${seen.map((s) => (s ? 1 : 0)).join('')}`)
+        for (let i = 1; i < frames.length; i++) {
+          const a = frames[i - 1][part][c]
+          const b = frames[i][part][c]
+          if (!a !== !b || (a && b && (Math.abs(a.l - b.l) > 0.6 || Math.abs(a.r - b.r) > 0.6))) changed.add(i)
+        }
+      }
+    }
+    if (changed.size > 1)
+      bad.push(
+        `the columns moved in ${changed.size} frames (${[...changed].join(',')}), head.name.r ${frames.map((f) => f.head.name?.r).join(',')}`
+      )
+    return bad.join('; ')
+  }
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, 'notes.txt').click()
+    ok(await until(paneOn, 5000), 'the preview pane starts open')
+    const slides = async (side, sizes) => {
+      for (const [w, h] of sizes) {
+        await mainWin(app, 'setSize', w, h)
+        await sleep(700)
+        for (const step of ['close', 'open']) {
+          const at = `${side}, ${w}x${h}, ${step}`
+          await listRow(win, 'notes.txt').focus()
+          await sample()
+          await win.keyboard.press('Space')
+          await sleep(900)
+          const frames = await samples()
+          const moving = frames.filter((f) => f.sliding)
+          console.log(`  ${at}: ${frames.length} frames, ${moving.length} sliding, area ${frames[0].area} -> ${frames.at(-1).area}`)
+          if (process.env.PRISM_E2E_SLIDE_DUMP) for (const f of frames) console.log('   ', JSON.stringify(f))
+          const verdict = judge(frames)
+          ok(!verdict, `${at}: the list's columns stand still while the pane slides${verdict ? ` (${verdict})` : ''}`)
+          ok(moving.length >= 4, `${at}: and it really slid (${moving.length} frames)`)
+          ok((await paneOn()) === (step === 'open'), `${at}: the pane is ${step === 'open' ? 'open' : 'shut'} after`)
+        }
+      }
+    }
+    await slides('left', [[1280, 800], [1000, 720], [860, 640]])
+    // The sidebar on the right puts the pane on the left (#304): the list's
+    // frame rides the right edge there.
+    await pickStyleSegment(win, 'explorer-side', 'Right')
+    sideSet = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await listRow(win, 'notes.txt').click()
+    ok(await until(paneOn, 5000), 'right: the preview pane is open')
+    await slides('right', [[1000, 720]])
+  } finally {
+    if (sideSet) await pickStyleSegment(win, 'explorer-side', 'Left').catch(() => {})
+    await app.close()
+  }
+}
+
+/**
+ * THE PREVIEW IN ITS OWN WINDOW (owner, 2026-11-08: "build a setting to have
+ * a preview which opens as a separate window. just like apple does it, space
+ * opens and closes that too. it needs to animate and should not disappear on
+ * alt tab, only on space"). Settings > Explorer > Preview opens in: Window.
+ * Space on the list opens it over the Explorer, inactive (the keyboard stays
+ * in the list), faded in; the arrows move the selection and it follows; a
+ * blur leaves it; Space, Escape (the list's or its own) and its close button
+ * close it, faded out; the pane never opens. Panel puts the pane back.
+ */
+async function previewWindowScenario(fixtures) {
+  console.log('the preview in its own window, Quick Look style (owner, 2026-11-08)')
+  const dir = join(fixtures, 'previewwindow')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'line 1 of the notes\n')
+  writeFileSync(join(dir, 'charlie.txt'), 'the charlie text\n')
+  copyFileSync(join(fixtures, 'one.png'), join(dir, 'alpha.png'))
+  copyFileSync(join(fixtures, 'two.png'), join(dir, 'bravo.png'))
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  let windowMode = false
+  const wins = () => app.evaluate(() => globalThis.__e2ePreviewWindows?.() ?? [])
+  const fades = () => app.evaluate(() => globalThis.__e2ePreviewFades?.() ?? [])
+  const isOpen = async () => (await wins()).length === 1
+  const isShut = async () => (await wins()).length === 0
+  /** What the preview window's own document shows, null when there is none. */
+  const inside = () =>
+    win.evaluate(() => {
+      const w = window.__prismPreviewWindow
+      if (!w || w.closed) return null
+      const body = w.document.querySelector('[data-preview-window-body]')
+      const img = body?.querySelector('img')
+      const r = img?.getBoundingClientRect()
+      return {
+        title: w.document.querySelector('.preview-window-title')?.textContent ?? '',
+        docTitle: w.document.title,
+        text: body?.textContent ?? '',
+        img: img ? { src: img.getAttribute('src') ?? '', w: Math.round(r.width), h: Math.round(r.height), ok: img.complete && img.naturalWidth > 0 } : null,
+        // The theme came across: the bar wears the sidebar colour.
+        bar: getComputedStyle(w.document.querySelector('.preview-window-bar')).backgroundColor,
+        bg: w.document.documentElement.style.getPropertyValue('--p-bg')
+      }
+    })
+  const paneShown = () =>
+    win.evaluate(() => {
+      const b = document.querySelector('[data-browse-preview]')
+      return !!b && b.getClientRects().length > 0
+    })
+  const pressed = async () =>
+    (await win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first().getAttribute('aria-pressed')) === 'true'
+  const focusedRow = () =>
+    win.evaluate(() => /[^\\]*$/.exec(document.activeElement?.getAttribute('data-browse-path') ?? '')?.[0] ?? '')
+  const toExplorer = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await sleep(300)
+  }
+  const pick = async (name) => {
+    const box = await listRow(win, name).boundingBox()
+    await listRow(win, name).click({ position: { x: 30, y: box.height / 2 } })
+    await sleep(400)
+  }
+  const childKey = (key) =>
+    win.evaluate((k) => {
+      const w = window.__prismPreviewWindow
+      w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, code: k === ' ' ? 'Space' : k, bubbles: true, cancelable: true }))
+    }, key)
+  try {
+    await explorerAt(win, dir)
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    ok((await win.evaluate(() => localStorage.getItem('prism.preview.opens'))) === 'window', 'the row stores its own key')
+    await toExplorer()
+    ok(await until(async () => !(await pressed()), 3000), 'window mode: a preview left on by the panel is put back off')
+    await pick('notes.txt')
+    await sleep(500)
+    ok((await isShut()) && !(await paneShown()), 'a click picks the row and opens nothing')
+
+    // Space opens it, inactive, faded in, showing the file.
+    const before = (await fades()).length
+    await listRow(win, 'notes.txt').focus()
+    await win.keyboard.press('Space')
+    ok(await until(isOpen, 5000), 'Space on the list opens the preview window')
+    ok(await until(async () => /line 1 of the notes/.test((await inside())?.text ?? ''), 8000), `it shows the file (${JSON.stringify(await inside())})`)
+    const look = await inside()
+    ok(look.title === 'notes.txt' && look.docTitle === 'notes.txt', `its title is the file's name (${look.title}, ${look.docTitle})`)
+    ok(!!look.bg && look.bar !== 'rgba(0, 0, 0, 0)', `the theme came across (bar ${look.bar}, --p-bg ${look.bg})`)
+    ok(await until(async () => (await wins())[0]?.visible && (await wins())[0]?.opacity === 1, 3000), 'it is on screen (clear only under --e2e)')
+    const opened = (await fades()).slice(before)
+    ok(opened.some((f) => f.to === 1 && f.frames > 3), `it faded in (${JSON.stringify(opened)})`)
+    ok(!(await paneShown()) && (await pressed()), 'the pane stays shut; the toolbar button reads it as on')
+    ok((await focusedRow()) === 'notes.txt', `the keyboard stayed in the list (${await focusedRow()})`)
+    const [state] = await wins()
+    const main = await mainWin(app, 'getBounds')
+    const cx = (b) => b.x + b.width / 2
+    const cy = (b) => b.y + b.height / 2
+    ok(
+      // Within a few pixels: the window's size is rounded at the display's scale.
+      Math.abs(cx(state.bounds) - cx(main)) <= 8 && Math.abs(cy(state.bounds) - cy(main)) <= 8 && Math.abs(state.bounds.width / main.width - 0.66) < 0.03,
+      `centred over the Explorer at two thirds of it (${JSON.stringify(state.bounds)} over ${JSON.stringify(main)})`
+    )
+
+    // The arrows move the selection and the window follows.
+    await win.keyboard.press('ArrowUp')
+    ok(await until(async () => /the charlie text/.test((await inside())?.text ?? ''), 8000), 'ArrowUp: it follows to charlie.txt')
+    ok((await focusedRow()) === 'charlie.txt', `and the list has the keyboard (${await focusedRow()})`)
+    await win.keyboard.press('ArrowUp')
+    ok(await until(async () => (await inside())?.img?.ok && (await inside())?.img?.w > 20, 8000), `ArrowUp: a picture, drawn and sized in the window (${JSON.stringify((await inside())?.img)})`)
+    ok((await inside())?.title === 'bravo.png', `the title follows (${(await inside())?.title})`)
+    // The window as drawn (its own page; clear on the desktop, not in a capture).
+    const page = app.windows().find((p) => p.url() === 'about:blank' || p.url() === '')
+    if (page) await page.screenshot({ path: join(SHOTS, 'preview-window.png') }).catch((e) => console.log(`  (no shot: ${e})`))
+    else console.log(`  (no preview page among ${app.windows().map((p) => p.url()).join(', ')})`)
+
+    // A blur, the page told it is in the background, another window: it stays.
+    await app.evaluate(({ BrowserWindow }) => {
+      const w = globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]
+      w.blur()
+      w.emit('blur')
+      const other = new BrowserWindow({ show: false, x: -4000, y: -4000, width: 300, height: 200, focusable: false, skipTaskbar: true, opacity: 0 })
+      other.showInactive()
+      setTimeout(() => other.destroy(), 600)
+    })
+    await win.evaluate(() => {
+      window.dispatchEvent(new Event('blur'))
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await sleep(1200)
+    ok((await isOpen()) && (await wins())[0].visible && (await inside()) !== null, 'it stays when the Explorer loses the focus and another window comes up')
+
+    // Its own page has its owner's walls (review 2026-11-08): it opens no
+    // window and navigates nowhere (a middle-click or a drop lands there).
+    const winsBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
+    const walls = await win.evaluate(async () => {
+      const w = window.__prismPreviewWindow
+      // A link clicked in its own document (its CSP allows no eval), so the
+      // request is the child page's own, as a real click's would be.
+      const link = (href, target) => {
+        const a = w.document.createElement('a')
+        a.href = href
+        if (target) a.target = target
+        w.document.body.appendChild(a)
+        a.click()
+        a.remove()
+      }
+      link('about:blank', 'prism-preview-other')
+      await new Promise((r) => setTimeout(r, 500))
+      link('file:///C:/')
+      await new Promise((r) => setTimeout(r, 800))
+      let href = 'closed'
+      try {
+        if (!w.closed) href = w.location.href
+      } catch {
+        href = 'navigated away (cross-origin now)'
+      }
+      return { opened: false, href }
+    })
+    const winsAfter = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
+    ok(!walls.opened && winsAfter === winsBefore, `the preview window opens no window of its own (${JSON.stringify(walls)}, ${winsBefore} -> ${winsAfter})`)
+    ok(walls.href === 'about:blank', `and its page goes nowhere (${walls.href})`)
+    ok((await inside()) !== null, 'and it still shows the file')
+
+    // Space with the keyboard in the window itself closes it, faded out.
+    const beforeClose = (await fades()).length
+    await childKey(' ')
+    ok(await until(isShut, 3000), 'Space in the preview window closes it')
+    const closed = (await fades()).slice(beforeClose)
+    ok(closed.some((f) => f.to === 0 && f.frames > 3), `it faded out (${JSON.stringify(closed)})`)
+    ok(!(await pressed()) && !(await paneShown()), 'the preview is off, and no pane came instead')
+
+    // Space again on the list, then Escape on the list.
+    await listRow(win, 'bravo.png').focus()
+    await win.keyboard.press('Space')
+    ok(await until(isOpen, 5000), 'Space opens it again')
+    await sleep(500)
+    await win.keyboard.press('Space')
+    ok(await until(isShut, 3000), 'and Space on the list closes it')
+    await sleep(300)
+    await win.keyboard.press('Space')
+    ok(await until(isOpen, 5000), 'Space opens it once more')
+    await sleep(500)
+    await win.keyboard.press('Escape')
+    ok(await until(isShut, 3000), 'Escape on the list closes it')
+    ok(
+      (await win.locator('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]').count()) === 1,
+      'and leaves the row picked (the next Escape clears it)'
+    )
+
+    // Space, Space, Space quicker than the fade (review 2026-11-08): the
+    // third press opens a window that really shows, not a dead one, and
+    // only one.
+    await listRow(win, 'bravo.png').focus()
+    for (let i = 0; i < 3; i++) {
+      await win.keyboard.press('Space')
+      await sleep(60)
+    }
+    ok(await until(async () => (await wins()).length === 1 && (await wins())[0].visible && (await wins())[0].opacity === 1, 4000), `three quick Spaces: one window, on screen (${JSON.stringify((await wins()).map((x) => ({ v: x.visible, o: x.opacity })))})`)
+    ok(await until(async () => (await inside())?.img?.ok, 5000), 'and it shows the file')
+    await sleep(400)
+    ok((await wins()).length === 1 && (await pressed()), 'it stays open, the button pressed')
+    await win.keyboard.press('Space')
+    ok(await until(isShut, 3000), 'and the next Space closes it')
+    await sleep(300)
+
+    // Its own close button, and Escape in it.
+    await listRow(win, 'bravo.png').focus()
+    await win.keyboard.press('Space')
+    ok(await until(isOpen, 5000), 'open for the close button')
+    await until(async () => (await inside()) !== null, 3000)
+    await win.evaluate(() => window.__prismPreviewWindow.document.querySelector('[data-preview-window-close]').click())
+    ok(await until(isShut, 3000), 'its close button closes it')
+    await listRow(win, 'bravo.png').focus()
+    await win.keyboard.press('Space')
+    ok(await until(isOpen, 5000), 'open for Escape inside')
+    await until(async () => (await inside()) !== null, 3000)
+    await childKey('Escape')
+    ok(await until(isShut, 3000), 'Escape in the window closes it')
+
+    // Panel again: Space is the pane's toggle, and no window opens.
+    await pickStyleSegment(win, 'preview-opens', 'Panel')
+    windowMode = false
+    await toExplorer()
+    await pick('notes.txt')
+    const wasPane = await paneShown()
+    await listRow(win, 'notes.txt').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => (await paneShown()) !== wasPane, 3000), `Panel: Space toggles the pane again (${wasPane} -> ${!wasPane})`)
+    await sleep(600)
+    ok(await isShut(), 'and no window opens')
+    if (!(await paneShown())) {
+      await listRow(win, 'notes.txt').focus()
+      await win.keyboard.press('Space')
+      await sleep(600)
+    }
+  } finally {
+    if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+    await app.close()
+  }
+}
+
 async function previewClearsScenario(fixtures) {
   console.log('going into a folder clears the preview (#300 review)')
   const { dir } = await zipWorld(fixtures, 'previewclears')
@@ -21541,6 +21980,8 @@ await run(zipRestoreScenario)
 await run(zipLockedScenario)
 await run(zipFolderScenario)
 await run(previewClearsScenario)
+await run(previewSlideListScenario)
+await run(previewWindowScenario)
 await run(ctrlFPreviewScenario)
 await run(docArrowsScenario)
 await run(previewSlowImageScenario)

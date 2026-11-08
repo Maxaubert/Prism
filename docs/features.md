@@ -2140,6 +2140,16 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   (AZERTY's Ctrl+Q is not Ctrl+A). After a rename the keyboard follows the row to its new
   name. Fullscreen unmounts both surfaces, so nothing here writes there. The `hotkeys` e2e
   drives every key on both surfaces, a paused film under them, and a zip.
+  **SPACE TOGGLES THE PREVIEW PANE** (owner, 2026-11-08: "can you bind preview to space bar",
+  then chose "Toggle the preview panel"). A plain Space on the Explorer's list shows or hides
+  the pane on the right, the toolbar button's own `togglePreview` (same state, same
+  persistence), with or without a row picked. Only from the list or a row: a field (the
+  rename, the search), a button, the preview (a film there keeps Space for play/pause), a
+  dialog or a menu never reach it, and while a menu (one opened with the mouse leaves the
+  focus on its row), a question or Settings is in front, Space on the list changes nothing. Ctrl+Space still marks; an auto-repeat is taken and does
+  nothing; a space typed within the type-to-jump run's 700 ms is part of the name, as File
+  Explorer reads it. Before this, Space with a row picked did nothing. `spaceKey` in
+  `lib/listKeys.ts` (unit-tested) and the `hotkeys` e2e's "space:" checks hold it.
   Tabs reorder by dragging along the strip (`reorderTabs`, pure and tested), with a
   hairline showing where one would land. (Since 2026-10-29 a tab can also be pulled OUT of
   the strip into a window of its own: "Tab tear-off", above; the 2026-08-23 "its own row and
@@ -3460,6 +3470,47 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   column, the viewer App lays over the slot and its action bar tween together
   (`data-preview-sliding`, `workspace.css`), the contents frozen at their open width. Only
   the toggle slides; a tab switch, a drag or a resize lands at once.
+  **THE LIST STANDS STILL WHILE IT SLIDES** (owner, 2026-11-08, after trying Space: "can you
+  make the main view content handle the animation better right now it flickers instead of
+  the text in the file list like format, size etc handling the preview incoming properly").
+  MEASURED, every frame of a toggle: the list is a size container, so its tweening column
+  re-laid every row each frame (the header's last cell moved in all 18 frames), and a list
+  crossing 720px or 510px mid-slide popped Date modified or Type in or out and re-gridded the
+  rest, a jump back in the name column included. Now the list's frame (`.browse-list-frame`,
+  the container its narrow rules ask) is laid out for the whole slide at the width the list
+  ENDS at (`listSlideWidth`, `useExplorerWidths.listWidth`), against the edge away from the
+  pane, and its area clips it to the column: the columns change once, in the toggle's frame,
+  and stand still while the pane slides over the spare ground or off the columns already in
+  place. The area still paints its column once (no double coat on glass). The
+  `previewSlideList` e2e samples every frame both ways, at three window sizes and with the
+  sidebar on the right: the columns may change in one frame only.
+- **A FILM IN THE PREVIEW HAS NO COG AND NO FULLSCREEN BUTTON** (owner, 2026-11-08: "hide
+  settings and fullscreen buttons from the preview for videos"). The Explorer's preview, pane
+  or window, keeps play, the bar and the volume; the cog and fullscreen are full view's
+  (`Viewer`'s `preview`, `VideoView`). The `hotkeys` e2e checks the pane's film has neither.
+- **THE PREVIEW CAN OPEN IN ITS OWN WINDOW, QUICK LOOK STYLE** (owner, 2026-11-08: "build a
+  setting to have a preview which opens as a separate window. just like apple does it, space
+  opens and closes that too. it needs to animate and should not disappear on alt tab, only on
+  space"). Settings > Explorer > Layout > "Preview opens in" (`preview-opens`, key
+  `prism.preview.opens`, `lib/prefs/previewPrefs.ts`): PANEL (default, the pane as it was) or
+  WINDOW. In Window the tab's preview flag IS the window: Space on the list (the pane's own rule:
+  never from a field, the rename, the search, a button, a menu, a dialog, or while something
+  covers the list), and the toolbar's preview button, open and close it, and the pane never
+  opens. The window shows the selected file with the pane's own viewer (the front tab's player or
+  view, rendered into it), centred over the Explorer at two thirds of its size, frameless, a
+  36px bar in the sidebar colour with the file's name and a close button. It opens INACTIVE, so
+  the keyboard stays in the list and the arrows move the selection with the window following,
+  as Quick Look's does. It fades in and out with a slight zoom (160 ms, none with reduced motion).
+  A blur, Alt+Tab or another app in front leave it where it is; it closes on Space (the list's or
+  its own), Escape (the list's, before Escape clears the marks, or its own), its close button,
+  Alt+F4 on it, and goes with its Explorer window, a reload or crash of its page, and standby
+  (in its text editor Space types a space and Escape still closes; a field keeps both).
+  It is no window of the session: it never counts for "the last window closed". Only a toggle
+  opens it: a flag left on by the panel, a restore or a file from Windows ("View for files from
+  Windows: Preview") is put back off in Window mode, so it never appears unasked. Right-click
+  does nothing in it (a menu would open in the Explorer behind). Wiring: `docs/architecture.md`.
+  The `previewWindow` e2e drives it end to end; `src/main/previewWindow.test.ts`,
+  `lib/previewWindowKeys.test.ts` hold the parts.
 - **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
   renders only while it is in front, so walking to Settings or another folder
   stopped the film. Handing the sound to a second, hidden element was tried
