@@ -97,6 +97,10 @@ export interface FolderBrowserProps {
    *  "it flickers instead of the text in the file list like format, size etc
    *  handling the preview incoming properly"). */
   listSlideWidth?: number
+  /** The preview is open in its own window (owner, 2026-11-08): Escape on
+   *  the list closes it, as Quick Look's does, before it clears anything. */
+  previewWindowOpen?: boolean
+  onPreviewWindowClose?: () => void
   preview?: ReactNode
   /** Something else is in front (a question, the update window, Settings):
    *  the search popup does not open, and leaves if it was up (#267). */

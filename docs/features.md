@@ -3484,6 +3484,28 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   place. The area still paints its column once (no double coat on glass). The
   `previewSlideList` e2e samples every frame both ways, at three window sizes and with the
   sidebar on the right: the columns may change in one frame only.
+- **THE PREVIEW CAN OPEN IN ITS OWN WINDOW, QUICK LOOK STYLE** (owner, 2026-11-08: "build a
+  setting to have a preview which opens as a separate window. just like apple does it, space
+  opens and closes that too. it needs to animate and should not disappear on alt tab, only on
+  space"). Settings > Explorer > Layout > "Preview opens in" (`preview-opens`, key
+  `prism.preview.opens`, `lib/prefs/previewPrefs.ts`): PANEL (default, the pane as it was) or
+  WINDOW. In Window the tab's preview flag IS the window: Space on the list (the pane's own rule:
+  never from a field, the rename, the search, a button, a menu, a dialog, or while something
+  covers the list), and the toolbar's preview button, open and close it, and the pane never
+  opens. The window shows the selected file with the pane's own viewer (the front tab's player or
+  view, rendered into it), centred over the Explorer at two thirds of its size, frameless, a
+  36px bar in the sidebar colour with the file's name and a close button. It opens INACTIVE, so
+  the keyboard stays in the list and the arrows move the selection with the window following,
+  as Quick Look's does. It fades in and out with a slight zoom (160 ms, none with reduced motion).
+  A blur, Alt+Tab or another app in front leave it where it is; it closes on Space (the list's or
+  its own), Escape (the list's, before Escape clears the marks, or its own), its close button,
+  Alt+F4 on it, and goes with its Explorer window, a reload or crash of its page, and standby.
+  It is no window of the session: it never counts for "the last window closed". Only a toggle
+  opens it: a flag left on by the panel, a restore or a file from Windows ("View for files from
+  Windows: Preview") is put back off in Window mode, so it never appears unasked. Right-click
+  does nothing in it (a menu would open in the Explorer behind). Wiring: `docs/architecture.md`.
+  The `previewWindow` e2e drives it end to end; `src/main/previewWindow.test.ts`,
+  `lib/previewWindowKeys.test.ts` hold the parts.
 - **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
   renders only while it is in front, so walking to Settings or another folder
   stopped the film. Handing the sound to a second, hidden element was tried

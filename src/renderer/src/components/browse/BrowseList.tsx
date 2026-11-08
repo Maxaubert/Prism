@@ -95,6 +95,8 @@ type Props = Pick<
   | 'onPreviewToggle'
   | 'covered'
   | 'listSlideWidth'
+  | 'previewWindowOpen'
+  | 'onPreviewWindowClose'
 > & {
   entries: BrowseEntry[]
   indexedRows?: Map<number, BrowseEntry | null>
@@ -149,9 +151,7 @@ export function BrowseList(props: Props): JSX.Element {
   const folderDrop = useFolderDrop(props.loading ? undefined : props.onDropInto, props.archive)
   /** What a press or drag on this row carries inside an archive: the row, or
    *  the whole selection when the row is in it, as members with their places. */
-  const memberCargo = (
-    path: string
-  ): { archive: string; entries: string[]; places: string[] } | null => {
+  const memberCargo = (path: string): { archive: string; entries: string[]; places: string[] } | null => {
     const archive = props.archive
     if (!archive) return null
     const all = props.marked
@@ -271,7 +271,9 @@ export function BrowseList(props: Props): JSX.Element {
   const spaceHeight = Math.min(count * rowHeight, 4000000)
   const scale = Math.max(1, (count * rowHeight - height) / Math.max(1, spaceHeight - height))
   const logicalTop =
-    liveTop >= spaceHeight - height - 1 ? Math.max(0, count * rowHeight - height) : liveTop * scale
+    liveTop >= spaceHeight - height - 1
+      ? Math.max(0, count * rowHeight - height)
+      : liveTop * scale
   const loadedSelectedIndex = props.indexedRows
     ? ([...props.indexedRows].find(([, entry]) => entry?.path === props.selectedPath)?.[0] ?? -1)
     : (() => {
@@ -353,17 +355,11 @@ export function BrowseList(props: Props): JSX.Element {
       const g = geometry.current
       return {
         x: Math.min(m.scrollWidth, Math.max(0, x - m.left + m.scrollLeft)),
-        y: Math.max(
-          0,
-          Math.min(Math.max(g.count * g.rowHeight, g.height), logicalTopAt(m.scrollTop) + y - m.top)
-        )
+        y: Math.max(0, Math.min(Math.max(g.count * g.rowHeight, g.height), logicalTopAt(m.scrollTop) + y - m.top))
       }
     },
     // toList's inverse, with the same compressed-scroll rule (logicalTopAt).
-    fromList: (p, m) => ({
-      x: p.x - m.scrollLeft + m.left,
-      y: p.y - logicalTopAt(m.scrollTop) + m.top
-    }),
+    fromList: (p, m) => ({ x: p.x - m.scrollLeft + m.left, y: p.y - logicalTopAt(m.scrollTop) + m.top }),
     clipOf: (m) => m.clip,
     place: (band, m) => {
       // Row coordinates to the scroll box's own: the rows sit at
@@ -509,19 +505,7 @@ export function BrowseList(props: Props): JSX.Element {
     // rowAt reads only what is listed here (the entries, the search rows and
     // the dividers' layout).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    props.indexedRows,
-    props.entries,
-    divided,
-    onSelect,
-    onScroll,
-    onSearchRange,
-    count,
-    scale,
-    scrollTop,
-    height,
-    rowHeight
-  ])
+  }, [props.indexedRows, props.entries, divided, onSelect, onScroll, onSearchRange, count, scale, scrollTop, height, rowHeight])
   useLayoutEffect(() => {
     pendingFocus.current = null
     selectionPosition.current = { path: '', index: -1 }
@@ -569,9 +553,7 @@ export function BrowseList(props: Props): JSX.Element {
     const entry = rowAt(index)
     if (!entry) return null
     requestAnimationFrame(() =>
-      node
-        .querySelector<HTMLElement>(`[data-browse-index="${index}"]`)
-        ?.focus({ preventScroll: true })
+      node.querySelector<HTMLElement>(`[data-browse-index="${index}"]`)?.focus({ preventScroll: true })
     )
     return { index, entry }
   }
@@ -660,6 +642,18 @@ export function BrowseList(props: Props): JSX.Element {
       // Escape is a nearer closer's first (a peek, the PDF's find bar, a
       // menu): those listen on the window, after this (review of #330).
       if (common === 'clear' && e.key === 'Escape' && nearerEscape()) return
+      // The preview window first (owner, 2026-11-08): Escape closes it and
+      // leaves the marks; the next Escape clears them as before.
+      if (common === 'clear' && e.key === 'Escape' && props.previewWindowOpen && !e.repeat) {
+        const front =
+          props.covered || !!document.querySelector('[role="menu"], [role="dialog"][aria-modal="true"]')
+        if (!front) {
+          e.preventDefault()
+          e.stopPropagation()
+          props.onPreviewWindowClose?.()
+          return
+        }
+      }
       if (LIST_OWN.has(common) && listOwnKey(common)) {
         // Claimed: the player's window-wide keys (Ctrl+Space is play, Shift+
         // Home a seek) yield to a key the list took.
@@ -684,8 +678,7 @@ export function BrowseList(props: Props): JSX.Element {
       // the focus on its row, a question, Settings): the key is taken but
       // nothing behind it changes.
       const front =
-        props.covered ||
-        !!document.querySelector('[role="menu"], [role="dialog"][aria-modal="true"]')
+        props.covered || !!document.querySelector('[role="menu"], [role="dialog"][aria-modal="true"]')
       if (space === 'preview' && !front) props.onPreviewToggle?.()
       if (space !== 'type') return
     }
@@ -782,9 +775,7 @@ export function BrowseList(props: Props): JSX.Element {
           columns are laid out once and stand still (workspace.css). */}
       <div
         className="browse-list-frame"
-        style={
-          props.listSlideWidth !== undefined ? { width: `${props.listSlideWidth}px` } : undefined
-        }
+        style={props.listSlideWidth !== undefined ? { width: `${props.listSlideWidth}px` } : undefined}
       >
         {props.strip && (
           <div className="browse-archive-strip-drop" {...folderDrop(props.directory, `strip`)}>
@@ -800,48 +791,42 @@ export function BrowseList(props: Props): JSX.Element {
           }}
         >
           <div className="browse-columns">
-            {(searching ? searchColumns : props.archive ? archiveColumns : columns).map(
-              ({ key, label }) => (
-                <button
-                  key={key}
-                  className={`browse-column-${key}`}
-                  title={`Sort by ${label.toLowerCase()}`}
-                  aria-label={`Sort by ${label.toLowerCase()}${props.sort.key === key ? `, ${props.sort.direction === 'asc' ? 'ascending' : 'descending'}` : ''}`}
-                  onClick={() => props.onSortChange(nextSort(props.sort, key, !!props.downloads))}
+            {(searching ? searchColumns : props.archive ? archiveColumns : columns).map(({ key, label }) => (
+              <button
+                key={key}
+                className={`browse-column-${key}`}
+                title={`Sort by ${label.toLowerCase()}`}
+                aria-label={`Sort by ${label.toLowerCase()}${props.sort.key === key ? `, ${props.sort.direction === 'asc' ? 'ascending' : 'descending'}` : ''}`}
+                onClick={() => props.onSortChange(nextSort(props.sort, key, !!props.downloads))}
+              >
+                {label}
+                {/* Every column carries its arrow, as File Explorer's do (owner,
+                    2026-10-04: "that arrow shows only when you hover over them
+                    while the currently sorted item has an arrow at all times").
+                    It is always in the layout and only fades in, so a hover
+                    never moves the label. Unsorted, it points the way a click
+                    would sort (ascending; Date modified in Downloads, newest
+                    first, #285). */}
+                <span
+                  className="browse-sort-arrow"
+                  aria-hidden="true"
+                  data-sorted={props.sort.key === key || undefined}
+                  data-descending={
+                    props.sort.key === key
+                      ? props.sort.direction === 'desc'
+                      : nextSort(props.sort, key, !!props.downloads).direction === 'desc'
+                  }
                 >
-                  {label}
-                  {/* Every column carries its arrow, as File Explorer's do (owner,
-                  2026-10-04: "that arrow shows only when you hover over them
-                  while the currently sorted item has an arrow at all times").
-                  It is always in the layout and only fades in, so a hover
-                  never moves the label. Unsorted, it points the way a click
-                  would sort (ascending; Date modified in Downloads, newest
-                  first, #285). */}
-                  <span
-                    className="browse-sort-arrow"
-                    aria-hidden="true"
-                    data-sorted={props.sort.key === key || undefined}
-                    data-descending={
-                      props.sort.key === key
-                        ? props.sort.direction === 'desc'
-                        : nextSort(props.sort, key, !!props.downloads).direction === 'desc'
-                    }
-                  >
-                    <BrowseIcon name="up" />
-                  </span>
-                </button>
-              )
-            )}
+                  <BrowseIcon name="up" />
+                </span>
+              </button>
+            ))}
           </div>
         </div>
         {/* A folder slower than 300 ms (#271): a thin bar under the header,
-          never text over the list. Always in the layout, faded in, so the
-          rows never move for it. */}
-        <div
-          className="browse-progress"
-          aria-hidden="true"
-          data-on={props.pending === 'slow' || undefined}
-        />
+            never text over the list. Always in the layout, faded in, so the
+            rows never move for it. */}
+        <div className="browse-progress" aria-hidden="true" data-on={props.pending === 'slow' || undefined} />
         <div
           ref={scroller}
           className="browse-list"
@@ -878,8 +863,7 @@ export function BrowseList(props: Props): JSX.Element {
           onContextMenu={(e) => {
             // The empty space's own menu, inside an archive (#300). A row's
             // menu stops here first.
-            if (!props.onEmptyContextMenu || (e.target as HTMLElement).closest('.browse-row'))
-              return
+            if (!props.onEmptyContextMenu || (e.target as HTMLElement).closest('.browse-row')) return
             e.preventDefault()
             props.onSelect(null, true)
             props.onEmptyContextMenu(e)
@@ -921,7 +905,7 @@ export function BrowseList(props: Props): JSX.Element {
                       >
                         <span className="browse-column-name browse-name">
                           {/* A search row still on its way is a blank row (#271):
-                            no loading text anywhere in the list. */}
+                              no loading text anywhere in the list. */}
                           {entry === null ? 'Item unavailable' : ''}
                         </span>
                       </div>
@@ -994,8 +978,7 @@ export function BrowseList(props: Props): JSX.Element {
                         // A row inside a multi-selection carries all of it,
                         // the tree's rule.
                         const all = props.marked
-                        const paths =
-                          all && all.size > 1 && all.has(entry.path) ? [...all] : [entry.path]
+                        const paths = all && all.size > 1 && all.has(entry.path) ? [...all] : [entry.path]
                         // Rows inside an archive are its MEMBERS (#300): dropped on
                         // a real folder they extract there, the archive view's own
                         // drag; dropped inside the same zip they move.
@@ -1047,39 +1030,32 @@ export function BrowseList(props: Props): JSX.Element {
                       }}
                     >
                       <span className="browse-column-name browse-name">
-                        {entry.isFolder
-                          ? (() => {
-                              const own = folderIconOf(folderIcons, entry.path)
-                              const folder = <FolderIcon color="var(--p-tree-folder)" />
-                              // A picked glyph wears the folder colour (D4).
-                              return own ? (
-                                <FolderGlyph
-                                  icon={own}
-                                  size={look.icon}
-                                  color="var(--p-tree-folder)"
-                                  fallback={folder}
-                                />
-                              ) : (
-                                folder
-                              )
-                            })()
-                          : entry.file && (
-                              // A marked row is a tint, so its icon keeps its own
-                              // colours; its knockouts are the tint as seen
-                              // (dimmed or not: browse.css sets --sel-seen).
-                              <KindIcon
-                                kind={entry.file.kind}
-                                ext={entry.file.ext}
-                                name={entry.name}
-                                color={iconColour(entry.file.kind)}
-                                size={look.icon}
-                                bg={
-                                  selected
-                                    ? 'var(--sel-seen, var(--p-sel-tint-seen))'
-                                    : 'var(--p-bg)'
-                                }
-                              />
-                            )}
+                        {entry.isFolder ? (
+                          (() => {
+                            const own = folderIconOf(folderIcons, entry.path)
+                            const folder = <FolderIcon color="var(--p-tree-folder)" />
+                            // A picked glyph wears the folder colour (D4).
+                            return own ? (
+                              <FolderGlyph icon={own} size={look.icon} color="var(--p-tree-folder)" fallback={folder} />
+                            ) : (
+                              folder
+                            )
+                          })()
+                        ) : (
+                          entry.file && (
+                            // A marked row is a tint, so its icon keeps its own
+                            // colours; its knockouts are the tint as seen
+                            // (dimmed or not: browse.css sets --sel-seen).
+                            <KindIcon
+                              kind={entry.file.kind}
+                              ext={entry.file.ext}
+                              name={entry.name}
+                              color={iconColour(entry.file.kind)}
+                              size={look.icon}
+                              bg={selected ? 'var(--sel-seen, var(--p-sel-tint-seen))' : 'var(--p-bg)'}
+                            />
+                          )
+                        )}
                         <span className="browse-name-text">
                           <span {...(searching ? {} : hiddenTitle(entry.name))}>{entry.name}</span>
                         </span>
@@ -1103,26 +1079,17 @@ export function BrowseList(props: Props): JSX.Element {
                       >
                         {/* No size yet is a blank cell, never "0 B" (#271). */}
                         {props.landing?.has(entry.path.toLowerCase()) ? (
-                          <span
-                            className="browse-landing"
-                            data-pct={Math.round(props.landing.get(entry.path.toLowerCase()) ?? 0)}
-                          >
+                          <span className="browse-landing" data-pct={Math.round(props.landing.get(entry.path.toLowerCase()) ?? 0)}>
                             <span
                               className="browse-landing-fill"
-                              style={{
-                                width: `${props.landing.get(entry.path.toLowerCase()) ?? 0}%`
-                              }}
+                              style={{ width: `${props.landing.get(entry.path.toLowerCase()) ?? 0}%` }}
                             />
                           </span>
-                        ) : entry.file ? (
-                          entry.file.size === undefined ? (
-                            ''
-                          ) : (
-                            formatBytes(entry.file.size)
-                          )
-                        ) : (
-                          folderSizeLabel(entry.folderSize)
-                        )}
+                        ) : entry.file
+                          ? entry.file.size === undefined
+                            ? ''
+                            : formatBytes(entry.file.size)
+                          : folderSizeLabel(entry.folderSize)}
                       </span>
                       {!!props.archive && !searching && (
                         <span className="browse-column-packed">
