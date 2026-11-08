@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { useMediaControls } from '../hooks/useMediaControls'
 import { usePlayerPrefs } from '../lib/prefs/playerPrefs'
 import { useSubtitles } from '../hooks/useSubtitles'
@@ -21,6 +21,8 @@ import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
 import { useBackgroundPause } from '../hooks/useBackgroundPause'
 import { tapVerb } from '../lib/tapChrome'
 import { Icon } from './icons/Icon'
+import { attachLive } from '../lib/liveHls'
+import { rescueLive } from '../lib/liveRoute'
 
 /** What a track is called in the picker: its own name if it has one, then the
  *  language, then what it actually is - "English - AC-3 5.1". A file that says
@@ -133,19 +135,27 @@ export function VideoView({
   attach?: (el: HTMLMediaElement) => () => void
 }): JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
-  useEffect(() => {
-    const el = video.current
-    if (!attach || !el) return
-    return attach(el)
-  }, [attach, url])
   // A file Chromium cannot open at all is converted first, and what plays is
   // the copy. Everything downstream (subtitles, waveform, the audio decoder)
-  // then deals with an ordinary mp4.
+  // then deals with an ordinary mp4. A picture THIS PC cannot decode (an
+  // iPhone's HEVC without platform support, 2026-11-08) plays as a live
+  // transcode instead, fed through hls.js: never on the phone, whose host
+  // (`attach`) has its own per-device route.
   // The volume readout on the picture: a timestamp, not a boolean, so every
   // notch of the wheel restarts the same clock rather than stacking timers.
   const [volFlash, setVolFlash] = useState(0)
-  const playable = usePlayableVideo(path, url)
+  const playable = usePlayableVideo(path, url, !attach)
   const src = playable.src
+  const liveAttach = useMemo(
+    () => (playable.live && src ? attachLive(src) : undefined),
+    [playable.live, src]
+  )
+  const feed = attach ?? liveAttach
+  useEffect(() => {
+    const el = video.current
+    if (!feed || !el) return
+    return feed(el)
+  }, [feed, url])
   const prefs = usePlayerPrefs()
   const subtitles = useSubtitles(path)
   const peaks = useWaveform(
@@ -431,17 +441,41 @@ export function VideoView({
   // so name the codec that did it. Only when the file really has a picture:
   // an audio-only mkv is not broken, it just has no video.
   const [blindUrl, setBlindUrl] = useState<string | null>(null)
-  const noPicture = blindUrl === url && hushedUrl !== url
+  // A picture the element could not decode is first handed to the live
+  // transcode (2026-11-08, lib/liveRoute), so the notice below is the
+  // phone's, whose host has no such route here. On the desktop a film the
+  // live route cannot rescue either says so through its own error panel.
+  const noPicture = blindUrl === url && hushedUrl !== url && !!attach
+  const { goLive, live: isLive, converting: isConverting, converted: isConverted } = playable
   useEffect(() => {
     const el = video.current
-    if (!el || !videoCodec || playable.converting || playable.converted) return
+    if (!el || !videoCodec || isConverting || isConverted || isLive) return
     const t = window.setInterval(() => {
       // readyState >= 2 means metadata AND a frame's worth of data has been
       // considered, so a zero width by then is a decoder that gave up.
       if (el.readyState >= 2) setBlindUrl(el.videoWidth === 0 ? url : null)
     }, 900)
     return () => window.clearInterval(t)
-  }, [url, videoCodec, video, playable.converting, playable.converted])
+  }, [url, videoCodec, video, isConverting, isConverted, isLive])
+  // The element's last word: an error, or a frame's worth of data and no
+  // picture, on a film with a picture, takes the live route once.
+  useEffect(() => {
+    if (attach) return
+    const el = video.current
+    if (
+      rescueLive({
+        codec: videoCodec,
+        tried: isLive,
+        converting: isConverting,
+        converted: isConverted,
+        failed: !!c.error,
+        readyState: el?.readyState ?? 0,
+        videoWidth: el?.videoWidth ?? 0
+      }) &&
+      (!!c.error || blindUrl === url)
+    )
+      goLive()
+  }, [attach, videoCodec, isLive, isConverting, isConverted, c.error, blindUrl, url, goLive])
 
   return (
     <div
@@ -564,7 +598,7 @@ export function VideoView({
       )}
       <video
         ref={video}
-        src={attach ? undefined : src}
+        src={feed ? undefined : src}
         // Volume over 100% routes this element through Web Audio, and a source
         // that is not CORS-clean feeds the graph SILENCE rather than sound -
         // permanently, since the routing outlives the setting that asked for

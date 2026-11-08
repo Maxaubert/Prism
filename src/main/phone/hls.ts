@@ -87,11 +87,25 @@ export interface Encoder {
  *  bt709 (measured 7.5x realtime at 4K; scale_cuda alone left the picture
  *  flat grey). The decoder hands system-memory p010 frames (no cuda output
  *  format on this path) and they are uploaded to Vulkan for the filter. */
-const TONEMAP_GPU = (h: number | null): string =>
-  `format=p010,hwupload,libplacebo=${h ? `w=-2:h=${h}:` : ''}tonemapping=bt.2390:colorspace=bt709:color_primaries=bt709:color_trc=bt709:format=yuv420p,hwdownload,format=yuv420p`
+const TONEMAP_GPU = (h: number | null, turn = false): string =>
+  `format=p010,hwupload,libplacebo=${h ? (turn ? `w=${h}:h=-2:` : `w=-2:h=${h}:`) : ''}tonemapping=bt.2390:colorspace=bt709:color_primaries=bt709:color_trc=bt709:format=yuv420p,hwdownload,format=yuv420p`
 /** The CPU fallback: zscale to linear, hable, back to bt709 (measured 6x). */
-const TONEMAP_CPU = (h: number | null): string =>
-  `${h ? `scale=-2:${h},` : ''}zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p`
+const TONEMAP_CPU = (h: number | null, turn = false): string =>
+  `${h ? `${scaleTo(h, turn)},` : ''}zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p`
+
+/**
+ * THE PICTURE KEEPS ITS TURN (2026-11-08, the owner's iPhone films). A phone
+ * films portrait as a landscape picture plus a display matrix saying "turn
+ * this -90". ffmpeg honours that by inserting a transpose ahead of the
+ * filters, which works on frames in system memory and NOT on CUDA frames:
+ * measured on the owner's own clip, the all-GPU path wrote 1920x1080 with
+ * the matrix dropped, a portrait film lying on its side. So a turned film
+ * is decoded on the GPU into system memory and filtered on the CPU, and the
+ * encoder is still NVENC. The ceiling is the SHORT side either way: after a
+ * quarter turn that side is the width, and `-2:1080` would have shrunk a
+ * 1080x1920 portrait film to 608x1080.
+ */
+const scaleTo = (h: number, turn: boolean): string => (turn ? `scale=${h}:-2` : `scale=-2:${h}`)
 
 export function hlsArgs(o: {
   ffmpeg: string
@@ -106,17 +120,20 @@ export function hlsArgs(o: {
   const start = o.startSegment * SEGMENT_SECONDS
   const gpu = o.encoder.video === 'nvenc'
   const encodeVideo = !plan.audioOnly && !plan.copyVideo
+  const turned = !!plan.rotation && plan.rotation % 360 !== 0
+  const turn = turned && Math.abs(plan.rotation ?? 0) % 180 === 90
   // Hardware decode is asked for only when the picture is being encoded: a
   // copy never touches the frames, and audio-only has no frames to touch.
   const pre: string[] = []
   if (encodeVideo && gpu) {
     if (plan.tonemap) pre.push('-init_hw_device', 'vulkan=vk', '-filter_hw_device', 'vk', '-hwaccel', 'cuda')
+    else if (turned) pre.push('-hwaccel', 'cuda')
     else pre.push('-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda')
   }
   let filter: string
-  if (plan.tonemap) filter = gpu ? TONEMAP_GPU(plan.height) : TONEMAP_CPU(plan.height)
-  else if (gpu) filter = `scale_cuda=${plan.height ? `-2:${plan.height}` : 'iw:ih'}:format=nv12`
-  else filter = `${plan.height ? `scale=-2:${plan.height},` : ''}format=yuv420p`
+  if (plan.tonemap) filter = gpu ? TONEMAP_GPU(plan.height, turn) : TONEMAP_CPU(plan.height, turn)
+  else if (gpu && !turned) filter = `scale_cuda=${plan.height ? `-2:${plan.height}` : 'iw:ih'}:format=nv12`
+  else filter = `${plan.height ? `${scaleTo(plan.height, turn)},` : ''}format=yuv420p`
   const video: string[] = plan.audioOnly
     ? ['-vn']
     : plan.copyVideo

@@ -188,6 +188,27 @@ export class HlsJobs {
     await Promise.all(gone.map((job) => this.discard(job)))
   }
 
+  /** Stop and discard ONE job: the desktop player that asked for it closed
+   *  or moved to another file (2026-11-08, liveVideo.ts). Its ffmpeg is
+   *  killed and its segments removed, like `stopFor` does for a phone. */
+  async stop(id: string): Promise<void> {
+    const job = this.jobs.get(id)
+    if (!job) return
+    this.jobs.delete(id)
+    await this.discard(job)
+  }
+
+  /** How many jobs there are, so a host can stop its reaper when idle. */
+  get size(): number {
+    return this.jobs.size
+  }
+
+  /** Whether ffmpeg is running for a job: the e2e asks this to prove a
+   *  closed player left nothing encoding behind it. */
+  running(id: string): boolean {
+    return !!this.jobs.get(id)?.proc
+  }
+
   lastError(id: string): string | null {
     return this.jobs.get(id)?.failed ?? null
   }

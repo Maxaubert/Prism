@@ -177,6 +177,8 @@ export const CALL = {
 
   videoConvert: 'video:convert',
   videoCancel: 'video:cancel',
+  videoLive: 'video:live',
+  videoLiveStop: 'video:live-stop',
 
   appsFor: 'apps:for',
 

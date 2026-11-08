@@ -117,6 +117,7 @@ import { exists } from './fsUtil'
 import { E2E, appState, windows } from './appState'
 import { createPathWall } from './pathWall'
 import { MEDIA_SCHEME, createMediaServer } from './mediaProtocol'
+import { createLiveVideo, isLiveRequest, type LiveVideo } from './liveVideo'
 import { heicToJpeg } from './heicClient'
 import { ffmpegTools, sevenExe } from './bundledTools'
 import { registerArchiveIpc, type ArchiveBodies } from './ipc/archive'
@@ -267,6 +268,9 @@ const serveMedia = slowMedia
       return serveMediaNow(request)
     }
   : serveMediaNow
+/** `fsmedia://live/...`, the desktop's live transcodes (liveVideo.ts). Made
+ *  at ready, with the phone's jobs; until then nothing can have asked. */
+let liveVideo: LiveVideo | null = null
 
 /**
  * The encoding and line endings each text file arrived with.
@@ -1996,6 +2000,8 @@ export interface ReadyCtx {
   probeCached: (p: string) => Promise<MediaInfo | null>
   /** `doc:html`'s body, shared with the phone. */
   docHtmlOf: (p: string) => Promise<string | null>
+  /** The desktop's live transcode (liveVideo.ts); null without ffmpeg. */
+  live: LiveVideo | null
 }
 
 // Single instance: a second launch (opening another file) forwards its path to
@@ -2301,6 +2307,8 @@ if (!app.requestSingleInstanceLock()) {
     }
     killSidecars()
     cancelAllConversions()
+    // The kills inside are synchronous; the folder goes at the next start.
+    void liveVideo?.stopAll()
     const reason: QuitReason =
       quitReason ?? (appState.installingUpdate ? 'update' : sessionEnded ? 'session-end' : 'user')
     // The quit is going ahead: the log's queue is written synchronously, so
@@ -2384,7 +2392,9 @@ if (!app.requestSingleInstanceLock()) {
     )
     registerPreferencesIpc(ctx)
     registerWinEIpc(ctx)
-    protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
+    protocol.handle(MEDIA_SCHEME, (request) =>
+      liveVideo && isLiveRequest(request.url) ? liveVideo.serve(request) : serveMedia(request)
+    )
     protocol.handle(AUDIO_SCHEME, (request) =>
       serveSidecarAudio(request, {
         allowed: readable,
@@ -2434,6 +2444,19 @@ if (!app.requestSingleInstanceLock()) {
       ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR, log: logPhone })
       : null
     void rm(HLS_DIR, { recursive: true, force: true }).catch(() => undefined)
+    // The desktop's live transcode (2026-11-08): the phone's jobs, its own
+    // folder, wiped before the first job may use it.
+    const LIVE_DIR = userPaths.live()
+    const liveWiped = rm(LIVE_DIR, { recursive: true, force: true }).catch(() => undefined)
+    liveVideo = hlsTools
+      ? createLiveVideo({
+          ffmpeg: hlsTools.ffmpeg,
+          baseDir: LIVE_DIR,
+          readable,
+          hold: (c, f) => holders.add(c, f),
+          ready: liveWiped
+        })
+      : null
 
     /**
      * `file:text`'s body, factored (#106) so the phone's `/api/text` reads
@@ -2543,7 +2566,7 @@ if (!app.requestSingleInstanceLock()) {
     phoneService = startPhoneService({ deps: phoneDeps, hlsJobs })
 
     /** What the IPC handlers in ipc/ need that only exists now (`ReadyCtx`). */
-    const ready: ReadyCtx = { positions, readTextWalled, probeCached, docHtmlOf }
+    const ready: ReadyCtx = { positions, readTextWalled, probeCached, docHtmlOf, live: liveVideo }
 
     startUpdates()
     registerOpenIpc()

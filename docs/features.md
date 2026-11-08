@@ -3,6 +3,47 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## iPhone .mov films play on every PC: direct, or live (owner, 2026-11-08)
+
+The owner: "make prism support .mov, i dont think it does". `.mov` was already a video kind
+(`fileKind.ts`, `assoc.nsh`, `video/quicktime`). MEASURED first, on copies of the owner's own films
+(`Downloads\iphoneimages`, 1576 .mov: 1520 HEVC, mostly Main 8-bit portrait with a -90 display
+matrix, 191 Main 10 HLG with Dolby Vision 8.4, the rest H.264): on THIS PC (RTX 5090) every copy tried played
+already, picture, sound, the turn and the HDR right, because Chromium decodes HEVC through the
+platform (`canPlayType('video/mp4; codecs="hvc1.1.6.L120.90"')` and Main 10 both "probably", MSE
+too). A PC whose GPU or Windows cannot decode HEVC gets sound and a black window. So:
+
+- **Asked of the PC, per film** (`src/renderer/src/lib/liveRoute.ts`): HEVC is the one codec Chromium
+  decodes only through the platform, so `canPlayType` is asked about THIS film's profile (Main and
+  Main 10 are separate answers; the probe now reads `profile`). A yes plays the file itself, no
+  transcode. A no takes the live route. The element has the last word: a film that errors, or has a
+  frame's worth of data and no width, goes live once (`rescueLive`), whatever its codec.
+- **The live route is the phone's** (`src/main/liveVideo.ts`): the same `HlsJobs`, the same
+  playlist of the whole film written up front (the bar knows the length, a seek anywhere restarts
+  ffmpeg there), NVENC first and libopenh264 after one GPU refusal, served as
+  `fsmedia://live/<job>/...` and played by hls.js (already the phone's; nothing new ships). AAC is
+  copied, PCM and the like encoded to AAC, Dolby left to the audio sidecar as for any file. HDR is
+  tone-mapped. 4K keeps its size on NVENC, 1080 on the short side for the software encoder.
+- **Walled and gone with the player**: a job opens only for a file the window may read, belongs to
+  that window, and every playlist and segment re-checks the wall. It stops when the file changes or
+  the player unmounts (counted, so a preview and a full view of one film share it), when the window
+  closes, and at quit; its folder `userData/live` is wiped at startup. Each ffmpeg registers with the
+  holders, so moving the film kills it first. ProRes, MPEG-2 and the rest keep the convert-once route.
+- **The turn survives a GPU transcode** (`hls.ts scaleTo`): with CUDA frames ffmpeg drops the display
+  matrix (measured: an owner's portrait film came out 1920x1080, on its side), so a turned film is
+  decoded on the GPU into memory and scaled on the CPU, and the ceiling applies to the short side.
+  The phone's transcode had the same fault and is fixed with it.
+- **The spatial-audio track (APAC) is not offered** (`ffmpeg.ts`): ffmpeg cannot decode it, and newer
+  iPhone films listed it as a second, silent row in the track picker.
+- A Live Photo's container crop is honoured by the transcode and not by Chromium (1308x1744 live,
+  1440x1920 direct, on one of the owner's clips); left as it is.
+
+Held by `liveRoute.test.ts`, `liveVideo.test.ts`, `hls.test.ts` (the turn), `ffmpeg.test.ts`
+(profile, turn, APAC), and the e2e `movHevc` (a libkvazaar HEVC .mov with a quarter turn: direct on a
+PC that decodes HEVC, then forced live with `PRISM_E2E_FORCE_LIVE`: portrait picture, length,
+a seek past what ffmpeg has made, pause, the preview, and no job or segment left once the tab lets
+go). `movOwner` runs the owner's own copies from `.e2e/owner-mov/` both ways when they are there.
+
 ## Standby, the hotkey path and startup in the log (owner, 2026-11-06)
 
 The audit (`research/prism/2026-11-06-logging-startup-stalls-audit.md`) found the log could not say where
