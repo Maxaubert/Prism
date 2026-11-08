@@ -15,6 +15,7 @@ import { isFullscreenKey } from '../../lib/fullscreenKey'
 import { yieldsFindToExplorer } from '../../lib/previewFind'
 import { pageAtLine } from './pageAtLine'
 import '../../assets/pdf.css'
+import { ownResizeObserver } from '../../lib/ownResizeObserver'
 
 // Prism's own PDF viewer: pdf.js pages in a continuous scroll, the app's chrome
 // and nobody else's. No Chromium toolbar, no built-in sidebar; zoom and paging
@@ -238,7 +239,7 @@ export function PdfView({
   useEffect(() => {
     const box = scroller.current
     if (!box) return
-    const ro = new ResizeObserver(() => setBoxSize({ w: box.clientWidth, h: box.clientHeight }))
+    const ro = ownResizeObserver(box, () => setBoxSize({ w: box.clientWidth, h: box.clientHeight }))
     ro.observe(box)
     return () => ro.disconnect()
   }, [])
