@@ -427,6 +427,27 @@ export function buildFixtures() {
     { windowsHide: true }
   )
 
+  // An iPhone-shaped film (2026-11-08, movHevc): HEVC tagged hvc1 in a .mov,
+  // AAC beside it, and a display matrix turning it a quarter, as a phone's
+  // portrait film is. Encoded with libkvazaar (the bundled LGPL build's HEVC
+  // encoder), then the turn is added by a copy. Twelve seconds: three live
+  // segments, so a seek lands on one the first run has not made.
+  const hevcPlain = join(FIXTURES, 'av', 'hevc-plain.mov')
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=12:size=640x360:rate=25',
+     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=12:sample_rate=48000',
+     '-c:v', 'libkvazaar', '-kvazaar-params', 'preset=ultrafast', '-pix_fmt', 'yuv420p', '-tag:v', 'hvc1',
+     '-c:a', 'aac', '-shortest', '-f', 'mov', hevcPlain],
+    { windowsHide: true }
+  )
+  spawnSync(
+    FFMPEG,
+    ['-y', '-display_rotation', '90', '-i', hevcPlain, '-c', 'copy', '-tag:v', 'hvc1', join(FIXTURES, 'av', 'iphone-hevc.mov')],
+    { windowsHide: true }
+  )
+  rmSync(hevcPlain, { force: true })
+
   // A Targa still: Chromium draws none of these, so it proves the ffmpeg
   // image path rather than the <img> tag.
   spawnSync(

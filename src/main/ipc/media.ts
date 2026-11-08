@@ -18,11 +18,17 @@ import { ffmpegTools, fluidTools } from '../bundledTools'
 import { openDialog } from '../dialogs'
 import { windows } from '../appState'
 import type { MainCtx, ReadyCtx } from './context'
+import { E2E } from '../appState'
+import type { LiveResult } from '@shared/ipcTypes'
+
+/** E2E only: every film takes the live transcode (movHevc), as the phone's
+ *  e2e forces an encode. Inert outside `--e2e`. */
+const FORCE_LIVE = E2E && !!process.env.PRISM_E2E_FORCE_LIVE
 
 /** Subtitles, the audio sidecar, peaks and probes, MIDI, video conversion, documents. */
 export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
   const { pickedSubs, readable, wall } = ctx
-  const { docHtmlOf, probeCached } = ready
+  const { docHtmlOf, probeCached, live } = ready
   /* ----- subtitles ----- */
 
   // Sidecar tracks for a video (same name, same folder or Subs/), and their
@@ -122,6 +128,8 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
       ffmpeg: true,
       needed,
       videoCodec: info.videoCodec ?? undefined,
+      videoProfile: info.video?.profile,
+      ...(FORCE_LIVE && info.videoCodec ? { forceLive: true } : {}),
       fps: info.fps ?? undefined,
       convert: plan.needed ? { reason: plan.reason ?? 'codec', quick: plan.copyVideo } : undefined
     }
@@ -264,6 +272,28 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
     if (typeof source !== 'string') return
     settle(e.sender.id, source)
     converting.cancel(source)
+  })
+
+  /* ----- a picture this PC cannot decode (2026-11-08, liveVideo.ts) ----- */
+
+  /** Windows whose close is already heard, so each gets ONE listener. */
+  const livePages = new Set<number>()
+  ipcMain.handle(CALL.videoLive, async (e, p: string): Promise<LiveResult> => {
+    if (typeof p !== 'string' || !readable(p)) return { error: 'outside the folder' }
+    if (!live) return { error: 'no decoder available' }
+    const page = e.sender.id
+    if (!livePages.has(page)) {
+      livePages.add(page)
+      // A window that closes never says it let go: its transcodes stop here.
+      e.sender.once('destroyed', () => {
+        livePages.delete(page)
+        void live.stopPage(page)
+      })
+    }
+    return live.open(page, p, await probeCached(p))
+  })
+  ipcMain.on(CALL.videoLiveStop, (e, p: string) => {
+    if (typeof p === 'string') void live?.stop(e.sender.id, p)
   })
 
   // Office and ebook documents: converted to HTML in main, sanitised there

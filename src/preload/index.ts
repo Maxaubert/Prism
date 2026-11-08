@@ -45,6 +45,7 @@ import type {
   ComicOpenResult,
   ConvertProgress,
   ConvertResult,
+  LiveResult,
   FileStat,
   FolderSizeProgress,
   HashProgress,
@@ -401,6 +402,11 @@ const api = {
   /** Stop converting a file nobody is looking at any more. */
   cancelConvert: (path: string): void => ipcRenderer.send(CALL.videoCancel, path),
   onConvertProgress: subscribe<ConvertProgress>(PUSH.videoProgress),
+  /** A film whose PICTURE this PC cannot decode, as a live HLS transcode
+   *  (2026-11-08): the playlist url, played through hls.js. */
+  liveVideo: (path: string): Promise<LiveResult> => ipcRenderer.invoke(CALL.videoLive, path),
+  /** The player let go of that film: its transcode stops. */
+  stopLive: (path: string): void => ipcRenderer.send(CALL.videoLiveStop, path),
   /** The same stream without a probe: for when the player itself noticed the
    *  audio never decoded, and can name the duration off the element. */
   audioBlind: (path: string, duration: number): Promise<string | null> =>

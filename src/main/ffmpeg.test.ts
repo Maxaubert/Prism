@@ -206,6 +206,40 @@ describe('reading a probe', () => {
     expect(none?.video).toBeNull()
   })
 
+  it('reads the profile and the display matrix turn of an iPhone film (2026-11-08)', () => {
+    const r = readProbe(
+      probe([
+        {
+          index: 0,
+          codec_type: 'video',
+          codec_name: 'hevc',
+          profile: 'Main 10',
+          width: 1920,
+          height: 1080,
+          pix_fmt: 'yuv420p10le',
+          color_transfer: 'arib-std-b67',
+          side_data_list: [{ side_data_type: 'DOVI configuration record' }, { side_data_type: 'Display Matrix', rotation: -90 }]
+        },
+        { index: 1, codec_type: 'audio', codec_name: 'aac' },
+        { index: 2, codec_type: 'data' }
+      ])
+    )
+    expect(r?.video).toMatchObject({ profile: 'Main 10', rotation: -90, transfer: 'arib-std-b67' })
+    expect(r?.videoCodec).toBe('hevc')
+    expect(r?.audio?.index).toBe(1) // the Apple data tracks change nothing
+  })
+
+  it('never offers an iPhone spatial-audio track nothing can decode', () => {
+    const r = readProbe(
+      probe([
+        { index: 0, codec_type: 'video', codec_name: 'hevc' },
+        { index: 1, codec_type: 'audio', codec_name: 'aac' },
+        { index: 2, codec_type: 'audio', codec_name: 'apple_apac' }
+      ])
+    )
+    expect(r?.tracks.map((t) => t.index)).toEqual([1])
+  })
+
   it('prefers the default track, which is the one Chromium would play', () => {
     const r = readProbe(
       probe([

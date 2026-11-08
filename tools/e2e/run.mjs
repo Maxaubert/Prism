@@ -3708,6 +3708,206 @@ async function convertScenario(fixtures) {
   }
 }
 
+
+/**
+ * THE OWNER'S OWN iPHONE FILMS, when copies of them are on this PC
+ * (2026-11-08, "make prism support .mov"). Local only: `.e2e/owner-mov/` is
+ * untracked and filled by hand from copies, never committed, so on CI and on
+ * any other PC this scenario has nothing to open and says so. Each film must
+ * show a picture with time moving, whichever route it took.
+ */
+async function movOwnerScenario() {
+  console.log('the owner’s own .mov films (local copies)')
+  const dir = join(ROOT, '.e2e', 'owner-mov')
+  let names = []
+  try {
+    names = readdirSync(dir).filter((n) => /\.mov$/i.test(n))
+  } catch {
+    /* none here */
+  }
+  if (!names.length) {
+    console.log('  (no copies in .e2e/owner-mov; skipped)')
+    return
+  }
+  // Each film twice: as this PC plays it, then down the live route a PC
+  // without HEVC takes (forced), so the owner's own turns, HLG, PCM and
+  // spatial-audio tracks are proven through the transcode too.
+  for (const [mode, name] of names.flatMap((n) => [['as is', n], ['live', n]])) {
+    const file = join(dir, name)
+    const { app, win } = await launchWith(mode === 'live' ? { PRISM_E2E_FORCE_LIVE: '1' } : {}, file)
+    try {
+      await win.waitForSelector('video', { timeout: 10000 })
+      const caps = await win.evaluate(() => {
+        const v = document.createElement('video')
+        return {
+          main: v.canPlayType('video/mp4; codecs="hvc1.1.6.L120.90"'),
+          main10: v.canPlayType('video/mp4; codecs="hvc1.2.4.L120.90"'),
+          mseMain: MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L120.90"'),
+          mseMain10: MediaSource.isTypeSupported('video/mp4; codecs="hvc1.2.4.L120.90"')
+        }
+      })
+      const probe = await win.evaluate((p) => window.prism.probeMedia(p), file)
+      await win.evaluate(() => document.querySelector('video')?.play().catch(() => {}))
+      const settled = await until(
+        async () =>
+          win.evaluate(() => {
+            const v = document.querySelector('video')
+            return !!v && v.videoWidth > 0 && v.currentTime > 0.1
+          }),
+        20000
+      )
+      await sleep(600)
+      const st = await win.evaluate(() => {
+        const v = document.querySelector('video')
+        const q = v?.getVideoPlaybackQuality?.()
+        return {
+          src: decodeURIComponent(v?.currentSrc ?? '').slice(0, 90),
+          w: v?.videoWidth ?? 0,
+          h: v?.videoHeight ?? 0,
+          ready: v?.readyState ?? -1,
+          t: v?.currentTime ?? 0,
+          dur: v?.duration ?? 0,
+          frames: q?.totalVideoFrames ?? 0,
+          err: v?.error ? `${v.error.code} ${v.error.message}` : null,
+          notice: [...document.querySelectorAll('[role="status"]')].map((d) => d.textContent).join(' | ').slice(0, 160)
+        }
+      })
+      if (mode === 'as is') console.log(`  ${name}: canPlay ${JSON.stringify(caps)}`)
+      console.log(`  ${name}: probe ${JSON.stringify({ ...probe, tracks: probe.tracks?.length })}`)
+      console.log(`  ${name}: element ${JSON.stringify(st)}`)
+      await win.screenshot({ path: join(SHOTS, `mov-owner-${mode === 'live' ? 'live-' : ''}${name.replace(/[^\w.-]/g, '_')}.png`) })
+      ok(settled && st.w > 0 && st.frames > 0 && st.h > st.w, `${name} (${mode}): a portrait picture, with time moving (${st.w}x${st.h}, t=${st.t.toFixed(2)})`)
+      if (mode === 'live') ok(st.src.startsWith('blob:'), `${name}: through the live transcode`)
+    } finally {
+      await app.close()
+    }
+    await sleep(700)
+  }
+}
+
+/**
+ * AN iPHONE'S HEVC .MOV PLAYS, WHATEVER THE PC CAN DECODE (owner,
+ * 2026-11-08: "make prism support .mov, i dont think it does"). This PC
+ * decodes HEVC through its GPU, so the film plays as it is and nothing is
+ * transcoded: asserted first. Then the live route a PC WITHOUT HEVC takes is
+ * forced (`PRISM_E2E_FORCE_LIVE`, as the phone's e2e forces an encode): the
+ * picture plays through hls.js with its portrait turn kept, the bar knows the
+ * whole length from the first second, a seek past what ffmpeg has made lands,
+ * pause holds, and leaving the film leaves no ffmpeg on it. The preview pane
+ * takes the same route. The fixture is synthetic (libkvazaar HEVC, AAC, a
+ * quarter-turn display matrix); the owner's own films are `movOwner`.
+ */
+async function movHevcScenario(fixtures) {
+  console.log('an iPhone HEVC .mov plays, directly or live (2026-11-08)')
+  const src = join(fixtures, 'av', 'iphone-hevc.mov')
+  if (!existsSync(src)) {
+    ok(false, 'the HEVC fixture was built (needs libkvazaar in the bundled ffmpeg)')
+    return
+  }
+  const dir = join(fixtures, 'movhevc')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, 'IMG_0001.MOV')
+  copyFileSync(src, file)
+  writeFileSync(join(dir, 'notes.txt'), 'not a film')
+  const transcodes = () => processCount('ffmpeg.exe', '*movhevc*IMG_0001*')
+  const film = (sel = 'video') =>
+    win.evaluate((s) => {
+      const v = document.querySelector(s)
+      if (!v) return null
+      return {
+        src: v.currentSrc || v.getAttribute('src') || '',
+        w: v.videoWidth,
+        h: v.videoHeight,
+        t: v.currentTime,
+        dur: v.duration,
+        ready: v.readyState,
+        paused: v.paused,
+        frames: v.getVideoPlaybackQuality?.().totalVideoFrames ?? 0
+      }
+    }, sel)
+  let app
+  let win
+
+  // 1. Direct, on a PC that decodes HEVC: the file itself, no transcode.
+  ;({ app, win } = await launch(file))
+  try {
+    await win.waitForSelector('video', { timeout: 10000 })
+    const can = await win.evaluate(() => document.createElement('video').canPlayType('video/mp4; codecs="hvc1.1.6.L120.90"'))
+    await win.evaluate(() => document.querySelector('video')?.play().catch(() => {}))
+    ok(await until(async () => ((await film())?.w ?? 0) > 0 && ((await film())?.t ?? 0) > 0.3, 20000), `the film plays (${JSON.stringify(await film())})`)
+    const f = await film()
+    if (can) {
+      ok(f.src.startsWith('fsmedia://local/'), `this PC decodes HEVC (${can}): the file itself plays, no transcode (${f.src.slice(0, 40)})`)
+      ok((await transcodes()) === 0, 'and no ffmpeg runs on it')
+    } else {
+      ok(f.src.startsWith('blob:'), 'this PC cannot decode HEVC: the live route plays it')
+    }
+    ok(f.w === 360 && f.h === 640, `the quarter turn is honoured: portrait (${f.w}x${f.h})`)
+  } finally {
+    await app.close()
+  }
+  await sleep(800)
+
+  // 2. Forced live: the route a PC without HEVC takes.
+  ;({ app, win } = await launchWith({ PRISM_E2E_FORCE_LIVE: '1' }, file))
+  try {
+    await win.waitForSelector('video', { timeout: 10000 })
+    await win.evaluate(() => document.querySelector('video')?.play().catch(() => {}))
+    ok(await until(async () => ((await film())?.w ?? 0) > 0 && ((await film())?.t ?? 0) > 0.5, 30000), `live: the picture plays, time moving (${JSON.stringify(await film())})`)
+    let f = await film()
+    ok(f.src.startsWith('blob:'), `through hls.js, not the file (${f.src.slice(0, 30)})`)
+    ok(f.w === 360 && f.h === 640, `the transcode keeps the turn: portrait (${f.w}x${f.h})`)
+    ok(f.frames > 0, `frames really decode (${f.frames})`)
+    ok(Math.abs(f.dur - 12) < 0.6, `the bar knows the whole film from the start (${f.dur})`)
+    ok((await win.locator('[data-transport]').textContent().catch(() => '')).includes('0:12'), 'and says 0:12')
+    // A 12 s film is encoded whole in well under a second, so its ffmpeg may
+    // already have finished: the job's folder is what proves a job exists.
+    const liveDir = join(PROFILE, 'live')
+    ok(existsSync(liveDir) && readdirSync(liveDir).length === 1, 'one live job, in main’s own folder')
+    // A seek past what the first run has made: segment 2 of 3.
+    await win.evaluate(() => {
+      const v = document.querySelector('video')
+      v.currentTime = 9
+      void v.play().catch(() => {})
+    })
+    ok(await until(async () => { const g = await film(); return g.t >= 9.2 && g.ready >= 3 }, 20000), `a seek to 0:09 lands and plays on (${JSON.stringify(await film())})`)
+    await win.evaluate(() => document.querySelector('video').pause())
+    await sleep(400)
+    const t0 = (await film()).t
+    await sleep(700)
+    f = await film()
+    ok(f.paused && Math.abs(f.t - t0) < 0.05, `pause holds (${t0} -> ${f.t})`)
+    await win.screenshot({ path: join(SHOTS, 'mov-hevc-live.png') })
+
+    // Back to the list: the player is kept for the preview (the deck), and
+    // the pane below carries on with the same stream.
+    await toList(win)
+
+    // The preview pane takes the same route.
+    const box = await listRow(win, 'IMG_0001.MOV').boundingBox()
+    await listRow(win, 'IMG_0001.MOV').click({ position: { x: 30, y: box.height / 2 } })
+    await sleep(600)
+    const pane = '[data-browse-preview] video'
+    if (!(await win.locator(pane).count())) {
+      await win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first().click()
+    }
+    await win.waitForSelector(pane, { timeout: 10000 })
+    await win.evaluate((s) => document.querySelector(s)?.play().catch(() => {}), pane)
+    ok(await until(async () => { const g = await film(pane); return !!g && g.w > 0 && g.t > 0.3 && g.src.startsWith('blob:') }, 30000), `the preview pane shows it, the tab's kept player on the same live stream (${JSON.stringify(await film(pane))})`)
+    await win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first().click()
+    ok(await until(async () => (await win.locator(pane).count()) === 0, 5000), 'the pane closes')
+    ok(await until(async () => (await transcodes()) === 0, 8000), `and its ffmpeg stops with it (${await transcodes()})`)
+    const left = () => (existsSync(liveDir) ? readdirSync(liveDir) : [])
+    // The tab keeps its player while it holds the film (lib/mediaDeck), so
+    // the film is let go by opening another file in that tab.
+    await viewFile(win, 'notes.txt')
+    ok(await until(() => left().length === 0, 8000), `the player gone, its job and segments are gone too (${left().join(', ')})`)
+  } finally {
+    await app.close()
+  }
+  ok(await until(async () => (await transcodes()) === 0, 8000), 'nothing transcoding after the app is gone')
+}
 async function stillsAndSubsScenario(fixtures) {
   console.log('stills and subtitles Chromium cannot read')
   {
@@ -21943,6 +22143,8 @@ await run(dolbyScenario)
 await run(formatsScenario)
 await run(stillsAndSubsScenario)
 await run(convertScenario)
+await run(movHevcScenario)
+await run(movOwnerScenario)
 await run(sevenZipScenario)
 await run(documentScenario, 2000)
 await run(synthAndRawScenario)

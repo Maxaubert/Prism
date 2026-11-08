@@ -72,6 +72,10 @@ export interface ConvertResult {
   error?: string
 }
 
+/** `video:live` (2026-11-08, liveVideo.ts): the HLS playlist of a live
+ *  transcode, for a picture this PC cannot decode, and the film's length. */
+export type LiveResult = { url: string; duration: number } | { error: string }
+
 /** A comic's pages in reading order, or why it would not open. */
 export type ComicOpenResult = { pages: string[] } | { error: 'password' | 'failed' | 'empty' }
 
