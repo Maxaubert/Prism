@@ -67,7 +67,7 @@ export function usePlayableVideo(path: string, url: string, allowLive = true): P
   // need converting: every file has a frame rate worth knowing.
   const [fps, setFps] = useState<{ path: string; fps: number | null } | null>(null)
   /** The file that goes live, decided by the probe or by the element. */
-  const [liveFor, setLiveFor] = useState<string | null>(null)
+  const [liveFor, setLiveFor] = useState<string | null>(() => (rescued.has(path.toLowerCase()) ? path : null))
   const [live, setLive] = useState<{ path: string; url?: string; error?: string } | null>(null)
   const [blindFor, setBlindFor] = useState<string | null>(null)
   // FRESH FOR EACH FILM (2026-11-08): the owner's films shared one player,

@@ -448,6 +448,17 @@ export function buildFixtures() {
   )
   rmSync(hevcPlain, { force: true })
 
+  // An HEVC film that OPENS ON BLACK (movGuard): a real film's fade-in must
+  // not read as a decoder that shows nothing.
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=8:sample_rate=48000',
+     '-filter_complex', 'color=black:s=640x360:r=25:d=3[a];testsrc=duration=5:size=640x360:rate=25[b];[a][b]concat=n=2:v=1[v]',
+     '-map', '[v]', '-map', '0:a', '-c:v', 'libkvazaar', '-kvazaar-params', 'preset=ultrafast', '-pix_fmt', 'yuv420p', '-tag:v', 'hvc1',
+     '-c:a', 'aac', '-shortest', '-f', 'mov', join(FIXTURES, 'av', 'hevc-dark-open.mov')],
+    { windowsHide: true }
+  )
+
   // A Targa still: Chromium draws none of these, so it proves the ffmpeg
   // image path rather than the <img> tag.
   spawnSync(

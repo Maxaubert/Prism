@@ -4002,6 +4002,116 @@ async function ownerWalk(fixtures) {
 }
 
 /**
+ * A HEALTHY FILM STAYS ON ITS ROUTE (2026-11-08). Going live is a rescue for
+ * a film that shows nothing, so a film the player shows well must never be
+ * taken there: not for being scrubbed while paused, and not for a fade-in
+ * from black. And a film the next one replaces stops at once, even when that
+ * next film is still waiting for its live job.
+ */
+async function movGuardScenario(fixtures) {
+  console.log('a healthy film is left on its route (2026-11-08)')
+  const plain = join(fixtures, 'av', 'iphone-hevc.mov')
+  const dark = join(fixtures, 'av', 'hevc-dark-open.mov')
+  if (!existsSync(plain) || !existsSync(dark)) {
+    ok(false, 'the HEVC fixtures were built (needs libkvazaar in the bundled ffmpeg)')
+    return
+  }
+  const dir = join(fixtures, 'movguard')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['A_scrub.mov', 'B_film.mov', 'C_rescued.mov']) copyFileSync(plain, join(dir, n))
+  copyFileSync(dark, join(dir, 'D_dark.mov'))
+
+  // A paused HEVC film, past the bound, scrubbed: every seek drops readyState
+  // for a moment, and that is no reason to transcode it.
+  // Opened as a file, so it starts paused: a double-click in the list plays.
+  let { app, win } = await launchWith({ ...NO_INDEX }, join(dir, 'A_scrub.mov'))
+  try {
+    await win.waitForSelector('video', { timeout: 15000 })
+    await sleep(4800)
+    const before = await filmNow(win)
+    ok(before.route === 'direct' && before.w > 0 && before.paused, `the film is up, paused, direct (${JSON.stringify(before)})`)
+    await win.evaluate(() => {
+      const v = document.querySelector('video')
+      window.__low = 0
+      window.__all = 0
+      window.__scrub = setInterval(() => {
+        v.currentTime = Math.random() * 10
+      }, 70)
+      window.__ready = setInterval(() => {
+        window.__all += 1
+        if (v.readyState < 2) window.__low += 1
+      }, 11)
+    })
+    await sleep(8000)
+    console.log(`  scrub: readyState under 2 in ${await win.evaluate(() => { clearInterval(window.__scrub); clearInterval(window.__ready); return `${window.__low} of ${window.__all}` })} samples`)
+    await sleep(800)
+    const after = await filmNow(win)
+    const went = (await filmLines()).filter((l) => l.ev === 'to-live' && String(l.path).includes('A_scrub'))
+    ok(after.route === 'direct' && went.length === 0, `scrubbed while paused, it stays direct (${after.route}, ${JSON.stringify(went)})`)
+  } finally {
+    await app.close()
+  }
+  await sleep(800)
+
+  // Three seconds of black, then a picture: a fade-in, not a dead decoder.
+  ;({ app, win } = await launchWith({ ...NO_INDEX }, dir))
+  try {
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    await viewFile(win, 'D_dark.mov')
+    await sleep(900)
+    if ((await filmNow(win))?.paused) await win.locator('video').first().click({ timeout: 3000 }).catch(() => {})
+    await until(async () => ((await filmNow(win))?.t ?? 0) > 3.6, 15000)
+    const now = await filmNow(win)
+    const lines = (await filmLines()).filter((l) => String(l.path).includes('D_dark'))
+    ok(now.route === 'direct' && !lines.some((l) => l.ev === 'black' || l.ev === 'to-live'), `opening on black, it stays direct (${now.route}, ${JSON.stringify(lines.map((l) => l.ev))})`)
+    ok(now.lit > 3, `and the picture comes up (lit ${now.lit})`)
+  } finally {
+    await app.close()
+  }
+  await sleep(800)
+
+  // A film remembered as live, stepped to from one that is playing: the old
+  // film must stop, not play on under the new film's name.
+  ;({ app, win } = await launchWith({ PRISM_E2E_NO_PICTURE: 'C_rescued', ...NO_INDEX }, dir))
+  try {
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    await viewFile(win, 'C_rescued.mov')
+    ok(await until(async () => (await filmNow(win))?.route === 'live', 20000), 'the film with no picture goes live, and is remembered')
+    await viewFile(win, 'B_film.mov')
+    await sleep(700)
+    if ((await filmNow(win))?.paused) await win.locator('video').first().click({ timeout: 3000 }).catch(() => {})
+    ok(await until(async () => { const f = await filmNow(win); return !!f && f.route === 'direct' && f.t > 0.2 && !f.paused }, 15000), 'the next film plays direct')
+    await win.evaluate(() => {
+      window.__old = 0
+      window.__watch = setInterval(() => {
+        const v = document.querySelector('video')
+        if (v && !v.paused && !v.hasAttribute('src') && (v.currentSrc || '').startsWith('fsmedia')) window.__old += 1
+      }, 8)
+    })
+    await win.keyboard.press('PageDown')
+    ok(await until(async () => (await filmNow(win))?.route === 'live', 15000), 'stepping to the remembered film takes it live at once')
+    const ghost = await win.evaluate(() => {
+      clearInterval(window.__watch)
+      return window.__old
+    })
+    ok(ghost === 0, `and the film before it stopped at once (played on for ${ghost} checks with no source)`)
+    // Stopped while its ffmpeg still holds a file (Windows: EBUSY on the
+    // delete): the job's folder must still go, and nothing may be thrown.
+    await viewFile(win, 'B_film.mov')
+    const liveDir = join(PROFILE, 'live')
+    const left = () => (existsSync(liveDir) ? readdirSync(liveDir) : [])
+    ok(await until(() => left().length === 0, 8000), `the live job's folder is gone (${left().join(', ')})`)
+    await sleep(2600)
+    const thrown = readFileSync(join(DIAG_DIR, 'diag.jsonl'), 'utf8').split('\n').filter((l) => l.includes('main-rejection'))
+    ok(thrown.length === 0, `and main threw nothing while stopping it (${thrown.join(' ').slice(0, 200)})`)
+  } finally {
+    await app.close()
+  }
+  ok(await until(async () => (await processCount('ffmpeg.exe', '*movguard*')) === 0, 8000), 'and no ffmpeg is left behind')
+}
+
+/**
  * AN iPHONE'S HEVC .MOV PLAYS, WHATEVER THE PC CAN DECODE (owner,
  * 2026-11-08: "make prism support .mov, i dont think it does"). This PC
  * decodes HEVC through its GPU, so the film plays as it is and nothing is
@@ -22377,6 +22487,7 @@ await run(stillsAndSubsScenario)
 await run(convertScenario)
 await run(movHevcScenario)
 await run(movOwnerScenario)
+await run(movGuardScenario)
 await run(sevenZipScenario)
 await run(documentScenario, 2000)
 await run(synthAndRawScenario)

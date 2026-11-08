@@ -2,6 +2,8 @@ import { useEffect, type RefObject } from 'react'
 import { blackCheck, pictureCheck } from '../lib/liveRoute'
 import { filmLine } from '../lib/filmDiag'
 
+const TICK_MS = 500
+
 /** Mean brightness of the frame on a tiny canvas, null when it cannot be read. */
 function frameLit(el: HTMLVideoElement): number | null {
   try {
@@ -29,9 +31,13 @@ function frameLit(el: HTMLVideoElement): number | null {
  * (lib/liveRoute `pictureCheck`). HEVC, which goes through the platform's
  * decoder, is also checked for the picture that arrives black (`blackCheck`).
  *
+ * The clock runs only while the film is on screen (a tab behind this one, a
+ * kept player under the list and a hidden window prove nothing), and a film
+ * that has shown a picture is never asked again: a seek is not a failure.
+ *
  * The line for each film says what happened (lib/filmDiag): the first frame,
- * a timeout, an element error. Two readings a second at most, and it stops
- * for good once there is a picture.
+ * a timeout, an element error. Two readings a second at most; the frame is
+ * only read while the film plays, and the watch ends with the first lit one.
  */
 export function useFilmWatch(
   ref: RefObject<HTMLVideoElement | null>,
@@ -55,17 +61,20 @@ export function useFilmWatch(
     const el = ref.current
     if (!el || !film) return
     const t0 = performance.now()
-    let saidFrame = false
+    let watched = 0
+    let seen = false
     let saidNone = false
     let hits = 0
-    let settled = false
+    let lastT = -1
     const stop = (): void => window.clearInterval(timer)
     const timer = window.setInterval(() => {
+      if (document.hidden || !el.checkVisibility({ visibilityProperty: true })) return
+      watched += TICK_MS
       const width = forcedNoPicture ? 0 : el.videoWidth
       const ms = Math.round(performance.now() - t0)
-      const check = pictureCheck({ elapsedMs: ms, readyState: el.readyState, videoWidth: width })
-      if (check === 'picture' && !saidFrame) {
-        saidFrame = true
+      const check = pictureCheck({ elapsedMs: watched, readyState: el.readyState, videoWidth: width, networkState: el.networkState, seen })
+      if (check === 'picture' && !seen) {
+        seen = true
         filmLine('first-frame', path, { ms, route, w: el.videoWidth, h: el.videoHeight })
       }
       if (check === 'no-picture') {
@@ -80,27 +89,31 @@ export function useFilmWatch(
         return
       }
       if (check !== 'picture') return
-      if (!platform || !canRescue || settled) {
+      if (!platform || !canRescue) {
         stop()
         return
       }
+      // A reading is of a film really moving: not paused, not mid-seek.
+      if (el.paused || el.seeking || el.currentTime === lastT) return
+      lastT = el.currentTime
       const q = el.getVideoPlaybackQuality?.()
       const now = blackCheck({
         platform,
-        playing: !el.paused,
+        playing: true,
         t: el.currentTime,
         frames: q?.totalVideoFrames ?? 0,
         lit: frameLit(el),
-        hits
+        hits,
+        duration: el.duration
       })
       hits = now.hits
-      if (now.verdict === 'lit') settled = true
+      if (now.verdict === 'lit') stop()
       if (now.verdict === 'black') {
         stop()
         filmLine('black', path, { ms, route }, false)
         onRescue('black-picture')
       }
-    }, 500)
+    }, TICK_MS)
     const onError = (): void => {
       const e = el.error
       filmLine('error', path, { code: e?.code, message: e?.message, route }, false)

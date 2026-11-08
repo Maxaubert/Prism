@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NO_PICTURE_MS, blackCheck, hevcMime, isPlatformCodec, pictureCheck, pictureRoute, rescueLive, routeWhy } from './liveRoute'
+import { BLACK_MS, NO_PICTURE_MS, SLOW_LOAD_MS, blackCheck, blackReadings, hevcMime, isPlatformCodec, pictureCheck, pictureRoute, rescueLive, routeWhy } from './liveRoute'
 
 /** A PC that answers `canPlayType` with `yes` for exactly these mimes. */
 const pc =
@@ -26,8 +26,34 @@ describe('a film never stays black (owner, 2026-11-08)', () => {
     expect(pictureCheck({ elapsedMs: NO_PICTURE_MS, readyState: 1, videoWidth: 1080 })).toBe('no-picture')
   })
 
-  it('a black film is two black readings while it plays, on the platform decoder only', () => {
-    const at = { platform: true, playing: true, t: 1, frames: 30, lit: 0, hits: 0 }
+  it('a picture once seen is never lost: a seek drops readyState for a moment', () => {
+    expect(pictureCheck({ elapsedMs: 60_000, readyState: 1, videoWidth: 1080, seen: true })).toBe('picture')
+  })
+
+  it('a source that has not sent a byte gets longer than a decoder that said nothing', () => {
+    const loading = { readyState: 0, videoWidth: 0, networkState: 2 }
+    expect(pictureCheck({ ...loading, elapsedMs: NO_PICTURE_MS })).toBe('wait')
+    expect(pictureCheck({ ...loading, elapsedMs: SLOW_LOAD_MS })).toBe('no-picture')
+    // The empty player the owner saw: nothing is loading, so no long wait.
+    expect(pictureCheck({ ...loading, networkState: 0, elapsedMs: NO_PICTURE_MS })).toBe('no-picture')
+    // Metadata came and no frame followed: the decoder, at the short bound.
+    expect(pictureCheck({ ...loading, readyState: 1, elapsedMs: NO_PICTURE_MS })).toBe('no-picture')
+  })
+
+  it('a film opening on black is not a dead decoder: five seconds, or most of a short clip', () => {
+    expect(blackReadings(120)).toBe(BLACK_MS / 500)
+    expect(blackReadings(undefined)).toBe(BLACK_MS / 500)
+    expect(blackReadings(Number.NaN)).toBe(BLACK_MS / 500)
+    // The owner's 2.87 s clip: called while it is still playing.
+    expect(blackReadings(2.87)).toBe(4)
+    expect(blackReadings(0.5)).toBe(2)
+    const at = { platform: true, playing: true, t: 1, frames: 30, lit: 0, duration: 120 }
+    expect(blackCheck({ ...at, hits: 2 }).verdict).toBe('unknown')
+    expect(blackCheck({ ...at, hits: BLACK_MS / 500 - 1 }).verdict).toBe('black')
+  })
+
+  it('a black film is black readings while it plays, on the platform decoder only', () => {
+    const at = { platform: true, playing: true, t: 1, frames: 30, lit: 0, hits: 0, duration: 1.5 }
     const once = blackCheck(at)
     expect(once).toEqual({ hits: 1, verdict: 'unknown' })
     expect(blackCheck({ ...at, hits: once.hits })).toEqual({ hits: 2, verdict: 'black' })
