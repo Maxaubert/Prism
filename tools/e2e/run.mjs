@@ -17724,6 +17724,38 @@ async function previewWindowScenario(fixtures) {
     await sleep(1200)
     ok((await isOpen()) && (await wins())[0].visible && (await inside()) !== null, 'it stays when the Explorer loses the focus and another window comes up')
 
+    // Its own page has its owner's walls (review 2026-11-08): it opens no
+    // window and navigates nowhere (a middle-click or a drop lands there).
+    const winsBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
+    const walls = await win.evaluate(async () => {
+      const w = window.__prismPreviewWindow
+      // A link clicked in its own document (its CSP allows no eval), so the
+      // request is the child page's own, as a real click's would be.
+      const link = (href, target) => {
+        const a = w.document.createElement('a')
+        a.href = href
+        if (target) a.target = target
+        w.document.body.appendChild(a)
+        a.click()
+        a.remove()
+      }
+      link('about:blank', 'prism-preview-other')
+      await new Promise((r) => setTimeout(r, 500))
+      link('file:///C:/')
+      await new Promise((r) => setTimeout(r, 800))
+      let href = 'closed'
+      try {
+        if (!w.closed) href = w.location.href
+      } catch {
+        href = 'navigated away (cross-origin now)'
+      }
+      return { opened: false, href }
+    })
+    const winsAfter = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
+    ok(!walls.opened && winsAfter === winsBefore, `the preview window opens no window of its own (${JSON.stringify(walls)}, ${winsBefore} -> ${winsAfter})`)
+    ok(walls.href === 'about:blank', `and its page goes nowhere (${walls.href})`)
+    ok((await inside()) !== null, 'and it still shows the file')
+
     // Space with the keyboard in the window itself closes it, faded out.
     const beforeClose = (await fades()).length
     await childKey(' ')
@@ -17749,6 +17781,22 @@ async function previewWindowScenario(fixtures) {
       (await win.locator('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]').count()) === 1,
       'and leaves the row picked (the next Escape clears it)'
     )
+
+    // Space, Space, Space quicker than the fade (review 2026-11-08): the
+    // third press opens a window that really shows, not a dead one, and
+    // only one.
+    await listRow(win, 'bravo.png').focus()
+    for (let i = 0; i < 3; i++) {
+      await win.keyboard.press('Space')
+      await sleep(60)
+    }
+    ok(await until(async () => (await wins()).length === 1 && (await wins())[0].visible && (await wins())[0].opacity === 1, 4000), `three quick Spaces: one window, on screen (${JSON.stringify((await wins()).map((x) => ({ v: x.visible, o: x.opacity })))})`)
+    ok(await until(async () => (await inside())?.img?.ok, 5000), 'and it shows the file')
+    await sleep(400)
+    ok((await wins()).length === 1 && (await pressed()), 'it stays open, the button pressed')
+    await win.keyboard.press('Space')
+    ok(await until(isShut, 3000), 'and the next Space closes it')
+    await sleep(300)
 
     // Its own close button, and Escape in it.
     await listRow(win, 'bravo.png').focus()
