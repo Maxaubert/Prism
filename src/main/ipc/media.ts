@@ -290,7 +290,9 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
         void live.stopPage(page)
       })
     }
-    return live.open(page, p, await probeCached(p))
+    // The probe is handed over unawaited: the job's hold is taken now, so a
+    // stop for this open that arrives while it is probing is not lost.
+    return live.open(page, p, probeCached(p))
   })
   ipcMain.on(CALL.videoLiveStop, (e, p: string) => {
     if (typeof p === 'string') void live?.stop(e.sender.id, p)

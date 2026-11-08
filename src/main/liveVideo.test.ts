@@ -137,6 +137,31 @@ describe('createLiveVideo', () => {
     await live.stopAll()
   })
 
+  it('a stop that arrives while the open is still probing cancels it (arrowing on fast)', async () => {
+    const { live } = make()
+    let answer!: (i: MediaInfo) => void
+    const probing = new Promise<MediaInfo>((r) => (answer = r))
+    const opening = live.open(1, film, probing)
+    await live.stop(1, film)
+    answer(iphone())
+    expect(await opening).toEqual({ error: 'stopped' })
+    expect(live.running(1, film)).toBe(false)
+    // Coming back to the film later is a fresh job that ONE stop ends.
+    const again = await live.open(1, film, iphone())
+    if (!('url' in again)) throw new Error(again.error)
+    await live.stop(1, film)
+    expect((await get(live, again.url)).status).toBe(403)
+  })
+
+  it('a window that closes while an open is probing gets no job afterwards', async () => {
+    const { live } = make()
+    let answer!: (i: MediaInfo) => void
+    const opening = live.open(1, film, new Promise<MediaInfo>((r) => (answer = r)))
+    await live.stopPage(1)
+    answer(iphone())
+    expect(await opening).toEqual({ error: 'stopped' })
+  })
+
   it('refuses a file with no picture or no length', async () => {
     const { live } = make()
     expect(await live.open(1, film, null)).toEqual({ error: 'nothing to play' })

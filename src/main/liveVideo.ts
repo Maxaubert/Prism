@@ -113,8 +113,14 @@ export interface LiveDeps {
 }
 
 export interface LiveVideo {
-  /** Open (or rejoin) the job for this window and file. */
-  open(page: number, file: string, info: MediaInfo | null): Promise<{ url: string; duration: number } | { error: string }>
+  /** Open (or rejoin) the job for this window and file. The probe may still
+   *  be on its way: the hold is taken before anything is awaited, so a stop
+   *  that arrives meanwhile (arrowing on fast) cancels this open. */
+  open(
+    page: number,
+    file: string,
+    info: MediaInfo | null | Promise<MediaInfo | null>
+  ): Promise<{ url: string; duration: number } | { error: string }>
   /** The window's player let go of this file. */
   stop(page: number, file: string): Promise<void>
   /** The window closed. */
@@ -128,6 +134,13 @@ export interface LiveVideo {
 
 const HEADERS = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }
 
+/** A window's hold on one film: its job (null while the open that took the
+ *  hold is still probing) and how many players hold it. */
+interface Hold {
+  id: string | null
+  n: number
+}
+
 export function createLiveVideo(deps: LiveDeps): LiveVideo {
   const spawnHeld: JobDeps['spawn'] = ((cmd: string, args: readonly string[], opts: object) => {
     const child = (deps.spawn ?? nodeSpawn)(cmd, args as string[], opts)
@@ -139,7 +152,7 @@ export function createLiveVideo(deps: LiveDeps): LiveVideo {
   /** Window -> file (lower case) -> its job and how many players in that
    *  window hold it: the preview and the full view can show the same film,
    *  and the first to let go must not pull the stream from under the other. */
-  const byPage = new Map<number, Map<string, { id: string; n: number }>>()
+  const byPage = new Map<number, Map<string, Hold>>()
   let reaper: ReturnType<typeof setInterval> | null = null
 
   const idOf = (page: number, file: string): string | null => byPage.get(page)?.get(file.toLowerCase())?.id ?? null
@@ -169,22 +182,40 @@ export function createLiveVideo(deps: LiveDeps): LiveVideo {
   return {
     async open(page, file, info) {
       if (!deps.readable(file)) return { error: 'outside the folder' }
-      const made = livePlan(info, jobs.encoder.video === 'nvenc')
-      if (!made || !info || info.duration <= 0) return { error: 'nothing to play' }
-      await deps.ready
-      const { id } = jobs.open({
-        token: tokenOf(page),
-        file,
-        plan: made.plan,
-        duration: info.duration,
-        audioIndex: made.audioIndex
-      })
+      // THE HOLD COMES FIRST, before anything is awaited (review,
+      // 2026-11-08): the renderer's stop for this open can arrive while the
+      // probe or the startup wipe is still being waited for. A stop that
+      // found nothing held was lost, and the job it meant to end stayed for
+      // the life of the window, one hold too many on a return to the film.
+      const key = file.toLowerCase()
       let files = byPage.get(page)
       if (!files) byPage.set(page, (files = new Map()))
-      const held = files.get(file.toLowerCase())
-      files.set(file.toLowerCase(), { id, n: (held?.n ?? 0) + 1 })
+      const hold: Hold = files.get(key) ?? { id: null, n: 0 }
+      hold.n += 1
+      files.set(key, hold)
+      const kept = (): boolean => hold.n > 0 && byPage.get(page)?.get(key) === hold
+      const probe = await Promise.resolve(info).catch(() => null)
+      const made = livePlan(probe, jobs.encoder.video === 'nvenc')
+      if (!made || !probe || probe.duration <= 0) {
+        if (kept()) {
+          const id = release(page, file)
+          if (id) await jobs.stop(id)
+        }
+        return { error: 'nothing to play' }
+      }
+      await deps.ready
+      if (!kept()) return { error: 'stopped' }
+      if (!hold.id) {
+        hold.id = jobs.open({
+          token: tokenOf(page),
+          file,
+          plan: made.plan,
+          duration: probe.duration,
+          audioIndex: made.audioIndex
+        }).id
+      }
       settleReaper()
-      return { url: liveUrl(id), duration: info.duration }
+      return { url: liveUrl(hold.id), duration: probe.duration }
     },
     async stop(page, file) {
       const id = release(page, file)
