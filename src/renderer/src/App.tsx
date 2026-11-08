@@ -1704,6 +1704,7 @@ export default function App(): JSX.Element {
                     archiveCardCopy={archiveActions.copy}
                     archiveCardDrop={onBrowseDropInto}
                     note={!browsing.folder}
+                    preview={browsing.folder}
                   />
                 </div>
               ))

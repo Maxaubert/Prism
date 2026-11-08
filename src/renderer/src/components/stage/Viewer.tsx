@@ -45,6 +45,7 @@ export function Viewer({
   archiveCardCopy,
   archiveCardDrop,
   note = false,
+  preview = false,
   readOnly = false
 }: {
   file: ViewerFile
@@ -63,6 +64,9 @@ export function Viewer({
   /** Full view or a project: a member wears its read-only note (#300). The
    *  preview pane carries none (mockup 04). */
   note?: boolean
+  /** In the Explorer's preview (pane or window), not full view: a film
+   *  shows no cog and no fullscreen button (owner, 2026-11-08). */
+  preview?: boolean
   /** A member of an archive, shown from its temp copy: nothing edits it. */
   readOnly?: boolean
   /** An archive reports its own undoable writes up to App's stack. */
@@ -127,6 +131,7 @@ export function Viewer({
       loading={<EditorLoading />}
       onToggleFullscreen={onToggleFullscreen}
       fullscreen={fullscreen}
+      preview={preview}
       onAutoAdvance={onAutoAdvance}
       onStep={onStep}
       canStep={canStep}
