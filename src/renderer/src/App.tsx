@@ -866,6 +866,15 @@ export default function App(): JSX.Element {
   const paneShown = showBrowsePreview && !previewInWindow
   const windowShown = showBrowsePreview && previewInWindow && !fullscreen
   const previewWindowUp = useLinger(windowShown, 220) && browsing.folder && !fullscreen
+  // Each opening is a window of its own (review 2026-11-08): a Space that
+  // reopens it while the last one still fades out (or before it was even
+  // made) mounts a fresh PreviewWindow, never the old one main has closed.
+  const [previewWindowGen, setPreviewWindowGen] = useState(0)
+  const [windowWasShown, setWindowWasShown] = useState(windowShown)
+  if (windowShown !== windowWasShown) {
+    setWindowWasShown(windowShown)
+    if (windowShown) setPreviewWindowGen((g) => g + 1)
+  }
   // The pane slides open and shut on its toggle (#207): `out` keeps it laid
   // out while it closes, `widthShown` holds it at 0px for an opening's first frame.
   const previewSlide = usePreviewSlide(paneShown, viewerBox)
@@ -1831,7 +1840,7 @@ export default function App(): JSX.Element {
                   {players.filter((_, i) => !inWindow(deck[i].tabId))}
                   {liveContent}
                   {previewWindowUp && (
-                    <PreviewWindow open={windowShown} title={file?.name ?? ''} onClose={closePreviewWindow}>
+                    <PreviewWindow key={previewWindowGen} open={windowShown} title={file?.name ?? ''} onClose={closePreviewWindow}>
                       {windowContent}
                     </PreviewWindow>
                   )}
