@@ -151,3 +151,25 @@ export function typedRun(
 ): { text: string; at: number } {
   return { text: now - last.at < 700 ? last.text + key.toLowerCase() : key.toLowerCase(), at: now }
 }
+
+/** What a Space on the Explorer's list is (owner, 2026-11-08: "can you bind
+ *  preview to space bar", then "Toggle the preview panel"):
+ *  - 'preview': the preview pane in or out, the toolbar button's own toggle;
+ *  - 'type': a space inside a type-to-jump run (within its 700 ms), part of
+ *    the name being typed, as File Explorer reads it;
+ *  - 'held': an auto-repeat, taken so it neither flickers the pane nor
+ *    reaches the player;
+ *  - null: not a plain Space (Ctrl+Space marks, `listKey`).
+ *  Pure: the list decides whether the key is its own (a row or the list has
+ *  the focus, never a field, a button or the preview). */
+export function spaceKey(
+  e: KeyLike & { repeat?: boolean },
+  typed: { text: string; at: number },
+  now: number
+): 'preview' | 'type' | 'held' | null {
+  if (e.key !== ' ' && e.code !== 'Space') return null
+  if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return null
+  if (e.repeat) return 'held'
+  if (typed.text && now - typed.at < 700) return 'type'
+  return 'preview'
+}

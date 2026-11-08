@@ -2140,6 +2140,15 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   (AZERTY's Ctrl+Q is not Ctrl+A). After a rename the keyboard follows the row to its new
   name. Fullscreen unmounts both surfaces, so nothing here writes there. The `hotkeys` e2e
   drives every key on both surfaces, a paused film under them, and a zip.
+  **SPACE TOGGLES THE PREVIEW PANE** (owner, 2026-11-08: "can you bind preview to space bar",
+  then chose "Toggle the preview panel"). A plain Space on the Explorer's list shows or hides
+  the pane on the right, the toolbar button's own `togglePreview` (same state, same
+  persistence), with or without a row picked. Only from the list or a row: a field (the
+  rename, the search), a button, the preview (a film there keeps Space for play/pause), a
+  dialog or a menu never reach it. Ctrl+Space still marks; an auto-repeat is taken and does
+  nothing; a space typed within the type-to-jump run's 700 ms is part of the name, as File
+  Explorer reads it. Before this, Space with a row picked did nothing. `spaceKey` in
+  `lib/listKeys.ts` (unit-tested) and the `hotkeys` e2e's "space:" checks hold it.
   Tabs reorder by dragging along the strip (`reorderTabs`, pure and tested), with a
   hairline showing where one would land. (Since 2026-10-29 a tab can also be pulled OUT of
   the strip into a window of its own: "Tab tear-off", above; the 2026-08-23 "its own row and
