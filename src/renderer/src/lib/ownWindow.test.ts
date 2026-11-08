@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { isElement, isNode, listenOn, ownDocument, ownWindow, viewerWindows, type OwnWindow } from './ownWindow'
-import { addPageDocument, pageDocuments } from './pageDocuments'
+import { addPageDocument, menuOrDialogUp, pageDocuments } from './pageDocuments'
 
 /** A window that records what listens on it. */
 function fakeWindow(name: string): OwnWindow & { heard: string[]; doc: Document } {
@@ -104,6 +104,15 @@ describe('pageDocuments', () => {
     undo()
     expect(pageDocuments()).toEqual([document])
   })
+
+  it('menuOrDialogUp finds a menu or a modal question in any of them', () => {
+    const doc = (hit: string | null): Pick<Document, 'querySelector'> =>
+      ({ querySelector: (s: string) => (hit && s.includes(hit) ? ({} as Element) : null) }) as Pick<Document, 'querySelector'>
+    expect(menuOrDialogUp([doc(null), doc(null)])).toBe(false)
+    // The preview window's menu counts as much as the Explorer's.
+    expect(menuOrDialogUp([doc(null), doc('[role="menu"]')])).toBe(true)
+    expect(menuOrDialogUp([doc('[role="dialog"][aria-modal="true"]')])).toBe(true)
+  })
 })
 
 /**
@@ -133,6 +142,34 @@ const VIEWERS = [
 ]
 const GLOBAL =
   /\b(window|document)\.(add|remove)EventListener\(|\bdocument\.(getElementById|querySelector|querySelectorAll|activeElement)\b|\bwindow\.getSelection\(/
+
+/**
+ * A VIEWER'S MENU OPENS WHERE IT WAS RIGHT-CLICKED (owner, 2026-11-08: "also
+ * let me right click the preview to copy or do other actions"). Every
+ * `<ContextMenu` a viewer draws names what was right-clicked (`at=`), so the
+ * menu lands in the preview window's document when the viewer is there, and
+ * not in the Explorer behind it.
+ */
+const MENU_VIEWERS = [
+  'components/ImageView.tsx',
+  'components/VideoView.tsx',
+  'components/AudioView.tsx',
+  'components/MarkdownView.tsx',
+  'components/DocView.tsx',
+  'components/CodeView.tsx',
+  'components/ArchiveView.tsx',
+  'components/browse/ArchiveCard.tsx'
+]
+
+describe("a viewer's menu is drawn in its own window (the guard)", () => {
+  it.each(MENU_VIEWERS)('%s', (file) => {
+    const src = readFileSync(join(__dirname, '..', file), 'utf8')
+    const menus = [...src.matchAll(/<ContextMenu\b[\s\S]*?\/>/gs)].map((m) => m[0])
+    expect(menus.length).toBeGreaterThan(0)
+    const bare = menus.filter((m) => !/\bat=\{/.test(m))
+    expect(bare).toEqual([])
+  })
+})
 
 describe("viewers listen on their own window (the guard)", () => {
   it.each(VIEWERS)('%s', (file) => {

@@ -18,6 +18,14 @@ describe('the preview window keys', () => {
     expect(previewWindowKey(key('Escape'), null)).toBe('close')
   })
 
+  it("a right-click menu up in the window keeps Space and Escape (owner, 2026-11-08)", () => {
+    // Escape closes the menu alone; Space is the focused row's.
+    expect(previewWindowKey(key('Escape'), null, true)).toBeNull()
+    expect(previewWindowKey(key(' '), null, true)).toBeNull()
+    expect(previewWindowKey(key('Escape', { repeat: true }), null, true)).toBeNull()
+    expect(previewWindowKey(key('Escape'), null, false)).toBe('close')
+  })
+
   it('does nothing more for a held key', () => {
     expect(previewWindowKey(key(' ', { repeat: true }), null)).toBe('held')
   })

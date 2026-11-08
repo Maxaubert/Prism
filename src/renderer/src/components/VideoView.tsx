@@ -187,6 +187,7 @@ export function VideoView({
     y: number
     hasFrame: boolean
     el: HTMLVideoElement | null
+    at: EventTarget
   } | null>(null)
   // Reset on the way IN to a new file rather than in an effect: a ratio forced
   // on one video means nothing for the next, and the same shape the sidebar
@@ -471,7 +472,8 @@ export function VideoView({
           x: e.clientX,
           y: e.clientY,
           hasFrame: videoHasFrame(video.current),
-          el: video.current
+          el: video.current,
+          at: e.currentTarget
         })
       }}
       // The wheel over the picture is the volume, VLC's oldest habit, and the
@@ -638,6 +640,7 @@ export function VideoView({
         <ContextMenu
           x={menu.x}
           y={menu.y}
+          at={menu.at}
           items={menuItems(menu.hasFrame, menu.el)}
           onClose={() => setMenu(null)}
         />

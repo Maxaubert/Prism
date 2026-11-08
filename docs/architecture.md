@@ -109,6 +109,11 @@ Filesmith's conventions.
   (`stopImmediatePropagation`) ahead of every viewer's listener. `lib/pageDocuments.ts` lists the
   child's document while it is drawn into, for whole-page questions (`audio.idleIfSilent`,
   `useFolderBrowsing`'s `pauseTab`). `lib/ownWindow.test.ts` guards the viewer files.
+  Right-click menus the same way (2026-11-08): `ContextMenu` takes `at`, the element right-clicked,
+  and portals into ITS document's body, clamps to its window and listens there and on the
+  Explorer's. The child's Space/Escape listener stands down while a `[role="menu"]` is up in the
+  child (`previewWindowKey`'s `menuUp`), and the list's Space and Escape check every page
+  document for a menu or a question (`pageDocuments.menuOrDialogUp`).
 - **SETTINGS DESCRIPTIONS ARE PLAIN WORDS** (2026-09-22, owner: "no symbols other than comma and
   dot, no mentioning of specific keys or tips, just a simple text description of what it does").
   Every hint on Prism's own pages was rewritten to that rule, the core's rows likewise in the core.

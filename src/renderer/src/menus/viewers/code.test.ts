@@ -96,4 +96,12 @@ describe('the editor menu', () => {
     ])
     expect(row(codeMenu(ctx({ readOnly: true, hasSel: false })), 'Copy').disabled).toBe(true)
   })
+
+  it("Cut and Copy go to the editor's own document (the preview window, 2026-11-08)", () => {
+    const clip = vi.fn()
+    row(codeMenu(ctx({ clip })), 'Cut').onPick?.()
+    row(codeMenu(ctx({ clip })), 'Copy').onPick?.()
+    row(codeMenu(ctx({ clip, readOnly: true })), 'Copy').onPick?.()
+    expect(clip.mock.calls).toEqual([['cut'], ['copy'], ['copy']])
+  })
 })

@@ -5,7 +5,9 @@
  * from the list, and Escape does too, Quick Look's two. A held key does
  * nothing more and a chord is somebody else's. A field (the find bar) keeps
  * both; the text editor keeps Space (a space typed into the code view is a
- * space) but Escape still closes.
+ * space) but Escape still closes. A right-click menu up in the window keeps
+ * both (owner, 2026-11-08): Escape closes the menu alone, and the window
+ * stays.
  */
 export interface PreviewKeyEvent {
   key: string
@@ -22,10 +24,12 @@ export type PreviewKeyTarget = 'field' | 'editor' | null
 
 export function previewWindowKey(
   e: PreviewKeyEvent,
-  target: PreviewKeyTarget
+  target: PreviewKeyTarget,
+  menuUp = false
 ): 'close' | 'held' | null {
   const space = e.key === ' ' || e.code === 'Space'
   if (!space && e.key !== 'Escape') return null
+  if (menuUp) return null
   if (e.ctrlKey || e.altKey || e.metaKey || (space && e.shiftKey)) return null
   if (target === 'field' || (space && target === 'editor')) return null
   return e.repeat ? 'held' : 'close'

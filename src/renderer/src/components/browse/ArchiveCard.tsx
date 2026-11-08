@@ -176,7 +176,7 @@ export function ArchiveCard({
   const pick = picked.here === here ? picked.pick : NO_PICK
   const marks = new Set(pick.marked)
   const setPick = (next: CardPick): void => setPicked({ here, pick: next })
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number; at: EventTarget; items: MenuItem[] } | null>(null)
   const list = useRef<HTMLDivElement>(null)
   const root = useRef<HTMLDivElement>(null)
 
@@ -364,7 +364,7 @@ export function ArchiveCard({
       const r = byName.get(names.find((n) => placeOfRow(n) === p) ?? '')
       if (r) activate(r)
     })
-    if (items.length) setMenuAt({ x: e.clientX, y: e.clientY, items })
+    if (items.length) setMenuAt({ x: e.clientX, y: e.clientY, at: e.currentTarget, items })
   }
 
   return (
@@ -530,7 +530,7 @@ export function ArchiveCard({
           </dl>
         </>
       )}
-      {menuAt && <ContextMenu x={menuAt.x} y={menuAt.y} items={menuAt.items} onClose={() => setMenuAt(null)} />}
+      {menuAt && <ContextMenu x={menuAt.x} y={menuAt.y} at={menuAt.at} items={menuAt.items} onClose={() => setMenuAt(null)} />}
     </div>
   )
 }

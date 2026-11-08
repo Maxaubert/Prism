@@ -133,7 +133,7 @@ export function MarkdownView({
     setFindFor(path)
     setFinding(false)
   }
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; at: EventTarget } | null>(null)
   // The folder the document lives in, which its relative paths resolve against.
   const baseDir = useMemo(() => parentDir(path), [path])
   const text = loaded?.path === path ? loaded.text : null
@@ -300,7 +300,7 @@ export function MarkdownView({
       className="relative h-full w-full"
       onContextMenu={(e) => {
         e.preventDefault()
-        setMenu({ x: e.clientX, y: e.clientY })
+        setMenu({ x: e.clientX, y: e.clientY, at: e.currentTarget })
       }}
     >
       {finding && <DocFind scroller={box} onClose={() => setFinding(false)} />}
@@ -308,6 +308,7 @@ export function MarkdownView({
         <ContextMenu
           x={menu.x}
           y={menu.y}
+          at={menu.at}
           onClose={() => setMenu(null)}
           items={markdownMenu({ path, find: () => setFinding(true) })}
         />

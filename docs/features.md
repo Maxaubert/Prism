@@ -3507,8 +3507,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   (in its text editor Space types a space and Escape still closes; a field keeps both).
   It is no window of the session: it never counts for "the last window closed". Only a toggle
   opens it: a flag left on by the panel, a restore or a file from Windows ("View for files from
-  Windows: Preview") is put back off in Window mode, so it never appears unasked. Right-click
-  does nothing in it (a menu would open in the Explorer behind). Wiring: `docs/architecture.md`.
+  Windows: Preview") is put back off in Window mode, so it never appears unasked. A right-click
+  in it opens its viewer's own menu (below). Wiring: `docs/architecture.md`.
   The `previewWindow` e2e drives it end to end; `src/main/previewWindow.test.ts`,
   `lib/previewWindowKeys.test.ts` hold the parts.
   **ITS VIEWER ANSWERS ITS OWN KEYS AND LINKS** (owner, 2026-11-08: "Keys and in-page links
@@ -3530,6 +3530,25 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   its own document; `lib/ownWindow.test.ts` fails on a viewer file that listens on, or looks
   in, this page's `window` or `document` directly (`// own-window-ok: <reason>` excuses a line).
   The `previewWindow` e2e presses R, +, M and ArrowRight and follows a #link in the window.
+  **A RIGHT-CLICK IN IT OPENS THE VIEWER'S MENU, IN THE WINDOW** (owner, 2026-11-08: "also let me
+  right click the preview to copy or do other actions"). It used to do nothing, on purpose: the
+  menu was drawn in the Explorer's page, so it would have opened behind the window. Now a menu is
+  drawn in the document of what was right-clicked (`ContextMenu`'s `at`), at the cursor, clamped
+  to that window, in its theme, so the window gets the SAME rows the pane and full view give that
+  viewer, acting on the file shown with the same handlers: the picture's (Rotate, Photo info, Copy
+  image, Copy path, Save a copy, Slideshow, Show in File Explorer), the film's, the track's, the
+  markdown's and the document's, the text editor's (Cut, Copy, Paste, Copy path, Select all, Find,
+  ... ; its Cut and Copy act on the window's own selection), the zip card's. A PDF has no menu,
+  in the window as in the pane. The menu is driven as in the pane (the pointer, or Up and Down
+  between its rows once one has the focus, Enter or Space picks). While it is up, Space and Escape are the MENU'S: Escape in
+  the window or on the list closes the menu alone and the window stays; a press anywhere else, in
+  the window or the Explorer, closes it too. DECIDED: no row in these menus opens full view, so
+  none has to close the window; a row that asks something (Save a copy, Extract to...) opens main's
+  dialog over the Explorer as from the pane, and the window stays where it is. The `previewWindow`
+  e2e right-clicks the picture and the text in the window: the menu is in the window's document and
+  not the Explorer's, Copy image puts the pixels on the clipboard, Copy path the file shown, and
+  Escape (its own and the list's) and a press away close only the menu. `lib/ownWindow.test.ts`
+  fails on a viewer's `<ContextMenu` without `at`.
 - **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
   renders only while it is in front, so walking to Settings or another folder
   stopped the film. Handing the sound to a second, hidden element was tried
