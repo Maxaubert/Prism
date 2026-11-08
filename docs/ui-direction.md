@@ -76,6 +76,9 @@ are gone (Aurora, Void and Frost kept, refined). The rules (`lib/theme.ts`, `lib
   are smaller then the other icons"). The filled folder (`folderFill`) is 21 by 17 of its 24-unit
   box, against a file page's 16.5 by 22.5; it was 19 by 13 and read about two thirds the size.
   Checked by eye on the installed build ("Looks right").
+- **NO FILE COUNTER IN THE TITLE BAR** (owner, 2026-11-08: "remove this file number label in the
+  titlebar"). The "12 / 16" place in the folder is gone from the bar and the tab row; a document's
+  own page and find counters stay.
 
 **ONE COLOUR PICKER, ALPHA ON EVERY COLOUR** (#249 rework, owner 2026-10-03: "the colour pickers
 should be the same for both apps, i need an input field for a color code and an alpha per colour
