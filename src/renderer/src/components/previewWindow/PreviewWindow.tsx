@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { previewWindowKey, typesText } from '../../lib/previewWindowKeys'
+import { keyTarget, previewWindowKey } from '../../lib/previewWindowKeys'
 import { logNote } from '../../lib/noteLog'
 import './previewWindow.css'
 
@@ -96,7 +96,7 @@ export function PreviewWindow({
     if (!host) return
     const doc = host.win.document
     const onKey = (e: KeyboardEvent): void => {
-      const k = previewWindowKey(e, typesText(e.target))
+      const k = previewWindowKey(e, keyTarget(e.target))
       if (!k) return
       e.preventDefault()
       e.stopPropagation()
@@ -104,7 +104,7 @@ export function PreviewWindow({
     }
     // A focused button's Space clicks it on the way up: not here.
     const onKeyUp = (e: KeyboardEvent): void => {
-      if (previewWindowKey(e, typesText(e.target))) e.preventDefault()
+      if (previewWindowKey(e, keyTarget(e.target))) e.preventDefault()
     }
     doc.addEventListener('keydown', onKey)
     doc.addEventListener('keyup', onKeyUp)
