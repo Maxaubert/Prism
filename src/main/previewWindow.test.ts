@@ -74,7 +74,11 @@ describe('previewToken', () => {
 class FakeWin implements PreviewWin {
   static next = 1
   id = FakeWin.next++
-  webContents = { id: this.id }
+  // As Electron's: a destroyed window's webContents throws.
+  get webContents(): { id: number } {
+    if (this.destroyed) throw new Error('Object has been destroyed')
+    return { id: this.id }
+  }
   destroyed = false
   visible = false
   opacity = 1
@@ -219,6 +223,20 @@ describe('the preview windows', () => {
     child.destroy()
     expect(told).toEqual([owner])
     expect(pw.of(owner)).toBeUndefined()
+  })
+
+  it("goes in its owner's own close, when the owner is already destroyed", () => {
+    const { pw, told } = world()
+    const owner = new FakeWin()
+    const child = new FakeWin()
+    const name = pw.arm(owner)
+    pw.options(owner, 'about:blank', name)
+    pw.adopt(owner, child, name)
+    pw.arm(owner)
+    owner.destroy()
+    expect(() => pw.ownerGone(owner)).not.toThrow()
+    expect(child.destroyed).toBe(true)
+    expect(told).toEqual([])
   })
 
   it('goes with its owner and with standby, telling nobody', () => {

@@ -1131,7 +1131,12 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     const rebuilding = rec.rebuilding
     const spare = rec.spare
     // Its preview window is no window of the session's: it goes with it.
-    previewWindows.ownerGone(win)
+    // Never in the way of the rest of this close.
+    try {
+      previewWindows.ownerGone(win)
+    } catch {
+      /* already gone */
+    }
     if (hotkeyOpening?.win === win) hotkeyOpening.closed = true
     // A tear in flight from or into this window ends (its tab goes back).
     // FIRST, before the registry forgets the window (review 2026-10-29): the

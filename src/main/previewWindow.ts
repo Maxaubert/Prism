@@ -88,7 +88,6 @@ export interface PreviewWin {
   showInactive(): void
   destroy(): void
   once(event: 'closed', fn: () => void): unknown
-  webContents: { id: number }
 }
 
 export interface PreviewWindowsDeps<W extends PreviewWin> {
@@ -154,7 +153,9 @@ export interface PreviewWindows<W extends PreviewWin> {
 export function createPreviewWindows<W extends PreviewWin>(
   deps: PreviewWindowsDeps<W>
 ): PreviewWindows<W> {
-  const armed = new Map<number, { token: string; at: number }>()
+  // By the owner OBJECT, never its webContents: a destroyed window's
+  // webContents throws, and `ownerGone` runs in the owner's `closed`.
+  const armed = new Map<W, { token: string; at: number }>()
   const open = new Map<W, Entry<W>>()
   const fades = new WeakMap<W, number[][]>()
   const past: Array<{ to: number; frames: number }> = []
@@ -205,14 +206,14 @@ export function createPreviewWindows<W extends PreviewWin>(
   return {
     arm(owner) {
       const token = deps.token()
-      armed.set(owner.webContents.id, { token, at: deps.now() })
+      armed.set(owner, { token, at: deps.now() })
       return `${PREVIEW_FRAME}:${token}`
     },
     options(owner, url, frameName) {
       const token = previewToken(frameName)
-      const mine = armed.get(owner.webContents.id)
+      const mine = armed.get(owner)
       if (!token || !mine || mine.token !== token) return null
-      armed.delete(owner.webContents.id)
+      armed.delete(owner)
       if (deps.now() - mine.at > PREVIEW_ARM_MS || (url !== 'about:blank' && url !== '')) return null
       // One at a time: a second opens in place of the first.
       kill(owner)
@@ -267,7 +268,7 @@ export function createPreviewWindows<W extends PreviewWin>(
       log('preview-window', { ev: 'close', owner: owner.id, animate })
     },
     ownerGone(owner) {
-      armed.delete(owner.webContents.id)
+      armed.delete(owner)
       kill(owner)
     },
     destroyAll() {
