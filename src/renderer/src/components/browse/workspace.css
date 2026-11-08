@@ -132,6 +132,29 @@
   width: var(--browse-preview-frozen, 100%);
   flex: none;
 }
+/* THE LIST STANDS STILL WHILE THE PANE SLIDES (owner, 2026-11-08: "it
+   flickers instead of the text in the file list like format, size etc
+   handling the preview incoming properly"). MEASURED (the previewSlideList
+   e2e): the list is a size container, so a tweening column re-laid every
+   row each frame, and crossing 720px or 510px mid-slide popped Date modified
+   or Type in or out and re-gridded the others. For the slide the list's frame
+   is laid out at the width the list ENDS at (`listSlideWidth`, inline),
+   against the edge away from the pane, so its columns change once, as the
+   slide starts, and stand still: an opening pane slides into the list's
+   spare ground, a closing one uncovers the columns already in place. The
+   area still paints its own column, once, and clips the frame to it. */
+.browse-workspace[data-preview-sliding] .browse-list-area[data-slide-frozen] {
+  overflow: hidden;
+}
+.browse-workspace[data-preview-sliding] .browse-list-area[data-slide-frozen] > .browse-list-frame {
+  flex: 1 0 auto;
+  align-self: flex-start;
+}
+.browse-workspace[data-sidebar-side='right'][data-preview-sliding]
+  .browse-list-area[data-slide-frozen]
+  > .browse-list-frame {
+  align-self: flex-end;
+}
 /* On the left the contents ride the pane's inner edge, its right. */
 .browse-workspace[data-sidebar-side='right'][data-preview-sliding] [data-browse-preview] {
   justify-content: flex-end;

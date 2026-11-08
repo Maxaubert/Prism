@@ -17478,6 +17478,122 @@ async function ctrlFPreviewScenario(fixtures) {
   }
 }
 
+/**
+ * THE LIST MOVES WITH THE PREVIEW'S SLIDE (owner, 2026-11-08: "can you make
+ * the main view content handle the animation better right now it flickers
+ * instead of the text in the file list like format, size etc handling the
+ * preview incoming properly"). Every frame of a Space toggle is sampled: the
+ * header's and the first row's cells may only move one way, and no column
+ * may go and come back (or come and go) inside one slide.
+ */
+async function previewSlideListScenario(fixtures) {
+  console.log('the list moves with the preview slide (owner, 2026-11-08)')
+  const dir = join(fixtures, 'previewslide')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
+  for (const n of ['a long enough file name to fill the column.txt', 'bravo.md', 'charlie.json', 'delta.log'])
+    writeFileSync(join(dir, n), `${n}\n`)
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const COLS = ['name', 'type', 'size', 'modified']
+  let sideSet = false
+  const sample = () =>
+    win.evaluate((cols) => {
+      const w = window
+      w.__slide = []
+      const cell = (root, c) => {
+        const el = root?.querySelector(`.browse-column-${c}`)
+        if (!el || getComputedStyle(el).display === 'none' || !el.getClientRects().length) return null
+        const r = el.getBoundingClientRect()
+        return { l: Math.round(r.left * 10) / 10, r: Math.round(r.right * 10) / 10 }
+      }
+      const tick = () => {
+        const head = document.querySelector('[data-testid="folder-browser"] .browse-columns')
+        const row = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path]')
+        const area = document.querySelector('.browse-list-area')
+        const pane = document.querySelector('[data-browse-preview]')
+        w.__slide.push({
+          t: Math.round(performance.now()),
+          sliding: !!document.querySelector('[data-preview-sliding]'),
+          area: Math.round(area?.getBoundingClientRect().width ?? 0),
+          pane: pane && pane.getClientRects().length ? Math.round(pane.getBoundingClientRect().width) : 0,
+          head: Object.fromEntries(cols.map((c) => [c, cell(head, c)])),
+          row: Object.fromEntries(cols.map((c) => [c, cell(row, c)]))
+        })
+        if (w.__slide.length < 90) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    }, COLS)
+  const samples = () => win.evaluate(() => window.__slide)
+  const paneOn = async () =>
+    (await win.locator('button[aria-label="Preview pane"]').first().getAttribute('aria-pressed')) === 'true'
+  /** What went wrong in one slide's frames, '' when it was smooth. The list's
+   *  layout (every cell's edges and whether it shows) may change in ONE frame,
+   *  the toggle's, and then stands still: no column comes and goes mid-slide,
+   *  nothing is re-laid out per frame, nothing lands late at the end. The old
+   *  code re-laid every frame and popped Date modified and Type in or out. */
+  const judge = (frames) => {
+    const bad = []
+    const changed = new Set()
+    for (const part of ['head', 'row']) {
+      for (const c of COLS) {
+        const seen = frames.map((f) => !!f[part][c])
+        const flips = seen.filter((s, i) => i > 0 && s !== seen[i - 1]).length
+        if (flips > 1) bad.push(`${part}.${c} came and went ${seen.map((s) => (s ? 1 : 0)).join('')}`)
+        for (let i = 1; i < frames.length; i++) {
+          const a = frames[i - 1][part][c]
+          const b = frames[i][part][c]
+          if (!a !== !b || (a && b && (Math.abs(a.l - b.l) > 0.6 || Math.abs(a.r - b.r) > 0.6))) changed.add(i)
+        }
+      }
+    }
+    if (changed.size > 1)
+      bad.push(
+        `the columns moved in ${changed.size} frames (${[...changed].join(',')}), head.name.r ${frames.map((f) => f.head.name?.r).join(',')}`
+      )
+    return bad.join('; ')
+  }
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, 'notes.txt').click()
+    ok(await until(paneOn, 5000), 'the preview pane starts open')
+    const slides = async (side, sizes) => {
+      for (const [w, h] of sizes) {
+        await mainWin(app, 'setSize', w, h)
+        await sleep(700)
+        for (const step of ['close', 'open']) {
+          const at = `${side}, ${w}x${h}, ${step}`
+          await listRow(win, 'notes.txt').focus()
+          await sample()
+          await win.keyboard.press('Space')
+          await sleep(900)
+          const frames = await samples()
+          const moving = frames.filter((f) => f.sliding)
+          console.log(`  ${at}: ${frames.length} frames, ${moving.length} sliding, area ${frames[0].area} -> ${frames.at(-1).area}`)
+          if (process.env.PRISM_E2E_SLIDE_DUMP) for (const f of frames) console.log('   ', JSON.stringify(f))
+          const verdict = judge(frames)
+          ok(!verdict, `${at}: the list's columns stand still while the pane slides${verdict ? ` (${verdict})` : ''}`)
+          ok(moving.length >= 4, `${at}: and it really slid (${moving.length} frames)`)
+          ok((await paneOn()) === (step === 'open'), `${at}: the pane is ${step === 'open' ? 'open' : 'shut'} after`)
+        }
+      }
+    }
+    await slides('left', [[1280, 800], [1000, 720], [860, 640]])
+    // The sidebar on the right puts the pane on the left (#304): the list's
+    // frame rides the right edge there.
+    await pickStyleSegment(win, 'explorer-side', 'Right')
+    sideSet = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await listRow(win, 'notes.txt').click()
+    ok(await until(paneOn, 5000), 'right: the preview pane is open')
+    await slides('right', [[1000, 720]])
+  } finally {
+    if (sideSet) await pickStyleSegment(win, 'explorer-side', 'Left').catch(() => {})
+    await app.close()
+  }
+}
+
 async function previewClearsScenario(fixtures) {
   console.log('going into a folder clears the preview (#300 review)')
   const { dir } = await zipWorld(fixtures, 'previewclears')
@@ -21613,6 +21729,7 @@ await run(zipRestoreScenario)
 await run(zipLockedScenario)
 await run(zipFolderScenario)
 await run(previewClearsScenario)
+await run(previewSlideListScenario)
 await run(ctrlFPreviewScenario)
 await run(docArrowsScenario)
 await run(previewSlowImageScenario)

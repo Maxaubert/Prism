@@ -3470,6 +3470,20 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   column, the viewer App lays over the slot and its action bar tween together
   (`data-preview-sliding`, `workspace.css`), the contents frozen at their open width. Only
   the toggle slides; a tab switch, a drag or a resize lands at once.
+  **THE LIST STANDS STILL WHILE IT SLIDES** (owner, 2026-11-08, after trying Space: "can you
+  make the main view content handle the animation better right now it flickers instead of
+  the text in the file list like format, size etc handling the preview incoming properly").
+  MEASURED, every frame of a toggle: the list is a size container, so its tweening column
+  re-laid every row each frame (the header's last cell moved in all 18 frames), and a list
+  crossing 720px or 510px mid-slide popped Date modified or Type in or out and re-gridded the
+  rest, a jump back in the name column included. Now the list's frame (`.browse-list-frame`,
+  the container its narrow rules ask) is laid out for the whole slide at the width the list
+  ENDS at (`listSlideWidth`, `useExplorerWidths.listWidth`), against the edge away from the
+  pane, and its area clips it to the column: the columns change once, in the toggle's frame,
+  and stand still while the pane slides over the spare ground or off the columns already in
+  place. The area still paints its column once (no double coat on glass). The
+  `previewSlideList` e2e samples every frame both ways, at three window sizes and with the
+  sidebar on the right: the columns may change in one frame only.
 - **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
   renders only while it is in front, so walking to Settings or another folder
   stopped the film. Handing the sound to a second, hidden element was tried
