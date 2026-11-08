@@ -3499,7 +3499,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   as Quick Look's does. It fades in and out with a slight zoom (160 ms, none with reduced motion).
   A blur, Alt+Tab or another app in front leave it where it is; it closes on Space (the list's or
   its own), Escape (the list's, before Escape clears the marks, or its own), its close button,
-  Alt+F4 on it, and goes with its Explorer window, a reload or crash of its page, and standby.
+  Alt+F4 on it, and goes with its Explorer window, a reload or crash of its page, and standby
+  (in its text editor Space types a space and Escape still closes; a field keeps both).
   It is no window of the session: it never counts for "the last window closed". Only a toggle
   opens it: a flag left on by the panel, a restore or a file from Windows ("View for files from
   Windows: Preview") is put back off in Window mode, so it never appears unasked. Right-click
