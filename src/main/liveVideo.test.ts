@@ -3,7 +3,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { MediaInfo } from './ffmpeg'
-import { createLiveVideo, isLiveRequest, livePlan, liveUrl, parseLiveUrl } from './liveVideo'
+import { createLiveVideo, isLiveRequest, liveJobLine, livePlan, liveUrl, parseLiveUrl } from './liveVideo'
 import { fakeFfmpeg } from './phone/testing/fakeFfmpeg'
 
 const iphone = (o: Partial<NonNullable<MediaInfo['video']>> = {}, audio = 'aac'): MediaInfo => ({
@@ -166,5 +166,17 @@ describe('createLiveVideo', () => {
     const { live } = make()
     expect(await live.open(1, film, null)).toEqual({ error: 'nothing to play' })
     expect(await live.open(1, film, { ...iphone(), duration: 0 })).toEqual({ error: 'nothing to play' })
+  })
+})
+
+describe('a live job says what it did (2026-11-08)', () => {
+  it('turns the job log into op lines, and leaves the rest out', () => {
+    expect(liveJobLine('job abc start at segment 0 (nvenc, encode video, copy audio)')).toEqual({ op: 'live-job', ok: true, job: 'abc', ev: 'start', encoder: 'nvenc' })
+    expect(liveJobLine('job abc exit 0')).toEqual({ op: 'live-job', ok: true, job: 'abc', ev: 'exit', code: 0 })
+    expect(liveJobLine('job abc exit 1: Invalid data')).toEqual({ op: 'live-job', ok: false, job: 'abc', ev: 'exit', code: 1, message: 'Invalid data' })
+    expect(liveJobLine('job abc exit null')).toEqual({ op: 'live-job', ok: true, job: 'abc', ev: 'exit' })
+    expect(liveJobLine('job abc kill (run from segment 2)')).toEqual({ op: 'live-job', ok: true, job: 'abc', ev: 'kill' })
+    expect(liveJobLine('job abc encoder fallback to openh264: OpenEncodeSessionEx failed')).toEqual({ op: 'live-job', ok: false, job: 'abc', ev: 'encoder-fallback', encoder: 'openh264', message: 'OpenEncodeSessionEx failed' })
+    expect(liveJobLine('ask abc #3 left behind (newest ask #5)')).toBeNull()
   })
 })

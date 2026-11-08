@@ -28,6 +28,28 @@ export function hevcMime(profile?: string): string {
 
 export type PictureRoute = 'direct' | 'live'
 
+/** Why a film took its route, for the log (`film` lines, 2026-11-08). */
+export type RouteWhy = 'no-video-stream' | 'forced' | 'converting' | 'hevc-yes' | 'hevc-no' | 'chromium-codec'
+
+export function routeWhy(o: {
+  codec?: string
+  profile?: string
+  forceLive?: boolean
+  converting: boolean
+  canPlay: (mime: string) => string
+}): RouteWhy {
+  if (!o.codec) return 'no-video-stream'
+  if (o.forceLive) return 'forced'
+  if (o.converting) return 'converting'
+  if (PLATFORM_ONLY.has(o.codec.toLowerCase())) return o.canPlay(hevcMime(o.profile)) === '' ? 'hevc-no' : 'hevc-yes'
+  return 'chromium-codec'
+}
+
+/** Does this codec go through the platform's decoder (HEVC only). */
+export function isPlatformCodec(codec?: string | null): boolean {
+  return !!codec && PLATFORM_ONLY.has(codec.toLowerCase())
+}
+
 /** How the picture of a freshly probed film is played. */
 export function pictureRoute(o: {
   /** The probe's video codec; absent for audio and for a failed probe. */
@@ -52,6 +74,48 @@ export function pictureRoute(o: {
  * is already live or converted, and only when the element says it failed:
  * an error, or enough data for a frame (readyState 2) and still no width.
  */
+/**
+ * A FILM NEVER STAYS BLACK (owner, 2026-11-08: "the rest just shows a black
+ * screen and wont start"). How long a direct start may go without a picture
+ * before it is taken to the live route, whatever the element says or does
+ * not say about it: no error, a paused player that was never given a frame,
+ * a stalled load. Four seconds is well past a real start (under a second on
+ * a local file) and short enough to read as a brief wait.
+ */
+export const NO_PICTURE_MS = 4000
+
+/** What a film's element shows so far. */
+export function pictureCheck(o: {
+  elapsedMs: number
+  readyState: number
+  videoWidth: number
+  /** Override of the limit, for a seam only. */
+  limitMs?: number
+}): 'picture' | 'wait' | 'no-picture' {
+  if (o.videoWidth > 0 && o.readyState >= 2) return 'picture'
+  return o.elapsedMs >= (o.limitMs ?? NO_PICTURE_MS) ? 'no-picture' : 'wait'
+}
+
+/** How a platform decoder's silent failure looks: a film with frames and
+ *  sound where every frame is black. Two black readings of a PLAYING film in
+ *  a row are the verdict; one lit reading settles the film for good. Only
+ *  asked of films the platform decodes, and only when playing, so a film
+ *  paused on a dark first frame or one that opens on black is left alone. */
+export function blackCheck(o: {
+  platform: boolean
+  playing: boolean
+  t: number
+  frames: number
+  /** Mean brightness of the frame, or null when it could not be read. */
+  lit: number | null
+  hits: number
+}): { hits: number; verdict: 'black' | 'lit' | 'unknown' } {
+  if (!o.platform || !o.playing || o.t < 0.6 || o.frames === 0 || o.lit === null) return { hits: o.hits, verdict: 'unknown' }
+  if (o.lit > 2) return { hits: 0, verdict: 'lit' }
+  const hits = o.hits + 1
+  return { hits, verdict: hits >= 2 ? 'black' : 'unknown' }
+}
+
 export function rescueLive(o: {
   codec?: string | null
   tried: boolean

@@ -44,6 +44,30 @@ PC that decodes HEVC, then forced live with `PRISM_E2E_FORCE_LIVE`: portrait pic
 a seek past what ffmpeg has made, pause, the preview, and no job or segment left once the tab lets
 go). `movOwner` runs the owner's own copies from `.e2e/owner-mov/` both ways when they are there.
 
+**Several films in one tab (owner, 2026-11-08: "i was able to see one .mov but the rest just shows a black
+screen and wont start another was black but had sound").** The film after a live one was an empty player:
+React wrote the new `src` during the commit, the effect tearing down hls.js ran a moment later, an hls.js
+attach still in flight when that commit landed took the attribute for its own and removed it, and `load()`
+left the element empty (networkState 0, no error, nothing to start). So "black, won't start" is one bug,
+and the bar's 0:02 on a 3.43 s film was the length of the film before it, kept until the next
+`durationchange` that never came. Fixed, with what holds it:
+
+- **One effect owns the element's source** (`VideoView`): the old feed stops, then the new film goes in.
+  `movHevc` and `movOwner` walk films in one tab (a live film, then direct ones, by the list, the keys and the
+  preview pane, back to one already seen, quick and slow). It failed 6 checks on the old player.
+- **Every film starts fresh** (`usePlayableVideo`): a tab's decision to go live and main's answer reset with the
+  file; a film that was rescued stays live for the session (`rescued`).
+- **A film never stays black** (`hooks/useFilmWatch.ts`, `lib/liveRoute.ts`): a direct start with no
+  picture 4 s after it was handed over, error or no error, takes the live route (`pictureCheck`,
+  `NO_PICTURE_MS`). Same for HEVC whose frames read black while it plays (`blackCheck`: two black readings,
+  so a dark opening frame is left alone). Tests: `liveRoute.test.ts`, and the seam `PRISM_E2E_NO_PICTURE`.
+- **The bar's length resets with the film** (`useMediaControls`). A pressed play that a pause or the next
+  film beats to it no longer reaches the log as a page-rejection.
+- **Always-on `film` lines** (`lib/filmDiag.ts`, `op: 'film'`, one per event): `route` (direct or live, and
+  `why`), `first-frame` (`ms`), `error` (`code`, `message`), `no-picture`, `black`, `to-live` (`why`),
+  `live-open`, `live-error`; main adds `live-job` (`start`, `exit` with `code`, `kill`, `encoder-fallback`,
+  `liveVideo.ts liveJobLine`). `npm run diag` lists a failed film as a problem (`diagProblems.mjs`).
+
 ## Standby, the hotkey path and startup in the log (owner, 2026-11-06)
 
 The audit (`research/prism/2026-11-06-logging-startup-stalls-audit.md`) found the log could not say where

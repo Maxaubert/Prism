@@ -184,6 +184,9 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     setError(null)
     setCur(0)
     setBuffered(0)
+    // A film's length is its own (2026-11-08): the owner's next film read
+    // 0:02, the length of the one before, for as long as it had none.
+    setDur(0)
   }
   useEffect(() => {
     // The bookkeeping refs are the other half of the same reset. Refs cannot
@@ -236,7 +239,9 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   const togglePlay = useCallback(() => {
     const m = ref.current
     if (!m) return
-    if (m.paused) void m.play()
+    // Not unhandled: pressing play on a film the next one replaces, or that
+    // a pause beats to it, rejects, which is the element's normal answer.
+    if (m.paused) void m.play().catch(() => undefined)
     else m.pause()
   }, [ref])
   const seekTo = useCallback(

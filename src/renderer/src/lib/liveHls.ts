@@ -1,3 +1,5 @@
+import { filmLine } from './filmDiag'
+
 /**
  * hls.js on a desktop <video>, for the live transcode (2026-11-08,
  * liveRoute.ts). Chromium claims native HLS and cannot be trusted with it
@@ -9,7 +11,7 @@
  * past that reaches the player as the element's own error, which is the
  * notice it already draws for a file it cannot play.
  */
-export function attachLive(playlist: string): (el: HTMLMediaElement) => () => void {
+export function attachLive(playlist: string, path = ''): (el: HTMLMediaElement) => () => void {
   return (el) => {
     let hls: { destroy(): void } | null = null
     let dead = false
@@ -37,6 +39,7 @@ export function attachLive(playlist: string): (el: HTMLMediaElement) => () => vo
           h.recoverMediaError()
           return
         }
+        filmLine('live-error', path, { detail: data.details }, false)
         h.destroy()
         hls = null
         el.dispatchEvent(new Event('error'))

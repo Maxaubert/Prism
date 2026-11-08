@@ -323,6 +323,9 @@ export interface MediaProbe {
   /** E2E only (`PRISM_E2E_FORCE_LIVE`): take the live transcode whatever
    *  this PC can decode, the way the phone's e2e forces an encode. */
   forceLive?: boolean
+  /** E2E only (`PRISM_E2E_NO_PICTURE`): the player treats this film as one
+   *  that never shows a frame, so the bounded wait can be proven end to end. */
+  noPicture?: boolean
 }
 
 /**

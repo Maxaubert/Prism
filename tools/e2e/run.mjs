@@ -3779,6 +3779,7 @@ async function movOwnerScenario(fixtures) {
         }
       })
       if (mode === 'as is') console.log(`  ${name}: canPlay ${JSON.stringify(caps)}`)
+      for (const l of await filmLines()) if (l.ev === 'first-frame' || l.ev === 'route') console.log(`  ${name}: log ${l.ev} ${JSON.stringify({ ms: l.ms, route: l.route, why: l.why, w: l.w, h: l.h })}`)
       console.log(`  ${name}: probe ${JSON.stringify({ ...probe, tracks: probe.tracks?.length })}`)
       console.log(`  ${name}: element ${JSON.stringify(st)}`)
       await win.screenshot({ path: join(SHOTS, `mov-owner-${mode === 'live' ? 'live-' : ''}${name.replace(/[^\w.-]/g, '_')}.png`) })
@@ -3788,6 +3789,215 @@ async function movOwnerScenario(fixtures) {
       await app.close()
     }
     await sleep(700)
+  }
+  await ownerWalk(fixtures)
+}
+
+/** One film as the player holds it now: the element, the bar and the picture.
+ *  `lit` is the mean brightness of the frame on a canvas (0 is black). */
+const filmNow = (win, sel = 'video') =>
+  win.evaluate((s) => {
+    const v = document.querySelector(s)
+    if (!v) return null
+    const q = v.getVideoPlaybackQuality?.()
+    let lit = -1
+    try {
+      const c = document.createElement('canvas')
+      c.width = 16
+      c.height = 16
+      const g = c.getContext('2d', { willReadFrequently: true })
+      g.drawImage(v, 0, 0, 16, 16)
+      const d = g.getImageData(0, 0, 16, 16).data
+      let sum = 0
+      for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2]
+      lit = Math.round(sum / (d.length / 4) / 3)
+    } catch {
+      /* no frame to read */
+    }
+    return {
+      route: (v.currentSrc || '').startsWith('blob:') ? 'live' : (v.currentSrc || '').startsWith('fsmedia:') ? 'direct' : 'none',
+      attr: (v.getAttribute('src') || '(none)').slice(0, 30),
+      w: v.videoWidth,
+      h: v.videoHeight,
+      ready: v.readyState,
+      net: v.networkState,
+      paused: v.paused,
+      t: Math.round(v.currentTime * 100) / 100,
+      dur: Math.round(v.duration * 100) / 100,
+      frames: q?.totalVideoFrames ?? 0,
+      dropped: q?.droppedVideoFrames ?? 0,
+      err: v.error ? `${v.error.code} ${v.error.message}` : null,
+      lit,
+      bar: (document.querySelector('[data-transport]')?.textContent ?? '').replace(/\s+/g, ' ').slice(0, 24),
+      notice: [...document.querySelectorAll('[role="status"]')].map((d) => d.textContent).join(' | ').slice(0, 90)
+    }
+  }, sel)
+
+/** The GPU's account of video decode: what the harness's window has. */
+const gpuNow = (app) =>
+  app.evaluate(({ app: a }) => ({
+    feature: { video_decode: a.getGPUFeatureStatus().video_decode, gpu_compositing: a.getGPUFeatureStatus().gpu_compositing },
+    hw: a.isHardwareAccelerationEnabled?.(),
+    switches: ['disable-gpu', 'disable-accelerated-video-decode', 'disable-direct-composition', 'disable-direct-composition-video-overlays', 'use-angle', 'use-gl'].filter((n) => a.commandLine.hasSwitch(n))
+  }))
+
+/** The player's and main's film lines in this scenario's log (lib/filmDiag,
+ *  liveVideo.ts `liveJobLine`). The page's flush is on a timer: wait for it. */
+async function filmLines() {
+  await sleep(2600)
+  try {
+    return readFileSync(join(DIAG_DIR, 'diag.jsonl'), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => {
+        try {
+          return JSON.parse(l)
+        } catch {
+          return null
+        }
+      })
+      .filter((l) => l?.k === 'op' && (l.op === 'film' || l.op === 'live-job'))
+  } catch {
+    return []
+  }
+}
+
+/** What the bar's total should read, for the element's length. */
+const barTotal = (d) => `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, '0')}`
+
+/**
+ * Walk films in ONE tab (owner, 2026-11-08: "i was able to see one .mov but
+ * the rest just shows a black screen and wont start another was black but
+ * had sound"): by the list, by the keys, back to one already seen, quick
+ * steps and slow, then press play. Every film must show its picture, the
+ * right way up, start, and have the bar say ITS length.
+ */
+async function walkFilms(win, walk, sel = 'video') {
+  for (const [name, how, gap] of walk) {
+    if (how === 'list') await viewFile(win, name)
+    else if (how === 'pane') {
+      await listRow(win, name).click({ position: { x: 30, y: 10 } })
+      await win.waitForFunction((n) => decodeURIComponent(document.querySelector('[data-browse-preview]')?.textContent ?? '').length >= 0 && !!n, name, { timeout: 8000 }).catch(() => {})
+    } else {
+      await win.keyboard.press(how === 'next' ? 'PageDown' : 'PageUp')
+      const stepped = await win
+        .waitForFunction((n) => (document.querySelector('.browse-viewer-toolbar .browse-file-crumb')?.textContent ?? '').includes(n), name, { timeout: 8000 })
+        .then(() => true)
+        .catch(() => false)
+      ok(stepped, `the keys step to ${name}`)
+    }
+    await sleep(gap)
+    const before = await filmNow(win, sel)
+    // Press play as a person does, on the picture. A pane's film is started
+    // the way the row's own play would; only a paused film is touched.
+    if (before?.paused) {
+      if (sel === 'video') await win.locator('video').first().click({ timeout: 3000 }).catch(() => {})
+      else await win.evaluate((s) => document.querySelector(s)?.play().catch(() => {}), sel)
+    }
+    const played = await until(async () => {
+      const f = await filmNow(win, sel)
+      return !!f && f.w > 0 && f.t > 0.15 && !f.paused
+    }, 12000)
+    const after = await filmNow(win, sel)
+    console.log(`  ${name} by ${how}, ${gap} ms: before ${JSON.stringify(before)}`)
+    console.log(`  ${name} playing ${JSON.stringify(after)}`)
+    ok(played && after.w > 0 && after.h > after.w, `${name} (${how}): the picture is up, the right way round, and starts (${after?.w}x${after?.h} t=${after?.t}, ${after?.route})`)
+    ok(after && after.lit > 3, `${name} (${how}): it is not black (lit ${after?.lit})`)
+    // The controls come up on a pause; the bar's total is then readable.
+    await win.evaluate((s) => document.querySelector(s)?.pause(), sel)
+    if (sel === 'video') {
+      await until(async () => ((await filmNow(win, sel))?.bar ?? '').length > 0, 3000)
+      const paused = await filmNow(win, sel)
+      ok(paused.bar.endsWith(barTotal(paused.dur)), `${name}: the bar says its length (${paused.bar}, ${paused.dur} s)`)
+    }
+  }
+}
+
+/** The owner's own films in one tab, in the owner's order. */
+async function ownerWalk(fixtures) {
+  const dir = join(ROOT, '.e2e', 'owner-mov')
+  const five = ['2021-09-07 18.25.19.mov', '2021-09-07 19.35.00.mov', '2021-09-07 19.35.23.mov', '2021-09-07 19.35.45.mov', '2021-10-01 08.28.34.mov']
+  if (!five.every((n) => existsSync(join(dir, n)))) {
+    console.log('  (the five copies for the walk are not in .e2e/owner-mov; skipped)')
+    return
+  }
+  const own = join(fixtures, 'movwalk')
+  rmSync(own, { recursive: true, force: true })
+  mkdirSync(own, { recursive: true })
+  for (const n of five) copyFileSync(join(dir, n), join(own, n))
+  const [a, b, c, d, e] = five
+  const ways = [
+    {
+      how: 'first film live, then direct films (the owner’s log)',
+      env: { PRISM_E2E_FORCE_LIVE: '19.35.00' },
+      walk: [[b, 'list', 5000], [a, 'list', 4000], [b, 'list', 3000], [c, 'list', 3000], [d, 'list', 800], [e, 'list', 4000], [b, 'list', 800], [a, 'list', 3000]]
+    },
+    { how: 'all direct, by the list', env: {}, walk: [[b, 'list', 4000], [a, 'list', 4000], [c, 'list', 800], [b, 'list', 3000]] },
+    {
+      how: 'by the keys, from a live film',
+      env: { PRISM_E2E_FORCE_LIVE: '18.25.19' },
+      walk: [[a, 'list', 3000], [b, 'next', 3000], [c, 'next', 500], [d, 'next', 3000], [e, 'next', 3000], [d, 'back', 3000]]
+    }
+  ]
+  for (const way of ways) {
+    console.log(`  -- ${way.how}`)
+    const { app, win } = await launchWith({ ...way.env, ...NO_INDEX }, own)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      console.log(`  gpu ${JSON.stringify(await gpuNow(app))}`)
+      await walkFilms(win, way.walk)
+      for (const l of await filmLines())
+        console.log(`  log ${l.op} ${l.ev} ${String(l.file ?? l.path ?? '').split(/[\\/]/).pop()} ${JSON.stringify({ ms: l.ms, route: l.route, why: l.why, ok: l.ok, encoder: l.encoder })}`)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+
+  // The preview pane: several films in the one pane, a live one first.
+  console.log('  -- in the preview pane')
+  {
+    const { app, win } = await launchWith({ PRISM_E2E_FORCE_LIVE: '19.35.00', ...NO_INDEX }, own)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await listRow(win, a).click({ position: { x: 30, y: 10 } })
+      await sleep(500)
+      const pane = '[data-browse-preview] video'
+      if (!(await win.locator(pane).count())) await win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first().click()
+      await win.waitForSelector(pane, { timeout: 10000 })
+      await walkFilms(win, [[b, 'pane', 2000], [c, 'pane', 2000], [b, 'pane', 800], [e, 'pane', 2000]], pane)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+
+  // A film that shows nothing and says nothing: the bounded wait hands it to
+  // the live route by itself, and the log says what happened.
+  console.log('  -- a film with no picture at all goes live')
+  {
+    const { app, win } = await launchWith({ PRISM_E2E_NO_PICTURE: '19.35.45', ...NO_INDEX }, own)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await viewFile(win, b)
+      await sleep(1200)
+      // The 5.7 s film: pressed play at once, and it must carry on playing
+      // live with no second press when the wait runs out at 4 s.
+      await viewFile(win, d)
+      await sleep(200)
+      if ((await filmNow(win))?.paused) await win.locator('video').first().click({ timeout: 3000 }).catch(() => {})
+      const went = await until(async () => {
+        const f = await filmNow(win)
+        return !!f && f.route === 'live' && f.w > 0 && !f.paused && f.t > 0.15
+      }, 25000)
+      const now = await filmNow(win)
+      ok(went && now.lit > 3, `no picture within the bound: the film took the live route, still playing, and shows (${JSON.stringify(now)})`)
+      const lines = await filmLines()
+      ok(lines.some((l) => l.ev === 'no-picture' && l.ok === false && String(l.path).includes('19.35.45')), 'and the log has its no-picture line')
+      ok(lines.some((l) => l.ev === 'to-live' && l.why === 'no-picture'), 'and the switch to live, with its reason')
+    } finally {
+      await app.close()
+    }
   }
 }
 
@@ -3913,6 +4123,22 @@ async function movHevcScenario(fixtures) {
     await app.close()
   }
   ok(await until(async () => (await transcodes()) === 0, 8000), 'nothing transcoding after the app is gone')
+  await sleep(800)
+
+  // 3. A live film, then a direct one, in ONE tab (owner, 2026-11-08): the
+  // direct film after a live one used to be an empty player.
+  const walkDir = join(fixtures, 'movhevc-walk')
+  rmSync(walkDir, { recursive: true, force: true })
+  mkdirSync(walkDir, { recursive: true })
+  copyFileSync(src, join(walkDir, 'IMG_0001.MOV'))
+  copyFileSync(src, join(walkDir, 'IMG_0002.MOV'))
+  ;({ app, win } = await launchWith({ PRISM_E2E_FORCE_LIVE: 'IMG_0001' }, walkDir))
+  try {
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    await walkFilms(win, [['IMG_0001.MOV', 'list', 2500], ['IMG_0002.MOV', 'list', 2500], ['IMG_0001.MOV', 'list', 800], ['IMG_0002.MOV', 'list', 1500]])
+  } finally {
+    await app.close()
+  }
 }
 async function stillsAndSubsScenario(fixtures) {
   console.log('stills and subtitles Chromium cannot read')
