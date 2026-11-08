@@ -54,6 +54,9 @@ import { BrowseToolbar } from './components/browse/BrowseToolbar'
 import { ExplorerResize } from './components/browse/ExplorerResize'
 import { useExplorerWidths } from './hooks/useExplorerWidths'
 import { usePreviewSlide } from './hooks/usePreviewSlide'
+import { useLinger } from './hooks/useLinger'
+import { usePreviewOpensIn } from './lib/prefs/previewPrefs'
+import { PreviewWindow } from './components/previewWindow/PreviewWindow'
 import { copyFilePaths, fileClipboardReady } from './lib/fileClipboard'
 import { useFilePaste } from './hooks/useFilePaste'
 import {
@@ -853,9 +856,19 @@ export default function App(): JSX.Element {
     (browsing.previewFile
       ? file?.path === browsing.previewFile.path
       : !file && !!active.browse.previewHeld)
+  // THE PREVIEW OPENS IN THE PANEL OR IN A WINDOW (owner, 2026-11-08: "a
+  // preview which opens as a separate window. just like apple does it"). The
+  // same preview either way (the toggle, the file, the arrows, the viewer);
+  // only where it is drawn changes. In window mode the pane never opens and
+  // the viewer is rendered into PreviewWindow, which stays mounted for its
+  // fade out (`previewWindowUp`).
+  const previewInWindow = usePreviewOpensIn() === 'window'
+  const paneShown = showBrowsePreview && !previewInWindow
+  const windowShown = showBrowsePreview && previewInWindow && !fullscreen
+  const previewWindowUp = useLinger(windowShown, 220) && browsing.folder && !fullscreen
   // The pane slides open and shut on its toggle (#207): `out` keeps it laid
   // out while it closes, `widthShown` holds it at 0px for an opening's first frame.
-  const previewSlide = usePreviewSlide(showBrowsePreview, viewerBox)
+  const previewSlide = usePreviewSlide(paneShown, viewerBox)
   // A file's own text in the preview starts on the column header's line (#283;
   // owner, 2026-10-04: "the position of the sorting bar ... that's the height
   // I want the txt files to start at"): the pane takes the header's top, the
@@ -868,13 +881,35 @@ export default function App(): JSX.Element {
     placesVisible,
     previewSlide.widthShown
   )
+  // The tabs whose preview window was OPENED, by a toggle, this session. In
+  // window mode the tab's preview flag is the window, and only a toggle opens
+  // it: a flag left on by the panel, a restore or a file from Windows is put
+  // back off, so the window never appears unasked.
+  const windowTabs = useRef(new Set<string>())
   const togglePreview = useCallback(() => {
     // Only a pane that is really on screen slides shut, and only one that is
     // really off slides open; a preview switched on over a folder shows nothing.
-    if (showBrowsePreview) previewSlide.start(true)
+    if (previewInWindow) {
+      // The window fades instead (PreviewWindow).
+      if (activeId && !active?.browse.preview) windowTabs.current.add(activeId)
+      else if (activeId) windowTabs.current.delete(activeId)
+    } else if (showBrowsePreview) previewSlide.start(true)
     else if (!active?.browse.preview) previewSlide.start(false)
     browsing.togglePreview()
-  }, [showBrowsePreview, active?.browse.preview, previewSlide, browsing])
+  }, [previewInWindow, activeId, showBrowsePreview, active?.browse.preview, previewSlide, browsing])
+  /** The preview window's own closes (Escape, its button, Alt+F4): off,
+   *  never on again if it was off already. */
+  const closePreviewWindow = useCallback(() => {
+    if (activeId) windowTabs.current.delete(activeId)
+    if (active?.browse.preview) browsing.togglePreview()
+  }, [activeId, active?.browse.preview, browsing])
+  const previewOn = !!active?.browse.preview
+  const browsingFolder = browsing.folder
+  const togglePreviewOff = browsing.togglePreview
+  useEffect(() => {
+    if (!previewInWindow || !previewOn || !activeId || !browsingFolder) return
+    if (!windowTabs.current.has(activeId)) togglePreviewOff()
+  }, [previewInWindow, previewOn, activeId, browsingFolder, togglePreviewOff])
   const quickAccessDefaults = useMemo(
     () =>
       browsing.locations
@@ -1573,12 +1608,14 @@ export default function App(): JSX.Element {
                 previewEnabled={active.browse.preview}
                 previewVisible={previewSlide.out}
                 listSlideWidth={previewSlide.sliding ? explorerWidths.listWidth : undefined}
+                previewWindowOpen={windowShown}
+                onPreviewWindowClose={closePreviewWindow}
                 onPreviewToggle={togglePreview}
                 covered={!!ask || update.state.open || settingsOpen || !!setup}
               />
             </div>
           )}
-          {showBrowsePreview && !previewSlide.sliding && !fullscreen && (
+          {paneShown && !previewSlide.sliding && !fullscreen && (
             <ExplorerResize
               section="preview"
               bounds={explorerWidths.bounds.preview}
@@ -1621,6 +1658,9 @@ export default function App(): JSX.Element {
               // visible one fills the pane exactly as a viewer always did.
               // A background tab answers nothing: no paging, no stepping.
               const noop = (): void => {}
+              // In window mode the front tab's player and view are drawn in
+              // the preview window, the others stay here, mounted and hidden.
+              const inWindow = (tabId: string): boolean => previewWindowUp && tabId === activeId
               const players = deck.map((e) => (
                 <div
                   key={e.tabId}
@@ -1640,7 +1680,7 @@ export default function App(): JSX.Element {
                     onUndoable={noteUndo}
                     onRenameSelf={(name) => void runRename(e.file.path, name, 'ask')}
                     refreshKey={refreshKey}
-                    onToggleFullscreen={toggleFullscreen}
+                    onToggleFullscreen={inWindow(e.tabId) ? noop : toggleFullscreen}
                     fullscreen={fullscreen}
                     transportStyle={transportStyle}
                     transportBg={transportBg}
@@ -1683,7 +1723,7 @@ export default function App(): JSX.Element {
                   </Suspense>
                 ) : warm.length ? (
                   <>
-                    {warm.map((w) => (
+                    {warm.filter((w) => !inWindow(w.tabId)).map((w) => (
                       <div
                         key={w.tabId}
                         inert={w.tabId !== activeId || (browsing.folder && !showBrowsePreview)}
@@ -1731,12 +1771,12 @@ export default function App(): JSX.Element {
                         />
                       </div>
                     ))}
-                    {!file && active && (browsing.folder ? <PreviewEmpty /> : <NoFileState />)}
+                    {!file && active && !previewWindowUp && (browsing.folder ? <PreviewEmpty /> : <NoFileState />)}
                   </>
                 ) : file ? // a transparent ring, which is where it showed through. // why it went unseen for months, and the audio visualizer is // player either way: a film's picture covers it, which is // with the nothing-open notice. It was drawn under the // BY DESIGN, and this branch used to answer that emptiness // Media lives in the PLAYER deck, so `warm` is empty for it // FLAC opened with "No file selected" written across it). // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
                 // There IS a file here; the player above is drawing it.
                 null : active ? (
-                  browsing.folder ? <PreviewEmpty /> : <NoFileState />
+                  previewWindowUp ? null : browsing.folder ? <PreviewEmpty /> : <NoFileState />
                 ) : restoring ? (
                   // NOTHING TO READ WHILE THE TABS ARRIVE (#271; owner,
                   // 2026-10-04: "I don't ever want to see that"). The Explorer
@@ -1746,10 +1786,55 @@ export default function App(): JSX.Element {
                 ) : (
                   <EmptyState onNewTab={newTab} onOpenFolder={openFolderTab} />
                 )
+              // THE PREVIEW WINDOW (owner, 2026-11-08): the front tab's
+              // player or view, the same element the pane would show, and the
+              // empty state when nothing is picked. A portal, so its DOM is in
+              // the window and this box stays hidden behind the list.
+              const frontWarm = warm.find((w) => inWindow(w.tabId))
+              const windowContent = previewWindowUp ? (
+                <>
+                  {players.filter((_, i) => inWindow(deck[i].tabId))}
+                  {frontWarm && !(file && editMode && file.kind === 'text') && (
+                    <div key={frontWarm.tabId} className="absolute inset-0">
+                      <Viewer
+                        key={`${frontWarm.tabId}:${frontWarm.file.kind}:${docVersion}`}
+                        file={frontWarm.file}
+                        onUndoable={noteUndo}
+                        onRenameSelf={(name) => void runRename(frontWarm.file.path, name, 'ask')}
+                        refreshKey={refreshKey}
+                        onToggleFullscreen={noop}
+                        fullscreen={false}
+                        transportStyle={transportStyle}
+                        transportBg={transportBg}
+                        onOpenLocal={openLocal}
+                        onAutoAdvance={advanceSameKind}
+                        onStep={stepSameKind}
+                        canStep={(dir) => sameKindIndex(dir) >= 0}
+                        onBuffer={onBuffer}
+                        getPending={getPending}
+                        onExternalChange={onExternalChange}
+                        reloadAnswer={reloadAnswer}
+                        onOpenArchive={openArchive}
+                        onOpenArchiveMember={openArchiveMember}
+                        archiveCardMenu={archiveActions.cardMenu}
+                        archiveCardCopy={archiveActions.copy}
+                        archiveCardDrop={onBrowseDropInto}
+                        note={false}
+                      />
+                    </div>
+                  )}
+                  {!file && <PreviewEmpty />}
+                </>
+              ) : null
               return (
                 <>
-                  {players}
+                  {players.filter((_, i) => !inWindow(deck[i].tabId))}
                   {liveContent}
+                  {previewWindowUp && (
+                    <PreviewWindow open={windowShown} title={file?.name ?? ''} onClose={closePreviewWindow}>
+                      {windowContent}
+                    </PreviewWindow>
+                  )}
                 </>
               )
             })()}
