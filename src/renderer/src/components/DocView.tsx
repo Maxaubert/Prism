@@ -41,7 +41,7 @@ export function DocView({ path, name }: { path: string; name: string }): JSX.Ele
     setFindFor(path)
     setFinding(false)
   }
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; at: EventTarget } | null>(null)
 
   useEffect(() => {
     let live = true
@@ -97,7 +97,7 @@ export function DocView({ path, name }: { path: string; name: string }): JSX.Ele
       className="relative h-full w-full"
       onContextMenu={(e) => {
         e.preventDefault()
-        setMenu({ x: e.clientX, y: e.clientY })
+        setMenu({ x: e.clientX, y: e.clientY, at: e.currentTarget })
       }}
     >
     {finding && <DocFind scroller={box} onClose={() => setFinding(false)} />}
@@ -105,6 +105,7 @@ export function DocView({ path, name }: { path: string; name: string }): JSX.Ele
       <ContextMenu
         x={menu.x}
         y={menu.y}
+        at={menu.at}
         onClose={() => setMenu(null)}
         items={docMenu({ path, find: () => setFinding(true) })}
       />

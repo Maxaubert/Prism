@@ -90,7 +90,7 @@ export function ImageView({
   // Its own window and the Explorer's: the preview window draws it in another
   // (`lib/ownWindow.ts`).
   const wins = useViewerWindows(stageRef)
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; at: EventTarget } | null>(null)
   // Pinned while the pointer is on the bar, or while the right-click menu is
   // open - an invisible menu would keep eating clicks and the first Escape.
   const { shown: chromeShown, leaving: chromeLeaving } = useAutoHideChrome(
@@ -562,11 +562,11 @@ export function ImageView({
       onWheel={onWheel}
       onContextMenu={(e) => {
         e.preventDefault()
-        setMenu({ x: e.clientX, y: e.clientY })
+        setMenu({ x: e.clientX, y: e.clientY, at: e.currentTarget })
       }}
       className="group relative flex h-full w-full items-center justify-center overflow-hidden"
     >
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} at={menu.at} items={menuItems()} onClose={() => setMenu(null)} />}
       {/* A multi-page TIFF shows its first page and used to say nothing about
           the rest. ffmpeg cannot reach page 2, so this is honest about what
           it is: a note, not a picker. Scans and faxes arrive this way. */}

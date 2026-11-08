@@ -34,7 +34,7 @@ import { prismCodeTheme } from '../lib/code/codeTheme'
 import { setWrapPref, useWrapPref, wrapPref, wrapsFor, type WrapPref } from '../lib/code/codePrefs'
 import { reloadAction, stampChanged, touchesFile, type Stamp } from '../lib/fileReload'
 import { inNavSurface, isFormField } from '../lib/focusGuards'
-import { listenOn, useViewerWindows } from '../lib/ownWindow'
+import { listenOn, ownDocument, useViewerWindows } from '../lib/ownWindow'
 import { yieldsFindToExplorer } from '../lib/previewFind'
 import { landSave, saveTarget } from './codeSave'
 
@@ -168,7 +168,7 @@ export function CodeView({
   /** Why the last save failed, or null. Carried rather than a bare flag:
    *  a read-only file and a folder that has gone are different problems. */
   const [failed, setFailed] = useState<string | null>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number; hasSel: boolean } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; hasSel: boolean; at: EventTarget } | null>(null)
   const wrap = useWrapPref()
   /** Where the caret is, for the status pill. Only read while focused. */
   const [caret, setCaret] = useState({ line: 1, col: 1, sel: 0 })
@@ -661,6 +661,7 @@ export function CodeView({
       tailed: !!tailed,
       following,
       pasteHere,
+      clip: (verb) => void ownDocument(host.current).execCommand(verb),
       selectAll,
       findHere,
       gotoHere,
@@ -683,7 +684,8 @@ export function CodeView({
         setMenu({
           x: e.clientX,
           y: e.clientY,
-          hasSel: !!v && v.state.selection.ranges.some((r) => !r.empty)
+          hasSel: !!v && v.state.selection.ranges.some((r) => !r.empty),
+          at: e.currentTarget
         })
       }}
       className="relative h-full w-full"
@@ -692,6 +694,7 @@ export function CodeView({
         <ContextMenu
           x={menu.x}
           y={menu.y}
+          at={menu.at}
           // The builder only hangs these handlers on its rows' onPick; nothing
           // is called while rendering, which is what this rule fears.
           // eslint-disable-next-line react-hooks/refs

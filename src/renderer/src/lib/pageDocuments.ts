@@ -18,3 +18,12 @@ export function addPageDocument(doc: Document): () => void {
 export function pageDocuments(): Document[] {
   return [document, ...[...drawnInto].filter((d) => d !== document)]
 }
+
+/**
+ * A right-click menu or a question up in front, in ANY of the page's
+ * documents: the list's Space and Escape stand down for it (a menu in the
+ * preview window, owner 2026-11-08, as much as one in the Explorer).
+ */
+export function menuOrDialogUp(docs: ReadonlyArray<Pick<Document, 'querySelector'>> = pageDocuments()): boolean {
+  return docs.some((d) => !!d.querySelector('[role="menu"], [role="dialog"][aria-modal="true"]'))
+}

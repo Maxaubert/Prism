@@ -23,7 +23,10 @@ import './previewWindow.css'
  * `open` false is the close: the fade runs while App keeps it mounted
  * (`useLinger`), and the unmount takes it away.
  *
- * Right-click does nothing in it: a menu would open in the Explorer behind.
+ * A right-click in it opens its viewer's own menu, drawn IN this window
+ * (owner, 2026-11-08: "also let me right click the preview to copy or do
+ * other actions"; `ContextMenu`'s `at`). While a menu is up here, Space and
+ * Escape are the menu's, not the window's.
  */
 export function PreviewWindow({
   open,
@@ -113,10 +116,8 @@ export function PreviewWindow({
       data-preview-window
       data-phase={open ? 'in' : 'out'}
       data-still={still || undefined}
-      onContextMenuCapture={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-      }}
+      // Where no viewer has a menu (the bar, a PDF): nothing, not Chromium's.
+      onContextMenu={(e) => e.preventDefault()}
     >
       <header className="preview-window-bar drag">
         <span className="preview-window-title" title={title}>
@@ -146,11 +147,14 @@ export function PreviewWindow({
  * phase on the window itself, and a key that closes stops there: whatever
  * viewer is in it, Space is the window's (a film neither plays nor pauses
  * first) and Escape is (the code view's blur never holds it open). A field
- * keeps both and the text editor its Space, as before.
+ * keeps both and the text editor its Space, as before. A right-click menu
+ * up in the window keeps both too (Escape closes the menu, Space picks its
+ * row), and the window stays.
  */
 function ownKeys(win: Window, onClose: () => void): () => void {
+  const menuUp = (): boolean => !!win.document.querySelector('[role="menu"]')
   const onKey = (e: KeyboardEvent): void => {
-    const k = previewWindowKey(e, keyTarget(e.target))
+    const k = previewWindowKey(e, keyTarget(e.target), menuUp())
     if (!k) return
     e.preventDefault()
     e.stopImmediatePropagation()
@@ -158,7 +162,7 @@ function ownKeys(win: Window, onClose: () => void): () => void {
   }
   // A focused button's Space clicks it on the way up: not here.
   const onKeyUp = (e: KeyboardEvent): void => {
-    if (previewWindowKey(e, keyTarget(e.target))) e.preventDefault()
+    if (previewWindowKey(e, keyTarget(e.target), menuUp())) e.preventDefault()
   }
   win.addEventListener('keydown', onKey, true)
   win.addEventListener('keyup', onKeyUp, true)

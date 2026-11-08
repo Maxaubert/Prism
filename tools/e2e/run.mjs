@@ -17623,7 +17623,8 @@ async function previewWindowScenario(fixtures) {
   writeFileSync(join(dir, 'notes.txt'), 'line 1 of the notes\n')
   writeFileSync(join(dir, 'charlie.txt'), 'the charlie text\n')
   copyFileSync(join(fixtures, 'one.png'), join(dir, 'alpha.png'))
-  copyFileSync(join(fixtures, 'two.png'), join(dir, 'bravo.png'))
+  // A real picture (64 px): Copy image in the window's menu decodes it.
+  writeFileSync(join(dir, 'bravo.png'), clearPng())
   // After notes.txt in the list, so the arrows below walk the same rows.
   copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'video.mp4'))
   writeFileSync(
@@ -17808,6 +17809,98 @@ async function previewWindowScenario(fixtures) {
     await childKey('r')
     await childKey('r')
     ok((await focusedRow()) === 'bravo.png' && (await isOpen()), `the picture's keys moved nothing in the list (${await focusedRow()})`)
+
+    // A RIGHT-CLICK IN THE WINDOW OPENS ITS VIEWER'S MENU, IN THE WINDOW
+    // (owner, 2026-11-08: "also let me right click the preview to copy or do
+    // other actions"). The same rows as the pane's, drawn in the window's own
+    // document at the cursor; its actions act on the file shown; Escape (its
+    // own or the list's) and a press away close the menu and leave the window.
+    /** Right-click `sel` in the window, at its middle. */
+    const rightClick = (sel) =>
+      win.evaluate((q) => {
+        const w = window.__prismPreviewWindow
+        const el = w?.document.querySelector(`[data-preview-window-body] ${q}`)
+        if (!el) return false
+        const r = el.getBoundingClientRect()
+        const at = { bubbles: true, cancelable: true, button: 2, buttons: 2, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }
+        el.dispatchEvent(new w.PointerEvent('pointerdown', at))
+        el.dispatchEvent(new w.PointerEvent('pointerup', { ...at, buttons: 0 }))
+        el.dispatchEvent(new w.MouseEvent('contextmenu', at))
+        return true
+      }, sel)
+    /** Where a menu is: the window's document, the Explorer's, its rows. */
+    const menuState = () =>
+      win.evaluate(() => {
+        const w = window.__prismPreviewWindow
+        const m = w?.document.querySelector('[role="menu"]')
+        const r = m?.getBoundingClientRect()
+        return {
+          inWindow: !!m,
+          inExplorer: !!document.querySelector('[role="menu"]'),
+          rows: m ? [...m.querySelectorAll(':scope > [role="menuitem"]')].map((b) => (b.querySelector('.truncate') ?? b).textContent.trim()) : [],
+          fits: !!r && r.left >= 0 && r.top >= 0 && r.right <= w.innerWidth && r.bottom <= w.innerHeight,
+          // Themed: the panel wears the raised surface, not a bare default.
+          bg: m ? getComputedStyle(m).backgroundColor : ''
+        }
+      })
+    const pickRow = (label) =>
+      win.evaluate((l) => {
+        const m = window.__prismPreviewWindow?.document.querySelector('[role="menu"]')
+        const b = m && [...m.querySelectorAll('[role="menuitem"]')].find((x) => x.textContent.trim().startsWith(l))
+        b?.click()
+        return !!b
+      }, label)
+    await app.evaluate(({ clipboard }) => clipboard.writeText(''))
+    ok(await rightClick('img'), 'the picture is in the window to right-click')
+    ok(await until(async () => (await menuState()).inWindow, 2000), `a right-click on the picture opens a menu in the window (${JSON.stringify(await menuState())})`)
+    const picMenu = await menuState()
+    ok(!picMenu.inExplorer, 'and not in the Explorer behind it')
+    ok(['Rotate', 'Copy image', 'Copy path', 'Save a copy', 'Show in File Explorer'].every((l) => picMenu.rows.includes(l)), `the picture's rows (${picMenu.rows.join(', ')})`)
+    ok(picMenu.fits && !!picMenu.bg && picMenu.bg !== 'rgba(0, 0, 0, 0)', `inside the window, themed (${JSON.stringify(picMenu)})`)
+    await childKey('Escape')
+    ok(await until(async () => !(await menuState()).inWindow, 2000), "Escape in the window closes the menu")
+    await sleep(300)
+    ok(await isOpen(), 'and the window stays open')
+    await rightClick('img')
+    ok(await until(async () => (await menuState()).inWindow, 2000), 'a right-click opens it again')
+    ok(await pickRow('Copy image'), 'Copy image is there to pick')
+    const pixels = () => app.evaluate(({ clipboard }) => { const i = clipboard.readImage(); return i.isEmpty() ? 0 : i.getSize().width })
+    ok(await until(async () => (await pixels()) > 0, 4000), `Copy image puts the picture on the clipboard (${await pixels()} px wide)`)
+    ok(!(await menuState()).inWindow && (await isOpen()), 'the menu closes on the pick, the window stays')
+    await rightClick('img')
+    await until(async () => (await menuState()).inWindow, 2000)
+    await pickRow('Copy path')
+    ok(await until(async () => /bravo\.png$/.test(await app.evaluate(({ clipboard }) => clipboard.readText())), 3000), `Copy path is the file shown (${await app.evaluate(({ clipboard }) => clipboard.readText())})`)
+    // A press away (in the window) and Escape on the list: the menu goes, the window stays.
+    await rightClick('img')
+    await until(async () => (await menuState()).inWindow, 2000)
+    await win.evaluate(() => {
+      const w = window.__prismPreviewWindow
+      w.document.querySelector('.preview-window-title').dispatchEvent(new w.PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+    })
+    ok(await until(async () => !(await menuState()).inWindow, 2000), 'a press away in the window closes the menu')
+    ok(await isOpen(), 'and leaves the window')
+    await rightClick('img')
+    await until(async () => (await menuState()).inWindow, 2000)
+    await listRow(win, 'bravo.png').focus()
+    await win.keyboard.press('Escape')
+    ok(await until(async () => !(await menuState()).inWindow, 2000), "Escape on the list closes the window's menu")
+    await sleep(300)
+    ok(await isOpen(), 'and only the menu')
+
+    // The text editor's menu in the window: its own rows, Copy path the file shown.
+    await pick('charlie.txt')
+    ok(await until(async () => /the charlie text/.test((await inside())?.text ?? ''), 8000), 'charlie.txt in the window')
+    await app.evaluate(({ clipboard }) => clipboard.writeText(''))
+    ok(await rightClick('.cm-content'), 'its editor is there to right-click')
+    ok(await until(async () => (await menuState()).inWindow, 2000), `a right-click on the text opens its menu in the window (${JSON.stringify(await menuState())})`)
+    const textMenu = await menuState()
+    ok(!textMenu.inExplorer && ['Cut', 'Copy', 'Paste', 'Copy path', 'Select all', 'Find'].every((l) => textMenu.rows.includes(l)), `the editor's rows (${textMenu.rows.join(', ')})`)
+    await pickRow('Copy path')
+    ok(await until(async () => /charlie\.txt$/.test(await app.evaluate(({ clipboard }) => clipboard.readText())), 3000), `the text's Copy path is the file shown (${await app.evaluate(({ clipboard }) => clipboard.readText())})`)
+    ok((await isOpen()) && !(await menuState()).inWindow, 'the menu closed, the window stays')
+    await pick('bravo.png')
+    ok(await until(async () => (await inside())?.img?.ok, 8000), 'back on the picture')
 
     // Markdown's in-page link scrolls the window's own document.
     await pick('story.md')
