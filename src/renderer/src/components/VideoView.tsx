@@ -21,6 +21,7 @@ import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
 import { useBackgroundPause } from '../hooks/useBackgroundPause'
 import { tapVerb } from '../lib/tapChrome'
 import { Icon } from './icons/Icon'
+import { listenOn, ownDocument, useViewerWindows } from '../lib/ownWindow'
 
 /** What a track is called in the picker: its own name if it has one, then the
  *  language, then what it actually is - "English - AC-3 5.1". A file that says
@@ -133,6 +134,8 @@ export function VideoView({
   attach?: (el: HTMLMediaElement) => () => void
 }): JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
+  // The film's own window too: the preview window draws it in another (`lib/ownWindow.ts`).
+  const wins = useViewerWindows(video)
   useEffect(() => {
     const el = video.current
     if (!attach || !el) return
@@ -239,7 +242,7 @@ export function VideoView({
       // Reaching for the scrubber and pausing your hand should not make the
       // thing you are reaching for disappear. Asked of the DOM, so it cannot
       // be a flag that failed to clear.
-      if (document.querySelector('[data-transport]:hover')) return
+      if (ownDocument(el).querySelector('[data-transport]:hover')) return
       setChromeOn(false)
     }, 250)
     return () => window.clearInterval(t)
@@ -355,15 +358,17 @@ export function VideoView({
   useEffect(() => {
     if (background) return
     const wake = (): void => showChrome()
-    window.addEventListener('pointermove', wake, { capture: true, passive: true })
-    window.addEventListener('keydown', wake, true)
+    const unMove = listenOn(wins, 'pointermove', wake, { capture: true, passive: true })
+    const unKey = listenOn(wins, 'keydown', wake, true)
+    // own-window-ok: fullscreen is the Explorer page's alone (the preview window has none)
     document.addEventListener('fullscreenchange', wake)
     return () => {
-      window.removeEventListener('pointermove', wake, true)
-      window.removeEventListener('keydown', wake, true)
+      unMove()
+      unKey()
+      // own-window-ok: the fullscreen listener above
       document.removeEventListener('fullscreenchange', wake)
     }
-  }, [showChrome, background])
+  }, [showChrome, background, wins])
 
   /** The right-click menu; the rows and the reasons are in menus/viewers/video. */
   const menuItems = (hasFrame: boolean, el: HTMLVideoElement | null): MenuItem[] =>

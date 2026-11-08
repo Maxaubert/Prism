@@ -12,6 +12,7 @@ import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 import { preloadImage } from '../lib/imageLoader'
 import { createChromeActivityClock } from '../lib/autoHideChrome'
 import { isTypingTarget } from '../lib/focusGuards'
+import { listenOn, ownDocument, useViewerWindows } from '../lib/ownWindow'
 
 /**
  * A comic book (2026-08-31).
@@ -44,6 +45,9 @@ export function ComicView({
   onToggleFullscreen: () => void
   fullscreen?: boolean
 }): JSX.Element {
+  // Its own window as well as the Explorer's (the preview window, `lib/ownWindow.ts`).
+  const box = useRef<HTMLDivElement>(null)
+  const wins = useViewerWindows(box)
   const [chromeActivity] = useState(createChromeActivityClock)
   const [state, setState] = useState<
     | { for: string; pages: string[] }
@@ -114,7 +118,8 @@ export function ComicView({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const el = document.activeElement as HTMLElement | null
+      // The focus in the window the key was pressed in (the preview window's own).
+      const el = ownDocument(e.target).activeElement as HTMLElement | null
       // The search box, a rename and the shell keep their own arrows.
       if (isTypingTarget(el)) return
       if (el?.closest('[role="separator"]')) return
@@ -130,9 +135,8 @@ export function ComicView({
       e.stopPropagation()
       go(e.key === 'ArrowRight' ? 1 : -1)
     }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [go, total])
+    return listenOn(wins, 'keydown', onKey, true)
+  }, [go, total, wins])
 
   /**
    * A TAP on the outer thirds turns the page (2026-09-07, #106, the phone).
@@ -192,6 +196,7 @@ export function ComicView({
 
   return (
     <div
+      ref={box}
       data-owns-arrows
       className="relative h-full w-full"
       onPointerDown={onTapDown}
