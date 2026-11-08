@@ -63,6 +63,9 @@ the log"):
   `gave-up`.
 - `page-stall` + the host's `pageInfo`: Prism adds `win` (the window's key, `w1`...), `hidden` (nobody could see
   it; then not a problem), `spare`.
+- Prism's `op` lines also carry films (2026-11-08): `op: 'film'` (page, one per event: `ev` `route`, `first-frame`,
+  `error`, `no-picture`, `black`, `to-live`, `live-open`, `live-error`) and `op: 'live-job'` (main: `ev` `start`, `exit`,
+  `kill`, `encoder-fallback`); `ok: false` is a problem. `docs/features.md`, the .mov entry.
 - `standby(on)` parks the stall watch (its tick and canary timers stop). Prism writes `standby` lines: `ev`
   `enter` (`failed` parts), `rest` (`trimmed`, `processes`, `privateMb`, `workingSetMb`, `mainMb`, `gpuMb`,
   `pageMb`), `wake` (`why`, `restedMs`).

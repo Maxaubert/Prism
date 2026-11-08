@@ -319,6 +319,7 @@ export class HlsJobs {
         }
         if (this.encoder.video === 'nvenc' && looksLikeGpuFailure(job.stderr)) {
           // Once, for the session: the software path from here on.
+          this.log(`job ${job.id} encoder fallback to openh264: ${said()}`)
           this.encoder = { video: 'openh264' }
           void this.start(job, at)
           return

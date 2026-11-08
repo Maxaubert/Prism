@@ -22,7 +22,8 @@ import { useBackgroundPause } from '../hooks/useBackgroundPause'
 import { tapVerb } from '../lib/tapChrome'
 import { Icon } from './icons/Icon'
 import { attachLive } from '../lib/liveHls'
-import { rescueLive } from '../lib/liveRoute'
+import { isPlatformCodec, rescueLive } from '../lib/liveRoute'
+import { useFilmWatch } from '../hooks/useFilmWatch'
 
 /** What a track is called in the picker: its own name if it has one, then the
  *  language, then what it actually is - "English - AC-3 5.1". A file that says
@@ -147,15 +148,31 @@ export function VideoView({
   const playable = usePlayableVideo(path, url, !attach)
   const src = playable.src
   const liveAttach = useMemo(
-    () => (playable.live && src ? attachLive(src) : undefined),
-    [playable.live, src]
+    () => (playable.live && src ? attachLive(src, path) : undefined),
+    [playable.live, src, path]
   )
   const feed = attach ?? liveAttach
+  // THE ELEMENT'S SOURCE IS WRITTEN HERE, AFTER THE LAST ONE LET GO (owner,
+  // 2026-11-08: a film after a live one was a black screen that would not
+  // start). React writes a `src` prop during the commit, and the effect
+  // tearing down hls.js ran a moment later: its detach took the attribute
+  // away again (an attach still running when the commit landed makes hls.js
+  // believe the src is its own), and `load()` left the element empty, with
+  // no error and no way to ever start. One effect owns both ways of feeding
+  // the element, so the order is always: the old feed stops, then the new
+  // film goes in.
+  const directSrc = feed ? undefined : src
   useEffect(() => {
     const el = video.current
-    if (!feed || !el) return
-    return feed(el)
-  }, [feed, url])
+    if (!el) return
+    if (feed) return feed(el)
+    if (directSrc) {
+      if (el.getAttribute('src') !== directSrc) el.setAttribute('src', directSrc)
+    } else if (el.hasAttribute('src')) {
+      el.removeAttribute('src')
+    }
+    return undefined
+  }, [feed, url, directSrc])
   const prefs = usePlayerPrefs()
   const subtitles = useSubtitles(path)
   const peaks = useWaveform(
@@ -446,7 +463,7 @@ export function VideoView({
   // phone's, whose host has no such route here. On the desktop a film the
   // live route cannot rescue either says so through its own error panel.
   const noPicture = blindUrl === url && hushedUrl !== url && !!attach
-  const { goLive, live: isLive, converting: isConverting, converted: isConverted } = playable
+  const { goLive, live: isLive, converting: isConverting, converted: isConverted, route: filmRoute, forcedNoPicture } = playable
   useEffect(() => {
     const el = video.current
     if (!el || !videoCodec || isConverting || isConverted || isLive) return
@@ -474,8 +491,21 @@ export function VideoView({
       }) &&
       (!!c.error || blindUrl === url)
     )
-      goLive()
+      goLive(c.error ? 'element-error' : 'no-width')
   }, [attach, videoCodec, isLive, isConverting, isConverted, c.error, blindUrl, url, goLive])
+
+  // Every film gets its own watch: the first frame is logged, and a direct
+  // start that shows nothing within a bounded time goes live for THIS film.
+  useFilmWatch(video, {
+    path,
+    url,
+    film: !attach && !!videoCodec,
+    route: filmRoute,
+    canRescue: !attach && !isLive && !isConverting && !isConverted,
+    platform: isPlatformCodec(videoCodec),
+    forcedNoPicture,
+    onRescue: goLive
+  })
 
   return (
     <div
@@ -598,7 +628,6 @@ export function VideoView({
       )}
       <video
         ref={video}
-        src={feed ? undefined : src}
         // Volume over 100% routes this element through Web Audio, and a source
         // that is not CORS-clean feeds the graph SILENCE rather than sound -
         // permanently, since the routing outlives the setting that asked for

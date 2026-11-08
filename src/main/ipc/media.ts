@@ -21,9 +21,13 @@ import type { MainCtx, ReadyCtx } from './context'
 import { E2E } from '../appState'
 import type { LiveResult } from '@shared/ipcTypes'
 
-/** E2E only: every film takes the live transcode (movHevc), as the phone's
- *  e2e forces an encode. Inert outside `--e2e`. */
-const FORCE_LIVE = E2E && !!process.env.PRISM_E2E_FORCE_LIVE
+/** E2E only: a film takes the live transcode (movHevc), as the phone's e2e
+ *  forces an encode: every film for '1', else those with this in their path
+ *  (movWalk: one live film among direct ones). Inert outside `--e2e`. */
+const FORCE_LIVE = E2E ? (process.env.PRISM_E2E_FORCE_LIVE ?? '') : ''
+const forcedLive = (p: string): boolean => FORCE_LIVE === '1' || (!!FORCE_LIVE && p.includes(FORCE_LIVE))
+/** E2E only: the player sees no picture on films with this in their path. */
+const NO_PICTURE = E2E ? (process.env.PRISM_E2E_NO_PICTURE ?? '') : ''
 
 /** Subtitles, the audio sidecar, peaks and probes, MIDI, video conversion, documents. */
 export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
@@ -129,7 +133,8 @@ export function registerMediaIpc(ctx: MainCtx, ready: ReadyCtx): void {
       needed,
       videoCodec: info.videoCodec ?? undefined,
       videoProfile: info.video?.profile,
-      ...(FORCE_LIVE && info.videoCodec ? { forceLive: true } : {}),
+      ...(forcedLive(p) && info.videoCodec ? { forceLive: true } : {}),
+      ...(NO_PICTURE && p.includes(NO_PICTURE) ? { noPicture: true } : {}),
       fps: info.fps ?? undefined,
       convert: plan.needed ? { reason: plan.reason ?? 'codec', quick: plan.copyVideo } : undefined
     }

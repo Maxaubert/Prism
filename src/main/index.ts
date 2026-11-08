@@ -80,7 +80,7 @@ import { withStackPolicy } from 'prism-term-core/main/diagIpc'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
 import { diagWindowEvent } from './diagWindow'
 import { mainCrumb } from './diagCrumb'
-import { watchOps } from './opLog'
+import { watchOps, writeOp } from './opLog'
 import { initSweepOverlay, loadSweepAddon, sweepDirs, type PrismSweep, type SweepLoad, type SweepOverlay } from './sweepOverlay'
 import { documentImages } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
@@ -2454,7 +2454,8 @@ if (!app.requestSingleInstanceLock()) {
           baseDir: LIVE_DIR,
           readable,
           hold: (c, f) => holders.add(c, f),
-          ready: liveWiped
+          ready: liveWiped,
+          op: writeOp
         })
       : null
 

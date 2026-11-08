@@ -110,6 +110,38 @@ export interface LiveDeps {
   /** Test seam, as in phone/jobs.ts. */
   spawn?: JobDeps['spawn']
   log?: (line: string) => void
+  /** One op line per job event (`liveJobLine`), for main's diag log. */
+  op?: (fields: LiveJobLine) => void
+}
+
+/** A job's event as an `op` line (2026-11-08, always on): start, exit, kill,
+ *  the software fallback. Never the per-segment asks. */
+export type LiveJobLine = {
+  op: 'live-job'
+  ok: boolean
+  job: string
+  ev: 'start' | 'exit' | 'kill' | 'encoder-fallback'
+  encoder?: string
+  code?: number
+  message?: string
+  file?: string
+}
+
+/** The phone job log's text taken apart. Null for a line that is not one of
+ *  these events. */
+export function liveJobLine(line: string): LiveJobLine | null {
+  let m = /^job (\S+) start at segment \d+ \((\w+),/.exec(line)
+  if (m) return { op: 'live-job', ok: true, job: m[1], ev: 'start', encoder: m[2] }
+  m = /^job (\S+) exit (-?\d+|null)(?:: (.*))?$/.exec(line)
+  if (m) {
+    const code = m[2] === 'null' ? null : Number(m[2])
+    return { op: 'live-job', ok: code === 0 || code === null, job: m[1], ev: 'exit', ...(code === null ? {} : { code }), ...(m[3] ? { message: m[3] } : {}) }
+  }
+  m = /^job (\S+) kill/.exec(line)
+  if (m) return { op: 'live-job', ok: true, job: m[1], ev: 'kill' }
+  m = /^job (\S+) encoder fallback to (\w+): ?(.*)$/.exec(line)
+  if (m) return { op: 'live-job', ok: false, job: m[1], ev: 'encoder-fallback', encoder: m[2], ...(m[3] ? { message: m[3] } : {}) }
+  return null
 }
 
 export interface LiveVideo {
@@ -148,7 +180,14 @@ export function createLiveVideo(deps: LiveDeps): LiveVideo {
     if (deps.hold && i >= 0 && args[i + 1]) deps.hold(child as unknown as Held, args[i + 1])
     return child
   }) as JobDeps['spawn']
-  const jobs = new HlsJobs({ ffmpeg: deps.ffmpeg, baseDir: deps.baseDir, spawn: spawnHeld, log: deps.log })
+  // The job lines reach the diag log (main's `op`); the ask-by-ask text stays
+  // the phone log's own.
+  const jobLog = (line: string): void => {
+    deps.log?.(line)
+    const made = liveJobLine(line)
+    if (made) deps.op?.({ ...made, file: jobs.file(made.job) ?? undefined })
+  }
+  const jobs = new HlsJobs({ ffmpeg: deps.ffmpeg, baseDir: deps.baseDir, spawn: spawnHeld, log: jobLog })
   /** Window -> file (lower case) -> its job and how many players in that
    *  window hold it: the preview and the full view can show the same film,
    *  and the first to let go must not pull the stream from under the other. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hevcMime, pictureRoute, rescueLive } from './liveRoute'
+import { NO_PICTURE_MS, blackCheck, hevcMime, isPlatformCodec, pictureCheck, pictureRoute, rescueLive, routeWhy } from './liveRoute'
 
 /** A PC that answers `canPlayType` with `yes` for exactly these mimes. */
 const pc =
@@ -8,6 +8,50 @@ const pc =
     yes.includes(mime) ? 'probably' : ''
 const MAIN = 'video/mp4; codecs="hvc1.1.6.L120.90"'
 const MAIN10 = 'video/mp4; codecs="hvc1.2.4.L120.90"'
+
+describe('a film never stays black (owner, 2026-11-08)', () => {
+  const pc2 = (m: string): string => (m === 'x' ? 'y' : '')
+  it('a picture is ok, however late', () => {
+    expect(pictureCheck({ elapsedMs: 100, readyState: 2, videoWidth: 1080 })).toBe('picture')
+    expect(pictureCheck({ elapsedMs: 60_000, readyState: 4, videoWidth: 1080 })).toBe('picture')
+  })
+
+  it('no picture: waits, then gives up at the bound, error or no error', () => {
+    expect(pictureCheck({ elapsedMs: 100, readyState: 0, videoWidth: 0 })).toBe('wait')
+    expect(pictureCheck({ elapsedMs: NO_PICTURE_MS - 1, readyState: 0, videoWidth: 0 })).toBe('wait')
+    expect(pictureCheck({ elapsedMs: NO_PICTURE_MS, readyState: 0, videoWidth: 0 })).toBe('no-picture')
+    // Data arrived and still no width: the decoder said nothing.
+    expect(pictureCheck({ elapsedMs: NO_PICTURE_MS, readyState: 2, videoWidth: 0 })).toBe('no-picture')
+    // Width without a frame's worth of data is not a picture yet.
+    expect(pictureCheck({ elapsedMs: NO_PICTURE_MS, readyState: 1, videoWidth: 1080 })).toBe('no-picture')
+  })
+
+  it('a black film is two black readings while it plays, on the platform decoder only', () => {
+    const at = { platform: true, playing: true, t: 1, frames: 30, lit: 0, hits: 0 }
+    const once = blackCheck(at)
+    expect(once).toEqual({ hits: 1, verdict: 'unknown' })
+    expect(blackCheck({ ...at, hits: once.hits })).toEqual({ hits: 2, verdict: 'black' })
+    expect(blackCheck({ ...at, lit: 50, hits: 1 })).toEqual({ hits: 0, verdict: 'lit' })
+    expect(blackCheck({ ...at, platform: false, hits: 1 }).verdict).toBe('unknown')
+    expect(blackCheck({ ...at, playing: false, hits: 1 }).verdict).toBe('unknown')
+    expect(blackCheck({ ...at, t: 0.1, hits: 1 }).verdict).toBe('unknown')
+    expect(blackCheck({ ...at, frames: 0, hits: 1 }).verdict).toBe('unknown')
+    expect(blackCheck({ ...at, lit: null, hits: 1 }).verdict).toBe('unknown')
+  })
+
+  it('the route says why', () => {
+    const base = { converting: false, canPlay: pc2 }
+    expect(routeWhy({ ...base })).toBe('no-video-stream')
+    expect(routeWhy({ ...base, codec: 'hevc', forceLive: true })).toBe('forced')
+    expect(routeWhy({ ...base, codec: 'hevc', converting: true })).toBe('converting')
+    expect(routeWhy({ ...base, codec: 'hevc' })).toBe('hevc-no')
+    expect(routeWhy({ ...base, codec: 'hevc', canPlay: () => 'probably' })).toBe('hevc-yes')
+    expect(routeWhy({ ...base, codec: 'h264' })).toBe('chromium-codec')
+    expect(isPlatformCodec('HEVC')).toBe(true)
+    expect(isPlatformCodec('h264')).toBe(false)
+    expect(isPlatformCodec(undefined)).toBe(false)
+  })
+})
 
 describe('pictureRoute (owner, 2026-11-08: the iPhone .mov films)', () => {
   it('asks about THIS film’s HEVC profile', () => {
