@@ -91,6 +91,12 @@ export interface FolderBrowserProps {
   canForward: boolean
   previewEnabled: boolean
   previewVisible: boolean
+  /** While the preview pane slides, the width the list ENDS at: its columns
+   *  are laid out at it for the whole slide, so they change once, as the
+   *  slide starts, and stand still while the pane moves (owner, 2026-11-08:
+   *  "it flickers instead of the text in the file list like format, size etc
+   *  handling the preview incoming properly"). */
+  listSlideWidth?: number
   preview?: ReactNode
   /** Something else is in front (a question, the update window, Settings):
    *  the search popup does not open, and leaves if it was up (#267). */

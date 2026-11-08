@@ -1572,6 +1572,7 @@ export default function App(): JSX.Element {
                 }
                 previewEnabled={active.browse.preview}
                 previewVisible={previewSlide.out}
+                listSlideWidth={previewSlide.sliding ? explorerWidths.listWidth : undefined}
                 onPreviewToggle={togglePreview}
                 covered={!!ask || update.state.open || settingsOpen || !!setup}
               />

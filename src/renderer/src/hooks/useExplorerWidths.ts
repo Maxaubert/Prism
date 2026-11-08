@@ -131,6 +131,9 @@ export function useExplorerWidths(placesVisible: boolean, previewVisible: boolea
     bounds,
     live,
     resize,
+    /** The list's column at these widths: what a preview slide lays the list
+     *  out at for the whole slide (owner, 2026-11-08, usePreviewSlide). */
+    listWidth: Math.max(0, available - placesWidth - previewWidth),
     style: {
       '--explorer-places-width': `${placesWidth}px`,
       '--explorer-places-peek-width': `${placesOwn}px`,
