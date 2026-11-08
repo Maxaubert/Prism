@@ -14,8 +14,12 @@ import type { Ask } from '../dialogs/asks'
 // Up/Down and the Explorer's verbs. Each key's rule is commented where it is
 // handled. App hands in what the keys act on.
 
-/** The kinds a player owns Up and Down for once nothing else wants them. */
-const PLAYABLE = new Set(['video', 'audio'])
+/** A range slider on the player's own bar (#492): the keys walk past it. */
+const onTransportSlider = (el: HTMLElement | null): boolean =>
+  !!el &&
+  el.tagName === 'INPUT' &&
+  (el as HTMLInputElement).type === 'range' &&
+  !!el.closest('[data-transport]')
 /** The kinds that are read by scrolling: in FULL VIEW they own Up and Down
  *  (owner, 2026-10-28, "the arrow keys up and down navigate files while
  *  you're in it which it should not", all documents). */
@@ -87,11 +91,9 @@ export function useAppKeys({
   hasNavigated
 }: AppKeysDeps): void {
   // App-level keys, in the capture phase so this runs before the player's own
-  // (bubble-phase) key listener. Arrow keys page through the folder, except a
-  // freshly opened audio/video owns them for seeking (the player handles them).
-  // The moment the user starts navigating (paging, or arrowing through
-  // non-playable files), arrows keep navigating even on playable files; we then
-  // claim the key (preventDefault) so the player yields it.
+  // (bubble-phase) key listener. Up and Down page through the folder, a film
+  // included (#492); a track keeps them for its volume. A key claimed here is
+  // preventDefault-ed, and the player's listener yields to that.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const el = e.target as HTMLElement | null
@@ -318,7 +320,10 @@ export function useAppKeys({
         // been focused. Reading a pdf from the sidebar should page the folder.
         if (docFocused()) return
         go(e.key === 'PageDown' ? 1 : -1)
-      } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing) {
+      } else if (
+        (e.key === 'ArrowDown' || e.key === 'ArrowUp') &&
+        (!typing || (file?.kind === 'video' && onTransportSlider(el)))
+      ) {
         // FOCUS decides, for every kind. A document owns the vertical keys only
         // while it is focused - click into it, or Tab to it. Until then it has
         // no more claim on them than a photo does, so arrowing through a folder
@@ -339,11 +344,19 @@ export function useAppKeys({
         }
         // Alt too: Alt+Up is the list's parent row (review of #330).
         if (inLists && (e.ctrlKey || e.shiftKey || e.altKey)) return
-        // A player in front of you: Up/Down are the VOLUME, which is what every
-        // media player has taught (2026-08-30). They used to be
-        // preventDefault-ed unconditionally here, and useMediaControls yields
-        // on defaultPrevented, so the volume keys were dead everywhere.
-        if (!!file && PLAYABLE.has(file.kind)) return // player handles it
+        // A TRACK IN FRONT OF YOU: Up/Down are its VOLUME, which is what every
+        // player has taught (2026-08-30), and only the track (owner, 2026-11-08,
+        // #492: "up down arrows shoudl nvigate next file not adjust volume", said
+        // of videos). A FILM's walk the folder like any other kind's, whether the
+        // focus is on the list, the picture or the player's bar, and the film's
+        // own key listener is told not to take them (`arrowsAreVolume`).
+        if (file?.kind === 'audio') return // the track's volume
+        if (file?.kind === 'video') {
+          // Nothing on screen to walk from: a film kept behind the list.
+          if (browsing.folder && !active?.browse.preview) return
+          // A chord is the list's, in the list; over a film it does nothing.
+          if (e.ctrlKey || e.shiftKey || e.altKey) return
+        }
         e.preventDefault()
         go(e.key === 'ArrowDown' ? 1 : -1)
       }

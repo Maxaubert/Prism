@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
-import { rememberPaused, rememberTime, sessionTime } from '../lib/playState'
+import { rememberPaused, rememberTime, sessionTime, wasQuietPause } from '../lib/playState'
 import { positionToSave, resumeAt, RESUME_SAVE_STEP } from '../lib/resumePoint'
 import { applyVolume, idleIfSilent, wakeAudioContext } from '../lib/audio'
 import { setTabRate, setTabVolume, tabRate, tabVolume } from '../lib/tabs/tabVolume'
@@ -89,6 +89,9 @@ interface Options {
   /** False for a player that is mounted but not on screen (another tab is in
    *  front): it keeps playing, but the keyboard belongs to what you can see. */
   keys?: boolean
+  /** Up and Down are this player's volume. A track's, as every player has
+   *  taught; a film's Up and Down walk the folder on the PC (#492). */
+  arrowsAreVolume?: boolean
   /** The file's real frame rate, when it is known. Frame stepping without it
    *  is a guess: 1/30 on 24fps film moves 1.25 frames and lands between two.
    *  Omit for audio, and for a file whose rate the probe could not say. */
@@ -118,6 +121,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     errorMsg,
     resumeKey,
     keys = true,
+    arrowsAreVolume = true,
     volumeKey = '',
     forceMute = false,
     fps = null
@@ -294,8 +298,8 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
         case 'ArrowLeft': seekBy(-5); act(); break
         case 'l': seekBy(10); act(); break
         case 'j': seekBy(-10); act(); break
-        case 'ArrowUp': e.preventDefault(); bumpVol(0.05); act(); break
-        case 'ArrowDown': e.preventDefault(); bumpVol(-0.05); act(); break
+        case 'ArrowUp': if (arrowsAreVolume) { e.preventDefault(); bumpVol(0.05); act() } break
+        case 'ArrowDown': if (arrowsAreVolume) { e.preventDefault(); bumpVol(-0.05); act() } break
         case 'm': toggleMute(); act(); break
         // The BARE F only: Ctrl+F is find (owner, 2026-11-04, `fullscreenKey.ts`).
         case 'f': if (isFullscreenKey(e)) onFullscreen?.(); break
@@ -315,7 +319,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [togglePlay, seekBy, bumpVol, toggleMute, stepRate, seekTo, stepFrame, onFullscreen, onActivity, ref, keys])
+  }, [togglePlay, seekBy, bumpVol, toggleMute, stepRate, seekTo, stepFrame, onFullscreen, onActivity, ref, keys, arrowsAreVolume])
 
   const bind: MediaBindings = {
     onPlay: () => {
@@ -339,7 +343,11 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
       // Nothing left playing anywhere in the window: let the audio thread and
       // its device clock go. Any route back in wakes it first.
       idleIfSilent()
-      if (resumeKey) rememberPaused(resumeKey, true)
+      // Yours, unless the film reached its end or the app paused it (#491).
+      if (resumeKey) {
+        const m = ref.current
+        rememberPaused(resumeKey, true, !(m?.ended || wasQuietPause(m)))
+      }
       onPlayChange?.(false)
     },
     onTimeUpdate: (e) => {

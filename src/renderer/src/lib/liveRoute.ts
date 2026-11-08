@@ -82,6 +82,21 @@ export function pictureRoute(o: {
  * a stalled load. Four seconds is well past a real start (under a second on
  * a local file) and short enough to read as a brief wait.
  */
+/** How long a film may be on screen, meant to start, and still not have (#491). */
+export const AUTOSTART_MS = 15000
+
+/** Has a film that was meant to start by itself done so? A film YOU paused
+ *  stopped being meant to; `wait` is everything still in flight. */
+export function autostartCheck(o: {
+  paused: boolean
+  held: boolean
+  elapsedMs: number
+}): 'started' | 'held' | 'failed' | 'wait' {
+  if (o.held) return 'held'
+  if (!o.paused) return 'started'
+  return o.elapsedMs >= AUTOSTART_MS ? 'failed' : 'wait'
+}
+
 export const NO_PICTURE_MS = 4000
 
 /** The same wait for a film whose first bytes have not even arrived (a disk
