@@ -608,6 +608,15 @@ const api = {
 
   /** Minimised / focused, from main: the page cannot see either for itself. */
   onWindowState: subscribe<WindowState>(PUSH.windowState),
+  /** THE PREVIEW WINDOW (owner, 2026-11-08): the one-time name this page's
+   *  `window.open` must use, null when main will not open one. */
+  previewWindowArm: (): Promise<string | null> => ipcRenderer.invoke(CALL.previewWindowArm),
+  /** On screen, inactive; fading in unless `animate` is false. */
+  previewWindowShow: (animate: boolean): void => ipcRenderer.send(CALL.previewWindowShow, animate),
+  /** Fading out (unless `animate` is false), then gone. */
+  previewWindowClose: (animate: boolean): void => ipcRenderer.send(CALL.previewWindowClose, animate),
+  /** The preview window closed by itself (Alt+F4 on it). */
+  onPreviewWindowGone: subscribe(PUSH.previewWindowGone),
   /** Fired when main opens a file (launch arg, drag, or a forwarded second instance). */
   onOpenFile: (cb: (p: OpenPayload) => void, onRestored?: () => void): (() => void) => {
     const offFile = subscribe<OpenPayload>(PUSH.openFile)(cb)

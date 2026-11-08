@@ -465,6 +465,17 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+/* The list's layout box, and the container its narrow-width rules ask: the
+   area's whole height and width, except while the preview slides
+   (workspace.css). */
+.browse-list-frame {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
   container-type: inline-size;
 }
 [data-folder-drop][data-drag-over='true'] {

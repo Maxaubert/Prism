@@ -35,7 +35,9 @@ export const PRISM_ICONS = {
   setup: 'M4 12a8 8 0 1 1 2.3 5.7M4 18v-4h4',
   progress: 'M4 12h16M8 12a2 2 0 1 0 4 0 2 2 0 1 0-4 0',
   pen: 'M15 5l4 4L8 20H4v-4z',
-  power: 'M12 3v8M7.5 6.5a7 7 0 1 0 9 0'
+  power: 'M12 3v8M7.5 6.5a7 7 0 1 0 9 0',
+  // Preview opens in (owner, 2026-11-08): a window over a window.
+  preview: 'M4 9h11v11H4zM9 9V4h11v11h-5'
 } as const
 
 export type PrismIconName = keyof typeof PRISM_ICONS

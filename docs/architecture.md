@@ -75,6 +75,30 @@ Filesmith's conventions.
   before. In standby (`src/main/standby.ts`) the process has no window; a request opens a window as a cold
   start's FIRST (`openAsFirst`, host `WIN_E_FIRST`), shown at once. Repeat presses ride on the request
   still opening (`winERequests.follow`, `hotkeyRepeat.ts`).
+- **THE PREVIEW WINDOW IS THE EXPLORER PAGE'S OWN CHILD** (owner, 2026-11-08; `docs/features.md`
+  "The preview can open in its own window"). The page asks `preview-window:arm` for a one-time name
+  (`prism-preview:<32 hex>`, its own window only, never the spare, good for 5 s) and calls
+  `window.open('', name)`; the window's open handler allows exactly that name from that page and
+  denies everything else as before (`src/main/previewWindow.ts` `options`). Main makes it frameless,
+  OWNED by the Explorer window (`parent`: above it, out of the taskbar, gone with it), centred at
+  two thirds, opacity 0, not shown; `did-create-window` adopts it. The page dresses the blank
+  document in its own stylesheets and theme attributes (kept in step by MutationObservers) and
+  renders the front tab's player or view into it through a React portal
+  (`components/previewWindow/PreviewWindow.tsx`), so the file comes through the same grants and
+  the same process as the pane: nothing new is served, no wall moves. `preview-window:show` shows
+  it INACTIVE and fades it in from main (a 16 ms timer over `setOpacity`); `preview-window:close`
+  fades it out and destroys it; Alt+F4 on it comes back as `preview-window:gone`. It is in no
+  registry, so it never counts as a window of the session; the owner's `closed`,
+  `render-process-gone` and a main-frame navigation destroy it, and so does standby's `preview`
+  part. Under --e2e it is unfocusable, off the desktop and clear (the fade runs on a recorded
+  opacity, `__e2ePreviewWindows`, `__e2ePreviewFades`).
+  Review 2026-11-08: the child's OWN webContents gets the owner's walls (its window-open handler
+  denies all, handing web addresses to the browser; `will-navigate` is refused), since a
+  middle-click or a drop there never reaches the owner's handlers. Its focus counts as the
+  owner's in `windowState` (no "pause in background" for a click on its player). Each opening
+  mounts a fresh `PreviewWindow` (keyed), never one main already closed. A viewer measuring
+  itself makes its ResizeObserver from the element's own window (`lib/ownResizeObserver.ts`):
+  the Explorer's observer never reports an element of the child's document.
 - **SETTINGS DESCRIPTIONS ARE PLAIN WORDS** (2026-09-22, owner: "no symbols other than comma and
   dot, no mentioning of specific keys or tips, just a simple text description of what it does").
   Every hint on Prism's own pages was rewritten to that rule, the core's rows likewise in the core.

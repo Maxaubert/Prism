@@ -161,6 +161,8 @@ import {
 } from './windowChrome'
 import { createTearOff } from './tearOff'
 import { GHOST_PAGE, ONE_FRAME, createTabGhost } from './tabGhost'
+import { createPreviewWindows } from './previewWindow'
+import { randomBytes } from 'crypto'
 import { TEAR, validCarry, validStripReport, validTearRequest, type Point } from '@shared/tabTear'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
@@ -1128,6 +1130,13 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   win.on('closed', () => {
     const rebuilding = rec.rebuilding
     const spare = rec.spare
+    // Its preview window is no window of the session's: it goes with it.
+    // Never in the way of the rest of this close.
+    try {
+      previewWindows.ownerGone(win)
+    } catch {
+      /* already gone */
+    }
     if (hotkeyOpening?.win === win) hotkeyOpening.closed = true
     // A tear in flight from or into this window ends (its tab goes back).
     // FIRST, before the registry forgets the window (review 2026-10-29): the
@@ -1185,8 +1194,17 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     if (win.isDestroyed()) return
     windows.sendTo(win, PUSH.windowState, {
       minimised: win.isMinimized(),
-      focused: win.isFocused()
+      // Its preview window having the keyboard is still this window being
+      // looked at (review 2026-11-08): a click on the preview's player must
+      // not count as "in the background" and pause it.
+      focused: win.isFocused() || !!previewWindows.of(win)?.isFocused()
     })
+  }
+  // With a preview window up, the focus moving between the two is a blur
+  // here and a focus there, one after the other: said once both are in.
+  const sayStateSettled = (): void => {
+    if (previewWindows.of(win)) setTimeout(sayState, 50)
+    else sayState()
   }
   // Listed one by one: BrowserWindow's overloads are per event name, so a loop
   // over a union of them has no single signature to match.
@@ -1195,7 +1213,7 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   win.on('show', sayState)
   win.on('hide', sayState)
   win.on('focus', sayState)
-  win.on('blur', sayState)
+  win.on('blur', sayStateSettled)
 
   win.on('enter-full-screen', () => {
     windows.sendTo(win, PUSH.windowFullscreen, true)
@@ -1217,9 +1235,34 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
    * for the same reason.
    */
   win.webContents.setWindowOpenHandler((d) => {
+    // The preview window (owner, 2026-11-08): the one name this page armed
+    // a moment ago, a blank page the Explorer draws into. Nothing else.
+    const preview = previewWindows.options(win, d.url, d.frameName)
+    if (preview) return { action: 'allow', overrideBrowserWindowOptions: preview }
     if (/^https?:\/\//i.test(d.url)) openLink(d.url)
     return { action: 'deny' }
   })
+  win.webContents.on('did-create-window', (child, d) => {
+    child.setMenu(null)
+    child.on('focus', sayStateSettled)
+    child.on('blur', sayStateSettled)
+    // The same walls as its owner's page (review 2026-11-08): a middle-click
+    // or a drop in the preview window reaches the CHILD's webContents, which
+    // would otherwise open any window and load any page (a web page with the
+    // inherited preload). It opens nothing and goes nowhere; a web address
+    // goes to the browser.
+    child.webContents.setWindowOpenHandler((c) => {
+      if (/^https?:\/\//i.test(c.url)) openLink(c.url)
+      return { action: 'deny' }
+    })
+    child.webContents.on('will-navigate', (e, url) => {
+      e.preventDefault()
+      if (/^https?:\/\//i.test(url)) openLink(url)
+    })
+    previewWindows.adopt(win, child, d.frameName)
+  })
+  // Its preview window goes with the page that draws it.
+  win.webContents.on('render-process-gone', () => previewWindows.ownerGone(win))
   // A page cannot navigate the window away from the app either: the renderer
   // is Prism's own UI and nothing in it is a browser.
   win.webContents.on('will-navigate', (e, url) => {
@@ -1244,6 +1287,7 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   win.webContents.on('did-start-navigation', (details) => {
     if (!details.isMainFrame || details.isSameDocument) return
     rec.gen += 1
+    previewWindows.ownerGone(win)
     // A source page reloading mid-tear can no longer end it (step 3): the
     // page itself only, a preview's iframe loading ends nothing.
     tear.lost(win)
@@ -1523,6 +1567,48 @@ const tabGhost = createTabGhost<BrowserWindow>({
   }
 })
 /**
+ * THE PREVIEW WINDOW (owner, 2026-11-08; src/main/previewWindow.ts): the
+ * Explorer page's own Quick Look window, owned by the window it came from,
+ * faded in and out here. In no registry: it never counts as a window of the
+ * session, and it goes with its owner and with standby.
+ */
+const previewWindows = createPreviewWindows<BrowserWindow>({
+  e2e: E2E,
+  ground: themeGround,
+  workArea: (b) => screen.getDisplayMatching(b).workArea,
+  token: () => randomBytes(16).toString('hex'),
+  now: () => Date.now(),
+  every: (fn, ms) => setInterval(fn, ms),
+  stop: (h) => clearInterval(h as NodeJS.Timeout),
+  closedByItself: (owner) => windows.sendTo(owner, PUSH.previewWindowGone),
+  log: (event, fields) => mainCrumb(event, fields)
+})
+if (E2E)
+  Object.assign(globalThis, {
+    __e2ePreviewWindows: () => previewWindows.e2e(),
+    __e2ePreviewFades: () => previewWindows.e2eFades()
+  })
+/** The preview window's IPC: from a Prism page (never the spare), about its
+ *  own window only. */
+function registerPreviewWindowIpc(): void {
+  const owner = (sender: Electron.WebContents): BrowserWindow | null => {
+    const r = windows.of(sender)
+    return r && !r.spare && !r.win.isDestroyed() ? r.win : null
+  }
+  ipcMain.handle(CALL.previewWindowArm, (e) => {
+    const w = owner(e.sender)
+    return w ? previewWindows.arm(w) : null
+  })
+  ipcMain.on(CALL.previewWindowShow, (e, animate: unknown) => {
+    const w = owner(e.sender)
+    if (w) previewWindows.show(w, animate !== false)
+  })
+  ipcMain.on(CALL.previewWindowClose, (e, animate: unknown) => {
+    const w = owner(e.sender)
+    if (w) previewWindows.close(w, animate !== false)
+  })
+}
+/**
  * THE SYSTEM'S WINDOWS, FOR THE TEAR (step 4, review 2026-10-30): which of
  * Prism's windows is really in front, and whether another app's window covers
  * a point, from the native addon (native/sweep/zorder.h). Without it (not
@@ -1764,6 +1850,8 @@ const standby = createStandby({
   parts: [
     // No hidden window survives: the spare, its ghost, and the wait for one.
     { name: 'spare', sleep: () => dropSpare(), wake: () => {} },
+    // Nor a preview window (owner, 2026-11-08).
+    { name: 'preview', sleep: () => previewWindows.destroyAll(), wake: () => {} },
     // No watch timer wakes the process (20 a second otherwise).
     { name: 'diag', sleep: () => diag?.standby(true), wake: () => diag?.standby(false) },
     // Nor the sampling profiler (250 samples a second).
@@ -2492,6 +2580,7 @@ if (!app.requestSingleInstanceLock()) {
 
     registerWindowIpc()
     registerTearIpc()
+    registerPreviewWindowIpc()
 
     // THE SESSION'S FIRST WINDOW, and the only one that reads the saved strip
     // (2026-10-29): the session file is read once, here, before it exists, so

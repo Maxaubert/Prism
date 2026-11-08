@@ -1,0 +1,82 @@
+/* THE PREVIEW WINDOW (owner, 2026-11-08; PreviewWindow.tsx). Prism's quiet
+   chrome: one 36px bar in the sidebar colour with the file's name and a close
+   button, the ground under the file, nothing else. These rules live in the
+   app's own stylesheet and are copied into the window with the rest. */
+.preview-window-host {
+  height: 100%;
+}
+.preview-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  color: var(--p-text);
+  /* Opaque under a see-through theme: the window has no material of its own,
+     only its ground (the window's backgroundColor), which shows through. */
+  background: var(--p-bg);
+  overflow: hidden;
+}
+.preview-window-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 4px 0 14px;
+  background: var(--p-side);
+  border-bottom: 1px solid var(--p-divider);
+}
+.preview-window-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--p-text-soft);
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.preview-window-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transform-origin: 50% 45%;
+}
+/* Quick Look's quick zoom, with main's fade of the whole window: in from a
+   little smaller, out to a little smaller, at the panels' curve. */
+.preview-window[data-phase='in'] .preview-window-body {
+  animation: preview-window-in 160ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.preview-window[data-phase='out'] .preview-window-body {
+  animation: preview-window-out 160ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+.preview-window[data-still] .preview-window-body {
+  animation: none;
+}
+@keyframes preview-window-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes preview-window-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-window .preview-window-body {
+    animation: none;
+  }
+}

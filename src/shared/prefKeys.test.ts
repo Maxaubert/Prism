@@ -20,6 +20,8 @@ const SHIPPED: Record<string, 'shared' | 'window'> = {
   'prism.newtab.mode': 'shared',
   'prism.newtab.show': 'shared',
   'prism.open.external': 'shared',
+  // The preview panel or the Quick Look style window (owner, 2026-11-08).
+  'prism.preview.opens': 'shared',
   'prism.player.prefs': 'shared',
   'prism.quickAccess': 'shared',
   // Moved from the terminal core into src/renderer/src/lib/recentRoots (2026-10-26); same strings.

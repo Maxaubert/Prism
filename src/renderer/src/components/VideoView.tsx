@@ -46,8 +46,21 @@ function trackLabel(t: AudioTrackOffer, i: number): string {
     chi: 'Chinese'
   }
   const channels =
-    t.channels >= 8 ? '7.1' : t.channels >= 6 ? '5.1' : t.channels === 2 ? 'stereo' : t.channels === 1 ? 'mono' : ''
-  const codec = t.codec ? t.codec.replace(/^ac3$/i, 'AC-3').replace(/^eac3$/i, 'E-AC-3').toUpperCase() : ''
+    t.channels >= 8
+      ? '7.1'
+      : t.channels >= 6
+        ? '5.1'
+        : t.channels === 2
+          ? 'stereo'
+          : t.channels === 1
+            ? 'mono'
+            : ''
+  const codec = t.codec
+    ? t.codec
+        .replace(/^ac3$/i, 'AC-3')
+        .replace(/^eac3$/i, 'E-AC-3')
+        .toUpperCase()
+    : ''
   const name = t.title || LANGS[t.language.toLowerCase()] || t.language || `Track ${i + 1}`
   const detail = [codec, channels].filter(Boolean).join(' ')
   return detail ? `${name} - ${detail}` : name
@@ -73,6 +86,7 @@ export function VideoView({
   background = false,
   volumeKey,
   fullscreen = false,
+  preview = false,
   attach,
   audioTrack,
   onAudioTrack
@@ -102,6 +116,10 @@ export function VideoView({
    *  light theme's paper-white bars, or an accent-tinted ground, are the
    *  app leaking into the film. Windowed, the theme is the theme. */
   fullscreen?: boolean
+  /** IN THE EXPLORER'S PREVIEW (owner, 2026-11-08: "hide settings and
+   *  fullscreen buttons from the preview for videos"): play, the bar and the
+   *  volume only. The cog and fullscreen belong to full view. */
+  preview?: boolean
   /** A host that switches audio by STREAM rather than by sidecar (#120): the
    *  phone, where a pick is a new playlist from the PC. When given, the
    *  pickers call it and tick `audioTrack`, and the sidecar is never asked. */
@@ -130,7 +148,10 @@ export function VideoView({
   const src = playable.src
   const prefs = usePlayerPrefs()
   const subtitles = useSubtitles(path)
-  const peaks = useWaveform(path, !background && (transportStyle === 'wave' || transportStyle === 'wavebold'))
+  const peaks = useWaveform(
+    path,
+    !background && (transportStyle === 'wave' || transportStyle === 'wavebold')
+  )
   // How solid the band behind the controls is, 0-100% (2026-08-25). Opaque by
   // default - the bar as it has always looked - and a slider all the way down
   // to nothing, where the picture runs to the bottom of the frame. Three styles
@@ -344,7 +365,6 @@ export function VideoView({
     }
   }, [showChrome, background])
 
-
   /** The right-click menu; the rows and the reasons are in menus/viewers/video. */
   const menuItems = (hasFrame: boolean, el: HTMLVideoElement | null): MenuItem[] =>
     videoMenu({
@@ -442,7 +462,12 @@ export function VideoView({
         showChrome()
         // Whether there is a frame is read HERE: a ref may not be touched
         // while rendering, and what matters is the state at the right-click.
-        setMenu({ x: e.clientX, y: e.clientY, hasFrame: videoHasFrame(video.current), el: video.current })
+        setMenu({
+          x: e.clientX,
+          y: e.clientY,
+          hasFrame: videoHasFrame(video.current),
+          el: video.current
+        })
       }}
       // The wheel over the picture is the volume, VLC's oldest habit, and the
       // ONLY way past 100% (the slider stops there). 5% a notch, which is what
@@ -588,7 +613,9 @@ export function VideoView({
       </video>
 
       {c.error && (
-        <StageNotice className="bg-[var(--p-bg)]/90 text-sm text-[var(--p-text-soft)]">{c.error}</StageNotice>
+        <StageNotice className="bg-[var(--p-bg)]/90 text-sm text-[var(--p-text-soft)]">
+          {c.error}
+        </StageNotice>
       )}
 
       {/* The auto-hiding control overlay. MOUNTED and UNMOUNTED rather than
@@ -603,7 +630,12 @@ export function VideoView({
       {!background && <VolumeReadout flash={volFlash} vol={c.vol} muted={c.muted} />}
 
       {menu && !background && (
-        <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.hasFrame, menu.el)} onClose={() => setMenu(null)} />
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menuItems(menu.hasFrame, menu.el)}
+          onClose={() => setMenu(null)}
+        />
       )}
 
       {chromeOn && !background && (
@@ -637,40 +669,51 @@ export function VideoView({
             bar={barFx}
             bare={bandPct === 0}
             settings={
-              <PlayerMenu
-                c={c}
-                autoplayHint="video"
-                subtitles={{
-                  tracks: subtitles.tracks,
-                  active: subtitles.active,
-                  onPick: subtitles.pick,
-                  // The file dialog is the PC's; the phone has no way to add one.
-                  onAdd: window.prism.capabilities.explorer ? () => subtitles.add() : undefined
-                }}
-                // The cog is the one control both hosts share (#120): the
-                // picture modes and the audio tracks the right-click menu
-                // offers live here too, since the phone has no such menu.
-                picture={{ options: VIDEO_FITS, active: fit, onPick: (id) => pickFit(id as VideoFit) }}
-                audio={
-                  audioTracks.length > 1
-                    ? {
-                        tracks: audioTracks.map((t, i) => ({ index: t.index, label: trackLabel(t, i) })),
-                        active: track,
-                        onPick: setTrack
-                      }
-                    : undefined
-                }
-                onOpenChange={onMenuOpen}
-              />
+              preview ? undefined : (
+                <PlayerMenu
+                  c={c}
+                  autoplayHint="video"
+                  subtitles={{
+                    tracks: subtitles.tracks,
+                    active: subtitles.active,
+                    onPick: subtitles.pick,
+                    // The file dialog is the PC's; the phone has no way to add one.
+                    onAdd: window.prism.capabilities.explorer ? () => subtitles.add() : undefined
+                  }}
+                  // The cog is the one control both hosts share (#120): the
+                  // picture modes and the audio tracks the right-click menu
+                  // offers live here too, since the phone has no such menu.
+                  picture={{
+                    options: VIDEO_FITS,
+                    active: fit,
+                    onPick: (id) => pickFit(id as VideoFit)
+                  }}
+                  audio={
+                    audioTracks.length > 1
+                      ? {
+                          tracks: audioTracks.map((t, i) => ({
+                            index: t.index,
+                            label: trackLabel(t, i)
+                          })),
+                          active: track,
+                          onPick: setTrack
+                        }
+                      : undefined
+                  }
+                  onOpenChange={onMenuOpen}
+                />
+              )
             }
             extra={
-              <button
-                className="grid place-items-center hover:text-[var(--color-accent-hi)]"
-                onClick={onToggleFullscreen}
-                title="Fullscreen (F)"
-              >
-                {IconFull}
-              </button>
+              preview ? undefined : (
+                <button
+                  className="grid place-items-center hover:text-[var(--color-accent-hi)]"
+                  onClick={onToggleFullscreen}
+                  title="Fullscreen (F)"
+                >
+                  {IconFull}
+                </button>
+              )
             }
           />
         </div>
