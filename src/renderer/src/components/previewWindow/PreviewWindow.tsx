@@ -149,7 +149,7 @@ export function PreviewWindow({
  * first) and Escape is (the code view's blur never holds it open). A field
  * keeps both and the text editor its Space, as before. A right-click menu
  * up in the window keeps both too (Escape closes the menu, Space picks its
- * row), and the window stays.
+ * row, and is taken for nothing under it), and the window stays.
  */
 function ownKeys(win: Window, onClose: () => void): () => void {
   const menuUp = (): boolean => !!win.document.querySelector('[role="menu"]')
