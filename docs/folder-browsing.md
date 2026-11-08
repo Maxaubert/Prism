@@ -75,7 +75,8 @@ strip and keeps desktop browsing separate from phone sharing.
   The viewer header keeps Open full view without repeating the selected filename. The existing
   preview toggle opens and closes the pane. Project split views retain their existing behavior.
   Unsupported files retain the existing fallback.
-- The Explorer list supports arrows, Enter, Backspace, F2, Delete and Ctrl+C/X/V.
+- The Explorer list supports arrows, Enter, Backspace, F2, Delete and Ctrl+C/X/V. Space shows or
+  hides the preview pane, as its toolbar button (2026-11-08).
   Keyboard navigation retains list focus across folder loads, empty folders
   and returns from full-file views, without a focus outline around the list frame. Individual
   rows and controls retain their visible keyboard focus.

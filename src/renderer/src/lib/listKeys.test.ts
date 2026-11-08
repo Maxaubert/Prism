@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isJumpKey, listKey, stepTo, typeJump, typedRun, type KeyLike } from './listKeys'
+import { isJumpKey, listKey, spaceKey, stepTo, typeJump, typedRun, type KeyLike } from './listKeys'
 import { rangeSelect } from './selection'
 
 const press = (key: string, mods: Partial<KeyLike> = {}): KeyLike => ({
@@ -147,5 +147,29 @@ describe('isJumpKey', () => {
     expect(isJumpKey('Æ')).toBe(true)
     expect(isJumpKey('ø')).toBe(true)
     for (const k of ['1', '0', '.', ',', '<', '>', '+', '-', ' ', 'Enter']) expect(isJumpKey(k)).toBe(false)
+  })
+})
+
+describe('spaceKey (owner, 2026-11-08: Space toggles the preview pane)', () => {
+  const idle = { text: '', at: 0 }
+  it('a plain Space toggles the preview', () => {
+    expect(spaceKey(press(' '), idle, 5000)).toBe('preview')
+    expect(spaceKey(press('Spacebar', { code: 'Space' }), idle, 5000)).toBe('preview')
+  })
+  it('a Space with any modifier is not the preview: Ctrl+Space still marks', () => {
+    for (const mods of [ctrl, shift, alt, { metaKey: true }])
+      expect(spaceKey(press(' ', mods), idle, 5000)).toBeNull()
+    expect(listKey(press(' ', ctrl))).toBe('toggle-mark')
+  })
+  it('a held Space is taken and does nothing', () => {
+    expect(spaceKey({ ...press(' '), repeat: true }, idle, 5000)).toBe('held')
+  })
+  it('a Space inside a type-to-jump run is part of the name', () => {
+    expect(spaceKey(press(' '), { text: '01', at: 4600 }, 5000)).toBe('type')
+    // Past the run's 700 ms window it is the preview again.
+    expect(spaceKey(press(' '), { text: '01', at: 4000 }, 5000)).toBe('preview')
+  })
+  it('other keys are not Space', () => {
+    for (const k of ['Enter', 'a', 'k', 'ArrowDown']) expect(spaceKey(press(k), idle, 5000)).toBeNull()
   })
 })

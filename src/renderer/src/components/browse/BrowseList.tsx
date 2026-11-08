@@ -34,7 +34,7 @@ import type { BrowseEntry, BrowseSort, FolderBrowserProps } from './types'
 import type { ListPending } from '../../hooks/usePendingHint'
 import { divideRows, type DateDivider } from '../../lib/dateGroups'
 import { nextSort } from '../../lib/downloadsView'
-import { listKey, stepTo, type ListKey } from '../../lib/listKeys'
+import { listKey, spaceKey, stepTo, type ListKey } from '../../lib/listKeys'
 import { nearerEscape } from '../../lib/nearerEscape'
 import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
 import { createScrollSettle } from '../../lib/scrollSettle'
@@ -92,6 +92,7 @@ type Props = Pick<
   | 'onCancelSearch'
   | 'onSearchRange'
   | 'onDropInto'
+  | 'onPreviewToggle'
 > & {
   entries: BrowseEntry[]
   indexedRows?: Map<number, BrowseEntry | null>
@@ -645,6 +646,21 @@ export function BrowseList(props: Props): JSX.Element {
       }
       return
     }
+    // SPACE TOGGLES THE PREVIEW PANE (owner, 2026-11-08: "can you bind
+    // preview to space bar", then "Toggle the preview panel"): the toolbar
+    // button's own toggle, with or without a row picked, but only while the
+    // list or one of its rows has the keyboard (never a field inside it).
+    // A space inside a type-to-jump run is part of the name instead.
+    const space = spaceKey(e, typed.current, performance.now())
+    if (space) {
+      const at = e.target as HTMLElement
+      const own = at === e.currentTarget || (at.matches('.browse-row') && !at.isContentEditable)
+      if (!own) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (space === 'preview') props.onPreviewToggle?.()
+      if (space !== 'type') return
+    }
     if (e.altKey || e.ctrlKey || e.metaKey) return
     if (!count) {
       if (
@@ -680,12 +696,12 @@ export function BrowseList(props: Props): JSX.Element {
     else if (e.key === 'End') next = count - 1
     else if (e.key === 'PageDown') next = Math.min(count - 1, Math.max(0, currentIndex) + page)
     else if (e.key === 'PageUp') next = Math.max(0, currentIndex - page)
-    else if ((e.key === 'Enter' || e.key === ' ') && props.selectedPath) {
+    else if (e.key === 'Enter' && props.selectedPath) {
       e.preventDefault()
       e.stopPropagation()
       const entry =
         rowAt(selectedIndex) ?? props.entries.find((entry) => entry.path === props.selectedPath)
-      if (e.key === 'Enter' && entry) props.onActivate(entry)
+      if (entry) props.onActivate(entry)
       return
     } else if (e.key.length === 1 && !e.shiftKey) {
       const now = performance.now()
