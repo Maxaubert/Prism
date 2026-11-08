@@ -111,6 +111,11 @@ interface Job extends StartArgs {
   failed: string | null
 }
 
+/** A killed ffmpeg holds its files for a moment longer on Windows, and a
+ *  delete in that moment is EBUSY (measured 2026-11-08, a main-rejection and
+ *  a folder left behind when a live film was left): node retries for us. */
+const RM_RETRY = { recursive: true, force: true, maxRetries: 8, retryDelay: 50 }
+
 export class HlsJobs {
   private readonly jobs = new Map<string, Job>()
   /** The encoder in use; flips to openh264 after one GPU failure and stays. */
@@ -264,7 +269,7 @@ export class HlsJobs {
     const run = (async (): Promise<void> => {
       // Cleared rather than reused: what is on disk is what THIS run made,
       // so `produced` can walk up from the start and mean it.
-      await fsp.rm(job.dir, { recursive: true, force: true })
+      await fsp.rm(job.dir, RM_RETRY)
       await fsp.mkdir(job.dir, { recursive: true })
       if (job.gen !== gen || !this.jobs.has(job.id)) return
       const args = hlsArgs({
@@ -473,7 +478,7 @@ export class HlsJobs {
         this.kill(job)
       }
     }
-    await Promise.all(emptied.map((job) => fsp.rm(job.dir, { recursive: true, force: true })))
+    await Promise.all(emptied.map((job) => fsp.rm(job.dir, RM_RETRY).catch(() => undefined)))
   }
 
   async stopAll(): Promise<void> {
@@ -486,6 +491,6 @@ export class HlsJobs {
     job.gen += 1
     this.kill(job)
     if (job.starting) await job.starting.catch(() => undefined)
-    await fsp.rm(job.dir, { recursive: true, force: true })
+    await fsp.rm(job.dir, RM_RETRY).catch((e) => this.log(`job ${job.id} folder not removed: ${String(e)}`))
   }
 }

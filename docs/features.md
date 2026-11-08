@@ -59,8 +59,10 @@ and the bar's 0:02 on a 3.43 s film was the length of the film before it, kept u
   file; a film that was rescued stays live for the session (`rescued`).
 - **A film never stays black** (`hooks/useFilmWatch.ts`, `lib/liveRoute.ts`): a direct start with no
   picture 4 s after it was handed over, error or no error, takes the live route (`pictureCheck`,
-  `NO_PICTURE_MS`). Same for HEVC whose frames read black while it plays (`blackCheck`: two black readings,
-  so a dark opening frame is left alone). Tests: `liveRoute.test.ts`, and the seam `PRISM_E2E_NO_PICTURE`.
+  `NO_PICTURE_MS`). Same for HEVC whose frames read black while it plays (`blackCheck`, five seconds or most
+  of a short clip, 2026-11-08: two readings sent any film with a fade-in to the transcode). The clock counts
+  only time on screen and waits 12 s for a source with no bytes yet; a picture once seen is never asked about
+  again (a seek drops readyState). Tests: `liveRoute.test.ts`, `movGuard`, the seam `PRISM_E2E_NO_PICTURE`.
 - **The bar's length resets with the film** (`useMediaControls`). A pressed play that a pause or the next
   film beats to it no longer reaches the log as a page-rejection.
 - **Always-on `film` lines** (`lib/filmDiag.ts`, `op: 'film'`, one per event): `route` (direct or live, and

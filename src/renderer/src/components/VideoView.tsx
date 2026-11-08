@@ -499,7 +499,9 @@ export function VideoView({
   useFilmWatch(video, {
     path,
     url,
-    film: !attach && !!videoCodec,
+    // Only once there is something in the element: a conversion or a live
+    // job still starting is not a film failing to show.
+    film: !attach && !!videoCodec && !!src,
     route: filmRoute,
     canRescue: !attach && !isLive && !isConverting && !isConverted,
     platform: isPlatformCodec(videoCodec),

@@ -84,23 +84,48 @@ export function pictureRoute(o: {
  */
 export const NO_PICTURE_MS = 4000
 
-/** What a film's element shows so far. */
+/** The same wait for a film whose first bytes have not even arrived (a disk
+ *  spinning up, a network share): a slow source, not a decoder that failed,
+ *  and the transcode would read the same slow source. */
+export const SLOW_LOAD_MS = 12000
+
+/** What a film's element shows so far. `elapsedMs` counts only time the film
+ *  was on screen. */
 export function pictureCheck(o: {
   elapsedMs: number
   readyState: number
   videoWidth: number
+  /** HTMLMediaElement.networkState; 2 is loading. */
+  networkState?: number
+  /** A picture already came. A seek drops readyState under 2 for a moment
+   *  (measured 2026-11-08: 3% of the time while scrubbing), and that is not
+   *  a film without a picture. */
+  seen?: boolean
   /** Override of the limit, for a seam only. */
   limitMs?: number
 }): 'picture' | 'wait' | 'no-picture' {
-  if (o.videoWidth > 0 && o.readyState >= 2) return 'picture'
-  return o.elapsedMs >= (o.limitMs ?? NO_PICTURE_MS) ? 'no-picture' : 'wait'
+  if (o.seen || (o.videoWidth > 0 && o.readyState >= 2)) return 'picture'
+  const limit = o.limitMs ?? (o.readyState === 0 && o.networkState === 2 ? SLOW_LOAD_MS : NO_PICTURE_MS)
+  return o.elapsedMs >= limit ? 'no-picture' : 'wait'
+}
+
+/** How long a playing film must stay black to be called a dead decoder. A
+ *  real film can open on black, so this is well past a fade-in; a clip too
+ *  short for that is judged on most of its length. */
+export const BLACK_MS = 5000
+
+/** Black readings (one every half second) that make the verdict. */
+export function blackReadings(duration?: number): number {
+  const span = duration && Number.isFinite(duration) ? Math.min(BLACK_MS, duration * 600) : BLACK_MS
+  return Math.max(2, Math.ceil(span / 500))
 }
 
 /** How a platform decoder's silent failure looks: a film with frames and
- *  sound where every frame is black. Two black readings of a PLAYING film in
- *  a row are the verdict; one lit reading settles the film for good. Only
+ *  sound where every frame is black. `blackReadings` of a PLAYING film in a
+ *  row are the verdict; one lit reading settles the film for good. Only
  *  asked of films the platform decodes, and only when playing, so a film
- *  paused on a dark first frame or one that opens on black is left alone. */
+ *  paused on a dark first frame is left alone, and a film that opens on
+ *  black has its lit picture before the verdict (movGuard). */
 export function blackCheck(o: {
   platform: boolean
   playing: boolean
@@ -109,11 +134,13 @@ export function blackCheck(o: {
   /** Mean brightness of the frame, or null when it could not be read. */
   lit: number | null
   hits: number
+  /** The film's length, when known. */
+  duration?: number
 }): { hits: number; verdict: 'black' | 'lit' | 'unknown' } {
   if (!o.platform || !o.playing || o.t < 0.6 || o.frames === 0 || o.lit === null) return { hits: o.hits, verdict: 'unknown' }
   if (o.lit > 2) return { hits: 0, verdict: 'lit' }
   const hits = o.hits + 1
-  return { hits, verdict: hits >= 2 ? 'black' : 'unknown' }
+  return { hits, verdict: hits >= blackReadings(o.duration) ? 'black' : 'unknown' }
 }
 
 export function rescueLive(o: {
