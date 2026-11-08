@@ -7,6 +7,7 @@ import { watchDrops } from '../lib/viz/dropWatch'
 import { canvasShown, drawLoopRuns, HIDDEN_POLL_MS, idleFrame, wantsResume } from '../lib/viz/vizGuards'
 import { contextAsleep, getAudioContext, mediaGraph } from '../lib/audio'
 import { hexToRgb } from '../lib/colour'
+import { ownResizeObserver } from '../lib/ownResizeObserver'
 
 // Drives whichever visualizer style is selected. Owns the Web Audio graph and
 // the per-frame analysis (bands, level, beat) so the styles only have to draw.
@@ -373,7 +374,7 @@ export function Visualizer({
     }
     raf = requestAnimationFrame(tick)
     media?.addEventListener('play', wake)
-    const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(wake) : null
+    const resized = typeof ResizeObserver === 'function' ? ownResizeObserver(canvas, wake) : null
     resized?.observe(canvas)
     wakeRef.current = wake
     return () => {

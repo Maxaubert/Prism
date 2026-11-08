@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useState, type RefObject } from 'react'
 import { columnsFor, rowCount, scrollFor, visibleRows } from './gridMath'
+import { ownResizeObserver } from '../../lib/ownResizeObserver'
 
 /**
  * A WINDOWED GRID (folder icons, 2026-10-31; owner: "the list needs to be
@@ -47,7 +48,7 @@ export function useVirtualGrid(
       measure()
     }
     size()
-    const ro = new ResizeObserver(size)
+    const ro = ownResizeObserver(el, size)
     ro.observe(el)
     el.addEventListener('scroll', measure, { passive: true })
     return () => {

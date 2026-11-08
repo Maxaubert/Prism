@@ -29,6 +29,7 @@ import { clamp } from '../lib/clamp'
 import { fileDragProps } from '../lib/drag/fileDrag'
 import { imageStillLoading } from '../lib/imageLoading'
 import { isHugeImage, readyImage, type ReadyImage } from '../lib/imageReady'
+import { ownResizeObserver } from '../lib/ownResizeObserver'
 
 // Pictures past 40 MP are decoded off-thread to a display-sized bitmap and
 // shown on a canvas: the reasons and the numbers are in lib/imageReady.
@@ -161,7 +162,7 @@ export function ImageView({
   useEffect(() => {
     const el = stageRef.current
     if (!el) return
-    const ro = new ResizeObserver(([entry]) => {
+    const ro = ownResizeObserver(el, ([entry]) => {
       const { width, height } = entry.contentRect
       setStage((p) => (p.w === width && p.h === height ? p : { w: width, h: height }))
     })
