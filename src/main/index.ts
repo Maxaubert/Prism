@@ -1194,8 +1194,17 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     if (win.isDestroyed()) return
     windows.sendTo(win, PUSH.windowState, {
       minimised: win.isMinimized(),
-      focused: win.isFocused()
+      // Its preview window having the keyboard is still this window being
+      // looked at (review 2026-11-08): a click on the preview's player must
+      // not count as "in the background" and pause it.
+      focused: win.isFocused() || !!previewWindows.of(win)?.isFocused()
     })
+  }
+  // With a preview window up, the focus moving between the two is a blur
+  // here and a focus there, one after the other: said once both are in.
+  const sayStateSettled = (): void => {
+    if (previewWindows.of(win)) setTimeout(sayState, 50)
+    else sayState()
   }
   // Listed one by one: BrowserWindow's overloads are per event name, so a loop
   // over a union of them has no single signature to match.
@@ -1204,7 +1213,7 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   win.on('show', sayState)
   win.on('hide', sayState)
   win.on('focus', sayState)
-  win.on('blur', sayState)
+  win.on('blur', sayStateSettled)
 
   win.on('enter-full-screen', () => {
     windows.sendTo(win, PUSH.windowFullscreen, true)
@@ -1235,6 +1244,21 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
   })
   win.webContents.on('did-create-window', (child, d) => {
     child.setMenu(null)
+    child.on('focus', sayStateSettled)
+    child.on('blur', sayStateSettled)
+    // The same walls as its owner's page (review 2026-11-08): a middle-click
+    // or a drop in the preview window reaches the CHILD's webContents, which
+    // would otherwise open any window and load any page (a web page with the
+    // inherited preload). It opens nothing and goes nowhere; a web address
+    // goes to the browser.
+    child.webContents.setWindowOpenHandler((c) => {
+      if (/^https?:\/\//i.test(c.url)) openLink(c.url)
+      return { action: 'deny' }
+    })
+    child.webContents.on('will-navigate', (e, url) => {
+      e.preventDefault()
+      if (/^https?:\/\//i.test(url)) openLink(url)
+    })
     previewWindows.adopt(win, child, d.frameName)
   })
   // Its preview window goes with the page that draws it.
