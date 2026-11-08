@@ -1272,9 +1272,6 @@ export default function App(): JSX.Element {
   // Prism's own - never behind someone's photo.
   const washed = settingsOpen || setup || !file || file.kind === 'audio'
 
-  const many = (view?.files.length ?? 0) > 1
-  const pos = many ? `${view!.index + 1} / ${view!.files.length}` : ''
-
   // What both shapes of the chrome carry (#250): the bar and the tab row draw
   // the same toggle, chip and strip from one place.
   const panelPinned = settingsOpen ? !compactRail : placesVisible
@@ -1369,7 +1366,6 @@ export default function App(): JSX.Element {
         <TopBar
           // The open file is named in the toolbar over the viewer, not here.
           name={''}
-          pos={pos}
           settingsOpen={settingsOpen}
           onToggleSettings={toggleSettings}
           panelOpen={panelPinned}
@@ -1426,7 +1422,6 @@ export default function App(): JSX.Element {
                 aria-label="Unsaved changes"
               />
             )}
-            {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
             <TitleButtons
               setup={false}
               chip={chip}

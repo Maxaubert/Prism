@@ -6,7 +6,6 @@ import { TitleButtons } from './TitleButtons'
  *  place, and the buttons at its right end. */
 export function TopBar({
   name,
-  pos,
   settingsOpen,
   onToggleSettings,
   chip,
@@ -24,7 +23,6 @@ export function TopBar({
   /** The open file's name - or '' while the sidebar is showing it, so the
    *  same fact isn't said twice on one screen. */
   name: string
-  pos: string
   settingsOpen: boolean
   onToggleSettings: () => void
   /** The left-hand panel of whatever is on screen: the tree, or the rail. */
@@ -77,7 +75,6 @@ export function TopBar({
           aria-label="Unsaved changes"
         />
       )}
-      {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
       <TitleButtons
         setup={setup}
         chip={chip}
