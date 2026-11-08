@@ -17705,6 +17705,18 @@ async function previewWindowScenario(fixtures) {
     ok(opened.some((f) => f.to === 1 && f.frames > 3), `it faded in (${JSON.stringify(opened)})`)
     ok(!(await paneShown()) && (await pressed()), 'the pane stays shut; the toolbar button reads it as on')
     ok((await focusedRow()) === 'notes.txt', `the keyboard stayed in the list (${await focusedRow()})`)
+    // The text editor in the window keeps its Space (a space typed is a
+    // space), ahead of the window's own close and every viewer listener.
+    const editorFocused = await win.evaluate(() => {
+      const ed = window.__prismPreviewWindow?.document.querySelector('[data-preview-window-body] .cm-content')
+      ed?.focus()
+      return !!ed && ed.ownerDocument.activeElement === ed
+    })
+    ok(editorFocused, 'the text editor in the window takes the focus')
+    await childKey(' ')
+    await sleep(400)
+    ok(await isOpen(), "Space in the window's text editor leaves the window open")
+    await win.evaluate(() => window.__prismPreviewWindow?.document.activeElement?.blur())
     const [state] = await wins()
     const main = await mainWin(app, 'getBounds')
     const cx = (b) => b.x + b.width / 2
