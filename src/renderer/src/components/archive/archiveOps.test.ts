@@ -280,6 +280,21 @@ describe('copyBetweenZips', () => {
 })
 
 describe('deleteMembers', () => {
+  it('stops between members on Cancel and counts as it goes (the loading bar)', async () => {
+    const ipc = { archiveDelete: vi.fn(async () => true) } as unknown as Parameters<typeof deleteMembers>[0]
+    let stopped = false
+    const counts: Array<[number, number | undefined]> = []
+    const said = await deleteMembers(ipc, 'z', ['a', 'b', 'c'], ['a', 'b', 'c'], {
+      stopped: () => stopped,
+      count: (done, total) => {
+        counts.push([done, total])
+        if (done === 2) stopped = true
+      }
+    })
+    expect(said).toBeNull()
+    expect(ipc.archiveDelete).toHaveBeenCalledTimes(2)
+    expect(counts).toEqual([[1, 3], [2, 3]])
+  })
   it('names the one member that stayed, or counts several', async () => {
     const none = fakeIpc({ archiveDelete: async () => false })
     expect(await deleteMembers(none, 'z', ['d/a.txt'], ['a.txt'])).toBe('Couldn\'t delete "a.txt".')

@@ -117,12 +117,12 @@ import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import { landJob, updateJob, updateLanding } from './lib/jobs'
+import { holdProgress } from './lib/holds'
 import { setFolderIcons, type FolderIconChoice } from './lib/folderIcons'
 import { keptFolderIconFile } from './lib/folderIconFiles'
 import { folderIconFromFile, ICON_REFUSED } from './lib/iconFromFile'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { nextTabId } from './lib/sessionIds'
-import { markLanded } from './lib/landMarks'
 import { saveCopiesJob } from './lib/saveCopies'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
@@ -157,6 +157,12 @@ export default function App(): JSX.Element {
         if (m.start) landJob(m.jobId, m.start.dir, m.start.items)
         if (typeof m.item === 'number' && typeof m.itemPct === 'number') updateLanding(m.jobId, m.item, m.itemPct)
         updateJob(m.jobId, m.pct)
+        // The loading bar (owner, 2026-11-09): how far, and what, by the job.
+        holdProgress(m.jobId, {
+          pct: m.pct,
+          ...(m.count ? { done: m.count.done, total: m.count.total } : {}),
+          ...(m.start?.items.length === 1 ? { name: m.start.items[0].name } : {})
+        })
       }),
     []
   )
@@ -1148,6 +1154,7 @@ export default function App(): JSX.Element {
     runDelete,
     runDeleteMany,
     runMove,
+    runDuplicate,
     runRename,
     onBrowseDropInto,
     makeNewFolder
@@ -1958,15 +1965,7 @@ export default function App(): JSX.Element {
               paste: (directory) => void pasteFiles(directory),
               pinQuickAccess,
               unpinQuickAccess,
-              duplicate: (path) => {
-                void window.prism.duplicateFile(path).then((copy) => {
-                  if (copy) {
-                    noteUndo({ kind: 'duplicate', source: path, path: copy })
-                    setRefreshKey((key) => key + 1)
-                    markLanded([copy])
-                  }
-                })
-              },
+              duplicate: (path) => void runDuplicate(path),
               rename: (entry) => setBrowseRename(entry),
               askDelete: (entry) =>
                 setAsk({ kind: 'delete', path: entry.path, name: entry.name, isFolder: entry.isFolder }),

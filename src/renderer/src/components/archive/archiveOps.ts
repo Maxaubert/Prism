@@ -10,6 +10,7 @@
  */
 import type { ExtractFail } from '@shared/extraction'
 import type { UndoEntry } from '../../lib/undo'
+import type { FileJob } from '../../lib/fileJob'
 
 export type ArchiveFail = ExtractFail
 
@@ -160,15 +161,23 @@ export async function copyBetweenZips(
 }
 
 /** Delete members, one at a time, permanently. The answer is what to say,
- *  or null when every one went. */
+ *  or null when every one went. A `job` (the loading bar, owner 2026-11-09)
+ *  counts each one and stops between them on Cancel; what is gone stays gone. */
 export async function deleteMembers(
   ipc: ArchiveIpc,
   container: string,
   inners: readonly string[],
-  names: readonly string[]
+  names: readonly string[],
+  job?: Pick<FileJob, 'stopped' | 'count'>
 ): Promise<string | null> {
   let failed = 0
-  for (const p of inners) if (!(await ipc.archiveDelete(container, p))) failed += 1
+  let done = 0
+  for (const p of inners) {
+    if (job?.stopped()) break
+    if (!(await ipc.archiveDelete(container, p))) failed += 1
+    done += 1
+    job?.count(done, inners.length)
+  }
   return failed ? ARCHIVE_COPY.deleteFailed(failed, names) : null
 }
 

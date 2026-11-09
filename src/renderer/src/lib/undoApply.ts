@@ -6,6 +6,7 @@
 import { placeOf } from '@shared/archivePlace'
 import { baseName, parentDir } from '@shared/path'
 import type { UndoEntry } from './undo'
+import type { RestoreOutcome } from '@shared/ipcTypes'
 
 export interface UndoOps {
   /** Move without asking (keep both) and without remembering it. */
@@ -19,6 +20,15 @@ export interface UndoOps {
   fail: (message: string) => void
   /** What the step put back or made again, for the list to mark (#101). */
   land?: (paths: readonly string[]) => void
+  /** The loading bar (owner, 2026-11-09). Cancel between items; each item
+   *  done counts; a step cut short says what went through and what did not
+   *  (either may be null). A job's own runner, so an undo can run without. */
+  signal?: AbortSignal
+  progress?: (done: number, total: number) => void
+  stopped?: (done: UndoEntry | null, rest: UndoEntry | null) => void
+  jobId?: string
+  /** Restore as a job: progress, Cancel between paths, and what came back. */
+  restoreJob?: (paths: string[]) => Promise<RestoreOutcome>
   prism: Pick<
     typeof window.prism,
     | 'restoreFromBin'
@@ -95,10 +105,25 @@ export async function undoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       // Only what really came back is marked: a stuck item has no row to wait for.
       const items: Array<{ from: string; to: string }> = []
       const landed: string[] = []
-      for (const it of entry.items) {
+      let done = 0
+      for (const [i, it] of entry.items.entries()) {
+        if (ops.signal?.aborted) break
         const [back] = await ops.move([it.to], parentDir(it.from))
         items.push(back ? { from: back.to, to: it.to } : it)
         if (back) landed.push(back.to)
+        done = i + 1
+        ops.progress?.(done, entry.items.length)
+      }
+      if (done < entry.items.length) {
+        // Cancel: the items that came back wait in the redo, the rest stay
+        // on the undo with whatever they replaced.
+        ops.stopped?.(
+          done ? { ...entry, items: items.filter((_, k) => k < done), replaced: undefined } : null,
+          { ...entry, items: entry.items.slice(done) }
+        )
+        ops.refresh()
+        ops.land?.(landed)
+        return
       }
       // The name is free again only now, so the replaced file comes back
       // after the mover has left, not before.
@@ -115,6 +140,23 @@ export async function undoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       return back ? { ...entry, from: back, replaced: undefined } : entry
     }
     case 'trash': {
+      if (ops.restoreJob) {
+        const r = await ops.restoreJob(entry.paths)
+        ops.refresh()
+        if (r.restored.length) ops.land?.(r.restored)
+        if (r.cancelled) {
+          ops.stopped?.(
+            r.restored.length ? { kind: 'trash', paths: r.restored } : null,
+            r.left.length ? { kind: 'trash', paths: r.left } : null
+          )
+          break
+        }
+        if (!r.ok)
+          ops.fail(
+            'Windows would not give those back. They may have been emptied from the Recycle Bin.'
+          )
+        break
+      }
       const ok = await prism.restoreFromBin(entry.paths)
       ops.refresh()
       if (ok) ops.land?.(entry.paths)
@@ -166,12 +208,23 @@ export async function redoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
     case 'move': {
       const items: Array<{ from: string; to: string }> = []
       const landed: string[] = []
-      for (const it of entry.items) {
+      let done = 0
+      for (const [i, it] of entry.items.entries()) {
+        if (ops.signal?.aborted) break
         const [again] = await ops.move([it.from], parentDir(it.to))
         items.push(again ? { from: it.from, to: again.to } : it)
         if (again) landed.push(again.to)
+        done = i + 1
+        ops.progress?.(done, entry.items.length)
       }
       ops.land?.(landed)
+      if (done < entry.items.length) {
+        ops.stopped?.(done ? { ...entry, items: items.filter((_, k) => k < done) } : null, {
+          ...entry,
+          items: entry.items.slice(done)
+        })
+        return
+      }
       return { ...entry, items }
     }
     case 'rename': {
@@ -179,16 +232,32 @@ export async function redoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       if (again) ops.land?.([again])
       return again ? { ...entry, to: again } : entry
     }
-    case 'trash':
-      for (const p of entry.paths) await prism.trashFile(p)
+    case 'trash': {
+      let done = 0
+      for (const p of entry.paths) {
+        if (ops.signal?.aborted) break
+        await prism.trashFile(p)
+        done += 1
+        ops.progress?.(done, entry.paths.length)
+      }
       ops.refresh()
+      if (done < entry.paths.length)
+        ops.stopped?.(
+          done ? { ...entry, paths: entry.paths.slice(0, done) } : null,
+          { ...entry, paths: entry.paths.slice(done) }
+        )
       break
+    }
     case 'duplicate': {
       // Ask the SOURCE for another copy and remember the one it made: the
       // name is chosen by the folder, not by us.
-      const copy = await prism.duplicateFile(entry.source)
+      const copy = await prism.duplicateFile(entry.source, ...(ops.jobId ? [ops.jobId] : []))
       ops.refresh()
       if (!copy) {
+        if (ops.signal?.aborted) {
+          ops.stopped?.(null, entry)
+          break
+        }
         ops.fail('That could not be duplicated again.')
         break
       }
