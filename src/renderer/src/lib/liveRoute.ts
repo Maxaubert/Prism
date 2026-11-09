@@ -179,7 +179,8 @@ export function rescueLive(o: {
  * time that took. So a film that can still be rescued says nothing: before
  * the probe has answered (the error beat it on the owner's PC), and on a
  * direct start with a picture, which `rescueLive` takes to the live route.
- * Once the live route or a conversion has been tried, or the file has no
+ * Nor while a conversion runs: its copy is what the verdict waits on.
+ * Once the live route has been tried, a copy has failed, or the file has no
  * picture to rescue, the error is the truth. The phone has no such route.
  */
 export function filmErrorShows(o: {
@@ -192,6 +193,7 @@ export function filmErrorShows(o: {
   converted: boolean
 }): boolean {
   if (!o.hasError) return false
-  if (o.phone || o.tried || o.converting || o.converted) return true
+  if (o.converting) return false
+  if (o.phone || o.tried || o.converted) return true
   return o.probed && !o.hasPicture
 }

@@ -178,7 +178,13 @@ export function VideoView({
     if (directSrc) {
       if (el.getAttribute('src') !== directSrc) el.setAttribute('src', directSrc)
     } else if (el.hasAttribute('src')) {
+      // Taking the attribute away does not stop the element (the spec's
+      // words: only a NEW src reloads), so a direct start the probe has just
+      // overruled went on loading, or sounding, and its refusal landed after
+      // the live route had taken over and read as the live film's error
+      // (review, 2026-11-09). `load()` with no src ends that start for good.
       el.removeAttribute('src')
+      el.load()
     }
     return undefined
   }, [feed, url, directSrc])

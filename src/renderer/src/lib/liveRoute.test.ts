@@ -150,6 +150,9 @@ describe('filmErrorShows: an error only when nothing is left to try (2026-11-09)
   it('says so once the live route has been tried', () => {
     expect(filmErrorShows({ ...direct, tried: true })).toBe(true)
   })
+  it('says nothing while a conversion runs, whatever the original refused', () => {
+    expect(filmErrorShows({ ...direct, converting: true, tried: true })).toBe(false)
+  })
   it('says so for a file with no picture to rescue, once it is known', () => {
     expect(filmErrorShows({ ...direct, hasPicture: false })).toBe(true)
   })
