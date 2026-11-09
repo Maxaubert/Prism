@@ -14,7 +14,8 @@ import { useFolderSizes } from '../../hooks/useFolderSizes'
 import { clickSelect, rangeSelect } from '../../lib/selection'
 import { listKey } from '../../lib/listKeys'
 import { sweepBase, sweepSelect } from '../../lib/marquee'
-import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
+import { explorerHeadVars, explorerRow } from '../../lib/explorerSize'
+import { headSizeOf, useExplorerZoom } from '../../lib/explorerZoom'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import { useLandingIn } from '../../lib/jobs'
 import { useHeld } from '../../lib/holds'
@@ -52,7 +53,8 @@ export type {
  */
 export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const shell = useRef<HTMLDivElement>(null)
-  const sizeId = useExplorerSize()
+  // Quick access keeps Large's rows from step 2 up: the roomy steps are the list's own.
+  const sizeId = headSizeOf(useExplorerZoom())
   const rowLook = explorerRow(sizeId)
   const [visibleFolders, setVisibleFolders] = useState<string[]>([])
   const onVisibleFolders = useCallback((paths: string[]) => {

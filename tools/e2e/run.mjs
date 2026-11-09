@@ -11429,6 +11429,159 @@ async function sidebarGroundScenario(fixtures) {
     rmSync(dir, { recursive: true, force: true })
   }
 }
+/**
+ * CTRL+WHEEL ZOOM, LIST STEPS 0 TO 4 (owner, 2026-11-09: "ctrl scroll to adjust
+ * the size of the list view"). One saved step for every folder: Ctrl+wheel
+ * moves it, the row under the pointer stays under it, Chromium's own page zoom
+ * never fires, a restart keeps it, and the Settings row lights Small, Medium or
+ * Large only for steps 0 to 2.
+ */
+async function zoomListScenario(fixtures) {
+  console.log('zoom list')
+  const dir = join(fixtures, 'zoomlist')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'sub'), { recursive: true })
+  for (let i = 0; i < 120; i++) writeFileSync(join(dir, `z${String(i).padStart(3, '0')}.txt`), `zoom ${i}\n`)
+  for (const n of ['s1.txt', 's2.txt']) writeFileSync(join(dir, 'sub', n), `sub ${n}\n`)
+  let { app, win } = await launch(join(dir, 'z000.txt'))
+  const rowSel = '[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]'
+  // Any of the folder's own files drawn says we are in it (a scrolled list does not draw z000).
+  const inside = '[data-testid="browse-list"] .browse-row[data-browse-path*="zoomlist"][data-browse-path$=".txt"]'
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator(inside).count()) === 0)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="zoomlist"]').dblclick()
+    return until(async () => (await win.locator(inside).count()) > 0, 10000)
+  }
+  const rowH = () => win.evaluate((sel) => document.querySelector(sel)?.getBoundingClientRect().height ?? 0, rowSel)
+  const stored = () => win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))
+  const dpr = () => win.evaluate(() => window.devicePixelRatio)
+  const listBox = () => win.evaluate(() => {
+    const r = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect()
+    return { x: r.left, y: r.top, w: r.width, h: r.height }
+  })
+  // Which file is under a point, and how far down its row the point is (0 to 1).
+  const under = (x, y) =>
+    win.evaluate(([px, py]) => {
+      const row = document.elementFromPoint(px, py)?.closest('.browse-row[data-browse-path]')
+      if (!row) return null
+      const r = row.getBoundingClientRect()
+      return { path: row.getAttribute('data-browse-path'), within: (py - r.top) / r.height, h: r.height }
+    }, [x, y])
+  // The pointer sits over the list's middle for every wheel (Settings leaves it on the cog).
+  let at = null
+  const wheel = async (dy, count = 1) => {
+    if (at) await win.mouse.move(at.x, at.y)
+    for (let i = 0; i < count; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, dy)
+      await win.keyboard.up('Control')
+      await sleep(130)
+    }
+    await sleep(200)
+  }
+  const pressedInSettings = async () => {
+    const row = await gotoPref(win, 'explorer-size')
+    const lit = await row.locator('[aria-pressed="true"]').allTextContents()
+    const sub = await row.innerText()
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+    return { lit, sub }
+  }
+  try {
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    ok(await intoFolder(), 'the Explorer shows the folder of 120')
+    await sleep(300)
+    ok((await rowH()) === 26, `Medium is step 1: 26px rows (${await rowH()})`)
+    const dpr0 = await dpr()
+    const box = await listBox()
+    const px = box.x + Math.min(200, box.w / 2)
+    const py = box.y + 170
+    // Scroll a little, so the pointer is over a row in the middle of the list.
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 500 })
+    await sleep(300)
+    at = { x: px, y: py }
+    await win.mouse.move(px, py)
+
+    // Up is bigger: 26 -> 40 -> 56 -> 76, the same file under the pointer each time.
+    for (const want of [40, 56, 76]) {
+      const before = await under(px, py)
+      await wheel(-100)
+      const h = await rowH()
+      const after = await under(px, py)
+      ok(h === want, `Ctrl+wheel up: ${want}px rows (${h})`)
+      ok(
+        before && after && before.path === after.path && Math.abs(before.within - after.within) * after.h <= 1,
+        `the row under the pointer stayed under it at ${want}px (${JSON.stringify(before)} -> ${JSON.stringify(after)})`
+      )
+    }
+    await win.screenshot({ path: join(SHOTS, 'zoom-list-step4.png') })
+    // The end: more wheel changes nothing, and the page itself never zooms.
+    await wheel(-100, 3)
+    ok((await rowH()) === 76, 'at the last step more Ctrl+wheel up changes nothing')
+    ok((await dpr()) === dpr0, `Chromium's own page zoom never fired (${dpr0} -> ${await dpr()})`)
+    ok((await stored()) === '4', `the step is stored (${await stored()})`)
+    const high = await pressedInSettings()
+    ok(high.lit.length === 0 && /Set by zooming/.test(high.sub), `at step 4 no Settings size is lit and the row says how (${JSON.stringify(high)})`)
+    ok(await intoFolder(), 'back in the Explorer')
+    await sleep(300)
+
+    // Down is smaller, all the way to Small and no further.
+    for (const want of [56, 40, 26, 22]) {
+      await wheel(100)
+      ok((await rowH()) === want, `Ctrl+wheel down: ${want}px rows (${await rowH()})`)
+    }
+    await wheel(100, 3)
+    ok((await rowH()) === 22, 'at the first step more Ctrl+wheel down changes nothing')
+    ok((await dpr()) === dpr0, 'and the page still has not zoomed')
+    await win.screenshot({ path: join(SHOTS, 'zoom-list-step0.png') })
+
+    // The keys: Ctrl+Equals zooms in, Ctrl+Minus out, Ctrl+0 is Medium.
+    await win.locator(rowSel).first().click()
+    await win.keyboard.press('Control+Equal')
+    await sleep(250)
+    ok((await rowH()) === 26, `Ctrl+Plus: one step up (${await rowH()})`)
+    await win.keyboard.press('Control+Equal')
+    await win.keyboard.press('Control+Equal')
+    await sleep(250)
+    ok((await rowH()) === 56, `Ctrl+Plus twice more (${await rowH()})`)
+    await win.keyboard.press('Control+Minus')
+    await sleep(250)
+    ok((await rowH()) === 40, `Ctrl+Minus: one step down (${await rowH()})`)
+    await win.keyboard.press('Control+0')
+    await sleep(250)
+    ok((await rowH()) === 26, `Ctrl+0 is Medium (${await rowH()})`)
+
+    // The Settings row stays one with the wheel: Large lit at step 2, and a click writes the step.
+    await wheel(-100)
+    ok((await rowH()) === 40, 'step 2 is Large')
+    const large = await pressedInSettings()
+    ok(large.lit.join() === 'Large', `Settings lights Large at step 2 (${JSON.stringify(large.lit)})`)
+    await pickStyleSegment(win, 'explorer-size', 'Small')
+    ok(await intoFolder(), 'back in the Explorer')
+    await sleep(250)
+    ok((await rowH()) === 22 && (await stored()) === '0', `the Settings row writes the step: Small is step 0 (${await rowH()}, ${await stored()})`)
+
+    // One size everywhere, and a restart keeps it.
+    await wheel(-100, 3)
+    ok((await rowH()) === 56, `step 3 before the restart (${await rowH()})`)
+    await app.close()
+    await sleep(900)
+    ;({ app, win } = await launch(join(dir, 'z000.txt')))
+    ok(await intoFolder(), 'after a restart the Explorer shows the folder again')
+    await sleep(300)
+    ok((await rowH()) === 56, `the step is back after a restart (${await rowH()})`)
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="sub"]').dblclick()
+    ok(await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$="s1.txt"]').count()) === 1, 10000), 'a second folder opens')
+    await sleep(250)
+    ok((await rowH()) === 56, `and wears the same step (${await rowH()})`)
+  } finally {
+    await win.evaluate(() => { localStorage.removeItem('prism.explorer.zoom'); localStorage.removeItem('prism.explorer.size') }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -25570,6 +25723,7 @@ await run(sweepOverlayScenario)
 await run(hotkeysScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
+await run(zoomListScenario)
 await run(sidebarPlacesScenario)
 await run(folderIconsScenario)
 await run(folderIconFileScenario)

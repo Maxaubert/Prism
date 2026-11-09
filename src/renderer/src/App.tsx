@@ -112,7 +112,8 @@ const WARM_COOLDOWN_MS = 60_000
 import { carriesOn, heldPaused, intendToPlay } from './lib/playState'
 import { ownDrop, setDrag } from './lib/drag/dragDrop'
 import { useInternalFileDrag } from './lib/drag/internalFileDrag'
-import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
+import { explorerHeadVars } from './lib/explorerSize'
+import { headSizeOf, useExplorerZoom } from './lib/explorerZoom'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import { landJob, updateJob, updateLanding } from './lib/jobs'
@@ -919,7 +920,7 @@ export default function App(): JSX.Element {
   // floats in that band at the right. Text read as source only; a Markdown
   // page, a picture or a film keeps the button's own strip above it.
   const previewFlush = !!file && file.kind === 'text' && !isMarkdown(file.name) && !editMode
-  const headVars = explorerHeadVars(useExplorerSize())
+  const headVars = explorerHeadVars(headSizeOf(useExplorerZoom()))
   const explorerWidths = useExplorerWidths(
     placesVisible,
     previewSlide.widthShown
