@@ -22,9 +22,10 @@ import { useBackgroundPause } from '../hooks/useBackgroundPause'
 import { tapVerb } from '../lib/tapChrome'
 import { Icon } from './icons/Icon'
 import { attachLive } from '../lib/liveHls'
-import { isPlatformCodec, rescueLive } from '../lib/liveRoute'
+import { filmErrorShows, isPlatformCodec, rescueLive } from '../lib/liveRoute'
 import { useFilmWatch } from '../hooks/useFilmWatch'
 import { useFilmAutostart } from '../hooks/useFilmAutostart'
+import { useShutFilm } from '../hooks/useShutFilm'
 import { listenOn, ownDocument, useViewerWindows } from '../lib/ownWindow'
 
 /** What a track is called in the picker: its own name if it has one, then the
@@ -92,6 +93,7 @@ export function VideoView({
   volumeKey,
   fullscreen = false,
   preview = false,
+  shut = false,
   attach,
   audioTrack,
   onAudioTrack
@@ -125,6 +127,9 @@ export function VideoView({
    *  fullscreen buttons from the preview for videos"): play, the bar and the
    *  volume only. The cog and fullscreen belong to full view. */
   preview?: boolean
+  /** Behind the Explorer's list with the preview shut (owner, 2026-11-09): it
+   *  stays mounted but silent, starts nothing and holds no live job. */
+  shut?: boolean
   /** A host that switches audio by STREAM rather than by sidecar (#120): the
    *  phone, where a pick is a new playlist from the PC. When given, the
    *  pickers call it and tick `audioTrack`, and the sidecar is never asked. */
@@ -149,7 +154,7 @@ export function VideoView({
   // The volume readout on the picture: a timestamp, not a boolean, so every
   // notch of the wheel restarts the same clock rather than stacking timers.
   const [volFlash, setVolFlash] = useState(0)
-  const playable = usePlayableVideo(path, url, !attach)
+  const playable = usePlayableVideo(path, url, !attach, shut)
   const src = playable.src
   const liveAttach = useMemo(
     () => (playable.live && src ? attachLive(src, path) : undefined),
@@ -342,11 +347,12 @@ export function VideoView({
         const el = video.current
         // Another tab's player of the same film hears this too (review of
         // #491): it stays as it is, or the film sounds twice, once hidden.
-        if (el && el.paused && !el.closest('[aria-hidden="true"]'))
+        if (el && el.paused && !shut && !el.closest('[aria-hidden="true"]'))
           void el.play().catch(() => undefined)
       }),
-    [url]
+    [url, shut]
   )
+  useShutFilm(video, shut, url)
   const c = useMediaControls(video, {
     onFullscreen: onToggleFullscreen,
     onActivity: showChrome,
@@ -358,6 +364,7 @@ export function VideoView({
       }
     },
     errorMsg: 'This video can’t be played (unsupported codec or corrupt file).',
+    errorAttempt: playable.route,
     resumeKey: url,
     resumePath: path,
     keys: !background,
@@ -522,7 +529,7 @@ export function VideoView({
     onRescue: goLive
   })
   // A film meant to start says whether it did (#491, lib/filmDiag `autostart`).
-  useFilmAutostart(video, { path, url, film: !attach && !!videoCodec && !!src, route: filmRoute })
+  useFilmAutostart(video, { path, url, film: !attach && !shut && !!videoCodec && !!src, route: filmRoute })
 
   return (
     <div
@@ -661,7 +668,7 @@ export function VideoView({
         // window full of tabs. A file whose player is being rebuilt mid-play
         // (a change of kind, a split view opening) carries on, and the
         // playlist records its own intent - see lib/playState.
-        autoPlay={wasPlaying(url)}
+        autoPlay={wasPlaying(url) && !shut}
         loop={prefs.loop}
         // Autoplay: the folder is a playlist. Loop wins while both are on
         // (a looping video never ends, so this simply doesn't fire).
@@ -693,7 +700,15 @@ export function VideoView({
         )}
       </video>
 
-      {c.error && (
+      {filmErrorShows({
+        hasError: !!c.error,
+        phone: !!attach,
+        probed: sidecarState !== 'asking',
+        hasPicture: !!videoCodec,
+        tried: isLive,
+        converting: isConverting,
+        converted: isConverted
+      }) && (
         <StageNotice className="bg-[var(--p-bg)]/90 text-sm text-[var(--p-text-soft)]">
           {c.error}
         </StageNotice>

@@ -78,6 +78,9 @@ interface Options {
    *  watching the value, so nothing has to set state inside an effect. */
   onVolume?: () => void
   errorMsg?: string
+  /** Changes when the player tries the film another way (the live route after
+   *  a refused direct start): the last attempt's error is not this one's. */
+  errorAttempt?: string
   /** Whose volume this is: the tab, for this session (see lib/tabs/tabVolume). The
    *  same level follows you across the files you open in that tab, and a new
    *  tab starts at 100%. Omit and the player simply starts at 100%. */
@@ -120,6 +123,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     onActivity,
     onVolume,
     errorMsg,
+    errorAttempt,
     resumeKey,
     keys = true,
     arrowsAreVolume = true,
@@ -146,6 +150,12 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   const [muted, setMuted] = useState(() => tabVolume(volumeKey).muted)
   const [rate, setRate] = useState(() => tabRate(volumeKey))
   const [error, setError] = useState<string | null>(null)
+  // An attempt's error goes with it, in the same render that changed the route.
+  const [attemptSeen, setAttemptSeen] = useState(errorAttempt)
+  if (attemptSeen !== errorAttempt) {
+    setAttemptSeen(errorAttempt)
+    setError(null)
+  }
 
   // Mirror volume/mute/rate onto the element; remember volume across sessions.
   // Past 100% the element cannot help - its volume stops at 1 - so applyVolume
@@ -424,7 +434,12 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     // being true. Without this, a file that arrives unplayable and is then
     // CONVERTED plays on under a permanent "can't be played" panel, because
     // the resume key (the original url) never changed (2026-08-28).
-    onLoadStart: () => setError(null),
+    onLoadStart: () => {
+      setError(null)
+      // A fresh source starts at 0 (a live film whose job the shut preview
+      // stopped): it goes back to its place like any other arrival.
+      resumedRef.current = false
+    },
     onError: () => setError(errorMsg ?? 'This file can’t be played.')
   }
 

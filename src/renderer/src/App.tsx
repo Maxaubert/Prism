@@ -1683,6 +1683,11 @@ export default function App(): JSX.Element {
               // visible one fills the pane exactly as a viewer always did.
               // A background tab answers nothing: no paging, no stepping.
               const noop = (): void => {}
+              const filmShut = (tabId: string): boolean => {
+                if (tabId === activeId) return browsing.folder && !showBrowsePreview
+                const t = tabs.find((x) => x.id === tabId)
+                return !!t && isExplorerTab(t) && t.browse.surface === 'folder' && !t.browse.preview
+              }
               // In window mode the front tab's player and view are drawn in
               // the preview window, the others stay here, mounted and hidden.
               const inWindow = (tabId: string): boolean => previewWindowUp && tabId === activeId
@@ -1726,6 +1731,11 @@ export default function App(): JSX.Element {
                     archiveCardDrop={onBrowseDropInto}
                     note={!browsing.folder}
                     preview={browsing.folder}
+                    // Shut behind the list: no sound and no live job. The
+                    // element stays, so its place and its route do. A tab
+                    // behind this one counts too, or a shut film started
+                    // again the moment you switched away from it.
+                    shut={filmShut(e.tabId)}
                   />
                 </div>
               ))

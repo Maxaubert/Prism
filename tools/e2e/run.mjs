@@ -4420,6 +4420,296 @@ async function filmStartScenario(fixtures) {
   }
 }
 
+
+/**
+ * THE FILM THAT MUST NOT GO ON WITHOUT YOU (owner, 2026-11-09: "if i close the
+ * preview it pasuses then it plays jsut the aduio"). Refuses every direct src
+ * whose film matches `names`, in the page and in any preview window it opens
+ * (an element there has that window's own prototypes).
+ */
+const refuseFilms = (win, names) =>
+  win.evaluate((n) => {
+    const refused = new RegExp(n)
+    const patch = (w) => {
+      const set = w.Element.prototype.setAttribute
+      w.Element.prototype.setAttribute = function (a, v) {
+        if (this.tagName === 'VIDEO' && a === 'src' && refused.test(decodeURIComponent(String(v))) && String(v).startsWith('fsmedia://local')) return set.call(this, a, 'fsmedia://local/C%3A%5Cnope.mov')
+        return set.call(this, a, v)
+      }
+    }
+    patch(window)
+    const open = window.open
+    window.open = function (...a) {
+      const w = open.apply(this, a)
+      if (w) patch(w)
+      return w
+    }
+  }, names)
+/** Every player on the page, in both documents. */
+const everyPlayer = (win) =>
+  win.evaluate(() => {
+    const docs = [['page', document]]
+    const w = window.__prismPreviewWindow
+    if (w && !w.closed) docs.push(['window', w.document])
+    return docs.flatMap(([where, d]) =>
+      [...d.querySelectorAll('video,audio')].map((v) => ({
+        where,
+        tag: v.tagName,
+        paused: v.paused,
+        muted: v.muted,
+        t: Math.round(v.currentTime * 100) / 100,
+        src: (v.currentSrc || '').slice(0, 24)
+      }))
+    )
+  }).catch(() => [])
+/** The film of this surface: 'none', 'shown' or 'playing'. */
+const surfaceFilm = (win, mode) =>
+  win.evaluate((m) => {
+    const w = m === 'window' ? window.__prismPreviewWindow : window
+    if (!w || w.closed) return { state: 'none' }
+    const v = w.document.querySelector(m === 'window' ? '[data-preview-window-body] video' : '[data-browse-preview] video')
+    if (!v) return { state: 'none' }
+    return { state: !v.paused && v.currentTime > 0.15 ? 'playing' : 'shown', live: (v.currentSrc || '').startsWith('blob:'), paused: v.paused, t: v.currentTime }
+  }, mode).catch(() => ({ state: 'none' }))
+/** Main's live-job lines after `iso`. */
+const jobsSince = async (iso) => (await filmLines()).filter((l) => l.op === 'live-job' && l.t > iso)
+
+async function filmCloseScenario(fixtures) {
+  console.log('closing the preview stops the film and it stays stopped (owner, 2026-11-09)')
+  if (!existsSync(join(fixtures, 'av', 'iphone-hevc.mov'))) {
+    ok(false, 'the HEVC fixture was built')
+    return
+  }
+  const names = Array.from({ length: 22 }, (_, i) => `F${String(i).padStart(2, '0')}.mov`)
+  const dir = filmFolder(fixtures, 'filmclose', names)
+  let n = 0
+  const nextFilm = () => names[n++ % names.length]
+  const cycle = async (win, label, { mode, way, moment, file }) => {
+    await listRow(win, file).click({ position: { x: 30, y: 10 } })
+    await sleep(300)
+    await listRow(win, file).focus()
+    if (mode === 'window') await win.keyboard.press('Space')
+    else {
+      if ((await win.locator(PANE_TOGGLE).first().getAttribute('aria-pressed')) !== 'true') await win.locator(PANE_TOGGLE).first().click()
+    }
+    const seen = await until(async () => (await surfaceFilm(win, mode)).state !== 'none', 8000)
+    ok(seen, `${label}: the film came up`)
+    if (moment === 'first-frame') await sleep(60)
+    else if (moment === 'live-open') await sleep(450)
+    else if (moment === 'rescue') await until(async () => (await surfaceFilm(win, mode)).live === true, 12000)
+    else if (!(await until(async () => (await surfaceFilm(win, mode)).state === 'playing', 15000))) console.log(`  ${label}: never played before the close: ${JSON.stringify(await surfaceFilm(win, mode))}`)
+    const t0 = await win.evaluate(() => new Date().toISOString())
+    if (way === 'button') {
+      if (mode === 'window') await win.evaluate(() => window.__prismPreviewWindow.document.querySelector('[data-preview-window-close]').click())
+      else await win.locator(PANE_TOGGLE).first().click()
+    } else {
+      await listRow(win, file).focus()
+      await win.keyboard.press(way)
+    }
+    // Sampled from the moment of the close: any element playing at any
+    // instant after it is the sound with no picture.
+    const samples = []
+    const stopAt = Date.now() + 3500
+    while (Date.now() < stopAt) {
+      samples.push(await everyPlayer(win))
+      await sleep(120)
+    }
+    const playing = samples.flat().filter((p) => !p.paused)
+    const span = new Map()
+    for (const p of samples.flat()) {
+      const k = `${p.where}|${p.src}`
+      span.set(k, { first: span.get(k)?.first ?? p.t, last: p.t })
+    }
+    const moved = [...span].filter(([, v]) => v.last - v.first > 0.25).map(([k, v]) => `${k} ${v.first}->${v.last}`)
+    ok(playing.length === 0, `${label}: nothing plays after the close (${playing.length} samples, ${JSON.stringify(playing[0] ?? null)})`)
+    ok(moved.length === 0, `${label}: and no time moves (${moved.join('; ') || 'none'})`)
+    // A job the close raced (an open already in flight when the preview shut) may
+    // start in main; it must be stopped, and a film playing steadily at the close
+    // starts no job at all (a job for nobody: the owner's log of 03:22:35).
+    const after = await jobsSince(t0)
+    const startedJobs = after.filter((l) => l.ev === 'start')
+    const running = [...new Set(startedJobs.map((l) => l.job))].filter((j) => !after.some((l) => l.job === j && (l.ev === 'kill' || l.ev === 'exit')))
+    ok(running.length === 0, `${label}: no live job is left running for it (${JSON.stringify(running)})`)
+    if (moment === 'playing') ok(startedJobs.length === 0, `${label}: and none starts for it (${startedJobs.length})`)
+  }
+  const CASES = [
+    ['direct', {}, ['first-frame', 'playing']],
+    ['live', { PRISM_E2E_FORCE_LIVE: '1' }, ['first-frame', 'live-open', 'playing']],
+    ['rescue', {}, ['first-frame', 'rescue', 'playing']]
+  ]
+  const WAYS = { pane: ['button', 'Space'], window: ['Space', 'Escape', 'button'] }
+  for (const [route, env, moments] of CASES) {
+    console.log(`  -- ${route}`)
+    n = 0
+    const { app, win } = await launchWith({ ...env, ...NO_INDEX }, dir)
+    let windowMode = false
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      if (route === 'rescue') await refuseFilms(win, '\\.mov')
+      if (await win.locator(PANE_FILM).count()) {
+        await win.locator(PANE_TOGGLE).first().click()
+        await sleep(700)
+      }
+      for (const moment of moments)
+        for (const way of WAYS.pane) await cycle(win, `${route} pane ${moment} by ${way}`, { mode: 'pane', way, moment, file: nextFilm() })
+      // The pane opened again over the same film plays it from where it was.
+      {
+        const file = nextFilm()
+        await listRow(win, file).click({ position: { x: 30, y: 10 } })
+        await sleep(300)
+        await win.locator(PANE_TOGGLE).first().click()
+        ok(await until(async () => (await surfaceFilm(win, 'pane')).t > 0.6, 15000), `${route}: the pane plays the film (${JSON.stringify(await surfaceFilm(win, 'pane'))})`)
+        const was = (await surfaceFilm(win, 'pane')).t
+        await win.locator(PANE_TOGGLE).first().click()
+        await sleep(900)
+        const stopped = await everyPlayer(win)
+        ok(stopped.every((p) => p.paused), `${route}: the pane closed stops it (${JSON.stringify(stopped)})`)
+        await win.locator(PANE_TOGGLE).first().click()
+        ok(await until(async () => (await surfaceFilm(win, 'pane')).state === 'playing', 15000), `${route}: the pane opened again plays it (${JSON.stringify(await surfaceFilm(win, 'pane'))})`)
+        const now = (await surfaceFilm(win, 'pane')).t
+        ok(now >= was - 0.5, `${route}: and from where it was, not the start (${was} then ${now})`)
+        await win.locator(PANE_TOGGLE).first().click()
+        await sleep(700)
+      }
+      await explorerAt(win, dir)
+      await pickStyleSegment(win, 'preview-opens', 'Window')
+      windowMode = true
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 15000 })
+      if ((await win.locator(PANE_TOGGLE).first().getAttribute('aria-pressed')) === 'true') {
+        await win.locator(PANE_TOGGLE).first().click()
+        await sleep(600)
+      }
+      await sleep(400)
+      for (const moment of moments)
+        for (const way of WAYS.window) await cycle(win, `${route} window ${moment} by ${way}`, { mode: 'window', way, moment, file: nextFilm() })
+      // Reopening shows it playing again; a film you paused stays paused.
+      const file = nextFilm()
+      await cycle(win, `${route} window, again`, { mode: 'window', way: 'Space', moment: 'playing', file })
+      await listRow(win, file).focus()
+      await win.keyboard.press('Space')
+      ok(await until(async () => (await surfaceFilm(win, 'window')).state === 'playing', 15000), `${route}: the window reopened over the film plays it (${JSON.stringify(await surfaceFilm(win, 'window'))})`)
+      await win.evaluate(() => window.__prismPreviewWindow.document.querySelector('[data-preview-window-body] video').pause())
+      await sleep(300)
+      await listRow(win, file).focus()
+      await win.keyboard.press('Space')
+      await sleep(900)
+      await win.keyboard.press('Space')
+      await until(async () => (await surfaceFilm(win, 'window')).state !== 'none', 8000)
+      await sleep(1200)
+      const f = await surfaceFilm(win, 'window')
+      ok(f.paused === true, `${route}: a film you paused stays paused when the window comes back (${JSON.stringify(f)})`)
+      await listRow(win, file).focus()
+      await win.keyboard.press('Space')
+      await sleep(600)
+    } finally {
+      if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+      await app.close()
+    }
+    await sleep(900)
+  }
+}
+
+
+/**
+ * NO FLASH OF AN ERROR ON A FILM STILL ON ITS WAY (owner, 2026-11-09: "on mov
+ * files in the preview it says cannot open this file for a brief second then
+ * it plays the video"). Every change of the text is read as it happens (a
+ * MutationObserver and every frame, in the page and the preview window), so a
+ * flash of a few frames cannot be missed the way polling misses it. A file
+ * nothing can rescue still says so.
+ */
+const FILM_ERRORS = 'can.t be played|cannot be opened|cannot open|could not be converted'
+const watchErrors = (win) =>
+  win.evaluate((re) => {
+    const bad = new RegExp(re, 'i')
+    window.__flashes = []
+    const check = (doc, where) => {
+      const m = bad.exec(doc.body?.textContent ?? '')
+      if (m && !window.__flashes.some((f) => f.text === m[0] && f.where === where)) window.__flashes.push({ where, text: m[0], at: Math.round(performance.now()) })
+    }
+    const watch = (doc, where) => {
+      check(doc, where)
+      new doc.defaultView.MutationObserver(() => check(doc, where)).observe(doc.documentElement, { subtree: true, childList: true, characterData: true })
+      const frame = () => {
+        check(doc, where)
+        doc.defaultView.requestAnimationFrame(frame)
+      }
+      doc.defaultView.requestAnimationFrame(frame)
+    }
+    watch(document, 'page')
+    const open = window.open
+    window.open = function (...a) {
+      const w = open.apply(this, a)
+      if (w) setTimeout(() => watch(w.document, 'window'), 0)
+      return w
+    }
+  }, FILM_ERRORS)
+const flashes = (win) => win.evaluate(() => window.__flashes ?? [])
+const clearFlashes = (win) => win.evaluate(() => { window.__flashes = [] })
+
+async function filmFlashScenario(fixtures) {
+  console.log('a film that can still be rescued shows no error (owner, 2026-11-09)')
+  if (!existsSync(join(fixtures, 'av', 'iphone-hevc.mov'))) {
+    ok(false, 'the HEVC fixture was built')
+    return
+  }
+  const dir = filmFolder(fixtures, 'filmflash', ['A.mov', 'B.mov', 'C.mov', 'D.mov'], { 'Broken.mov': 'README.md' })
+  const { app, win } = await launchWith({ ...NO_INDEX }, dir)
+  let windowMode = false
+  try {
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    await watchErrors(win)
+    await refuseFilms(win, '[ABCD]\\.mov')
+    // THE PANE.
+    await paneOn(win, 'A.mov')
+    await listRow(win, 'B.mov').click({ position: { x: 30, y: 10 } })
+    ok(await until(async () => { const f = await filmNow(win, PANE_FILM); return f?.route === 'live' && !f.paused && f.t > 0.15 }, 15000), `pane: refused, it plays live (${JSON.stringify(await filmNow(win, PANE_FILM))})`)
+    let seen = await flashes(win)
+    ok(seen.length === 0, `pane: no error text at any moment (${JSON.stringify(seen)})`)
+    // FULL VIEW.
+    await clearFlashes(win)
+    await listRow(win, 'C.mov').dblclick()
+    await win.waitForSelector('.browse-viewer-toolbar', { timeout: 8000 })
+    ok(await until(async () => { const f = await filmNow(win, 'video'); return f?.route === 'live' && !f.paused && f.t > 0.15 }, 15000), `full view: refused, it plays live (${JSON.stringify(await filmNow(win, 'video'))})`)
+    seen = await flashes(win)
+    ok(seen.length === 0, `full view: no error text at any moment (${JSON.stringify(seen)})`)
+    await win.locator('.browse-viewer-toolbar [aria-label="Back"]').click()
+    await win.waitForSelector(FOLDER_LIST, { timeout: 8000 })
+    await win.locator(PANE_TOGGLE).first().click()
+    await sleep(800)
+    // THE WINDOW.
+    await clearFlashes(win)
+    await explorerAt(win, dir)
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 15000 })
+    await listRow(win, 'D.mov').click({ position: { x: 30, y: 10 } })
+    await sleep(300)
+    await listRow(win, 'D.mov').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => { const f = await surfaceFilm(win, 'window'); return f.state === 'playing' && f.live === true }, 15000), `window: refused, it plays live (${JSON.stringify(await surfaceFilm(win, 'window'))})`)
+    seen = await flashes(win)
+    ok(seen.length === 0, `window: no error text at any moment (${JSON.stringify(seen)})`)
+    await listRow(win, 'D.mov').focus()
+    await win.keyboard.press('Space')
+    await sleep(700)
+    // A REAL FAILURE STILL SAYS SO: not a film at all, renamed .mov.
+    await pickStyleSegment(win, 'preview-opens', 'Panel')
+    windowMode = false
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 15000 })
+    await listRow(win, 'Broken.mov').click({ position: { x: 30, y: 10 } })
+    await sleep(300)
+    if (!(await win.locator(PANE_FILM).count())) await win.locator(PANE_TOGGLE).first().click()
+    ok(await until(async () => new RegExp(FILM_ERRORS, 'i').test((await win.locator('[data-browse-preview]').textContent().catch(() => '')) ?? ''), 15000), `a file nothing can rescue says so (${(await win.locator('[data-browse-preview]').textContent().catch(() => '') ?? '').slice(0, 100)})`)
+  } finally {
+    if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+    await app.close()
+  }
+}
+
 /**
  * A HEALTHY FILM STAYS ON ITS ROUTE (2026-11-08). Going live is a rescue for
  * a film that shows nothing, so a film the player shows well must never be
@@ -23147,6 +23437,8 @@ await run(movOwnerScenario)
 await run(movGuardScenario)
 await run(filmKeysScenario)
 await run(filmStartScenario)
+await run(filmCloseScenario)
+await run(filmFlashScenario)
 await run(sevenZipScenario)
 await run(documentScenario, 2000)
 await run(synthAndRawScenario)
