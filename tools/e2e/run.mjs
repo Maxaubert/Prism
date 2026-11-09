@@ -16915,6 +16915,149 @@ async function unsupportedScenario(fixtures) {
   }
 }
 
+/** ONLY A DELIBERATE OPEN STARTS A PROGRAM, AND ONCE (#494; review, 2026-11-09).
+ *  The opens `opensInWindows` holds are the ones a person means. These are the
+ *  ones nobody means: a held key, a press that landed on a row the watcher
+ *  moved, a focus the card kept, a folder pin that is a file now. Nothing is
+ *  ever started: under --e2e the open route records the path and stops. */
+async function openGuardsScenario(fixtures) {
+  console.log('a held key, a moved row, a kept focus and a stale pin start nothing (#494)')
+  const dir = join(fixtures, 'openguards')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const setup = join(dir, 'e-setup.exe')
+  const gone = join(dir, 'gone.exe')
+  writeFileSync(setup, 'not really a program\n')
+  writeFileSync(join(dir, 'n.txt'), 'n\n')
+  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
+  mkdirSync(gone)
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  let held = 0
+  const calls = () => app.evaluate(() => globalThis.__e2eOpenedFiles ?? [])
+  const nothing = async (what) => {
+    await sleep(500)
+    const got = await calls()
+    ok(got.length === held, `${what}: nothing is handed to Windows (${JSON.stringify(got.slice(held))})`)
+    held = got.length
+  }
+  const once = async (what, path = setup) => {
+    ok(await until(async () => (await calls()).length > held, 5000), `${what}: the file goes to Windows`)
+    await sleep(500)
+    const got = (await calls()).slice(held)
+    ok(got.length === 1 && sameDir(got[0] ?? '', path), `${what}: one call, for that file (${JSON.stringify(got)})`)
+    held += got.length
+  }
+  const pick = async (name) => {
+    const box = await listRow(win, name).boundingBox()
+    await listRow(win, name).click({ position: { x: 30, y: box.height / 2 } })
+    await sleep(300)
+  }
+  const hold = async (key) => {
+    for (let i = 0; i < 4; i++) {
+      await win.keyboard.down(key)
+      await sleep(150)
+    }
+    await win.keyboard.up(key)
+  }
+  const toggleBtn = () => win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first()
+  const pressed = async () => (await toggleBtn().getAttribute('aria-pressed')) === 'true'
+  const pane = (on) => until(async () => {
+    if ((await pressed()) !== on) await toggleBtn().click()
+    await sleep(150)
+    return (await pressed()) === on
+  }, 3000)
+  const paneOpen = () => win.locator('[data-browse-preview]').getByRole('button', { name: 'Open', exact: true })
+  try {
+    await explorerAt(win, dir)
+    await pane(false)
+
+    /* ---------- a double-click whose rows moved under it ---------- */
+    const box = await listRow(win, 'n.txt').boundingBox()
+    const x = box.x + 30
+    const y = box.y + box.height / 2
+    await win.mouse.move(x, y)
+    await win.mouse.down({ clickCount: 1 })
+    await win.mouse.up({ clickCount: 1 })
+    await sleep(200)
+    // The watcher brings a new row above: setup slides under the pointer.
+    writeFileSync(join(dir, 'a-new.txt'), 'arrived\n')
+    const under = () =>
+      win.evaluate(
+        ([px, py]) =>
+          document.elementFromPoint(px, py)?.closest('[data-browse-path]')?.getAttribute('data-browse-path') ?? '',
+        [x, y]
+      )
+    ok(await until(async () => /e-setup\.exe$/i.test(await under()), 8000), `the row under the pointer moved (${await under()})`)
+    await win.mouse.down({ clickCount: 2 })
+    await win.mouse.up({ clickCount: 2 })
+    await nothing('a double-click whose second press found another row')
+    rmSync(join(dir, 'a-new.txt'))
+    await until(async () => (await listRow(win, 'a-new.txt').count()) === 0, 8000)
+    await sleep(300)
+    // And a double-click on a row that stayed is still an open.
+    await listRow(win, 'e-setup.exe').dblclick()
+    await once('a double-click on a row that stayed')
+
+    /* ---------- a held key ---------- */
+    await pick('e-setup.exe')
+    await listRow(win, 'e-setup.exe').focus()
+    await hold('Enter')
+    await once('Enter held on the row')
+
+    await listRow(win, 'e-setup.exe').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const pin = win.locator('.browse-places .quick-access-pin[data-quick-access-path$="\\\\e-setup.exe" i]')
+    ok(await until(async () => (await pin.count()) === 1, 5000), 'the file is pinned')
+    await pin.focus()
+    await hold('Enter')
+    await once('Enter held on the pin')
+    await pin.click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+    await until(async () => (await pin.count()) === 0, 5000)
+    await toList(win)
+
+    /* ---------- the card's Open keeps no hold on the keyboard ---------- */
+    await pane(true)
+    await pick('e-setup.exe')
+    ok(await until(async () => (await paneOpen().count()) === 1, 8000), 'the card in the pane has Open')
+    await paneOpen().focus()
+    await hold('Enter')
+    await once('Enter held on Open')
+    await paneOpen().click()
+    await once('a click on Open')
+    await win.keyboard.press('Space')
+    await nothing('Space after a click on Open')
+    await pane(false)
+
+    /* ---------- a typed path leaves the keyboard on the list ---------- */
+    await pick('n.txt')
+    await typePath(win, setup)
+    await once('the path in the address field')
+    ok(
+      await until(() => win.evaluate(() => !!document.activeElement?.closest('.browse-list')), 3000),
+      `after a typed program the keyboard is on the list (${await win.evaluate(() => document.activeElement?.tagName)})`
+    )
+    ok(
+      await until(async () => (await listRow(win, 'n.txt').getAttribute('aria-selected')) === 'true', 3000),
+      'and the row that was selected still is'
+    )
+
+    /* ---------- a folder pin that is a file now ---------- */
+    await listRow(win, 'gone.exe').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const stale = win.locator('.browse-places .quick-access-pin[data-quick-access-path$="\\\\gone.exe" i]')
+    ok(await until(async () => (await stale.count()) === 1, 5000), 'the folder is pinned')
+    rmSync(gone, { recursive: true, force: true })
+    writeFileSync(gone, 'a program where the folder was\n')
+    await sleep(1500)
+    await stale.click()
+    await nothing('one click on a folder pin that is a file now')
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 /** A FILE PRISM CANNOT SHOW OPENS THE WAY WINDOWS WOULD (#494; owner,
  *  2026-11-09: "it shoudl be possible to opena exe instalelr"). The rule worth
  *  the most here: only a deliberate open starts anything. Nothing is ever
@@ -25496,6 +25639,7 @@ await run(busyCutCancelScenario)
 await run(busyUndoMoveScenario)
 await run(unsupportedScenario)
 await run(opensInWindowsScenario)
+await run(openGuardsScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over
 // zero scenarios is the most confident lie a suite can tell (2026-08-28).
