@@ -292,7 +292,11 @@ export function createLiveVideo(deps: LiveDeps): LiveVideo {
           route.name === 'init.mp4'
             ? await jobs.init(route.id)
             : await jobs.segment(route.id, Number(route.name.split('.')[0]))
-        if (!path) return new Response(null, { status: 404, headers: HEADERS })
+        // A 404 before the first picture ends the film (liveHls), so it says
+        // only that the job fell over. With ffmpeg still running the ask was
+        // left behind by another player of this film, or outwaited: 503, which
+        // hls.js retries by itself (review, 2026-11-09).
+        if (!path) return new Response(null, { status: jobs.running(route.id) ? 503 : 404, headers: HEADERS })
         const body = await readFile(path)
         return new Response(body, {
           status: 200,

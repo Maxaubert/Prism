@@ -162,6 +162,32 @@ describe('createLiveVideo', () => {
     expect(await opening).toEqual({ error: 'stopped' })
   })
 
+  // Review, 2026-11-09: a 404 before the first picture ends the film at once
+  // (liveHls), so it may only mean the job fell over. Two players of one film
+  // at different places (a tab behind this one) leave each other's asks behind.
+  it('an ask left behind while the job runs is no 404: the player retries it', async () => {
+    const fake = fakeFfmpeg({ segments: 30, intervalMs: 300 })
+    const live = createLiveVideo({ ffmpeg: 'f', baseDir: base, readable: () => true, spawn: fake.spawn })
+    const r = await live.open(1, film, { ...iphone(), duration: 200 })
+    if (!('url' in r)) throw new Error(r.error)
+    const seg = (n: number): string => r.url.replace('index.m3u8', `${n}.m4s`)
+    const hidden = get(live, seg(0))
+    await new Promise((done) => setTimeout(done, 40))
+    const ahead = get(live, seg(40))
+    expect((await hidden).status).toBe(503)
+    expect((await ahead).status).toBe(200)
+    await live.stopAll()
+  })
+
+  it('a job that fell over answers 404, which ends the film at once', async () => {
+    const fake = fakeFfmpeg({ failFirst: 'Invalid data found when processing input' })
+    const live = createLiveVideo({ ffmpeg: 'f', baseDir: base, readable: () => true, spawn: fake.spawn })
+    const r = await live.open(1, film, iphone())
+    if (!('url' in r)) throw new Error(r.error)
+    expect((await get(live, r.url.replace('index.m3u8', 'init.mp4'))).status).toBe(404)
+    await live.stopAll()
+  })
+
   it('refuses a file with no picture or no length', async () => {
     const { live } = make()
     expect(await live.open(1, film, null)).toEqual({ error: 'nothing to play' })
