@@ -117,6 +117,9 @@ export function beginHold(id: string, spec: HoldSpec): void {
     timer: setTimeout(() => {
       pending.delete(id)
       store.set([...store.get(), hold])
+      // The chip's Cancel came first: the bar shows "Stopping", and its grace
+      // runs from here, or a job that cannot stop would hold the list for good.
+      if (hold.stopping) timers.set(id, setTimeout(() => drop(id), STOP_GRACE_MS))
     }, BUSY_AFTER_MS)
   })
 }
