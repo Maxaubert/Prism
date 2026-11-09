@@ -28,6 +28,7 @@ import type {
   MemberExtractResult
 } from '@shared/extraction'
 import type { IconList, IconPick, IconSave } from '@shared/folderIconFiles'
+import type { ThumbWant, ThumbsReady, ThumbsWantReply } from '@shared/thumbTypes'
 import type { SweepBegin, SweepEnd, SweepState, SweepUpdate } from '@shared/sweepOverlay'
 import type { ArchiveSummary, MemberAnswer } from '@shared/archivePlace'
 import type { FolderSizeResult } from '@shared/folderSize'
@@ -178,6 +179,16 @@ const api = {
   pickFiles: (): Promise<string[]> => ipcRenderer.invoke(CALL.dialogPickFiles),
   /** Folder icons from a file (2026-10-31): the picked picture's bytes (never
    *  its path), null when cancelled, or why it cannot be one. */
+  /** The desktop's tile pictures (thumbs.ts, Stage 2 of the zoom grid): `want` the tiles on
+   *  screen (cache hits come back at once, the rest by `onReady`), `cancel` a tab's asks, and
+   *  say whether a film plays here (the desktop then makes one thumbnail at a time). */
+  thumbs: {
+    want: (tabId: string, gen: number, items: ThumbWant[]): Promise<ThumbsWantReply> =>
+      ipcRenderer.invoke(CALL.thumbsWant, tabId, gen, items),
+    cancel: (tabId: string): void => ipcRenderer.send(CALL.thumbsCancel, tabId),
+    film: (playing: boolean): void => ipcRenderer.send(CALL.thumbsFilm, playing),
+    onReady: subscribe<ThumbsReady>(PUSH.thumbsReady)
+  },
   pickFolderIcon: (): Promise<IconPick> => ipcRenderer.invoke(CALL.folderIconPick),
   /** Keep the 64 px PNG the page drew; its id and data URL. */
   saveFolderIcon: (png: Uint8Array): Promise<IconSave> => ipcRenderer.invoke(CALL.folderIconSave, png),

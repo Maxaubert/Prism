@@ -12,6 +12,8 @@
 /** Main to the page: `webContents.send` in main, `ipcRenderer.on` in the preload. */
 export const PUSH = {
   browseDetails: 'browse:details',
+  /** What main made of the tiles asked for, as fsmedia://thumb/ urls, batched. */
+  thumbsReady: 'thumbs:ready',
   browseSearchProgress: 'browse:search-progress',
   phoneChanged: 'phone:changed',
   pasteProgress: 'paste:progress',
@@ -80,6 +82,11 @@ export const CALL = {
   folderIconSave: 'folder-icons:save',
   folderIconFiles: 'folder-icons:custom',
   folderIconPrune: 'folder-icons:prune',
+  /** The desktop's thumbnails (Stage 2 of the zoom grid): ask for tiles, drop a
+   *  tab's asks, say that a film plays. */
+  thumbsWant: 'thumbs:want',
+  thumbsCancel: 'thumbs:cancel',
+  thumbsFilm: 'thumbs:film',
 
   tabsChanged: 'tabs:changed',
   /** Tab tear-off (step 3): a tab left its strip, the tear ended, the e2e's

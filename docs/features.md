@@ -2044,6 +2044,33 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   Large's header band is 4px taller than Medium's). Quick access and the header keep Large from
   step 2 up. The Settings row writes steps 0 to 2 and lights none above, saying "Set by zooming
   the list" (the copy rule bans key names). `zoomList` e2e.
+  **THE DESKTOP'S THUMBNAIL ENGINE** (zoom grid Stage 2, 2026-11-09; main only, no tile draws it yet).
+  `thumbs.ts` (the phone's code path, argv and keys unchanged to the byte at 320) gains `makeFor` /
+  `lookup`; `thumbQueue.ts` schedules (a tab's new ask replaces its waiting list, 3 of the 4 ffmpegs,
+  1 on 4 cores or fewer or while a film plays, tabs take turns, one job per key, a running job nobody
+  wants is killed only past 1.5 s); `thumbsEndpoint.ts` + `ipc/thumbs.ts` are `thumbs:want` /
+  `thumbs:ready` / `thumbs:cancel` / `thumbs:film` (`window.prism.thumbs`), walled by `readable` AND
+  `ownsDirectly(tab, path)` after the paths are warmed off main's thread, photos and films only (SVG
+  is the page's). Pictures go back as `fsmedia://thumb/<40 hex>.jpg|webp`, answered by
+  `mediaProtocol.ts` from the cache folder before the root wall. Two tiers (320 shared with the phone,
+  640 keyed `|640`); a desktop film frame (`-noaccurate_seek -threads 2`) is keyed `|k`, so the phone
+  never gets a keyframe frame; 15 s timeout (desktop only); failures remembered in memory (5,000
+  keys, desktop only, not for a cancel); a hit touched at most once a day; cache 500 MB trimmed to
+  450; stale `.part` files swept at startup. HDR film: pass 1 reads ffmpeg's own input line, HLG or PQ
+  gets a second pass that scales then tone-maps (the phone's chain; scaled first so the float work is on
+  a small frame). **HEIC ROUTE, MEASURED**: ffmpeg decodes HEIC itself: `gradient.heic` (640x480) works
+  and a 4032x3024 single-image HEIC (pillow-heif) takes 0.47 to 0.53 s to a 320 or 640 JPEG, against
+  1.49 to 1.63 s for `heic-convert` alone (before the scale), so ffmpeg is the route. An iPhone stores
+  a photo as a GRID of 512px tiles, which no sample here could be made to reproduce (no encoder writes
+  one), so a HEIC whose ffmpeg report says "Stream group ... Tile Grid" or shows a square 256, 512 or
+  1024 first stream, or that ffmpeg fails on, goes to `heicClient` and is scaled after (`inputNeedsHeifDecoder`).
+  NOT verified on a real iPhone HEIC. A film on the 640x360 HEVC fixture: 63 to 87 ms with
+  `-noaccurate_seek`, 61 to 76 ms accurate (too small to tell apart; the saving is for 4K). The HDR
+  pass was not measured (no HDR sample and no encoder to make one). 200 asks for distinct files: all
+  made in about 4 s, never over 3 ffmpegs, page gaps 22 ms, main round trips 6 ms. Held by
+  `thumbs.tier.test.ts`, `thumbs.engine.test.ts`, `thumbs.ffmpeg.test.ts` (real ffmpeg: EXIF turn,
+  clear PNG, HEIC, HEVC .mov), `thumbQueue.test.ts`, `thumbsEndpoint.test.ts`, `mediaProtocol.test.ts`
+  and the `thumbsEngine` e2e.
   **THE PLACES PANEL IS THE THEMES MOCKUP'S** (#296; owner, 2026-10-06: "i really like the
   sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
   use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its

@@ -1,6 +1,8 @@
 import { createReadStream } from 'fs'
 import { stat, readFile } from 'fs/promises'
 import { Readable } from 'node:stream'
+import { join } from 'path'
+import { THUMB_KEY_RE } from '@shared/thumbTypes'
 import { parseByteRange } from './byteRange'
 import type { FfmpegTools } from './ffmpeg'
 import { isHeic } from './heicClient'
@@ -30,7 +32,15 @@ export interface MediaServerDeps {
    *  warm or conversion shows only as media that will not play. index.ts
    *  writes it to the diag log. */
   onError?: (fields: { url: string; error: string }) => void
+  /** The thumbnail cache folder (thumbs.ts), when there is one. With it,
+   *  `fsmedia://thumb/<key>` serves that one folder's files, BEFORE the root
+   *  wall (Stage 2 of the zoom grid, 2026-11-09). */
+  thumbsDir?: () => string
 }
+
+/** The host of a desktop thumbnail's URL: `fsmedia://thumb/<key>`. A file's
+ *  own URL has the host `local`, so the two can never be confused. */
+export const THUMB_HOST = 'thumb'
 
 /** Past this a whole buffer is one IPC message, and tracing a 40 MB image
  *  showed a 1.2s "Receive mojo message" stall in the renderer (see below). */
@@ -84,7 +94,31 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
       return new Response(null, { status: 500 })
     }
   }
+  /** A cached thumbnail by its key and nothing else: the key is 40 hex and
+   *  .jpg or .webp, so it holds no separator and no dot-dot, and only
+   *  `join(dir, key)` is ever read. The path is NOT decoded first, so an
+   *  encoded dot-dot or separator is simply not a key. */
+  async function serveThumb(request: Request, dir: string): Promise<Response> {
+    const key = new URL(request.url).pathname.slice(1)
+    if (!THUMB_KEY_RE.test(key)) return new Response(null, { status: 404 })
+    try {
+      const buf = await readFile(join(dir, key))
+      return new Response(buf, {
+        status: 200,
+        headers: {
+          'Content-Type': key.endsWith('.webp') ? 'image/webp' : 'image/jpeg',
+          'Content-Length': String(buf.length),
+          // The name is the file's hash: the bytes under it never change.
+          'Cache-Control': 'max-age=31536000, immutable',
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    } catch {
+      return new Response(null, { status: 404 })
+    }
+  }
   async function answer(request: Request): Promise<Response> {
+    if (deps.thumbsDir && new URL(request.url).host === THUMB_HOST) return serveThumb(request, deps.thumbsDir())
     let filePath: string
     try {
       filePath = decodeURIComponent(new URL(request.url).pathname).slice(1)

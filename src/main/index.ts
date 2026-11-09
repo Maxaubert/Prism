@@ -126,6 +126,8 @@ import type { DragOut } from './dragOut'
 import type { NativeDragRecord } from '@shared/dragOut'
 import { clearFakeDrags, fakeDragCalls } from './e2eDragOut'
 import { registerMediaIpc } from './ipc/media'
+import { registerThumbsIpc } from './ipc/thumbs'
+import { rawPreview } from './rawPreview'
 import { registerPropsIpc } from './ipc/props'
 import { registerBrowseIpc, registerTreeIpc, releaseTab } from './ipc/browse'
 import { registerLinkIpc } from './ipc/links'
@@ -259,6 +261,8 @@ const serveMediaNow = createMediaServer({
   warm: warmWall,
   ffmpeg: ffmpegTools,
   heic: heicToJpeg,
+  // fsmedia://thumb/<key>: the desktop's tile pictures, from this folder only.
+  thumbsDir: () => userPaths.thumbs(),
   // A 500 leaves a line in the diag log (review of #23). `diag` is made at
   // ready, before any page can ask for media.
   onError: (fields) => diag?.log.write('main', 'media-500', fields)
@@ -2442,10 +2446,17 @@ if (!app.requestSingleInstanceLock()) {
     // The phone grid's pictures (#135), made once and cached under userData.
     // Its ffmpegs register with the holders (#133), so a move of the file wins.
     const thumbs = hlsTools
-      ? new Thumbs(hlsTools.ffmpeg, userPaths.thumbs(), (c, f) =>
-          holders.add(c, f)
-        )
+      ? new Thumbs(hlsTools.ffmpeg, userPaths.thumbs(), (c, f) => holders.add(c, f), {
+          // The desktop's tiles (zoom grid): a HEIC ffmpeg cannot join and a
+          // camera raw's embedded JPEG come from the viewer's own decoders.
+          heic: heicToJpeg,
+          raw: rawPreview
+        })
       : null
+    // Half-written thumbnails of a run that died, off the startup path.
+    void thumbs?.sweepParts()
+    // The e2e reads how many thumbnail ffmpegs ran and the most at once.
+    if (E2E && thumbs) Object.assign(globalThis, { __e2eThumbs: () => thumbs.stats() })
     const hlsJobs = hlsTools
       ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR, log: logPhone })
       : null
@@ -2585,6 +2596,7 @@ if (!app.requestSingleInstanceLock()) {
     registerSessionIpc(ctx)
     registerTreeIpc(ctx)
     registerFilesIpc(ctx, ready)
+    registerThumbsIpc(ctx, thumbs)
     registerPropsIpc(ctx)
     registerMediaIpc(ctx, ready)
     registerShellIpc(ctx)

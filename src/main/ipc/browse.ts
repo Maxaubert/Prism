@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron'
 import { CALL, PUSH } from '@shared/channels'
 import { resolve } from 'path'
 import { listDir } from '../dirList'
+import { cancelThumbs } from './thumbs'
 import {
   extendDesktopDirectories,
   insideDesktop,
@@ -303,6 +304,7 @@ export function releaseTab(tabId: string): void {
   cancelBrowseSearch(tabId)
   if (typeof tabId === 'string') cancelBrowseSearch(suggestSlot(tabId))
   releaseDesktop(tabId)
+  cancelThumbs(tabId)
   // Its owner entry too (review, 2026-10-29): kept, the registry's map grew
   // with every tab ever browsed, and a window's close released them all again.
   windows.forgetTab(tabId)

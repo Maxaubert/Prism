@@ -11582,6 +11582,225 @@ async function zoomListScenario(fixtures) {
     rmSync(dir, { recursive: true, force: true })
   }
 }
+/**
+ * THE DESKTOP'S THUMBNAIL ENGINE (zoom grid, Stage 2: main only, no tile yet).
+ * Through `window.prism.thumbs` the page asks for pictures and main answers as
+ * fsmedia://thumb/ urls: a photo, a photo turned by its EXIF, a clear PNG, a
+ * GIF, an mp4 and the iPhone-style HEVC .mov each load as a picture of the
+ * right shape and width; a 0-byte jpg and a text file named .jpg are null;
+ * asking again is a cache hit with no new ffmpeg; a path outside the folder is
+ * refused; a rename succeeds while 40 thumbnails are queued; a changed mtime is
+ * a new url; 200 asks never put more than 3 ffmpegs to work and the page and
+ * main stay responsive. A contact sheet of what arrived is screenshotted.
+ */
+async function thumbsEngineScenario(fixtures) {
+  console.log('thumbs engine')
+  if (!HAS_FFMPEG) {
+    console.log(`  (no ffmpeg found (tried ${FFMPEG}), so the thumbnail engine is skipped)`)
+    return
+  }
+  const dir = join(fixtures, 'thumbsengine')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const ff = (args) => execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...args], { windowsHide: true, stdio: 'ignore' })
+  const plain = join(dir, 'a.jpg')
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=1', '-frames:v', '1', plain])
+  // 64x32, turned to portrait by an EXIF orientation of 6.
+  const flat = join(dir, 'flat.tmp.jpg')
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=64x32:rate=1', '-frames:v', '1', flat])
+  const exif = Buffer.concat([
+    Buffer.from('Exif\0\0'),
+    Buffer.from('4d4d002a00000008' + '0001' + '011200030000000100060000' + '00000000', 'hex')
+  ])
+  const jpg = readFileSync(flat)
+  const len = Buffer.alloc(2)
+  len.writeUInt16BE(exif.length + 2)
+  writeFileSync(join(dir, 'turned.jpg'), Buffer.concat([jpg.subarray(0, 2), Buffer.from([0xff, 0xe1]), len, exif, jpg.subarray(2)]))
+  rmSync(flat)
+  ff(['-f', 'lavfi', '-i', 'color=c=red@0.0:s=64x64,format=rgba', '-frames:v', '1', join(dir, 'clear.png')])
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=48x48:rate=5:duration=1', join(dir, 'anim.gif')])
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=25:duration=2', '-c:v', 'mpeg4', join(dir, 'clip.mp4')])
+  const hevc = join(fixtures, 'av', 'iphone-hevc.mov')
+  const haveMov = existsSync(hevc)
+  if (haveMov) copyFileSync(hevc, join(dir, 'clip.mov'))
+  else console.log('  (the HEVC .mov fixture is not built, so the mov checks are skipped)')
+  writeFileSync(join(dir, 'empty.jpg'), '')
+  writeFileSync(join(dir, 'fake.jpg'), 'this is a text file named jpg')
+  writeFileSync(join(dir, 'notes.txt'), 'notes\n')
+  for (let i = 0; i < 40; i++) copyFileSync(plain, join(dir, `bulk${String(i).padStart(3, '0')}.jpg`))
+  for (let i = 0; i < 200; i++) copyFileSync(plain, join(dir, `load${String(i).padStart(3, '0')}.jpg`))
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  const P = (n) => join(dir, n)
+  const stats = () => app.evaluate(() => globalThis.__e2eThumbs?.() ?? null)
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    const inFolder = '[data-testid="browse-list"] .browse-row[data-browse-path*="thumbsengine"][data-browse-path$=".jpg"]'
+    // The Explorer opens on the fixtures folder (the folder row of ours is there): go into it.
+    if ((await win.locator(inFolder).count()) === 0) await win.locator('[data-testid="browse-list"] [data-browse-path$="thumbsengine"]').dblclick()
+    ok(await until(async () => (await win.locator(inFolder).count()) > 0, 10000), 'the Explorer is in the folder')
+    const tab = await win.evaluate(() => {
+      const t = [...document.querySelectorAll('[role="tablist"] [data-tab-id]')].find(
+        (e) => e.querySelector('[role="tab"]')?.getAttribute('aria-selected') === 'true'
+      )
+      return t?.getAttribute('data-tab-id') ?? null
+    })
+    ok(!!tab, `the Explorer tab has an id (${tab})`)
+    let gen = 0
+    // Ask for `names` (or absolute paths) and wait for `expect` answers (the hits at once, the rest pushed).
+    const ask = (paths, { tier = 320, expect = paths.length, ms = 40000, id = tab } = {}) => {
+      gen += 1
+      return win.evaluate(
+        async ([t, g, items, want, wait]) => {
+          const got = {}
+          const off = window.prism.thumbs.onReady((m) => {
+            if (m.gen === g) for (const r of m.results) got[r.path] = r.url
+          })
+          const reply = await window.prism.thumbs.want(t, g, items)
+          Object.assign(got, reply.ready)
+          const t0 = performance.now()
+          while (Object.keys(got).length < want && performance.now() - t0 < wait) await new Promise((r) => setTimeout(r, 40))
+          off()
+          return { got, ready: reply.ready }
+        },
+        [id, gen, paths.map((path) => ({ path, tier })), expect, ms]
+      )
+    }
+    // Load a thumbnail url as an image: its size and its mean brightness (0 to 255).
+    const look = (url) =>
+      win.evaluate(async (u) => {
+        const img = new Image()
+        img.crossOrigin = 'anonymous'
+        img.src = u
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = 16
+        c.height = 16
+        const g = c.getContext('2d')
+        g.drawImage(img, 0, 0, 16, 16)
+        const d = g.getImageData(0, 0, 16, 16).data
+        let sum = 0
+        for (let i = 0; i < d.length; i += 4) sum += (d[i] + d[i + 1] + d[i + 2]) / 3
+        return { w: img.naturalWidth, h: img.naturalHeight, bright: sum / 256, corner: d[3] }
+      }, url)
+
+    const good = ['a.jpg', 'turned.jpg', 'clear.png', 'anim.gif', 'clip.mp4', ...(haveMov ? ['clip.mov'] : [])]
+    const bad = ['empty.jpg', 'fake.jpg']
+    const first = await ask([...good, ...bad].map(P))
+    const urls = good.map((n) => first.got[P(n)])
+    ok(urls.every((u) => typeof u === 'string' && /^fsmedia:\/\/thumb\/[0-9a-f]{40}\.(jpg|webp)$/.test(u)), `every good file has a thumbnail url (${JSON.stringify(urls)})`)
+    ok(bad.every((n) => P(n) in first.got && first.got[P(n)] === null), 'the 0-byte jpg and the text file named jpg answer null (no picture)')
+    const shape = {}
+    for (const n of good) shape[n] = await look(first.got[P(n)])
+    ok(shape['a.jpg'].w === 320 && shape['a.jpg'].h === 240, `a 160x120 photo is 320 wide, same shape (${shape['a.jpg'].w}x${shape['a.jpg'].h})`)
+    ok(shape['turned.jpg'].w === 320 && shape['turned.jpg'].h === 640, `a photo turned by its EXIF is portrait (${shape['turned.jpg'].w}x${shape['turned.jpg'].h})`)
+    ok(shape['clear.png'].w === 320 && shape['clear.png'].corner === 0, `a clear PNG keeps its clear corner (alpha ${shape['clear.png'].corner})`)
+    ok(shape['anim.gif'].w === 320, 'a GIF gives a 320 wide picture')
+    ok(shape['clip.mp4'].w === 320 && shape['clip.mp4'].bright > 8, `an mp4 gives a frame that is not black (${Math.round(shape['clip.mp4'].bright)})`)
+    if (haveMov) ok(shape['clip.mov'].w === 320 && shape['clip.mov'].bright > 8, `the HEVC .mov gives a frame that is not black (${Math.round(shape['clip.mov'].bright)})`)
+
+    // The contact sheet: LOOK at what arrived.
+    await win.evaluate((list) => {
+      const sheet = document.createElement('div')
+      sheet.id = 'thumbs-sheet'
+      sheet.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;flex-wrap:wrap;gap:16px;padding:16px;align-content:flex-start;background:#808080'
+      for (const u of list) {
+        const i = document.createElement('img')
+        i.src = u
+        i.style.cssText = 'height:300px;background:repeating-conic-gradient(#bbb 0 25%,#eee 0 50%) 0 0/16px 16px'
+        sheet.append(i)
+      }
+      document.body.append(sheet)
+    }, urls)
+    await sleep(600)
+    await win.screenshot({ path: join(SHOTS, 'thumbs-engine-sheet.png') })
+    await win.evaluate(() => document.getElementById('thumbs-sheet')?.remove())
+
+    // Asking again: the hits come back at once, no ffmpeg runs.
+    const before = await stats()
+    const again = await ask([...good, ...bad].map(P), { expect: 0 })
+    const after = await stats()
+    ok(good.every((n) => again.ready[P(n)] === first.got[P(n)]), 'asking again answers the same urls at once (the cache)')
+    ok(bad.every((n) => P(n) in again.ready && again.ready[P(n)] === null), 'and a file with no picture is null at once (remembered)')
+    ok(before && after && after.runs === before.runs, `and no ffmpeg ran (${before?.runs} -> ${after?.runs})`)
+
+    // The 640 tier is its own, wider picture.
+    const big = await ask([P('a.jpg')], { tier: 640 })
+    ok(big.got[P('a.jpg')] && big.got[P('a.jpg')] !== first.got[P('a.jpg')], 'the 640 tier is a different file')
+    ok((await look(big.got[P('a.jpg')])).w === 640, 'and 640 wide')
+
+    // The wall: a file the Explorer did not list for this tab, and a tab that is not this one.
+    const outside = join(fixtures, 'av', 'xvid.avi')
+    const walled = await ask([outside, P('a.jpg')], { expect: 99, ms: 1500 })
+    ok(!(outside in walled.got), 'a path outside the folder is refused')
+    const stranger = await ask([P('a.jpg')], { expect: 99, ms: 800, id: 'not-my-tab' })
+    ok(Object.keys(stranger.got).length === 0, 'a tab that never visited the folder gets nothing')
+
+    // A changed file is a new url.
+    const later = new Date(Date.now() + 60000)
+    utimesSync(P('a.jpg'), later, later)
+    const touched = await ask([P('a.jpg')])
+    ok(touched.got[P('a.jpg')] && touched.got[P('a.jpg')] !== first.got[P('a.jpg')], 'a changed modified time is a new url')
+
+    // A rename succeeds while 40 thumbnails are queued (the holders kill the ffmpeg that holds the file).
+    const bulk = Array.from({ length: 40 }, (_, i) => P(`bulk${String(i).padStart(3, '0')}.jpg`))
+    gen += 1
+    const rename = await win.evaluate(
+      async ([t, g, items, from, to]) => {
+        await window.prism.thumbs.want(t, g, items)
+        // The first are running now, the last are waiting: rename one of each.
+        const r1 = await window.prism.renameFile(from[0], to[0], 'ask')
+        const r2 = await window.prism.renameFile(from[1], to[1], 'ask')
+        return [r1, r2]
+      },
+      [tab, gen, bulk.map((path) => ({ path, tier: 320 })), [bulk[0], bulk[39]], ['bulk-renamed-a.jpg', 'bulk-renamed-b.jpg']]
+    )
+    ok(rename.every((r) => r.ok), `a rename succeeds while 40 thumbnails are queued (${JSON.stringify(rename.map((r) => r.ok || r.reason))})`)
+    ok(existsSync(P('bulk-renamed-a.jpg')) && existsSync(P('bulk-renamed-b.jpg')) && !existsSync(bulk[0]), 'and the files have their new names')
+    await win.evaluate((t) => window.prism.thumbs.cancel(t), tab)
+
+    // 200 asks for distinct files: at most 3 ffmpegs at once, and nothing freezes.
+    await sleep(500)
+    const loads = Array.from({ length: 200 }, (_, i) => P(`load${String(i).padStart(3, '0')}.jpg`))
+    await win.evaluate(() => {
+      window.__gaps = []
+      let last = performance.now()
+      window.__pulse = setInterval(() => {
+        const now = performance.now()
+        window.__gaps.push(now - last)
+        last = now
+      }, 20)
+    })
+    let mainWorst = 0
+    let sampling = true
+    const sample = (async () => {
+      while (sampling) {
+        const t0 = Date.now()
+        await app.evaluate(() => 1)
+        mainWorst = Math.max(mainWorst, Date.now() - t0)
+        await sleep(100)
+      }
+    })()
+    const t0 = Date.now()
+    const heavy = await ask(loads, { ms: 90000 })
+    const took = Date.now() - t0
+    sampling = false
+    await sample
+    const gaps = await win.evaluate(() => {
+      clearInterval(window.__pulse)
+      return window.__gaps
+    })
+    const worst = Math.max(...gaps)
+    const final = await stats()
+    ok(Object.keys(heavy.got).length === 200 && loads.every((p) => typeof heavy.got[p] === 'string'), `all 200 were made (${Object.keys(heavy.got).length}, ${took} ms)`)
+    ok(final && final.peak <= 3, `never more than 3 ffmpegs at once (peak ${final?.peak})`)
+    ok(worst < 400, `the page stayed responsive: longest gap ${Math.round(worst)} ms`)
+    ok(mainWorst < 500, `main stayed responsive: slowest round trip ${mainWorst} ms`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -25724,6 +25943,7 @@ await run(hotkeysScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(zoomListScenario)
+await run(thumbsEngineScenario)
 await run(sidebarPlacesScenario)
 await run(folderIconsScenario)
 await run(folderIconFileScenario)
