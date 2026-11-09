@@ -75,11 +75,14 @@ export { tierFor } from '@shared/thumbTypes'
 
 /** `<sha1 of path|size|mtime>.jpg`: a file changed on disk is a new key.
  *  `.webp` for a picture that can be clear (#477). The 640 tier adds `|640`
- *  to what is hashed; a 320 key is the one it always was. A film's frame
- *  made for the desktop (keyframe seek, so not always the frame the phone
- *  shows) adds `|k`, so the two never serve each other's frame. */
+ *  to what is hashed; a 320 key is the one it always was. What the desktop
+ *  makes differently from the phone adds `|k`, so neither ever serves the
+ *  other's picture: a film's frame (a keyframe seek, so not always the frame
+ *  the phone shows), and a HEIC or a camera raw (the desktop's come through
+ *  the viewer's decoders, the phone's straight through ffmpeg; review of the
+ *  zoom grid, 2026-11-10: the phone's thumbnails stay as they were). */
 export function thumbKey(path: string, size: number, mtimeMs: number, tier: ThumbTier = 320, desktop = false): string {
-  const film = desktop && fileKind(extname(path)) === 'video'
+  const film = desktop && (fileKind(extname(path)) === 'video' || isHeifName(path) || isRaw(path))
   const hash = createHash('sha1')
     .update(`${path.toLowerCase()}|${size}|${Math.floor(mtimeMs)}${tier === 640 ? '|640' : ''}${film ? '|k' : ''}`)
     .digest('hex')
@@ -259,6 +262,9 @@ interface Job {
   tier: ThumbTier
   mtimeMs: number
   signal?: AbortSignal
+  /** The holders killed its ffmpeg for a move or a delete: that says nothing
+   *  about the file, so the failure is not remembered. */
+  released?: boolean
 }
 
 interface Ran {
@@ -269,6 +275,9 @@ interface Ran {
 export class Thumbs {
   private readonly budget = new CacheBudget(CACHE_MAX_BYTES)
   private readonly inFlight = new Map<string, Promise<string | null>>()
+  /** Jobs in flight that a tab can cancel: a phone sharing one that was
+   *  cancelled under it makes its own (it never asked for a cancel). */
+  private readonly cancellable = new WeakSet<Promise<string | null>>()
   /** Keys the desktop could not make (corrupt, unsupported, timed out), for
    *  this run only. A changed file is a new key, so it is tried again. */
   private readonly failed = createLru<string, true>(FAILED_KEYS)
@@ -345,15 +354,22 @@ export class Thumbs {
     if (await this.hit(out)) return out
     if (desktop && this.failed.get(out)) return null
     const held = this.inFlight.get(out)
-    if (held) return held
-    const job = this.make(file, kind, out, { desktop, tier, mtimeMs: st.mtimeMs, signal })
+    if (held) {
+      if (desktop || !this.cancellable.has(held)) return held
+      const shared = await held
+      return shared ?? this.fetch(file, kind, tier, desktop, signal)
+    }
+    const how: Job = { desktop, tier, mtimeMs: st.mtimeMs, signal }
+    const job = this.make(file, kind, out, how)
       .then((made) => {
-        // A cancelled run says nothing about the file; a failed one is remembered.
-        if (!made && desktop && !signal?.aborted) this.failed.set(out, true)
+        // A cancelled run, or one the holders killed, says nothing about the
+        // file; a failed one is remembered.
+        if (!made && desktop && !signal?.aborted && !how.released) this.failed.set(out, true)
         return made
       })
       .finally(() => this.inFlight.delete(out))
     this.inFlight.set(out, job)
+    if (signal) this.cancellable.add(job)
     return job
   }
 
@@ -466,7 +482,11 @@ export class Thumbs {
             .catch(() => resolve({ ok: false, stderr }))
         }
       )
-      this.register({ kill: child.kill, once: (_event, fn) => void closed.push(fn) }, file)
+      const kill = (): void => {
+        job.released = true
+        child.kill()
+      }
+      this.register({ kill, once: (_event, fn) => void closed.push(fn) }, file)
     })
   }
 
