@@ -39,7 +39,7 @@ import { browseParent } from '../lib/browse'
 import type { Ask } from '../dialogs/asks'
 import type { useArchiveActions } from '../components/browse/useArchiveActions'
 import { markLanded } from '../lib/landMarks'
-import { noteBinned } from '../lib/binnedRows'
+import { noteBinned, noteGoing, noteStayed } from '../lib/binnedRows'
 
 // THE FILE OPERATIONS (out of App.tsx, structure cleanup 2026-10-12,
 // unchanged): rename, new folder, delete, move and the drops that move, and
@@ -241,7 +241,7 @@ export function useFileOps({
   const trashWithRetry = useCallback(async (path: string, held: boolean): Promise<boolean> => {
     if (held) await new Promise((r) => setTimeout(r, 350))
     for (let i = 0; i < 4; i += 1) {
-      if (await window.prism.trashFile(path)) return true
+      if (await window.prism.trashFile(path).catch(() => false)) return true
       await new Promise((r) => setTimeout(r, 300))
     }
     return false
@@ -251,8 +251,10 @@ export function useFileOps({
     async (path: string): Promise<void> => {
       setAsk(null)
       const held = releaseFiles([path])
+      noteGoing([path])
       const ok = await trashWithRetry(path, held)
       if (!ok) {
+        noteStayed([path])
         setAsk({ kind: 'failed', message: 'That could not be moved to the Recycle Bin.', op: 'trash' })
         return
       }
@@ -294,8 +296,10 @@ export function useFileOps({
       setAsk(null)
       const held = releaseFiles(paths)
       const binned: string[] = []
+      noteGoing(paths)
       for (const p of paths) {
         if (await trashWithRetry(p, held && binned.length === 0)) binned.push(p)
+        else noteStayed([p])
       }
       const failed = paths.length - binned.length
       noteBinned(binned)

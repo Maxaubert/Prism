@@ -25,6 +25,10 @@ with the question, and the row that was deleted took it with it.
   owner's case), with nothing on show the selection stayed on the dead path, and with ANOTHER file open in the
   tab it jumped to that file. A delete of another row no longer moves it (`reopen(.., keep)`). There
   is no "skip the question" setting: every delete asks.
+- **A file already on its way asks nothing** (`binnedRows.ts`, review 2026-11-09). The keyboard is back the moment
+  the question closes, and the row stays until the bin answers and the folder is read again: Delete, Enter, Delete
+  at speed asked about the same file, and answering ended in "could not be moved". The Delete keys stand down for
+  a path going to the bin until the bin refuses it or the row has left. Held by e2e `deleteFast`.
 - **Held by** e2e `deleteAgain` (Delete, Delete, no click, and the second really takes a row), `deleteLast`
   (the only file: no crash, keyboard in the empty list) and `deleteFocus` (Enter, mouse, Cancel, Escape, a press
   outside, the last row, the menu, marks, the preview pane, a field and another window left alone), and

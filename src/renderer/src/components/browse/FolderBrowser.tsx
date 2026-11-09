@@ -28,7 +28,7 @@ import { ArchiveStrip } from './ArchiveStrip'
 import { withinFolder, type PlaceRow } from '../../lib/placeMark'
 import { useActiveArea } from './useActiveArea'
 import { useListKeyboard } from './useListKeyboard'
-import { rowAfter, wasBinned } from '../../lib/binnedRows'
+import { anyGoing, isGoing, rowAfter, settleGoing, wasBinned } from '../../lib/binnedRows'
 import { useFindRoute } from './useFindRoute'
 import { EDITOR, FIELD, OVERLAY, inOverlay } from '../../lib/focusGuards'
 import './browse.css'
@@ -227,6 +227,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const markedEntries = marked ? entries.filter((entry) => marked.has(entry.path)) : []
   const many = markedEntries.length > 1
   const markedPaths = (): string[] => markedEntries.map((entry) => entry.path)
+  // Already on its way to the bin (`binnedRows`): the Delete keys stand down.
+  const binning = (): boolean => (many ? markedPaths().some(isGoing) : !!selected && isGoing(selected.path))
   const pickOne = (path: string | null, quiet = false): void => {
     setMarks(null)
     anchor.current = path
@@ -336,6 +338,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   useLayoutEffect(() => {
     const was = lastRows.current
     lastRows.current = { key: marksKey, order }
+    if (anyGoing()) settleGoing(order())
     const gone = props.selectedPath
     // Every commit, so the cheap questions first: nothing is walked until a
     // delete has taken the row the selection is on.
@@ -524,6 +527,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           else if (common === 'bin') {
             // Ctrl+D and Shift+Delete are Delete (owner, 2026-10-07: Shift+
             // Delete is NOT permanent here): the question, then the bin.
+            if (binning()) return
             if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
             else if (selected) props.onDelete?.(selected)
           } else if (common === 'properties') {
@@ -549,6 +553,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         ) {
           e.preventDefault()
           e.stopPropagation()
+          if (binning()) return
           if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
           else props.onDelete(selected)
         } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'l') {

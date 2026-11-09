@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { noteBinned, rowAfter, wasBinned } from './binnedRows'
+import { anyGoing, isGoing, noteBinned, noteGoing, noteStayed, rowAfter, settleGoing, wasBinned } from './binnedRows'
 
 describe('binnedRows', () => {
   const rows = ['a', 'b', 'c', 'd']
@@ -28,5 +28,17 @@ describe('binnedRows', () => {
     expect(wasBinned('c:\\dir\\a.txt')).toBe(true)
     noteBinned(['C:\\Dir\\B.txt'])
     expect(wasBinned('C:\\Dir\\A.txt')).toBe(false)
+  })
+
+  it('holds a path while it is going, until the bin refuses it or the row has left', () => {
+    noteGoing(['C:\\Dir\\A.txt', 'C:\\Dir\\B.txt'])
+    expect(isGoing('c:\\dir\\a.txt')).toBe(true)
+    noteStayed(['C:\\Dir\\A.txt'])
+    expect(isGoing('C:\\Dir\\A.txt')).toBe(false)
+    settleGoing(['C:\\Dir\\B.txt', 'C:\\Dir\\C.txt'])
+    expect(isGoing('C:\\Dir\\B.txt')).toBe(true)
+    settleGoing(['C:\\Dir\\C.txt'])
+    expect(isGoing('C:\\Dir\\B.txt')).toBe(false)
+    expect(anyGoing()).toBe(false)
   })
 })
