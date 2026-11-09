@@ -58,10 +58,13 @@ export const ARCHIVE_COPY = {
 } as const
 
 /** What a password question needs: whose, whether one was already refused,
- *  and what to do with the answer. */
+ *  what to do with the answer, and what `askArchivePassword` weighs: the
+ *  password this attempt tried and when it began. */
 export interface PassQuestion {
   name: string
   wrong: boolean
+  tried?: string
+  began: number
   run: (password: string) => void
 }
 
@@ -79,13 +82,14 @@ export function runWithPassword(opts: {
   say: (message: string) => void
 }): void {
   const attempt = (pw: string | undefined, wrong: boolean): void => {
+    const began = performance.now()
     void opts.run(pw).then((r) => {
       if (r === 'ok') {
         if (pw) opts.remember(pw)
         return
       }
       if (r === 'password')
-        opts.ask({ name: opts.name, wrong, run: (answer) => attempt(answer, true) })
+        opts.ask({ name: opts.name, wrong, tried: pw, began, run: (answer) => attempt(answer, true) })
       else if (r === 'aes') opts.say(ARCHIVE_COPY.aes(opts.name))
       else opts.say(ARCHIVE_COPY.unreadable(opts.name))
     })

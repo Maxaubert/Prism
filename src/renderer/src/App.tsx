@@ -72,7 +72,6 @@ import './components/browse/workspace.css'
 import { sortFilesOnce, useSort } from './lib/prefs/sortPrefs'
 import { useExplorerSide } from './lib/prefs/explorerSidePrefs'
 import { PreviewEmpty } from './components/browse/PreviewEmpty'
-import { PasswordDialog } from './dialogs/PasswordDialog'
 import { browsableArchive, within } from '@shared/archivePlace'
 import { useArchiveActions } from './components/browse/useArchiveActions'
 import { clipboardText } from './lib/clipboardText'
@@ -2016,14 +2015,6 @@ export default function App(): JSX.Element {
         />
       )}
       {archiveActions.dialogs}
-      {browsing.archiveAsk && (
-        <PasswordDialog
-          name={browsing.archiveAsk.name}
-          wrong={browsing.archiveAsk.wrong}
-          onSubmit={(pw) => browsing.answerArchive(pw)}
-          onCancel={() => browsing.answerArchive(null)}
-        />
-      )}
       {browseProps && active && (
         <PropertiesDialog
           root={active.browse.path}
