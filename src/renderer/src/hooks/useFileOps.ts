@@ -472,6 +472,9 @@ export function useFileOps({
               items: r.moved,
               replaced: r.replaced?.length ? r.replaced : undefined
             })
+          // Cancel stopped the mover after what it replaced went to the bin:
+          // nothing moved, and that delete is what there is to undo.
+          else if (track && r.cancelled && r.replaced?.length) noteUndo({ kind: 'trash', paths: r.replaced })
           moved = r.moved
           if (r.cancelled && running) running.note(stoppedNote('Moved', r.moved.length, paths.length))
           if (r.failed.length)
