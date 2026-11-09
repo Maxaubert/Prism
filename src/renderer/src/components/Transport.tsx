@@ -11,6 +11,7 @@ import { MAX_VOL, type MediaControls } from '../hooks/useMediaControls'
 import { IconMute, IconPause, IconPlay, IconVol } from './icons/transport'
 import type { TransportStyle } from '../lib/transport'
 import { paletteAt } from '../lib/viz/core'
+import { ownWindow } from '../lib/ownWindow'
 
 // The transport bar shared by every player. One of ten shapes (chosen in
 // Settings) draws the same set of controls — a scrub bar with hover-time and
@@ -85,13 +86,15 @@ function Scrubber({
   const onDown = (e: ReactPointerEvent): void => {
     e.currentTarget.setPointerCapture(e.pointerId)
     c.seekTo(frac(e.clientX) * dur)
+    // The bar's own window: the preview window's drag never reaches this page's.
+    const w = ownWindow(e.currentTarget)
     const move = (ev: PointerEvent): void => c.seekTo(frac(ev.clientX) * dur)
     const up = (): void => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
+      w.removeEventListener('pointermove', move)
+      w.removeEventListener('pointerup', up)
     }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+    w.addEventListener('pointermove', move)
+    w.addEventListener('pointerup', up)
   }
 
   const tooltip =
@@ -314,18 +317,19 @@ function VolHover({ c, bare }: { c: MediaControls; bare?: boolean }): JSX.Elemen
             if (c.muted) c.toggleMute()
           }}
           aria-label="Volume"
-          onPointerDown={() => {
+          onPointerDown={(e) => {
             dragging.current = true
+            const w = ownWindow(e.currentTarget)
             const up = (): void => {
               dragging.current = false
-              window.removeEventListener('pointerup', up)
+              w.removeEventListener('pointerup', up)
               // Let go somewhere else entirely: the column then goes on the
               // same grace period a plain hover gets. `inside` is the wrapper's
               // own enter/leave, which is cheaper and more honest than asking
               // the document what is hovered.
               if (!inside.current) leave()
             }
-            window.addEventListener('pointerup', up)
+            w.addEventListener('pointerup', up)
           }}
           // The standard vertical range: bottom is quiet, top is loud. A
           // quarter taller than it was (owner pick, 2026-08-28): 200% on a

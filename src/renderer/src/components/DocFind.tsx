@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX, type RefObject } from 'react'
 import { matchRanges, stepMatch } from '../lib/findInText'
 import { Icon } from './icons/Icon'
+import { listenOn, ownWindow, useViewerWindows, type OwnWindow } from '../lib/ownWindow'
 
 /**
  * Ctrl+F for the documents that had none: markdown, docx, odt, pptx, xlsx,
@@ -28,6 +29,11 @@ import { Icon } from './icons/Icon'
 const SLOTS = 8
 const taken = new Set<number>()
 
+/** A window's highlight registry, absent where the API is not. */
+function registry(w: OwnWindow): Map<string, unknown> | undefined {
+  return (w.CSS as unknown as { highlights?: Map<string, unknown> } | undefined)?.highlights
+}
+
 /** The lowest free slot, so the numbers stay small and the CSS stays finite. */
 function claimSlot(): number {
   for (let i = 1; i <= SLOTS; i += 1) if (!taken.has(i)) {
@@ -44,7 +50,7 @@ interface TextBit {
 
 /** Every text node under `root`, with where each begins in the flat text. */
 function collect(root: HTMLElement): { text: string; bits: TextBit[] } {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT)
   const bits: TextBit[] = []
   let text = ''
   let n = walker.nextNode()
@@ -75,7 +81,7 @@ function toRange(bits: TextBit[], start: number, end: number): Range | null {
     }
   }
   if (!a || !b) return null
-  const r = document.createRange()
+  const r = a.node.ownerDocument.createRange()
   r.setStart(a.node, a.offset)
   r.setEnd(b.node, b.offset)
   return r
@@ -98,6 +104,10 @@ export function DocFind({
   // and a ref written from a handler would not tell it to.
   const [ranges, setRanges] = useState<Range[]>([])
   const count = ranges.length
+  // The windows it painted in, for the clean-up, and the ones it listens on
+  // (the preview window draws the document in its own, `lib/ownWindow.ts`).
+  const [painted] = useState(() => new Set<OwnWindow>())
+  const wins = useViewerWindows(scroller)
 
   useEffect(() => {
     input.current?.focus()
@@ -119,9 +129,8 @@ export function DocFind({
       e.stopPropagation()
       onClose()
     }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [onClose])
+    return listenOn(wins, 'keydown', onKey, true)
+  }, [onClose, wins])
 
   /** Walk the text once per query; stepping then costs nothing. Not memoized:
    *  it is called from one change handler, and the DOM ranges it builds are
@@ -147,9 +156,12 @@ export function DocFind({
   // every hit in one colour, the one you are on in the accent, so stepping is
   // visible without scrolling being the only feedback.
   useEffect(() => {
-    const highlights = (CSS as unknown as { highlights?: Map<string, Highlight> }).highlights
-    const Ctor = (window as unknown as { Highlight?: new (...r: Range[]) => Highlight }).Highlight
+    // A registry per document: the one the document being searched is in.
+    const own = ownWindow(scroller.current)
+    const highlights = registry(own)
+    const Ctor = (own as unknown as { Highlight?: new (...r: Range[]) => Highlight }).Highlight
     if (!highlights || !Ctor) return
+    painted.add(own)
     const rs = ranges
     highlights.delete(hl.all)
     highlights.delete(hl.current)
@@ -163,15 +175,16 @@ export function DocFind({
       const el = rs[at].startContainer.parentElement
       el?.scrollIntoView({ block: 'center', behavior: 'auto' })
     }
-  }, [at, ranges, hl])
+  }, [at, ranges, hl, scroller, painted])
 
   // Everything the highlight owns goes when the bar does, slot included.
   useEffect(() => {
     return () => {
       taken.delete(slot)
-      const highlights = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights
-      highlights?.delete(hl.all)
-      highlights?.delete(hl.current)
+      for (const w of painted) {
+        registry(w)?.delete(hl.all)
+        registry(w)?.delete(hl.current)
+      }
     }
     // hl is derived from slot, which never changes for this instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps

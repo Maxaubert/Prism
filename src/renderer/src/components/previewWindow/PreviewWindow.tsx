@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode 
 import { createPortal } from 'react-dom'
 import { keyTarget, previewWindowKey } from '../../lib/previewWindowKeys'
 import { logNote } from '../../lib/noteLog'
+import { addPageDocument } from '../../lib/pageDocuments'
 import './previewWindow.css'
 
 /**
@@ -22,7 +23,10 @@ import './previewWindow.css'
  * `open` false is the close: the fade runs while App keeps it mounted
  * (`useLinger`), and the unmount takes it away.
  *
- * Right-click does nothing in it: a menu would open in the Explorer behind.
+ * A right-click in it opens its viewer's own menu, drawn IN this window
+ * (owner, 2026-11-08: "also let me right click the preview to copy or do
+ * other actions"; `ContextMenu`'s `at`). While a menu is up here, Space and
+ * Escape are the menu's, not the window's.
  */
 export function PreviewWindow({
   open,
@@ -57,10 +61,20 @@ export function PreviewWindow({
           return
         }
         const undress = dress(win)
+        // Its keys go on BEFORE any viewer is drawn into it (see `ownKeys`).
+        const unkey = ownKeys(win, () => close.current())
+        const unpage = addPageDocument(win.document)
         const root = win.document.createElement('div')
         root.className = 'preview-window-host'
         win.document.body.appendChild(root)
-        made = { win, undress }
+        made = {
+          win,
+          undress: () => {
+            undress()
+            unkey()
+            unpage()
+          }
+        }
         // The e2e reads the window's own document (under --e2e only, where
         // the preload also swaps in its clipboard).
         if (window.prism.e2eClipboard) Object.assign(window, { __prismPreviewWindow: win })
@@ -91,29 +105,6 @@ export function PreviewWindow({
   // Alt+F4 on the window itself.
   useEffect(() => window.prism.onPreviewWindowGone(() => close.current()), [])
 
-  // Its own keys: Space and Escape close it, as Quick Look's do.
-  useEffect(() => {
-    if (!host) return
-    const doc = host.win.document
-    const onKey = (e: KeyboardEvent): void => {
-      const k = previewWindowKey(e, keyTarget(e.target))
-      if (!k) return
-      e.preventDefault()
-      e.stopPropagation()
-      if (k === 'close') close.current()
-    }
-    // A focused button's Space clicks it on the way up: not here.
-    const onKeyUp = (e: KeyboardEvent): void => {
-      if (previewWindowKey(e, keyTarget(e.target))) e.preventDefault()
-    }
-    doc.addEventListener('keydown', onKey)
-    doc.addEventListener('keyup', onKeyUp)
-    return () => {
-      doc.removeEventListener('keydown', onKey)
-      doc.removeEventListener('keyup', onKeyUp)
-    }
-  }, [host])
-
   useEffect(() => {
     if (host) nameWindow(host.win, title)
   }, [host, title])
@@ -125,10 +116,8 @@ export function PreviewWindow({
       data-preview-window
       data-phase={open ? 'in' : 'out'}
       data-still={still || undefined}
-      onContextMenuCapture={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-      }}
+      // Where no viewer has a menu (the bar, a PDF): nothing, not Chromium's.
+      onContextMenu={(e) => e.preventDefault()}
     >
       <header className="preview-window-bar drag">
         <span className="preview-window-title" title={title}>
@@ -149,6 +138,38 @@ export function PreviewWindow({
     </div>,
     host.root
   )
+}
+
+/**
+ * ITS OWN KEYS: Space and Escape close it, as Quick Look's do
+ * (`lib/previewWindowKeys.ts`). Its viewers listen on this window too
+ * (`lib/ownWindow.ts`, 2026-11-08), so these go on first, in the capture
+ * phase on the window itself, and a key that closes stops there: whatever
+ * viewer is in it, Space is the window's (a film neither plays nor pauses
+ * first) and Escape is (the code view's blur never holds it open). A field
+ * keeps both and the text editor its Space, as before. A right-click menu
+ * up in the window keeps both too (Escape closes the menu, Space picks its
+ * row, and is taken for nothing under it), and the window stays.
+ */
+function ownKeys(win: Window, onClose: () => void): () => void {
+  const menuUp = (): boolean => !!win.document.querySelector('[role="menu"]')
+  const onKey = (e: KeyboardEvent): void => {
+    const k = previewWindowKey(e, keyTarget(e.target), menuUp())
+    if (!k) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    if (k === 'close') onClose()
+  }
+  // A focused button's Space clicks it on the way up: not here.
+  const onKeyUp = (e: KeyboardEvent): void => {
+    if (previewWindowKey(e, keyTarget(e.target), menuUp())) e.preventDefault()
+  }
+  win.addEventListener('keydown', onKey, true)
+  win.addEventListener('keyup', onKeyUp, true)
+  return () => {
+    win.removeEventListener('keydown', onKey, true)
+    win.removeEventListener('keyup', onKeyUp, true)
+  }
 }
 
 /** The window's title, the file's name (main's frame takes it from here). */
