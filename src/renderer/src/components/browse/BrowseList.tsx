@@ -13,6 +13,7 @@ import {
 } from 'react'
 import type { ArchiveMeta } from '@shared/types'
 import { browsableArchive, memberOf } from '@shared/archivePlace'
+import { goesToWindows } from '../../lib/unsupported'
 import { formatBytes, formatWhen } from '../../lib/format'
 import { folderSizeCoverage, folderSizeLabel } from '../../lib/folderSize'
 import { typeLabel } from '../../lib/typeLabel'
@@ -184,6 +185,8 @@ export function BrowseList(props: Props): JSX.Element {
   const columnScroller = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState(600)
   const typed = useRef({ text: '', at: 0 })
+  /** The row the first press of a double-click was on (#494). */
+  const firstPress = useRef<string | null>(null)
   const pendingFocus = useRef<number | null>(null)
   const selectionPosition = useRef({ path: '', index: -1 })
   useLayoutEffect(() => {
@@ -1000,12 +1003,21 @@ export function BrowseList(props: Props): JSX.Element {
                       onDragEnd={() => setDrag(null)}
                       title={searching ? entry.path : undefined}
                       onClick={(e: ReactMouseEvent) => {
+                        if (e.detail === 1) firstPress.current = entry.path
                         setCursor(null)
                         if ((e.ctrlKey || e.shiftKey) && props.onPick)
                           props.onPick(entry, { ctrl: e.ctrlKey, shift: e.shiftKey })
                         else props.onSelect(entry.path)
                       }}
-                      onDoubleClick={() => props.onActivate(entry)}
+                      // WHAT WAS PRESSED IS WHAT OPENS (#494; review, 2026-11-09). A new
+                      // file slides the rows between the two presses, and Chromium
+                      // counts a double-click by place and time, so the second one
+                      // lands on whatever is there now. A row that leaves for Windows
+                      // can start a program: only the row first pressed. `openGuards` e2e.
+                      onDoubleClick={() => {
+                        if (entry.file && goesToWindows(entry.file) && firstPress.current !== entry.path) return
+                        props.onActivate(entry)
+                      }}
                       onPointerEnter={
                         entry.isFolder && props.onFolderHover
                           ? () => props.onFolderHover?.(entry.path)
