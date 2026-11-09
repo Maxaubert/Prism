@@ -1436,6 +1436,51 @@ async function comicIconScenario(fixtures) {
   }
 }
 
+/**
+ * Delete, Enter, Delete at speed (review, 2026-11-09). The keyboard comes back
+ * the moment the question closes, while the file is still on its way to the
+ * bin and its row is still there: the second Delete must not ask about a file
+ * that is already going, and answering must not end in "could not be moved".
+ */
+async function deleteFastScenario(fixtures) {
+  console.log('delete, enter, delete at speed')
+  const dir = join(fixtures, 'delfast')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['a.txt', 'b.txt', 'c.txt', 'd.txt']) writeFileSync(join(dir, n), n)
+  const { app, win } = await launch(join(dir, 'a.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const row = '[data-testid="browse-list"] .browse-row[data-browse-path]'
+  const asked = () => win.locator('[role="dialog"]').textContent({ timeout: 300 }).catch(() => '')
+  try {
+    await toList(win, 45000)
+    await win.waitForSelector(row, { timeout: 45000 })
+    await sleep(700)
+    await win.locator(row).nth(1).click()
+    await sleep(400)
+    const name = (await win.locator(row).nth(1).getAttribute('data-browse-path')).split('\\').pop()
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await win.keyboard.press('Enter')
+    await win.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 })
+    await win.keyboard.press('Delete')
+    await sleep(120)
+    const text = await asked()
+    ok(!text.includes(name), `a second Delete does not ask about ${name}, already on its way (${text.slice(0, 70)})`)
+    if (await win.locator('[role="dialog"] button:has-text("Delete")').count()) {
+      await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    }
+    await sleep(2200)
+    const after = await asked()
+    ok(!/could not be moved/i.test(after), `and nothing ends in a failure (${after.slice(0, 70)})`)
+    ok(!existsSync(join(dir, name)), `and ${name} is in the bin`)
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 /** Delete, then Delete again: the key must still reach the list. */
 async function deleteAgainScenario(fixtures) {
   console.log('delete twice')
@@ -24007,6 +24052,7 @@ await run(spareScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(deleteAgainScenario)
+await run(deleteFastScenario)
 await run(arrowKeysScenario)
 await run(chromeHideScenario)
 await run(zoomFloorScenario)
