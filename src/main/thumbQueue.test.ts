@@ -37,6 +37,32 @@ beforeEach(() => {
 })
 afterEach(() => vi.useRealTimers())
 
+describe('a job that was killed and is wanted again (review of the zoom grid)', () => {
+  it('is made again, and the tab is never told "no picture" for it', async () => {
+    const q = new ThumbQueue({
+      make: (path, tier, signal) =>
+        new Promise((resolve) => jobs.push({ path, tier, signal, finish: resolve })),
+      share: () => share,
+      settled: (tab, gen, path, _tier, file) => settled.push({ tab, gen, path, file }),
+      orphanKillMs: 0
+    })
+    q.want('t', 1, [item('slow.mov')])
+    expect(started()).toEqual(['slow.mov'])
+    // Scrolled away: nobody wants it, and it has run long enough to be killed.
+    q.want('t', 2, [item('other.jpg')])
+    expect(jobs[0].signal.aborted).toBe(true)
+    // Scrolled straight back, before the kill has come back.
+    q.want('t', 3, [item('slow.mov')])
+    jobs[0].finish(null)
+    await tick()
+    expect(settled.filter((s) => s.path === 'slow.mov')).toEqual([])
+    expect(started().filter((p) => p === 'slow.mov')).toHaveLength(2)
+    jobs.filter((j) => j.path === 'slow.mov')[1].finish('made')
+    await tick()
+    expect(settled.filter((s) => s.path === 'slow.mov')).toEqual([{ tab: 't', gen: 3, path: 'slow.mov', file: 'made' }])
+  })
+})
+
 describe('desktopShare', () => {
   it('is 3 of the 4 ffmpegs, 1 on a machine of 4 cores or fewer, and 1 while a film plays', () => {
     expect(desktopShare({ cores: 16, filmPlaying: false })).toBe(3)
