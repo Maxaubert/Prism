@@ -16,7 +16,13 @@ let last: boolean | null = null
 
 type Send = (on: boolean) => void
 
-let send: Send = (on) => window.prism?.setAwake?.(on)
+// The same answer tells the desktop's thumbnails to give way (spec 4.3): one
+// ffmpeg, not three, while something plays, so a film's reads are not raced by
+// a screenful of tiles (thumbQueue.ts `desktopShare`).
+let send: Send = (on) => {
+  window.prism?.setAwake?.(on)
+  window.prism?.thumbs?.film?.(on)
+}
 
 /** Tests replace the sink; nothing else should. */
 export function _setAwakeSink(fn: Send): void {
