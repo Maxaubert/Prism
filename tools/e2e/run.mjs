@@ -23840,6 +23840,94 @@ async function zipLockedScenario(fixtures) {
   ok(left.length === 0, `the run's member folder is gone after quit (${left.join(', ')})`)
 }
 
+/**
+ * ONE PASSWORD QUESTION PER ARCHIVE (owner, 2026-11-09). A locked member's
+ * preview and an extract of it, set off in the same tick so both come back
+ * wanting the password: one question, whichever answered first. Cancel drops
+ * both; a wrong password asks once more, for both; the right one serves both.
+ */
+async function archivePassOnceScenario(fixtures) {
+  console.log('one password question per archive')
+  const dir = join(fixtures, 'archive-pass-once')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  copyFileSync(join(ROOT, 'src', 'main', 'fixtures', 'crypto.zip'), join(dir, 'crypto.zip'))
+  writeFileSync(join(dir, 'notes.txt'), 'beside\n')
+  const PASS = 'input[aria-label="Archive password"]'
+  const out = join(dir, 'secret.txt')
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const asked = () => win.locator(PASS).count()
+  /** The preview and the extract, in one tick, with the most questions ever
+   *  up counted at every commit. */
+  const both = async () => {
+    await zipRow(win, 'secret.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.evaluate((sel) => {
+      const seen = (window.__pass = { most: 0, took: [] })
+      const look = () => {
+        seen.most = Math.max(seen.most, document.querySelectorAll(sel).length)
+      }
+      seen.obs = new MutationObserver(look)
+      seen.obs.observe(document.body, { childList: true, subtree: true })
+      look()
+      const item = [...document.querySelectorAll('[role="menu"] button, [role="menu"] [role="menuitem"]')].find(
+        (el) => el.textContent?.includes('Extract this file')
+      )
+      const row = document.querySelector('[data-testid="browse-list"] [data-browse-path$="secret.txt"]')
+      seen.took.push(!!item, !!row)
+      item?.click()
+      row?.click()
+    }, PASS)
+    ok((await win.evaluate(() => window.__pass.took.every(Boolean))) === true, 'the menu row and the file row were both there to press')
+    ok(await until(async () => (await asked()) >= 1, 15000), 'the password is asked for')
+    // Long enough for the slower of the two to have come back and asked.
+    await sleep(1500)
+  }
+  const most = () => win.evaluate(() => window.__pass.most)
+  try {
+    await explorerAt(win, dir)
+    await zipGo(win, join(dir, 'crypto.zip'), async () => (await win.locator('[data-archive-strip]').count()) === 1)
+    await until(async () => (await zipRow(win, 'secret.txt').count()) === 1, 10000)
+
+    await both()
+    let top = await most()
+    ok(top === 1, `the preview and the extract wanted it at once: one question (most up: ${top})`)
+    await win.locator('[role="dialog"] button:has-text("Cancel")').last().click()
+    ok(await until(async () => (await asked()) === 0, 5000), 'Cancel takes the question down')
+    await sleep(1200)
+    ok((await asked()) === 0, 'and neither of them asks again')
+    ok(!existsSync(out), 'and the extract was dropped')
+    top = await most()
+    ok(top === 1, `and no second question came up behind it (most up: ${top})`)
+
+    // Back out so the preview starts over, then the same again with answers.
+    await zipGo(win, dir)
+    await until(async () => (await win.locator('[data-member-gate]').count()) === 0, 5000)
+    await zipGo(win, join(dir, 'crypto.zip'), async () => (await win.locator('[data-archive-strip]').count()) === 1)
+    await until(async () => (await zipRow(win, 'secret.txt').count()) === 1, 10000)
+
+    await both()
+    await win.locator(PASS).first().fill('wrong-one')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => /didn't open/.test((await win.textContent('body')) ?? ''), 10000), 'a wrong password asks again, saying so')
+    await sleep(1500)
+    top = await most()
+    ok(top === 1 && (await asked()) === 1, `a wrong answer still leaves one question for both (most up: ${top})`)
+    ok(!existsSync(out), 'nothing was written with the wrong one')
+    await win.locator(PASS).first().fill('letmein')
+    await win.keyboard.press('Enter')
+    const landed = await until(() => existsSync(out) && readFileSync(out, 'utf8') === 'top secret', 15000)
+    ok(landed === true, 'the one answer extracted the file')
+    ok(await until(async () => (await win.locator('[data-member-gate]').count()) === 0, 10000), 'and opened the preview, with the same answer')
+    await sleep(1200)
+    top = await most()
+    ok(top === 1 && (await asked()) === 0, `and it asked nothing more (most up: ${top}, up now: ${await asked()})`)
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 /* ----- the diagnostics log (#322) ----- */
 
 /** The diagnostics log of the shared profile, one object per line (a line
@@ -25273,6 +25361,7 @@ await run(zipMenusScenario)
 await run(zipWritesScenario)
 await run(zipRestoreScenario)
 await run(zipLockedScenario)
+await run(archivePassOnceScenario)
 await run(zipFolderScenario)
 await run(previewClearsScenario)
 await run(previewSlideListScenario)
