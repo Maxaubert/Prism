@@ -3572,7 +3572,11 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   speak only when nothing is left to try, and the error belongs to its attempt (`errorAttempt`, the
   route), so the switch to live clears it in the same render. A file nothing can rescue still says so
   (`filmErrorShows`). Held by the `filmFlash` e2e (every change of the text, in the pane, full view and
-  the window) and `liveRoute.test.ts`.
+  the window) and `liveRoute.test.ts`. Review, same day: a direct start the probe overruled is ended
+  with `load()` (taking the `src` away does not stop an element), so its late refusal cannot read as
+  the live film's error; and a film whose rescue fails too (the first piece answered 404: ffmpeg fell
+  over) says so at once, where hls.js's retries left a blank player for over two minutes. Held by
+  the `filmAbuse` e2e, which also closes the preview at the awkward moments.
 - **MUTE, VOLUME AND SPEED CARRY TO THE NEXT FILE** (#207; owner, 2026-09-23: "if the user
   mutes audio or sets speed to be 0.5 and then clicks a new video, those settings should be
   kept ... maybe the user wants to just look at videos without audio, or dissect videos in
