@@ -55,6 +55,7 @@ import type {
   PasteProgress,
   PasteResult,
   PhotoInfo,
+  RestoreOutcome,
   SaveCopyResult,
   SaveCopiesResult,
   SubtitleTrack,
@@ -468,14 +469,16 @@ const api = {
     ipcRenderer.invoke(CALL.imageSaveCopies, paths, format, jobId),
   /** Stop a Save copies as job; the copies already made stay. */
   cancelImageCopies: (jobId: string): Promise<boolean> => ipcRenderer.invoke(CALL.imageSaveCopiesCancel, jobId),
+  /** The loading bar's Cancel: stop this job in main. */
+  cancelFileJob: (jobId: string): Promise<boolean> => ipcRenderer.invoke(CALL.fileJobCancel, jobId),
   /** A multi-selection's copy: every file lands on the clipboard together. */
   copyFilesToClipboard: (paths: string[], cut = false): Promise<boolean> =>
     ipcRenderer.invoke(CALL.fileCopyClip, paths, cut),
   /** The address bar's "Copy address": the folder, with its path as text. */
   copyAddress: (path: string): Promise<boolean> => ipcRenderer.invoke(CALL.fileCopyAddress, path),
   /** Copy the file next to itself as "name (2).ext"; resolves with the new path. */
-  duplicateFile: (path: string): Promise<string | null> =>
-    ipcRenderer.invoke(CALL.fileDuplicate, path),
+  duplicateFile: (path: string, jobId?: string): Promise<string | null> =>
+    ipcRenderer.invoke(CALL.fileDuplicate, path, jobId),
   /** Ctrl+Shift+N (#330): "New folder" (or "(2)" and on) in `dir`; the path
    *  made, or null. `name` is a redo's: the undone folder's own name. */
   newFolder: (dir: string, name?: string): Promise<string | null> =>
@@ -488,10 +491,14 @@ const api = {
 
   /** Undo a delete: ask Windows for these paths back out of the Recycle Bin. */
   restoreFromBin: (paths: string[]): Promise<boolean> => ipcRenderer.invoke(CALL.fileRestore, paths),
+  /** The same, as a job: progress on `pasteProgress`, Cancel between paths,
+   *  and the answer names what came back and what did not. */
+  restoreFromBinJob: (paths: string[], jobId: string): Promise<RestoreOutcome> =>
+    ipcRenderer.invoke(CALL.fileRestore, paths, jobId),
   /** Move files and folders into another folder. 'ask' reports clashes and
    *  moves nothing, so the user answers before anything happens. */
-  moveEntries: (paths: string[], destDir: string, onClash: MoveOnClash): Promise<MoveResult> =>
-    ipcRenderer.invoke(CALL.fileMove, paths, destDir, onClash),
+  moveEntries: (paths: string[], destDir: string, onClash: MoveOnClash, jobId?: string): Promise<MoveResult> =>
+    ipcRenderer.invoke(CALL.fileMove, paths, destDir, onClash, jobId),
   /** Put real files and folders INTO a zip, under a folder ('' is the root). */
   archiveAdd: (
     zip: string,

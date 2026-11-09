@@ -1,10 +1,11 @@
 import type { Dirent } from 'fs'
-import { cp, mkdir, readdir, rename, rm, rmdir, stat } from 'fs/promises'
+import { mkdir, readdir, rename, rm, rmdir, stat } from 'fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { isInside, pathKey } from '@shared/path'
 import type { MoveClash, MoveOnClash, MoveResult } from '@shared/ipcTypes'
 import { uniqueNameAsync } from './fileOps'
 import { exists, isBusyError } from './fsUtil'
+import { copyCounted, dropPartial, isAborted } from './copyCounted'
 
 // Moving files and folders between real folders - the "move" verb docs/features.md
 // reserved, decided 2026-08-22 and reachable only by dragging. Deliberately
@@ -49,7 +50,7 @@ export function outermost(paths: readonly string[]): string[] {
  * handler a playing film depends on - for as long as the copy took, and even
  * the rename can stall on a busy or network disk (2026-10-12).
  */
-async function moveOne(src: string, target: string): Promise<void> {
+async function moveOne(src: string, target: string, signal?: AbortSignal): Promise<void> {
   try {
     // The parent may not exist: undoing a MERGE puts files back into a folder
     // that was emptied and removed on the way in.
@@ -57,7 +58,14 @@ async function moveOne(src: string, target: string): Promise<void> {
     await rename(src, target)
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e
-    await cp(src, target, { recursive: true, force: true })
+    // CANCEL (owner, 2026-11-09): the copy across drives stops mid-file, its
+    // partial goes, and the source is only removed once the copy is whole.
+    try {
+      await copyCounted(src, target, () => {}, { signal, keep: true })
+    } catch (err) {
+      if (isAborted(err, signal)) await dropPartial(target)
+      throw err
+    }
     await rm(src, { recursive: true, force: true })
   }
 }
@@ -111,15 +119,20 @@ async function mergeInto(
   target: string,
   onClash: MoveOnClash,
   trash: (p: string) => Promise<void>,
-  out: MoveResult
+  out: MoveResult,
+  signal?: AbortSignal
 ): Promise<void> {
   for (const e of await readdir(src, { withFileTypes: true })) {
+    if (signal?.aborted) {
+      out.cancelled = true
+      return
+    }
     const from = join(src, e.name)
     let to = join(target, e.name)
     try {
       if (await exists(to)) {
         if (await bothFolders(from, to)) {
-          await mergeInto(from, to, onClash, trash, out)
+          await mergeInto(from, to, onClash, trash, out, signal)
           continue
         }
         if (onClash === 'replace') {
@@ -127,9 +140,13 @@ async function mergeInto(
           await trash(to)
         } else to = join(target, await uniqueNameAsync(target, e.name))
       }
-      await moveOne(from, to)
+      await moveOne(from, to, signal)
       out.moved.push({ from, to })
     } catch (e) {
+      if (isAborted(e, signal)) {
+        out.cancelled = true
+        return
+      }
       out.failed.push(from)
       if (isBusyError(e)) out.busy.push(from)
     }
@@ -147,13 +164,20 @@ async function mergeInto(
  * `onClash` decides what a taken name does, mirroring renameFile: 'ask' reports
  * the clashes and moves NOTHING (so the user answers before anything happens),
  * 'keep-both' lands them as "name (2)", 'replace' bins what it replaces first.
+ *
+ * `opts` (the loading bar, owner 2026-11-09): `signal` stops the move between
+ * items, and mid-file on a move across drives; `tick` says each item done.
+ * What came through is `moved`, exactly what undo can reverse, and `cancelled`
+ * says it was stopped.
  */
 export async function moveEntries(
   paths: readonly string[],
   destDir: string,
   onClash: MoveOnClash,
-  trash: (p: string) => Promise<void>
+  trash: (p: string) => Promise<void>,
+  opts: { signal?: AbortSignal; tick?: (done: number, total: number) => void } = {}
 ): Promise<MoveResult> {
+  const { signal, tick } = opts
   const out: MoveResult = { moved: [], clashes: [], failed: [], replaced: [], busy: [] }
   const dest = await stat(destDir).catch(() => null)
   if (!dest?.isDirectory()) {
@@ -202,7 +226,12 @@ export async function moveEntries(
   }
   if (onClash === 'ask' && out.clashes.length) return out
 
-  for (const p of usable) {
+  for (const [i, p] of usable.entries()) {
+    if (signal?.aborted) {
+      out.cancelled = true
+      break
+    }
+    tick?.(i, usable.length)
     const name = basename(p)
     let target = join(destDir, name)
     try {
@@ -210,7 +239,7 @@ export async function moveEntries(
         // Same name, both folders: pour one into the other rather than
         // landing a second copy beside it.
         if (await bothFolders(p, target)) {
-          await mergeInto(p, target, onClash, trash, out)
+          await mergeInto(p, target, onClash, trash, out, signal)
           continue
         }
         // Only an explicit 'replace' may destroy; everything else lands beside
@@ -220,9 +249,13 @@ export async function moveEntries(
           await trash(target)
         } else target = join(destDir, await uniqueNameAsync(destDir, name))
       }
-      await moveOne(p, target)
+      await moveOne(p, target, signal)
       out.moved.push({ from: p, to: target })
     } catch (e) {
+      if (isAborted(e, signal)) {
+        out.cancelled = true
+        break
+      }
       out.failed.push(p)
       if (isBusyError(e)) out.busy.push(p)
     }
