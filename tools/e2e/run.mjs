@@ -2222,6 +2222,30 @@ async function deleteFocusScenario(fixtures) {
     await listRow(win, name).click()
     await sleep(300)
   }
+  // Counts the row losing the focus to nothing. Being back on the row a moment
+  // later is not enough: a press outside dropped it every time, and only
+  // whatever React happened to render next could put it back.
+  const watchDrop = () =>
+    win.evaluate(() => {
+      window.__rowDropped = 0
+      if (window.__rowDropWatch) return
+      window.__rowDropWatch = true
+      window.addEventListener(
+        'focusout',
+        (e) => {
+          if (e.target.closest?.('.browse-list') && !e.relatedTarget) window.__rowDropped++
+        },
+        true
+      )
+    })
+  const dropped = () => win.evaluate(() => window.__rowDropped)
+  const pressOutside = async (what) => {
+    await watchDrop()
+    await win.mouse.click(4, 300)
+    await closed()
+    ok(await onRow('f03.txt'), `a press outside ${what} puts the keyboard back (${await said()})`)
+    ok((await dropped()) === 0, `and the press never took it off the row again (${await dropped()} drops)`)
+  }
   try {
     await toList(win, 45000)
     await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
@@ -2258,10 +2282,25 @@ async function deleteFocusScenario(fixtures) {
     ok(await onRow('f03.txt'), `Escape on the question puts it back too (${await said()})`)
     await win.keyboard.press('Delete')
     ok(await asks(), 'Delete asks after an Escape with no click')
+    await watchDrop()
     await win.mouse.click(4, 300)
     await closed()
     ok(there('f03.txt'), 'a press outside the question keeps the file')
     ok(await onRow('f03.txt'), `and puts the keyboard back (${await said()})`)
+    ok((await dropped()) === 0, `and the press never took it off the row again (${await dropped()} drops)`)
+
+    // The other things a press outside closes, each on the same road.
+    await win.keyboard.press('F2')
+    ok(await asks(), 'F2 asks after a press outside')
+    await pressOutside('the rename')
+    await listRow(win, 'f03.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.getByRole('menuitem', { name: /^Properties/ }).first().click()
+    ok(await asks(), 'Properties opens from the menu')
+    await pressOutside('Properties')
+    await win.keyboard.press('Control+f')
+    ok(await until(async () => (await win.locator('[data-search-popup]').count()) === 1, 5000), 'Ctrl+F opens the folder search')
+    await pressOutside('the folder search')
 
     // The question answered by the mouse.
     await win.keyboard.press('Delete')

@@ -16,6 +16,9 @@ with the question, and the row that was deleted took it with it.
   anywhere else it was given up. When the focus has fallen to the page (the question closing, the row going),
   it goes back to the selected row, or to the list when no row is selected or left. Every route gets this:
   Enter or the mouse on the question, Cancel, Escape, a press outside it, the right-click menu, F2's rename.
+  A press outside closes the question inside `mousedown`, so its scrim prevents the browser's default, or the
+  press drops the focus back on the page right after it returned (2026-11-09; `deleteFocus` counts the drops,
+  for a question, the rename, Properties and the folder search).
 - **It never takes the focus from anywhere**: a field the owner went to in the meantime (search, the address
   bar, a rename) or another window (`document.hasFocus`, the preview window among them) is left alone,
   and nothing is put back while something is in front (a question, a menu, Settings).

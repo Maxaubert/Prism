@@ -28,6 +28,11 @@ const ON_A_QUESTION = `${OVERLAY},[data-owns-escape],.browse-busy`
  * whatever has the focus by then: put back on the row at once, that keypress
  * was a click on the row, which opened the file behind the question. So a key
  * pressed on a question hands the focus back when it comes up.
+ *
+ * A PRESS THAT CLOSES A QUESTION MUST NOT KEEP ITS DEFAULT (deleteFocus,
+ * 2026-11-09). It closes inside mousedown, so this hook has put the focus back
+ * before the browser applies that press and drops it on the page. Modal's
+ * scrim and the folder search's prevent the default.
  */
 export function useListKeyboard(
   shell: RefObject<HTMLElement | null>,

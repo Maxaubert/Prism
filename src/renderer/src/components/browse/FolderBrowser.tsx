@@ -343,14 +343,18 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   useLayoutEffect(() => {
     const was = lastRows.current
     lastRows.current = { key: marksKey, order }
-    if (anyGoing()) settleGoing(order())
     const gone = props.selectedPath
+    // Read before the settling below takes it off the list: the folder's own
+    // watcher can show the row gone before the bin has answered (deleteFocus,
+    // 2026-11-09, 6 ms ahead), when the delete has not noted it as binned yet.
+    const leaving = !!gone && anyGoing() && isGoing(gone)
+    if (anyGoing()) settleGoing(order())
     // Every commit, so the cheap questions first: nothing is walked until a
     // delete has taken the row the selection is on.
-    if (!gone || was.key !== marksKey || !wasBinned(gone)) return
+    if (!gone || was.key !== marksKey || !(leaving || wasBinned(gone))) return
     const now = order()
     if (now.includes(gone)) return
-    pickOne(rowAfter(was.order(), gone, (path) => now.includes(path)), true)
+    pickOne(rowAfter(was.order(), gone, (path) => now.includes(path) && !isGoing(path)), true)
   })
   // Mirrored after render (a ref is not written while rendering), and read
   // by the effect below, which runs after this one.
