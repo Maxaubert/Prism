@@ -277,6 +277,8 @@ export class Thumbs {
   private runs = 0
   private procs = 0
   private peak = 0
+  /** Cache-folder scans (evict) started: the e2e proves it is not one per tile. */
+  private scans = 0
 
   constructor(
     private readonly ffmpeg: string,
@@ -287,8 +289,8 @@ export class Thumbs {
   ) {}
 
   /** For the e2e: ffmpeg processes started, at once now, and the most at once. */
-  stats(): { runs: number; running: number; peak: number } {
-    return { runs: this.runs, running: this.procs, peak: this.peak }
+  stats(): { runs: number; running: number; peak: number; scans: number } {
+    return { runs: this.runs, running: this.procs, peak: this.peak, scans: this.scans }
   }
 
   /** The thumbnail's path (a JPEG, or a WebP for a picture that can be
@@ -504,6 +506,7 @@ export class Thumbs {
   }
 
   private async evict(): Promise<void> {
+    this.scans += 1
     let total: number | null = null
     try {
       const names = (await fsp.readdir(this.dir)).filter(isThumbFile)

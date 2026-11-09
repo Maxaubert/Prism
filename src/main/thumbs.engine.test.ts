@@ -242,6 +242,15 @@ describe('Thumbs for the desktop', () => {
     expect(t.stats().running).toBe(0)
   })
 
+  it('reads the cache folder once for a whole folder of tiles, never once per tile', async () => {
+    const t = make()
+    for (let i = 0; i < 4; i++)
+      await Promise.all(Array.from({ length: 10 }, (_, j) => t.makeFor(source(`s${i}-${j}.jpg`), 'image', 320)))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(t.stats().runs).toBe(40)
+    expect(t.stats().scans).toBeLessThanOrEqual(1)
+  })
+
   it('removes half-written files left by a run that died, but not one being written now', async () => {
     const t = make()
     await t.makeFor(source('seed.jpg'), 'image', 320)

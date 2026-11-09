@@ -13200,6 +13200,235 @@ async function gridPhoneScenario(fixtures) {
   }
 }
 
+/**
+ * THE 10,000-FILE FOLDER (zoom grid, Stage 7). The scenario makes the folder
+ * itself: 9,000 tiny PNGs, each with its own content (so no two share a cache
+ * key), and 1,000 text files between them (every tenth name). It enters the
+ * folder, goes to the grid, scrolls the whole way down, up and down again at
+ * about a screenful a frame, and holds the feature to the rules in the spec:
+ * the folder paints in its budget, no frame where the page works 100 ms or
+ * more, the mounted tiles stay a few hundred however far it scrolls, no more
+ * than 3 ffmpegs at once (the engine's peak, and the OS's own count), the
+ * pictures of the last screen arrive within seconds of stopping, memory does
+ * not climb with the distance, the cache folder is read once and not once per
+ * tile, and closing the tab stops the queue (no ffmpeg a moment later).
+ * Every limit is printed with what was measured, so a slow machine shows how
+ * far over it was.
+ */
+async function gridBigScenario(fixtures) {
+  console.log('grid, 10,000 files')
+  if (!HAS_FFMPEG) {
+    console.log(`  (no ffmpeg found (tried ${FFMPEG}), so the thumbnails are skipped)`)
+    return
+  }
+  const dir = join(fixtures, 'gridbig')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(zlibCrc32(body) >>> 0)
+    return Buffer.concat([len, body, crc])
+  }
+  // A 4x3 picture whose twelve pixels come from the index: distinct bytes, a valid PNG.
+  const pngFor = (n) => {
+    const ihdr = Buffer.alloc(13)
+    ihdr.writeUInt32BE(4, 0)
+    ihdr.writeUInt32BE(3, 4)
+    ihdr[8] = 8
+    ihdr[9] = 2
+    const rows = Buffer.alloc(13 * 3)
+    for (let y = 0; y < 3; y++)
+      for (let x = 0; x < 4; x++) {
+        const h = Math.imul(n + 1, 2654435761) ^ Math.imul(y * 4 + x + 1, 40503)
+        const o = y * 13 + 1 + x * 3
+        rows[o] = (h >>> 0) & 255
+        rows[o + 1] = (h >>> 8) & 255
+        rows[o + 2] = (h >>> 16) & 255
+      }
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))])
+  }
+  const t0make = Date.now()
+  writeFileSync(join(dir, 'a-seed.txt'), 'seed')
+  for (let i = 0; i < 10000; i++) {
+    const name = `g${String(i).padStart(5, '0')}`
+    if (i % 10 === 9) writeFileSync(join(dir, `${name}.txt`), `text ${i}\n`)
+    else writeFileSync(join(dir, `${name}.png`), pngFor(i))
+  }
+  console.log(`  (10,000 files made in ${Date.now() - t0make} ms)`)
+
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'a-seed.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  // Playwright now and then drops one app.evaluate ("Resulting promise was garbage
+  // collected") while the app is alive and busy: that is the harness, so ask again.
+  const stats = async () => {
+    for (let tryNo = 0; ; tryNo++) {
+      try {
+        return await app.evaluate(() => globalThis.__e2eThumbs?.() ?? null)
+      } catch (e) {
+        if (tryNo >= 3 || !/garbage collected/.test(String(e.message)) || app.process().exitCode !== null) throw e
+        await sleep(100)
+      }
+    }
+  }
+  const ffmpegs = () => processCount('ffmpeg.exe', '*gridbig*')
+  const visibleImages = () =>
+    win.evaluate((sel) => {
+      const list = document.querySelector(sel)
+      const l = list.getBoundingClientRect()
+      const tiles = [...list.querySelectorAll('.browse-tile[data-browse-path$=".png"]')].filter((t) => {
+        const r = t.getBoundingClientRect()
+        return r.bottom > l.top && r.top < l.bottom
+      })
+      return { n: tiles.length, shown: tiles.filter((t) => t.querySelector('.browse-thumb-img[data-shown]')).length }
+    }, GL)
+  // One pass across the whole folder in `secs`, a screenful or so a frame; what the page did meanwhile.
+  const pass = (to, secs) =>
+    win.evaluate(
+      async ([sel, target, ms]) => {
+        const list = document.querySelector(sel)
+        const max = list.scrollHeight - list.clientHeight
+        const from = list.scrollTop
+        const end = target === 'bottom' ? max : 0
+        const gaps = []
+        const loaf = []
+        const obs = new PerformanceObserver((l) => { for (const e of l.getEntries()) loaf.push(e.duration) })
+        obs.observe({ type: 'long-animation-frame', buffered: false })
+        let mounted = 0
+        let last = performance.now()
+        await new Promise((res) => {
+          const start = performance.now()
+          const tick = (t) => {
+            gaps.push(t - last)
+            last = t
+            const k = Math.min(1, (t - start) / ms)
+            list.scrollTop = from + (end - from) * k
+            mounted = Math.max(mounted, list.querySelectorAll('.browse-tile').length)
+            if (k < 1) requestAnimationFrame(tick)
+            else res()
+          }
+          requestAnimationFrame(tick)
+        })
+        obs.disconnect()
+        return { max, gaps: gaps.slice(2), loaf, mounted, top: list.scrollTop, total: list.scrollHeight }
+      },
+      [GL, to, secs * 1000]
+    )
+  const heap = async () => ({
+    page: await win.evaluate(() => Math.round(performance.memory.usedJSHeapSize / 1048576)),
+    main: await app.evaluate(() => Math.round(process.memoryUsage().heapUsed / 1048576))
+  })
+  try {
+    // Into the folder, as rows: the budget for a 10,000-file listing.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(GL, { timeout: 10000 })
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(dir)
+    const tEnter = Date.now()
+    await win.keyboard.press('Enter')
+    const entered = await until(async () => (await win.locator(`${GL} [data-browse-path$="g00000.png"]`).count()) === 1, 20000, 50)
+    const enterMs = Date.now() - tEnter
+    ok(entered && enterMs < 5000, `entering the folder paints its first rows in ${enterMs} ms (limit 5000)`)
+    const status = ((await win.locator('.browse-status').textContent()) ?? '').trim()
+    ok(/10,?001/.test(status), `the status counts 10,001 (${status.slice(0, 60)})`)
+
+    const tGrid = Date.now()
+    await gridToStep6(win)
+    console.log(`  (the grid up in ${Date.now() - tGrid} ms)`)
+    const g0 = await gridGeo(win)
+    ok(g0.tiles[0]?.name === 'a-seed.txt' && g0.tiles.length < 500, `the grid mounts ${g0.tiles.length} of 10,001 tiles at the top`)
+    const s0 = await stats()
+
+    // Down, up, down: a screenful a frame.
+    const passes = []
+    for (const [to, secs] of [['bottom', 3], ['top', 3], ['bottom', 3]]) {
+      const p = await pass(to, secs)
+      passes.push(p)
+      const worstGap = Math.max(...p.gaps)
+      const worstLoaf = Math.max(0, ...p.loaf)
+      console.log(`  (to ${to}: ${Math.round(p.total)}px of grid, ${p.gaps.length} frames, worst gap ${Math.round(worstGap)} ms, worst frame of work ${Math.round(worstLoaf)} ms, ${p.mounted} tiles mounted)`)
+      ok(Math.abs(p.top - (to === 'bottom' ? p.max : 0)) < 2, `the scroll reached the ${to}`)
+      ok(worstLoaf < 100, `no frame where the page worked 100 ms or more (${Math.round(worstLoaf)} ms) scrolling to the ${to}`)
+      ok(worstGap < 300, `and no gap between frames over 300 ms (${Math.round(worstGap)} ms)`)
+      ok(p.mounted < 500, `and the mounted tiles stayed bounded (${p.mounted})`)
+      if (to === 'bottom' && passes.length === 1) {
+        const s1 = await stats()
+        ok(s1.wants - s0.wants <= 3, `the fast scroll asked for almost nothing (${s1.wants - s0.wants} asks, ${s1.runs - s0.runs} ffmpeg runs)`)
+      }
+      if (passes.length < 3) await sleep(1200)
+    }
+    ok(Math.abs(passes[0].mounted - passes[2].mounted) < 60, `the mounted tiles do not grow with the distance (${passes.map((p) => p.mounted).join(', ')})`)
+
+    // The last screen's pictures arrive soon after the stop, with at most 3 ffmpegs at once.
+    const tStop = Date.now()
+    let seenFfmpeg = 0
+    let lastVis = await visibleImages()
+    await until(async () => (lastVis = await visibleImages()).n > 0, 5000, 100)
+    ok(lastVis.n > 0, `the last screen has ${lastVis.n} picture tiles`)
+    const allShown = await until(async () => {
+      seenFfmpeg = Math.max(seenFfmpeg, await ffmpegs())
+      lastVis = await visibleImages()
+      return lastVis.n > 0 && lastVis.shown === lastVis.n
+    }, 25000, 200)
+    const arriveMs = Date.now() - tStop
+    await win.screenshot({ path: join(SHOTS, 'grid-big.png') })
+    ok(allShown && arriveMs < 15000, `its pictures all arrived ${arriveMs} ms after stopping (${lastVis.shown}/${lastVis.n}, limit 15000)`)
+    ok(seenFfmpeg <= 3, `the OS saw at most 3 ffmpegs at once (${seenFfmpeg})`)
+
+    // Memory: two more passes added nothing like the distance they covered.
+    await sleep(1500)
+    const m3 = await heap()
+    await pass('top', 3)
+    await sleep(1500)
+    await pass('bottom', 3)
+    await sleep(2500)
+    const m5 = await heap()
+    console.log(`  (heap after 3 passes: page ${m3.page} MB, main ${m3.main} MB; after 5: page ${m5.page} MB, main ${m5.main} MB)`)
+    ok(m5.page - m3.page < 40, `the page's heap does not climb with the scroll (${m3.page} -> ${m5.page} MB, limit +40)`)
+    ok(m5.main - m3.main < 40, `and main's heap does not either (${m3.main} -> ${m5.main} MB, limit +40)`)
+
+    const s2 = await stats()
+    ok(s2.peak <= 3, `never more than 3 ffmpegs at once (peak ${s2.peak}, ${s2.runs} runs)`)
+    ok(s2.scans <= 1, `the cache folder was scanned ${s2.scans} time(s) for ${s2.runs} thumbnails, not once per tile`)
+
+    // Closing the tab cancels what it still waits for.
+    const tabRows = () => win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]')
+    await win.evaluate((d) => {
+      localStorage.setItem('prism.newtab.mode', 'folder')
+      localStorage.setItem('prism.newtab.folder', d)
+    }, dir)
+    const tabsBefore = await tabRows().count()
+    await win.keyboard.press('Control+t')
+    ok(await until(async () => (await tabRows().count()) === tabsBefore + 1, 5000, 100), `Ctrl+T opens one more tab (${tabsBefore} -> ${await tabRows().count()})`)
+    ok(await until(async () => (await win.locator(`${GL} .browse-tile:visible`).count()) > 0, 20000, 100), 'it shows the same folder as a grid')
+    const r0 = (await stats()).runs
+    await win.evaluate((sel) => {
+      const l = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0)
+      l.scrollTop = (l.scrollHeight - l.clientHeight) / 2
+    }, GL)
+    const working = await until(async () => ((await stats())?.running ?? 0) > 0, 8000, 20)
+    ok(working, 'a new part of the folder is being made')
+    // Closed at once (no process listing first: that takes a second, enough to finish the work).
+    await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned])').last().locator('[data-tab-close]').click()
+    const closedTab = await until(async () => (await tabRows().count()) === tabsBefore, 3000, 50)
+    ok(closedTab, `the second tab closed (${await tabRows().count()} left: ${JSON.stringify(await win.locator('[role="tablist"] [role="tab"]').allTextContents())})`)
+    ok(await until(async () => ((await stats())?.running ?? 1) === 0, 1500, 50), 'closing the tab stops every ffmpeg within a moment')
+    const runsA = (await stats()).runs
+    await sleep(1500)
+    ok((await stats()).runs === runsA, `and starts no more (${runsA} -> ${(await stats()).runs})`)
+    ok(runsA - r0 < 23, `and the queue was cut short, not finished (${runsA - r0} ffmpeg runs for the new screen)`)
+    ok(await until(async () => (await ffmpegs()) === 0, 4000, 300), 'and no ffmpeg process is left')
+  } finally {
+    await win.evaluate(() => { for (const k of ['prism.newtab.mode', 'prism.newtab.folder']) localStorage.removeItem(k) }).catch(() => {})
+    await gridClear(win)
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -27352,6 +27581,7 @@ await run(gridRenameScenario)
 await run(gridMenusScenario)
 await run(gridHoldScenario)
 await run(gridPhoneScenario)
+await run(gridBigScenario)
 await run(sidebarPlacesScenario)
 await run(folderIconsScenario)
 await run(folderIconFileScenario)
