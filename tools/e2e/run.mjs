@@ -5230,10 +5230,20 @@ const filmPlays = async (win, label, mode = 'pane', ms = 15000) => {
   const up = await until(async () => (await frontFilm(win, mode)).state === 'playing', ms)
   ok(up, `${label}: the film plays (${JSON.stringify(await frontFilm(win, mode))})`)
   if (!up) return
+  // THE CLOCK STARTS WHEN THE FILM DOES (measured 2026-11-09). `playing` above
+  // only says it is not paused and has a time past 0.15, which a live film
+  // brought back on says at readyState 0, on the position it had kept: it took
+  // 0.55 to 0.8 s to start, and then ran at 1x, so a fixed 900 ms from here was
+  // mostly the wait. So: up to 5 s for the time to move at all, and then it has
+  // to keep moving through the same 900 ms. One that never starts fails here,
+  // and one that starts and sticks fails below.
   const a = (await frontFilm(win, mode)).t
+  const started = await until(async () => (await frontFilm(win, mode)).t > a + 0.05, 5000, 40)
+  const from = (await frontFilm(win, mode)).t
+  if (!started) return ok(false, `${label}: and its time moves (stuck at ${a} for 5 s, now ${from})`)
   await sleep(900)
   const b = (await frontFilm(win, mode)).t
-  ok(b > a + 0.2, `${label}: and its time moves (${a} then ${b})`)
+  ok(b > from + 0.2, `${label}: and its time moves (${a}, started, ${from} then ${b})`)
 }
 const nowIso = (win) => win.evaluate(() => new Date().toISOString())
 
