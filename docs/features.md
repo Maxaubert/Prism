@@ -35,6 +35,28 @@ with the question, and the row that was deleted took it with it.
   outside, the last row, the menu, marks, the preview pane, a field and another window left alone), and
   `lib/binnedRows.test.ts`.
 
+## Ctrl+V pastes into the tab in front, every time (owner, 2026-11-09)
+
+The owner: "when i ctrl x a file then go to another tab and paste the first time it works, but the second
+time it does not, to get it to work then i have to click into the directory, like select a file in the
+directory then paste and it works, otherwise nothing happens". The press on the tab left the focus on the
+tab's own button, the list's keys answer only with the focus inside the list, and nothing else in the
+window knew Ctrl+V. Only a list just drawn takes the focus by itself (`FolderBrowser`, on mount, coming back from a file in
+full view), which is the likely first round that worked; the e2e saw every round fail.
+
+- **A press on a tab is a press for the folder it shows** (`components/browse/useListKeyboard.ts`). The
+  keyboard goes to the list when the tab changes, and on a press on the tab already in front too, so
+  Ctrl+V, Ctrl+X, Ctrl+C, the arrows, F2 and Delete all answer with no click. Reaching the strip by the
+  keyboard is not a press: the focus stays on the tab.
+- **Ctrl+V needs no row** (`hooks/useAppKeys.ts`). With the focus on the page or the chrome (the tab strip,
+  the toolbar, the places) it pastes into the folder of the tab in front, or the folder of the file in full
+  view. Never in a field or the code editor, never with a question or a menu up, never with Settings in
+  front, and a zip stays inert as it was.
+- **Held by** e2e `pasteTabs` (six rounds of Ctrl+X or Ctrl+C, tab, Ctrl+V with no click in the
+  destination, a paste straight after a paste, the tab already in front, Ctrl+Tab, the page, a toolbar button, full view,
+  the arrows and F2 after a switch, and no paste in the rename field, the address field, under a question
+  or with Settings in front).
+
 ## iPhone .mov films play on every PC: direct, or live (owner, 2026-11-08)
 
 The owner: "make prism support .mov, i dont think it does". `.mov` was already a video kind
