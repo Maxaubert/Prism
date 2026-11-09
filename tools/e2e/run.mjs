@@ -24637,6 +24637,11 @@ await run(filmStartScenario)
 await run(filmCloseScenario)
 await run(filmFlashScenario)
 await run(filmAbuseScenario)
+// The film scenarios' own folders go now. Folders sort first and the list only
+// draws the rows in view, so thirteen more of them pushed the root's files out
+// of the DOM and every later scenario that looks for ep2.mp4 timed out.
+for (const d of ['movhevc', 'movhevc-walk', 'movowner', 'movwalk', 'movguard', 'filmkeys', 'filmstart', 'filmstart-quiet', 'filmclose', 'filmflash', 'filmabuse', 'filmlate', 'filmbad'])
+  rmSync(join(fixtures, d), { recursive: true, force: true })
 await run(sevenZipScenario)
 await run(documentScenario, 2000)
 await run(synthAndRawScenario)
