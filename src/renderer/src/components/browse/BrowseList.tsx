@@ -728,7 +728,11 @@ export function BrowseList(props: Props): JSX.Element {
       e.stopPropagation()
       const entry =
         rowAt(selectedIndex) ?? props.entries.find((entry) => entry.path === props.selectedPath)
-      if (entry) props.onActivate(entry)
+      // A HELD ENTER IS ONE OPEN (#494; review, 2026-11-09): the key repeating
+      // handed the program to Windows thirty times a second, and an Enter
+      // held from a question or the search box repeated onto this row.
+      // `openGuards` e2e.
+      if (entry && !(e.repeat && entry.file && goesToWindows(entry.file))) props.onActivate(entry)
       return
     } else if (e.key.length === 1 && !e.shiftKey) {
       const now = performance.now()
