@@ -82,7 +82,15 @@ export function UnsupportedView({
       {window.prism.capabilities.explorer && (
         <div className="flex items-center gap-2">
           {openable && (
-            <button className={BUTTON} onClick={() => window.prism.openInDefault(file.path)}>
+            <button
+              className={BUTTON}
+              onClick={(e) => {
+                window.prism.openInDefault(file.path)
+                // Left on it, a held Enter started the file over and over and
+                // the next Space started it again (#494, `openGuards` e2e).
+                e.currentTarget.blur()
+              }}
+            >
               Open
             </button>
           )}
