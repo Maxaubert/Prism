@@ -105,7 +105,9 @@ export interface FolderBrowserProps {
   /** Something else is in front (a question, the update window, Settings):
    *  the search popup does not open, and leaves if it was up (#267). */
   covered?: boolean
-  onNavigate: (path: string) => void
+  /** `typed`: the address field, the one navigation that may hand a file to
+   *  Windows (#494). */
+  onNavigate: (path: string, typed?: boolean) => void
   onBack: () => void
   onForward: () => void
   onUp: () => void

@@ -1491,7 +1491,7 @@ export default function App(): JSX.Element {
             onBack={() => browsing.travel(-1)}
             onForward={() => browsing.travel(1)}
             onUp={returnToFolder}
-            onNavigate={(path) => void browsing.navigate(path)}
+            onNavigate={(path, typed) => void browsing.navigate(path, undefined, typed)}
           />
           {browsing.error && (
             <div className="browse-navigation-error" role="status">
@@ -1569,7 +1569,7 @@ export default function App(): JSX.Element {
                 weekStart={browsing.weekStart}
                 canBack={active.browse.cursor > 0}
                 canForward={active.browse.cursor < active.browse.history.length - 1}
-                onNavigate={(path) => void browsing.navigate(path)}
+                onNavigate={(path, typed) => void browsing.navigate(path, undefined, typed)}
                 onBack={() => browsing.travel(-1)}
                 onForward={() => browsing.travel(1)}
                 onUp={() => {
