@@ -108,6 +108,11 @@ const isFileOnDisk = (p) => {
 
 async function launchTestApp(options) {
   const app = await electron.launch(options)
+  // Nothing a test plays reaches the owner's headset (owner, 2026-11-09).
+  if (options?.args?.includes('--e2e') && !(await app.evaluate(({ app: a }) => a.commandLine.hasSwitch('mute-audio')))) {
+    await app.close().catch(() => {})
+    throw new Error('the e2e app is not muted (--mute-audio): a test would be heard')
+  }
   // Teardown must release the private engine before closing the debugging
   // connection. Kill fallback is restricted to this test process tree.
   app.close = async () => {
@@ -3491,7 +3496,7 @@ async function formatsScenario(fixtures) {
     // every track sitting at 0:00; see the note below). The click recorded the intent to play and the keyboard's own
     // landing did not, so the two hands disagreed about what a pick means.
     // Opened on a PICTURE so the arrows belong to the folder from the first
-    // press: a track keeps them for its own volume (a film no longer does, #492).
+    // press.
     const { app, win } = await launch(join(fixtures, 'two.png'))
     try {
       await win.waitForSelector('.browse-viewer-toolbar', { timeout: 10000 })
@@ -4046,7 +4051,7 @@ async function focusMute(win, sel) {
  * UP AND DOWN ON A FILM WALK THE FOLDER (#492; owner, 2026-11-08: "videos arent
  * navigable with the arrow keys, up down arrows shoudl nvigate next file not
  * adjust volume"). Wherever the film is shown and wherever the focus is, one
- * press moves one file and never touches the volume. A track keeps them.
+ * press moves one file and never touches the volume. A track's walk too.
  */
 async function filmKeysScenario(fixtures) {
   console.log('Up and Down on a film walk the folder (#492)')
@@ -4129,7 +4134,7 @@ async function filmKeysScenario(fixtures) {
     ok((await volume()) === was, 'and the volume did not move')
     await win.mouse.move(5, 5)
 
-    // ONTO A TRACK: Up/Down are its volume, as before.
+    // ONTO A TRACK: Up/Down walk on from it too ("do audio files too", 2026-11-08).
     await win.keyboard.press('ArrowDown')
     await crumbIs('b.mov')
     await win.keyboard.press('ArrowDown')
@@ -4139,10 +4144,14 @@ async function filmKeysScenario(fixtures) {
     await win.waitForSelector('audio', { state: 'attached', timeout: 10000 })
     await sleep(500)
     const song = await volume('audio')
+    await win.keyboard.press('ArrowUp')
+    await sleep(100)
+    ok(await crumbIs('c.mov'), 'Up on a track goes to the previous file')
     await win.keyboard.press('ArrowDown')
-    await sleep(500)
-    ok((await viewing(win)).includes('d.mp3'), 'a track keeps its file on Down')
-    ok((await volume('audio')) < song, `and Down turns the track down (${song} -> ${await volume('audio')})`)
+    ok(await crumbIs('d.mp3'), 'and Down comes back to the track')
+    await win.waitForSelector('audio', { state: 'attached', timeout: 10000 })
+    await sleep(300)
+    ok((await volume('audio')) === song, `and neither touched its volume (${song} -> ${await volume('audio')})`)
 
     // THE PREVIEW PANE, focus on the list.
     await toList(win)

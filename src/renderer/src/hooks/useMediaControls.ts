@@ -90,8 +90,8 @@ interface Options {
   /** False for a player that is mounted but not on screen (another tab is in
    *  front): it keeps playing, but the keyboard belongs to what you can see. */
   keys?: boolean
-  /** Up and Down are this player's volume. A track's, as every player has
-   *  taught; a film's Up and Down walk the folder on the PC (#492). */
+  /** Up and Down are this player's volume: the phone's. On the PC they walk
+   *  the folder, for a film and a track alike (#492). */
   arrowsAreVolume?: boolean
   /** The file's real frame rate, when it is known. Frame stepping without it
    *  is a guess: 1/30 on 24fps film moves 1.25 frames and lands between two.
