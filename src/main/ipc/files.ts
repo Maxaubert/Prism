@@ -428,7 +428,13 @@ export function registerShellIpc(ctx: MainCtx): void {
     if (!src.length) return say({ pasted: 0, failed: 0, empty: true, paths: [] }, moving, 0, source)
     const result = await runPaste(e.sender, destDir, src, moving, jobId)
     // A cut moves once: the record has nothing left to move.
-    if (source.from === 'prism' && moving && result.pasted) ownClip.used(source.copy)
+    // One stopped by Cancel still has the rest to move.
+    if (source.from === 'prism' && moving && result.pasted) {
+      if (result.cancelled) {
+        const gone = new Set(result.from ?? [])
+        ownClip.left(source.copy, src.filter((s) => !gone.has(s)))
+      } else ownClip.used(source.copy)
+    }
     return say(result, moving, src.length, source)
   })
 
