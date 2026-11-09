@@ -39,6 +39,7 @@ import { browseParent } from '../lib/browse'
 import type { Ask } from '../dialogs/asks'
 import type { useArchiveActions } from '../components/browse/useArchiveActions'
 import { markLanded } from '../lib/landMarks'
+import { noteBinned } from '../lib/binnedRows'
 
 // THE FILE OPERATIONS (out of App.tsx, structure cleanup 2026-10-12,
 // unchanged): rename, new folder, delete, move and the drops that move, and
@@ -53,7 +54,9 @@ export interface FileOpsDeps {
   openBrowseFile: (
     file: string | ViewerFile,
     full?: boolean,
-    play?: boolean
+    play?: boolean,
+    judged?: string | null,
+    keep?: boolean
   ) => Promise<boolean | undefined>
   setAsk: Dispatch<SetStateAction<Ask | null>>
   setRefreshKey: Dispatch<SetStateAction<number>>
@@ -133,11 +136,15 @@ export function useFileOps({
    *  through `openBrowseFile`'s default `play = true`, which is the intent to
    *  play, so a paused film resumed with sound after an unrelated rename or
    *  delete in an Explorer tab. Only a caller that knows the file was playing
-   *  passes `play`. */
+   *  passes `play`. `keep`: the file is only being shown again, so a list on
+   *  screen keeps its selection (a delete of ANOTHER row used to jump it to
+   *  the file this tab last opened, 2026-11-09). */
   const reopen = useCallback(
-    (p: string, play = false) => {
+    (p: string, play = false, keep = false) => {
       if (!active) return
-      void openBrowseFile(p, active.browse.surface === 'viewer', play)
+      const full = active.browse.surface === 'viewer'
+      if (keep && !full) void openBrowseFile(p, full, play, null, true)
+      else void openBrowseFile(p, full, play)
     },
     [active, openBrowseFile]
   )
@@ -249,13 +256,15 @@ export function useFileOps({
         setAsk({ kind: 'failed', message: 'That could not be moved to the Recycle Bin.', op: 'trash' })
         return
       }
+      // Before the refresh: the list hands the selection on when the row goes.
+      noteBinned([path])
       setRefreshKey((n) => n + 1)
       dropBuffers([path])
       noteUndo({ kind: 'trash', paths: [path] })
       const cur = file?.path
       if (movedOn(cur, shown.current?.path)) return
       if (!cur || !within(cur, path)) {
-        if (cur) reopen(cur)
+        if (cur) reopen(cur, false, true)
         return
       }
       // What we were looking at is gone. Step to the nearest surviving neighbour,
@@ -289,6 +298,7 @@ export function useFileOps({
         if (await trashWithRetry(p, held && binned.length === 0)) binned.push(p)
       }
       const failed = paths.length - binned.length
+      noteBinned(binned)
       setRefreshKey((n) => n + 1)
       // Only the ones that really went: undoing a path that never left would
       // restore a file the user deliberately binned earlier.
@@ -304,7 +314,7 @@ export function useFileOps({
         const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
         if (next) reopen(next.path)
         else showNothing()
-      } else if (cur) reopen(cur)
+      } else if (cur) reopen(cur, false, true)
       if (failed)
         setAsk({
           kind: 'failed',

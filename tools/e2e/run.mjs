@@ -1445,14 +1445,17 @@ async function deleteAgainScenario(fixtures) {
   const dir = join(fixtures, 'deltwice')
   mkdirSync(dir, { recursive: true })
   for (const n of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(join(dir, n), n)
+  for (const n of ['d.txt', 'e.txt']) writeFileSync(join(dir, n), n)
   const { app, win } = await launch(join(dir, 'a.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
   const rows = () => win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').count()
   try {
     await toList(win, 45000)
     await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
     await sleep(700)
     const before = await rows()
-    ok(before >= 3, `the folder has enough to delete twice (${before})`)
+    ok(before >= 5, `the folder has enough to delete twice (${before})`)
 
     // Click a row so it holds focus the way a user's first Delete does.
     await win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').nth(1).click()
@@ -1464,19 +1467,18 @@ async function deleteAgainScenario(fixtures) {
     await sleep(900)
     ok((await rows()) === before - 1, 'and the row goes')
 
-    // The row that was listening has gone and the focus falls to the window
-    // (the list's own Delete needs the focus inside it, MEASURED 2026-10-26),
-    // so the next row is picked with a click, as a user's would be, and the key
-    // must ask again.
-    await win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').nth(1).click()
-    await sleep(400)
+    // NO CLICK BETWEEN THE TWO (owner, 2026-11-09: "if i click delte agin
+    // nothign happens i ahve to click the next file manually"). The next row
+    // is selected already, and the keyboard is on it.
     await win.keyboard.press('Delete')
-    await sleep(500)
     ok(
-      (await win.locator('[role="dialog"]').count()) === 1,
-      'Delete again asks again, rather than doing nothing'
+      await until(async () => (await win.locator('[role="dialog"]').count()) === 1, 3000),
+      'Delete again asks again with no click between, rather than doing nothing'
     )
-    await win.locator('[role="dialog"] button:has-text("Cancel")').click()
+    if (await win.locator('[role="dialog"] button:has-text("Delete")').count()) {
+      await win.locator('[role="dialog"] button:has-text("Delete")').click()
+      ok(await until(async () => (await rows()) === before - 2, 5000), 'and that second Delete really takes a row')
+    } else ok(false, 'and that second Delete really takes a row (no question to answer)')
   } finally {
     await app.close()
     rmSync(dir, { recursive: true, force: true })
@@ -1874,6 +1876,8 @@ async function deleteLastScenario(fixtures) {
   console.log('delete the last file')
   const dir = join(fixtures, 'lastfile')
   const { app, win } = await launch(join(dir, 'only.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
   try {
     await toList(win, 45000)
     await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
@@ -1895,8 +1899,201 @@ async function deleteLastScenario(fixtures) {
       (await win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').count()) === 0,
       'with an empty list, which is the point: the folder is still the tab root'
     )
+    ok(
+      await until(() => win.evaluate(() => !!document.activeElement?.closest('.browse-list')), 3000),
+      'and the keyboard is still in the list, with no row left to sit on'
+    )
+    await win.keyboard.press('Delete')
+    await sleep(400)
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'where Delete has nothing to ask about')
+    ok(!win.isClosed(), 'and nothing fell over')
   } finally {
     await app.close()
+  }
+}
+
+/**
+ * A DELETE LEAVES THE KEYBOARD IN THE LIST (owner, 2026-11-09: "it deltes tehn
+ * selects the next file by dfeault which is good but if i click delte agin
+ * nothign happens"). Every way a delete ends, from the list: the question
+ * answered by Enter or the mouse, or cancelled, the last row, marks, the
+ * right-click menu, the preview pane open. It leaves the keyboard alone when
+ * the owner has gone somewhere else meanwhile (a field, another window).
+ * Told it has the focus, as the owner's window has; the e2e's never does.
+ */
+async function deleteFocusScenario(fixtures) {
+  console.log('after a delete the keyboard is back in the list')
+  const dir = join(fixtures, 'delfocus')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const names = Array.from({ length: 16 }, (_, i) => `f${String(i + 1).padStart(2, '0')}.txt`)
+  for (const n of names) writeFileSync(join(dir, n), `${n}\n`)
+  const { app, win } = await launch(join(dir, names[0]))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const there = (n) => existsSync(join(dir, n))
+  const dialogs = () => win.locator('[role="dialog"]').count()
+  const asks = () => until(async () => (await dialogs()) === 1, 4000)
+  const closed = () => until(async () => (await dialogs()) === 0, 4000)
+  const button = (label) => win.locator(`[role="dialog"] button:has-text("${label}")`)
+  const leaf = (p) => /[^\\]*$/.exec(p ?? '')?.[0] ?? ''
+  const where = () =>
+    win.evaluate(() => {
+      const a = document.activeElement
+      return {
+        tag: a?.tagName ?? '',
+        inList: !!a?.closest?.('.browse-list'),
+        row: a?.getAttribute?.('data-browse-path') ?? '',
+        selected: document.querySelector('.browse-row[data-browse-path][aria-selected="true"]')?.getAttribute('data-browse-path') ?? ''
+      }
+    })
+  const onRow = (name) =>
+    until(async () => {
+      const w = await where()
+      return leaf(w.row) === name && leaf(w.selected) === name
+    }, 4000)
+  const said = async () => JSON.stringify(await where())
+  const pick = async (name) => {
+    await listRow(win, name).click()
+    await sleep(300)
+  }
+  try {
+    await toList(win, 45000)
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
+    await sleep(700)
+
+    // Enter answers the question.
+    await pick('f02.txt')
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks')
+    await win.keyboard.press('Enter')
+    ok(await until(() => !there('f02.txt'), 5000), 'Enter takes the file')
+    ok(await onRow('f03.txt'), `and the keyboard is on the next row, which is selected (${await said()})`)
+    await win.keyboard.press('ArrowDown')
+    ok(await onRow('f04.txt'), `the arrows work at once (${await said()})`)
+    await win.keyboard.press('ArrowUp')
+    ok(await onRow('f03.txt'), 'both ways')
+    await win.keyboard.press('F2')
+    ok(await asks(), 'F2 works at once too')
+    await win.keyboard.press('Escape')
+    await closed()
+    ok(await onRow('f03.txt'), `and leaving the rename puts the keyboard back (${await said()})`)
+
+    // Cancel, three ways: nothing goes and the keyboard comes back.
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks again')
+    await button('Cancel').click()
+    await closed()
+    ok(there('f03.txt'), 'Cancel keeps the file')
+    ok(await onRow('f03.txt'), `and the keyboard stays on its row (${await said()})`)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks after a Cancel with no click')
+    await win.keyboard.press('Escape')
+    await closed()
+    ok(await onRow('f03.txt'), `Escape on the question puts it back too (${await said()})`)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks after an Escape with no click')
+    await win.mouse.click(4, 300)
+    await closed()
+    ok(there('f03.txt'), 'a press outside the question keeps the file')
+    ok(await onRow('f03.txt'), `and puts the keyboard back (${await said()})`)
+
+    // The question answered by the mouse.
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks again')
+    await button('Delete').click()
+    ok(await until(() => !there('f03.txt'), 5000), 'the mouse takes the file')
+    ok(await onRow('f04.txt'), `the keyboard is on the next row (${await said()})`)
+
+    // The last row: the selection moves UP.
+    await win.keyboard.press('End')
+    ok(await onRow('f16.txt'), `End reaches the last row (${await said()})`)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete on the last row asks')
+    await win.keyboard.press('Enter')
+    ok(await until(() => !there('f16.txt'), 5000), 'the last row goes')
+    ok(await onRow('f15.txt'), `and the keyboard moves up with the selection (${await said()})`)
+
+    // Started from the right-click menu.
+    await listRow(win, 'f10.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.getByRole('menuitem', { name: /^Delete/ }).first().click()
+    ok(await asks(), 'the menu\'s Delete asks')
+    await button('Delete').click()
+    ok(await until(() => !there('f10.txt'), 5000), 'and takes the file')
+    ok(await onRow('f11.txt'), `a delete from the menu comes back to the list too (${await said()})`)
+
+    // Marks: several rows at once.
+    await pick('f05.txt')
+    await listRow(win, 'f06.txt').click({ modifiers: ['Control'] })
+    await sleep(300)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete on two marked rows asks once')
+    await win.keyboard.press('Enter')
+    ok(await until(() => !there('f05.txt') && !there('f06.txt'), 5000), 'and both go')
+    ok(await until(async () => (await where()).inList, 4000), `the keyboard is in the list after marks (${await said()})`)
+    ok(await onRow('f07.txt'), `on the row the selection moved to (${await said()})`)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'and Delete asks with no click')
+    await button('Cancel').click()
+    await closed()
+
+    // With the preview pane open.
+    await win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first().click()
+    await win.waitForSelector('[data-testid="folder-browser"][data-preview]', { timeout: 8000 })
+    await sleep(500)
+    await pick('f08.txt')
+    await sleep(600)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks with the preview open')
+    await win.keyboard.press('Enter')
+    ok(await until(() => !there('f08.txt'), 5000), 'the previewed file goes')
+    ok(await onRow('f09.txt'), `and the keyboard stays with the list, not the preview (${await said()})`)
+    await sleep(700)
+    ok(await onRow('f09.txt'), `still there once the next preview has come (${await said()})`)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks with no click, the preview open')
+    await button('Cancel').click()
+    await closed()
+    await win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first().click()
+    await until(async () => !(await win.locator('[data-testid="folder-browser"][data-preview]').count()), 8000)
+    await sleep(400)
+
+    // The owner went to a field while the delete ran: the focus stays there.
+    await pick('f11.txt')
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks before the address bar')
+    await win.evaluate(() => {
+      const yes = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Delete')
+      yes.click()
+      // The same tick: the delete is still on its way when the field opens.
+      document.querySelector('[data-testid="browse-edit-path"]').click()
+    })
+    ok(await until(() => !there('f11.txt'), 5000), 'the file goes')
+    ok(
+      await until(async () => (await where()).tag === 'INPUT', 4000),
+      `the address bar has the keyboard (${await said()})`
+    )
+    await sleep(800)
+    ok((await where()).tag === 'INPUT', `and the finished delete does not take it (${await said()})`)
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
+    // The owner went to another window: the same (document.hasFocus is what
+    // says so, stubbed: the e2e's windows cannot really be left).
+    await pick('f12.txt')
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks before leaving the window')
+    await win.evaluate(() => {
+      document.hasFocus = () => false
+      ;[...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Delete').click()
+    })
+    ok(await until(() => !there('f12.txt'), 5000), 'the file goes with the window left')
+    await sleep(800)
+    ok(!(await where()).inList, `and nothing moved the focus back into the list (${await said()})`)
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -23815,6 +24012,7 @@ await run(chromeHideScenario)
 await run(zoomFloorScenario)
 await run(rowPasteScenario)
 await run(deleteLastScenario)
+await run(deleteFocusScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over

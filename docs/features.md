@@ -3,6 +3,33 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## After a delete the keyboard is back in the list (owner, 2026-11-09)
+
+The owner: "in prism if i clicka file press the delte key it deltes tehn selects the next file by
+dfeault which is good but if i click delte agin nothign happens i ahve to click the next file manually
+to select it then press the delte key". Delete, the arrows, F2 and the rest answer only with the focus
+inside the list, and it fell to the page twice: the question took it to its button and the button went
+with the question, and the row that was deleted took it with it.
+
+- **The keyboard comes back on its own** (`components/browse/useListKeyboard.ts`, the one place). The last
+  press or key says whose it was: in the list, the list's; on a question or a menu, whatever it was before;
+  anywhere else it was given up. When the focus has fallen to the page (the question closing, the row going),
+  it goes back to the selected row, or to the list when no row is selected or left. Every route gets this:
+  Enter or the mouse on the question, Cancel, Escape, a press outside it, the right-click menu, F2's rename.
+- **It never takes the focus from anywhere**: a field the owner went to in the meantime (search, the address
+  bar, a rename) or another window (`document.hasFocus`, the preview window among them) is left alone,
+  and nothing is put back while something is in front (a question, a menu, Settings).
+- **The next row is the list's, in the list's order** (`lib/binnedRows.ts`). A delete says which paths went and
+  the list hands the selection to the row after the one that went, or up when the last row went, or none when
+  the folder is empty. It was only ever the viewer's step: with the file on show as the deleted one it worked (the
+  owner's case), with nothing on show the selection stayed on the dead path, and with ANOTHER file open in the
+  tab it jumped to that file. A delete of another row no longer moves it (`reopen(.., keep)`). There
+  is no "skip the question" setting: every delete asks.
+- **Held by** e2e `deleteAgain` (Delete, Delete, no click, and the second really takes a row), `deleteLast`
+  (the only file: no crash, keyboard in the empty list) and `deleteFocus` (Enter, mouse, Cancel, Escape, a press
+  outside, the last row, the menu, marks, the preview pane, a field and another window left alone), and
+  `lib/binnedRows.test.ts`.
+
 ## iPhone .mov films play on every PC: direct, or live (owner, 2026-11-08)
 
 The owner: "make prism support .mov, i dont think it does". `.mov` was already a video kind
