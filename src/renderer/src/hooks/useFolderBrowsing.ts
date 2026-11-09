@@ -36,9 +36,12 @@ import { createDirectoryRequests, directoryKey, visitedDirectories } from '../li
 import { usePendingHint, type ListPending } from './usePendingHint'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import type { DirListing } from '@shared/types'
+import { pageDocuments } from '../lib/pageDocuments'
 
 function pauseTab(tabId: string, which = 'video,audio'): void {
-  for (const region of document.querySelectorAll<HTMLElement>('[data-player-tab]')) {
+  // The preview window's too: the front tab's player is drawn there.
+  const regions = pageDocuments().flatMap((d) => [...d.querySelectorAll<HTMLElement>('[data-player-tab]')])
+  for (const region of regions) {
     if (region.dataset.playerTab !== tabId) continue
     for (const media of region.querySelectorAll<HTMLMediaElement>(which)) pauseQuietly(media)
   }

@@ -99,6 +99,21 @@ Filesmith's conventions.
   mounts a fresh `PreviewWindow` (keyed), never one main already closed. A viewer measuring
   itself makes its ResizeObserver from the element's own window (`lib/ownResizeObserver.ts`):
   the Explorer's observer never reports an element of the child's document.
+  Keys and lookups the same way (2026-11-08): a key pressed in the child reaches only the
+  child's window, so a viewer listens through `lib/ownWindow.ts` (`useViewerWindows` re-reads
+  the element's window after each render and re-binds; `listenOn` puts a listener on its own
+  window and the Explorer's), asks its own document for the focus, the selection, an #anchor
+  and the find's highlight registry, and tests nodes with `isElement`/`isNode` (`instanceof`
+  fails across windows). `PreviewWindow` adds its Space/Escape listener to the child window in
+  the capture phase BEFORE any viewer is drawn there, so its close stops the key
+  (`stopImmediatePropagation`) ahead of every viewer's listener. `lib/pageDocuments.ts` lists the
+  child's document while it is drawn into, for whole-page questions (`audio.idleIfSilent`,
+  `useFolderBrowsing`'s `pauseTab`). `lib/ownWindow.test.ts` guards the viewer files.
+  Right-click menus the same way (2026-11-08): `ContextMenu` takes `at`, the element right-clicked,
+  and portals into ITS document's body, clamps to its window and listens there and on the
+  Explorer's. The child's Space/Escape listener stands down while a `[role="menu"]` is up in the
+  child (`previewWindowKey`'s `menuUp`), and the list's Space and Escape check every page
+  document for a menu or a question (`pageDocuments.menuOrDialogUp`).
 - **SETTINGS DESCRIPTIONS ARE PLAIN WORDS** (2026-09-22, owner: "no symbols other than comma and
   dot, no mentioning of specific keys or tips, just a simple text description of what it does").
   Every hint on Prism's own pages was rewritten to that rule, the core's rows likewise in the core.

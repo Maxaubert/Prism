@@ -86,7 +86,7 @@ export function AudioView({
 }): JSX.Element {
   const look = useMediaLook()
   const v = look.viz
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; at: EventTarget } | null>(null)
   // See VolumeReadout: a timestamp, so every notch restarts one clock.
   const [volFlash, setVolFlash] = useState(0)
   const prefs = usePlayerPrefs()
@@ -186,7 +186,7 @@ export function AudioView({
         if (background) return
         e.preventDefault()
         showChrome()
-        setMenu({ x: e.clientX, y: e.clientY })
+        setMenu({ x: e.clientX, y: e.clientY, at: e.currentTarget })
       }}
       // The wheel is the volume here too, and the only way past 100%: the
       // gesture should not change because the file has no picture.
@@ -199,7 +199,7 @@ export function AudioView({
     >
       {!background && <VolumeReadout flash={volFlash} vol={c.vol} muted={c.muted} />}
       {menu && !background && (
-        <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />
+        <ContextMenu x={menu.x} y={menu.y} at={menu.at} items={menuItems()} onClose={() => setMenu(null)} />
       )}
       {(synthesising || synthFailed) && (
         <StageNotice className="z-30 bg-[var(--p-bg)]/90">

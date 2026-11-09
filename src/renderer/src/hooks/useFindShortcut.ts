@@ -1,6 +1,7 @@
 import { useEffect, useRef, type RefObject } from 'react'
 import { NAV_SURFACE, isTextBox } from '../lib/focusGuards'
 import { yieldsFindToExplorer } from '../lib/previewFind'
+import { listenOn, useViewerWindows } from '../lib/ownWindow'
 
 /**
  * Ctrl+F for a document viewer (DocView, MarkdownView): opens its find bar.
@@ -22,8 +23,10 @@ import { yieldsFindToExplorer } from '../lib/previewFind'
 export function ownsFindKeys(el: HTMLElement | null): boolean {
   if (!el || el.closest('[inert]') || el.closest('[hidden]')) return false
   if (!el.isConnected || !el.offsetParent) return false
-  const active = document.activeElement as HTMLElement | null
-  if (active && active !== document.body) {
+  // The focus in the viewer's own document (the preview window's, when it is there).
+  const doc = el.ownerDocument
+  const active = doc.activeElement as HTMLElement | null
+  if (active && active !== doc.body) {
     // Somebody has the focus: only the pane containing it may answer.
     const pane = active.closest('[data-doc-scroller], .cm-editor, [data-pdf-scroller]')
     if (pane && pane !== el && !el.contains(active)) return false
@@ -37,6 +40,7 @@ export function useFindShortcut(box: RefObject<HTMLElement | null>, onFind: () =
   useEffect(() => {
     find.current = onFind
   })
+  const wins = useViewerWindows(box)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -52,7 +56,6 @@ export function useFindShortcut(box: RefObject<HTMLElement | null>, onFind: () =
       e.stopPropagation()
       find.current()
     }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [box])
+    return listenOn(wins, 'keydown', onKey, true)
+  }, [box, wins])
 }

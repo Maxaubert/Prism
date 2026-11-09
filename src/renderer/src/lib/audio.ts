@@ -1,6 +1,8 @@
 // One shared Web Audio context for the window, plus a helper to pull a downsampled
 // amplitude envelope (peaks) from a media file for the waveform transport styles.
 
+import { pageDocuments } from './pageDocuments'
+
 let ctx: AudioContext | null = null
 export function getAudioContext(): AudioContext {
   ctx ??= new AudioContext()
@@ -53,7 +55,9 @@ export function anyPlaying(players: Iterable<{ readonly paused: boolean }>): boo
  * that unmounts asks this too, and it looks at what is still on the page.
  */
 export function idleIfSilent(): void {
-  if (!anyPlaying(document.querySelectorAll<HTMLMediaElement>('video,audio'))) idleAudioContext()
+  // The preview window's players too: a film playing there is on this page.
+  const players = pageDocuments().flatMap((d) => [...d.querySelectorAll<HTMLMediaElement>('video,audio')])
+  if (!anyPlaying(players)) idleAudioContext()
 }
 
 export function wakeAudioContext(): void {

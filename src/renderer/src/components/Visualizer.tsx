@@ -8,6 +8,7 @@ import { canvasShown, drawLoopRuns, HIDDEN_POLL_MS, idleFrame, wantsResume } fro
 import { contextAsleep, getAudioContext, mediaGraph } from '../lib/audio'
 import { hexToRgb } from '../lib/colour'
 import { ownResizeObserver } from '../lib/ownResizeObserver'
+import { listenOn, ownWindow, viewerWindows } from '../lib/ownWindow'
 
 // Drives whichever visualizer style is selected. Owns the Web Audio graph and
 // the per-frame analysis (bands, level, beat) so the styles only have to draw.
@@ -138,11 +139,12 @@ export function Visualizer({
       if (wantsResume(contextAsleep(), media.paused)) void ctx.resume()
     }
     media.addEventListener('play', resume)
-    window.addEventListener('pointerdown', resume)
+    // A click in the track's own window counts too (the preview window).
+    const unDown = listenOn(viewerWindows(ownWindow(media)), 'pointerdown', resume)
     if (!media.paused) resume()
     return () => {
       media.removeEventListener('play', resume)
-      window.removeEventListener('pointerdown', resume)
+      unDown()
       try {
         // Only the tap comes down: the chain to the speakers belongs to the
         // element, not to the visualizer.

@@ -1857,7 +1857,13 @@ export default function App(): JSX.Element {
                   {players.filter((_, i) => !inWindow(deck[i].tabId))}
                   {liveContent}
                   {previewWindowUp && (
-                    <PreviewWindow key={previewWindowGen} open={windowShown} title={file?.name ?? ''} onClose={closePreviewWindow}>
+                    <PreviewWindow
+                      key={previewWindowGen}
+                      open={windowShown}
+                      title={file?.name ?? ''}
+                      onClose={closePreviewWindow}
+                      onStep={file && (file.kind === 'video' || file.kind === 'image' || file.kind === 'comic') ? go : undefined}
+                    >
                       {windowContent}
                     </PreviewWindow>
                   )}
