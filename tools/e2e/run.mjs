@@ -17623,7 +17623,14 @@ async function previewWindowScenario(fixtures) {
   writeFileSync(join(dir, 'notes.txt'), 'line 1 of the notes\n')
   writeFileSync(join(dir, 'charlie.txt'), 'the charlie text\n')
   copyFileSync(join(fixtures, 'one.png'), join(dir, 'alpha.png'))
-  copyFileSync(join(fixtures, 'two.png'), join(dir, 'bravo.png'))
+  // A real picture (64 px): Copy image in the window's menu decodes it.
+  writeFileSync(join(dir, 'bravo.png'), clearPng())
+  // After notes.txt in the list, so the arrows below walk the same rows.
+  copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, 'video.mp4'))
+  writeFileSync(
+    join(dir, 'story.md'),
+    `# Story\n\n[To the end](#the-end)\n\n${Array.from({ length: 160 }, (_, i) => `Paragraph ${i} of the long middle.`).join('\n\n')}\n\n## The end\n\n${Array.from({ length: 60 }, (_, i) => `Last words, ${i}.`).join('\n\n')}\n`
+  )
   const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
   let windowMode = false
   const wins = () => app.evaluate(() => globalThis.__e2ePreviewWindows?.() ?? [])
@@ -17670,7 +17677,9 @@ async function previewWindowScenario(fixtures) {
   const childKey = (key) =>
     win.evaluate((k) => {
       const w = window.__prismPreviewWindow
-      w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, code: k === ' ' ? 'Space' : k, bubbles: true, cancelable: true }))
+      // Where a real press in the window lands: its focused element, else its body.
+      const at = w.document.activeElement ?? w.document.body
+      at.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, code: k === ' ' ? 'Space' : k, bubbles: true, cancelable: true }))
     }, key)
   try {
     await explorerAt(win, dir)
@@ -17697,6 +17706,18 @@ async function previewWindowScenario(fixtures) {
     ok(opened.some((f) => f.to === 1 && f.frames > 3), `it faded in (${JSON.stringify(opened)})`)
     ok(!(await paneShown()) && (await pressed()), 'the pane stays shut; the toolbar button reads it as on')
     ok((await focusedRow()) === 'notes.txt', `the keyboard stayed in the list (${await focusedRow()})`)
+    // The text editor in the window keeps its Space (a space typed is a
+    // space), ahead of the window's own close and every viewer listener.
+    const editorFocused = await win.evaluate(() => {
+      const ed = window.__prismPreviewWindow?.document.querySelector('[data-preview-window-body] .cm-content')
+      ed?.focus()
+      return !!ed && ed.ownerDocument.activeElement === ed
+    })
+    ok(editorFocused, 'the text editor in the window takes the focus')
+    await childKey(' ')
+    await sleep(400)
+    ok(await isOpen(), "Space in the window's text editor leaves the window open")
+    await win.evaluate(() => window.__prismPreviewWindow?.document.activeElement?.blur())
     const [state] = await wins()
     const main = await mainWin(app, 'getBounds')
     const cx = (b) => b.x + b.width / 2
@@ -17767,15 +17788,210 @@ async function previewWindowScenario(fixtures) {
     ok(walls.href === 'about:blank', `and its page goes nowhere (${walls.href})`)
     ok((await inside()) !== null, 'and it still shows the file')
 
-    // Space with the keyboard in the window itself closes it, faded out.
+    // ITS VIEWERS HEAR THEIR OWN WINDOW (owner, 2026-11-08: "Keys and in-page
+    // links don't work with focus inside the preview window ... fix that").
+    // The keys go to the window's own document, as a press with the keyboard
+    // in it would.
+    const imageLook = () =>
+      win.evaluate(() => {
+        const layer = window.__prismPreviewWindow?.document.querySelector('[data-preview-window-body] [style*="rotate("]')
+        return layer?.style.transform ?? ''
+      })
+    const rotOf = (t) => Number(/rotate\((-?\d+)deg\)/.exec(t)?.[1] ?? NaN)
+    const scaleOf = (t) => Number(/scale\(([\d.]+)\)/.exec(t)?.[1] ?? NaN)
+    const look0 = await imageLook()
+    await childKey('r')
+    ok(await until(async () => rotOf(await imageLook()) === (rotOf(look0) + 90) % 360, 2000), `R in the window turns its picture (${look0} -> ${await imageLook()})`)
+    await childKey('+')
+    ok(await until(async () => scaleOf(await imageLook()) > scaleOf(look0) * 1.1, 2000), `+ in the window zooms it (${look0} -> ${await imageLook()})`)
+    await childKey('0')
+    await childKey('r')
+    await childKey('r')
+    await childKey('r')
+    ok((await focusedRow()) === 'bravo.png' && (await isOpen()), `the picture's keys moved nothing in the list (${await focusedRow()})`)
+
+    // A RIGHT-CLICK IN THE WINDOW OPENS ITS VIEWER'S MENU, IN THE WINDOW
+    // (owner, 2026-11-08: "also let me right click the preview to copy or do
+    // other actions"). The same rows as the pane's, drawn in the window's own
+    // document at the cursor; its actions act on the file shown; Escape (its
+    // own or the list's) and a press away close the menu and leave the window.
+    /** Right-click `sel` in the window, at its middle. */
+    const rightClick = (sel) =>
+      win.evaluate((q) => {
+        const w = window.__prismPreviewWindow
+        const el = w?.document.querySelector(`[data-preview-window-body] ${q}`)
+        if (!el) return false
+        const r = el.getBoundingClientRect()
+        const at = { bubbles: true, cancelable: true, button: 2, buttons: 2, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }
+        el.dispatchEvent(new w.PointerEvent('pointerdown', at))
+        el.dispatchEvent(new w.PointerEvent('pointerup', { ...at, buttons: 0 }))
+        el.dispatchEvent(new w.MouseEvent('contextmenu', at))
+        return true
+      }, sel)
+    /** Where a menu is: the window's document, the Explorer's, its rows. */
+    const menuState = () =>
+      win.evaluate(() => {
+        const w = window.__prismPreviewWindow
+        const m = w?.document.querySelector('[role="menu"]')
+        const r = m?.getBoundingClientRect()
+        return {
+          inWindow: !!m,
+          inExplorer: !!document.querySelector('[role="menu"]'),
+          rows: m ? [...m.querySelectorAll(':scope > [role="menuitem"]')].map((b) => (b.querySelector('.truncate') ?? b).textContent.trim()) : [],
+          fits: !!r && r.left >= 0 && r.top >= 0 && r.right <= w.innerWidth && r.bottom <= w.innerHeight,
+          // Themed: the panel wears the raised surface, not a bare default.
+          bg: m ? getComputedStyle(m).backgroundColor : ''
+        }
+      })
+    const pickRow = (label) =>
+      win.evaluate((l) => {
+        const m = window.__prismPreviewWindow?.document.querySelector('[role="menu"]')
+        const b = m && [...m.querySelectorAll('[role="menuitem"]')].find((x) => x.textContent.trim().startsWith(l))
+        b?.click()
+        return !!b
+      }, label)
+    await app.evaluate(({ clipboard }) => clipboard.writeText(''))
+    ok(await rightClick('img'), 'the picture is in the window to right-click')
+    ok(await until(async () => (await menuState()).inWindow, 2000), `a right-click on the picture opens a menu in the window (${JSON.stringify(await menuState())})`)
+    const picMenu = await menuState()
+    ok(!picMenu.inExplorer, 'and not in the Explorer behind it')
+    ok(['Rotate', 'Copy image', 'Copy path', 'Save a copy', 'Show in File Explorer'].every((l) => picMenu.rows.includes(l)), `the picture's rows (${picMenu.rows.join(', ')})`)
+    ok(picMenu.fits && !!picMenu.bg && picMenu.bg !== 'rgba(0, 0, 0, 0)', `inside the window, themed (${JSON.stringify(picMenu)})`)
+    await childKey('Escape')
+    ok(await until(async () => !(await menuState()).inWindow, 2000), "Escape in the window closes the menu")
+    await sleep(300)
+    ok(await isOpen(), 'and the window stays open')
+    await rightClick('img')
+    ok(await until(async () => (await menuState()).inWindow, 2000), 'a right-click opens it again')
+    ok(await pickRow('Copy image'), 'Copy image is there to pick')
+    const pixels = () => app.evaluate(({ clipboard }) => { const i = clipboard.readImage(); return i.isEmpty() ? 0 : i.getSize().width })
+    ok(await until(async () => (await pixels()) > 0, 4000), `Copy image puts the picture on the clipboard (${await pixels()} px wide)`)
+    ok(!(await menuState()).inWindow && (await isOpen()), 'the menu closes on the pick, the window stays')
+    await rightClick('img')
+    await until(async () => (await menuState()).inWindow, 2000)
+    await pickRow('Copy path')
+    ok(await until(async () => /bravo\.png$/.test(await app.evaluate(({ clipboard }) => clipboard.readText())), 3000), `Copy path is the file shown (${await app.evaluate(({ clipboard }) => clipboard.readText())})`)
+    // A press away (in the window) and Escape on the list: the menu goes, the window stays.
+    await rightClick('img')
+    await until(async () => (await menuState()).inWindow, 2000)
+    await win.evaluate(() => {
+      const w = window.__prismPreviewWindow
+      w.document.querySelector('.preview-window-title').dispatchEvent(new w.PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+    })
+    ok(await until(async () => !(await menuState()).inWindow, 2000), 'a press away in the window closes the menu')
+    ok(await isOpen(), 'and leaves the window')
+    // A press in the Explorer closes it too.
+    await rightClick('img')
+    await until(async () => (await menuState()).inWindow, 2000)
+    await win.evaluate(() =>
+      document.querySelector('[data-testid="browse-list"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+    )
+    ok(await until(async () => !(await menuState()).inWindow, 2000), "a press in the Explorer closes the window's menu")
+    await rightClick('img')
+    await until(async () => (await menuState()).inWindow, 2000)
+    await listRow(win, 'bravo.png').focus()
+    await win.keyboard.press('Escape')
+    ok(await until(async () => !(await menuState()).inWindow, 2000), "Escape on the list closes the window's menu")
+    await sleep(300)
+    ok(await isOpen(), 'and only the menu')
+
+    // The text editor's menu in the window: its own rows, Copy path the file shown.
+    await pick('charlie.txt')
+    ok(await until(async () => /the charlie text/.test((await inside())?.text ?? ''), 8000), 'charlie.txt in the window')
+    await app.evaluate(({ clipboard }) => clipboard.writeText(''))
+    ok(await rightClick('.cm-content'), 'its editor is there to right-click')
+    ok(await until(async () => (await menuState()).inWindow, 2000), `a right-click on the text opens its menu in the window (${JSON.stringify(await menuState())})`)
+    const textMenu = await menuState()
+    ok(!textMenu.inExplorer && ['Cut', 'Copy', 'Paste', 'Copy path', 'Select all', 'Find'].every((l) => textMenu.rows.includes(l)), `the editor's rows (${textMenu.rows.join(', ')})`)
+    await pickRow('Copy path')
+    ok(await until(async () => /charlie\.txt$/.test(await app.evaluate(({ clipboard }) => clipboard.readText())), 3000), `the text's Copy path is the file shown (${await app.evaluate(({ clipboard }) => clipboard.readText())})`)
+    ok((await isOpen()) && !(await menuState()).inWindow, 'the menu closed, the window stays')
+    await pick('bravo.png')
+    ok(await until(async () => (await inside())?.img?.ok, 8000), 'back on the picture')
+
+    // Markdown's in-page link scrolls the window's own document.
+    await pick('story.md')
+    const mdState = () =>
+      win.evaluate(() => {
+        const d = window.__prismPreviewWindow?.document
+        const scroller = d?.querySelector('[data-preview-window-body] [data-doc-scroller]')
+        const end = d?.getElementById('the-end')
+        if (!scroller || !end) return null
+        return {
+          top: Math.round(scroller.scrollTop),
+          endAt: Math.round(end.getBoundingClientRect().top - scroller.getBoundingClientRect().top),
+          height: Math.round(scroller.clientHeight)
+        }
+      })
+    ok(await until(async () => (await mdState()) !== null, 8000), `the markdown shows in the window (${JSON.stringify(await mdState())})`)
+    await sleep(300)
+    const mdBefore = await mdState()
+    await win.evaluate(() => {
+      const a = window.__prismPreviewWindow.document.querySelector('[data-preview-window-body] a[href="#the-end"]')
+      a.click()
+    })
+    ok(
+      await until(async () => {
+        const s = await mdState()
+        return !!s && s.top > mdBefore.top + 100 && s.endAt >= -2 && s.endAt < s.height / 2
+      }, 3000),
+      `its #link scrolls the window's own document to the heading (${JSON.stringify(mdBefore)} -> ${JSON.stringify(await mdState())})`
+    )
+    ok((await isOpen()) && (await focusedRow()) === 'story.md', 'and the window and the list stay put')
+
+    // A film's keys: M mutes it, the arrows are its own (seek), never the list's.
+    await pick('video.mp4')
+    const film = () =>
+      win.evaluate(() => {
+        const v = window.__prismPreviewWindow?.document.querySelector('[data-preview-window-body] video')
+        return v ? { muted: v.muted, t: v.currentTime, ready: v.readyState, dur: v.duration } : null
+      })
+    ok(await until(async () => (await film())?.ready >= 1, 8000), `the film is in the window (${JSON.stringify(await film())})`)
+    const muted0 = (await film()).muted
+    await childKey('m')
+    ok(await until(async () => (await film())?.muted === !muted0, 2000), `M in the window mutes its film (${muted0} -> ${(await film())?.muted})`)
+    await childKey('m')
+    ok(await until(async () => (await film())?.muted === muted0, 2000), 'and M again gives the sound back')
+    await win.evaluate(() => {
+      const v = window.__prismPreviewWindow.document.querySelector('[data-preview-window-body] video')
+      v.pause()
+      v.currentTime = 0
+    })
+    await sleep(200)
+    await childKey('ArrowRight')
+    ok(await until(async () => (await film())?.t > 0.5, 2000), `ArrowRight in the window seeks the film (${JSON.stringify(await film())})`)
+    ok((await focusedRow()) === 'video.mp4' && (await isOpen()), `and moves nothing in the list (${await focusedRow()})`)
+
+    // Space with the keyboard in the window itself closes it, faded out,
+    // a film's too (Space is the window's, never play and pause).
     const beforeClose = (await fades()).length
+    await win.evaluate(() => {
+      window.__filmToggles = 0
+      const v = window.__prismPreviewWindow.document.querySelector('[data-preview-window-body] video')
+      for (const t of ['play', 'pause']) v.addEventListener(t, () => (window.__filmToggles += 1))
+    })
+    // A menu up over the film (review 2026-11-08): Space is the menu's, so it
+    // neither closes the window nor plays the film under the menu.
+    ok(await rightClick('video'), 'the film is there to right-click')
+    ok(await until(async () => (await menuState()).inWindow, 2000), `a right-click on the film opens its menu in the window (${JSON.stringify(await menuState())})`)
+    await childKey(' ')
+    await sleep(300)
+    ok(
+      (await isOpen()) && (await win.evaluate(() => window.__filmToggles)) === 0,
+      `Space under the film's menu neither closes the window nor plays the film (open ${await isOpen()}, toggles ${await win.evaluate(() => window.__filmToggles)})`
+    )
+    await childKey('Escape')
+    ok(await until(async () => !(await menuState()).inWindow, 2000), "and Escape closes the film's menu")
+    await sleep(300)
     await childKey(' ')
     ok(await until(isShut, 3000), 'Space in the preview window closes it')
+    ok((await win.evaluate(() => window.__filmToggles)) === 0, `and the film's Space did not play or pause it first (${await win.evaluate(() => window.__filmToggles)})`)
     const closed = (await fades()).slice(beforeClose)
     ok(closed.some((f) => f.to === 0 && f.frames > 3), `it faded out (${JSON.stringify(closed)})`)
     ok(!(await pressed()) && !(await paneShown()), 'the preview is off, and no pane came instead')
 
     // Space again on the list, then Escape on the list.
+    await pick('bravo.png')
     await listRow(win, 'bravo.png').focus()
     await win.keyboard.press('Space')
     ok(await until(isOpen, 5000), 'Space opens it again')

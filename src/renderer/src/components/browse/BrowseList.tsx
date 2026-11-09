@@ -36,6 +36,7 @@ import { divideRows, type DateDivider } from '../../lib/dateGroups'
 import { nextSort } from '../../lib/downloadsView'
 import { listKey, spaceKey, stepTo, type ListKey } from '../../lib/listKeys'
 import { nearerEscape } from '../../lib/nearerEscape'
+import { menuOrDialogUp } from '../../lib/pageDocuments'
 import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
 import { createScrollSettle } from '../../lib/scrollSettle'
 
@@ -645,8 +646,7 @@ export function BrowseList(props: Props): JSX.Element {
       // The preview window first (owner, 2026-11-08): Escape closes it and
       // leaves the marks; the next Escape clears them as before.
       if (common === 'clear' && e.key === 'Escape' && props.previewWindowOpen && !e.repeat) {
-        const front =
-          props.covered || !!document.querySelector('[role="menu"], [role="dialog"][aria-modal="true"]')
+        const front = props.covered || menuOrDialogUp()
         if (!front) {
           e.preventDefault()
           e.stopPropagation()
@@ -677,8 +677,7 @@ export function BrowseList(props: Props): JSX.Element {
       // Something in front of the list (a menu opened with the mouse leaves
       // the focus on its row, a question, Settings): the key is taken but
       // nothing behind it changes.
-      const front =
-        props.covered || !!document.querySelector('[role="menu"], [role="dialog"][aria-modal="true"]')
+      const front = props.covered || menuOrDialogUp()
       if (space === 'preview' && !front) props.onPreviewToggle?.()
       if (space !== 'type') return
     }

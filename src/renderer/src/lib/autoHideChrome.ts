@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { FIELD, OVERLAY } from './focusGuards'
+import { listenOn, useViewerWindows } from './ownWindow'
 
 /** How long the chrome stays up after the last thing that happened. */
 export const CHROME_IDLE = 2600
@@ -105,6 +106,8 @@ export function useAutoHideChrome(
   const [leaving, setLeaving] = useState(false)
   /** When the fade started, so the clock knows when it is over. */
   const leftAt = useRef(0)
+  // The stage's own window too (the preview window, `ownWindow.ts`).
+  const wins = useViewerWindows(stage)
   // Held in a ref so the interval never has to be torn down and rebuilt, which
   // would restart the countdown on every render. Written in an effect rather
   // than during render: a ref touched while rendering is a lint error here, and
@@ -181,14 +184,14 @@ export function useAutoHideChrome(
       const element = stage.current
       const target = event.target as HTMLElement | null
       if (!element || element.closest('[inert]') || !element.getClientRects().length) return
-      if (target !== document.body && !element.contains(target)) return
+      if (target !== target?.ownerDocument?.body && !element.contains(target)) return
       if (target?.closest(`${FIELD},${OVERLAY}`)) return
       if (keyWakes.current(event)) wake()
     }
     // pointermove rather than mousemove: Chromium fires `mousemove` on a layout
     // change under a STATIONARY cursor, which a page turn is.
-    window.addEventListener('pointermove', onMove, { capture: true, passive: true })
-    window.addEventListener('keydown', onKey, true)
+    const unMove = listenOn(wins, 'pointermove', onMove, { capture: true, passive: true })
+    const unKey = listenOn(wins, 'keydown', onKey, true)
     // A TAP is activity too (2026-09-07, #106, the phone). A finger that
     // touches and lifts fires no pointermove at all, so on a phone the chrome
     // never came back once it had gone: no page counter on a comic, no
@@ -197,7 +200,7 @@ export function useAutoHideChrome(
     const onDown = (e: PointerEvent): void => {
       if (e.pointerType !== 'mouse' && withinStage(e)) wake()
     }
-    window.addEventListener('pointerdown', onDown, { capture: true, passive: true })
+    const unDown = listenOn(wins, 'pointerdown', onDown, { capture: true, passive: true })
     // Entering or leaving fullscreen relays out the whole stage, and the chrome
     // has to be visible on the other side of it.
     let previousFullscreen = document.fullscreenElement
@@ -207,14 +210,16 @@ export function useAutoHideChrome(
       if (element && (previousFullscreen?.contains(element) || current?.contains(element))) wake()
       previousFullscreen = current
     }
+    // own-window-ok: fullscreen is the Explorer page's alone (the preview window has none)
     document.addEventListener('fullscreenchange', onFullscreen)
     return () => {
-      window.removeEventListener('pointermove', onMove, true)
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('pointerdown', onDown, true)
+      unMove()
+      unKey()
+      unDown()
+      // own-window-ok: the fullscreen listener above
       document.removeEventListener('fullscreenchange', onFullscreen)
     }
-  }, [wake, stage])
+  }, [wake, stage, wins])
 
   return { shown, leaving, wake }
 }

@@ -16,6 +16,7 @@ import { yieldsFindToExplorer } from '../../lib/previewFind'
 import { pageAtLine } from './pageAtLine'
 import '../../assets/pdf.css'
 import { ownResizeObserver } from '../../lib/ownResizeObserver'
+import { listenOn, ownDocument, ownWindow, useViewerWindows } from '../../lib/ownWindow'
 
 // Prism's own PDF viewer: pdf.js pages in a continuous scroll, the app's chrome
 // and nobody else's. No Chromium toolbar, no built-in sidebar; zoom and paging
@@ -133,6 +134,8 @@ export function PdfView({
   const [layersVersion, setLayersVersion] = useState(0)
 
   const scroller = useRef<HTMLDivElement>(null)
+  // Its own window too: the preview window draws it in another (`lib/ownWindow.ts`).
+  const wins = useViewerWindows(scroller)
   const wrappers = useRef<Map<number, HTMLDivElement>>(new Map())
   const layers = useRef<Map<number, HTMLElement[]>>(new Map())
   const textCache = useRef<Map<number, Promise<PageText>>>(new Map())
@@ -550,9 +553,11 @@ export function PdfView({
   // Paint every match through the CSS Custom Highlight API: ranges over the
   // text-layer spans of whichever pages are rendered right now.
   useEffect(() => {
-    if (typeof CSS === 'undefined' || !('highlights' in CSS)) return
-    const all = new Highlight()
-    const here = new Highlight()
+    // The highlights are a registry per document: the pages' own window's.
+    const own = ownWindow(scroller.current)
+    if (typeof own.CSS === 'undefined' || !('highlights' in own.CSS)) return
+    const all = new own.Highlight()
+    const here = new own.Highlight()
     matches.forEach((m, idx) => {
       const divs = layers.current.get(m.page + 1)
       if (!divs) return
@@ -561,17 +566,17 @@ export function PdfView({
         if (!node || node.nodeType !== Node.TEXT_NODE) continue
         const len = (node as Text).length
         if (part.start >= len) continue
-        const r = new Range()
+        const r = own.document.createRange()
         r.setStart(node, part.start)
         r.setEnd(node, Math.min(part.end, len))
         ;(idx === curMatch ? here : all).add(r)
       }
     })
-    CSS.highlights.set('p-find', all)
-    CSS.highlights.set('p-find-here', here)
+    own.CSS.highlights.set('p-find', all)
+    own.CSS.highlights.set('p-find-here', here)
     return () => {
-      CSS.highlights.delete('p-find')
-      CSS.highlights.delete('p-find-here')
+      own.CSS.highlights.delete('p-find')
+      own.CSS.highlights.delete('p-find-here')
     }
   }, [matches, curMatch, layersVersion])
 
@@ -651,7 +656,7 @@ export function PdfView({
       // has focus. This listener is on `window`, so without the check it fired
       // from the sidebar too and paged the pdf instead of the folder.
       if (e.key === 'PageDown' || e.key === 'PageUp') {
-        if (!scroller.current?.contains(document.activeElement)) return
+        if (!scroller.current?.contains(ownDocument(scroller.current).activeElement)) return
         e.preventDefault()
         goToPage(clamp(page + (e.key === 'PageDown' ? 1 : -1), 1, pageCount))
         return
@@ -685,9 +690,9 @@ export function PdfView({
           break
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return listenOn(wins, 'keydown', onKey)
   }, [
+    wins,
     base,
     findOpen,
     stepFind,

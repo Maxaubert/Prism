@@ -17,6 +17,12 @@ that would be bad for when we change things").
 - The renderer is `components/ContextMenu.tsx` (`MenuItem`: label, hint, danger, disabled, icon,
   onPick, one level of `children`, `keepOpen`, `trailing`). It draws no separators: every row has
   a top border.
+- **A viewer's menu names what was right-clicked** (`at={e.currentTarget}`; owner, 2026-11-08,
+  the preview window): the menu is drawn in THAT element's document, so a viewer in the preview
+  window gets its menu in the window, not in the Explorer behind it. It listens on its own window
+  and the Explorer's (a press or an Escape in either closes it). A row that touches the page goes
+  to the element's own document too (the editor's Cut and Copy, `codeMenu`'s `clip`).
+  `lib/ownWindow.test.ts` fails on a viewer's `<ContextMenu` without `at`.
 
 ## The order (owner, 2026-10-12)
 
