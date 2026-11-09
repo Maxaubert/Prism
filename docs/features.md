@@ -2110,6 +2110,16 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   toggling the preview pane re-reads the folder and puts any list back at the top. Held by
   `gridLayout.test.ts`, `gridHeader.test.ts`, `zoomAnchor.test.ts`, `explorerZoom.test.ts` and the
   `gridBasic` e2e.
+  **THE GRID'S KEYBOARD** (zoom grid Stage 5, 2026-11-09; spec 5.2). `lib/gridNav.ts` (pure): Left and Right
+  step one item and do not wrap, Up and Down a whole line, Down from the line above a short last line lands
+  on the last item (Explorer's rule), Page keys go the visible lines less one, Home and End the ends, and
+  with nothing focused Down and Right land on the first, Up and Left on the last. Shift+arrow marks the INDEX
+  RANGE from the anchor, Ctrl+arrow moves the focus without marking, Ctrl+Space marks it; type-ahead, Space
+  (the preview pane), Enter and the common keys are the list's own, untouched. **Left and Right are the
+  grid's only**: in the list they still reach the viewer (owner, 2026-09-01); `gridKey(e, false)` is null for
+  them. A rename box's keys are never taken. Back from the viewer in a grid quietly picks the file that was
+  on show (the viewer's Up and Down walk without moving the list's pick) and scrolls its tile into view; rows
+  keep the pick and scroll they had. Held by `gridNav.test.ts`, `gridKeys.test.ts` and the `gridKeys` e2e.
   **THE PLACES PANEL IS THE THEMES MOCKUP'S** (#296; owner, 2026-10-06: "i really like the
   sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
   use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its
