@@ -442,6 +442,8 @@ export function useFileOps({
           }
           for (let i = 0; i < 3 && r.busy.length && !r.cancelled; i += 1) {
             await new Promise((res) => setTimeout(res, 300))
+            // Between two calls no job runs in main for Cancel to reach.
+            if (running?.stopped()) break
             const again = await window.prism.moveEntries(r.busy, dest, mode, running?.id)
             const movedNow = new Set(again.moved.map((m) => m.from.toLowerCase()))
             r = {

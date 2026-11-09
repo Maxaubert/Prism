@@ -73,4 +73,14 @@ describe('Cancel on a move (the loading bar, review 2026-11-09)', () => {
     await new Promise((r) => setTimeout(r, 30))
     expect(noteUndo).not.toHaveBeenCalled()
   })
+
+  it('Cancel during the wait for a busy file starts no second try', async () => {
+    const moveEntries = vi.fn(async () => ({ ...answer, failed: ['C:\\a\\x.bin'], busy: ['C:\\a\\x.bin'] }))
+    vi.stubGlobal('window', { prism: { moveEntries, cancelFileJob: vi.fn(async () => true) } })
+    void mover(vi.fn()).runMove(['C:\\a\\x.bin'], 'C:\\b', 'keep-both')
+    await vi.waitFor(() => expect(moveEntries).toHaveBeenCalledTimes(1), { timeout: 500 })
+    listJobs().at(-1)?.cancel?.()
+    await new Promise((r) => setTimeout(r, 450))
+    expect(moveEntries).toHaveBeenCalledTimes(1)
+  })
 })
