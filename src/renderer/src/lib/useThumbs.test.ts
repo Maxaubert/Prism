@@ -28,6 +28,54 @@ describe('createThumbFeed', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
+  it('a file that changed on disk is asked again, the old picture showing until the new one is here', async () => {
+    const { api } = fakeApi((_gen, items) => ({
+      ready: Object.fromEntries(items.map((it) => [it.path, 'fsmedia://thumb/old.jpg']))
+    }))
+    const feed = createThumbFeed(api, 't')
+    feed.visible([{ ...item('a.jpg'), stamp: '10|1' }])
+    await vi.advanceTimersByTimeAsync(130)
+    expect(feed.get(P('a.jpg'))).toBe('fsmedia://thumb/old.jpg')
+    expect(api.want).toHaveBeenCalledTimes(1)
+    // What goes over the wire is the path and the tier, nothing more.
+    expect(api.want.mock.calls[0][2]).toEqual([item('a.jpg')])
+    feed.visible([{ ...item('a.jpg'), stamp: '20|2' }])
+    expect(feed.get(P('a.jpg'))).toBe('fsmedia://thumb/old.jpg')
+    await vi.advanceTimersByTimeAsync(130)
+    expect(api.want).toHaveBeenCalledTimes(2)
+  })
+
+  it('a "no picture" for a file still being written is asked again once the file has changed', async () => {
+    const { api, push } = fakeApi()
+    const feed = createThumbFeed(api, 't')
+    feed.visible([{ ...item('a.mp4'), stamp: '10|1' }])
+    await vi.advanceTimersByTimeAsync(130)
+    push({ gen: api.want.mock.calls[0][1], results: [{ path: P('a.mp4'), url: null }] })
+    expect(feed.get(P('a.mp4'))).toBeNull()
+    feed.visible([{ ...item('a.mp4'), stamp: '99|5' }])
+    await vi.advanceTimersByTimeAsync(130)
+    expect(api.want).toHaveBeenCalledTimes(2)
+    push({ gen: api.want.mock.calls[1][1], results: [{ path: P('a.mp4'), url: 'fsmedia://thumb/new.jpg' }] })
+    expect(feed.get(P('a.mp4'))).toBe('fsmedia://thumb/new.jpg')
+  })
+
+  it('the size and date arriving after the name is not a change', async () => {
+    const { api } = fakeApi((_gen, items) => ({
+      ready: Object.fromEntries(items.map((it) => [it.path, 'fsmedia://thumb/a.jpg']))
+    }))
+    const feed = createThumbFeed(api, 't')
+    feed.visible([item('a.jpg')])
+    await vi.advanceTimersByTimeAsync(130)
+    expect(api.want).toHaveBeenCalledTimes(1)
+    feed.visible([{ ...item('a.jpg'), stamp: '10|1' }])
+    await vi.advanceTimersByTimeAsync(130)
+    expect(api.want).toHaveBeenCalledTimes(1)
+    // And from then on that stamp is the baseline.
+    feed.visible([{ ...item('a.jpg'), stamp: '11|2' }])
+    await vi.advanceTimersByTimeAsync(130)
+    expect(api.want).toHaveBeenCalledTimes(2)
+  })
+
   it('sends nothing while the visible set keeps changing, one want when it stops', async () => {
     const { api } = fakeApi()
     const feed = createThumbFeed(api, 'tab1')

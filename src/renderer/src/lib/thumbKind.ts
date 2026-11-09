@@ -13,7 +13,7 @@ export type ThumbSource = 'main' | 'svg'
 
 interface Candidate {
   isFolder: boolean
-  file?: { ext: string; kind: string; size?: number; member?: true }
+  file?: { ext: string; kind: string; size?: number; mtimeMs?: number; member?: true }
 }
 
 /**
@@ -26,15 +26,18 @@ export function visibleWants(
   rows: ReadonlyArray<{ path: string; isFolder: boolean; file?: Candidate['file'] } | null | undefined>,
   tier: 320 | 640,
   skip?: (path: string) => boolean
-): Array<{ path: string; tier: 320 | 640 }> {
+): Array<{ path: string; tier: 320 | 640; stamp?: string }> {
   const mid = (rows.length - 1) / 2
-  const out: Array<{ path: string; tier: 320 | 640; at: number }> = []
+  const out: Array<{ path: string; tier: 320 | 640; at: number; stamp?: string }> = []
   rows.forEach((row, i) => {
     if (!row || skip?.(row.path) || thumbSource(row) !== 'main') return
-    out.push({ path: row.path, tier, at: Math.abs(i - mid) })
+    // Size and date, once they are known: a file that changes gets a new picture.
+    const f = row.file
+    const stamp = f && f.size !== undefined ? `${f.size}|${f.mtimeMs ?? 0}` : undefined
+    out.push({ path: row.path, tier, at: Math.abs(i - mid), stamp })
   })
   out.sort((a, b) => a.at - b.at)
-  return out.map(({ path, tier: t }) => ({ path, tier: t }))
+  return out.map(({ path, tier: t, stamp }) => (stamp === undefined ? { path, tier: t } : { path, tier: t, stamp }))
 }
 
 export function thumbSource(entry: Candidate): ThumbSource | null {

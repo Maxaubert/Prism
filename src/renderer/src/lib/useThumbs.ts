@@ -12,8 +12,10 @@ import type { ThumbWant, ThumbsReady, ThumbsWantReply } from '@shared/thumbTypes
 // - A `gen` counter tags every ask; a pushed answer of an older generation is
 //   ignored (a newer ask replaced the queue it came from).
 // - A path is remembered once answered: a url, or null for "no picture", which
-//   is never asked again in this folder. A bigger tier than the one held asks
-//   again while the smaller picture keeps showing.
+//   is not asked again in this folder until the file changes (its size or date
+//   moved: main keys a thumbnail on those, so it is a new picture). A bigger
+//   tier than the one held asks again while the smaller picture keeps showing,
+//   and so does a changed file.
 // - `setActive(false)` (a loading-bar hold, a hidden window, a zoom step with
 //   no pictures) cancels what main still has queued and asks for nothing until
 //   it is true again.
@@ -30,9 +32,13 @@ export interface ThumbsApi {
   onReady(cb: (msg: ThumbsReady) => void): () => void
 }
 
+/** One picture the list wants. `stamp` is the file's size and date when known
+ *  (they arrive after the name), the page's own: it never goes over the wire. */
+export type ThumbAsk = ThumbWant & { stamp?: string }
+
 export interface ThumbFeed {
   /** What is mounted now, nearest the middle first. Cheap to call on every render. */
-  visible(items: readonly ThumbWant[]): void
+  visible(items: readonly ThumbAsk[]): void
   /** undefined: not here yet. null: no picture. A string: the fsmedia://thumb url. */
   get(path: string): string | null | undefined
   subscribe(listener: () => void): () => void
@@ -44,12 +50,13 @@ export interface ThumbFeed {
 interface Held {
   url: string | null
   tier: number
+  stamp?: string
 }
 
 export function createThumbFeed(api: ThumbsApi, tab: string, settleMs = SETTLE_MS): ThumbFeed {
   const held = new Map<string, Held>()
   const listeners = new Set<() => void>()
-  let items: readonly ThumbWant[] = []
+  let items: readonly ThumbAsk[] = []
   let signature = ''
   /** A want is out there that nothing has cancelled or replaced. */
   let asked = false
@@ -61,7 +68,14 @@ export function createThumbFeed(api: ThumbsApi, tab: string, settleMs = SETTLE_M
   const notify = (): void => {
     for (const l of [...listeners]) l()
   }
-  const unknown = (): ThumbWant[] => items.filter((it) => (held.get(it.path)?.tier ?? 0) < it.tier)
+  /** A held answer that is about an older version of the file. */
+  const outdated = (h: Held | undefined, it: ThumbAsk): boolean =>
+    h !== undefined && h.stamp !== undefined && it.stamp !== undefined && h.stamp !== it.stamp
+  const unknown = (): ThumbAsk[] =>
+    items.filter((it) => {
+      const h = held.get(it.path)
+      return (h?.tier ?? 0) < it.tier || outdated(h, it)
+    })
   const clearTimer = (): void => {
     if (timer) clearTimeout(timer)
     timer = null
@@ -81,8 +95,8 @@ export function createThumbFeed(api: ThumbsApi, tab: string, settleMs = SETTLE_M
       if (msg.gen !== gen) return
       let changed = false
       for (const r of msg.results) {
-        const tier = items.find((it) => it.path === r.path)?.tier ?? 320
-        held.set(r.path, { url: r.url, tier })
+        const it = items.find((x) => x.path === r.path)
+        held.set(r.path, { url: r.url, tier: it?.tier ?? 320, stamp: it?.stamp })
         changed = true
       }
       if (changed) notify()
@@ -98,13 +112,13 @@ export function createThumbFeed(api: ThumbsApi, tab: string, settleMs = SETTLE_M
     ensureListener()
     const mine = ++gen
     void api
-      .want(tab, mine, asks)
+      .want(tab, mine, asks.map(({ path, tier }) => ({ path, tier })))
       .then((reply) => {
         if (mine !== gen) return
         let changed = false
         for (const [path, url] of Object.entries(reply.ready)) {
-          const tier = asks.find((a) => a.path === path)?.tier ?? 320
-          held.set(path, { url, tier })
+          const a = asks.find((x) => x.path === path)
+          held.set(path, { url, tier: a?.tier ?? 320, stamp: a?.stamp })
           changed = true
         }
         if (changed) notify()
@@ -121,7 +135,19 @@ export function createThumbFeed(api: ThumbsApi, tab: string, settleMs = SETTLE_M
   return {
     visible(next) {
       const sig = next.map((it) => `${it.tier}|${it.path}`).join('\n')
-      if (sig === signature) return
+      // The size and date come after the name (statDetails), so the first
+      // stamp an answer sees is its baseline, not a change.
+      let stale = false
+      for (const it of next) {
+        const h = held.get(it.path)
+        if (!h || it.stamp === undefined) continue
+        if (h.stamp === undefined) h.stamp = it.stamp
+        else if (outdated(h, it)) stale = true
+      }
+      if (sig === signature && !stale) {
+        items = next
+        return
+      }
       items = next
       signature = sig
       // Nothing new to ask, or a set already sent: no timer, no churn.

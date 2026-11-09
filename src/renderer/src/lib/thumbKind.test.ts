@@ -9,6 +9,18 @@ const file = (ext: string, size: number | null = 1000, extra: object = {}) => ({
 
 // Which rows wear a picture (zoom grid, Stage 3). Main makes photos and films;
 // the page draws a small SVG itself; everything else keeps its kind icon.
+describe('a row carries its file version once the size and date are known', () => {
+  it('stamps a file with a size, and not one whose details have not come', () => {
+    const entry = (name: string, size?: number) => ({
+      path: `C:\\x\\${name}`,
+      isFolder: false,
+      file: { ext: '.jpg', kind: 'image', size, mtimeMs: 7 }
+    })
+    expect(visibleWants([entry('a.jpg', 5)], 320)).toEqual([{ path: 'C:\\x\\a.jpg', tier: 320, stamp: '5|7' }])
+    expect(visibleWants([entry('b.jpg')], 320)).toEqual([{ path: 'C:\\x\\b.jpg', tier: 320 }])
+  })
+})
+
 describe('thumbSource', () => {
   it('sends photos, raws, HEIC and films to main', () => {
     for (const ext of ['.jpg', '.png', '.gif', '.webp', '.avif', '.bmp', '.tiff', '.ico', '.psd', '.heic', '.heif', '.cr2', '.nef', '.dng', '.mp4', '.mov', '.mkv', '.webm', '.avi', '.wmv', '.m4v', '.ogv'])
