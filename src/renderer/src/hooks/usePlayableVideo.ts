@@ -53,7 +53,7 @@ export interface Playable {
   goLive: (why: string) => void
 }
 
-export function usePlayableVideo(path: string, url: string, allowLive = true): Playable {
+export function usePlayableVideo(path: string, url: string, allowLive = true, shut = false): Playable {
   const [state, setState] = useState<{
     path: string
     src?: string
@@ -82,6 +82,10 @@ export function usePlayableVideo(path: string, url: string, allowLive = true): P
     setLive(null)
   }
   const goingLive = allowLive && liveFor === path
+  // A film behind a shut preview has no job (owner, 2026-11-09): nobody can
+  // see it, and the player mounted when the preview window goes used to start
+  // one, whose film then played with no picture (`useShutFilm`).
+  const liveWanted = goingLive && !shut
 
   useEffect(() => {
     let alive = true
@@ -138,7 +142,7 @@ export function usePlayableVideo(path: string, url: string, allowLive = true): P
   // cleanup is the stop, so arrowing on, closing the tab or the preview, or
   // the window going all end the ffmpeg behind it.
   useEffect(() => {
-    if (!goingLive) return
+    if (!liveWanted) return
     let alive = true
     void window.prism.liveVideo(path).then((r) => {
       if (!alive) return
@@ -149,8 +153,10 @@ export function usePlayableVideo(path: string, url: string, allowLive = true): P
     return () => {
       alive = false
       window.prism.stopLive(path)
+      // A stopped job's address is dead: the next start asks for its own.
+      setLive((l) => (l?.path === path ? null : l))
     }
-  }, [path, goingLive])
+  }, [path, liveWanted])
 
   // Progress arrives as events, since a conversion can take minutes.
   useEffect(() => {
@@ -170,7 +176,7 @@ export function usePlayableVideo(path: string, url: string, allowLive = true): P
     [allowLive, path]
   )
 
-  const liveNow = goingLive && live?.path === path ? live : null
+  const liveNow = liveWanted && live?.path === path ? live : null
   return {
     src: goingLive ? (liveNow?.url ?? '') : mine?.converting ? '' : (mine?.src ?? url),
     converting: !goingLive && !!mine?.converting,

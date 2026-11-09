@@ -3555,6 +3555,24 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   folder too on a film, a track, a picture or a comic, so a walk does not stop on the first file that is not a film.
   App's key listener is on the Explorer's window, so `previewWindowStep` does it there. A document and an
   archive card keep the keys. `previewWindow` e2e holds it.
+- **A FILM BEHIND A SHUT PREVIEW STAYS SHUT** (owner, 2026-11-09: "if i close the preview it pasuses
+  then it plays jsut the aduio"). The player behind the Explorer's list is kept mounted, or is mounted
+  fresh when the preview window goes, and nothing about that may make a sound (`shut` on the player,
+  `useShutFilm`). A pause that landed before the film started was nothing to pause, and its pending
+  autoplay or a later start carried on with no picture; the element is now paused while shut and held
+  paused, and the film is started only when it is shown again, as the #491 rules decide. A shut film
+  also has no live job: the player the closing window left behind used to start a new ffmpeg job for
+  it (the owner's log, 2026-11-09 03:22:35). Reopening plays it from where it was (`onLoadStart`
+  puts it back when its job is new). Held by the `filmClose` e2e (every close, every route, every moment).
+- **A FILM STILL ON ITS WAY SHOWS NO ERROR** (owner, 2026-11-09: "on mov files in the preview it says
+  cannot open this file for a brief second then it plays the video"). The element's refusal was often
+  not the last word: the owner's PC refuses HEVC at the first frame and the film goes to the live
+  route, and the error panel ("This video can't be played") stood there from the refusal to the live
+  film's first load, sometimes before the probe had even answered. `liveRoute.filmErrorShows` lets it
+  speak only when nothing is left to try, and the error belongs to its attempt (`errorAttempt`, the
+  route), so the switch to live clears it in the same render. A file nothing can rescue still says so
+  (`filmErrorShows`). Held by the `filmFlash` e2e (every change of the text, in the pane, full view and
+  the window) and `liveRoute.test.ts`.
 - **MUTE, VOLUME AND SPEED CARRY TO THE NEXT FILE** (#207; owner, 2026-09-23: "if the user
   mutes audio or sets speed to be 0.5 and then clicks a new video, those settings should be
   kept ... maybe the user wants to just look at videos without audio, or dissect videos in

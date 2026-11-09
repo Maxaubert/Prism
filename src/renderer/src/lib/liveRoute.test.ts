@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AUTOSTART_MS, BLACK_MS, NO_PICTURE_MS, SLOW_LOAD_MS, autostartCheck, blackCheck, blackReadings, hevcMime, isPlatformCodec, pictureCheck, pictureRoute, rescueLive, routeWhy } from './liveRoute'
+import { AUTOSTART_MS, BLACK_MS, NO_PICTURE_MS, SLOW_LOAD_MS, autostartCheck, blackCheck, blackReadings, filmErrorShows, hevcMime, isPlatformCodec, pictureCheck, pictureRoute, rescueLive, routeWhy } from './liveRoute'
 
 /** A PC that answers `canPlayType` with `yes` for exactly these mimes. */
 const pc =
@@ -136,6 +136,28 @@ describe('rescueLive: the element has the last word', () => {
     expect(rescueLive({ ...blind, converted: true })).toBe(false)
     expect(rescueLive({ ...blind, converting: true })).toBe(false)
     expect(rescueLive({ ...blind, codec: null })).toBe(false)
+  })
+})
+
+describe('filmErrorShows: an error only when nothing is left to try (2026-11-09)', () => {
+  const direct = { hasError: true, phone: false, probed: true, hasPicture: true, tried: false, converting: false, converted: false }
+  it('says nothing while a refused film is about to go live', () => {
+    expect(filmErrorShows(direct)).toBe(false)
+  })
+  it('says nothing before the probe has answered, as on the owner\'s PC', () => {
+    expect(filmErrorShows({ ...direct, probed: false, hasPicture: false })).toBe(false)
+  })
+  it('says so once the live route has been tried', () => {
+    expect(filmErrorShows({ ...direct, tried: true })).toBe(true)
+  })
+  it('says so for a file with no picture to rescue, once it is known', () => {
+    expect(filmErrorShows({ ...direct, hasPicture: false })).toBe(true)
+  })
+  it('the phone, which has no live route here, says so at once', () => {
+    expect(filmErrorShows({ ...direct, phone: true, probed: false })).toBe(true)
+  })
+  it('no error, nothing to say', () => {
+    expect(filmErrorShows({ ...direct, hasError: false, tried: true })).toBe(false)
   })
 })
 
