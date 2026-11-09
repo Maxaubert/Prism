@@ -212,6 +212,16 @@ function nameWindow(win: Window, title: string): void {
  */
 function dress(win: Window): () => void {
   const doc = win.document
+  // The blank page has no doctype, so it is in quirks mode, where a <table>
+  // takes its colour from the root and not from what holds it: a sheet on
+  // white paper came out in the theme's white ink (#493). The window is a
+  // standards page, as the app's own is. It stays the same document object,
+  // and nothing has been put in it yet.
+  if (doc.compatMode !== 'CSS1Compat') {
+    doc.open()
+    doc.write('<!doctype html><html><head></head><body></body></html>')
+    doc.close()
+  }
   const copies = new Map<Node, Node>()
   const copy = (n: Node): void => {
     if (!(
