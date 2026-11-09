@@ -92,6 +92,17 @@ describe('the loading bar hold (owner, 2026-11-09)', () => {
     expect(isHeld(dir)).toBe(false)
   })
 
+  it('a Cancel before the bar showed still has its grace: a list never stays locked', () => {
+    const stop = vi.fn()
+    beginHold('a', { verb: 'Copying', dirs: [dir], cancel: stop })
+    stopHold('a') // the chip's Cancel, inside the first second
+    expect(stop).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(BUSY_AFTER_MS)
+    expect(isHeld(dir)).toBe(true)
+    vi.advanceTimersByTime(STOP_GRACE_MS)
+    expect(isHeld(dir)).toBe(false)
+  })
+
   it('says how far: a count, a name, and a percentage from either', () => {
     expect(busyLabel({ verb: 'Deleting', name: null, total: 500, done: 120, stopping: false })).toBe('Deleting 120 of 500')
     expect(busyLabel({ verb: 'Copying', name: 'film.mkv', total: 1, done: 0, stopping: false })).toBe('Copying film.mkv')
