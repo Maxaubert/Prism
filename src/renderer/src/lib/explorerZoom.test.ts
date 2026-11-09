@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { EXPLORER_SIZES, explorerRow } from './explorerSize'
 import {
-  ZOOM_CEILING_KEY,
+  GRID_STEP,
   ZOOM_MAX_AVAILABLE,
-  zoomCeiling,
   ZOOM_STEPS,
   atStep,
   explorerZoom,
@@ -36,10 +35,11 @@ describe('explorer zoom steps', () => {
     for (const s of ZOOM_STEPS) for (const k of ['height', 'font', 'icon', 'gap', 'padX'] as const) expect(s[k]).toBeGreaterThan(0)
   })
 
-  it('offers steps 0 to 4 until the grid is finished; the table already holds all ten', () => {
-    expect(ZOOM_MAX_AVAILABLE).toBe(4)
-    expect(zoomCeiling()).toBe(4)
+  it('offers all ten steps (Stage 6 flipped the cap); the first tile step is 6', () => {
+    expect(ZOOM_MAX_AVAILABLE).toBe(9)
     expect(ZOOM_STEPS).toHaveLength(10)
+    expect(GRID_STEP).toBe(6)
+    expect(ZOOM_STEPS[GRID_STEP].kind).toBe('tile')
   })
 
   it('steps 5 to 9 are tiles from 96 to 272px, and their row fields stay Large (a search keeps rows)', () => {
@@ -55,10 +55,7 @@ describe('explorer zoom steps', () => {
     expect([5, 6, 7, 8, 9].map(headSizeOf)).toEqual(['large', 'large', 'large', 'large', 'large'])
   })
 
-  it('a test-only key lifts the ceiling to the grid, and a stored tile step then survives', () => {
-    expect(zoomStepOf('7')).toBe(4)
-    localStorage.setItem(ZOOM_CEILING_KEY, '9')
-    expect(zoomCeiling()).toBe(9)
+  it('a stored tile step survives, and the ends clamp', () => {
     expect(zoomStepOf('7')).toBe(7)
     expect(zoomStepOf('12')).toBe(9)
     expect(zoomIn(8)).toBe(9)
@@ -67,12 +64,6 @@ describe('explorer zoom steps', () => {
     reloadExplorerZoom()
     expect(explorerZoom()).toBe(6)
     expect(atStep(6).kind).toBe('tile')
-    localStorage.removeItem(ZOOM_CEILING_KEY)
-    expect(zoomCeiling()).toBe(4)
-    for (const junk of ['x', '0', '3', '99', '']) {
-      localStorage.setItem(ZOOM_CEILING_KEY, junk)
-      expect(zoomCeiling(), junk).toBe(4)
-    }
   })
 
   it('starts at Medium, or at the old Explorer size when that was set', () => {

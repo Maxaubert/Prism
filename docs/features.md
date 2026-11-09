@@ -2089,9 +2089,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   `thumbImageState.test.ts` and the `thumbsList` e2e (box sizes, 320 wide pictures, the .mov frame
   not black, play glyph, checker, slot widths, name alignment, no ask during a fast scroll over 400
   files, no ask at Medium).
-  **THE GRID** (zoom grid Stage 4, 2026-11-09; built, NOT reachable: `ZOOM_MAX_AVAILABLE` stays 4 and
-  a test-only localStorage key `prism.explorer.zoomMax` (5 to 9) lifts it for the unit and e2e runs;
-  Stage 6 flips it). Steps 5 to 9 are tiles of 96, 128, 168, 216 and 272px (`ZOOM_STEPS`, `kind:
+  **THE GRID** (zoom grid Stage 4, 2026-11-09; reachable since Stage 6). Steps 5 to 9 are tiles of 96, 128, 168, 216 and 272px (`ZOOM_STEPS`, `kind:
   'tile'`; their row fields stay Large's, so a search, an archive or an Everything window keeps 40px
   rows there). A plain folder listing at a tile step is `BrowseGrid` + `GridTile`: a square picture
   box (the Stage 3 `ThumbImage`, or the kind icon at 40% of the box) with the name under it in two
@@ -2120,6 +2118,23 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   them. A rename box's keys are never taken. Back from the viewer in a grid quietly picks the file that was
   on show (the viewer's Up and Down walk without moving the list's pick) and scrolls its tile into view; rows
   keep the pick and scroll they had. Held by `gridNav.test.ts`, `gridKeys.test.ts` and the `gridKeys` e2e.
+  **THE GRID IS REACHABLE** (zoom grid Stage 6, 2026-11-10; spec 5.4, 5.5, 5.7): `ZOOM_MAX_AVAILABLE` is 9 and the
+  test-only `prism.explorer.zoomMax` key is gone. **Sweep**: a press on blank space (a gap, the right margin,
+  under the last line) draws the box; a press on a tile is the tile's own drag. `lib/cellsInBox.ts` (pure)
+  finds the tiles whose rect (cell minus gap, name band included) the box touches by column and line spans,
+  never by a scan; one pixel of overlap counts, a box wholly in a gap marks nothing; Ctrl adds; autoscroll
+  is the list's. **Drag and drop** were already the rows' own handlers (Stage 4): the grid adds a 2px ring
+  on a folder tile under a drag (`grid.css`) and a carried tile takes no drop. **Rename** stays the
+  Explorer's dialog (the whole name selected, as the list does; owner's call whether it goes inline), opened
+  by F2 on the picked tile; the tile keeps its place in the sort. **Menus**: a tile opens the item menu
+  (Shift+F10 and the Menu key at the tile); the blank space of a plain folder opens ONE row, "Show as grid"
+  (step 6) from a list, "Show as list" (Medium) from a grid (`menus/zoomMenu.ts`, `docs/menus.md`); a
+  search keeps rows and shows no menu. **Hold and landing**: the grid sits inside the inert frame, so a hold
+  freezes it and asks for no pictures; a file still copying is an inert faded tile saying "Copying..." with
+  the rows' fill bar, 4px, across the bottom of its picture box (`lib/landingGrid.ts`). Held by
+  `cellsInBox.test.ts`, `landingGrid.test.ts`, `zoomMenu.test.ts` and the `gridSweep`, `gridDrag`,
+  `gridRename`, `gridMenus`, `gridHold` and `gridPhone` e2e (the phone's thumbnail is byte for byte the same
+  with the Explorer at step 9).
   **THE PLACES PANEL IS THE THEMES MOCKUP'S** (#296; owner, 2026-10-06: "i really like the
   sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
   use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its

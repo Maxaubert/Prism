@@ -113,7 +113,8 @@ import { carriesOn, heldPaused, intendToPlay } from './lib/playState'
 import { ownDrop, setDrag } from './lib/drag/dragDrop'
 import { useInternalFileDrag } from './lib/drag/internalFileDrag'
 import { explorerHeadVars } from './lib/explorerSize'
-import { atStep, explorerZoom, headSizeOf, useExplorerZoom } from './lib/explorerZoom'
+import { atStep, explorerZoom, headSizeOf, setExplorerZoom, useExplorerZoom } from './lib/explorerZoom'
+import { zoomBlankMenu } from './menus/zoomMenu'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import { landJob, updateJob, updateLanding } from './lib/jobs'
@@ -2020,6 +2021,15 @@ export default function App(): JSX.Element {
           y={emptyMenu.y}
           onClose={() => setEmptyMenu(null)}
           items={archiveActions.menu({ entry: null }, browseArchive, active.browse.path) ?? []}
+        />
+      )}
+      {emptyMenu && !browseArchive && active && (
+        // A plain folder's blank space: Show as grid / Show as list (Stage 6).
+        <ContextMenu
+          x={emptyMenu.x}
+          y={emptyMenu.y}
+          onClose={() => setEmptyMenu(null)}
+          items={zoomBlankMenu({ step: explorerZoom(), setStep: setExplorerZoom })}
         />
       )}
       {archiveActions.dialogs}
