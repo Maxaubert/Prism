@@ -878,6 +878,16 @@ being Prism's own temp file.
 previewing or walking, `unsupported` the no-loop, `src/renderer/src/lib/unsupported.test.ts` which
 files go.
 
+**WHAT NOBODY MEANT STARTS NOTHING** (review, 2026-11-09, all held by the `openGuards` e2e). A
+double-click opens only the row its first press was on: Chromium counts a double-click by place and
+time, so a file arriving between the presses put the second one on another row, which started it. A
+held Enter on a row or a pin is one open, not thirty a second, and a key held from a question or the
+search box cannot repeat onto a program. The card's Open gives up the focus when it is pressed:
+left on it, a held Enter started the file over and over and the next Space started it again. A
+navigation hands a file to Windows only from the address field (`navigate`'s `typed`): a pin, a
+crumb or a row said "go to this folder", so a folder that has since become a program opens on its
+card instead. A typed program leaves the keyboard on the list, which stays where it was.
+
 ## Attach into any window (tab tear-off step 4, owner, 2026-10-29)
 
 Owner, 2026-10-29 (spec section 1, points 4, 5 and 7; plan step 4): "a tab can be dropped into ANY window's tab
