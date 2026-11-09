@@ -27,6 +27,8 @@ import type { FolderSizes } from '../../lib/folderSize'
 import { ArchiveStrip } from './ArchiveStrip'
 import { withinFolder, type PlaceRow } from '../../lib/placeMark'
 import { useActiveArea } from './useActiveArea'
+import { useListKeyboard } from './useListKeyboard'
+import { rowAfter, wasBinned } from '../../lib/binnedRows'
 import { useFindRoute } from './useFindRoute'
 import { EDITOR, FIELD, OVERLAY, inOverlay } from '../../lib/focusGuards'
 import './browse.css'
@@ -72,6 +74,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     if (chosenPlace && !withinFolder(props.directory, chosenPlace.path)) setChosenPlace(null)
   }
   const area = useActiveArea(shell)
+  // A question closing or a row going drops the focus: it comes back here.
+  useListKeyboard(shell, !!props.covered, props.selectedPath ?? null)
   const focusList = (): void => {
     shell.current?.querySelector<HTMLElement>('.browse-list')?.focus({ preventScroll: true })
   }
@@ -323,6 +327,23 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     props.onSelect(primary, true)
     setRevealPath({ path: primary, seq: landReq.seq })
   }
+  // THE NEXT ROW AFTER A DELETE (owner, 2026-11-09): the delete says which
+  // paths went, the list knows the order they stood in. The row beside the one
+  // that went takes the selection, quietly (the viewer's own step, when the
+  // file on show was the one binned, opens the next file). Read from the rows
+  // of the last commit, the only ones that still have the row that went.
+  const lastRows = useRef<{ key: string; order: () => string[] }>({ key: '', order: () => [] })
+  useLayoutEffect(() => {
+    const was = lastRows.current
+    lastRows.current = { key: marksKey, order }
+    const gone = props.selectedPath
+    // Every commit, so the cheap questions first: nothing is walked until a
+    // delete has taken the row the selection is on.
+    if (!gone || was.key !== marksKey || !wasBinned(gone)) return
+    const now = order()
+    if (now.includes(gone)) return
+    pickOne(rowAfter(was.order(), gone, (path) => now.includes(path)), true)
+  })
   // Mirrored after render (a ref is not written while rendering), and read
   // by the effect below, which runs after this one.
   useLayoutEffect(() => {
