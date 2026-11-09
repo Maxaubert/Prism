@@ -189,3 +189,78 @@ describe('a picture main made', () => {
     expect((await res.arrayBuffer()).byteLength).toBe(jpeg.length)
   })
 })
+
+// fsmedia://thumb/<key> (Stage 2 of the zoom grid, 2026-11-09): the desktop's
+// thumbnails, answered BEFORE the root wall by reading one name in main's own
+// cache folder and nothing else. A key is 40 hex and .jpg or .webp, so there is
+// no separator and no dot-dot to traverse with.
+describe('fsmedia://thumb/', () => {
+  const cache = mkdtempSync(join(tmpdir(), 'prism-thumbcache-'))
+  const key = 'a'.repeat(40) + '.jpg'
+  const webp = 'b'.repeat(40) + '.webp'
+  writeFileSync(join(cache, key), Buffer.from('jpeg-bytes'))
+  writeFileSync(join(cache, webp), Buffer.from('webp-bytes'))
+  writeFileSync(join(dir, 'secret.jpg'), Buffer.from('not-a-thumbnail'))
+  const walled: string[] = []
+  const thumbServer = (): ((r: Request) => Promise<Response>) =>
+    createMediaServer({
+      allowed: (p) => (walled.push(p), false),
+      ffmpeg: () => null,
+      heic: () => Promise.reject(new Error('no')),
+      thumbsDir: () => cache
+    })
+  const ask = (name: string): Promise<Response> =>
+    thumbServer()(new Request(`fsmedia://thumb/${name}`))
+
+  it('serves a valid key from the cache folder without asking the wall, with its type', async () => {
+    const res = await ask(key)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('image/jpeg')
+    expect(await res.text()).toBe('jpeg-bytes')
+    const w = await ask(webp)
+    expect(w.headers.get('content-type')).toBe('image/webp')
+    expect(walled).toEqual([])
+  })
+
+  it('is 404 for a well-formed key that is not there', async () => {
+    expect((await ask('c'.repeat(40) + '.jpg')).status).toBe(404)
+  })
+
+  it('refuses anything but a 40-hex key: dot-dot, a separator, an encoded one, the wrong extension, the wrong length', async () => {
+    for (const bad of [
+      '..%2F..%2Fsecret.jpg',
+      '../secret.jpg',
+      `..%5C${key}`,
+      `%2e%2e%2f${key}`,
+      `x/${key}`,
+      key.replace('.jpg', '.png'),
+      key.replace('.jpg', '.jpg.part'),
+      key.toUpperCase(),
+      'a'.repeat(39) + '.jpg',
+      'a'.repeat(41) + '.jpg',
+      'secret.jpg',
+      ''
+    ]) {
+      const res = await ask(bad)
+      expect([400, 403, 404], bad).toContain(res.status)
+      expect(res.status === 200, bad).toBe(false)
+    }
+  })
+
+  it('does not answer when the server has no cache folder', async () => {
+    const res = await createMediaServer({
+      allowed: () => false,
+      ffmpeg: () => null,
+      heic: () => Promise.reject(new Error('no'))
+    })(new Request(`fsmedia://thumb/${key}`))
+    expect(res.status).toBe(403)
+  })
+
+  it('leaves every other host to the wall, exactly as before', async () => {
+    const s = thumbServer()
+    expect((await s(new Request(url(file)))).status).toBe(403)
+    expect(walled).toEqual([file])
+    // A file path that merely CONTAINS the word thumb is still a file path.
+    expect((await s(new Request(`fsmedia://local/${encodeURIComponent(join(cache, key))}`))).status).toBe(403)
+  })
+})
