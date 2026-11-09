@@ -889,8 +889,17 @@ export default function App(): JSX.Element {
   // the viewer is rendered into PreviewWindow, which stays mounted for its
   // fade out (`previewWindowUp`).
   const previewInWindow = usePreviewOpensIn() === 'window'
+  // The tabs whose preview window was OPENED, by a toggle, this session. In
+  // window mode the tab's preview flag is the window, and only a toggle opens
+  // it: a flag left on by the panel, a restore or a file from Windows is put
+  // back off, so the window never appears unasked. State, not a ref (owner,
+  // 2026-11-09, the log's 35 to 110 ms windows): the window is only ever MADE
+  // for a tab in here, so that flag no longer arms, opens and shuts one in the
+  // commit before the effect below takes it back. `markdownPreview` e2e.
+  const [windowTabs, setWindowTabs] = useState<ReadonlySet<string>>(() => new Set())
   const paneShown = showBrowsePreview && !previewInWindow
-  const windowShown = showBrowsePreview && previewInWindow && !fullscreen
+  const windowShown =
+    showBrowsePreview && previewInWindow && !fullscreen && !!activeId && windowTabs.has(activeId)
   const previewWindowUp = useLinger(windowShown, 220) && browsing.folder && !fullscreen
   // Each opening is a window of its own (review 2026-11-08): a Space that
   // reopens it while the last one still fades out (or before it was even
@@ -916,35 +925,38 @@ export default function App(): JSX.Element {
     placesVisible,
     previewSlide.widthShown
   )
-  // The tabs whose preview window was OPENED, by a toggle, this session. In
-  // window mode the tab's preview flag is the window, and only a toggle opens
-  // it: a flag left on by the panel, a restore or a file from Windows is put
-  // back off, so the window never appears unasked.
-  const windowTabs = useRef(new Set<string>())
+  const noteWindowTab = useCallback((tabId: string, opened: boolean) => {
+    setWindowTabs((s) => {
+      if (s.has(tabId) === opened) return s
+      const next = new Set(s)
+      if (opened) next.add(tabId)
+      else next.delete(tabId)
+      return next
+    })
+  }, [])
   const togglePreview = useCallback(() => {
     // Only a pane that is really on screen slides shut, and only one that is
     // really off slides open; a preview switched on over a folder shows nothing.
     if (previewInWindow) {
       // The window fades instead (PreviewWindow).
-      if (activeId && !active?.browse.preview) windowTabs.current.add(activeId)
-      else if (activeId) windowTabs.current.delete(activeId)
+      if (activeId) noteWindowTab(activeId, !active?.browse.preview)
     } else if (showBrowsePreview) previewSlide.start(true)
     else if (!active?.browse.preview) previewSlide.start(false)
     browsing.togglePreview()
-  }, [previewInWindow, activeId, showBrowsePreview, active?.browse.preview, previewSlide, browsing])
+  }, [previewInWindow, activeId, showBrowsePreview, active?.browse.preview, previewSlide, browsing, noteWindowTab])
   /** The preview window's own closes (Escape, its button, Alt+F4): off,
    *  never on again if it was off already. */
   const closePreviewWindow = useCallback(() => {
-    if (activeId) windowTabs.current.delete(activeId)
-    if (active?.browse.preview) browsing.togglePreview()
-  }, [activeId, active?.browse.preview, browsing])
+    if (activeId) noteWindowTab(activeId, false)
+    if (active?.browse.preview) browsing.togglePreview('window-closed')
+  }, [activeId, active?.browse.preview, browsing, noteWindowTab])
   const previewOn = !!active?.browse.preview
   const browsingFolder = browsing.folder
   const togglePreviewOff = browsing.togglePreview
   useEffect(() => {
     if (!previewInWindow || !previewOn || !activeId || !browsingFolder) return
-    if (!windowTabs.current.has(activeId)) togglePreviewOff()
-  }, [previewInWindow, previewOn, activeId, browsingFolder, togglePreviewOff])
+    if (!windowTabs.has(activeId)) togglePreviewOff('unasked')
+  }, [previewInWindow, previewOn, activeId, browsingFolder, togglePreviewOff, windowTabs])
   const quickAccessDefaults = useMemo(
     () =>
       browsing.locations
