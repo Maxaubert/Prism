@@ -24003,8 +24003,10 @@ async function batchCopiesLoadScenario(fixtures) {
     // AVIF, then Cancel once a few have landed.
     await markAll('AVIF')
     ok(await until(async () => copies('avif').length >= 3, 120000), `copies land (${copies('avif').length})`)
-    const cancel = win.locator('[data-job-cancel]')
-    ok((await cancel.count()) === 1, 'the chip has a Cancel while it runs')
+    // Past a second the loading bar has the Cancel; the chip stands down for
+    // the job on the tab in front (owner, 2026-11-09).
+    const cancel = win.locator('[data-busy-cancel]')
+    ok((await cancel.count()) === 1, 'the bar has a Cancel while it runs')
     await win.screenshot({ path: join(SHOTS, 'save-copies-running.png') })
     await cancel.click()
     const stopped = await until(async () => {
@@ -24014,7 +24016,7 @@ async function batchCopiesLoadScenario(fixtures) {
     const atStop = copies('avif').length
     ok(!!stopped && new RegExp(`^Stopped, saved ${atStop} cop(y|ies), 1 skipped \\(not pictures\\)$`).test(stopped), `the note says it stopped, and what it saved (${stopped})`)
     ok(atStop < photos.length, `Cancel stopped it short (${atStop} of ${photos.length})`)
-    ok((await win.locator('[data-job-cancel]').count()) === 0, 'and the Cancel is gone')
+    ok((await win.locator('[data-busy-cancel],[data-job-cancel]').count()) === 0, 'and the Cancel is gone')
     await sleep(3000)
     ok(copies('avif').length === atStop, `no copy lands after Cancel (${copies('avif').length})`)
     const marks = await marked(win)
