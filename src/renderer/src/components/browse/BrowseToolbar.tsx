@@ -8,6 +8,7 @@ import { useFolderDrop } from './useFolderDrop'
 import { fileDragProps } from '../../lib/drag/fileDrag'
 import { KindIcon } from '../icons/FileIcons'
 import { browsableArchive } from '@shared/archivePlace'
+import { pastedPath } from '@shared/path'
 import type { ArchiveMeta } from '@shared/types'
 import './archive.css'
 import { hiddenTitle, isClipped } from 'prism-term-core/renderer/lib/hiddenTitle'
@@ -139,7 +140,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
           className="browse-path-form"
           onSubmit={(e) => {
             e.preventDefault()
-            const destination = path.trim().replace(/^"(.*)"$/, '$1')
+            const destination = pastedPath(path)
             if (destination) props.onNavigate(destination)
             setEditing(false)
           }}
