@@ -71,7 +71,8 @@ export function useFilePaste(
           try {
             const result = await window.prism.pasteInto(directory, cut.length ? cut : undefined, job.id)
             if (result.moved) {
-              clearFileCut(cut)
+              // A stopped cut is not spent: what did not move is still cut.
+              if (!result.cancelled) clearFileCut(cut)
               // A cut and paste is a move: folder icons follow (D9).
               followFolderIcons(pasteMoves(result))
             }
