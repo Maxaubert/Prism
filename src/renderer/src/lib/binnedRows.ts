@@ -23,7 +23,8 @@ export function wasBinned(path: string): boolean {
  * folder is read again: a quick second Delete asked about the same file, and
  * answering it ended in "could not be moved". A delete notes its paths here,
  * the Delete keys stand down for them, and they leave when the bin refuses
- * (`noteStayed`) or the listing no longer has them (`settleGoing`).
+ * (`noteStayed`) or the listing no longer has them (`settleGoing`). The list's
+ * hand-over reads this too: the watcher can take the row before `noteBinned`.
  */
 const going = new Set<string>()
 
