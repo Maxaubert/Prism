@@ -13145,6 +13145,63 @@ async function busyCutCancelScenario(fixtures) {
   }
 }
 
+/** Ctrl+Z on a big move counts on the bar (review, 2026-11-09): undo moves one
+ *  item per call, and each call's own "0 of 1" pinned the bar at 0%. */
+async function busyUndoMoveScenario(fixtures) {
+  console.log('Ctrl+Z on a big move counts on the bar')
+  const dir = join(fixtures, 'busyundomove')
+  const many = join(dir, 'many')
+  rmSync(dir, { recursive: true, force: true })
+  busyFiles(many, 800)
+  mkdirSync(join(many, 'into'))
+  writeFileSync(join(dir, 'notes.txt'), 'n')
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(many)
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await listRow(win, 'f0000.txt').count()) === 1, 15000), 'into the folder')
+    await sleep(600)
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+a')
+    await listRow(win, 'into').locator('.browse-name-text').click({ modifiers: ['Control'] })
+    const from = await listRow(win, 'f0000.txt').locator('.browse-name-text').boundingBox()
+    const onto = await listRow(win, 'into').boundingBox()
+    await win.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+    await win.mouse.down()
+    await win.mouse.move(onto.x + onto.width / 2, onto.y + onto.height / 2, { steps: 12 })
+    await sleep(250)
+    await win.mouse.up()
+    ok(await until(() => readdirSync(join(many, 'into')).length === 801, 30000, 200), 'all 801 moved')
+    await busyGone(win, 30000)
+    await sleep(1500)
+    await win.evaluate(() => {
+      window.__undoBar = { labels: [], pcts: [] }
+      setInterval(() => {
+        const label = document.querySelector('[data-busy-label]')?.textContent
+        if (!label) return
+        if (!window.__undoBar.labels.includes(label)) window.__undoBar.labels.push(label)
+        const pct = document.querySelector('.browse-busy-pct')?.textContent
+        if (pct) window.__undoBar.pcts.push(parseInt(pct, 10))
+      }, 30)
+    })
+    await win.keyboard.press('Control+z')
+    ok(await busyUp(win, 20000), 'the undo shows the bar')
+    ok(await busyGone(win), 'and ends')
+    ok(await until(() => readdirSync(join(many, 'into')).length === 0, 30000, 200), 'all of it came back')
+    const seen = await win.evaluate(() => window.__undoBar)
+    const stray = seen.labels.filter((l) => !/^Moving \d+ of 801$/.test(l))
+    ok(seen.labels.length > 1 && !stray.length, `it counts the whole step (${seen.labels.length} labels, stray: ${JSON.stringify(stray.slice(0, 3))})`)
+    ok(seen.pcts.some((p) => p > 0 && p < 100), `and the bar moves (${seen.pcts.filter((p) => p > 0 && p < 100).length} readings between 0 and 100)`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function pasteProgressScenario(fixtures) {
   console.log('a big paste shows its progress')
   const dir = join(fixtures, 'pasteprogress')
@@ -24677,6 +24734,7 @@ await run(busyCancelScenario)
 await run(busyFailScenario)
 await run(busyBackdropScenario)
 await run(busyCutCancelScenario)
+await run(busyUndoMoveScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over
