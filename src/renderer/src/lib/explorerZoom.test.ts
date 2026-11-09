@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { EXPLORER_SIZES, explorerRow } from './explorerSize'
 import {
+  ZOOM_CEILING_KEY,
   ZOOM_MAX_AVAILABLE,
+  zoomCeiling,
   ZOOM_STEPS,
   atStep,
   explorerZoom,
@@ -29,14 +31,48 @@ describe('explorer zoom steps', () => {
   })
 
   it('rows only get taller, and a step is a full look', () => {
-    for (let i = 1; i < ZOOM_STEPS.length; i++) expect(ZOOM_STEPS[i].height).toBeGreaterThan(ZOOM_STEPS[i - 1].height)
-    expect(ZOOM_STEPS.map((s) => s.height).slice(3)).toEqual([56, 76])
+    for (let i = 1; i < 5; i++) expect(ZOOM_STEPS[i].height).toBeGreaterThan(ZOOM_STEPS[i - 1].height)
+    expect(ZOOM_STEPS.map((s) => s.height).slice(3, 5)).toEqual([56, 76])
     for (const s of ZOOM_STEPS) for (const k of ['height', 'font', 'icon', 'gap', 'padX'] as const) expect(s[k]).toBeGreaterThan(0)
   })
 
-  it('offers steps 0 to 4 until the grid exists', () => {
+  it('offers steps 0 to 4 until the grid is finished; the table already holds all ten', () => {
     expect(ZOOM_MAX_AVAILABLE).toBe(4)
-    expect(ZOOM_STEPS).toHaveLength(ZOOM_MAX_AVAILABLE + 1)
+    expect(zoomCeiling()).toBe(4)
+    expect(ZOOM_STEPS).toHaveLength(10)
+  })
+
+  it('steps 5 to 9 are tiles from 96 to 272px, and their row fields stay Large (a search keeps rows)', () => {
+    const tiles = ZOOM_STEPS.slice(5)
+    expect(tiles.every((s) => s.kind === 'tile')).toBe(true)
+    expect(ZOOM_STEPS.slice(0, 5).every((s) => s.kind === 'row' && s.edge === 0)).toBe(true)
+    expect(tiles.map((s) => s.edge)).toEqual([96, 128, 168, 216, 272])
+    expect(tiles.map((s) => s.tileFont)).toEqual([11.5, 12, 12.5, 13, 13])
+    for (const s of tiles) {
+      expect({ height: s.height, font: s.font, icon: s.icon, gap: s.gap, padX: s.padX }).toEqual(EXPLORER_SIZES[2].row)
+      expect(s.thumb).toBe(0)
+    }
+    expect([5, 6, 7, 8, 9].map(headSizeOf)).toEqual(['large', 'large', 'large', 'large', 'large'])
+  })
+
+  it('a test-only key lifts the ceiling to the grid, and a stored tile step then survives', () => {
+    expect(zoomStepOf('7')).toBe(4)
+    localStorage.setItem(ZOOM_CEILING_KEY, '9')
+    expect(zoomCeiling()).toBe(9)
+    expect(zoomStepOf('7')).toBe(7)
+    expect(zoomStepOf('12')).toBe(9)
+    expect(zoomIn(8)).toBe(9)
+    expect(zoomIn(9)).toBe(9)
+    setExplorerZoom(6)
+    reloadExplorerZoom()
+    expect(explorerZoom()).toBe(6)
+    expect(atStep(6).kind).toBe('tile')
+    localStorage.removeItem(ZOOM_CEILING_KEY)
+    expect(zoomCeiling()).toBe(4)
+    for (const junk of ['x', '0', '3', '99', '']) {
+      localStorage.setItem(ZOOM_CEILING_KEY, junk)
+      expect(zoomCeiling(), junk).toBe(4)
+    }
   })
 
   it('starts at Medium, or at the old Explorer size when that was set', () => {

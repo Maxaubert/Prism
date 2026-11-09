@@ -2089,6 +2089,27 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   `thumbImageState.test.ts` and the `thumbsList` e2e (box sizes, 320 wide pictures, the .mov frame
   not black, play glyph, checker, slot widths, name alignment, no ask during a fast scroll over 400
   files, no ask at Medium).
+  **THE GRID** (zoom grid Stage 4, 2026-11-09; built, NOT reachable: `ZOOM_MAX_AVAILABLE` stays 4 and
+  a test-only localStorage key `prism.explorer.zoomMax` (5 to 9) lifts it for the unit and e2e runs;
+  Stage 6 flips it). Steps 5 to 9 are tiles of 96, 128, 168, 216 and 272px (`ZOOM_STEPS`, `kind:
+  'tile'`; their row fields stay Large's, so a search, an archive or an Everything window keeps 40px
+  rows there). A plain folder listing at a tile step is `BrowseGrid` + `GridTile`: a square picture
+  box (the Stage 3 `ThumbImage`, or the kind icon at 40% of the box) with the name under it in two
+  lines, whole and never cropped. Geometry is pure (`lib/gridLayout.ts`): cells `edge + 12` wide,
+  fixed and left-aligned, 4px apart, 12px of padding, `cols = floor((width - 24 + 4) / (cellW + 4))`;
+  only the lines in view plus two each way are mounted (a 10,000-file folder is about 60 tiles), keyed
+  by path. The list's own arithmetic is kept: a "line" is a row of `cols` cells, so the scroll space,
+  the 4,000,000px compression, scroll-into-view and the keys' paging all work in lines. A press, drag,
+  drop, double click and right-click on a tile are the row's own (`entryHandlers`, pulled out of the
+  row unchanged), so the two cannot disagree. Downloads' date groups are not drawn in a grid. The
+  header band keeps its height and shows the same four sort buttons packed left (`gridHeader.ts`:
+  Name, Date modified, Size, Type; Type then Size hide under 360px). The zoom anchor now keeps the
+  ITEM under the pointer across list and grid (`col` and `lead` in `zoomAnchor.ts`), and a width
+  change that changes the columns keeps the first item in view. Not yet: sweep box, grid arrow keys,
+  rename in the tile, landing bars, the menu row (Stages 5 and 6). Known and not changed here:
+  toggling the preview pane re-reads the folder and puts any list back at the top. Held by
+  `gridLayout.test.ts`, `gridHeader.test.ts`, `zoomAnchor.test.ts`, `explorerZoom.test.ts` and the
+  `gridBasic` e2e.
   **THE PLACES PANEL IS THE THEMES MOCKUP'S** (#296; owner, 2026-10-06: "i really like the
   sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
   use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its

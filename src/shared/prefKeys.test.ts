@@ -16,6 +16,7 @@ const SHIPPED: Record<string, 'shared' | 'window'> = {
   'prism.explorer.side': 'shared',
   'prism.explorer.size': 'shared',
   'prism.explorer.zoom': 'shared',
+  'prism.explorer.zoomMax': 'shared',
   'prism.folderIcons': 'shared',
   'prism.newtab.folder': 'shared',
   'prism.newtab.mode': 'shared',
