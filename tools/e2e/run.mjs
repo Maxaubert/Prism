@@ -12758,6 +12758,299 @@ async function addressFieldScenario(fixtures) {
  *  happens and suddenly items just appear"). A 600 MB file pasted from the
  *  list: while it copies, the job chip is up, ON TOP (the point at its centre
  *  is the chip, not a panel over it), with its bar. */
+/**
+ * THE LOADING BAR (owner, 2026-11-09: "when you delte or paste a lot of images
+ * or restore with ctrl z it shoudl show a loading bar unti its done because
+ * right now they jstu tickle in and teh files in teh direcotry constantly move
+ * making it ahrd to navigate"). A job over one second puts a bar over that tab's
+ * list; the list behind cannot be used and does not change; it shows the finished
+ * folder once. These scenarios are all on real files: the only seam is
+ * PRISM_E2E_SLOW_COPY (ms per chunk, behind --e2e), so one big file has time to
+ * be cancelled mid-write.
+ */
+const BUSY = '[data-busy-bar]'
+const busyFiles = (dir, n) => {
+  mkdirSync(dir, { recursive: true })
+  for (let i = 0; i < n; i += 1) writeFileSync(join(dir, `f${String(i).padStart(4, '0')}.txt`), 'x')
+  writeFileSync(join(dir, 'notes.txt'), 'notes')
+}
+/** Sample every frame (and a timer, for a window that paints rarely): how many
+ *  times the bar was up, and every "N items" the status line said while it was. */
+const busyWatch = (win) =>
+  win.evaluate(() => {
+    window.__busy = { up: 0, statuses: [], after: [] }
+    const look = () => {
+      const up = !!document.querySelector('[data-busy-bar]')
+      const said = document.querySelector('.browse-status span')?.textContent ?? ''
+      if (up) {
+        window.__busy.up += 1
+        if (window.__busy.statuses.at(-1) !== said) window.__busy.statuses.push(said)
+      } else if (window.__busy.up && window.__busy.after.at(-1) !== said) window.__busy.after.push(said)
+    }
+    const frame = () => {
+      look()
+      requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+    setInterval(look, 8)
+  })
+const busyUp = (win, ms = 15000) => win.waitForSelector(BUSY, { timeout: ms }).then(() => true, () => false)
+const busyGone = (win, ms = 120000) =>
+  until(async () => (await win.locator(BUSY).count()) === 0, ms, 100)
+
+async function busyQuickScenario(fixtures) {
+  console.log('a job under a second never shows the bar')
+  const dir = join(fixtures, 'busyquick')
+  rmSync(dir, { recursive: true, force: true })
+  busyFiles(dir, 3)
+  mkdirSync(join(dir, 'into'))
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await busyWatch(win)
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'one small file on the clipboard')
+    await win.keyboard.press('Control+v')
+    ok(await until(() => existsSync(join(dir, 'f0000 (2).txt')), 8000), 'a one-file paste lands')
+    await listRow(win, 'f0001.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Delete')
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    ok(await until(() => !existsSync(join(dir, 'f0001.txt')), 8000), 'a one-file delete goes')
+    await sleep(1500)
+    ok((await win.evaluate(() => window.__busy.up)) === 0, 'neither showed the bar on any frame')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function busyHoldScenario(fixtures) {
+  console.log('a job over a second holds the list behind a bar')
+  const dir = join(fixtures, 'busyhold')
+  const other = join(fixtures, 'busyhold-other')
+  rmSync(dir, { recursive: true, force: true })
+  rmSync(other, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'notes')
+  busyFiles(join(dir, 'many'), 500)
+  busyFiles(other, 3)
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const state = () =>
+    win.evaluate(() => ({
+      selected: [...document.querySelectorAll('.browse-row[aria-selected="true"]')].map((r) => r.dataset.browsePath),
+      rows: [...document.querySelectorAll('.browse-row[data-browse-path]')].map((r) => r.dataset.browsePath),
+      top: document.querySelector('[data-testid="browse-list"]').scrollTop,
+      status: document.querySelector('.browse-status span')?.textContent ?? ''
+    }))
+  try {
+    await explorerAt(win, dir)
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(join(dir, 'many'))
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await listRow(win, 'f0000.txt').count()) === 1, 15000), 'into the folder')
+    await sleep(600)
+    await busyWatch(win)
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+a')
+    await win.keyboard.press('Delete')
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    ok(await busyUp(win), 'a delete over one second shows the bar')
+    if (!(await win.locator(BUSY).count())) return
+    const label = await win.locator('[data-busy-label]').textContent()
+    ok(/^Deleting \d+ of 501$/.test(label ?? ''), `it says what is happening and how far ("${label}")`)
+    await win.waitForTimeout(200)
+    await win.screenshot({ path: join(SHOTS, 'busy-bar.png') })
+    const before = await state()
+    const box = await win.locator('[data-testid="browse-list"]').boundingBox()
+    // Click on a row, Delete and an arrow, and the wheel: none of them lands.
+    await win.mouse.click(box.x + 120, box.y + 80)
+    await win.keyboard.press('ArrowDown')
+    await win.keyboard.press('Delete')
+    await win.mouse.move(box.x + 200, box.y + 200)
+    await win.mouse.wheel(0, 900)
+    await sleep(350)
+    const after = await state()
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'Delete on the held list asks nothing')
+    ok(JSON.stringify(after.selected) === JSON.stringify(before.selected) && after.top === before.top, 'a click, a key and the wheel change nothing behind it')
+    ok(JSON.stringify(after.rows) === JSON.stringify(before.rows) && after.status === before.status, `the list does not change behind it (${before.status} / ${after.status})`)
+    ok(await win.evaluate(() => !!document.querySelector('.browse-list-frame').inert), 'the list is inert while held')
+
+    // ANOTHER TAB STAYS USABLE, and the job goes on while you are away.
+    await win.keyboard.press('Control+t')
+    await sleep(500)
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(other)
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await listRow(win, 'f0001.txt').count()) === 1, 15000), 'a new tab goes to another folder')
+    ok((await win.locator(BUSY).count()) === 0, 'another tab on another folder has no bar')
+    await listRow(win, 'f0001.txt').locator('.browse-name-text').click()
+    ok(await win.evaluate(() => [...document.querySelectorAll('.browse-row[aria-selected="true"]')].some((r) => r.dataset.browsePath.endsWith('f0001.txt'))), 'and its list answers a click')
+    await win.keyboard.press('Control+w')
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await sleep(300)
+    await win.evaluate(() => {
+      window.__busy.after = []
+    })
+
+    ok(await busyGone(win), 'the bar ends')
+    await sleep(300)
+    const seen = await win.evaluate(() => window.__busy)
+    ok(seen.statuses.length === 1, `one status while held: the folder never trickled (${JSON.stringify(seen.statuses)})`)
+    ok(seen.after.length <= 2 && /^0 items/.test(seen.after.at(-1) ?? ''), `and it shows the finished folder once (${JSON.stringify(seen.after)})`)
+    // CTRL+Z PUTS THEM BACK UNDER THE SAME BAR, marked as they arrive.
+    await win.evaluate(() => {
+      window.__busy.up = 0
+      window.__busy.statuses = []
+      window.__busy.after = []
+    })
+    await win.keyboard.press('Control+z')
+    ok(await busyUp(win, 20000), 'Ctrl+Z over one second shows the bar')
+    const restoring = await win.locator('[data-busy-label]').textContent().catch(() => '')
+    ok(/^Restoring/.test(restoring ?? ''), `saying it restores ("${restoring}")`)
+    ok(await busyGone(win), 'and it ends')
+    ok(await until(async () => (await state()).status.startsWith('501'), 30000), 'and the folder is back')
+    const marks = await win.locator('.browse-row[aria-selected="true"]').count()
+    ok(marks > 1, `what came back is marked (${marks} rows)`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(other, { recursive: true, force: true })
+  }
+}
+
+async function busyPasteScenario(fixtures) {
+  console.log('a big paste shows the bar and lands marked')
+  const dir = join(fixtures, 'busypaste')
+  rmSync(dir, { recursive: true, force: true })
+  busyFiles(join(dir, 'src'), 3000)
+  mkdirSync(join(dir, 'into'))
+  writeFileSync(join(dir, 'notes.txt'), 'n')
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, '\\src').dblclick()
+    ok(await until(async () => (await listRow(win, 'f0000.txt').count()) === 1, 15000), 'into the source folder')
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+a')
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 15000), 'on the clipboard')
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(join(dir, 'into'))
+    await win.keyboard.press('Enter')
+    ok(await until(async () => ((await win.locator('.browse-path').getAttribute('data-path')) ?? '').endsWith('into'), 8000), 'into the target')
+    await sleep(500)
+    await busyWatch(win)
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    ok(await busyUp(win, 30000), 'a paste over one second shows the bar')
+    if (await win.locator(BUSY).count()) {
+      const label = await win.locator('[data-busy-label]').textContent().catch(() => '')
+      ok(/^Copying/.test(label ?? ''), `saying what it does ("${label}")`)
+      ok(await busyGone(win), 'the bar ends')
+    }
+    ok(await until(async () => (await win.locator('.browse-row[aria-selected="true"]').count()) > 1, 15000), 'what arrived is marked')
+    ok(await until(() => readdirSync(join(dir, 'into')).length === 3001, 15000), 'every file landed')
+    ok(await win.evaluate(() => !!document.activeElement?.closest('.browse-list')), 'the keyboard is back on the list')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function busyCancelScenario(fixtures) {
+  console.log('Cancel stops the job, leaves no partial, undo is right')
+  const dir = join(fixtures, 'busycancel')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'into'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'n')
+  const big = join(dir, 'big.bin')
+  const chunk = Buffer.alloc(16 * 1024 * 1024, 7)
+  for (let i = 0; i < 8; i += 1) appendFileSync(big, chunk)
+  busyFiles(join(dir, 'many'), 500)
+  const { app, win } = await launchWith({ ...NO_INDEX, PRISM_E2E_SLOW_COPY: '3' }, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, 'big.bin').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'the big file is on the clipboard')
+    await listRow(win, '\\into').dblclick()
+    ok(await until(async () => ((await win.locator('.browse-path').getAttribute('data-path')) ?? '').endsWith('into'), 8000), 'into the folder')
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    ok(await busyUp(win, 20000), 'one slow file over a second shows the bar')
+    if (!(await win.locator(BUSY).count())) return
+    await win.locator('[data-busy-cancel]').click()
+    const t0 = Date.now()
+    ok(await busyGone(win, 8000), 'Cancel by the mouse lifts it')
+    ok(Date.now() - t0 < 6000, `without waiting for the copy (${Date.now() - t0} ms)`)
+    await sleep(800)
+    ok(!existsSync(join(dir, 'into', 'big.bin')), 'no partial file is left')
+    ok(await until(async () => /Stopped/.test(await win.locator('[data-job-note]').textContent().catch(() => '')), 4000, 80), 'and a quiet line says it stopped')
+
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(join(dir, 'many'))
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await listRow(win, 'f0000.txt').count()) === 1, 15000), 'to the many files')
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+a')
+    await win.keyboard.press('Delete')
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    ok(await busyUp(win, 20000), 'the delete shows the bar')
+    await sleep(400)
+    await win.keyboard.press('Escape')
+    ok(await busyGone(win, 20000), 'Escape cancels by the keyboard')
+    await sleep(500)
+    const left = readdirSync(join(dir, 'many')).length
+    ok(left > 1 && left < 501, `some went, some stayed (${left} of 501 left)`)
+    await win.keyboard.press('Control+z')
+    ok(await until(() => readdirSync(join(dir, 'many')).length === 501, 90000, 200), 'Ctrl+Z brings back exactly what went')
+    await sleep(400)
+    await win.keyboard.press('Control+z')
+    ok(await until(async () => /Nothing to undo/.test(await win.locator('body').innerText()), 4000, 100), 'and nothing is left on the stack')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function busyFailScenario(fixtures) {
+  console.log('a job that fails still lifts the bar')
+  const dir = join(fixtures, 'busyfail')
+  rmSync(dir, { recursive: true, force: true })
+  busyFiles(dir, 3)
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await listRow(win, 'f0001.txt').locator('.browse-name-text').click({ modifiers: ['Shift'] })
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    // Gone before the answer: the bin's retries take more than a second, then
+    // it says so.
+    rmSync(join(dir, 'f0000.txt'))
+    rmSync(join(dir, 'f0001.txt'))
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    ok(await busyUp(win, 8000), 'a failing job over one second shows the bar')
+    ok(await busyGone(win, 15000), 'and still lifts it')
+    ok(await until(async () => /could not be moved to the Recycle Bin/.test(await win.locator('[role="dialog"]').textContent().catch(() => '')), 6000), 'and the failure says so')
+    ok(await win.evaluate(() => !document.querySelector('.browse-list-frame').inert), 'the list is not held')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function pasteProgressScenario(fixtures) {
   console.log('a big paste shows its progress')
   const dir = join(fixtures, 'pasteprogress')
@@ -24281,6 +24574,11 @@ await run(zoomFloorScenario)
 await run(rowPasteScenario)
 await run(deleteLastScenario)
 await run(deleteFocusScenario)
+await run(busyQuickScenario)
+await run(busyHoldScenario)
+await run(busyPasteScenario)
+await run(busyCancelScenario)
+await run(busyFailScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over
