@@ -16899,8 +16899,213 @@ async function unsupportedScenario(fixtures) {
     )
     await win.screenshot({ path: join(SHOTS, 'unsupported.png') })
     ok(!win.isClosed(), 'window survives an unopenable file')
+    // WINDOWS HANDED IT TO US (#494): handing it straight back would be a loop.
+    // The card stays, and only its own button sends it out.
+    const opened = () => app.evaluate(() => globalThis.__e2eOpenedFiles ?? [])
+    await sleep(800)
+    ok((await opened()).length === 0, `a file Windows handed over is not handed back (${JSON.stringify(await opened())})`)
+    const open = win.getByRole('button', { name: 'Open', exact: true })
+    ok((await open.count()) === 1, 'the card offers Open')
+    ok((await win.getByRole('button', { name: 'Show the bytes', exact: true }).count()) === 1, 'beside Show the bytes')
+    if (await open.count()) await open.click()
+    ok(await until(async () => (await opened()).length === 1, 5000), `Open on the card reaches the open route once (${JSON.stringify(await opened())})`)
+    ok(/program\.exe$/i.test((await opened())[0] ?? ''), 'and it is that file')
   } finally {
     await app.close()
+  }
+}
+
+/** A FILE PRISM CANNOT SHOW OPENS THE WAY WINDOWS WOULD (#494; owner,
+ *  2026-11-09: "it shoudl be possible to opena exe instalelr"). The rule worth
+ *  the most here: only a deliberate open starts anything. Nothing is ever
+ *  started: under --e2e the open route records the path and stops. */
+async function opensInWindowsScenario(fixtures) {
+  console.log('a file Prism cannot show opens the way Windows would (#494)')
+  const AdmZip = (await import('adm-zip')).default
+  const dir = join(fixtures, 'opensinwindows')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const setup = join(dir, 'setup.exe')
+  // Not a program: nothing here could run even if the route were reached.
+  writeFileSync(setup, 'not really a program\n')
+  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
+  copyFileSync(join(fixtures, 'two.png'), join(dir, 'a-one.png'))
+  copyFileSync(join(fixtures, 'two.png'), join(dir, 'z-two.png'))
+  const zip = new AdmZip()
+  zip.addFile('inner.exe', Buffer.from('a member, not a program\n'))
+  zip.addFile('other.txt', Buffer.from('beside it\n'))
+  zip.writeZip(join(dir, 'members.zip'))
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  let windowMode = false
+  let held = 0
+  const calls = () => app.evaluate(() => globalThis.__e2eOpenedFiles ?? [])
+  /** Nothing new reached the open route, given a moment to. */
+  const nothing = async (what) => {
+    await sleep(500)
+    const got = await calls()
+    ok(got.length === held, `${what}: nothing is handed to Windows (${JSON.stringify(got.slice(held))})`)
+    held = got.length
+  }
+  /** Exactly one more call, for that file. */
+  const handed = async (what, path = setup) => {
+    ok(await until(async () => (await calls()).length > held, 5000), `${what}: the file goes to Windows (${(await calls()).length - held} call(s))`)
+    await sleep(300)
+    const got = (await calls()).slice(held)
+    ok(got.length === 1 && sameDir(got[0] ?? '', path), `${what}: one call, for that file (${JSON.stringify(got)})`)
+    held += got.length
+  }
+  const inList = async () => (await win.locator(FOLDER_LIST).count()) > 0 && (await win.locator('.browse-viewer-toolbar').count()) === 0
+  const pick = async (name) => {
+    const box = await listRow(win, name).boundingBox()
+    await listRow(win, name).click({ position: { x: 30, y: box.height / 2 } })
+    await sleep(300)
+  }
+  const toggleBtn = () => win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first()
+  const pressed = async () => (await toggleBtn().getAttribute('aria-pressed')) === 'true'
+  const pane = (on) => until(async () => {
+    if ((await pressed()) !== on) await toggleBtn().click()
+    await sleep(150)
+    return (await pressed()) === on
+  }, 3000)
+  const CARD = /can.t show EXE files/
+  const paneText = () => win.evaluate(() => document.querySelector('[data-browse-preview]')?.innerText ?? '')
+  const paneOpen = () => win.locator('[data-browse-preview]').getByRole('button', { name: 'Open', exact: true })
+  const selected = () =>
+    win.evaluate(() => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')
+  try {
+    await explorerAt(win, dir)
+    await pane(false)
+    ok(await app.evaluate(() => Array.isArray(globalThis.__e2eOpenedFiles)), 'under --e2e the open route records instead of opening')
+
+    /* ---------- NEVER: selecting, arrowing, previewing, walking ---------- */
+    await pick('setup.exe')
+    await nothing('a click on the row')
+    await listRow(win, 'setup.exe').focus()
+    await win.keyboard.press('ArrowDown')
+    await win.keyboard.press('ArrowUp')
+    await nothing('arrowing past it')
+
+    await pane(true)
+    await pick('setup.exe')
+    ok(await until(async () => CARD.test(await paneText()), 8000), `the pane shows the card (${JSON.stringify((await paneText()).slice(0, 120))})`)
+    await nothing('the preview pane on it')
+    await listRow(win, 'setup.exe').focus()
+    await win.keyboard.press('ArrowUp')
+    await sleep(200)
+    await win.keyboard.press('ArrowDown')
+    await sleep(200)
+    await nothing('arrowing past it with the pane open')
+    ok(await until(async () => (await paneOpen().count()) === 1, 5000), 'the card in the pane has Open')
+    await pane(false)
+
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await pick('setup.exe')
+    await listRow(win, 'setup.exe').focus()
+    await win.keyboard.press('Space')
+    const inWindow = () =>
+      win.evaluate(() => {
+        const w = window.__prismPreviewWindow
+        return !w || w.closed ? '' : (w.document.querySelector('[data-preview-window-body]')?.textContent ?? '')
+      })
+    ok(await until(async () => CARD.test(await inWindow()), 8000), `the preview window shows the card (${JSON.stringify((await inWindow()).slice(0, 120))})`)
+    await nothing('the preview window on it')
+    await listRow(win, 'setup.exe').focus()
+    await win.keyboard.press('Space')
+    await until(async () => (await inWindow()) === '', 3000)
+    await pickStyleSegment(win, 'preview-opens', 'Panel')
+    windowMode = false
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await pane(false)
+
+    // Full view: a walk through the folder from the photo beside it.
+    await listRow(win, 'a-one.png').dblclick()
+    ok(await until(async () => (await win.locator('.browse-viewer-toolbar').count()) > 0, 8000), 'a photo opens in full view')
+    await sleep(300)
+    await win.keyboard.press('ArrowRight')
+    await sleep(300)
+    await win.keyboard.press('ArrowRight')
+    await sleep(300)
+    await win.keyboard.press('ArrowLeft')
+    await sleep(300)
+    await win.keyboard.press('ArrowRight')
+    await nothing('walking the folder in full view')
+    await toList(win)
+    ok(!sameDir(await selected(), join(dir, 'a-one.png')), `the walk really moved (${await selected()})`)
+
+    /* ---------- ONE EACH: every deliberate open ---------- */
+    await listRow(win, 'setup.exe').dblclick()
+    await handed('a double-click')
+    ok(await inList(), 'and the list stays where it is')
+    ok(!CARD.test(await win.evaluate(() => document.body.innerText)), 'no card says Prism cannot show it')
+
+    await pick('setup.exe')
+    await listRow(win, 'setup.exe').focus()
+    await win.keyboard.press('Enter')
+    await handed('Enter')
+    ok(await inList(), 'Enter: the list stays where it is')
+
+    await listRow(win, 'setup.exe').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Open', exact: true }).click()
+    await handed("the menu's Open")
+
+    await typePath(win, setup)
+    await handed('the path in the address field')
+    ok(await inList(), 'the address field: the list stays where it is')
+    ok(!(await win.evaluate(() => document.body.innerText)).includes('This folder cannot be opened'), 'and it reports no error')
+
+    await pane(true)
+    await pick('setup.exe')
+    await until(async () => (await paneOpen().count()) === 1, 8000)
+    await nothing('the pane again')
+    if (await paneOpen().count()) await paneOpen().click()
+    await handed('Open on the card')
+    await pane(false)
+
+    /* ---------- a pin: a click is not an open, a double-click is ---------- */
+    await listRow(win, 'setup.exe').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const pin = win.locator('.browse-places .quick-access-pin[data-quick-access-path$="\\\\setup.exe" i]')
+    ok(await until(async () => (await pin.count()) === 1, 5000), 'the file is pinned')
+    await pin.click()
+    await nothing('one click on the pin')
+    await explorerAt(win, dir)
+    await pin.dblclick()
+    await handed('a double-click on the pin')
+    await pin.click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+    await until(async () => (await pin.count()) === 0, 5000)
+    await explorerAt(win, dir)
+
+    /* ---------- search results are rows ---------- */
+    const search = win.locator('[data-testid="browse-search-button"]')
+    const popup = win.locator('[data-testid="browse-search-popup"]')
+    const field = popup.locator('input[role="combobox"]')
+    await search.click()
+    await field.fill('setup')
+    await field.press('Control+Enter')
+    ok(await until(async () => (await win.locator('[data-testid="browse-search-status"]').count()) === 1 && (await listRow(win, 'setup.exe').count()) === 1, 15000), 'a search lists the file')
+    await pick('setup.exe')
+    await nothing('a click on a search result')
+    await listRow(win, 'setup.exe').dblclick()
+    await handed('a double-click on a search result')
+    await win.locator('[data-testid="browse-search-clear"]').click()
+    await until(async () => (await win.locator('[data-testid="browse-search-status"]').count()) === 0, 5000)
+
+    /* ---------- a zip's member stays as it is ---------- */
+    await inZip(win, join(dir, 'members.zip'))
+    await listRow(win, 'inner.exe').dblclick()
+    ok(await until(async () => CARD.test(await win.evaluate(() => document.body.innerText)), 15000), 'a member is still the card')
+    await nothing('a double-click on a member of a zip')
+    ok((await win.getByRole('button', { name: 'Open', exact: true }).count()) === 0, 'and its card has no Open')
+    ok((await win.getByRole('button', { name: 'Show the bytes', exact: true }).count()) === 1, 'it keeps Show the bytes')
+  } finally {
+    if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -24939,6 +25144,7 @@ await run(busyBackdropScenario)
 await run(busyCutCancelScenario)
 await run(busyUndoMoveScenario)
 await run(unsupportedScenario)
+await run(opensInWindowsScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over
 // zero scenarios is the most confident lie a suite can tell (2026-08-28).
