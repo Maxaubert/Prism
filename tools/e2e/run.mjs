@@ -13089,6 +13089,62 @@ async function busyBackdropScenario(fixtures) {
   }
 }
 
+/** A cut stopped partway: the rest is still cut, the next paste moves only that
+ *  and says nothing about what already went (review, 2026-11-09). */
+async function busyCutCancelScenario(fixtures) {
+  console.log('Cancel on a cut and paste, then paste again')
+  const dir = join(fixtures, 'busycut')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'into'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'n')
+  writeFileSync(join(dir, 'a.txt'), 'a')
+  const big = join(dir, 'big.bin')
+  const chunk = Buffer.alloc(16 * 1024 * 1024, 7)
+  for (let i = 0; i < 8; i += 1) appendFileSync(big, chunk)
+  // A second process holds big.bin, so its rename fails and the cut falls to
+  // the slow copy, where Cancel can reach it (moveOps.test's lock).
+  const holder = spawn(
+    'powershell',
+    ['-NoProfile', '-Command', `$f = [System.IO.File]::Open('${big}', 'Open', 'Read', 'Read'); [Console]::Out.WriteLine('locked'); [Console]::Out.Flush(); Start-Sleep -Seconds 120`],
+    { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
+  )
+  await new Promise((done) => holder.stdout.once('data', done))
+  const { app, win } = await launchWith({ ...NO_INDEX, PRISM_E2E_SLOW_COPY: '3' }, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, 'a.txt').locator('.browse-name-text').click()
+    await listRow(win, 'big.bin').locator('.browse-name-text').click({ modifiers: ['Control'] })
+    await win.keyboard.press('Control+x')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'both are cut')
+    await listRow(win, '\\into').dblclick()
+    ok(await until(async () => ((await win.locator('.browse-path').getAttribute('data-path')) ?? '').endsWith('into'), 8000), 'into the folder')
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    ok(await busyUp(win, 20000), 'the slow one shows the bar')
+    await win.locator('[data-busy-cancel]').click()
+    ok(await busyGone(win, 8000), 'Cancel lifts it')
+    await sleep(800)
+    ok(existsSync(join(dir, 'into', 'a.txt')), 'what moved first stayed moved')
+    ok(!existsSync(join(dir, 'into', 'big.bin')), 'no partial file is left')
+    ok(statSync(big).size === 128 * 1024 * 1024, 'and the source was not touched')
+
+    holder.kill()
+    await sleep(600)
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    ok(await until(() => existsSync(join(dir, 'into', 'big.bin')) && !existsSync(big), 15000), 'a second paste moves what was left')
+    await sleep(500)
+    const said = await win.locator('[role="dialog"]').textContent({ timeout: 300 }).catch(() => '')
+    ok(!said, `and says nothing about what already went ("${said}")`)
+  } finally {
+    holder.kill()
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function pasteProgressScenario(fixtures) {
   console.log('a big paste shows its progress')
   const dir = join(fixtures, 'pasteprogress')
@@ -24620,6 +24676,7 @@ await run(busyPasteScenario)
 await run(busyCancelScenario)
 await run(busyFailScenario)
 await run(busyBackdropScenario)
+await run(busyCutCancelScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over
