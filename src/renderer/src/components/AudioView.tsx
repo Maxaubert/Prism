@@ -155,6 +155,7 @@ export function AudioView({
     resumeKey: url,
     resumePath: path,
     keys: !background,
+    arrowsAreVolume: !window.prism.capabilities.explorer,
     volumeKey,
     onVolume: () => setVolFlash(Date.now())
   })

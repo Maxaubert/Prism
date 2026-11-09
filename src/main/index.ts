@@ -206,6 +206,11 @@ app.commandLine.appendSwitch('disable-direct-composition')
  * sound is the point.
  */
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+// THE E2E IS SILENT (owner, 2026-11-09: "the tests you run like now play the
+// videos audio and its distracting"). Chromium's own switch for automated runs:
+// the sound goes to no device, while the clock, the element and the analyser
+// behave as they do when heard. `launchTestApp` refuses a run without it.
+if (process.argv.includes('--e2e')) app.commandLine.appendSwitch('mute-audio')
 
 // THE E2E NEVER TOUCHES THE REAL CLIPBOARD (#356): every clipboard the app
 // has is one in memory under --e2e (e2eClipboard.ts).

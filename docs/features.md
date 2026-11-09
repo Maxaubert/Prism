@@ -3530,7 +3530,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   go to the previous and next file, in full view and in the pane, whether the focus is on the
   list, the picture, a control on the bar or the volume slider (`useAppKeys` claims the key, and
   VideoView passes `arrowsAreVolume: false` so the film's own listener never takes it). A TRACK
-  keeps them as volume, because the owner named videos. Left/Right stay the seek, and a Ctrl,
+  does the same ("do audio files too", same day); the phone keeps them as volume. Left/Right stay the seek, and a Ctrl,
   Shift or Alt chord over a film does nothing (in the list the chords are the list's). No new
   volume shortcut: the wheel, the slider and M remain. In the pane the step moves the list's
   selection too, or the row was left behind the film. WHY IT DID NOT ALWAYS START: only a PICK
@@ -3552,9 +3552,9 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the `filmKeys` and `filmStart` e2e, `playState.test.ts`, `liveRoute.test.ts`, and on the owner's
   screen by `npm run diag`: an `autostart` line per film meant to start.
   In the preview WINDOW with the keyboard inside it (2026-11-09, #492 on top of #490), Up and Down walk the
-  folder too on a film, a picture or a comic, so a walk does not stop on the first file that is not a film.
+  folder too on a film, a track, a picture or a comic, so a walk does not stop on the first file that is not a film.
   App's key listener is on the Explorer's window, so `previewWindowStep` does it there. A document and an
-  archive card keep the keys, a track keeps its volume. `previewWindow` e2e holds it.
+  archive card keep the keys. `previewWindow` e2e holds it.
 - **MUTE, VOLUME AND SPEED CARRY TO THE NEXT FILE** (#207; owner, 2026-09-23: "if the user
   mutes audio or sets speed to be 0.5 and then clicks a new video, those settings should be
   kept ... maybe the user wants to just look at videos without audio, or dissect videos in

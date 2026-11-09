@@ -762,12 +762,12 @@ export default function App(): JSX.Element {
         const key = window.prism.mediaUrl(target.path)
         if (!heldPaused(key)) intendToPlay(key)
       }
-      // A film in the Explorer's pane steps by the list's own selection, or the
+      // A film or a track in the Explorer's pane steps by the list's own selection, or the
       // pane walks on and the row stays behind (#492).
       if (
         browsing.folder &&
         shown &&
-        view.files[view.index]?.kind === 'video' &&
+        (view.files[view.index]?.kind === 'video' || view.files[view.index]?.kind === 'audio') &&
         browsing.listing?.files.some((f) => f.path === target.path)
       )
         browsing.select(target.path, false, false)
@@ -1862,7 +1862,7 @@ export default function App(): JSX.Element {
                       open={windowShown}
                       title={file?.name ?? ''}
                       onClose={closePreviewWindow}
-                      onStep={file && (file.kind === 'video' || file.kind === 'image' || file.kind === 'comic') ? go : undefined}
+                      onStep={file && (file.kind === 'video' || file.kind === 'audio' || file.kind === 'image' || file.kind === 'comic') ? go : undefined}
                     >
                       {windowContent}
                     </PreviewWindow>

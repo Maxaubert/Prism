@@ -24,6 +24,7 @@ const onTransportSlider = (el: HTMLElement | null): boolean =>
  *  (owner, 2026-10-28, "the arrow keys up and down navigate files while
  *  you're in it which it should not", all documents). */
 const DOCUMENTS = new Set(['doc', 'pdf', 'text'])
+const PLAYABLE = new Set(['video', 'audio'])
 
 /** The document scroller on screen (another tab's stays mounted, hidden). */
 const shownDocScroller = (): HTMLElement | null =>
@@ -92,7 +93,7 @@ export function useAppKeys({
 }: AppKeysDeps): void {
   // App-level keys, in the capture phase so this runs before the player's own
   // (bubble-phase) key listener. Up and Down page through the folder, a film
-  // included (#492); a track keeps them for its volume. A key claimed here is
+  // and a track included (#492). A key claimed here is
   // preventDefault-ed, and the player's listener yields to that.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -322,7 +323,7 @@ export function useAppKeys({
         go(e.key === 'PageDown' ? 1 : -1)
       } else if (
         (e.key === 'ArrowDown' || e.key === 'ArrowUp') &&
-        (!typing || (file?.kind === 'video' && onTransportSlider(el)))
+        (!typing || (!!file && PLAYABLE.has(file.kind) && onTransportSlider(el)))
       ) {
         // FOCUS decides, for every kind. A document owns the vertical keys only
         // while it is focused - click into it, or Tab to it. Until then it has
@@ -344,14 +345,12 @@ export function useAppKeys({
         }
         // Alt too: Alt+Up is the list's parent row (review of #330).
         if (inLists && (e.ctrlKey || e.shiftKey || e.altKey)) return
-        // A TRACK IN FRONT OF YOU: Up/Down are its VOLUME, which is what every
-        // player has taught (2026-08-30), and only the track (owner, 2026-11-08,
-        // #492: "up down arrows shoudl nvigate next file not adjust volume", said
-        // of videos). A FILM's walk the folder like any other kind's, whether the
-        // focus is on the list, the picture or the player's bar, and the film's
-        // own key listener is told not to take them (`arrowsAreVolume`).
-        if (file?.kind === 'audio') return // the track's volume
-        if (file?.kind === 'video') {
+        // A PLAYER'S UP AND DOWN WALK THE FOLDER (owner, 2026-11-08, #492: "up
+        // down arrows shoudl nvigate next file not adjust volume", then "do audio
+        // files too"), like any other kind's, whether the focus is on the list,
+        // the picture or the player's bar. The player's own key listener is told
+        // not to take them (`arrowsAreVolume`).
+        if (!!file && PLAYABLE.has(file.kind)) {
           // Nothing on screen to walk from: a film kept behind the list.
           if (browsing.folder && !active?.browse.preview) return
           // A chord is the list's, in the list; over a film it does nothing,
