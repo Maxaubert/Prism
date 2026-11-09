@@ -1607,7 +1607,16 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   right-click menu + F2/Delete: view (extracted to a temp file main
   grants individually, shown with the ordinary viewers), copy out (real clipboard), rename,
   delete. Member delete is the ONE permanent delete in Prism (a zip has no Recycle Bin) and
-  the dialog says so. Passwords: asked once per archive and remembered; ZipCrypto opens via
+  the dialog says so. **ONE PASSWORD QUESTION PER ARCHIVE** (owner, 2026-11-09): every route
+  (a locked member's preview, the verbs, the Explorer going in, the archive panel) asks through
+  `lib/archiveQuestion.ts`, and the window draws the one question beside App. A second request for
+  the same archive joins it and tries its answer; a wrong answer brings them all back to one
+  question, Cancel drops them all, and so does a request already on its way when the Cancel came
+  (it began before it). One that comes back after an answer was given is handed that answer without
+  asking. Questions about different archives wait in line. A question no longer waits for its own
+  tab: it belongs to the window. Per window, so two windows can each ask once. Held by the
+  `archivePassOnce` e2e, which sets off a preview and an extract in one tick, and
+  `lib/archiveQuestion.test.ts`. Passwords: asked once per archive and remembered; ZipCrypto opens via
   adm-zip, AES members go through a DETECTED 7-Zip (7z.exe at its standard install paths,
   args-only execFile - the same enumerated-exe rule as "Open in"), and without 7-Zip they
   say so honestly. zip only; 7z/rar containers are out until a fresh decision. Oversized

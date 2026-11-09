@@ -32,7 +32,7 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
 | `FileChangedDialog` | A file with unsaved edits changed on disk: Keep mine or Reload | App (`file-changed`) |
 | `UnsavedDialog` | Unsaved changes: Cancel, Discard, Save all changes | App (`close-dirty`, `close-tab`) |
 | `NoticeDialog` | One line that did not work, one button | App (`failed`, "That didn't work"), `Sidebar.tsx` (Paste, Add to archive), `archive/useArchiveOps.tsx` ("Archive") |
-| `PasswordDialog` | The archive's password (again, when it was wrong) | `archive/useArchiveOps.tsx`, `ArchiveView.tsx`, `MemberGate.tsx`, App (Explorer inside a zip) |
+| `PasswordDialog` | The archive's password (again, when it was wrong) | `components/archive/ArchiveQuestion.tsx` only, beside App: every route asks through `lib/archiveQuestion.ts`, so an archive never has two up |
 | `ArchiveDeleteDialog` | Delete members from a zip, for good (Cancel is primary) | `archive/useArchiveOps.tsx` |
 | `ArchiveClashDialog` | Added files, or members moved inside a zip (#70 D7), land on names the zip has: Keep both | `archive/useArchiveOps.tsx` |
 | `ArchiveFactsDialog` | A zip member's facts | `browse/useArchiveActions.tsx` |
