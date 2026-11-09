@@ -3,6 +3,7 @@ import { OVERLAY } from '../../lib/focusGuards'
 import { menuOrDialogUp } from '../../lib/pageDocuments'
 
 const TAB_STRIP = '[role="tablist"]'
+const ON_A_QUESTION = `${OVERLAY},[data-owns-escape],.browse-busy`
 
 /**
  * THE KEYBOARD COMES BACK TO THE LIST (owner, 2026-11-09: "if i click delte
@@ -21,6 +22,12 @@ const TAB_STRIP = '[role="tablist"]'
  * get it to work then i have to click into the directory"). The press left the
  * focus on the tab's own button, where the list's keys could not hear it.
  * Reaching the strip by the keyboard is not a press, and keeps it.
+ *
+ * NOT WHILE THE KEY THAT ANSWERED IS STILL DOWN (found by extractCancel,
+ * 2026-11-09). A field answers Enter on keydown, and the keypress follows on
+ * whatever has the focus by then: put back on the row at once, that keypress
+ * was a click on the row, which opened the file behind the question. So a key
+ * pressed on a question hands the focus back when it comes up.
  */
 export function useListKeyboard(
   shell: RefObject<HTMLElement | null>,
@@ -35,10 +42,14 @@ export function useListKeyboard(
   // because the press put it there.
   const pressedTab = useRef(false)
   const bringBack = useRef<() => void>(() => {})
+  // The key pressed on a question, until it comes up.
+  const keyDown = useRef<string | null>(null)
   useEffect(() => {
     const heard = (event: Event): void => {
       const target = event.target
       if (!(target instanceof Element)) return
+      keyDown.current =
+        event.type === 'keydown' && target.closest(ON_A_QUESTION) ? (event as KeyboardEvent).code : null
       if (event.type === 'keydown' && target === document.body) return
       waiting.current = false
       pressedTab.current =
@@ -49,7 +60,7 @@ export function useListKeyboard(
         home.current = true
         return
       }
-      if (target.closest(`${OVERLAY},[data-owns-escape],.browse-busy`)) return
+      if (target.closest(ON_A_QUESTION)) return
       home.current = !!target.closest('.browse-list')
     }
     // A press on the tab already in front commits nothing, so the effect below
@@ -58,12 +69,19 @@ export function useListKeyboard(
       if (pressedTab.current && event.target instanceof Element && event.target.closest(TAB_STRIP))
         bringBack.current()
     }
+    const released = (event: KeyboardEvent): void => {
+      if (event.code !== keyDown.current) return
+      keyDown.current = null
+      bringBack.current()
+    }
     document.addEventListener('pointerdown', heard, true)
     document.addEventListener('keydown', heard, true)
+    document.addEventListener('keyup', released, true)
     document.addEventListener('click', clicked)
     return () => {
       document.removeEventListener('pointerdown', heard, true)
       document.removeEventListener('keydown', heard, true)
+      document.removeEventListener('keyup', released, true)
       document.removeEventListener('click', clicked)
     }
   }, [])
@@ -71,7 +89,7 @@ export function useListKeyboard(
   // all one.
   useLayoutEffect(() => {
     bringBack.current = () => {
-      if (!home.current || covered || menuOrDialogUp() || !document.hasFocus()) return
+      if (keyDown.current || !home.current || covered || menuOrDialogUp() || !document.hasFocus()) return
       const list = shell.current?.querySelector<HTMLElement>('.browse-list')
       if (!list) return
       const now = document.activeElement
