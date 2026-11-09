@@ -25,6 +25,7 @@ import {
   type TabState
 } from '../lib/tabs/tabs'
 import { fileKind } from '@shared/fileKind'
+import { goesToWindows } from '../lib/unsupported'
 import { baseName, extOf, pastedPath, pathKey } from '@shared/path'
 import { applyDetails, sameRows } from '../lib/listingMerge'
 import { downloadsPath, isDownloads, viewSort } from '../lib/downloadsView'
@@ -151,12 +152,12 @@ function rememberCached(path: string): BrowseDirectory | null {
 
 /** The file's folder, read for its grant only, and the row in it the path
  *  names, in its own spelling (a path may be typed in any case). */
-async function fileRow(tabId: string, target: string): Promise<string | null> {
+async function fileRow(tabId: string, target: string): Promise<ViewerFile | null> {
   const parent = browseParent(target)
   if (!parent) return null
   const dir = await window.prism.browseDirectory(tabId, parent, { details: false }).catch(() => null)
   if (!dir || dir.listing.unreadable) return null
-  return dir.listing.files.find((f) => pathKey(f.path) === pathKey(target))?.path ?? null
+  return dir.listing.files.find((f) => pathKey(f.path) === pathKey(target)) ?? null
 }
 
 /** Folder navigation owns only the browse cursor. It never reroots a session. */
@@ -536,7 +537,9 @@ export function useFolderBrowsing(
           const row = await fileRow(tabId, target)
           if (serial.current.get(tabId) !== request) return
           if (row) {
-            void openFileRef.current(row)
+            // Typing it is as deliberate as a double-click (#494).
+            if (goesToWindows(row)) window.prism.openInDefault(row.path)
+            else void openFileRef.current(row.path)
             return
           }
         }
@@ -725,6 +728,37 @@ export function useFolderBrowsing(
   useLayoutEffect(() => {
     openFileRef.current = openFile
   }, [openFile])
+  /**
+   * A DELIBERATE OPEN (#494; owner, 2026-11-09): a double-click, Enter, the
+   * menu's Open, a search hit picked, a pin double-clicked. A file Prism has no
+   * viewer for leaves for Windows, so SmartScreen and UAC answer as they do in
+   * File Explorer, and the list stays where it is. THIS IS THE ONLY DOOR:
+   * `select`, the pane, the preview window, a walk in full view and an arrival
+   * from Windows all go through `openFile` and can never start a program. A
+   * pin's bare path is read in its folder first, for the grant the open route's
+   * wall asks for and for what the row really is.
+   */
+  const openDeliberately = useCallback(
+    async (file: ViewerFile | string) => {
+      if (typeof file !== 'string') {
+        if (goesToWindows(file)) window.prism.openInDefault(file.path)
+        else await openFile(file)
+        return
+      }
+      const name = baseName(file)
+      if (!id || fileKind(extOf(name), name) !== 'other') {
+        await openFile(file)
+        return
+      }
+      const request = (serial.current.get(id) ?? 0) + 1
+      serial.current.set(id, request)
+      const row = await fileRow(id, file)
+      if (serial.current.get(id) !== request) return
+      if (row && goesToWindows(row)) window.prism.openInDefault(row.path)
+      else await openFile(file)
+    },
+    [id, openFile]
+  )
   // The tab's own answer, else the shared snapshot of the same folder (#271):
   // a tab switch, or a restored tab's first frame, draws rows before any
   // read. With nothing in memory either, the cache on disk, looked at while
@@ -888,6 +922,7 @@ export function useFolderBrowsing(
       searchFor,
       showFolder,
       openFile,
+      openDeliberately,
       openSplit,
       select,
       togglePreview,
@@ -916,6 +951,7 @@ export function useFolderBrowsing(
       searchFor,
       showFolder,
       openFile,
+      openDeliberately,
       openSplit,
       select,
       togglePreview,

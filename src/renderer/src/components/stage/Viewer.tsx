@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
 import { ViewerSwitch } from '../ViewerSwitch'
+import { UnsupportedView } from '../UnsupportedView'
 import { ArchiveCard } from '../browse/ArchiveCard'
 import type { DragPayload } from '../../lib/drag/dragDrop'
 import type { DropKeys } from '../../lib/drag/dropVerb'
@@ -47,9 +48,13 @@ export function Viewer({
   note = false,
   preview = false,
   shut = false,
-  readOnly = false
+  readOnly = false,
+  unpacked = false
 }: {
   file: ViewerFile
+  /** `file` is the temp copy of a member of a zip, unpacked to be shown:
+   *  the card offers no way to run it (#494). */
+  unpacked?: boolean
   /** An archive's card asks to go in (#300): the Explorer walks into it, a
    *  project's tree opens its node. */
   onOpenArchive?: (path: string) => void
@@ -113,7 +118,7 @@ export function Viewer({
       archiveCardMenu, archiveCardCopy, archiveCardDrop
     }
     const gate = (
-      <MemberGate file={file} render={(real) => <Viewer {...props} file={real} readOnly />} />
+      <MemberGate file={file} render={(real) => <Viewer {...props} file={real} readOnly unpacked />} />
     )
     if (!note) return gate
     return (
@@ -131,6 +136,7 @@ export function Viewer({
     <ViewerSwitch
       file={file}
       mode="full"
+      unsupported={unpacked ? () => <UnsupportedView file={file} openable={false} /> : undefined}
       loading={<EditorLoading />}
       onToggleFullscreen={onToggleFullscreen}
       fullscreen={fullscreen}

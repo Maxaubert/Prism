@@ -1537,7 +1537,14 @@ export default function App(): JSX.Element {
                 places={browsePlaces}
                 quickAccess={quickAccess}
                 readDrives={window.prism.browseDrives}
-                onQuickAccessFile={(path, full) => void openBrowseFile(path, full ?? !active.browse.preview)}
+                // Only the double-click and Enter say `full`: one click on a pin
+                // is a look, and a look never starts a program (#494). A file
+                // Prism cannot show is looked at in its row, so the second
+                // click of a double-click still finds the pin there.
+                onQuickAccessFile={(path, full) => {
+                  if (full) void browsing.openDeliberately(path)
+                  else void openBrowseFile(path, !active.browse.preview && fileKind(extOf(path), baseName(path)) !== 'other')
+                }}
                 onUnpinQuickAccess={unpinQuickAccess}
                 onMoveQuickAccess={moveQuickAccess}
                 onPinQuickAccessPaths={(paths, beforePath) =>
@@ -1571,7 +1578,7 @@ export default function App(): JSX.Element {
                   if (parent) void browsing.navigate(parent)
                 }}
                 onSelect={browsing.select}
-                onOpen={(file) => void browsing.openFile(file)}
+                onOpen={(file) => void browsing.openDeliberately(file)}
                 onScroll={browsing.keepScroll}
                 onQueryChange={browsing.searchFor}
                 // A header click is a pick made here (#285): Downloads keeps it.
@@ -1970,7 +1977,7 @@ export default function App(): JSX.Element {
               apps: browseMenu.apps,
               pinned: quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)),
               openFolder: (path) => void browsing.navigate(path),
-              openFile: (file) => void browsing.openFile(file),
+              openFile: (file) => void browsing.openDeliberately(file),
               showInPreview: (path) => openBrowseSplit(path),
               openInNewTab,
               copyFiles: (paths, cut) => void copyFilePaths(paths, cut),
