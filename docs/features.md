@@ -832,7 +832,10 @@ root and not from what holds it. So in the window every table cell wore the them
 the white paper in a dark theme) while everything outside a table stayed the paper's dark ink, in a
 workbook, a Word document, an ebook and a markdown table alike. `PreviewWindow.tsx`'s `dress()` now writes a
 doctype into the blank page before anything goes in it; a colour rule per table would have left the
-rest of quirks mode (fonts, line heights, box sizes) still different from the pane. A real dark fill keeps
+rest of quirks mode (fonts, line heights, box sizes) still different from the pane. Writing it gives the
+window the opener's address instead of `about:blank`; nothing reads it, and main denies the child every
+navigation and every window whatever its address (the `previewWindow` e2e, which now holds its page to the
+address it began with). A real dark fill keeps
 its light text, and the paper's ink never comes from the theme. PDF text layers are transparent and
 were the same before and after. Held by the `sheetColours` e2e: a hand-written workbook, read in the
 pane, the window and the full view in all 18 themes, the window's `compatMode`, and a Word document, a

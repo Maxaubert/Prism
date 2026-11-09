@@ -20273,6 +20273,15 @@ async function previewSlideListScenario(fixtures) {
  * blur leaves it; Space, Escape (the list's or its own) and its close button
  * close it, faded out; the pane never opens. Panel puts the pane back.
  */
+/** The preview window's own page, null when there is none. */
+async function previewPage(app, win) {
+  for (const p of app.windows()) {
+    if (p === win) continue
+    if (await p.evaluate(() => !!document.querySelector('[data-preview-window]')).catch(() => false)) return p
+  }
+  return null
+}
+
 async function previewWindowScenario(fixtures) {
   console.log('the preview in its own window, Quick Look style (owner, 2026-11-08)')
   const dir = join(fixtures, 'previewwindow')
@@ -20394,7 +20403,7 @@ async function previewWindowScenario(fixtures) {
     ok(await until(async () => (await inside())?.img?.ok && (await inside())?.img?.w > 20, 8000), `ArrowUp: a picture, drawn and sized in the window (${JSON.stringify((await inside())?.img)})`)
     ok((await inside())?.title === 'bravo.png', `the title follows (${(await inside())?.title})`)
     // The window as drawn (its own page; clear on the desktop, not in a capture).
-    const page = app.windows().find((p) => p.url() === 'about:blank' || p.url() === '')
+    const page = await previewPage(app, win)
     if (page) await page.screenshot({ path: join(SHOTS, 'preview-window.png') }).catch((e) => console.log(`  (no shot: ${e})`))
     else console.log(`  (no preview page among ${app.windows().map((p) => p.url()).join(', ')})`)
 
@@ -20429,6 +20438,7 @@ async function previewWindowScenario(fixtures) {
         a.click()
         a.remove()
       }
+      const startHref = w.location.href
       link('about:blank', 'prism-preview-other')
       await new Promise((r) => setTimeout(r, 500))
       link('file:///C:/')
@@ -20439,11 +20449,13 @@ async function previewWindowScenario(fixtures) {
       } catch {
         href = 'navigated away (cross-origin now)'
       }
-      return { opened: false, href }
+      return { opened: false, href, startHref }
     })
     const winsAfter = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
     ok(!walls.opened && winsAfter === winsBefore, `the preview window opens no window of its own (${JSON.stringify(walls)}, ${winsBefore} -> ${winsAfter})`)
-    ok(walls.href === 'about:blank', `and its page goes nowhere (${walls.href})`)
+    // Written, as a standards page must be, so its address is the app's page
+    // (#493); what matters is that it is the address it began with.
+    ok(walls.href === walls.startHref, `and its page goes nowhere (${walls.href}, began at ${walls.startHref})`)
     ok((await inside()) !== null, 'and it still shows the file')
 
     // ITS VIEWERS HEAR THEIR OWN WINDOW (owner, 2026-11-08: "Keys and in-page
@@ -20987,7 +20999,7 @@ async function sheetColoursScenario(fixtures) {
     })
     ok(fit.h === fit.inner && fit.sheetW > 100 && fit.sheetH > 50, `the window still fills its frame and the sheet its window (${JSON.stringify(fit)})`)
     await everyTheme('window')
-    const looked = app.windows().find((p) => p.url() === 'about:blank' || p.url() === '')
+    const looked = await previewPage(app, win)
     if (looked) await looked.screenshot({ path: join(SHOTS, 'sheet-colours-window.png') }).catch(() => {})
     await shutWindow()
     for (const { file, keys } of OTHERS) {
