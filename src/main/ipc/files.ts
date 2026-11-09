@@ -7,12 +7,13 @@ import type {
   MoveOnClash,
   MoveResult,
   PasteResult,
+  RestoreOutcome,
   SaveCopiesResult,
   SaveCopyResult
 } from '@shared/ipcTypes'
 import { isCopyFormat } from '@shared/imageCopy'
 import { basename, dirname, extname, join, resolve } from 'path'
-import { copyFile, readFile, rm, stat, writeFile } from 'fs/promises'
+import { readFile, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { execFile, launch } from '../spawnWorker'
 import { performance } from 'perf_hooks'
@@ -27,12 +28,12 @@ import { documentImages } from '../docImages'
 import { encodeText, fallbackShape, moveShapes } from '../textFile'
 import { replaceFile } from '../replaceFile'
 import { readTail, startTail, stopTail } from '../fileTail'
-import { restoreFromBin } from '../binRestore'
+import { binIndex, restoreIndexed } from '../binRestore'
 import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from '../fileOps'
 import { appsForExt, argsFor, type AppCandidate } from '../openWith'
 import { addToArchive, archiveTooLarge, moveMembers, moveNames } from '../archive'
 import { insideSelf, moveEntries } from '../moveOps'
-import { copyCounted, movePct, pastesIntoItself, pctOf, predictNames, walkSizes } from '../pasteCopy'
+import { copyCounted, dropPartial, isAborted, movePct, pastesIntoItself, pctOf, predictNames, walkSizes } from '../pasteCopy'
 import { fileKind, isMarkdown } from '@shared/fileKind'
 import { samePath } from '@shared/path'
 import type { OnClash, OpenWithApp, RenameResult, TextRead, WriteResult } from '@shared/types'
@@ -119,6 +120,10 @@ export function registerSaveCopyIpc(ctx: MainCtx): void {
     }
   )
   ipcMain.handle(CALL.imageSaveCopiesCancel, (_e, jobId: unknown) => typeof jobId === 'string' && cancelCopies(jobId))
+  // The loading bar's Cancel (owner, 2026-11-09), for a job main is running.
+  // A job the renderer loops over (a delete) stops itself; this reaches the
+  // call in flight, as Save copies' cancel reaches its worker.
+  ipcMain.handle(CALL.fileJobCancel, (_e, jobId: unknown) => typeof jobId === 'string' && cancelCopies(jobId))
 }
 
 /** Rename, bin, read and save text, follow a growing file. */
@@ -423,7 +428,13 @@ export function registerShellIpc(ctx: MainCtx): void {
     if (!src.length) return say({ pasted: 0, failed: 0, empty: true, paths: [] }, moving, 0, source)
     const result = await runPaste(e.sender, destDir, src, moving, jobId)
     // A cut moves once: the record has nothing left to move.
-    if (source.from === 'prism' && moving && result.pasted) ownClip.used(source.copy)
+    // One stopped by Cancel still has the rest to move.
+    if (source.from === 'prism' && moving && result.pasted) {
+      if (result.cancelled) {
+        const gone = new Set(result.from ?? [])
+        ownClip.left(source.copy, src.filter((s) => !gone.has(s)))
+      } else ownClip.used(source.copy)
+    }
     return say(result, moving, src.length, source)
   })
 
@@ -461,6 +472,10 @@ export function registerShellIpc(ctx: MainCtx): void {
       void windows.sendTo(sender, channel, payload)
     const fs = await import('fs/promises')
     const job = typeof jobId === 'string' ? jobId : ''
+    // Cancel (the loading bar, owner 2026-11-09): checked between items, and
+    // aborts the file being written (copyCounted).
+    const stop = startCopies(job)
+    const signal = stop.signal
     // THE LIST SHOWS WHAT IS LANDING (owner, 2026-10-28: "nothing happens and
     // suddenly items just appear"): a copy names each item and the path it
     // is expected at, so the list can draw it as a row with its own bar.
@@ -490,7 +505,7 @@ export function registerShellIpc(ctx: MainCtx): void {
     // junction (pasteCopy.walkSizes). A move is a rename and sizes nothing.
     const sizes = moving
       ? src.map(() => 0) // only the cross-volume fallback counts bytes
-      : await Promise.all(src.map((f) => walkSizes(f).catch(() => 0)))
+      : await Promise.all(src.map((f) => walkSizes(f, () => signal.aborted).catch(() => 0)))
     const total = sizes.reduce((x, y) => x + y, 0)
     let done = 0
     let lastSent = 0
@@ -506,6 +521,7 @@ export function registerShellIpc(ctx: MainCtx): void {
       return true
     }
     let unsaid = -1
+    const count = (): { done: number; total: number } => ({ done: pasted + failed, total: src.length })
     const tick = (bytes: number): void => {
       done += bytes
       itemDone += bytes
@@ -515,6 +531,7 @@ export function registerShellIpc(ctx: MainCtx): void {
         sendToPage(PUSH.pasteProgress, {
           jobId: job,
           pct: pctOf(done, total),
+          count: count(),
           ...(current >= 0 && size > 0 ? { item: current, itemPct: pctOf(itemDone, size) } : {})
         })
       }
@@ -523,11 +540,15 @@ export function registerShellIpc(ctx: MainCtx): void {
       sendToPage(PUSH.pasteProgress, {
         jobId: job,
         pct: total > 0 ? pctOf(done, total) : 100,
+        count: count(),
         item: i,
         itemPct: 100
       })
     const landed = (i: number): void => {
-      if (moving) return
+      if (moving) {
+        if (due()) sendToPage(PUSH.pasteProgress, { jobId: job, pct: pctOf(pasted + failed, src.length), count: count() })
+        return
+      }
       if (due()) {
         unsaid = -1
         sayLanded(i)
@@ -544,7 +565,12 @@ export function registerShellIpc(ctx: MainCtx): void {
       failed += 1
       failures.push({ name: basename(s), reason })
     }
+    let cancelled = false
     for (const [i, s] of src.entries()) {
+      if (signal.aborted) {
+        cancelled = true
+        break
+      }
       current = i
       itemDone = 0
       // A folder pasted into itself or below itself is skipped and counted
@@ -554,6 +580,9 @@ export function registerShellIpc(ctx: MainCtx): void {
         failedWith(s, 'into itself')
         continue
       }
+      // What this item has actually started writing, for the clean-up below:
+      // a name it never wrote to is not its to remove.
+      let writing: string | null = null
       try {
         // The predicted name, unless something took it meanwhile (then the
         // next free one that no other item of this paste is to land under).
@@ -568,19 +597,29 @@ export function registerShellIpc(ctx: MainCtx): void {
           } catch {
             // EXDEV or a lock: counted copy, then the source goes, its share
             // of the job counted in items (pasteCopy.ts movePct).
-            const size = await walkSizes(s).catch(() => 0)
+            const size = await walkSizes(s, () => signal.aborted).catch(() => 0)
             let moved = 0
-            await copyCounted(s, target, (b) => {
-              moved += b
-              if (size > 0 && due())
-                sendToPage(PUSH.pasteProgress, { jobId: job, pct: movePct(i, src.length, moved, size) })
-            })
+            writing = target
+            await copyCounted(
+              s,
+              target,
+              (b) => {
+                moved += b
+                if (size > 0 && due())
+                  sendToPage(PUSH.pasteProgress, { jobId: job, pct: movePct(i, src.length, moved, size), count: count() })
+              },
+              { signal, keep: true }
+            )
+            writing = null
+            // The copy is whole: only now does the source go.
             await fs.rm(s, { recursive: true })
           }
           // A cut carries the text shape like a drag-move does (2026-10-16).
           moveShapes(textShape, s, target)
         } else {
-          await copyCounted(s, target, tick)
+          writing = target
+          await copyCounted(s, target, tick, { signal })
+          writing = null
         }
         paths.push(target)
         from.push(s)
@@ -588,12 +627,30 @@ export function registerShellIpc(ctx: MainCtx): void {
         landed(i)
       } catch (err) {
         const code = (err as NodeJS.ErrnoException | null)?.code
+        const stopped = isAborted(err, signal)
+        // A copy that did not finish never stays half-written. `EEXIST` is the
+        // one error that means the name was NOT ours: leave that file alone.
+        if (writing && code !== 'EEXIST') await dropPartial(writing)
+        if (stopped) {
+          cancelled = true
+          break
+        }
         failedWith(s, typeof code === 'string' ? code : String((err as Error | null)?.message ?? err).slice(0, 120))
       }
     }
     if (unsaid >= 0) sayLanded(unsaid)
+    endCopies(job)
     await written(destDir, ...(moving ? src : []))
-    return { pasted, failed, paths, from, moved: moving, ...(failures.length ? { failures } : {}) }
+    return {
+      pasted,
+      failed,
+      paths,
+      from,
+      moved: moving,
+      total: src.length,
+      ...(failures.length ? { failures } : {}),
+      ...(cancelled ? { cancelled } : {})
+    }
   }
 
   // The icon Windows itself shows for a file of this type - the user's own
@@ -622,14 +679,38 @@ export function registerShellIpc(ctx: MainCtx): void {
   // MoveHere rather than InvokeVerb, because the Restore verb's NAME is
   // localised and the namespace move is not. Best effort: an item the user
   // has since emptied simply is not there any more.
-  ipcMain.handle(CALL.fileRestore, async (_e, all: string[]): Promise<boolean> => {
+  // With a job id (the loading bar, owner 2026-11-09) it says how far it has
+  // got, stops between paths on Cancel, and answers what came back.
+  ipcMain.handle(CALL.fileRestore, async (e, all: string[], jobId?: unknown): Promise<boolean | RestoreOutcome> => {
+    const job = typeof jobId === 'string' ? jobId : ''
     if (!Array.isArray(all) || !all.length || !all.every((p) => insideDesktop(p)))
-      return Promise.resolve(false)
+      return job ? { ok: false, restored: [], left: Array.isArray(all) ? all : [], cancelled: false } : false
+    const stop = job ? startCopies(job) : null
     const paths: string[] = []
-    for (const p of all) if (!(await restoreFromBin(p).catch(() => false))) paths.push(p)
+    const direct: string[] = []
+    let cancelled = false
+    let lastSent = 0
+    const index = await binIndex(all)
+    for (const [i, p] of all.entries()) {
+      if (stop?.signal.aborted) {
+        cancelled = true
+        break
+      }
+      if (await restoreIndexed(p, index).catch(() => false)) direct.push(p)
+      else paths.push(p)
+      if (job && Date.now() - lastSent > PASTE_TICK_MS) {
+        lastSent = Date.now()
+        void windows.sendTo(e.sender, PUSH.pasteProgress, { jobId: job, pct: pctOf(i + 1, all.length), count: { done: i + 1, total: all.length } })
+      }
+    }
+    if (job) endCopies(job)
+    if (cancelled) {
+      await written(...all)
+      return { ok: false, restored: direct, left: all.filter((p) => !direct.includes(p)), cancelled: true }
+    }
     if (!paths.length) {
       await written(...all)
-      return true
+      return job ? { ok: true, restored: all, left: [], cancelled: false } : true
     }
     const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
     const script = [
@@ -648,7 +729,7 @@ export function registerShellIpc(ctx: MainCtx): void {
       // happened (an emptied Recycle Bin is the common case).
       'if ($missing) { exit 1 }'
     ].join('; ')
-    return new Promise<boolean>((done) => {
+    const asked = new Promise<boolean>((done) => {
       execFile(
         'powershell.exe',
         ['-NoProfile', '-Command', script],
@@ -656,6 +737,9 @@ export function registerShellIpc(ctx: MainCtx): void {
         (err) => done(!err)
       )
     }).finally(() => written(...all))
+    if (!job) return asked
+    const back = await asked
+    return { ok: back, restored: back ? all : direct, left: back ? [] : paths, cancelled: false }
   })
 }
 
@@ -675,10 +759,11 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
   ipcMain.handle(
     CALL.fileMove,
     async (
-      _e,
+      e,
       paths: string[],
       destDir: string,
-      onClash: MoveOnClash
+      onClash: MoveOnClash,
+      jobId?: unknown
     ): Promise<MoveResult> => {
       // Both ends: a move empties one folder and fills another.
       /**
@@ -712,9 +797,28 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
       // sidecar, the waveform, a conversion. MEASURED: two sidecar ffmpegs
       // outlived the player and held the film past every retry.
       await holders.release(wanted)
-      const r = await moveEntries(wanted, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
-        shell.trashItem(t)
-      ).finally(() => written(destDir, ...wanted))
+      // Cancel and a count for the loading bar (owner, 2026-11-09), throttled
+      // like a paste's.
+      const job = typeof jobId === 'string' ? jobId : ''
+      const stop = startCopies(job)
+      let lastSent = 0
+      const r = await moveEntries(
+        wanted,
+        destDir,
+        onClash === 'ask' ? 'ask' : onClash,
+        (t) => shell.trashItem(t),
+        {
+          signal: stop.signal,
+          tick: (done, total) => {
+            if (!job || Date.now() - lastSent <= PASTE_TICK_MS) return
+            lastSent = Date.now()
+            void windows.sendTo(e.sender, PUSH.pasteProgress, { jobId: job, pct: pctOf(done, total), count: { done, total } })
+          }
+        }
+      ).finally(() => {
+        endCopies(job)
+        return written(destDir, ...wanted)
+      })
       // Each file's memory follows it (#124), its text shape too (2026-10-16).
       for (const m of r.moved) {
         void positions.rename(m.from, m.to)
@@ -771,19 +875,42 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
 /** Duplicate, New folder, and undoing a new folder. */
 export function registerNewFilesIpc(ctx: MainCtx): void {
   const { editable, written } = ctx
-  ipcMain.handle(CALL.fileDuplicate, async (_e, p: string): Promise<string | null> => {
+  // Stoppable and counted (the loading bar, owner 2026-11-09): a Duplicate of
+  // a big film is a job like a paste, and keeps the file's times as the
+  // operating system's copy did. Nothing half-written is left on Cancel.
+  ipcMain.handle(CALL.fileDuplicate, async (e, p: string, jobId?: unknown): Promise<string | null> => {
     if (!insideDesktop(p)) return null
+    const job = typeof jobId === 'string' ? jobId : ''
+    const stop = startCopies(job)
+    let copy: string | null = null
     try {
+      const size = (await stat(p)).size
       if (!(await stat(p)).isFile()) return null // folders are a different feature
       const dir = dirname(p)
       // basename, not a slice: dirname keeps its trailing separator at a
       // drive root, and slicing past it ate the name's first character.
-      const copy = join(dir, await uniqueNameAsync(dir, basename(p)))
-      await copyFile(p, copy)
+      copy = join(dir, await uniqueNameAsync(dir, basename(p)))
+      let done = 0
+      let lastSent = 0
+      await copyCounted(
+        p,
+        copy,
+        (b) => {
+          done += b
+          if (!job || Date.now() - lastSent <= PASTE_TICK_MS) return
+          lastSent = Date.now()
+          void windows.sendTo(e.sender, PUSH.pasteProgress, { jobId: job, pct: pctOf(done, size) })
+        },
+        { signal: stop.signal, keep: true }
+      )
       await written(copy)
       return copy
-    } catch {
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException | null)?.code
+      if (copy && code !== 'EEXIST') await dropPartial(copy)
       return null
+    } finally {
+      endCopies(job)
     }
   })
   // NEW FOLDER (#330; owner, 2026-10-07: Ctrl+Shift+N in the Explorer and

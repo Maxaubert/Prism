@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { useMediaControls } from '../hooks/useMediaControls'
 import { usePlayerPrefs } from '../lib/prefs/playerPrefs'
 import { useSubtitles } from '../hooks/useSubtitles'
@@ -21,6 +21,11 @@ import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
 import { useBackgroundPause } from '../hooks/useBackgroundPause'
 import { tapVerb } from '../lib/tapChrome'
 import { Icon } from './icons/Icon'
+import { attachLive } from '../lib/liveHls'
+import { filmErrorShows, isPlatformCodec, rescueLive } from '../lib/liveRoute'
+import { useFilmWatch } from '../hooks/useFilmWatch'
+import { useFilmAutostart } from '../hooks/useFilmAutostart'
+import { useShutFilm } from '../hooks/useShutFilm'
 import { listenOn, ownDocument, useViewerWindows } from '../lib/ownWindow'
 
 /** What a track is called in the picker: its own name if it has one, then the
@@ -88,6 +93,7 @@ export function VideoView({
   volumeKey,
   fullscreen = false,
   preview = false,
+  shut = false,
   attach,
   audioTrack,
   onAudioTrack
@@ -121,6 +127,9 @@ export function VideoView({
    *  fullscreen buttons from the preview for videos"): play, the bar and the
    *  volume only. The cog and fullscreen belong to full view. */
   preview?: boolean
+  /** Behind the Explorer's list with the preview shut (owner, 2026-11-09): it
+   *  stays mounted but silent, starts nothing and holds no live job. */
+  shut?: boolean
   /** A host that switches audio by STREAM rather than by sidecar (#120): the
    *  phone, where a pick is a new playlist from the PC. When given, the
    *  pickers call it and tick `audioTrack`, and the sidecar is never asked. */
@@ -136,19 +145,49 @@ export function VideoView({
   const video = useRef<HTMLVideoElement>(null)
   // The film's own window too: the preview window draws it in another (`lib/ownWindow.ts`).
   const wins = useViewerWindows(video)
-  useEffect(() => {
-    const el = video.current
-    if (!attach || !el) return
-    return attach(el)
-  }, [attach, url])
   // A file Chromium cannot open at all is converted first, and what plays is
   // the copy. Everything downstream (subtitles, waveform, the audio decoder)
-  // then deals with an ordinary mp4.
+  // then deals with an ordinary mp4. A picture THIS PC cannot decode (an
+  // iPhone's HEVC without platform support, 2026-11-08) plays as a live
+  // transcode instead, fed through hls.js: never on the phone, whose host
+  // (`attach`) has its own per-device route.
   // The volume readout on the picture: a timestamp, not a boolean, so every
   // notch of the wheel restarts the same clock rather than stacking timers.
   const [volFlash, setVolFlash] = useState(0)
-  const playable = usePlayableVideo(path, url)
+  const playable = usePlayableVideo(path, url, !attach, shut)
   const src = playable.src
+  const liveAttach = useMemo(
+    () => (playable.live && src ? attachLive(src, path) : undefined),
+    [playable.live, src, path]
+  )
+  const feed = attach ?? liveAttach
+  // THE ELEMENT'S SOURCE IS WRITTEN HERE, AFTER THE LAST ONE LET GO (owner,
+  // 2026-11-08: a film after a live one was a black screen that would not
+  // start). React writes a `src` prop during the commit, and the effect
+  // tearing down hls.js ran a moment later: its detach took the attribute
+  // away again (an attach still running when the commit landed makes hls.js
+  // believe the src is its own), and `load()` left the element empty, with
+  // no error and no way to ever start. One effect owns both ways of feeding
+  // the element, so the order is always: the old feed stops, then the new
+  // film goes in.
+  const directSrc = feed ? undefined : src
+  useEffect(() => {
+    const el = video.current
+    if (!el) return
+    if (feed) return feed(el)
+    if (directSrc) {
+      if (el.getAttribute('src') !== directSrc) el.setAttribute('src', directSrc)
+    } else if (el.hasAttribute('src')) {
+      // Taking the attribute away does not stop the element (the spec's
+      // words: only a NEW src reloads), so a direct start the probe has just
+      // overruled went on loading, or sounding, and its refusal landed after
+      // the live route had taken over and read as the live film's error
+      // (review, 2026-11-09). `load()` with no src ends that start for good.
+      el.removeAttribute('src')
+      el.load()
+    }
+    return undefined
+  }, [feed, url, directSrc])
   const prefs = usePlayerPrefs()
   const subtitles = useSubtitles(path)
   const peaks = useWaveform(
@@ -312,10 +351,14 @@ export function VideoView({
     () =>
       whenIntended(url, () => {
         const el = video.current
-        if (el && el.paused) void el.play().catch(() => undefined)
+        // Another tab's player of the same film hears this too (review of
+        // #491): it stays as it is, or the film sounds twice, once hidden.
+        if (el && el.paused && !shut && !el.closest('[aria-hidden="true"]'))
+          void el.play().catch(() => undefined)
       }),
-    [url]
+    [url, shut]
   )
+  useShutFilm(video, shut, url)
   const c = useMediaControls(video, {
     onFullscreen: onToggleFullscreen,
     onActivity: showChrome,
@@ -327,9 +370,13 @@ export function VideoView({
       }
     },
     errorMsg: 'This video can’t be played (unsupported codec or corrupt file).',
+    errorAttempt: playable.route,
     resumeKey: url,
     resumePath: path,
     keys: !background,
+    // A film's Up and Down walk the folder on the PC (#492); the phone's page
+    // has no such walk, and a keyboard there keeps the volume.
+    arrowsAreVolume: !window.prism.capabilities.explorer,
     volumeKey,
     // What a frame actually is, for the . and , keys.
     fps: playable.fps,
@@ -437,17 +484,58 @@ export function VideoView({
   // so name the codec that did it. Only when the file really has a picture:
   // an audio-only mkv is not broken, it just has no video.
   const [blindUrl, setBlindUrl] = useState<string | null>(null)
-  const noPicture = blindUrl === url && hushedUrl !== url
+  // A picture the element could not decode is first handed to the live
+  // transcode (2026-11-08, lib/liveRoute), so the notice below is the
+  // phone's, whose host has no such route here. On the desktop a film the
+  // live route cannot rescue either says so through its own error panel.
+  const noPicture = blindUrl === url && hushedUrl !== url && !!attach
+  const { goLive, live: isLive, converting: isConverting, converted: isConverted, route: filmRoute, forcedNoPicture } = playable
   useEffect(() => {
     const el = video.current
-    if (!el || !videoCodec || playable.converting || playable.converted) return
+    if (!el || !videoCodec || isConverting || isConverted || isLive) return
     const t = window.setInterval(() => {
       // readyState >= 2 means metadata AND a frame's worth of data has been
       // considered, so a zero width by then is a decoder that gave up.
       if (el.readyState >= 2) setBlindUrl(el.videoWidth === 0 ? url : null)
     }, 900)
     return () => window.clearInterval(t)
-  }, [url, videoCodec, video, playable.converting, playable.converted])
+  }, [url, videoCodec, video, isConverting, isConverted, isLive])
+  // The element's last word: an error, or a frame's worth of data and no
+  // picture, on a film with a picture, takes the live route once.
+  useEffect(() => {
+    if (attach) return
+    const el = video.current
+    if (
+      rescueLive({
+        codec: videoCodec,
+        tried: isLive,
+        converting: isConverting,
+        converted: isConverted,
+        failed: !!c.error,
+        readyState: el?.readyState ?? 0,
+        videoWidth: el?.videoWidth ?? 0
+      }) &&
+      (!!c.error || blindUrl === url)
+    )
+      goLive(c.error ? 'element-error' : 'no-width')
+  }, [attach, videoCodec, isLive, isConverting, isConverted, c.error, blindUrl, url, goLive])
+
+  // Every film gets its own watch: the first frame is logged, and a direct
+  // start that shows nothing within a bounded time goes live for THIS film.
+  useFilmWatch(video, {
+    path,
+    url,
+    // Only once there is something in the element: a conversion or a live
+    // job still starting is not a film failing to show.
+    film: !attach && !!videoCodec && !!src,
+    route: filmRoute,
+    canRescue: !attach && !isLive && !isConverting && !isConverted,
+    platform: isPlatformCodec(videoCodec),
+    forcedNoPicture,
+    onRescue: goLive
+  })
+  // A film meant to start says whether it did (#491, lib/filmDiag `autostart`).
+  useFilmAutostart(video, { path, url, film: !attach && !shut && !!videoCodec && !!src, route: filmRoute })
 
   return (
     <div
@@ -571,7 +659,6 @@ export function VideoView({
       )}
       <video
         ref={video}
-        src={attach ? undefined : src}
         // Volume over 100% routes this element through Web Audio, and a source
         // that is not CORS-clean feeds the graph SILENCE rather than sound -
         // permanently, since the routing outlives the setting that asked for
@@ -587,7 +674,7 @@ export function VideoView({
         // window full of tabs. A file whose player is being rebuilt mid-play
         // (a change of kind, a split view opening) carries on, and the
         // playlist records its own intent - see lib/playState.
-        autoPlay={wasPlaying(url)}
+        autoPlay={wasPlaying(url) && !shut}
         loop={prefs.loop}
         // Autoplay: the folder is a playlist. Loop wins while both are on
         // (a looping video never ends, so this simply doesn't fire).
@@ -619,7 +706,15 @@ export function VideoView({
         )}
       </video>
 
-      {c.error && (
+      {filmErrorShows({
+        hasError: !!c.error,
+        phone: !!attach,
+        probed: sidecarState !== 'asking',
+        hasPicture: !!videoCodec,
+        tried: isLive,
+        converting: isConverting,
+        converted: isConverted
+      }) && (
         <StageNotice className="bg-[var(--p-bg)]/90 text-sm text-[var(--p-text-soft)]">
           {c.error}
         </StageNotice>

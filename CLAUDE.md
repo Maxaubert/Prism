@@ -34,6 +34,8 @@ library manager, not an editor.
   foreground; never call `node tools/e2e/run.mjs` directly on this PC. CI runs it direct. Every scenario REAPS the processes it leaves (matched
   by profile path only, so the machine's own Prism is never touched): one leaked app holds the
   single-instance lock and fails every scenario after it.
+- **THE E2E IS SILENT** (owner, 2026-11-09): `--e2e` turns on Chromium's `--mute-audio`, and the launcher refuses a
+  run without it. Test sound by the element, the clock and the analyser, never through the owner's headset.
 - **THE E2E IS THE PR GATE AND NOTHING ELSE; AN INSTALL RUNS NONE** (owner, 2026-09-02 and
   2026-10-03): while iterating, the scenarios that cover the change; before a PR is opened or
   pushed, the whole suite. Agents and workflows follow the same split.

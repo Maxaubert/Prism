@@ -3,6 +3,131 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## After a delete the keyboard is back in the list (owner, 2026-11-09)
+
+The owner: "in prism if i clicka file press the delte key it deltes tehn selects the next file by
+dfeault which is good but if i click delte agin nothign happens i ahve to click the next file manually
+to select it then press the delte key". Delete, the arrows, F2 and the rest answer only with the focus
+inside the list, and it fell to the page twice: the question took it to its button and the button went
+with the question, and the row that was deleted took it with it.
+
+- **The keyboard comes back on its own** (`components/browse/useListKeyboard.ts`, the one place). The last
+  press or key says whose it was: in the list, the list's; on a question or a menu, whatever it was before;
+  anywhere else it was given up. When the focus has fallen to the page (the question closing, the row going),
+  it goes back to the selected row, or to the list when no row is selected or left. Every route gets this:
+  Enter or the mouse on the question, Cancel, Escape, a press outside it, the right-click menu, F2's rename.
+  A press outside closes the question inside `mousedown`, so its scrim prevents the browser's default, or the
+  press drops the focus back on the page right after it returned (2026-11-09; `deleteFocus` counts the drops,
+  for a question, the rename, Properties and the folder search).
+- **It never takes the focus from anywhere**: a field the owner went to in the meantime (search, the address
+  bar, a rename) or another window (`document.hasFocus`, the preview window among them) is left alone,
+  and nothing is put back while something is in front (a question, a menu, Settings).
+- **The next row is the list's, in the list's order** (`lib/binnedRows.ts`). A delete says which paths went and
+  the list hands the selection to the row after the one that went, or up when the last row went, or none when
+  the folder is empty. It was only ever the viewer's step: with the file on show as the deleted one it worked (the
+  owner's case), with nothing on show the selection stayed on the dead path, and with ANOTHER file open in the
+  tab it jumped to that file. A delete of another row no longer moves it (`reopen(.., keep)`). There
+  is no "skip the question" setting: every delete asks.
+- **A file already on its way asks nothing** (`binnedRows.ts`, review 2026-11-09). The keyboard is back the moment
+  the question closes, and the row stays until the bin answers and the folder is read again: Delete, Enter, Delete
+  at speed asked about the same file, and answering ended in "could not be moved". The Delete keys stand down for
+  a path going to the bin until the bin refuses it or the row has left. Held by e2e `deleteFast`.
+  A member of a zip takes the same hand-over of the selection (`useArchiveActions`, e2e `deleteZip`).
+- **Held by** e2e `deleteAgain` (Delete, Delete, no click, and the second really takes a row), `deleteLast`
+  (the only file: no crash, keyboard in the empty list) and `deleteFocus` (Enter, mouse, Cancel, Escape, a press
+  outside, the last row, the menu, marks, the preview pane, a field and another window left alone), and
+  `lib/binnedRows.test.ts`.
+
+## Ctrl+V pastes into the tab in front, every time (owner, 2026-11-09)
+
+The owner: "when i ctrl x a file then go to another tab and paste the first time it works, but the second
+time it does not, to get it to work then i have to click into the directory, like select a file in the
+directory then paste and it works, otherwise nothing happens". The press on the tab left the focus on the
+tab's own button, the list's keys answer only with the focus inside the list, and nothing else in the
+window knew Ctrl+V. Only a list just drawn takes the focus by itself (`FolderBrowser`, on mount, coming back from a file in
+full view), which is the likely first round that worked; the e2e saw every round fail.
+
+- **A press on a tab is a press for the folder it shows** (`components/browse/useListKeyboard.ts`). The
+  keyboard goes to the list when the tab changes, and on a press on the tab already in front too, so
+  Ctrl+V, Ctrl+X, Ctrl+C, the arrows, F2 and Delete all answer with no click. Reaching the strip by the
+  keyboard is not a press: the focus stays on the tab.
+- **Ctrl+V needs no row** (`hooks/useAppKeys.ts`). With the focus on the page or the chrome (the tab strip,
+  the toolbar, the places) it pastes into the folder of the tab in front, or the folder of the file in full
+  view. Never in a field or the code editor, never with a question or a menu up, never with Settings in
+  front, and a zip stays inert as it was.
+- **Held by** e2e `pasteTabs` (six rounds of Ctrl+X or Ctrl+C, tab, Ctrl+V with no click in the
+  destination, a paste straight after a paste, the tab already in front, Ctrl+Tab, the page, a toolbar button, full view,
+  the arrows and F2 after a switch, and no paste in the rename field, the address field, under a question
+  or with Settings in front).
+
+## iPhone .mov films play on every PC: direct, or live (owner, 2026-11-08)
+
+The owner: "make prism support .mov, i dont think it does". `.mov` was already a video kind
+(`fileKind.ts`, `assoc.nsh`, `video/quicktime`). MEASURED first, on copies of the owner's own films
+(`Downloads\iphoneimages`, 1576 .mov: 1520 HEVC, mostly Main 8-bit portrait with a -90 display
+matrix, 191 Main 10 HLG with Dolby Vision 8.4, the rest H.264): on THIS PC (RTX 5090) every copy tried played
+already, picture, sound, the turn and the HDR right, because Chromium decodes HEVC through the
+platform (`canPlayType('video/mp4; codecs="hvc1.1.6.L120.90"')` and Main 10 both "probably", MSE
+too). A PC whose GPU or Windows cannot decode HEVC gets sound and a black window. So:
+
+- **Asked of the PC, per film** (`src/renderer/src/lib/liveRoute.ts`): HEVC is the one codec Chromium
+  decodes only through the platform, so `canPlayType` is asked about THIS film's profile (Main and
+  Main 10 are separate answers; the probe now reads `profile`). A yes plays the file itself, no
+  transcode. A no takes the live route. The element has the last word: a film that errors, or has a
+  frame's worth of data and no width, goes live once (`rescueLive`), whatever its codec.
+- **The live route is the phone's** (`src/main/liveVideo.ts`): the same `HlsJobs`, the same
+  playlist of the whole film written up front (the bar knows the length, a seek anywhere restarts
+  ffmpeg there), NVENC first and libopenh264 after one GPU refusal, served as
+  `fsmedia://live/<job>/...` and played by hls.js (already the phone's; nothing new ships). AAC is
+  copied, PCM and the like encoded to AAC, Dolby left to the audio sidecar as for any file. HDR is
+  tone-mapped. 4K keeps its size on NVENC, 1080 on the short side for the software encoder.
+- **Walled and gone with the player**: a job opens only for a file the window may read, belongs to
+  that window, and every playlist and segment re-checks the wall. It stops when the file changes or
+  the player unmounts (counted, so a preview and a full view of one film share it), when the window
+  closes, and at quit; its folder `userData/live` is wiped at startup. Each ffmpeg registers with the
+  holders, so moving the film kills it first. ProRes, MPEG-2 and the rest keep the convert-once route.
+- **The turn survives a GPU transcode** (`hls.ts scaleTo`): with CUDA frames ffmpeg drops the display
+  matrix (measured: an owner's portrait film came out 1920x1080, on its side), so a turned film is
+  decoded on the GPU into memory and scaled on the CPU, and the ceiling applies to the short side.
+  The phone's transcode had the same fault and is fixed with it.
+- **The spatial-audio track (APAC) is not offered** (`ffmpeg.ts`): ffmpeg cannot decode it, and newer
+  iPhone films listed it as a second, silent row in the track picker.
+- A Live Photo's container crop is honoured by the transcode and not by Chromium (1308x1744 live,
+  1440x1920 direct, on one of the owner's clips); left as it is.
+
+Held by `liveRoute.test.ts`, `liveVideo.test.ts`, `hls.test.ts` (the turn), `ffmpeg.test.ts`
+(profile, turn, APAC), and the e2e `movHevc` (a libkvazaar HEVC .mov with a quarter turn: direct on a
+PC that decodes HEVC, then forced live with `PRISM_E2E_FORCE_LIVE`: portrait picture, length,
+a seek past what ffmpeg has made, pause, the preview, and no job or segment left once the tab lets
+go). `movOwner` runs the owner's own copies from `.e2e/owner-mov/` both ways when they are there.
+
+**Several films in one tab (owner, 2026-11-08: "i was able to see one .mov but the rest just shows a black
+screen and wont start another was black but had sound").** The film after a live one was an empty player:
+React wrote the new `src` during the commit, the effect tearing down hls.js ran a moment later, an hls.js
+attach still in flight when that commit landed took the attribute for its own and removed it, and `load()`
+left the element empty (networkState 0, no error, nothing to start). So "black, won't start" is one bug,
+and the bar's 0:02 on a 3.43 s film was the length of the film before it, kept until the next
+`durationchange` that never came. Fixed, with what holds it:
+
+- **One effect owns the element's source** (`VideoView`): the old feed stops, then the new film goes in.
+  `movHevc` and `movOwner` walk films in one tab (a live film, then direct ones, by the list, the keys and the
+  preview pane, back to one already seen, quick and slow). It failed 6 checks on the old player.
+- **Every film starts fresh** (`usePlayableVideo`): a tab's decision to go live and main's answer reset with the
+  file; a film that was rescued stays live for the session (`rescued`).
+- **A film never stays black** (`hooks/useFilmWatch.ts`, `lib/liveRoute.ts`): a direct start with no
+  picture 4 s after it was handed over, error or no error, takes the live route (`pictureCheck`,
+  `NO_PICTURE_MS`). Same for HEVC whose frames read black while it plays (`blackCheck`, five seconds or most
+  of a short clip, 2026-11-08: two readings sent any film with a fade-in to the transcode). The clock counts
+  only time on screen and waits 12 s for a source with no bytes yet; a picture once seen is never asked about
+  again (a seek drops readyState). Tests: `liveRoute.test.ts`, `movGuard`, the seam `PRISM_E2E_NO_PICTURE`.
+- **The bar's length resets with the film** (`useMediaControls`). A pressed play that a pause or the next
+  film beats to it no longer reaches the log as a page-rejection.
+- **Always-on `film` lines** (`lib/filmDiag.ts`, `op: 'film'`, one per event): `route` (direct or live, and
+  `why`), `first-frame` (`ms`), `error` (`code`, `message`), `no-picture`, `black`, `to-live` (`why`),
+  `live-open`, `live-error`, `autostart` (`started`, `route`, `ms`; `started: false` with `ok: false` is a film
+  that should have started and had not after 15 s on screen, `lib/liveRoute autostartCheck`); main adds `live-job` (`start`, `exit` with `code`, `kill`, `encoder-fallback`,
+  `liveVideo.ts liveJobLine`). `npm run diag` lists a failed film as a problem (`diagProblems.mjs`).
+
 ## Standby, the hotkey path and startup in the log (owner, 2026-11-06)
 
 The audit (`research/prism/2026-11-06-logging-startup-stalls-audit.md`) found the log could not say where
@@ -1054,6 +1179,11 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the listing at once, sorted where it will land, drawn faded, inert, "Copying…" with a filling bar in the
   Size column (`lib/jobs` `landJob`/`landingIn`, `BrowseList` `landing`), until the real file arrives. A
   move is a rename and shows none. `jobs.test.ts`; e2e `pasteProgress` (a 600 MB copy).
+  **THE ROWS ARE FOR THE FIRST SECOND** (owner, 2026-11-09, A JOB OVER A SECOND HOLDS ITS LIST, below): past one
+  second the loading bar covers the list and the rows stand still with it, frozen with the rest of the rows, and
+  a stopped paste's rows that never arrived go at once (`trimLanding`). The job chip stays for what a tab cannot
+  say itself: it speaks for a job on every OTHER tab, and stands down for the job whose bar is on the tab in
+  front (`JobChip`'s `visible`).
   CHEAP FOR A BIG PASTE INTO A BIG FOLDER (performance review, 2026-10-28; owner: "look for stall points,
   things that use up too many resources"): each progress message filtered every item against the whole
   listing, lower-casing both, re-sorted the folder, and re-rendered every open Explorer tab, and main sent one
@@ -1066,6 +1196,37 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   `uniqueNameAsync`'s `taken`), and the copy writes exactly where its row said (they shared one path and one
   row hid the other). A cut copied across drives counts its percentage in items (`movePct`; from the second
   such item it read 100%). `landingRows.test.ts`, `jobs.test.ts`, `pasteCopy.test.ts`, `fileOps.test.ts`.
+- **A JOB OVER A SECOND HOLDS ITS LIST BEHIND A LOADING BAR** (owner, 2026-11-09: "when you delte or paste a lot
+  of images or restore with ctrl z it shoudl show a loading bar unti its done because right now they jstu tickle
+  in and teh files in teh direcotry constantly move making it ahrd to navigate. so sometihn hsoudl block you from
+  interacting wiht the directory until its done", then "this is essentailly as long as one or more files taek
+  more then a second to paste,move etc."; picked: the bar covers that tab's list, other tabs stay usable, Cancel;
+  a confirmation on Ctrl+Z was withdrawn, there is none). Every job that adds, moves or removes files runs
+  through `lib/fileJob.ts` (`withFileJob`): paste and cut, a drop or drag, delete to the bin, a zip member's
+  permanent delete, Ctrl+Z and Ctrl+Y of every kind, Duplicate, Save copies as, adding to and moving inside a
+  zip. Extract is a hold with no bar (`extraction.ts`): its window already blocks the app, with progress and
+  Cancel (#166), so the list under it only stops trickling. `lib/holds.ts` is the rule: a job shows nothing
+  until it has run `BUSY_AFTER_MS` (1000; a timer that never fires for a quick job), and then `useHeld(dir)`
+  holds every tab showing a folder the job changes. The tab in front: the list frame goes `inert` and
+  `components/browse/BusyBar.tsx` covers it ("Deleting 120 of 500", a real bar and %, Cancel), and
+  `useFolderBrowsing` freezes the listing and stops the watcher's re-reads, so the rows do not move and nothing
+  re-sorts per file. Other tabs and the tab strip stay usable and the job goes on (the chip says it). When the
+  job ends, one fresh read shows the finished folder and the hold lifts in the frame the new rows commit
+  (`useSettling`, its own `generation` so it cannot join a read that started mid-job, and never before the read
+  effect has taken the settle); a read that never comes lifts by `SETTLE_MS`. The keyboard goes to the bar when
+  it comes (Escape cancels, Tab reaches Cancel, Enter does nothing: "Delete, Enter" at speed must not throw a
+  job away), and back to the list after, `useListKeyboard`. `markLanded` marks what arrived, as ever.
+  CANCEL: main stops between items and mid-file (`copyCounted`, an aborted pipeline; `moveOps.moveOne`), a copy
+  never leaves a partial and a cut's source goes only once its copy is whole. Undo stays exact: a stopped step
+  splits (`undo.ts` `stoppedStep`, what went through waits in the redo, the rest stays on Ctrl+Z), and the chip
+  says "Stopped. Deleted 120 of 500." (`stoppedNote`). A job that cannot stop yet lifts after `STOP_GRACE_MS` and
+  goes on, on the chip, so a list is never locked forever; `withFileJob`'s `finally` ends every bar, however the
+  job ended. A zip's rewrite has no Cancel (the bar shows, the button is disabled). Not on the bar: a plain
+  rename and New folder (one atomic call each; their undo IS covered), the editor's Save, and a list in ANOTHER
+  window (each window's store is its own). `holds.test.ts`, `undoStopped.test.ts`, `copyCounted.test.ts`,
+  e2e `busyQuick`, `busyHold`, `busyPaste`, `busyCancel`, `busyFail`. Main keeps to the wall and the rules: a
+  restore reads the bin ONCE for the whole batch (`binRestore.binIndex`, MEASURED past 120 s for 500 files in a
+  big bin before).
 - **A CUT ROW LOOKS CUT** (owner, 2026-10-28: "when you click ctrl x on an item selected the highlight
   effect should get dimmed to indicate you clicked ctrl x"). A row marked cut (`data-cut`, from
   `lib/fileClipboard`) wears the inactive selection's dimmed tint and edge while selected, and its name and
@@ -3454,8 +3615,64 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   file it autoplays, the only times videos and audio shouldnt autoplay is when you open prism
   and a video is already in one of the tabs"). The Explorer's own opens never recorded the
   intent, so a film clicked or double-clicked there, a pin, a menu Open sat at 0:00.
-  `useFolderBrowsing.openFile` records it now unless told `play = false`: the preview TOGGLE
-  (it shows the selection, paused) and "Open full view" (it keeps what the pane was doing).
+  `useFolderBrowsing.openFile` records it now unless told `play = false`: "Open full view" (it
+  keeps what the pane was doing), and until 2026-11-08 the preview toggle (see the next entry).
+- **UP AND DOWN ON A FILM WALK THE FOLDER, AND A FILM SHOWN STARTS BY ITSELF** (owner, 2026-11-08,
+  #492 "videos arent navigable with the arrow keys, up down arrows shoudl nvigate next file not
+  adjust volume", #491 "video dont always autopaly at least not in preview"). Up/Down on a VIDEO
+  go to the previous and next file, in full view and in the pane, whether the focus is on the
+  list, the picture, a control on the bar or the volume slider (`useAppKeys` claims the key, and
+  VideoView passes `arrowsAreVolume: false` so the film's own listener never takes it). A TRACK
+  does the same ("do audio files too", same day); the phone keeps them as volume. Left/Right stay the seek, and a Ctrl,
+  Shift or Alt chord over a film does nothing (in the list the chords are the list's). No new
+  volume shortcut: the wheel, the slider and M remain. In the pane the step moves the list's
+  selection too, or the row was left behind the film. WHY IT DID NOT ALWAYS START: only a PICK
+  recorded the intent to play (a row click or a list arrow, #139, #207), so a film shown any other
+  way sat at 0:00: a step that is not a pick (Up/Down from the player, PageUp/PageDown, full
+  view), the pane opening over a selected film (the toolbar button or Space), and the next film
+  in the playlist, because a film reaching its end fires `pause` just before `ended` and that
+  read as "you paused it" (`carriesOn`). Now each of those starts the film, on either route,
+  rescue included, UNLESS YOU PAUSED IT YOURSELF: `lib/playState` tells that pause (`held`) from
+  one the film's end or the app made (`pauseQuietly`, used when the list comes back or the pane
+  shuts). The list's Back leaves a film playing in the pane rather than stopping it, since it is
+  still shown. A list click or list arrow is a pick and plays even a paused film, as #139 and
+  #207 decided; a restored tab's film still sits paused (`playOnOpen`). What a film shown does
+  not reach (review of #491/#492, 2026-11-08): a step behind a shut list starts nothing, an
+  open menu keeps Up and Down from walking, and another tab holding the same film stays as it
+  is, so a film never sounds twice. Back still stops a track with the pane open. The preview toggle
+  showing a film paused was not the owner's rule (#207 quotes the opposite: the only exception is
+  opening Prism with a film in a tab), so it was changed; say if it should be put back. Held by
+  the `filmKeys` and `filmStart` e2e, `playState.test.ts`, `liveRoute.test.ts`, and on the owner's
+  screen by `npm run diag`: an `autostart` line per film meant to start.
+  In the preview WINDOW with the keyboard inside it (2026-11-09, #492 on top of #490), Up and Down walk the
+  folder too on a film, a track, a picture or a comic, so a walk does not stop on the first file that is not a film.
+  App's key listener is on the Explorer's window, so `previewWindowStep` does it there. A document and an
+  archive card keep the keys. `previewWindow` e2e holds it.
+- **A FILM BEHIND A SHUT PREVIEW STAYS SHUT** (owner, 2026-11-09: "if i close the preview it pasuses
+  then it plays jsut the aduio"). The player behind the Explorer's list is kept mounted, or is mounted
+  fresh when the preview window goes, and nothing about that may make a sound (`shut` on the player,
+  `useShutFilm`). A pause that landed before the film started was nothing to pause, and its pending
+  autoplay or a later start carried on with no picture; the element is now paused while shut and held
+  paused, and the film is started only when it is shown again, as the #491 rules decide. A shut film
+  also has no live job: the player the closing window left behind used to start a new ffmpeg job for
+  it (the owner's log, 2026-11-09 03:22:35). Reopening plays it from where it was (`onLoadStart`
+  puts it back when its job is new). Held by the `filmClose` e2e (every close, every route, every moment).
+- **A FILM STILL ON ITS WAY SHOWS NO ERROR** (owner, 2026-11-09: "on mov files in the preview it says
+  cannot open this file for a brief second then it plays the video"). The element's refusal was often
+  not the last word: the owner's PC refuses HEVC at the first frame and the film goes to the live
+  route, and the error panel ("This video can't be played") stood there from the refusal to the live
+  film's first load, sometimes before the probe had even answered. `liveRoute.filmErrorShows` lets it
+  speak only when nothing is left to try, and the error belongs to its attempt (`errorAttempt`, the
+  route), so the switch to live clears it in the same render. A file nothing can rescue still says so
+  (`filmErrorShows`). Held by the `filmFlash` e2e (every change of the text, in the pane, full view and
+  the window) and `liveRoute.test.ts`. Review, same day: a direct start the probe overruled is ended
+  with `load()` (taking the `src` away does not stop an element), so its late refusal cannot read as
+  the live film's error; and a film whose rescue fails too (the first piece answered 404: ffmpeg fell
+  over) says so at once, where hls.js's retries left a blank player for over two minutes. Held by
+  the `filmAbuse` e2e, which also closes the preview at the awkward moments. A 404 means only that the job
+  fell over: while ffmpeg runs an ask that came to nothing (left behind by another player of the film) is
+  a 503, which hls.js retries (`liveVideo.test.ts`). A slow start is never a 404: main waits 30s, hls.js
+  gives up an ask after 10s and asks again, and the first piece took 0.6s (1080p) to 2s (4K, software) here.
 - **MUTE, VOLUME AND SPEED CARRY TO THE NEXT FILE** (#207; owner, 2026-09-23: "if the user
   mutes audio or sets speed to be 0.5 and then clicks a new video, those settings should be
   kept ... maybe the user wants to just look at videos without audio, or dissect videos in
@@ -4115,7 +4332,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
 - **A frame step is a frame** (2026-08-30). It was a flat 1/30s that did not pause, so on 24fps
   film it moved 1.25 frames and landed between two of them, and during playback it was
   invisible. ffprobe reports `avg_frame_rate` now and the step pauses first.
-- **Up/Down are the volume when the tree does not want them** (2026-08-30). App preventDefaulted
+- **Up/Down are the volume when the tree does not want them** (2026-08-30; FOR A TRACK ONLY since
+  2026-11-08, #492: see "UP AND DOWN ON A FILM WALK THE FOLDER"). App preventDefaulted
   them unconditionally and `useMediaControls` yields on `defaultPrevented`, so the volume keys
   were dead everywhere - most obviously in fullscreen, where the sidebar is gone. The tree still
   gets first refusal.

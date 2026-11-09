@@ -317,6 +317,15 @@ export interface MediaProbe {
    *  `quick` means the streams can be copied (a container problem, seconds);
    *  otherwise the picture is re-encoded, which takes as long as it takes. */
   convert?: { reason: 'container' | 'codec'; quick: boolean }
+  /** The picture's profile ("Main", "Main 10"), so the player can ask
+   *  Chromium about THIS HEVC rather than any HEVC (2026-11-08). */
+  videoProfile?: string
+  /** E2E only (`PRISM_E2E_FORCE_LIVE`): take the live transcode whatever
+   *  this PC can decode, the way the phone's e2e forces an encode. */
+  forceLive?: boolean
+  /** E2E only (`PRISM_E2E_NO_PICTURE`): the player treats this film as one
+   *  that never shows a frame, so the bounded wait can be proven end to end. */
+  noPicture?: boolean
 }
 
 /**

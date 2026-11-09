@@ -24,7 +24,7 @@ import { useMemo, useSyncExternalStore } from 'react'
 import { createStore } from './store'
 import { logNote } from './noteLog'
 
-export type JobKind = 'paste' | 'add' | 'copies'
+export type JobKind = 'paste' | 'add' | 'copies' | 'bin' | 'move' | 'undo' | 'duplicate'
 
 export interface Job {
   id: string
@@ -46,6 +46,9 @@ export interface Job {
   landing?: { dir: string; items: LandingItem[] }
   /** Stops the job (#474, Save copies as): the chip shows a Cancel while it runs. */
   cancel?: () => void
+  /** On the chip only once its loading bar has shown (lib/holds): a delete or
+   *  an undo that ends inside a second never appears here at all. */
+  late?: boolean
   /** What the job did, said on the chip once it is over (#474). */
   note?: string
 }
@@ -81,10 +84,26 @@ let notesFreeAt = 0
 
 /** Register a job; returns its id for update/end. With `cancel`, the chip
  *  offers a Cancel that calls it. */
-export function startJob(kind: JobKind, label: string, cancel?: () => void): string {
+export function startJob(
+  kind: JobKind,
+  label: string,
+  cancel?: () => void,
+  opts: { late?: boolean } = {}
+): string {
   seq += 1
   const id = `${kind}-${seq}`
-  store.set([...store.get(), { id, kind, label, pct: null, since: Date.now(), ...(cancel ? { cancel } : {}) }])
+  store.set([
+    ...store.get(),
+    {
+      id,
+      kind,
+      label,
+      pct: null,
+      since: Date.now(),
+      ...(cancel ? { cancel } : {}),
+      ...(opts.late ? { late: true } : {})
+    }
+  ])
   return id
 }
 
@@ -128,6 +147,20 @@ export function updateLanding(id: string, index: number, pct: number): void {
   if (changed) store.set(next)
 }
 
+/** A job that stopped early (Cancel) or partly failed: the rows of what never
+ *  arrived go now, rather than ghosting "Copying" until the hold runs out. */
+export function trimLanding(id: string, keep: readonly string[]): void {
+  const job = store.get().find((j) => j.id === id)
+  if (!job?.landing) return
+  const want = new Set(keep.map((p) => p.toLowerCase()))
+  const items = job.landing.items.filter((it) => want.has(it.path.toLowerCase()))
+  store.set(
+    store.get().map((j) =>
+      j.id === id ? { ...j, landing: { dir: j.landing!.dir, items } } : j
+    )
+  )
+}
+
 export type LandingRow = LandingItem & { since: number }
 
 /** Every item a paste is landing in `dir` (case-insensitive), by its path. A
@@ -163,12 +196,15 @@ function sameRows(a: readonly LandingRow[], b: readonly LandingRow[]): boolean {
  *  landing in `dir` changed, for the hook below (pure, so testable). */
 export function landingReader(
   dir: string,
-  get: () => readonly Job[] = store.get
+  get: () => readonly Job[] = store.get,
+  frozen = false
 ): () => readonly LandingRow[] {
   let from: readonly Job[] | null = null
   let last: readonly LandingRow[] = NO_ROWS
   return () => {
     const list = get()
+    // Held behind the loading bar: the rows stand still (owner, 2026-11-09).
+    if (frozen && from) return last
     if (list === from) return last
     from = list
     const next = landingIn(list, dir)
@@ -179,9 +215,10 @@ export function landingReader(
 
 /** What is landing in `dir`, following the store: a component renders again
  *  only when THIS folder's rows change, not on every job's tick (review,
- *  2026-10-28: every open Explorer tab re-rendered on every paste tick). */
-export function useLandingIn(dir: string): readonly LandingRow[] {
-  const read = useMemo(() => landingReader(dir), [dir])
+ *  2026-10-28: every open Explorer tab re-rendered on every paste tick).
+ *  `frozen`: the loading bar holds this list; its rows stand still. */
+export function useLandingIn(dir: string, frozen = false): readonly LandingRow[] {
+  const read = useMemo(() => landingReader(dir, store.get, frozen), [dir, frozen])
   return useSyncExternalStore(store.subscribe, read, read)
 }
 
@@ -210,11 +247,13 @@ function remove(id: string): void {
 }
 
 /** The job is over. With `note`, the chip says it for NOTE_MS (no bar, no
- *  Cancel) and then the job leaves. */
-export function endJob(id: string, note?: string): void {
+ *  Cancel) and then the job leaves. `forget`: it never showed (a late job
+ *  that ended inside its second), so it leaves now, with no minimum. */
+export function endJob(id: string, note?: string, opts: { forget?: boolean } = {}): void {
   const jobs = store.get()
   const job = jobs.find((j) => j.id === id)
   if (!job || leaving.has(id)) return
+  if (opts.forget && job.late && !note) return remove(id)
   const shown = Date.now() - job.since
   if (note) {
     // The note goes to the diagnostics log as it is shown (owner, 2026-11-06).
@@ -284,7 +323,10 @@ export function resetJobs(): void {
  * read" is the report the owner asked for; and among live jobs, one that
  * can be CANCELLED leads, because the chip's one click must reach it.
  */
-export function chipSummary(list: readonly Job[]): {
+export function chipSummary(
+  list: readonly Job[],
+  visible: (job: Job) => boolean = () => true
+): {
   label: string
   pct: number | null
   more: number
@@ -293,7 +335,7 @@ export function chipSummary(list: readonly Job[]): {
   /** The label is a done note: no bar (#474). */
   note?: true
 } | null {
-  const shown = list.filter((j) => !j.holding)
+  const shown = list.filter((j) => !j.holding && visible(j))
   if (!shown.length) return null
   const live = shown.filter((j) => !j.done)
   const head =

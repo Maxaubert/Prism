@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { keyTarget, previewWindowKey } from './previewWindowKeys'
+import { keyTarget, previewWindowKey, previewWindowStep } from './previewWindowKeys'
 
 const key = (k: string, more: Partial<Parameters<typeof previewWindowKey>[0]> = {}) => ({
   key: k,
@@ -67,5 +67,22 @@ describe('the preview window keys', () => {
     expect(keyTarget(row as unknown as EventTarget)).toBe('menu')
     expect(keyTarget(null)).toBeNull()
     expect(keyTarget({} as EventTarget)).toBeNull()
+  })
+})
+
+describe('previewWindowStep (#492)', () => {
+  it('walks on plain Up and Down', () => {
+    expect(previewWindowStep(key('ArrowDown'), null, false, false)).toBe(1)
+    expect(previewWindowStep(key('ArrowUp'), null, false, false)).toBe(-1)
+  })
+  it('walks from the film slider, not from a field', () => {
+    expect(previewWindowStep(key('ArrowDown'), 'field', false, true)).toBe(1)
+    expect(previewWindowStep(key('ArrowDown'), 'field', false, false)).toBeNull()
+    expect(previewWindowStep(key('ArrowDown'), 'editor', false, false)).toBeNull()
+  })
+  it('leaves other keys, chords and an open menu alone', () => {
+    expect(previewWindowStep(key('ArrowLeft'), null, false, false)).toBeNull()
+    expect(previewWindowStep(key('ArrowDown', { shiftKey: true }), null, false, false)).toBeNull()
+    expect(previewWindowStep(key('ArrowDown'), null, true, false)).toBeNull()
   })
 })

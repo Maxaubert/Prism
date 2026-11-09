@@ -67,7 +67,19 @@ export function Modal({
   return (
     // data-owns-escape: the app's capture-phase Escape handler registered
     // first and would otherwise close the WINDOW while a dialog is up.
-    <div data-owns-escape className={DIALOG_SCRIM} role="presentation" onMouseDown={onCancel}>
+    <div
+      data-owns-escape
+      className={DIALOG_SCRIM}
+      role="presentation"
+      onMouseDown={(e) => {
+        // THE PRESS STOPS HERE (measured on deleteFocus, 2026-11-09): the
+        // question closes inside this event and the keyboard goes back to the
+        // list, and the browser's own default for a press on nothing then ran
+        // and took it off again. Only a later render happened to save it.
+        e.preventDefault()
+        onCancel()
+      }}
+    >
       <div
         ref={box}
         role="dialog"

@@ -6,7 +6,7 @@
 // Pure on purpose: the stack is bookkeeping, App owns the effects. Every entry
 // carries what an inverse needs, so undo never has to guess.
 
-import { baseName } from '@shared/path'
+import { baseName, parentDir } from '@shared/path'
 
 export type UndoEntry =
   /** Files and folders that landed somewhere new: undo moves each back. */
@@ -83,6 +83,96 @@ export function redone(state: UndoState): { state: UndoState; entry: UndoEntry }
   if (!entry) return null
   return { entry, state: { past: [...state.past, entry].slice(-CAP), future: rest } }
 }
+
+/**
+ * CANCEL PARTWAY THROUGH AN UNDO OR REDO (the loading bar, owner 2026-11-09).
+ * The step put part of the entry back. What went through (`done`) waits on the
+ * other side of the stack, what did not (`rest`) stays where a press of the
+ * same key finishes it; either may be null. So the stack describes exactly
+ * what really happened.
+ */
+export function stoppedStep(
+  state: UndoState,
+  was: UndoEntry,
+  done: UndoEntry | null,
+  rest: UndoEntry | null,
+  direction: 'undo' | 'redo'
+): UndoState {
+  const swap = (list: readonly UndoEntry[]): UndoEntry[] =>
+    list.flatMap((e) => (e === was ? (done ? [done] : []) : [e]))
+  return direction === 'undo'
+    ? {
+        past: rest ? [...state.past, rest].slice(-CAP) : state.past,
+        future: swap(state.future)
+      }
+    : {
+        past: swap(state.past),
+        future: rest ? [rest, ...state.future].slice(0, CAP) : state.future
+      }
+}
+
+/** How many items a step works through, for the loading bar's count. */
+export function entrySize(entry: UndoEntry): number {
+  switch (entry.kind) {
+    case 'move':
+    case 'archive-move':
+      return entry.items.length
+    case 'trash':
+      return entry.paths.length
+    case 'archive-in':
+      return entry.entries.length + entry.originals.length
+    default:
+      return 1
+  }
+}
+
+/** The folders a step changes, for the loading bar's hold. */
+export function entryPlaces(entry: UndoEntry): { dirs: string[]; under: string[] } {
+  switch (entry.kind) {
+    case 'move':
+      return {
+        dirs: [...new Set(entry.items.flatMap((i) => [parentDir(i.from), parentDir(i.to)]))],
+        under: entry.items.flatMap((i) => [i.from, i.to])
+      }
+    case 'trash':
+      return { dirs: [...new Set(entry.paths.map(parentDir))], under: entry.paths }
+    case 'rename':
+      return { dirs: [parentDir(entry.from)], under: [entry.from, entry.to] }
+    case 'duplicate':
+      return { dirs: [parentDir(entry.path)], under: [entry.path] }
+    case 'mkdir':
+      return { dirs: [parentDir(entry.path)], under: [entry.path] }
+    case 'archive-move':
+      return { dirs: [], under: [entry.zip] }
+    case 'archive-in':
+      return { dirs: [...new Set(entry.originals.map(parentDir))], under: [entry.zip] }
+  }
+}
+
+/** What the loading bar says a step is doing. */
+export function entryVerb(entry: UndoEntry, direction: 'undo' | 'redo'): string {
+  const undoing = direction === 'undo'
+  switch (entry.kind) {
+    case 'move':
+      return 'Moving'
+    case 'rename':
+      return 'Renaming'
+    case 'trash':
+      return undoing ? 'Restoring' : 'Deleting'
+    case 'duplicate':
+      return undoing ? 'Deleting' : 'Duplicating'
+    case 'mkdir':
+      return undoing ? 'Removing' : 'Making'
+    case 'archive-move':
+      return 'Moving'
+    case 'archive-in':
+      return undoing ? 'Restoring' : 'Adding'
+  }
+}
+
+/** A zip's rewrite cannot be stopped partway; every other step can. */
+export const entryStoppable = (entry: UndoEntry): boolean =>
+  entry.kind !== 'archive-move' && entry.kind !== 'archive-in'
 
 /** What the action was, for the message that says it was undone. */
 export function describe(entry: UndoEntry): string {

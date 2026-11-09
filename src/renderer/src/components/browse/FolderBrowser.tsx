@@ -17,6 +17,7 @@ import { sweepBase, sweepSelect } from '../../lib/marquee'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import { useLandingIn } from '../../lib/jobs'
+import { useHeld } from '../../lib/holds'
 import { LAND_MARK_MS, clearLanded, planLanding, useLandRequest } from '../../lib/landMarks'
 import { pathKey } from '@shared/path'
 import { landingPcts, listedPaths, rowsKey, unlisted, withLanding } from './landingRows'
@@ -27,6 +28,8 @@ import type { FolderSizes } from '../../lib/folderSize'
 import { ArchiveStrip } from './ArchiveStrip'
 import { withinFolder, type PlaceRow } from '../../lib/placeMark'
 import { useActiveArea } from './useActiveArea'
+import { useListKeyboard } from './useListKeyboard'
+import { anyGoing, isGoing, rowAfter, settleGoing, wasBinned } from '../../lib/binnedRows'
 import { useFindRoute } from './useFindRoute'
 import { EDITOR, FIELD, OVERLAY, inOverlay } from '../../lib/focusGuards'
 import './browse.css'
@@ -72,6 +75,12 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     if (chosenPlace && !withinFolder(props.directory, chosenPlace.path)) setChosenPlace(null)
   }
   const area = useActiveArea(shell)
+  // THE LOADING BAR holds this folder (owner, 2026-11-09, lib/holds): the
+  // rows stand still (`listing` is frozen in useFolderBrowsing), the list is
+  // inert and the keyboard stays on the bar until the job is over.
+  const held = useHeld(props.directory)
+  // A question closing or a row going drops the focus: it comes back here.
+  useListKeyboard(shell, !!props.covered || held, props.selectedPath ?? null)
   const focusList = (): void => {
     shell.current?.querySelector<HTMLElement>('.browse-list')?.focus({ preventScroll: true })
   }
@@ -133,7 +142,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   // Only this folder's rows are followed, the listing is looked up through a
   // set, and the merged listing changes with the row SET, never a percentage,
   // so a progress tick never re-sorts the folder (landingRows.ts).
-  const landingAll = useLandingIn(props.directory)
+  const landingAll = useLandingIn(props.directory, held)
   const landingHere = landingAll.length > 0
   const listed = useMemo(() => (landingHere ? listedPaths(props.listing) : null), [landingHere, props.listing])
   const landingItems = useMemo(
@@ -223,6 +232,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const markedEntries = marked ? entries.filter((entry) => marked.has(entry.path)) : []
   const many = markedEntries.length > 1
   const markedPaths = (): string[] => markedEntries.map((entry) => entry.path)
+  // Already on its way to the bin (`binnedRows`): the Delete keys stand down.
+  const binning = (): boolean => (many ? markedPaths().some(isGoing) : !!selected && isGoing(selected.path))
   const pickOne = (path: string | null, quiet = false): void => {
     setMarks(null)
     anchor.current = path
@@ -323,6 +334,28 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     props.onSelect(primary, true)
     setRevealPath({ path: primary, seq: landReq.seq })
   }
+  // THE NEXT ROW AFTER A DELETE (owner, 2026-11-09): the delete says which
+  // paths went, the list knows the order they stood in. The row beside the one
+  // that went takes the selection, quietly (the viewer's own step, when the
+  // file on show was the one binned, opens the next file). Read from the rows
+  // of the last commit, the only ones that still have the row that went.
+  const lastRows = useRef<{ key: string; order: () => string[] }>({ key: '', order: () => [] })
+  useLayoutEffect(() => {
+    const was = lastRows.current
+    lastRows.current = { key: marksKey, order }
+    const gone = props.selectedPath
+    // Read before the settling below takes it off the list: the folder's own
+    // watcher can show the row gone before the bin has answered (deleteFocus,
+    // 2026-11-09, 6 ms ahead), when the delete has not noted it as binned yet.
+    const leaving = !!gone && anyGoing() && isGoing(gone)
+    if (anyGoing()) settleGoing(order())
+    // Every commit, so the cheap questions first: nothing is walked until a
+    // delete has taken the row the selection is on.
+    if (!gone || was.key !== marksKey || !(leaving || wasBinned(gone))) return
+    const now = order()
+    if (now.includes(gone)) return
+    pickOne(rowAfter(was.order(), gone, (path) => now.includes(path) && !isGoing(path)), true)
+  })
   // Mirrored after render (a ref is not written while rendering), and read
   // by the effect below, which runs after this one.
   useLayoutEffect(() => {
@@ -477,7 +510,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       onKeyDown={(e) => {
         const target = e.target as HTMLElement
         const typing = target.closest(`${FIELD},${EDITOR},${OVERLAY}`)
-        if (inOverlay(target)) return
+        if (inOverlay(target) || target.closest('[data-busy-bar]')) return
         const inList = !!target.closest('.browse-list')
         // THE COMMON KEYS (#330) that act on the folder or a row rather than
         // on the marks (the list answers those itself). From the list only,
@@ -503,6 +536,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           else if (common === 'bin') {
             // Ctrl+D and Shift+Delete are Delete (owner, 2026-10-07: Shift+
             // Delete is NOT permanent here): the question, then the bin.
+            if (binning()) return
             if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
             else if (selected) props.onDelete?.(selected)
           } else if (common === 'properties') {
@@ -528,6 +562,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         ) {
           e.preventDefault()
           e.stopPropagation()
+          if (binning()) return
           if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
           else props.onDelete(selected)
         } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
@@ -664,6 +699,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         onSelect={pickOne}
         marked={marked}
         landing={landing}
+        held={held}
         revealPath={revealPath}
         onPick={pick}
         onSweep={swept}

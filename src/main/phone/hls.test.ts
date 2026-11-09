@@ -95,6 +95,25 @@ describe('hlsArgs', () => {
     const sdr = hlsArgs({ ...base, plan, startSegment: 0, encoder: { video: 'openh264' } })
     expect(sdr[sdr.indexOf('-vf') + 1]).toBe('scale=-2:1080,format=yuv420p')
   })
+  it('a turned film (an iPhone portrait) keeps its turn: GPU decode to memory, the CPU scales the short side', () => {
+    // Measured 2026-11-08 on the owner's own clip: with CUDA frames ffmpeg
+    // cannot insert its transpose and wrote a 1920x1080 film on its side.
+    const turned = { ...plan, rotation: -90 }
+    const gpu = hlsArgs({ ...base, plan: turned, startSegment: 0, encoder: { video: 'nvenc' } })
+    expect(gpu).toContain('-hwaccel')
+    expect(gpu).not.toContain('-hwaccel_output_format')
+    expect(gpu[gpu.indexOf('-vf') + 1]).toBe('scale=1080:-2,format=yuv420p')
+    expect(gpu).toContain('h264_nvenc')
+    const cpu = hlsArgs({ ...base, plan: { ...turned, height: null }, startSegment: 0, encoder: { video: 'openh264' } })
+    expect(cpu[cpu.indexOf('-vf') + 1]).toBe('format=yuv420p')
+    const upside = hlsArgs({ ...base, plan: { ...plan, rotation: 180 }, startSegment: 0, encoder: { video: 'nvenc' } })
+    expect(upside).not.toContain('-hwaccel_output_format')
+    expect(upside[upside.indexOf('-vf') + 1]).toBe('scale=-2:1080,format=yuv420p')
+    const hdr = hlsArgs({ ...base, plan: { ...turned, tonemap: true }, startSegment: 0, encoder: { video: 'nvenc' } })
+    expect(hdr[hdr.indexOf('-vf') + 1]).toContain('libplacebo=w=1080:h=-2:')
+    const hdrCpu = hlsArgs({ ...base, plan: { ...turned, tonemap: true }, startSegment: 0, encoder: { video: 'openh264' } })
+    expect(hdrCpu[hdrCpu.indexOf('-vf') + 1].startsWith('scale=1080:-2,zscale')).toBe(true)
+  })
   it('audio only drops the picture', () => {
     const a = hlsArgs({ ...base, plan: { ...plan, audioOnly: true, height: null }, startSegment: 0, encoder: { video: 'nvenc' } })
     expect(a).toContain('-vn')

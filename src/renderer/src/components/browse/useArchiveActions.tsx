@@ -20,6 +20,7 @@ import { useArchiveOps } from '../archive/useArchiveOps'
 import { BrowseRename } from './BrowseRename'
 import type { BrowseEntry } from './types'
 import { extractAll } from '../../lib/extractAll'
+import { noteBinned } from '../../lib/binnedRows'
 
 const ICONS: Record<ArchiveRowId, FileMenuIconName> = {
   open: 'open',
@@ -210,7 +211,9 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
       // The names are the members that go, so the question and its failure
       // line count the same list the delete runs over.
       const list = inners(meta, paths)
-      askDelete(meta.container, list, list.map(baseName))
+      // The list hands the selection on, as for a file (`binnedRows`): the
+      // next Delete had no selected row to answer.
+      askDelete(meta.container, list, list.map(baseName), () => noteBinned(paths))
     },
     [askDelete]
   )

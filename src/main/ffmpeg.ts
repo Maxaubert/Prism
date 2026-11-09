@@ -149,7 +149,18 @@ export interface MediaInfo {
    *  phone transcode needs the height for its 1080p ceiling and the transfer
    *  to tell HDR from SDR: an HDR picture scaled without a tone-map comes out
    *  flat grey, and only the transfer says which one a file is. */
-  video: { width: number; height: number; pixFmt: string; transfer: string } | null
+  video: {
+    width: number
+    height: number
+    pixFmt: string
+    transfer: string
+    /** "Main", "Main 10" (2026-11-08): which HEVC the desktop player asks
+     *  Chromium about, since a PC can decode one and not the other. */
+    profile?: string
+    /** Degrees from the display matrix (an iPhone's portrait films say -90).
+     *  A transcode on the GPU path drops it unless told (liveVideo.ts). */
+    rotation?: number
+  } | null
   /** Frames per second, when the file has a video stream that says. Frame
    *  stepping is a lie without it: a step of 1/30 on 24fps film moves most of
    *  a frame and lands between two of them. */
@@ -185,6 +196,8 @@ interface ProbeStream {
   pix_fmt?: string
   /** "smpte2084" (HDR10), "arib-std-b67" (HLG), "bt709" (SDR). */
   color_transfer?: string
+  profile?: string
+  side_data_list?: Array<{ side_data_type?: string; rotation?: number }>
   disposition?: { default?: number }
   tags?: { language?: string; title?: string }
 }
@@ -203,7 +216,11 @@ export function readProbe(json: string): MediaInfo | null {
   }
   const streams = parsed.streams ?? []
   const duration = Number(parsed.format?.duration) || 0
-  const audios = streams.filter((s) => s.codec_type === 'audio')
+  // An iPhone's spatial-audio track (APAC) rides beside the AAC one in newer
+  // films, and nothing in Prism can decode it (the bundled ffmpeg has no
+  // decoder): offered in the picker it was a second row that plays silence
+  // (2026-11-08, the owner's own film). It is not a track Prism can play.
+  const audios = streams.filter((s) => s.codec_type === 'audio' && !UNDECODABLE_AUDIO.has(s.codec_name ?? ''))
   const video = streams.find((s) => s.codec_type === 'video')
   const pick = audios.find((s) => s.disposition?.default === 1) ?? audios[0]
   const toTrack = (s: ProbeStream): AudioTrack | null =>
@@ -227,11 +244,27 @@ export function readProbe(json: string): MediaInfo | null {
     videoCodec: video?.codec_name ?? null,
     video:
       video && typeof video.width === 'number' && typeof video.height === 'number'
-        ? { width: video.width, height: video.height, pixFmt: video.pix_fmt ?? '', transfer: video.color_transfer ?? '' }
+        ? {
+            width: video.width,
+            height: video.height,
+            pixFmt: video.pix_fmt ?? '',
+            transfer: video.color_transfer ?? '',
+            ...(video.profile ? { profile: video.profile } : {}),
+            ...(rotationOf(video) ? { rotation: rotationOf(video) } : {})
+          }
         : null,
     fps: frameRate(video),
     duration
   }
+}
+
+/** Audio ffprobe can name and the bundled ffmpeg cannot decode. */
+const UNDECODABLE_AUDIO = new Set(['apple_apac'])
+
+/** The display matrix's turn, in degrees; 0 when there is none. */
+function rotationOf(video: ProbeStream): number {
+  const r = video.side_data_list?.find((d) => typeof d.rotation === 'number')?.rotation
+  return typeof r === 'number' && Number.isFinite(r) ? r : 0
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +330,7 @@ const PROBE_ARGS = [
   '-v', 'error',
   '-print_format', 'json',
   '-show_entries',
-  'stream=index,codec_type,codec_name,channels,channel_layout,disposition,avg_frame_rate,r_frame_rate,width,height,pix_fmt,color_transfer:stream_tags=language,title:format=duration'
+  'stream=index,codec_type,codec_name,profile,channels,channel_layout,disposition,avg_frame_rate,r_frame_rate,width,height,pix_fmt,color_transfer:stream_side_data=rotation:stream_tags=language,title:format=duration'
 ]
 
 /**

@@ -72,6 +72,10 @@ export interface ConvertResult {
   error?: string
 }
 
+/** `video:live` (2026-11-08, liveVideo.ts): the HLS playlist of a live
+ *  transcode, for a picture this PC cannot decode, and the film's length. */
+export type LiveResult = { url: string; duration: number } | { error: string }
+
 /** A comic's pages in reading order, or why it would not open. */
 export type ComicOpenResult = { pages: string[] } | { error: 'password' | 'failed' | 'empty' }
 
@@ -92,6 +96,21 @@ export interface PasteResult {
   /** Why each failed item failed (ENOENT, EBUSY, "into itself"), for the
    *  diagnostics log's `op` line (owner, 2026-11-06). */
   failures?: Array<{ name: string; reason: string }>
+  /** Cancel stopped it (owner, 2026-11-09): `paths` is what landed whole, and
+   *  a partial copy is gone. */
+  cancelled?: boolean
+  /** How many sources it was asked to paste. */
+  total?: number
+}
+
+/** What a restore from the bin did, one path at a time, when it ran as a job
+ *  (owner, 2026-11-09, the loading bar): each path that came back and each
+ *  that did not, the second still in the bin. */
+export interface RestoreOutcome {
+  ok: boolean
+  restored: string[]
+  left: string[]
+  cancelled: boolean
 }
 
 /** What a move does with a name already taken at the destination. */
@@ -112,6 +131,8 @@ export type MoveResult = {
   replaced: string[]
   /** True when the ROOT WALL refused, which is a different message. */
   refused?: boolean
+  /** Cancel stopped it (owner, 2026-11-09): `moved` is what really moved. */
+  cancelled?: boolean
 }
 
 /** Undoing a new folder: binned only while it is still empty. */
@@ -161,6 +182,8 @@ export interface PasteProgress {
    *  through it, 0-100. 100 once it has landed. */
   item?: number
   itemPct?: number
+  /** Items done of how many, for the loading bar's "Copying 120 of 500". */
+  count?: { done: number; total: number }
 }
 /** One item a paste is copying, as the list shows it while it lands. */
 export interface PasteItem {

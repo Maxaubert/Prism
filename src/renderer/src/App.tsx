@@ -110,19 +110,19 @@ import { warmOf } from './lib/viewerCache'
  *  front. Coming back is the common case, so releasing on the very first blur
  *  would throw the cache away every time somebody glanced at another window. */
 const WARM_COOLDOWN_MS = 60_000
-import { intendToPlay, wasPlaying } from './lib/playState'
+import { carriesOn, heldPaused, intendToPlay } from './lib/playState'
 import { ownDrop, setDrag } from './lib/drag/dragDrop'
 import { useInternalFileDrag } from './lib/drag/internalFileDrag'
 import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import { landJob, updateJob, updateLanding } from './lib/jobs'
+import { holdProgress } from './lib/holds'
 import { setFolderIcons, type FolderIconChoice } from './lib/folderIcons'
 import { keptFolderIconFile } from './lib/folderIconFiles'
 import { folderIconFromFile, ICON_REFUSED } from './lib/iconFromFile'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { nextTabId } from './lib/sessionIds'
-import { markLanded } from './lib/landMarks'
 import { saveCopiesJob } from './lib/saveCopies'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
@@ -133,7 +133,7 @@ import { saveCopiesJob } from './lib/saveCopies'
 // There is deliberately no DOC kind-set here any more. Which keys a document
 // owns is a question about FOCUS, not about file kind: a pdf nobody has clicked
 // into has no more claim on Up/Down than a photo does. See docFocused() in
-// hooks/useAppKeys, beside PLAYABLE.
+// hooks/useAppKeys.
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
 
 export default function App(): JSX.Element {
@@ -157,6 +157,12 @@ export default function App(): JSX.Element {
         if (m.start) landJob(m.jobId, m.start.dir, m.start.items)
         if (typeof m.item === 'number' && typeof m.itemPct === 'number') updateLanding(m.jobId, m.item, m.itemPct)
         updateJob(m.jobId, m.pct)
+        // The loading bar (owner, 2026-11-09): how far, and what, by the job.
+        holdProgress(m.jobId, {
+          pct: m.pct,
+          ...(m.count ? { done: m.count.done, total: m.count.total } : {}),
+          ...(m.start?.items.length === 1 ? { name: m.start.items[0].name } : {})
+        })
       }),
     []
   )
@@ -751,10 +757,30 @@ export default function App(): JSX.Element {
       if (!active || !view) return
       const next = Math.max(0, Math.min(view.files.length - 1, view.index + delta))
       if (next === view.index) return // already at the edge; not a navigation
-      setRawIndex(active.files.indexOf(view.files[next]))
+      const target = view.files[next]
+      // Behind a shut list nothing is on screen (review of #491): a film stepped
+      // to there is a sound with no picture.
+      const shown = !browsing.folder || !!active.browse.preview
+      // A STEP SHOWS A FILM, AND A FILM SHOWN STARTS (#491; owner, 2026-11-08:
+      // "video dont always autopaly"), whichever way the step came, unless you
+      // paused that film yourself. A track still waits for you.
+      if (shown && target.kind === 'video') {
+        const key = window.prism.mediaUrl(target.path)
+        if (!heldPaused(key)) intendToPlay(key)
+      }
+      // A film or a track in the Explorer's pane steps by the list's own selection, or the
+      // pane walks on and the row stays behind (#492).
+      if (
+        browsing.folder &&
+        shown &&
+        (view.files[view.index]?.kind === 'video' || view.files[view.index]?.kind === 'audio') &&
+        browsing.listing?.files.some((f) => f.path === target.path)
+      )
+        browsing.select(target.path, false, false)
+      else setRawIndex(active.files.indexOf(target))
       setHasNavigated(true)
     },
-    [active, setRawIndex, view]
+    [active, browsing, setRawIndex, view]
   )
 
   const file = view?.files[view.index] ?? null
@@ -1066,8 +1092,9 @@ export default function App(): JSX.Element {
       // open any more, so the file a finished video hands over to - and the
       // one the menu's Next reaches for while you are watching - has to say
       // "I was already playing" on its own behalf. Stepping away from a file
-      // you had PAUSED lands paused, which is the same rule.
-      if (file && wasPlaying(window.prism.mediaUrl(file.path)))
+      // you had PAUSED lands paused, which is the same rule; a file that ran
+      // to its end was not paused by anyone (#491).
+      if (file && carriesOn(window.prism.mediaUrl(file.path)))
         intendToPlay(window.prism.mediaUrl(next.path))
       setRawIndex(active.files.indexOf(next))
     },
@@ -1127,6 +1154,7 @@ export default function App(): JSX.Element {
     runDelete,
     runDeleteMany,
     runMove,
+    runDuplicate,
     runRename,
     onBrowseDropInto,
     makeNewFolder
@@ -1662,6 +1690,11 @@ export default function App(): JSX.Element {
               // visible one fills the pane exactly as a viewer always did.
               // A background tab answers nothing: no paging, no stepping.
               const noop = (): void => {}
+              const filmShut = (tabId: string): boolean => {
+                if (tabId === activeId) return browsing.folder && !showBrowsePreview
+                const t = tabs.find((x) => x.id === tabId)
+                return !!t && isExplorerTab(t) && t.browse.surface === 'folder' && !t.browse.preview
+              }
               // In window mode the front tab's player and view are drawn in
               // the preview window, the others stay here, mounted and hidden.
               const inWindow = (tabId: string): boolean => previewWindowUp && tabId === activeId
@@ -1705,6 +1738,11 @@ export default function App(): JSX.Element {
                     archiveCardDrop={onBrowseDropInto}
                     note={!browsing.folder}
                     preview={browsing.folder}
+                    // Shut behind the list: no sound and no live job. The
+                    // element stays, so its place and its route do. A tab
+                    // behind this one counts too, or a shut film started
+                    // again the moment you switched away from it.
+                    shut={filmShut(e.tabId)}
                   />
                 </div>
               ))
@@ -1836,7 +1874,13 @@ export default function App(): JSX.Element {
                   {players.filter((_, i) => !inWindow(deck[i].tabId))}
                   {liveContent}
                   {previewWindowUp && (
-                    <PreviewWindow key={previewWindowGen} open={windowShown} title={file?.name ?? ''} onClose={closePreviewWindow}>
+                    <PreviewWindow
+                      key={previewWindowGen}
+                      open={windowShown}
+                      title={file?.name ?? ''}
+                      onClose={closePreviewWindow}
+                      onStep={file && (file.kind === 'video' || file.kind === 'audio' || file.kind === 'image' || file.kind === 'comic') ? go : undefined}
+                    >
                       {windowContent}
                     </PreviewWindow>
                   )}
@@ -1921,15 +1965,7 @@ export default function App(): JSX.Element {
               paste: (directory) => void pasteFiles(directory),
               pinQuickAccess,
               unpinQuickAccess,
-              duplicate: (path) => {
-                void window.prism.duplicateFile(path).then((copy) => {
-                  if (copy) {
-                    noteUndo({ kind: 'duplicate', source: path, path: copy })
-                    setRefreshKey((key) => key + 1)
-                    markLanded([copy])
-                  }
-                })
-              },
+              duplicate: (path) => void runDuplicate(path),
               rename: (entry) => setBrowseRename(entry),
               askDelete: (entry) =>
                 setAsk({ kind: 'delete', path: entry.path, name: entry.name, isFolder: entry.isFolder }),

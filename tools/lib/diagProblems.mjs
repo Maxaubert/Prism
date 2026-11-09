@@ -69,6 +69,15 @@ export function opSummary(l) {
   if (l.refused) bits.push('refused by the wall')
   if (l.empty) bits.push('nothing on the clipboard')
   else if (l.reason) bits.push(`${l.reason}${l.phase ? ` at ${l.phase}` : ''}`)
+  if (l.op === 'film' || l.op === 'live-job') {
+    if (l.ev) bits.push(l.ev)
+    if (l.route) bits.push(l.route)
+    if (l.why) bits.push(l.why)
+    if (typeof l.code === 'number') bits.push(`code ${l.code}`)
+    if (l.encoder) bits.push(l.encoder)
+    if (l.detail) bits.push(l.detail)
+    if (l.error) bits.push(l.error)
+  }
   if (l.message) bits.push(`"${l.message}"`)
   if (l.op !== 'paste' && l.op !== 'cut-paste' && l.source) bits.push(l.source)
   if (l.source && (l.op === 'paste' || l.op === 'cut-paste')) bits.push(`from ${l.source}${l.why ? ` (${l.why})` : ''}`)

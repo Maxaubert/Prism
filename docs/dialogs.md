@@ -40,4 +40,6 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
 
 Not here, on purpose: forms and panels that are more than a question. `browse/BrowseRename.tsx`
 (the rename field in a dialog), `properties/PropertiesDialog.tsx`, `PhoneDialog.tsx`, the core's
-`UpdateDialog`, and `ExtractWindow.tsx` (it cannot be dismissed, so it shares only the look).
+`UpdateDialog`, `ExtractWindow.tsx` (it cannot be dismissed, so it shares only the look), and
+`browse/BusyBar.tsx`, the loading bar over a held list (not a dialog: it covers one tab's list only,
+and the rest of the window stays yours).

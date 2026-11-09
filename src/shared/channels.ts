@@ -144,6 +144,7 @@ export const CALL = {
   imageSaveCopy: 'image:save-copy',
   imageSaveCopies: 'image:save-copies',
   imageSaveCopiesCancel: 'image:save-copies-cancel',
+  fileJobCancel: 'file:job-cancel',
 
   clipboardHasFiles: 'clipboard:has-files',
 
@@ -177,6 +178,8 @@ export const CALL = {
 
   videoConvert: 'video:convert',
   videoCancel: 'video:cancel',
+  videoLive: 'video:live',
+  videoLiveStop: 'video:live-stop',
 
   appsFor: 'apps:for',
 

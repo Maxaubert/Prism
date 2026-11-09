@@ -1,6 +1,8 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react'
 import type { ViewerFile } from '@shared/types'
-import { isTypingTarget } from '../lib/focusGuards'
+import { EDITOR, OVERLAY, isTypingTarget } from '../lib/focusGuards'
+import { isHeld } from '../lib/holds'
+import { menuOrDialogUp } from '../lib/pageDocuments'
 import { isExplorerTab, type Tab } from '../lib/tabs/tabs'
 import { copyFilePaths } from '../lib/fileClipboard'
 import { CARD_CHORDS } from '../components/browse/archiveCardNav'
@@ -14,12 +16,17 @@ import type { Ask } from '../dialogs/asks'
 // Up/Down and the Explorer's verbs. Each key's rule is commented where it is
 // handled. App hands in what the keys act on.
 
-/** The kinds a player owns Up and Down for once nothing else wants them. */
-const PLAYABLE = new Set(['video', 'audio'])
+/** A range slider on the player's own bar (#492): the keys walk past it. */
+const onTransportSlider = (el: HTMLElement | null): boolean =>
+  !!el &&
+  el.tagName === 'INPUT' &&
+  (el as HTMLInputElement).type === 'range' &&
+  !!el.closest('[data-transport]')
 /** The kinds that are read by scrolling: in FULL VIEW they own Up and Down
  *  (owner, 2026-10-28, "the arrow keys up and down navigate files while
  *  you're in it which it should not", all documents). */
 const DOCUMENTS = new Set(['doc', 'pdf', 'text'])
+const PLAYABLE = new Set(['video', 'audio'])
 
 /** The document scroller on screen (another tab's stays mounted, hidden). */
 const shownDocScroller = (): HTMLElement | null =>
@@ -87,11 +94,9 @@ export function useAppKeys({
   hasNavigated
 }: AppKeysDeps): void {
   // App-level keys, in the capture phase so this runs before the player's own
-  // (bubble-phase) key listener. Arrow keys page through the folder, except a
-  // freshly opened audio/video owns them for seeking (the player handles them).
-  // The moment the user starts navigating (paging, or arrowing through
-  // non-playable files), arrows keep navigating even on playable files; we then
-  // claim the key (preventDefault) so the player yields it.
+  // (bubble-phase) key listener. Up and Down page through the folder, a film
+  // and a track included (#492). A key claimed here is
+  // preventDefault-ed, and the player's listener yields to that.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const el = e.target as HTMLElement | null
@@ -177,6 +182,36 @@ export function useAppKeys({
           else if (file) void copyFilePaths([file.path], key === 'x')
           return
         }
+        // CTRL+V NEEDS NO ROW (owner, 2026-11-09: "to get it to work then i have
+        // to click into the directory"): it says where, and the tab in front
+        // knows that. The list and the preview answer for themselves, above and
+        // in FolderBrowser; this is the rest of the window, the page and the
+        // chrome, with no field or question in the way. A zip takes no paste.
+        if (
+          active &&
+          isExplorerTab(active) &&
+          e.ctrlKey &&
+          !e.shiftKey &&
+          !e.altKey &&
+          !e.metaKey &&
+          e.key.toLowerCase() === 'v' &&
+          !typing &&
+          !el?.closest(`.browse-list,[data-workspace-viewer],[data-doc-scroller],${EDITOR},${OVERLAY}`) &&
+          !menuOrDialogUp()
+        ) {
+          const into = browsing.folder
+            ? browsing.listing?.archive
+              ? undefined
+              : active.browse.path
+            : viewerDirectory
+          if (into) {
+            e.preventDefault()
+            e.stopPropagation()
+            // A held list (the loading bar) takes no paste.
+            if (!isHeld(into)) void pasteFiles(into)
+            return
+          }
+        }
         if (explorerFileFocus && file && !e.ctrlKey && !e.altKey && !e.metaKey) {
           const entry = { path: file.path, name: file.name, isFolder: false, file }
           if (e.key === 'F2' && !e.shiftKey) {
@@ -251,6 +286,9 @@ export function useAppKeys({
         // not on screen: a keystroke that moves files about while you cannot
         // see them is a change you did not mean to make.
         e.preventDefault()
+        // Behind the loading bar a held folder takes no undo: it would queue
+        // behind the job and land on a list you cannot see move.
+        if (active && isHeld(active.browse.path)) return
         if (e.key.toLowerCase() === 'y' || e.shiftKey) redo()
         else undo()
       } else if (
@@ -318,7 +356,10 @@ export function useAppKeys({
         // been focused. Reading a pdf from the sidebar should page the folder.
         if (docFocused()) return
         go(e.key === 'PageDown' ? 1 : -1)
-      } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing) {
+      } else if (
+        (e.key === 'ArrowDown' || e.key === 'ArrowUp') &&
+        (!typing || (!!file && PLAYABLE.has(file.kind) && onTransportSlider(el)))
+      ) {
         // FOCUS decides, for every kind. A document owns the vertical keys only
         // while it is focused - click into it, or Tab to it. Until then it has
         // no more claim on them than a photo does, so arrowing through a folder
@@ -339,11 +380,24 @@ export function useAppKeys({
         }
         // Alt too: Alt+Up is the list's parent row (review of #330).
         if (inLists && (e.ctrlKey || e.shiftKey || e.altKey)) return
-        // A player in front of you: Up/Down are the VOLUME, which is what every
-        // media player has taught (2026-08-30). They used to be
-        // preventDefault-ed unconditionally here, and useMediaControls yields
-        // on defaultPrevented, so the volume keys were dead everywhere.
-        if (!!file && PLAYABLE.has(file.kind)) return // player handles it
+        // A PLAYER'S UP AND DOWN WALK THE FOLDER (owner, 2026-11-08, #492: "up
+        // down arrows shoudl nvigate next file not adjust volume", then "do audio
+        // files too"), like any other kind's, whether the focus is on the list,
+        // the picture or the player's bar. The player's own key listener is told
+        // not to take them (`arrowsAreVolume`).
+        if (!!file && PLAYABLE.has(file.kind)) {
+          // Nothing on screen to walk from: a film kept behind the list.
+          if (browsing.folder && !active?.browse.preview) return
+          // A chord is the list's, in the list; over a film it does nothing,
+          // and a focused range would otherwise step on it (review of #492).
+          if (e.ctrlKey || e.shiftKey || e.altKey) {
+            if (onTransportSlider(el)) e.preventDefault()
+            return
+          }
+          // A menu open over the film has the keys (review of #492), whether
+          // or not it took the focus: a right-click does not move it.
+          if (document.querySelector('[data-owns-escape],[role="menu"]')) return
+        }
         e.preventDefault()
         go(e.key === 'ArrowDown' ? 1 : -1)
       }
