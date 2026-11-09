@@ -3551,6 +3551,10 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   opening Prism with a film in a tab), so it was changed; say if it should be put back. Held by
   the `filmKeys` and `filmStart` e2e, `playState.test.ts`, `liveRoute.test.ts`, and on the owner's
   screen by `npm run diag`: an `autostart` line per film meant to start.
+  In the preview WINDOW with the keyboard inside it (2026-11-09, #492 on top of #490), Up and Down walk the
+  folder too on a film, a picture or a comic, so a walk does not stop on the first file that is not a film.
+  App's key listener is on the Explorer's window, so `previewWindowStep` does it there. A document and an
+  archive card keep the keys, a track keeps its volume. `previewWindow` e2e holds it.
 - **MUTE, VOLUME AND SPEED CARRY TO THE NEXT FILE** (#207; owner, 2026-09-23: "if the user
   mutes audio or sets speed to be 0.5 and then clicks a new video, those settings should be
   kept ... maybe the user wants to just look at videos without audio, or dissect videos in
@@ -3602,10 +3606,52 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   (in its text editor Space types a space and Escape still closes; a field keeps both).
   It is no window of the session: it never counts for "the last window closed". Only a toggle
   opens it: a flag left on by the panel, a restore or a file from Windows ("View for files from
-  Windows: Preview") is put back off in Window mode, so it never appears unasked. Right-click
-  does nothing in it (a menu would open in the Explorer behind). Wiring: `docs/architecture.md`.
+  Windows: Preview") is put back off in Window mode, so it never appears unasked. A right-click
+  in it opens its viewer's own menu (below). Wiring: `docs/architecture.md`.
   The `previewWindow` e2e drives it end to end; `src/main/previewWindow.test.ts`,
   `lib/previewWindowKeys.test.ts` hold the parts.
+  **ITS VIEWER ANSWERS ITS OWN KEYS AND LINKS** (owner, 2026-11-08: "Keys and in-page links
+  don't work with focus inside the preview window (image and video shortcuts, markdown #
+  links) fix that"). With the keyboard in the window, its viewer's keys work as in the pane:
+  the picture's R, + and -, 0, 1, I and Ctrl+C, a film's or a track's M, K, J, L, the digits,
+  `.` and `,`, `<` and `>`, Home and End, the PDF's zoom, fit, PageUp/PageDown and Ctrl+F, the
+  document and code finds (their highlights painted in the window), a comic's page turns, the
+  zip card's rows; a markdown #link scrolls the window's own document (external links still go
+  to the browser). The window's two keys come FIRST, whatever viewer is in it: Space and
+  Escape close it (a film's Space neither plays nor pauses it, the code view's Escape does not
+  stop at a blur), a field keeps both, the text editor keeps Space. The arrows in the window are
+  the viewer's own (a film seeks with Left and Right and sets its volume with Up and Down, a
+  comic turns its page, a document scrolls) and never move the list's selection; from the list
+  they stay the list's, and a letter its type-to-jump did not take still reaches the viewer, as
+  in the pane. Mouse drags (panning a zoomed picture, the film's bar and volume) work in it too.
+  The pane and full view are unchanged. Rule: a viewer listens through `lib/ownWindow.ts`
+  (`useViewerWindows` + `listenOn`: its own window and the Explorer's) and looks things up in
+  its own document; `lib/ownWindow.test.ts` fails on a viewer file that listens on, or looks
+  in, this page's `window` or `document` directly (`// own-window-ok: <reason>` excuses a line).
+  The `previewWindow` e2e presses R, +, M and ArrowRight and follows a #link in the window.
+  **A RIGHT-CLICK IN IT OPENS THE VIEWER'S MENU, IN THE WINDOW** (owner, 2026-11-08: "also let me
+  right click the preview to copy or do other actions"). It used to do nothing, on purpose: the
+  menu was drawn in the Explorer's page, so it would have opened behind the window. Now a menu is
+  drawn in the document of what was right-clicked (`ContextMenu`'s `at`), at the cursor, clamped
+  to that window, in its theme, so the window gets the SAME rows the pane and full view give that
+  viewer, acting on the file shown with the same handlers: the picture's (Rotate, Photo info, Copy
+  image, Copy path, Save a copy, Slideshow, Show in File Explorer), the film's, the track's, the
+  markdown's and the document's, the text editor's (Cut, Copy, Paste, Copy path, Select all, Find,
+  ... ; its Cut and Copy act on the window's own selection), the zip card's. A PDF has no menu,
+  in the window as in the pane. The menu is driven as in the pane (the pointer, or Up and Down
+  between its rows once one has the focus, Enter or Space picks). While it is up, Space and Escape are the MENU'S: Escape in
+  the window or on the list closes the menu alone and the window stays; a Space under the menu
+  (no row focused) does nothing, so a film never plays or pauses beneath it (review 2026-11-08,
+  `previewWindowKey`'s 'taken'); a press anywhere else, in the window or the Explorer, closes it
+  too. DECIDED: the only row that leaves the preview is the zip card's Open on a file, which opens
+  that member in full view exactly as its double-click does, and the window goes with the preview;
+  a row that asks something (Save a copy, Extract to...) opens main's dialog over the Explorer as
+  from the pane, and the window stays where it is. The `previewWindow` e2e right-clicks the
+  picture, the text and the film in the window: the menu is in the window's document and not the
+  Explorer's, Copy image puts the pixels on the clipboard, Copy path the file shown, Escape (its
+  own and the list's) and a press away (in the window or the Explorer) close only the menu, and a
+  Space under the film's menu neither closes the window nor plays the film.
+  `lib/ownWindow.test.ts` fails on a viewer's `<ContextMenu` without `at`.
 - **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
   renders only while it is in front, so walking to Settings or another folder
   stopped the film. Handing the sound to a second, hidden element was tried

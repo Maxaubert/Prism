@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } f
 import { createPortal } from 'react-dom'
 import { Icon } from './icons/Icon'
 import { onOverlayScrollbar } from '../lib/overlayScroll'
+import { listenOn, ownDocument, ownWindow, viewerWindows } from '../lib/ownWindow'
 
 // The right-click menu for a tree row. Just the actions: you right-clicked the
 // row, so you know what it applies to. Small, keyboard-dismissable, clamped so
@@ -103,6 +104,7 @@ export function ContextMenu({
   x,
   y,
   items,
+  at,
   anchor,
   keyboard,
   onClose
@@ -110,6 +112,13 @@ export function ContextMenu({
   x: number
   y: number
   items: MenuItem[]
+  /** What was right-clicked (an element, or the event's target). The menu is
+   *  drawn in THAT element's document, at x and y in its window, and listens
+   *  there (owner, 2026-11-08: "also let me right click the preview to copy
+   *  or do other actions"): a viewer in the preview window gets its menu in
+   *  the window, not in the Explorer behind it. Left out, or anything in this
+   *  page, it is this page's, exactly as before. */
+  at?: EventTarget | null
   /** The button that opened this menu, when a button did (#272). A press on
    *  it is not "outside": the button's own click shuts the menu, so it
    *  toggles. Dismissing on that press too reopened the menu on the click
@@ -123,6 +132,9 @@ export function ContextMenu({
   keyboard?: boolean
   onClose: () => void
 }): JSX.Element {
+  // Fixed at the open: a menu never moves between windows while it is up.
+  const [doc] = useState(() => ownDocument(at))
+  const win = ownWindow(doc)
   const box = useRef<HTMLDivElement>(null)
   const fly = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ x, y })
@@ -134,10 +146,10 @@ export function ContextMenu({
   const closeTimer = useRef<number | null>(null)
   const cancelClose = useCallback((): void => {
     if (closeTimer.current !== null) {
-      window.clearTimeout(closeTimer.current)
+      win.clearTimeout(closeTimer.current)
       closeTimer.current = null
     }
-  }, [])
+  }, [win])
   useEffect(() => cancelClose, [cancelClose])
   // A right press outside, waiting for its `contextmenu` (see the dismiss
   // effect below), and the fallback close if that never comes.
@@ -145,9 +157,9 @@ export function ContextMenu({
   const lateClose = useRef<number | null>(null)
   useEffect(
     () => () => {
-      if (lateClose.current !== null) window.clearTimeout(lateClose.current)
+      if (lateClose.current !== null) win.clearTimeout(lateClose.current)
     },
-    []
+    [win]
   )
 
   useLayoutEffect(() => {
@@ -159,8 +171,8 @@ export function ContextMenu({
       const { width, height } = el.getBoundingClientRect()
       cancelClose()
       setPos({
-        x: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
-        y: Math.max(8, Math.min(y, window.innerHeight - height - 8))
+        x: Math.max(8, Math.min(x, win.innerWidth - width - 8)),
+        y: Math.max(8, Math.min(y, win.innerHeight - height - 8))
       })
     }
     clamp()
@@ -168,9 +180,9 @@ export function ContextMenu({
       setSub(null)
       clamp()
     }
-    window.addEventListener('resize', resize)
-    return () => window.removeEventListener('resize', resize)
-  }, [x, y, items.length, cancelClose])
+    win.addEventListener('resize', resize)
+    return () => win.removeEventListener('resize', resize)
+  }, [x, y, items.length, cancelClose, win])
 
   const subIndex = sub ? items.findIndex((item) => item.label === sub.label) : -1
   const subItems = items[subIndex]?.children
@@ -192,7 +204,7 @@ export function ContextMenu({
     const parent = menu.querySelectorAll<HTMLElement>('[role="menuitem"]')[subIndex]
     if (!parent) return
     const anchorY = parent.getBoundingClientRect().top +
-      parseFloat(getComputedStyle(parent).borderTopWidth || '0')
+      parseFloat(win.getComputedStyle(parent).borderTopWidth || '0')
     const r = el.getBoundingClientRect()
     const menuRect = menu.getBoundingClientRect()
     // The flyout is a LAYER, not an extension: like every native submenu
@@ -200,13 +212,13 @@ export function ContextMenu({
     // its shadow onto it. Butting the panels edge-to-edge read as one panel
     // with a seam down it; the overlap is what makes it read as a card above.
     let fx = menuRect.right - 6
-    if (fx + r.width > window.innerWidth - 8) fx = menuRect.left - r.width + 6
-    fx = Math.max(8, Math.min(fx, window.innerWidth - r.width - 8))
+    if (fx + r.width > win.innerWidth - 8) fx = menuRect.left - r.width + 6
+    fx = Math.max(8, Math.min(fx, win.innerWidth - r.width - 8))
     const firstTop = el.querySelector('[role="menuitem"]')?.getBoundingClientRect().top ?? r.top
     let fy = sub.y + (anchorY - firstTop)
-    fy = Math.max(8, Math.min(fy, window.innerHeight - r.height - 8))
+    fy = Math.max(8, Math.min(fy, win.innerHeight - r.height - 8))
     if (Math.abs(fx - sub.x) > 0.01 || Math.abs(fy - sub.y) > 0.01) setSub({ ...sub, x: fx, y: fy })
-  }, [sub, subItems, subIndex, pos.x, pos.y])
+  }, [sub, subItems, subIndex, pos.x, pos.y, win])
 
   const rows = (): HTMLElement[] =>
     [...(box.current?.querySelectorAll<HTMLButtonElement>(':scope > [role="menuitem"]') ?? [])].filter(
@@ -223,19 +235,19 @@ export function ContextMenu({
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         e.stopPropagation()
-        const inside = !!box.current?.contains(document.activeElement)
+        const inside = !!box.current?.contains(doc.activeElement)
         onClose()
         // After the close has rendered: the row going away takes the focus
         // with it, and a focus moved in the same breath was lost (measured).
-        if (inside && anchor) window.setTimeout(() => anchor.focus(), 0)
+        if (inside && anchor) win.setTimeout(() => anchor.focus(), 0)
         return
       }
-      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && box.current?.contains(document.activeElement)) {
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && box.current?.contains(doc.activeElement)) {
         const list = rows()
         if (list.length === 0) return
         e.preventDefault()
         e.stopPropagation()
-        const at = list.indexOf(document.activeElement as HTMLElement)
+        const at = list.indexOf(doc.activeElement as HTMLElement)
         const step = e.key === 'ArrowDown' ? 1 : -1
         list[(at + step + list.length) % list.length].focus()
       }
@@ -260,7 +272,7 @@ export function ContextMenu({
     // Refs, not locals: an owner's inline onClose re-runs this effect on
     // every render, and a render while the button is held must not forget it.
     const settle = (): void => {
-      if (lateClose.current !== null) window.clearTimeout(lateClose.current)
+      if (lateClose.current !== null) win.clearTimeout(lateClose.current)
       lateClose.current = null
       rightPress.current = false
     }
@@ -281,8 +293,8 @@ export function ContextMenu({
     }
     const onUp = (e: PointerEvent): void => {
       if (!rightPress.current || e.button !== 2) return
-      if (lateClose.current !== null) window.clearTimeout(lateClose.current)
-      lateClose.current = window.setTimeout(() => {
+      if (lateClose.current !== null) win.clearTimeout(lateClose.current)
+      lateClose.current = win.setTimeout(() => {
         settle()
         onClose()
       }, 400)
@@ -292,19 +304,20 @@ export function ContextMenu({
       settle()
       onClose()
     }
-    window.addEventListener('keydown', onKey, true)
-    window.addEventListener('pointerdown', onDown, true)
-    window.addEventListener('pointerup', onUp, true)
-    window.addEventListener('contextmenu', onContext, true)
-    window.addEventListener('blur', onClose)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('pointerdown', onDown, true)
-      window.removeEventListener('pointerup', onUp, true)
-      window.removeEventListener('contextmenu', onContext, true)
-      window.removeEventListener('blur', onClose)
-    }
-  }, [onClose, anchor])
+    // On the menu's own window and, for a menu in the preview window, the
+    // Explorer's too: a press or an Escape there closes it as well. The blur
+    // is its own window's only (the right-click that opened it may just have
+    // taken the focus from the Explorer).
+    const wins = viewerWindows(win)
+    const offs = [
+      listenOn(wins, 'keydown', onKey, true),
+      listenOn(wins, 'pointerdown', onDown, true),
+      listenOn(wins, 'pointerup', onUp, true),
+      listenOn(wins, 'contextmenu', onContext, true),
+      listenOn([win], 'blur', onClose)
+    ]
+    return () => offs.forEach((off) => off())
+  }, [onClose, anchor, doc, win])
 
   const pick = (it: MenuItem): void => {
     if (it.disabled) return
@@ -320,7 +333,7 @@ export function ContextMenu({
       // Grace period, then close - unless the pointer reached the flyout (or
       // came back to the parent), which cancels the timer.
       if (sub && closeTimer.current === null) {
-        closeTimer.current = window.setTimeout(() => {
+        closeTimer.current = win.setTimeout(() => {
           closeTimer.current = null
           setSub(null)
         }, 300)
@@ -333,15 +346,16 @@ export function ContextMenu({
     // The anchor is the parent row's VISIBLE surface: its rect top plus its
     // own divider border, when it has one. The layout effect above then moves
     // the flyout until its first row's top measures exactly here.
-    const anchorY = r.top + parseFloat(getComputedStyle(el).borderTopWidth || '0')
-    setSub({ label: it.label, x: window.innerWidth, y: anchorY - 1 }) // corrected after measure
+    const anchorY = r.top + parseFloat(win.getComputedStyle(el).borderTopWidth || '0')
+    setSub({ label: it.label, x: win.innerWidth, y: anchorY - 1 }) // corrected after measure
   }
 
   // IN THE BODY, ABOVE EVERY PANEL (owner, 2026-10-27, a screenshot: the
   // address bar's menu dropped over the preview, which drew its text on top
   // and showed the text caret). Rendered where it was opened, the menu lived
   // in that part's stacking context, and no z-index lifts it out of one.
-  // React events still bubble through the opener, as before.
+  // React events still bubble through the opener, as before. The body is the
+  // opener's document's (`at`): the preview window's for a viewer drawn there.
   return createPortal(
     // data-owns-escape: the app's own (earlier, capture-phase) Escape handler
     // yields to any element carrying it, so closing this menu can't close the
@@ -396,6 +410,6 @@ export function ContextMenu({
         </div>
       )}
     </div>,
-    document.body
+    doc.body
   )
 }

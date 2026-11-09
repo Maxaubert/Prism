@@ -2,6 +2,7 @@ import { useEffect, useRef, type RefObject } from 'react'
 import { heldPaused, wasPlaying } from '../lib/playState'
 import { autostartCheck } from '../lib/liveRoute'
 import { filmLine } from '../lib/filmDiag'
+import { ownDocument } from '../lib/ownWindow'
 
 const TICK_MS = 1000
 
@@ -57,7 +58,7 @@ export function useFilmAutostart(
       el.removeEventListener('playing', onPlaying)
     }
     const timer = window.setInterval(() => {
-      if (document.hidden || !el.checkVisibility({ visibilityProperty: true })) return
+      if (ownDocument(el).hidden || !el.checkVisibility({ visibilityProperty: true })) return
       watched += TICK_MS
       const check = autostartCheck({ paused: el.paused, held: heldPaused(url), elapsedMs: watched })
       if (check === 'held') stop()

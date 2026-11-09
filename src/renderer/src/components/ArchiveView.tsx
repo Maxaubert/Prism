@@ -105,7 +105,7 @@ function ArchiveInner({
   /** A password has already been tried and refused, so the dialog says so. */
   const [triedPass, setTriedPass] = useState(false)
   /** The panel's dead-space menu, kept apart from the row menu's state. */
-  const [panelMenu, setPanelMenu] = useState<{ x: number; y: number } | null>(null)
+  const [panelMenu, setPanelMenu] = useState<{ x: number; y: number; at: EventTarget } | null>(null)
   /**
    * What the HOST can do (#106). On the phone nothing writes, nothing
    * reaches the OS clipboard, nothing drags out and there is no Explorer, so
@@ -129,7 +129,7 @@ function ArchiveInner({
   const [opening, setOpening] = useState<string | null>(null)
   /** The member overlay, so Escape can tell whether a DEEPER one is inside it. */
   const memberBox = useRef<HTMLDivElement>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; multi?: string[] } | null>(
+  const [menu, setMenu] = useState<{ x: number; y: number; at: EventTarget; entry: Entry; multi?: string[] } | null>(
     null
   )
   const [editing, setEditing] = useState<string | null>(null)
@@ -735,7 +735,7 @@ function ArchiveInner({
             onContextMenu={(e) => {
               if ((e.target as HTMLElement | null)?.closest('[data-arc-row]')) return
               e.preventDefault()
-              setPanelMenu({ x: e.clientX, y: e.clientY })
+              setPanelMenu({ x: e.clientX, y: e.clientY, at: e.currentTarget })
             }}
             className={`relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-[var(--p-side-flat)] ${
               dropTarget === cwd
@@ -828,7 +828,7 @@ function ArchiveInner({
                                 ? [...sel.items]
                                 : undefined
                             if (!multi) setSel({ anchor: r.path, items: new Set([r.path]) })
-                            setMenu({ x: e.clientX, y: e.clientY, entry: r, multi })
+                            setMenu({ x: e.clientX, y: e.clientY, at: e.currentTarget, entry: r, multi })
                           }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
@@ -988,6 +988,7 @@ function ArchiveInner({
         <ContextMenu
           x={panelMenu.x}
           y={panelMenu.y}
+          at={panelMenu.at}
           onClose={() => setPanelMenu(null)}
           items={archivePanelMenu({
             archivePath: file.path,
@@ -1006,6 +1007,7 @@ function ArchiveInner({
         <ContextMenu
           x={menu.x}
           y={menu.y}
+          at={menu.at}
           items={archiveRowMenu({
             entry: menu.entry,
             multi: menu.multi,

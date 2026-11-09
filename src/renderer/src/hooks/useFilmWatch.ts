@@ -1,6 +1,7 @@
 import { useEffect, type RefObject } from 'react'
 import { blackCheck, pictureCheck } from '../lib/liveRoute'
 import { filmLine } from '../lib/filmDiag'
+import { ownDocument } from '../lib/ownWindow'
 
 const TICK_MS = 500
 
@@ -68,7 +69,7 @@ export function useFilmWatch(
     let lastT = -1
     const stop = (): void => window.clearInterval(timer)
     const timer = window.setInterval(() => {
-      if (document.hidden || !el.checkVisibility({ visibilityProperty: true })) return
+      if (ownDocument(el).hidden || !el.checkVisibility({ visibilityProperty: true })) return
       watched += TICK_MS
       const width = forcedNoPicture ? 0 : el.videoWidth
       const ms = Math.round(performance.now() - t0)

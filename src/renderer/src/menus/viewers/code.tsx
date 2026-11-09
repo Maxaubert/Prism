@@ -26,6 +26,11 @@ export interface CodeMenuContext {
   /** Following the file as it grows. */
   following: boolean
   pasteHere: () => void
+  /** Cut or Copy the selection, in the EDITOR'S own document (the preview
+   *  window's for an editor drawn there, owner 2026-11-08): this page's
+   *  `document.execCommand` would act on the Explorer's selection instead.
+   *  Left out, this page's document. */
+  clip?: (verb: 'cut' | 'copy') => void
   selectAll: () => void
   findHere: () => void
   gotoHere: () => void
@@ -45,6 +50,7 @@ export interface CodeMenuContext {
 export function codeMenu(ctx: CodeMenuContext): MenuItem[] {
   const { path, hasSel, wraps, setWrapPref, ready, dirty, tailed, following } = ctx
   const { selectAll, findHere, gotoHere } = ctx
+  const clip = ctx.clip ?? ((verb: 'cut' | 'copy'): void => void document.execCommand(verb))
   // Copy path joins the clipboard verbs and Show in File Explorer closes the
   // menu (owner, 2026-10-12).
   const copyPath = fileVerbs(path).filter((item) => item.label === 'Copy path')
@@ -53,7 +59,7 @@ export function codeMenu(ctx: CodeMenuContext): MenuItem[] {
   // the document or the file, and it can do neither.
   if (ctx.readOnly)
     return [
-      { label: 'Copy', disabled: !hasSel, onPick: () => void document.execCommand('copy') },
+      { label: 'Copy', disabled: !hasSel, onPick: () => clip('copy') },
       ...copyPath,
       { label: 'Select all', onPick: selectAll },
       { label: 'Find', hint: 'Ctrl+F', onPick: findHere },
@@ -70,8 +76,8 @@ export function codeMenu(ctx: CodeMenuContext): MenuItem[] {
     // keys nobody has ever needed a menu to teach them. Find and Save keep
     // theirs, because those are the habits worth having in a viewer that
     // happens to be editable.
-    { label: 'Cut', disabled: !hasSel, onPick: () => void document.execCommand('cut') },
-    { label: 'Copy', disabled: !hasSel, onPick: () => void document.execCommand('copy') },
+    { label: 'Cut', disabled: !hasSel, onPick: () => clip('cut') },
+    { label: 'Copy', disabled: !hasSel, onPick: () => clip('copy') },
     { label: 'Paste', onPick: ctx.pasteHere },
     ...copyPath,
     { label: 'Select all', onPick: selectAll },

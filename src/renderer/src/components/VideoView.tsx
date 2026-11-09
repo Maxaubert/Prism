@@ -25,6 +25,7 @@ import { attachLive } from '../lib/liveHls'
 import { isPlatformCodec, rescueLive } from '../lib/liveRoute'
 import { useFilmWatch } from '../hooks/useFilmWatch'
 import { useFilmAutostart } from '../hooks/useFilmAutostart'
+import { listenOn, ownDocument, useViewerWindows } from '../lib/ownWindow'
 
 /** What a track is called in the picker: its own name if it has one, then the
  *  language, then what it actually is - "English - AC-3 5.1". A file that says
@@ -137,6 +138,8 @@ export function VideoView({
   attach?: (el: HTMLMediaElement) => () => void
 }): JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
+  // The film's own window too: the preview window draws it in another (`lib/ownWindow.ts`).
+  const wins = useViewerWindows(video)
   // A file Chromium cannot open at all is converted first, and what plays is
   // the copy. Everything downstream (subtitles, waveform, the audio decoder)
   // then deals with an ordinary mp4. A picture THIS PC cannot decode (an
@@ -212,6 +215,7 @@ export function VideoView({
     y: number
     hasFrame: boolean
     el: HTMLVideoElement | null
+    at: EventTarget
   } | null>(null)
   // Reset on the way IN to a new file rather than in an effect: a ratio forced
   // on one video means nothing for the next, and the same shape the sidebar
@@ -267,7 +271,7 @@ export function VideoView({
       // Reaching for the scrubber and pausing your hand should not make the
       // thing you are reaching for disappear. Asked of the DOM, so it cannot
       // be a flag that failed to clear.
-      if (document.querySelector('[data-transport]:hover')) return
+      if (ownDocument(el).querySelector('[data-transport]:hover')) return
       setChromeOn(false)
     }, 250)
     return () => window.clearInterval(t)
@@ -389,15 +393,17 @@ export function VideoView({
   useEffect(() => {
     if (background) return
     const wake = (): void => showChrome()
-    window.addEventListener('pointermove', wake, { capture: true, passive: true })
-    window.addEventListener('keydown', wake, true)
+    const unMove = listenOn(wins, 'pointermove', wake, { capture: true, passive: true })
+    const unKey = listenOn(wins, 'keydown', wake, true)
+    // own-window-ok: fullscreen is the Explorer page's alone (the preview window has none)
     document.addEventListener('fullscreenchange', wake)
     return () => {
-      window.removeEventListener('pointermove', wake, true)
-      window.removeEventListener('keydown', wake, true)
+      unMove()
+      unKey()
+      // own-window-ok: the fullscreen listener above
       document.removeEventListener('fullscreenchange', wake)
     }
-  }, [showChrome, background])
+  }, [showChrome, background, wins])
 
   /** The right-click menu; the rows and the reasons are in menus/viewers/video. */
   const menuItems = (hasFrame: boolean, el: HTMLVideoElement | null): MenuItem[] =>
@@ -541,7 +547,8 @@ export function VideoView({
           x: e.clientX,
           y: e.clientY,
           hasFrame: videoHasFrame(video.current),
-          el: video.current
+          el: video.current,
+          at: e.currentTarget
         })
       }}
       // The wheel over the picture is the volume, VLC's oldest habit, and the
@@ -707,6 +714,7 @@ export function VideoView({
         <ContextMenu
           x={menu.x}
           y={menu.y}
+          at={menu.at}
           items={menuItems(menu.hasFrame, menu.el)}
           onClose={() => setMenu(null)}
         />

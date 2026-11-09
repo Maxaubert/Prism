@@ -30,6 +30,7 @@ import { fileDragProps } from '../lib/drag/fileDrag'
 import { imageStillLoading } from '../lib/imageLoading'
 import { isHugeImage, readyImage, type ReadyImage } from '../lib/imageReady'
 import { ownResizeObserver } from '../lib/ownResizeObserver'
+import { listenOn, ownWindow, useViewerWindows } from '../lib/ownWindow'
 
 // Pictures past 40 MP are decoded off-thread to a display-sized bitmap and
 // shown on a canvas: the reasons and the numbers are in lib/imageReady.
@@ -86,7 +87,10 @@ export function ImageView({
   infoCard?: boolean
 }): JSX.Element {
   const stageRef = useRef<HTMLDivElement>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  // Its own window and the Explorer's: the preview window draws it in another
+  // (`lib/ownWindow.ts`).
+  const wins = useViewerWindows(stageRef)
+  const [menu, setMenu] = useState<{ x: number; y: number; at: EventTarget } | null>(null)
   // Pinned while the pointer is on the bar, or while the right-click menu is
   // open - an invisible menu would keep eating clicks and the first Escape.
   const { shown: chromeShown, leaving: chromeLeaving } = useAutoHideChrome(
@@ -391,6 +395,9 @@ export function ImageView({
     // Read once: the zoom cannot change mid-drag, and the picture may only
     // travel until its edge reaches the middle of the stage.
     const b = src && fitScale ? panBounds(src, stage, shownScale, rot) : null
+    // The picture's own window: in the preview window a drag never reaches
+    // this page's.
+    const w = ownWindow(e.currentTarget)
     const move = (ev: globalThis.MouseEvent): void => {
       const nx = orig.tx + (ev.clientX - orig.x)
       const ny = orig.ty + (ev.clientY - orig.y)
@@ -400,11 +407,11 @@ export function ImageView({
     }
     const up = (): void => {
       setPanning(false)
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', up)
+      w.removeEventListener('mousemove', move)
+      w.removeEventListener('mouseup', up)
     }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
+    w.addEventListener('mousemove', move)
+    w.addEventListener('mouseup', up)
   }
 
 
@@ -438,13 +445,13 @@ export function ImageView({
       if (stopsSlideshow(e.key)) setSlideshow(false)
     }
     const onPointer = (): void => setSlideshow(false)
-    window.addEventListener('keydown', onKey, true)
-    window.addEventListener('pointerdown', onPointer, true)
+    const unKey = listenOn(wins, 'keydown', onKey, true)
+    const unPointer = listenOn(wins, 'pointerdown', onPointer, true)
     return () => {
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('pointerdown', onPointer, true)
+      unKey()
+      unPointer()
     }
-  }, [slideshow])
+  }, [slideshow, wins])
 
   const saveCopy = useCallback(
     async (format: CopyFormat): Promise<void> => {
@@ -515,9 +522,9 @@ export function ImageView({
         case 'C':
           if (
             e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey &&
-            (el === document.body || (el !== null && stageRef.current?.contains(el))) &&
+            (el === el?.ownerDocument?.body || (el !== null && stageRef.current?.contains(el))) &&
             !el?.closest('[role="menu"],[role="dialog"],.cm-editor') &&
-            !window.getSelection()?.toString()
+            !ownWindow(el).getSelection()?.toString()
           ) {
             e.preventDefault()
             void copyImage()
@@ -525,11 +532,10 @@ export function ImageView({
           break
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return listenOn(wins, 'keydown', onKey)
     // oneToOne closes over the measured scale, which changes with the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoomCentered, reset, onToggleFullscreen, fitScale, rotFit, copyImage, infoPath, togglePhotoInfo])
+  }, [zoomCentered, reset, onToggleFullscreen, fitScale, rotFit, copyImage, infoPath, togglePhotoInfo, wins])
 
   const cursor = zoom > 1 ? (panning ? 'grabbing' : 'grab') : 'default'
 
@@ -556,11 +562,11 @@ export function ImageView({
       onWheel={onWheel}
       onContextMenu={(e) => {
         e.preventDefault()
-        setMenu({ x: e.clientX, y: e.clientY })
+        setMenu({ x: e.clientX, y: e.clientY, at: e.currentTarget })
       }}
       className="group relative flex h-full w-full items-center justify-center overflow-hidden"
     >
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} at={menu.at} items={menuItems()} onClose={() => setMenu(null)} />}
       {/* A multi-page TIFF shows its first page and used to say nothing about
           the rest. ffmpeg cannot reach page 2, so this is honest about what
           it is: a note, not a picker. Scans and faxes arrive this way. */}

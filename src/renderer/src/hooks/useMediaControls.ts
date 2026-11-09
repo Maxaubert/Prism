@@ -7,6 +7,7 @@ import { forgetPlayer, reportPlaying } from '../lib/awake'
 import { readStored } from '../lib/storage'
 import { isFormField } from '../lib/focusGuards'
 import { isFullscreenKey } from '../lib/fullscreenKey'
+import { listenOn, useViewerWindows } from '../lib/ownWindow'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
 // binds the media element's events + the keyboard. Video and audio use the same
@@ -126,6 +127,9 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     forceMute = false,
     fps = null
   } = opts
+  // The player's own window as well as this page's: in the preview window
+  // its keys arrive there (`lib/ownWindow.ts`, 2026-11-08).
+  const wins = useViewerWindows(ref)
   // Resume-position bookkeeping. This hook is remounted per file (the viewer is
   // keyed by path), so these refs start fresh for each media element.
   const resumedRef = useRef(false)
@@ -317,9 +321,8 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
           if (/^[0-9]$/.test(e.key)) seekTo((Number(e.key) / 10) * (ref.current?.duration ?? 0))
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [togglePlay, seekBy, bumpVol, toggleMute, stepRate, seekTo, stepFrame, onFullscreen, onActivity, ref, keys, arrowsAreVolume])
+    return listenOn(wins, 'keydown', onKey)
+  }, [togglePlay, seekBy, bumpVol, toggleMute, stepRate, seekTo, stepFrame, onFullscreen, onActivity, ref, keys, wins, arrowsAreVolume])
 
   const bind: MediaBindings = {
     onPlay: () => {
