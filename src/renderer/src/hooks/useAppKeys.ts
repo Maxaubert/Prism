@@ -1,6 +1,7 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react'
 import type { ViewerFile } from '@shared/types'
-import { isTypingTarget } from '../lib/focusGuards'
+import { EDITOR, OVERLAY, isTypingTarget } from '../lib/focusGuards'
+import { menuOrDialogUp } from '../lib/pageDocuments'
 import { isExplorerTab, type Tab } from '../lib/tabs/tabs'
 import { copyFilePaths } from '../lib/fileClipboard'
 import { CARD_CHORDS } from '../components/browse/archiveCardNav'
@@ -179,6 +180,35 @@ export function useAppKeys({
           if (key === 'v' && viewerDirectory) void pasteFiles(viewerDirectory)
           else if (file) void copyFilePaths([file.path], key === 'x')
           return
+        }
+        // CTRL+V NEEDS NO ROW (owner, 2026-11-09: "to get it to work then i have
+        // to click into the directory"): it says where, and the tab in front
+        // knows that. The list and the preview answer for themselves, above and
+        // in FolderBrowser; this is the rest of the window, the page and the
+        // chrome, with no field or question in the way. A zip takes no paste.
+        if (
+          active &&
+          isExplorerTab(active) &&
+          e.ctrlKey &&
+          !e.shiftKey &&
+          !e.altKey &&
+          !e.metaKey &&
+          e.key.toLowerCase() === 'v' &&
+          !typing &&
+          !el?.closest(`.browse-list,[data-workspace-viewer],[data-doc-scroller],${EDITOR},${OVERLAY}`) &&
+          !menuOrDialogUp()
+        ) {
+          const into = browsing.folder
+            ? browsing.listing?.archive
+              ? undefined
+              : active.browse.path
+            : viewerDirectory
+          if (into) {
+            e.preventDefault()
+            e.stopPropagation()
+            void pasteFiles(into)
+            return
+          }
         }
         if (explorerFileFocus && file && !e.ctrlKey && !e.altKey && !e.metaKey) {
           const entry = { path: file.path, name: file.name, isFolder: false, file }

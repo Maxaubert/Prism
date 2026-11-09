@@ -1524,6 +1524,183 @@ async function deleteZipScenario(fixtures) {
   }
 }
 
+/**
+ * Cut or copy, go to another tab, paste, and again (owner, 2026-11-09: "the
+ * first time it works, but the second time it does not ... i have to click
+ * into the directory"). No press in the destination's rows, in any round.
+ */
+async function pasteTabsScenario(fixtures) {
+  console.log('paste into another tab, every round, no click in its folder')
+  const dir = join(fixtures, 'pastetabs')
+  const dst = join(dir, 'dst')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dst, { recursive: true })
+  const names = ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.txt', 'f.txt', 'g.txt', 'h.txt', 'i.txt', 'j.txt']
+  for (const n of names) writeFileSync(join(dir, n), n)
+  const { app, win } = await launch(join(dir, 'h.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const tabs = '[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]'
+  const has = (p) => () => existsSync(p)
+  const where = () =>
+    win.evaluate(() => {
+      const a = document.activeElement
+      const role = a?.getAttribute('role')
+      return `${a?.tagName ?? 'none'}${role ? `[${role}]` : ''}${a?.closest('.browse-list') ? ' in the list' : ''}`
+    })
+  const inList = () => win.evaluate(() => !!document.activeElement?.closest('.browse-list'))
+  const front = async (i) => {
+    await win.locator(tabs).nth(i).click()
+    await until(async () => (await win.locator(tabs).nth(i).getAttribute('aria-selected')) === 'true', 3000)
+    await sleep(500)
+  }
+  const pick = async (name) => {
+    await front(0)
+    await listRow(win, name).locator('.browse-name-text').click()
+    await sleep(300)
+  }
+  try {
+    await toList(win, 45000)
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
+    await sleep(700)
+    await listRow(win, 'dst').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in new tab")').click()
+    await until(async () => (await win.locator(tabs).count()) === 2, 5000)
+    ok((await win.locator(tabs).last().getAttribute('title')) === dst, 'the second tab holds the destination')
+
+    // The rounds. Each one: press a row in the first tab, the chord, the second
+    // tab's label, Ctrl+V. A click in the destination is what this may not need.
+    let round = 0
+    for (const [verb, name] of [['x', 'a.txt'], ['x', 'b.txt'], ['x', 'c.txt'], ['c', 'd.txt'], ['c', 'e.txt'], ['x', 'f.txt']]) {
+      round += 1
+      await pick(name)
+      await win.keyboard.press(`Control+${verb}`)
+      await sleep(350)
+      await front(1)
+      const at = await where()
+      await win.keyboard.press('Control+v')
+      ok(await until(has(join(dst, name)), 5000), `round ${round}: Ctrl+${verb.toUpperCase()}, tab, Ctrl+V lands ${name} (focus was ${at})`)
+      if (verb === 'x') ok(await until(() => !existsSync(join(dir, name)), 5000), `and ${name} left where it was`)
+      await sleep(500)
+    }
+
+    // The paste landed; the clipboard still holds a copy: the same again.
+    await pick('g.txt')
+    await win.keyboard.press('Control+c')
+    await sleep(350)
+    await front(1)
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g.txt')), 5000), 'a copy lands')
+    await sleep(800)
+    const after = await where()
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (2).txt')), 5000), `and Ctrl+V straight after it lands another (focus was ${after})`)
+
+    // By the tab already in front: a press on it changes nothing, and is no
+    // reason to lose the keys.
+    await sleep(500)
+    await win.locator(tabs).nth(1).click()
+    await sleep(300)
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (3).txt')), 5000), 'a press on the tab already in front keeps Ctrl+V')
+
+    // By the keyboard, and the other list keys after a tab switch.
+    await sleep(500)
+    // The strip's every tab: a pinned one is on the way round as well.
+    const shown = () => win.locator('[role="tablist"] [role="tab"][aria-selected="true"]').getAttribute('title')
+    await win.keyboard.press('Control+Tab')
+    await sleep(500)
+    ok((await shown()) !== dst, 'Ctrl+Tab goes to another tab')
+    for (let i = 0; i < 4 && (await shown()) !== dst; i += 1) {
+      await win.keyboard.press('Control+Tab')
+      await sleep(500)
+    }
+    ok((await shown()) === dst, 'and comes back to the destination')
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (4).txt')), 5000), `Ctrl+V lands after Ctrl+Tab (focus ${await where()})`)
+    await sleep(500)
+    await front(0)
+    await front(1)
+    ok(await until(inList, 2000), `after a switch by the mouse the keyboard is in the list (${await where()})`)
+    const row = '[data-testid="browse-list"] .browse-row[data-browse-path]'
+    const second = await win.locator(row).nth(1).getAttribute('data-browse-path')
+    await win.keyboard.press('Home')
+    await sleep(200)
+    await win.keyboard.press('ArrowDown')
+    ok(
+      await until(() => win.evaluate((p) => document.activeElement?.getAttribute('data-browse-path') === p, second), 3000),
+      'and the arrows walk its rows, no click'
+    )
+    // The focus fallen to the page, and a file in full view with the focus on
+    // its tab: Ctrl+V still knows where.
+    await win.evaluate(() => document.activeElement?.blur())
+    await sleep(200)
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (5).txt')), 5000), `with the focus on the page Ctrl+V lands too (${await where()})`)
+    await sleep(800)
+    // A press on the toolbar gives the keyboard up on purpose, and leaves the
+    // focus on that button: the folder is still the one on show.
+    await win.locator('[aria-label="Preview pane"]').click()
+    await sleep(300)
+    const onBar = await where()
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (6).txt')), 5000), `and with the focus on a toolbar button (${onBar})`)
+    await win.locator('[aria-label="Preview pane"]').click()
+    await sleep(800)
+    await listRow(win, 'g.txt').locator('.browse-name-text').dblclick()
+    await win.waitForSelector('.browse-viewer-toolbar', { timeout: 8000 })
+    await sleep(500)
+    await win.locator(tabs).nth(1).click()
+    await sleep(300)
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (7).txt')), 5000), 'and with a file in full view, after a press on its tab')
+    await sleep(500)
+    await toList(win)
+    await sleep(600)
+    await front(0)
+    await front(1)
+    await win.keyboard.press('Home')
+    await sleep(200)
+    await win.keyboard.press('F2')
+    ok(await until(async () => (await win.locator('[role="dialog"] input[aria-label="New name"]').count()) === 1, 3000), 'and F2 asks for a name')
+    const before = treeOf(dir).join('|')
+
+    // Never while typing, never under a question, never into a tab not on show.
+    await win.keyboard.press('Control+v')
+    await sleep(900)
+    ok(treeOf(dir).join('|') === before, 'Ctrl+V in the rename field is the field\'s')
+    await win.keyboard.press('Escape')
+    await sleep(300)
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await sleep(300)
+    await win.keyboard.press('Control+v')
+    await sleep(900)
+    ok(treeOf(dir).join('|') === before, 'Ctrl+V in the address field is the field\'s')
+    await win.keyboard.press('Escape')
+    await sleep(300)
+    await win.locator(row).first().click({ position: { x: 30, y: 10 } })
+    await sleep(200)
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await win.keyboard.press('Control+v')
+    await sleep(900)
+    ok(treeOf(dir).join('|') === before, 'Ctrl+V under a question pastes nothing')
+    await win.keyboard.press('Escape')
+    await sleep(300)
+    await win.click('[aria-label="Settings"]')
+    await sleep(500)
+    await win.locator(`${tabs}:has-text("Settings")`).click()
+    await sleep(300)
+    await win.keyboard.press('Control+v')
+    await sleep(900)
+    ok(treeOf(dir).join('|') === before, 'Ctrl+V with Settings in front pastes into no hidden folder')
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 /** Delete, then Delete again: the key must still reach the list. */
 async function deleteAgainScenario(fixtures) {
   console.log('delete twice')
@@ -24097,6 +24274,7 @@ await run(comicIconScenario)
 await run(deleteAgainScenario)
 await run(deleteFastScenario)
 await run(deleteZipScenario)
+await run(pasteTabsScenario)
 await run(arrowKeysScenario)
 await run(chromeHideScenario)
 await run(zoomFloorScenario)
