@@ -22,6 +22,7 @@ import { clipWriter, ownClip } from '../clipCopy'
 import type { PasteSource } from '../ownClipboard'
 import { copyLine, pasteLine, writeOp } from '../opLog'
 import { insideDesktop } from '../desktopAccess'
+import { E2E } from '../appState'
 import { container } from '../archiveBrowse'
 import { holders } from '../holders'
 import { documentImages } from '../docImages'
@@ -273,8 +274,14 @@ export function registerShellIpc(ctx: MainCtx): void {
   ipcMain.on(CALL.fileShowInExplorer, (_e, p: string) => {
     if (insideDesktop(p)) shell.showItemInFolder(p)
   })
+  // NOTHING IS EVER STARTED UNDER --e2e (#494): this is the route that can run
+  // a program, so a test run records what it would have opened and stops.
+  const e2eOpenedFiles: string[] = []
+  if (E2E) Object.assign(globalThis, { __e2eOpenedFiles: e2eOpenedFiles })
   ipcMain.on(CALL.fileOpenDefault, (_e, p: string) => {
-    if (insideDesktop(p)) void shell.openPath(p)
+    if (!insideDesktop(p)) return
+    if (E2E) e2eOpenedFiles.push(p)
+    else void shell.openPath(p)
   })
   // The Windows "how do you want to open this?" chooser, which also reaches
   // the store apps the submenu can't launch.
