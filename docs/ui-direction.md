@@ -5,6 +5,18 @@ The look and its rules (themes, colour picker, panels, toolbar), moved verbatim 
 
 ## UI direction
 
+- **THE EXPLORER'S ZOOM STEPS AND TILES** (owner, 2026-11-09: "ctrl scroll to adjust the size of the list view
+  and go to a grid view where i see thumbnails", "smooth, like Explorer"; `docs/features.md`, CTRL+SCROLL ZOOMS THE
+  EXPLORER). Ten steps, one saved choice: 0 to 2 are Small, Medium and Large, 3 and 4 are 56px and 76px rows
+  whose icon slot is a picture box (40px and 60px) so the move to pictures is gradual, 5 to 9 are tiles of 96,
+  128, 168, 216 and 272px. A tile is quiet: a square picture box on the list's own ground, the whole picture
+  (never cropped) over `.p-checker` only where it has alpha, the name under it in two lines at 11.5 to 13px,
+  left-aligned fixed cells 4px apart. No frame, shadow or caption bar at rest; the pick and the hover are the
+  rows' own tint, a folder under a drag gets a 2px accent ring, a file still copying is faded with a 4px fill
+  bar across its picture box. A file with no picture shows its kind icon at 40% of the box, and a failed one
+  the same icon with no error mark: the media is the star, and chrome that apologises is noise. The header band
+  keeps its height and packs the four sort buttons left. Checked by eye in `grid-big.png`, `grid-sweep.png`,
+  `grid-landing.png` and `grid-drag-ring.png` (the e2e's screenshots).
 - **THE LOADING BAR** (owner, 2026-11-09: "it shoudl show a loading bar", `docs/features.md`, A JOB OVER A
   SECOND HOLDS ITS LIST): quiet chrome, nothing new. The list stands still under a wash of its own panel colour
   (`--p-side-flat` at 62%) and one panel in `--p-raised`, a hairline `--p-divider`, `--p-radius`: the line in

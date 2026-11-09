@@ -448,8 +448,10 @@ draws, so a tile matches what opens.
   URL so the copy it cached for a day is not shown either. `/api/thumb` answers `image/webp` for one.
 - **The tile draws `.p-checker`** (the viewer's class, its theme's pair) behind a thumbnail that keeps alpha,
   once it has arrived (`phone/thumbClass.ts`); until then the tile keeps its plain ground.
-- **Where thumbnails show**: only the phone's grid. The PC's preview pane and viewer already draw the
-  picture itself over `.p-checker` (`ImageView.tsx`); the Explorer has no picture tiles.
+- **Where thumbnails show**: the phone's grid, and (since the zoom grid, 2026-11-09 to 11-10) the Explorer's
+  list rows at zoom steps 3 and 4 and its tiles at steps 5 to 9, from the desktop engine (`thumbsEndpoint.ts`,
+  its own tiers, 320 and 640 wide). The phone's own path and bytes are unchanged (`gridPhone` e2e). The PC's
+  preview pane and viewer still draw the picture itself over `.p-checker` (`ImageView.tsx`).
 - **Held by** `thumbAlpha.test.ts`, `thumbs.test.ts` (the key, the WebP argv and its height cap, `isThumbFile`),
   `server.test.ts` (`/api/thumb`'s type), `api.test.ts` (`a=1`), `thumbClass.test.ts`, and e2e `phone` (a
   PNG with black under its clear corners: the thumbnail's corner is alpha 0 and the tile's corner, read
@@ -2037,7 +2039,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   `docs/superpowers/specs/2026-11-09-explorer-zoom-grid.md`). ONE saved step for every folder
   (`lib/explorerZoom.ts`, `prism.explorer.zoom`, seeded from `prism.explorer.size` when never
   set). Steps 0 to 2 are Small, Medium, Large; 3 and 4 are 56px and 76px rows with a bigger
-  icon (pictures come later; `ZOOM_MAX_AVAILABLE` stays 4 until the grid exists). Ctrl+wheel up
+  icon and a 40px and a 60px picture box (Stage 3); steps 5 to 9 are the grid, below. Ctrl+wheel up
   is bigger: a mouse notch is a step, a pinch about three (`lib/zoomWheel.ts`); Ctrl+Plus,
   Ctrl+Minus and Ctrl+0 (Medium) do the same while the list has focus. The row under the pointer
   stays under it, the list's own move included (`lib/zoomAnchor.ts`, measured after render:
@@ -2135,6 +2137,21 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   `cellsInBox.test.ts`, `landingGrid.test.ts`, `zoomMenu.test.ts` and the `gridSweep`, `gridDrag`,
   `gridRename`, `gridMenus`, `gridHold` and `gridPhone` e2e (the phone's thumbnail is byte for byte the same
   with the Explorer at step 9).
+  **THE 10,000-FILE FOLDER** (zoom grid Stage 7, 2026-11-10; spec 7 and 9). The `gridBig` e2e makes a folder of
+  10,000 files itself (9,000 tiny PNGs, each with its own bytes so no two share a cache key, and a text file at
+  every tenth name), enters it, goes to the grid and scrolls from the top to the bottom, back and down again in
+  three seconds a pass (a screenful or more a frame). Held, with each number printed next to its limit: the first
+  rows paint in under 5 s (98 ms measured); no frame where the page works 100 ms or more and no gap between
+  frames over 300 ms; about 60 tiles mounted whatever the distance (limit 500, equal on all three passes); the
+  fast scroll makes no thumbnail ask (at most 3); no more than 3 ffmpegs at once (the engine's peak, and a
+  process count when one can be seen); the pictures of the last screen all arrive within 15 s of stopping
+  (about half a second measured); the page's and main's heap do not climb by 40 MB over two more passes; the
+  cache folder is scanned once for the whole run, not once per tile (`Thumbs.stats().scans`, held in
+  `thumbs.engine.test.ts` too); a second tab closed while its screen is being made stops every ffmpeg within
+  1.5 s, starts no more, and leaves no process. The numbers are of the owner's PC (a fast one): a slow machine
+  will show how far over a limit it lands in the printed line. Not tested: a spinning disk, a network share, a
+  folder of real photographs (the PNGs are 4x3 pixels, so decode time is ~nil and ffmpeg's start is what the run
+  measures).
   **THE PLACES PANEL IS THE THEMES MOCKUP'S** (#296; owner, 2026-10-06: "i really like the
   sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
   use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its
