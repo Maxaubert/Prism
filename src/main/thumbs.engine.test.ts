@@ -14,7 +14,7 @@ interface Call {
   opts: { timeout?: number; signal?: AbortSignal }
 }
 const calls: Call[] = []
-let script: (call: Call) => { fail?: boolean; stderr?: string; killed?: boolean } = () => ({})
+let script: (call: Call) => { fail?: boolean; stderr?: string; killed?: boolean; wait?: Promise<void> } = () => ({})
 let write = (out: string): void => writeFileSync(out, Buffer.from('thumb-bytes'))
 
 vi.mock('./spawnWorker', () => ({
@@ -27,11 +27,13 @@ vi.mock('./spawnWorker', () => ({
     const call = { args, opts }
     calls.push(call)
     const r = script(call)
-    queueMicrotask(() => {
+    const answer = (): void => {
       if (r.fail) return cb(Object.assign(new Error('ffmpeg failed'), { killed: !!r.killed }), '', r.stderr ?? '')
       write(args[args.length - 1])
       cb(null, '', r.stderr ?? '')
-    })
+    }
+    if (r.wait) void r.wait.then(answer)
+    else queueMicrotask(answer)
     return { kill: () => undefined }
   }
 }))
@@ -57,6 +59,37 @@ beforeEach(() => {
 })
 
 describe('Thumbs for the desktop', () => {
+  it('a run the holders killed for a move says nothing about the file: it is tried again', async () => {
+    let kill = true
+    const t = new Thumbs('ffmpeg', cache, (c) => {
+      if (kill) c.kill()
+    })
+    const f = source('moved.jpg')
+    script = () => ({ fail: true, killed: true })
+    expect(await t.makeFor(f, 'image', 320)).toBeNull()
+    kill = false
+    script = () => ({})
+    expect(await t.makeFor(f, 'image', 320)).not.toBeNull()
+  })
+
+  it('a phone sharing a desktop job that is cancelled still gets its picture', async () => {
+    const t = make()
+    const f = source('shared.jpg')
+    const gate: { open?: () => void } = {}
+    const wait = new Promise<void>((r) => (gate.open = r))
+    script = (c) => (c.opts.signal ? { fail: true, wait } : {})
+    const ac = new AbortController()
+    const desktop = t.makeFor(f, 'image', 320, ac.signal)
+    while (calls.length === 0) await new Promise((r) => setImmediate(r))
+    const phone = t.get(f, 'image')
+    await new Promise((r) => setImmediate(r))
+    ac.abort()
+    gate.open?.()
+    expect(await desktop).toBeNull()
+    expect(await phone).not.toBeNull()
+    expect(calls).toHaveLength(2)
+  })
+
   it('makes a still at the asked tier and answers a second ask from the cache with no new ffmpeg', async () => {
     const t = make()
     const f = source('a.jpg')

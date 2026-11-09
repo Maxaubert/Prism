@@ -13,6 +13,18 @@ import {
 // The 640 tier and the desktop's way of making a frame (Stage 2 of the zoom
 // grid, 2026-11-09). thumbs.test.ts holds the phone's own rules, unchanged.
 
+describe('what the desktop may share with the phone (review of the zoom grid)', () => {
+  it('a photo is one picture: the same 320 key both ways', () => {
+    expect(thumbKey('C:\\a\\p.jpg', 10, 20, 320, true)).toBe(thumbKey('C:\\a\\p.jpg', 10, 20, 320, false))
+  })
+  it('a HEIC and a camera raw are not: the desktop decodes them its own way, so the keys differ', () => {
+    for (const name of ['p.heic', 'p.HEIF', 'p.cr2', 'p.nef', 'p.dng']) {
+      const path = `C:\\a\\${name}`
+      expect(thumbKey(path, 10, 20, 320, true)).not.toBe(thumbKey(path, 10, 20, 320, false))
+    }
+  })
+})
+
 describe('the phone is untouched', () => {
   it('a 320 key and a 320 argv are what they always were', () => {
     expect(thumbKey('C:\\a.jpg', 10, 5, 320)).toBe(thumbKey('C:\\a.jpg', 10, 5))
