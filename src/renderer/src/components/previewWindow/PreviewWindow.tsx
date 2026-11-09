@@ -87,7 +87,12 @@ export function PreviewWindow({
         if (window.prism.e2eClipboard) Object.assign(window, { __prismPreviewWindow: win })
         setHost({ win, root })
       })
-      .catch(() => close.current())
+      .catch((err) => {
+        // Said, not swallowed (2026-11-09): a throw here shuts the window with
+        // nothing in the log to say why.
+        logNote(`The preview window could not open: ${String(err)}`, { op: 'preview-window' })
+        close.current()
+      })
     return () => {
       gone = true
       // Already fading out if App closed it first; this is the end of it.

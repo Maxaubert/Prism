@@ -1595,7 +1595,8 @@ const previewWindows = createPreviewWindows<BrowserWindow>({
 if (E2E)
   Object.assign(globalThis, {
     __e2ePreviewWindows: () => previewWindows.e2e(),
-    __e2ePreviewFades: () => previewWindows.e2eFades()
+    __e2ePreviewFades: () => previewWindows.e2eFades(),
+    __e2ePreviewOpens: () => previewWindows.e2eOpens()
   })
 /** The preview window's IPC: from a Prism page (never the spare), about its
  *  own window only. */

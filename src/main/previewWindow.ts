@@ -148,6 +148,8 @@ export interface PreviewWindows<W extends PreviewWin> {
   /** For the e2e: every fade since the start, the closed windows' too, as
    *  where it went and in how many frames. */
   e2eFades(): Array<{ to: number; frames: number }>
+  /** For the e2e: how many windows have been made since the start. */
+  e2eOpens(): number
 }
 
 export function createPreviewWindows<W extends PreviewWin>(
@@ -159,6 +161,7 @@ export function createPreviewWindows<W extends PreviewWin>(
   const open = new Map<W, Entry<W>>()
   const fades = new WeakMap<W, number[][]>()
   const past: Array<{ to: number; frames: number }> = []
+  let opens = 0
   const log = (event: string, fields: Record<string, string | number | boolean>): void =>
     deps.log?.(event, fields)
 
@@ -242,6 +245,7 @@ export function createPreviewWindows<W extends PreviewWin>(
       if (!previewToken(frameName)) return
       const entry: Entry<W> = { child, fade: null, closing: false, opacity: 0 }
       open.set(owner, entry)
+      opens += 1
       setOpacity(entry, 0)
       log('preview-window', { ev: 'open', owner: owner.id })
       child.once('closed', () => {
@@ -288,6 +292,7 @@ export function createPreviewWindows<W extends PreviewWin>(
         fades: fades.get(e.child) ?? []
       }))
     },
-    e2eFades: () => [...past]
+    e2eFades: () => [...past],
+    e2eOpens: () => opens
   }
 }
