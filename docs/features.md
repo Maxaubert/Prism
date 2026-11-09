@@ -822,6 +822,22 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
   right-click and the late drop.
 - Attaching into ANOTHER window's strip, and closing a window emptied that way: step 4, the next entry.
 
+## A document has the same colours in the pane, the window and the full view (owner, 2026-11-09, #493)
+
+**THE PREVIEW WINDOW IS A STANDARDS PAGE** (owner, 2026-11-09: "excel docs look differnt in preview at
+least window preview rather then if you open them. for exampel the amu report in downlodas has black
+letters normally but in the preview the text is white"). `window.open('', name)` makes a blank page with
+no doctype, and a page with no doctype is in quirks mode, where a `<table>` takes its colour from the
+root and not from what holds it. So in the window every table cell wore the theme's text (white on
+the white paper in a dark theme) while everything outside a table stayed the paper's dark ink, in a
+workbook, a Word document, an ebook and a markdown table alike. `PreviewWindow.tsx`'s `dress()` now writes a
+doctype into the blank page before anything goes in it; a colour rule per table would have left the
+rest of quirks mode (fonts, line heights, box sizes) still different from the pane. A real dark fill keeps
+its light text, and the paper's ink never comes from the theme. PDF text layers are transparent and
+were the same before and after. Held by the `sheetColours` e2e: a hand-written workbook, read in the
+pane, the window and the full view in all 18 themes, the window's `compatMode`, and a Word document, a
+book, a markdown table and a PDF compared across the three.
+
 ## A file's path in the address field (owner, 2026-11-09)
 
 The owner: "cant open this path directly in prism". A path that names a file opens the file, in

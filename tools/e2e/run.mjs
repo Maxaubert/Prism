@@ -20861,6 +20861,7 @@ async function sheetColoursScenario(fixtures) {
   const startStyle = await win.evaluate(() => localStorage.getItem('prism.style'))
   const startGround = await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg'))
   const groundNow = () => win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg'))
+  const storedStyle = () => win.evaluate(() => localStorage.getItem('prism.style'))
   const setStyle = (id) =>
     win.evaluate((v) => {
       if (v === null) localStorage.removeItem('prism.style')
@@ -20906,6 +20907,19 @@ async function sheetColoursScenario(fixtures) {
     await row(name).click({ position: { x: 30, y: box.height / 2 } })
     await sleep(250)
   }
+  /** Back to the theme it began on, and staying there: the readings below
+   *  compare one surface with another, so they need the same theme. Forcing
+   *  18 themes in a second can leave a later write of the old one behind. */
+  const putBack = () =>
+    until(
+      async () => {
+        if ((await storedStyle()) === startStyle && (await groundNow()) === startGround) return true
+        await setStyle(startStyle)
+        return false
+      },
+      4000,
+      200
+    )
   /** Every shipped theme, the sheet's colours read in each. */
   const everyTheme = async (where) => {
     const wrong = []
@@ -20919,9 +20933,8 @@ async function sheetColoursScenario(fixtures) {
     }
     ok(wrong.length === 0, `${where}: the sheet's ink and light text in all ${THEME_ORDER.length} themes (${wrong.slice(0, 6).join('; ') || 'all right'})`)
     ok(grounds.size > 4, `${where}: the themes really changed (${grounds.size} grounds)`)
-    // Back to where it began, landed, before the next reading compares it.
-    await setStyle(startStyle)
-    ok(await until(async () => (await groundNow()) === startGround, 3000, 50), `${where}: the theme is put back`)
+    await putBack()
+    ok((await groundNow()) === startGround, `${where}: the theme is put back`)
   }
   const OTHERS = [
     { file: 'letter.docx', keys: ['word cell', 'word paragraph'] },
@@ -20978,6 +20991,7 @@ async function sheetColoursScenario(fixtures) {
     if (looked) await looked.screenshot({ path: join(SHOTS, 'sheet-colours-window.png') }).catch(() => {})
     await shutWindow()
     for (const { file, keys } of OTHERS) {
+      await putBack()
       await openWindow(file, keys[0])
       const got = await read('window')
       for (const k of keys) ok(got[k] === inPane[file][k], `${file}: "${k}" in the window is the pane's (${got[k]} and ${inPane[file][k]})`)
@@ -20995,6 +21009,7 @@ async function sheetColoursScenario(fixtures) {
     for (const { file, keys } of OTHERS) {
       await viewFile(win, file)
       ok(await until(() => drawn('full', keys[0]), 15000), `${file} is drawn in the full view`)
+      await putBack()
       const got = await read('full')
       for (const k of keys) ok(got[k] === inPane[file][k], `${file}: "${k}" in the full view is the pane's (${got[k]} and ${inPane[file][k]})`)
     }
