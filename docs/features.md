@@ -2032,6 +2032,18 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
   its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
   ALONE: the tree keeps Font size. `explorerSize` e2e.
+  **CTRL+SCROLL ZOOMS THE EXPLORER** (owner, 2026-11-09: "ctrl scroll to adjust the size of the
+  list view", "smooth, like Explorer", "one size everywhere"; spec
+  `docs/superpowers/specs/2026-11-09-explorer-zoom-grid.md`). ONE saved step for every folder
+  (`lib/explorerZoom.ts`, `prism.explorer.zoom`, seeded from `prism.explorer.size` when never
+  set). Steps 0 to 2 are Small, Medium, Large; 3 and 4 are 56px and 76px rows with a bigger
+  icon (pictures come later; `ZOOM_MAX_AVAILABLE` stays 4 until the grid exists). Ctrl+wheel up
+  is bigger: a mouse notch is a step, a pinch about three (`lib/zoomWheel.ts`); Ctrl+Plus,
+  Ctrl+Minus and Ctrl+0 (Medium) do the same while the list has focus. The row under the pointer
+  stays under it, the list's own move included (`lib/zoomAnchor.ts`, measured after render:
+  Large's header band is 4px taller than Medium's). Quick access and the header keep Large from
+  step 2 up. The Settings row writes steps 0 to 2 and lights none above, saying "Set by zooming
+  the list" (the copy rule bans key names). `zoomList` e2e.
   **THE PLACES PANEL IS THE THEMES MOCKUP'S** (#296; owner, 2026-10-06: "i really like the
   sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
   use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its

@@ -27,7 +27,19 @@ import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
 import { FolderGlyph } from '../icons/FolderGlyph'
 import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
 import { OverlayScrollbar } from './OverlayScrollbar'
-import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
+import { explorerHeadVars } from '../../lib/explorerSize'
+import {
+  ZOOM_MAX_AVAILABLE,
+  atStep,
+  explorerZoom,
+  headSizeOf,
+  setExplorerZoom,
+  useExplorerZoom,
+  zoomIn,
+  zoomOut
+} from '../../lib/explorerZoom'
+import { anchorAt, anchorScroll, type Anchor } from '../../lib/zoomAnchor'
+import { createZoomWheel } from '../../lib/zoomWheel'
 import { bandBox, nearestRow, rowsInBox } from '../../lib/marquee'
 import { useSweep } from '../../hooks/useSweep'
 import { BrowseIcon } from '../icons/BrowseIcon'
@@ -175,8 +187,12 @@ export function BrowseList(props: Props): JSX.Element {
   const searching = !!props.query.trim()
   // The row is Settings > Style > Explorer size: Medium is the tree's own row
   // (#257), Large the Explorer's old one, Small a step under Medium.
-  const sizeId = useExplorerSize()
-  const look = explorerRow(sizeId)
+  // Ctrl+wheel moves the zoom step (2026-11-09); steps 0 to 2 are those
+  // sizes, 3 and up the roomier rows. The header and the size-specific CSS
+  // keep Large's from step 2 up.
+  const zoomStep = useExplorerZoom()
+  const look = atStep(zoomStep)
+  const sizeId = headSizeOf(zoomStep)
   // Folder icons (2026-10-31): one read for the list; with none set a row
   // does no lookup at all, and file rows never do.
   const folderIcons = useFolderIcons()
@@ -457,6 +473,71 @@ export function BrowseList(props: Props): JSX.Element {
   useLayoutEffect(() => {
     if (indexed) onSearchRange?.(Math.floor(logicalTop / rowHeight))
   }, [indexed, logicalTop, onSearchRange, rowHeight])
+  /**
+   * ZOOM (2026-11-09). Ctrl+wheel, a pinch and Ctrl+Plus/Minus/0 change the
+   * step; the row under the pointer stays under it (zoomAnchor.ts). The item
+   * and where the pointer is in it are noted BEFORE the step changes, and the
+   * layout effect below scrolls to put it back before anything paints.
+   */
+  const zoomPending = useRef<(Anchor & { pointerY: number; boxTop: number }) | null>(null)
+  const zoomTo = useRef<(next: number, pointerY: number | null) => void>(() => {})
+  useLayoutEffect(() => {
+    zoomTo.current = (next, pointerY) => {
+      const node = scroller.current
+      const g = geometry.current
+      if (!node || next === explorerZoom()) return
+      if (g.count > 0) {
+        const box = node.getBoundingClientRect()
+        let y = pointerY
+        let anchor: Anchor | null = null
+        if (y === null) {
+          // From the keyboard: the focused row stays put, else the first one in view.
+          const at = document.activeElement?.closest<HTMLElement>('[data-browse-index]')
+          const top = at && node.contains(at) ? at.getBoundingClientRect().top - box.top : -1
+          if (at && top >= 0 && top < node.clientHeight) {
+            y = top
+            anchor = { index: Number(at.dataset.browseIndex), within: 0 }
+          } else y = 0
+        }
+        anchor ??= anchorAt({ top: logicalTopAt(node.scrollTop), pointerY: y, cellH: g.rowHeight, count: g.count })
+        zoomPending.current = { ...anchor, pointerY: y, boxTop: box.top }
+      }
+      setExplorerZoom(next)
+    }
+  })
+  useLayoutEffect(() => {
+    const pending = zoomPending.current
+    zoomPending.current = null
+    const node = scroller.current
+    if (!pending || !node) return
+    // Logical coordinates, then back through the compression, as the keys do.
+    // The list itself can move: Large's header band is taller than Medium's
+    // (MEASURED, 4px), so the pointer is that much nearer the list's top.
+    const pointerY = pending.pointerY - (node.getBoundingClientRect().top - pending.boxTop)
+    const target = anchorScroll({ ...pending, pointerY, cellH: rowHeight, count, viewH: node.clientHeight })
+    node.scrollTop = target / scale
+    handUp(node.scrollTop)
+    // Only when the row height changed: that is the zoom having landed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowHeight])
+  useLayoutEffect(() => {
+    const node = scroller.current
+    if (!node) return
+    const wheel = createZoomWheel()
+    const onZoomWheel = (event: WheelEvent): void => {
+      if (!event.ctrlKey) return
+      // Chromium's own page zoom never fires over the list.
+      event.preventDefault()
+      const step = explorerZoom()
+      const steps = wheel.feed(event, performance.now(), {
+        zoomIn: step < ZOOM_MAX_AVAILABLE,
+        zoomOut: step > 0
+      })
+      if (steps) zoomTo.current(steps > 0 ? zoomIn(step) : zoomOut(step), event.clientY - node.getBoundingClientRect().top)
+    }
+    node.addEventListener('wheel', onZoomWheel, { passive: false })
+    return () => node.removeEventListener('wheel', onZoomWheel)
+  }, [])
   useLayoutEffect(() => {
     const top = Math.floor(logicalTop / rowHeight)
     const visibleCount = Math.ceil(height / rowHeight) + 1
@@ -645,6 +726,20 @@ export function BrowseList(props: Props): JSX.Element {
     return true
   }
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    // Ctrl+Plus, Ctrl+Minus and Ctrl+0 are the wheel's keys (nothing else in
+    // the Explorer binds them; the app menu is gone). Only while the list or
+    // one of its rows has the keyboard, never a field inside it.
+    if (e.ctrlKey && !e.altKey && !e.metaKey) {
+      const change = e.key === '+' || e.key === '=' ? 1 : e.key === '-' || e.key === '_' ? -1 : e.key === '0' ? 0 : null
+      const at = e.target as HTMLElement
+      if (change !== null && (at === e.currentTarget || (at.matches('.browse-row') && !at.isContentEditable))) {
+        e.preventDefault()
+        e.stopPropagation()
+        const step = explorerZoom()
+        zoomTo.current(change === 0 ? 1 : change > 0 ? zoomIn(step) : zoomOut(step), null)
+        return
+      }
+    }
     const common = listKey(e)
     if (common) {
       // Escape is a nearer closer's first (a peek, the PDF's find bar, a
