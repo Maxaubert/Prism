@@ -231,7 +231,9 @@ export async function moveEntries(
       out.cancelled = true
       break
     }
-    tick?.(i, usable.length)
+    // One item has no count to say, and an undo moves one at a time: its
+    // "0 of 1" overwrote the step's own count and pinned the bar at 0%.
+    if (usable.length > 1) tick?.(i, usable.length)
     const name = basename(p)
     let target = join(destDir, name)
     try {

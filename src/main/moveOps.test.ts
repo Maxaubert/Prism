@@ -18,6 +18,19 @@ beforeEach(() => {
   trash.mockClear()
 })
 
+describe('moveEntries says its count (the loading bar)', () => {
+  it('says nothing for one item: undo moves one at a time and counts them itself', async () => {
+    const tick = vi.fn()
+    await moveEntries([join(root, 'a.txt')], join(root, 'dest'), 'ask', trash, { tick })
+    expect(tick).not.toHaveBeenCalled()
+  })
+  it('counts a batch', async () => {
+    const tick = vi.fn()
+    await moveEntries([join(root, 'a.txt'), join(root, 'b.txt')], join(root, 'dest'), 'ask', trash, { tick })
+    expect(tick.mock.calls).toEqual([[0, 2], [1, 2]])
+  })
+})
+
 describe('insideSelf', () => {
   it('catches a folder being moved into itself or its own subtree', () => {
     expect(insideSelf('C:\\a', 'C:\\a')).toBe(true)
