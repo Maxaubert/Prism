@@ -18,6 +18,8 @@ export const userPaths = {
   windowCrashes: (): string => under('window-crashes.log'),
   logs: (): string => under('logs'),
   hls: (): string => under('phone', 'hls'),
+  /** The desktop's live transcodes (liveVideo.ts), wiped at startup. */
+  live: (): string => under('live'),
   phoneLog: (): string => under('phone', 'phone.log'),
   thumbs: (): string => under('thumbs'),
   /** Converted copies and synthesised MIDI wavs. */

@@ -40,6 +40,26 @@ export function previewWindowKey(
   return e.repeat ? 'held' : 'close'
 }
 
+/**
+ * UP AND DOWN IN THE WINDOW (owner, 2026-11-08, #492: "up down arrows
+ * shoudl nvigate next file not adjust volume"), with the keyboard in the window:
+ * 1 is the next file, -1 the one before. The App's own key listener is on the
+ * Explorer's window, so a key pressed in this one never reaches it. A chord, a
+ * menu up here and a field are not the walk's; the film's own range sliders are
+ * (`slider`), or a focused volume would step instead.
+ */
+export function previewWindowStep(
+  e: PreviewKeyEvent,
+  target: PreviewKeyTarget,
+  menuUp: boolean,
+  slider: boolean
+): 1 | -1 | null {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return null
+  if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || menuUp) return null
+  if (target !== null && !(target === 'field' && slider)) return null
+  return e.key === 'ArrowDown' ? 1 : -1
+}
+
 /** A target that types: a field or a list box, or editable text (the code
  *  view's editor is contenteditable). */
 export function keyTarget(target: EventTarget | null): PreviewKeyTarget {

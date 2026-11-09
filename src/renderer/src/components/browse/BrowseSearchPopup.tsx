@@ -83,7 +83,12 @@ export function BrowseSearchPopup(props: {
       data-search-popup
       className="browse-search-scrim"
       role="presentation"
-      onMouseDown={() => close.current()}
+      onMouseDown={(e) => {
+        // Modal's scrim says why: the default of this press would take the
+        // focus back off whatever closing just gave it to.
+        e.preventDefault()
+        close.current()
+      }}
     >
       <div
         role="dialog"

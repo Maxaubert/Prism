@@ -108,6 +108,11 @@ const isFileOnDisk = (p) => {
 
 async function launchTestApp(options) {
   const app = await electron.launch(options)
+  // Nothing a test plays reaches the owner's headset (owner, 2026-11-09).
+  if (options?.args?.includes('--e2e') && !(await app.evaluate(({ app: a }) => a.commandLine.hasSwitch('mute-audio')))) {
+    await app.close().catch(() => {})
+    throw new Error('the e2e app is not muted (--mute-audio): a test would be heard')
+  }
   // Teardown must release the private engine before closing the debugging
   // connection. Kill fallback is restricted to this test process tree.
   app.close = async () => {
@@ -1431,6 +1436,271 @@ async function comicIconScenario(fixtures) {
   }
 }
 
+/**
+ * Delete, Enter, Delete at speed (review, 2026-11-09). The keyboard comes back
+ * the moment the question closes, while the file is still on its way to the
+ * bin and its row is still there: the second Delete must not ask about a file
+ * that is already going, and answering must not end in "could not be moved".
+ */
+async function deleteFastScenario(fixtures) {
+  console.log('delete, enter, delete at speed')
+  const dir = join(fixtures, 'delfast')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['a.txt', 'b.txt', 'c.txt', 'd.txt']) writeFileSync(join(dir, n), n)
+  const { app, win } = await launch(join(dir, 'a.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const row = '[data-testid="browse-list"] .browse-row[data-browse-path]'
+  const asked = () => win.locator('[role="dialog"]').textContent({ timeout: 300 }).catch(() => '')
+  try {
+    await toList(win, 45000)
+    await win.waitForSelector(row, { timeout: 45000 })
+    await sleep(700)
+    await win.locator(row).nth(1).click()
+    await sleep(400)
+    const name = (await win.locator(row).nth(1).getAttribute('data-browse-path')).split('\\').pop()
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await win.keyboard.press('Enter')
+    await win.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 })
+    await win.keyboard.press('Delete')
+    await sleep(120)
+    const text = await asked()
+    ok(!text.includes(name), `a second Delete does not ask about ${name}, already on its way (${text.slice(0, 70)})`)
+    if (await win.locator('[role="dialog"] button:has-text("Delete")').count()) {
+      await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    }
+    await sleep(2200)
+    const after = await asked()
+    ok(!/could not be moved/i.test(after), `and nothing ends in a failure (${after.slice(0, 70)})`)
+    ok(!existsSync(join(dir, name)), `and ${name} is in the bin`)
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** Inside a zip too: Delete, the row goes, the next row takes over, Delete again. */
+async function deleteZipScenario(fixtures) {
+  console.log('delete twice inside a zip')
+  const dir = join(fixtures, 'delzip')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const AdmZip = (await import('adm-zip')).default
+  const pack = new AdmZip()
+  for (const n of ['a.txt', 'b.txt', 'c.txt', 'd.txt']) pack.addFile(n, Buffer.from(n))
+  pack.writeZip(join(dir, 'pack.zip'))
+  const { app, win } = await launch(join(dir, 'pack.zip'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const rows = () => win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').count()
+  const confirm = async () => {
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+  }
+  try {
+    await inZip(win, join(dir, 'pack.zip'))
+    await sleep(600)
+    const before = await rows()
+    ok(before === 4, `the zip lists its four members (${before})`)
+    await listRow(win, 'b.txt').click({ position: { x: 30, y: 10 } })
+    await sleep(300)
+    await win.keyboard.press('Delete')
+    await confirm()
+    ok(await until(async () => (await rows()) === 3, 5000), 'the member goes')
+    await sleep(300)
+    await win.keyboard.press('Delete')
+    ok(
+      await until(async () => (await win.locator('[role="dialog"]').count()) === 1, 3000),
+      'Delete again asks again with no click between'
+    )
+    await confirm().catch(() => {})
+    ok(await until(async () => (await rows()) === 2, 5000), 'and the second Delete takes a member too')
+    ok(new AdmZip(join(dir, 'pack.zip')).getEntries().length === 2, 'and the zip really lost two')
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Cut or copy, go to another tab, paste, and again (owner, 2026-11-09: "the
+ * first time it works, but the second time it does not ... i have to click
+ * into the directory"). No press in the destination's rows, in any round.
+ */
+async function pasteTabsScenario(fixtures) {
+  console.log('paste into another tab, every round, no click in its folder')
+  const dir = join(fixtures, 'pastetabs')
+  const dst = join(dir, 'dst')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dst, { recursive: true })
+  const names = ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.txt', 'f.txt', 'g.txt', 'h.txt', 'i.txt', 'j.txt']
+  for (const n of names) writeFileSync(join(dir, n), n)
+  const { app, win } = await launch(join(dir, 'h.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const tabs = '[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]'
+  const has = (p) => () => existsSync(p)
+  const where = () =>
+    win.evaluate(() => {
+      const a = document.activeElement
+      const role = a?.getAttribute('role')
+      return `${a?.tagName ?? 'none'}${role ? `[${role}]` : ''}${a?.closest('.browse-list') ? ' in the list' : ''}`
+    })
+  const inList = () => win.evaluate(() => !!document.activeElement?.closest('.browse-list'))
+  const front = async (i) => {
+    await win.locator(tabs).nth(i).click()
+    await until(async () => (await win.locator(tabs).nth(i).getAttribute('aria-selected')) === 'true', 3000)
+    await sleep(500)
+  }
+  const pick = async (name) => {
+    await front(0)
+    await listRow(win, name).locator('.browse-name-text').click()
+    await sleep(300)
+  }
+  try {
+    await toList(win, 45000)
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
+    await sleep(700)
+    await listRow(win, 'dst').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in new tab")').click()
+    await until(async () => (await win.locator(tabs).count()) === 2, 5000)
+    ok((await win.locator(tabs).last().getAttribute('title')) === dst, 'the second tab holds the destination')
+
+    // The rounds. Each one: press a row in the first tab, the chord, the second
+    // tab's label, Ctrl+V. A click in the destination is what this may not need.
+    let round = 0
+    for (const [verb, name] of [['x', 'a.txt'], ['x', 'b.txt'], ['x', 'c.txt'], ['c', 'd.txt'], ['c', 'e.txt'], ['x', 'f.txt']]) {
+      round += 1
+      await pick(name)
+      await win.keyboard.press(`Control+${verb}`)
+      await sleep(350)
+      await front(1)
+      const at = await where()
+      await win.keyboard.press('Control+v')
+      ok(await until(has(join(dst, name)), 5000), `round ${round}: Ctrl+${verb.toUpperCase()}, tab, Ctrl+V lands ${name} (focus was ${at})`)
+      if (verb === 'x') ok(await until(() => !existsSync(join(dir, name)), 5000), `and ${name} left where it was`)
+      await sleep(500)
+    }
+
+    // The paste landed; the clipboard still holds a copy: the same again.
+    await pick('g.txt')
+    await win.keyboard.press('Control+c')
+    await sleep(350)
+    await front(1)
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g.txt')), 5000), 'a copy lands')
+    await sleep(800)
+    const after = await where()
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (2).txt')), 5000), `and Ctrl+V straight after it lands another (focus was ${after})`)
+
+    // By the tab already in front: a press on it changes nothing, and is no
+    // reason to lose the keys.
+    await sleep(500)
+    await win.locator(tabs).nth(1).click()
+    await sleep(300)
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (3).txt')), 5000), 'a press on the tab already in front keeps Ctrl+V')
+
+    // By the keyboard, and the other list keys after a tab switch.
+    await sleep(500)
+    // The strip's every tab: a pinned one is on the way round as well.
+    const shown = () => win.locator('[role="tablist"] [role="tab"][aria-selected="true"]').getAttribute('title')
+    await win.keyboard.press('Control+Tab')
+    await sleep(500)
+    ok((await shown()) !== dst, 'Ctrl+Tab goes to another tab')
+    for (let i = 0; i < 4 && (await shown()) !== dst; i += 1) {
+      await win.keyboard.press('Control+Tab')
+      await sleep(500)
+    }
+    ok((await shown()) === dst, 'and comes back to the destination')
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (4).txt')), 5000), `Ctrl+V lands after Ctrl+Tab (focus ${await where()})`)
+    await sleep(500)
+    await front(0)
+    await front(1)
+    ok(await until(inList, 2000), `after a switch by the mouse the keyboard is in the list (${await where()})`)
+    const row = '[data-testid="browse-list"] .browse-row[data-browse-path]'
+    const second = await win.locator(row).nth(1).getAttribute('data-browse-path')
+    await win.keyboard.press('Home')
+    await sleep(200)
+    await win.keyboard.press('ArrowDown')
+    ok(
+      await until(() => win.evaluate((p) => document.activeElement?.getAttribute('data-browse-path') === p, second), 3000),
+      'and the arrows walk its rows, no click'
+    )
+    // The focus fallen to the page, and a file in full view with the focus on
+    // its tab: Ctrl+V still knows where.
+    await win.evaluate(() => document.activeElement?.blur())
+    await sleep(200)
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (5).txt')), 5000), `with the focus on the page Ctrl+V lands too (${await where()})`)
+    await sleep(800)
+    // A press on the toolbar gives the keyboard up on purpose, and leaves the
+    // focus on that button: the folder is still the one on show.
+    await win.locator('[aria-label="Preview pane"]').click()
+    await sleep(300)
+    const onBar = await where()
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (6).txt')), 5000), `and with the focus on a toolbar button (${onBar})`)
+    await win.locator('[aria-label="Preview pane"]').click()
+    await sleep(800)
+    await listRow(win, 'g.txt').locator('.browse-name-text').dblclick()
+    await win.waitForSelector('.browse-viewer-toolbar', { timeout: 8000 })
+    await sleep(500)
+    await win.locator(tabs).nth(1).click()
+    await sleep(300)
+    await win.keyboard.press('Control+v')
+    ok(await until(has(join(dst, 'g (7).txt')), 5000), 'and with a file in full view, after a press on its tab')
+    await sleep(500)
+    await toList(win)
+    await sleep(600)
+    await front(0)
+    await front(1)
+    await win.keyboard.press('Home')
+    await sleep(200)
+    await win.keyboard.press('F2')
+    ok(await until(async () => (await win.locator('[role="dialog"] input[aria-label="New name"]').count()) === 1, 3000), 'and F2 asks for a name')
+    const before = treeOf(dir).join('|')
+
+    // Never while typing, never under a question, never into a tab not on show.
+    await win.keyboard.press('Control+v')
+    await sleep(900)
+    ok(treeOf(dir).join('|') === before, 'Ctrl+V in the rename field is the field\'s')
+    await win.keyboard.press('Escape')
+    await sleep(300)
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await sleep(300)
+    await win.keyboard.press('Control+v')
+    await sleep(900)
+    ok(treeOf(dir).join('|') === before, 'Ctrl+V in the address field is the field\'s')
+    await win.keyboard.press('Escape')
+    await sleep(300)
+    await win.locator(row).first().click({ position: { x: 30, y: 10 } })
+    await sleep(200)
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await win.keyboard.press('Control+v')
+    await sleep(900)
+    ok(treeOf(dir).join('|') === before, 'Ctrl+V under a question pastes nothing')
+    await win.keyboard.press('Escape')
+    await sleep(300)
+    await win.click('[aria-label="Settings"]')
+    await sleep(500)
+    await win.locator(`${tabs}:has-text("Settings")`).click()
+    await sleep(300)
+    await win.keyboard.press('Control+v')
+    await sleep(900)
+    ok(treeOf(dir).join('|') === before, 'Ctrl+V with Settings in front pastes into no hidden folder')
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 /** Delete, then Delete again: the key must still reach the list. */
 async function deleteAgainScenario(fixtures) {
   console.log('delete twice')
@@ -1440,14 +1710,17 @@ async function deleteAgainScenario(fixtures) {
   const dir = join(fixtures, 'deltwice')
   mkdirSync(dir, { recursive: true })
   for (const n of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(join(dir, n), n)
+  for (const n of ['d.txt', 'e.txt']) writeFileSync(join(dir, n), n)
   const { app, win } = await launch(join(dir, 'a.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
   const rows = () => win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').count()
   try {
     await toList(win, 45000)
     await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
     await sleep(700)
     const before = await rows()
-    ok(before >= 3, `the folder has enough to delete twice (${before})`)
+    ok(before >= 5, `the folder has enough to delete twice (${before})`)
 
     // Click a row so it holds focus the way a user's first Delete does.
     await win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').nth(1).click()
@@ -1459,19 +1732,18 @@ async function deleteAgainScenario(fixtures) {
     await sleep(900)
     ok((await rows()) === before - 1, 'and the row goes')
 
-    // The row that was listening has gone and the focus falls to the window
-    // (the list's own Delete needs the focus inside it, MEASURED 2026-10-26),
-    // so the next row is picked with a click, as a user's would be, and the key
-    // must ask again.
-    await win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').nth(1).click()
-    await sleep(400)
+    // NO CLICK BETWEEN THE TWO (owner, 2026-11-09: "if i click delte agin
+    // nothign happens i ahve to click the next file manually"). The next row
+    // is selected already, and the keyboard is on it.
     await win.keyboard.press('Delete')
-    await sleep(500)
     ok(
-      (await win.locator('[role="dialog"]').count()) === 1,
-      'Delete again asks again, rather than doing nothing'
+      await until(async () => (await win.locator('[role="dialog"]').count()) === 1, 3000),
+      'Delete again asks again with no click between, rather than doing nothing'
     )
-    await win.locator('[role="dialog"] button:has-text("Cancel")').click()
+    if (await win.locator('[role="dialog"] button:has-text("Delete")').count()) {
+      await win.locator('[role="dialog"] button:has-text("Delete")').click()
+      ok(await until(async () => (await rows()) === before - 2, 5000), 'and that second Delete really takes a row')
+    } else ok(false, 'and that second Delete really takes a row (no question to answer)')
   } finally {
     await app.close()
     rmSync(dir, { recursive: true, force: true })
@@ -1525,16 +1797,14 @@ async function arrowKeysScenario(fixtures) {
     const back = await at()
     ok(back < fwd, `and Left seeks it back (${fwd} -> ${back})`)
 
-    // Up and Down are the player's while a film is in front (the volume, as
-    // every player has taught); the folder is paged from the list, and from
-    // a viewer that is not a player.
+    // Up and Down walk the folder with a film in front (#492; owner,
+    // 2026-11-08), and never the volume. `filmKeys` holds it every way.
     const before = await selected()
     const volume = () => win.evaluate(() => document.querySelector('video')?.volume ?? -1)
     const loud = await volume()
     await win.keyboard.press('ArrowDown')
-    await sleep(900)
-    ok((await selected()) === before, `Down does not page the folder under a film (${before} -> ${await selected()})`)
-    ok((await volume()) < loud, `it turns the volume down (${loud} -> ${await volume()})`)
+    ok(await until(async () => (await selected()) !== before, 8000), `Down pages the folder under a film (${before} -> ${await selected()})`)
+    ok((await volume()) === loud, `and the volume did not move (${loud} -> ${await volume()})`)
   } finally {
     await app.close()
   }
@@ -1871,6 +2141,8 @@ async function deleteLastScenario(fixtures) {
   console.log('delete the last file')
   const dir = join(fixtures, 'lastfile')
   const { app, win } = await launch(join(dir, 'only.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
   try {
     await toList(win, 45000)
     await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
@@ -1892,8 +2164,240 @@ async function deleteLastScenario(fixtures) {
       (await win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').count()) === 0,
       'with an empty list, which is the point: the folder is still the tab root'
     )
+    ok(
+      await until(() => win.evaluate(() => !!document.activeElement?.closest('.browse-list')), 3000),
+      'and the keyboard is still in the list, with no row left to sit on'
+    )
+    await win.keyboard.press('Delete')
+    await sleep(400)
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'where Delete has nothing to ask about')
+    ok(!win.isClosed(), 'and nothing fell over')
   } finally {
     await app.close()
+  }
+}
+
+/**
+ * A DELETE LEAVES THE KEYBOARD IN THE LIST (owner, 2026-11-09: "it deltes tehn
+ * selects the next file by dfeault which is good but if i click delte agin
+ * nothign happens"). Every way a delete ends, from the list: the question
+ * answered by Enter or the mouse, or cancelled, the last row, marks, the
+ * right-click menu, the preview pane open. It leaves the keyboard alone when
+ * the owner has gone somewhere else meanwhile (a field, another window).
+ * Told it has the focus, as the owner's window has; the e2e's never does.
+ */
+async function deleteFocusScenario(fixtures) {
+  console.log('after a delete the keyboard is back in the list')
+  const dir = join(fixtures, 'delfocus')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const names = Array.from({ length: 16 }, (_, i) => `f${String(i + 1).padStart(2, '0')}.txt`)
+  for (const n of names) writeFileSync(join(dir, n), `${n}\n`)
+  const { app, win } = await launch(join(dir, names[0]))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const there = (n) => existsSync(join(dir, n))
+  const dialogs = () => win.locator('[role="dialog"]').count()
+  const asks = () => until(async () => (await dialogs()) === 1, 4000)
+  const closed = () => until(async () => (await dialogs()) === 0, 4000)
+  const button = (label) => win.locator(`[role="dialog"] button:has-text("${label}")`)
+  const leaf = (p) => /[^\\]*$/.exec(p ?? '')?.[0] ?? ''
+  const where = () =>
+    win.evaluate(() => {
+      const a = document.activeElement
+      return {
+        tag: a?.tagName ?? '',
+        inList: !!a?.closest?.('.browse-list'),
+        row: a?.getAttribute?.('data-browse-path') ?? '',
+        selected: document.querySelector('.browse-row[data-browse-path][aria-selected="true"]')?.getAttribute('data-browse-path') ?? ''
+      }
+    })
+  const onRow = (name) =>
+    until(async () => {
+      const w = await where()
+      return leaf(w.row) === name && leaf(w.selected) === name
+    }, 4000)
+  const said = async () => JSON.stringify(await where())
+  const pick = async (name) => {
+    await listRow(win, name).click()
+    await sleep(300)
+  }
+  // Counts the row losing the focus to nothing. Being back on the row a moment
+  // later is not enough: a press outside dropped it every time, and only
+  // whatever React happened to render next could put it back.
+  const watchDrop = () =>
+    win.evaluate(() => {
+      window.__rowDropped = 0
+      if (window.__rowDropWatch) return
+      window.__rowDropWatch = true
+      window.addEventListener(
+        'focusout',
+        (e) => {
+          if (e.target.closest?.('.browse-list') && !e.relatedTarget) window.__rowDropped++
+        },
+        true
+      )
+    })
+  const dropped = () => win.evaluate(() => window.__rowDropped)
+  const pressOutside = async (what) => {
+    await watchDrop()
+    await win.mouse.click(4, 300)
+    await closed()
+    ok(await onRow('f03.txt'), `a press outside ${what} puts the keyboard back (${await said()})`)
+    ok((await dropped()) === 0, `and the press never took it off the row again (${await dropped()} drops)`)
+  }
+  try {
+    await toList(win, 45000)
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
+    await sleep(700)
+
+    // Enter answers the question.
+    await pick('f02.txt')
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks')
+    await win.keyboard.press('Enter')
+    ok(await until(() => !there('f02.txt'), 5000), 'Enter takes the file')
+    ok(await onRow('f03.txt'), `and the keyboard is on the next row, which is selected (${await said()})`)
+    await win.keyboard.press('ArrowDown')
+    ok(await onRow('f04.txt'), `the arrows work at once (${await said()})`)
+    await win.keyboard.press('ArrowUp')
+    ok(await onRow('f03.txt'), 'both ways')
+    await win.keyboard.press('F2')
+    ok(await asks(), 'F2 works at once too')
+    await win.keyboard.press('Escape')
+    await closed()
+    ok(await onRow('f03.txt'), `and leaving the rename puts the keyboard back (${await said()})`)
+
+    // Cancel, three ways: nothing goes and the keyboard comes back.
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks again')
+    await button('Cancel').click()
+    await closed()
+    ok(there('f03.txt'), 'Cancel keeps the file')
+    ok(await onRow('f03.txt'), `and the keyboard stays on its row (${await said()})`)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks after a Cancel with no click')
+    await win.keyboard.press('Escape')
+    await closed()
+    ok(await onRow('f03.txt'), `Escape on the question puts it back too (${await said()})`)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks after an Escape with no click')
+    await watchDrop()
+    await win.mouse.click(4, 300)
+    await closed()
+    ok(there('f03.txt'), 'a press outside the question keeps the file')
+    ok(await onRow('f03.txt'), `and puts the keyboard back (${await said()})`)
+    ok((await dropped()) === 0, `and the press never took it off the row again (${await dropped()} drops)`)
+
+    // The other things a press outside closes, each on the same road.
+    await win.keyboard.press('F2')
+    ok(await asks(), 'F2 asks after a press outside')
+    await pressOutside('the rename')
+    await listRow(win, 'f03.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.getByRole('menuitem', { name: /^Properties/ }).first().click()
+    ok(await asks(), 'Properties opens from the menu')
+    await pressOutside('Properties')
+    await win.keyboard.press('Control+f')
+    ok(await until(async () => (await win.locator('[data-search-popup]').count()) === 1, 5000), 'Ctrl+F opens the folder search')
+    await pressOutside('the folder search')
+
+    // The question answered by the mouse.
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks again')
+    await button('Delete').click()
+    ok(await until(() => !there('f03.txt'), 5000), 'the mouse takes the file')
+    ok(await onRow('f04.txt'), `the keyboard is on the next row (${await said()})`)
+
+    // The last row: the selection moves UP.
+    await win.keyboard.press('End')
+    ok(await onRow('f16.txt'), `End reaches the last row (${await said()})`)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete on the last row asks')
+    await win.keyboard.press('Enter')
+    ok(await until(() => !there('f16.txt'), 5000), 'the last row goes')
+    ok(await onRow('f15.txt'), `and the keyboard moves up with the selection (${await said()})`)
+
+    // Started from the right-click menu.
+    await listRow(win, 'f10.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.getByRole('menuitem', { name: /^Delete/ }).first().click()
+    ok(await asks(), 'the menu\'s Delete asks')
+    await button('Delete').click()
+    ok(await until(() => !there('f10.txt'), 5000), 'and takes the file')
+    ok(await onRow('f11.txt'), `a delete from the menu comes back to the list too (${await said()})`)
+
+    // Marks: several rows at once.
+    await pick('f05.txt')
+    await listRow(win, 'f06.txt').click({ modifiers: ['Control'] })
+    await sleep(300)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete on two marked rows asks once')
+    await win.keyboard.press('Enter')
+    ok(await until(() => !there('f05.txt') && !there('f06.txt'), 5000), 'and both go')
+    ok(await until(async () => (await where()).inList, 4000), `the keyboard is in the list after marks (${await said()})`)
+    ok(await onRow('f07.txt'), `on the row the selection moved to (${await said()})`)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'and Delete asks with no click')
+    await button('Cancel').click()
+    await closed()
+
+    // With the preview pane open.
+    await win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first().click()
+    await win.waitForSelector('[data-testid="folder-browser"][data-preview]', { timeout: 8000 })
+    await sleep(500)
+    await pick('f08.txt')
+    await sleep(600)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks with the preview open')
+    await win.keyboard.press('Enter')
+    ok(await until(() => !there('f08.txt'), 5000), 'the previewed file goes')
+    ok(await onRow('f09.txt'), `and the keyboard stays with the list, not the preview (${await said()})`)
+    await sleep(700)
+    ok(await onRow('f09.txt'), `still there once the next preview has come (${await said()})`)
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks with no click, the preview open')
+    await button('Cancel').click()
+    await closed()
+    await win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first().click()
+    await until(async () => !(await win.locator('[data-testid="folder-browser"][data-preview]').count()), 8000)
+    await sleep(400)
+
+    // The owner went to a field while the delete ran: the focus stays there.
+    await pick('f11.txt')
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks before the address bar')
+    await win.evaluate(() => {
+      const yes = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Delete')
+      yes.click()
+      // The same tick: the delete is still on its way when the field opens.
+      document.querySelector('[data-testid="browse-edit-path"]').click()
+    })
+    ok(await until(() => !there('f11.txt'), 5000), 'the file goes')
+    ok(
+      await until(async () => (await where()).tag === 'INPUT', 4000),
+      `the address bar has the keyboard (${await said()})`
+    )
+    await sleep(800)
+    ok((await where()).tag === 'INPUT', `and the finished delete does not take it (${await said()})`)
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
+    // The owner went to another window: the same (document.hasFocus is what
+    // says so, stubbed: the e2e's windows cannot really be left).
+    await pick('f12.txt')
+    await win.keyboard.press('Delete')
+    ok(await asks(), 'Delete asks before leaving the window')
+    await win.evaluate(() => {
+      document.hasFocus = () => false
+      ;[...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Delete').click()
+    })
+    ok(await until(() => !there('f12.txt'), 5000), 'the file goes with the window left')
+    await sleep(800)
+    ok(!(await where()).inList, `and nothing moved the focus back into the list (${await said()})`)
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -3493,14 +3997,13 @@ async function formatsScenario(fixtures) {
     // every track sitting at 0:00; see the note below). The click recorded the intent to play and the keyboard's own
     // landing did not, so the two hands disagreed about what a pick means.
     // Opened on a PICTURE so the arrows belong to the folder from the first
-    // press: a freshly opened track keeps them for its own volume.
+    // press.
     const { app, win } = await launch(join(fixtures, 'two.png'))
     try {
       await win.waitForSelector('.browse-viewer-toolbar', { timeout: 10000 })
       await sleep(600)
       // The fixtures sort ..., sample.pdf, song.mp3, two.png: one step up from
-      // the picture is the track. (From a video the arrows would be the
-      // volume's, which is why the walk does not start in av/.)
+      // the picture is the track.
       await win.keyboard.press('ArrowUp')
       await win.waitForSelector('audio', { state: 'attached', timeout: 15000 })
       // The old rule here (a track arrowed onto PLAYS, as a click on its tree row
@@ -3708,6 +4211,1505 @@ async function convertScenario(fixtures) {
   }
 }
 
+
+/**
+ * THE OWNER'S OWN iPHONE FILMS, when copies of them are on this PC
+ * (2026-11-08, "make prism support .mov"). Local only: `.e2e/owner-mov/` is
+ * untracked and filled by hand from copies, never committed, so on CI and on
+ * any other PC this scenario has nothing to open and says so. Each film must
+ * show a picture with time moving, whichever route it took.
+ */
+async function movOwnerScenario(fixtures) {
+  console.log('the owner’s own .mov films (local copies)')
+  const dir = join(ROOT, '.e2e', 'owner-mov')
+  let names = []
+  try {
+    names = readdirSync(dir).filter((n) => /\.mov$/i.test(n))
+  } catch {
+    /* none here */
+  }
+  if (!names.length) {
+    console.log('  (no copies in .e2e/owner-mov; skipped)')
+    return
+  }
+  // Each film twice: as this PC plays it, then down the live route a PC
+  // without HEVC takes (forced), so the owner's own turns, HLG, PCM and
+  // spatial-audio tracks are proven through the transcode too.
+  for (const [mode, name] of names.flatMap((n) => [['as is', n], ['live', n]])) {
+    // Each in a folder of its own: a sub-second Live Photo clip ends before
+    // it is looked at, and with autoplay on (an earlier scenario's setting)
+    // the player would already have moved on to the next film.
+    const own = join(fixtures, 'movowner', name.replace(/[^\w.-]/g, '_'))
+    mkdirSync(own, { recursive: true })
+    const file = join(own, name)
+    copyFileSync(join(dir, name), file)
+    const { app, win } = await launchWith(mode === 'live' ? { PRISM_E2E_FORCE_LIVE: '1' } : {}, file)
+    try {
+      await win.waitForSelector('video', { timeout: 10000 })
+      const caps = await win.evaluate(() => {
+        const v = document.createElement('video')
+        return {
+          main: v.canPlayType('video/mp4; codecs="hvc1.1.6.L120.90"'),
+          main10: v.canPlayType('video/mp4; codecs="hvc1.2.4.L120.90"'),
+          mseMain: MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L120.90"'),
+          mseMain10: MediaSource.isTypeSupported('video/mp4; codecs="hvc1.2.4.L120.90"')
+        }
+      })
+      const probe = await win.evaluate((p) => window.prism.probeMedia(p), file)
+      await win.evaluate(() => document.querySelector('video')?.play().catch(() => {}))
+      const settled = await until(
+        async () =>
+          win.evaluate(() => {
+            const v = document.querySelector('video')
+            return !!v && v.videoWidth > 0 && v.currentTime > 0.1
+          }),
+        20000
+      )
+      await sleep(600)
+      const st = await win.evaluate(() => {
+        const v = document.querySelector('video')
+        const q = v?.getVideoPlaybackQuality?.()
+        return {
+          src: decodeURIComponent(v?.currentSrc ?? '').slice(0, 90),
+          w: v?.videoWidth ?? 0,
+          h: v?.videoHeight ?? 0,
+          ready: v?.readyState ?? -1,
+          t: v?.currentTime ?? 0,
+          dur: v?.duration ?? 0,
+          frames: q?.totalVideoFrames ?? 0,
+          err: v?.error ? `${v.error.code} ${v.error.message}` : null,
+          notice: [...document.querySelectorAll('[role="status"]')].map((d) => d.textContent).join(' | ').slice(0, 160)
+        }
+      })
+      if (mode === 'as is') console.log(`  ${name}: canPlay ${JSON.stringify(caps)}`)
+      for (const l of await filmLines()) if (l.ev === 'first-frame' || l.ev === 'route') console.log(`  ${name}: log ${l.ev} ${JSON.stringify({ ms: l.ms, route: l.route, why: l.why, w: l.w, h: l.h })}`)
+      console.log(`  ${name}: probe ${JSON.stringify({ ...probe, tracks: probe.tracks?.length })}`)
+      console.log(`  ${name}: element ${JSON.stringify(st)}`)
+      await win.screenshot({ path: join(SHOTS, `mov-owner-${mode === 'live' ? 'live-' : ''}${name.replace(/[^\w.-]/g, '_')}.png`) })
+      ok(settled && st.w > 0 && st.frames > 0 && st.h > st.w, `${name} (${mode}): a portrait picture, with time moving (${st.w}x${st.h}, t=${st.t.toFixed(2)})`)
+      if (mode === 'live') ok(st.src.startsWith('blob:'), `${name}: through the live transcode`)
+    } finally {
+      await app.close()
+    }
+    await sleep(700)
+  }
+  await ownerWalk(fixtures)
+}
+
+/** One film as the player holds it now: the element, the bar and the picture.
+ *  `lit` is the mean brightness of the frame on a canvas (0 is black). */
+const filmNow = (win, sel = 'video') =>
+  win.evaluate((s) => {
+    const v = document.querySelector(s)
+    if (!v) return null
+    const q = v.getVideoPlaybackQuality?.()
+    let lit = -1
+    try {
+      const c = document.createElement('canvas')
+      c.width = 16
+      c.height = 16
+      const g = c.getContext('2d', { willReadFrequently: true })
+      g.drawImage(v, 0, 0, 16, 16)
+      const d = g.getImageData(0, 0, 16, 16).data
+      let sum = 0
+      for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2]
+      lit = Math.round(sum / (d.length / 4) / 3)
+    } catch {
+      /* no frame to read */
+    }
+    return {
+      route: (v.currentSrc || '').startsWith('blob:') ? 'live' : (v.currentSrc || '').startsWith('fsmedia:') ? 'direct' : 'none',
+      attr: (v.getAttribute('src') || '(none)').slice(0, 30),
+      w: v.videoWidth,
+      h: v.videoHeight,
+      ready: v.readyState,
+      net: v.networkState,
+      paused: v.paused,
+      t: Math.round(v.currentTime * 100) / 100,
+      dur: Math.round(v.duration * 100) / 100,
+      frames: q?.totalVideoFrames ?? 0,
+      dropped: q?.droppedVideoFrames ?? 0,
+      err: v.error ? `${v.error.code} ${v.error.message}` : null,
+      lit,
+      bar: (document.querySelector('[data-transport]')?.textContent ?? '').replace(/\s+/g, ' ').slice(0, 24),
+      notice: [...document.querySelectorAll('[role="status"]')].map((d) => d.textContent).join(' | ').slice(0, 90)
+    }
+  }, sel)
+
+/** The GPU's account of video decode: what the harness's window has. */
+const gpuNow = (app) =>
+  app.evaluate(({ app: a }) => ({
+    feature: { video_decode: a.getGPUFeatureStatus().video_decode, gpu_compositing: a.getGPUFeatureStatus().gpu_compositing },
+    hw: a.isHardwareAccelerationEnabled?.(),
+    switches: ['disable-gpu', 'disable-accelerated-video-decode', 'disable-direct-composition', 'disable-direct-composition-video-overlays', 'use-angle', 'use-gl'].filter((n) => a.commandLine.hasSwitch(n))
+  }))
+
+/** The player's and main's film lines in this scenario's log (lib/filmDiag,
+ *  liveVideo.ts `liveJobLine`). The page's flush is on a timer: wait for it. */
+async function filmLines() {
+  await sleep(2600)
+  try {
+    return readFileSync(join(DIAG_DIR, 'diag.jsonl'), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => {
+        try {
+          return JSON.parse(l)
+        } catch {
+          return null
+        }
+      })
+      .filter((l) => l?.k === 'op' && (l.op === 'film' || l.op === 'live-job'))
+  } catch {
+    return []
+  }
+}
+
+/** What the bar's total should read, for the element's length. */
+const barTotal = (d) => `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, '0')}`
+
+/**
+ * Walk films in ONE tab (owner, 2026-11-08: "i was able to see one .mov but
+ * the rest just shows a black screen and wont start another was black but
+ * had sound"): by the list, by the keys, back to one already seen, quick
+ * steps and slow, then press play. Every film must show its picture, the
+ * right way up, start, and have the bar say ITS length.
+ */
+async function walkFilms(win, walk, sel = 'video') {
+  for (const [name, how, gap] of walk) {
+    if (how === 'list') await viewFile(win, name)
+    else if (how === 'pane') {
+      await listRow(win, name).click({ position: { x: 30, y: 10 } })
+      await win.waitForFunction((n) => decodeURIComponent(document.querySelector('[data-browse-preview]')?.textContent ?? '').length >= 0 && !!n, name, { timeout: 8000 }).catch(() => {})
+    } else {
+      await win.keyboard.press(how === 'next' ? 'PageDown' : 'PageUp')
+      const stepped = await win
+        .waitForFunction((n) => (document.querySelector('.browse-viewer-toolbar .browse-file-crumb')?.textContent ?? '').includes(n), name, { timeout: 8000 })
+        .then(() => true)
+        .catch(() => false)
+      ok(stepped, `the keys step to ${name}`)
+    }
+    await sleep(gap)
+    const before = await filmNow(win, sel)
+    // Press play as a person does, on the picture. A pane's film is started
+    // the way the row's own play would; only a paused film is touched.
+    if (before?.paused) {
+      if (sel === 'video') await win.locator('video').first().click({ timeout: 3000 }).catch(() => {})
+      else await win.evaluate((s) => document.querySelector(s)?.play().catch(() => {}), sel)
+    }
+    const played = await until(async () => {
+      const f = await filmNow(win, sel)
+      return !!f && f.w > 0 && f.t > 0.15 && !f.paused
+    }, 12000)
+    const after = await filmNow(win, sel)
+    console.log(`  ${name} by ${how}, ${gap} ms: before ${JSON.stringify(before)}`)
+    console.log(`  ${name} playing ${JSON.stringify(after)}`)
+    ok(played && after.w > 0 && after.h > after.w, `${name} (${how}): the picture is up, the right way round, and starts (${after?.w}x${after?.h} t=${after?.t}, ${after?.route})`)
+    ok(after && after.lit > 3, `${name} (${how}): it is not black (lit ${after?.lit})`)
+    // The controls come up on a pause; the bar's total is then readable.
+    await win.evaluate((s) => document.querySelector(s)?.pause(), sel)
+    if (sel === 'video') {
+      await until(async () => ((await filmNow(win, sel))?.bar ?? '').length > 0, 3000)
+      const paused = await filmNow(win, sel)
+      ok(paused.bar.endsWith(barTotal(paused.dur)), `${name}: the bar says its length (${paused.bar}, ${paused.dur} s)`)
+    }
+  }
+}
+
+/** The owner's own films in one tab, in the owner's order. */
+async function ownerWalk(fixtures) {
+  const dir = join(ROOT, '.e2e', 'owner-mov')
+  const five = ['2021-09-07 18.25.19.mov', '2021-09-07 19.35.00.mov', '2021-09-07 19.35.23.mov', '2021-09-07 19.35.45.mov', '2021-10-01 08.28.34.mov']
+  if (!five.every((n) => existsSync(join(dir, n)))) {
+    console.log('  (the five copies for the walk are not in .e2e/owner-mov; skipped)')
+    return
+  }
+  const own = join(fixtures, 'movwalk')
+  rmSync(own, { recursive: true, force: true })
+  mkdirSync(own, { recursive: true })
+  for (const n of five) copyFileSync(join(dir, n), join(own, n))
+  const [a, b, c, d, e] = five
+  const ways = [
+    {
+      how: 'first film live, then direct films (the owner’s log)',
+      env: { PRISM_E2E_FORCE_LIVE: '19.35.00' },
+      walk: [[b, 'list', 5000], [a, 'list', 4000], [b, 'list', 3000], [c, 'list', 3000], [d, 'list', 800], [e, 'list', 4000], [b, 'list', 800], [a, 'list', 3000]]
+    },
+    { how: 'all direct, by the list', env: {}, walk: [[b, 'list', 4000], [a, 'list', 4000], [c, 'list', 800], [b, 'list', 3000]] },
+    {
+      how: 'by the keys, from a live film',
+      env: { PRISM_E2E_FORCE_LIVE: '18.25.19' },
+      walk: [[a, 'list', 3000], [b, 'next', 3000], [c, 'next', 500], [d, 'next', 3000], [e, 'next', 3000], [d, 'back', 3000]]
+    }
+  ]
+  for (const way of ways) {
+    console.log(`  -- ${way.how}`)
+    const { app, win } = await launchWith({ ...way.env, ...NO_INDEX }, own)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      console.log(`  gpu ${JSON.stringify(await gpuNow(app))}`)
+      await walkFilms(win, way.walk)
+      for (const l of await filmLines())
+        console.log(`  log ${l.op} ${l.ev} ${String(l.file ?? l.path ?? '').split(/[\\/]/).pop()} ${JSON.stringify({ ms: l.ms, route: l.route, why: l.why, ok: l.ok, encoder: l.encoder })}`)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+
+  // The preview pane: several films in the one pane, a live one first.
+  console.log('  -- in the preview pane')
+  {
+    const { app, win } = await launchWith({ PRISM_E2E_FORCE_LIVE: '19.35.00', ...NO_INDEX }, own)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await listRow(win, a).click({ position: { x: 30, y: 10 } })
+      await sleep(500)
+      const pane = '[data-browse-preview] video'
+      if (!(await win.locator(pane).count())) await win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first().click()
+      await win.waitForSelector(pane, { timeout: 10000 })
+      await walkFilms(win, [[b, 'pane', 2000], [c, 'pane', 2000], [b, 'pane', 800], [e, 'pane', 2000]], pane)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+
+  // A film that shows nothing and says nothing: the bounded wait hands it to
+  // the live route by itself, and the log says what happened.
+  console.log('  -- a film with no picture at all goes live')
+  {
+    const { app, win } = await launchWith({ PRISM_E2E_NO_PICTURE: '19.35.45', ...NO_INDEX }, own)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await viewFile(win, b)
+      await sleep(1200)
+      // The 5.7 s film: pressed play at once, and it must carry on playing
+      // live with no second press when the wait runs out at 4 s.
+      await viewFile(win, d)
+      await sleep(200)
+      if ((await filmNow(win))?.paused) await win.locator('video').first().click({ timeout: 3000 }).catch(() => {})
+      const went = await until(async () => {
+        const f = await filmNow(win)
+        return !!f && f.route === 'live' && f.w > 0 && !f.paused && f.t > 0.15
+      }, 25000)
+      const now = await filmNow(win)
+      ok(went && now.lit > 3, `no picture within the bound: the film took the live route, still playing, and shows (${JSON.stringify(now)})`)
+      const lines = await filmLines()
+      ok(lines.some((l) => l.ev === 'no-picture' && l.ok === false && String(l.path).includes('19.35.45')), 'and the log has its no-picture line')
+      ok(lines.some((l) => l.ev === 'to-live' && l.why === 'no-picture'), 'and the switch to live, with its reason')
+    } finally {
+      await app.close()
+    }
+  }
+}
+
+/** Copies of the portrait HEVC clip, in a folder of their own. */
+function filmFolder(fixtures, name, films, extra = {}) {
+  const dir = join(fixtures, name)
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of films) copyFileSync(join(fixtures, 'av', 'iphone-hevc.mov'), join(dir, n))
+  for (const [n, from] of Object.entries(extra)) copyFileSync(join(fixtures, from), join(dir, n))
+  return dir
+}
+const PANE_FILM = '[data-browse-preview] video'
+const PANE_TOGGLE = '[data-testid="folder-browser"] button[aria-label="Preview pane"]'
+/** Pick `first` with the pane open, whatever this profile left it as. */
+async function paneOn(win, first) {
+  await listRow(win, first).click({ position: { x: 30, y: 10 } })
+  await sleep(700)
+  if (!(await win.locator(PANE_FILM).count())) await win.locator(PANE_TOGGLE).first().click()
+  await win.waitForSelector(PANE_FILM, { timeout: 10000 })
+}
+/** Close the pane if this profile left it open, then pick `first`. */
+async function paneOff(win, first) {
+  await listRow(win, first).click({ position: { x: 30, y: 10 } })
+  await sleep(700)
+  if (await win.locator(PANE_FILM).count()) {
+    await win.locator(PANE_TOGGLE).first().click()
+    await sleep(800)
+  }
+}
+const pickedRow = (win) =>
+  win.evaluate(() => (document.querySelector('[data-browse-path][aria-selected="true"], .browse-row.is-selected')?.getAttribute('data-browse-path') ?? '').split('\\').pop())
+const started = (win, sel, ms = 12000) =>
+  until(async () => {
+    const f = await filmNow(win, sel)
+    return !!f && !f.paused && f.t > 0.15
+  }, ms)
+const stillPaused = async (win, sel) => {
+  await sleep(1500)
+  return (await filmNow(win, sel))?.paused === true
+}
+/** Press the film's own mute button, leaving the focus on the player's controls. */
+async function focusMute(win, sel) {
+  await win.locator(sel).hover({ timeout: 3000 })
+  await win.locator('[data-transport] button[title^="Mute"]').first().focus({ timeout: 3000 })
+}
+
+/**
+ * UP AND DOWN ON A FILM WALK THE FOLDER (#492; owner, 2026-11-08: "videos arent
+ * navigable with the arrow keys, up down arrows shoudl nvigate next file not
+ * adjust volume"). Wherever the film is shown and wherever the focus is, one
+ * press moves one file and never touches the volume. A track's walk too.
+ */
+async function filmKeysScenario(fixtures) {
+  console.log('Up and Down on a film walk the folder (#492)')
+  if (!existsSync(join(fixtures, 'av', 'iphone-hevc.mov'))) {
+    ok(false, 'the HEVC fixture was built')
+    return
+  }
+  const dir = filmFolder(fixtures, 'filmkeys', ['a.mov', 'b.mov', 'c.mov'], { 'd.mp3': 'song.mp3' })
+  const { app, win } = await launchWith({ ...NO_INDEX }, dir)
+  try {
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    const volume = (sel = 'video') => win.evaluate((s) => document.querySelector(s)?.volume ?? -1, sel)
+    const crumbIs = (n) => until(async () => (await viewing(win)).includes(n), 8000)
+
+    // FULL VIEW, focus on the page.
+    await viewFile(win, 'a.mov')
+    await win.waitForSelector('video', { timeout: 10000 })
+    await sleep(500)
+    const loud = await volume()
+    await win.keyboard.press('ArrowDown')
+    ok(await crumbIs('b.mov'), 'full view: Down goes to the next file')
+    await sleep(300)
+    ok((await volume()) === loud, `and the volume did not move (${loud} -> ${await volume()})`)
+    await win.keyboard.press('ArrowUp')
+    ok(await crumbIs('a.mov'), 'full view: Up goes to the previous file')
+
+    // Left and Right stay the seek.
+    await win.evaluate(() => { const v = document.querySelector('video'); v.pause(); v.currentTime = 0 })
+    await sleep(300)
+    await win.keyboard.press('ArrowRight')
+    await sleep(400)
+    ok(((await filmNow(win))?.t ?? 0) > 0, 'Right still seeks the film')
+    ok((await viewing(win)).includes('a.mov'), 'and does not change the file')
+
+    // A chord does neither.
+    const was = await volume()
+    await win.keyboard.press('Control+ArrowDown')
+    await sleep(500)
+    ok((await viewing(win)).includes('a.mov') && (await volume()) === was, 'Ctrl+Down over a film neither walks nor changes the volume')
+
+    // AN OPEN MENU OVER THE FILM (review of #492): Up and Down are not the
+    // folder's while a menu is up, focused or not (a right-click leaves the
+    // focus where it was).
+    const menuHolds = async (what) => {
+      await win.keyboard.press('ArrowDown')
+      await sleep(700)
+      ok((await viewing(win)).includes('a.mov'), `${what}: Down does not walk the folder (${await viewing(win)})`)
+      await win.keyboard.press('Escape')
+      await sleep(300)
+    }
+    await win.locator('video').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 3000 })
+    await menuHolds('the right-click menu open')
+    await win.locator('video').hover()
+    await win.click('[aria-label="Player settings"]')
+    await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 3000 })
+    await menuHolds('the Player settings menu open')
+
+    // FOCUS ON THE PLAYER'S OWN CONTROLS, a button.
+    await focusMute(win, 'video')
+    await win.keyboard.press('ArrowDown')
+    ok(await crumbIs('b.mov'), 'with the focus on the mute button, Down walks')
+    await sleep(300)
+    ok((await volume()) === was, 'and the volume did not move')
+
+    // THE VOLUME SLIDER itself: a focused range must not step, must not eat it.
+    await win.locator('video').hover()
+    await win.locator('[data-transport] button[title^="Mute"]').first().hover()
+    const slider = win.locator('[data-transport] input[aria-label="Volume"]').first()
+    await slider.waitFor({ timeout: 5000 })
+    await slider.focus()
+    const asked = await slider.inputValue()
+    await win.keyboard.press('Control+ArrowDown')
+    await sleep(300)
+    ok((await slider.inputValue()) === asked && (await viewing(win)).includes('b.mov'), `Ctrl+Down on the volume slider does nothing (${asked} -> ${await slider.inputValue()})`)
+    await win.keyboard.press('ArrowUp')
+    ok(await crumbIs('a.mov'), 'with the focus on the volume slider, Up walks')
+    await sleep(300)
+    ok((await win.locator('[data-transport] input[aria-label="Volume"]').first().inputValue().catch(() => asked)) === asked, 'and the slider did not step')
+    ok((await volume()) === was, 'and the volume did not move')
+    await win.mouse.move(5, 5)
+
+    // ONTO A TRACK: Up/Down walk on from it too ("do audio files too", 2026-11-08).
+    await win.keyboard.press('ArrowDown')
+    await crumbIs('b.mov')
+    await win.keyboard.press('ArrowDown')
+    ok(await crumbIs('c.mov'), 'Down reaches the last film')
+    await win.keyboard.press('ArrowDown')
+    ok(await crumbIs('d.mp3'), 'and Down from a film can land on a track')
+    await win.waitForSelector('audio', { state: 'attached', timeout: 10000 })
+    await sleep(500)
+    const song = await volume('audio')
+    await win.keyboard.press('ArrowUp')
+    await sleep(100)
+    ok(await crumbIs('c.mov'), 'Up on a track goes to the previous file')
+    await win.keyboard.press('ArrowDown')
+    ok(await crumbIs('d.mp3'), 'and Down comes back to the track')
+    await win.waitForSelector('audio', { state: 'attached', timeout: 10000 })
+    await sleep(300)
+    ok((await volume('audio')) === song, `and neither touched its volume (${song} -> ${await volume('audio')})`)
+
+    // THE PREVIEW PANE, focus on the list.
+    await toList(win)
+    await paneOn(win, 'a.mov')
+    await sleep(400)
+    const paneLoud = await volume(PANE_FILM)
+    await win.keyboard.press('ArrowDown')
+    ok(await until(async () => (await pickedRow(win)) === 'b.mov', 5000), `pane, list focus: Down picks the next row (${await pickedRow(win)})`)
+    await sleep(300)
+    ok((await volume(PANE_FILM)) === paneLoud, 'and the film did not also take the key for volume')
+
+    // THE PANE, focus on the film (a click on the picture).
+    await win.locator(PANE_FILM).click({ timeout: 3000 }).catch(() => {})
+    await sleep(300)
+    await win.keyboard.press('ArrowDown')
+    ok(await until(async () => (await pickedRow(win)) === 'c.mov', 5000), `pane, focus on the film: Down walks and the row follows (${await pickedRow(win)})`)
+    await sleep(300)
+    ok((await volume(PANE_FILM)) === paneLoud, 'and the volume did not move')
+
+    // THE PANE, focus on the player's controls.
+    await focusMute(win, PANE_FILM)
+    await win.keyboard.press('ArrowUp')
+    ok(await until(async () => (await pickedRow(win)) === 'b.mov', 5000), `pane, focus on a control: Up walks and the row follows (${await pickedRow(win)})`)
+    await sleep(300)
+    ok((await volume(PANE_FILM)) === paneLoud, 'and the volume did not move')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * A FILM SHOWN STARTS BY ITSELF (#491; owner, 2026-11-08: "video dont always
+ * autopaly at least not in preview"), every way of arriving at one, on either
+ * route. A film you paused yourself stays paused when you come back to it.
+ */
+async function filmStartScenario(fixtures) {
+  console.log('a film shown starts by itself (#491)')
+  if (!existsSync(join(fixtures, 'av', 'iphone-hevc.mov'))) {
+    ok(false, 'the HEVC fixture was built')
+    return
+  }
+  const dir = filmFolder(fixtures, 'filmstart', ['A.mov', 'B.mov', 'C.mov', 'D.mov', 'E.mov'])
+  for (const [how, env] of [['direct', {}], ['live', { PRISM_E2E_FORCE_LIVE: '1' }]]) {
+    console.log(`  -- ${how}`)
+    const { app, win } = await launchWith({ ...env, ...NO_INDEX }, dir)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      // THE PANE OPENED OVER A PICKED FILM (the toolbar button, then Space).
+      await paneOff(win, 'A.mov')
+      await win.locator(PANE_TOGGLE).first().click()
+      await win.waitForSelector(PANE_FILM, { timeout: 10000 })
+      ok(await started(win, PANE_FILM), `${how}: the pane opened over a film starts it (${JSON.stringify(await filmNow(win, PANE_FILM))})`)
+      await win.locator(PANE_TOGGLE).first().click()
+      await sleep(800)
+      await listRow(win, 'B.mov').click({ position: { x: 30, y: 10 } })
+      await sleep(500)
+      await win.keyboard.press('Space')
+      await win.waitForSelector(PANE_FILM, { timeout: 10000 })
+      ok(await started(win, PANE_FILM), `${how}: Space opening the pane starts it`)
+      // By the list.
+      await listRow(win, 'C.mov').click({ position: { x: 30, y: 10 } })
+      ok(await started(win, PANE_FILM), `${how}: a click on a row starts the film`)
+      await win.keyboard.press('ArrowDown')
+      ok(await started(win, PANE_FILM), `${how}: Down in the list starts the next film`)
+      // Quick steps: only the one that stays has to start.
+      await win.keyboard.press('ArrowUp')
+      await sleep(100)
+      await win.keyboard.press('ArrowUp')
+      ok(await started(win, PANE_FILM), `${how}: arrowing past a film starts the one that stays`)
+      // Focus on the film, not the list: the keys go through the player's side.
+      await win.locator(PANE_FILM).click({ timeout: 3000 }).catch(() => {})
+      await sleep(400)
+      await win.keyboard.press('ArrowDown')
+      ok(await started(win, PANE_FILM), `${how}: Down from the film itself starts the next one`)
+      ok((await pickedRow(win)) === 'C.mov', `${how}: and the list's row went with it (${await pickedRow(win)})`)
+      // Back from full view: the film carries on in the pane.
+      await listRow(win, 'D.mov').dblclick()
+      await win.waitForSelector('.browse-viewer-toolbar', { timeout: 8000 })
+      ok(await started(win, 'video'), `${how}: full view starts the double-clicked film`)
+      await win.keyboard.press('ArrowDown')
+      ok(await until(async () => (await viewing(win)).includes('E.mov'), 8000), `${how}: Down in full view steps`)
+      ok(await started(win, 'video'), `${how}: and the film it lands on starts`)
+      await win.keyboard.press('PageUp')
+      ok(await until(async () => (await viewing(win)).includes('D.mov'), 8000), `${how}: PageUp steps`)
+      ok(await started(win, 'video'), `${how}: and starts`)
+      await win.locator('.browse-viewer-toolbar [aria-label="Back"]').click()
+      await win.waitForSelector(FOLDER_LIST, { timeout: 8000 })
+      ok(await started(win, PANE_FILM), `${how}: Back to the list leaves it playing in the pane`)
+      const lines = (await filmLines()).filter((l) => l.ev === 'autostart')
+      ok(lines.some((l) => l.started === true && l.route === (how === 'live' ? 'live' : 'direct')), `${how}: the log has its autostart lines (${lines.length})`)
+      ok(!lines.some((l) => l.ok === false), `${how}: and none of them a failure (${JSON.stringify(lines.filter((l) => l.ok === false)).slice(0, 200)})`)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+  // RESCUED: the direct start the element refuses, and one that shows nothing.
+  console.log('  -- rescued to live')
+  {
+    const { app, win } = await launchWith({ PRISM_E2E_NO_PICTURE: 'D.mov', ...NO_INDEX }, dir)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await win.evaluate(() => {
+        const set = Element.prototype.setAttribute
+        Element.prototype.setAttribute = function (n, v) {
+          if (this.tagName === 'VIDEO' && n === 'src' && /[BC]\.mov/.test(decodeURIComponent(String(v))) && String(v).startsWith('fsmedia://local')) return set.call(this, n, 'fsmedia://local/C%3A%5Cnope.mov')
+          return set.call(this, n, v)
+        }
+      })
+      await paneOn(win, 'A.mov')
+      await listRow(win, 'B.mov').click({ position: { x: 30, y: 10 } })
+      ok(await until(async () => { const f = await filmNow(win, PANE_FILM); return f?.route === 'live' && !f.paused && f.t > 0.15 }, 15000), `the element refused it: live, and started (${JSON.stringify(await filmNow(win, PANE_FILM))})`)
+      await win.keyboard.press('ArrowDown')
+      ok(await until(async () => { const f = await filmNow(win, PANE_FILM); return f?.route === 'live' && !f.paused && f.t > 0.15 }, 15000), `refused, by Down: live, and started (${JSON.stringify(await filmNow(win, PANE_FILM))})`)
+      await win.keyboard.press('ArrowDown')
+      ok(await until(async () => { const f = await filmNow(win, PANE_FILM); return f?.route === 'live' && !f.paused && f.t > 0.15 }, 15000), `no picture, gone live by itself: started (${JSON.stringify(await filmNow(win, PANE_FILM))})`)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+  // A FILM YOU PAUSED STAYS PAUSED.
+  console.log('  -- a paused film stays paused')
+  {
+    const { app, win } = await launchWith({ ...NO_INDEX }, dir)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await paneOn(win, 'A.mov')
+      await listRow(win, 'B.mov').click({ position: { x: 30, y: 10 } })
+      ok(await started(win, PANE_FILM), 'B starts')
+      await win.locator(PANE_FILM).click({ timeout: 3000 })
+      await sleep(400)
+      ok((await filmNow(win, PANE_FILM))?.paused, 'a click on the picture pauses it')
+      // Step away and back with Up/Down from the film, not as a pick.
+      await win.keyboard.press('ArrowDown')
+      ok(await started(win, PANE_FILM), 'Down from it starts C')
+      await win.locator(PANE_FILM).click({ timeout: 3000 }).catch(() => {})
+      await sleep(400)
+      await win.keyboard.press('ArrowUp')
+      ok(await until(async () => (await pickedRow(win)) === 'B.mov', 5000), `Up comes back to B (${await pickedRow(win)})`)
+      ok(await stillPaused(win, PANE_FILM), 'and B, which you paused, stays paused')
+      // The pane closed and opened over it does not start it either.
+      await win.locator(PANE_TOGGLE).first().click()
+      await sleep(800)
+      await win.locator(PANE_TOGGLE).first().click()
+      await win.waitForSelector(PANE_FILM, { timeout: 10000 })
+      ok(await stillPaused(win, PANE_FILM), 'and closing and opening the pane over it leaves it paused')
+      // A real pick still plays, which is the rule since #139.
+      await listRow(win, 'B.mov').click({ position: { x: 30, y: 10 } })
+      ok(await started(win, PANE_FILM), 'a click on its row plays it (#139)')
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+  // A FILM NOBODY IS LOOKING AT STAYS SILENT (review of #491): a step behind
+  // the list, and the same film in another tab.
+  console.log('  -- a film nobody is looking at stays silent')
+  {
+    const quiet = filmFolder(fixtures, 'filmstart-quiet', ['A.mov', 'C.mov', 'E.mov'], { 'D.png': 'one.png', 'F.m4a': 'av/lossless.m4a' })
+    const sounding = (win) => win.evaluate(() => [...document.querySelectorAll('video,audio')].filter((v) => !v.paused).length)
+    const { app, win } = await launchWith({ ...NO_INDEX }, quiet)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await listRow(win, 'D.png').click({ position: { x: 30, y: 10 } })
+      await sleep(600)
+      const toggle = win.locator(PANE_TOGGLE).first()
+      if ((await toggle.getAttribute('aria-pressed')) === 'true') {
+        await toggle.click()
+        await sleep(700)
+      }
+      await viewFile(win, 'C.mov')
+      await win.waitForSelector('video', { timeout: 10000 })
+      await win.keyboard.press('ArrowDown')
+      await until(async () => (await viewing(win)).includes('D.png'), 8000)
+      await toList(win)
+      await sleep(500)
+      await win.evaluate(() => document.activeElement?.blur())
+      await win.keyboard.press('ArrowDown')
+      await sleep(2500)
+      ok((await sounding(win)) === 0, `a step behind the list starts nothing (${await sounding(win)} playing)`)
+      // Same film, another tab: a kept player that hears the other tab's intent
+      // would be the film twice, one of them hidden.
+      await viewFile(win, 'C.mov')
+      await win.waitForSelector('video', { timeout: 10000 })
+      await sleep(1500)
+      await toList(win)
+      await sleep(600)
+      ok((await sounding(win)) === 0, 'Back with the pane shut stops it')
+      await win.keyboard.press('Control+t')
+      await sleep(1500)
+      await explorerAt(win, quiet)
+      await sleep(800)
+      await viewFile(win, 'A.mov')
+      await win.waitForSelector('video', { timeout: 10000 })
+      await sleep(1200)
+      await win.keyboard.press('ArrowDown')
+      await sleep(2500)
+      ok((await sounding(win)) === 1, `a film the other tab holds: stepped onto, it plays once (${await sounding(win)} playing)`)
+      await toList(win)
+      await listRow(win, 'C.mov').dblclick()
+      await sleep(2500)
+      ok((await sounding(win)) === 1, `and picked, it plays once (${await sounding(win)} playing)`)
+      // A track played in full view stops on Back, pane open or not: only a
+      // film carries on in the pane.
+      await toList(win)
+      await paneOn(win, 'A.mov')
+      await listRow(win, 'F.m4a').dblclick()
+      await win.waitForSelector('audio', { state: 'attached', timeout: 10000 })
+      await until(() => win.evaluate(() => document.querySelector('audio')?.play().then(() => true, () => false)), 8000)
+      await sleep(800)
+      const tracking = await win.evaluate(() => !document.querySelector('audio').paused)
+      await toList(win)
+      await sleep(800)
+      ok(tracking && (await win.evaluate(() => document.querySelector('audio')?.paused ?? true)), `Back with the pane open stops a track (playing before: ${tracking})`)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+  // THE PLAYLIST: a film that ends hands over to one that plays.
+  console.log('  -- a finished film hands over')
+  {
+    const { app, win } = await launchWith({ ...NO_INDEX }, dir)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await viewFile(win, 'A.mov')
+      await win.waitForSelector('video', { timeout: 10000 })
+      await win.hover('video')
+      await win.click('[aria-label="Player settings"]')
+      await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 5000 })
+      const box = win.locator('[role="menuitemcheckbox"]:has-text("Autoplay")').first()
+      if ((await box.getAttribute('aria-checked')) !== 'true') await box.click()
+      await win.keyboard.press('Escape')
+      await sleep(300)
+      await win.evaluate(() => {
+        const v = document.querySelector('video')
+        v.currentTime = Math.max(0, v.duration - 0.3)
+        return v.play()
+      })
+      ok(await until(async () => (await viewing(win)).includes('B.mov'), 8000), 'the film ends and the next one is up')
+      ok(await started(win, 'video'), `and the next one PLAYS (${JSON.stringify(await filmNow(win))})`)
+      // The same in the pane, by the pref it shares with full view.
+      await toList(win)
+      await paneOn(win, 'C.mov')
+      ok(await started(win, PANE_FILM), 'pane: the film it holds plays')
+      await win.evaluate((s) => {
+        const v = document.querySelector(s)
+        v.currentTime = Math.max(0, v.duration - 0.3)
+        return v.play()
+      }, PANE_FILM)
+      ok(await until(() => win.evaluate((s) => decodeURIComponent(document.querySelector(s)?.currentSrc ?? '').includes('D.mov'), PANE_FILM), 8000), 'pane: the film ends and the next one is up')
+      ok(await started(win, PANE_FILM), 'and it plays there too')
+      await win.evaluate((s) => document.querySelector(s)?.pause(), PANE_FILM)
+      await viewFile(win, 'A.mov')
+      await win.waitForSelector('video', { timeout: 10000 })
+      await win.evaluate(() => document.querySelector('video')?.pause())
+      await win.hover('video')
+      await win.click('[aria-label="Player settings"]')
+      await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 5000 })
+      await win.locator('[role="menuitemcheckbox"]:has-text("Autoplay")').first().click()
+      await win.keyboard.press('Escape')
+    } finally {
+      await app.close()
+    }
+  }
+}
+
+
+/**
+ * THE FILM THAT MUST NOT GO ON WITHOUT YOU (owner, 2026-11-09: "if i close the
+ * preview it pasuses then it plays jsut the aduio"). Refuses every direct src
+ * whose film matches `names`, in the page and in any preview window it opens
+ * (an element there has that window's own prototypes).
+ */
+const refuseFilms = (win, names) =>
+  win.evaluate((n) => {
+    const refused = new RegExp(n)
+    const patch = (w) => {
+      const set = w.Element.prototype.setAttribute
+      w.Element.prototype.setAttribute = function (a, v) {
+        if (this.tagName === 'VIDEO' && a === 'src' && refused.test(decodeURIComponent(String(v))) && String(v).startsWith('fsmedia://local')) return set.call(this, a, 'fsmedia://local/C%3A%5Cnope.mov')
+        return set.call(this, a, v)
+      }
+    }
+    patch(window)
+    const open = window.open
+    window.open = function (...a) {
+      const w = open.apply(this, a)
+      if (w) patch(w)
+      return w
+    }
+  }, names)
+/** Every player on the page, in both documents. */
+const everyPlayer = (win) =>
+  win.evaluate(() => {
+    const docs = [['page', document]]
+    const w = window.__prismPreviewWindow
+    if (w && !w.closed) docs.push(['window', w.document])
+    return docs.flatMap(([where, d]) =>
+      [...d.querySelectorAll('video,audio')].map((v) => ({
+        where,
+        tag: v.tagName,
+        paused: v.paused,
+        muted: v.muted,
+        t: Math.round(v.currentTime * 100) / 100,
+        src: (v.currentSrc || '').slice(0, 24)
+      }))
+    )
+  }).catch(() => [])
+/** The film of this surface: 'none', 'shown' or 'playing'. */
+const surfaceFilm = (win, mode) =>
+  win.evaluate((m) => {
+    const w = m === 'window' ? window.__prismPreviewWindow : window
+    if (!w || w.closed) return { state: 'none' }
+    const v = w.document.querySelector(m === 'window' ? '[data-preview-window-body] video' : '[data-browse-preview] video')
+    if (!v) return { state: 'none' }
+    return { state: !v.paused && v.currentTime > 0.15 ? 'playing' : 'shown', live: (v.currentSrc || '').startsWith('blob:'), paused: v.paused, t: v.currentTime }
+  }, mode).catch(() => ({ state: 'none' }))
+/** Main's live-job lines after `iso`. */
+const jobsSince = async (iso) => (await filmLines()).filter((l) => l.op === 'live-job' && l.t > iso)
+
+async function filmCloseScenario(fixtures) {
+  console.log('closing the preview stops the film and it stays stopped (owner, 2026-11-09)')
+  if (!existsSync(join(fixtures, 'av', 'iphone-hevc.mov'))) {
+    ok(false, 'the HEVC fixture was built')
+    return
+  }
+  const names = Array.from({ length: 22 }, (_, i) => `F${String(i).padStart(2, '0')}.mov`)
+  const dir = filmFolder(fixtures, 'filmclose', names)
+  let n = 0
+  const nextFilm = () => names[n++ % names.length]
+  const cycle = async (win, label, { mode, way, moment, file }) => {
+    await listRow(win, file).click({ position: { x: 30, y: 10 } })
+    await sleep(300)
+    await listRow(win, file).focus()
+    if (mode === 'window') await win.keyboard.press('Space')
+    else {
+      if ((await win.locator(PANE_TOGGLE).first().getAttribute('aria-pressed')) !== 'true') await win.locator(PANE_TOGGLE).first().click()
+    }
+    const seen = await until(async () => (await surfaceFilm(win, mode)).state !== 'none', 8000)
+    ok(seen, `${label}: the film came up`)
+    if (moment === 'first-frame') await sleep(60)
+    else if (moment === 'live-open') await sleep(450)
+    else if (moment === 'rescue') await until(async () => (await surfaceFilm(win, mode)).live === true, 12000)
+    else if (!(await until(async () => (await surfaceFilm(win, mode)).state === 'playing', 15000))) console.log(`  ${label}: never played before the close: ${JSON.stringify(await surfaceFilm(win, mode))}`)
+    const t0 = await win.evaluate(() => new Date().toISOString())
+    if (way === 'button') {
+      if (mode === 'window') await win.evaluate(() => window.__prismPreviewWindow.document.querySelector('[data-preview-window-close]').click())
+      else await win.locator(PANE_TOGGLE).first().click()
+    } else {
+      await listRow(win, file).focus()
+      await win.keyboard.press(way)
+    }
+    // Sampled from the moment of the close: any element playing at any
+    // instant after it is the sound with no picture.
+    const samples = []
+    const stopAt = Date.now() + 3500
+    while (Date.now() < stopAt) {
+      samples.push(await everyPlayer(win))
+      await sleep(120)
+    }
+    const playing = samples.flat().filter((p) => !p.paused)
+    const span = new Map()
+    for (const p of samples.flat()) {
+      const k = `${p.where}|${p.src}`
+      span.set(k, { first: span.get(k)?.first ?? p.t, last: p.t })
+    }
+    const moved = [...span].filter(([, v]) => v.last - v.first > 0.25).map(([k, v]) => `${k} ${v.first}->${v.last}`)
+    ok(playing.length === 0, `${label}: nothing plays after the close (${playing.length} samples, ${JSON.stringify(playing[0] ?? null)})`)
+    ok(moved.length === 0, `${label}: and no time moves (${moved.join('; ') || 'none'})`)
+    // A job the close raced (an open already in flight when the preview shut) may
+    // start in main; it must be stopped, and a film playing steadily at the close
+    // starts no job at all (a job for nobody: the owner's log of 03:22:35).
+    const after = await jobsSince(t0)
+    const startedJobs = after.filter((l) => l.ev === 'start')
+    const running = [...new Set(startedJobs.map((l) => l.job))].filter((j) => !after.some((l) => l.job === j && (l.ev === 'kill' || l.ev === 'exit')))
+    ok(running.length === 0, `${label}: no live job is left running for it (${JSON.stringify(running)})`)
+    if (moment === 'playing') ok(startedJobs.length === 0, `${label}: and none starts for it (${startedJobs.length})`)
+  }
+  const CASES = [
+    ['direct', {}, ['first-frame', 'playing']],
+    ['live', { PRISM_E2E_FORCE_LIVE: '1' }, ['first-frame', 'live-open', 'playing']],
+    ['rescue', {}, ['first-frame', 'rescue', 'playing']]
+  ]
+  const WAYS = { pane: ['button', 'Space'], window: ['Space', 'Escape', 'button'] }
+  for (const [route, env, moments] of CASES) {
+    console.log(`  -- ${route}`)
+    n = 0
+    const { app, win } = await launchWith({ ...env, ...NO_INDEX }, dir)
+    let windowMode = false
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      if (route === 'rescue') await refuseFilms(win, '\\.mov')
+      if (await win.locator(PANE_FILM).count()) {
+        await win.locator(PANE_TOGGLE).first().click()
+        await sleep(700)
+      }
+      for (const moment of moments)
+        for (const way of WAYS.pane) await cycle(win, `${route} pane ${moment} by ${way}`, { mode: 'pane', way, moment, file: nextFilm() })
+      // The pane opened again over the same film plays it from where it was.
+      {
+        const file = nextFilm()
+        await listRow(win, file).click({ position: { x: 30, y: 10 } })
+        await sleep(300)
+        await win.locator(PANE_TOGGLE).first().click()
+        ok(await until(async () => (await surfaceFilm(win, 'pane')).t > 0.6, 15000), `${route}: the pane plays the film (${JSON.stringify(await surfaceFilm(win, 'pane'))})`)
+        const was = (await surfaceFilm(win, 'pane')).t
+        await win.locator(PANE_TOGGLE).first().click()
+        await sleep(900)
+        const stopped = await everyPlayer(win)
+        ok(stopped.every((p) => p.paused), `${route}: the pane closed stops it (${JSON.stringify(stopped)})`)
+        await win.locator(PANE_TOGGLE).first().click()
+        ok(await until(async () => (await surfaceFilm(win, 'pane')).state === 'playing', 15000), `${route}: the pane opened again plays it (${JSON.stringify(await surfaceFilm(win, 'pane'))})`)
+        const now = (await surfaceFilm(win, 'pane')).t
+        ok(now >= was - 0.5, `${route}: and from where it was, not the start (${was} then ${now})`)
+        await win.locator(PANE_TOGGLE).first().click()
+        await sleep(700)
+      }
+      await explorerAt(win, dir)
+      await pickStyleSegment(win, 'preview-opens', 'Window')
+      windowMode = true
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 15000 })
+      if ((await win.locator(PANE_TOGGLE).first().getAttribute('aria-pressed')) === 'true') {
+        await win.locator(PANE_TOGGLE).first().click()
+        await sleep(600)
+      }
+      await sleep(400)
+      for (const moment of moments)
+        for (const way of WAYS.window) await cycle(win, `${route} window ${moment} by ${way}`, { mode: 'window', way, moment, file: nextFilm() })
+      // Reopening shows it playing again; a film you paused stays paused.
+      const file = nextFilm()
+      await cycle(win, `${route} window, again`, { mode: 'window', way: 'Space', moment: 'playing', file })
+      await listRow(win, file).focus()
+      await win.keyboard.press('Space')
+      ok(await until(async () => (await surfaceFilm(win, 'window')).state === 'playing', 15000), `${route}: the window reopened over the film plays it (${JSON.stringify(await surfaceFilm(win, 'window'))})`)
+      await win.evaluate(() => window.__prismPreviewWindow.document.querySelector('[data-preview-window-body] video').pause())
+      await sleep(300)
+      await listRow(win, file).focus()
+      await win.keyboard.press('Space')
+      await sleep(900)
+      await win.keyboard.press('Space')
+      await until(async () => (await surfaceFilm(win, 'window')).state !== 'none', 8000)
+      await sleep(1200)
+      const f = await surfaceFilm(win, 'window')
+      ok(f.paused === true, `${route}: a film you paused stays paused when the window comes back (${JSON.stringify(f)})`)
+      await listRow(win, file).focus()
+      await win.keyboard.press('Space')
+      await sleep(600)
+    } finally {
+      if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+      await app.close()
+    }
+    await sleep(900)
+  }
+}
+
+
+/**
+ * NO FLASH OF AN ERROR ON A FILM STILL ON ITS WAY (owner, 2026-11-09: "on mov
+ * files in the preview it says cannot open this file for a brief second then
+ * it plays the video"). Every change of the text is read as it happens (a
+ * MutationObserver and every frame, in the page and the preview window), so a
+ * flash of a few frames cannot be missed the way polling misses it. A file
+ * nothing can rescue still says so.
+ */
+const FILM_ERRORS = 'can.t be played|cannot be opened|cannot open|could not be converted'
+const watchErrors = (win) =>
+  win.evaluate((re) => {
+    const bad = new RegExp(re, 'i')
+    window.__flashes = []
+    const check = (doc, where) => {
+      const m = bad.exec(doc.body?.textContent ?? '')
+      if (m && !window.__flashes.some((f) => f.text === m[0] && f.where === where)) window.__flashes.push({ where, text: m[0], at: Math.round(performance.now()) })
+    }
+    const watch = (doc, where) => {
+      check(doc, where)
+      new doc.defaultView.MutationObserver(() => check(doc, where)).observe(doc.documentElement, { subtree: true, childList: true, characterData: true })
+      const frame = () => {
+        check(doc, where)
+        doc.defaultView.requestAnimationFrame(frame)
+      }
+      doc.defaultView.requestAnimationFrame(frame)
+    }
+    watch(document, 'page')
+    const open = window.open
+    window.open = function (...a) {
+      const w = open.apply(this, a)
+      if (w) setTimeout(() => watch(w.document, 'window'), 0)
+      return w
+    }
+  }, FILM_ERRORS)
+const flashes = (win) => win.evaluate(() => window.__flashes ?? [])
+const clearFlashes = (win) => win.evaluate(() => { window.__flashes = [] })
+
+async function filmFlashScenario(fixtures) {
+  console.log('a film that can still be rescued shows no error (owner, 2026-11-09)')
+  if (!existsSync(join(fixtures, 'av', 'iphone-hevc.mov'))) {
+    ok(false, 'the HEVC fixture was built')
+    return
+  }
+  const dir = filmFolder(fixtures, 'filmflash', ['A.mov', 'B.mov', 'C.mov', 'D.mov'], { 'Broken.mov': 'README.md' })
+  const { app, win } = await launchWith({ ...NO_INDEX }, dir)
+  let windowMode = false
+  try {
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    await watchErrors(win)
+    await refuseFilms(win, '[ABCD]\\.mov')
+    // THE PANE.
+    await paneOn(win, 'A.mov')
+    await listRow(win, 'B.mov').click({ position: { x: 30, y: 10 } })
+    ok(await until(async () => { const f = await filmNow(win, PANE_FILM); return f?.route === 'live' && !f.paused && f.t > 0.15 }, 15000), `pane: refused, it plays live (${JSON.stringify(await filmNow(win, PANE_FILM))})`)
+    let seen = await flashes(win)
+    ok(seen.length === 0, `pane: no error text at any moment (${JSON.stringify(seen)})`)
+    // FULL VIEW.
+    await clearFlashes(win)
+    await listRow(win, 'C.mov').dblclick()
+    await win.waitForSelector('.browse-viewer-toolbar', { timeout: 8000 })
+    ok(await until(async () => { const f = await filmNow(win, 'video'); return f?.route === 'live' && !f.paused && f.t > 0.15 }, 15000), `full view: refused, it plays live (${JSON.stringify(await filmNow(win, 'video'))})`)
+    seen = await flashes(win)
+    ok(seen.length === 0, `full view: no error text at any moment (${JSON.stringify(seen)})`)
+    await win.locator('.browse-viewer-toolbar [aria-label="Back"]').click()
+    await win.waitForSelector(FOLDER_LIST, { timeout: 8000 })
+    await win.locator(PANE_TOGGLE).first().click()
+    await sleep(800)
+    // THE WINDOW.
+    await clearFlashes(win)
+    await explorerAt(win, dir)
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 15000 })
+    await listRow(win, 'D.mov').click({ position: { x: 30, y: 10 } })
+    await sleep(300)
+    await listRow(win, 'D.mov').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => { const f = await surfaceFilm(win, 'window'); return f.state === 'playing' && f.live === true }, 15000), `window: refused, it plays live (${JSON.stringify(await surfaceFilm(win, 'window'))})`)
+    seen = await flashes(win)
+    ok(seen.length === 0, `window: no error text at any moment (${JSON.stringify(seen)})`)
+    await listRow(win, 'D.mov').focus()
+    await win.keyboard.press('Space')
+    await sleep(700)
+    // A REAL FAILURE STILL SAYS SO: not a film at all, renamed .mov.
+    await pickStyleSegment(win, 'preview-opens', 'Panel')
+    windowMode = false
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 15000 })
+    await listRow(win, 'Broken.mov').click({ position: { x: 30, y: 10 } })
+    await sleep(300)
+    if (!(await win.locator(PANE_FILM).count())) await win.locator(PANE_TOGGLE).first().click()
+    ok(await until(async () => new RegExp(FILM_ERRORS, 'i').test((await win.locator('[data-browse-preview]').textContent().catch(() => '')) ?? ''), 15000), `a file nothing can rescue says so (${(await win.locator('[data-browse-preview]').textContent().catch(() => '') ?? '').slice(0, 100)})`)
+  } finally {
+    if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+    await app.close()
+  }
+}
+
+/**
+ * THE AWKWARD CLOSES (review, 2026-11-09). The same promise as `filmClose`,
+ * at the moments a person does not plan: toggled fast, shut and straight back,
+ * stepped and shut, shut and off to another tab, a film at its end, the window
+ * on and off under Space. And the two endings a film can have besides playing:
+ * a refusal that lands after the probe chose live, and a rescue that fails too.
+ */
+const clickPane = (win, n, gap) =>
+  win.evaluate(([n2, g]) => new Promise((done) => {
+    let i = 0
+    const go = () => {
+      document.querySelector('[data-testid="folder-browser"] button[aria-label="Preview pane"]').click()
+      if (++i < n2) setTimeout(go, g)
+      else done()
+    }
+    go()
+  }), [n, gap])
+/** Nothing sounds or moves for a while, and no job stays behind, from `t0`. */
+async function staysShut(win, label, t0) {
+  const samples = []
+  const stopAt = Date.now() + 2800
+  while (Date.now() < stopAt) {
+    samples.push(await everyPlayer(win))
+    await sleep(110)
+  }
+  const playing = samples.flat().filter((p) => !p.paused)
+  // A player mounted by the close seeks to its place once: that is no sound.
+  const span = new Map()
+  for (const sample of samples.slice(Math.floor(samples.length / 2))) {
+    sample.forEach((p, i) => {
+      const k = `${p.where}|${i}|${p.src}`
+      span.set(k, { first: span.get(k)?.first ?? p.t, last: p.t })
+    })
+  }
+  const moved = [...span].filter(([, v]) => v.last - v.first > 0.25).map(([k, v]) => `${k} ${v.first}->${v.last}`)
+  ok(playing.length === 0, `${label}: nothing plays (${playing.length} samples, ${JSON.stringify(playing[0] ?? null)})`)
+  ok(moved.length === 0, `${label}: no time moves (${moved.join('; ') || 'none'})`)
+  const after = await jobsSince(t0)
+  const running = [...new Set(after.filter((l) => l.ev === 'start').map((l) => l.job))].filter((j) => {
+    const last = after.filter((l) => l.job === j).pop()
+    return last.ev === 'start' || last.ev === 'encoder-fallback'
+  })
+  ok(running.length === 0, `${label}: no job left running (${JSON.stringify(running)})`)
+}
+/** The film of the tab in front (`surfaceFilm` takes the first player, and a
+ * tab behind this one has its own). */
+const frontFilm = (win, mode) =>
+  mode === 'window'
+    ? surfaceFilm(win, mode)
+    : win.evaluate(() => {
+        const v = document.querySelector('[data-browse-preview] [data-player-tab]:not([aria-hidden="true"]) video')
+        if (!v) return { state: 'none' }
+        return { state: !v.paused && v.currentTime > 0.15 ? 'playing' : 'shown', live: (v.currentSrc || '').startsWith('blob:'), paused: v.paused, t: v.currentTime }
+      }).catch(() => ({ state: 'none' }))
+const filmPlays = async (win, label, mode = 'pane', ms = 15000) => {
+  const up = await until(async () => (await frontFilm(win, mode)).state === 'playing', ms)
+  ok(up, `${label}: the film plays (${JSON.stringify(await frontFilm(win, mode))})`)
+  if (!up) return
+  // THE CLOCK STARTS WHEN THE FILM DOES (measured 2026-11-09). `playing` above
+  // only says it is not paused and has a time past 0.15, which a live film
+  // brought back on says at readyState 0, on the position it had kept: it took
+  // 0.55 to 0.8 s to start, and then ran at 1x, so a fixed 900 ms from here was
+  // mostly the wait. So: up to 5 s for the time to move at all, and then it has
+  // to keep moving through the same 900 ms. One that never starts fails here,
+  // and one that starts and sticks fails below.
+  const a = (await frontFilm(win, mode)).t
+  const started = await until(async () => (await frontFilm(win, mode)).t > a + 0.05, 5000, 40)
+  const from = (await frontFilm(win, mode)).t
+  if (!started) return ok(false, `${label}: and its time moves (stuck at ${a} for 5 s, now ${from})`)
+  await sleep(900)
+  const b = (await frontFilm(win, mode)).t
+  ok(b > from + 0.2, `${label}: and its time moves (${a}, started, ${from} then ${b})`)
+}
+const nowIso = (win) => win.evaluate(() => new Date().toISOString())
+
+async function filmAbuseScenario(fixtures) {
+  console.log('closing the preview at awkward moments (review, 2026-11-09)')
+  if (!existsSync(join(fixtures, 'av', 'iphone-hevc.mov'))) {
+    ok(false, 'the HEVC fixture was built')
+    return
+  }
+  const names = Array.from({ length: 16 }, (_, i) => `G${String(i).padStart(2, '0')}.mov`)
+  const dir = filmFolder(fixtures, 'filmabuse', names)
+  for (const [route, env] of [['direct', {}], ['live', { PRISM_E2E_FORCE_LIVE: '1' }], ['rescue', {}]].filter(([r]) => !process.env.ABUSE_ROUTE || process.env.ABUSE_ROUTE.includes(r))) {
+    console.log(`  -- ${route}`)
+    let n = 0
+    const next = () => names[n++ % names.length]
+    const { app, win } = await launchWith({ ...env, ...NO_INDEX }, dir)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      if (route === 'rescue') await refuseFilms(win, '\\.mov')
+      await paneOn(win, next())
+      await sleep(600)
+      const pick = async () => {
+        const f = next()
+        await listRow(win, f).click({ position: { x: 30, y: 10 } })
+        await filmPlays(win, `${route}: ${f} before`)
+      }
+      for (const gap of [0, 40, 120, 300]) {
+        await pick()
+        const t0 = await nowIso(win)
+        await clickPane(win, 5, gap)
+        await staysShut(win, `${route} five toggles ${gap}ms, ends shut`, t0)
+        await clickPane(win, 1, 0)
+        await filmPlays(win, `${route} after five toggles ${gap}ms`)
+      }
+      for (const gap of [0, 40, 120, 300, 700]) {
+        await pick()
+        await clickPane(win, 2, gap)
+        await filmPlays(win, `${route} shut and straight back, ${gap}ms`)
+        await pick()
+        await clickPane(win, 6, gap)
+        await filmPlays(win, `${route} six toggles ${gap}ms, ends open`)
+      }
+      // A step, and the close on its heels.
+      await pick()
+      let t0 = await nowIso(win)
+      await win.keyboard.press('ArrowDown')
+      await clickPane(win, 1, 0)
+      await staysShut(win, `${route} step then close`, t0)
+      await win.keyboard.press('ArrowDown')
+      await clickPane(win, 1, 0)
+      await filmPlays(win, `${route} step while shut, then open`)
+      // The close and a new tab at once, and back.
+      t0 = await nowIso(win)
+      await clickPane(win, 1, 0)
+      await win.keyboard.press('Control+t')
+      await sleep(600)
+      await staysShut(win, `${route} close and new tab`, t0)
+      await win.keyboard.press('Control+w')
+      await sleep(600)
+      await staysShut(win, `${route} back on its tab`, t0)
+      await clickPane(win, 1, 0)
+      await filmPlays(win, `${route} open after the tab`)
+      // A film that reached its end, closed, opened again.
+      await win.evaluate(() => { const v = document.querySelector('[data-browse-preview] video'); v.currentTime = Math.max(0, v.duration - 0.4) })
+      const ended = await until(() => win.evaluate(() => document.querySelector('[data-browse-preview] video')?.ended === true), 9000)
+      console.log(`  ${route}: reached the end: ${ended}`)
+      t0 = await nowIso(win)
+      await clickPane(win, 1, 0)
+      await staysShut(win, `${route} ended then closed`, t0)
+      await clickPane(win, 1, 0)
+      await sleep(2500)
+      const late = await surfaceFilm(win, 'pane')
+      const text = (await win.locator('[data-browse-preview]').textContent().catch(() => '')) ?? ''
+      ok(late.state !== 'none' && !new RegExp(FILM_ERRORS, 'i').test(text), `${route} ended, opened again: a film and no error (${JSON.stringify(late)}, ${text.slice(0, 80)})`)
+      console.log(`  ${route}: ended film reopened: ${JSON.stringify(late)}`)
+      // The window, on and off fast.
+      await explorerAt(win, dir)
+      await pickStyleSegment(win, 'preview-opens', 'Window')
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 15000 })
+      if ((await win.locator(PANE_TOGGLE).first().getAttribute('aria-pressed')) === 'true') {
+        await win.locator(PANE_TOGGLE).first().click()
+        await sleep(600)
+      }
+      await sleep(400)
+      const f = next()
+      await listRow(win, f).click({ position: { x: 30, y: 10 } })
+      await sleep(300)
+      await listRow(win, f).focus()
+      await win.keyboard.press('Space')
+      await filmPlays(win, `${route} window`, 'window')
+      for (const gap of [40, 120, 320]) {
+        t0 = await nowIso(win)
+        for (let i = 0; i < 5; i += 1) {
+          await listRow(win, f).focus()
+          await win.keyboard.press('Space')
+          await sleep(gap)
+        }
+        await staysShut(win, `${route} window Space x5 ${gap}ms, ends shut`, t0)
+        await listRow(win, f).focus()
+        await win.keyboard.press('Space')
+        await filmPlays(win, `${route} window back after ${gap}ms`, 'window')
+      }
+      await listRow(win, f).focus()
+      await win.keyboard.press('Space')
+      await sleep(600)
+      t0 = await nowIso(win)
+      await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+      await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+      await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 15000 })
+      await staysShut(win, `${route} window shut, then the Panel`, t0)
+      const paneUp = (await win.locator(PANE_TOGGLE).first().getAttribute('aria-pressed')) === 'true'
+      if (!paneUp) await clickPane(win, 1, 0)
+      await filmPlays(win, `${route} the pane after the window`)
+      t0 = await nowIso(win)
+      await clickPane(win, 1, 0)
+      await staysShut(win, `${route} and the pane closed`, t0)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+  // A refusal that lands after the probe chose live: the abandoned direct
+  // start's own error, while the job is still being opened.
+  {
+    const late = filmFolder(fixtures, 'filmlate', ['L0.mov', 'L1.mov'])
+    const { app, win } = await launchWith({ PRISM_E2E_FORCE_LIVE: '1', ...NO_INDEX }, late)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await watchErrors(win)
+      await win.evaluate(() => {
+        const rm = Element.prototype.removeAttribute
+        Element.prototype.removeAttribute = function (a) {
+          if (this.tagName === 'VIDEO' && a === 'src' && String(this.getAttribute('src')).startsWith('fsmedia://local')) {
+            let aborted = false
+            this.addEventListener('abort', () => (aborted = true), { once: true })
+            setTimeout(() => !aborted && this.dispatchEvent(new Event('error')), 15)
+          }
+          return rm.call(this, a)
+        }
+      })
+      await paneOn(win, 'L0.mov')
+      await listRow(win, 'L1.mov').click({ position: { x: 30, y: 10 } })
+      await filmPlays(win, 'late refusal')
+      const seen = await flashes(win)
+      ok(seen.length === 0, `a refusal landing after the probe chose live shows no error (${JSON.stringify(seen)})`)
+    } finally {
+      await app.close()
+    }
+    await sleep(900)
+  }
+  // A real film whose rescue fails too: a valid header, its picture data gone.
+  {
+    const bad = filmFolder(fixtures, 'filmbad', ['Bad.mov', 'Fine.mov'])
+    const b = readFileSync(join(bad, 'Bad.mov'))
+    const at = b.indexOf(Buffer.from('mdat'))
+    const moov = b.indexOf(Buffer.from('moov'))
+    const end = moov > at ? moov - 8 : b.length
+    for (let i = at + 2004; i < end; i += 1) b[i] = 0xff
+    writeFileSync(join(bad, 'Bad.mov'), b)
+    const { app, win } = await launchWith({ ...NO_INDEX }, bad)
+    try {
+      await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+      await refuseFilms(win, 'Bad\\.mov')
+      await paneOn(win, 'Fine.mov')
+      await listRow(win, 'Bad.mov').click({ position: { x: 30, y: 10 } })
+      const said = await until(async () => new RegExp(FILM_ERRORS, 'i').test((await win.locator('[data-browse-preview]').textContent().catch(() => '')) ?? ''), 40000)
+      const state = await surfaceFilm(win, 'pane')
+      const text = (await win.locator('[data-browse-preview]').textContent().catch(() => '')) ?? ''
+      ok(said, `a film whose rescue fails too says so (${JSON.stringify(state)}, ${text.slice(0, 120)})`)
+      const lines = (await filmLines()).filter((l) => /Bad\.mov/.test(l.path ?? l.file ?? '')).map((l) => JSON.stringify(l))
+      console.log('  bad film lines:', lines.length)
+    } finally {
+      await app.close()
+    }
+  }
+}
+
+/**
+ * A HEALTHY FILM STAYS ON ITS ROUTE (2026-11-08). Going live is a rescue for
+ * a film that shows nothing, so a film the player shows well must never be
+ * taken there: not for being scrubbed while paused, and not for a fade-in
+ * from black. And a film the next one replaces stops at once, even when that
+ * next film is still waiting for its live job.
+ */
+async function movGuardScenario(fixtures) {
+  console.log('a healthy film is left on its route (2026-11-08)')
+  const plain = join(fixtures, 'av', 'iphone-hevc.mov')
+  const dark = join(fixtures, 'av', 'hevc-dark-open.mov')
+  if (!existsSync(plain) || !existsSync(dark)) {
+    ok(false, 'the HEVC fixtures were built (needs libkvazaar in the bundled ffmpeg)')
+    return
+  }
+  const dir = join(fixtures, 'movguard')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['A_scrub.mov', 'B_film.mov', 'C_rescued.mov']) copyFileSync(plain, join(dir, n))
+  copyFileSync(dark, join(dir, 'D_dark.mov'))
+
+  // A paused HEVC film, past the bound, scrubbed: every seek drops readyState
+  // for a moment, and that is no reason to transcode it.
+  // Opened as a file, so it starts paused: a double-click in the list plays.
+  let { app, win } = await launchWith({ ...NO_INDEX }, join(dir, 'A_scrub.mov'))
+  try {
+    await win.waitForSelector('video', { timeout: 15000 })
+    await sleep(4800)
+    const before = await filmNow(win)
+    ok(before.route === 'direct' && before.w > 0 && before.paused, `the film is up, paused, direct (${JSON.stringify(before)})`)
+    await win.evaluate(() => {
+      const v = document.querySelector('video')
+      window.__low = 0
+      window.__all = 0
+      window.__scrub = setInterval(() => {
+        v.currentTime = Math.random() * 10
+      }, 70)
+      window.__ready = setInterval(() => {
+        window.__all += 1
+        if (v.readyState < 2) window.__low += 1
+      }, 11)
+    })
+    await sleep(8000)
+    console.log(`  scrub: readyState under 2 in ${await win.evaluate(() => { clearInterval(window.__scrub); clearInterval(window.__ready); return `${window.__low} of ${window.__all}` })} samples`)
+    await sleep(800)
+    const after = await filmNow(win)
+    const went = (await filmLines()).filter((l) => l.ev === 'to-live' && String(l.path).includes('A_scrub'))
+    ok(after.route === 'direct' && went.length === 0, `scrubbed while paused, it stays direct (${after.route}, ${JSON.stringify(went)})`)
+  } finally {
+    await app.close()
+  }
+  await sleep(800)
+
+  // Three seconds of black, then a picture: a fade-in, not a dead decoder.
+  ;({ app, win } = await launchWith({ ...NO_INDEX }, dir))
+  try {
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    await viewFile(win, 'D_dark.mov')
+    await sleep(900)
+    if ((await filmNow(win))?.paused) await win.locator('video').first().click({ timeout: 3000 }).catch(() => {})
+    await until(async () => ((await filmNow(win))?.t ?? 0) > 3.6, 15000)
+    const now = await filmNow(win)
+    const lines = (await filmLines()).filter((l) => String(l.path).includes('D_dark'))
+    ok(now.route === 'direct' && !lines.some((l) => l.ev === 'black' || l.ev === 'to-live'), `opening on black, it stays direct (${now.route}, ${JSON.stringify(lines.map((l) => l.ev))})`)
+    ok(now.lit > 3, `and the picture comes up (lit ${now.lit})`)
+  } finally {
+    await app.close()
+  }
+  await sleep(800)
+
+  // A film remembered as live, stepped to from one that is playing: the old
+  // film must stop, not play on under the new film's name.
+  ;({ app, win } = await launchWith({ PRISM_E2E_NO_PICTURE: 'C_rescued', ...NO_INDEX }, dir))
+  try {
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    await viewFile(win, 'C_rescued.mov')
+    ok(await until(async () => (await filmNow(win))?.route === 'live', 20000), 'the film with no picture goes live, and is remembered')
+    await viewFile(win, 'B_film.mov')
+    await sleep(700)
+    if ((await filmNow(win))?.paused) await win.locator('video').first().click({ timeout: 3000 }).catch(() => {})
+    ok(await until(async () => { const f = await filmNow(win); return !!f && f.route === 'direct' && f.t > 0.2 && !f.paused }, 15000), 'the next film plays direct')
+    await win.evaluate(() => {
+      window.__old = 0
+      window.__watch = setInterval(() => {
+        const v = document.querySelector('video')
+        if (v && !v.paused && !v.hasAttribute('src') && (v.currentSrc || '').startsWith('fsmedia')) window.__old += 1
+      }, 8)
+    })
+    await win.keyboard.press('PageDown')
+    ok(await until(async () => (await filmNow(win))?.route === 'live', 15000), 'stepping to the remembered film takes it live at once')
+    const ghost = await win.evaluate(() => {
+      clearInterval(window.__watch)
+      return window.__old
+    })
+    ok(ghost === 0, `and the film before it stopped at once (played on for ${ghost} checks with no source)`)
+    // Stopped while its ffmpeg still holds a file (Windows: EBUSY on the
+    // delete): the job's folder must still go, and nothing may be thrown.
+    await viewFile(win, 'B_film.mov')
+    const liveDir = join(PROFILE, 'live')
+    const left = () => (existsSync(liveDir) ? readdirSync(liveDir) : [])
+    ok(await until(() => left().length === 0, 8000), `the live job's folder is gone (${left().join(', ')})`)
+    await sleep(2600)
+    const thrown = readFileSync(join(DIAG_DIR, 'diag.jsonl'), 'utf8').split('\n').filter((l) => l.includes('main-rejection'))
+    ok(thrown.length === 0, `and main threw nothing while stopping it (${thrown.join(' ').slice(0, 200)})`)
+  } finally {
+    await app.close()
+  }
+  ok(await until(async () => (await processCount('ffmpeg.exe', '*movguard*')) === 0, 8000), 'and no ffmpeg is left behind')
+}
+
+/**
+ * AN iPHONE'S HEVC .MOV PLAYS, WHATEVER THE PC CAN DECODE (owner,
+ * 2026-11-08: "make prism support .mov, i dont think it does"). This PC
+ * decodes HEVC through its GPU, so the film plays as it is and nothing is
+ * transcoded: asserted first. Then the live route a PC WITHOUT HEVC takes is
+ * forced (`PRISM_E2E_FORCE_LIVE`, as the phone's e2e forces an encode): the
+ * picture plays through hls.js with its portrait turn kept, the bar knows the
+ * whole length from the first second, a seek past what ffmpeg has made lands,
+ * pause holds, and leaving the film leaves no ffmpeg on it. The preview pane
+ * takes the same route. The fixture is synthetic (libkvazaar HEVC, AAC, a
+ * quarter-turn display matrix); the owner's own films are `movOwner`.
+ */
+async function movHevcScenario(fixtures) {
+  console.log('an iPhone HEVC .mov plays, directly or live (2026-11-08)')
+  const src = join(fixtures, 'av', 'iphone-hevc.mov')
+  if (!existsSync(src)) {
+    ok(false, 'the HEVC fixture was built (needs libkvazaar in the bundled ffmpeg)')
+    return
+  }
+  const dir = join(fixtures, 'movhevc')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, 'IMG_0001.MOV')
+  copyFileSync(src, file)
+  writeFileSync(join(dir, 'notes.txt'), 'not a film')
+  const transcodes = () => processCount('ffmpeg.exe', '*movhevc*IMG_0001*')
+  const film = (sel = 'video') =>
+    win.evaluate((s) => {
+      const v = document.querySelector(s)
+      if (!v) return null
+      return {
+        src: v.currentSrc || v.getAttribute('src') || '',
+        w: v.videoWidth,
+        h: v.videoHeight,
+        t: v.currentTime,
+        dur: v.duration,
+        ready: v.readyState,
+        paused: v.paused,
+        frames: v.getVideoPlaybackQuality?.().totalVideoFrames ?? 0
+      }
+    }, sel)
+  let app
+  let win
+
+  // 1. Direct, on a PC that decodes HEVC: the file itself, no transcode.
+  ;({ app, win } = await launch(file))
+  try {
+    await win.waitForSelector('video', { timeout: 10000 })
+    const can = await win.evaluate(() => document.createElement('video').canPlayType('video/mp4; codecs="hvc1.1.6.L120.90"'))
+    await win.evaluate(() => document.querySelector('video')?.play().catch(() => {}))
+    ok(await until(async () => ((await film())?.w ?? 0) > 0 && ((await film())?.t ?? 0) > 0.3, 20000), `the film plays (${JSON.stringify(await film())})`)
+    const f = await film()
+    if (can) {
+      ok(f.src.startsWith('fsmedia://local/'), `this PC decodes HEVC (${can}): the file itself plays, no transcode (${f.src.slice(0, 40)})`)
+      ok((await transcodes()) === 0, 'and no ffmpeg runs on it')
+    } else {
+      ok(f.src.startsWith('blob:'), 'this PC cannot decode HEVC: the live route plays it')
+    }
+    ok(f.w === 360 && f.h === 640, `the quarter turn is honoured: portrait (${f.w}x${f.h})`)
+  } finally {
+    await app.close()
+  }
+  await sleep(800)
+
+  // 2. Forced live: the route a PC without HEVC takes.
+  ;({ app, win } = await launchWith({ PRISM_E2E_FORCE_LIVE: '1' }, file))
+  try {
+    await win.waitForSelector('video', { timeout: 10000 })
+    await win.evaluate(() => document.querySelector('video')?.play().catch(() => {}))
+    ok(await until(async () => ((await film())?.w ?? 0) > 0 && ((await film())?.t ?? 0) > 0.5, 30000), `live: the picture plays, time moving (${JSON.stringify(await film())})`)
+    let f = await film()
+    ok(f.src.startsWith('blob:'), `through hls.js, not the file (${f.src.slice(0, 30)})`)
+    ok(f.w === 360 && f.h === 640, `the transcode keeps the turn: portrait (${f.w}x${f.h})`)
+    ok(f.frames > 0, `frames really decode (${f.frames})`)
+    ok(Math.abs(f.dur - 12) < 0.6, `the bar knows the whole film from the start (${f.dur})`)
+    ok((await win.locator('[data-transport]').textContent().catch(() => '')).includes('0:12'), 'and says 0:12')
+    // A 12 s film is encoded whole in well under a second, so its ffmpeg may
+    // already have finished: the job's folder is what proves a job exists.
+    const liveDir = join(PROFILE, 'live')
+    ok(existsSync(liveDir) && readdirSync(liveDir).length === 1, 'one live job, in main’s own folder')
+    // A seek past what the first run has made: segment 2 of 3.
+    await win.evaluate(() => {
+      const v = document.querySelector('video')
+      v.currentTime = 9
+      void v.play().catch(() => {})
+    })
+    ok(await until(async () => { const g = await film(); return g.t >= 9.2 && g.ready >= 3 }, 20000), `a seek to 0:09 lands and plays on (${JSON.stringify(await film())})`)
+    await win.evaluate(() => document.querySelector('video').pause())
+    await sleep(400)
+    const t0 = (await film()).t
+    await sleep(700)
+    f = await film()
+    ok(f.paused && Math.abs(f.t - t0) < 0.05, `pause holds (${t0} -> ${f.t})`)
+    await win.screenshot({ path: join(SHOTS, 'mov-hevc-live.png') })
+
+    // Back to the list: the player is kept for the preview (the deck), and
+    // the pane below carries on with the same stream.
+    await toList(win)
+
+    // The preview pane takes the same route.
+    const box = await listRow(win, 'IMG_0001.MOV').boundingBox()
+    await listRow(win, 'IMG_0001.MOV').click({ position: { x: 30, y: box.height / 2 } })
+    await sleep(600)
+    const pane = '[data-browse-preview] video'
+    if (!(await win.locator(pane).count())) {
+      await win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first().click()
+    }
+    await win.waitForSelector(pane, { timeout: 10000 })
+    await win.evaluate((s) => document.querySelector(s)?.play().catch(() => {}), pane)
+    ok(await until(async () => { const g = await film(pane); return !!g && g.w > 0 && g.t > 0.3 && g.src.startsWith('blob:') }, 30000), `the preview pane shows it, the tab's kept player on the same live stream (${JSON.stringify(await film(pane))})`)
+    await win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first().click()
+    ok(await until(async () => (await win.locator(pane).count()) === 0, 5000), 'the pane closes')
+    ok(await until(async () => (await transcodes()) === 0, 8000), `and its ffmpeg stops with it (${await transcodes()})`)
+    const left = () => (existsSync(liveDir) ? readdirSync(liveDir) : [])
+    // The tab keeps its player while it holds the film (lib/mediaDeck), so
+    // the film is let go by opening another file in that tab.
+    await viewFile(win, 'notes.txt')
+    ok(await until(() => left().length === 0, 8000), `the player gone, its job and segments are gone too (${left().join(', ')})`)
+  } finally {
+    await app.close()
+  }
+  ok(await until(async () => (await transcodes()) === 0, 8000), 'nothing transcoding after the app is gone')
+  await sleep(800)
+
+  // 3. A live film, then a direct one, in ONE tab (owner, 2026-11-08): the
+  // direct film after a live one used to be an empty player.
+  const walkDir = join(fixtures, 'movhevc-walk')
+  rmSync(walkDir, { recursive: true, force: true })
+  mkdirSync(walkDir, { recursive: true })
+  copyFileSync(src, join(walkDir, 'IMG_0001.MOV'))
+  copyFileSync(src, join(walkDir, 'IMG_0002.MOV'))
+  ;({ app, win } = await launchWith({ PRISM_E2E_FORCE_LIVE: 'IMG_0001' }, walkDir))
+  try {
+    await win.waitForSelector(FOLDER_LIST, { timeout: 15000 })
+    await walkFilms(win, [['IMG_0001.MOV', 'list', 2500], ['IMG_0002.MOV', 'list', 2500], ['IMG_0001.MOV', 'list', 800], ['IMG_0002.MOV', 'list', 1500]])
+  } finally {
+    await app.close()
+  }
+}
 async function stillsAndSubsScenario(fixtures) {
   console.log('stills and subtitles Chromium cannot read')
   {
@@ -10805,6 +12807,450 @@ async function addressFieldScenario(fixtures) {
  *  happens and suddenly items just appear"). A 600 MB file pasted from the
  *  list: while it copies, the job chip is up, ON TOP (the point at its centre
  *  is the chip, not a panel over it), with its bar. */
+/**
+ * THE LOADING BAR (owner, 2026-11-09: "when you delte or paste a lot of images
+ * or restore with ctrl z it shoudl show a loading bar unti its done because
+ * right now they jstu tickle in and teh files in teh direcotry constantly move
+ * making it ahrd to navigate"). A job over one second puts a bar over that tab's
+ * list; the list behind cannot be used and does not change; it shows the finished
+ * folder once. These scenarios are all on real files: the only seam is
+ * PRISM_E2E_SLOW_COPY (ms per chunk, behind --e2e), so one big file has time to
+ * be cancelled mid-write.
+ */
+const BUSY = '[data-busy-bar]'
+const busyFiles = (dir, n) => {
+  mkdirSync(dir, { recursive: true })
+  for (let i = 0; i < n; i += 1) writeFileSync(join(dir, `f${String(i).padStart(4, '0')}.txt`), 'x')
+  writeFileSync(join(dir, 'notes.txt'), 'notes')
+}
+/** Sample every frame (and a timer, for a window that paints rarely): how many
+ *  times the bar was up, and every "N items" the status line said while it was. */
+const busyWatch = (win) =>
+  win.evaluate(() => {
+    window.__busy = { up: 0, statuses: [], after: [] }
+    const look = () => {
+      const up = !!document.querySelector('[data-busy-bar]')
+      const said = document.querySelector('.browse-status span')?.textContent ?? ''
+      if (up) {
+        window.__busy.up += 1
+        if (window.__busy.statuses.at(-1) !== said) window.__busy.statuses.push(said)
+      } else if (window.__busy.up && window.__busy.after.at(-1) !== said) window.__busy.after.push(said)
+    }
+    const frame = () => {
+      look()
+      requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+    setInterval(look, 8)
+  })
+const busyUp = (win, ms = 15000) => win.waitForSelector(BUSY, { timeout: ms }).then(() => true, () => false)
+const busyGone = (win, ms = 120000) =>
+  until(async () => (await win.locator(BUSY).count()) === 0, ms, 100)
+
+async function busyQuickScenario(fixtures) {
+  console.log('a job under a second never shows the bar')
+  const dir = join(fixtures, 'busyquick')
+  rmSync(dir, { recursive: true, force: true })
+  busyFiles(dir, 3)
+  mkdirSync(join(dir, 'into'))
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await busyWatch(win)
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'one small file on the clipboard')
+    await win.keyboard.press('Control+v')
+    ok(await until(() => existsSync(join(dir, 'f0000 (2).txt')), 8000), 'a one-file paste lands')
+    await listRow(win, 'f0001.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Delete')
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    ok(await until(() => !existsSync(join(dir, 'f0001.txt')), 8000), 'a one-file delete goes')
+    await sleep(1500)
+    ok((await win.evaluate(() => window.__busy.up)) === 0, 'neither showed the bar on any frame')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function busyHoldScenario(fixtures) {
+  console.log('a job over a second holds the list behind a bar')
+  const dir = join(fixtures, 'busyhold')
+  const other = join(fixtures, 'busyhold-other')
+  rmSync(dir, { recursive: true, force: true })
+  rmSync(other, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'notes')
+  busyFiles(join(dir, 'many'), 500)
+  busyFiles(other, 3)
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const state = () =>
+    win.evaluate(() => ({
+      selected: [...document.querySelectorAll('.browse-row[aria-selected="true"]')].map((r) => r.dataset.browsePath),
+      rows: [...document.querySelectorAll('.browse-row[data-browse-path]')].map((r) => r.dataset.browsePath),
+      top: document.querySelector('[data-testid="browse-list"]').scrollTop,
+      status: document.querySelector('.browse-status span')?.textContent ?? ''
+    }))
+  try {
+    await explorerAt(win, dir)
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(join(dir, 'many'))
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await listRow(win, 'f0000.txt').count()) === 1, 15000), 'into the folder')
+    await sleep(600)
+    await busyWatch(win)
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+a')
+    await win.keyboard.press('Delete')
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    ok(await busyUp(win), 'a delete over one second shows the bar')
+    if (!(await win.locator(BUSY).count())) return
+    const label = await win.locator('[data-busy-label]').textContent()
+    ok(/^Deleting \d+ of 501$/.test(label ?? ''), `it says what is happening and how far ("${label}")`)
+    await win.waitForTimeout(200)
+    await win.screenshot({ path: join(SHOTS, 'busy-bar.png') })
+    const before = await state()
+    const box = await win.locator('[data-testid="browse-list"]').boundingBox()
+    // Click on a row, Delete and an arrow, and the wheel: none of them lands.
+    await win.mouse.click(box.x + 120, box.y + 80)
+    await win.keyboard.press('ArrowDown')
+    await win.keyboard.press('Delete')
+    await win.mouse.move(box.x + 200, box.y + 200)
+    await win.mouse.wheel(0, 900)
+    await sleep(350)
+    const after = await state()
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'Delete on the held list asks nothing')
+    ok(JSON.stringify(after.selected) === JSON.stringify(before.selected) && after.top === before.top, 'a click, a key and the wheel change nothing behind it')
+    ok(JSON.stringify(after.rows) === JSON.stringify(before.rows) && after.status === before.status, `the list does not change behind it (${before.status} / ${after.status})`)
+    ok(await win.evaluate(() => !!document.querySelector('.browse-list-frame').inert), 'the list is inert while held')
+
+    // ANOTHER TAB STAYS USABLE, and the job goes on while you are away.
+    await win.keyboard.press('Control+t')
+    await sleep(500)
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(other)
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await listRow(win, 'f0001.txt').count()) === 1, 15000), 'a new tab goes to another folder')
+    ok((await win.locator(BUSY).count()) === 0, 'another tab on another folder has no bar')
+    await listRow(win, 'f0001.txt').locator('.browse-name-text').click()
+    ok(await win.evaluate(() => [...document.querySelectorAll('.browse-row[aria-selected="true"]')].some((r) => r.dataset.browsePath.endsWith('f0001.txt'))), 'and its list answers a click')
+    await win.keyboard.press('Control+w')
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await sleep(300)
+    await win.evaluate(() => {
+      window.__busy.after = []
+    })
+
+    ok(await busyGone(win), 'the bar ends')
+    await sleep(300)
+    const seen = await win.evaluate(() => window.__busy)
+    ok(seen.statuses.length === 1, `one status while held: the folder never trickled (${JSON.stringify(seen.statuses)})`)
+    ok(seen.after.length <= 2 && /^0 items/.test(seen.after.at(-1) ?? ''), `and it shows the finished folder once (${JSON.stringify(seen.after)})`)
+    // CTRL+Z PUTS THEM BACK UNDER THE SAME BAR, marked as they arrive.
+    await win.evaluate(() => {
+      window.__busy.up = 0
+      window.__busy.statuses = []
+      window.__busy.after = []
+    })
+    await win.keyboard.press('Control+z')
+    ok(await busyUp(win, 20000), 'Ctrl+Z over one second shows the bar')
+    const restoring = await win.locator('[data-busy-label]').textContent().catch(() => '')
+    ok(/^Restoring/.test(restoring ?? ''), `saying it restores ("${restoring}")`)
+    ok(await busyGone(win), 'and it ends')
+    ok(await until(async () => (await state()).status.startsWith('501'), 30000), 'and the folder is back')
+    const marks = await win.locator('.browse-row[aria-selected="true"]').count()
+    ok(marks > 1, `what came back is marked (${marks} rows)`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(other, { recursive: true, force: true })
+  }
+}
+
+async function busyPasteScenario(fixtures) {
+  console.log('a big paste shows the bar and lands marked')
+  const dir = join(fixtures, 'busypaste')
+  rmSync(dir, { recursive: true, force: true })
+  busyFiles(join(dir, 'src'), 3000)
+  mkdirSync(join(dir, 'into'))
+  writeFileSync(join(dir, 'notes.txt'), 'n')
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, '\\src').dblclick()
+    ok(await until(async () => (await listRow(win, 'f0000.txt').count()) === 1, 15000), 'into the source folder')
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+a')
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 15000), 'on the clipboard')
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(join(dir, 'into'))
+    await win.keyboard.press('Enter')
+    ok(await until(async () => ((await win.locator('.browse-path').getAttribute('data-path')) ?? '').endsWith('into'), 8000), 'into the target')
+    await sleep(500)
+    await busyWatch(win)
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    ok(await busyUp(win, 30000), 'a paste over one second shows the bar')
+    if (await win.locator(BUSY).count()) {
+      const label = await win.locator('[data-busy-label]').textContent().catch(() => '')
+      ok(/^Copying/.test(label ?? ''), `saying what it does ("${label}")`)
+      ok(await busyGone(win), 'the bar ends')
+    }
+    ok(await until(async () => (await win.locator('.browse-row[aria-selected="true"]').count()) > 1, 15000), 'what arrived is marked')
+    ok(await until(() => readdirSync(join(dir, 'into')).length === 3001, 15000), 'every file landed')
+    ok(await win.evaluate(() => !!document.activeElement?.closest('.browse-list')), 'the keyboard is back on the list')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function busyCancelScenario(fixtures) {
+  console.log('Cancel stops the job, leaves no partial, undo is right')
+  const dir = join(fixtures, 'busycancel')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'into'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'n')
+  const big = join(dir, 'big.bin')
+  const chunk = Buffer.alloc(16 * 1024 * 1024, 7)
+  for (let i = 0; i < 8; i += 1) appendFileSync(big, chunk)
+  busyFiles(join(dir, 'many'), 500)
+  const { app, win } = await launchWith({ ...NO_INDEX, PRISM_E2E_SLOW_COPY: '3' }, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, 'big.bin').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'the big file is on the clipboard')
+    await listRow(win, '\\into').dblclick()
+    ok(await until(async () => ((await win.locator('.browse-path').getAttribute('data-path')) ?? '').endsWith('into'), 8000), 'into the folder')
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    ok(await busyUp(win, 20000), 'one slow file over a second shows the bar')
+    if (!(await win.locator(BUSY).count())) return
+    await win.locator('[data-busy-cancel]').click()
+    const t0 = Date.now()
+    ok(await busyGone(win, 8000), 'Cancel by the mouse lifts it')
+    ok(Date.now() - t0 < 6000, `without waiting for the copy (${Date.now() - t0} ms)`)
+    await sleep(800)
+    ok(!existsSync(join(dir, 'into', 'big.bin')), 'no partial file is left')
+    ok(await until(async () => /Stopped/.test(await win.locator('[data-job-note]').textContent().catch(() => '')), 4000, 80), 'and a quiet line says it stopped')
+
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(join(dir, 'many'))
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await listRow(win, 'f0000.txt').count()) === 1, 15000), 'to the many files')
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+a')
+    await win.keyboard.press('Delete')
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    ok(await busyUp(win, 20000), 'the delete shows the bar')
+    await sleep(400)
+    await win.keyboard.press('Escape')
+    ok(await busyGone(win, 20000), 'Escape cancels by the keyboard')
+    await sleep(500)
+    const left = readdirSync(join(dir, 'many')).length
+    ok(left > 1 && left < 501, `some went, some stayed (${left} of 501 left)`)
+    await win.keyboard.press('Control+z')
+    ok(await until(() => readdirSync(join(dir, 'many')).length === 501, 90000, 200), 'Ctrl+Z brings back exactly what went')
+    await sleep(400)
+    await win.keyboard.press('Control+z')
+    ok(await until(async () => /Nothing to undo/.test(await win.locator('body').innerText()), 4000, 100), 'and nothing is left on the stack')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function busyFailScenario(fixtures) {
+  console.log('a job that fails still lifts the bar')
+  const dir = join(fixtures, 'busyfail')
+  rmSync(dir, { recursive: true, force: true })
+  busyFiles(dir, 3)
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await listRow(win, 'f0001.txt').locator('.browse-name-text').click({ modifiers: ['Shift'] })
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    // Gone before the answer: the bin's retries take more than a second, then
+    // it says so.
+    rmSync(join(dir, 'f0000.txt'))
+    rmSync(join(dir, 'f0001.txt'))
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    ok(await busyUp(win, 8000), 'a failing job over one second shows the bar')
+    ok(await busyGone(win, 15000), 'and still lifts it')
+    ok(await until(async () => /could not be moved to the Recycle Bin/.test(await win.locator('[role="dialog"]').textContent().catch(() => '')), 6000), 'and the failure says so')
+    ok(await win.evaluate(() => !document.querySelector('.browse-list-frame').inert), 'the list is not held')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** A press on the wash around the panel is no press anywhere: Escape still
+ *  cancels, and the keyboard still comes home to the list (review, 2026-11-09). */
+async function busyBackdropScenario(fixtures) {
+  console.log('a press beside the panel loses neither Escape nor the keyboard')
+  const dir = join(fixtures, 'busyback')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'into'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'n')
+  const big = join(dir, 'big.bin')
+  const chunk = Buffer.alloc(16 * 1024 * 1024, 7)
+  for (let i = 0; i < 8; i += 1) appendFileSync(big, chunk)
+  const { app, win } = await launchWith({ ...NO_INDEX, PRISM_E2E_SLOW_COPY: '3' }, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, 'big.bin').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'on the clipboard')
+    await listRow(win, '\\into').dblclick()
+    ok(await until(async () => ((await win.locator('.browse-path').getAttribute('data-path')) ?? '').endsWith('into'), 8000), 'into the folder')
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    ok(await busyUp(win, 20000), 'the bar shows')
+    const box = await win.locator('.browse-busy').boundingBox()
+    await win.mouse.click(box.x + 12, box.y + 12)
+    await sleep(200)
+    await win.keyboard.press('Escape')
+    ok(await busyGone(win, 6000), 'Escape cancels after a press on the wash')
+    await sleep(800)
+    ok(!existsSync(join(dir, 'into', 'big.bin')), 'no partial file is left')
+    ok(await until(() => win.evaluate(() => !!document.activeElement?.closest('.browse-list')), 3000), 'and the keyboard is back on the list')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** A cut stopped partway: the rest is still cut, the next paste moves only that
+ *  and says nothing about what already went (review, 2026-11-09). */
+async function busyCutCancelScenario(fixtures) {
+  console.log('Cancel on a cut and paste, then paste again')
+  const dir = join(fixtures, 'busycut')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'into'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'n')
+  writeFileSync(join(dir, 'a.txt'), 'a')
+  const big = join(dir, 'big.bin')
+  const chunk = Buffer.alloc(16 * 1024 * 1024, 7)
+  for (let i = 0; i < 8; i += 1) appendFileSync(big, chunk)
+  // A second process holds big.bin, so its rename fails and the cut falls to
+  // the slow copy, where Cancel can reach it (moveOps.test's lock).
+  const holder = spawn(
+    'powershell',
+    ['-NoProfile', '-Command', `$f = [System.IO.File]::Open('${big}', 'Open', 'Read', 'Read'); [Console]::Out.WriteLine('locked'); [Console]::Out.Flush(); Start-Sleep -Seconds 120`],
+    { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
+  )
+  await new Promise((done) => holder.stdout.once('data', done))
+  const { app, win } = await launchWith({ ...NO_INDEX, PRISM_E2E_SLOW_COPY: '3' }, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, 'a.txt').locator('.browse-name-text').click()
+    await listRow(win, 'big.bin').locator('.browse-name-text').click({ modifiers: ['Control'] })
+    await win.keyboard.press('Control+x')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'both are cut')
+    await listRow(win, '\\into').dblclick()
+    ok(await until(async () => ((await win.locator('.browse-path').getAttribute('data-path')) ?? '').endsWith('into'), 8000), 'into the folder')
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    ok(await busyUp(win, 20000), 'the slow one shows the bar')
+    await win.locator('[data-busy-cancel]').click()
+    ok(await busyGone(win, 8000), 'Cancel lifts it')
+    await sleep(800)
+    ok(existsSync(join(dir, 'into', 'a.txt')), 'what moved first stayed moved')
+    ok(!existsSync(join(dir, 'into', 'big.bin')), 'no partial file is left')
+    ok(statSync(big).size === 128 * 1024 * 1024, 'and the source was not touched')
+
+    holder.kill()
+    await sleep(600)
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    ok(await until(() => existsSync(join(dir, 'into', 'big.bin')) && !existsSync(big), 15000), 'a second paste moves what was left')
+    await sleep(500)
+    const said = await win.locator('[role="dialog"]').textContent({ timeout: 300 }).catch(() => '')
+    ok(!said, `and says nothing about what already went ("${said}")`)
+  } finally {
+    holder.kill()
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** Ctrl+Z on a big move counts on the bar (review, 2026-11-09): undo moves one
+ *  item per call, and each call's own "0 of 1" pinned the bar at 0%. */
+async function busyUndoMoveScenario(fixtures) {
+  console.log('Ctrl+Z on a big move counts on the bar')
+  const dir = join(fixtures, 'busyundomove')
+  const many = join(dir, 'many')
+  rmSync(dir, { recursive: true, force: true })
+  busyFiles(many, 800)
+  mkdirSync(join(many, 'into'))
+  writeFileSync(join(dir, 'notes.txt'), 'n')
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(many)
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await listRow(win, 'f0000.txt').count()) === 1, 15000), 'into the folder')
+    await sleep(600)
+    await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+a')
+    await listRow(win, 'into').locator('.browse-name-text').click({ modifiers: ['Control'] })
+    const from = await listRow(win, 'f0000.txt').locator('.browse-name-text').boundingBox()
+    const onto = await listRow(win, 'into').boundingBox()
+    await win.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+    await win.mouse.down()
+    await win.mouse.move(onto.x + onto.width / 2, onto.y + onto.height / 2, { steps: 12 })
+    await sleep(250)
+    await win.mouse.up()
+    ok(await until(() => readdirSync(join(many, 'into')).length === 801, 30000, 200), 'all 801 moved')
+    await busyGone(win, 30000)
+    await sleep(1500)
+    await win.evaluate(() => {
+      window.__undoBar = { labels: [], pcts: [] }
+      setInterval(() => {
+        const label = document.querySelector('[data-busy-label]')?.textContent
+        if (!label) return
+        if (!window.__undoBar.labels.includes(label)) window.__undoBar.labels.push(label)
+        const pct = document.querySelector('.browse-busy-pct')?.textContent
+        if (pct) window.__undoBar.pcts.push(parseInt(pct, 10))
+      }, 30)
+    })
+    await win.keyboard.press('Control+z')
+    ok(await busyUp(win, 20000), 'the undo shows the bar')
+    ok(await busyGone(win), 'and ends')
+    ok(await until(() => readdirSync(join(many, 'into')).length === 0, 30000, 200), 'all of it came back')
+    const seen = await win.evaluate(() => window.__undoBar)
+    const stray = seen.labels.filter((l) => !/^Moving \d+ of 801$/.test(l))
+    ok(seen.labels.length > 1 && !stray.length, `it counts the whole step (${seen.labels.length} labels, stray: ${JSON.stringify(stray.slice(0, 3))})`)
+    ok(seen.pcts.some((p) => p > 0 && p < 100), `and the bar moves (${seen.pcts.filter((p) => p > 0 && p < 100).length} readings between 0 and 100)`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function pasteProgressScenario(fixtures) {
   console.log('a big paste shows its progress')
   const dir = join(fixtures, 'pasteprogress')
@@ -17961,6 +20407,28 @@ async function previewWindowScenario(fixtures) {
     await childKey('ArrowRight')
     ok(await until(async () => (await film())?.t > 0.5, 2000), `ArrowRight in the window seeks the film (${JSON.stringify(await film())})`)
     ok((await focusedRow()) === 'video.mp4' && (await isOpen()), `and moves nothing in the list (${await focusedRow()})`)
+    // #492: Up and Down in the window walk the folder, and leave the volume alone.
+    const vol0 = await win.evaluate(() => window.__prismPreviewWindow.document.querySelector('[data-preview-window-body] video').volume)
+    const shownName = () => win.evaluate(() => window.__prismPreviewWindow.document.title)
+    const marked = () =>
+      win.evaluate(() => /[^\\]*$/.exec(document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')?.[0] ?? '')
+    await childKey('ArrowUp')
+    ok(await until(async () => (await shownName()) !== 'video.mp4', 3000), `Up in the window on a film goes to the file before it (${await shownName()})`)
+    ok(await until(async () => (await marked()) === (await shownName()), 3000), `and the list's row follows (${await marked()})`)
+    ok(await isOpen(), 'and the window stays open')
+    // A picture walks too, so a run of pictures and films does not stop at the first picture.
+    await pick('bravo.png')
+    await childKey('ArrowDown')
+    ok(await until(async () => (await shownName()) !== 'bravo.png', 3000), `Down in the window on a picture goes on (${await shownName()})`)
+    await pick('video.mp4')
+    ok(await until(async () => (await film())?.ready >= 1, 8000), 'with the film in the window again')
+    const vol1 = await win.evaluate(() => window.__prismPreviewWindow.document.querySelector('[data-preview-window-body] video').volume)
+    ok(vol1 === vol0, `and the walk did not touch the volume (${vol0} -> ${vol1})`)
+    // Picked again it starts by itself (#491); back to paused, so the Space checks below see only Space.
+    const windowFilm = 'window.__prismPreviewWindow.document.querySelector(\'[data-preview-window-body] video\')'
+    await until(async () => (await win.evaluate(`!${windowFilm}.paused`)), 4000)
+    await win.evaluate(`${windowFilm}.pause()`)
+    await sleep(300)
 
     // Space with the keyboard in the window itself closes it, faded out,
     // a film's too (Space is the window's, never play and pause).
@@ -21735,8 +24203,10 @@ async function batchCopiesLoadScenario(fixtures) {
     // AVIF, then Cancel once a few have landed.
     await markAll('AVIF')
     ok(await until(async () => copies('avif').length >= 3, 120000), `copies land (${copies('avif').length})`)
-    const cancel = win.locator('[data-job-cancel]')
-    ok((await cancel.count()) === 1, 'the chip has a Cancel while it runs')
+    // Past a second the loading bar has the Cancel; the chip stands down for
+    // the job on the tab in front (owner, 2026-11-09).
+    const cancel = win.locator('[data-busy-cancel]')
+    ok((await cancel.count()) === 1, 'the bar has a Cancel while it runs')
     await win.screenshot({ path: join(SHOTS, 'save-copies-running.png') })
     await cancel.click()
     const stopped = await until(async () => {
@@ -21746,7 +24216,7 @@ async function batchCopiesLoadScenario(fixtures) {
     const atStop = copies('avif').length
     ok(!!stopped && new RegExp(`^Stopped, saved ${atStop} cop(y|ies), 1 skipped \\(not pictures\\)$`).test(stopped), `the note says it stopped, and what it saved (${stopped})`)
     ok(atStop < photos.length, `Cancel stopped it short (${atStop} of ${photos.length})`)
-    ok((await win.locator('[data-job-cancel]').count()) === 0, 'and the Cancel is gone')
+    ok((await win.locator('[data-busy-cancel],[data-job-cancel]').count()) === 0, 'and the Cancel is gone')
     await sleep(3000)
     ok(copies('avif').length === atStop, `no copy lands after Cancel (${copies('avif').length})`)
     const marks = await marked(win)
@@ -22159,6 +24629,19 @@ await run(dolbyScenario)
 await run(formatsScenario)
 await run(stillsAndSubsScenario)
 await run(convertScenario)
+await run(movHevcScenario)
+await run(movOwnerScenario)
+await run(movGuardScenario)
+await run(filmKeysScenario)
+await run(filmStartScenario)
+await run(filmCloseScenario)
+await run(filmFlashScenario)
+await run(filmAbuseScenario)
+// The film scenarios' own folders go now. Folders sort first and the list only
+// draws the rows in view, so thirteen more of them pushed the root's files out
+// of the DOM and every later scenario that looks for ep2.mp4 timed out.
+for (const d of ['movhevc', 'movhevc-walk', 'movowner', 'movwalk', 'movguard', 'filmkeys', 'filmstart', 'filmstart-quiet', 'filmclose', 'filmflash', 'filmabuse', 'filmlate', 'filmbad'])
+  rmSync(join(fixtures, d), { recursive: true, force: true })
 await run(sevenZipScenario)
 await run(documentScenario, 2000)
 await run(synthAndRawScenario)
@@ -22289,11 +24772,23 @@ await run(spareScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(deleteAgainScenario)
+await run(deleteFastScenario)
+await run(deleteZipScenario)
+await run(pasteTabsScenario)
 await run(arrowKeysScenario)
 await run(chromeHideScenario)
 await run(zoomFloorScenario)
 await run(rowPasteScenario)
 await run(deleteLastScenario)
+await run(deleteFocusScenario)
+await run(busyQuickScenario)
+await run(busyHoldScenario)
+await run(busyPasteScenario)
+await run(busyCancelScenario)
+await run(busyFailScenario)
+await run(busyBackdropScenario)
+await run(busyCutCancelScenario)
+await run(busyUndoMoveScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over

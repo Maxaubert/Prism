@@ -111,6 +111,11 @@ interface Job extends StartArgs {
   failed: string | null
 }
 
+/** A killed ffmpeg holds its files for a moment longer on Windows, and a
+ *  delete in that moment is EBUSY (measured 2026-11-08, a main-rejection and
+ *  a folder left behind when a live film was left): node retries for us. */
+const RM_RETRY = { recursive: true, force: true, maxRetries: 8, retryDelay: 50 }
+
 export class HlsJobs {
   private readonly jobs = new Map<string, Job>()
   /** The encoder in use; flips to openh264 after one GPU failure and stays. */
@@ -188,6 +193,27 @@ export class HlsJobs {
     await Promise.all(gone.map((job) => this.discard(job)))
   }
 
+  /** Stop and discard ONE job: the desktop player that asked for it closed
+   *  or moved to another file (2026-11-08, liveVideo.ts). Its ffmpeg is
+   *  killed and its segments removed, like `stopFor` does for a phone. */
+  async stop(id: string): Promise<void> {
+    const job = this.jobs.get(id)
+    if (!job) return
+    this.jobs.delete(id)
+    await this.discard(job)
+  }
+
+  /** How many jobs there are, so a host can stop its reaper when idle. */
+  get size(): number {
+    return this.jobs.size
+  }
+
+  /** Whether ffmpeg is running for a job: the e2e asks this to prove a
+   *  closed player left nothing encoding behind it. */
+  running(id: string): boolean {
+    return !!this.jobs.get(id)?.proc
+  }
+
   lastError(id: string): string | null {
     return this.jobs.get(id)?.failed ?? null
   }
@@ -243,7 +269,7 @@ export class HlsJobs {
     const run = (async (): Promise<void> => {
       // Cleared rather than reused: what is on disk is what THIS run made,
       // so `produced` can walk up from the start and mean it.
-      await fsp.rm(job.dir, { recursive: true, force: true })
+      await fsp.rm(job.dir, RM_RETRY)
       await fsp.mkdir(job.dir, { recursive: true })
       if (job.gen !== gen || !this.jobs.has(job.id)) return
       const args = hlsArgs({
@@ -298,6 +324,7 @@ export class HlsJobs {
         }
         if (this.encoder.video === 'nvenc' && looksLikeGpuFailure(job.stderr)) {
           // Once, for the session: the software path from here on.
+          this.log(`job ${job.id} encoder fallback to openh264: ${said()}`)
           this.encoder = { video: 'openh264' }
           void this.start(job, at)
           return
@@ -451,7 +478,7 @@ export class HlsJobs {
         this.kill(job)
       }
     }
-    await Promise.all(emptied.map((job) => fsp.rm(job.dir, { recursive: true, force: true })))
+    await Promise.all(emptied.map((job) => fsp.rm(job.dir, RM_RETRY).catch(() => undefined)))
   }
 
   async stopAll(): Promise<void> {
@@ -464,6 +491,6 @@ export class HlsJobs {
     job.gen += 1
     this.kill(job)
     if (job.starting) await job.starting.catch(() => undefined)
-    await fsp.rm(job.dir, { recursive: true, force: true })
+    await fsp.rm(job.dir, RM_RETRY).catch((e) => this.log(`job ${job.id} folder not removed: ${String(e)}`))
   }
 }

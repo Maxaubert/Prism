@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { keyTarget, previewWindowKey } from '../../lib/previewWindowKeys'
+import { keyTarget, previewWindowKey, previewWindowStep } from '../../lib/previewWindowKeys'
 import { logNote } from '../../lib/noteLog'
 import { addPageDocument } from '../../lib/pageDocuments'
 import './previewWindow.css'
@@ -32,17 +32,24 @@ export function PreviewWindow({
   open,
   title,
   onClose,
+  onStep,
   children
 }: {
   open: boolean
   title: string
   onClose: () => void
+  /** Set while what is shown does not own Up and Down itself (a document
+   *  scrolls, a track has its volume): with the keyboard in the window they
+   *  walk the folder (#492). */
+  onStep?: (delta: 1 | -1) => void
   children: ReactNode
 }): JSX.Element | null {
   const [host, setHost] = useState<{ win: Window; root: HTMLElement } | null>(null)
   const close = useRef(onClose)
+  const filmStep = useRef(onStep)
   useLayoutEffect(() => {
     close.current = onClose
+    filmStep.current = onStep
   })
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -62,7 +69,7 @@ export function PreviewWindow({
         }
         const undress = dress(win)
         // Its keys go on BEFORE any viewer is drawn into it (see `ownKeys`).
-        const unkey = ownKeys(win, () => close.current())
+        const unkey = ownKeys(win, () => close.current(), () => filmStep.current)
         const unpage = addPageDocument(win.document)
         const root = win.document.createElement('div')
         root.className = 'preview-window-host'
@@ -151,11 +158,27 @@ export function PreviewWindow({
  * up in the window keeps both too (Escape closes the menu, Space picks its
  * row, and is taken for nothing under it), and the window stays.
  */
-function ownKeys(win: Window, onClose: () => void): () => void {
+function ownKeys(
+  win: Window,
+  onClose: () => void,
+  filmStep: () => ((delta: 1 | -1) => void) | undefined
+): () => void {
   const menuUp = (): boolean => !!win.document.querySelector('[role="menu"]')
   const onKey = (e: KeyboardEvent): void => {
     const k = previewWindowKey(e, keyTarget(e.target), menuUp())
-    if (!k) return
+    if (!k) {
+      const step = filmStep()
+      const el = e.target as { matches?: (s: string) => boolean } | null
+      const d = step
+        ? previewWindowStep(e, keyTarget(e.target), menuUp(), !!el?.matches?.('input[type="range"]'))
+        : null
+      if (step && d) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        step(d)
+      }
+      return
+    }
     e.preventDefault()
     e.stopImmediatePropagation()
     if (k === 'close') onClose()

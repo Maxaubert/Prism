@@ -31,6 +31,9 @@ export type PlayPlan =
        *  by default and Safari then refuses: the stream has to be tagged
        *  `hvc1`, which is the same bytes under the name Apple accepts. */
       hevcCopy: boolean
+      /** The display matrix's turn in degrees (an iPhone's portrait film:
+       *  -90). An encode keeps it; see `scaleTo` in hls.ts. */
+      rotation?: number
     }
   | { mode: 'none'; reason: string }
 
@@ -108,6 +111,7 @@ export function decide(info: MediaInfo | null, ext: string, can: Can): PlayPlan 
     copyAudio: acodec === 'aac' || (acodec !== null && HLS_COPY_AUDIO.has(acodec) && can.has(acodec)),
     tonemap: encodeVideo && hdr,
     height,
-    audioOnly
+    audioOnly,
+    ...(info.video?.rotation ? { rotation: info.video.rotation } : {})
   }
 }

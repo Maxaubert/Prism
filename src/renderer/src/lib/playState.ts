@@ -17,19 +17,66 @@
 interface Mark {
   paused: boolean
   t: number
+  /** Paused BY YOU (#491): not a film that reached its end, and not one the
+   *  app paused itself when it took it off the screen. */
+  held: boolean
 }
 
 const marks = new Map<string, Mark>()
 
 const mark = (key: string): Mark => {
-  const m = marks.get(key) ?? { paused: false, t: 0 }
+  const m = marks.get(key) ?? { paused: false, t: 0, held: false }
   marks.set(key, m)
   return m
 }
 
-export function rememberPaused(key: string, isPaused: boolean): void {
+/** `held` says the pause was yours; a pause the app made passes false. */
+export function rememberPaused(key: string, isPaused: boolean, held = isPaused): void {
   if (!key) return
-  mark(key).paused = isPaused
+  const m = mark(key)
+  m.paused = isPaused
+  m.held = isPaused && held
+}
+
+/**
+ * THE APP'S OWN PAUSE (#491). Leaving a film (the list coming back, the pane
+ * shutting) pauses it, and the element's pause event cannot say who asked; a
+ * pause made here is remembered as not yours, so the film still starts the
+ * next time it is shown. A film that is already paused is left alone, or the
+ * entry would still be here to mislabel a real pause later.
+ */
+const quietly = new WeakSet<HTMLMediaElement>()
+
+export function pauseQuietly(el: HTMLMediaElement): void {
+  if (el.paused) return
+  quietly.add(el)
+  el.pause()
+}
+
+/** Was the pause this element just reported the app's own? Reads it once. */
+export function wasQuietPause(el: HTMLMediaElement | null): boolean {
+  return !!el && quietly.delete(el)
+}
+
+/**
+ * Did YOU pause this film (#491; owner, 2026-11-08)? A film shown by a step or
+ * by the pane opening starts by itself unless this says otherwise. A film that
+ * ended or that the app took off the screen is not held.
+ */
+export function heldPaused(key: string): boolean {
+  return marks.get(key)?.held ?? false
+}
+
+/**
+ * Should the playlist's next file start (2026-08-28, #491)? Yes if this one
+ * was playing, or stopped without you stopping it: a film reaching its end
+ * fires `pause` just before `ended`, and that pause used to read as yours, so
+ * the next film in the playlist landed paused. A file nobody started has no
+ * mark and does not hand anything on.
+ */
+export function carriesOn(key: string): boolean {
+  const m = marks.get(key)
+  return !!m && !m.held
 }
 
 /** Was this file paused when its player last went away? */
@@ -58,7 +105,9 @@ export function wasPlaying(key: string): boolean {
  *  the same intent, and there is no element about to appear to read it. */
 export function intendToPlay(key: string): void {
   if (!key) return
-  mark(key).paused = false
+  const m = mark(key)
+  m.paused = false
+  m.held = false
   for (const fn of intents.get(key) ?? []) fn()
 }
 

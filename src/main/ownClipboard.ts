@@ -96,6 +96,8 @@ export function createOwnClipboard(
   begin(paths: string[], cut: boolean): OwnCopy
   settle(id: string, ok: boolean, reason?: string): void
   used(id: string): void
+  /** A cut stopped partway: only these are left to move. */
+  left(id: string, paths: string[]): void
   source(): PasteSource
   latest(): OwnCopy | null
   unchanged(): boolean
@@ -125,6 +127,9 @@ export function createOwnClipboard(
     },
     used(id) {
       if (latest?.id === id && latest.cut) latest = { ...latest, used: true }
+    },
+    left(id, paths) {
+      if (latest?.id === id && latest.cut) latest = { ...latest, paths: [...paths] }
     },
     source() {
       const c = latest

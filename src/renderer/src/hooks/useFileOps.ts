@@ -3,7 +3,6 @@ import { followFolderIcons } from '../lib/folderIcons'
 import {
   useCallback,
   useLayoutEffect,
-  useMemo,
   useRef,
   type Dispatch,
   type RefObject,
@@ -30,15 +29,19 @@ import {
 import { sessionTime, wasPaused, wasPlaying, rememberTime, rememberPaused } from '../lib/playState'
 import { movedOn } from '../lib/fileOpsFollow'
 import { type UndoOps, undoEntry, redoEntry } from '../lib/undoApply'
+import { entryPlaces, entrySize, entryStoppable, entryVerb, stoppedStep } from '../lib/undo'
+import { type FileJob, stoppedNote, withFileJob } from '../lib/fileJob'
+import { baseName, parentDir } from '@shared/path'
 import type { DragPayload } from '../lib/drag/dragDrop'
 import { archiveTarget, dropVerb, type DropKeys, type DropVerb } from '../lib/drag/dropVerb'
 import { archivePassword } from '../lib/archivePass'
-import { endJob, startJob } from '../lib/jobs'
+import { trimLanding } from '../lib/jobs'
 import { PASTE_MESSAGES, pasteMessage } from './useFilePaste'
 import { browseParent } from '../lib/browse'
 import type { Ask } from '../dialogs/asks'
 import type { useArchiveActions } from '../components/browse/useArchiveActions'
 import { markLanded } from '../lib/landMarks'
+import { noteBinned, noteGoing, noteStayed } from '../lib/binnedRows'
 
 // THE FILE OPERATIONS (out of App.tsx, structure cleanup 2026-10-12,
 // unchanged): rename, new folder, delete, move and the drops that move, and
@@ -53,7 +56,9 @@ export interface FileOpsDeps {
   openBrowseFile: (
     file: string | ViewerFile,
     full?: boolean,
-    play?: boolean
+    play?: boolean,
+    judged?: string | null,
+    keep?: boolean
   ) => Promise<boolean | undefined>
   setAsk: Dispatch<SetStateAction<Ask | null>>
   setRefreshKey: Dispatch<SetStateAction<number>>
@@ -86,6 +91,7 @@ export interface FileOps {
     mode: MoveOnClash,
     track?: boolean
   ) => Promise<{ from: string; to: string }[]>
+  runDuplicate: (path: string) => Promise<void>
   runRename: (
     path: string,
     name: string,
@@ -133,11 +139,15 @@ export function useFileOps({
    *  through `openBrowseFile`'s default `play = true`, which is the intent to
    *  play, so a paused film resumed with sound after an unrelated rename or
    *  delete in an Explorer tab. Only a caller that knows the file was playing
-   *  passes `play`. */
+   *  passes `play`. `keep`: the file is only being shown again, so a list on
+   *  screen keeps its selection (a delete of ANOTHER row used to jump it to
+   *  the file this tab last opened, 2026-11-09). */
   const reopen = useCallback(
-    (p: string, play = false) => {
+    (p: string, play = false, keep = false) => {
       if (!active) return
-      void openBrowseFile(p, active.browse.surface === 'viewer', play)
+      const full = active.browse.surface === 'viewer'
+      if (keep && !full) void openBrowseFile(p, full, play, null, true)
+      else void openBrowseFile(p, full, play)
     },
     [active, openBrowseFile]
   )
@@ -231,41 +241,63 @@ export function useFileOps({
     },
     [setTabState]
   )
-  const trashWithRetry = useCallback(async (path: string, held: boolean): Promise<boolean> => {
-    if (held) await new Promise((r) => setTimeout(r, 350))
-    for (let i = 0; i < 4; i += 1) {
-      if (await window.prism.trashFile(path)) return true
-      await new Promise((r) => setTimeout(r, 300))
-    }
-    return false
-  }, [])
+  const trashWithRetry = useCallback(
+    async (path: string, held: boolean, job: FileJob): Promise<boolean> => {
+      if (held) await new Promise((r) => setTimeout(r, 350))
+      for (let i = 0; i < 4; i += 1) {
+        if (job.stopped()) return false
+        if (await window.prism.trashFile(path).catch(() => false)) return true
+        await new Promise((r) => setTimeout(r, 300))
+      }
+      return false
+    },
+    []
+  )
 
   const runDelete = useCallback(
     async (path: string): Promise<void> => {
       setAsk(null)
-      const held = releaseFiles([path])
-      const ok = await trashWithRetry(path, held)
-      if (!ok) {
-        setAsk({ kind: 'failed', message: 'That could not be moved to the Recycle Bin.', op: 'trash' })
-        return
-      }
-      setRefreshKey((n) => n + 1)
-      dropBuffers([path])
-      noteUndo({ kind: 'trash', paths: [path] })
-      const cur = file?.path
-      if (movedOn(cur, shown.current?.path)) return
-      if (!cur || !within(cur, path)) {
-        if (cur) reopen(cur)
-        return
-      }
-      // What we were looking at is gone. Step to the nearest surviving neighbour,
-      // skipping anything that lived inside the same folder.
-      const survivors = view?.files.filter((f) => !within(f.path, path)) ?? []
-      const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
-      if (next) reopen(next.path)
-      else showNothing()
+      await withFileJob(
+        {
+          kind: 'bin',
+          verb: 'Deleting',
+          name: baseName(path),
+          total: 1,
+          dirs: [parentDir(path), active?.browse.path ?? ''],
+          under: [path]
+        },
+        async (job) => {
+          const held = releaseFiles([path])
+          noteGoing([path])
+          const ok = await trashWithRetry(path, held, job)
+          if (!ok) {
+            noteStayed([path])
+            if (job.stopped()) return job.note(stoppedNote('Deleted', 0, 1))
+            setAsk({ kind: 'failed', message: 'That could not be moved to the Recycle Bin.', op: 'trash' })
+            return
+          }
+          // Before the refresh: the list hands the selection on when the row goes.
+          noteBinned([path])
+          setRefreshKey((n) => n + 1)
+          dropBuffers([path])
+          noteUndo({ kind: 'trash', paths: [path] })
+          const cur = file?.path
+          if (movedOn(cur, shown.current?.path)) return
+          if (!cur || !within(cur, path)) {
+            if (cur) reopen(cur, false, true)
+            return
+          }
+          // What we were looking at is gone. Step to the nearest surviving neighbour,
+          // skipping anything that lived inside the same folder.
+          const survivors = view?.files.filter((f) => !within(f.path, path)) ?? []
+          const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
+          if (next) reopen(next.path)
+          else showNothing()
+        }
+      )
     },
     [
+      active,
       dropBuffers,
       file,
       noteUndo,
@@ -278,17 +310,25 @@ export function useFileOps({
       setRefreshKey
     ]
   )
-  /** The multi-selection's delete (2026-08-22): every path to the bin, one
-   *  refresh, and the viewer steps off anything that just vanished. */
-  const runDeleteMany = useCallback(
-    async (paths: string[]): Promise<void> => {
-      setAsk(null)
+  /** The body of the multi-selection's delete, below. */
+  const deleteMany = useCallback(
+    async (paths: string[], job: FileJob): Promise<void> => {
       const held = releaseFiles(paths)
       const binned: string[] = []
+      noteGoing(paths)
+      let tried = 0
       for (const p of paths) {
-        if (await trashWithRetry(p, held && binned.length === 0)) binned.push(p)
+        if (job.stopped()) break
+        if (await trashWithRetry(p, held && binned.length === 0, job)) binned.push(p)
+        else noteStayed([p])
+        tried += 1
+        job.count(tried)
       }
-      const failed = paths.length - binned.length
+      // What Cancel never reached stays where it is.
+      if (tried < paths.length) noteStayed(paths.slice(tried))
+      const failed = job.stopped() ? 0 : paths.length - binned.length
+      if (job.stopped()) job.note(stoppedNote('Deleted', binned.length, paths.length))
+      noteBinned(binned)
       setRefreshKey((n) => n + 1)
       // Only the ones that really went: undoing a path that never left would
       // restore a file the user deliberately binned earlier.
@@ -304,7 +344,7 @@ export function useFileOps({
         const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
         if (next) reopen(next.path)
         else showNothing()
-      } else if (cur) reopen(cur)
+      } else if (cur) reopen(cur, false, true)
       if (failed)
         setAsk({
           kind: 'failed',
@@ -326,6 +366,24 @@ export function useFileOps({
     ]
   )
 
+  /** The multi-selection's delete (2026-08-22): every path to the bin, one
+   *  refresh, and the viewer steps off anything that just vanished. */
+  const runDeleteMany = useCallback(
+    async (paths: string[]): Promise<void> => {
+      setAsk(null)
+      await withFileJob(
+        {
+          kind: 'bin',
+          verb: 'Deleting',
+          total: paths.length,
+          dirs: [...new Set(paths.map(parentDir)), active?.browse.path ?? ''],
+          under: paths
+        },
+        (job) => deleteMany(paths, job)
+      )
+    },
+    [active, deleteMany, setAsk]
+  )
   /** A drop landed on a folder (#70): files move in, archive members extract
    *  there. Moving asks about taken names before it touches anything. */
   const moveTabs = useRef(tabs)
@@ -340,9 +398,10 @@ export function useFileOps({
       paths: string[],
       dest: string,
       mode: MoveOnClash,
-      track = true
+      track = true,
+      job?: FileJob
     ): Promise<Array<{ from: string; to: string }>> => {
-      const operation = async (): Promise<FileMove[]> => {
+      const body = async (running: FileJob | undefined): Promise<FileMove[]> => {
         // Release every tab that holds this cargo, including background previews
         // and pinned players. Read the latest committed tabs after async grants.
         const held = captureMoveViews(moveTabs.current, paths)
@@ -375,15 +434,17 @@ export function useFileOps({
         if (held.length) await new Promise((res) => setTimeout(res, 350))
         let moved: FileMove[] = []
         try {
-          let r = await window.prism.moveEntries(paths, dest, mode)
+          let r = await window.prism.moveEntries(paths, dest, mode, running?.id)
           moved = r.moved
           if (mode === 'ask' && r.clashes.length) {
             setAsk({ kind: 'move-clash', paths, dest, names: r.clashes.map((c) => c.name) })
             return []
           }
-          for (let i = 0; i < 3 && r.busy.length; i += 1) {
+          for (let i = 0; i < 3 && r.busy.length && !r.cancelled; i += 1) {
             await new Promise((res) => setTimeout(res, 300))
-            const again = await window.prism.moveEntries(r.busy, dest, mode)
+            // Between two calls no job runs in main for Cancel to reach.
+            if (running?.stopped()) break
+            const again = await window.prism.moveEntries(r.busy, dest, mode, running?.id)
             const movedNow = new Set(again.moved.map((m) => m.from.toLowerCase()))
             r = {
               ...r,
@@ -394,7 +455,8 @@ export function useFileOps({
               ],
               busy: again.busy,
               replaced: [...r.replaced, ...again.replaced],
-              refused: r.refused || again.refused
+              refused: r.refused || again.refused,
+              cancelled: r.cancelled || again.cancelled
             }
             moved = r.moved
           }
@@ -412,7 +474,11 @@ export function useFileOps({
               items: r.moved,
               replaced: r.replaced?.length ? r.replaced : undefined
             })
+          // Cancel stopped the mover after what it replaced went to the bin:
+          // nothing moved, and that delete is what there is to undo.
+          else if (track && r.cancelled && r.replaced?.length) noteUndo({ kind: 'trash', paths: r.replaced })
           moved = r.moved
+          if (r.cancelled && running) running.note(stoppedNote('Moved', r.moved.length, paths.length))
           if (r.failed.length)
             setAsk({
               kind: 'failed',
@@ -428,6 +494,21 @@ export function useFileOps({
           await restore(moved)
         }
       }
+      // An undo or redo brings its own job; a drag or a menu move is its own.
+      const operation = (): Promise<FileMove[]> =>
+        job || !track
+          ? body(job)
+          : withFileJob(
+              {
+                kind: 'move',
+                verb: 'Moving',
+                name: paths.length === 1 ? baseName(paths[0]) : undefined,
+                total: paths.length,
+                dirs: [dest, ...new Set(paths.map(parentDir))],
+                under: paths
+              },
+              body
+            )
       // Only one move can detach players at once, including moves queued while
       // another is waiting for Windows handles. A failure does not block the next.
       const result = moveQueue.current.then(operation)
@@ -440,21 +521,43 @@ export function useFileOps({
     [noteUndo, rekeyBuffer, buffers, setAsk, setRefreshKey, setTabState]
   )
 
+  /** Duplicate: a job like a paste (the loading bar, owner 2026-11-09). */
+  const runDuplicate = useCallback(
+    async (path: string): Promise<void> => {
+      await withFileJob(
+        { kind: 'duplicate', verb: 'Duplicating', name: baseName(path), total: 1, dirs: [parentDir(path)] },
+        async (job) => {
+          const copy = await window.prism.duplicateFile(path, job.id)
+          if (copy) {
+            noteUndo({ kind: 'duplicate', source: path, path: copy })
+            setRefreshKey((n) => n + 1)
+            markLanded([copy])
+          } else if (job.stopped()) job.note(stoppedNote('Duplicated', 0, 1))
+        }
+      )
+    },
+    [noteUndo, setRefreshKey]
+  )
+
   /** What undoing and redoing each entry does is `lib/undoApply.ts`; this is
-   *  how it reaches App's own moves, renames and questions. */
-  const undoOps = useMemo(
-    (): UndoOps => ({
-      move: (paths, dest) => runMove(paths, dest, 'keep-both', false),
+   *  how it reaches App's own moves, renames and questions. Each step is a job
+   *  (the loading bar): `job` carries its Cancel into the moves it makes. */
+  const undoOps = useCallback(
+    (job: FileJob, stopped: UndoOps['stopped']): UndoOps => ({
+      move: (paths, dest) => runMove(paths, dest, 'keep-both', false, job),
       rename: (path, name) => runRename(path, name, 'keep-both', false),
       refresh: () => setRefreshKey((n) => n + 1),
       fail: (message) => setAsk({ kind: 'failed', message, op: 'undo' }),
       land: markLanded,
+      signal: job.signal,
+      progress: job.count,
+      stopped,
+      jobId: job.id,
+      restoreJob: (paths) => window.prism.restoreFromBinJob(paths, job.id),
       prism: window.prism
     }),
     [runMove, runRename, setAsk, setRefreshKey]
   )
-  const applyUndo = useCallback((entry: UndoEntry) => undoEntry(entry, undoOps), [undoOps])
-  const applyRedo = useCallback((entry: UndoEntry) => redoEntry(entry, undoOps), [undoOps])
   // One at a time. Restoring from the Recycle Bin spawns PowerShell and takes
   // half a second; a held Ctrl+Z would otherwise run the next inverse against
   // a file the previous one has not put back yet.
@@ -471,15 +574,45 @@ export function useFileOps({
     [setUndoState]
   )
   const queueUndo = useCallback(
-    (entry: UndoEntry, run: () => Promise<UndoEntry | void>): void => {
+    (
+      entry: UndoEntry,
+      direction: 'undo' | 'redo',
+      run: (ops: UndoOps) => Promise<UndoEntry | void>
+    ): void => {
       undoChain.current = undoChain.current
-        .then(async () => {
-          const corrected = await run()
-          if (corrected) patchEntry(entry, corrected)
-        })
+        .then(() =>
+          withFileJob(
+            {
+              kind: 'undo',
+              verb: entryVerb(entry, direction),
+              total: entrySize(entry),
+              ...entryPlaces(entry),
+              stoppable: entryStoppable(entry)
+            },
+            async (job) => {
+              let stopped: { done: UndoEntry | null; rest: UndoEntry | null } | null = null
+              const corrected = await run(
+                undoOps(job, (done, rest) => {
+                  stopped = { done, rest }
+                })
+              )
+              if (stopped) {
+                const { done, rest } = stopped as { done: UndoEntry | null; rest: UndoEntry | null }
+                setUndoState((u) => stoppedStep(u, entry, done, rest, direction))
+                job.note(
+                  stoppedNote(
+                    direction === 'undo' ? 'Undid' : 'Redid',
+                    done ? entrySize(done) : 0,
+                    entrySize(entry)
+                  )
+                )
+              } else if (corrected) patchEntry(entry, corrected)
+            }
+          )
+        )
         .catch(() => {})
     },
-    [patchEntry]
+    [patchEntry, setUndoState, undoOps]
   )
   const undo = useCallback((): void => {
     const step = undone(undoState)
@@ -489,8 +622,8 @@ export function useFileOps({
     }
     setUndoState(step.state)
     flashUndo(`Undid ${describeUndo(step.entry)}`)
-    queueUndo(step.entry, () => applyUndo(step.entry))
-  }, [applyUndo, flashUndo, queueUndo, setUndoState, undoState])
+    queueUndo(step.entry, 'undo', (ops) => undoEntry(step.entry, ops))
+  }, [flashUndo, queueUndo, setUndoState, undoState])
   const redo = useCallback((): void => {
     const step = redone(undoState)
     if (!step) {
@@ -499,8 +632,8 @@ export function useFileOps({
     }
     setUndoState(step.state)
     flashUndo(`Redid ${describeUndo(step.entry)}`)
-    queueUndo(step.entry, () => applyRedo(step.entry))
-  }, [applyRedo, flashUndo, queueUndo, setUndoState, undoState])
+    queueUndo(step.entry, 'redo', (ops) => redoEntry(step.entry, ops))
+  }, [flashUndo, queueUndo, setUndoState, undoState])
   /**
    * FILES FROM WINDOWS ARE COPIED IN (#103, D3; owner, 2026-10-31). A drop
    * from Explorer, the desktop or another app used to MOVE them, though the
@@ -509,18 +642,29 @@ export function useFileOps({
    */
   const copyIn = useCallback(
     async (paths: string[], dest: string): Promise<void> => {
-      const job = startJob('paste', 'Copying')
-      try {
-        const result = await window.prism.copyInto(dest, paths, job)
-        const said = pasteMessage(result, DROP_REFUSED)
-        if (said) setAsk({ kind: 'failed', message: said, op: 'drop-copy' })
-        setRefreshKey((n) => n + 1)
-        markLanded(result.paths ?? [])
-      } catch {
-        setAsk({ kind: 'failed', message: PASTE_MESSAGES.threw, op: 'drop-copy' })
-      } finally {
-        endJob(job)
-      }
+      await withFileJob(
+        {
+          kind: 'paste',
+          verb: 'Copying',
+          early: true,
+          name: paths.length === 1 ? baseName(paths[0]) : undefined,
+          total: paths.length,
+          dirs: [dest]
+        },
+        async (job) => {
+          try {
+            const result = await window.prism.copyInto(dest, paths, job.id)
+            trimLanding(job.id, result.paths ?? [])
+            const said = pasteMessage(result, DROP_REFUSED)
+            if (said) setAsk({ kind: 'failed', message: said, op: 'drop-copy' })
+            setRefreshKey((n) => n + 1)
+            markLanded(result.paths ?? [])
+            if (result.cancelled) job.note(stoppedNote('Copied', result.pasted, paths.length))
+          } catch {
+            setAsk({ kind: 'failed', message: PASTE_MESSAGES.threw, op: 'drop-copy' })
+          }
+        }
+      )
     },
     [setAsk, setRefreshKey]
   )
@@ -628,6 +772,7 @@ export function useFileOps({
     runDelete,
     runDeleteMany,
     runMove,
+    runDuplicate,
     runRename,
     onBrowseDropInto,
     makeNewFolder

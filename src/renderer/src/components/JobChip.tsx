@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
-import { chipSummary, useJobs } from '../lib/jobs'
+import { chipSummary, useJobs, type Job } from '../lib/jobs'
+import { useHolds } from '../lib/holds'
 
 /**
  * THE JOB CHIP (2026-09-03, owner): the one readout for every long job, an
@@ -21,10 +22,20 @@ import { chipSummary, useJobs } from '../lib/jobs'
  */
 export function JobChip({ floating = false }: { floating?: boolean }): JSX.Element | null {
   const jobs = useJobs()
-  const s = chipSummary(jobs)
+  const holds = useHolds()
+  // THE LOADING BAR SHARES THE WORK (owner, 2026-11-09): the chip stands down
+  // for a job whose bar is on the tab in front and speaks for it elsewhere; a
+  // delete or undo that ends inside its second is never on the chip at all.
+  const visible = (j: Job): boolean => {
+    if (j.note) return true
+    const hold = holds.find((h) => h.id === j.id)
+    if (hold?.onBar) return false
+    return !j.late || !!hold
+  }
+  const s = chipSummary(jobs, visible)
   if (!s) return null
   const title = jobs
-    .filter((j) => !j.holding)
+    .filter((j) => !j.holding && visible(j))
     .map((j) => `${j.label}${j.pct === null ? '' : ` ${Math.round(j.pct)}%`}`)
     .join('\n')
   return (

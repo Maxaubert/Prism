@@ -42,6 +42,22 @@ describe('npm run diag shows failed operations and failure notes as problems (ow
   })
 })
 
+describe('a film that failed is a problem (owner, 2026-11-08)', () => {
+  it('a film failure is listed and says what happened', () => {
+    const noPicture = { k: 'op', op: 'film', ev: 'no-picture', ok: false, path: 'C:\\f.mov', ms: 4000, route: 'direct' }
+    expect(isProblem(noPicture)).toBe(true)
+    expect(opSummary(noPicture)).toBe('film FAILED C:\\f.mov: no-picture, direct, 4000ms')
+    const err = { k: 'op', op: 'film', ev: 'error', ok: false, path: 'C:\\f.mov', code: 3, message: 'DECODE' }
+    expect(isProblem(err)).toBe(true)
+    expect(opSummary(err)).toContain('error')
+    expect(opSummary(err)).toContain('code 3')
+    expect(isProblem({ k: 'op', op: 'film', ev: 'first-frame', ok: true, path: 'C:\\f.mov' })).toBe(false)
+    const job = { k: 'op', op: 'live-job', ev: 'exit', ok: false, job: 'a', code: 1, message: 'bad' }
+    expect(isProblem(job)).toBe(true)
+    expect(opSummary(job)).toContain('exit')
+  })
+})
+
 describe('a stall nobody could see is no problem (owner, 2026-11-06)', () => {
   it("a hidden window's page-stall or window-slow is not listed; a shown one is", () => {
     expect(isProblem({ k: 'page-stall', ms: 1000, win: 'w2', hidden: true })).toBe(false)

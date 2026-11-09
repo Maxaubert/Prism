@@ -227,6 +227,10 @@ const implemented: Shim = {
   // error on every video. The waveform and MIDI say "nothing" for now.
   onConvertProgress: () => () => {},
   cancelConvert: () => {},
+  // The desktop's live route (2026-11-08) is never taken on the phone, whose
+  // own route decides per device; named so a stray ask cannot hang a promise.
+  liveVideo: () => Promise.resolve({ error: 'not on the phone' }),
+  stopLive: () => {},
   mediaPeaks: () => Promise.resolve(null),
   cancelPeaks: () => {},
   // The Properties window's extra facts (2026-10-12) are the PC's: on the

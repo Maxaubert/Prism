@@ -11,9 +11,32 @@ import {
   NOTE_MS,
   resetJobs,
   startJob,
+  trimLanding,
   updateJob,
   updateLanding
 } from './jobs'
+
+describe('the chip beside the loading bar (owner, 2026-11-09)', () => {
+  beforeEach(() => resetJobs())
+
+  it('a late job is not on the chip until it asks to be, and a finished one that never showed leaves at once', () => {
+    const id = startJob('bin', 'Deleting', undefined, { late: true })
+    expect(chipSummary(listJobs(), (j) => !j.late)).toBeNull()
+    expect(chipSummary(listJobs())?.label).toBe('Deleting')
+    endJob(id, undefined, { forget: true })
+    expect(listJobs()).toEqual([])
+  })
+
+  it('the rows of what a stopped copy never landed go at once', () => {
+    const id = startJob('paste', 'Copying')
+    landJob(id, 'C:\\a', [
+      { path: 'C:\\a\\1.jpg', name: '1.jpg', isFolder: false },
+      { path: 'C:\\a\\2.jpg', name: '2.jpg', isFolder: false }
+    ])
+    trimLanding(id, ['C:\\a\\1.jpg'])
+    expect(landingIn(listJobs(), 'C:\\a').map((r) => r.name)).toEqual(['1.jpg'])
+  })
+})
 
 describe('the job queue behind the chip (2026-09-03)', () => {
   beforeEach(() => {

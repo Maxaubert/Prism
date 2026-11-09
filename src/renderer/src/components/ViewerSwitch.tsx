@@ -51,6 +51,8 @@ export interface ViewerSwitchProps {
   /** The Explorer's preview, not full view: a film drops its cog and its
    *  fullscreen button. */
   preview?: boolean
+  /** Behind the Explorer's list with the preview shut: a film stays silent. */
+  shut?: boolean
   onAutoAdvance?: () => void
   onStep?: (dir: 1 | -1) => void
   canStep?: (dir: 1 | -1) => boolean
@@ -101,6 +103,7 @@ export function ViewerSwitch(props: ViewerSwitchProps): JSX.Element {
             volumeKey={props.volumeKey}
             fullscreen={props.fullscreen}
             preview={props.preview}
+            shut={props.shut}
             attach={props.attach}
             audioTrack={props.audioTrack}
             onAudioTrack={props.onAudioTrack}

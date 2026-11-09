@@ -5,6 +5,12 @@ The look and its rules (themes, colour picker, panels, toolbar), moved verbatim 
 
 ## UI direction
 
+- **THE LOADING BAR** (owner, 2026-11-09: "it shoudl show a loading bar", `docs/features.md`, A JOB OVER A
+  SECOND HOLDS ITS LIST): quiet chrome, nothing new. The list stands still under a wash of its own panel colour
+  (`--p-side-flat` at 62%) and one panel in `--p-raised`, a hairline `--p-divider`, `--p-radius`: the line in
+  `--p-text` at 12.5px with tabular figures, the % in `--p-dim`, a 3px `--p-track` with the `--p-accent-solid`
+  fill, and the dialog's quiet Cancel. One moment only: the wash fades in and the panel rises 6px together
+  (200 ms, the panels' curve); reduced motion has neither. `components/browse/BusyBar.tsx`, `browse.css`.
 - **THE PREVIEW WINDOW'S CHROME** (owner, 2026-11-08, the Quick Look style window,
   `docs/features.md`): the quiet chrome of the app, nothing new. One 36px bar in `--p-side` with
   the hairline `--p-divider` under it, the file's name in `--p-text-soft` at 13px, and the title

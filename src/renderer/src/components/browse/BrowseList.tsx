@@ -21,6 +21,7 @@ import { useFileCut } from '../../lib/fileClipboard'
 import { DRAG_MIME, setDrag } from '../../lib/drag/dragDrop'
 import { noteReady } from '../../lib/drag/dragOut'
 import { SweepBand } from './SweepBand'
+import { BusyBar } from './BusyBar'
 import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
 import { FolderGlyph } from '../icons/FolderGlyph'
 import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
@@ -117,6 +118,9 @@ type Props = Pick<
   /** Items a paste is still copying here, by lower-cased path, and how far
    *  each has got (0-100): drawn as inert rows with a bar (owner, 2026-10-28). */
   landing?: ReadonlyMap<string, number>
+  /** A job over a second is changing this folder: the list is inert under the
+   *  loading bar (owner, 2026-11-09, lib/holds). */
+  held?: boolean
   /** A click that carries Ctrl or Shift: FolderBrowser builds the selection. */
   onPick?: (entry: BrowseEntry, mods: { ctrl: boolean; shift: boolean }) => void
   /** A sweep let go with the rectangle up: these rows, the keyboard on `near`.
@@ -774,6 +778,7 @@ export function BrowseList(props: Props): JSX.Element {
           columns are laid out once and stand still (workspace.css). */}
       <div
         className="browse-list-frame"
+        inert={props.held || undefined}
         style={props.listSlideWidth !== undefined ? { width: `${props.listSlideWidth}px` } : undefined}
       >
         {props.strip && (
@@ -1111,6 +1116,7 @@ export function BrowseList(props: Props): JSX.Element {
         </div>
         <OverlayScrollbar target={scroller} />
       </div>
+      {props.held && <BusyBar directory={props.directory} />}
     </div>
   )
 }
