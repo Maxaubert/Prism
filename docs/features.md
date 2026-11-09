@@ -29,6 +29,7 @@ with the question, and the row that was deleted took it with it.
   the question closes, and the row stays until the bin answers and the folder is read again: Delete, Enter, Delete
   at speed asked about the same file, and answering ended in "could not be moved". The Delete keys stand down for
   a path going to the bin until the bin refuses it or the row has left. Held by e2e `deleteFast`.
+  A member of a zip takes the same hand-over of the selection (`useArchiveActions`, e2e `deleteZip`).
 - **Held by** e2e `deleteAgain` (Delete, Delete, no click, and the second really takes a row), `deleteLast`
   (the only file: no crash, keyboard in the empty list) and `deleteFocus` (Enter, mouse, Cancel, Escape, a press
   outside, the last row, the menu, marks, the preview pane, a field and another window left alone), and
@@ -3607,7 +3608,10 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   with `load()` (taking the `src` away does not stop an element), so its late refusal cannot read as
   the live film's error; and a film whose rescue fails too (the first piece answered 404: ffmpeg fell
   over) says so at once, where hls.js's retries left a blank player for over two minutes. Held by
-  the `filmAbuse` e2e, which also closes the preview at the awkward moments.
+  the `filmAbuse` e2e, which also closes the preview at the awkward moments. A 404 means only that the job
+  fell over: while ffmpeg runs an ask that came to nothing (left behind by another player of the film) is
+  a 503, which hls.js retries (`liveVideo.test.ts`). A slow start is never a 404: main waits 30s, hls.js
+  gives up an ask after 10s and asks again, and the first piece took 0.6s (1080p) to 2s (4K, software) here.
 - **MUTE, VOLUME AND SPEED CARRY TO THE NEXT FILE** (#207; owner, 2026-09-23: "if the user
   mutes audio or sets speed to be 0.5 and then clicks a new video, those settings should be
   kept ... maybe the user wants to just look at videos without audio, or dissect videos in
