@@ -548,8 +548,14 @@ export function useFolderBrowsing(
           if (serial.current.get(tabId) !== request) return
           if (row) {
             // Typing it is as deliberate as a double-click (#494).
-            if (goesToWindows(row)) window.prism.openInDefault(row.path)
-            else void openFileRef.current(row.path)
+            if (goesToWindows(row)) {
+              window.prism.openInDefault(row.path)
+              // The list stays, and the field that had the keyboard is gone:
+              // it comes back to the list, unless it went somewhere else since
+              // (`openGuards` e2e).
+              if (document.activeElement === document.body)
+                document.querySelector<HTMLElement>('.folder-browser .browse-list')?.focus({ preventScroll: true })
+            } else void openFileRef.current(row.path)
             return
           }
         }
