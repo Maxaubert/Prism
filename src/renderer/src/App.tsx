@@ -893,7 +893,7 @@ export default function App(): JSX.Element {
   // window mode the tab's preview flag is the window, and only a toggle opens
   // it: a flag left on by the panel, a restore or a file from Windows is put
   // back off, so the window never appears unasked. State, not a ref (owner,
-  // 2026-11-09, the log's 35 to 110 ms windows): the window is only ever MADE
+  // 2026-11-09, the log's arm, open, shut at 13:41:02 and :10): it is only ever MADE
   // for a tab in here, so that flag no longer arms, opens and shuts one in the
   // commit before the effect below takes it back. `markdownPreview` e2e.
   const [windowTabs, setWindowTabs] = useState<ReadonlySet<string>>(() => new Set())
