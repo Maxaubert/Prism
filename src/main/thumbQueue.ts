@@ -189,6 +189,17 @@ export class ThumbQueue {
       .then((file) => {
         this.running -= 1
         if (job.timer) clearTimeout(job.timer)
+        job.timer = null
+        // Killed because nobody wanted it, then wanted again before the kill
+        // came back (scrolled away and straight back): its "no picture" is not
+        // about the file. It starts again rather than answering null, which
+        // the page would keep for the whole folder visit.
+        if (job.abort.signal.aborted && job.waiters.size > 0) {
+          job.running = false
+          job.abort = new AbortController()
+          this.pump()
+          return
+        }
         this.jobs.delete(job.key)
         for (const [tab, gen] of job.waiters) {
           this.deps.settled(tab, gen, job.path, job.tier, file)
