@@ -65,6 +65,7 @@ File Explorer may move under a "More" flyout or go.
 | Explorer left panel: Quick access, a pinned file, a drive | `places.tsx` `placesMenu` | `browse/BrowsePlaces.tsx` |
 | Explorer address bar | `addressBar.tsx` `addressBarMenu` | `browse/BrowseToolbar.tsx` |
 | A tab; the + button | `tabStrip.tsx` `tabContextMenu`, `plusButtonMenu` | `TabStrip.tsx` |
+| Explorer folder: blank space (a grid's gaps, a list's empty area): one row, Show as grid / Show as list | `zoomMenu.ts` `zoomBlankMenu` | `App.tsx` |
 | Title bar: More (three dots) | `moreMenu.tsx` `titleBarMoreMenu` | `App.tsx` |
 | Image viewer (also comic pages, the phone); Photo info (the I key's card, #78) only where the picture is a file, not on the phone | `viewers/image.tsx` `imageMenu` | `ImageView.tsx` |
 | Video viewer | `viewers/video.tsx` `videoMenu` | `VideoView.tsx` |

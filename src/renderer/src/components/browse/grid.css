@@ -96,3 +96,19 @@
 .browse-list-area[data-grid] .browse-columns button:last-child {
   padding-right: 8px;
 }
+
+/* A LANDING TILE BAR (Stage 6, spec 5.7): the rows fill bar, 4px, across the
+   bottom of the picture box. Its left, top and width are set by the tile from
+   the cell, so it follows the tile size. */
+.browse-tile .browse-tile-landing {
+  position: absolute;
+  height: 4px;
+  margin: 0;
+  z-index: 1;
+}
+
+/* A FOLDER TILE UNDER A DRAG lights a ring as well as the hover fill, so the
+   target reads at a glance among tiles (Stage 6). */
+.browse-tile[data-folder-drop][data-drag-over='true'] {
+  box-shadow: inset 0 0 0 2px var(--p-sel-line) !important;
+}

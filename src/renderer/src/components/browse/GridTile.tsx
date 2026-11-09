@@ -1,6 +1,7 @@
 import type { HTMLAttributes, JSX, ReactNode } from 'react'
 import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
-import type { Rect } from '../../lib/gridLayout'
+import { TILE_PAD, type Rect } from '../../lib/gridLayout'
+import { landingTile } from '../../lib/landingGrid'
 
 /**
  * ONE TILE OF THE GRID (zoom steps 5 to 9, Stage 4, 2026-11-09; spec 4.6 and
@@ -38,11 +39,14 @@ export function GridTile({
   primary: boolean
   cursor: boolean
   cut: boolean
-  landing: boolean
+  /** Still being copied in: the percent so far, else undefined. */
+  landing: number | undefined
   posInSet: number
   setSize: number
   handlers: HTMLAttributes<HTMLButtonElement> & { draggable?: boolean }
 }): JSX.Element {
+  const copying = landing !== undefined
+  const bar = copying ? landingTile(landing) : null
   return (
     <button
       role="option"
@@ -57,15 +61,26 @@ export function GridTile({
       data-selected={selected || undefined}
       data-cursor={(cursor && !primary) || undefined}
       data-cut={cut || undefined}
-      data-landing={landing || undefined}
-      aria-busy={landing || undefined}
+      data-landing={copying || undefined}
+      aria-busy={copying || undefined}
       // Still copying: nothing to open, preview or drag yet.
-      inert={landing || undefined}
+      inert={copying || undefined}
       {...handlers}
     >
       {media}
+      {bar && (
+        // The rows' fill bar, across the bottom of the picture box: a percent
+        // tick redraws this and nothing else (landingGrid.ts).
+        <span
+          className="browse-landing browse-tile-landing"
+          data-pct={bar.pct}
+          style={{ left: TILE_PAD, top: TILE_PAD + rect.w - 2 * TILE_PAD - 4, width: rect.w - 2 * TILE_PAD }}
+        >
+          <span className="browse-landing-fill" style={{ width: bar.fill }} />
+        </span>
+      )}
       <span className="browse-tile-name">
-        <span {...hiddenTitle(name)}>{name}</span>
+        <span {...hiddenTitle(name)}>{bar ? bar.caption : name}</span>
       </span>
     </button>
   )

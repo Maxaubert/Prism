@@ -48,29 +48,16 @@ export const ZOOM_STEPS: ZoomLook[] = [
   tile(272, 13)
 ]
 
-/** The last step a person can reach. The grid is built but stays behind this
- *  until its sweep, drag and rename are done (Stage 6 flips it to 9). */
-export const ZOOM_MAX_AVAILABLE = 4
+/** The last step a person can reach: all ten (Stage 6 finished the grid; the
+ *  test-only ceiling key of Stages 4 and 5 went with it). */
+export const ZOOM_MAX_AVAILABLE = 9
 
-/** TEST ONLY: a number from 5 to 9 under this localStorage key lifts the
- *  ceiling to it, so the unit and e2e runs can reach the tiles. Nothing in the
- *  app writes it, and it goes when the grid ships. */
-export const ZOOM_CEILING_KEY = 'prism.explorer.zoomMax'
-
-/** The last step a person can reach right now. */
-export function zoomCeiling(): number {
-  try {
-    const n = Number(localStorage.getItem(ZOOM_CEILING_KEY))
-    if (Number.isInteger(n) && n > ZOOM_MAX_AVAILABLE && n < ZOOM_STEPS.length) return n
-  } catch {
-    /* a blocked store is the shipped ceiling */
-  }
-  return ZOOM_MAX_AVAILABLE
-}
+/** The first tile step: where "Show as grid" goes. */
+export const GRID_STEP = 6
 
 const DEFAULT_STEP = 1
 
-const clampStep = (n: number): number => Math.min(zoomCeiling(), Math.max(0, n))
+const clampStep = (n: number): number => Math.min(ZOOM_MAX_AVAILABLE, Math.max(0, n))
 
 /** A stored step, made safe: a whole number is clamped, anything else is
  *  `fallback` (the step the old size choice stands for, else Medium). */

@@ -684,7 +684,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         entries={props.pending === 'slow' ? [] : entries}
         onFolderHover={archive ? undefined : hoverFolder}
         archive={archive}
-        onEmptyContextMenu={archive ? props.onEmptyContextMenu : undefined}
+        onEmptyContextMenu={props.onEmptyContextMenu}
         strip={
           archive && props.onArchiveExtract ? (
             <ArchiveStrip

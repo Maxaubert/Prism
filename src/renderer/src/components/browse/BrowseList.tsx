@@ -35,7 +35,7 @@ import {
   headSizeOf,
   setExplorerZoom,
   useExplorerZoom,
-  zoomCeiling,
+  ZOOM_MAX_AVAILABLE,
   zoomIn,
   zoomOut
 } from '../../lib/explorerZoom'
@@ -44,6 +44,7 @@ import { createZoomWheel } from '../../lib/zoomWheel'
 import { GRID_GAP, GRID_PAD, gridLayout, rowsWindow } from '../../lib/gridLayout'
 import { gridHeaderColumns } from '../../lib/gridHeader'
 import { bandBox, nearestRow, rowsInBox } from '../../lib/marquee'
+import { cellSpan, cellsInBox, nearestCell } from '../../lib/cellsInBox'
 import { useSweep } from '../../hooks/useSweep'
 import { BrowseIcon } from '../icons/BrowseIcon'
 import { useFolderDrop } from './useFolderDrop'
@@ -516,6 +517,8 @@ export function BrowseList(props: Props): JSX.Element {
       return { x0: b.left, x1: b.left + b.width, y0: lo, y1: Math.max(lo, hi) }
     },
     rowAcross: () => {
+      // A grid's tiles are found by their cells, never by a drawn row.
+      if (geometry.current.layout) return { left: 0, right: scroller.current?.scrollWidth ?? 0 }
       // What is drawn as a row across (#326): the list's left to the end of
       // its last column, a gutter short of the edge (#320), measured off any
       // row in view, since every row is the one grid. A row out of view is
@@ -527,8 +530,22 @@ export function BrowseList(props: Props): JSX.Element {
       const d = drawn.getBoundingClientRect()
       return { left: d.left - r.left + node.scrollLeft, right: d.right - r.left + node.scrollLeft }
     },
-    hitsIn: (box, py, drawnAcross) => {
+    hitsIn: (box, py, drawnAcross, px) => {
       const g = geometry.current
+      if (g.layout) {
+        // THE GRID'S SWEEP (Stage 6): the tiles whose rect the box touches,
+        // by the columns and lines it spans (cellsInBox), so a box over a gap
+        // marks nothing and ten thousand tiles cost the lines crossed.
+        const span = cellSpan(box, g.layout)
+        if (!span) return { paths: [], near: null }
+        const paths: string[] = []
+        for (const i of cellsInBox(box, g.layout)) {
+          const entry = rowAtRef.current(i)
+          if (entry) paths.push(entry.path)
+        }
+        const near = rowAtRef.current(nearestCell(g.layout, px ?? box.right, py, span))
+        return { paths, near: near?.path ?? paths[paths.length - 1] ?? null }
+      }
       const across = drawnAcross ?? { left: 0, right: scroller.current?.scrollWidth ?? 0 }
       const span = rowsInBox(box, { ...across, height: g.rowHeight }, g.count)
       if (!span) return { paths: [], near: null }
@@ -554,11 +571,10 @@ export function BrowseList(props: Props): JSX.Element {
   })
   const onListPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0 || props.loading || props.message || !props.onSweep) return
-    // The grid's sweep (a box over tiles) comes with the rest of the grid's
-    // pointer work in Stage 6; until then a press on its blank space draws none.
-    if (gridOn) return
-    // A file's row, every cell of it and the gaps between: its own drag.
-    if ((e.target as HTMLElement).closest('.browse-row[data-browse-path]')) return
+    // A file's row or tile, every part of it: its own drag. The sweep starts
+    // on blank space only: a grid's gaps, its right margin, under the last line.
+    if ((e.target as HTMLElement).closest('.browse-row[data-browse-path], .browse-tile[data-browse-path]'))
+      return
     sweepAdd.current = e.ctrlKey
     sweep.begin(e)
   }
@@ -715,7 +731,7 @@ export function BrowseList(props: Props): JSX.Element {
       event.preventDefault()
       const step = explorerZoom()
       const steps = wheel.feed(event, performance.now(), {
-        zoomIn: step < zoomCeiling(),
+        zoomIn: step < ZOOM_MAX_AVAILABLE,
         zoomOut: step > 0
       })
       if (steps) {
@@ -1404,10 +1420,12 @@ export function BrowseList(props: Props): JSX.Element {
               props.onSelect(null, true)
           }}
           onContextMenu={(e) => {
-            // The empty space's own menu, inside an archive (#300). A row's
-            // menu stops here first.
+            // The empty space's own menu: an archive's (#300), or a folder's
+            // one row, Show as grid / list (Stage 6; a search keeps rows). A
+            // row's menu stops here first.
             if (
               !props.onEmptyContextMenu ||
+              (searching && !props.archive) ||
               (e.target as HTMLElement).closest('.browse-row, .browse-tile')
             )
               return
@@ -1444,7 +1462,7 @@ export function BrowseList(props: Props): JSX.Element {
                         primary={entry.path === props.selectedPath}
                         cursor={cursor === entry.path}
                         cut={cut.has(key)}
-                        landing={!!props.landing?.has(key)}
+                        landing={props.landing?.has(key) ? (props.landing.get(key) ?? 0) : undefined}
                         posInSet={index + 1}
                         setSize={count}
                         handlers={entryHandlers(entry, selected)}
