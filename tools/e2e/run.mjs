@@ -20529,6 +20529,153 @@ async function previewWindowScenario(fixtures) {
   }
 }
 
+/** A FILE'S PATH IN THE ADDRESS FIELD OPENS THE FILE (owner, 2026-11-09: "cant
+ *  open this path directly in prism"), in its folder with its row selected,
+ *  as a double-click would. Pasted spellings too. */
+async function openByPathScenario(fixtures) {
+  console.log("a file's path in the address field opens the file (owner, 2026-11-09)")
+  const dir = join(fixtures, 'openbypath')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'inside folder'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
+  writeFileSync(join(dir, 'guide.md'), '# The guide\n\nA paragraph of the guide.\n')
+  writeFileSync(join(dir, 'inside folder', 'deep.md'), '# Deep\n\nA paragraph from deep inside.\n')
+  writeFileSync(join(dir, 'inside folder', 'page.txt'), 'the page text\n')
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const body = () => win.evaluate(() => document.body.innerText)
+  const inViewer = () => until(async () => (await win.locator(FOLDER_LIST).count()) === 0 && (await win.locator('.browse-viewer-toolbar').count()) > 0, 8000)
+  const selected = () =>
+    win.evaluate(() => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')
+  const opens = async (typed, file, text, how) => {
+    await typePath(win, typed)
+    ok(await inViewer(), `${how}: the file opens in the viewer (${JSON.stringify((await body()).slice(0, 120))})`)
+    ok(await until(async () => (await body()).includes(text), 8000), `${how}: it shows the file (${JSON.stringify((await body()).slice(0, 120))})`)
+    await toList(win)
+    ok(sameDir(await shownDir(win), dirname(file)), `${how}: its folder is behind it (${await shownDir(win)})`)
+    ok(await until(async () => sameDir(await selected(), file), 5000), `${how}: its row is selected (${await selected()})`)
+  }
+  try {
+    await explorerAt(win, dir)
+    await opens(join(dir, 'guide.md'), join(dir, 'guide.md'), 'A paragraph of the guide', 'a markdown file')
+    // Elsewhere than the folder on screen, and through the spellings a paste has.
+    const deep = join(dir, 'inside folder', 'deep.md')
+    await opens(deep, deep, 'A paragraph from deep inside', 'another folder')
+    await explorerAt(win, dir)
+    await opens(`"${deep}"`, deep, 'A paragraph from deep inside', "Windows' Copy as path")
+    await explorerAt(win, dir)
+    await opens(deep.replace(/\\/g, '/'), deep, 'A paragraph from deep inside', 'forward slashes')
+    await explorerAt(win, dir)
+    await opens(`  ${deep}   `, deep, 'A paragraph from deep inside', 'spaces around it')
+    await explorerAt(win, dir)
+    // A file's name in another case is the same file.
+    await opens(deep.toUpperCase(), deep, 'A paragraph from deep inside', 'another case')
+    await explorerAt(win, dir)
+    // A folder still goes there, and a path that is nothing still says so.
+    await typePath(win, join(dir, 'inside folder'))
+    ok(await landed(win, join(dir, 'inside folder')), 'a folder path still goes to the folder')
+    await explorerAt(win, dir)
+    await typePath(win, join(dir, 'nothing here.md'))
+    ok(await until(async () => (await body()).includes('This folder cannot be opened'), 5000), `a path that is nothing says so (${JSON.stringify((await body()).slice(0, 160))})`)
+    ok((await win.locator(FOLDER_LIST).count()) > 0, 'and the list stays')
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** A MARKDOWN FILE PREVIEWS (owner, 2026-11-09: "it cant be previewd only viewd
+ *  normally"), in the pane and in the window, and stays open. */
+async function markdownPreviewScenario(fixtures) {
+  console.log('a markdown file previews and stays open (owner, 2026-11-09)')
+  const dir = join(fixtures, 'mdpreview')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
+  writeFileSync(
+    join(dir, 'README.md'),
+    '# Readme fixture\n\nThe readme paragraph.\n\n| | | Kode |\n|---|---|---|\n| **A** | words | [`src/`](src/) |\n\n## Changelog\n\n**0.2.3** (09.11.2026): A line.\n'
+  )
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  let windowMode = false
+  const wins = () => app.evaluate(() => globalThis.__e2ePreviewWindows?.() ?? [])
+  const inWindow = () =>
+    win.evaluate(() => {
+      const w = window.__prismPreviewWindow
+      return !w || w.closed ? '' : (w.document.querySelector('[data-preview-window-body]')?.textContent ?? '')
+    })
+  const inPane = () =>
+    win.evaluate(() => {
+      const b = document.querySelector('[data-browse-preview]')
+      return b && b.getClientRects().length ? b.innerText : ''
+    })
+  const pick = async (name) => {
+    const box = await listRow(win, name).boundingBox()
+    await listRow(win, name).click({ position: { x: 30, y: box.height / 2 } })
+    await sleep(300)
+  }
+  const toggleBtn = () => win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first()
+  const pressed = async () => (await toggleBtn().getAttribute('aria-pressed')) === 'true'
+  try {
+    await explorerAt(win, dir)
+    // The window, Space on the markdown row, the first opening of this window.
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    // A path that failed just before (the row selection it leaves is not the file's).
+    await typePath(win, join(dir, 'nothing here'))
+    await until(async () => (await win.evaluate(() => document.body.innerText)).includes('This folder cannot be opened'), 5000)
+    await typePath(win, dir)
+    await landed(win, dir)
+    await pick('README.md')
+    await listRow(win, 'README.md').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => (await wins()).length === 1, 5000), 'Space on the markdown row opens the window')
+    ok(await until(async () => (await inWindow()).includes('The readme paragraph'), 8000), `the window shows the markdown (${JSON.stringify((await inWindow()).slice(0, 120))})`)
+    await sleep(800)
+    ok((await wins()).length === 1 && (await pressed()), `and the window stays open (${(await wins()).length} window(s), toggle ${await pressed()})`)
+    ok((await inWindow()).includes('The readme paragraph'), 'still showing the markdown')
+    await listRow(win, 'README.md').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => (await wins()).length === 0, 3000), 'Space closes it')
+    await pickStyleSegment(win, 'preview-opens', 'Panel')
+    windowMode = false
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    // The pane first.
+    await pick('README.md')
+    if (await pressed()) {
+      await toggleBtn().click()
+      await until(async () => !(await pressed()), 3000)
+    }
+    await listRow(win, 'README.md').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => (await inPane()).includes('The readme paragraph'), 8000), `the pane shows the markdown (${JSON.stringify((await inPane()).slice(0, 120))})`)
+    await sleep(800)
+    ok((await pressed()) && (await inPane()).includes('The readme paragraph'), 'and the pane stays open')
+    await listRow(win, 'README.md').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => !(await pressed()), 3000), 'Space shuts the pane')
+    // A flag nobody asked for in Window mode: put back off, and no window is ever made.
+    await listRow(win, 'README.md').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => await pressed(), 3000), 'the pane is on again')
+    const opensBefore = await app.evaluate(() => globalThis.__e2ePreviewOpens?.() ?? -1)
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    ok(await until(async () => !(await pressed()), 3000), 'Window mode: the flag left on by the panel is put back off')
+    await sleep(500)
+    const opensAfter = await app.evaluate(() => globalThis.__e2ePreviewOpens?.() ?? -1)
+    ok(opensBefore >= 0 && opensAfter === opensBefore, `and no window was made for it (${opensBefore} before, ${opensAfter} after)`)
+  } finally {
+    if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function previewClearsScenario(fixtures) {
   console.log('going into a folder clears the preview (#300 review)')
   const { dir } = await zipWorld(fixtures, 'previewclears')
@@ -24681,6 +24828,8 @@ await run(zipFolderScenario)
 await run(previewClearsScenario)
 await run(previewSlideListScenario)
 await run(previewWindowScenario)
+await run(openByPathScenario)
+await run(markdownPreviewScenario)
 await run(ctrlFPreviewScenario)
 await run(docArrowsScenario)
 await run(previewSlowImageScenario)

@@ -822,6 +822,17 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
   right-click and the late drop.
 - Attaching into ANOTHER window's strip, and closing a window emptied that way: step 4, the next entry.
 
+## A file's path in the address field (owner, 2026-11-09)
+
+The owner: "cant open this path directly in prism". A path that names a file opens the file, in
+its folder with its row selected, as a double-click on that row would (a read of it as a folder
+fails first, so a folder pays nothing). What people paste is accepted at the one place every
+route goes through, `navigate`: double quotes (Windows' Copy as path), forward slashes, spaces
+around it (`pastedPath`). No wall moved: its folder is asked for as any typed folder is, and only
+a row of that folder counts, so a path that is nothing still says so. A file the listing does not
+show (a dotfile) is therefore not opened this way. The `openByPath` e2e holds it,
+`src/shared/path.test.ts` the spellings.
+
 ## Attach into any window (tab tear-off step 4, owner, 2026-10-29)
 
 Owner, 2026-10-29 (spec section 1, points 4, 5 and 7; plan step 4): "a tab can be dropped into ANY window's tab
@@ -3728,6 +3739,12 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   in it opens its viewer's own menu (below). Wiring: `docs/architecture.md`.
   The `previewWindow` e2e drives it end to end; `src/main/previewWindow.test.ts`,
   `lib/previewWindowKeys.test.ts` hold the parts.
+  **A FLAG NOBODY ASKED FOR MAKES NO WINDOW** (owner, 2026-11-09: "it cant be previewd only
+  viewd normally", the log showing the window armed, opened and shut within 35 to 110 ms). A
+  restored or arrived flag used to mount the window for the one commit before the effect put
+  it back off; the window is now made only for a tab a toggle opened it on. The `markdownPreview`
+  e2e holds that no window is made, and that a markdown file previews in the pane and the
+  window and stays. Who shuts the window is now said in the log (`preview` crumb, `why`).
   **ITS VIEWER ANSWERS ITS OWN KEYS AND LINKS** (owner, 2026-11-08: "Keys and in-page links
   don't work with focus inside the preview window (image and video shortcuts, markdown #
   links) fix that"). With the keyboard in the window, its viewer's keys work as in the pane:
