@@ -74,6 +74,58 @@ describe('Cancel partway through an undo (owner, 2026-11-09)', () => {
     })
   })
 
+  const inFlight = (ac: AbortController, move: UndoOps['move']): { ops: UndoOps; seen: () => unknown } => {
+    let stopped: unknown = null
+    return {
+      seen: () => stopped,
+      ops: {
+        move,
+        rename: vi.fn(async () => null),
+        refresh: vi.fn(),
+        fail: vi.fn(),
+        land: vi.fn(),
+        signal: ac.signal,
+        stopped: (done, rest) => {
+          stopped = { done, rest }
+        },
+        prism
+      }
+    }
+  }
+  const twoMoved: Extract<UndoEntry, { kind: 'move' }> = {
+    kind: 'move',
+    items: [
+      { from: 'C:\\a\\1', to: 'C:\\b\\1' },
+      { from: 'C:\\a\\2', to: 'C:\\b\\2' }
+    ]
+  }
+
+  it('an undo item Cancel caught in flight did not move: it stays on the undo', async () => {
+    const ac = new AbortController()
+    let call = 0
+    const { ops, seen } = inFlight(ac, async ([to]) => {
+      call += 1
+      if (call === 1) return [{ from: to, to: to.replace('b', 'a') }]
+      ac.abort()
+      return []
+    })
+    expect(await undoEntry(twoMoved, ops)).toBeUndefined()
+    expect(seen()).toEqual({
+      done: { kind: 'move', items: [{ from: 'C:\\b\\1'.replace('b', 'a'), to: 'C:\\b\\1' }], replaced: undefined },
+      rest: { kind: 'move', items: [twoMoved.items[1]] }
+    })
+  })
+
+  it('a redo item Cancel caught in flight did not move: it stays on the redo', async () => {
+    const ac = new AbortController()
+    const { ops, seen } = inFlight(ac, async () => {
+      ac.abort()
+      return []
+    })
+    expect(await redoEntry(twoMoved, ops)).toBeUndefined()
+    expect(seen()).toEqual({ done: null, rest: twoMoved })
+  })
+
   it('a restore as a job reports what came back and what stayed in the bin', async () => {
     let stopped: unknown = null
     const ops: UndoOps = {

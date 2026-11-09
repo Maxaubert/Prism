@@ -109,6 +109,8 @@ export async function undoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       for (const [i, it] of entry.items.entries()) {
         if (ops.signal?.aborted) break
         const [back] = await ops.move([it.to], parentDir(it.from))
+        // Cancel caught this one in flight: it never moved, and stays to undo.
+        if (!back && ops.signal?.aborted) break
         items.push(back ? { from: back.to, to: it.to } : it)
         if (back) landed.push(back.to)
         done = i + 1
@@ -212,6 +214,7 @@ export async function redoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       for (const [i, it] of entry.items.entries()) {
         if (ops.signal?.aborted) break
         const [again] = await ops.move([it.from], parentDir(it.to))
+        if (!again && ops.signal?.aborted) break
         items.push(again ? { from: it.from, to: again.to } : it)
         if (again) landed.push(again.to)
         done = i + 1
