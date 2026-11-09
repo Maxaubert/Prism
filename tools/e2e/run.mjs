@@ -12012,6 +12012,308 @@ async function thumbsListScenario(fixtures) {
     rmSync(dir, { recursive: true, force: true })
   }
 }
+/**
+ * THE GRID (zoom grid, Stage 4, 2026-11-09): layout, virtualisation, click,
+ * scroll and the sort strip, on a folder of 2,000 files in 3 subfolders. The
+ * grid is behind a test-only ceiling (`prism.explorer.zoomMax`), so this
+ * lifts it. Checked by measuring the page after render, never by constants
+ * (the owner's screen is 225%): the tile boxes against the maths for the
+ * measured width, thumbnails for the first screen only, the mounted tiles
+ * under the bound all the way down and back, click / Ctrl / Shift marks, a
+ * double click into a folder and into the viewer, the sort strip, the item
+ * under the pointer across list and grid, the step across a restart, and the
+ * preview pane changing the columns without losing the first tile in view.
+ */
+async function gridBasicScenario(fixtures) {
+  console.log('grid basic')
+  const dir = join(fixtures, 'gridbasic')
+  rmSync(dir, { recursive: true, force: true })
+  for (const sub of ['a', 'b', 'c']) mkdirSync(join(dir, sub), { recursive: true })
+  writeFileSync(join(dir, 'a', 'in-a.txt'), 'inside a\n')
+  const ff = (args) => execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...args], { windowsHide: true, stdio: 'ignore' })
+  const seed = join(fixtures, 'gridbasic-seed.jpg')
+  if (HAS_FFMPEG) ff(['-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=1', '-frames:v', '1', seed])
+  // i0000..i0299 are photos (newest), t0000..t1698 are text (oldest), v0.mp4 one film: 2,000 files.
+  for (let i = 0; i < 300; i++) {
+    const p = join(dir, `i${String(i).padStart(4, '0')}.jpg`)
+    if (HAS_FFMPEG) copyFileSync(seed, p)
+    else writeFileSync(p, 'not a picture')
+    const t = new Date(2024, 5, 1, 0, 0, i)
+    utimesSync(p, t, t)
+  }
+  for (let i = 0; i < 1699; i++) {
+    const p = join(dir, `t${String(i).padStart(4, '0')}.txt`)
+    writeFileSync(p, `text ${i}\n`)
+    const t = new Date(2020, 0, 1, 0, i)
+    utimesSync(p, t, t)
+  }
+  const clip = join(dir, 'v0.mp4')
+  if (HAS_FFMPEG) ff(['-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=25:duration=1', '-c:v', 'mpeg4', clip])
+  else writeFileSync(clip, 'not a film')
+  utimesSync(clip, new Date(2022, 0, 1), new Date(2022, 0, 1))
+  rmSync(seed, { force: true })
+
+  let { app, win } = await launch(join(dir, 't0000.txt'))
+  const listSel = '[data-testid="browse-list"]'
+  const tilesSel = `${listSel} .browse-tile`
+  const tile = (name) => win.locator(`${tilesSel}[data-browse-path$="${name}"]`)
+  const inside = `${listSel} [data-browse-path*="gridbasic"][data-browse-path$=".jpg"]`
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${listSel} [data-browse-path]`, { timeout: 10000 })
+    if ((await win.locator(inside).count()) === 0)
+      await win.locator(`${listSel} [data-browse-path$="gridbasic"]`).dblclick()
+    return until(async () => (await win.locator(inside).count()) > 0, 10000)
+  }
+  const stored = () => win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))
+  const stats = () => app.evaluate(() => globalThis.__e2eThumbs?.() ?? null)
+  // Everything about the grid, measured after render.
+  const geo = () =>
+    win.evaluate(() => {
+      const list = document.querySelector('[data-testid="browse-list"]')
+      const lr = list.getBoundingClientRect()
+      const tiles = [...list.querySelectorAll('.browse-tile')]
+      const rects = tiles.map((t) => t.getBoundingClientRect())
+      const top0 = rects[0]?.top
+      const cols = rects.filter((r) => Math.abs(r.top - top0) < 1).length
+      const nextRow = rects.find((r) => r.top > top0 + 1)
+      const box = tiles[0]?.querySelector('.browse-thumb')?.getBoundingClientRect()
+      return {
+        n: tiles.length,
+        rows: list.querySelectorAll('.browse-row[data-browse-path]').length,
+        cols,
+        w: rects[0]?.width ?? 0,
+        h: rects[0]?.height ?? 0,
+        left0: rects[0] ? rects[0].left - lr.left : null,
+        top0: rects[0] ? rects[0].top - lr.top : null,
+        pitchX: rects[1] ? rects[1].left - rects[0].left : null,
+        pitchY: nextRow ? nextRow.top - top0 : null,
+        box: box ? box.width : null,
+        clientW: list.clientWidth,
+        clientH: list.clientHeight,
+        scrollTop: list.scrollTop,
+        scrollH: list.scrollHeight
+      }
+    })
+  const wantCols = (g) => Math.max(1, Math.floor((g.clientW - 24 + 4) / (g.box + 12 + 4)))
+  const shownCount = () => win.locator(`${listSel} .browse-thumb-img[data-shown]`).count()
+  const names = () =>
+    win.evaluate(() => [...document.querySelectorAll('[data-testid="browse-list"] .browse-tile')].map((t) => t.getAttribute('data-browse-path').split(/[\\/]/).pop()))
+  let at = null
+  const wheel = async (dy, count = 1) => {
+    if (at) await win.mouse.move(at.x, at.y)
+    for (let i = 0; i < count; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, dy)
+      await win.keyboard.up('Control')
+      await sleep(130)
+    }
+    await sleep(300)
+  }
+  // The pointer's y inside the item with this path: true when its cell still spans it.
+  const spans = (path, py) =>
+    win.evaluate(
+      ([p, y]) => {
+        const el = [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path]')].find((e) => e.getAttribute('data-browse-path') === p)
+        if (!el) return false
+        const r = el.getBoundingClientRect()
+        return r.top - 1 <= y && y <= r.bottom + 1
+      },
+      [path, py]
+    )
+  const under = (x, y) =>
+    win.evaluate(([px, py]) => document.elementFromPoint(px, py)?.closest('[data-browse-path]')?.getAttribute('data-browse-path') ?? null, [x, y])
+  try {
+    await win.evaluate(() => localStorage.setItem('prism.explorer.zoomMax', '9'))
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    ok(await intoFolder(), 'the Explorer shows the folder of 2,000')
+    await sleep(300)
+    const list0 = await win.evaluate(() => {
+      const r = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect()
+      return { x: r.left, y: r.top, w: r.width, h: r.height }
+    })
+    at = { x: list0.x + Math.min(260, list0.w / 2), y: list0.y + 200 }
+    await win.mouse.move(at.x, at.y)
+
+    // Up from Medium: 2 Large, 3 Roomy, 4 Roomier, 5 the first tiles, 6 the next.
+    await wheel(-100, 5)
+    ok((await stored()) === '6', `five notches up is step 6 (${await stored()})`)
+    // The zoom keeps the item under the pointer, so the list may not be at its top: go there to measure the first line.
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 0 })
+    await sleep(400)
+    const g6 = await geo()
+    ok(g6.n > 0 && g6.rows === 0, `step 6 draws tiles and no rows (${g6.n} tiles, ${g6.rows} rows)`)
+    ok(g6.box === 128 && g6.w === 140, `a tile is a 128 picture in a 140 cell (${g6.box}, ${g6.w})`)
+    ok(g6.pitchX === 144 && g6.left0 === 12, `cells sit 4px apart from a 12px edge (${g6.pitchX}, ${g6.left0})`)
+    ok(g6.cols === wantCols(g6), `the columns equal the maths for the measured ${g6.clientW}px width (${g6.cols} vs ${wantCols(g6)})`)
+    ok(g6.h > g6.box + 20 && Math.abs(g6.pitchY - (g6.h + 4)) < 0.05, `the name band is under the picture and lines are ${g6.h}+4 apart (${g6.pitchY})`)
+    ok(Math.abs(g6.top0 - 12) < 0.05, `the first line starts 12px down (${g6.top0})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-step6.png') })
+    if (HAS_FFMPEG) {
+      ok(await until(async () => (await shownCount()) >= 5, 30000), `thumbnails load for the first screen (${await shownCount()})`)
+      await sleep(600)
+      const s = await stats()
+      const mountedImages = await win.locator(`${tilesSel}[data-browse-path$=".jpg"]`).count()
+      ok(s && s.runs <= mountedImages + 3, `and only for what is mounted: ${s?.runs} runs, ${mountedImages} photos on screen`)
+    }
+    ok((await win.locator(`${tilesSel}[data-browse-path$="i0299.jpg"]`).count()) === 0, 'a tile far down is not mounted yet')
+
+    // Scroll to the end and back: the mounted tiles stay under the bound.
+    const pitch = g6.pitchY
+    const bound = (g6.clientH / pitch + 6) * g6.cols
+    let most = 0
+    const total = g6.scrollH
+    for (let k = 0; k <= 12; k++) {
+      await win.evaluate((y) => { document.querySelector('[data-testid="browse-list"]').scrollTop = y }, (total / 12) * k)
+      await sleep(70)
+      most = Math.max(most, (await geo()).n)
+    }
+    ok(most <= bound, `at most ${most} tiles mounted over 2,000 files, under the bound ${Math.round(bound)}`)
+    ok(await until(async () => (await tile('v0.mp4').count()) === 1, 3000), 'the last file is there at the end')
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 0 })
+    await sleep(300)
+    ok((await geo()).n <= bound, 'and back at the top the window is small again')
+
+    // Click selects; Ctrl+click toggles; Shift+click marks the run.
+    await tile('i0003.jpg').click()
+    await sleep(250)
+    ok(
+      (await tile('i0003.jpg').getAttribute('data-selected')) !== null && (await win.locator(`${tilesSel}[data-selected]`).count()) === 1,
+      'a click selects that one tile'
+    )
+    await tile('i0005.jpg').click({ modifiers: ['Control'] })
+    await sleep(250)
+    ok((await win.locator(`${tilesSel}[data-selected]`).count()) === 2, 'Ctrl+click adds a second')
+    await tile('i0008.jpg').click({ modifiers: ['Shift'] })
+    await sleep(250)
+    const marked = await win.evaluate(() => [...document.querySelectorAll('[data-testid="browse-list"] .browse-tile[data-selected]')].map((t) => t.getAttribute('data-browse-path').split(/[\\/]/).pop()))
+    ok(['i0005.jpg', 'i0006.jpg', 'i0007.jpg', 'i0008.jpg'].every((n) => marked.includes(n)), `Shift+click marks the run from the anchor (${marked.join(' ')})`)
+    await win.locator(`${listSel} [data-browse-path$="i0003.jpg"]`).click()
+    await sleep(200)
+    ok((await win.locator(`${tilesSel}[data-selected]`).count()) === 1, 'a plain click is one tile again')
+
+    // Double click: a folder tile enters it; an image tile opens in the viewer.
+    await tile('a').dblclick()
+    ok(await until(async () => (await tile('in-a.txt').count()) === 1, 10000), 'a double click on a folder tile enters it')
+    ok((await geo()).n >= 1, 'and it is still a grid there')
+    await win.keyboard.press('Alt+ArrowLeft')
+    ok(await until(async () => (await tile('i0001.jpg').count()) === 1, 10000), 'Alt+Left returns to the 2,000')
+    await tile('i0001.jpg').dblclick()
+    ok(await until(async () => (await viewing(win)).includes('i0001'), 15000), 'a double click on an image tile opens the viewer')
+    await win.locator('.browse-viewer-toolbar [aria-label="Back"]').click()
+    ok(await until(async () => (await tile('i0001.jpg').count()) === 1, 10000), 'and Back is the grid again')
+
+    // The sort strip: the same buttons, packed left, and a click re-orders the tiles.
+    const strip = await win.evaluate(() =>
+      [...document.querySelectorAll('.browse-list-area .browse-columns button')].map((b) => ({
+        text: b.textContent.trim(),
+        left: b.getBoundingClientRect().left,
+        aria: b.getAttribute('aria-label')
+      }))
+    )
+    const listLeft = (await win.evaluate(() => document.querySelector('[data-testid="browse-list"]').getBoundingClientRect().left))
+    ok(strip.map((b) => b.text).join('|') === 'Name|Date modified|Size|Type', `the strip has the same four buttons (${strip.map((b) => b.text).join('|')})`)
+    ok(strip.every((b, i) => i === 0 || b.left > strip[i - 1].left) && strip[3].left - listLeft < 420, `packed to the left (${strip.map((b) => Math.round(b.left - listLeft)).join(', ')})`)
+    ok(strip.every((b) => /^Sort by /.test(b.aria ?? '')), 'each keeps its Sort by label')
+    await win.screenshot({ path: join(SHOTS, 'grid-strip.png') })
+    const before = (await names()).slice(0, 8)
+    ok(before.includes('i0000.jpg') && !before.includes('t0000.txt'), `by name the photos come first (${before.join(' ')})`)
+    await win.locator('.browse-list-area .browse-columns button', { hasText: 'Date modified' }).click()
+    await sleep(500)
+    const firstFile = async () => (await names()).find((n) => /\.(txt|jpg|mp4)$/.test(n))
+    const a = await firstFile()
+    await win.locator('.browse-list-area .browse-columns button', { hasText: 'Date modified' }).click()
+    await sleep(500)
+    const b = await firstFile()
+    ok(a !== b && [a, b].sort().join() === ['i0299.jpg', 't0000.txt'].sort().join(), `Date modified re-orders the tiles, oldest and newest first (${a}, ${b})`)
+    await win.locator('.browse-list-area .browse-columns button', { hasText: 'Name' }).click()
+    await sleep(400)
+
+    // The item under the pointer stays under it across list and grid.
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 3000 })
+    await sleep(300)
+    let px = at.x
+    let py = at.y
+    let cur = await under(px, py)
+    for (let k = 0; !cur && k < 12; k++) cur = await under((px += 14), py)
+    await win.mouse.move(px, py)
+    at = { x: px, y: py }
+    ok(!!cur, `a tile is under the pointer to follow (${cur?.split(/[\\/]/).pop()})`)
+    const path = []
+    const sequence = [-1, -1, -1, 1, 1, 1, 1, 1]
+    let stay = true
+    const notes = []
+    for (const dir2 of sequence) {
+      const sBefore = Number(await stored())
+      await wheel(dir2 < 0 ? 100 : -100)
+      const sAfter = Number(await stored())
+      if (sAfter === sBefore) continue
+      const held = await spans(cur, py)
+      notes.push(`${sBefore}->${sAfter}:${held ? 'y' : 'N'}`)
+      if (!held) stay = false
+      path.push(sAfter)
+    }
+    ok(stay && path.length >= 6, `the same item stayed under the pointer through steps ${path.join(' ')} (${notes.join(' ')})`)
+    // Top of the range, then a screenshot of the biggest tiles.
+    await wheel(-100, 4)
+    ok((await stored()) === '9', `the last step is 9 (${await stored()})`)
+    const g9 = await geo()
+    ok(g9.box === 272 && g9.cols === wantCols(g9), `step 9 has 272 pictures in ${g9.cols} columns (${g9.box})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-step9.png') })
+    await wheel(100, 3)
+    ok((await stored()) === '6', `back down to step 6 (${await stored()})`)
+
+    // The step survives a restart, in the grid.
+    await app.close()
+    await sleep(900)
+    ;({ app, win } = await launch(join(dir, 't0000.txt')))
+    ok(await intoFolder(), 'after a restart the Explorer shows the folder')
+    await sleep(500)
+    const gr = await geo()
+    ok(gr.n > 0 && gr.box === 128 && (await stored()) === '6', `the grid is back at step 6 (${gr.box}, ${await stored()})`)
+
+    // A narrower window gives fewer columns, and the first tile in view stays in view.
+    // (A preview pane toggle cannot be used here: it re-reads the folder and puts any list back at the top.)
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 2500 })
+    await sleep(500)
+    const firstSeen = async () =>
+      win.evaluate(() => {
+        const list = document.querySelector('[data-testid="browse-list"]')
+        const lr = list.getBoundingClientRect()
+        const t = [...list.querySelectorAll('.browse-tile')].find((e) => e.getBoundingClientRect().top >= lr.top)
+        return t ? t.getAttribute('data-browse-path') : null
+      })
+    const gBefore = await geo()
+    const seen = await firstSeen()
+    const size = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getContentSize())
+    const resize = (w) => app.evaluate(({ BrowserWindow }, [cw, ch]) => BrowserWindow.getAllWindows()[0].setContentSize(cw, ch), [w, size[1]])
+    await resize(size[0] - 450)
+    await until(async () => (await geo()).clientW !== gBefore.clientW, 8000)
+    await sleep(900)
+    const gAfter = await geo()
+    ok(gAfter.clientW < gBefore.clientW && gAfter.cols < gBefore.cols, `a narrower window changes the width ${gBefore.clientW} -> ${gAfter.clientW} and the columns ${gBefore.cols} -> ${gAfter.cols}`)
+    ok(gAfter.cols === wantCols(gAfter), `the new columns equal the maths (${gAfter.cols})`)
+    const stillIn = await win.evaluate((p) => {
+      const list = document.querySelector('[data-testid="browse-list"]')
+      const lr = list.getBoundingClientRect()
+      const el = [...list.querySelectorAll('.browse-tile')].find((e) => e.getAttribute('data-browse-path') === p)
+      if (!el) return false
+      const r = el.getBoundingClientRect()
+      return r.bottom > lr.top && r.top < lr.bottom
+    }, seen)
+    ok(stillIn, `the first tile in view is still in view after the columns changed (${seen?.split(/[\\/]/).pop()}; scroll ${gBefore.scrollTop} -> ${gAfter.scrollTop})`)
+    await resize(size[0])
+    await until(async () => (await geo()).clientW === gBefore.clientW, 8000)
+    await sleep(600)
+    const back = await firstSeen()
+    ok(back === seen || Math.abs((await geo()).scrollTop - gBefore.scrollTop) < 400, `and back at the old width the same tiles are in view (${back?.split(/[\\/]/).pop()})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-preview.png') })
+  } finally {
+    await win.evaluate(() => { for (const k of ['prism.explorer.zoom', 'prism.explorer.size', 'prism.explorer.zoomMax']) localStorage.removeItem(k) }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -26156,6 +26458,7 @@ await run(explorerSizeScenario)
 await run(zoomListScenario)
 await run(thumbsEngineScenario)
 await run(thumbsListScenario)
+await run(gridBasicScenario)
 await run(sidebarPlacesScenario)
 await run(folderIconsScenario)
 await run(folderIconFileScenario)

@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
   type JSX,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -29,17 +30,19 @@ import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
 import { OverlayScrollbar } from './OverlayScrollbar'
 import { explorerHeadVars } from '../../lib/explorerSize'
 import {
-  ZOOM_MAX_AVAILABLE,
   atStep,
   explorerZoom,
   headSizeOf,
   setExplorerZoom,
   useExplorerZoom,
+  zoomCeiling,
   zoomIn,
   zoomOut
 } from '../../lib/explorerZoom'
 import { anchorAt, anchorScroll, type Anchor } from '../../lib/zoomAnchor'
 import { createZoomWheel } from '../../lib/zoomWheel'
+import { GRID_GAP, GRID_PAD, gridLayout, rowsWindow } from '../../lib/gridLayout'
+import { gridHeaderColumns } from '../../lib/gridHeader'
 import { bandBox, nearestRow, rowsInBox } from '../../lib/marquee'
 import { useSweep } from '../../hooks/useSweep'
 import { BrowseIcon } from '../icons/BrowseIcon'
@@ -57,6 +60,9 @@ import { tierFor } from '@shared/thumbTypes'
 import { thumbSource, visibleWants } from '../../lib/thumbKind'
 import { useDocumentShown, useThumbFeed } from '../../lib/useThumbs'
 import { ThumbImage } from './ThumbImage'
+import { BrowseGrid } from './BrowseGrid'
+import { GridTile } from './GridTile'
+import { FolderFill } from '../icons/Icon'
 
 const OVERSCAN = 12
 /** The common keys the list answers itself (#330). */
@@ -175,7 +181,9 @@ export function BrowseList(props: Props): JSX.Element {
   const folderDrop = useFolderDrop(props.loading ? undefined : props.onDropInto, props.archive)
   /** What a press or drag on this row carries inside an archive: the row, or
    *  the whole selection when the row is in it, as members with their places. */
-  const memberCargo = (path: string): { archive: string; entries: string[]; places: string[] } | null => {
+  const memberCargo = (
+    path: string
+  ): { archive: string; entries: string[]; places: string[] } | null => {
     const archive = props.archive
     if (!archive) return null
     const all = props.marked
@@ -202,19 +210,51 @@ export function BrowseList(props: Props): JSX.Element {
   // Folder icons (2026-10-31): one read for the list; with none set a row
   // does no lookup at all, and file rows never do.
   const folderIcons = useFolderIcons()
-  const rowHeight = look.height
+  /**
+   * THE GRID (zoom steps 5 to 9, Stage 4): a plain folder listing at a tile
+   * step is drawn as tiles. A search, an Everything window or an archive's
+   * members keep rows (Large's 40px at a tile step). The grid is a different
+   * arrangement of the same entries, so the list's arithmetic is kept: a
+   * "line" is a row of cells (`cols` items, one in a list) `rowHeight` tall,
+   * `lead` px of padding sit above the first and below the last, and a
+   * pending index is still an index into the entries.
+   */
+  const gridOn = look.kind === 'tile' && !searching && !props.archive && !props.indexedRows
   const scroller = useRef<HTMLDivElement>(null)
   const columnScroller = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState(600)
+  const [width, setWidth] = useState(800)
+  const layout = useMemo(
+    () =>
+      gridOn
+        ? gridLayout({ width, count: props.total, edge: look.edge, font: look.tileFont })
+        : null,
+    [gridOn, width, props.total, look.edge, look.tileFont]
+  )
+  const cols = layout?.cols ?? 1
+  const rowHeight = layout ? layout.pitch : look.height
+  const lead = layout ? GRID_PAD : 0
   const typed = useRef({ text: '', at: 0 })
   /** The row the first press of a double-click was on (#494). */
   const firstPress = useRef<string | null>(null)
   const pendingFocus = useRef<number | null>(null)
   const selectionPosition = useRef({ path: '', index: -1 })
+  /** The list has been measured once: before that its width is a guess. */
+  const measured = useRef(false)
   useLayoutEffect(() => {
     const node = scroller.current
     if (!node) return
-    const observer = new ResizeObserver(([entry]) => setHeight(entry.contentRect.height))
+    // Measured before the first paint, so a grid opens with its real columns
+    // and a remembered scroll is not moved by a width that arrives later.
+    setHeight(node.clientHeight)
+    setWidth(node.clientWidth)
+    const observer = new ResizeObserver(([entry]) => {
+      setHeight(entry.contentRect.height)
+      setWidth(entry.contentRect.width)
+      // From the observer's first answer on, a width that changes the columns
+      // is a real resize (a dragged pane), not the guess being corrected.
+      measured.current = true
+    })
     observer.observe(node)
     return () => observer.disconnect()
   }, [])
@@ -275,12 +315,14 @@ export function BrowseList(props: Props): JSX.Element {
   // height, so the rows below it simply move down one index; `rowAt` answers
   // null on it, which every walk of the list (arrows, Home and End, a pending
   // focus, the sweep) already steps over.
+  // A grid draws no date groups: a full-width header between tile lines would
+  // make the index-to-cell map irregular (the sort stays by date).
   const divided = useMemo(
     () =>
-      props.dividers?.length && !props.indexedRows
+      props.dividers?.length && !props.indexedRows && !gridOn
         ? divideRows(props.entries.length, props.dividers)
         : null,
-    [props.dividers, props.indexedRows, props.entries.length]
+    [props.dividers, props.indexedRows, props.entries.length, gridOn]
   )
   const count = divided ? divided.length : props.total
   // The dividers are hidden from the listbox (its options are files), so each
@@ -298,12 +340,12 @@ export function BrowseList(props: Props): JSX.Element {
   }, [divided, props.dividers, props.entries.length])
   // Chromium caps element dimensions. Compress only the offscreen space for
   // very large indexes; visible rows keep their normal size and hit targets.
-  const spaceHeight = Math.min(count * rowHeight, 4000000)
-  const scale = Math.max(1, (count * rowHeight - height) / Math.max(1, spaceHeight - height))
+  const lines = layout ? layout.rows : count
+  const contentH = 2 * lead + lines * rowHeight
+  const spaceHeight = Math.min(contentH, 4000000)
+  const scale = Math.max(1, (contentH - height) / Math.max(1, spaceHeight - height))
   const logicalTop =
-    liveTop >= spaceHeight - height - 1
-      ? Math.max(0, count * rowHeight - height)
-      : liveTop * scale
+    liveTop >= spaceHeight - height - 1 ? Math.max(0, contentH - height) : liveTop * scale
   const loadedSelectedIndex = props.indexedRows
     ? ([...props.indexedRows].find(([, entry]) => entry?.path === props.selectedPath)?.[0] ?? -1)
     : (() => {
@@ -315,16 +357,24 @@ export function BrowseList(props: Props): JSX.Element {
     if (loadedSelectedIndex >= 0 && props.selectedPath)
       selectionPosition.current = { path: props.selectedPath, index: loadedSelectedIndex }
   }, [loadedSelectedIndex, props.selectedPath])
-  const first = Math.max(0, Math.floor(logicalTop / rowHeight) - OVERSCAN)
-  const end = Math.min(count, Math.ceil((logicalTop + height) / rowHeight) + OVERSCAN)
+  // The lines mounted: those in view and a margin of them (a list's twelve
+  // rows, a grid's two lines of cells). `first` and `end` are LINES, and the
+  // items mounted are from `firstItem` up to `endItem` (the same in a list).
+  const shown = layout ? rowsWindow(layout, logicalTop, height, 2) : null
+  const first = shown ? shown.firstRow : Math.max(0, Math.floor(logicalTop / rowHeight) - OVERSCAN)
+  const end = shown
+    ? shown.endRow
+    : Math.min(count, Math.ceil((logicalTop + height) / rowHeight) + OVERSCAN)
+  const firstItem = first * cols
+  const endItem = Math.min(count, end * cols)
   const rowAt = (index: number): BrowseEntry | null | undefined => {
     if (props.indexedRows) return props.indexedRows.get(index)
     if (!divided) return props.entries[index]
     const at = divided.entryAt(index)
     return at === null ? null : props.entries[at]
   }
-  const rendered = Array.from({ length: Math.max(0, end - first) }, (_, index) =>
-    rowAt(first + index)
+  const rendered = Array.from({ length: Math.max(0, endItem - firstItem) }, (_, index) =>
+    rowAt(firstItem + index)
   )
   /**
    * PICTURES IN THE NAME COLUMN (zoom steps 3 and 4, Stage 3, 2026-11-09). The
@@ -335,7 +385,10 @@ export function BrowseList(props: Props): JSX.Element {
    */
   const thumbFeed = useThumbFeed(props.tabId)
   const windowShown = useDocumentShown()
-  const thumbsOn = look.thumb > 0 && !searching && !props.archive && !props.indexedRows
+  // The picture's edge: a row step's box, or the tile's whole picture. The
+  // tier follows it (tile edge x devicePixelRatio, thumbTypes.tierFor).
+  const pictureEdge = gridOn ? look.edge : look.thumb
+  const thumbsOn = pictureEdge > 0 && !searching && !props.archive && !props.indexedRows
   const thumbsActive = thumbsOn && !props.held && !props.loading && windowShown
   useEffect(() => {
     thumbFeed?.setActive(thumbsActive)
@@ -345,7 +398,11 @@ export function BrowseList(props: Props): JSX.Element {
   }, [thumbFeed, props.directory])
   const landing = props.landing
   const wanted = thumbsActive
-    ? visibleWants(rendered, tierFor(look.thumb, window.devicePixelRatio), landing ? (p) => landing.has(p.toLowerCase()) : undefined)
+    ? visibleWants(
+        rendered,
+        tierFor(pictureEdge, window.devicePixelRatio),
+        landing ? (p) => landing.has(p.toLowerCase()) : undefined
+      )
     : []
   // After every render: the feed compares what is mounted and does nothing for
   // the same set, so a re-render that moved no row costs a string compare.
@@ -369,21 +426,39 @@ export function BrowseList(props: Props): JSX.Element {
    */
   const [sweeping, setSweeping] = useState<{ paths: string[]; add: boolean } | null>(null)
   const sweepAdd = useRef(false)
-  const geometry = useRef({ count, spaceHeight, height, scale, rowHeight })
+  const geometry = useRef({
+    count,
+    spaceHeight,
+    height,
+    scale,
+    rowHeight,
+    contentH,
+    cols,
+    lead,
+    layout
+  })
   const rowAtRef = useRef(rowAt)
   // Mirrored after render (refs are not written while rendering); the sweep
   // reads them from pointer events, which only come after.
   useLayoutEffect(() => {
-    geometry.current = { count, spaceHeight, height, scale, rowHeight }
+    geometry.current = {
+      count,
+      spaceHeight,
+      height,
+      scale,
+      rowHeight,
+      contentH,
+      cols,
+      lead,
+      layout
+    }
     rowAtRef.current = rowAt
   })
   /** The list's top, in row coordinates, for a scroll position: the rule the
    *  render uses, so the rectangle and the rows agree when the list is huge. */
   const logicalTopAt = (top: number): number => {
     const g = geometry.current
-    return top >= g.spaceHeight - g.height - 1
-      ? Math.max(0, g.count * g.rowHeight - g.height)
-      : top * g.scale
+    return top >= g.spaceHeight - g.height - 1 ? Math.max(0, g.contentH - g.height) : top * g.scale
   }
   const sweep = useSweep({
     scroller: () => scroller.current,
@@ -411,11 +486,17 @@ export function BrowseList(props: Props): JSX.Element {
       const g = geometry.current
       return {
         x: Math.min(m.scrollWidth, Math.max(0, x - m.left + m.scrollLeft)),
-        y: Math.max(0, Math.min(Math.max(g.count * g.rowHeight, g.height), logicalTopAt(m.scrollTop) + y - m.top))
+        y: Math.max(
+          0,
+          Math.min(Math.max(g.contentH, g.height), logicalTopAt(m.scrollTop) + y - m.top)
+        )
       }
     },
     // toList's inverse, with the same compressed-scroll rule (logicalTopAt).
-    fromList: (p, m) => ({ x: p.x - m.scrollLeft + m.left, y: p.y - logicalTopAt(m.scrollTop) + m.top }),
+    fromList: (p, m) => ({
+      x: p.x - m.scrollLeft + m.left,
+      y: p.y - logicalTopAt(m.scrollTop) + m.top
+    }),
     clipOf: (m) => m.clip,
     place: (band, m) => {
       // Row coordinates to the scroll box's own: the rows sit at
@@ -472,6 +553,9 @@ export function BrowseList(props: Props): JSX.Element {
   })
   const onListPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0 || props.loading || props.message || !props.onSweep) return
+    // The grid's sweep (a box over tiles) comes with the rest of the grid's
+    // pointer work in Stage 6; until then a press on its blank space draws none.
+    if (gridOn) return
     // A file's row, every cell of it and the gaps between: its own drag.
     if ((e.target as HTMLElement).closest('.browse-row[data-browse-path]')) return
     sweepAdd.current = e.ctrlKey
@@ -512,9 +596,11 @@ export function BrowseList(props: Props): JSX.Element {
    * layout effect below scrolls to put it back before anything paints.
    */
   const zoomPending = useRef<(Anchor & { pointerY: number; boxTop: number }) | null>(null)
-  const zoomTo = useRef<(next: number, pointerY: number | null) => void>(() => {})
+  const zoomTo = useRef<(next: number, pointerY: number | null, pointerX?: number) => void>(
+    () => {}
+  )
   useLayoutEffect(() => {
-    zoomTo.current = (next, pointerY) => {
+    zoomTo.current = (next, pointerY, pointerX) => {
       const node = scroller.current
       const g = geometry.current
       if (!node || next === explorerZoom()) return
@@ -531,27 +617,93 @@ export function BrowseList(props: Props): JSX.Element {
             anchor = { index: Number(at.dataset.browseIndex), within: 0 }
           } else y = 0
         }
-        anchor ??= anchorAt({ top: logicalTopAt(node.scrollTop), pointerY: y, cellH: g.rowHeight, count: g.count })
+        // In a grid the column under the pointer picks the item in its line.
+        const col =
+          g.layout && pointerX !== undefined
+            ? Math.floor((pointerX - GRID_PAD) / (g.layout.cellW + GRID_GAP))
+            : 0
+        anchor ??= anchorAt({
+          top: logicalTopAt(node.scrollTop),
+          pointerY: y,
+          cellH: g.rowHeight,
+          count: g.count,
+          cols: g.cols,
+          col,
+          lead: g.lead
+        })
         zoomPending.current = { ...anchor, pointerY: y, boxTop: box.top }
       }
       setExplorerZoom(next)
     }
   })
+  /** Items are there to place: a listing that is empty or still loading has no
+   *  layout to keep (a pane toggle re-reads the folder; the scroll must not be
+   *  measured, or handed up, while it is empty). */
+  const settled = count > 0 && !props.loading
+  /** Last settled commit's top and shape, for the layout effect below: a width
+   *  that changes the columns keeps the first item in view. */
+  const lastShape = useRef({ rowHeight, cols, lead, top: 0, measured: false })
   useLayoutEffect(() => {
     const pending = zoomPending.current
     zoomPending.current = null
     const node = scroller.current
-    if (!pending || !node) return
-    // Logical coordinates, then back through the compression, as the keys do.
-    // The list itself can move: Large's header band is taller than Medium's
-    // (MEASURED, 4px), so the pointer is that much nearer the list's top.
-    const pointerY = pending.pointerY - (node.getBoundingClientRect().top - pending.boxTop)
-    const target = anchorScroll({ ...pending, pointerY, cellH: rowHeight, count, viewH: node.clientHeight })
-    node.scrollTop = target / scale
-    handUp(node.scrollTop)
-    // Only when the row height changed: that is the zoom having landed.
+    const prev = lastShape.current
+    if (!node) return
+    if (pending) {
+      // Logical coordinates, then back through the compression, as the keys do.
+      // The list itself can move: Large's header band is taller than Medium's
+      // (MEASURED, 4px), so the pointer is that much nearer the list's top.
+      const pointerY = pending.pointerY - (node.getBoundingClientRect().top - pending.boxTop)
+      const target = anchorScroll({
+        ...pending,
+        pointerY,
+        cellH: rowHeight,
+        count,
+        viewH: node.clientHeight,
+        cols,
+        lead
+      })
+      node.scrollTop = target / scale
+      handUp(node.scrollTop)
+    } else if (
+      gridOn &&
+      settled &&
+      prev.measured &&
+      measured.current &&
+      prev.cols !== cols &&
+      prev.rowHeight === rowHeight &&
+      prev.lead === lead
+    ) {
+      // The preview pane or the window changed the width and with it the
+      // columns: the first item in view (as the last frame had it) stays there.
+      const a = anchorAt({
+        top: prev.top,
+        pointerY: 0,
+        cellH: rowHeight,
+        count,
+        cols: prev.cols,
+        lead
+      })
+      node.scrollTop =
+        anchorScroll({
+          ...a,
+          pointerY: 0,
+          cellH: rowHeight,
+          count,
+          viewH: node.clientHeight,
+          cols,
+          lead
+        }) / scale
+      handUp(node.scrollTop)
+    }
+    // Only when the cells' size or count per line changed: that is the zoom, or
+    // the width, having landed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowHeight])
+  }, [rowHeight, cols, settled])
+  useLayoutEffect(() => {
+    if (settled)
+      lastShape.current = { rowHeight, cols, lead, top: logicalTop, measured: measured.current }
+  })
   useLayoutEffect(() => {
     const node = scroller.current
     if (!node) return
@@ -562,17 +714,24 @@ export function BrowseList(props: Props): JSX.Element {
       event.preventDefault()
       const step = explorerZoom()
       const steps = wheel.feed(event, performance.now(), {
-        zoomIn: step < ZOOM_MAX_AVAILABLE,
+        zoomIn: step < zoomCeiling(),
         zoomOut: step > 0
       })
-      if (steps) zoomTo.current(steps > 0 ? zoomIn(step) : zoomOut(step), event.clientY - node.getBoundingClientRect().top)
+      if (steps) {
+        const box = node.getBoundingClientRect()
+        zoomTo.current(
+          steps > 0 ? zoomIn(step) : zoomOut(step),
+          event.clientY - box.top,
+          event.clientX - box.left + node.scrollLeft
+        )
+      }
     }
     node.addEventListener('wheel', onZoomWheel, { passive: false })
     return () => node.removeEventListener('wheel', onZoomWheel)
   }, [])
   useLayoutEffect(() => {
-    const top = Math.floor(logicalTop / rowHeight)
-    const visibleCount = Math.ceil(height / rowHeight) + 1
+    const top = Math.max(0, Math.floor((logicalTop - lead) / rowHeight)) * cols
+    const visibleCount = (Math.ceil(height / rowHeight) + 1) * cols
     onVisibleFolders?.(
       indexed
         ? []
@@ -585,7 +744,7 @@ export function BrowseList(props: Props): JSX.Element {
             .filter((entry) => entry?.isFolder)
             .map((entry) => entry!.path)
     )
-  }, [props.entries, divided, logicalTop, height, onVisibleFolders, indexed, rowHeight])
+  }, [props.entries, divided, logicalTop, height, onVisibleFolders, indexed, rowHeight, cols, lead])
   const onSelect = props.onSelect
   const onScroll = handUp
   const scrollTop = liveTop
@@ -608,7 +767,7 @@ export function BrowseList(props: Props): JSX.Element {
     // pressed before results existed needs one positioning pass, never a
     // repeated correction of fractional native scroll coordinates.
     if (pending === Infinity) {
-      node.scrollTop = Math.max(0, (count * rowHeight - height) / scale)
+      node.scrollTop = Math.max(0, (contentH - height) / scale)
       if (node.scrollTop !== scrollTop) onScroll(node.scrollTop)
     }
     if (entry === undefined) {
@@ -626,7 +785,20 @@ export function BrowseList(props: Props): JSX.Element {
     // rowAt reads only what is listed here (the entries, the search rows and
     // the dividers' layout).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.indexedRows, props.entries, divided, onSelect, onScroll, onSearchRange, count, scale, scrollTop, height, rowHeight])
+  }, [
+    props.indexedRows,
+    props.entries,
+    divided,
+    onSelect,
+    onScroll,
+    onSearchRange,
+    count,
+    scale,
+    scrollTop,
+    height,
+    rowHeight,
+    contentH
+  ])
   useLayoutEffect(() => {
     pendingFocus.current = null
     selectionPosition.current = { path: '', index: -1 }
@@ -657,12 +829,26 @@ export function BrowseList(props: Props): JSX.Element {
    *  the row's entry, or null when it is not there to land on. */
   /** Scroll so the row at `index` is in view (its divider too, at a group's
    *  top), and hand the position up. */
+  // Where an item's cell starts and ends in the scrolled space. In a grid the
+  // first line starts at 0 (its padding shows) and the last ends with its
+  // padding; in a list `lead` is 0 and a cell is a row.
+  const cellTop = (i: number): number =>
+    layout && i < cols ? 0 : lead + Math.floor(i / cols) * rowHeight
+  const cellBottom = (i: number): number => {
+    const line = Math.floor(i / cols)
+    return (
+      lead +
+      line * rowHeight +
+      (layout ? layout.cellH + (line === layout.rows - 1 ? lead : 0) : rowHeight)
+    )
+  }
   const scrollToRow = (node: HTMLDivElement, index: number): void => {
-    const top = (divided?.divider(index - 1) ? index - 1 : index) * rowHeight
+    const top = cellTop(divided?.divider(index - 1) ? index - 1 : index)
+    const bottom = cellBottom(index)
     const visibleTop = node.scrollTop * scale
     if (top < visibleTop) node.scrollTop = top / scale
-    else if (index * rowHeight + rowHeight > visibleTop + node.clientHeight)
-      node.scrollTop = (index * rowHeight + rowHeight - node.clientHeight) / scale
+    else if (bottom > visibleTop + node.clientHeight)
+      node.scrollTop = (bottom - node.clientHeight) / scale
     handUp(node.scrollTop)
   }
   const reveal = (index: number, toward: 1 | -1): { index: number; entry: BrowseEntry } | null => {
@@ -674,7 +860,9 @@ export function BrowseList(props: Props): JSX.Element {
     const entry = rowAt(index)
     if (!entry) return null
     requestAnimationFrame(() =>
-      node.querySelector<HTMLElement>(`[data-browse-index="${index}"]`)?.focus({ preventScroll: true })
+      node
+        .querySelector<HTMLElement>(`[data-browse-index="${index}"]`)
+        ?.focus({ preventScroll: true })
     )
     return { index, entry }
   }
@@ -697,12 +885,7 @@ export function BrowseList(props: Props): JSX.Element {
     while (index >= 0 && index < count && rowAt(index) === null) index += direction
     if (index < 0 || index >= count) return
     // A group's first row going up brings its divider into view with it.
-    const top = (divided?.divider(index - 1) ? index - 1 : index) * rowHeight
-    const visibleTop = node.scrollTop * scale
-    if (top < visibleTop) node.scrollTop = top / scale
-    else if (index * rowHeight + rowHeight > visibleTop + node.clientHeight)
-      node.scrollTop = (index * rowHeight + rowHeight - node.clientHeight) / scale
-    handUp(node.scrollTop)
+    scrollToRow(node, index)
     const entry = rowAt(index)
     if (entry) {
       pendingFocus.current = null
@@ -762,9 +945,20 @@ export function BrowseList(props: Props): JSX.Element {
     // the Explorer binds them; the app menu is gone). Only while the list or
     // one of its rows has the keyboard, never a field inside it.
     if (e.ctrlKey && !e.altKey && !e.metaKey) {
-      const change = e.key === '+' || e.key === '=' ? 1 : e.key === '-' || e.key === '_' ? -1 : e.key === '0' ? 0 : null
+      const change =
+        e.key === '+' || e.key === '='
+          ? 1
+          : e.key === '-' || e.key === '_'
+            ? -1
+            : e.key === '0'
+              ? 0
+              : null
       const at = e.target as HTMLElement
-      if (change !== null && (at === e.currentTarget || (at.matches('.browse-row') && !at.isContentEditable))) {
+      if (
+        change !== null &&
+        (at === e.currentTarget ||
+          (at.matches('.browse-row, .browse-tile') && !at.isContentEditable))
+      ) {
         e.preventDefault()
         e.stopPropagation()
         const step = explorerZoom()
@@ -804,7 +998,8 @@ export function BrowseList(props: Props): JSX.Element {
     const space = spaceKey(e, typed.current, performance.now())
     if (space) {
       const at = e.target as HTMLElement
-      const own = at === e.currentTarget || (at.matches('.browse-row') && !at.isContentEditable)
+      const own =
+        at === e.currentTarget || (at.matches('.browse-row, .browse-tile') && !at.isContentEditable)
       if (!own) return
       e.preventDefault()
       e.stopPropagation()
@@ -827,7 +1022,7 @@ export function BrowseList(props: Props): JSX.Element {
       }
       return
     }
-    const page = Math.max(1, Math.floor(height / rowHeight) - 1)
+    const page = Math.max(1, Math.floor(height / rowHeight) - 1) * cols
     const rememberedIndex =
       selectedIndex >= 0
         ? selectedIndex
@@ -841,7 +1036,7 @@ export function BrowseList(props: Props): JSX.Element {
       (cursorIndex >= 0
         ? cursorIndex
         : rememberedIndex < 0
-          ? Math.floor(logicalTop / rowHeight) - 1
+          ? Math.max(0, Math.floor((logicalTop - lead) / rowHeight)) * cols - 1
           : rememberedIndex)
     let next: number
     if (e.key === 'ArrowDown') next = Math.min(count - 1, currentIndex + 1)
@@ -887,9 +1082,150 @@ export function BrowseList(props: Props): JSX.Element {
     focusRow(next)
   }
 
+  /**
+   * WHAT A PRESS, A DRAG, A DROP, A DOUBLE CLICK AND A RIGHT-CLICK ON AN ENTRY
+   * DO: one set for a row and a tile alike (Stage 4 pulled it out of the row,
+   * unchanged), so the two can never disagree.
+   */
+  const entryHandlers = (entry: BrowseEntry, selected: boolean) => ({
+    draggable: true as const,
+    // A FOLDER takes a drop into itself; an ARCHIVE row too
+    // (#70 D6): a .zip adds what is dropped on it, a 7z or a
+    // rar shows no-drop (Prism cannot write them). Any other
+    // file row means the folder it is in.
+    ...folderDrop(
+      entry.isFolder || browsableArchive(entry.name)
+        ? entry.path
+        : (browseParent(entry.path) ?? props.directory),
+      entry.path
+    ),
+    onMouseDown: (event: ReactMouseEvent) => {
+      // THE PRESS ON A MEMBER EXTRACTS IT (#103, D5): a drag
+      // out of the window needs real files before it starts,
+      // so main unpacks the cargo now (64 MB and 64 members at
+      // most), while the pointer travels to the edge.
+      if (event.button !== 0 || !props.archive) return
+      const cargo = memberCargo(entry.path)
+      if (!cargo) return
+      // Its answer is what lets the edge hand off (`isReady`).
+      const req = { kind: 'members' as const, ...cargo }
+      void window.prism
+        .dragPrepare(req)
+        .then((r) => noteReady(req, r.ok))
+        .catch(() => noteReady(req, false))
+    },
+    onDragStart: (event: ReactDragEvent) => {
+      // A row inside a multi-selection carries all of it,
+      // the tree's rule.
+      const all = props.marked
+      const paths = all && all.size > 1 && all.has(entry.path) ? [...all] : [entry.path]
+      // Rows inside an archive are its MEMBERS (#300): dropped on
+      // a real folder they extract there, the archive view's own
+      // drag; dropped inside the same zip they move.
+      const cargo = memberCargo(entry.path)
+      if (cargo) {
+        setDrag({ kind: 'members', ...cargo })
+        event.dataTransfer.effectAllowed = 'copyMove'
+        event.dataTransfer.setData(DRAG_MIME, 'members')
+        return
+      }
+      setDrag({ kind: 'files', paths })
+      event.dataTransfer.effectAllowed = 'copyMove'
+      event.dataTransfer.setData(DRAG_MIME, 'files')
+    },
+    onDragEnd: () => setDrag(null),
+    onClick: (e: ReactMouseEvent) => {
+      if (e.detail === 1) firstPress.current = entry.path
+      setCursor(null)
+      if ((e.ctrlKey || e.shiftKey) && props.onPick)
+        props.onPick(entry, { ctrl: e.ctrlKey, shift: e.shiftKey })
+      else props.onSelect(entry.path)
+    },
+    // WHAT WAS PRESSED IS WHAT OPENS (#494; review, 2026-11-09). A new
+    // file slides the rows between the two presses, and Chromium
+    // counts a double-click by place and time, so the second one
+    // lands on whatever is there now. A row that leaves for Windows
+    // can start a program: only the row first pressed. `openGuards` e2e.
+    onDoubleClick: () => {
+      if (entry.file && goesToWindows(entry.file) && firstPress.current !== entry.path) return
+      props.onActivate(entry)
+    },
+    onPointerEnter:
+      entry.isFolder && props.onFolderHover ? () => props.onFolderHover?.(entry.path) : undefined,
+    onPointerLeave:
+      entry.isFolder && props.onFolderHover ? () => props.onFolderHover?.(null) : undefined,
+    onContextMenu: (e: ReactMouseEvent<HTMLElement>) => {
+      if (props.onContextMenu) {
+        e.preventDefault()
+        // A RIGHT-CLICK SELECTS, as File Explorer's does
+        // (#296; owner, 2026-10-06: "i see file explorer
+        // uses the same highlight if you select a file with
+        // left or rightclick. we should probably do the
+        // same"). An unmarked row becomes THE selection, in
+        // the one look a selection has; inside several marked
+        // rows the marks stay and the menu acts on them all.
+        // Quiet, as a Ctrl click is (#263): it marks, it does
+        // not preview, play or open anything.
+        if (!selected) props.onSelect(entry.path, true)
+        props.onContextMenu(e, entry)
+      }
+    }
+  })
+
+  /** A tile's picture box: the photo or film's thumbnail when it has one, else
+   *  the kind icon (or the folder's) centred on the same quiet ground. The box
+   *  is the same size before and after a picture arrives (spec 4.6). */
+  const tileMedia = (entry: BrowseEntry, selected: boolean): JSX.Element => {
+    const edge = look.edge
+    const iconSize = Math.min(64, Math.round(edge * 0.4))
+    const src =
+      thumbsOn && !props.landing?.has(entry.path.toLowerCase()) ? thumbSource(entry) : null
+    const kind = (size: number): JSX.Element => (
+      <KindIcon
+        kind={entry.file!.kind}
+        ext={entry.file!.ext}
+        name={entry.name}
+        color={iconColour(entry.file!.kind)}
+        size={size}
+        bg={selected ? 'var(--sel-seen, var(--p-sel-tint-seen))' : 'var(--p-bg)'}
+      />
+    )
+    if (entry.file && src)
+      return (
+        <ThumbImage
+          feed={thumbFeed}
+          path={entry.path}
+          source={src}
+          film={entry.file.kind === 'video'}
+          box={edge}
+          icon={kind(iconSize)}
+        />
+      )
+    let icon: JSX.Element
+    if (entry.isFolder) {
+      const own = folderIconOf(folderIcons, entry.path)
+      const folder = <FolderFill size={iconSize} color="var(--p-tree-folder)" />
+      icon = own ? (
+        <FolderGlyph icon={own} size={iconSize} color="var(--p-tree-folder)" fallback={folder} />
+      ) : (
+        folder
+      )
+    } else icon = entry.file ? kind(iconSize) : <span />
+    return (
+      <span className="browse-thumb" style={{ width: edge, height: edge }} data-thumb-state="icon">
+        <span className="browse-thumb-icon">{icon}</span>
+      </span>
+    )
+  }
+
+  /** The header's buttons: a list's columns, or a grid's packed strip. */
+  const headerColumns = searching ? searchColumns : props.archive ? archiveColumns : columns
+  const stripColumns = gridOn ? gridHeaderColumns(headerColumns, width) : headerColumns
+
   return (
     <div
       className="browse-list-area"
+      data-grid={gridOn || undefined}
       data-searching={searching || undefined}
       data-in-archive={(!!props.archive && !searching) || undefined}
       data-row-size={sizeId}
@@ -903,6 +1239,7 @@ export function BrowseList(props: Props): JSX.Element {
           '--browse-row-thumb': `${look.thumb}px`,
           '--browse-row-gap': `${look.gap}px`,
           '--browse-row-pad': `${look.padX}px`,
+          '--browse-tile-font': `${look.tileFont}px`,
           ...explorerHeadVars(sizeId)
         } as CSSProperties
       }
@@ -914,7 +1251,9 @@ export function BrowseList(props: Props): JSX.Element {
       <div
         className="browse-list-frame"
         inert={props.held || undefined}
-        style={props.listSlideWidth !== undefined ? { width: `${props.listSlideWidth}px` } : undefined}
+        style={
+          props.listSlideWidth !== undefined ? { width: `${props.listSlideWidth}px` } : undefined
+        }
       >
         {props.strip && (
           <div className="browse-archive-strip-drop" {...folderDrop(props.directory, `strip`)}>
@@ -930,7 +1269,7 @@ export function BrowseList(props: Props): JSX.Element {
           }}
         >
           <div className="browse-columns">
-            {(searching ? searchColumns : props.archive ? archiveColumns : columns).map(({ key, label }) => (
+            {stripColumns.map(({ key, label }) => (
               <button
                 key={key}
                 className={`browse-column-${key}`}
@@ -965,7 +1304,11 @@ export function BrowseList(props: Props): JSX.Element {
         {/* A folder slower than 300 ms (#271): a thin bar under the header,
             never text over the list. Always in the layout, faded in, so the
             rows never move for it. */}
-        <div className="browse-progress" aria-hidden="true" data-on={props.pending === 'slow' || undefined} />
+        <div
+          className="browse-progress"
+          aria-hidden="true"
+          data-on={props.pending === 'slow' || undefined}
+        />
         <div
           ref={scroller}
           className="browse-list"
@@ -977,7 +1320,7 @@ export function BrowseList(props: Props): JSX.Element {
               : `Files in ${props.directory}`
           }
           aria-busy={props.loading || !!props.searchState?.running}
-          tabIndex={selectedIndex < first || selectedIndex >= end ? 0 : -1}
+          tabIndex={selectedIndex < firstItem || selectedIndex >= endItem ? 0 : -1}
           data-testid="browse-list"
           {...folderDrop(props.directory, 'list')}
           onKeyDown={onKeyDown}
@@ -1002,7 +1345,11 @@ export function BrowseList(props: Props): JSX.Element {
           onContextMenu={(e) => {
             // The empty space's own menu, inside an archive (#300). A row's
             // menu stops here first.
-            if (!props.onEmptyContextMenu || (e.target as HTMLElement).closest('.browse-row')) return
+            if (
+              !props.onEmptyContextMenu ||
+              (e.target as HTMLElement).closest('.browse-row, .browse-tile')
+            )
+              return
             e.preventDefault()
             props.onSelect(null, true)
             props.onEmptyContextMenu(e)
@@ -1014,267 +1361,247 @@ export function BrowseList(props: Props): JSX.Element {
             </div>
           ) : (
             <div className="browse-row-space" style={{ height: spaceHeight }}>
-              <div
-                className="browse-row-layer"
-                style={{
-                  transform: `translateY(${liveTop + first * rowHeight - logicalTop}px)`
-                }}
-              >
-                {rendered.map((entry, offset) => {
-                  const divider = divided?.divider(first + offset)
-                  if (divider)
-                    // A label, not a row: nothing to pick, focus, drag or drop
-                    // on, and hidden from the listbox, whose options are files.
+              {layout && (
+                <BrowseGrid
+                  layout={layout}
+                  firstRow={first}
+                  firstItem={firstItem}
+                  entries={rendered}
+                  translateY={liveTop + first * rowHeight - logicalTop}
+                  tile={(entry, index, rect) => {
+                    const key = entry.path.toLowerCase()
+                    const selected = isMarked(entry.path)
                     return (
-                      <div
-                        key={`group-${divider.group}`}
-                        className="browse-divider"
-                        aria-hidden="true"
-                        data-date-group={divider.group}
-                      >
-                        <span>{divider.label}</span>
-                      </div>
+                      <GridTile
+                        key={entry.path}
+                        name={entry.name}
+                        path={entry.path}
+                        index={index}
+                        rect={rect}
+                        media={tileMedia(entry, selected)}
+                        selected={selected}
+                        primary={entry.path === props.selectedPath}
+                        cursor={cursor === entry.path}
+                        cut={cut.has(key)}
+                        landing={!!props.landing?.has(key)}
+                        posInSet={index + 1}
+                        setSize={count}
+                        handlers={entryHandlers(entry, selected)}
+                      />
                     )
-                  if (!entry)
+                  }}
+                />
+              )}
+              {!layout && (
+                <div
+                  className="browse-row-layer"
+                  style={{
+                    transform: `translateY(${liveTop + first * rowHeight - logicalTop}px)`
+                  }}
+                >
+                  {rendered.map((entry, offset) => {
+                    const divider = divided?.divider(firstItem + offset)
+                    if (divider)
+                      // A label, not a row: nothing to pick, focus, drag or drop
+                      // on, and hidden from the listbox, whose options are files.
+                      return (
+                        <div
+                          key={`group-${divider.group}`}
+                          className="browse-divider"
+                          aria-hidden="true"
+                          data-date-group={divider.group}
+                        >
+                          <span>{divider.label}</span>
+                        </div>
+                      )
+                    if (!entry)
+                      return (
+                        <div
+                          key={`pending-${firstItem + offset}`}
+                          className="browse-row"
+                          aria-hidden="true"
+                        >
+                          <span className="browse-column-name browse-name">
+                            {/* A search row still on its way is a blank row (#271):
+                              no loading text anywhere in the list. */}
+                            {entry === null ? 'Item unavailable' : ''}
+                          </span>
+                        </div>
+                      )
+                    const primary = entry.path === props.selectedPath
+                    const selected = isMarked(entry.path)
+                    // A marked run is one block: its edge is drawn round the
+                    // run, never between two marked neighbours (browse.css).
+                    const above = rendered[offset - 1]
+                    const below = rendered[offset + 1]
+                    const joinUp = selected && !!above && isMarked(above.path)
+                    const joinDown = selected && !!below && isMarked(below.path)
                     return (
-                      <div
-                        key={`pending-${first + offset}`}
+                      <button
+                        key={entry.path}
+                        role="option"
+                        aria-selected={selected}
+                        aria-posinset={
+                          (divided
+                            ? (divided.entryAt(firstItem + offset) ?? 0)
+                            : firstItem + offset) + 1
+                        }
+                        aria-setsize={divided ? props.entries.length : count}
+                        tabIndex={primary ? 0 : -1}
                         className="browse-row"
-                        aria-hidden="true"
+                        data-cut={cut.has(entry.path.toLowerCase()) || undefined}
+                        data-landing={props.landing?.has(entry.path.toLowerCase()) || undefined}
+                        aria-busy={props.landing?.has(entry.path.toLowerCase()) || undefined}
+                        // Still copying: nothing to open, preview or drag yet.
+                        inert={props.landing?.has(entry.path.toLowerCase()) || undefined}
+                        aria-description={
+                          [
+                            groupOf?.[divided?.entryAt(firstItem + offset) ?? -1],
+                            cut.has(entry.path.toLowerCase()) ? 'Cut' : ''
+                          ]
+                            .filter(Boolean)
+                            .join(', ') || undefined
+                        }
+                        data-browse-path={entry.path}
+                        data-browse-index={firstItem + offset}
+                        data-selected={selected || undefined}
+                        data-cursor={(cursor === entry.path && !primary) || undefined}
+                        data-join-up={joinUp || undefined}
+                        data-join-down={joinDown || undefined}
+                        title={searching ? entry.path : undefined}
+                        {...entryHandlers(entry, selected)}
                       >
                         <span className="browse-column-name browse-name">
-                          {/* A search row still on its way is a blank row (#271):
-                              no loading text anywhere in the list. */}
-                          {entry === null ? 'Item unavailable' : ''}
-                        </span>
-                      </div>
-                    )
-                  const primary = entry.path === props.selectedPath
-                  const selected = isMarked(entry.path)
-                  // A marked run is one block: its edge is drawn round the
-                  // run, never between two marked neighbours (browse.css).
-                  const above = rendered[offset - 1]
-                  const below = rendered[offset + 1]
-                  const joinUp = selected && !!above && isMarked(above.path)
-                  const joinDown = selected && !!below && isMarked(below.path)
-                  return (
-                    <button
-                      key={entry.path}
-                      role="option"
-                      aria-selected={selected}
-                      aria-posinset={
-                        (divided ? (divided.entryAt(first + offset) ?? 0) : first + offset) + 1
-                      }
-                      aria-setsize={divided ? props.entries.length : count}
-                      tabIndex={primary ? 0 : -1}
-                      className="browse-row"
-                      data-cut={cut.has(entry.path.toLowerCase()) || undefined}
-                      data-landing={props.landing?.has(entry.path.toLowerCase()) || undefined}
-                      aria-busy={props.landing?.has(entry.path.toLowerCase()) || undefined}
-                      // Still copying: nothing to open, preview or drag yet.
-                      inert={props.landing?.has(entry.path.toLowerCase()) || undefined}
-                      aria-description={
-                        [
-                          groupOf?.[divided?.entryAt(first + offset) ?? -1],
-                          cut.has(entry.path.toLowerCase()) ? 'Cut' : ''
-                        ]
-                          .filter(Boolean)
-                          .join(', ') || undefined
-                      }
-                      data-browse-path={entry.path}
-                      data-browse-index={first + offset}
-                      data-selected={selected || undefined}
-                      data-cursor={(cursor === entry.path && !primary) || undefined}
-                      data-join-up={joinUp || undefined}
-                      data-join-down={joinDown || undefined}
-                      draggable
-                      // A FOLDER takes a drop into itself; an ARCHIVE row too
-                      // (#70 D6): a .zip adds what is dropped on it, a 7z or a
-                      // rar shows no-drop (Prism cannot write them). Any other
-                      // file row means the folder it is in.
-                      {...folderDrop(
-                        entry.isFolder || browsableArchive(entry.name)
-                          ? entry.path
-                          : (browseParent(entry.path) ?? props.directory),
-                        entry.path
-                      )}
-                      onMouseDown={(event) => {
-                        // THE PRESS ON A MEMBER EXTRACTS IT (#103, D5): a drag
-                        // out of the window needs real files before it starts,
-                        // so main unpacks the cargo now (64 MB and 64 members at
-                        // most), while the pointer travels to the edge.
-                        if (event.button !== 0 || !props.archive) return
-                        const cargo = memberCargo(entry.path)
-                        if (!cargo) return
-                        // Its answer is what lets the edge hand off (`isReady`).
-                        const req = { kind: 'members' as const, ...cargo }
-                        void window.prism
-                          .dragPrepare(req)
-                          .then((r) => noteReady(req, r.ok))
-                          .catch(() => noteReady(req, false))
-                      }}
-                      onDragStart={(event) => {
-                        // A row inside a multi-selection carries all of it,
-                        // the tree's rule.
-                        const all = props.marked
-                        const paths = all && all.size > 1 && all.has(entry.path) ? [...all] : [entry.path]
-                        // Rows inside an archive are its MEMBERS (#300): dropped on
-                        // a real folder they extract there, the archive view's own
-                        // drag; dropped inside the same zip they move.
-                        const cargo = memberCargo(entry.path)
-                        if (cargo) {
-                          setDrag({ kind: 'members', ...cargo })
-                          event.dataTransfer.effectAllowed = 'copyMove'
-                          event.dataTransfer.setData(DRAG_MIME, 'members')
-                          return
-                        }
-                        setDrag({ kind: 'files', paths })
-                        event.dataTransfer.effectAllowed = 'copyMove'
-                        event.dataTransfer.setData(DRAG_MIME, 'files')
-                      }}
-                      onDragEnd={() => setDrag(null)}
-                      title={searching ? entry.path : undefined}
-                      onClick={(e: ReactMouseEvent) => {
-                        if (e.detail === 1) firstPress.current = entry.path
-                        setCursor(null)
-                        if ((e.ctrlKey || e.shiftKey) && props.onPick)
-                          props.onPick(entry, { ctrl: e.ctrlKey, shift: e.shiftKey })
-                        else props.onSelect(entry.path)
-                      }}
-                      // WHAT WAS PRESSED IS WHAT OPENS (#494; review, 2026-11-09). A new
-                      // file slides the rows between the two presses, and Chromium
-                      // counts a double-click by place and time, so the second one
-                      // lands on whatever is there now. A row that leaves for Windows
-                      // can start a program: only the row first pressed. `openGuards` e2e.
-                      onDoubleClick={() => {
-                        if (entry.file && goesToWindows(entry.file) && firstPress.current !== entry.path) return
-                        props.onActivate(entry)
-                      }}
-                      onPointerEnter={
-                        entry.isFolder && props.onFolderHover
-                          ? () => props.onFolderHover?.(entry.path)
-                          : undefined
-                      }
-                      onPointerLeave={
-                        entry.isFolder && props.onFolderHover
-                          ? () => props.onFolderHover?.(null)
-                          : undefined
-                      }
-                      onContextMenu={(e) => {
-                        if (props.onContextMenu) {
-                          e.preventDefault()
-                          // A RIGHT-CLICK SELECTS, as File Explorer's does
-                          // (#296; owner, 2026-10-06: "i see file explorer
-                          // uses the same highlight if you select a file with
-                          // left or rightclick. we should probably do the
-                          // same"). An unmarked row becomes THE selection, in
-                          // the one look a selection has; inside several marked
-                          // rows the marks stay and the menu acts on them all.
-                          // Quiet, as a Ctrl click is (#263): it marks, it does
-                          // not preview, play or open anything.
-                          if (!selected) props.onSelect(entry.path, true)
-                          props.onContextMenu(e, entry)
-                        }
-                      }}
-                    >
-                      <span className="browse-column-name browse-name">
-                        {entry.isFolder ? (
-                          (() => {
-                            const own = folderIconOf(folderIcons, entry.path)
-                            const folder = <FolderIcon color="var(--p-tree-folder)" />
-                            // A picked glyph wears the folder colour (D4).
-                            const glyph = own ? (
-                              <FolderGlyph icon={own} size={look.icon} color="var(--p-tree-folder)" fallback={folder} />
-                            ) : (
-                              folder
-                            )
-                            return look.thumb ? <span className="browse-thumb-slot">{glyph}</span> : glyph
-                          })()
-                        ) : (
-                          entry.file &&
-                          (() => {
-                            // Steps 3 and 4: a photo or a film gets a picture box (its icon
-                            // half the box until the picture arrives); every other row keeps
-                            // its icon centred in a slot of the same width, so names line up.
-                            const src =
-                              thumbsOn && !props.landing?.has(entry.path.toLowerCase()) ? thumbSource(entry) : null
-                            // A marked row is a tint, so its icon keeps its own
-                            // colours; its knockouts are the tint as seen
-                            // (dimmed or not: browse.css sets --sel-seen).
-                            const kind = (size: number): JSX.Element => (
-                              <KindIcon
-                                kind={entry.file!.kind}
-                                ext={entry.file!.ext}
-                                name={entry.name}
-                                color={iconColour(entry.file!.kind)}
-                                size={size}
-                                bg={selected ? 'var(--sel-seen, var(--p-sel-tint-seen))' : 'var(--p-bg)'}
-                              />
-                            )
-                            if (src)
-                              return (
-                                <ThumbImage
-                                  feed={thumbFeed}
-                                  path={entry.path}
-                                  source={src}
-                                  film={entry.file.kind === 'video'}
-                                  box={look.thumb}
-                                  icon={kind(Math.min(64, Math.round(look.thumb * 0.5)))}
-                                />
-                              )
-                            return look.thumb ? <span className="browse-thumb-slot">{kind(look.icon)}</span> : kind(look.icon)
-                          })()
-                        )}
-                        <span className="browse-name-text">
-                          <span {...(searching ? {} : hiddenTitle(entry.name))}>{entry.name}</span>
-                        </span>
-                      </span>
-                      <span
-                        className={
-                          searching
-                            ? 'browse-column-path browse-result-location'
-                            : 'browse-column-type'
-                        }
-                      >
-                        {searching
-                          ? (browseParent(entry.path) ?? entry.path)
-                          : props.landing?.has(entry.path.toLowerCase())
-                            ? 'Copying…'
-                            : typeLabel(entry.name, entry.isFolder)}
-                      </span>
-                      <span
-                        className="browse-column-size"
-                        title={entry.folderSize ? folderSizeCoverage(entry.folderSize) : undefined}
-                      >
-                        {/* No size yet is a blank cell, never "0 B" (#271). */}
-                        {props.landing?.has(entry.path.toLowerCase()) ? (
-                          <span className="browse-landing" data-pct={Math.round(props.landing.get(entry.path.toLowerCase()) ?? 0)}>
-                            <span
-                              className="browse-landing-fill"
-                              style={{ width: `${props.landing.get(entry.path.toLowerCase()) ?? 0}%` }}
-                            />
+                          {entry.isFolder
+                            ? (() => {
+                                const own = folderIconOf(folderIcons, entry.path)
+                                const folder = <FolderIcon color="var(--p-tree-folder)" />
+                                // A picked glyph wears the folder colour (D4).
+                                const glyph = own ? (
+                                  <FolderGlyph
+                                    icon={own}
+                                    size={look.icon}
+                                    color="var(--p-tree-folder)"
+                                    fallback={folder}
+                                  />
+                                ) : (
+                                  folder
+                                )
+                                return look.thumb ? (
+                                  <span className="browse-thumb-slot">{glyph}</span>
+                                ) : (
+                                  glyph
+                                )
+                              })()
+                            : entry.file &&
+                              (() => {
+                                // Steps 3 and 4: a photo or a film gets a picture box (its icon
+                                // half the box until the picture arrives); every other row keeps
+                                // its icon centred in a slot of the same width, so names line up.
+                                const src =
+                                  thumbsOn && !props.landing?.has(entry.path.toLowerCase())
+                                    ? thumbSource(entry)
+                                    : null
+                                // A marked row is a tint, so its icon keeps its own
+                                // colours; its knockouts are the tint as seen
+                                // (dimmed or not: browse.css sets --sel-seen).
+                                const kind = (size: number): JSX.Element => (
+                                  <KindIcon
+                                    kind={entry.file!.kind}
+                                    ext={entry.file!.ext}
+                                    name={entry.name}
+                                    color={iconColour(entry.file!.kind)}
+                                    size={size}
+                                    bg={
+                                      selected
+                                        ? 'var(--sel-seen, var(--p-sel-tint-seen))'
+                                        : 'var(--p-bg)'
+                                    }
+                                  />
+                                )
+                                if (src)
+                                  return (
+                                    <ThumbImage
+                                      feed={thumbFeed}
+                                      path={entry.path}
+                                      source={src}
+                                      film={entry.file.kind === 'video'}
+                                      box={look.thumb}
+                                      icon={kind(Math.min(64, Math.round(look.thumb * 0.5)))}
+                                    />
+                                  )
+                                return look.thumb ? (
+                                  <span className="browse-thumb-slot">{kind(look.icon)}</span>
+                                ) : (
+                                  kind(look.icon)
+                                )
+                              })()}
+                          <span className="browse-name-text">
+                            <span {...(searching ? {} : hiddenTitle(entry.name))}>
+                              {entry.name}
+                            </span>
                           </span>
-                        ) : entry.file
-                          ? entry.file.size === undefined
-                            ? ''
-                            : formatBytes(entry.file.size)
-                          : folderSizeLabel(entry.folderSize)}
-                      </span>
-                      {!!props.archive && !searching && (
-                        <span className="browse-column-packed">
-                          {entry.file?.packed !== undefined ? formatBytes(entry.file.packed) : ''}
                         </span>
-                      )}
-                      {!searching && (
-                        <span className="browse-column-modified">
-                          {/* A folder's date too, now it has one (#285). */}
-                          {formatWhen(entry.file ? entry.file.mtimeMs : entry.mtimeMs)}
+                        <span
+                          className={
+                            searching
+                              ? 'browse-column-path browse-result-location'
+                              : 'browse-column-type'
+                          }
+                        >
+                          {searching
+                            ? (browseParent(entry.path) ?? entry.path)
+                            : props.landing?.has(entry.path.toLowerCase())
+                              ? 'Copying…'
+                              : typeLabel(entry.name, entry.isFolder)}
                         </span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
+                        <span
+                          className="browse-column-size"
+                          title={
+                            entry.folderSize ? folderSizeCoverage(entry.folderSize) : undefined
+                          }
+                        >
+                          {/* No size yet is a blank cell, never "0 B" (#271). */}
+                          {props.landing?.has(entry.path.toLowerCase()) ? (
+                            <span
+                              className="browse-landing"
+                              data-pct={Math.round(
+                                props.landing.get(entry.path.toLowerCase()) ?? 0
+                              )}
+                            >
+                              <span
+                                className="browse-landing-fill"
+                                style={{
+                                  width: `${props.landing.get(entry.path.toLowerCase()) ?? 0}%`
+                                }}
+                              />
+                            </span>
+                          ) : entry.file ? (
+                            entry.file.size === undefined ? (
+                              ''
+                            ) : (
+                              formatBytes(entry.file.size)
+                            )
+                          ) : (
+                            folderSizeLabel(entry.folderSize)
+                          )}
+                        </span>
+                        {!!props.archive && !searching && (
+                          <span className="browse-column-packed">
+                            {entry.file?.packed !== undefined ? formatBytes(entry.file.packed) : ''}
+                          </span>
+                        )}
+                        {!searching && (
+                          <span className="browse-column-modified">
+                            {/* A folder's date too, now it has one (#285). */}
+                            {formatWhen(entry.file ? entry.file.mtimeMs : entry.mtimeMs)}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
           {sweep.sweeping && <SweepBand bandRef={sweep.bandRef} as="div" />}

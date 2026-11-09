@@ -5,21 +5,33 @@ import { EXPLORER_SIZES, explorerSizeOf, type ExplorerRow, type ExplorerSize } f
 // adjust the size of the list view", "smooth, like Explorer", "one size
 // everywhere"). Ctrl+wheel moves a single step number that every folder wears
 // and a restart keeps. Steps 0 to 2 are the three Settings sizes exactly;
-// 3 and up are roomier rows, whose icon grows now and whose picture (a
-// thumbnail) comes in a later stage. A step is one look, never a row
-// stretched round small text (the rule in explorerSize.ts).
+// 3 and 4 are roomier rows whose icon becomes a picture; 5 to 9 are a grid of
+// tiles. A step is one look, never a row stretched round small text (the rule
+// in explorerSize.ts).
 
 export interface ZoomLook extends ExplorerRow {
-  kind: 'row'
-  /** The picture's edge in px at this step; 0 while the row shows an icon. */
+  kind: 'row' | 'tile'
+  /** The picture's edge in px at a ROW step; 0 while the row shows an icon. */
   thumb: number
+  /** A TILE step's picture edge in px; 0 at a row step. */
+  edge: number
+  /** A tile's name text size; 0 at a row step. */
+  tileFont: number
 }
 
 const sized = (id: ExplorerSize): ZoomLook => ({
   ...(EXPLORER_SIZES.find((s) => s.id === id) ?? EXPLORER_SIZES[1]).row,
   kind: 'row',
-  thumb: 0
+  thumb: 0,
+  edge: 0,
+  tileFont: 0
 })
+
+const LARGE_ROW = sized('large')
+
+/** A tile step. Its row fields stay Large's: a listing that cannot be a grid
+ *  (a search, an archive, This PC) keeps rows at a tile step, 40px ones. */
+const tile = (edge: number, tileFont: number): ZoomLook => ({ ...LARGE_ROW, kind: 'tile', edge, tileFont })
 
 export const ZOOM_STEPS: ZoomLook[] = [
   sized('small'),
@@ -27,16 +39,38 @@ export const ZOOM_STEPS: ZoomLook[] = [
   sized('large'),
   // Roomy and Roomier: the icon takes the room a picture will, the text stays
   // a size that reads (13px), the padding follows Large's.
-  { kind: 'row', height: 56, font: 13, icon: 28, gap: 14, padX: 16, thumb: 40 },
-  { kind: 'row', height: 76, font: 13, icon: 40, gap: 16, padX: 16, thumb: 60 }
+  { kind: 'row', height: 56, font: 13, icon: 28, gap: 14, padX: 16, thumb: 40, edge: 0, tileFont: 0 },
+  { kind: 'row', height: 76, font: 13, icon: 40, gap: 16, padX: 16, thumb: 60, edge: 0, tileFont: 0 },
+  tile(96, 11.5),
+  tile(128, 12),
+  tile(168, 12.5),
+  tile(216, 13),
+  tile(272, 13)
 ]
 
-/** The last step a person can reach. The tile steps do not exist yet. */
+/** The last step a person can reach. The grid is built but stays behind this
+ *  until its sweep, drag and rename are done (Stage 6 flips it to 9). */
 export const ZOOM_MAX_AVAILABLE = 4
+
+/** TEST ONLY: a number from 5 to 9 under this localStorage key lifts the
+ *  ceiling to it, so the unit and e2e runs can reach the tiles. Nothing in the
+ *  app writes it, and it goes when the grid ships. */
+export const ZOOM_CEILING_KEY = 'prism.explorer.zoomMax'
+
+/** The last step a person can reach right now. */
+export function zoomCeiling(): number {
+  try {
+    const n = Number(localStorage.getItem(ZOOM_CEILING_KEY))
+    if (Number.isInteger(n) && n > ZOOM_MAX_AVAILABLE && n < ZOOM_STEPS.length) return n
+  } catch {
+    /* a blocked store is the shipped ceiling */
+  }
+  return ZOOM_MAX_AVAILABLE
+}
 
 const DEFAULT_STEP = 1
 
-const clampStep = (n: number): number => Math.min(ZOOM_MAX_AVAILABLE, Math.max(0, n))
+const clampStep = (n: number): number => Math.min(zoomCeiling(), Math.max(0, n))
 
 /** A stored step, made safe: a whole number is clamped, anything else is
  *  `fallback` (the step the old size choice stands for, else Medium). */
