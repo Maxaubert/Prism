@@ -833,6 +833,32 @@ a row of that folder counts, so a path that is nothing still says so. A file the
 show (a dotfile) is therefore not opened this way. The `openByPath` e2e holds it,
 `src/shared/path.test.ts` the spellings.
 
+## A file Prism cannot show opens the way Windows would (owner, 2026-11-09, #494)
+
+The owner: "files that cant be opened in prism like exes shoudl be opned like they normally woudl,
+it shoudl be possible to opena exe instalelr for exampel wihoutu prism saying ti doesnt know what to
+do". This replaces the 2026-08-31 decision that opening elsewhere was the shell's job. A DELIBERATE
+open of the `other` kind goes to Windows through the existing open route (`CALL.fileOpenDefault`,
+`shell.openPath`, inside `insideDesktop`), so SmartScreen and UAC answer as they do in File
+Explorer, and the list stays where it is. Deliberate means a double-click, Enter, the menu's Open, a
+path typed in the address field, a search hit picked, a double-click or Enter on a pin, and the Open
+button on the card. `openDeliberately` in `useFolderBrowsing` is the one door.
+
+**ONLY A DELIBERATE OPEN STARTS ANYTHING.** Selecting a row, arrowing past it, the preview pane, the
+preview window, a walk in full view and one click on a pin never do: they go through `openFile`,
+and a preview of such a file is `UnsupportedView`, now with Open beside Show the bytes. One click on
+a pin marks its row and stays in the list, so the second click of a double-click still finds it.
+Search results are rows, the same rules. A link in a document and a file dropped on the viewer show
+the card: a page must not be able to start a program with one click. A file Windows handed to
+Prism shows the card and goes back only on that press, so there is no loop. A member of a zip and
+the phone stay as they were: no Open (`openable`, the `explorer` capability), a member's copy
+being Prism's own temp file.
+
+**NOTHING IS STARTED UNDER --e2e**: the open route records on `__e2eOpenedFiles` and stops. The
+`opensInWindows` e2e holds one call for each deliberate open and none for selecting, arrowing,
+previewing or walking, `unsupported` the no-loop, `src/renderer/src/lib/unsupported.test.ts` which
+files go.
+
 ## Attach into any window (tab tear-off step 4, owner, 2026-10-29)
 
 Owner, 2026-10-29 (spec section 1, points 4, 5 and 7; plan step 4): "a tab can be dropped into ANY window's tab

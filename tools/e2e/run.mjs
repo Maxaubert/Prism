@@ -16928,14 +16928,18 @@ async function opensInWindowsScenario(fixtures) {
   const setup = join(dir, 'setup.exe')
   // Not a program: nothing here could run even if the route were reached.
   writeFileSync(setup, 'not really a program\n')
-  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
   copyFileSync(join(fixtures, 'two.png'), join(dir, 'a-one.png'))
   copyFileSync(join(fixtures, 'two.png'), join(dir, 'z-two.png'))
   const zip = new AdmZip()
   zip.addFile('inner.exe', Buffer.from('a member, not a program\n'))
   zip.addFile('other.txt', Buffer.from('beside it\n'))
-  zip.writeZip(join(dir, 'members.zip'))
-  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  // Sorts after the photos, so the walk below goes from photo to photo.
+  zip.writeZip(join(dir, 'zz-members.zip'))
+  // The first file is out of the way in a folder of its own: a text file in
+  // the walk would take Down for its caret.
+  mkdirSync(join(dir, 'start'), { recursive: true })
+  writeFileSync(join(dir, 'start', 'notes.txt'), 'the notes\n')
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'start', 'notes.txt'))
   let windowMode = false
   let held = 0
   const calls = () => app.evaluate(() => globalThis.__e2eOpenedFiles ?? [])
@@ -16970,8 +16974,6 @@ async function opensInWindowsScenario(fixtures) {
   const CARD = /can.t show EXE files/
   const paneText = () => win.evaluate(() => document.querySelector('[data-browse-preview]')?.innerText ?? '')
   const paneOpen = () => win.locator('[data-browse-preview]').getByRole('button', { name: 'Open', exact: true })
-  const selected = () =>
-    win.evaluate(() => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')
   try {
     await explorerAt(win, dir)
     await pane(false)
@@ -17005,16 +17007,18 @@ async function opensInWindowsScenario(fixtures) {
     await pick('setup.exe')
     await listRow(win, 'setup.exe').focus()
     await win.keyboard.press('Space')
+    const wins = () => app.evaluate(() => globalThis.__e2ePreviewWindows?.() ?? [])
     const inWindow = () =>
       win.evaluate(() => {
         const w = window.__prismPreviewWindow
         return !w || w.closed ? '' : (w.document.querySelector('[data-preview-window-body]')?.textContent ?? '')
       })
+    ok(await until(async () => (await wins()).length === 1, 5000), 'Space on the row opens the preview window')
     ok(await until(async () => CARD.test(await inWindow()), 8000), `the preview window shows the card (${JSON.stringify((await inWindow()).slice(0, 120))})`)
     await nothing('the preview window on it')
     await listRow(win, 'setup.exe').focus()
     await win.keyboard.press('Space')
-    await until(async () => (await inWindow()) === '', 3000)
+    await until(async () => (await wins()).length === 0, 3000)
     await pickStyleSegment(win, 'preview-opens', 'Panel')
     windowMode = false
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
@@ -17024,17 +17028,20 @@ async function opensInWindowsScenario(fixtures) {
     // Full view: a walk through the folder from the photo beside it.
     await listRow(win, 'a-one.png').dblclick()
     ok(await until(async () => (await win.locator('.browse-viewer-toolbar').count()) > 0, 8000), 'a photo opens in full view')
+    const cdp = await win.context().newCDPSession(win)
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+    ok(await until(async () => (await viewing(win)) === 'a-one.png', 8000), `the walk starts on the photo (${await viewing(win)})`)
     await sleep(300)
-    await win.keyboard.press('ArrowRight')
-    await sleep(300)
-    await win.keyboard.press('ArrowRight')
-    await sleep(300)
-    await win.keyboard.press('ArrowLeft')
-    await sleep(300)
-    await win.keyboard.press('ArrowRight')
+    // Down walks the folder here, and setup.exe sorts before the last photo.
+    const seen = []
+    for (let i = 0; i < 8 && (await viewing(win)) !== 'z-two.png'; i++) {
+      await win.keyboard.press('ArrowDown')
+      await sleep(450)
+      seen.push(await viewing(win))
+    }
+    ok((await viewing(win)) === 'z-two.png', `Down walks the folder past the file Prism cannot show (${JSON.stringify(seen)})`)
     await nothing('walking the folder in full view')
     await toList(win)
-    ok(!sameDir(await selected(), join(dir, 'a-one.png')), `the walk really moved (${await selected()})`)
 
     /* ---------- ONE EACH: every deliberate open ---------- */
     await listRow(win, 'setup.exe').dblclick()
@@ -17049,7 +17056,7 @@ async function opensInWindowsScenario(fixtures) {
     ok(await inList(), 'Enter: the list stays where it is')
 
     await listRow(win, 'setup.exe').click({ button: 'right' })
-    await win.getByRole('menuitem', { name: 'Open', exact: true }).click()
+    await win.getByRole('menuitem', { name: /^Open\s*Enter$/ }).click()
     await handed("the menu's Open")
 
     await typePath(win, setup)
@@ -17072,7 +17079,7 @@ async function opensInWindowsScenario(fixtures) {
     ok(await until(async () => (await pin.count()) === 1, 5000), 'the file is pinned')
     await pin.click()
     await nothing('one click on the pin')
-    await explorerAt(win, dir)
+    ok(await inList(), 'one click on the pin stays in the list')
     await pin.dblclick()
     await handed('a double-click on the pin')
     await pin.click({ button: 'right' })
@@ -17096,7 +17103,7 @@ async function opensInWindowsScenario(fixtures) {
     await until(async () => (await win.locator('[data-testid="browse-search-status"]').count()) === 0, 5000)
 
     /* ---------- a zip's member stays as it is ---------- */
-    await inZip(win, join(dir, 'members.zip'))
+    await inZip(win, join(dir, 'zz-members.zip'))
     await listRow(win, 'inner.exe').dblclick()
     ok(await until(async () => CARD.test(await win.evaluate(() => document.body.innerText)), 15000), 'a member is still the card')
     await nothing('a double-click on a member of a zip')
