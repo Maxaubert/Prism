@@ -144,6 +144,7 @@ export const CALL = {
   imageSaveCopy: 'image:save-copy',
   imageSaveCopies: 'image:save-copies',
   imageSaveCopiesCancel: 'image:save-copies-cancel',
+  fileJobCancel: 'file:job-cancel',
 
   clipboardHasFiles: 'clipboard:has-files',
 

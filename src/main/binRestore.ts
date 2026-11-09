@@ -74,6 +74,54 @@ async function binsOf(path: string): Promise<string[]> {
   return own ? [join(parse(path).root, '$Recycle.Bin', own)] : []
 }
 
+/** What the bin holds for a set of paths, read once (below). */
+export interface BinIndex {
+  find(path: string): { dir: string; id: string; deletedAt: bigint } | null
+}
+
+/**
+ * ONE READ OF THE BIN FOR A WHOLE RESTORE (the loading bar, owner 2026-11-09:
+ * "restore with ctrl z"). `restoreFromBin` reads the bin's folder and every
+ * record with the path's extension for EACH path: a 500-file undo in a bin of
+ * thousands of .txt was tens of thousands of reads, MEASURED past 120 s in the
+ * e2e. This reads each record once and answers every path from it.
+ */
+export async function binIndex(paths: readonly string[], bins?: string[]): Promise<BinIndex> {
+  const wanted = new Set(paths.map((p) => p.toLowerCase()))
+  const best = new Map<string, { dir: string; id: string; deletedAt: bigint }>()
+  const dirs = new Set(bins ?? (await Promise.all(paths.map(binsOf))).flat())
+  for (const dir of dirs) {
+    const names = await readdir(dir).catch(() => [] as string[])
+    const there = new Set(names.map((n) => n.toLowerCase()))
+    const records = names.filter(
+      (n) => n.startsWith('$I') && there.has(`$r${n.slice(2)}`.toLowerCase())
+    )
+    // A handful at a time: a worker's read is cheap and the bin can be thousands.
+    for (let i = 0; i < records.length; i += 32) {
+      await Promise.all(
+        records.slice(i, i + 32).map(async (n) => {
+          const info = parseInfo(await readFile(join(dir, n)).catch(() => Buffer.alloc(0)))
+          if (!info) return
+          const key = info.path.toLowerCase()
+          if (!wanted.has(key)) return
+          const had = best.get(key)
+          if (!had || info.deletedAt > had.deletedAt) best.set(key, { dir, id: n.slice(2), deletedAt: info.deletedAt })
+        })
+      )
+    }
+  }
+  return { find: (path) => best.get(path.toLowerCase()) ?? null }
+}
+
+/** Put one path back through an index (`binIndex`): the same steps as
+ *  `restoreFromBin`, its record already found. */
+export async function restoreIndexed(path: string, index: BinIndex): Promise<boolean> {
+  if (await exists(path)) return false
+  const best = index.find(path)
+  if (!best) return false
+  return moveBack(path, best)
+}
+
 /**
  * Put `path` back from the Recycle Bin: the latest copy binned from exactly
  * there. True when it is back; false when the bin had none this could move
@@ -97,6 +145,11 @@ export async function restoreFromBin(path: string, bins?: string[]): Promise<boo
     }
   }
   if (!best) return false
+  return moveBack(path, best)
+}
+
+/** The move itself, and its record (the path and its `$R`/`$I` pair, found). */
+async function moveBack(path: string, best: { dir: string; id: string }): Promise<boolean> {
   const item = join(best.dir, `$R${best.id}`)
   // A link (or junction) in the bin is not a binned file: leave it alone.
   if ((await lstat(item).catch(() => null))?.isSymbolicLink() !== false) return false
