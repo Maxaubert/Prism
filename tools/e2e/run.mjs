@@ -1481,6 +1481,49 @@ async function deleteFastScenario(fixtures) {
   }
 }
 
+/** Inside a zip too: Delete, the row goes, the next row takes over, Delete again. */
+async function deleteZipScenario(fixtures) {
+  console.log('delete twice inside a zip')
+  const dir = join(fixtures, 'delzip')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const AdmZip = (await import('adm-zip')).default
+  const pack = new AdmZip()
+  for (const n of ['a.txt', 'b.txt', 'c.txt', 'd.txt']) pack.addFile(n, Buffer.from(n))
+  pack.writeZip(join(dir, 'pack.zip'))
+  const { app, win } = await launch(join(dir, 'pack.zip'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const rows = () => win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').count()
+  const confirm = async () => {
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+  }
+  try {
+    await inZip(win, join(dir, 'pack.zip'))
+    await sleep(600)
+    const before = await rows()
+    ok(before === 4, `the zip lists its four members (${before})`)
+    await listRow(win, 'b.txt').click({ position: { x: 30, y: 10 } })
+    await sleep(300)
+    await win.keyboard.press('Delete')
+    await confirm()
+    ok(await until(async () => (await rows()) === 3, 5000), 'the member goes')
+    await sleep(300)
+    await win.keyboard.press('Delete')
+    ok(
+      await until(async () => (await win.locator('[role="dialog"]').count()) === 1, 3000),
+      'Delete again asks again with no click between'
+    )
+    await confirm().catch(() => {})
+    ok(await until(async () => (await rows()) === 2, 5000), 'and the second Delete takes a member too')
+    ok(new AdmZip(join(dir, 'pack.zip')).getEntries().length === 2, 'and the zip really lost two')
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 /** Delete, then Delete again: the key must still reach the list. */
 async function deleteAgainScenario(fixtures) {
   console.log('delete twice')
@@ -24053,6 +24096,7 @@ await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(deleteAgainScenario)
 await run(deleteFastScenario)
+await run(deleteZipScenario)
 await run(arrowKeysScenario)
 await run(chromeHideScenario)
 await run(zoomFloorScenario)
