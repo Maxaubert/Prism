@@ -20797,6 +20797,216 @@ async function openByPathScenario(fixtures) {
 
 /** A MARKDOWN FILE PREVIEWS (owner, 2026-11-09: "it cant be previewd only viewd
  *  normally"), in the pane and in the window, and stays open. */
+/** A workbook written by hand: the library's own writer drops every fill. */
+async function colourBook() {
+  const AdmZip = (await import('adm-zip')).default
+  const zip = new AdmZip()
+  const add = (name, text) => zip.addFile(name, Buffer.from(text, 'utf8'))
+  add('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>')
+  add('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
+  add('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Colours" sheetId="1" r:id="rId1"/></sheets></workbook>')
+  add('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>')
+  add('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFC00000"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFC000"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>')
+  const text = (r, s, t) => `<c r="${r}" t="inlineStr"${s ? ` s="${s}"` : ''}><is><t>${t}</t></is></c>`
+  add('xl/worksheets/sheet1.xml', `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">${text('A1', 0, 'plain words')}<c r="B1"><v>4242</v></c></row><row r="2">${text('A2', 1, 'dark fill')}</row><row r="3">${text('A3', 2, 'light fill')}</row></sheetData></worksheet>`)
+  return zip.toBuffer()
+}
+
+/** A one-table Word document and a one-table book, the other kinds that pour
+ *  a file's tables into the same sheet. */
+async function colourDocx() {
+  const AdmZip = (await import('adm-zip')).default
+  const zip = new AdmZip()
+  const add = (name, text) => zip.addFile(name, Buffer.from(text, 'utf8'))
+  add('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
+  add('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+  add('word/document.xml', '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>word paragraph</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>word cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>')
+  return zip.toBuffer()
+}
+
+async function colourEpub() {
+  const AdmZip = (await import('adm-zip')).default
+  const zip = new AdmZip()
+  const add = (name, text) => zip.addFile(name, Buffer.from(text, 'utf8'))
+  add('mimetype', 'application/epub+zip')
+  add('META-INF/container.xml', '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')
+  add('book.opf', '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0"><metadata/><manifest><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c"/></spine></package>')
+  add('c.xhtml', '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><p>book paragraph</p><table><tr><td>book cell</td></tr></table></body></html>')
+  return zip.toBuffer()
+}
+
+/**
+ * THE SAME FILE HAS THE SAME COLOURS ON EVERY SURFACE (owner, 2026-11-09, #493:
+ * "the amu report has black letters normally but in the preview the text is
+ * white"). Reads the computed colours in the pane, the preview window and the
+ * full view, in every theme: text with no colour of its own is the paper's
+ * dark ink, and a real dark fill keeps its light text.
+ */
+async function sheetColoursScenario(fixtures) {
+  console.log('a document has the same colours in the pane, the window and the full view (#493)')
+  const INK = 'rgb(31, 33, 38)'
+  const WHITE = 'rgb(255, 255, 255)'
+  const WANT = { 'plain words': INK, 4242: INK, 'light fill': INK, 'dark fill': WHITE }
+  const dir = join(fixtures, 'sheetcolours')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
+  writeFileSync(join(dir, 'book.xlsx'), await colourBook())
+  writeFileSync(join(dir, 'letter.docx'), await colourDocx())
+  writeFileSync(join(dir, 'novel.epub'), await colourEpub())
+  writeFileSync(join(dir, 'table.md'), '# Table\n\nmark paragraph\n\n| Head |\n|---|\n| mark cell |\n')
+  copyFileSync(join(fixtures, 'sample.pdf'), join(dir, 'paper.pdf'))
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  let windowMode = false
+  const startStyle = await win.evaluate(() => localStorage.getItem('prism.style'))
+  const startGround = await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg'))
+  const groundNow = () => win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg'))
+  const setStyle = (id) =>
+    win.evaluate((v) => {
+      if (v === null) localStorage.removeItem('prism.style')
+      else localStorage.setItem('prism.style', v)
+      window.dispatchEvent(new StorageEvent('storage', { storageArea: localStorage, key: 'prism.style' }))
+    }, id)
+  const wins = () => app.evaluate(() => globalThis.__e2ePreviewWindows?.() ?? [])
+  /** The colours a surface shows: `pane`, `window` or `full`. Null until the
+   *  document is drawn there. */
+  const read = (where) =>
+    win.evaluate((at) => {
+      const w = window.__prismPreviewWindow
+      const box =
+        at === 'window'
+          ? !w || w.closed
+            ? null
+            : w.document.querySelector('[data-preview-window-body]')
+          : at === 'pane'
+            ? document.querySelector('[data-browse-preview]')
+            : document
+      if (!box) return null
+      const view = box.ownerDocument?.defaultView ?? window
+      const colour = (el) => view.getComputedStyle(el).color
+      const cell = (text) => [...box.querySelectorAll('td')].find((el) => el.textContent.trim() === text)
+      const para = (text) => [...box.querySelectorAll('p')].find((el) => el.textContent.trim() === text)
+      const out = {}
+      for (const t of ['plain words', '4242', 'light fill', 'dark fill', 'word cell', 'book cell', 'mark cell']) {
+        const el = cell(t)
+        if (el) out[t] = colour(el)
+      }
+      for (const t of ['word paragraph', 'book paragraph', 'mark paragraph']) {
+        const el = para(t)
+        if (el) out[t] = colour(el)
+      }
+      const span = box.querySelector('.p-pdf-textlayer span')
+      if (span) out.pdfText = colour(span)
+      return out
+    }, where)
+  const drawn = async (where, key) => (await read(where))?.[key] !== undefined
+  const row = (name) => listRow(win, name)
+  const pick = async (name) => {
+    const box = await row(name).boundingBox()
+    await row(name).click({ position: { x: 30, y: box.height / 2 } })
+    await sleep(250)
+  }
+  /** Every shipped theme, the sheet's colours read in each. */
+  const everyTheme = async (where) => {
+    const wrong = []
+    const grounds = new Set()
+    for (const id of THEME_ORDER) {
+      await setStyle(id)
+      await win.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
+      grounds.add(await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg')))
+      const got = await read(where)
+      for (const [text, want] of Object.entries(WANT)) if (got?.[text] !== want) wrong.push(`${id}: "${text}" is ${got?.[text]}`)
+    }
+    ok(wrong.length === 0, `${where}: the sheet's ink and light text in all ${THEME_ORDER.length} themes (${wrong.slice(0, 6).join('; ') || 'all right'})`)
+    ok(grounds.size > 4, `${where}: the themes really changed (${grounds.size} grounds)`)
+    // Back to where it began, landed, before the next reading compares it.
+    await setStyle(startStyle)
+    ok(await until(async () => (await groundNow()) === startGround, 3000, 50), `${where}: the theme is put back`)
+  }
+  const OTHERS = [
+    { file: 'letter.docx', keys: ['word cell', 'word paragraph'] },
+    { file: 'novel.epub', keys: ['book cell', 'book paragraph'] },
+    { file: 'table.md', keys: ['mark cell', 'mark paragraph'] },
+    { file: 'paper.pdf', keys: ['pdfText'] }
+  ]
+  try {
+    await explorerAt(win, dir)
+
+    // The pane.
+    const toggle = win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first()
+    if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
+    await pick('book.xlsx')
+    ok(await until(() => drawn('pane', 'plain words'), 15000), 'the workbook is drawn in the pane')
+    await everyTheme('pane')
+    const inPane = {}
+    for (const { file, keys } of OTHERS) {
+      await pick(file)
+      ok(await until(() => drawn('pane', keys[0]), 15000), `${file} is drawn in the pane`)
+      inPane[file] = await read('pane')
+    }
+
+    // The window.
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await sleep(300)
+    const openWindow = async (file, key) => {
+      await pick(file)
+      await row(file).focus()
+      await win.keyboard.press('Space')
+      ok(await until(async () => (await wins()).length === 1, 5000), `Space opens ${file} in the window`)
+      ok(await until(() => drawn('window', key), 15000), `${file} is drawn in the window`)
+    }
+    const shutWindow = async () => {
+      await win.keyboard.press('Space')
+      ok(await until(async () => (await wins()).length === 0, 3000), 'Space closes the window')
+    }
+    await openWindow('book.xlsx', 'plain words')
+    const mode = await win.evaluate(() => window.__prismPreviewWindow.document.compatMode)
+    ok(mode === 'CSS1Compat', `the window's page is in standards mode, as the app's is (${mode})`)
+    // What standards mode changes, the layout that took quirks for granted.
+    const fit = await win.evaluate(() => {
+      const w = window.__prismPreviewWindow
+      const r = w.document.querySelector('[data-preview-window]').getBoundingClientRect()
+      const s = w.document.querySelector('.p-sheet').getBoundingClientRect()
+      return { h: Math.round(r.height), inner: w.innerHeight, sheetW: Math.round(s.width), sheetH: Math.round(s.height) }
+    })
+    ok(fit.h === fit.inner && fit.sheetW > 100 && fit.sheetH > 50, `the window still fills its frame and the sheet its window (${JSON.stringify(fit)})`)
+    await everyTheme('window')
+    const looked = app.windows().find((p) => p.url() === 'about:blank' || p.url() === '')
+    if (looked) await looked.screenshot({ path: join(SHOTS, 'sheet-colours-window.png') }).catch(() => {})
+    await shutWindow()
+    for (const { file, keys } of OTHERS) {
+      await openWindow(file, keys[0])
+      const got = await read('window')
+      for (const k of keys) ok(got[k] === inPane[file][k], `${file}: "${k}" in the window is the pane's (${got[k]} and ${inPane[file][k]})`)
+      await shutWindow()
+    }
+    await pickStyleSegment(win, 'preview-opens', 'Panel')
+    windowMode = false
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+
+    // The full view.
+    await viewFile(win, 'book.xlsx')
+    ok(await until(() => drawn('full', 'plain words'), 15000), 'the workbook is drawn in the full view')
+    await everyTheme('full')
+    for (const { file, keys } of OTHERS) {
+      await viewFile(win, file)
+      ok(await until(() => drawn('full', keys[0]), 15000), `${file} is drawn in the full view`)
+      const got = await read('full')
+      for (const k of keys) ok(got[k] === inPane[file][k], `${file}: "${k}" in the full view is the pane's (${got[k]} and ${inPane[file][k]})`)
+    }
+  } finally {
+    await setStyle(startStyle).catch(() => {})
+    if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+    await app.close().catch(() => {})
+    await sleep(600)
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function markdownPreviewScenario(fixtures) {
   console.log('a markdown file previews and stays open (owner, 2026-11-09)')
   const dir = join(fixtures, 'mdpreview')
@@ -25042,6 +25252,7 @@ await run(previewSlideListScenario)
 await run(previewWindowScenario)
 await run(openByPathScenario)
 await run(markdownPreviewScenario)
+await run(sheetColoursScenario)
 await run(ctrlFPreviewScenario)
 await run(docArrowsScenario)
 await run(previewSlowImageScenario)
