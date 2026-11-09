@@ -25,7 +25,7 @@ import {
   type TabState
 } from '../lib/tabs/tabs'
 import { fileKind } from '@shared/fileKind'
-import { baseName, extOf, pathKey } from '@shared/path'
+import { baseName, extOf, pastedPath, pathKey } from '@shared/path'
 import { applyDetails, sameRows } from '../lib/listingMerge'
 import { downloadsPath, isDownloads, viewSort } from '../lib/downloadsView'
 import { browseLocation, browseParent } from '../lib/browse'
@@ -149,6 +149,16 @@ function rememberCached(path: string): BrowseDirectory | null {
   return hit && !hit.listing.unreadable ? visitedDirectories.remember(hit) : null
 }
 
+/** The file's folder, read for its grant only, and the row in it the path
+ *  names, in its own spelling (a path may be typed in any case). */
+async function fileRow(tabId: string, target: string): Promise<string | null> {
+  const parent = browseParent(target)
+  if (!parent) return null
+  const dir = await window.prism.browseDirectory(tabId, parent, { details: false }).catch(() => null)
+  if (!dir || dir.listing.unreadable) return null
+  return dir.listing.files.find((f) => pathKey(f.path) === pathKey(target))?.path ?? null
+}
+
 /** Folder navigation owns only the browse cursor. It never reroots a session. */
 export function useFolderBrowsing(
   active: Tab | null,
@@ -172,6 +182,8 @@ export function useFolderBrowsing(
   const tried = useRef(new Set<string>())
   /** The latest `navigate`, for a password's retry. */
   const navigateRef = useRef<(target: string, tabId?: string) => Promise<void>>(async () => {})
+  /** The latest `openFile`, for a typed path that names a file. */
+  const openFileRef = useRef<(file: ViewerFile | string) => Promise<boolean | undefined>>(async () => undefined)
   const askArchive = useCallback((tabId: string, container: string, retry: () => void) => {
     const key = container.toLowerCase()
     const wrong = tried.current.has(key)
@@ -466,8 +478,9 @@ export function useFolderBrowsing(
   }, [settling, readApplied, path, settleKey])
 
   const navigate = useCallback(
-    async (target: string, tabId = id) => {
+    async (requested: string, tabId = id) => {
       if (!tabId) return
+      const target = pastedPath(requested)
       pauseTab(tabId)
       const request = (serial.current.get(tabId) ?? 0) + 1
       serial.current.set(tabId, request)
@@ -511,6 +524,22 @@ export function useFolderBrowsing(
       if (!next || next.listing.unreadable) {
         visitedDirectories.forget(target)
         const refused = next?.listing.archiveError
+        // A FILE'S PATH OPENS THE FILE (owner, 2026-11-09: "cant open this path
+        // directly in prism"). What the path names is only known once the read
+        // has failed, so a folder pays nothing. Its folder is asked for as any
+        // typed folder is (browseDirectory grants it, no wall moves), and only
+        // a row there counts: a path that is nothing still says so below. It
+        // opens as a pin does (`openFile`'s string form): its folder, its row
+        // selected, the viewer in front, in one commit. Not a zip's refusal:
+        // that is a place that answered.
+        if (!refused && visibleId.current === tabId) {
+          const row = await fileRow(tabId, target)
+          if (serial.current.get(tabId) !== request) return
+          if (row) {
+            void openFileRef.current(row)
+            return
+          }
+        }
         if (visibleId.current === tabId) {
           if (cached) setResult(null)
           setError({
@@ -693,6 +722,9 @@ export function useFolderBrowsing(
     },
     [active, id, path, setState]
   )
+  useLayoutEffect(() => {
+    openFileRef.current = openFile
+  }, [openFile])
   // The tab's own answer, else the shared snapshot of the same folder (#271):
   // a tab switch, or a restored tab's first frame, draws rows before any
   // read. With nothing in memory either, the cache on disk, looked at while
@@ -777,7 +809,9 @@ export function useFolderBrowsing(
     },
     [id, patch, listing, active?.browse.preview, openFile]
   )
-  const togglePreview = useCallback(() => {
+  /** `why`, for the log: who shut it when it was not the toggle itself (the
+   *  window closed, a flag nobody asked for put back off). */
+  const togglePreview = useCallback((why?: string) => {
     if (!active || !id) return
     const preview = !active.browse.preview
     if (!preview) {
@@ -785,7 +819,7 @@ export function useFolderBrowsing(
       pauseTab(id)
     }
     setState((s) => ({ ...s, tabs: setBrowsePreview(s.tabs, id, preview) }))
-    crumb('preview', { on: preview })
+    crumb('preview', why ? { on: preview, why } : { on: preview })
     const file = listing?.files.find((f) => f.path === location?.selected)
     // THE PANE OPENING OVER A FILM SHOWS IT PLAYING (#491; owner, 2026-11-08:
     // "video dont always autopaly at least not in preview"), unless you had
