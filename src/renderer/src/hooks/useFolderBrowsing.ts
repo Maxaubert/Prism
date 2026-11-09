@@ -40,6 +40,7 @@ import type { DirListing } from '@shared/types'
 import { pageDocuments } from '../lib/pageDocuments'
 import { isHeld, noteShownFolder, releaseSettled, useHeld, useSettling } from '../lib/holds'
 import { useFrozen } from '../lib/frozen'
+import { askArchivePassword, type ArchiveAsk } from '../lib/archiveQuestion'
 
 function pauseTab(tabId: string, which = 'video,audio'): void {
   // The preview window's too: the front tab's player is drawn there.
@@ -171,25 +172,34 @@ export function useFolderBrowsing(
    *  the folder it shows meanwhile: it never blanks for a read. */
   const [waitingFor, setWaitingFor] = useState<{ tabId: string; path: string } | null>(null)
   const [errorState, setError] = useState<{ tabId: string; message: string }>()
-  /** A place inside an archive that wants its password (#300): the question,
-   *  and what to do once it is answered. */
-  const [archiveAsk, setArchiveAsk] = useState<{
-    tabId: string
-    container: string
-    name: string
-    wrong: boolean
-    retry: () => void
-  } | null>(null)
-  const tried = useRef(new Set<string>())
+  /** The password last tried on each archive this session (#300), and the
+   *  request waiting on the question, which a newer one replaces. */
+  const tried = useRef(new Map<string, string>())
+  const asking = useRef<ArchiveAsk | null>(null)
   /** The latest `navigate`, for a password's retry. */
   const navigateRef = useRef<(target: string, tabId?: string) => Promise<void>>(async () => {})
   /** The latest `openFile`, for a typed path that names a file. */
   const openFileRef = useRef<(file: ViewerFile | string) => Promise<boolean | undefined>>(async () => undefined)
-  const askArchive = useCallback((tabId: string, container: string, retry: () => void) => {
+  /** A place inside an archive wants its password: main remembers the answer
+   *  for the session and the place is asked for again; a wrong one asks again. */
+  const askArchive = useCallback((container: string, began: number, retry: () => void) => {
     const key = container.toLowerCase()
-    const wrong = tried.current.has(key)
-    tried.current.add(key)
-    setArchiveAsk({ tabId, container, name: baseName(container), wrong, retry })
+    const last = tried.current.get(key)
+    asking.current?.withdraw()
+    const ask = askArchivePassword({
+      archive: container,
+      name: baseName(container),
+      wrong: last !== undefined,
+      tried: last,
+      began
+    })
+    asking.current = ask
+    void ask.answer.then((password) => {
+      if (asking.current === ask) asking.current = null
+      if (password === null) return
+      tried.current.set(key, password)
+      void window.prism.archiveRememberPassword(container, password).then(() => retry())
+    })
   }, [])
   const [locations, setLocations] = useState<BrowseShortcut[]>([])
   const [revision, setRevision] = useState(0)
@@ -442,7 +452,7 @@ export function useFolderBrowsing(
           setResult(null)
           const refused = next?.listing.archiveError
           if (refused && (refused.reason === 'password' || refused.reason === 'aes'))
-            askArchive(id, refused.container, () => {
+            askArchive(refused.container, t0, () => {
               readReason.current = 'retry'
               setRevision((v) => v + 1)
             })
@@ -555,7 +565,7 @@ export function useFolderBrowsing(
         // A zip whose NAMES are locked asks before it can be entered (#300);
         // Cancel stays where you were.
         if (refused && (refused.reason === 'password' || refused.reason === 'aes'))
-          askArchive(tabId, refused.container, () => void navigateRef.current(target, tabId))
+          askArchive(refused.container, t0, () => void navigateRef.current(target, tabId))
         return
       }
       if (visibleId.current === tabId) {
@@ -874,18 +884,6 @@ export function useFolderBrowsing(
     [active, id, setState, openFile]
   )
   const previewFile = useMemo(() => active?.files[active.index], [active?.files, active?.index])
-  /** The password question's answer (#300): main remembers it for the
-   *  session and the place is asked for again; a wrong one asks again. */
-  const answerArchive = useCallback(
-    (password: string | null) => {
-      const ask = archiveAsk
-      setArchiveAsk(null)
-      if (!ask || password === null) return
-      void window.prism.archiveRememberPassword(ask.container, password).then(() => ask.retry())
-    },
-    [archiveAsk]
-  )
-  const askHere = archiveAsk && archiveAsk.tabId === id ? archiveAsk : null
   const shownError = error ?? search.error
   const searchState = search.state
   const cancelSearch = search.cancel
@@ -899,8 +897,6 @@ export function useFolderBrowsing(
       folder,
       location,
       /** A place inside an archive asks for its password (#300). */
-      archiveAsk: askHere,
-      answerArchive,
       /** The sort the folder is shown in (Downloads' own until picked, #285). */
       sort,
       downloads,
@@ -931,8 +927,6 @@ export function useFolderBrowsing(
     [
       folder,
       location,
-      askHere,
-      answerArchive,
       sort,
       downloads,
       weekStart,

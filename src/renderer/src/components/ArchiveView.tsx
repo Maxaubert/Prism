@@ -8,7 +8,6 @@ import { fileKind } from '@shared/fileKind'
 import { baseName, extOf, naturalCompare, parentDir } from '@shared/path'
 import { ContextMenu } from './ContextMenu'
 import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
-import { PasswordDialog } from '../dialogs/PasswordDialog'
 import { KindIcon, iconColour } from './icons/FileIcons'
 import { PATHS } from './icons/paths'
 import { Spinner } from './LoadingState'
@@ -17,6 +16,7 @@ import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, overPayload, ownDrop, setDrag, windowsDrag, type DragPayload } from '../lib/drag/dragDrop'
 import { dropVerb, effectOf, type DropTarget } from '../lib/drag/dropVerb'
 import { archivePassword } from '../lib/archivePass'
+import { askArchivePassword } from '../lib/archiveQuestion'
 import { useArchiveOps } from './archive/useArchiveOps'
 import { COL_PACKED, COL_SIZE, COL_TYPE, COL_WHEN, type Entry } from './archive/entry'
 import { MemberView } from './archive/MemberView'
@@ -103,7 +103,30 @@ function ArchiveInner({
   // (archive/useArchiveListing).
   const { entries, setEntries, readOnly, load } = useArchiveListing(file.path, refreshKey)
   /** A password has already been tried and refused, so the dialog says so. */
-  const [triedPass, setTriedPass] = useState(false)
+  const [triedPass, setTriedPass] = useState<string | undefined>(undefined)
+  // Locked is a question, not a failure: the archive is fine, it wants the
+  // password before it will even say what is inside.
+  useEffect(() => {
+    if (entries !== 'locked') return
+    const ask = askArchivePassword({
+      archive: file.path,
+      name: file.name,
+      wrong: triedPass !== undefined,
+      tried: triedPass
+    })
+    let live = true
+    void ask.answer.then((pw) => {
+      if (!live) return
+      if (pw === null) return setEntries('error')
+      setTriedPass(pw)
+      setEntries(null)
+      load(pw)
+    })
+    return () => {
+      live = false
+      ask.withdraw()
+    }
+  }, [entries, file.path, file.name, triedPass, setEntries, load])
   /** The panel's dead-space menu, kept apart from the row menu's state. */
   const [panelMenu, setPanelMenu] = useState<{ x: number; y: number; at: EventTarget } | null>(null)
   /**
@@ -562,21 +585,8 @@ function ArchiveInner({
    *  promise more than the verbs could do. */
   const filesOf = (paths: string[]): string[] =>
     paths.filter((p) => rows.some((r) => r.path === p && !r.dir))
-  // Locked is a question, not a failure: the archive is fine, it wants the
-  // password before it will even say what is inside.
-  if (entries === 'locked')
-    return (
-      <PasswordDialog
-        name={file.name}
-        wrong={triedPass}
-        onCancel={() => setEntries('error')}
-        onSubmit={(pw) => {
-          setTriedPass(true)
-          setEntries(null)
-          load(pw)
-        }}
-      />
-    )
+  // The question is the window's (`askArchivePassword`, above).
+  if (entries === 'locked') return <></>
 
   if (entries === 'error')
     return (

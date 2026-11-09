@@ -23922,6 +23922,23 @@ async function archivePassOnceScenario(fixtures) {
     await sleep(1200)
     top = await most()
     ok(top === 1 && (await asked()) === 0, `and it asked nothing more (most up: ${top}, up now: ${await asked()})`)
+
+    // The Explorer going in asks through the same question: a 7z whose NAMES
+    // are locked cannot even be listed without it.
+    const src = join(dir, 'to-pack')
+    mkdirSync(src, { recursive: true })
+    writeFileSync(join(src, 'hidden.txt'), 'in a locked 7z')
+    const names = join(dir, 'names.7z')
+    execFileSync(join(ROOT, 'vendor', '7zip', '7z.exe'), ['a', '-t7z', '-pletmein', '-mhe=on', names, join(src, '*')], { windowsHide: true, stdio: 'ignore' })
+    await zipGo(win, dir)
+    await zipGo(win, names, async () => (await asked()) === 1)
+    ok((await asked()) === 1, 'going into a 7z with locked names asks')
+    await win.locator(PASS).fill('nope')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => /didn't open/.test((await win.textContent('body')) ?? ''), 15000), 'a wrong one asks again, saying so')
+    await win.locator(PASS).fill('letmein')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await asked()) === 0 && (await zipRow(win, 'hidden.txt').count()) === 1, 15000), 'the right one goes in')
   } finally {
     await app.close()
     rmSync(dir, { recursive: true, force: true })
