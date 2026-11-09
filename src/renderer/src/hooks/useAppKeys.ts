@@ -1,6 +1,7 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react'
 import type { ViewerFile } from '@shared/types'
 import { EDITOR, OVERLAY, isTypingTarget } from '../lib/focusGuards'
+import { isHeld } from '../lib/holds'
 import { menuOrDialogUp } from '../lib/pageDocuments'
 import { isExplorerTab, type Tab } from '../lib/tabs/tabs'
 import { copyFilePaths } from '../lib/fileClipboard'
@@ -206,7 +207,8 @@ export function useAppKeys({
           if (into) {
             e.preventDefault()
             e.stopPropagation()
-            void pasteFiles(into)
+            // A held list (the loading bar) takes no paste.
+            if (!isHeld(into)) void pasteFiles(into)
             return
           }
         }
@@ -284,6 +286,9 @@ export function useAppKeys({
         // not on screen: a keystroke that moves files about while you cannot
         // see them is a change you did not mean to make.
         e.preventDefault()
+        // Behind the loading bar a held folder takes no undo: it would queue
+        // behind the job and land on a list you cannot see move.
+        if (active && isHeld(active.browse.path)) return
         if (e.key.toLowerCase() === 'y' || e.shiftKey) redo()
         else undo()
       } else if (

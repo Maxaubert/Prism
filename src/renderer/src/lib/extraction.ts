@@ -32,6 +32,8 @@
  *   not happened yet.
  */
 import { createStore } from './store'
+import { beginHold, endHold } from './holds'
+import { parentDir } from '@shared/path'
 import type { ExtractEvent, ExtractFail } from '@shared/extraction'
 
 /**
@@ -204,6 +206,15 @@ const store = createStore<ExtractState>(IDLE)
 let timer: ReturnType<typeof setTimeout> | null = null
 
 export function dispatch(a: ExtractAction, now = Date.now()): void {
+  // THE EXTRACTION WINDOW IS THE LOADING BAR (owner, 2026-11-09): it already
+  // blocks the app with progress and Cancel, so what it adds is the frozen
+  // list under it. Over one second the destination stops trickling (a hold
+  // with no bar), and the job's end shows the folder once.
+  if (a.type === 'start') {
+    beginHold(`extract-${a.id}`, { verb: 'Extracting', bar: false, dirs: [a.dest, parentDir(a.dest)] })
+  } else if (a.type === 'end') {
+    endHold(`extract-${a.id}`)
+  }
   const next = reduce(store.get(), a, now)
   if (next === store.get()) return
   if (timer) {

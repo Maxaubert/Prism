@@ -17,6 +17,7 @@ import { sweepBase, sweepSelect } from '../../lib/marquee'
 import { explorerHeadVars, explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import { useLandingIn } from '../../lib/jobs'
+import { useHeld } from '../../lib/holds'
 import { LAND_MARK_MS, clearLanded, planLanding, useLandRequest } from '../../lib/landMarks'
 import { pathKey } from '@shared/path'
 import { landingPcts, listedPaths, rowsKey, unlisted, withLanding } from './landingRows'
@@ -74,8 +75,12 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     if (chosenPlace && !withinFolder(props.directory, chosenPlace.path)) setChosenPlace(null)
   }
   const area = useActiveArea(shell)
+  // THE LOADING BAR holds this folder (owner, 2026-11-09, lib/holds): the
+  // rows stand still (`listing` is frozen in useFolderBrowsing), the list is
+  // inert and the keyboard stays on the bar until the job is over.
+  const held = useHeld(props.directory)
   // A question closing or a row going drops the focus: it comes back here.
-  useListKeyboard(shell, !!props.covered, props.selectedPath ?? null)
+  useListKeyboard(shell, !!props.covered || held, props.selectedPath ?? null)
   const focusList = (): void => {
     shell.current?.querySelector<HTMLElement>('.browse-list')?.focus({ preventScroll: true })
   }
@@ -137,7 +142,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   // Only this folder's rows are followed, the listing is looked up through a
   // set, and the merged listing changes with the row SET, never a percentage,
   // so a progress tick never re-sorts the folder (landingRows.ts).
-  const landingAll = useLandingIn(props.directory)
+  const landingAll = useLandingIn(props.directory, held)
   const landingHere = landingAll.length > 0
   const listed = useMemo(() => (landingHere ? listedPaths(props.listing) : null), [landingHere, props.listing])
   const landingItems = useMemo(
@@ -501,7 +506,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       onKeyDown={(e) => {
         const target = e.target as HTMLElement
         const typing = target.closest(`${FIELD},${EDITOR},${OVERLAY}`)
-        if (inOverlay(target)) return
+        if (inOverlay(target) || target.closest('[data-busy-bar]')) return
         const inList = !!target.closest('.browse-list')
         // THE COMMON KEYS (#330) that act on the folder or a row rather than
         // on the marks (the list answers those itself). From the list only,
@@ -690,6 +695,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         onSelect={pickOne}
         marked={marked}
         landing={landing}
+        held={held}
         revealPath={revealPath}
         onPick={pick}
         onSweep={swept}

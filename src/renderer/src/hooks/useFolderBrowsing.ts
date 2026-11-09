@@ -37,6 +37,8 @@ import { usePendingHint, type ListPending } from './usePendingHint'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import type { DirListing } from '@shared/types'
 import { pageDocuments } from '../lib/pageDocuments'
+import { isHeld, noteShownFolder, releaseSettled, useHeld, useSettling } from '../lib/holds'
+import { useFrozen } from '../lib/frozen'
 
 function pauseTab(tabId: string, which = 'video,audio'): void {
   // The preview window's too: the front tab's player is drawn there.
@@ -234,6 +236,31 @@ export function useFolderBrowsing(
     !!active &&
     isExplorerTab(active) &&
     active.browse.surface === 'folder'
+  // THE LOADING BAR HOLDS THE LIST (owner, 2026-11-09). While a job over a
+  // second is changing this folder, no trickle reaches the rows: the watcher's
+  // re-reads stand down, `listing` below is frozen, and the job's end brings
+  // one read that shows the finished folder, then lifts the hold.
+  const shownPath_ = folder ? path : null
+  const heldNow = useHeld(shownPath_)
+  const settling = useSettling(shownPath_)
+  useLayoutEffect(() => {
+    noteShownFolder(shownPath_ ?? null)
+    return () => noteShownFolder(null)
+  }, [shownPath_])
+  /** Which read is the one that shows the finished folder. */
+  const readNo = useRef(0)
+  const settleAfter = useRef(0)
+  const [readApplied, setReadApplied] = useState(0)
+  // A new settling hold is one more reason to read (adjusted while rendering,
+  // so the read effect below sees it as a dependency, and only when it begins:
+  // the hold lifting afterwards needs no read of its own).
+  const [settleKey, setSettleKey] = useState(0)
+  const [seenSettling, setSeenSettling] = useState<string | null>(null)
+  if (settling !== seenSettling) {
+    setSeenSettling(settling)
+    if (settling) setSettleKey((k) => k + 1)
+  }
+  const readSettleKey = useRef(settleKey)
   // DOWNLOADS (#285): the Known Folder shows its own sort, newest first,
   // until one is picked there (lib/downloadsView.ts).
   const downloads = isDownloads(path, downloadsPath(locations))
@@ -305,9 +332,11 @@ export function useFolderBrowsing(
       setRevision((value) => value + 1)
     }
     const changed = window.prism.onDirChanged(({ dirs }) => {
+      if (isHeld(path)) return
       if (dirs.some((dir) => dir.toLowerCase() === path.toLowerCase())) refresh('dir-changed')
     })
     const onFocus = (): void => {
+      if (isHeld(path)) return
       if (focusNeedsRead(watched.current, lastRead.current, id, directoryKey(path), performance.now()))
         refresh('focus')
     }
@@ -329,7 +358,14 @@ export function useFolderBrowsing(
     const refreshed = readRefreshKey.current !== refreshKey
     readRefreshKey.current = refreshKey
     if (!folder || !id || !path) return
+    const settlingRead = readSettleKey.current !== settleKey
+    if (settlingRead) {
+      readSettleKey.current = settleKey
+      settleAfter.current = readNo.current
+      readReason.current = 'refresh'
+    }
     if (
+      !settlingRead &&
       fresh?.tabId === id &&
       directoryKey(fresh.path) === directoryKey(path) &&
       fresh.refreshKey === refreshKey &&
@@ -342,6 +378,8 @@ export function useFolderBrowsing(
       return
     }
     let cancelled = false
+    readNo.current += 1
+    const no = readNo.current
     const request = serial.current.get(id)
     const reason: OpenReason = refreshed ? 'refresh' : (readReason.current ?? 'arrival')
     readReason.current = null
@@ -351,7 +389,7 @@ export function useFolderBrowsing(
     const shown = !!visitedDirectories.get(path)
     const again = reason === 'dir-changed' || reason === 'focus'
     void readDirectory
-      .current(id, path, `${refreshKey}:${revision}`, again)
+      .current(id, path, `${refreshKey}:${revision}:${settleKey}`, again)
       .then((next) => {
         // Said even when the effect has moved on (review of #322): a slow
         // read the user gave up on (a hung network folder) is exactly what
@@ -359,6 +397,7 @@ export function useFolderBrowsing(
         if (!joined)
           openFolderCrumb(next?.path ?? path, reason, t0, next?.listing, shown, cancelled ? { abandoned: true } : {})
         if (cancelled) return
+        setReadApplied(no)
         if (serial.current.get(id) === request) setWaitingFor(null)
         if (next && !next.listing.unreadable) {
           const merged = visitedDirectories.remember(next)
@@ -404,6 +443,7 @@ export function useFolderBrowsing(
       })
       .catch(() => {
         if (!cancelled) {
+          setReadApplied(no)
           visitedDirectories.forget(path)
           setResult(null)
           if (serial.current.get(id) === request) setWaitingFor(null)
@@ -413,7 +453,17 @@ export function useFolderBrowsing(
     return () => {
       cancelled = true
     }
-  }, [folder, id, path, refreshKey, revision, askArchive, setState, watchFolder])
+  }, [folder, id, path, refreshKey, revision, settleKey, askArchive, setState, watchFolder])
+  // The job has ended: the read of the finished folder ran above, and when
+  // its rows have committed (a layout effect, so the list swaps in one frame)
+  // the hold lifts. A folder the read could not find lifts it too (the job
+  // took it).
+  useLayoutEffect(() => {
+    // The read effect has taken this settle (it is a passive effect, so it runs
+    // after this one in the settling commit), and a read begun after it answered.
+    if (settling && path && readSettleKey.current === settleKey && readApplied > settleAfter.current)
+      releaseSettled(path)
+  }, [settling, readApplied, path, settleKey])
 
   const navigate = useCallback(
     async (target: string, tabId = id) => {
@@ -671,7 +721,7 @@ export function useFolderBrowsing(
     : (visitedDirectories.get(path)?.listing ?? (error ? null : diskListing) ?? held)
   const waiting = !!waitingPath || (folder && !directoryListing && !error)
   const pending: ListPending = usePendingHint(waiting ? `${id}\0${waitingPath ?? path}` : null)
-  const listing = search.result?.listing ?? directoryListing
+  const listing = useFrozen(heldNow, `${id}\0${path}`, search.result?.listing ?? directoryListing)
   // OUT OF A ZIP, ITS PREVIEW COMES BACK (#334, `wayOutPreview`). Each move of
   // this tab from one place to another is an arrival, said once; a tab switch
   // is not one. It is judged when the folder arrived at has its rows.

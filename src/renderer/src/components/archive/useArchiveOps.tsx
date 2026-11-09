@@ -2,6 +2,8 @@ import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { placeOf } from '@shared/archivePlace'
 import { archivePassword, rememberArchivePassword } from '../../lib/archivePass'
 import { markLanded } from '../../lib/landMarks'
+import { stoppedNote, withFileJob } from '../../lib/fileJob'
+import { parentDir } from '@shared/path'
 import type { UndoEntry } from '../../lib/undo'
 import { ArchiveClashDialog } from '../../dialogs/ArchiveClashDialog'
 import { ArchiveDeleteDialog } from '../../dialogs/ArchiveDeleteDialog'
@@ -175,7 +177,19 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
       base?: string,
       settled?: () => void
     ): void => {
-      void addMembers(window.prism, { container, paths, dest, keepBoth, move }).then((r) => {
+      // One rewrite of the zip: the bar shows, but it cannot stop partway.
+      void withFileJob(
+        {
+          kind: 'add',
+          verb: 'Adding to archive',
+          total: paths.length,
+          name: paths.length === 1 ? (paths[0].split('\\').pop() ?? '') : undefined,
+          dirs: move ? paths.map(parentDir) : [],
+          under: [container],
+          stoppable: false
+        },
+        () => addMembers(window.prism, { container, paths, dest, keepBoth, move })
+      ).then((r) => {
         setClash(null)
         if (r.kind === 'clash')
           return setClash({ kind: 'add', container, paths, dest, names: r.names, move, base, settled })
@@ -204,7 +218,10 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
       base?: string,
       after?: () => void
     ): void => {
-      void window.prism.archiveMoveMembers(container, entries, dest, keepBoth).then((r) => {
+      void withFileJob(
+        { kind: 'add', verb: 'Moving in archive', total: entries.length, dirs: [], under: [container], stoppable: false },
+        () => window.prism.archiveMoveMembers(container, entries, dest, keepBoth)
+      ).then((r) => {
         setClash(null)
         if (r === 'encrypted' || r === 'failed')
           return setOops(r === 'encrypted' ? ARCHIVE_COPY.moveEncrypted : ARCHIVE_COPY.moveFailed)
@@ -286,7 +303,28 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
           onDelete={() => {
             const { container, inners, names, after } = confirm
             setConfirm(null)
-            void deleteMembers(window.prism, container, inners, names).then((said) => {
+            void withFileJob(
+              {
+                kind: 'bin',
+                verb: 'Deleting',
+                name: names.length === 1 ? names[0] : undefined,
+                total: inners.length,
+                dirs: [],
+                under: [container]
+              },
+              async (job) => {
+                let deleted = 0
+                const said = await deleteMembers(window.prism, container, inners, names, {
+                  stopped: job.stopped,
+                  count: (done, total) => {
+                    deleted = done
+                    job.count(done, total)
+                  }
+                })
+                if (job.stopped()) job.note(stoppedNote('Deleted', deleted, inners.length))
+                return said
+              }
+            ).then((said) => {
               after?.()
               latest.current.refresh()
               if (said) setOops(said)

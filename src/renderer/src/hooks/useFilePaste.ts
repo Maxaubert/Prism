@@ -1,8 +1,10 @@
 import { useCallback } from 'react'
 import { clearFileCut, fileCutPaths, fileClipboardReady } from '../lib/fileClipboard'
-import { endJob, startJob } from '../lib/jobs'
+import { trimLanding } from '../lib/jobs'
+import { stoppedNote, withFileJob } from '../lib/fileJob'
 import { followFolderIcons } from '../lib/folderIcons'
 import { markLanded } from '../lib/landMarks'
+import { parentDir } from '@shared/path'
 
 /** What main answers a paste with. */
 export type PasteResult = Awaited<ReturnType<Window['prism']['pasteInto']>>
@@ -22,6 +24,7 @@ export const PASTE_MESSAGES = {
 
 /** What to say about a paste main ran, or null when it all landed. */
 export function pasteMessage(r: PasteResult, refused: string = PASTE_MESSAGES.refused): string | null {
+  if (r.cancelled) return null
   if (r.empty) return PASTE_MESSAGES.empty
   if (r.refused) return refused
   if (!r.pasted) return PASTE_MESSAGES.nothing
@@ -55,24 +58,35 @@ export function useFilePaste(
       // behind it (#484): main pastes from its own record of that copy.
       await fileClipboardReady()
       const cut = fileCutPaths()
-      const job = startJob('paste', cut.length ? 'Moving' : 'Copying')
-      try {
-        const result = await window.prism.pasteInto(directory, cut.length ? cut : undefined, job)
-        if (result.moved) {
-          clearFileCut(cut)
-          // A cut and paste is a move: folder icons follow (D9).
-          followFolderIcons(pasteMoves(result))
+      await withFileJob(
+        {
+          kind: 'paste',
+          verb: cut.length ? 'Moving' : 'Copying',
+          early: true,
+          total: null,
+          dirs: [directory, ...cut.map(parentDir)],
+          under: cut
+        },
+        async (job) => {
+          try {
+            const result = await window.prism.pasteInto(directory, cut.length ? cut : undefined, job.id)
+            if (result.moved) {
+              clearFileCut(cut)
+              // A cut and paste is a move: folder icons follow (D9).
+              followFolderIcons(pasteMoves(result))
+            }
+            trimLanding(job.id, result.paths ?? [])
+            const said = pasteMessage(result, refused)
+            if (said) onError(said)
+            onPasted(result, directory)
+            // What landed is marked in the list, the first under the cursor (#101).
+            markLanded(result.paths ?? [])
+            if (result.cancelled) job.note(stoppedNote(result.moved ? 'Moved' : 'Copied', result.pasted, result.total ?? result.pasted))
+          } catch {
+            onError(PASTE_MESSAGES.threw)
+          }
         }
-        const said = pasteMessage(result, refused)
-        if (said) onError(said)
-        onPasted(result, directory)
-        // What landed is marked in the list, the first under the cursor (#101).
-        markLanded(result.paths ?? [])
-      } catch {
-        onError(PASTE_MESSAGES.threw)
-      } finally {
-        endJob(job)
-      }
+      )
     },
     [onPasted, onError, refused]
   )

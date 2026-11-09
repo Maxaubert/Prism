@@ -1176,6 +1176,11 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   the listing at once, sorted where it will land, drawn faded, inert, "Copying…" with a filling bar in the
   Size column (`lib/jobs` `landJob`/`landingIn`, `BrowseList` `landing`), until the real file arrives. A
   move is a rename and shows none. `jobs.test.ts`; e2e `pasteProgress` (a 600 MB copy).
+  **THE ROWS ARE FOR THE FIRST SECOND** (owner, 2026-11-09, A JOB OVER A SECOND HOLDS ITS LIST, below): past one
+  second the loading bar covers the list and the rows stand still with it, frozen with the rest of the rows, and
+  a stopped paste's rows that never arrived go at once (`trimLanding`). The job chip stays for what a tab cannot
+  say itself: it speaks for a job on every OTHER tab, and stands down for the job whose bar is on the tab in
+  front (`JobChip`'s `visible`).
   CHEAP FOR A BIG PASTE INTO A BIG FOLDER (performance review, 2026-10-28; owner: "look for stall points,
   things that use up too many resources"): each progress message filtered every item against the whole
   listing, lower-casing both, re-sorted the folder, and re-rendered every open Explorer tab, and main sent one
@@ -1188,6 +1193,37 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   `uniqueNameAsync`'s `taken`), and the copy writes exactly where its row said (they shared one path and one
   row hid the other). A cut copied across drives counts its percentage in items (`movePct`; from the second
   such item it read 100%). `landingRows.test.ts`, `jobs.test.ts`, `pasteCopy.test.ts`, `fileOps.test.ts`.
+- **A JOB OVER A SECOND HOLDS ITS LIST BEHIND A LOADING BAR** (owner, 2026-11-09: "when you delte or paste a lot
+  of images or restore with ctrl z it shoudl show a loading bar unti its done because right now they jstu tickle
+  in and teh files in teh direcotry constantly move making it ahrd to navigate. so sometihn hsoudl block you from
+  interacting wiht the directory until its done", then "this is essentailly as long as one or more files taek
+  more then a second to paste,move etc."; picked: the bar covers that tab's list, other tabs stay usable, Cancel;
+  a confirmation on Ctrl+Z was withdrawn, there is none). Every job that adds, moves or removes files runs
+  through `lib/fileJob.ts` (`withFileJob`): paste and cut, a drop or drag, delete to the bin, a zip member's
+  permanent delete, Ctrl+Z and Ctrl+Y of every kind, Duplicate, Save copies as, adding to and moving inside a
+  zip. Extract is a hold with no bar (`extraction.ts`): its window already blocks the app, with progress and
+  Cancel (#166), so the list under it only stops trickling. `lib/holds.ts` is the rule: a job shows nothing
+  until it has run `BUSY_AFTER_MS` (1000; a timer that never fires for a quick job), and then `useHeld(dir)`
+  holds every tab showing a folder the job changes. The tab in front: the list frame goes `inert` and
+  `components/browse/BusyBar.tsx` covers it ("Deleting 120 of 500", a real bar and %, Cancel), and
+  `useFolderBrowsing` freezes the listing and stops the watcher's re-reads, so the rows do not move and nothing
+  re-sorts per file. Other tabs and the tab strip stay usable and the job goes on (the chip says it). When the
+  job ends, one fresh read shows the finished folder and the hold lifts in the frame the new rows commit
+  (`useSettling`, its own `generation` so it cannot join a read that started mid-job, and never before the read
+  effect has taken the settle); a read that never comes lifts by `SETTLE_MS`. The keyboard goes to the bar when
+  it comes (Escape cancels, Tab reaches Cancel, Enter does nothing: "Delete, Enter" at speed must not throw a
+  job away), and back to the list after, `useListKeyboard`. `markLanded` marks what arrived, as ever.
+  CANCEL: main stops between items and mid-file (`copyCounted`, an aborted pipeline; `moveOps.moveOne`), a copy
+  never leaves a partial and a cut's source goes only once its copy is whole. Undo stays exact: a stopped step
+  splits (`undo.ts` `stoppedStep`, what went through waits in the redo, the rest stays on Ctrl+Z), and the chip
+  says "Stopped. Deleted 120 of 500." (`stoppedNote`). A job that cannot stop yet lifts after `STOP_GRACE_MS` and
+  goes on, on the chip, so a list is never locked forever; `withFileJob`'s `finally` ends every bar, however the
+  job ended. A zip's rewrite has no Cancel (the bar shows, the button is disabled). Not on the bar: a plain
+  rename and New folder (one atomic call each; their undo IS covered), the editor's Save, and a list in ANOTHER
+  window (each window's store is its own). `holds.test.ts`, `undoStopped.test.ts`, `copyCounted.test.ts`,
+  e2e `busyQuick`, `busyHold`, `busyPaste`, `busyCancel`, `busyFail`. Main keeps to the wall and the rules: a
+  restore reads the bin ONCE for the whole batch (`binRestore.binIndex`, MEASURED past 120 s for 500 files in a
+  big bin before).
 - **A CUT ROW LOOKS CUT** (owner, 2026-10-28: "when you click ctrl x on an item selected the highlight
   effect should get dimmed to indicate you clicked ctrl x"). A row marked cut (`data-cut`, from
   `lib/fileClipboard`) wears the inactive selection's dimmed tint and edge while selected, and its name and
