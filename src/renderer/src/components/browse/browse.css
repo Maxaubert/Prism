@@ -741,6 +741,74 @@ body[data-internal-file-drag] .browse-path:focus-within {
   width: var(--browse-row-icon, 14px);
   height: var(--browse-row-icon, 14px);
 }
+/* PICTURES IN THE NAME COLUMN (zoom steps 3 and 4, 2026-11-09). Every row at
+   these steps keeps the name column's picture slot one width, so the names
+   line up whether the row has a picture, a kind icon or a folder glyph. The
+   slot is the same size before and after a picture arrives: nothing moves. */
+.browse-thumb-slot,
+.browse-name > .browse-thumb {
+  flex: none;
+  width: var(--browse-row-thumb);
+  height: var(--browse-row-thumb);
+  display: grid;
+  place-items: center;
+  overflow: visible;
+}
+.browse-name > .browse-thumb {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 4px;
+  /* Quiet, so the picture is the star: the raised ground at low strength. */
+  background-color: color-mix(in srgb, var(--p-raised) 55%, transparent);
+}
+.browse-name > .browse-thumb.p-checker {
+  background-color: var(--p-checker-a);
+}
+.browse-thumb-icon {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0.85;
+  transition: opacity 120ms ease;
+}
+.browse-thumb-icon[data-hidden] {
+  opacity: 0;
+}
+.browse-thumb-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* Whole, never cropped: the media is the star. */
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+  user-select: none;
+}
+.browse-thumb-img[data-shown] {
+  opacity: 1;
+}
+.browse-thumb-play {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  width: clamp(12px, 36%, 20px);
+  aspect-ratio: 1;
+  display: grid;
+  border-radius: 50%;
+  color: var(--p-text);
+  background: color-mix(in srgb, var(--p-side-flat) 70%, transparent);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .browse-thumb-icon,
+  .browse-thumb-img {
+    transition: none;
+  }
+}
 .browse-row .browse-column-type,
 .browse-row .browse-column-path,
 .browse-row .browse-column-size,

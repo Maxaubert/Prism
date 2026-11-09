@@ -9,6 +9,13 @@
  *  on a dense screen. Chosen by tile edge x devicePixelRatio (`tierFor`). */
 export type ThumbTier = 320 | 640
 
+/** The tier a tile needs: its edge in device pixels, at most 320 uses the
+ *  phone's size, above that 640. A 272px tile on a 225% screen is 612. */
+export function tierFor(edgeCssPx: number, devicePixelRatio: number): ThumbTier {
+  const px = edgeCssPx * (devicePixelRatio > 0 ? devicePixelRatio : 1)
+  return px <= 320 ? 320 : 640
+}
+
 export interface ThumbWant {
   path: string
   tier: ThumbTier

@@ -678,6 +678,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       )}
       {!right && places}
       <BrowseList
+        tabId={props.owner}
         {...props}
         loading={props.pending !== 'none'}
         entries={props.pending === 'slow' ? [] : entries}

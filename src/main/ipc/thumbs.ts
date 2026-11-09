@@ -16,6 +16,12 @@ export function cancelThumbs(tabId: string): void {
   endpoint?.cancel(tabId)
 }
 
+let wants = 0
+/** For the e2e: how many `thumbs:want` asks the page has made (a fast scroll must make none). */
+export function thumbWantCount(): number {
+  return wants
+}
+
 /** For the e2e: queue and process counts. */
 export function thumbsEndpoint(): ThumbsEndpoint | null {
   return endpoint
@@ -42,6 +48,7 @@ export function registerThumbsIpc(ctx: MainCtx, thumbs: Thumbs | null): void {
 
   ipcMain.handle(CALL.thumbsWant, (e, tab: unknown, gen: unknown, items: unknown): Promise<ThumbsWantReply> | ThumbsWantReply => {
     if (!endpoint || !windows.isPrismPage(e.sender)) return { ready: {} }
+    wants += 1
     const sender = e.sender
     if (!watched.has(sender.id)) {
       watched.add(sender.id)
