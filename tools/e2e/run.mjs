@@ -13051,6 +13051,44 @@ async function busyFailScenario(fixtures) {
   }
 }
 
+/** A press on the wash around the panel is no press anywhere: Escape still
+ *  cancels, and the keyboard still comes home to the list (review, 2026-11-09). */
+async function busyBackdropScenario(fixtures) {
+  console.log('a press beside the panel loses neither Escape nor the keyboard')
+  const dir = join(fixtures, 'busyback')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'into'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'n')
+  const big = join(dir, 'big.bin')
+  const chunk = Buffer.alloc(16 * 1024 * 1024, 7)
+  for (let i = 0; i < 8; i += 1) appendFileSync(big, chunk)
+  const { app, win } = await launchWith({ ...NO_INDEX, PRISM_E2E_SLOW_COPY: '3' }, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, 'big.bin').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'on the clipboard')
+    await listRow(win, '\\into').dblclick()
+    ok(await until(async () => ((await win.locator('.browse-path').getAttribute('data-path')) ?? '').endsWith('into'), 8000), 'into the folder')
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    ok(await busyUp(win, 20000), 'the bar shows')
+    const box = await win.locator('.browse-busy').boundingBox()
+    await win.mouse.click(box.x + 12, box.y + 12)
+    await sleep(200)
+    await win.keyboard.press('Escape')
+    ok(await busyGone(win, 6000), 'Escape cancels after a press on the wash')
+    await sleep(800)
+    ok(!existsSync(join(dir, 'into', 'big.bin')), 'no partial file is left')
+    ok(await until(() => win.evaluate(() => !!document.activeElement?.closest('.browse-list')), 3000), 'and the keyboard is back on the list')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function pasteProgressScenario(fixtures) {
   console.log('a big paste shows its progress')
   const dir = join(fixtures, 'pasteprogress')
@@ -24581,6 +24619,7 @@ await run(busyHoldScenario)
 await run(busyPasteScenario)
 await run(busyCancelScenario)
 await run(busyFailScenario)
+await run(busyBackdropScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over

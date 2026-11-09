@@ -37,6 +37,11 @@ export function BusyBar({ directory }: { directory: string }): JSX.Element | nul
   return (
     <div
       className="browse-busy"
+      // A press on the wash keeps the keyboard on the panel, so Escape still
+      // cancels. It is no press anywhere else either (`useListKeyboard`).
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) e.preventDefault()
+      }}
       onDragOver={(e) => {
         e.preventDefault()
         e.stopPropagation()

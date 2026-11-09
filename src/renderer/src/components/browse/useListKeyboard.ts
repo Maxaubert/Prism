@@ -49,7 +49,7 @@ export function useListKeyboard(
         home.current = true
         return
       }
-      if (target.closest(`${OVERLAY},[data-owns-escape]`)) return
+      if (target.closest(`${OVERLAY},[data-owns-escape],.browse-busy`)) return
       home.current = !!target.closest('.browse-list')
     }
     // A press on the tab already in front commits nothing, so the effect below
