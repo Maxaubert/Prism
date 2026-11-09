@@ -489,7 +489,7 @@ export function useFolderBrowsing(
   }, [settling, readApplied, path, settleKey])
 
   const navigate = useCallback(
-    async (requested: string, tabId = id) => {
+    async (requested: string, tabId = id, typed = false) => {
       if (!tabId) return
       const target = pastedPath(requested)
       pauseTab(tabId)
@@ -547,8 +547,11 @@ export function useFolderBrowsing(
           const row = await fileRow(tabId, target)
           if (serial.current.get(tabId) !== request) return
           if (row) {
-            // Typing it is as deliberate as a double-click (#494).
-            if (goesToWindows(row)) {
+            // Typing it is as deliberate as a double-click (#494). Only typing:
+            // a click on a pin, a crumb or a row said "go to this folder", and
+            // a folder that has since become a program never starts from one.
+            // It opens as a file, on its card (`openGuards` e2e).
+            if (typed && goesToWindows(row)) {
               window.prism.openInDefault(row.path)
               // The list stays, and the field that had the keyboard is gone:
               // it comes back to the list, unless it went somewhere else since

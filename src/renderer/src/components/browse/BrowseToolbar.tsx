@@ -141,7 +141,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
           onSubmit={(e) => {
             e.preventDefault()
             const destination = pastedPath(path)
-            if (destination) props.onNavigate(destination)
+            if (destination) props.onNavigate(destination, true)
             setEditing(false)
           }}
         >
