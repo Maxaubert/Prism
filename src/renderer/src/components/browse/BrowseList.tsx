@@ -62,6 +62,7 @@ import { useDocumentShown, useThumbFeed } from '../../lib/useThumbs'
 import { ThumbImage } from './ThumbImage'
 import { BrowseGrid } from './BrowseGrid'
 import { GridTile } from './GridTile'
+import { gridKey, gridStep, type GridKey } from '../../lib/gridNav'
 import { FolderFill } from '../icons/Icon'
 
 const OVERSCAN = 12
@@ -877,6 +878,20 @@ export function BrowseList(props: Props): JSX.Element {
     revealedSeq.current = want.seq
     scrollToRow(node, index)
   })
+  // BACK FROM THE VIEWER LANDS ON THE OPENED TILE (Stage 5, spec 5.2). The
+  // viewer's Up and Down walk the folder while the list is away, so the
+  // tab's saved scroll is where the list WAS, not where the opened file is.
+  // Once per mount, when the listing is there, a grid scrolls the picked tile
+  // into view (rows keep the saved scroll, as they always have).
+  const mountReveal = useRef(true)
+  useLayoutEffect(() => {
+    const node = scroller.current
+    if (!mountReveal.current || !node || props.loading || !count) return
+    mountReveal.current = false
+    if (layout && loadedSelectedIndex >= 0) scrollToRow(node, loadedSelectedIndex)
+    // scrollToRow reads this render's geometry; once is what is wanted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.loading, count])
   const focusRow = (index: number): void => {
     const node = scroller.current
     if (!node) return
@@ -940,6 +955,38 @@ export function BrowseList(props: Props): JSX.Element {
     props.onExtend?.(landed.entry.path)
     return true
   }
+  /**
+   * THE GRID'S ARROWS (Stage 5, spec 5.2): the keyboard's place moves in two
+   * dimensions through `gridStep`, and the three modes are the list's own
+   * (a pick, Shift's range from the anchor, Ctrl's focus without marks), so
+   * the marks, the cursor and the reveal are the code the rows use.
+   */
+  const gridMove = (g: GridKey): void => {
+    const here = cursor !== null ? indexOfPath(cursor) : -1
+    const remembered =
+      selectedIndex >= 0
+        ? selectedIndex
+        : selectionPosition.current.path === props.selectedPath
+          ? selectionPosition.current.index
+          : -1
+    const pending = pendingFocus.current
+    const from = pending !== null && Number.isFinite(pending) ? pending : here >= 0 ? here : remembered
+    const to = gridStep(count, cols, from, g.to, Math.floor(height / rowHeight))
+    if (to === null) return
+    if (g.mode === 'move') {
+      focusRow(to)
+      return
+    }
+    const landed = reveal(to, g.to === 'up' || g.to === 'left' || g.to === 'end' ? -1 : 1)
+    if (!landed) return
+    if (g.mode === 'focus') {
+      setCursor(landed.entry.path)
+      return
+    }
+    // Shift: the marks run over the index range from the anchor to here.
+    setCursor(null)
+    props.onExtend?.(landed.entry.path)
+  }
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     // Ctrl+Plus, Ctrl+Minus and Ctrl+0 are the wheel's keys (nothing else in
     // the Explorer binds them; the app menu is gone). Only while the list or
@@ -963,6 +1010,20 @@ export function BrowseList(props: Props): JSX.Element {
         e.stopPropagation()
         const step = explorerZoom()
         zoomTo.current(change === 0 ? 1 : change > 0 ? zoomIn(step) : zoomOut(step), null)
+        return
+      }
+    }
+    // THE GRID'S ARROWS come before the common keys: Left and Right are the
+    // grid's alone (the list leaves them to the viewer), and the rest of the
+    // arrows, Home, End and the Page keys move by line there. Never from a
+    // field inside the list (the rename box).
+    if (layout && count) {
+      const g = gridKey(e, true)
+      const at = e.target as HTMLElement
+      if (g && !at.isContentEditable && !/^(INPUT|TEXTAREA|SELECT)$/.test(at.tagName)) {
+        e.preventDefault()
+        e.stopPropagation()
+        gridMove(g)
         return
       }
     }

@@ -12314,6 +12314,310 @@ async function gridBasicScenario(fixtures) {
     rmSync(dir, { recursive: true, force: true })
   }
 }
+/**
+ * THE KEYBOARD IN THE GRID (zoom grid, Stage 5, 2026-11-09; spec 5.2 and
+ * 5.3), on a folder of 53 files (a prime, so the last line is short at every
+ * column count). Measured by which tile holds the focus and by the tiles'
+ * own boxes, never by constants: the arrows move in two dimensions, Down from
+ * above a short last line lands on the last item, the Page keys, Home and
+ * End, Shift marks an index range, Ctrl moves the focus and Ctrl+Space marks
+ * a tile that is not next to the others, type-ahead, Space (the preview
+ * pane), Enter, Up and Down walking the opened files, the way back with the
+ * opened tile in view, and in the LIST (step 1) Left and Right still reach
+ * the viewer: the window sees the keydown there and does not in the grid.
+ */
+async function gridKeysScenario(fixtures) {
+  console.log('grid keys')
+  const dir = join(fixtures, 'gridkeys')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const ff = (args) => execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...args], { windowsHide: true, stdio: 'ignore' })
+  const seed = join(fixtures, 'gridkeys-seed.jpg')
+  if (HAS_FFMPEG) ff(['-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=1', '-frames:v', '1', seed])
+  const names = []
+  for (let i = 0; i < 40; i++) names.push(`alpha${String(i).padStart(2, '0')}.txt`)
+  for (let i = 0; i < 7; i++) names.push(`beta${String(i).padStart(2, '0')}.txt`)
+  names.push('phone.txt', 'photo.txt', 'phrase.txt')
+  for (const n of names) writeFileSync(join(dir, n), `keys ${n}\n`)
+  for (const n of ['zz1.jpg', 'zz2.jpg', 'zz3.jpg']) {
+    if (HAS_FFMPEG) copyFileSync(seed, join(dir, n))
+    else writeFileSync(join(dir, n), 'not a picture')
+    names.push(n)
+  }
+  rmSync(seed, { force: true })
+  const COUNT = names.length // 53
+
+  let { app, win } = await launch(join(dir, 'alpha00.txt'))
+  const listSel = '[data-testid="browse-list"]'
+  const tilesSel = `${listSel} .browse-tile`
+  const tile = (name) => win.locator(`${tilesSel}[data-browse-path$="${name}"]`)
+  const inside = `${listSel} [data-browse-path*="gridkeys"][data-browse-path$=".txt"]`
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${listSel} [data-browse-path]`, { timeout: 10000 })
+    if ((await win.locator(inside).count()) === 0)
+      await win.locator(`${listSel} [data-browse-path$="gridkeys"]`).dblclick()
+    return until(async () => (await win.locator(inside).count()) > 0, 10000)
+  }
+  // Where the focus is: the focused tile's index and name, and its box in the list.
+  const focus = () =>
+    win.evaluate(() => {
+      const el = document.activeElement
+      const t = el?.closest?.('.browse-tile, .browse-row[data-browse-path]')
+      if (!t) return null
+      const r = t.getBoundingClientRect()
+      const l = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect()
+      return {
+        i: Number(t.getAttribute('data-browse-index')),
+        name: t.getAttribute('data-browse-path').split(/[\\/]/).pop(),
+        top: r.top,
+        left: r.left,
+        inView: r.bottom > l.top && r.top < l.bottom
+      }
+    })
+  // The place after a key, once the focus has landed (it follows a frame later).
+  const settle = async () => { await sleep(260); return focus() }
+  const cursorIndex = () => win.evaluate(() => { const t = document.querySelector('[data-testid="browse-list"] .browse-tile[data-cursor]'); return t ? Number(t.getAttribute('data-browse-index')) : null })
+  const marks = () =>
+    win.evaluate(() => [...document.querySelectorAll('[data-testid="browse-list"] .browse-tile[data-selected], [data-testid="browse-list"] .browse-row[data-selected]')].map((t) => Number(t.getAttribute('data-browse-index'))).sort((a, b) => a - b))
+  const cols = () =>
+    win.evaluate(() => {
+      const t = [...document.querySelectorAll('[data-testid="browse-list"] .browse-tile')]
+      const top0 = t[0].getBoundingClientRect().top
+      return t.filter((e) => Math.abs(e.getBoundingClientRect().top - top0) < 1).length
+    })
+  const geo = () =>
+    win.evaluate(() => {
+      const list = document.querySelector('[data-testid="browse-list"]')
+      const t = [...list.querySelectorAll('.browse-tile')]
+      const a = t[0].getBoundingClientRect()
+      const next = t.find((e) => e.getBoundingClientRect().top > a.top + 1)
+      return { clientH: list.clientHeight, pitch: next ? next.getBoundingClientRect().top - a.top : a.height + 4, top: list.scrollTop }
+    })
+  const lineOf = (c, i) => Math.floor(i / c)
+  const press = async (k) => { await win.keyboard.press(k) }
+  const toTop = async () => { await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 0 }); await sleep(250) }
+  const wheel = async (dy, n) => {
+    const r = await win.evaluate(() => { const b = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect(); return { x: b.left + 200, y: b.top + 120 } })
+    await win.mouse.move(r.x, r.y)
+    for (let i = 0; i < n; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, dy)
+      await win.keyboard.up('Control')
+      await sleep(130)
+    }
+    await sleep(300)
+  }
+  try {
+    await win.evaluate(() => localStorage.setItem('prism.explorer.zoomMax', '9'))
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    ok(await intoFolder(), `the Explorer shows the folder of ${COUNT}`)
+    await sleep(300)
+
+    // THE LIST FIRST: Left and Right are not the list's (owner, 2026-09-01), they reach the viewer.
+    await win.evaluate(() => {
+      window.__keysSeen = { right: 0, left: 0 }
+      window.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') window.__keysSeen.right++; if (e.key === 'ArrowLeft') window.__keysSeen.left++ })
+    })
+    await win.locator(`${listSel} .browse-row[data-browse-path$="alpha05.txt"]`).click()
+    await sleep(250)
+    await press('ArrowRight')
+    await press('ArrowLeft')
+    await sleep(250)
+    const seenList = await win.evaluate(() => window.__keysSeen)
+    ok(seenList.right === 1 && seenList.left === 1, `in the list Left and Right reach the window, and so the viewer (${JSON.stringify(seenList)})`)
+    const f0 = await focus()
+    ok(f0?.name === 'alpha05.txt', `and they move nothing in the list (${f0?.name})`)
+
+    // Up to step 6 (Large 2, Roomy 3, Roomier 4, tiles 5 and 6): small enough tiles for several lines to a page.
+    await wheel(-100, 5)
+    ok((await win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))) === '6', 'five notches up is step 6')
+    await win.evaluate(() => { window.__keysSeen = { right: 0, left: 0 } })
+    await toTop()
+    const C = await cols()
+    const g = await geo()
+    ok(C >= 2 && C < COUNT, `the grid has ${C} columns (a short last line: ${COUNT % C} of ${C})`)
+    const lines = Math.max(1, Math.floor(g.clientH / g.pitch) - 1)
+    ok(COUNT > C * (lines + 1), `the folder is longer than a page (${lines} lines of ${C})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-keys-start.png') })
+
+    // Left and Right step one item; Up and Down a whole line (measured on the boxes).
+    await tile('alpha09.txt').click()
+    const here = await settle()
+    ok(here?.i === 9, `a click puts the focus on alpha09 (${here?.i})`)
+    await press('ArrowRight')
+    const r1 = await settle()
+    ok(r1?.i === 10 && r1.name === 'alpha10.txt', `Right goes to the next item (${r1?.i})`)
+    ok(r1.top === here.top ? r1.left > here.left : r1.top > here.top, 'and it sits after it on the same line or the next')
+    await press('ArrowLeft')
+    const l1 = await settle()
+    ok(l1?.i === 9, `Left goes back (${l1?.i})`)
+    await press('ArrowDown')
+    const d1 = await settle()
+    ok(d1?.i === 9 + C, `Down goes ${C} on (${d1?.i})`)
+    ok(Math.abs(d1.left - here.left) < 0.5 && d1.top > here.top, 'to the tile directly below it')
+    await press('ArrowUp')
+    const u1 = await settle()
+    // (Not the same top: the list scrolled to bring the lower line in.)
+    ok(u1?.i === 9 && Math.abs(u1.left - here.left) < 0.5 && u1.top < d1.top, `Up goes back to the tile above (${u1?.i})`)
+    ok((await marks()).join() === '9', `and the arrows select only the tile they land on (${(await marks()).join()})`)
+    await press('ArrowUp')
+    const up2 = await settle()
+    ok(up2?.i === 9 - C || (9 < C && up2?.i === 9), `Up on the first line stays, otherwise goes a line (${up2?.i})`)
+
+    // The ends: Left at the first item and Up on the first line stay; Home and End.
+    await press('Home')
+    const home = await settle()
+    ok(home?.i === 0 && home.inView, `Home is the first item, in view (${home?.i})`)
+    await press('ArrowLeft')
+    ok((await settle())?.i === 0, 'Left at the first item stays (no wrap)')
+    await press('ArrowUp')
+    ok((await settle())?.i === 0, 'Up at the first item stays')
+    await press('End')
+    const end = await settle()
+    ok(end?.i === COUNT - 1 && end.name === 'zz3.jpg' && end.inView, `End is the last item and scrolls it in (${end?.name}, in view ${end?.inView})`)
+    await press('ArrowRight')
+    ok((await settle())?.i === COUNT - 1, 'Right at the last item stays')
+    await press('ArrowDown')
+    ok((await settle())?.i === COUNT - 1, 'Down in the last line stays')
+
+    // Down from the line above a short last line, in a column the last line lacks, lands on the LAST item.
+    const lastLine = lineOf(C, COUNT - 1) * C
+    const above = lastLine - 1 // the last column of the line above
+    ok(COUNT - lastLine < C, `the last line is short (${COUNT - lastLine} of ${C})`)
+    await win.evaluate((i) => { document.querySelector('[data-testid="browse-list"]').scrollTop -= 400; void i }, above)
+    await sleep(300)
+    const aboveTile = win.locator(`${tilesSel}[data-browse-index="${above}"]`)
+    await aboveTile.click()
+    ok((await settle())?.i === above, `the last tile of the line above has the focus (${above})`)
+    await press('ArrowDown')
+    const short = await settle()
+    ok(short?.i === COUNT - 1, `Down from it lands on the last item, not past the end (${short?.i})`)
+
+    // Page keys: a screen less one line, in whole lines, clamped.
+    await press('Home')
+    await settle()
+    await press('PageDown')
+    const pd = await settle()
+    ok(pd?.i === Math.min(COUNT - 1, lines * C), `PageDown goes ${lines} lines (${pd?.i}, wanted ${Math.min(COUNT - 1, lines * C)})`)
+    ok(pd.inView, 'and the tile is in view')
+    await press('PageUp')
+    ok((await settle())?.i === 0, 'PageUp comes back')
+
+    // Shift+arrow: the marks run over the INDEX RANGE from the anchor.
+    await tile('alpha05.txt').click()
+    await settle()
+    await press('Shift+ArrowDown')
+    await sleep(260)
+    const m1 = await marks()
+    const want1 = Array.from({ length: C + 1 }, (_, k) => 5 + k)
+    ok(m1.join() === want1.join(), `Shift+Down marks 5 to ${5 + C} (${m1.join(' ')})`)
+    await press('Shift+ArrowRight')
+    await sleep(260)
+    const m2 = await marks()
+    ok(m2.length === C + 2 && m2[0] === 5 && m2.at(-1) === 6 + C, `Shift+Right adds the next one (${m2.join(' ')})`)
+    await press('Shift+ArrowUp')
+    await sleep(260)
+    const m3 = await marks()
+    ok(m3.join() === Array.from({ length: 2 }, (_, k) => 5 + k).join(), `Shift+Up shrinks the run back (${m3.join(' ')})`)
+    await press('Shift+ArrowLeft')
+    await sleep(260)
+    ok((await marks()).join() === '5', `Shift+Left back to the anchor alone (${(await marks()).join(' ')})`)
+
+    // Ctrl+arrow moves the focus and marks nothing; Ctrl+Space then marks a tile that is not next to the first.
+    await tile('alpha05.txt').click()
+    await settle()
+    await press('Control+ArrowRight')
+    await press('Control+ArrowRight')
+    await sleep(260)
+    ok((await marks()).join() === '5', `Ctrl+Right twice leaves the marks alone (${(await marks()).join(' ')})`)
+    ok((await cursorIndex()) === 7, `and the focus is on tile 7 (${await cursorIndex()})`)
+    await press('Control+Space')
+    await sleep(260)
+    ok((await marks()).join() === '5,7', `Ctrl+Space marks 7 as well, not 6 (${(await marks()).join(' ')})`)
+    await press('Control+ArrowDown')
+    await sleep(260)
+    ok((await cursorIndex()) === 7 + C && (await marks()).join() === '5,7', `Ctrl+Down moves the focus a line and marks nothing (${await cursorIndex()})`)
+    await press('Control+Space')
+    await sleep(260)
+    ok((await marks()).join() === ['5', '7', String(7 + C)].join(), `and Ctrl+Space marks that one (${(await marks()).join(' ')})`)
+    await press('Control+Space')
+    await sleep(260)
+    ok((await marks()).join() === '5,7', 'Ctrl+Space again unmarks it')
+
+    // Type to jump: the first name starting with "ph".
+    await toTop()
+    await tile('alpha02.txt').click()
+    await settle()
+    await win.keyboard.type('ph', { delay: 60 })
+    const ph = await settle()
+    ok(ph?.name === 'phone.txt', `typing "ph" jumps to the first name that starts so (${ph?.name})`)
+    ok(ph?.inView, 'and scrolls it in')
+
+    // In the grid Left and Right are the grid's: the window never sees them.
+    await press('ArrowRight')
+    await press('ArrowLeft')
+    await sleep(250)
+    const seenGrid = await win.evaluate(() => window.__keysSeen)
+    ok(seenGrid.right === 0 && seenGrid.left === 0, `in the grid Left and Right are taken, the viewer does not get them (${JSON.stringify(seenGrid)})`)
+
+    // Space toggles the preview pane (and is not typed into the jump).
+    const paneOn = () => win.locator('button[aria-label="Preview pane"]').first().getAttribute('aria-pressed')
+    await toTop()
+    await tile('alpha02.txt').click()
+    await settle()
+    await sleep(800)
+    const p0 = await paneOn()
+    await press('Space')
+    await sleep(500)
+    const p1 = await paneOn()
+    ok(p0 !== p1, `Space toggles the preview pane (${p0} -> ${p1})`)
+    await press('Space')
+    await sleep(500)
+    ok((await paneOn()) === p0, 'and again puts it back')
+    await sleep(500)
+    ok((await cols()) === C, `with the columns as they were (${await cols()})`)
+
+    // Enter opens; Up and Down in the opened file walk the folder in order; Back returns with the tile in view.
+    await press('End')
+    await settle()
+    await press('ArrowLeft')
+    const zz2 = await settle()
+    ok(zz2?.name === 'zz2.jpg', `Left from the end is zz2 (${zz2?.name})`)
+    await toTop()
+    await press('Enter')
+    ok(await until(async () => (await viewing(win)).includes('zz2'), 15000), `Enter opens the picked tile (${await viewing(win)})`)
+    await press('ArrowUp')
+    ok(await until(async () => (await viewing(win)).includes('zz1'), 10000), `Up in the opened picture walks to the one before (${await viewing(win)})`)
+    await press('ArrowDown')
+    ok(await until(async () => (await viewing(win)).includes('zz2'), 10000), `and Down walks forward (${await viewing(win)})`)
+    await press('ArrowDown')
+    ok(await until(async () => (await viewing(win)).includes('zz3'), 10000), `in folder order (${await viewing(win)})`)
+    await press('ArrowUp')
+    await press('ArrowUp')
+    ok(await until(async () => (await viewing(win)).includes('zz1'), 10000), `back to zz1 (${await viewing(win)})`)
+    await win.locator('.browse-viewer-toolbar [aria-label="Back"]').click()
+    ok(await until(async () => (await tile('zz1.jpg').count()) === 1, 10000), 'Back is the grid again')
+    await sleep(500)
+    const back = await win.evaluate(() => {
+      const l = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect()
+      const t = document.querySelector('[data-testid="browse-list"] .browse-tile[data-browse-path$="zz1.jpg"]')
+      if (!t) return null
+      const r = t.getBoundingClientRect()
+      return { inView: r.top >= l.top - 1 && r.bottom <= l.bottom + 1, sel: t.hasAttribute('data-selected') }
+    })
+    ok(back?.inView && back.sel, `the opened tile is scrolled into view and picked (${JSON.stringify(back)})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-keys-back.png') })
+    // And the keyboard carries on from it.
+    await press('ArrowLeft')
+    const afterBack = await settle()
+    ok(afterBack?.i === COUNT - 4, `after Back Left goes on from zz1 to the item before it (${afterBack?.name})`)
+  } finally {
+    await win.evaluate(() => { for (const k of ['prism.explorer.zoom', 'prism.explorer.size', 'prism.explorer.zoomMax']) localStorage.removeItem(k) }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -26459,6 +26763,7 @@ await run(zoomListScenario)
 await run(thumbsEngineScenario)
 await run(thumbsListScenario)
 await run(gridBasicScenario)
+await run(gridKeysScenario)
 await run(sidebarPlacesScenario)
 await run(folderIconsScenario)
 await run(folderIconFileScenario)
