@@ -70,12 +70,8 @@ const AT_ONCE = 4
 
 export type ThumbKind = 'image' | 'video'
 
-/** The tier a tile needs: its edge in device pixels, at most 320 uses the
- *  phone's size, above that 640. A 272px tile on a 225% screen is 612. */
-export function tierFor(edgeCssPx: number, devicePixelRatio: number): ThumbTier {
-  const px = edgeCssPx * (devicePixelRatio > 0 ? devicePixelRatio : 1)
-  return px <= THUMB_WIDTH ? 320 : 640
-}
+// The page picks its tier with the same rule, so it lives in the shared types.
+export { tierFor } from '@shared/thumbTypes'
 
 /** `<sha1 of path|size|mtime>.jpg`: a file changed on disk is a new key.
  *  `.webp` for a picture that can be clear (#477). The 640 tier adds `|640`

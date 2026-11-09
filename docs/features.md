@@ -2071,6 +2071,24 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   `thumbs.tier.test.ts`, `thumbs.engine.test.ts`, `thumbs.ffmpeg.test.ts` (real ffmpeg: EXIF turn,
   clear PNG, HEIC, HEVC .mov), `thumbQueue.test.ts`, `thumbsEndpoint.test.ts`, `mediaProtocol.test.ts`
   and the `thumbsEngine` e2e.
+  **PICTURES IN THE LIST ROWS** (zoom grid Stage 3, 2026-11-09). At steps 3 and 4 the Name column's
+  picture slot is 40px and 60px. A photo, camera raw, HEIC or film row draws a `ThumbImage` box (the
+  kind icon at half the box on a quiet raised ground, the thumbnail fading in over it in 120 ms, none
+  for reduced motion; whole, never cropped; a format that can be clear sits on `.p-checker` once in;
+  a film wears a play glyph once its frame shows; "no picture" is the icon with no mark). A small SVG
+  (2 MB at most) is drawn by the page from the file; every other row, and a folder, keeps its icon
+  centred in a slot of the SAME width so the names line up. Only a plain folder listing gets pictures:
+  a search, an Everything window and an archive's members keep icons, and a file still landing from a
+  paste asks for nothing. `lib/useThumbs.ts` is the page's half: the mounted rows (nearest the middle
+  first) go to `thumbs:want` only after 120 ms with no change in what is mounted, so a fast scroll
+  asks for nothing; answers of an older generation are ignored; a path is remembered once answered (a
+  null is never asked again in the folder); a loading-bar hold, a hidden window, a step below 3 and a
+  folder change cancel and ask nothing, and a feed that never asked sends no IPC at all (Medium costs
+  nothing). The tier is tile edge x devicePixelRatio (`tierFor`, now in `@shared/thumbTypes`): a 60px
+  box on a 225% screen is 135 px, so the 320 tier. Held by `thumbKind.test.ts`, `useThumbs.test.ts`,
+  `thumbImageState.test.ts` and the `thumbsList` e2e (box sizes, 320 wide pictures, the .mov frame
+  not black, play glyph, checker, slot widths, name alignment, no ask during a fast scroll over 400
+  files, no ask at Medium).
   **THE PLACES PANEL IS THE THEMES MOCKUP'S** (#296; owner, 2026-10-06: "i really like the
   sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
   use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its

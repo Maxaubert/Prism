@@ -11801,6 +11801,217 @@ async function thumbsEngineScenario(fixtures) {
     rmSync(dir, { recursive: true, force: true })
   }
 }
+/**
+ * PICTURES IN THE LIST ROWS (zoom grid, Stage 3). Ctrl+wheel to step 3 puts a
+ * 40px picture box in the Name column and step 4 a 60px one: a photo shows a
+ * loaded 320-wide thumbnail, an SVG is drawn from the file, the iPhone-style
+ * HEVC .mov shows a frame that is not black, a film wears a play glyph, a clear
+ * PNG sits on the checker, a text file, a PDF and a folder keep their icons in
+ * a slot of the same width (the names line up), a corrupt "jpg" keeps its icon
+ * with no error mark. A fast scroll through 400 files makes no ask until it
+ * stops. Back at Medium there are no picture boxes and no asks at all.
+ */
+async function thumbsListScenario(fixtures) {
+  console.log('thumbs list')
+  if (!HAS_FFMPEG) {
+    console.log(`  (no ffmpeg found (tried ${FFMPEG}), so the list pictures are skipped)`)
+    return
+  }
+  const dir = join(fixtures, 'thumbslist')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'many'), { recursive: true })
+  const ff = (args) => execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...args], { windowsHide: true, stdio: 'ignore' })
+  const photo = join(dir, 'a-photo.jpg')
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=1', '-frames:v', '1', photo])
+  ff(['-f', 'lavfi', '-i', 'color=c=red@0.0:s=64x64,format=rgba', '-frames:v', '1', join(dir, 'a-clear.png')])
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=25:duration=2', '-c:v', 'mpeg4', join(dir, 'a-clip.mp4')])
+  const hevc = join(fixtures, 'av', 'iphone-hevc.mov')
+  const haveMov = existsSync(hevc)
+  if (haveMov) copyFileSync(hevc, join(dir, 'a-clip.mov'))
+  else console.log('  (the HEVC .mov fixture is not built, so the mov checks are skipped)')
+  writeFileSync(join(dir, 'a-corrupt.jpg'), 'this is a text file named jpg')
+  writeFileSync(join(dir, 'a-notes.txt'), 'notes\n')
+  writeFileSync(join(dir, 'a-data.json'), '{}\n')
+  writeFileSync(join(dir, 'a-doc.pdf'), '%PDF-1.4 not a real one\n')
+  writeFileSync(join(dir, 'a-song.mp3'), 'not audio')
+  writeFileSync(
+    join(dir, 'a-logo.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="32" cy="32" r="28" fill="#c33"/></svg>'
+  )
+  for (let i = 0; i < 26; i++) copyFileSync(photo, join(dir, `p${String(i).padStart(2, '0')}.jpg`))
+  for (let i = 0; i < 400; i++) copyFileSync(photo, join(dir, 'many', `m${String(i).padStart(3, '0')}.jpg`))
+
+  let { app, win } = await launch(join(dir, 'a-notes.txt'))
+  const stats = () => app.evaluate(() => globalThis.__e2eThumbs?.() ?? null)
+  const rowOf = (name) => `[data-testid="browse-list"] .browse-row[data-browse-path$="${name}"]`
+  const inside = '[data-testid="browse-list"] .browse-row[data-browse-path*="thumbslist"][data-browse-path$=".jpg"]'
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator(inside).count()) === 0)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="thumbslist"]').dblclick()
+    return until(async () => (await win.locator(inside).count()) > 0, 10000)
+  }
+  const rowH = () => win.evaluate((sel) => document.querySelector(sel)?.getBoundingClientRect().height ?? 0, rowOf('a-notes.txt'))
+  const listBox = () =>
+    win.evaluate(() => {
+      const r = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect()
+      return { x: r.left, y: r.top, w: r.width, h: r.height }
+    })
+  let at = null
+  const wheel = async (dy, count = 1) => {
+    if (at) await win.mouse.move(at.x, at.y)
+    for (let i = 0; i < count; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, dy)
+      await win.keyboard.up('Control')
+      await sleep(130)
+    }
+    await sleep(250)
+  }
+  // Everything a row shows in its picture slot, measured after render.
+  const slot = (name) =>
+    win.evaluate((sel) => {
+      const row = document.querySelector(sel)
+      if (!row) return null
+      const box = row.querySelector('.browse-thumb')
+      const img = row.querySelector('.browse-thumb-img')
+      const sl = row.querySelector('.browse-thumb-slot')
+      const text = row.querySelector('.browse-name-text')
+      const rr = row.getBoundingClientRect()
+      const b = box?.getBoundingClientRect()
+      return {
+        box: b ? { w: b.width, h: b.height } : null,
+        slotW: sl ? sl.getBoundingClientRect().width : null,
+        img: img ? { w: img.naturalWidth, shown: img.hasAttribute('data-shown'), src: img.getAttribute('src') } : null,
+        state: box?.getAttribute('data-thumb-state') ?? null,
+        checker: !!box?.classList.contains('p-checker'),
+        play: !!row.querySelector('.browse-thumb-play'),
+        icon: !!(box ?? sl)?.querySelector('svg'),
+        textLeft: text ? text.getBoundingClientRect().left - rr.left : null
+      }
+    }, rowOf(name))
+  // A thumbnail url as an image: its mean brightness, drawn through a CORS-clean copy.
+  const bright = (url) =>
+    win.evaluate(async (u) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.src = u
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = 16
+      c.height = 16
+      const g = c.getContext('2d')
+      g.drawImage(img, 0, 0, 16, 16)
+      const d = g.getImageData(0, 0, 16, 16).data
+      let sum = 0
+      for (let i = 0; i < d.length; i += 4) sum += (d[i] + d[i + 1] + d[i + 2]) / 3
+      return sum / 256
+    }, url)
+  const shownCount = () => win.locator('[data-testid="browse-list"] .browse-thumb-img[data-shown]').count()
+  try {
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    ok(await intoFolder(), 'the Explorer shows the folder')
+    await sleep(300)
+    ok((await win.locator('[data-testid="browse-list"] .browse-thumb').count()) === 0, 'at Medium no row has a picture box')
+    const idle0 = await stats()
+    const box = await listBox()
+    at = { x: box.x + Math.min(200, box.w / 2), y: box.y + 170 }
+    await win.mouse.move(at.x, at.y)
+    await sleep(600)
+    const idle1 = await stats()
+    ok(idle0 && idle1 && idle1.wants === 0 && idle0.wants === 0, `at Medium the page asks for no thumbnail (${idle0?.wants} -> ${idle1?.wants})`)
+
+    // Step 3: Roomy, 56px rows, a 40px picture.
+    await wheel(-100, 2)
+    ok((await rowH()) === 56, `step 3 has 56px rows (${await rowH()})`)
+    ok(await until(async () => (await shownCount()) >= 5, 30000), `pictures arrive in the rows (${await shownCount()})`)
+    if (haveMov) await until(async () => !!(await slot('a-clip.mov'))?.img?.shown, 30000)
+    await until(async () => !!(await slot('a-logo.svg'))?.img?.shown, 10000)
+    await sleep(500)
+    const s = {}
+    for (const n of ['a-photo.jpg', 'a-clear.png', 'a-clip.mp4', 'a-clip.mov', 'a-corrupt.jpg', 'a-notes.txt', 'a-doc.pdf', 'a-logo.svg', 'a-song.mp3']) s[n] = await slot(n)
+    const photoS = s['a-photo.jpg']
+    ok(photoS?.img?.shown && photoS.img.w === 320, `the photo row shows a loaded 320 wide thumbnail (${JSON.stringify(photoS?.img)})`)
+    ok(/^fsmedia:\/\/thumb\/[0-9a-f]{40}\.jpg$/.test(photoS?.img?.src ?? ''), 'and it comes from the thumbnail cache url')
+    ok(photoS?.box && photoS.box.w === 40 && photoS.box.h === 40, `in a 40px box (${JSON.stringify(photoS?.box)})`)
+    ok(!photoS?.play && !photoS?.checker, 'a photo has no play glyph and no checker')
+    ok(s['a-clear.png']?.img?.shown && s['a-clear.png'].checker, `a clear PNG sits on the checker (${JSON.stringify(s['a-clear.png'])})`)
+    ok(s['a-clip.mp4']?.img?.shown && s['a-clip.mp4'].play, 'an mp4 shows its frame with the play glyph')
+    if (haveMov) {
+      const mov = s['a-clip.mov']
+      ok(mov?.img?.shown && mov.img.w === 320 && mov.play, `the HEVC .mov shows a frame with the play glyph (${JSON.stringify(mov?.img)})`)
+      const b = mov?.img?.src ? await bright(mov.img.src) : 0
+      ok(b > 8, `and the .mov frame is not black (${Math.round(b)})`)
+    }
+    ok(s['a-logo.svg']?.img?.shown && s['a-logo.svg'].img.src.startsWith('fsmedia://local/'), `an SVG is drawn from the file itself (${s['a-logo.svg']?.img?.src?.slice(0, 40)})`)
+    ok(s['a-corrupt.jpg']?.state === 'icon' && !s['a-corrupt.jpg'].img && s['a-corrupt.jpg'].icon, `a corrupt jpg keeps its icon, no picture, no mark (${s['a-corrupt.jpg']?.state})`)
+    for (const n of ['a-notes.txt', 'a-doc.pdf', 'a-song.mp3'])
+      ok(!s[n]?.box && s[n]?.icon && s[n].slotW === 40, `${n} keeps its icon in a 40px slot (${JSON.stringify([s[n]?.icon, s[n]?.slotW])})`)
+    const folderSlot = await win.evaluate(() => {
+      const row = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$="many"]')
+      const sl = row?.querySelector('.browse-thumb-slot')
+      return sl ? sl.getBoundingClientRect().width : null
+    })
+    ok(folderSlot === 40, `a folder keeps its glyph in a 40px slot (${folderSlot})`)
+    const lefts = ['a-photo.jpg', 'a-clear.png', 'a-clip.mp4', 'a-corrupt.jpg', 'a-notes.txt', 'a-doc.pdf'].map((n) => s[n]?.textLeft)
+    ok(lefts.every((l) => l != null && Math.abs(l - lefts[0]) < 0.5), `the names line up whether the row has a picture or an icon (${lefts.map((l) => Math.round(l * 10) / 10)})`)
+    await win.screenshot({ path: join(SHOTS, 'thumbs-list-step3.png') })
+
+    // Step 4: Roomier, 76px rows, a 60px picture from the same 320 thumbnail.
+    await wheel(-100, 1)
+    ok((await rowH()) === 76, `step 4 has 76px rows (${await rowH()})`)
+    ok(await until(async () => (await slot('a-photo.jpg'))?.img?.shown === true, 15000), 'the photo still shows at step 4')
+    const big = await slot('a-photo.jpg')
+    ok(big?.box && big.box.w === 60 && big.box.h === 60 && big.img.w === 320, `step 4 has a 60px box over the 320 thumbnail (${JSON.stringify([big?.box, big?.img?.w])})`)
+    await sleep(400)
+    await win.screenshot({ path: join(SHOTS, 'thumbs-list-step4.png') })
+
+    // A fast scroll through 400 files asks for nothing until it stops.
+    await wheel(100, 1)
+    ok((await rowH()) === 56, 'back to step 3')
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="many"]').dblclick()
+    ok(await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$="m000.jpg"]').count()) === 1, 10000), 'the folder of 400 opens')
+    ok(await until(async () => (await shownCount()) >= 5, 30000), 'its first pictures arrive')
+    await sleep(1200)
+    const base = (await stats()).wants
+    let during = base
+    const scrolling = win.evaluate(async () => {
+      const l = document.querySelector('[data-testid="browse-list"]')
+      for (let i = 1; i <= 36; i++) {
+        l.scrollTop = i * 560
+        await new Promise((r) => setTimeout(r, 25))
+      }
+    })
+    let going = true
+    const poll = (async () => {
+      while (going) {
+        during = Math.max(during, (await stats()).wants)
+        await sleep(60)
+      }
+    })()
+    await scrolling
+    going = false
+    await poll
+    ok(during === base, `a fast scroll sent no ask (${base} -> ${during})`)
+    ok(await until(async () => (await stats()).wants > base, 5000), 'one ask goes out once the scroll stops')
+    await sleep(1500)
+    const after = (await stats()).wants
+    ok(after - base <= 3, `and only a few (${after - base})`)
+    ok(await until(async () => (await shownCount()) >= 5, 30000), `pictures arrive for the rows it stopped on (${await shownCount()})`)
+
+    // Back to Medium: no boxes, and no asks.
+    const w0 = (await stats()).wants
+    await wheel(100, 2)
+    ok((await win.locator('[data-testid="browse-list"] .browse-thumb').count()) === 0, 'back at Medium no row has a picture box')
+    await sleep(600)
+    ok((await stats()).wants === w0, 'and the page asks for nothing more')
+  } finally {
+    await win.evaluate(() => { localStorage.removeItem('prism.explorer.zoom'); localStorage.removeItem('prism.explorer.size') }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -25944,6 +26155,7 @@ await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(zoomListScenario)
 await run(thumbsEngineScenario)
+await run(thumbsListScenario)
 await run(sidebarPlacesScenario)
 await run(folderIconsScenario)
 await run(folderIconFileScenario)

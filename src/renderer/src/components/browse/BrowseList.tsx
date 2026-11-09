@@ -53,6 +53,10 @@ import { nearerEscape } from '../../lib/nearerEscape'
 import { menuOrDialogUp } from '../../lib/pageDocuments'
 import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
 import { createScrollSettle } from '../../lib/scrollSettle'
+import { tierFor } from '@shared/thumbTypes'
+import { thumbSource, visibleWants } from '../../lib/thumbKind'
+import { useDocumentShown, useThumbFeed } from '../../lib/useThumbs'
+import { ThumbImage } from './ThumbImage'
 
 const OVERSCAN = 12
 /** The common keys the list answers itself (#330). */
@@ -113,6 +117,8 @@ type Props = Pick<
   | 'previewWindowOpen'
   | 'onPreviewWindowClose'
 > & {
+  /** This Explorer tab: the thumbnail asks are made and cancelled under it. */
+  tabId?: string
   entries: BrowseEntry[]
   indexedRows?: Map<number, BrowseEntry | null>
   total: number
@@ -320,6 +326,32 @@ export function BrowseList(props: Props): JSX.Element {
   const rendered = Array.from({ length: Math.max(0, end - first) }, (_, index) =>
     rowAt(first + index)
   )
+  /**
+   * PICTURES IN THE NAME COLUMN (zoom steps 3 and 4, Stage 3, 2026-11-09). The
+   * mounted rows tell the feed which pictures they want; it asks main once the
+   * list has settled (useThumbs.ts). Only a plain folder listing gets pictures:
+   * a search, an Everything window or an archive's members keep their icons.
+   * A loading-bar hold, a hidden window and a step below 3 ask for nothing.
+   */
+  const thumbFeed = useThumbFeed(props.tabId)
+  const windowShown = useDocumentShown()
+  const thumbsOn = look.thumb > 0 && !searching && !props.archive && !props.indexedRows
+  const thumbsActive = thumbsOn && !props.held && !props.loading && windowShown
+  useEffect(() => {
+    thumbFeed?.setActive(thumbsActive)
+  }, [thumbFeed, thumbsActive])
+  useEffect(() => {
+    thumbFeed?.reset()
+  }, [thumbFeed, props.directory])
+  const landing = props.landing
+  const wanted = thumbsActive
+    ? visibleWants(rendered, tierFor(look.thumb, window.devicePixelRatio), landing ? (p) => landing.has(p.toLowerCase()) : undefined)
+    : []
+  // After every render: the feed compares what is mounted and does nothing for
+  // the same set, so a re-render that moved no row costs a string compare.
+  useEffect(() => {
+    thumbFeed?.visible(wanted)
+  })
   /**
    * THE SWEEP (#257). From the list's blank space a drag draws the rectangle
    * and marks every row it touches, live. Rows are found by index, never by
@@ -868,6 +900,7 @@ export function BrowseList(props: Props): JSX.Element {
           '--browse-row-h': `${look.height}px`,
           '--browse-row-font': `${look.font}px`,
           '--browse-row-icon': `${look.icon}px`,
+          '--browse-row-thumb': `${look.thumb}px`,
           '--browse-row-gap': `${look.gap}px`,
           '--browse-row-pad': `${look.padX}px`,
           ...explorerHeadVars(sizeId)
@@ -1150,26 +1183,47 @@ export function BrowseList(props: Props): JSX.Element {
                             const own = folderIconOf(folderIcons, entry.path)
                             const folder = <FolderIcon color="var(--p-tree-folder)" />
                             // A picked glyph wears the folder colour (D4).
-                            return own ? (
+                            const glyph = own ? (
                               <FolderGlyph icon={own} size={look.icon} color="var(--p-tree-folder)" fallback={folder} />
                             ) : (
                               folder
                             )
+                            return look.thumb ? <span className="browse-thumb-slot">{glyph}</span> : glyph
                           })()
                         ) : (
-                          entry.file && (
+                          entry.file &&
+                          (() => {
+                            // Steps 3 and 4: a photo or a film gets a picture box (its icon
+                            // half the box until the picture arrives); every other row keeps
+                            // its icon centred in a slot of the same width, so names line up.
+                            const src =
+                              thumbsOn && !props.landing?.has(entry.path.toLowerCase()) ? thumbSource(entry) : null
                             // A marked row is a tint, so its icon keeps its own
                             // colours; its knockouts are the tint as seen
                             // (dimmed or not: browse.css sets --sel-seen).
-                            <KindIcon
-                              kind={entry.file.kind}
-                              ext={entry.file.ext}
-                              name={entry.name}
-                              color={iconColour(entry.file.kind)}
-                              size={look.icon}
-                              bg={selected ? 'var(--sel-seen, var(--p-sel-tint-seen))' : 'var(--p-bg)'}
-                            />
-                          )
+                            const kind = (size: number): JSX.Element => (
+                              <KindIcon
+                                kind={entry.file!.kind}
+                                ext={entry.file!.ext}
+                                name={entry.name}
+                                color={iconColour(entry.file!.kind)}
+                                size={size}
+                                bg={selected ? 'var(--sel-seen, var(--p-sel-tint-seen))' : 'var(--p-bg)'}
+                              />
+                            )
+                            if (src)
+                              return (
+                                <ThumbImage
+                                  feed={thumbFeed}
+                                  path={entry.path}
+                                  source={src}
+                                  film={entry.file.kind === 'video'}
+                                  box={look.thumb}
+                                  icon={kind(Math.min(64, Math.round(look.thumb * 0.5)))}
+                                />
+                              )
+                            return look.thumb ? <span className="browse-thumb-slot">{kind(look.icon)}</span> : kind(look.icon)
+                          })()
                         )}
                         <span className="browse-name-text">
                           <span {...(searching ? {} : hiddenTitle(entry.name))}>{entry.name}</span>

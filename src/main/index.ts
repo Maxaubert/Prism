@@ -126,7 +126,7 @@ import type { DragOut } from './dragOut'
 import type { NativeDragRecord } from '@shared/dragOut'
 import { clearFakeDrags, fakeDragCalls } from './e2eDragOut'
 import { registerMediaIpc } from './ipc/media'
-import { registerThumbsIpc } from './ipc/thumbs'
+import { registerThumbsIpc, thumbWantCount } from './ipc/thumbs'
 import { rawPreview } from './rawPreview'
 import { registerPropsIpc } from './ipc/props'
 import { registerBrowseIpc, registerTreeIpc, releaseTab } from './ipc/browse'
@@ -2456,7 +2456,7 @@ if (!app.requestSingleInstanceLock()) {
     // Half-written thumbnails of a run that died, off the startup path.
     void thumbs?.sweepParts()
     // The e2e reads how many thumbnail ffmpegs ran and the most at once.
-    if (E2E && thumbs) Object.assign(globalThis, { __e2eThumbs: () => thumbs.stats() })
+    if (E2E && thumbs) Object.assign(globalThis, { __e2eThumbs: () => ({ ...thumbs.stats(), wants: thumbWantCount() }) })
     const hlsJobs = hlsTools
       ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR, log: logPhone })
       : null
