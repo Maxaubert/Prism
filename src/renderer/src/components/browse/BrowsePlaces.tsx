@@ -23,6 +23,11 @@ import './quick-access.css'
 import './drive-rows.css'
 import { useFolderDrop } from './useFolderDrop'
 import { markedPlace, type PlaceRow } from '../../lib/placeMark'
+import { BIN_NAME, BIN_PLACE } from '@shared/binPlace'
+import { binPlaceMenu } from '../../menus/binRow'
+
+/** The Recycle Bin row's key: one row, not a pin, not a drive. */
+const BIN_ROW = 'bin'
 
 type Props = Pick<
   FolderBrowserProps,
@@ -39,6 +44,7 @@ type Props = Pick<
   | 'onOpenNewTab'
   | 'readDrives'
   | 'onProperties'
+  | 'onEmptyBin'
 >
 
 type PlacesProps = Props & {
@@ -73,6 +79,7 @@ export function BrowsePlaces({
   onNavigate,
   onOpenNewTab,
   onProperties,
+  onEmptyBin,
   quickAccess,
   onQuickAccessFile,
   onUnpinQuickAccess,
@@ -169,7 +176,9 @@ export function BrowsePlaces({
     ...[...sections['Quick access'], ...sections.Pinned]
       .filter((pin) => pin.isFolder)
       .map((pin) => ({ row: `pin:${pin.path}`, path: pin.path })),
-    ...drives.map((place) => ({ row: `place:${place.path}`, path: place.path }))
+    ...drives.map((place) => ({ row: `place:${place.path}`, path: place.path })),
+    // The bin is a place too: marked while it is on screen (Recycle Bin, D19).
+    { row: BIN_ROW, path: BIN_PLACE }
   ]
   const marked = markedPlace(placeRows, directory, chosenPlace)
   // While a menu is open on ANOTHER row, the mark is DIMMED (owner, same
@@ -191,7 +200,8 @@ export function BrowsePlaces({
     // An empty section is not drawn at all (owner, 2026-10-06, of the empty
     // Pinned and its "Right-click a file or folder to pin it here." hint:
     // "hide this section when nothing's pinned"). Pinning is on the menus.
-    if (!list.length) return null
+    // ONE exception (Recycle Bin, D19): Quick access always holds the bin row.
+    if (!list.length && section !== 'Quick access') return null
     return (
       <section
         aria-label={section}
@@ -329,9 +339,58 @@ export function BrowsePlaces({
             </button>
           )
         })}
+        {section === 'Quick access' && binRow()}
       </section>
     )
   }
+  const binMenuAt = (x: number, y: number): void =>
+    setMenu({
+      pin: { path: BIN_PLACE, label: BIN_NAME, isFolder: true },
+      x,
+      y,
+      pinned: false,
+      row: BIN_ROW
+    })
+  /** THE RECYCLE BIN ROW (Recycle Bin feature, D19; owner, 2026-11-10: "add
+   *  recycle bin to the bottom of the explorer page"): the LAST row of Quick
+   *  access, the pins' own classes so the look, hover, mark and 225% metrics
+   *  are theirs. It is not a pin: not draggable, no `data-quick-access-path`
+   *  (pin reordering ignores it), no count and no full-or-empty icon, so no
+   *  bin is read until it is clicked. A drag over it bubbles to the section,
+   *  which refuses everything but a pin and drops that at the end. */
+  const binRow = (): JSX.Element => (
+    <button
+      key={BIN_ROW}
+      className="browse-place quick-access-pin"
+      data-bin-place=""
+      data-menu={menu?.row === BIN_ROW ? '' : undefined}
+      draggable={false}
+      {...markOf(BIN_ROW)}
+      onClick={() => {
+        choose(BIN_ROW, BIN_PLACE)
+        onNavigate(BIN_PLACE)
+      }}
+      onAuxClick={(event) => {
+        // Middle click opens a tab, as on the other places.
+        if (event.button === 1) onOpenNewTab?.(BIN_PLACE, true)
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        binMenuAt(event.clientX, event.clientY)
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+        event.preventDefault()
+        const box = event.currentTarget.getBoundingClientRect()
+        binMenuAt(box.left + 20, box.bottom)
+      }}
+      title={BIN_NAME}
+    >
+      <PlaceIcon name="bin" />
+      <span>{BIN_NAME}</span>
+    </button>
+  )
   const placeMenu = (place: BrowsePlace, x: number, y: number): void =>
     setMenu({
       pin: { path: place.path, label: place.label, isFolder: true },
@@ -400,7 +459,22 @@ export function BrowsePlaces({
           </section>
         )}
       </nav>
-      {menu && (
+      {menu && menu.row === BIN_ROW && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={binPlaceMenu({
+            onOpen: () => {
+              choose(BIN_ROW, BIN_PLACE)
+              onNavigate(BIN_PLACE)
+            },
+            onOpenNewTab: onOpenNewTab ? () => onOpenNewTab(BIN_PLACE, true) : undefined,
+            onEmpty: onEmptyBin
+          })}
+        />
+      )}
+      {menu && menu.row !== BIN_ROW && (
         <ContextMenu
           x={menu.x}
           y={menu.y}

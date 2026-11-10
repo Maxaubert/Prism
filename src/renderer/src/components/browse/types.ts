@@ -151,6 +151,9 @@ export interface FolderBrowserProps {
   /** Alt+Enter (#330): Prism's own Properties, as the menu's. A drive from
    *  the places panel brings its usage, shown instead of a walk of the disk. */
   onProperties?: (entry: BrowseEntry, drive?: BrowseDriveUsage) => void
+  /** Empty Recycle Bin from the sidebar row's menu (Recycle Bin, D19); the
+   *  row is disabled while this is absent. */
+  onEmptyBin?: () => void
   /** Ctrl+Shift+C (#330): these full paths as text, one per line. */
   onCopyPathText?: (paths: string[]) => void
   /** A drop (#70): `keys` are the Ctrl and Shift held at the drop, read by

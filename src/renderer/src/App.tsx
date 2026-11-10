@@ -48,7 +48,8 @@ import { ContextMenu } from './components/ContextMenu'
 import { explorerRowMenu } from './menus/explorerRow'
 import { titleBarMoreMenu } from './menus/moreMenu'
 import { useFolderBrowsing } from './hooks/useFolderBrowsing'
-import { browseParent, newBrowse } from './lib/browse'
+import { browseParent, navigateBrowseState, newBrowse } from './lib/browse'
+import { isBinPlace } from '@shared/binPlace'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
 import { ExplorerResize } from './components/browse/ExplorerResize'
@@ -517,6 +518,24 @@ export default function App(): JSX.Element {
         setTabState((s) => ({ ...s, activeId: hit.id }))
         return
       }
+    }
+    if (isBinPlace(path)) {
+      // THE RECYCLE BIN IN A NEW TAB (Recycle Bin, D6): the tab is rooted at
+      // Home, as a new tab is, with the bin as its first place in the history
+      // (Back leads to Home). The bin is no folder to root a tab in.
+      void (async () => {
+        const home = (await window.prism.browseLocations()).find((p) => p.name === 'Home')?.path
+        if (!home) return
+        const id = nextTabId()
+        const directory = await window.prism.browseDirectory(id, home)
+        if (!directory) return
+        visitedDirectories.remember(directory)
+        const browse = navigateBrowseState(newBrowse(home), path)
+        setTabState((s) =>
+          addExplorerTab(s.tabs, { root: home, files: directory.listing.files, index: -1, browse }, id)
+        )
+      })()
+      return
     }
     void (async () => {
       // Places know their kind even before their directory has a desktop grant.

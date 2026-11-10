@@ -11074,7 +11074,9 @@ async function sidebarPlacesScenario(fixtures) {
 
     // 2. QUICK ACCESS: the Known Folders, each with its own glyph, Home by
     // the user's own folder name.
+    // The Recycle Bin row ends Quick access (stage 3, binRow); it is no Known Folder.
     const quick = await section('Quick access')
+    quick.rows = quick.rows.filter((r) => r.icon !== 'bin')
     const known = ['home', 'desktop', 'downloads', 'documents', 'pictures', 'music', 'videos']
     ok(
       quick.rows.length >= 5 && quick.rows.every((r) => known.includes(r.known) && r.icon === r.known),
@@ -11169,7 +11171,7 @@ async function sidebarPlacesScenario(fixtures) {
     // A pin moves by dragging only (owner, 2026-10-31: "remove the move up
     // down. rely on just dragging instead"): no place menu has Move rows.
     const pinnedOrder = async () => (await section('Pinned')).rows.map((r) => r.path.split('\\').pop())
-    const quickOrder = async () => (await section('Quick access')).rows.map((r) => r.known)
+    const quickOrder = async () => (await section('Quick access')).rows.filter((r) => r.icon !== 'bin').map((r) => r.known)
     for (const opener of [pinRow('Pinned', 'pintoo'), places.locator('section[aria-label="Quick access"] .quick-access-pin').first()]) {
       await opener.click({ button: 'right' })
       ok(await until(async () => (await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).count()) === 1, 3000), 'a pin opens its menu')
@@ -27580,7 +27582,9 @@ function fakeBin(base, drives = ['C', 'D']) {
  * those items (their ORIGINAL names), the address bar shows one crumb named
  * Recycle Bin, Up is off, Back returns to the folder and Forward to the bin,
  * the tab is titled Recycle Bin, and a restart brings the bin tab back.
- * (The sidebar row is stage 3, the columns stage 4.)
+ * Part 2 (stage 3): the sidebar row, last in Quick access, measured against
+ * the pins, its mark, its menu, a new tab, a refused drop and a screenshot.
+ * (The columns are stage 4.)
  */
 async function binRowScenario(fixtures) {
   console.log('recycle bin: the place, its crumb, history, the tab title and a restart')
@@ -27643,6 +27647,122 @@ async function binRowScenario(fixtures) {
       await until(async () => !(await names(win)).includes('new.png'), 2500, 100),
       'and when it leaves the bin it leaves the list'
     )
+    // PART 2, THE SIDEBAR ROW (stage 3, D19): the LAST row of Quick access.
+    const quick = '.folder-browser .browse-places section[aria-label="Quick access"]'
+    const binRow = win.locator(`${quick} [data-bin-place]`)
+    const rowFacts = () =>
+      win.evaluate((q) => {
+        const rows = [...document.querySelectorAll(`${q} > button`)]
+        const box = (el) => {
+          const r = el.getBoundingClientRect()
+          const cs = getComputedStyle(el)
+          const icon = el.querySelector('svg')?.getBoundingClientRect()
+          const text = el.querySelector('span')?.getBoundingClientRect()
+          return {
+            h: r.height,
+            w: r.width,
+            iconX: (icon?.left ?? 0) - r.left,
+            iconW: icon?.width ?? 0,
+            textX: (text?.left ?? 0) - r.left,
+            font: cs.fontSize,
+            pad: cs.paddingLeft + '/' + cs.paddingTop,
+            cls: el.className
+          }
+        }
+        const last = rows.at(-1)
+        const videos = rows.find((r) => r.getAttribute('data-known') === 'videos')
+        const pin = videos ?? rows.at(-2)
+        return {
+          count: rows.length,
+          lastIsBin: last?.hasAttribute('data-bin-place') ?? false,
+          binCount: document.querySelectorAll('[data-bin-place]').length,
+          beforeBin: rows.at(-2)?.getAttribute('data-known') ?? rows.at(-2)?.textContent ?? null,
+          hasVideos: !!videos,
+          videosIsBefore: !!videos && rows.at(-2) === videos,
+          bin: last ? box(last) : null,
+          pin: pin ? box(pin) : null,
+          draggable: last?.getAttribute('draggable') ?? null,
+          pinPath: last?.hasAttribute('data-quick-access-path') ?? false,
+          title: last?.getAttribute('title') ?? null,
+          icon: last?.querySelector('svg')?.getAttribute('data-place-icon') ?? null,
+          scale: window.devicePixelRatio
+        }
+      }, quick)
+    const facts = await rowFacts()
+    ok(facts.lastIsBin && facts.binCount === 1, `the Recycle Bin row is the last row of Quick access (${facts.count} rows, bin count ${facts.binCount})`)
+    ok(!facts.hasVideos || facts.videosIsBefore, `and it comes right after Videos (${facts.beforeBin} before it)`)
+    ok(facts.icon === 'bin' && facts.title === 'Recycle Bin', `with the trash glyph and the tooltip (${facts.icon}, ${facts.title})`)
+    ok(facts.draggable === 'false' && !facts.pinPath, `it is not a pin: not draggable, no pin path (${facts.draggable}, ${facts.pinPath})`)
+    const same = (a, b) => Math.abs(a - b) < 0.5
+    ok(facts.bin.cls === 'browse-place quick-access-pin', `same classes as the pins (${facts.bin.cls})`)
+    ok(
+      same(facts.bin.h, facts.pin.h) && same(facts.bin.w, facts.pin.w) && same(facts.bin.iconX, facts.pin.iconX) && same(facts.bin.iconW, facts.pin.iconW) && same(facts.bin.textX, facts.pin.textX) && facts.bin.font === facts.pin.font && facts.bin.pad === facts.pin.pad,
+      `measured at ${facts.scale}x it has the pins' height, width, icon and text positions, font and padding (bin ${JSON.stringify(facts.bin)} pin ${JSON.stringify(facts.pin)})`
+    )
+    // THE MARK: the bin is on screen, so its row alone is marked.
+    const marked = () => win.evaluate(() => [...document.querySelectorAll('.folder-browser .browse-places [aria-current="location"]')].map((e) => e.getAttribute('data-bin-place') !== null ? 'bin' : e.getAttribute('title')))
+    ok(JSON.stringify(await marked()) === '["bin"]', `with the bin on screen the bin row alone is marked (${JSON.stringify(await marked())})`)
+    // CLICKING a place leaves the bin; clicking the row comes back and marks it.
+    await win.locator(`${quick} [data-known="home"]`).click()
+    ok(await until(async () => (await shownDir(win)) !== BIN, 8000, 50), 'clicking Home leaves the bin')
+    ok(JSON.stringify(await marked()) !== '["bin"]', `and the bin row is no longer marked (${JSON.stringify(await marked())})`)
+    await binRow.click()
+    ok(await until(async () => (await shownDir(win)) === BIN, 8000, 50), 'a click on the row opens the bin')
+    ok(JSON.stringify(await marked()) === '["bin"]', 'and marks the row')
+    ok(
+      await until(async () => JSON.stringify(await names(win)) === JSON.stringify(want), 8000, 100),
+      'with its items listed'
+    )
+    // THE MENU: Open, Open in new tab, Empty Recycle Bin, and no pin rows.
+    await binRow.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    const menu = await win.evaluate(() => [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((e) => e.textContent.trim()))
+    ok(JSON.stringify(menu) === JSON.stringify(['Open', 'Open in new tab', 'Empty Recycle Bin']), `the row's menu is Open, Open in new tab, Empty Recycle Bin (${JSON.stringify(menu)})`)
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await win.locator('[role="menu"]').count()) === 0, 3000, 50), 'Escape closes the menu')
+    // OPEN IN NEW TAB: a second tab, in the bin, with Back leading to Home.
+    const tabsBefore = await win.locator('[role="tablist"] [role="tab"]').count()
+    await binRow.click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Open in new tab', exact: true }).click()
+    ok(await until(async () => (await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBefore + 1, 8000, 100), 'Open in new tab adds a tab')
+    ok(await until(async () => (await shownDir(win)) === BIN, 8000, 100), `the new tab shows the bin (${await shownDir(win)})`)
+    ok(
+      await until(async () => JSON.stringify(await names(win)) === JSON.stringify(want), 8000, 100),
+      'with its items listed'
+    )
+    ok(await win.locator('button[aria-label="Back"]').isEnabled(), 'and Back is on: the bin is its second place, Home its first')
+    await win.locator('[role="tablist"] [data-tab-role]').last().locator('[data-tab-close]').click()
+    ok(await until(async () => (await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBefore, 5000, 100), 'the extra tab closes again')
+    // A DROP ON THE ROW is refused: no copy, no move, no effect.
+    // Closing the new tab leaves the file's tab active; back to the Explorer tab.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+
+    await binRow.waitFor({ timeout: 8000 })
+    const dropFacts = await win.evaluate((q) => {
+      const row = document.querySelector(`${q} [data-bin-place]`)
+      const dt = new DataTransfer()
+      dt.setData('text/plain', 'C:\\x\\y.txt')
+      dt.effectAllowed = 'all'
+      // What the row says the drop would do, caught as it is set (as dragCopy does).
+      let seen = null
+      Object.defineProperty(dt, 'dropEffect', { configurable: true, get: () => seen ?? 'none', set: (v) => { seen = v } })
+      const opts = { bubbles: true, cancelable: true, dataTransfer: dt }
+      row.dispatchEvent(new DragEvent('dragenter', opts))
+      const over = new DragEvent('dragover', opts)
+      row.dispatchEvent(over)
+      const effect = seen
+      const drop = new DragEvent('drop', opts)
+      row.dispatchEvent(drop)
+      return { effect, marked: row.hasAttribute('data-drop-before'), dialogs: document.querySelectorAll('[role="dialog"]').length }
+    }, quick)
+    ok(dropFacts.effect === 'none', `dragging files over the row is told no, explicitly (${dropFacts.effect})`)
+    await sleep(300)
+    ok(dropFacts.dialogs === 0 && (await win.locator('[role="dialog"]').count()) === 0, 'and dropping asks nothing and does nothing')
+    ok(
+      JSON.stringify(await names(win)) === JSON.stringify(want),
+      'the bin still lists exactly its items after the drop'
+    )
+    await win.screenshot({ path: join(SHOTS, 'bin-row.png') })
     // The strip is saved on a 400 ms debounce.
     await sleep(900)
   } finally {
