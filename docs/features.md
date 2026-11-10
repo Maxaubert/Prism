@@ -2171,7 +2171,9 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   for reduced motion; whole, never cropped; a format that can be clear sits on `.p-checker` once in;
   a film wears a play glyph once its frame shows; "no picture" is the icon with no mark). A small SVG
   (2 MB at most) is drawn by the page from the file; every other row, and a folder, keeps its icon
-  centred in a slot of the SAME width so the names line up. Only a plain folder listing gets pictures:
+  centred in a slot of the SAME width so the names line up. A folder's icon is the step's icon size,
+  as a file's is (owner, 2026-11-10: "folder icons dont really scale properly"; it stayed 14px), held
+  by `zoomList`. Only a plain folder listing gets pictures:
   a search, an Everything window and an archive's members keep icons, and a file still landing from a
   paste asks for nothing. `lib/useThumbs.ts` is the page's half: the mounted rows (nearest the middle
   first) go to `thumbs:want` only after 120 ms with no change in what is mounted, so a fast scroll

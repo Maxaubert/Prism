@@ -11528,6 +11528,22 @@ async function zoomListScenario(fixtures) {
     ok((await dpr()) === dpr0, `Chromium's own page zoom never fired (${dpr0} -> ${await dpr()})`)
     await wheel(100, 5)
     ok((await rowH()) === 76 && (await stored()) === '4', `five notches back down is step 4 again (${await stored()})`)
+    // A folder's icon grows with the step as a file's does (owner, 2026-11-10:
+    // "folder icons dont really scale properly"; the folder stayed 16px).
+    const iconWidths = () =>
+      win.evaluate(() => {
+        const list = document.querySelector('[data-testid="browse-list"]')
+        list.scrollTop = 0
+        const w = (sel) => list.querySelector(`${sel} .browse-name svg`)?.getBoundingClientRect().width ?? 0
+        return { folder: w('.browse-row[data-browse-path$="sub"]'), file: w('.browse-row[data-browse-path$=".txt"]') }
+      })
+    await sleep(300)
+    const at4 = await iconWidths()
+    ok(at4.file > 30 && Math.abs(at4.folder - at4.file) <= 1, `step 4: the folder's icon is as big as a file's (${JSON.stringify(at4)})`)
+    await wheel(100, 1)
+    const at3 = await iconWidths()
+    ok(at3.file > 20 && Math.abs(at3.folder - at3.file) <= 1, `step 3: the folder's icon is as big as a file's (${JSON.stringify(at3)})`)
+    await wheel(-100, 1)
     const high = await pressedInSettings()
     ok(high.lit.length === 0 && /Set by zooming/.test(high.sub), `at step 4 no Settings size is lit and the row says how (${JSON.stringify(high)})`)
     ok(await intoFolder(), 'back in the Explorer')
